@@ -1,0 +1,8 @@
+dist
+dist-ladle
+node_modules
+playwright-report
+test-results
+.ladle/build
+*.min.css
+*.min.js

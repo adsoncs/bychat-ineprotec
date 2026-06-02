@@ -1,0 +1,4152 @@
+// prisma/schema.prisma
+// Respeita todas as constraints MySQL 8 + Prisma documentadas no histórico BeyondHub:
+// - @db.VarChar(191) em campos indexados
+// - @db.Json em campos Json
+// - Sem createMany com skipDuplicates
+// - Sem arrays — campos Json para coleções
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique @db.VarChar(191)
+  name          String    @db.VarChar(191)
+  passwordHash  String    @db.VarChar(255)
+  role          UserRole  @default(VIEWER)
+  active        Boolean   @default(true)
+  lockedAt      DateTime?
+  lockReason    String?   @db.VarChar(255)
+  loginAttempts Int       @default(0)
+  lastLoginAt   DateTime?
+  lastSeenAt    DateTime?
+  // Status de trabalho do operador. Usado pelo round-robin (exclui não-disponíveis)
+  // e pela presença em listagens. Valores: available | away | busy | offline.
+  workStatus           String    @default("offline") @db.VarChar(20)
+  workStatusUpdatedAt  DateTime?
+  // Capacidade máxima de leads ativos simultâneos (para roteamento least_loaded)
+  capacity             Int       @default(5)
+  // DEPRECATED (2026-05-21): Substituído por UserRole.AGENT na reforma de roles.
+  // Coluna mantida temporariamente até F1.4 refatorar todos os usos no código.
+  // Próxima migration vai dropar.
+  isAgent              Boolean   @default(false)
+  // Reforma F1.6: assinatura personalizada anexada ao fim das mensagens
+  // outbound do operador. Markdown simples (negrito/itálico).
+  signature            String?   @db.VarChar(255)
+  // Módulo VoIP: ramal (extension) do operador no PABX FaleMaisVoip. Usado pelo
+  // click-to-call (v1/dial) — a chamada toca neste ramal e depois disca o destino.
+  voipExtension        String?   @db.VarChar(20)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  audits        UserAudit[]    @relation("AuditTarget")
+  auditActions  UserAudit[]    @relation("AuditActor")
+  teams         TeamMember[]
+  assignedLeads Lead[]         @relation("LeadAssignee")
+  refreshTokens RefreshToken[]
+  ownedCadences SalesCadence[] @relation("CadenceOwner")
+  cadenceStepExecutions CadenceStepExecution[] @relation("CadenceStepExecutionOperator")
+  movedLeadStages LeadStageMovement[] @relation("LeadStageMovementBy")
+  agentProfile  AgentProfile?
+  workingHours  AgentWorkingHour[]
+  ownedInstances WhatsAppInstance[] @relation("WhatsAppInstanceOwner")
+  ownedCloudApiConnections CloudApiConnection[] @relation("CloudApiConnectionOwner")
+  skills        AgentSkill[]
+  transferRequestsSent     LeadTransferRequest[] @relation("TransferFromUser")
+  transferRequestsReceived LeadTransferRequest[] @relation("TransferToUser")
+  leadImports              LeadImport[]
+  savedFilters             SavedFilter[]
+  appliedFilters           UserAppliedFilter[]
+
+  @@index([email])
+  @@index([role])
+  @@index([isAgent])
+  @@map("bychat_users")
+}
+
+// Filtros nomeados que o usuário salva e pode reaplicar depois (públicos
+// para todo o tenant ou privados só pra ele). `scope` permite reutilizar o
+// modelo em outras telas no futuro (atualmente 'leads' cobre Leads+Kanban).
+model SavedFilter {
+  id          Int      @id @default(autoincrement())
+  scope       String   @db.VarChar(30)   // 'leads' (compartilhado entre /app/leads e /app/kanban)
+  name        String   @db.VarChar(120)
+  filters     Json     @db.Json
+  visibility  String   @default("private") @db.VarChar(10) // 'public' | 'private'
+  createdById Int
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scope, visibility])
+  @@index([createdById, scope])
+  @@map("bychat_saved_filters")
+}
+
+// Filtro CORRENTE que cada operador deixou aplicado num scope. Persiste
+// entre logins — a tela só limpa quando o operador clica em "Resetar" ou
+// muda explicitamente. Ao trocar filtros, o front faz upsert nesta tabela.
+model UserAppliedFilter {
+  userId    Int
+  scope     String   @db.VarChar(30)
+  filters   Json     @db.Json
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, scope])
+  @@map("bychat_user_applied_filters")
+}
+
+// Reforma F3 (2026-05-21): pedido de transferência consensual de lead entre agentes.
+// No modelo agente-isolado, não-admin não pode roubar lead via /claim?force=1.
+// Em vez disso, A pede pra B aceitar a transferência. ADMIN/SUPERADMIN continuam
+// usando /assign direto.
+//
+// Status: pending → (accepted | rejected | cancelled | expired)
+// Lead.assignedUserId só muda quando status=accepted.
+model LeadTransferRequest {
+  id                Int       @id @default(autoincrement())
+  leadId            Int
+  lead              Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromUserId        Int
+  fromUser          User      @relation("TransferFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId          Int
+  toUser            User      @relation("TransferToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+  status            String    @default("pending") @db.VarChar(15)
+  reason            String?   @db.VarChar(255)
+  response          String?   @db.VarChar(255)
+  requestedAt       DateTime  @default(now())
+  respondedAt       DateTime?
+  respondedByUserId Int?
+  expiresAt         DateTime
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+  @@index([status, expiresAt])
+  @@map("bychat_lead_transfer_requests")
+}
+
+// Habilidades do agente — usadas pelo skill-based matching (F5).
+// skill é VARCHAR(64) livre. level 1-5 é informacional na F5; F8+ pode usar para scoring.
+model AgentSkill {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill     String   @db.VarChar(64)
+  level     Int      @default(1) @db.TinyInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, skill])
+  @@index([skill])
+  @@map("bychat_agent_skills")
+}
+
+// Horário de trabalho do agente. 0=domingo .. 6=sábado. Sem linha em um dia
+// significa que o agente NÃO está disponível naquele dia (ex: folga).
+// startTime/endTime em formato "HH:MM" 24h. timezone IANA (default São Paulo).
+model AgentWorkingHour {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekday   Int      @db.TinyInt
+  startTime String   @db.VarChar(5)
+  endTime   String   @db.VarChar(5)
+  timezone  String   @default("America/Sao_Paulo") @db.VarChar(64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, weekday])
+  @@index([userId])
+  @@map("bychat_agent_working_hours")
+}
+
+// Perfil estendido do agente. Campos populados em fases posteriores
+// (skills, workingHours em F2/F5). Aqui ficam apenas atributos base do
+// roteamento: peso, teto diário, ausência temporária.
+model AgentProfile {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  active        Boolean   @default(true)
+  // Peso para round-robin ponderado (1 = padrão). Quanto maior, mais leads recebe.
+  weight        Int       @default(1)
+  // Limite diário opcional de leads recebidos por roteamento automático.
+  maxDailyLeads Int?
+  // Quando preenchido e no futuro, agente é pulado pelo picker.
+  vacationUntil DateTime?
+  notes         String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("bychat_agent_profiles")
+}
+
+model RefreshToken {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique @db.VarChar(64)
+  family       String    @db.VarChar(36)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById Int?
+  userAgent    String?   @db.VarChar(255)
+  ip           String?   @db.VarChar(45)
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("bychat_refresh_tokens")
+}
+
+model UserAudit {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation("AuditTarget", fields: [userId], references: [id], onDelete: Cascade)
+  action    String   @db.VarChar(30)
+  actorId   Int?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorName String?  @db.VarChar(191)
+  changes   Json?    @db.Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("bychat_user_audits")
+}
+
+model PasswordReset {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  token     String   @unique @db.VarChar(191)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@map("bychat_password_resets")
+}
+
+model Funnel {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(191)
+  description String?  @db.Text
+  isDefault   Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Jornada Automática por IA (Fase 9). Quando ativa, a IA analisa o lead
+  // periodicamente e sugere/move pra próxima etapa. `aiStageThreshold` 0-100:
+  // confidence mínima da IA para aplicar move automaticamente (abaixo vira sugestão).
+  // `aiStagePrompt` é o prompt customizado por funil — explica os critérios
+  // de cada etapa em linguagem natural. Quando vazio, usa prompt default
+  // derivado dos `Stage.name`.
+  aiStageEnabled     Boolean @default(false)
+  aiStageAutoApply   Boolean @default(false)
+  aiStageThreshold   Int     @default(80) @db.SmallInt
+  aiStagePrompt      String? @db.Text
+
+  stages            Stage[]
+  chatbots          Chatbot[]
+  leads             Lead[]
+  enrollmentPortals EnrollmentPortal[]
+  stageSuggestions  LeadStageSuggestion[]
+  dbConnectors      DbConnector[]
+
+  @@map("bychat_funnels")
+}
+
+model Stage {
+  id           Int      @id @default(autoincrement())
+  funnelId     Int
+  funnel       Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  key          String   @db.VarChar(50)
+  name         String   @db.VarChar(100)
+  color        String   @db.VarChar(20)
+  position     Int      @default(0)
+  active       Boolean  @default(true)
+  // Quando true, leads nesta etapa ocupam uma vaga da CourseOffering (módulo
+  // Educacional). Inscrição em si NÃO consome — só o avanço para etapas como
+  // Pagou Taxa, Classificado, Convocado, Matriculado.
+  consumesSlot Boolean  @default(false)
+  // Fase 23: marca etapa como terminal de outcome. Quando admin classifica
+  // lead como Ganho/Perdido, se houver Stage com terminalKind correspondente
+  // no funil do lead, move automaticamente para essa etapa.
+  // Valores: null | 'won' | 'lost'.
+  terminalKind String?  @db.VarChar(10)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([funnelId, key])
+  @@index([funnelId, position])
+  @@map("bychat_stages")
+}
+
+model KanbanPermission {
+  id         Int      @id @default(autoincrement())
+  role       UserRole @unique
+  canAdvance Boolean  @default(true)
+  canRetreat Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("bychat_kanban_permissions")
+}
+
+model ModulePermission {
+  id        Int      @id @default(autoincrement())
+  moduleId  String   @db.VarChar(50)
+  role      UserRole
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canEdit   Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  // Reforma de roles (2026-05-21): scope define a granularidade do "ver/editar".
+  //   'own'  → só recursos cujo dono é o próprio user (lead.assignedUserId)
+  //   'team' → recursos do(s) setor(es) do user (lead.teamId)
+  //   'all'  → tudo (qualquer recurso do tenant)
+  // Default 'team' (segurança razoável quando admin não configurou).
+  scope     String   @default("team") @db.VarChar(10)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([moduleId, role])
+  @@index([role])
+  @@index([moduleId])
+  @@map("bychat_module_permissions")
+}
+
+// Reforma de permissões (2026-05-21): catálogo de módulos no DB.
+// Antes: lista vivia só em backend/src/lib/moduleRegistry.ts (TS-side).
+// Agora: linha em bychat_modules permite admin desabilitar globalmente
+// (active=false). Quando desativado, módulo some do retorno de /admin/my-permissions
+// para TODOS (inclusive SUPERADMIN — recupera via /admin/modules/list-all).
+// isCore=true protege contra desabilitação acidental (dashboard, settings, users, ...).
+model Module {
+  id              String    @id @db.VarChar(50)
+  name            String    @db.VarChar(100)
+  category        String    @db.VarChar(30)
+  active          Boolean   @default(true)
+  isCore          Boolean   @default(false)
+  disabledAt      DateTime?
+  disabledByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([active])
+  @@map("bychat_modules")
+}
+
+model UserModuleOverride {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  moduleId  String   @db.VarChar(50)
+  canView   Boolean?
+  canCreate Boolean?
+  canEdit   Boolean?
+  canDelete Boolean?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, moduleId])
+  @@index([userId])
+  @@map("bychat_user_module_overrides")
+}
+
+model Team {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  slug        String   @unique @db.VarChar(50)
+  description String?  @db.VarChar(255)
+  color       String   @default("#6B7280") @db.VarChar(20)
+  icon        String?  @db.VarChar(30)
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  // Modo de roteamento de leads recebidos por este setor.
+  // manual = só atribui setor, deixa pra fila (operador faz claim)
+  // round_robin = distribui em rodízio para o membro com lastAssignedAt mais antigo
+  // least_loaded = distribui para o membro com menor número de leads ativos
+  // random = sorteio entre membros disponíveis
+  routingMode String   @default("manual") @db.VarChar(20)
+  // Lead Routing F2: habilita filtro de horário do setor.
+  // Quando true, o setor só recebe leads dentro do horário configurado em TeamWorkingHour.
+  // Fora do horário, picker retorna null e caller pode redirecionar para Setting routing.out_of_hours_team_id.
+  workingHoursEnabled Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members            TeamMember[]
+  leads              Lead[]
+  chatbots           Chatbot[]
+  whatsappInstances  WhatsAppInstance[]
+  cloudApiConnections CloudApiConnection[] @relation("CloudApiDefaultTeam")
+  enrollmentPortals  EnrollmentPortal[]
+  salesCadences      SalesCadence[]
+  channelGovernances ChannelGovernance[]
+  forms              Form[]
+  metaForms          MetaForm[]
+  workingHours       TeamWorkingHour[]
+  dbConnectors       DbConnector[]
+
+  @@index([active, position])
+  @@map("bychat_teams")
+}
+
+// Regras condicionais de roteamento. Avaliadas em cascata por order ASC.
+// Primeira regra cujas conditions todas casam (AND) define o destino do lead.
+// Quando nenhuma casa OU motor V2 desativado, sistema usa cascata legada
+// (chatbot.defaultTeamId → instance.defaultTeamId → setting global).
+model RoutingRule {
+  id              Int       @id @default(autoincrement())
+  order           Int       @default(0)
+  name            String    @db.VarChar(120)
+  enabled         Boolean   @default(true)
+  // [{field, op, value}, ...]. Campos: source, utmSource, utmMedium, utmCampaign,
+  // utmContent, utmTerm, formId, chatbotId, instanceName, tag.
+  conditions      Json      @db.Json
+  // {type: 'team'|'user', teamId?: number, userId?: number}
+  action          Json      @db.Json
+  description     String?   @db.VarChar(255)
+  matchedCount    Int       @default(0)
+  lastMatchedAt   DateTime?
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([enabled, order])
+  @@map("bychat_routing_rules")
+}
+
+// Horário de funcionamento do setor (análogo a AgentWorkingHour). Só consultado
+// quando Team.workingHoursEnabled = true.
+model TeamWorkingHour {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  weekday   Int      @db.TinyInt
+  startTime String   @db.VarChar(5)
+  endTime   String   @db.VarChar(5)
+  timezone  String   @default("America/Sao_Paulo") @db.VarChar(64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId, weekday])
+  @@index([teamId])
+  @@map("bychat_team_working_hours")
+}
+
+model TeamMember {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  userId    Int
+  isLeader  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@index([teamId])
+  @@map("bychat_team_members")
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique @db.VarChar(191)
+  value     Json     @db.Json
+  label     String   @db.VarChar(191)
+  grp       String   @db.VarChar(50)
+  fieldType String   @default("text") @db.VarChar(30)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([grp])
+  @@map("bychat_settings")
+}
+
+// Templates de email do sistema — editáveis pelo painel
+// Configurações > Emails do Sistema (superadmin only).
+// Code referencia por `key`; se o template estiver disabled ou ausente,
+// usa fallback hardcoded em código.
+model SystemEmailTemplate {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(80)
+  name        String   @db.VarChar(150)
+  description String?  @db.Text
+  subject     String   @db.VarChar(255)
+  htmlBody    String   @db.MediumText
+  enabled     Boolean  @default(true)
+  /// Lista informativa de variáveis disponíveis no template (não é validador, só doc):
+  /// `[{ "name": "lead.nome", "description": "Nome do lead" }, …]`
+  variables   Json?    @db.Json
+  category    String   @default("system") @db.VarChar(40)
+  updatedById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("bychat_system_email_templates")
+}
+
+model Chatbot {
+  id                Int      @id @default(autoincrement())
+  name              String   @db.VarChar(191)
+  channel           String   @db.VarChar(30)
+  funnelId          Int?
+  funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  systemPrompt      String   @db.LongText
+  extractionPrompt  String   @db.LongText
+  analysisPrompt    String   @db.LongText
+  greetingMessage   String   @db.Text
+  completionMessage String   @db.Text
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Configuração genérica de scoring e análise
+  scoringConfig   Json?   @db.Json // { pillars: [{key, name, weight, rules: [{field, value, points}]}], thresholds: [{max, label, color}], solutions: [...] }
+  sentimentPrompt String? @db.LongText // Prompt customizado para análise de sentimento (usa template padrão se vazio)
+  autoAnalysis    Boolean @default(true) // Gerar análise de sentimento/probabilidade automaticamente ao completar
+
+  // Configurações de inatividade por chatbot
+  inactivityEnabled          Boolean @default(false)
+  inactivityAction           String  @default("notify") @db.VarChar(30) // notify | close | notify_then_close
+  inactivityTimeoutMin       Int     @default(60)
+  inactivityMessage          String? @db.Text
+  inactivityCheckIntervalMin Int     @default(5)
+  inactivityMaxRetries       Int     @default(2)
+  inactivityCloseAfterMin    Int     @default(1440)
+
+  // Roteamento padrão para setor (atendimento humano)
+  defaultTeamId Int?
+  defaultTeam   Team? @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
+
+  // Portal de matrícula vinculado — ao completar conversa, envia link pré-preenchido.
+  enrollmentPortalId Int?
+
+  questions ChatQuestion[]
+
+  @@index([channel])
+  @@index([active])
+  @@index([funnelId])
+  @@index([defaultTeamId])
+  @@index([enrollmentPortalId])
+  @@map("bychat_chatbots")
+}
+
+model ChatQuestion {
+  id        Int      @id @default(autoincrement())
+  chatbotId Int
+  chatbot   Chatbot  @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  stage     Int      @default(0)
+  position  Int      @default(0)
+  fieldKey  String   @db.VarChar(100)
+  text      String   @db.Text
+  type      String   @default("text") @db.VarChar(30)
+  options   Json?    @db.Json
+  required  Boolean  @default(true)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([chatbotId])
+  @@index([stage, position])
+  @@map("bychat_chat_questions")
+}
+
+model WhatsAppInstance {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(191)
+  instanceName  String   @unique @db.VarChar(100)
+  phone         String?  @db.VarChar(30)
+  chatbotId     Int?
+  defaultTeamId Int?
+  defaultTeam   Team?    @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
+  // Reforma F2 (2026-05-21): instância dedicada a um agente.
+  // Quando preenchido, lead que chega por esta instância é atribuído direto
+  // ao agente (bypass da cascata via setor). Coexiste com defaultTeamId;
+  // convenção: ownerUserId ganha prioridade no roteamento.
+  ownerUserId   Int?
+  owner         User?    @relation("WhatsAppInstanceOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([instanceName])
+  @@index([active])
+  @@index([defaultTeamId])
+  @@index([ownerUserId])
+  @@map("bychat_whatsapp_instances")
+}
+
+model Lead {
+  id  Int     @id @default(autoincrement())
+  uid String? @unique @db.VarChar(20) // Código único público (ex: LD-A3X9K2)
+
+  empresa      String  @db.VarChar(191)
+  nome         String  @db.VarChar(191)
+  whatsapp     String  @db.VarChar(30)
+  email        String  @db.VarChar(191)
+  segmento     String? @db.VarChar(100)
+  cidade       String? @db.VarChar(100)
+  customFields Json?   @db.Json // {fieldKey: value, ...}
+
+  formData    Json  @db.Json
+  scores      Json  @db.Json
+  analysis    Json? @db.Json
+  aiSentiment Json? @db.Json
+
+  solucaoNome String? @db.VarChar(100)
+  maturidade  String? @db.VarChar(50)
+
+  lastStep  Int     @default(0)
+  completed Boolean @default(false)
+
+  status    String  @default("NOVO") @db.VarChar(50)
+  funnelId  Int?
+  funnel    Funnel? @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  chatbotId Int?
+
+  // Atendimento humano: atribuição a operador e setor
+  assignedUserId Int?
+  assignedUser   User?     @relation("LeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  teamId         Int?
+  team           Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  assignedAt     DateTime?
+  // Lead Routing F10: marca a primeira ação efetiva do assignedUser após assignedAt
+  // (hoje: Activity completed). Usado para calcular SLA de primeira resposta.
+  firstResponseAt DateTime?
+
+  unreadMessages Int       @default(0)
+  lastMessageAt  DateTime?
+
+  lastActivityAt     DateTime?
+  inactiveNotifiedAt DateTime?
+
+  // Tracking de origem / campanha
+  source            String? @db.VarChar(50) // meta_lead_ads, whatsapp, web_form, web_chat, api, manual
+  sourceId          String? @db.VarChar(191) // ID externo (meta lead id, etc)
+  campaignId        String? @db.VarChar(191) // Meta campaign_id
+  campaignName      String? @db.VarChar(191) // Nome da campanha
+  adsetId           String? @db.VarChar(191) // Meta adset_id
+  adsetName         String? @db.VarChar(191)
+  adId              String? @db.VarChar(191) // Meta ad_id
+  adName            String? @db.VarChar(191)
+  metaFormId        String? @db.VarChar(191) // Meta form_id
+  metaPageId        String? @db.VarChar(191) // Meta page_id
+  utmSource         String? @db.VarChar(100)
+  utmMedium         String? @db.VarChar(100)
+  utmCampaign       String? @db.VarChar(191)
+  utmContent        String? @db.VarChar(191)
+  utmTerm           String? @db.VarChar(191)
+  trackingVisitorId String? @db.VarChar(64) // Vincula com visitor de tracking
+
+  // Rastreamento inteligente (Fase 7)
+  originType       String?   @db.VarChar(50) // trackable_link, meta_ctwa, google_ads, meta_lead_ads, organic, web_form, manual
+  gclid            String?   @db.VarChar(191) // Google Click ID
+  ctwaClid         String?   @db.VarChar(191) // Meta Click-to-WhatsApp Click ID
+  trackableLinkId  Int? // Link rastreável de origem
+  saleDetected     Boolean   @default(false) // Flag de venda detectada
+  saleValue        Decimal?  @db.Decimal(12, 2) // Valor da última venda detectada
+  saleDetectedAt   DateTime? // Quando a venda foi detectada
+  lastSaleAnalysis DateTime? // Última análise de venda por IA
+
+  profilePicUrl String? @db.Text // URL da foto de perfil do WhatsApp
+  annotation    String? @db.Text // Anotação interna dos operadores (visível a todos)
+
+  // JID @lid observado quando WhatsApp entrega LID (Linked ID) em vez do número real.
+  // Permite associar mensagens recebidas ao lead certo mesmo sem conseguir resolver pro phone.
+  waLid String? @db.VarChar(100)
+
+  // Enriquecimento / LGPD
+  lgpdConsent       Boolean   @default(false) // autoriza enriquecimento de dados públicos
+  lgpdConsentAt     DateTime? // quando o consentimento foi registrado
+  lgpdConsentSource String?   @db.VarChar(30) // titular | operator_override | legacy (null = desconhecido)
+  lgpdConsentBy     Int? // userId do operador, quando origem foi operator_override
+  enrichmentStatus  String?   @db.VarChar(20) // pending, running, partial, done, failed
+  enrichmentScore   Int? // 0-100, confiança do dossiê consolidado
+  enrichedAt        DateTime? // última execução do enriquecimento
+
+  // Qualificação: separa "lead real" (contato com intenção comercial — form, portal,
+  // ads, manual, fim de chatbot/diagnóstico) de "apenas conversa" (mensagem WhatsApp
+  // ad-hoc sem origem qualificada). null = só conversa; preenchido = lead pra valer.
+  // Conversas mostram tudo; relatórios/funil/kanban filtram por qualifiedAt != null.
+  qualifiedAt         DateTime? // quando virou lead qualificado
+  qualificationSource String?   @db.VarChar(40) // form, enrollment_portal, meta_lead_ads, make, api, manual, chatbot_completed, web_chat_completed
+
+  // Conversation = atendimento ativo no módulo Conversas. Ticket só existe quando
+  // operador (ou regra) abre conscientemente. Mensagens recebidas SEM conversa
+  // aberta ficam na "Caixa de entrada bruta" do módulo Conversas, sem virar ticket
+  // (evita banco/amigo/spam virarem atendimento). Receber mensagem em conversa
+  // fechada (closedAt > openedAt) reabre o ticket.
+  conversationOpenedAt DateTime?
+  conversationClosedAt DateTime?
+
+  // Snooze (adiar atendimento). NULL = ativo; data futura = oculto da inbox/raw
+  // até passar a hora. Aparece na bucket "Aguardando" e mostra banner no chat.
+  snoozedUntil DateTime?
+
+  // Opt-out / Central de Preferências (Sales Engagement A2).
+  // optOutChannels: lista de canais bloqueados, ex: ["email","sms"]. NULL = nada bloqueado.
+  // optOutToken: token único do lead pra acessar /preferencias/:token (público sem auth).
+  optOutChannels Json?   @db.Json
+  optOutToken    String? @unique @db.VarChar(64)
+
+  // Priority score (Sales Engagement C1) — 0-100. Composto: fit + intent + urgency.
+  // Recalculado por cron 5min (C2) ou on-event. Operador vê fila ranqueada por este campo.
+  priorityScore   Float?
+  priorityScoreAt DateTime?
+
+  // Lead Score preditivo por IA (0-100): probabilidade de fechar negócio.
+  // Calculado na entrada (provisório, evento lead.created) e refinado quando
+  // o enriquecimento termina (definitivo, evento enrichment.completed),
+  // usando canal de origem + dados + dossiê de enriquecimento + Contexto do
+  // Negócio (Setting grp 'business'). aiScoreReason guarda rationale/sinais.
+  aiScore       Int?
+  aiScoreLabel  String?  @db.VarChar(10)   // 'hot' | 'warm' | 'cold'
+  aiScoreReason Json?
+  aiScoredAt    DateTime?
+
+  // Outcome (Fase 23): classificação manual do lead pelo operador.
+  // null = em andamento; 'won' = convertido (Ganho); 'lost' = sem fit / disse não (Perdido).
+  // Marca explicita pra parar cadências/activities e fechar o ciclo de vida comercial.
+  outcome       String?  @db.VarChar(10)
+  outcomeAt     DateTime?
+  outcomeBy     Int?     // userId que classificou
+  outcomeNote   String?  @db.Text
+  lostReasonId  Int?
+  lostReason    LossReason? @relation(fields: [lostReasonId], references: [id], onDelete: SetNull)
+
+  // Dedup (Fase 24, Categoria A): cada submissão de Form/Meta/EnrollmentPortal/API/Make
+  // cria um Lead novo. Quando há match com lead existente (por whatsapp ou email),
+  // marca este lead como pending_review apontando pro candidato master. Decisão de
+  // mesclar (mergeLeads) ou manter separado é do operador na tela /app/leads/duplicates.
+  // Categoria B (WhatsApp/Telegram/Instagram) continua com upsert por identidade
+  // pra não quebrar inbox/conversação contínua.
+  possibleDuplicateOfId Int?
+  possibleDuplicateOf   Lead?   @relation("DuplicateOf", fields: [possibleDuplicateOfId], references: [id], onDelete: SetNull)
+  duplicatesOfThis      Lead[]  @relation("DuplicateOf")
+  // 'none' (default), 'pending_review', 'merged', 'kept_separate'
+  duplicateStatus       String  @default("none") @db.VarChar(20)
+  // 'whatsapp' | 'email' — qual chave casou com o master
+  duplicateMatchedBy    String? @db.VarChar(20)
+  duplicateFlaggedAt    DateTime?
+  duplicateResolvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages                 Message[]
+  events                   LeadEvent[]
+  activities               Activity[]
+  attachments              LeadAttachment[]
+  notes                    LeadNote[]
+  tags                     LeadTag[]
+  detectedSales            DetectedSale[]
+  enrichments              LeadEnrichment[]
+  educationalRegistrations ProcessRegistration[]
+  enrollmentRegistrations  EnrollmentRegistration[]
+  cadenceEnrollments       CadenceEnrollment[]
+  outboundSends            OutboundSend[]
+  stageMovements           LeadStageMovement[]
+  conversationAudits       ConversationAudit[]
+  stageSuggestions         LeadStageSuggestion[]
+  transferRequests         LeadTransferRequest[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([segmento])
+  @@index([email])
+  @@index([funnelId])
+  @@index([completed, lastActivityAt])
+  @@index([lastMessageAt])
+  @@index([snoozedUntil])
+  @@index([source])
+  @@index([sourceId])
+  @@index([metaFormId])
+  @@index([originType])
+  @@index([saleDetected])
+  @@index([trackableLinkId])
+  @@index([enrichmentStatus])
+  @@index([assignedUserId])
+  @@index([teamId])
+  @@index([waLid])
+  @@index([qualifiedAt])
+  @@index([firstResponseAt])
+  @@index([conversationOpenedAt, conversationClosedAt])
+  @@index([outcome])
+  @@index([outcome, outcomeAt])
+  @@index([outcome, lostReasonId, outcomeAt])
+  @@index([duplicateStatus])
+  @@index([possibleDuplicateOfId])
+  @@index([aiScore])
+  @@map("bychat_leads")
+}
+
+// Catálogo configurável de motivos de perda (Fase 23).
+model LossReason {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  color     String?  @db.VarChar(20)   // hex ou nome semântico
+  position  Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads Lead[]
+
+  @@index([active, position])
+  @@map("bychat_loss_reasons")
+}
+
+// Histórico de transições de stage/funil do lead.
+// Alimenta o Relatório de Funil (volume por etapa, taxa de conversão por
+// período, custo por etapa, drill-down). É append-only: cada chamada do
+// helper recordLeadStageMovement insere um registro novo.
+//
+// Idempotência: helper faz no-op quando from === to (mesmo funnelId+stageKey).
+// Movimento inicial (criação do lead já em uma stage) registra com
+// fromFunnelId=null, fromStageKey=null.
+model LeadStageMovement {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  fromFunnelId Int?
+  toFunnelId   Int?
+  fromStageKey String? @db.VarChar(50)
+  toStageKey   String? @db.VarChar(50)
+
+  movedAt       DateTime @default(now())
+  movedByUserId Int?
+  movedByUser   User?    @relation("LeadStageMovementBy", fields: [movedByUserId], references: [id], onDelete: SetNull)
+
+  // 'panel' | 'webhook' | 'workflow' | 'chatbot' | 'manual' | 'make' |
+  // 'evaluation' | 'doc_review' | 'outcome' | 'meta_lead_ads' | 'bulk' | 'api'
+  source   String? @db.VarChar(30)
+  reason   String? @db.VarChar(255)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, movedAt])
+  @@index([toStageKey, movedAt])
+  @@index([toFunnelId, movedAt])
+  @@index([movedAt])
+  @@map("bychat_lead_stage_movements")
+}
+
+model LeadEnrichment {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  source     String @db.VarChar(50) // gravatar, brasilapi, viacep, phone, google, hunter, github, instagram, facebook, linkedin
+  field      String @db.VarChar(80) // email, phone, photo_url, linkedin_url, instagram_url, company_name, cnpj, address, position, etc.
+  value      String @db.Text // valor coletado (string, URL, JSON stringified)
+  confidence Float  @default(0.5) // 0.0 - 1.0
+  rawData    Json?  @db.Json // payload bruto do provider (debug/auditoria)
+  status     String @default("active") @db.VarChar(20) // active, merged, rejected, stale
+
+  fetchedAt DateTime  @default(now())
+  expiresAt DateTime? // cache TTL por registro
+
+  @@index([leadId])
+  @@index([source])
+  @@index([field])
+  @@index([leadId, field])
+  @@map("bychat_lead_enrichment")
+}
+
+model Message {
+  id          Int      @id @default(autoincrement())
+  leadId      Int
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromMe      Boolean  @default(false)
+  body        String   @db.LongText
+  mediaType   String   @default("text") @db.VarChar(30)
+  mediaUrl    String?  @db.Text
+  mediaName   String?  @db.VarChar(191)
+  ack         Int      @default(0)
+  isDeleted   Boolean  @default(false)
+  isInternal  Boolean  @default(false)
+  provider    String   @default("evolution") @db.VarChar(20) // evolution | cloud_api
+  // Origem real da mensagem (qual número/canal) — distingue conversas de
+  // números diferentes no módulo Conversas. Preenchido nos webhooks/envio.
+  evolutionInstance    String?  @db.VarChar(100) // instanceName quando provider='evolution'
+  cloudApiConnectionId Int? // FK quando provider='cloud_api'
+  cloudApiConnection   CloudApiConnection? @relation(fields: [cloudApiConnectionId], references: [id], onDelete: SetNull)
+  senderName  String?  @db.VarChar(100)
+  externalId  String?  @db.VarChar(191)
+  quotedMsgId Int?
+  timestamp   DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([leadId, timestamp])
+  @@index([externalId])
+  @@index([cloudApiConnectionId])
+  @@map("bychat_messages")
+}
+
+// Histórico de anotações internas do lead. Substitui o campo Lead.annotation
+// (single-value) por uma lista append-only com autor + timestamp — operadores
+// veem tudo que foi registrado ao longo do tempo.
+model LeadNote {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId   Int? // operador que escreveu (null = legacy/sistema)
+  userName String? @db.VarChar(100) // snapshot do nome no momento — sobrevive a delete/rename
+  content  String  @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@map("bychat_lead_notes")
+}
+
+model LeadEvent {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  type     String  @db.VarChar(50) // ex: lead_created, status_changed, message_sent, etc.
+  category String  @db.VarChar(30) // lifecycle, communication, operator, system, integration
+  channel  String? @db.VarChar(30) // whatsapp, web_chat, web_form, api, system, manual
+  source   String? @db.VarChar(50) // ex: webhook, panel, chatbot, inactivity_service
+
+  userId    Int? // operador que executou (null = sistema/lead)
+  userName  String? @db.VarChar(100) // nome/email do operador
+  actorType String  @default("system") @db.VarChar(20) // lead, operator, system, ai, integration
+
+  title       String  @db.VarChar(191) // título curto do evento
+  description String? @db.Text // descrição detalhada
+  oldValue    String? @db.Text // valor anterior (para mudanças)
+  newValue    String? @db.Text // novo valor (para mudanças)
+  metadata    Json?   @db.Json // dados extras estruturados
+
+  ipAddress String?  @db.VarChar(45)
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([leadId, type])
+  @@index([leadId, category])
+  @@index([type])
+  @@index([createdAt])
+  @@map("bychat_lead_events")
+}
+
+model Activity {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  userId   Int? // quem criou
+  userName String? @db.VarChar(100) // nome/email de quem criou
+
+  type        String  @db.VarChar(30) // whatsapp, email, sms, call, meeting, task, note, follow_up
+  title       String  @db.VarChar(191)
+  description String? @db.Text
+  status      String  @default("pending") @db.VarChar(20) // pending, completed, cancelled, overdue, sent, failed
+
+  scheduledAt DateTime // quando executar/lembrar
+  completedAt DateTime? // quando foi concluida
+  reminderAt  DateTime? // lembrete antes do agendamento
+
+  // Dados para envio automatico
+  recipientPhone String? @db.VarChar(30) // numero destino (whatsapp/sms)
+  recipientEmail String? @db.VarChar(191) // email destino
+  messageBody    String? @db.LongText // corpo da mensagem (texto ou HTML)
+  messageSubject String? @db.VarChar(191) // assunto (email)
+  templateId     Int? // template usado (referencia)
+
+  // Anexos
+  attachmentUrl  String? @db.Text // URL do arquivo anexo (PDF, imagem, etc)
+  attachmentName String? @db.VarChar(191) // nome original do arquivo
+  attachmentType String? @db.VarChar(50) // mime type (application/pdf, image/png, etc)
+
+  metadata Json?   @db.Json // dados extras
+  result   String? @db.Text // resultado da execucao
+
+  // Anexos múltiplos por atividade (prints, documentos etc.) — modelo LeadAttachment.
+  // Diferente dos campos legados acima (attachmentUrl/Name/Type) que comportam só
+  // 1 arquivo via URL externa.
+  attachments LeadAttachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId, status])
+  @@index([leadId, scheduledAt])
+  @@index([status, scheduledAt])
+  @@index([userId])
+  @@index([type])
+  @@index([scheduledAt])
+  @@map("bychat_activities")
+}
+
+// Anexos de uma atividade (prints de WhatsApp físico, documentos enviados etc.).
+// SEMPRE vinculados a uma Activity (FK obrigatória) — não existem anexos soltos.
+// `leadId` é denormalização para queries por lead direto, sem JOIN. Quando a
+// Activity é excluída, os anexos caem junto (cascade).
+model LeadAttachment {
+  id         Int      @id @default(autoincrement())
+  leadId     Int
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  activityId Int
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  fileName    String @db.VarChar(255) // nome original do arquivo
+  fileSize    Int                     // bytes
+  mimeType    String @db.VarChar(120)
+  storagePath String @db.VarChar(255) // caminho relativo a /uploads (ex: lead-attachments/123-xxxx.png)
+
+  uploadedById   Int?
+  uploadedByName String? @db.VarChar(100)
+  description    String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([activityId])
+  @@index([leadId, createdAt])
+  @@index([uploadedById])
+  @@map("bychat_lead_attachments")
+}
+
+model MessageTemplate {
+  id             Int      @id @default(autoincrement())
+  name           String   @db.VarChar(191) // nome do template
+  channel        String   @db.VarChar(30) // whatsapp, email, sms
+  category       String   @default("general") @db.VarChar(50) // general, proposal, follow_up, onboarding, report, reminder
+  subject        String?  @db.VarChar(191) // assunto (email)
+  body           String   @db.LongText // corpo com variaveis {{nome}}, {{empresa}}, etc
+  bodyHtml       String?  @db.LongText // versao HTML (email)
+  attachmentUrl  String?  @db.Text // anexo padrao (URL)
+  attachmentName String?  @db.VarChar(191)
+  variables      Json?    @db.Json // lista de variaveis usadas [{key, label, default}]
+  active         Boolean  @default(true)
+  usageCount     Int      @default(0) // quantas vezes foi usado
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  cadenceSteps CadenceStep[]
+
+  @@index([channel])
+  @@index([category])
+  @@index([active])
+  @@map("bychat_message_templates")
+}
+
+// ─── WhatsApp Cloud API (Oficial Meta) ───────────────────
+
+model CloudApiConnection {
+  id              Int       @id @default(autoincrement())
+  wabaId          String    @unique @db.VarChar(100) // WhatsApp Business Account ID
+  phoneNumberId   String    @unique @db.VarChar(100) // Phone Number ID (Meta)
+  displayPhone    String?   @db.VarChar(30) // Numero formatado para exibicao
+  businessId      String?   @db.VarChar(100) // Meta Business Portfolio ID
+  systemUserToken String    @db.Text // Token criptografado AES-256-GCM
+  tokenExpiresAt  DateTime? // null = nunca expira (System User Token)
+  verifyToken     String    @db.VarChar(191) // Token de verificacao do webhook
+  chatbotId       Int? // Chatbot auto-assign para mensagens recebidas
+  // Paridade com WhatsAppInstance: roteamento por setor/agente da conexão.
+  defaultTeamId   Int? // Setor padrão dos leads que chegam por esta conexão
+  defaultTeam     Team?     @relation("CloudApiDefaultTeam", fields: [defaultTeamId], references: [id], onDelete: SetNull)
+  // Reforma F2: conexão dedicada a um agente — lead é atribuído direto a ele
+  // (bypass da cascata por setor). ownerUserId tem prioridade no roteamento.
+  ownerUserId     Int?
+  owner           User?     @relation("CloudApiConnectionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  displayName     String?   @db.VarChar(191) // Nome do WABA
+  qualityRating   String?   @db.VarChar(20) // GREEN, YELLOW, RED
+  messagingLimit  String?   @db.VarChar(50) // Tier: 1K, 10K, 100K, UNLIMITED
+  active          Boolean   @default(true)
+  metadata        Json?     @db.Json
+  messages        Message[]
+  messageLogs     CloudApiMessageLog[]
+  broadcastCampaigns BroadcastCampaign[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([active])
+  @@index([phoneNumberId])
+  @@index([defaultTeamId])
+  @@index([ownerUserId])
+  @@map("bychat_cloud_api_connections")
+}
+
+model CloudApiTemplate {
+  id             Int      @id @default(autoincrement())
+  wabaId         String   @db.VarChar(100)
+  metaTemplateId String   @db.VarChar(100) // ID do template no Meta
+  name           String   @db.VarChar(191)
+  language       String   @db.VarChar(10) // pt_BR, en_US, etc.
+  category       String   @db.VarChar(30) // MARKETING, UTILITY, AUTHENTICATION
+  status         String   @db.VarChar(30) // APPROVED, PENDING, REJECTED, PAUSED, DISABLED, IN_APPEAL, PENDING_DELETION, FLAGGED, LIMIT_EXCEEDED
+  // Motivo do status atual (rejected_reason quando REJECTED; reason de pausa/desativação
+  // quando PAUSED/DISABLED). Preenchido pelo webhook message_template_status_update e pela
+  // reconciliação periódica (REST). NONE/null = sem motivo.
+  statusReason    String?  @db.VarChar(255)
+  qualityScore    String?  @db.VarChar(20) // GREEN, YELLOW, RED, UNKNOWN
+  statusUpdatedAt DateTime? // quando o status mudou pela última vez (≠ lastSyncAt)
+  components     Json     @db.Json // Header, Body, Footer, Buttons
+  lastSyncAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([wabaId, name, language])
+  @@index([wabaId])
+  @@index([status])
+  @@map("bychat_cloud_api_templates")
+}
+
+// Log de disparos via WhatsApp Cloud API (oficial Meta) — base do painel de
+// acompanhamento e do cálculo de custo. Diferente da Evolution (não-oficial,
+// grátis), cada conversa/template entregue pela Cloud API pode ser cobrado pela
+// Meta por categoria. Os campos category/billable/pricingModel são preenchidos
+// pelo webhook de status (statuses[].pricing / .conversation), antes descartados.
+model CloudApiMessageLog {
+  id                   Int      @id @default(autoincrement())
+  cloudApiConnectionId Int?
+  cloudApiConnection   CloudApiConnection? @relation(fields: [cloudApiConnectionId], references: [id], onDelete: SetNull)
+  leadId               Int?
+  wamid                String   @unique @db.VarChar(191) // message id da Meta (wamid.*)
+  direction            String   @default("outbound") @db.VarChar(12) // outbound | inbound
+  category             String?  @db.VarChar(30) // marketing | utility | authentication | service | referral_conversion
+  pricingModel         String?  @db.VarChar(24) // CBP (conversation) | PMP (per-message)
+  billable             Boolean  @default(false)
+  status               String   @default("sent") @db.VarChar(20) // sent | delivered | read | failed
+  templateName         String?  @db.VarChar(191)
+  errorCode            String?  @db.VarChar(20)
+  errorTitle           String?  @db.VarChar(255)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([cloudApiConnectionId])
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+  @@map("bychat_cloud_api_message_logs")
+}
+
+// ─── Disparo em massa (Broadcast) via WhatsApp Cloud API ──
+// Campanha de envio proativo usando template HSM aprovado (envio em massa fora da
+// janela de 24h exige template). Audiência vem de leads do sistema ou de planilha
+// importada; métricas via webhook de status (ligado por wamid em BroadcastRecipient).
+model BroadcastCampaign {
+  id                   Int      @id @default(autoincrement())
+  name                 String   @db.VarChar(191)
+  cloudApiConnectionId Int
+  cloudApiConnection   CloudApiConnection @relation(fields: [cloudApiConnectionId], references: [id], onDelete: Cascade)
+  templateId           Int      // CloudApiTemplate.id
+  templateName         String   @db.VarChar(191)
+  templateLanguage     String   @db.VarChar(10)
+  templateCategory     String   @db.VarChar(30)
+  // mapeamento das variáveis do template → origem do valor por destinatário.
+  // { "body:1": { type: "lead_field"|"column"|"fixed", value: "nome" }, ... }
+  variableMapping      Json     @db.Json
+  audienceType         String   @db.VarChar(12) // leads | import
+  audienceMeta         Json?    @db.Json // snapshot do filtro/arquivo (informativo)
+  status               String   @default("draft") @db.VarChar(16) // draft|scheduled|running|paused|completed|canceled|failed
+  scheduledAt          DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  // contadores desnormalizados (números exatos saem de BroadcastRecipient.groupBy)
+  totalRecipients      Int      @default(0)
+  sentCount            Int      @default(0)
+  failedCount          Int      @default(0)
+  skippedCount         Int      @default(0)
+  createdByUserId      Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  recipients           BroadcastRecipient[]
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([cloudApiConnectionId])
+  @@map("bychat_broadcast_campaigns")
+}
+
+model BroadcastRecipient {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  campaign   BroadcastCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leadId     Int?
+  phone      String   @db.VarChar(30)
+  name       String?  @db.VarChar(191)
+  variables  Json     @db.Json // valores resolvidos das variáveis { "body:1": "Maria" }
+  status     String   @default("pending") @db.VarChar(12) // pending|queued|sent|delivered|read|failed|skipped
+  skipReason String?  @db.VarChar(30) // opt_out | invalid_phone | duplicate
+  wamid      String?  @db.VarChar(191)
+  error      String?  @db.VarChar(500)
+  queuedAt   DateTime?
+  sentAt     DateTime?
+  deliveredAt DateTime?
+  readAt     DateTime?
+  failedAt   DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([campaignId, status])
+  @@index([wamid])
+  @@map("bychat_broadcast_recipients")
+}
+
+// ─── Meta (Facebook) Lead Ads Integration ────────────────
+
+model MetaIntegration {
+  id              Int       @id @default(autoincrement())
+  pageId          String    @unique @db.VarChar(100) // Facebook Page ID
+  pageName        String    @db.VarChar(191) // Nome da pagina
+  pageAccessToken String    @db.Text // Page Access Token (long-lived)
+  userAccessToken String?   @db.Text // User token (para renovacao)
+  appId           String?   @db.VarChar(100) // Meta App ID
+  webhookSecret   String?   @db.VarChar(191) // Verify token do webhook
+  active          Boolean   @default(true)
+  lastSyncAt      DateTime?
+  leadsReceived   Int       @default(0) // contador total
+  metadata        Json?     @db.Json // dados extras da pagina
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  forms MetaForm[]
+
+  @@index([active])
+  @@map("bychat_meta_integrations")
+}
+
+model MetaForm {
+  id            Int             @id @default(autoincrement())
+  integrationId Int
+  integration   MetaIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  formId        String          @db.VarChar(100) // Meta leadgen form ID
+  formName      String          @db.VarChar(191) // Nome do formulario
+  status        String          @default("active") @db.VarChar(20) // active, paused, archived
+
+  // Mapeamento para o sistema
+  funnelId      Int? // Funil destino
+  stageKey      String? @db.VarChar(50) // Etapa destino (default: NOVO)
+  fieldMapping  Json?   @db.Json // Mapeamento: {meta_field: lead_field}
+  autoComplete  Boolean @default(false) // Marcar lead como completo ao receber
+  defaultTeamId Int? // Setor padrão para leads vindos deste form
+  defaultTeam   Team?   @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
+
+  leadsReceived Int       @default(0)
+  lastLeadAt    DateTime?
+  metadata      Json?     @db.Json // Campos do form, preview URL, etc
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([integrationId, formId])
+  @@index([formId])
+  @@index([defaultTeamId])
+  @@map("bychat_meta_forms")
+}
+
+model MetaLeadLog {
+  id           Int       @id @default(autoincrement())
+  metaLeadId   String    @db.VarChar(100) // Meta lead ID
+  metaFormId   String    @db.VarChar(100) // Meta form ID
+  metaPageId   String    @db.VarChar(100) // Meta page ID
+  leadId       Int? // Lead criado no sistema (null se falhou)
+  status       String    @default("received") @db.VarChar(20) // received, processed, failed, duplicate
+  rawData      Json?     @db.Json // Dados brutos recebidos do Meta
+  campaignData Json?     @db.Json // Dados da campanha/ad
+  errorMessage String?   @db.Text
+  processedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([metaLeadId])
+  @@index([metaFormId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("bychat_meta_lead_logs")
+}
+
+// ─── Beyond Tracking (Analytics interno) ─────────────────
+
+model TrackingVisitor {
+  id              Int      @id @default(autoincrement())
+  visitorId       String   @unique @db.VarChar(64) // ID gerado no browser (cookie bt_vid)
+  fingerprint     String?  @db.VarChar(64) // Canvas+WebGL+Audio fingerprint hash
+  leadId          Int? // Vinculado quando identificado
+  identifiedEmail String?  @db.VarChar(191)
+  identifiedPhone String?  @db.VarChar(30)
+  identifiedName  String?  @db.VarChar(191)
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  totalSessions   Int      @default(0)
+  totalPageviews  Int      @default(0)
+  totalEvents     Int      @default(0)
+  metadata        Json?    @db.Json // Device info, browser, OS, etc.
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sessions TrackingSession[]
+  events   TrackingEvent[]
+
+  @@index([fingerprint])
+  @@index([leadId])
+  @@index([identifiedEmail])
+  @@index([identifiedPhone])
+  @@index([lastSeenAt])
+  @@map("bychat_tracking_visitors")
+}
+
+model TrackingSession {
+  id           Int             @id @default(autoincrement())
+  sessionId    String          @unique @db.VarChar(64) // ID gerado no browser (sessionStorage)
+  visitorId    Int
+  visitor      TrackingVisitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  startedAt    DateTime        @default(now())
+  endedAt      DateTime?
+  duration     Int             @default(0) // Segundos
+  pageviews    Int             @default(0)
+  events       Int             @default(0)
+  entryUrl     String?         @db.Text
+  exitUrl      String?         @db.Text
+  referrer     String?         @db.VarChar(500)
+  utmSource    String?         @db.VarChar(100)
+  utmMedium    String?         @db.VarChar(100)
+  utmCampaign  String?         @db.VarChar(191)
+  utmContent   String?         @db.VarChar(191)
+  utmTerm      String?         @db.VarChar(191)
+  ip           String?         @db.VarChar(45)
+  userAgent    String?         @db.Text
+  language     String?         @db.VarChar(20)
+  screenWidth  Int?
+  screenHeight Int?
+  deviceType   String?         @db.VarChar(20) // desktop, mobile, tablet
+  browser      String?         @db.VarChar(50)
+  os           String?         @db.VarChar(50)
+  country      String?         @db.VarChar(5)
+  createdAt    DateTime        @default(now())
+
+  trackingEvents TrackingEvent[]
+
+  @@index([visitorId])
+  @@index([startedAt])
+  @@index([ip])
+  @@index([startedAt, deviceType])
+  @@map("bychat_tracking_sessions")
+}
+
+model TrackingEvent {
+  id        Int              @id @default(autoincrement())
+  visitorId Int
+  visitor   TrackingVisitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  sessionId Int?
+  session   TrackingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  type      String           @db.VarChar(30) // pageview, click, scroll, form_start, form_submit, custom, identify
+  url       String?          @db.Text
+  title     String?          @db.VarChar(500)
+  referrer  String?          @db.Text
+  data      Json?            @db.Json // Dados extras: scroll_depth, click coords, element selector, custom props
+  timestamp DateTime         @default(now())
+
+  @@index([visitorId, timestamp])
+  @@index([sessionId])
+  @@index([type])
+  @@index([timestamp])
+  @@index([type, timestamp])
+  @@map("bychat_tracking_events")
+}
+
+// ─── Landing Pages & Forms ───────────────────────────────
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model LandingPage {
+  id    Int    @id @default(autoincrement())
+  slug  String @unique @db.VarChar(191)
+  title String @db.VarChar(191)
+
+  metaTitle       String? @db.VarChar(191)
+  metaDescription String? @db.Text
+  ogImage         String? @db.Text
+  favicon         String? @db.Text
+
+  sections     Json    @db.Json // Array de section configs
+  globalStyles Json?   @db.Json // Cores, fontes, spacing overrides
+  customCss    String? @db.LongText
+  customHead   String? @db.Text // Extra <head> (analytics, etc)
+
+  status     PageStatus @default(DRAFT)
+  templateId String?    @db.VarChar(50)
+  formId     Int? // Form principal vinculado
+
+  trackingEnabled Boolean @default(true)
+  conversionEvent String? @db.VarChar(100)
+
+  views       Int @default(0)
+  submissions Int @default(0)
+
+  publishedAt DateTime?
+  createdBy   Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  enrollmentPortal EnrollmentPortal?
+
+  @@index([status])
+  @@index([slug])
+  @@index([createdAt])
+  @@map("bychat_landing_pages")
+}
+
+model Form {
+  id   Int     @id @default(autoincrement())
+  name String  @db.VarChar(191)
+  slug String? @unique @db.VarChar(120) // URL amigável da página hospedada (/f/:slug)
+
+  fields   Json  @db.Json // Array de field definitions
+  settings Json  @db.Json // submitText, successMessage, redirectUrl, etc.
+  styling  Json? @db.Json // Cores, border-radius, font
+
+  funnelId      Int? // Auto-assign ao funil
+  stageKey      String? @db.VarChar(50)
+  notifyEmails  String? @db.Text
+  webhookUrl    String? @db.Text
+  defaultTeamId Int? // Setor padrão para leads vindos deste form
+  defaultTeam   Team?   @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
+
+  active      Boolean @default(true)
+  submissions Int     @default(0)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  formSubmissions FormSubmission[]
+
+  @@index([active])
+  @@index([defaultTeamId])
+  @@map("bychat_forms")
+}
+
+model FormSubmission {
+  id     Int  @id @default(autoincrement())
+  formId Int
+  form   Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+  leadId Int?
+
+  data Json @db.Json // {fieldKey: value}
+
+  pageSlug    String? @db.VarChar(191)
+  visitorId   String? @db.VarChar(64)
+  ip          String? @db.VarChar(45)
+  userAgent   String? @db.Text
+  referrer    String? @db.Text
+  utmSource   String? @db.VarChar(100)
+  utmMedium   String? @db.VarChar(100)
+  utmCampaign String? @db.VarChar(191)
+
+  createdAt DateTime @default(now())
+
+  @@index([formId, createdAt])
+  @@index([leadId])
+  @@index([pageSlug])
+  @@index([createdAt])
+  @@map("bychat_form_submissions")
+}
+
+// ─── Tags ────────────────────────────────────────
+
+model Tag {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(191)
+  color       String   @db.VarChar(20)
+  description String?  @db.Text
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  leads LeadTag[]
+
+  @@index([active, position])
+  @@map("bychat_tags")
+}
+
+model LeadTag {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tagId     Int
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([leadId, tagId])
+  @@index([leadId])
+  @@index([tagId])
+  @@map("bychat_lead_tags")
+}
+
+// ─── Campos Personalizados ───────────────────────
+
+model CustomField {
+  id           Int      @id @default(autoincrement())
+  key          String   @unique @db.VarChar(100) // Chave unica (slug): ex. "cargo", "cnpj"
+  label        String   @db.VarChar(191) // Nome visivel: "Cargo", "CNPJ"
+  type         String   @db.VarChar(30) // text, number, email, phone, url, date, select, multiselect, checkbox, textarea, currency
+  description  String?  @db.Text // Descricao para o operador
+  placeholder  String?  @db.VarChar(191)
+  options      Json?    @db.Json // Para select/multiselect: [{label, value}]
+  defaultValue String?  @db.VarChar(500) // Valor padrao
+  required     Boolean  @default(false)
+  showInList   Boolean  @default(false) // Mostrar na tabela de leads
+  showInKanban Boolean  @default(false) // Mostrar no card do kanban
+  showInForm   Boolean  @default(true) // Disponivel nos formularios
+  group        String?  @db.VarChar(50) // Agrupamento: "empresa", "contato", "financeiro", "custom"
+  position     Int      @default(0) // Ordem de exibicao
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active, position])
+  @@index([key])
+  @@map("bychat_custom_fields")
+}
+
+// ─── Dashboards Personalizados por Usuário ────────────
+
+model UserDashboard {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String   @db.VarChar(191)
+  type      String   @default("dashboard") @db.VarChar(20) // dashboard ou analytics
+  widgets   Json     @db.Json // Array de widget configs
+  isDefault Boolean  @default(false)
+  isSystem  Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, type])
+  @@map("bychat_user_dashboards")
+}
+
+// ── CAMPAIGN COSTS (ROI Dashboard) ───────────
+
+// Rastreamento persistente de envios outbound (WhatsApp, Email, SMS, Webhook).
+// BullMQ remove jobs concluídos rapidamente; este modelo guarda histórico
+// duradouro com latência, retentativas e erros — alimenta o módulo Filas & Monitor.
+//
+// Lifecycle: queued → processing → sent → delivered → read | failed (cada step
+// preenche o respectivo *At). Idempotência via jobId+queueName quando possível.
+model OutboundSend {
+  id         Int   @id @default(autoincrement())
+  channel    String @db.VarChar(20) // whatsapp | email | sms | webhook
+  queueName  String @db.VarChar(40) // wf-whatsapp etc
+
+  leadId     Int?
+  lead       Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  recipient  String @db.VarChar(191) // número, email, URL do webhook
+  subject    String? @db.VarChar(191) // p/ email
+  bodyPreview String? @db.Text // primeiros 500 chars
+
+  jobId      String? @db.VarChar(64)
+  externalId String? @db.VarChar(191) // ID do provider (WhatsApp messageId, SMS sid, webhook responseId)
+
+  status     String  @default("queued") @db.VarChar(20)
+  // queued | processing | sent | delivered | read | failed | bounced
+
+  attempts    Int     @default(0)
+  maxAttempts Int?
+
+  latencyMs  Int? // tempo entre queued→sent (ms)
+  error      String? @db.Text
+  metadata   Json? @db.Json // payload extra (provider response, etc)
+
+  // Origem do envio (workflow, cadência, atendimento manual, sistema)
+  source     String? @db.VarChar(40) // workflow | cadence | manual | system
+  sourceId   Int?    // workflowExecutionId, cadenceEnrollmentId, etc
+
+  createdAt    DateTime @default(now())
+  processingAt DateTime?
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  readAt       DateTime?
+  failedAt     DateTime?
+  updatedAt    DateTime @updatedAt
+
+  @@index([leadId, createdAt])
+  @@index([channel, status, createdAt])
+  @@index([status, createdAt])
+  @@index([jobId])
+  @@index([source, sourceId])
+  @@map("bychat_outbound_sends")
+}
+
+model CampaignCost {
+  id           Int      @id @default(autoincrement())
+  // Chave única gerada por código (suporta custos campaign/adset/ad sem ambiguidade
+  // de NULL em UNIQUE composto do MySQL):
+  //   "campaign:CID:YYYY-MM-DD"
+  //   "adset:CID:ASID:YYYY-MM-DD"
+  //   "ad:CID:ASID:ADID:YYYY-MM-DD"
+  costKey      String   @unique @db.VarChar(255)
+  level        String   @default("campaign") @db.VarChar(10) // campaign | adset | ad
+  campaignId   String   @db.VarChar(191)
+  campaignName String   @db.VarChar(191)
+  adsetId      String?  @db.VarChar(191)
+  adsetName    String?  @db.VarChar(191)
+  adId         String?  @db.VarChar(191)
+  adName       String?  @db.VarChar(191)
+  date         DateTime @db.Date
+  spend        Decimal  @db.Decimal(12, 2)
+  impressions  Int?
+  clicks       Int?
+  // Cliques no link/CTA (subset de `clicks` que não inclui likes/comentários/profile views).
+  // Meta UI usa essa métrica como "Cliques no link" e calcula "CTR" como
+  // inlineLinkClicks/impressions. Capturado pra paridade com o painel da Meta.
+  inlineLinkClicks    Int?
+  inlineLinkClickCtr  Decimal? @db.Decimal(8, 4)
+  reach        Int?
+  cpc          Decimal? @db.Decimal(10, 4)
+  cpm          Decimal? @db.Decimal(10, 4)
+  ctr          Decimal? @db.Decimal(8, 4)
+  frequency    Decimal? @db.Decimal(8, 4)
+  actions      Json?    @db.Json // {leads, link_clicks, post_engagement, etc}
+  source       String   @default("manual") @db.VarChar(30) // manual, meta_api
+  notes        String?  @db.VarChar(255)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([campaignId, date])
+  @@index([adsetId, date])
+  @@index([adId, date])
+  @@index([level])
+  @@index([date])
+  @@map("bychat_campaign_costs")
+}
+
+// ── RASTREAMENTO INTELIGENTE (Fase 7) ────────
+
+model TrackableLink {
+  id                Int      @id @default(autoincrement())
+  slug              String   @unique @db.VarChar(191)
+  name              String   @db.VarChar(191)
+  description       String?  @db.Text
+  whatsappPhone     String   @db.VarChar(30)
+  prefilledMessage  String?  @db.Text
+  utmSource         String?  @db.VarChar(100)
+  utmMedium         String?  @db.VarChar(100)
+  utmCampaign       String?  @db.VarChar(191)
+  utmContent        String?  @db.VarChar(191)
+  utmTerm           String?  @db.VarChar(191)
+  campaignId        String?  @db.VarChar(191)
+  campaignName      String?  @db.VarChar(191)
+  active            Boolean  @default(true)
+  totalClicks       Int      @default(0)
+  uniqueClicks      Int      @default(0)
+  leadsGenerated    Int      @default(0)
+  totalSales        Int      @default(0) // Contador de vendas atribuídas ao link
+  totalRevenue      Decimal  @default(0) @db.Decimal(12, 2)
+  // Pixels disparados na página intermediária /l/:slug
+  fbPixelId         String?  @db.VarChar(64) // Meta Pixel ID
+  fbCapiAccessToken String?  @db.Text // Meta Conversions API access token
+  ga4MeasurementId  String?  @db.VarChar(64) // GA4 Measurement ID (G-XXXXXXX)
+  redirectDelayMs   Int      @default(3000) // delay antes do redirect (page /l/)
+  createdBy         Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  clicks TrackableLinkClick[]
+
+  @@index([slug])
+  @@index([active])
+  @@index([createdAt])
+  @@map("bychat_trackable_links")
+}
+
+model TrackableLinkClick {
+  id          Int           @id @default(autoincrement())
+  linkId      Int
+  link        TrackableLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  ip          String?       @db.VarChar(45)
+  userAgent   String?       @db.Text
+  referer     String?       @db.Text
+  deviceType  String?       @db.VarChar(20)
+  browser     String?       @db.VarChar(50)
+  os          String?       @db.VarChar(50)
+  visitorId   String?       @db.VarChar(64)
+  // IDs de atribuição capturados da query string (fbclid/gclid/ctwaClid do Meta/Google)
+  fbclid      String?       @db.VarChar(255)
+  gclid       String?       @db.VarChar(255)
+  ctwaClid    String?       @db.VarChar(255)
+  tintimFbid  String?       @db.VarChar(255) // compat: {{ad.id}}_{{site_source_name}}_{{placement}}
+  sessionId   String?       @db.VarChar(64) // Pixel JS visitor/session ID — cruza anônimo→lead
+  capiEventId String?       @db.VarChar(64) // event_id para dedup Meta CAPI ↔ browser pixel
+  capiSent    Boolean       @default(false) // disparo do Lead event via Conversions API
+  // Snapshot de UTMs recebidos na query (podem diferir do link.utm* se modificados)
+  utmSource   String?       @db.VarChar(100)
+  utmMedium   String?       @db.VarChar(100)
+  utmCampaign String?       @db.VarChar(191)
+  utmContent  String?       @db.VarChar(191)
+  utmTerm     String?       @db.VarChar(191)
+  queryParams Json?         @db.Json // query string completa bruta
+  createdAt   DateTime      @default(now())
+
+  @@index([linkId, createdAt])
+  @@index([ip])
+  @@index([createdAt])
+  @@index([fbclid])
+  @@index([gclid])
+  @@index([ctwaClid])
+  @@index([sessionId])
+  @@map("bychat_trackable_link_clicks")
+}
+
+// ───── Pixel JS (bychat-pixel) — visitante anônimo ─────
+model PixelVisitor {
+  id               Int       @id @default(autoincrement())
+  visitorId        String    @unique @db.VarChar(64)
+  firstSeenAt      DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  totalPageviews   Int       @default(0)
+  totalEvents      Int       @default(0)
+  // Primeira atribuição (sticky, não é sobrescrita)
+  firstUrl         String?   @db.Text
+  firstReferer     String?   @db.Text
+  firstUtmSource   String?   @db.VarChar(100)
+  firstUtmMedium   String?   @db.VarChar(100)
+  firstUtmCampaign String?   @db.VarChar(191)
+  firstUtmContent  String?   @db.VarChar(191)
+  firstUtmTerm     String?   @db.VarChar(191)
+  firstFbclid      String?   @db.VarChar(255)
+  firstGclid       String?   @db.VarChar(255)
+  firstCtwaClid    String?   @db.VarChar(255)
+  firstTintimFbid  String?   @db.VarChar(255)
+  // Última atribuição
+  lastUrl          String?   @db.Text
+  lastUtmSource    String?   @db.VarChar(100)
+  lastUtmCampaign  String?   @db.VarChar(191)
+  // Device
+  ip               String?   @db.VarChar(45)
+  userAgent        String?   @db.Text
+  deviceType       String?   @db.VarChar(20)
+  // Identificação
+  leadId           Int?
+  identifiedAt     DateTime?
+
+  @@index([leadId])
+  @@index([lastSeenAt])
+  @@map("bychat_pixel_visitors")
+}
+
+model LeadOrigin {
+  id               Int      @id @default(autoincrement())
+  leadId           Int      @unique
+  originType       String   @db.VarChar(50)
+  trackableLinkId  Int?
+  ctwaClid         String?  @db.VarChar(191)
+  referralSource   String?  @db.VarChar(191)
+  referralBody     String?  @db.Text
+  referralHeadline String?  @db.VarChar(255)
+  referralMediaUrl String?  @db.Text
+  gclid            String?  @db.VarChar(191)
+  utmSource        String?  @db.VarChar(100)
+  utmMedium        String?  @db.VarChar(100)
+  utmCampaign      String?  @db.VarChar(191)
+  utmContent       String?  @db.VarChar(191)
+  utmTerm          String?  @db.VarChar(191)
+  rawReferral      Json?    @db.Json
+  confidence       String   @default("high") @db.VarChar(20)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([originType])
+  @@index([ctwaClid])
+  @@index([gclid])
+  @@index([trackableLinkId])
+  @@index([createdAt])
+  @@map("bychat_lead_origins")
+}
+
+model DetectedSale {
+  id                  Int       @id @default(autoincrement())
+  leadId              Int
+  lead                Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  value               Decimal?  @db.Decimal(12, 2)
+  currency            String    @default("BRL") @db.VarChar(5)
+  productService      String?   @db.VarChar(191)
+  detectedAt          DateTime  @default(now())
+  detectionMethod     String    @default("ai") @db.VarChar(20)
+  confidence          String    @default("high") @db.VarChar(20)
+  aiExplanation       String?   @db.Text
+  conversationSnippet String?   @db.Text
+  previousStatus      String?   @db.VarChar(50)
+  newStatus           String?   @db.VarChar(50)
+  autoMoved           Boolean   @default(false)
+  originType          String?   @db.VarChar(50)
+  campaignId          String?   @db.VarChar(191)
+  campaignName        String?   @db.VarChar(191)
+  utmSource           String?   @db.VarChar(100)
+  confirmedBy         Int?
+  confirmedAt         DateTime?
+  status              String    @default("detected") @db.VarChar(20)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([status])
+  @@index([detectedAt])
+  @@index([campaignId])
+  @@index([originType])
+  @@map("bychat_detected_sales")
+}
+
+// ── CONVERSIONS API (Fase 8 — Feedback para Ads) ──
+
+model ConversionEvent {
+  id            Int       @id @default(autoincrement())
+  leadId        Int
+  platform      String    @db.VarChar(30) // meta_capi, google_ads
+  eventName     String    @db.VarChar(50) // Lead, Purchase, CompleteRegistration, etc
+  eventTime     DateTime
+  value         Decimal?  @db.Decimal(12, 2)
+  currency      String    @default("BRL") @db.VarChar(3)
+  funnelStage   String?   @db.VarChar(100) // Etapa do funil que disparou
+  // Identificadores de plataforma
+  pixelId       String?   @db.VarChar(50)
+  accessToken   String?   @db.Text
+  fbclid        String?   @db.VarChar(191)
+  fbc           String?   @db.VarChar(191)
+  fbp           String?   @db.VarChar(191)
+  gclid         String?   @db.VarChar(191)
+  eventId       String    @db.VarChar(100) // Deduplicação
+  // Dados do usuário (hashed para CAPI)
+  userEmail     String?   @db.VarChar(191)
+  userPhone     String?   @db.VarChar(30)
+  userFirstName String?   @db.VarChar(100)
+  userLastName  String?   @db.VarChar(100)
+  // Resultado
+  status        String    @default("pending") @db.VarChar(20) // pending, sent, failed, skipped
+  response      Json?     @db.Json
+  errorMessage  String?   @db.Text
+  sentAt        DateTime?
+  retries       Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([platform, status])
+  @@index([eventName])
+  @@index([eventId])
+  @@index([createdAt])
+  @@map("bychat_conversion_events")
+}
+
+// ── MULTI-TOUCH ATTRIBUTION ─────────────────
+
+model LeadTouchpoint {
+  id           Int      @id @default(autoincrement())
+  leadId       Int
+  channel      String   @db.VarChar(50) // meta_ctwa, google_ads, trackable_link, organic, direct, meta_lead_ads
+  source       String?  @db.VarChar(100) // utm_source ou plataforma
+  medium       String?  @db.VarChar(100) // utm_medium
+  campaign     String?  @db.VarChar(191) // utm_campaign
+  campaignId   String?  @db.VarChar(191)
+  content      String?  @db.VarChar(191) // utm_content
+  term         String?  @db.VarChar(191) // utm_term
+  referrer     String?  @db.VarChar(500)
+  landingUrl   String?  @db.Text
+  gclid        String?  @db.VarChar(191)
+  fbclid       String?  @db.VarChar(191)
+  ctwaClid     String?  @db.VarChar(191)
+  touchType    String   @db.VarChar(20) // first, middle, last, only
+  touchOrder   Int      @default(1)
+  // Attribution weights (calculados)
+  weightFirst  Decimal  @default(0) @db.Decimal(5, 4) // first-touch weight
+  weightLast   Decimal  @default(0) @db.Decimal(5, 4) // last-touch weight
+  weightLinear Decimal  @default(0) @db.Decimal(5, 4) // linear weight
+  timestamp    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([leadId, timestamp])
+  @@index([channel])
+  @@index([campaignId])
+  @@index([createdAt])
+  @@map("bychat_lead_touchpoints")
+}
+
+// ── LIXEIRA (Trash / Recycle Bin) ─────────────
+
+model TrashItem {
+  id            Int       @id @default(autoincrement())
+  entityType    String    @db.VarChar(50) // lead, funnel, chatbot, tag, template, form, page, workflow, user
+  entityId      Int // ID original da entidade
+  entityLabel   String    @db.VarChar(191) // Nome/título legível (empresa, nome, etc)
+  snapshot      Json      @db.Json // Snapshot completo da entidade + relações
+  deletedBy     Int? // userId de quem deletou
+  deletedByName String?   @db.VarChar(191) // nome/email de quem deletou
+  reason        String?   @db.VarChar(255) // motivo opcional da deleção
+  expiresAt     DateTime // auto-purge após 90 dias
+  restoredAt    DateTime? // preenchido se restaurado
+  restoredBy    Int? // userId de quem restaurou
+  createdAt     DateTime  @default(now())
+
+  @@index([entityType])
+  @@index([entityType, entityId])
+  @@index([deletedBy])
+  @@index([expiresAt])
+  @@index([restoredAt])
+  @@index([createdAt])
+  @@map("bychat_trash")
+}
+
+// ── SECURITY ──────────────────────────────────
+
+model SecurityEvent {
+  id        Int      @id @default(autoincrement())
+  ip        String   @db.VarChar(45)
+  type      String   @db.VarChar(50) // login_fail, login_success, rate_limit, brute_force, suspicious_ua, path_traversal, sql_injection, xss_attempt, blocked_request
+  severity  String   @db.VarChar(10) // low, medium, high, critical
+  email     String?  @db.VarChar(191)
+  userAgent String?  @db.VarChar(500)
+  path      String?  @db.VarChar(500)
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([ip])
+  @@index([type])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([email])
+  @@map("bychat_security_events")
+}
+
+model IpBlock {
+  id        Int       @id @default(autoincrement())
+  ip        String    @db.VarChar(45)
+  reason    String    @db.VarChar(50) // brute_force, rate_limit, suspicious, manual, login_abuse
+  details   String?   @db.Text
+  auto      Boolean   @default(true)
+  expiresAt DateTime?
+  active    Boolean   @default(true)
+  createdBy String?   @db.VarChar(191) // email do admin que bloqueou manualmente
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([ip, active])
+  @@index([active])
+  @@index([expiresAt])
+  @@map("bychat_ip_blocks")
+}
+
+// ── WORKFLOW ENGINE ──────────────────────────────
+
+model Workflow {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(191)
+  description   String?  @db.Text
+  triggerEvent  String   @db.VarChar(100)
+  triggerConfig Json?    @db.Json
+  active        Boolean  @default(false)
+  reentryPolicy String   @default("never") @db.VarChar(20)
+  pauseOnReply  Boolean  @default(true)
+  goalEvent     String?  @db.VarChar(100)
+  goalConfig    Json?    @db.Json
+  funnelId      Int?
+  chatbotId     Int?
+  priority      Int      @default(0)
+  version       Int      @default(1)
+  createdBy     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  steps      WorkflowStep[]
+  executions WorkflowExecution[]
+
+  @@index([active])
+  @@index([triggerEvent])
+  @@index([funnelId])
+  @@map("bychat_workflows")
+}
+
+model WorkflowStep {
+  id         Int      @id @default(autoincrement())
+  workflowId Int
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  type       String   @db.VarChar(30)
+  name       String   @db.VarChar(191)
+  config     Json     @db.Json
+  position   Int      @default(0)
+  positionX  Int      @default(0)
+  positionY  Int      @default(0)
+  nextStepId Int?
+  altStepId  Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  stepExecutions WorkflowStepExecution[]
+
+  @@index([workflowId, position])
+  @@map("bychat_workflow_steps")
+}
+
+model WorkflowExecution {
+  id            Int       @id @default(autoincrement())
+  workflowId    Int
+  workflow      Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  leadId        Int
+  status        String    @default("running") @db.VarChar(20)
+  currentStepId Int?
+  triggerData   Json?     @db.Json
+  pausedAt      DateTime?
+  pauseReason   String?   @db.VarChar(50)
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  stepExecutions WorkflowStepExecution[]
+
+  @@index([workflowId, status])
+  @@index([leadId, status])
+  @@index([status])
+  @@index([currentStepId])
+  @@map("bychat_workflow_executions")
+}
+
+model WorkflowStepExecution {
+  id          Int               @id @default(autoincrement())
+  executionId Int
+  execution   WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  stepId      Int
+  step        WorkflowStep      @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  status      String            @default("pending") @db.VarChar(20)
+  result      Json?             @db.Json
+  error       String?           @db.Text
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  jobId       String?           @db.VarChar(191)
+  createdAt   DateTime          @default(now())
+
+  @@index([executionId, status])
+  @@index([stepId])
+  @@index([status, scheduledAt])
+  @@index([jobId])
+  @@map("bychat_workflow_step_executions")
+}
+
+model ApiKey {
+  id          Int       @id @default(autoincrement())
+  name        String    @db.VarChar(191)
+  key         String    @unique @db.VarChar(191)
+  prefix      String    @db.VarChar(10)
+  permissions Json      @db.Json
+  rateLimit   Int       @default(60)
+  active      Boolean   @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  totalCalls  Int       @default(0)
+  createdBy   Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  logs ApiKeyLog[]
+
+  @@index([key])
+  @@index([active])
+  @@map("bychat_api_keys")
+}
+
+model ApiKeyLog {
+  id         Int      @id @default(autoincrement())
+  apiKeyId   Int
+  method     String   @db.VarChar(10)
+  path       String   @db.VarChar(500)
+  statusCode Int
+  duration   Int
+  ip         String   @db.VarChar(45)
+  userAgent  String?  @db.VarChar(500)
+  createdAt  DateTime @default(now())
+
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@index([apiKeyId, createdAt])
+  @@index([createdAt])
+  @@map("bychat_api_key_logs")
+}
+
+model OutboundWebhook {
+  id          Int       @id @default(autoincrement())
+  name        String    @db.VarChar(191)
+  url         String    @db.VarChar(500)
+  secret      String?   @db.VarChar(191)
+  events      Json      @db.Json
+  headers     Json?     @db.Json
+  active      Boolean   @default(true)
+  maxRetries  Int       @default(5)
+  timeoutMs   Int       @default(30000)
+  totalSent   Int       @default(0)
+  totalFailed Int       @default(0)
+  lastSentAt  DateTime?
+  lastError   String?   @db.Text
+  createdBy   Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  logs WebhookLog[]
+
+  @@index([active])
+  @@map("bychat_outbound_webhooks")
+}
+
+model WebhookLog {
+  id          Int             @id @default(autoincrement())
+  webhookId   Int
+  webhook     OutboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  event       String          @db.VarChar(50)
+  url         String          @db.VarChar(500)
+  statusCode  Int?
+  duration    Int?
+  requestBody Json?           @db.Json
+  response    String?         @db.Text
+  error       String?         @db.Text
+  success     Boolean         @default(false)
+  attempt     Int             @default(1)
+  createdAt   DateTime        @default(now())
+
+  @@index([webhookId, createdAt])
+  @@index([createdAt])
+  @@index([event])
+  @@map("bychat_webhook_logs")
+}
+
+// ── Inbound Webhooks ────────────────────────────────────
+// Endpoint público POST /api/inbound/:token recebe qualquer JSON e aplica
+// mapping configurado (source JSONPath → target campo Lead ou cf_*) pra
+// criar/atualizar Lead. Pensado pra integrar com webhooks "burros" (Make,
+// n8n, Zapier, sistemas externos) que mandam payload em formato próprio.
+
+model InboundWebhook {
+  id              Int       @id @default(autoincrement())
+  token           String    @unique @db.VarChar(64)
+  name            String    @db.VarChar(191)
+  description     String?   @db.Text
+  active          Boolean   @default(true)
+  defaultFunnelId Int?
+  defaultStageKey String?   @db.VarChar(50)
+  defaultTeamId   Int?
+  defaultSource   String?   @db.VarChar(50)
+  mapping         Json      @db.Json
+  totalReceived   Int       @default(0)
+  totalErrors     Int       @default(0)
+  lastReceivedAt  DateTime?
+  lastError       String?   @db.Text
+  lastPayload     Json?     @db.Json
+  createdBy       Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  hits InboundWebhookHit[]
+
+  @@index([active])
+  @@map("bychat_inbound_webhooks")
+}
+
+model InboundWebhookHit {
+  id          Int            @id @default(autoincrement())
+  webhookId   Int
+  webhook     InboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  receivedAt  DateTime       @default(now())
+  ip          String?        @db.VarChar(45)
+  userAgent   String?        @db.VarChar(500)
+  payload     Json?          @db.Json
+  mappedData  Json?          @db.Json
+  success     Boolean        @default(false)
+  leadId      Int?
+  error       String?        @db.Text
+
+  @@index([webhookId, receivedAt])
+  @@index([receivedAt])
+  @@map("bychat_inbound_webhook_hits")
+}
+
+// ── DB Connectors — importa leads de MySQL/Postgres externo ──
+
+model DbConnector {
+  id              Int       @id @default(autoincrement())
+  name            String    @db.VarChar(120)
+  description     String?   @db.VarChar(255)
+  dbType          String    @db.VarChar(20) // 'mysql' | 'postgres'
+  host            String    @db.VarChar(255)
+  port            Int
+  dbName          String    @db.VarChar(120)
+  dbUser          String    @db.VarChar(120)
+  passwordEnc     String    @db.Text
+  useTLS          Boolean   @default(false)
+  caCert          String?   @db.Text
+  query           String    @db.Text
+  mapping         Json      @db.Json
+  deltaStrategy   String    @default("id") @db.VarChar(20)
+  deltaColumn     String?   @db.VarChar(120)
+  lastSyncCursor  String?   @db.VarChar(255)
+  intervalMinutes Int       @default(5)
+  active          Boolean   @default(true)
+  lastRunAt       DateTime?
+  lastRunStatus   String?   @db.VarChar(20)
+  lastError       String?   @db.Text
+  totalImported   Int       @default(0)
+  defaultTeamId   Int?
+  defaultFunnelId Int?
+  defaultStageKey String?   @db.VarChar(60)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  team   Team?   @relation(fields: [defaultTeamId], references: [id], onDelete: SetNull)
+  funnel Funnel? @relation(fields: [defaultFunnelId], references: [id], onDelete: SetNull)
+  runs   DbConnectorRun[]
+
+  @@index([active])
+  @@index([lastRunAt])
+  @@map("bychat_db_connectors")
+}
+
+model DbConnectorRun {
+  id                 Int       @id @default(autoincrement())
+  connectorId        Int
+  connector          DbConnector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  startedAt          DateTime  @default(now())
+  finishedAt         DateTime?
+  status             String    @default("running") @db.VarChar(20)
+  rowsRead           Int       @default(0)
+  leadsCreated       Int       @default(0)
+  leadsSkipped       Int       @default(0)
+  errorCount         Int       @default(0)
+  cursorBefore       String?   @db.VarChar(255)
+  cursorAfter        String?   @db.VarChar(255)
+  error              String?   @db.Text
+  triggeredBy        String    @default("cron") @db.VarChar(20)
+  triggeredByUserId  Int?
+
+  @@index([connectorId, startedAt(sort: Desc)])
+  @@map("bychat_db_connector_runs")
+}
+
+// ── Google Integration ──────────────────────────────────
+
+model GoogleConnection {
+  id             Int       @id @default(autoincrement())
+  email          String    @unique @db.VarChar(191)
+  accessToken    String    @db.Text
+  refreshToken   String    @db.Text
+  tokenExpiresAt DateTime?
+  scopes         String    @db.VarChar(500)
+  active         Boolean   @default(true)
+  // Híbrido B: COMPANY = conta da empresa (Drive/Sheets centralizado + fallback);
+  // OPERATOR = conta pessoal de um operador (Calendar/Tasks/Gmail próprios)
+  kind           String    @default("OPERATOR") @db.VarChar(16)
+  userId         Int?      @unique
+  createdBy      Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  sheetIntegrations    GoogleSheetIntegration[]
+  calendarIntegrations GoogleCalendarIntegration[]
+  driveConfigs         GoogleDriveConfig[]
+  tasksConfigs         GoogleTasksConfig[]
+  gmailConfigs         GmailConfig[]
+
+  @@index([active])
+  @@index([kind, active])
+  @@map("bychat_google_connections")
+}
+
+model GoogleSheetIntegration {
+  id               Int              @id @default(autoincrement())
+  name             String           @db.VarChar(191)
+  connectionId     Int
+  connection       GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  spreadsheetId    String           @db.VarChar(191)
+  spreadsheetName  String           @db.VarChar(191)
+  sheetName        String           @default("Sheet1") @db.VarChar(191)
+  events           Json             @db.Json
+  fieldMapping     Json             @db.Json
+  includeTimestamp Boolean          @default(true)
+  active           Boolean          @default(true)
+  totalSent        Int              @default(0)
+  totalFailed      Int              @default(0)
+  lastSentAt       DateTime?
+  lastError        String?          @db.Text
+  createdBy        Int?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  logs GoogleSheetLog[]
+
+  @@index([active])
+  @@index([connectionId])
+  @@map("bychat_google_sheet_integrations")
+}
+
+model GoogleSheetLog {
+  id            Int                    @id @default(autoincrement())
+  integrationId Int
+  integration   GoogleSheetIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  event         String                 @db.VarChar(50)
+  rowData       Json?                  @db.Json
+  success       Boolean                @default(false)
+  error         String?                @db.Text
+  duration      Int?
+  createdAt     DateTime               @default(now())
+
+  @@index([integrationId, createdAt])
+  @@index([createdAt])
+  @@map("bychat_google_sheet_logs")
+}
+
+// ── Google Calendar Integration ─────────────────────────
+
+model GoogleCalendarIntegration {
+  id             Int              @id @default(autoincrement())
+  name           String           @db.VarChar(191)
+  connectionId   Int
+  connection     GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  calendarId     String           @default("primary") @db.VarChar(191)
+  syncActivities Boolean          @default(true)
+  activityTypes  Json             @db.Json // ["meeting","call"] etc
+  autoMeetLink   Boolean          @default(true)
+  notifyLead     Boolean          @default(false)
+  active         Boolean          @default(true)
+  totalSynced    Int              @default(0)
+  totalFailed    Int              @default(0)
+  lastSyncAt     DateTime?
+  lastError      String?          @db.Text
+  createdBy      Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([active])
+  @@index([connectionId])
+  @@map("bychat_google_calendar_integrations")
+}
+
+model CalendarSyncLog {
+  id              Int      @id @default(autoincrement())
+  integrationId   Int
+  activityId      Int?
+  calendarEventId String?  @db.VarChar(191)
+  action          String   @db.VarChar(30) // created, updated, deleted
+  success         Boolean  @default(false)
+  error           String?  @db.Text
+  duration        Int?
+  createdAt       DateTime @default(now())
+
+  @@index([integrationId, createdAt])
+  @@index([createdAt])
+  @@map("bychat_calendar_sync_logs")
+}
+
+// ── Google Drive Integration ────────────────────────────
+
+model GoogleDriveConfig {
+  id             Int      @id @default(autoincrement())
+  connectionId   Int
+  connection     GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  rootFolderId   String?  @db.VarChar(191) // pasta raiz "ByChat CRM" no Drive
+  rootFolderLink String?  @db.Text
+  autoUploadChat Boolean  @default(false) // upload automático de mídia do chat
+  active         Boolean  @default(true)
+  createdBy      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([connectionId])
+  @@map("bychat_google_drive_configs")
+}
+
+// ── Google Tasks Integration ────────────────────────────
+
+model GoogleTasksConfig {
+  id            Int      @id @default(autoincrement())
+  connectionId  Int
+  connection    GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  taskListId    String   @db.VarChar(191)
+  taskListTitle String   @db.VarChar(191)
+  activityTypes Json     @db.Json // ["task","followup","meeting","call"]
+  active        Boolean  @default(true)
+  totalSynced   Int      @default(0)
+  totalFailed   Int      @default(0)
+  createdBy     Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([connectionId])
+  @@map("bychat_google_tasks_configs")
+}
+
+// ── Gmail Integration ───────────────────────────────────
+
+model GmailConfig {
+  id           Int      @id @default(autoincrement())
+  connectionId Int
+  connection   GoogleConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  senderName   String?  @db.VarChar(191) // nome que aparece no "De:"
+  signature    String?  @db.Text // assinatura HTML
+  active       Boolean  @default(true)
+  totalSent    Int      @default(0)
+  totalFailed  Int      @default(0)
+  createdBy    Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([connectionId])
+  @@map("bychat_gmail_configs")
+}
+
+// ── Google Analytics 4 ──────────────────────────────────
+
+model GA4Config {
+  id            Int       @id @default(autoincrement())
+  measurementId String    @db.VarChar(50) // G-XXXXXXXXXX
+  apiSecret     String    @db.VarChar(191) // Measurement Protocol API secret
+  events        Json      @db.Json // quais eventos do CRM enviar
+  active        Boolean   @default(true)
+  totalSent     Int       @default(0)
+  totalFailed   Int       @default(0)
+  lastSentAt    DateTime?
+  createdBy     Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("bychat_ga4_configs")
+}
+
+// ── Google Ads Integration ──────────────────────────────
+
+model GoogleAdsConfig {
+  id                  Int       @id @default(autoincrement())
+  connectionId        Int
+  customerId          String    @db.VarChar(30) // Google Ads customer ID (xxx-xxx-xxxx)
+  developerToken      String    @db.VarChar(191) // Google Ads API developer token
+  conversionAction    String?   @db.VarChar(191) // [DEPRECATED] mantido p/ compat; usar conversionMap
+  autoSendConversions Boolean   @default(false)
+  active              Boolean   @default(true)
+  totalSent           Int       @default(0)
+  totalFailed         Int       @default(0)
+  lastSentAt          DateTime?
+  createdBy           Int?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  conversionMap GoogleAdsConversionMap[]
+
+  @@index([connectionId])
+  @@map("bychat_google_ads_configs")
+}
+
+// Mapping trigger interno → Conversion Action no Google Ads (Fase 28 — multi-evento).
+// Cada GoogleAdsConfig pode ter até 1 row por trigger (lead.won, lead_qualified, etc).
+model GoogleAdsConversionMap {
+  id               Int      @id @default(autoincrement())
+  configId         Int
+  trigger          String   @db.VarChar(60)  // 'lead.won' | 'lead_qualified' | 'enrollment.payment_confirmed' | 'diagnosis.completed' | ...
+  conversionAction String   @db.VarChar(191) // ID puro da Conversion Action no Google Ads
+  valueSource      String   @default("zero") @db.VarChar(20) // 'zero' | 'sale_value' | 'fixed'
+  fixedValue       Float?
+  isPrimary        Boolean  @default(false)  // marcação informativa — Google Ads tem seu próprio conceito de Primary
+  enabled          Boolean  @default(true)
+  totalSent        Int      @default(0)
+  totalFailed      Int      @default(0)
+  lastSentAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  config GoogleAdsConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@unique([configId, trigger])
+  @@index([configId])
+  @@map("bychat_google_ads_conversion_map")
+}
+
+// Custos / métricas por dia × nível (campaign | ad_group | ad) sincronizados via
+// GAQL da API Google Ads. Espelha `CampaignCost` (Meta) — colunas equivalentes.
+model GoogleAdsCampaignCost {
+  id               Int      @id @default(autoincrement())
+  // Chave determinística:
+  //   "campaign:CID:CAMP:YYYY-MM-DD"
+  //   "ad_group:CID:CAMP:AG:YYYY-MM-DD"
+  //   "ad:CID:CAMP:AG:AD:YYYY-MM-DD"
+  costKey          String   @unique @db.VarChar(255)
+  level            String   @default("campaign") @db.VarChar(10) // campaign | ad_group | ad
+  customerId       String   @db.VarChar(30)  // Google Ads customer ID (xxx-xxx-xxxx ou só dígitos)
+  campaignId       String   @db.VarChar(191)
+  campaignName     String   @db.VarChar(191)
+  adGroupId        String?  @db.VarChar(191)
+  adGroupName      String?  @db.VarChar(191)
+  adId             String?  @db.VarChar(191)
+  adName           String?  @db.VarChar(191)
+  date             DateTime @db.Date
+  spend            Decimal  @db.Decimal(12, 2)
+  impressions      Int?
+  clicks           Int?
+  conversions      Decimal? @db.Decimal(12, 4)
+  conversionValue  Decimal? @db.Decimal(12, 2)
+  cpc              Decimal? @db.Decimal(10, 4)
+  cpm              Decimal? @db.Decimal(10, 4)
+  ctr              Decimal? @db.Decimal(8, 4)
+  avgPosition      Decimal? @db.Decimal(8, 4)
+  source           String   @default("google_ads_api") @db.VarChar(30)
+  raw              Json?    @db.Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([customerId, date])
+  @@index([campaignId, date])
+  @@index([adGroupId, date])
+  @@index([adId, date])
+  @@index([level])
+  @@index([date])
+  @@map("bychat_google_ads_campaign_costs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO EDUCACIONAL — ativado via setting `educational.enabled`
+// Inspirado na modelagem da Rubeus (docs.rubeus.com.br) + MEC
+// ═══════════════════════════════════════════════════════════════
+
+model EducationalLevel {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(100)
+  codigo    String?  @unique @db.VarChar(50)
+  descricao String?  @db.Text
+  ordem     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  courses            Course[]
+  offerings          CourseOffering[]
+  selectionProcesses SelectionProcess[]
+
+  @@map("bychat_edu_levels")
+}
+
+model Modality {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(100)
+  codigo    String?  @unique @db.VarChar(50)
+  descricao String?  @db.Text
+  ordem     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offerings CourseOffering[]
+
+  @@map("bychat_edu_modalities")
+}
+
+// Unidade = agrupamento organizacional (marca/filial/regional)
+// Uma instituição pode ter várias unidades (ex: "Norte", "Sul", "EAD")
+model EducationalUnit {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(191)
+  codigo    String?  @unique @db.VarChar(50)
+  descricao String?  @db.Text
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campuses           Campus[]
+  courses            Course[]
+  offerings          CourseOffering[]
+  selectionProcesses SelectionProcess[]
+  enrollmentPortals  EnrollmentPortal[]
+
+  @@map("bychat_edu_units")
+}
+
+// Campus = local físico/virtual de oferta (pertence a uma Unidade)
+model Campus {
+  id        Int             @id @default(autoincrement())
+  unitId    Int
+  unit      EducationalUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  nome      String          @db.VarChar(191)
+  codigo    String?         @db.VarChar(50)
+  descricao String?         @db.Text
+  telefone  String?         @db.VarChar(30)
+  email     String?         @db.VarChar(191)
+  endereco  String?         @db.VarChar(255)
+  numero    String?         @db.VarChar(20)
+  bairro    String?         @db.VarChar(100)
+  cep       String?         @db.VarChar(10)
+  cidade    String?         @db.VarChar(100)
+  estado    String?         @db.VarChar(2)
+  latitude  Float?
+  longitude Float?
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  offerings CourseOfferingCampus[]
+
+  @@index([unitId])
+  @@index([cidade, estado])
+  @@map("bychat_edu_campuses")
+}
+
+// Curso = catálogo mestre (nome + descrição, sem modalidade/nível)
+model Course {
+  id           Int               @id @default(autoincrement())
+  unitId       Int
+  unit         EducationalUnit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  levelId      Int?
+  level        EducationalLevel? @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  nome         String            @db.VarChar(191)
+  codigo       String?           @db.VarChar(50)
+  descricao    String?           @db.Text
+  duracaoMeses Int?
+  cargaHoraria Int?
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  offerings CourseOffering[]
+
+  @@index([unitId])
+  @@index([levelId])
+  @@map("bychat_edu_courses")
+}
+
+// Oferta de Curso = instância concreta: Curso × Modalidade × Nível × Unidade × Período
+// Ela que recebe vagas, valores, datas, processo seletivo e conecta aos campus
+model CourseOffering {
+  id                 Int               @id @default(autoincrement())
+  courseId           Int
+  course             Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  unitId             Int
+  unit               EducationalUnit   @relation(fields: [unitId], references: [id])
+  modalityId         Int
+  modality           Modality          @relation(fields: [modalityId], references: [id])
+  levelId            Int?
+  level              EducationalLevel? @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  selectionProcessId Int?
+  selectionProcess   SelectionProcess? @relation(fields: [selectionProcessId], references: [id], onDelete: SetNull)
+
+  nome        String  @db.VarChar(191)
+  complemento String? @db.VarChar(255) // ex: "Noturno — 2026/1"
+  codigo      String? @db.VarChar(50)
+  turno       String? @db.VarChar(20) // Matutino, Vespertino, Noturno, Integral
+
+  valorMensalidade Decimal? @db.Decimal(12, 2)
+  valorMatricula   Decimal? @db.Decimal(12, 2)
+  vagasMinimas     Int?
+  vagasMaximas     Int?
+
+  // Nota de corte específica desta oferta (ex: Medicina 700, Pedagogia 450).
+  // Override opcional de SelectionProcess.notaCorte — se null, usa a do processo.
+  // Lido pelo enemClassification.ts na ordem: offering.notaCorte > selectionProcess.notaCorte.
+  notaCorte Float?
+
+  // Cutoffs específicos por oferta — override de SelectionProcess.essayCutoff/presencialCutoff.
+  essayCutoff      Float?
+  presencialCutoff Float?
+
+  inicioInscricao  DateTime?
+  terminoInscricao DateTime?
+  inicioMatricula  DateTime?
+  terminoMatricula DateTime?
+  inicioCurso      DateTime?
+  terminoCurso     DateTime?
+
+  status    String   @default("active") @db.VarChar(20) // active, draft, closed
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campuses      CourseOfferingCampus[]
+  registrations ProcessRegistration[]
+
+  @@index([courseId])
+  @@index([unitId])
+  @@index([modalityId])
+  @@index([selectionProcessId])
+  @@index([status])
+  @@map("bychat_edu_offerings")
+}
+
+// N:M Oferta × Campus (uma oferta pode ser ministrada em vários campus)
+model CourseOfferingCampus {
+  id         Int            @id @default(autoincrement())
+  offeringId Int
+  offering   CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  campusId   Int
+  campus     Campus         @relation(fields: [campusId], references: [id], onDelete: Cascade)
+
+  @@unique([offeringId, campusId])
+  @@index([offeringId])
+  @@index([campusId])
+  @@map("bychat_edu_offering_campuses")
+}
+
+// Processo Seletivo = um "vestibular" (ENEM/vestibular/agendado/análise/transferência)
+// — como cada forma de ingresso é um processo distinto, NÃO há campo tipo fixo:
+// o admin cria um processo "Vestibular Tradicional 2026/1", outro "ENEM 2026/1", etc.
+// Modo de ingresso (Vestibular online/presencial, ENEM, Transferência, Segunda Graduação,
+// Pós-Graduação, Extensão, Bolsa). Define como o candidato é avaliado, quais documentos
+// são exigidos e qual workflow de aprovação é aplicado.
+// Seed fixo — registros criados pelo service educational.ts (idempotente).
+model EntryMode {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique @db.VarChar(40) // vestibular_online, enem, transferencia, etc.
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+  icon        String? @db.VarChar(10) // emoji para UI
+
+  // Tipo de avaliação determina o evaluator plugável.
+  // none = aprovação automática | docs = análise documental | enem = upload + parser IA
+  // exam_online = prova digital (F6 futura) | exam_presencial = prova em local físico (F5 futura)
+  evaluationType String @default("docs") @db.VarChar(30)
+
+  requiresClassification Boolean @default(false) // calcula nota/posição?
+
+  // Campos extras que aparecem no form do portal quando esse modo é selecionado.
+  // Formato: [{ name, label, type, required, ... }]
+  defaultFormExtras Json?
+
+  ordem     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  selectionProcesses   SelectionProcess[]
+  documentRequirements EntryModeDocumentRequirement[]
+
+  @@index([code])
+  @@index([active, ordem])
+  @@map("bychat_edu_entry_modes")
+}
+
+// Catálogo master de tipos de documento (RG, CPF, Histórico Escolar, Boletim ENEM, Diploma,
+// Comprovante de Renda, etc). Substitui o campo free-form EnrollmentDocument.type.
+model DocumentType {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique @db.VarChar(40) // rg, cpf, historico, boletim_enem, diploma
+  name        String  @db.VarChar(100)
+  description String? @db.Text
+  category    String  @default("other") @db.VarChar(30) // identity|academic|enem|financial|other
+
+  // Template de análise IA — chave que aponta para o prompt no worker de review.
+  // null = sem análise automatizada por IA (review puramente humano).
+  aiAnalysisTemplate String? @db.VarChar(50)
+
+  ordem     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  requirements   EntryModeDocumentRequirement[]
+  spRequirements SelectionProcessDocumentRequirement[]
+  documents      EnrollmentDocument[]
+
+  @@index([category, ordem])
+  @@map("bychat_edu_document_types")
+}
+
+// Junção N×N: quais documentos cada modo de ingresso exige.
+// Ex: EntryMode("transferencia") × DocumentType("historico") com required=true.
+model EntryModeDocumentRequirement {
+  id             Int          @id @default(autoincrement())
+  entryModeId    Int
+  entryMode      EntryMode    @relation(fields: [entryModeId], references: [id], onDelete: Cascade)
+  documentTypeId Int
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  required Boolean @default(true)
+  ordem    Int     @default(0)
+  helpText String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@unique([entryModeId, documentTypeId])
+  @@index([entryModeId, ordem])
+  @@map("bychat_edu_entry_mode_doc_requirements")
+}
+
+// Override por SelectionProcess. Quando o SP tem `useCustomDocuments = true`,
+// o candidato vê os requirements desta tabela em vez do default do EntryMode.
+// Quando false (default), herda 100% do EntryMode.
+model SelectionProcessDocumentRequirement {
+  id                 Int              @id @default(autoincrement())
+  selectionProcessId Int
+  selectionProcess   SelectionProcess @relation(fields: [selectionProcessId], references: [id], onDelete: Cascade)
+  documentTypeId     Int
+  documentType       DocumentType     @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  required Boolean @default(true)
+  ordem    Int     @default(0)
+  helpText String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@unique([selectionProcessId, documentTypeId])
+  @@index([selectionProcessId, ordem])
+  @@map("bychat_edu_sp_doc_requirements")
+}
+
+model SelectionProcess {
+  id          Int               @id @default(autoincrement())
+  unitId      Int
+  unit        EducationalUnit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  levelId     Int?
+  level       EducationalLevel? @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  // Modo de ingresso define avaliação, documentos e workflow do processo.
+  // Nullable só durante migração inicial — novos processos exigem.
+  entryModeId Int?
+  entryMode   EntryMode?        @relation(fields: [entryModeId], references: [id], onDelete: SetNull)
+
+  nome          String   @db.VarChar(191)
+  codigo        String?  @db.VarChar(50)
+  // Código único (slug) usado como identificador público do processo — ex.: "vestibular-20262".
+  // Referenciado no portal de matrículas para gerar inscrições com rastreabilidade.
+  slug          String?  @unique @db.VarChar(100)
+  descricao     String?  @db.Text
+  editalUrl     String?  @db.Text
+  taxaInscricao Decimal? @db.Decimal(12, 2)
+  periodoLetivo String?  @db.VarChar(20) // 2026/1, 2026/2
+
+  inicioInscricao  DateTime?
+  terminoInscricao DateTime?
+  inicioMatricula  DateTime?
+  terminoMatricula DateTime?
+
+  // Nota de corte aplicada ao modo ENEM (e exames futuros).
+  // Usado pelo evaluator para classificar aprovação/reprovação automática.
+  notaCorte Float?
+
+  status    String   @default("active") @db.VarChar(20) // active, draft, closed
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Quando true, painel do candidato usa documentRequirements desta SP em vez
+  // do default do EntryMode. Quando false (padrão), herda do modo.
+  useCustomDocuments Boolean @default(false)
+
+  // ── Configuração da Redação Online (modo vestibular_online) ──
+  // Tema, prazo, tentativas, anti-fraude, critérios IA. Aplicado por SP — cada
+  // edição do vestibular pode ter um tema/critérios diferentes.
+  essayPrompt          String? @db.Text
+  essayDurationMinutes Int? // null = sem prazo cronometrado
+  essayMaxAttempts     Int     @default(1)
+  essayMinWords        Int? // mínimo de palavras (validação client+server)
+  essayMaxWords        Int? // máximo de palavras
+  essayPasteBlocked    Boolean @default(true)
+  essayAiEnabled       Boolean @default(true)
+  // Quando true, a IA aprova/reprova direto (compara aiScore com essayCutoff)
+  // sem passar por revisão humana. Default false = sempre needs_human após IA.
+  essayAiAutoApprove   Boolean @default(false)
+  essayCutoff          Float? // nota mínima default (override por oferta)
+  // [{key, label, weight, description}] — ex: coesão 20%, gramática 15%, etc.
+  essayAiCriteria      Json?
+
+  // Cutoff default da prova presencial (override por oferta).
+  presencialCutoff Float?
+
+  offerings            CourseOffering[]
+  registrations        ProcessRegistration[]
+  documentRequirements SelectionProcessDocumentRequirement[]
+  essayTopics          EssayTopic[]
+
+  @@index([unitId])
+  @@index([levelId])
+  @@index([entryModeId])
+  @@index([status])
+  @@index([periodoLetivo])
+  @@map("bychat_edu_selection_processes")
+}
+
+// Tema da redação online — 1:N por SelectionProcess. O backend sorteia um
+// tema ativo a cada nova tentativa do candidato e snapshota em
+// EssaySubmission.prompt (não volta a sortear quando o draft é retomado).
+// Quando a SP não tem nenhum EssayTopic, o legado SelectionProcess.essayPrompt
+// é usado como fallback.
+model EssayTopic {
+  id                 Int              @id @default(autoincrement())
+  selectionProcessId Int
+  selectionProcess   SelectionProcess @relation(fields: [selectionProcessId], references: [id], onDelete: Cascade)
+
+  title        String?  @db.VarChar(150) // rótulo curto opcional ("Tema 1", "Inclusão digital")
+  prompt       String   @db.Text // enunciado completo da proposta
+  supportTexts String?  @db.Text // textos motivadores (opcional)
+  active       Boolean  @default(true)
+  ordem        Int      @default(0)
+
+  // Origem do tema — exibe badge na UI (ai | enem | manual). Default 'manual'
+  // pra não quebrar registros existentes; backfill aplicado na migração.
+  source       String   @default("manual") @db.VarChar(20)
+  // Metadados opcionais — ENEM: ano da prova; AI: modelo/contexto usados.
+  sourceMeta   Json?    @db.Json
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([selectionProcessId])
+  @@index([active])
+  @@map("bychat_edu_essay_topics")
+}
+
+// Registro de Processo = inscrição/matrícula do Lead numa Oferta via Processo Seletivo
+// (ponte Contato × Oferta × Processo Seletivo, com ciclo de vida do candidato)
+model ProcessRegistration {
+  id                 Int              @id @default(autoincrement())
+  leadId             Int
+  lead               Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  offeringId         Int
+  offering           CourseOffering   @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  selectionProcessId Int
+  selectionProcess   SelectionProcess @relation(fields: [selectionProcessId], references: [id], onDelete: Cascade)
+
+  codigo String? @db.VarChar(50)
+  // Ciclo: inscrito → pago_taxa → classificado → convocado → matriculado
+  //                                                        ↘ desistente / reprovado
+  status String  @default("inscrito") @db.VarChar(30)
+
+  inscritoEm     DateTime  @default(now())
+  pagoTaxaEm     DateTime?
+  classificadoEm DateTime?
+  convocadoEm    DateTime?
+  matriculadoEm  DateTime?
+  desistenteEm   DateTime?
+
+  notaClassificacao    Float?
+  posicaoClassificacao Int?
+  valorPago            Decimal? @db.Decimal(12, 2)
+  observacao           String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusLogs             ProcessRegistrationStatusLog[]
+  enrollmentRegistration EnrollmentRegistration?
+
+  @@unique([leadId, offeringId])
+  @@index([leadId])
+  @@index([offeringId])
+  @@index([selectionProcessId])
+  @@index([status])
+  @@map("bychat_edu_process_registrations")
+}
+
+// Histórico de mudanças de status de uma inscrição.
+// Cada PUT que altera ProcessRegistration.status escreve uma linha aqui.
+model ProcessRegistrationStatusLog {
+  id             Int                 @id @default(autoincrement())
+  registrationId Int
+  registration   ProcessRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  fromStatus     String?             @db.VarChar(30)
+  toStatus       String              @db.VarChar(30)
+  actorId        Int?
+  actorName      String?             @db.VarChar(191)
+  observacao     String?             @db.Text
+  createdAt      DateTime            @default(now())
+
+  @@index([registrationId, createdAt])
+  @@map("bychat_edu_process_registration_status_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PORTAL DE MATRÍCULAS (Fase A - MVP)
+// ═══════════════════════════════════════════════════════════════════
+
+// Portal de matrículas — página pública configurável vinculada a um ou mais
+// processos seletivos. Reaproveita LandingPage para o design.
+model EnrollmentPortal {
+  id   Int    @id @default(autoincrement())
+  slug String @unique @db.VarChar(100)
+  nome String @db.VarChar(191)
+
+  unitId Int
+  unit   EducationalUnit @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  // IDs dos processos seletivos atendidos por este portal (JSON array of Int).
+  selectionProcessIds Json @db.Json
+
+  // Design reaproveita LandingPage; relação 1-1 opcional.
+  landingPageId Int?         @unique
+  landingPage   LandingPage? @relation(fields: [landingPageId], references: [id], onDelete: SetNull)
+
+  // Estrutura do formulário multi-step (persistida como JSON).
+  // { steps: [{ id, name, fields: [{ type, name, label, required, options, rules }] }], ... }
+  formConfig Json @db.Json
+
+  // Modo do portal:
+  //   'full'     — formulário completo de matrícula (padrão, comportamento legado)
+  //   'interest' — captura leve no topo de funil (4 campos + LGPD); gera Lead
+  //                em status INTERESSADO e dispara magic link para o candidato
+  //                completar a inscrição em um portal 'full' depois.
+  formMode String @default("full") @db.VarChar(20)
+
+  // Quando formMode='interest', aponta para o portal 'full' onde o lead vai
+  // continuar a matrícula via magic link. Self-relation opcional.
+  continuationPortalId  Int?
+  continuationPortal    EnrollmentPortal?  @relation("PortalContinuation", fields: [continuationPortalId], references: [id], onDelete: SetNull)
+  interestSourcePortals EnrollmentPortal[] @relation("PortalContinuation")
+
+  // TTL do magic link de continuação, em dias. 30 é razoável para nurturing.
+  magicLinkTtlDays Int @default(30)
+
+  // Comportamento
+  alwaysCreateNew Boolean @default(false) // ignora dedup e sempre cria registro novo
+  ctaBehavior     String  @default("message") @db.VarChar(20) // message | redirect
+  ctaTarget       String? @db.VarChar(500)
+  ctaMessage      String? @db.Text
+
+  captchaType    String? @db.VarChar(20) // recaptcha | hcaptcha | none
+  captchaSiteKey String? @db.VarChar(100)
+  captchaSecret  String? @db.VarChar(255) // criptografado em produção
+
+  // Permissões / filtros hierárquicos (JSON array of Int, null = todos)
+  allowedLevelIds    Json? @db.Json
+  allowedCourseIds   Json? @db.Json
+  allowedCampusIds   Json? @db.Json
+  allowedModalityIds Json? @db.Json
+
+  // Pagamento (Fase B)
+  // O VALOR da taxa NÃO mora aqui — é lido de SelectionProcess.taxaInscricao
+  // (cada inscrição já carrega o selectionProcessId, então o valor segue o
+  // vestibular específico, não o portal que pode hospedar vários).
+  paymentProvider      String? @db.VarChar(30) // asaas | pagarme
+  paymentConfig        Json?   @db.Json
+  requirePayment       Boolean @default(false)
+  paymentDeadlineHours Int     @default(48)
+  // 'link'       = redireciona pra paymentlinks hospedado (Pagar.me) / invoiceUrl (Asaas)
+  // 'transparent' = checkout PIX/boleto/cartão renderiza dentro do portal de inscrição
+  paymentMode          String  @default("link") @db.VarChar(20)
+
+  // Domínio próprio + SEO
+  customDomain    String? @db.VarChar(191)
+  sslStatus       String? @db.VarChar(20)
+  metaTitle       String? @db.VarChar(191)
+  metaDescription String? @db.VarChar(500)
+  ogImageUrl      String? @db.Text
+
+  // Branding visual (aba 🎨 Visual no admin) — compartilhado por
+  // /portal/:slug (vestibular) e /candidato/:code (candidato).
+  brandLogoUrl            String? @db.VarChar(500)
+  brandLogoLink           String? @db.VarChar(500)
+  brandFaviconUrl         String? @db.VarChar(500)
+  brandPrimaryColor       String? @db.VarChar(20) // hex (#1a73e8)
+  brandHeroEnabled        Boolean @default(true)
+  brandHeroUrl            String? @db.VarChar(500)
+  brandHeroTitle          String? @db.VarChar(191)
+  brandHeroSubtitle       String? @db.VarChar(500)
+  brandHeroOverlayOpacity Int? // 0-80
+  brandFooterText         String? @db.Text
+  brandFontFamily         String? @db.VarChar(40) // inter | roboto | poppins | system
+  brandRadiusScale        String? @db.VarChar(20) // sharp | medium | rounded
+
+  // Advanced
+  customCss    String? @db.LongText
+  customHeadJs String? @db.LongText
+  customBodyJs String? @db.LongText
+
+  // Analytics (pixels)
+  pixelConfig Json? @db.Json
+
+  // CRM
+  teamId Int?
+  team   Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  // Funil destino para leads criados via portal
+  funnelId Int?
+  funnel   Funnel? @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  stageKey String? @db.VarChar(50)
+
+  // Etapa do funil para onde o lead vai automaticamente quando TODOS os docs
+  // obrigatórios da inscrição forem aprovados. Vazio = não move.
+  docsCompleteStageKey String? @db.VarChar(50)
+
+  // Etapa para auto-avanço quando docs OK + avaliação do modo de ingresso OK
+  // (redação aprovada / ENEM passou / presencial aprovado). Vazio = não move.
+  finalApprovalStageKey String? @db.VarChar(50)
+
+  // Conexão de gateway de pagamento (preferir a `paymentProvider` + `paymentConfig` legados).
+  // Referencia PaymentProviderConnection — 1 conexão serve N portais.
+  paymentConnectionId Int?
+  paymentConnection   PaymentProviderConnection? @relation(fields: [paymentConnectionId], references: [id], onDelete: SetNull)
+
+  // Sequência de candidateCode (usado no generator)
+  codePrefix   String @default("MAT") @db.VarChar(10)
+  codeSequence Int    @default(0)
+
+  // Estado
+  active      Boolean   @default(true)
+  publishedAt DateTime?
+
+  // Counters (updated via app logic)
+  views       Int @default(0)
+  submissions Int @default(0)
+  conversions Int @default(0)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  registrations EnrollmentRegistration[]
+  drafts        EnrollmentDraft[]
+
+  @@index([unitId])
+  @@index([active])
+  @@index([teamId])
+  @@index([funnelId])
+  @@index([paymentConnectionId])
+  @@index([customDomain])
+  @@map("bychat_enrollment_portals")
+}
+
+// Gateway de pagamento como integração reutilizável (1 conexão → N portais)
+model PaymentProviderConnection {
+  id          Int    @id @default(autoincrement())
+  name        String @db.VarChar(191)
+  provider    String @db.VarChar(30) // asaas | stripe | mercadopago
+  environment String @default("sandbox") @db.VarChar(20) // sandbox | production
+
+  apiKey             String  @db.Text // criptografada via encryptToken
+  // Public key (Pagar.me: pk_…) — usada pela tokenizecard.js no frontend para
+  // tokenizar cartão sem PCI no servidor (SAQ A). Asaas usa fluxo /creditCard/tokenize.
+  // Criptografada via encryptToken. Opcional: sem ela, aba cartão fica desabilitada.
+  publicKey          String? @db.Text
+  defaultBillingType String? @db.VarChar(20) // UNDEFINED | PIX | BOLETO | CREDIT_CARD
+
+  webhookToken  String  @unique @db.VarChar(64)
+  webhookSecret String? @db.VarChar(191)
+
+  // Metadados de conta
+  companyDocument String? @db.VarChar(20)
+  pixKey          String? @db.VarChar(191)
+  accountHolder   String? @db.VarChar(191)
+
+  active Boolean @default(true)
+
+  // Teste de conexão
+  lastTestedAt    DateTime?
+  lastTestStatus  String?   @db.VarChar(30) // ok | error
+  lastTestMessage String?   @db.Text
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portals     EnrollmentPortal[]
+  webhookHits PaymentWebhookHit[]
+
+  @@index([provider])
+  @@index([active])
+  @@map("bychat_payment_provider_connections")
+}
+
+// Módulo VoIP — registro de chamada (CDR) da integração FaleMaisVoip.
+// Duas origens: `click_to_call` (operador clica "Ligar" → v1/dial da Sigma REST)
+// e `bulk_sync` (importado do histórico /ligacoes da API de Gravações).
+// `leadId`/`userId`/`activityId` são scalars (sem relation Prisma) de propósito —
+// `bulk_sync` pode não casar com um lead e não queremos back-relations em User/Lead.
+model VoipCall {
+  id Int @id @default(autoincrement())
+
+  leadId     Int? // lead casado (por telefone) — null se não encontrado
+  activityId Int? // Activity tipo "call" criada para aparecer na timeline do lead
+  userId     Int? // operador que originou (click_to_call)
+  userName   String? @db.VarChar(191)
+
+  extension String? @db.VarChar(20) // ramal de origem
+  phone     String  @db.VarChar(30) // número discado (destino)
+  callerId  String? @db.VarChar(30) // bina usada (dialcallerid)
+  direction String  @default("outbound") @db.VarChar(10) // outbound | inbound
+
+  provider       String  @default("falemais") @db.VarChar(30)
+  providerCallId String? @db.VarChar(64) // id retornado pelo v1/dial (32 hex) — chave do polling de áudio
+  uniqueid       String? @db.VarChar(64) // uniqueid do CDR da API de Gravações
+
+  // dialing | answered | no_answer | busy | failed | completed
+  status     String    @default("dialing") @db.VarChar(20)
+  startedAt  DateTime  @default(now())
+  answeredAt DateTime?
+  durationSec Int?
+
+  recordingUrl      String?   @db.Text // URL pública servida via /uploads/voip-recordings/
+  recordingPath     String?   @db.VarChar(255) // caminho relativo dentro de uploads/
+  recordingSyncedAt DateTime?
+
+  source String @default("click_to_call") @db.VarChar(20) // click_to_call | bulk_sync
+  raw    Json?  @db.Json // payload bruto do provedor (audio/info ou /ligacoes) p/ debug
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([userId])
+  @@index([status])
+  @@index([providerCallId])
+  @@index([uniqueid])
+  @@index([startedAt])
+  @@map("bychat_voip_calls")
+}
+
+// Auditoria de cada webhook recebido (Pagar.me/Asaas). Persistido ANTES do
+// processamento — se o handler falhar, ainda temos o payload pra debug.
+model PaymentWebhookHit {
+  id           Int                        @id @default(autoincrement())
+  connectionId Int?                       // null se token inválido
+  connection   PaymentProviderConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+
+  provider     String  @db.VarChar(20)   // pagarme | asaas
+  eventType    String  @db.VarChar(100)  // charge.paid | order.payment_failed | ...
+  externalId   String? @db.VarChar(191)  // ch_... / payment id — extraído do payload
+
+  // Resultado do processamento
+  // received    = chegou mas ainda não processado (fallback)
+  // processed   = OK
+  // ignored     = evento não reconhecido (200 OK ao provider)
+  // notFound    = enrollment não encontrado (200 OK pra parar retentativas)
+  // error       = falhou
+  status         String  @default("received") @db.VarChar(20)
+  registrationId Int?
+  errorMessage   String? @db.Text
+  payload        Json    @db.Json
+  signatureValid Boolean @default(true)   // sempre true por ora (não validamos assinatura ainda)
+
+  remoteIp   String? @db.VarChar(45)
+  userAgent  String? @db.Text
+  receivedAt DateTime @default(now())
+
+  @@index([provider, receivedAt(sort: Desc)])
+  @@index([connectionId, receivedAt(sort: Desc)])
+  @@index([externalId])
+  @@index([status])
+  @@map("bychat_payment_webhook_hits")
+}
+
+// Cupom de desconto — cadastro admin. Ainda NÃO é aplicado no checkout
+// (integração futura). A estrutura permite percentual ou valor fixo, escopo
+// por portal, validade, limite de usos.
+model Coupon {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique @db.VarChar(50)
+  description String? @db.VarChar(255)
+
+  // 'percent' = value em % (1-100); 'fixed' = value em R$
+  type  String  @db.VarChar(10)
+  value Decimal @db.Decimal(12, 2)
+
+  // Limites
+  minAmount     Decimal? @db.Decimal(12, 2)   // só vale acima desse valor
+  maxDiscount   Decimal? @db.Decimal(12, 2)   // teto p/ tipo percent
+  usageLimit    Int?                           // null = ilimitado
+  usageCount    Int      @default(0)
+  perUserLimit  Int      @default(1)           // limite por CPF
+
+  // Escopo (JSON array de portalIds; null = todos os portais)
+  portalIds Json? @db.Json
+
+  // Validade
+  validFrom  DateTime?
+  validUntil DateTime?
+  active     Boolean   @default(true)
+
+  redemptions CouponRedemption[]
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([active])
+  @@map("bychat_coupons")
+}
+
+// Cada vez que um cupom é aplicado a uma inscrição (snapshot do desconto).
+model CouponRedemption {
+  id             Int     @id @default(autoincrement())
+  couponId       Int
+  coupon         Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  registrationId Int                                       // FK lógica (sem cascade — histórico imutável)
+
+  amountBefore   Decimal @db.Decimal(12, 2)
+  discountValue  Decimal @db.Decimal(12, 2)
+  amountAfter    Decimal @db.Decimal(12, 2)
+
+  // Snapshot da config do cupom no momento do uso (proteção contra mudança posterior)
+  couponSnapshot Json @db.Json
+
+  redeemedAt DateTime @default(now())
+
+  @@index([couponId])
+  @@index([registrationId])
+  @@map("bychat_coupon_redemptions")
+}
+
+// Rascunho de inscrição: salva formData intermediário por sessão.
+// Permite ao candidato recuperar progresso se fechar o browser.
+model EnrollmentDraft {
+  id       Int              @id @default(autoincrement())
+  portalId Int
+  portal   EnrollmentPortal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  sessionId   String @unique @db.VarChar(64)
+  formData    Json   @db.Json
+  currentStep Int    @default(0)
+
+  // Contatos opcionais para resume por email/whatsapp
+  email     String? @db.VarChar(191)
+  whatsapp  String? @db.VarChar(30)
+  ipAddress String? @db.VarChar(45)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([portalId])
+  @@index([expiresAt])
+  @@index([email])
+  @@index([whatsapp])
+  @@map("bychat_enrollment_drafts")
+}
+
+// Registro de uma inscrição submetida via portal. Complementa ProcessRegistration
+// com dados específicos do portal (pagamento, documentos, candidateCode).
+model EnrollmentRegistration {
+  id       Int              @id @default(autoincrement())
+  portalId Int
+  portal   EnrollmentPortal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+
+  processRegistrationId Int?                 @unique
+  processRegistration   ProcessRegistration? @relation(fields: [processRegistrationId], references: [id], onDelete: SetNull)
+
+  candidateCode String @unique @db.VarChar(30)
+
+  status String @default("pending") @db.VarChar(30)
+  // pending | paid | docs_uploaded | docs_reviewing | docs_approved | docs_rejected
+  // approved | rejected | enrolled | cancelled | expired
+
+  formData Json @db.Json
+
+  // Pagamento
+  paymentId        String?   @db.VarChar(191)
+  paymentStatus    String?   @db.VarChar(20)
+  paymentUrl       String?   @db.Text
+  paymentAmount    Decimal?  @db.Decimal(12, 2)
+  paymentMethod    String?   @db.VarChar(30)
+  paymentPaidAt    DateTime?
+  paymentExpiresAt DateTime?
+
+  documents        EnrollmentDocument[]
+  enemScoreImports EnemScoreImport[]
+  presencialExams  PresencialExam[]
+  essaySubmissions EssaySubmission[]
+  paymentMethods   EnrollmentPaymentMethod[]
+
+  leadId Int?
+  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  ipAddress   String? @db.VarChar(45)
+  userAgent   String? @db.Text
+  utmSource   String? @db.VarChar(100)
+  utmMedium   String? @db.VarChar(100)
+  utmCampaign String? @db.VarChar(191)
+  fbclid      String? @db.VarChar(191)
+  gclid       String? @db.VarChar(191)
+  referrer    String? @db.Text
+
+  // Login do candidato no portal (SHA256 do segredo)
+  accessHash String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([portalId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("bychat_enrollment_registrations")
+}
+
+// Checkout transparente: 1 linha por método ativo na inscrição (PIX/Boleto/Cartão).
+// Permite o candidato trocar de método (cada um tem dados/timestamps próprios) e
+// guardar dados sensíveis-mas-públicos (QR code, linha digitável) sem inflar
+// EnrollmentRegistration. Status reflete o último estado conhecido do provedor.
+model EnrollmentPaymentMethod {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  method   String @db.VarChar(20) // pix | boleto | credit_card
+  provider String @db.VarChar(20) // asaas | pagarme
+
+  externalId String? @db.VarChar(191) // id no provedor (order/charge/payment)
+  status     String  @default("pending") @db.VarChar(20) // pending | paid | expired | failed | refunded
+  amount     Decimal @db.Decimal(12, 2)
+  expiresAt  DateTime?
+
+  // PIX
+  qrCode    String? @db.Text     // string copy-paste
+  qrCodeUrl String? @db.Text     // URL da imagem PNG
+
+  // Boleto
+  boletoLine    String? @db.VarChar(60)  // linha digitável
+  boletoBarcode String? @db.VarChar(60)
+  boletoPdfUrl  String? @db.Text
+  boletoDueAt   DateTime?
+
+  // Cartão (só metadados, NUNCA o PAN — tokenização via JS do provider)
+  cardLastDigits String? @db.VarChar(4)
+  cardBrand      String? @db.VarChar(20)
+  cardHolderName String? @db.VarChar(191)
+
+  // Último erro do provedor (recusa, antifraude, etc) — exibido na UI
+  lastErrorMessage String? @db.Text
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([registrationId])
+  @@index([externalId])
+  @@index([status])
+  @@map("bychat_enrollment_payment_methods")
+}
+
+// F3 — Registro de importação/extração de boletim ENEM por inscrição.
+// Criado automaticamente pelo worker de análise documental quando um doc
+// do tipo `boletim_enem` é processado com sucesso. Mantém histórico
+// completo para recursos/fiscalização.
+model EnemScoreImport {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  documentId     Int?                   @unique
+  document       EnrollmentDocument?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  // Dados extraídos do boletim
+  nome      String? @db.VarChar(191)
+  inscricao String? @db.VarChar(30)
+  ano       Int?
+  treineiro Boolean @default(false)
+
+  // 5 notas ENEM
+  cienciasHumanas  Float?
+  cienciasNatureza Float?
+  linguagens       Float?
+  matematica       Float?
+  redacao          Float?
+
+  // Agregados calculados
+  mediaSimples   Float? // (CH+CN+LG+MT+RD)/5
+  mediaPonderada Float? // reservado para fórmulas customizadas por oferta
+
+  // Validação cruzada com o que o candidato informou no form
+  nomeBateComForm      Boolean?
+  inscricaoBateComForm Boolean?
+  anoBateComForm       Boolean?
+
+  // Resultado da classificação automática (F3.3)
+  cutoffScore Float? // snapshot da nota de corte aplicada no momento
+  passed      Boolean? // null = ainda não classificado
+
+  // Auditoria
+  source       String @default("ai") @db.VarChar(20) // ai | manual
+  aiConfidence Float?
+  rawAnalysis  Json? // snapshot do aiAnalysis que gerou este registro
+
+  // Revisão humana (override opcional)
+  validatedBy    Int?
+  validatedAt    DateTime?
+  validationNote String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([registrationId])
+  @@index([inscricao])
+  @@index([ano])
+  @@index([passed])
+  @@map("bychat_edu_enem_score_imports")
+}
+
+model EnrollmentDocument {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  // FK opcional para DocumentType. Nullable por compatibilidade com docs pré-F2
+  // que só tinham o campo `type` string-livre. Novos uploads devem ligar typeId.
+  typeId Int?
+  type   DocumentType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
+
+  // Campo legado: string livre do tipo. Mantido para compatibilidade com documentos
+  // antigos. Novos uploads usam typeId + lookup no DocumentType.
+  typeCode String @db.VarChar(30)
+
+  label     String @db.VarChar(100)
+  fileUrl   String @db.Text
+  fileName  String @db.VarChar(191)
+  mimeType  String @db.VarChar(50)
+  sizeBytes Int
+
+  // Status final da review (decisão humana, final).
+  // pending | approved | rejected
+  status     String    @default("pending") @db.VarChar(20)
+  reviewNote String?   @db.Text
+  reviewedBy Int?
+  reviewedAt DateTime?
+
+  // ═══ F2: Análise IA (Claude Sonnet 4.6 com visão) ═══
+  // Status do processamento IA: pending (enfileirado) | processing | done | failed | skipped
+  // skipped = DocumentType sem aiAnalysisTemplate, ou IA desligada para essa conta
+  aiStatus String @default("pending") @db.VarChar(20)
+
+  // Sugestão da IA ao operador humano: approve | review | reject
+  // Humano tem palavra final em `status`; aiSuggestion só orienta.
+  aiSuggestion String? @db.VarChar(20)
+
+  // Confiança da sugestão [0.0–1.0]. Abaixo do threshold cai automaticamente em review.
+  aiConfidence Float?
+
+  // Output estruturado do modelo: dados extraídos + flags + raciocínio resumido.
+  // Schema depende do aiAnalysisTemplate do tipo (ex: rg_cpf → { nome, cpf, rgNumero... }).
+  aiAnalysis Json?
+
+  // Tokens/custo gastos (auditoria + telemetria).
+  aiCostUsd Float?
+
+  aiProcessedAt DateTime?
+
+  uploadedAt DateTime @default(now())
+
+  enemScoreImport EnemScoreImport?
+
+  @@index([registrationId])
+  @@index([status])
+  @@index([typeId])
+  @@index([aiStatus])
+  @@map("bychat_enrollment_documents")
+}
+
+// ─── Vestibular Presencial (modo exam_presencial) ──────────────
+// Agendamento + lançamento de nota + veredito do time comercial.
+// Cada inscrição pode ter no máximo 1 exam (ou histórico se reagendar — TBD).
+model PresencialExam {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  // Agendamento
+  scheduledAt DateTime?
+  location    String?   @db.VarChar(255)
+  room        String?   @db.VarChar(50)
+  seatNumber  String?   @db.VarChar(20)
+
+  // Presença na prova: scheduled | present | absent
+  attendanceStatus String @default("scheduled") @db.VarChar(20)
+
+  // Correção
+  score    Float?
+  maxScore Float?
+  examNote String? @db.Text
+
+  // Veredito do time comercial / coordenação
+  verdict       String    @default("pending") @db.VarChar(20) // pending | approved | rejected
+  verdictBy     Int? // userId
+  verdictAt     DateTime?
+  verdictReason String?   @db.Text
+
+  // Classificação
+  passed        Boolean?
+  cutoffApplied Float? // snapshot do cutoff usado
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([registrationId])
+  @@index([scheduledAt])
+  @@index([verdict])
+  @@map("bychat_edu_presencial_exams")
+}
+
+// ─── Redação Online (modo vestibular_online) ───────────────────
+// 1 submissão por tentativa. Tentativas máximas vêm do SelectionProcess.essayMaxAttempts.
+// Cronometrado: startedAt + expiresAt; submissão após expiresAt = inválida no servidor.
+model EssaySubmission {
+  id             Int                    @id @default(autoincrement())
+  registrationId Int
+  registration   EnrollmentRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+
+  // Snapshot do tema no momento que a tentativa iniciou (mesmo se SP for editada depois)
+  prompt String? @db.Text
+
+  attemptNumber Int @default(1)
+
+  essayText String? @db.LongText
+  wordCount Int     @default(0)
+
+  // Estado: draft | submitted | ai_reviewing | needs_human | approved | rejected | expired
+  status String @default("draft") @db.VarChar(20)
+
+  // Tempo
+  startedAt   DateTime?
+  expiresAt   DateTime?
+  submittedAt DateTime?
+
+  // IA
+  aiScore       Float?
+  aiAnalysis    Json? // { criteria: [{key,label,score,comment}], overall, suggestions }
+  aiConfidence  Float?
+  aiProcessedAt DateTime?
+  aiCostUsd     Float?
+
+  // Revisão humana
+  humanScore Float?
+  humanNote  String?   @db.Text
+  reviewedBy Int?
+  reviewedAt DateTime?
+
+  // Resolução final
+  finalScore    Float?
+  passed        Boolean?
+  cutoffApplied Float?
+
+  // Anti-fraude (auditoria — incrementado pelo client via beacon)
+  pasteAttempts     Int @default(0)
+  visibilityChanges Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([registrationId])
+  @@index([status])
+  @@index([submittedAt])
+  @@map("bychat_edu_essay_submissions")
+}
+
+// ─── Sales Engagement ────────────────────────────────────────
+// Cadências outbound estilo Outreach/Salesloft. Motor próprio (cadenceScheduler)
+// que reusa apenas dispatchAction do workflowActions para envios. Detalhes:
+// docs/sales_engagement_core.md e memória project_bychatbeyond_sales_engagement.
+
+model SalesCadence {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(191)
+  description String? @db.Text
+
+  // Owner (criador) e equipe responsável (governança/permissões/queries)
+  ownerId Int?
+  owner   User? @relation("CadenceOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  teamId  Int?
+  team    Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  status      String @default("draft") @db.VarChar(20) // draft | active | paused | archived
+  triggerMode String @default("manual") @db.VarChar(20) // manual | filter
+  filterJson  Json?  @db.Json // se triggerMode=filter, query do filtro de leads
+
+  pauseOnReply     Boolean @default(true) // resposta do lead pausa cadência
+  exitOnConversion Boolean @default(true) // venda/agendamento removem da cadência
+  exitOnStatuses   Json?   @db.Json       // lista de Lead.status que removem da cadência (ex: ["GANHO","PERDIDO"])
+
+  // Fase 23.1: auto-enroll quando lead for marcado como Perdido com uma destas objeções.
+  // Ex: [1, 3] = inscreve automaticamente leads perdidos por "Sem orçamento" ou "Decidiu não comprar".
+  // Lista vazia ou null = sem auto-enroll (modo manual/filter padrão).
+  entryOnLossReasonIds Json? @db.Json
+
+  steps       CadenceStep[]
+  enrollments CadenceEnrollment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([teamId])
+  @@index([ownerId])
+  @@map("bychat_sales_cadences")
+}
+
+model CadenceStep {
+  id        Int          @id @default(autoincrement())
+  cadenceId Int
+  cadence   SalesCadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+
+  order      Int // ordem do step na cadência (0, 1, 2…)
+  dayOffset  Int @default(0) // dias após o step anterior (ou após enrollment, se primeiro)
+  hourOffset Int @default(0) // horas adicionais ao dayOffset
+
+  channel    String           @db.VarChar(20) // whatsapp | email | sms | call | manual | linkedin
+  templateId Int?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  isManual      Boolean @default(false) // true → cria Activity em vez de envio automático
+  isBreakUp     Boolean @default(false) // step de "break-up message" (último automático)
+  conditionJson Json?   @db.Json // ex: { "tag": "hot" } — só executa se condição satisfeita
+
+  // Builder visual (Fase 26): posição no canvas e branching opcional. Quando
+  // nextStepId/altStepId são null o cadenceScheduler segue o modelo linear
+  // legado (ordem por `order`).
+  positionX  Int  @default(0)
+  positionY  Int  @default(0)
+  nextStepId Int?
+  altStepId  Int?
+
+  executions CadenceStepExecution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cadenceId, order])
+  @@index([cadenceId])
+  @@index([templateId])
+  @@map("bychat_cadence_steps")
+}
+
+model CadenceEnrollment {
+  id        Int          @id @default(autoincrement())
+  cadenceId Int
+  cadence   SalesCadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+  leadId    Int
+  lead      Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  enrolledAt   DateTime  @default(now())
+  currentStep  Int       @default(0) // próximo step a executar (índice em CadenceStep.order)
+  nextActionAt DateTime? // quando o cadenceScheduler deve processar este enrollment
+  status       String    @default("active") @db.VarChar(20) // active | paused | completed | exited
+
+  exitReason     String?   @db.VarChar(50) // replied | converted | opted_out | max_attempts | canceled | fora_fit
+  pauseReason    String?   @db.VarChar(50) // reply_received | manual | governance_blocked
+  lastReplyClass String?   @db.VarChar(30) // resultado do cadenceReplyClassifier (positiva|objecao|...)
+  lastActionAt   DateTime?
+
+  executions CadenceStepExecution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cadenceId, leadId])
+  @@index([status, nextActionAt])
+  @@index([leadId])
+  @@map("bychat_cadence_enrollments")
+}
+
+// E4: cada execução de step gera uma linha aqui — permite drill-down completo
+// no dashboard (por canal, por operador, por status). Cobre tanto envios
+// automáticos (status='sent') quanto activities manuais (status='created_activity'
+// + activityId) e bloqueios de governança (status='skipped_*').
+model CadenceStepExecution {
+  id           Int               @id @default(autoincrement())
+  enrollmentId Int
+  enrollment   CadenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  stepId       Int
+  step         CadenceStep       @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  leadId       Int
+  cadenceId    Int
+
+  channel String @db.VarChar(20) // whatsapp | email | sms | call | manual | linkedin
+  // sent | created_activity | skipped_opt_out | skipped_blacklist | skipped_silence_window
+  // | skipped_frequency_cap | skipped_template_missing | skipped_empty_body | failed
+  status  String @db.VarChar(40)
+
+  // Pra step manual: id da Activity criada + operador que completou (preenchido
+  // depois quando o operador marca a Activity como completed).
+  activityId     Int?
+  operatorUserId Int?
+  operator       User? @relation("CadenceStepExecutionOperator", fields: [operatorUserId], references: [id], onDelete: SetNull)
+  completedAt    DateTime?
+
+  errorMessage String? @db.Text
+  jobId        String? @db.VarChar(100) // BullMQ job id pra rastreabilidade
+
+  executedAt DateTime @default(now())
+
+  @@index([cadenceId, executedAt])
+  @@index([enrollmentId])
+  @@index([leadId])
+  @@index([channel, executedAt])
+  @@index([operatorUserId])
+  @@index([activityId])
+  @@map("bychat_cadence_step_executions")
+}
+
+// Governança de canal POR EQUIPE. Lida pelo messageGovernance.canSendNow:
+// silence window, frequency cap diário e blacklist específicos do time.
+// teamId NULL = config "global" (fallback quando lead não tem teamId).
+// Por equipe → permite times com SLAs/políticas distintas (ex: vendas mais agressiva,
+// pós-venda mais restrita).
+model ChannelGovernance {
+  id     Int  @id @default(autoincrement())
+  teamId Int?
+  team   Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  // { "whatsapp": 2, "email": 1, "sms": 1 }  — chaves ausentes = sem limite.
+  maxPerChannelPerDay Json @db.Json
+  // { "start": "22:00", "end": "08:00", "weekends": true }
+  silenceWindow       Json @db.Json
+  // { "phones": ["55119...","55…"], "emails": ["x@y.com"] }
+  blacklist           Json @db.Json
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([teamId])
+  @@map("bychat_channel_governance")
+}
+
+// ═════════════════════════════════════════════
+// FERRAMENTAS — UTM Builder (catálogo de URLs taggeadas)
+// ═════════════════════════════════════════════
+//
+// Biblioteca de URLs com UTMs reaproveitáveis. Operadores constroem uma URL
+// taggeada, salvam com label interno, e podem reusar/exportar. Independente
+// do `TrackableLink` (link encurtado /t/:slug) — mas integrável depois.
+model UtmLink {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(191)   // label interno: "Black Friday WhatsApp post"
+  baseUrl     String   @db.VarChar(2048)  // URL antes dos UTMs
+  utmSource   String   @db.VarChar(100)
+  utmMedium   String   @db.VarChar(100)
+  utmCampaign String   @db.VarChar(191)
+  utmTerm     String?  @db.VarChar(191)
+  utmContent  String?  @db.VarChar(191)
+  utmId       String?  @db.VarChar(191)   // Meta usa pra atribuição cross-device
+  fullUrl     String   @db.Text           // URL final montada (cache pra busca/cópia)
+  notes       String?  @db.Text
+  tags        Json?    @db.Json           // ["lançamento", "Q4"]
+  active      Boolean  @default(true)
+  archived    Boolean  @default(false)
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([utmCampaign])
+  @@index([utmSource, utmMedium])
+  @@index([active, archived])
+  @@map("bychat_utm_links")
+}
+
+// Persona / ICP — perfil estruturado do cliente ideal. Vira contexto pro
+// chatbot, Sales AI e cadências (system prompt + tom de voz consistente).
+model Persona {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(191)        // "Coordenadora pedagógica de escola média"
+  description  String?  @db.Text                // narrativa 2-3 parágrafos
+  ageRange     String?  @db.VarChar(60)         // "30-45"
+  genderHint   String?  @db.VarChar(40)         // "majoritariamente feminino"
+  location     String?  @db.VarChar(191)        // "interior SP/MG"
+  occupation   String?  @db.VarChar(191)
+  income       String?  @db.VarChar(60)         // "R$ 5k-15k"
+  painPoints   Json?    @db.Json                // string[]
+  objections   Json?    @db.Json                // string[]
+  triggers     Json?    @db.Json                // string[] — eventos/sinais que disparam compra
+  channels     Json?    @db.Json                // string[] — WhatsApp/Email/Instagram/...
+  voiceTone    String?  @db.Text                // "Profissional mas próximo, evitar gírias, usar exemplos pedagógicos"
+  examplePhrases Json?  @db.Json                // string[] — frases que o cliente usaria
+  goals        Json?    @db.Json                // string[] — objetivos do cliente
+  active       Boolean  @default(true)          // false = arquivada
+  isDefault    Boolean  @default(false)         // a persona "ativa" usada como contexto IA padrão
+  createdById  Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active, isDefault])
+  @@map("bychat_personas")
+}
+
+// Auditoria automática de conversas por IA. Roda async em background — analisa
+// as mensagens trocadas no lead, devolve score 0-100, tom predominante,
+// tempos de resposta e oportunidades perdidas. Usada para ranking de operadores
+// e alertas de qualidade.
+model ConversationAudit {
+  id                Int      @id @default(autoincrement())
+  leadId            Int
+  lead              Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // Operador "principal" do lead no momento da auditoria (snapshot).
+  // Fica null para leads sem operador atribuído — agregação por operador filtra null.
+  operatorId        Int?
+  operatorName      String?  @db.VarChar(100)
+  // Período auditado (geralmente janela das últimas N mensagens).
+  periodFrom        DateTime?
+  periodTo          DateTime?
+  messageCount      Int      @default(0)
+  // Score 0-100 calculado pela IA combinando tom, atendimento, follow-up, etc.
+  score             Int?     @db.SmallInt
+  // Categorização do tom: cordial | neutro | frio | agressivo | inconsistente
+  tone              String?  @db.VarChar(20)
+  // Métricas mensuráveis sem IA — calculadas a partir das mensagens.
+  responseTimeAvgSec Int?
+  responseTimeP95Sec Int?
+  // O que a IA observou — listas curtas de bullet points.
+  strengths         Json?    @db.Json // string[]
+  weaknesses        Json?    @db.Json // string[]
+  missedOpportunities Json?  @db.Json // string[]
+  // Aderência a script/roteiro (0-100 ou null se não aplicável).
+  scriptAdherence   Int?     @db.SmallInt
+  summary           String?  @db.Text
+  modelUsed         String?  @db.VarChar(50)
+  status            String   @default("done") @db.VarChar(20) // pending | running | done | failed
+  errorMessage      String?  @db.Text
+  triggeredBy       String?  @db.VarChar(20) // manual | cron | event
+  triggeredById     Int?
+  createdAt         DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([operatorId, createdAt])
+  @@index([score])
+  @@map("bychat_conversation_audits")
+}
+
+// Sugestão de movimentação de etapa gerada pela IA — Fase 9 "Jornada Automática".
+// Quando o funil tem `aiStageEnabled`, um worker analisa o lead, identifica
+// a próxima etapa apropriada e cria uma LeadStageSuggestion. Se a confidence
+// ≥ funnel.aiStageThreshold E funnel.aiStageAutoApply=true, aplica automaticamente
+// (move o lead). Senão fica como sugestão pendente pra revisão humana.
+model LeadStageSuggestion {
+  id              Int      @id @default(autoincrement())
+  leadId          Int
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  funnelId        Int
+  funnel          Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  fromStageKey    String?  @db.VarChar(50)
+  suggestedStageKey String @db.VarChar(50)
+  confidence      Int      @db.SmallInt  // 0-100
+  reasoning       String?  @db.Text
+  modelUsed       String?  @db.VarChar(50)
+  // pending | applied | rejected | superseded
+  status          String   @default("pending") @db.VarChar(20)
+  appliedAt       DateTime?
+  decidedById     Int?     // operador que aprovou/rejeitou manualmente
+  decidedAt       DateTime?
+  decisionNote    String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([leadId, status])
+  @@index([funnelId, status, createdAt])
+  @@index([status])
+  @@map("bychat_lead_stage_suggestions")
+}
+
+// Módulo de importação de leads via planilha (CSV/Excel).
+// Cada upload cria 1 row com status=preview + parsedRows JSON (até 5k linhas).
+// Quando admin confirma, status vira running → done. errors JSON acumula falhas individuais.
+model LeadImport {
+  id                Int       @id @default(autoincrement())
+  importedByUserId  Int?
+  importedBy        User?     @relation(fields: [importedByUserId], references: [id], onDelete: SetNull)
+  fileName          String    @db.VarChar(255)
+  fileSize          Int?
+  status            String    @default("preview") @db.VarChar(15)
+  totals            Json?     @db.Json
+  mapping           Json      @db.Json
+  parsedRows        String?   @db.MediumText
+  errors            Json?     @db.Json
+  previewExpiresAt  DateTime?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status])
+  @@index([importedByUserId])
+  @@map("bychat_lead_imports")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Módulo de Agendamento de Reuniões (scheduling) — migration 0074
+// FKs escalares (sem relação Prisma) p/ não tocar Lead/User/Funnel.
+// ─────────────────────────────────────────────────────────────
+
+model MeetingType {
+  id          Int     @id @default(autoincrement())
+  slug        String  @unique @db.VarChar(100)
+  name        String  @db.VarChar(191)
+  description String? @db.Text
+  color       String? @db.VarChar(20)
+  active      Boolean @default(true)
+
+  // Regras de reserva
+  durationMin        Int    @default(30)
+  bufferBeforeMin    Int    @default(0)
+  bufferAfterMin     Int    @default(0)
+  slotIncrementMin   Int    @default(30)
+  minNoticeMin       Int    @default(240) // antecedência mínima (min)
+  bookingWindowDays  Int    @default(60) // janela de reserva (dias à frente)
+  maxPerDay          Int? // teto de reservas por dia
+  visibleSlotsPerDay Int? // limite de slots exibidos por dia
+  timezone           String @default("America/Sao_Paulo") @db.VarChar(60)
+
+  // Local
+  locationType   String  @default("google_meet") @db.VarChar(30) // google_meet|phone|whatsapp|in_person|custom
+  locationDetail String? @db.VarChar(255)
+
+  // Atribuição
+  assignmentMode String @default("fixed") @db.VarChar(20) // fixed|round_robin
+  ownerUserId    Int?
+  teamId         Int?
+
+  // Integração CRM
+  funnelId      Int?
+  stageKey      String? @db.VarChar(60) // etapa ao agendar
+  defaultTeamId Int?
+  landingPageId Int?
+
+  // Config (JSON): perguntas extras, mensagens de confirmação, pixel
+  intakeFields       Json? @db.Json
+  confirmationConfig Json? @db.Json
+  pixelConfig        Json? @db.Json
+
+  totalBookings Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([active])
+  @@index([ownerUserId])
+  @@map("bychat_meeting_types")
+}
+
+model AvailabilitySchedule {
+  id            Int      @id @default(autoincrement())
+  name          String   @db.VarChar(120)
+  ownerUserId   Int? // agenda de um operador
+  meetingTypeId Int? // ou específica de um tipo
+  timezone      String   @default("America/Sao_Paulo") @db.VarChar(60)
+  // [{ weekday: 1, start: "09:00", end: "12:00" }, ...] (0=domingo)
+  rules         Json     @db.Json
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([ownerUserId])
+  @@index([meetingTypeId])
+  @@map("bychat_availability_schedules")
+}
+
+model AvailabilityException {
+  id          Int      @id @default(autoincrement())
+  scheduleId  Int
+  date        DateTime @db.Date
+  unavailable Boolean  @default(true) // true=bloqueado; false=horário custom
+  startTime   String?  @db.VarChar(5) // "09:00"
+  endTime     String?  @db.VarChar(5)
+  note        String?  @db.VarChar(191)
+  createdAt   DateTime @default(now())
+
+  @@index([scheduleId, date])
+  @@map("bychat_availability_exceptions")
+}
+
+model Booking {
+  id             Int    @id @default(autoincrement())
+  token          String @unique @db.VarChar(64) // links públicos remarcar/cancelar
+  meetingTypeId  Int
+  leadId         Int?
+  operatorUserId Int?
+
+  startAt  DateTime
+  endAt    DateTime
+  timezone String   @db.VarChar(60)
+  status   String   @default("scheduled") @db.VarChar(20) // scheduled|confirmed|completed|cancelled|no_show|rescheduled
+
+  inviteeName  String? @db.VarChar(191)
+  inviteeEmail String? @db.VarChar(191)
+  inviteePhone String? @db.VarChar(30)
+  answers      Json?   @db.Json
+
+  locationType  String? @db.VarChar(30)
+  meetLink      String? @db.Text
+  googleEventId String? @db.VarChar(255)
+  activityId    Int?
+
+  cancelReason      String? @db.VarChar(255)
+  rescheduledFromId Int?
+  source            String  @default("scheduling") @db.VarChar(30)
+  visitorId         String? @db.VarChar(64)
+  utmSource         String? @db.VarChar(191)
+  utmMedium         String? @db.VarChar(191)
+  utmCampaign       String? @db.VarChar(191)
+  utmContent        String? @db.VarChar(191)
+  utmTerm           String? @db.VarChar(191)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([meetingTypeId, startAt])
+  @@index([operatorUserId, startAt])
+  @@index([leadId])
+  @@index([status])
+  @@map("bychat_bookings")
+}
+
+// Compromissos/bloqueios manuais na agenda de um operador. Aparecem no calendário e,
+// quando ocupam tempo (busy/event), reduzem a disponibilidade pública (slots).
+model CalendarBlock {
+  id             Int      @id @default(autoincrement())
+  operatorUserId Int?
+  title          String   @default("")
+  kind           String   @default("busy") // 'busy' (bloqueio) | 'event' (compromisso manual)
+  startAt        DateTime
+  endAt          DateTime
+  allDay         Boolean  @default(false)
+  color          String?  @db.VarChar(20)
+  note           String?  @db.Text
+  createdByUserId Int?
+  source         String   @default("manual")
+  googleEventId    String? @db.VarChar(191) // evento espelhado no Google Calendar do operador
+  googleCalendarId String? @db.VarChar(191)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([operatorUserId, startAt])
+  @@index([startAt])
+  @@map("bychat_calendar_blocks")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Integração Kommo CRM — importador (migration 0081)
+// ─────────────────────────────────────────────────────────────
+// Mapeia IDs externos da Kommo → entidades locais do bychat, sem poluir os
+// models core com colunas externalId. Liga lead/contact/pipeline/status/tag/
+// note/task/custom_field/user da Kommo aos registros do bychat. Garante
+// idempotência do importador: re-sync faz upsert (não duplica).
+// `kommoId` é String (VarChar) pra evitar overflow de Int e a dor de BigInt
+// no JSON. `meta` guarda dados auxiliares do vínculo (ex: pipelineId do status,
+// updatedAt da Kommo p/ sync incremental, contactId principal de um lead, etc).
+model KommoMapping {
+  id         Int      @id @default(autoincrement())
+  entityType String   @db.VarChar(30) // lead | contact | pipeline | status | tag | note | task | custom_field | user
+  kommoId    String   @db.VarChar(40)
+  localId    Int
+  meta       Json?    @db.Json
+  syncedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, kommoId])
+  @@index([entityType, localId])
+  @@map("bychat_kommo_mappings")
+}

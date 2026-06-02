@@ -1,0 +1,63 @@
+import * as Tooltip from '@radix-ui/react-tooltip'
+import { useLocation } from 'wouter-preact'
+import type { SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
+import { SidebarIcon } from './SidebarIcon'
+import { cn } from '@/lib/cn'
+
+interface SidebarItemProps {
+  item: SidebarItemType
+  /** Em modo rail só aparece o ícone; o label vai num Tooltip flutuante. */
+  iconOnly: boolean
+  onNavigate?: (() => void) | undefined
+}
+
+export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
+  const [location, navigate] = useLocation()
+  const isActive = location === item.href || location.startsWith(`${item.href}/`)
+
+  function handleClick(e: MouseEvent) {
+    e.preventDefault()
+    navigate(item.href)
+    onNavigate?.()
+  }
+
+  const link = (
+    <a
+      href={item.href}
+      class="app-sidebar-item"
+      data-active={isActive}
+      data-id={item.id}
+      onClick={handleClick}
+      aria-label={iconOnly ? item.label : undefined}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <SidebarIcon name={item.icon} size={18} />
+      <span class={cn('app-sidebar-item-label', iconOnly && 'sr-only')}>{item.label}</span>
+      {item.badge !== undefined && !iconOnly && (
+        <span class="app-sidebar-item-badge">{item.badge}</span>
+      )}
+    </a>
+  )
+
+  if (!iconOnly) return link
+
+  return (
+    <Tooltip.Provider delayDuration={300}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>{link}</Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content
+            side="right"
+            sideOffset={8}
+            class="z-tooltip rounded-md bg-surface-3 text-fg px-2 py-1 text-xs shadow-md border border-border"
+            style={{ zIndex: 'var(--z-tooltip)' }}
+          >
+            {item.label}
+            {item.badge !== undefined && <span class="ml-1.5 opacity-70">({item.badge})</span>}
+            <Tooltip.Arrow class="fill-[color:var(--color-surface-3)]" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  )
+}
