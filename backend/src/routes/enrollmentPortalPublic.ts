@@ -141,6 +141,15 @@ function renderPortalHtml(portal: any, req: FastifyRequest, offeringsForSchema?:
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${title}</title>
@@ -284,7 +293,16 @@ function renderPixels(config: any): string {
 }
 
 function renderNotFound(): string {
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Portal não encontrado</title><meta name="robots" content="noindex,nofollow"><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f6f7fb;color:#1a2332;text-align:center}.box{padding:40px;max-width:480px}.box h1{font-size:48px;margin:0 0 8px;color:#6b7280}.box p{color:#6b7280}</style></head><body><div class="box"><h1>404</h1><p>Portal de matrículas indisponível ou desativado.</p></div></body></html>`
+  return `<!DOCTYPE html><html lang="pt-BR"><head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+<meta charset="UTF-8"><title>Portal não encontrado</title><meta name="robots" content="noindex,nofollow"><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f6f7fb;color:#1a2332;text-align:center}.box{padding:40px;max-width:480px}.box h1{font-size:48px;margin:0 0 8px;color:#6b7280}.box p{color:#6b7280}</style></head><body><div class="box"><h1>404</h1><p>Portal de matrículas indisponível ou desativado.</p></div></body></html>`
 }
 
 async function fetchOfferingsForPortal(portal: any): Promise<any[]> {

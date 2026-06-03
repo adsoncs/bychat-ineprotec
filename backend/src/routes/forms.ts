@@ -12,6 +12,7 @@ import { pickOperatorForTeam, resolveRoutingFromContext } from '../services/team
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
+import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
 import { dispatchConversion } from '../services/googleAdsConversions.js'
 import { createHmac } from 'crypto'
 
@@ -244,10 +245,18 @@ export async function formsRoutes(app: FastifyInstance) {
       const fields: any[] = Array.isArray(form.fields) ? form.fields as any[] : []
       const settings = form.settings as any || {}
 
-      // Validar campos obrigatórios
-      for (const field of fields) {
-        if (field.required && !data[field.key]) {
-          return reply.code(400).send({ ok: false, error: `Campo "${field.label}" é obrigatório` })
+      // Resolve a qualificação já aqui (função pura sobre as respostas): decide
+      // etapa, finalização e se a validação de obrigatórios deve ser pulada.
+      const qualify = resolveQualification(fields, data, settings)
+
+      // Validar campos obrigatórios — EXCETO quando a qualificação finaliza o form
+      // antes (early-finish): os campos seguintes não foram respondidos de propósito,
+      // então exigir obrigatórios aqui abortaria o submit e impediria o redirect.
+      if (!qualify?.finish) {
+        for (const field of fields) {
+          if (field.required && !data[field.key]) {
+            return reply.code(400).send({ ok: false, error: `Campo "${field.label}" é obrigatório` })
+          }
         }
       }
 
@@ -280,7 +289,6 @@ export async function formsRoutes(app: FastifyInstance) {
 
       // ── Pipeline: criar/vincular lead ──
       let leadId: number | null = null
-      let qualify: QualifyResolved | null = null
       // Tokens p/ interpolar no redirect (ex.: /agendar/x?name={{nome}}&email={{email}})
       const redirectTokens: Record<string, string> = {}
       try {
@@ -309,8 +317,7 @@ export async function formsRoutes(app: FastifyInstance) {
         }
 
         // Roteamento por qualificação (negativo vence): move o lead para a etapa
-        // decisiva do funil. Fonte única — re-resolve a partir das respostas.
-        qualify = resolveQualification(fields, data, settings)
+        // decisiva do funil (já resolvido acima a partir das respostas).
         if (leadId && qualify && qualify.stageKey) {
           await moveLeadStage(leadId, qualify.funnelId ?? form.funnelId ?? null, qualify.stageKey, 'form').catch(() => {})
           convStageKey = qualify.stageKey
@@ -530,6 +537,11 @@ export async function formsRoutes(app: FastifyInstance) {
     return { forms }
   })
 
+  // ── GET /api/forms/templates ─── Modelos pré-definidos (ANTES de :id!) ──
+  app.get('/api/forms/templates', { preHandler: authMiddleware }, async () => {
+    return { templates: FORM_TEMPLATES }
+  })
+
   // ── GET /api/forms/:id ──
   app.get('/api/forms/:id', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
@@ -746,6 +758,126 @@ function getDefaultFormSettings(): any {
   }
 }
 
+// ─── Modelos pré-definidos de formulário ("A partir de um modelo") ───────────
+// Cada modelo já vem com fields (id+key próprios), settings e styling. Ao criar,
+// o frontend manda { name, fields, settings, styling } pro POST /api/forms.
+const FORM_TEMPLATES = [
+  {
+    id: 'capture_fast',
+    name: 'Captação rápida',
+    description: 'Nome, WhatsApp e e-mail. Poucos campos, foco em conversão — ideal para tráfego pago.',
+    category: 'Aquisição',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Nome', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_whats', type: 'phone', key: 'whatsapp', label: 'WhatsApp', mapTo: 'whatsapp', required: true, placeholder: '(00) 00000-0000' },
+      { id: 'f_email', type: 'email', key: 'email', label: 'E-mail', mapTo: 'email', required: false, placeholder: 'voce@email.com' },
+    ],
+    settings: {
+      displayMode: 'classic', submitText: 'Quero receber',
+      successMode: 'message', successTitle: 'Recebemos seus dados!', successMessage: 'Em breve nossa equipe entra em contato.',
+      journey: { partialCapture: true },
+    },
+    styling: { primaryColor: '#1a73e8' },
+  },
+  {
+    id: 'qualify_conversational',
+    name: 'Qualificação conversacional',
+    description: 'Uma pergunta por vez (estilo Typeform) com pergunta de qualificação que roteia o lead e pode finalizar.',
+    category: 'Qualificação',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Como podemos te chamar?', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_whats', type: 'phone', key: 'whatsapp', label: 'Qual seu WhatsApp?', mapTo: 'whatsapp', required: true, placeholder: '(00) 00000-0000' },
+      {
+        id: 'f_qualif', type: 'select', key: 'momento', label: 'Você já tem verba definida para investir agora?', required: true,
+        isQualifier: true, positiveValues: ['sim'],
+        options: [{ value: 'sim', label: 'Sim, já tenho orçamento' }, { value: 'nao', label: 'Ainda não / só pesquisando' }],
+        qualifyPositive: { finish: false },
+        qualifyNegative: { finish: true, finishAction: 'message', message: '<p>Obrigado por responder! 🙌 No momento ajudamos quem já tem verba definida — mas vamos te enviar materiais gratuitos para te ajudar a chegar lá.</p>' },
+      },
+    ],
+    settings: {
+      displayMode: 'conversational', submitText: 'Enviar',
+      successMode: 'message', successTitle: 'Tudo certo!', successMessage: 'Recebemos suas respostas. Em breve falamos com você.',
+      conversational: { welcomeEnabled: true, welcomeTitle: 'Vamos entender seu momento', welcomeText: 'Leva menos de 1 minuto.', startButtonText: 'Começar', navButtonText: 'OK', showProgress: true },
+      journey: { partialCapture: true },
+    },
+    styling: { primaryColor: '#7c3aed' },
+  },
+  {
+    id: 'scheduling',
+    name: 'Agendamento',
+    description: 'Coleta o contato e abre um passo de Agendamento para o lead escolher data e hora.',
+    category: 'Reuniões',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Seu nome', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_whats', type: 'phone', key: 'whatsapp', label: 'WhatsApp', mapTo: 'whatsapp', required: true, placeholder: '(00) 00000-0000' },
+      { id: 'f_email', type: 'email', key: 'email', label: 'E-mail', mapTo: 'email', required: true, placeholder: 'voce@email.com' },
+      { id: 'f_agenda', type: 'scheduling', key: 'agendamento', label: 'Escolha o melhor horário', required: false, meetingSlug: '' },
+    ],
+    settings: {
+      displayMode: 'conversational', submitText: 'Confirmar',
+      successMode: 'message', successTitle: 'Reunião agendada!', successMessage: 'Enviamos a confirmação para o seu e-mail.',
+      conversational: { welcomeEnabled: true, welcomeTitle: 'Vamos marcar sua reunião', welcomeText: 'Escolha um horário que funcione para você.', startButtonText: 'Começar', navButtonText: 'OK', showProgress: true },
+      journey: { partialCapture: true },
+    },
+    styling: { primaryColor: '#0891b2' },
+  },
+  {
+    id: 'quote',
+    name: 'Orçamento',
+    description: 'Pedido de orçamento com empresa, tipo de serviço e detalhes do projeto.',
+    category: 'Vendas',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Nome', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_empresa', type: 'text', key: 'empresa', label: 'Empresa', mapTo: 'empresa', required: false, placeholder: 'Nome da empresa' },
+      { id: 'f_whats', type: 'phone', key: 'whatsapp', label: 'WhatsApp', mapTo: 'whatsapp', required: true, placeholder: '(00) 00000-0000' },
+      { id: 'f_serv', type: 'select', key: 'servico', label: 'O que você precisa?', required: false, options: [{ value: 'consultoria', label: 'Consultoria' }, { value: 'implementacao', label: 'Implementação' }, { value: 'suporte', label: 'Suporte' }, { value: 'outro', label: 'Outro' }] },
+      { id: 'f_det', type: 'textarea', key: 'detalhes', label: 'Detalhes do projeto', required: false, placeholder: 'Conte um pouco sobre o que você precisa…' },
+    ],
+    settings: {
+      displayMode: 'classic', submitText: 'Pedir orçamento',
+      successMode: 'message', successTitle: 'Pedido recebido!', successMessage: 'Vamos analisar e retornar com uma proposta.',
+      journey: { partialCapture: true },
+    },
+    styling: { primaryColor: '#0d47a1' },
+  },
+  {
+    id: 'contact',
+    name: 'Contato / Fale conosco',
+    description: 'Formulário simples de contato: nome, e-mail e mensagem.',
+    category: 'Atendimento',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Nome', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_email', type: 'email', key: 'email', label: 'E-mail', mapTo: 'email', required: true, placeholder: 'voce@email.com' },
+      { id: 'f_msg', type: 'textarea', key: 'mensagem', label: 'Mensagem', required: true, placeholder: 'Como podemos ajudar?' },
+    ],
+    settings: {
+      displayMode: 'classic', submitText: 'Enviar mensagem',
+      successMode: 'message', successTitle: 'Mensagem enviada!', successMessage: 'Respondemos o mais rápido possível.',
+      journey: { partialCapture: false },
+    },
+    styling: { primaryColor: '#202124' },
+  },
+  {
+    id: 'event',
+    name: 'Inscrição em evento',
+    description: 'Inscrição estilo capa de evento/webinar (conversacional) com nome, e-mail e WhatsApp.',
+    category: 'Eventos',
+    fields: [
+      { id: 'f_nome', type: 'text', key: 'nome', label: 'Seu nome completo', mapTo: 'nome', required: true, placeholder: 'Seu nome' },
+      { id: 'f_email', type: 'email', key: 'email', label: 'Seu melhor e-mail', mapTo: 'email', required: true, placeholder: 'voce@email.com' },
+      { id: 'f_whats', type: 'phone', key: 'whatsapp', label: 'WhatsApp (para o lembrete)', mapTo: 'whatsapp', required: true, placeholder: '(00) 00000-0000' },
+    ],
+    settings: {
+      displayMode: 'conversational', submitText: 'Garantir minha vaga',
+      successMode: 'message', successTitle: 'Inscrição confirmada! 🎉', successMessage: 'Enviamos os detalhes para o seu e-mail. Até lá!',
+      conversational: { welcomeEnabled: true, welcomeTitle: 'Garanta sua vaga no evento', welcomeText: 'Vagas limitadas — leva 30 segundos.', startButtonText: 'Quero me inscrever', navButtonText: 'OK', showProgress: true },
+      journey: { partialCapture: true },
+    },
+    styling: { primaryColor: '#d81b60' },
+  },
+]
+
 // Defaults de aparência. Mantenha em sincronia com o painel de aparência no
 // frontend (`frontend-app/src/components/FormAppearancePanel.tsx`) — ambos os
 // lados precisam concordar nos nomes/valores pra que o preview bata 100% com
@@ -878,7 +1010,8 @@ function generateEmbedScript(
     }
     if (f.type === 'hidden') return `<input type="hidden" name="${esc(f.key)}" value="${esc(f.defaultValue||'')}">`
     const inputType = f.type === 'phone' ? 'tel' : f.type === 'email' ? 'email' : 'text'
-    return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><input type="${inputType}" id="${id}" name="${esc(f.key)}" placeholder="${esc(f.placeholder||'')}" ${req}></div>`
+    const numeric = f.type === 'phone' || f.type === 'number'
+    return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><input type="${inputType}" id="${id}" name="${esc(f.key)}" placeholder="${esc(f.placeholder||'')}" ${numeric?'inputmode="numeric" data-num="1"':''} ${req}></div>`
   }).join('\n        ')
 
   function esc(s: string): string {
@@ -927,8 +1060,10 @@ function generateEmbedScript(
   </div>
 </div>\`;
 
+      ${beyondTrackingInlineJs(baseUrl)}
       var form=this.shadowRoot.getElementById('bf');
       var ok=this.shadowRoot.getElementById('bf-ok');
+      Array.prototype.forEach.call(form.querySelectorAll('[data-num]'),function(el){el.addEventListener('input',function(){var c=el.value.replace(/\\D/g,'');if(el.value!==c)el.value=c;});});
       form.addEventListener('submit',function(e){
         e.preventDefault();
         var btn=form.querySelector('.bf-btn');
@@ -1043,11 +1178,20 @@ function generateConversationalPage(
 
   return `<!doctype html>
 <html lang="pt-br"><head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>${e(formName)}</title>
 ${metaSnippet}
 ${gtagSnippet}
-<script async src="${baseUrl}/api/t/bt.js"></script>
+${beyondTrackingSnippet(baseUrl)}
 <style>
 :root{
   --bg:${g('pageBgColor', '#ffffff')};--accent:${g('primaryColor', '#1a73e8')};--accent-hover:${g('primaryHoverColor', '#1557b0')};
@@ -1111,7 +1255,7 @@ if(f.type==='textarea'){ctrl='<textarea id="inp" class="inp" rows="3">'+esc(val)
 else if(f.type==='select'){var opts='<option value="">'+esc(f.placeholder||'Selecione…')+'</option>';for(var i=0;i<f.options.length;i++){var o=f.options[i];opts+='<option value="'+esc(o.value)+'"'+(o.value===val?' selected':'')+'>'+esc(o.label)+'</option>';}ctrl='<select id="inp" class="inp">'+opts+'</select>';}
 else{var t=f.type==='email'?'email':f.type==='phone'?'tel':f.type==='number'?'number':f.type==='url'?'url':'text';ctrl='<input id="inp" class="inp" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.placeholder||'')+'">';}
 var h='<div class="screen">'+media(f)+'<div class="q">'+esc(f.label)+(f.required?' <span class="req">*</span>':'')+'</div>';if(f.helpText)h+='<div class="help">'+esc(f.helpText)+'</div>';h+=ctrl+'<div class="err" id="err"></div><div class="actions">';if(idx>0)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(last?CFG.submitText:nextLabel(last,false))+'</button><span class="hint">pressione Enter ↵</span></div></div>';
-root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&f.type!=='textarea'){ev.preventDefault();go();}});}var b=document.getElementById('back');if(b)b.onclick=function(){idx--;render();};document.getElementById('next').onclick=go;
+root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();if(f.type==='phone'||f.type==='number'){inp.setAttribute('inputmode','numeric');inp.addEventListener('input',function(){var c=inp.value.replace(/\\D/g,'');if(inp.value!==c)inp.value=c;});}inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&f.type!=='textarea'){ev.preventDefault();go();}});}var b=document.getElementById('back');if(b)b.onclick=function(){idx--;render();};document.getElementById('next').onclick=go;
 function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
 function maybeProgress(f){if(!JOURNEY.partialCapture)return;var p=Promise.resolve();if(!leadId&&JOURNEY.nameKey&&JOURNEY.phoneKey&&answers[JOURNEY.nameKey]&&answers[JOURNEY.phoneKey]){p=postProgress('start');}if(f&&f.isQualifier){p.then(function(){if(leadId)postProgress('qualify');});}}
 function resolveQual(ans){var lastPos=null;for(var i=0;i<FIELDS.length;i++){var f=FIELDS[i];if(!f.isQualifier)continue;var a=ans[f.key];if(a===undefined||a===null||a==='')continue;var pv=f.positiveValues||[];var isPos=pv.length?pv.indexOf(a)>=0:!!a;if(!isPos){var neg=f.qualifyNegative||JOURNEY.qualNegative;if(neg&&(neg.stageKey||neg.finish))return neg;}else{var pos=f.qualifyPositive||JOURNEY.qualPositive;if(pos&&(pos.stageKey||pos.finish))lastPos=pos;}}return lastPos;}

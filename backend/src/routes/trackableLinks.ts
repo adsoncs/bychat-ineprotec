@@ -38,12 +38,13 @@ function extractClickIds(query: any): {
   }
 }
 
-function buildWhatsappUrl(link: { whatsappPhone: string; prefilledMessage: string | null; slug: string }, sessionId?: string): string {
+function buildWhatsappUrl(link: { whatsappPhone: string; prefilledMessage: string | null; slug: string }): string {
   const phone = link.whatsappPhone.replace(/\D/g, '')
-  let message = link.prefilledMessage || ''
-  const ref = sessionId ? `#ref:${link.slug}:${sessionId}` : `#ref:${link.slug}`
-  if (message) message = `${message} ${ref}`
-  else message = ref
+  // Mensagem vai LIMPA — exatamente o que foi digitado no box. Sem marcador
+  // #ref: (antes anexado para atribuição por mensagem). A atribuição do clique
+  // segue via recordClick (sessionId/ctwaClid); o lead não é mais marcado no texto.
+  const message = link.prefilledMessage || ''
+  if (!message) return `https://wa.me/${phone}`
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
 }
 
@@ -119,7 +120,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
 
     const qqr = req.query as any
     const sessionIdR = qqr?.sid ? String(qqr.sid).slice(0, 64) : undefined
-    const waUrl = buildWhatsappUrl(link, sessionIdR)
+    const waUrl = buildWhatsappUrl(link)
 
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip
     const ua = req.headers['user-agent'] || ''
@@ -154,7 +155,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
 
     const qq = req.query as any
     const sessionId = qq?.sid ? String(qq.sid).slice(0, 64) : undefined
-    const waUrl = buildWhatsappUrl(link, sessionId)
+    const waUrl = buildWhatsappUrl(link)
 
     // Registrar o clique imediatamente (não esperamos o delay)
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip
@@ -173,6 +174,15 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">

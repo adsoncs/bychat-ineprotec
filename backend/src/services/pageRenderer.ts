@@ -3,6 +3,7 @@
 // Produz HTML puro sem dependência de frameworks JS
 
 import sanitizeHtml from 'sanitize-html'
+import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
 
 // Sanitização permissiva para conteúdo rich-text (renderText, FAQ, columns, custom HTML section)
 const RICH_HTML_OPTS: sanitizeHtml.IOptions = {
@@ -1819,6 +1820,15 @@ export function renderPage(
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${esc(title)}</title>
@@ -1872,7 +1882,7 @@ export function renderPage(
 
   ${hasForm ? getFormScript(baseUrl) : ''}
 
-  ${page.trackingEnabled && !options.preview ? `<script async src="${baseUrl}/api/t/bt.js"></script>` : ''}
+  ${page.trackingEnabled && !options.preview ? beyondTrackingSnippet(baseUrl) : ''}
   ${fxScripts}
   ${options.edit ? LP_EDIT_SCRIPT : ''}
 </body>
@@ -1885,6 +1895,15 @@ export function render404(): string {
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-S4VLV24XH3');
+</script>
+
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pagina nao encontrada</title>
