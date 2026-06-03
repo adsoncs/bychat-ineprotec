@@ -510,6 +510,58 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     return { ok: true, whatsappNumber, whatsappMessage, loginUrl: loginUrl || LANDING_CONTACT_DEFAULTS.loginUrl }
   })
+
+  // ── LGPD / Legal ────────────────────────────────────────────────────────
+  // Dados do controlador exibidos nas páginas SSR /privacidade, /termos,
+  // /cookies (rota legal.ts). Cada tenant é controlador dos seus titulares →
+  // disponível por instalação (adminOnly), não só na principal.
+  app.get('/api/admin/legal', { preHandler: adminOnly }, async () => {
+    const keys = ['legal.company_name', 'legal.cnpj', 'legal.dpo_email', 'legal.version',
+      'legal.privacy_html', 'legal.terms_html', 'legal.cookies_html']
+    const rows = await prisma.setting.findMany({ where: { key: { in: keys } } })
+    const byKey = new Map(rows.map(r => [r.key, r.value]))
+    return {
+      companyName: unwrapSetting(byKey.get('legal.company_name')),
+      cnpj: unwrapSetting(byKey.get('legal.cnpj')),
+      dpoEmail: unwrapSetting(byKey.get('legal.dpo_email')),
+      version: unwrapSetting(byKey.get('legal.version')) || '1.0',
+      privacyHtml: unwrapSetting(byKey.get('legal.privacy_html')),
+      termsHtml: unwrapSetting(byKey.get('legal.terms_html')),
+      cookiesHtml: unwrapSetting(byKey.get('legal.cookies_html')),
+    }
+  })
+
+  app.put('/api/admin/legal', { preHandler: adminOnly }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const companyName = String(b.companyName ?? '').trim().slice(0, 200)
+    const cnpj = String(b.cnpj ?? '').trim().slice(0, 25)
+    const dpoEmail = String(b.dpoEmail ?? '').trim().slice(0, 160)
+    const version = (String(b.version ?? '').trim() || '1.0').slice(0, 20)
+    const privacyHtml = typeof b.privacyHtml === 'string' ? b.privacyHtml.slice(0, 60000) : ''
+    const termsHtml = typeof b.termsHtml === 'string' ? b.termsHtml.slice(0, 60000) : ''
+    const cookiesHtml = typeof b.cookiesHtml === 'string' ? b.cookiesHtml.slice(0, 60000) : ''
+
+    if (dpoEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(dpoEmail)) {
+      return reply.code(400).send({ error: 'E-mail do Encarregado (DPO) inválido.' })
+    }
+
+    async function up(key: string, value: string, label: string, fieldType: string) {
+      await prisma.setting.upsert({
+        where: { key },
+        create: { key, label, grp: 'legal', fieldType, value: value as any },
+        update: { value: value as any },
+      })
+    }
+    await up('legal.company_name', companyName, 'LGPD — Razão social', 'text')
+    await up('legal.cnpj', cnpj, 'LGPD — CNPJ', 'text')
+    await up('legal.dpo_email', dpoEmail, 'LGPD — E-mail do Encarregado (DPO)', 'text')
+    await up('legal.version', version, 'LGPD — Versão da política', 'text')
+    await up('legal.privacy_html', privacyHtml, 'LGPD — HTML da Política de Privacidade (opcional)', 'textarea')
+    await up('legal.terms_html', termsHtml, 'LGPD — HTML dos Termos (opcional)', 'textarea')
+    await up('legal.cookies_html', cookiesHtml, 'LGPD — HTML da Política de Cookies (opcional)', 'textarea')
+
+    return { ok: true }
+  })
 }
 
 function summarizeJob(job: any) {

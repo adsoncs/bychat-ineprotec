@@ -14,6 +14,7 @@ import { onLeadStageChanged } from '../services/metaCapi.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
 import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
 import { dispatchConversion } from '../services/googleAdsConversions.js'
+import { logTitularConsent } from './consent.js'
 import { createHmac } from 'crypto'
 
 // ── Token de progresso (captura parcial) ──────────────────────────────────────
@@ -336,6 +337,17 @@ export async function formsRoutes(app: FastifyInstance) {
         // Vincular submission ao lead
         if (leadId) {
           await prisma.formSubmission.update({ where: { id: submission.id }, data: { leadId } })
+        }
+
+        // Registro de consentimento do titular (LGPD): o envio só é aceito pelo
+        // client após marcar o checkbox da Política — aqui gravamos a prova.
+        if (leadId && body.lgpdConsent === true) {
+          await logTitularConsent({
+            req, leadId, visitorId: body.bt_vid || null, action: 'form_submit',
+            source: body.pageSlug ? `form:${body.pageSlug}` : `form:${form.id}`,
+            url: body.referrer || (req.headers.referer as string) || null,
+            categories: { form: true },
+          })
         }
       } catch (e) {
         console.error('[Forms] lead pipeline error:', (e as any).message)
@@ -1053,6 +1065,13 @@ function generateEmbedScript(
 <div class="bf-wrap">
   <form id="bf">
     ${fieldsHTML}
+    <div class="bf-field bf-lgpd">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="bf-lgpd" style="width:auto;margin:3px 0 0">
+        <span style="font-size:13px;color:${v.fieldPlaceholder}">Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary}">Política de Privacidade</a>.</span>
+      </label>
+      <div class="bf-lgpd-err" style="color:${v.errorBorder};font-size:12px;margin-top:4px;display:none">É necessário aceitar para enviar.</div>
+    </div>
     <button type="submit" class="bf-btn">${esc(settings.submitText||'Enviar')}</button>
   </form>
   <div class="bf-success" id="bf-ok" style="display:none">
@@ -1070,13 +1089,16 @@ function generateEmbedScript(
         var els=form.querySelectorAll('input,select,textarea');
         var data={},valid=true;
         els.forEach(function(f){
+          if(f.id==='bf-lgpd')return;
           var p=f.closest('.bf-field');if(p)p.classList.remove('has-error');
           if(f.type==='checkbox'){data[f.name]=f.checked}else if(f.name){data[f.name]=f.value}
           if(f.required&&!f.value){if(p)p.classList.add('has-error');valid=false}
         });
+        var lg=form.querySelector('#bf-lgpd');var lgErr=form.querySelector('.bf-lgpd-err');
+        if(lg&&!lg.checked){if(lgErr)lgErr.style.display='block';valid=false;}else if(lgErr){lgErr.style.display='none';}
         if(!valid)return;
         btn.disabled=true;btn.textContent='Enviando...';
-        var payload={data:data};
+        var payload={data:data,lgpdConsent:!!(lg&&lg.checked)};
         try{if(window.BT&&BT.getVisitorId)payload.bt_vid=BT.getVisitorId()}catch(ex){}
         try{var sp=new URL(location.href).searchParams;
           if(sp.get('utm_source'))payload.utmSource=sp.get('utm_source');
@@ -1178,14 +1200,17 @@ function generateConversationalPage(
 
   return `<!doctype html>
 <html lang="pt-br"><head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-S4VLV24XH3');
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
+gtag('js', new Date());
+gtag('config', 'G-S4VLV24XH3');
+window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
 </script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script async src="/api/consent/cc.js"></script>
 
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>${e(formName)}</title>
@@ -1237,7 +1262,7 @@ var root=document.getElementById('root');var bar=document.getElementById('bar');
 var answers={};for(var k in HIDDEN){answers[k]=HIDDEN[k];}
 var TRACK=capture();
 var EVID='bf-'+FID+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
-var idx=0;
+var idx=0;var consentGiven=false;
 function nextLabel(last,isStmt){if(idx===0&&CFG.startButtonText)return CFG.startButtonText;return isStmt?'Continuar':(last?CFG.submitText:CFG.navButtonText);}
 try{if(window.fbq)fbq('track','PageView');}catch(ex){}
 render();
@@ -1267,7 +1292,9 @@ function pickSlot(f,last,startAt,labelTxt){var email=(JOURNEY.emailKey&&answers[
 document.getElementById('bk-go').onclick=function(){var ie=document.getElementById('bk-email');var em=email||(ie?ie.value.trim():'');var er=document.getElementById('bk-err');var ph=(JOURNEY.phoneKey&&answers[JOURNEY.phoneKey])||'';if(!em&&!ph){er.textContent='Informe seu e-mail';return;}if(em&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)){er.textContent='E-mail inválido';return;}if(em&&JOURNEY.emailKey)answers[JOURNEY.emailKey]=em;var go=document.getElementById('bk-go');go.disabled=true;go.textContent='Agendando…';var nm=(JOURNEY.nameKey&&answers[JOURNEY.nameKey])||'Lead';var utm={};if(TRACK.utm_source)utm.source=TRACK.utm_source;if(TRACK.utm_medium)utm.medium=TRACK.utm_medium;if(TRACK.utm_campaign)utm.campaign=TRACK.utm_campaign;
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
 function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';return '';}
-function submit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else payload[k]=TRACK[k];}
+function submit(){if(!consentGiven){renderConsent();return;}doSubmit();}
+function renderConsent(){var h='<div class="screen"><div class="q">Quase lá!</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions"><button class="btn-ghost" id="back">Voltar</button><button class="btn" id="next">'+esc(CFG.submitText)+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');document.getElementById('back').onclick=function(){render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para enviar.';return;}consentGiven=true;doSubmit();};}
+function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else payload[k]=TRACK[k];}
 fetch(API+'/api/forms/submit/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res.ok){fireConv();if(res.redirect){location.href=res.redirect;return;}renderSuccess(res.successHtml);}else{root.innerHTML='<div class="screen"><div class="q">Ops…</div><div class="help">'+esc(res.error||'Erro ao enviar')+'</div></div>';}}).catch(function(){root.innerHTML='<div class="screen"><div class="q">Erro de conexão</div></div>';});}
 function fireConv(){try{if(window.fbq)fbq('track',CFG.metaEventName,{},{eventID:EVID});}catch(ex){}try{if(window.gtag&&GADS.id){var st=GADS.id+(GADS.label?('/'+GADS.label):'');gtag('event','conversion',{send_to:st});}}catch(ex){}try{if(window.BT){var idd={};if(answers.email)idd.email=answers.email;var ph=answers.whatsapp||answers.telefone||answers.phone;if(ph)idd.phone=ph;if(answers.nome||answers.name)idd.name=answers.nome||answers.name;if(BT.identify&&Object.keys(idd).length)BT.identify(idd);if(BT.track)BT.track('form_conversion',{formId:FID});}}catch(ex){}}
 function renderSuccess(overrideHtml){setBar(100);var h='<div class="screen" style="text-align:center">';var oh=overrideHtml||CFG.successHtml;if(oh){h+='<div class="bf-html" style="text-align:center">'+oh+'</div>';}else{h+='<div class="success-ico">✓</div><div class="success-title">'+esc(CFG.successTitle)+'</div><div class="help">'+esc(CFG.successMessage)+'</div>';}h+='</div>';root.innerHTML=h;}

@@ -29,6 +29,34 @@ export function useUpdateSettings() {
   })
 }
 
+// ── LGPD / Legal ───────────────────────────────────────────────
+export interface LegalConfig {
+  companyName: string
+  cnpj: string
+  dpoEmail: string
+  version: string
+  privacyHtml: string
+  termsHtml: string
+  cookiesHtml: string
+}
+
+export function useLegalSettings() {
+  return useQuery({
+    queryKey: ['legal-settings'],
+    queryFn: () => api.get<LegalConfig>('/admin/legal'),
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateLegalSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (updates: Partial<LegalConfig>) =>
+      api.put<{ ok: true }>('/admin/legal', updates),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['legal-settings'] }),
+  })
+}
+
 export interface AppearanceConfig {
   appearance: Record<string, string>
   defaults: Record<string, string>

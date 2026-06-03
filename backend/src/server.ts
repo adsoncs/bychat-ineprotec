@@ -95,6 +95,8 @@ import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
 import { schedulingRoutes } from './routes/scheduling.js'
 import { schedulingPublicRoutes } from './routes/schedulingPublic.js'
+import { legalRoutes } from './routes/legal.js'
+import { consentRoutes } from './routes/consent.js'
 import { toolsRoutes } from './routes/tools.js'
 import { personasRoutes } from './routes/personas.js'
 import { conversationAuditsRoutes } from './routes/conversationAudits.js'
@@ -497,6 +499,8 @@ await app.register(utmsRoutes)
 await app.register(voipRoutes)
 await app.register(schedulingRoutes)
 await app.register(schedulingPublicRoutes)
+await app.register(legalRoutes)
+await app.register(consentRoutes)
 await app.register(toolsRoutes)
 await app.register(personasRoutes)
 await app.register(conversationAuditsRoutes)

@@ -451,6 +451,13 @@
         <div class="step-title">${esc(step.name || 'Etapa ' + (state.currentStep + 1))}</div>
         ${step.description ? `<div class="step-desc">${esc(step.description)}</div>` : ''}
         ${visibleFields.map(renderField).join('')}
+        ${isLast ? `<div class="field${state.errors.lgpdConsent?' has-error':''}" style="margin-top:14px">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-weight:400;color:var(--muted);line-height:1.5">
+            <input type="checkbox" name="lgpdConsent" ${state.formData.lgpdConsent?'checked':''} style="margin-top:3px;flex-shrink:0">
+            <span>Li e aceito a <a href="/privacidade" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline">política de privacidade</a> e autorizo o tratamento dos meus dados e o contato pelos canais informados (LGPD).</span>
+          </label>
+          <div class="error">${esc(state.errors.lgpdConsent||'')}</div>
+        </div>` : ''}
         <div class="buttons">
           ${state.currentStep > 0 ? `<button class="btn btn-secondary" data-action="prev">Voltar</button>` : ''}
           <button class="btn btn-primary" data-action="${isLast?'submit':'next'}" ${state.submitting?'disabled':''}>${state.submitting?'<span class="loading"></span>Enviando...':(isLast?'Enviar inscrição':'Próximo')}</button>
@@ -547,7 +554,7 @@
       <div class="field${errs.lgpdConsent?' has-error':''}" style="margin-top:14px">
         <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-weight:400;color:var(--muted);line-height:1.5">
           <input type="checkbox" name="lgpdConsent" ${state.lgpdConsent?'checked':''} style="margin-top:3px;flex-shrink:0">
-          <span>Concordo com a <a href="#" style="color:var(--primary);text-decoration:underline">política de privacidade</a> e autorizo o contato pelos canais informados (LGPD).</span>
+          <span>Concordo com a <a href="/privacidade" target="_blank" rel="noopener" style="color:var(--primary);text-decoration:underline">política de privacidade</a> e autorizo o contato pelos canais informados (LGPD).</span>
         </label>
         <div class="error">${esc(errs.lgpdConsent||'')}</div>
       </div>
@@ -919,6 +926,12 @@
         const digits = v.replace(/\D/g, '');
         if (digits.length < 10 || digits.length > 13) { state.errors[f.name] = 'Telefone inválido'; ok = false; }
       }
+    }
+    // Consentimento LGPD obrigatório na última etapa (antes de enviar a inscrição).
+    const isLastStep = state.currentStep === ((state.portal?.formConfig?.steps || []).length - 1);
+    if (isLastStep && !state.formData.lgpdConsent) {
+      state.errors.lgpdConsent = 'É necessário aceitar a política de privacidade para enviar.';
+      ok = false;
     }
     if (!ok) render();
     return ok;

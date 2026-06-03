@@ -133,14 +133,17 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
 
 function renderManagePage(token: string, mode: 'cancel' | 'reschedule'): string {
   return `<!doctype html><html lang="pt-br"><head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-S4VLV24XH3');
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
+gtag('js', new Date());
+gtag('config', 'G-S4VLV24XH3');
+window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
 </script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script async src="/api/consent/cc.js"></script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${mode === 'cancel' ? 'Cancelar' : 'Remarcar'} agendamento</title>
 <style>*{box-sizing:border-box}body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;background:#f6f7f9;color:#1f2328}
@@ -178,14 +181,17 @@ fetch(API).then(function(r){return r.json()}).then(function(i){
 
 function renderNotFound(): string {
   return `<!doctype html><html lang="pt-br"><head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-S4VLV24XH3');
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
+gtag('js', new Date());
+gtag('config', 'G-S4VLV24XH3');
+window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
 </script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script async src="/api/consent/cc.js"></script>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agendamento</title></head>
 <body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#444">
 <div style="text-align:center"><h1>Link indisponível</h1><p>Este agendamento não existe ou foi desativado.</p></div></body></html>`
@@ -195,14 +201,17 @@ function renderBookingPage(mt: { slug: string; name: string; color: string | nul
   const accent = mt.color || '#1a73e8'
   return `<!doctype html>
 <html lang="pt-br"><head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<!-- Google tag (gtag.js) + Consent Mode v2 (LGPD) -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-S4VLV24XH3');
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', wait_for_update: 500 });
+gtag('js', new Date());
+gtag('config', 'G-S4VLV24XH3');
+window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window.__bychMktQ=window.__bychMktQ||[]).push(f)};
 </script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-S4VLV24XH3"></script>
+<script async src="/api/consent/cc.js"></script>
 
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(mt.name)} — Agendar</title>

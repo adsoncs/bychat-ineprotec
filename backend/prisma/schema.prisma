@@ -485,6 +485,26 @@ model Setting {
   @@map("bychat_settings")
 }
 
+// Registro de consentimento (LGPD)
+model ConsentLog {
+  id            Int      @id @default(autoincrement())
+  visitorId     String?  @db.VarChar(64)
+  leadId        Int?
+  categories    Json     @db.Json
+  policyVersion String   @default("1.0") @db.VarChar(20)
+  action        String   @db.VarChar(20)
+  source        String?  @db.VarChar(60)
+  url           String?  @db.Text
+  ip            String?  @db.VarChar(64)
+  userAgent     String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  @@index([visitorId])
+  @@index([leadId])
+  @@index([createdAt])
+  @@map("bychat_consent_logs")
+}
+
 // Templates de email do sistema — editáveis pelo painel
 // Configurações > Emails do Sistema (superadmin only).
 // Code referencia por `key`; se o template estiver disabled ou ausente,

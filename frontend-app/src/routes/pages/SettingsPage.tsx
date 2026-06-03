@@ -4,7 +4,7 @@ import { usePrimaryInstall } from '@/hooks/usePrimaryInstall'
 import {
   Palette, Shield, Package,
   Mail, Copy,
-  Map, Server, Trash2, Sparkles, HelpCircle,
+  Map, Server, Trash2, Sparkles, HelpCircle, Scale,
 } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -25,6 +25,7 @@ import { IntegrationsSettings } from './settings/IntegrationsSettings'
 import { EvolutionApiSettings } from './settings/EvolutionApiSettings'
 import { SystemEmailsSettings } from './settings/SystemEmailsSettings'
 import { IntelligenceSettings } from './settings/IntelligenceSettings'
+import { LegalSettings } from './settings/LegalSettings'
 import { RoadmapPage } from './RoadmapPage'
 import { InstallationsPage } from './InstallationsPage'
 import { TrashPage } from './TrashPage'
@@ -34,7 +35,7 @@ export type Tab =
   | 'appearance' | 'fields' | 'teams' | 'security'
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
-  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence'
+  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -52,6 +53,7 @@ const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: bo
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
   { id: 'intelligence', label: 'Inteligência', icon: <Sparkles size={14} /> },
   { id: 'system-emails', label: 'Emails do Sistema', icon: <Mail size={14} /> },
+  { id: 'legal', label: 'LGPD / Legal', icon: <Scale size={14} /> },
   { id: 'installations', label: 'Instalações', icon: <Server size={14} />, primaryOnly: true },
   { id: 'trash', label: 'Lixeira', icon: <Trash2 size={14} /> },
   { id: 'roadmap', label: 'Planejamento', icon: <Map size={14} />, primaryOnly: true },
@@ -69,7 +71,7 @@ const MIGRATED_TAB_REDIRECTS: Record<string, string> = {
 function readTabFromUrl(): Tab {
   if (typeof window === 'undefined') return 'appearance'
   const v = new URLSearchParams(window.location.search).get('tab')
-  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence']
+  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal']
   return (valid as string[]).includes(v ?? '') ? (v as Tab) : 'appearance'
 }
 
@@ -163,6 +165,7 @@ export function SettingsPage() {
           {tab === 'evolution' && <EvolutionApiSettings />}
           {tab === 'system-emails' && <SystemEmailsSettings />}
           {tab === 'intelligence' && <IntelligenceSettings />}
+          {tab === 'legal' && <LegalSettings />}
           {tab === 'roadmap' && isPrimary && <RoadmapPage />}
           {tab === 'installations' && isPrimary && <InstallationsPage />}
           {tab === 'trash' && <TrashPage />}

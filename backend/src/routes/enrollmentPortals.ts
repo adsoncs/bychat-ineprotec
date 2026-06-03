@@ -14,6 +14,7 @@ import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
+import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, type AsaasOrderMethod } from '../services/paymentAsaas.js'
 import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEvent, parsePagarmeWebhookPayload, detectPagarmeEnvironment, createPagarmeOrder, type PagarmeConfig, type PagarmeOrderMethod } from '../services/paymentPagarme.js'
@@ -1236,6 +1237,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!email && !whatsapp) return reply.code(400).send({ error: 'Informe email ou WhatsApp' })
     if (cpf && !isValidCpf(cpf)) return reply.code(400).send({ error: 'CPF inválido' })
 
+    // Consentimento LGPD obrigatório (defesa em profundidade — o front já bloqueia).
+    // Continuação por magic link já consentiu no portal de interesse → exceção.
+    const lgpdConsent = fd.lgpdConsent === true || fd.lgpdConsent === 'true'
+    const isContinuation = typeof body.continueToken === 'string' && body.continueToken.length > 0
+    if (!lgpdConsent && !isContinuation) {
+      return reply.code(400).send({ error: 'É necessário aceitar a política de privacidade para enviar a inscrição.' })
+    }
+
     // Verificar captcha (se configurado) — implementação mínima: confia em token e valida depois
     // (A validação server-side completa entra na Fase A.6 com integração reCAPTCHA)
 
@@ -1474,6 +1483,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // Lead já existia (ex: era só conversa WhatsApp) — promover por inscrição.
       const { qualifyLead } = await import('../services/leadQualification.js')
       qualifyLead(lead.id, { source: 'enrollment_portal' }).catch(() => {})
+    }
+
+    // Registro de consentimento do titular (LGPD) — prova do aceite na inscrição.
+    if (lead && lgpdConsent) {
+      await logTitularConsent({
+        req, leadId: lead.id, visitorId: trackingVisitorId, action: 'enrollment_submit',
+        source: `portal:${slug}`, url: (req.headers.referer as string) || null,
+        categories: { enrollment: true },
+      })
     }
 
     // Cria ProcessRegistration se tem oferta e processo
@@ -2301,6 +2319,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         where: { visitorId: trackingVisitorId, leadId: null },
         data: { leadId: lead.id },
       }).catch(() => {})
+    }
+
+    // Registro de consentimento do titular (LGPD) — aceite na captura de interesse.
+    if (lead && lgpdConsent) {
+      await logTitularConsent({
+        req, leadId: lead.id, visitorId: trackingVisitorId, action: 'interest_submit',
+        source: `portal-interest:${slug}`, url: (req.headers.referer as string) || null,
+        categories: { interest: true },
+      })
     }
 
     // Counter de submissões do portal de interesse
