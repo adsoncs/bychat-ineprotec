@@ -4,13 +4,117 @@
 // Os campos *_html são opcionais: vazios = usa o texto-modelo embutido.
 
 import { useEffect, useState } from 'preact/hooks'
-import { Scale, ExternalLink } from 'lucide-preact'
+import { Scale, ExternalLink, Inbox, AlertTriangle } from 'lucide-preact'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { Input, Textarea } from '@/components/ui/Input'
+import { Input, Textarea, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
-import { useLegalSettings, useUpdateLegalSettings, type LegalConfig } from '@/hooks/useSettings'
+import {
+  useLegalSettings, useUpdateLegalSettings, type LegalConfig,
+  useDsarRequests, useUpdateDsar, useDeleteDsarLead, type DsarRequest,
+} from '@/hooks/useSettings'
+
+const DSAR_TYPE_LABEL: Record<string, string> = {
+  access: 'Acesso', correction: 'Correção', deletion: 'Eliminação',
+  portability: 'Portabilidade', revocation: 'Revogação',
+}
+const DSAR_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendente', in_progress: 'Em andamento', done: 'Concluída', rejected: 'Rejeitada',
+}
+const DSAR_STATUS_CLASS: Record<string, string> = {
+  pending: 'bg-warning-soft text-warning', in_progress: 'bg-info-soft text-info',
+  done: 'bg-success-soft text-success', rejected: 'bg-surface-2 text-fg-muted',
+}
+
+function DsarInbox() {
+  const [filter, setFilter] = useState('open')
+  const statusParam = filter === 'open' ? '' : filter
+  const { data, isLoading } = useDsarRequests(statusParam)
+  const update = useUpdateDsar()
+  const del = useDeleteDsarLead()
+
+  // 'open' = client-side filter dos não concluídos quando status vazio.
+  const rows = (data?.requests || []).filter((r) =>
+    filter === 'open' ? r.status === 'pending' || r.status === 'in_progress' : true,
+  )
+
+  function setStatus(r: DsarRequest, status: string) {
+    update.mutate({ id: r.id, status }, {
+      onSuccess: () => toast(`Requisição #${r.id} → ${DSAR_STATUS_LABEL[status]}`, 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+  function deleteLead(r: DsarRequest) {
+    if (!confirm(`Eliminar definitivamente os dados do lead #${r.leadId}? Vai para a lixeira (restaurável por 90 dias) e a requisição será concluída.`)) return
+    del.mutate({ id: r.id }, {
+      onSuccess: () => toast('Dados enviados à lixeira e requisição concluída', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  const overdue = data?.counts.overdue || 0
+  const now = Date.now()
+
+  return (
+    <Card>
+      <div class="flex items-start gap-3 mb-4">
+        <Inbox size={18} class="text-info shrink-0 mt-0.5" />
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-semibold text-fg">Requisições de titulares (art. 18)</div>
+          <p class="text-xs text-fg-muted mt-0.5">
+            Pedidos recebidos pelo portal <a class="text-info hover:underline" href="/meus-dados" target="_blank" rel="noopener">/meus-dados</a>.
+            Prazo legal de atendimento: <strong>15 dias</strong>.
+            {data ? <> · {data.counts.pending} em aberto{overdue > 0 ? <span class="text-danger font-medium"> · {overdue} em atraso</span> : null}</> : null}
+          </p>
+        </div>
+        <Select value={filter} onChange={(e) => setFilter((e.target as HTMLSelectElement).value)} class="w-40 shrink-0">
+          <option value="open">Em aberto</option>
+          <option value="pending">Pendentes</option>
+          <option value="in_progress">Em andamento</option>
+          <option value="done">Concluídas</option>
+          <option value="rejected">Rejeitadas</option>
+          <option value="all">Todas</option>
+        </Select>
+      </div>
+
+      {isLoading ? (
+        <Skeleton class="h-40 w-full" />
+      ) : rows.length === 0 ? (
+        <p class="text-sm text-fg-subtle py-6 text-center">Nenhuma requisição{filter === 'open' ? ' em aberto' : ''}.</p>
+      ) : (
+        <div class="flex flex-col gap-3">
+          {rows.map((r) => {
+            const isOverdue = ['pending', 'in_progress'].includes(r.status) && new Date(r.dueAt).getTime() < now
+            return (
+              <div key={r.id} class="border border-border rounded-lg p-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-surface-2">{DSAR_TYPE_LABEL[r.type] || r.type}</span>
+                  <span class={`text-xs px-2 py-0.5 rounded-full ${DSAR_STATUS_CLASS[r.status] || 'bg-surface-2'}`}>{DSAR_STATUS_LABEL[r.status]}</span>
+                  <span class="text-sm font-medium text-fg">{r.name || '(sem nome)'} {r.leadId ? <span class="text-fg-subtle font-normal">· lead #{r.leadId}</span> : null}</span>
+                  {isOverdue ? <span class="inline-flex items-center gap-1 text-xs text-danger font-medium"><AlertTriangle size={12} /> em atraso</span> : null}
+                </div>
+                <div class="text-xs text-fg-muted mt-1">
+                  {r.email || '—'} · {r.whatsapp || '—'} · prazo {new Date(r.dueAt).toLocaleDateString('pt-BR')}
+                </div>
+                {r.details?.message ? <div class="text-sm text-fg mt-2 bg-surface-2 rounded p-2">{r.details.message}</div> : null}
+                {r.response ? <div class="text-xs text-fg-subtle mt-2">Resposta: {r.response}</div> : null}
+                {['pending', 'in_progress'].includes(r.status) ? (
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    {r.status === 'pending' ? <Button size="sm" variant="ghost" onClick={() => setStatus(r, 'in_progress')} disabled={update.isPending}>Em andamento</Button> : null}
+                    <Button size="sm" variant="ghost" onClick={() => setStatus(r, 'done')} disabled={update.isPending}>Concluir</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setStatus(r, 'rejected')} disabled={update.isPending}>Rejeitar</Button>
+                    {r.type === 'deletion' && r.leadId ? <Button size="sm" variant="danger" onClick={() => deleteLead(r)} disabled={del.isPending}>Excluir dados (lixeira)</Button> : null}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 const EMPTY: LegalConfig = {
   companyName: '', cnpj: '', dpoEmail: '', version: '1.0',
@@ -123,7 +227,7 @@ export function LegalSettings() {
       </Card>
 
       {dirty && (
-        <div class="flex justify-end gap-2 sticky bottom-3">
+        <div class="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => data && setDraft({ ...EMPTY, ...data })} disabled={update.isPending}>
             Descartar
           </Button>
@@ -132,6 +236,8 @@ export function LegalSettings() {
           </Button>
         </div>
       )}
+
+      <DsarInbox />
     </div>
   )
 }

@@ -57,6 +57,56 @@ export function useUpdateLegalSettings() {
   })
 }
 
+// ── Requisições de titulares (LGPD art. 18) ────────────────────
+export interface DsarRequest {
+  id: number
+  leadId: number | null
+  email: string | null
+  whatsapp: string | null
+  name: string | null
+  type: 'access' | 'correction' | 'deletion' | 'portability' | 'revocation'
+  status: 'pending' | 'in_progress' | 'done' | 'rejected'
+  details: { message?: string } | null
+  response: string | null
+  dueAt: string
+  handledAt: string | null
+  createdAt: string
+}
+
+export interface DsarList {
+  requests: DsarRequest[]
+  counts: { pending: number; overdue: number; total: number }
+}
+
+export function useDsarRequests(status: string) {
+  return useQuery({
+    queryKey: ['dsar', status],
+    queryFn: () => api.get<DsarList>(`/admin/dsar${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+    staleTime: 15_000,
+  })
+}
+
+export function useUpdateDsar() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, status, response }: { id: number; status?: string; response?: string }) =>
+      api.post<{ ok: true }>(`/admin/dsar/${id}`, { status, response }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dsar'] }),
+  })
+}
+
+export function useDeleteDsarLead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+      api.post<{ ok: true }>(`/admin/dsar/${id}/delete-lead`, { reason }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dsar'] })
+      qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
 export interface AppearanceConfig {
   appearance: Record<string, string>
   defaults: Record<string, string>

@@ -504,6 +504,33 @@ model ConsentLog {
   @@index([createdAt])
   @@map("bychat_consent_logs")
 }
+// Requisição de direitos do titular (LGPD art. 18) — portal /meus-dados.
+// type: access | correction | deletion | portability | revocation
+// status: pending | in_progress | done | rejected
+// dueAt = createdAt + 15 dias (prazo legal de atendimento).
+model DataSubjectRequest {
+  id        Int       @id @default(autoincrement())
+  leadId    Int?
+  email     String?   @db.VarChar(191)
+  whatsapp  String?   @db.VarChar(30)
+  name      String?   @db.VarChar(191)
+  type      String    @db.VarChar(20)
+  status    String    @default("pending") @db.VarChar(16)
+  details   Json?     @db.Json
+  response  String?   @db.Text
+  source    String?   @db.VarChar(30)
+  ip        String?   @db.VarChar(64)
+  dueAt     DateTime
+  handledAt DateTime?
+  handledBy Int?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([status])
+  @@index([dueAt])
+  @@map("bychat_data_subject_requests")
+}
 
 // Templates de email do sistema — editáveis pelo painel
 // Configurações > Emails do Sistema (superadmin only).

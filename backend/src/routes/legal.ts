@@ -118,7 +118,7 @@ function privacyTemplate(v: LegalVars): string {
   <p>Mantemos os dados pelo tempo necessário às finalidades informadas e às obrigações legais. Encerrada a necessidade, os dados são eliminados ou anonimizados.</p>
 
   <h2>7. Seus direitos (art. 18 da LGPD)</h2>
-  <p>Você pode solicitar confirmação de tratamento, acesso, correção, anonimização, portabilidade, eliminação e revogação de consentimento. Para exercê-los, contate o Encarregado em <a href="mailto:${esc(v.dpoEmail)}">${esc(v.dpoEmail)}</a>. Responderemos nos prazos legais.</p>
+  <p>Você pode solicitar confirmação de tratamento, acesso, correção, anonimização, portabilidade, eliminação e revogação de consentimento. Exerça seus direitos de forma autônoma pelo portal <a href="/meus-dados"><strong>Meus dados</strong></a> (acesso confirmado por link enviado ao seu e-mail ou WhatsApp), ou contate o Encarregado em <a href="mailto:${esc(v.dpoEmail)}">${esc(v.dpoEmail)}</a>. Responderemos nos prazos legais.</p>
 
   <h2>8. Segurança</h2>
   <p>Adotamos medidas técnicas e administrativas para proteger seus dados, como controle de acesso, criptografia de credenciais e registro de eventos de segurança.</p>
