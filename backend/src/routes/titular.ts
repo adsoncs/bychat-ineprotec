@@ -221,30 +221,48 @@ async function notifyEncarregado(subject: string, lines: string[]): Promise<void
   } catch (e: any) { console.warn('[titular] notify email falhou:', e?.message) }
 }
 
-async function sendAccessLink(req: any, lead: any): Promise<void> {
+async function sendViaEmail(lead: any, link: string): Promise<void> {
+  const { sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
+  const cfg = await getEmailConfig()
+  const provider = cfg['email.provider'] || 'resend'
+  const configured = provider === 'smtp' ? !!cfg['smtp.host'] : !!(cfg['notification.resend_api_key'] || process.env.RESEND_API_KEY)
+  if (!configured) throw new Error('e-mail não configurado')
+  await sendEmailGeneric({
+    from: getFromAddress(cfg, 'Privacidade'), to: lead.email,
+    subject: 'Acesso aos seus dados (LGPD)',
+    html: `<p>Olá${lead.nome ? ' ' + esc(lead.nome) : ''},</p><p>Recebemos um pedido de acesso aos seus dados (LGPD). Clique no botão abaixo (válido por 48 horas):</p><p><a href="${esc(link)}" style="display:inline-block;padding:12px 18px;background:#1a73e8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Acessar meus dados</a></p><p style="color:#6b7280;font-size:13px">Se não foi você, ignore esta mensagem.</p>`,
+  })
+}
+
+async function sendViaWhatsApp(lead: any, link: string): Promise<void> {
+  const msg = `Recebemos um pedido de acesso aos seus dados (LGPD). Use o link a seguir (válido por 48h) para ver, exportar, corrigir ou solicitar a eliminação dos seus dados:\n\n${link}\n\nSe não foi você, ignore esta mensagem.`
+  const { getProviderForLead } = await import('../services/whatsappProvider.js')
+  const provider = await getProviderForLead({ id: lead.id, whatsapp: lead.whatsapp })
+  await provider.sendText(lead.whatsapp, msg)
+}
+
+// Envia o magic link. E-mail é o canal PREFERENCIAL (mais confiável; não tem a
+// janela de 24h da Cloud API). WhatsApp é fallback — para Cloud API só entrega
+// dentro da janela de 24h (fora dela, a Meta exige template HSM). Retorna o
+// canal efetivamente usado, ou null se nenhum.
+async function sendAccessLink(req: any, lead: any): Promise<'email' | 'whatsapp' | null> {
   const token = signTitularToken(lead.id)
   const link = `${baseUrl(req)}/meus-dados?t=${encodeURIComponent(token)}`
-  const msg = `Recebemos um pedido de acesso aos seus dados (LGPD). Use o link a seguir (válido por 48h) para ver, exportar, corrigir ou solicitar a eliminação dos seus dados:\n\n${link}\n\nSe não foi você, ignore esta mensagem.`
-  // Canal preferido: e-mail se houver; senão WhatsApp.
-  if (lead.email) {
+  const order: ('email' | 'whatsapp')[] = ['email', 'whatsapp']
+  for (const ch of order) {
+    if (ch === 'email' && !lead.email) continue
+    if (ch === 'whatsapp' && !lead.whatsapp) continue
     try {
-      const { sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
-      const cfg = await getEmailConfig()
-      await sendEmailGeneric({
-        from: getFromAddress(cfg, 'Privacidade'), to: lead.email,
-        subject: 'Acesso aos seus dados (LGPD)',
-        html: `<p>Olá${lead.nome ? ' ' + esc(lead.nome) : ''},</p><p>Recebemos um pedido de acesso aos seus dados (LGPD). Clique no botão abaixo (válido por 48 horas):</p><p><a href="${esc(link)}" style="display:inline-block;padding:12px 18px;background:#1a73e8;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Acessar meus dados</a></p><p style="color:#6b7280;font-size:13px">Se não foi você, ignore esta mensagem.</p>`,
-      })
-      return
-    } catch (e: any) { console.warn('[titular] envio email falhou, tenta WhatsApp:', e?.message) }
+      if (ch === 'email') await sendViaEmail(lead, link)
+      else await sendViaWhatsApp(lead, link)
+      console.log(`[titular] magic link enviado p/ lead #${lead.id} via ${ch}`)
+      return ch
+    } catch (e: any) {
+      console.warn(`[titular] envio ${ch} falhou p/ lead #${lead.id}: ${e?.message}`)
+    }
   }
-  if (lead.whatsapp) {
-    try {
-      const { getProviderForLead } = await import('../services/whatsappProvider.js')
-      const provider = await getProviderForLead({ id: lead.id, whatsapp: lead.whatsapp })
-      await provider.sendText(lead.whatsapp, msg)
-    } catch (e: any) { console.warn('[titular] envio WhatsApp falhou:', e?.message) }
-  }
+  console.warn(`[titular] NENHUM canal disponível p/ lead #${lead.id} (email=${!!lead.email} whatsapp=${!!lead.whatsapp})`)
+  return null
 }
 
 const reqAccessHits = new Map<string, { n: number; reset: number }>()
@@ -281,11 +299,11 @@ export async function titularRoutes(app: FastifyInstance) {
     try {
       const lead = await findLeadByContact(contact)
       if (lead) {
-        await sendAccessLink(req, lead)
+        const usedChannel = await sendAccessLink(req, lead)
         logEvent({
           leadId: lead.id, type: 'dsar_access_requested', category: 'lifecycle',
           title: 'Titular pediu acesso aos próprios dados (LGPD)', actorType: 'lead',
-          source: 'titular_portal', ipAddress: ip, metadata: { channel: lead.email ? 'email' : 'whatsapp' },
+          source: 'titular_portal', ipAddress: ip, metadata: { usedChannel },
         })
       }
     } catch (e: any) { req.log?.warn?.({ err: e?.message }, '[titular] request-access') }
