@@ -300,6 +300,23 @@ export async function titularRoutes(app: FastifyInstance) {
       const lead = await findLeadByContact(contact)
       if (lead) {
         const usedChannel = await sendAccessLink(req, lead)
+        // Registra a requisição de ACESSO (art. 18, I/II) para o Encarregado ver
+        // no painel — inclusive quando o link não chega (ex.: WhatsApp fora da
+        // janela). Dedupa: não cria outra se já houver uma de acesso em aberto.
+        const open = await prisma.dataSubjectRequest.findFirst({
+          where: { leadId: lead.id, type: 'access', status: { in: ['pending', 'in_progress'] } },
+          select: { id: true },
+        })
+        if (!open) {
+          await prisma.dataSubjectRequest.create({
+            data: {
+              leadId: lead.id, email: lead.email || null, whatsapp: lead.whatsapp || null, name: lead.nome || null,
+              type: 'access', status: 'pending', source: 'titular_portal', ip,
+              dueAt: new Date(Date.now() + 15 * 86400_000),
+              details: { note: 'Pedido de acesso aos dados pelo titular.', linkEnviadoPor: usedChannel || 'não enviado' },
+            },
+          }).catch(() => {})
+        }
         logEvent({
           leadId: lead.id, type: 'dsar_access_requested', category: 'lifecycle',
           title: 'Titular pediu acesso aos próprios dados (LGPD)', actorType: 'lead',
