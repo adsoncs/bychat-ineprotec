@@ -177,6 +177,8 @@ async function processIncomingMessage(
   // diretamente pelo value no motor de chatbot (mais robusto que casar por texto,
   // que pode vir truncado ao limite de 20 chars do WhatsApp).
   let interactiveReplyId: string | null = null
+  // Respostas de um WhatsApp Flow (nfm_reply) — todos os campos coletados de uma vez.
+  let flowResponse: Record<string, any> | null = null
 
   switch (msgType) {
     case 'text':
@@ -234,6 +236,10 @@ async function processIncomingMessage(
       } else if (msg.interactive?.list_reply) {
         text = msg.interactive.list_reply.title || msg.interactive.list_reply.id || ''
         interactiveReplyId = msg.interactive.list_reply.id || null
+      } else if (msg.interactive?.nfm_reply) {
+        // WhatsApp Flow concluído: as respostas vêm em response_json (string).
+        text = '[formulário preenchido]'
+        try { flowResponse = JSON.parse(msg.interactive.nfm_reply.response_json || '{}') } catch { flowResponse = {} }
       }
       break
 
@@ -416,7 +422,7 @@ async function processIncomingMessage(
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
-      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId)
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse)
       return
     }
   }

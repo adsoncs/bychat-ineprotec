@@ -18,6 +18,7 @@ import { createLeadFromForm, moveLeadStage, resolveQualification, validateFieldV
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
 import { interpolate } from '../lib/interpolate.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+import { buildFlowSendPayload, ingestFlowResponse, flowInputFields } from './whatsappFlows.js'
 
 // Envia um conjunto de opções como botões/lista (Cloud API) ou texto numerado
 // (fallback). textRender permite um texto de log/fallback customizado (ex.: slots).
@@ -60,7 +61,8 @@ interface ScriptState {
   stepIndex: number
   answers: Record<string, any>
   leadId: number | null
-  phase: 'asking' | 'scheduling' | 'done' | 'disqualified'
+  // flow_pending: enviamos um WhatsApp Flow e aguardamos o nfm_reply (respostas).
+  phase: 'asking' | 'scheduling' | 'done' | 'disqualified' | 'flow_pending'
   slots?: Array<{ startAt: string; text: string }>
 }
 
@@ -110,10 +112,11 @@ export async function processScriptedChatbotMessage(
   form?: any,
   sendInteractiveFn?: SendInteractiveFn | null,
   interactiveReplyId?: string | null,
+  flowResponse?: Record<string, any> | null,
 ): Promise<void> {
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
-    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, interactiveReplyId)
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse)
       .catch((e) => { app.log.error(`[scriptedChatbot] erro: ${e?.stack || e}`) }),
   )
   locks.set(phone, run.then(() => undefined))
@@ -126,6 +129,7 @@ async function _process(
   chatbotId: number | null | undefined, instanceName: string | null | undefined,
   chatbot: any, form: any,
   sendInteractiveFn?: SendInteractiveFn | null, interactiveReplyId?: string | null,
+  flowResponse?: Record<string, any> | null,
 ): Promise<void> {
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[scriptedChatbot] form sem fields'); return }
   const fields: any[] = form.fields
@@ -190,6 +194,57 @@ async function _process(
       await send(leadId, questionText(field))
     }
   }
+  // F3: tenta enviar o formulário como um WhatsApp Flow (tela única). Só Cloud API
+  // e se houver um CloudApiFlow publicado para o form. Retorna true se enviou.
+  const tryStartFlow = async (leadId: number, nudge = false): Promise<boolean> => {
+    if (!(provider === 'cloud_api' && sendInteractiveFn)) return false
+    const flowRow = await prisma.cloudApiFlow.findFirst({
+      where: { formId: form.id, status: 'published', NOT: { metaFlowId: null } },
+      orderBy: { id: 'desc' },
+    }).catch(() => null)
+    if (!flowRow?.metaFlowId) return false
+    const welcome = stripTags(form?.settings?.conversational?.welcomeText)
+    const body = nudge
+      ? 'Por favor, toque no botão abaixo e preencha o formulário. 🙂'
+      : (welcome || 'Para começar, toque no botão e preencha rapidamente:')
+    const payload = buildFlowSendPayload(flowRow.metaFlowId, flowRow.screenId, {
+      bodyText: body, cta: 'Preencher', flowToken: `lead_${leadId}_${Date.now()}`,
+    })
+    try {
+      const r = await sendInteractiveFn!(phone, payload)
+      await saveOutgoing(leadId, '[formulário enviado]', r.messageId)
+      return true
+    } catch (e: any) {
+      app.log.warn(`[scriptedChatbot] flow falhou, fallback perguntas: ${e?.message || e}`)
+      return false
+    }
+  }
+  // F3: ingere as respostas do Flow (nfm_reply) de uma vez, qualifica e avança.
+  const handleFlowResponse = async (leadId: number, state: ScriptState): Promise<void> => {
+    const ingested = ingestFlowResponse(form, flowResponse || {})
+    Object.assign(state.answers, ingested)
+    for (const f of flowInputFields(form)) {
+      if (f.key in state.answers) await applyAnswerToLead(leadId, f, state.answers)
+    }
+    const q = resolveQualification(fields, state.answers, settings)
+    if (q?.finish) {
+      await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
+        ? `${stripTags(settings?.successMessage) || msg(chatbot, 'disqualifiedFallback')}\n\n${q.redirectUrl}`
+        : (stripTags(q.message) || msg(chatbot, 'disqualifiedFallback'))
+      await send(leadId, finishMsg)
+      state.phase = 'disqualified'
+      await persist(leadId, state, true)
+      logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: 'Chatbot (Flow): lead desqualificado', channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+      return
+    }
+    const schedField = fields.find((f) => f?.type === 'scheduling')
+    if (schedField) {
+      await enterSchedulingPhase(leadId, state, fields, settings, form, schedField, send, sendChoices, persist, app, chatbot)
+      return
+    }
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+  }
 
   // ── Localiza lead + estado ──
   const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
@@ -211,12 +266,19 @@ async function _process(
     if (!leadId) { app.log.warn('[scriptedChatbot] não criou lead'); return }
     logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: `Chatbot iniciado: ${chatbot?.name || form.name}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
 
-    // Welcome + primeira pergunta.
+    const firstIdx = nextRealIndex(fields, 0)
+    const newState: ScriptState = { stepIndex: firstIdx, answers: {}, leadId, phase: 'asking' }
+    // F3: se o chatbot coleta via WhatsApp Flow, envia o formulário único (welcome
+    // embutido no corpo do Flow) e aguarda o nfm_reply — sem perguntar campo a campo.
+    if (chatbot?.useFlow && await tryStartFlow(leadId)) {
+      newState.phase = 'flow_pending'
+      await persist(leadId, newState)
+      return
+    }
+    // Welcome + primeira pergunta (fluxo pergunta-a-pergunta).
     const welcome = (chatbot?.greetingMessage && chatbot.greetingMessage.trim())
       || [stripTags(settings?.conversational?.welcomeTitle), stripTags(settings?.conversational?.welcomeText)].filter(Boolean).join('\n\n')
     if (welcome) await send(leadId, welcome)
-    const firstIdx = nextRealIndex(fields, 0)
-    const newState: ScriptState = { stepIndex: firstIdx, answers: {}, leadId, phase: 'asking' }
     if (firstIdx < fields.length) await askField(leadId, fields[firstIdx])
     await persist(leadId, newState)
     return
@@ -231,6 +293,20 @@ async function _process(
   }
 
   await saveIncoming(leadId, text)
+
+  // ── Aguardando o formulário (WhatsApp Flow) ──
+  if (state.phase === 'flow_pending') {
+    if (flowResponse) {
+      await handleFlowResponse(leadId, state)
+    } else if (!await tryStartFlow(leadId, true)) {
+      // Não conseguiu reenviar o Flow → cai para o fluxo pergunta-a-pergunta.
+      state.phase = 'asking'
+      await persist(leadId, state)
+      const f0 = fields[state.stepIndex]
+      if (f0) await askField(leadId, f0)
+    }
+    return
+  }
 
   // ── Fase de agendamento ──
   if (state.phase === 'scheduling') {

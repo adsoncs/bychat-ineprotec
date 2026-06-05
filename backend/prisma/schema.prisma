@@ -571,6 +571,9 @@ model Chatbot {
   // Mensagens interativas editáveis do runner scripted (sobrescreve os defaults
   // de código por chave: noSlots, slotPrompt, bookingConfirmed, etc.).
   scriptedMessages  Json?    @db.Json
+  // F3: coletar dados via WhatsApp Flow (formulário nativo em tela única) em vez de
+  // pergunta-a-pergunta. Requer Cloud API + um CloudApiFlow publicado do form.
+  useFlow           Boolean  @default(false)
   funnelId          Int?
   funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   systemPrompt      String   @db.LongText
@@ -1152,6 +1155,7 @@ model CloudApiConnection {
   messages        Message[]
   messageLogs     CloudApiMessageLog[]
   broadcastCampaigns BroadcastCampaign[]
+  flows           CloudApiFlow[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -1160,6 +1164,29 @@ model CloudApiConnection {
   @@index([defaultTeamId])
   @@index([ownerUserId])
   @@map("bychat_cloud_api_connections")
+}
+
+// F3 — WhatsApp Flows estáticos: formulário nativo do WhatsApp (tela única) gerado
+// a partir de um Form. flowJson é o Flow JSON publicado na Meta; metaFlowId é o id
+// retornado pela Meta após publicar. Sem endpoint/criptografia (respostas voltam de
+// uma vez no nfm_reply).
+model CloudApiFlow {
+  id           Int                @id @default(autoincrement())
+  connectionId Int
+  connection   CloudApiConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  formId       Int? // form de origem (referência solta, sem FK)
+  metaFlowId   String?            @db.VarChar(100) // id do Flow na Meta (após publicar)
+  name         String             @db.VarChar(191)
+  status       String             @default("draft") @db.VarChar(30) // draft | published | error
+  flowJson     Json               @db.Json
+  screenId     String             @default("INTAKE") @db.VarChar(60)
+  lastError    String?            @db.Text
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([connectionId])
+  @@index([formId])
+  @@map("bychat_cloud_api_flows")
 }
 
 model CloudApiTemplate {

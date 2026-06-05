@@ -7,6 +7,7 @@ export interface ChatbotItem {
   channel: string
   mode: string
   formId: number | null
+  useFlow: boolean
   scriptedMessages: Record<string, string> | null
   active: boolean
   systemPrompt: string | null
@@ -33,6 +34,7 @@ export interface ChatbotInput {
   channel?: string | undefined
   mode?: string | undefined
   formId?: number | null | undefined
+  useFlow?: boolean | undefined
   scriptedMessages?: Record<string, string> | null | undefined
   systemPrompt?: string | null | undefined
   extractionPrompt?: string | null | undefined

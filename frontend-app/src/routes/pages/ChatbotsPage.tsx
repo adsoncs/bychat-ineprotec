@@ -29,6 +29,7 @@ import { ChatbotTester } from '@/components/chatbot/ChatbotTester'
 import { CHATBOT_TEMPLATES, type ChatbotTemplate } from '@/components/chatbot/ChatbotTemplates'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
+import { api } from '@/lib/apiClient'
 
 const CHANNELS: { value: string; label: string; emoji: string }[] = [
   { value: 'chat',      label: 'Chat Web',  emoji: '💬' },
@@ -504,6 +505,7 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     channel: chatbot?.channel ?? tplDefaults?.channel ?? 'chat',
     mode: chatbot?.mode ?? 'ai',
     formId: chatbot?.formId ? String(chatbot.formId) : '',
+    useFlow: chatbot?.useFlow ?? false,
     scriptedMessages: (chatbot?.scriptedMessages ?? {}) as Record<string, string>,
     funnelId: chatbot?.funnelId ? String(chatbot.funnelId) : '',
     defaultTeamId: chatbot?.defaultTeamId ? String(chatbot.defaultTeamId) : '',
@@ -532,6 +534,19 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     setForm((f) => ({ ...f, [k]: v }))
   }
 
+  const [publishingFlow, setPublishingFlow] = useState(false)
+  // Gera o WhatsApp Flow JSON do formulário e publica na Meta (ação do admin).
+  async function publishFlow() {
+    if (!form.formId) { toast('Selecione o formulário vinculado primeiro.', 'danger'); return }
+    setPublishingFlow(true)
+    try {
+      await api.post<{ ok: boolean }>('/cloud-api/flows', { formId: Number(form.formId) })
+      toast('Flow publicado na Meta! Marque "Coletar via Flow" e salve o chatbot.', 'success')
+    } catch (e: any) {
+      toast(e?.message || 'Falha ao publicar o Flow na Meta.', 'danger')
+    } finally { setPublishingFlow(false) }
+  }
+
   function handleSubmit() {
     if (!form.name.trim()) { toast('Nome é obrigatório', 'danger'); return }
     const payload = {
@@ -539,6 +554,7 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
       channel: form.channel,
       mode: form.mode,
       formId: form.mode === 'scripted' && form.formId ? Number(form.formId) : null,
+      useFlow: form.mode === 'scripted' ? form.useFlow : false,
       scriptedMessages: form.mode === 'scripted' ? form.scriptedMessages : null,
       funnelId: form.funnelId ? Number(form.funnelId) : null,
       defaultTeamId: form.defaultTeamId ? Number(form.defaultTeamId) : null,
@@ -635,6 +651,29 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
               </Select>
             )}
           </div>
+          {form.mode === 'scripted' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="mt-0.5"
+                  checked={form.useFlow}
+                  onChange={(e) => patch('useFlow', (e.target as HTMLInputElement).checked)}
+                />
+                <span class="text-sm text-fg">
+                  Coletar dados via WhatsApp Flow (formulário único)
+                  <span class="block text-xs text-fg-muted">
+                    Em vez de pergunta por pergunta, envia um formulário nativo do WhatsApp (uma tela) e
+                    recebe todas as respostas de uma vez. Só funciona em número Cloud API e exige publicar o
+                    Flow na Meta (botão abaixo). Sem Flow publicado, cai automaticamente no fluxo normal.
+                  </span>
+                </span>
+              </label>
+              <Button type="button" variant="ghost" size="sm" onClick={publishFlow} disabled={publishingFlow || !form.formId}>
+                {publishingFlow ? 'Publicando…' : 'Publicar Flow na Meta (do formulário vinculado)'}
+              </Button>
+            </div>
+          )}
           {form.mode === 'scripted' && (
             <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info flex items-center gap-2">
               <Sparkles size={14} class="shrink-0" />
