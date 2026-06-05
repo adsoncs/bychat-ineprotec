@@ -148,6 +148,13 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
           <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-6h8v2H8v-2zm0-3h8v2H8v-2z" />
         </svg>
       )
+    case 'scheduling':
+      return (
+        <svg {...common} fill="#0ea5e9" aria-label={title}>
+          <title>{title}</title>
+          <path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 18H5V9h14v12zm0-14H5V5h14v2zM7 11h5v5H7v-5z" />
+        </svg>
+      )
     case 'enrollment_portal':
       return (
         <svg {...common} fill="#0d9488" aria-label={title}>

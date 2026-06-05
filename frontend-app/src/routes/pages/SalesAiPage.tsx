@@ -36,6 +36,7 @@ const ORIGIN_LABELS: Record<string, string> = {
   meta_lead_ads: 'Meta Lead Ads',
   organic: 'Orgânico',
   web_form: 'Formulário Web',
+  scheduling: 'Agendamento',
   manual: 'Manual',
   whatsapp: 'WhatsApp Direto',
 }
@@ -47,6 +48,7 @@ const ORIGIN_COLORS: Record<string, string> = {
   meta_lead_ads: '#e91e63',
   organic: '#9e9e9e',
   web_form: '#00bcd4',
+  scheduling: '#0ea5e9',
   manual: '#795548',
   whatsapp: '#25d366',
 }

@@ -17,6 +17,7 @@ export interface AdminUser {
   workStatus?: 'available' | 'away' | 'busy' | 'offline'
   workStatusUpdatedAt?: string | null
   capacity?: number
+  notifyWhatsapp?: string | null
 }
 
 export interface UserCreateInput {
@@ -33,6 +34,7 @@ export interface UserUpdateInput {
   active?: boolean | undefined
   password?: string | undefined
   capacity?: number | undefined
+  notifyWhatsapp?: string | null | undefined
 }
 
 export interface UserAuditEntry {

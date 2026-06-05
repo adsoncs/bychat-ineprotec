@@ -4,7 +4,7 @@ import { usePrimaryInstall } from '@/hooks/usePrimaryInstall'
 import {
   Palette, Shield, Package,
   Mail, Copy,
-  Map, Server, Trash2, Sparkles, HelpCircle, Scale,
+  Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
 } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -26,6 +26,7 @@ import { EvolutionApiSettings } from './settings/EvolutionApiSettings'
 import { SystemEmailsSettings } from './settings/SystemEmailsSettings'
 import { IntelligenceSettings } from './settings/IntelligenceSettings'
 import { LegalSettings } from './settings/LegalSettings'
+import { CompanySettings } from './settings/CompanySettings'
 import { RoadmapPage } from './RoadmapPage'
 import { InstallationsPage } from './InstallationsPage'
 import { TrashPage } from './TrashPage'
@@ -35,7 +36,7 @@ export type Tab =
   | 'appearance' | 'fields' | 'teams' | 'security'
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
-  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal'
+  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -48,6 +49,7 @@ export type Tab =
 // MARKETING_HOST setado no .env.
 const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean }[] = [
   { id: 'appearance', label: 'Aparência', icon: <Palette size={14} /> },
+  { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
   { id: 'security', label: 'Segurança', icon: <Shield size={14} /> },
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
@@ -166,6 +168,7 @@ export function SettingsPage() {
           {tab === 'system-emails' && <SystemEmailsSettings />}
           {tab === 'intelligence' && <IntelligenceSettings />}
           {tab === 'legal' && <LegalSettings />}
+          {tab === 'company' && <CompanySettings />}
           {tab === 'roadmap' && isPrimary && <RoadmapPage />}
           {tab === 'installations' && isPrimary && <InstallationsPage />}
           {tab === 'trash' && <TrashPage />}

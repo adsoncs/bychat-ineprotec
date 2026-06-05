@@ -223,7 +223,7 @@ export async function getProviderForLead(lead: { id: number; whatsapp: string })
 }
 
 /** Cria EvolutionProvider a partir das env vars (instância padrão). */
-function createEvolutionProvider(): EvolutionProvider {
+export function createEvolutionProvider(): EvolutionProvider {
   const url = process.env.EVOLUTION_API_URL
   const key = process.env.EVOLUTION_API_KEY
   const inst = process.env.EVOLUTION_INSTANCE || 'beyond-main'

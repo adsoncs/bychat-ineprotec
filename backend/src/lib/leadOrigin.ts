@@ -15,6 +15,7 @@ export const ORIGIN_TYPES = [
   'google_ads',       // veio com gclid ou utm_source=google/google_ads
   'meta_lead_ads',    // formulário interno do Facebook (Lead Ads)
   'web_form',         // formulário do site/landing page/portal
+  'scheduling',       // página/formulário de agendamento (Calendly) — lead reservou reunião
   'web_chat',         // chat embed no site (chatbot web)
   'whatsapp',         // mensagem direta no WhatsApp (sem CTWA / sem link)
   'instagram',        // mensagem direta no Instagram
@@ -103,6 +104,11 @@ export function deriveLeadOrigin(input: DeriveOriginInput): OriginType {
   if (ch === 'instagram' || src === 'instagram') return 'instagram'
   if (ch === 'telegram' || src === 'telegram') return 'telegram'
   if (ch === 'web_chat' || src === 'web_chat' || qualificationSource === 'web_chat_completed') return 'web_chat'
+
+  // 7b. Agendamento (página/form de agendamento Calendly): o lead reservou uma
+  // reunião. Fica no mesmo tier de "superfície própria" do web_form — sinais
+  // pagos (gclid/ctwa/utm) acima ainda vencem para preservar a atribuição.
+  if (qualificationSource === 'scheduling' || src === 'scheduling') return 'scheduling'
 
   // 8. Form web (site, landing, formulário público)
   if (

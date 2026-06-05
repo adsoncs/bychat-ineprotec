@@ -4,6 +4,7 @@ import { api } from '@/lib/apiClient'
 export interface MessageTemplateItem {
   id: number
   name: string
+  key: string | null
   channel: string
   category: string | null
   subject: string | null

@@ -197,20 +197,23 @@ async function findLeadByContact(contact: string): Promise<any | null> {
 
 async function notifyEncarregado(subject: string, lines: string[]): Promise<void> {
   const text = lines.join('\n')
-  // WhatsApp ao número de notificação (se configurado)
-  try {
-    const num = process.env.NOTIF_WHATSAPP_NUMBER
-    if (num) {
-      const { getDefaultProvider } = await import('../services/whatsappProvider.js')
-      const provider = await getDefaultProvider()
-      await provider.sendText(num, `🔐 *LGPD — ${subject}*\n\n${text}`)
+  const { getNotificationTargets, sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
+  const targets = await getNotificationTargets()
+  // WhatsApp aos números de notificação (se configurados)
+  if (targets.whatsapps.length > 0) {
+    // Aviso interno → Evolution (número conectado da instância).
+    const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
+    const provider = createEvolutionProvider()
+    for (const num of targets.whatsapps) {
+      try {
+        await provider.sendText(num, `🔐 *LGPD — ${subject}*\n\n${text}`)
+      } catch (e: any) { console.warn(`[titular] notify WA falhou (${num}):`, e?.message) }
     }
-  } catch (e: any) { console.warn('[titular] notify WA falhou:', e?.message) }
-  // E-mail ao endereço de notificação (se configurado)
+  }
+  // E-mail aos endereços de notificação (se configurados)
   try {
-    const to = process.env.NOTIFY_EMAIL_TO
+    const to = targets.emails.join(', ')
     if (to) {
-      const { sendEmailGeneric, getEmailConfig, getFromAddress } = await import('../services/notify.js')
       const cfg = await getEmailConfig()
       await sendEmailGeneric({
         from: getFromAddress(cfg, 'LGPD'), to,

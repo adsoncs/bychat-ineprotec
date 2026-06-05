@@ -214,7 +214,7 @@ function defaultProps(type: SectionTypeId): Record<string, unknown> {
     case 'form':
       return { heading: 'Fale conosco', subheading: '', formId: null, layout: 'stacked' }
     case 'cta':
-      return { heading: 'Pronto para começar?', ctaText: 'Quero começar', ctaLink: '#form' }
+      return { heading: 'Pronto para começar?', subheading: 'Dê o próximo passo agora mesmo.', ctaText: 'Quero começar', ctaLink: '#form' }
     case 'testimonials':
       return {
         heading: 'O que dizem',
@@ -1241,6 +1241,7 @@ function SectionPropsForm({
       return (
         <div class="space-y-2">
           <Input label="Título" value={get('heading')} onInput={(e) => onPatch({ heading: (e.target as HTMLInputElement).value })} />
+          <Textarea label="Subtítulo / Copy" rows={3} value={get('subheading')} onInput={(e) => onPatch({ subheading: (e.target as HTMLTextAreaElement).value })} placeholder="Texto de apoio abaixo do título (opcional)" />
           <Input label="Texto do botão" value={get('ctaText')} onInput={(e) => onPatch({ ctaText: (e.target as HTMLInputElement).value })} />
           <Input label="Link do botão" value={get('ctaLink')} onInput={(e) => onPatch({ ctaLink: (e.target as HTMLInputElement).value })} placeholder="#form ou https://" />
         </div>

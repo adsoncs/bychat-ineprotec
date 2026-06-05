@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { getMetaAppSecret } from '../lib/meta.js'
 import { validateWebhookSignature, markAsRead, downloadMedia, decryptToken, normalizePhone } from '../services/cloudApi.js'
 import { processChatbotMessage } from '../services/chatbotFlow.js'
+import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -398,6 +399,15 @@ async function processIncomingMessage(
     return sendTextMessage(phoneNumberId, token, p, t)
   }
 
+  // Chatbot determinístico (scripted): roda a jornada do form vinculado.
+  const chatbot = conn.chatbotId ? await prisma.chatbot.findUnique({ where: { id: conn.chatbotId } }) : null
+  if (chatbot?.mode === 'scripted' && chatbot.formId) {
+    const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
+    if (form?.active) {
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form)
+      return
+    }
+  }
   await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null)
 }
 

@@ -39,6 +39,7 @@ const PRESETS: { value: string; label: string; days: number }[] = [
 
 const QUALIFICATION_SOURCES: { value: string; label: string }[] = [
   { value: 'form', label: 'Formulário' },
+  { value: 'scheduling', label: 'Agendamento' },
   { value: 'enrollment_portal', label: 'Portal de Matrículas' },
   { value: 'meta_lead_ads', label: 'Meta Lead Ads' },
   { value: 'web_chat_completed', label: 'Chat Web (concluiu)' },

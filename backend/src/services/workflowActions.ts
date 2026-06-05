@@ -72,6 +72,9 @@ interface ActionConfig {
   userId?: number
   // transferToTeam
   reason?: string
+  // notify_operator (aviso interno ao operador/setor responsável)
+  waTemplateId?: number
+  emailTemplateId?: number
 }
 
 function describeAssignment(
@@ -682,6 +685,71 @@ export async function dispatchAction(
       await prisma.workflowStepExecution.update({
         where: { id: stepExec.id },
         data: { jobId: job.id }
+      })
+      break
+    }
+
+    case 'notify_operator': {
+      // Aviso de NOVO LEAD à equipe (não vai ao lead). Envia direto (síncrono), sem
+      // governança/opt-out. Destinos GERAIS configuráveis em Configurações › Empresa ›
+      // Dados de Notificações (listas de e-mails e WhatsApps; fallback p/ env legada).
+      // Cópia opcional para os agentes ativos (toggle ccAgents). Texto vem de
+      // MessageTemplate (editável).
+      const { getNotificationTargets, sendEmailGeneric, getEmailConfig, getFromAddress } = await import('./notify.js')
+      const targets = await getNotificationTargets()
+      const generalPhones = targets.whatsapps
+      const generalEmail = targets.emails.join(', ')
+      // Cópia para os e-mails dos agentes ativos, quando habilitado.
+      let ccList = ''
+      if (targets.ccAgents) {
+        const agents = await prisma.user.findMany({ where: { active: true, isAgent: true }, select: { email: true } })
+        ccList = Array.from(new Set(agents.map((a) => a.email).filter(Boolean))).join(', ')
+      }
+      // Nome do operador responsável (apenas para a variável {{operador}} do template).
+      let opName = ''
+      if (lead.assignedUserId) {
+        const u = await prisma.user.findUnique({ where: { id: lead.assignedUserId }, select: { name: true } })
+        opName = u?.name || ''
+      }
+      const origem = triggerData?.payload?.metadata?.formName || triggerData?.payload?.metadata?.formId || ''
+      const enriched = { ...triggerData, payload: { ...(triggerData?.payload || {}), operador: opName, origem, etapa: lead.status || '' } }
+
+      // WhatsApp → todos os números gerais
+      if (generalPhones.length > 0 && config.waTemplateId) {
+        const tpl = await prisma.messageTemplate.findUnique({ where: { id: config.waTemplateId } })
+        const body = resolveVariables(tpl?.body || '', lead, enriched)
+        if (body.trim()) {
+          // Aviso interno → Evolution (número conectado da instância). Não usar
+          // getDefaultProvider (pode cair na Cloud API, que não entrega texto
+          // livre a número fora da janela 24h).
+          const { createEvolutionProvider } = await import('./whatsappProvider.js')
+          const provider = createEvolutionProvider()
+          for (const phone of generalPhones) {
+            try {
+              await provider.sendText(phone, body)
+            } catch (e: any) { console.warn(`[notify_operator] WhatsApp falhou (${phone}):`, e?.message) }
+          }
+          prisma.messageTemplate.update({ where: { id: config.waTemplateId }, data: { usageCount: { increment: 1 } } }).catch(() => {})
+        }
+      }
+      // E-mail → destino geral + cópia aos agentes
+      const email = generalEmail
+      if (email && config.emailTemplateId) {
+        const tpl = await prisma.messageTemplate.findUnique({ where: { id: config.emailTemplateId } })
+        const { decodeHtmlIfEscaped } = await import('../lib/interpolate.js')
+        const subject = resolveVariables(tpl?.subject || 'Novo lead', lead, enriched)
+        const html = resolveVariables(decodeHtmlIfEscaped(tpl?.bodyHtml) || tpl?.body || '', lead, enriched)
+        if (html.trim()) {
+          try {
+            const cfg = await getEmailConfig()
+            await sendEmailGeneric({ from: getFromAddress(cfg, 'Novo lead'), to: email, ...(ccList ? { cc: ccList } : {}), subject, html })
+            prisma.messageTemplate.update({ where: { id: config.emailTemplateId }, data: { usageCount: { increment: 1 } } }).catch(() => {})
+          } catch (e: any) { console.warn('[notify_operator] e-mail falhou:', e?.message) }
+        }
+      }
+      await prisma.workflowStepExecution.update({
+        where: { id: stepExec.id },
+        data: { status: 'completed', completedAt: new Date(), result: { phone: generalPhones.join(', ') || null, email: email || null, cc: ccList || null } },
       })
       break
     }

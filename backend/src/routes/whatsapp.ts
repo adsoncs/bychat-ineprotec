@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage } from '../services/chatbotFlow.js'
+import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/teamRouting.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -859,7 +860,17 @@ export async function whatsappRoutes(app: FastifyInstance) {
         const result = await sendWhatsAppMessage(p, t)
         return { messageId: result?.key?.id || null }
       }
-      await processChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, whatsappInstance?.chatbotId, inboundInstance)
+      // Chatbot determinístico (scripted): roda a jornada do form vinculado.
+      const cbId = whatsappInstance?.chatbotId
+      const chatbot = cbId ? await prisma.chatbot.findUnique({ where: { id: cbId } }) : null
+      if (chatbot?.mode === 'scripted' && chatbot.formId) {
+        const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
+        if (form?.active) {
+          await processScriptedChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form)
+          return { ok: true }
+        }
+      }
+      await processChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance)
 
       return { ok: true }
     } catch (err: any) {

@@ -405,6 +405,7 @@ function UserFormModal({
   const [role, setRole] = useState<UserRole>(user?.role ?? 'VIEWER')
   const [active, setActive] = useState(user?.active ?? true)
   const [capacity, setCapacity] = useState<number>(user?.capacity ?? 5)
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState<string>(user?.notifyWhatsapp ?? '')
   const create = useCreateUser()
   const update = useUpdateUser()
   const loading = create.isPending || update.isPending
@@ -431,6 +432,7 @@ function UserFormModal({
       if (active !== user.active) payload.active = active
       if (password) payload.password = password
       if (capacity !== (user.capacity ?? 5)) payload.capacity = capacity
+      if (notifyWhatsapp.trim() !== (user.notifyWhatsapp ?? '')) payload.notifyWhatsapp = notifyWhatsapp.trim() || null
 
       const hasChanges = Object.keys(payload).length > 1
       if (!hasChanges) {
@@ -523,6 +525,13 @@ function UserFormModal({
                 setCapacity(Number.isFinite(v) && v > 0 ? v : 1)
               }}
               hint="Máx. de leads em aberto que o operador pode carregar ao mesmo tempo. Usado pelo modo 'Menor carga' do roteamento e pelo cálculo de utilização."
+            />
+            <Input
+              label="WhatsApp para avisos (opcional)"
+              value={notifyWhatsapp}
+              placeholder="5562999990000"
+              onInput={(e) => setNotifyWhatsapp((e.target as HTMLInputElement).value)}
+              hint="Número que recebe avisos internos (ex.: novo lead) quando este operador for o responsável. Sem ele, o aviso cai no número geral de notificação."
             />
           </div>
         ) : (

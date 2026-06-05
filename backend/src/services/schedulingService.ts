@@ -20,6 +20,14 @@ export async function loadAvailability(meetingTypeId: number) {
 
 type MeetingTypeRow = Awaited<ReturnType<typeof prisma.meetingType.findUnique>>
 
+// Resolve um tipo de reunião ATIVO pelo slug (null se inexistente/inativo).
+// Compartilhado pela rota pública de agendamento e pelo runner de chatbot.
+export async function getActiveMeetingType(slug: string): Promise<NonNullable<MeetingTypeRow> | null> {
+  const mt = await prisma.meetingType.findUnique({ where: { slug } })
+  if (!mt || !mt.active) return null
+  return mt
+}
+
 // Resolve a agenda efetiva de um tipo: agenda própria do tipo → agenda do operador
 // dono (reutilizada entre os tipos dele) → padrão seg-sex 09-18.
 export async function resolveScheduleForType(mt: { id: number; ownerUserId: number | null }) {
@@ -120,7 +128,14 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   let leadId: number | null = null
   const dup = await findDuplicate(whatsapp || undefined, email || undefined)
   if (dup?.lead?.id) {
-    leadId = dup.lead.id
+    const lid = dup.lead.id
+    leadId = lid
+    // A reunião pertence ao DONO do tipo (operador principal de agendamentos).
+    // Mesmo que o lead tenha sido roteado antes para outro agente (form/chatbot),
+    // ao agendar ele passa a ser do dono — só o dono atende os agendamentos.
+    if (mt.ownerUserId) {
+      await prisma.lead.update({ where: { id: lid }, data: { assignedUserId: mt.ownerUserId, assignedAt: new Date() } }).catch(() => {})
+    }
   } else {
     const lead = await prisma.lead.create({
       data: {

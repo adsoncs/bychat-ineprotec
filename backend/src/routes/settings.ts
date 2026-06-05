@@ -562,6 +562,75 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     return { ok: true }
   })
+
+  // ── Empresa ─────────────────────────────────────────────────────────────
+  // Dados da empresa (razão social/CNPJ, compartilhados com a LGPD) + Dados de
+  // Notificações: listas de e-mails e WhatsApps que recebem avisos internos
+  // (novo lead, agendamento, LGPD). Fonte única consumida por
+  // getNotificationTargets() em services/notify.ts.
+  app.get('/api/admin/company', { preHandler: adminOnly }, async () => {
+    const keys = ['legal.company_name', 'legal.cnpj',
+      'company.notify_emails', 'company.notify_whatsapps', 'company.notify_cc_agents']
+    const rows = await prisma.setting.findMany({ where: { key: { in: keys } } })
+    const byKey = new Map(rows.map(r => [r.key, r.value]))
+    const asArray = (raw: any): string[] => {
+      if (Array.isArray(raw)) return raw.map((v) => String(v).trim()).filter(Boolean)
+      if (typeof raw === 'string' && raw.trim()) {
+        try { const p = JSON.parse(raw); return Array.isArray(p) ? p.map((v) => String(v).trim()).filter(Boolean) : [raw.trim()] }
+        catch { return raw.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean) }
+      }
+      return []
+    }
+    const ccRaw = byKey.get('company.notify_cc_agents')
+    return {
+      companyName: unwrapSetting(byKey.get('legal.company_name')),
+      cnpj: unwrapSetting(byKey.get('legal.cnpj')),
+      notifyEmails: asArray(byKey.get('company.notify_emails')),
+      notifyWhatsapps: asArray(byKey.get('company.notify_whatsapps')),
+      ccAgents: ccRaw === undefined || ccRaw === null ? true : (ccRaw === true || ccRaw === 'true' || ccRaw === 1),
+    }
+  })
+
+  app.put('/api/admin/company', { preHandler: adminOnly }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const companyName = String(b.companyName ?? '').trim().slice(0, 200)
+    const cnpj = String(b.cnpj ?? '').trim().slice(0, 25)
+
+    const cleanEmails = Array.isArray(b.notifyEmails)
+      ? Array.from(new Set(b.notifyEmails.map((v: any) => String(v).trim()).filter(Boolean))) as string[]
+      : []
+    const cleanWhatsapps = Array.isArray(b.notifyWhatsapps)
+      ? Array.from(new Set(b.notifyWhatsapps.map((v: any) => String(v).replace(/[^\d+]/g, '').trim()).filter(Boolean))) as string[]
+      : []
+    const ccAgents = b.ccAgents === undefined ? true : !!b.ccAgents
+
+    const badEmail = cleanEmails.find((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+    if (badEmail) return reply.code(400).send({ error: `E-mail de notificação inválido: ${badEmail}` })
+
+    async function up(key: string, value: any, label: string, fieldType: string) {
+      await prisma.setting.upsert({
+        where: { key },
+        create: { key, label, grp: 'company', fieldType, value: value as any },
+        update: { value: value as any },
+      })
+    }
+    // Razão social/CNPJ continuam no grupo legal (fonte única com a LGPD).
+    await prisma.setting.upsert({
+      where: { key: 'legal.company_name' },
+      create: { key: 'legal.company_name', label: 'LGPD — Razão social', grp: 'legal', fieldType: 'text', value: companyName as any },
+      update: { value: companyName as any },
+    })
+    await prisma.setting.upsert({
+      where: { key: 'legal.cnpj' },
+      create: { key: 'legal.cnpj', label: 'LGPD — CNPJ', grp: 'legal', fieldType: 'text', value: cnpj as any },
+      update: { value: cnpj as any },
+    })
+    await up('company.notify_emails', cleanEmails, 'Empresa — E-mails que recebem notificações', 'json')
+    await up('company.notify_whatsapps', cleanWhatsapps, 'Empresa — WhatsApps que recebem notificações', 'json')
+    await up('company.notify_cc_agents', ccAgents, 'Empresa — Copiar agentes ativos nos avisos por e-mail', 'boolean')
+
+    return { ok: true, notifyEmails: cleanEmails, notifyWhatsapps: cleanWhatsapps, ccAgents }
+  })
 }
 
 function summarizeJob(job: any) {

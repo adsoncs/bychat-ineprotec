@@ -57,6 +57,17 @@ const CHANNEL_FILTERS: { key: string; label: string; activeClass: string }[] = [
 
 const QUICK_VARS = ['nome', 'empresa', 'score', 'maturidade', 'solucao', 'operador', 'data_hoje']
 
+// Conserta HTML salvo entity-encoded por engano (&lt;div&gt;…). Só decodifica quando
+// o valor parece TODO escapado (tem &lt;/&gt; e nenhuma tag crua) — não toca HTML válido.
+function decodeHtmlIfEscaped(v: string): string {
+  const s = v ?? ''
+  if (s && /&lt;|&gt;/.test(s) && !/<[a-z!/]/i.test(s)) {
+    return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#0?39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+  }
+  return s
+}
+
 export function TemplatesPage() {
   const [channelFilter, setChannelFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -194,7 +205,12 @@ export function TemplatesPage() {
                   {t.category && <Badge tone="neutral">{CATEGORY_LABEL[t.category] ?? t.category}</Badge>}
                   <span class="text-[0.625rem] text-fg-subtle ml-auto">Usado {t.usageCount}x</span>
                 </div>
-                <div class="text-sm font-medium text-fg mb-1.5">{t.name}</div>
+                <div class="text-sm font-medium text-fg mb-1">{t.name}</div>
+                {t.key && (
+                  <div class="mb-1.5" title="Identificador fixo usado pelo sistema. Você pode renomear o modelo acima à vontade — isto não muda.">
+                    <span class="inline-flex items-center gap-1 text-[0.625rem] font-mono text-fg-subtle bg-surface-2 border border-border rounded px-1.5 py-0.5">🔑 {t.key}</span>
+                  </div>
+                )}
                 {t.subject && <div class="text-xs text-fg-muted mb-1 truncate">Assunto: {t.subject}</div>}
                 <p class="text-xs text-fg-subtle line-clamp-3 whitespace-pre-line">{t.body}</p>
                 <div class="flex gap-1.5 mt-3">
@@ -259,7 +275,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const [category, setCategory] = useState(template?.category ?? 'general')
   const [subject, setSubject] = useState(template?.subject ?? '')
   const [body, setBody] = useState(template?.body ?? '')
-  const [bodyHtml, setBodyHtml] = useState(template?.bodyHtml ?? '')
+  const [bodyHtml, setBodyHtml] = useState(decodeHtmlIfEscaped(template?.bodyHtml ?? ''))
   const create = useCreateTemplate()
   const update = useUpdateTemplate()
   const { data: variables } = useTemplateVariables()
@@ -269,7 +285,9 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const varKeys = variables?.variables.length ? variables.variables.map((v) => v.key) : QUICK_VARS
 
   function handleSubmit() {
-    const finalBody = channel === 'email' ? (body || htmlToText(bodyHtml)) : body
+    // Nunca persistir HTML escapado (ex.: colado como texto): decodifica antes.
+    const cleanHtml = decodeHtmlIfEscaped(bodyHtml)
+    const finalBody = channel === 'email' ? (body || htmlToText(cleanHtml)) : body
     if (!name.trim() || !finalBody.trim()) {
       toast('Nome e conteúdo são obrigatórios.', 'danger')
       return
@@ -280,7 +298,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       category,
       subject: channel === 'email' && subject.trim() ? subject.trim() : null,
       body: finalBody,
-      bodyHtml: channel === 'email' && bodyHtml.trim() ? bodyHtml.trim() : null,
+      bodyHtml: channel === 'email' && cleanHtml.trim() ? cleanHtml.trim() : null,
     }
     const onSuccess = () => { toast(isEdit ? 'Modelo atualizado' : 'Modelo criado', 'success'); onClose() }
     const onError = (e: unknown) => toast((e as Error).message, 'danger')

@@ -6,11 +6,9 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
-import { generateUid, flagDuplicate } from '../services/dedup.js'
 import { isInternalUrl } from '../lib/urlSafety.js'
-import { pickOperatorForTeam, resolveRoutingFromContext } from '../services/teamRouting.js'
-import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
+import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues } from '../services/formFlow.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
 import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
 import { dispatchConversion } from '../services/googleAdsConversions.js'
@@ -27,148 +25,6 @@ function progressToken(formId: number, leadId: number): string {
 }
 function verifyProgressToken(formId: number, leadId: number, token: any): boolean {
   return typeof token === 'string' && token.length === 32 && token === progressToken(formId, leadId)
-}
-
-// Cria o lead a partir de um envio de formulário (resolve funil/etapa, roteamento,
-// dedup, tracking). Reaproveitado pelo /submit e pela captura parcial (/progress).
-// stageOverride permite criar já na etapa inicial específica. NÃO notifica nem
-// dispara conversão — isso fica a cargo do chamador (só no envio final).
-async function createLeadFromForm(
-  form: any, fields: any[], data: any, body: any, ip: string,
-  submissionId: number | null, stageOverride?: { funnelId: number | null; stageKey: string | null },
-): Promise<{ leadId: number; targetStageKey: string; mapped: Record<string, string>; newLead: any } | null> {
-  const mapped: Record<string, string> = {}
-  for (const field of fields) if (field.mapTo && data[field.key]) mapped[field.mapTo] = String(data[field.key])
-
-  const customFieldDefs = await prisma.customField.findMany({ where: { active: true }, select: { key: true } })
-  const cfKeys = new Set(customFieldDefs.map((cf) => cf.key))
-  const customFieldValues: Record<string, any> = {}
-  for (const field of fields) {
-    if (field.mapTo?.startsWith('cf_') && data[field.key]) customFieldValues[field.mapTo.replace('cf_', '')] = data[field.key]
-    else if (cfKeys.has(field.key) && data[field.key] && !field.mapTo) customFieldValues[field.key] = data[field.key]
-    else if (field.mapTo && cfKeys.has(field.mapTo) && data[field.key]) customFieldValues[field.mapTo] = data[field.key]
-  }
-
-  const nome = mapped.nome || mapped.name || ''
-  const email = mapped.email || ''
-  const whatsapp = mapped.whatsapp || mapped.phone || mapped.telefone || ''
-  const empresa = mapped.empresa || mapped.company || ''
-  if (!(nome || email || whatsapp)) return null
-
-  let targetFunnelId = stageOverride?.funnelId ?? form.funnelId ?? null
-  let targetStageKey = stageOverride?.stageKey ?? form.stageKey ?? 'NOVO'
-  if (!targetFunnelId) {
-    const df = await prisma.funnel.findFirst({ where: { isDefault: true, active: true } })
-    if (df) targetFunnelId = df.id
-  }
-  if (targetFunnelId) {
-    const se = await prisma.stage.findFirst({ where: { funnelId: targetFunnelId, key: targetStageKey, active: true } })
-    if (!se) {
-      const fs = await prisma.stage.findFirst({ where: { funnelId: targetFunnelId, active: true }, orderBy: { position: 'asc' } })
-      if (fs) targetStageKey = fs.key
-    }
-  }
-
-  let routedTeamId: number | null = form.defaultTeamId ?? null
-  let routedUserId: number | null = null
-  let routedRuleId: number | null = null
-  if (routedTeamId) routedUserId = await pickOperatorForTeam(routedTeamId)
-  else {
-    const d = await resolveRoutingFromContext({ source: 'form', formId: form.id, utmSource: body.utmSource || null, utmMedium: body.utmMedium || null, utmCampaign: body.utmCampaign || null })
-    routedTeamId = d.teamId; routedUserId = d.userId; routedRuleId = d.ruleId
-  }
-
-  const newLead = await prisma.lead.create({
-    data: {
-      uid: await generateUid(),
-      nome: nome || 'Lead LP', email: email || '', whatsapp: whatsapp || '', empresa: empresa || '',
-      segmento: mapped.segmento || null, cidade: mapped.cidade || null,
-      formData: data, scores: {}, lastStep: 0, completed: false,
-      status: targetStageKey, funnelId: targetFunnelId, teamId: routedTeamId,
-      assignedUserId: routedUserId, assignedAt: routedUserId ? new Date() : null,
-      source: 'landing_page',
-      originType: deriveLeadOrigin({ source: 'landing_page', qualificationSource: 'form', utmSource: body.utmSource || null, gclid: body.gclid || null, trackableLinkId: null }),
-      trackingVisitorId: body.bt_vid || null,
-      utmSource: body.utmSource || null, utmMedium: body.utmMedium || null, utmCampaign: body.utmCampaign || null,
-      ...(body.gclid ? { gclid: String(body.gclid).slice(0, 191) } : {}),
-      ...(body.ctwaClid ? { ctwaClid: String(body.ctwaClid).slice(0, 191) } : {}),
-      customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
-      qualifiedAt: new Date(), qualificationSource: 'form',
-    },
-  })
-  const leadId = newLead.id
-
-  logEvent({
-    leadId, type: EVENT_TYPES.LEAD_CREATED, category: 'lifecycle',
-    title: `Lead criado via formulário: ${form.name}`, channel: 'web_form', source: 'landing_page', actorType: 'lead',
-    description: `Lead "${nome || email}" criado via formulário "${form.name}"${body.pageSlug ? ` na página /p/${body.pageSlug}` : ' (embed externo)'}`,
-    metadata: { formId: form.id, formName: form.name, pageSlug: body.pageSlug, submissionId, submittedData: data }, ipAddress: ip,
-  })
-  if (routedRuleId) {
-    logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Regra de roteamento aplicada (#${routedRuleId})`, actorType: 'system', metadata: { ruleId: routedRuleId, teamId: routedTeamId, userId: routedUserId } })
-  }
-  flagDuplicate({ newLeadId: leadId, channel: 'forms' }).catch((e) => console.error('[Forms] flagDuplicate error:', (e as any).message))
-  if (body.bt_vid) {
-    prisma.trackingVisitor.updateMany({ where: { visitorId: body.bt_vid }, data: { leadId, identifiedEmail: email || undefined, identifiedPhone: whatsapp || undefined, identifiedName: nome || undefined } }).catch(() => {})
-  }
-  return { leadId, targetStageKey, mapped, newLead }
-}
-
-// Move o lead de etapa (qualificação) registrando o histórico. Best-effort.
-async function moveLeadStage(leadId: number, funnelId: number | null, stageKey: string, source = 'form'): Promise<void> {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true, status: true } })
-  if (!lead) return
-  const toFunnel = funnelId ?? lead.funnelId
-  if (lead.status === stageKey && lead.funnelId === toFunnel) return
-  await prisma.lead.update({ where: { id: leadId }, data: { status: stageKey, funnelId: toFunnel } })
-  await prisma.leadStageMovement.create({
-    data: { leadId, fromFunnelId: lead.funnelId, toFunnelId: toFunnel, fromStageKey: lead.status ?? null, toStageKey: stageKey, source },
-  }).catch(() => {})
-}
-
-// Resolve a qualificação a partir das respostas (regra "negativo vence"):
-// a PRIMEIRA pergunta qualificadora com resposta negativa E com consequência
-// configurada é decisiva (curto-circuita); se nenhuma for negativa, vale o ÚLTIMO
-// resultado positivo com consequência. Cai no journey global quando a pergunta não
-// tem config própria (compat). Retorna o resultado decisivo ou null.
-interface QualifyResolved {
-  funnelId: number | null
-  stageKey: string | null
-  finish: boolean
-  finishAction: 'message' | 'redirect'
-  redirectUrl: string | null
-  message: string | null
-}
-function normOutcome(o: any): QualifyResolved | null {
-  if (!o || typeof o !== 'object') return null
-  return {
-    funnelId: o.funnelId ?? null,
-    stageKey: o.stageKey ?? null,
-    finish: !!o.finish,
-    finishAction: o.finishAction === 'redirect' ? 'redirect' : 'message',
-    redirectUrl: o.redirectUrl ?? null,
-    message: typeof o.message === 'string' ? o.message : null,
-  }
-}
-function resolveQualification(fields: any[], answers: Record<string, any>, settings: any): QualifyResolved | null {
-  const journey = settings?.journey || {}
-  let lastPositive: QualifyResolved | null = null
-  for (const f of fields) {
-    if (!f || !f.isQualifier) continue
-    const ans = answers[f.key]
-    if (ans === undefined || ans === null || ans === '') continue // ainda não respondida
-    const positives: string[] = Array.isArray(f.positiveValues) ? f.positiveValues : []
-    const isPos = positives.length ? positives.includes(ans) : !!ans
-    if (!isPos) {
-      const neg = normOutcome(f.qualifyNegative) ?? normOutcome(journey.qualifyNegative)
-      if (neg && (neg.stageKey || neg.finish)) return neg // negativo configurado vence
-      // negativo sem consequência → ignora e segue procurando
-    } else {
-      const pos = normOutcome(f.qualifyPositive) ?? normOutcome(journey.qualifyPositive)
-      if (pos && (pos.stageKey || pos.finish)) lastPositive = pos
-    }
-  }
-  return lastPositive
 }
 
 // Rate limit para submissions
@@ -301,11 +157,19 @@ export async function formsRoutes(app: FastifyInstance) {
         const finalizeId = (body.leadId && verifyProgressToken(form.id, Number(body.leadId), body.token)) ? Number(body.leadId) : null
         let convStageKey: string | null = null
         if (finalizeId) {
-          const ex = await prisma.lead.findUnique({ where: { id: finalizeId }, select: { status: true, formData: true } })
+          const ex = await prisma.lead.findUnique({ where: { id: finalizeId }, select: { status: true, formData: true, customFields: true } })
           if (ex) {
             leadId = finalizeId
             convStageKey = ex.status
-            await prisma.lead.update({ where: { id: finalizeId }, data: { formData: { ...((ex.formData as any) || {}), ...data }, completed: true } })
+            // Re-mapeia campos personalizados a partir das respostas COMPLETAS: na
+            // captura parcial o lead nasce só com nome/telefone, e respostas tardias
+            // (instagram, faturamento, etc.) só chegam agora, no envio final.
+            const cfv = await buildCustomFieldValues(fields, data)
+            await prisma.lead.update({ where: { id: finalizeId }, data: {
+              formData: { ...((ex.formData as any) || {}), ...data },
+              completed: true,
+              ...(Object.keys(cfv).length > 0 ? { customFields: { ...((ex.customFields as any) || {}), ...cfv } } : {}),
+            } })
           }
         }
         if (!leadId) {
@@ -320,8 +184,10 @@ export async function formsRoutes(app: FastifyInstance) {
         // Roteamento por qualificação (negativo vence): move o lead para a etapa
         // decisiva do funil (já resolvido acima a partir das respostas).
         if (leadId && qualify && qualify.stageKey) {
-          await moveLeadStage(leadId, qualify.funnelId ?? form.funnelId ?? null, qualify.stageKey, 'form').catch(() => {})
-          convStageKey = qualify.stageKey
+          // forwardOnly em qualificação positiva: não regride o lead que já avançou
+          // (ex.: agendou a reunião neste mesmo form). Desqualificação (finish) move sempre.
+          const effectiveStage = await moveLeadStage(leadId, qualify.funnelId ?? form.funnelId ?? null, qualify.stageKey, 'form', { forwardOnly: !qualify.finish }).catch(() => null)
+          if (effectiveStage) convStageKey = effectiveStage
         }
 
         // Conversão server-side (Meta CAPI + Google Ads), gated pelo toggle do form.
@@ -452,9 +318,20 @@ export async function formsRoutes(app: FastifyInstance) {
       if (phase === 'qualify') {
         const leadId = Number(body.leadId)
         if (!leadId || !verifyProgressToken(form.id, leadId, body.token)) return reply.code(403).send({ ok: false })
+        // Persiste as respostas dadas ATÉ AQUI (não esperar o envio final): se o lead
+        // abandonar ou for desqualificado no meio, nenhuma resposta se perde. Salva no
+        // formData (histórico) e nos campos personalizados (buildCustomFieldValues).
+        const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true, customFields: true } })
+        if (lead) {
+          const cfv = await buildCustomFieldValues(fields, data)
+          await prisma.lead.update({ where: { id: leadId }, data: {
+            formData: { ...((lead.formData as any) || {}), ...data },
+            ...(Object.keys(cfv).length > 0 ? { customFields: { ...((lead.customFields as any) || {}), ...cfv } } : {}),
+          } }).catch(() => {})
+        }
         const q = resolveQualification(fields, data, settings)
         if (q && q.stageKey) {
-          await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'form').catch(() => {})
+          await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'form', { forwardOnly: !q.finish }).catch(() => {})
         }
         return reply.send({ ok: true })
       }
@@ -1104,6 +981,11 @@ function generateEmbedScript(
           if(sp.get('utm_source'))payload.utmSource=sp.get('utm_source');
           if(sp.get('utm_medium'))payload.utmMedium=sp.get('utm_medium');
           if(sp.get('utm_campaign'))payload.utmCampaign=sp.get('utm_campaign');
+          if(sp.get('utm_content'))payload.utmContent=sp.get('utm_content');
+          if(sp.get('utm_term'))payload.utmTerm=sp.get('utm_term');
+          if(sp.get('utm_id'))payload.utmId=sp.get('utm_id');
+          if(sp.get('gclid'))payload.gclid=sp.get('gclid');
+          if(sp.get('fbclid'))payload.fbclid=sp.get('fbclid');
         }catch(ex){}
         payload.referrer=document.referrer||'';
 
@@ -1266,7 +1148,7 @@ var idx=0;var consentGiven=false;
 function nextLabel(last,isStmt){if(idx===0&&CFG.startButtonText)return CFG.startButtonText;return isStmt?'Continuar':(last?CFG.submitText:CFG.navButtonText);}
 try{if(window.fbq)fbq('track','PageView');}catch(ex){}
 render();
-function capture(){var o={};try{var sp=new URL(location.href).searchParams;['utm_source','utm_medium','utm_campaign'].forEach(function(k){if(sp.get(k))o[k]=sp.get(k);});if(sp.get('gclid'))o.gclid=sp.get('gclid');if(sp.get('fbclid'))o.fbclid=sp.get('fbclid');var c=sp.get('ctwa_clid')||sp.get('ctwaClid');if(c)o.ctwaClid=c;}catch(ex){}try{if(window.BT&&BT.getVisitorId)o.bt_vid=BT.getVisitorId();}catch(ex){}o.referrer=document.referrer||'';return o;}
+function capture(){var o={};try{var sp=new URL(location.href).searchParams;['utm_source','utm_medium','utm_campaign','utm_content','utm_term','utm_id'].forEach(function(k){if(sp.get(k))o[k]=sp.get(k);});if(sp.get('gclid'))o.gclid=sp.get('gclid');if(sp.get('fbclid'))o.fbclid=sp.get('fbclid');var c=sp.get('ctwa_clid')||sp.get('ctwaClid');if(c)o.ctwaClid=c;}catch(ex){}try{if(window.BT&&BT.getVisitorId)o.bt_vid=BT.getVisitorId();}catch(ex){}o.referrer=document.referrer||'';return o;}
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setBar(p){if(bar)bar.style.width=p+'%';}
 function render(){if(idx<0){renderWelcome();return;}if(idx>=FIELDS.length)return;renderStep(FIELDS[idx]);}
@@ -1284,17 +1166,17 @@ root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();if(f
 function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
 function maybeProgress(f){if(!JOURNEY.partialCapture)return;var p=Promise.resolve();if(!leadId&&JOURNEY.nameKey&&JOURNEY.phoneKey&&answers[JOURNEY.nameKey]&&answers[JOURNEY.phoneKey]){p=postProgress('start');}if(f&&f.isQualifier){p.then(function(){if(leadId)postProgress('qualify');});}}
 function resolveQual(ans){var lastPos=null;for(var i=0;i<FIELDS.length;i++){var f=FIELDS[i];if(!f.isQualifier)continue;var a=ans[f.key];if(a===undefined||a===null||a==='')continue;var pv=f.positiveValues||[];var isPos=pv.length?pv.indexOf(a)>=0:!!a;if(!isPos){var neg=f.qualifyNegative||JOURNEY.qualNegative;if(neg&&(neg.stageKey||neg.finish))return neg;}else{var pos=f.qualifyPositive||JOURNEY.qualPositive;if(pos&&(pos.stageKey||pos.finish))lastPos=pos;}}return lastPos;}
-function postProgress(phase){var payload={phase:phase,data:answers,leadId:leadId,token:ltoken};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else payload[k]=TRACK[k];}return fetch(API+'/api/forms/progress/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res&&res.leadId){leadId=res.leadId;ltoken=res.token;}}).catch(function(){});}
+function postProgress(phase){var payload={phase:phase,data:answers,leadId:leadId,token:ltoken};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}return fetch(API+'/api/forms/progress/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res&&res.leadId){leadId=res.leadId;ltoken=res.token;}}).catch(function(){});}
 function renderSchedule(f,last){var slug=f.meetingSlug;if(!slug){var hm='<div class="screen"><div class="help">Agendamento não configurado.</div><div class="actions"><button class="btn" id="next">'+(last?esc(CFG.submitText):esc(CFG.navButtonText))+'</button></div></div>';root.innerHTML=hm;document.getElementById('next').onclick=function(){if(last)submit();else{idx++;render();}};return;}
 var h='<div class="screen"><div class="q">'+(f.label?esc(f.label):'Escolha um horário')+'</div><div id="sched"><div class="help">Carregando horários…</div></div>';if(idx>0)h+='<div class="actions"><button class="btn-ghost" id="back">Voltar</button></div>';h+='</div>';root.innerHTML=h;var bb=document.getElementById('back');if(bb)bb.onclick=function(){idx--;render();};var box=document.getElementById('sched');
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(slug)+'/slots').then(function(r){return r.json();}).then(function(d){var days=((d&&d.days)||[]).filter(function(x){return x.slots&&x.slots.length;});if(!days.length){box.innerHTML='<div class="help">Nenhum horário disponível no momento.</div>';return;}var WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];var hh='<div class="bf-days">';days.slice(0,14).forEach(function(day){var dd=day.date.slice(8,10)+'/'+day.date.slice(5,7);hh+='<div class="bf-day"><div class="bf-dh">'+WD[day.weekday]+' '+dd+'</div>';day.slots.forEach(function(sl){hh+='<button class="bf-slot" data-s="'+esc(sl.startAt)+'" data-l="'+esc(sl.label)+'">'+esc(sl.label)+'</button>';});hh+='</div>';});hh+='</div>';box.innerHTML=hh;Array.prototype.forEach.call(box.querySelectorAll('.bf-slot'),function(btn){btn.onclick=function(){pickSlot(f,last,btn.getAttribute('data-s'),btn.getAttribute('data-l'));};});}).catch(function(){box.innerHTML='<div class="help">Erro ao carregar horários.</div>';});}
 function pickSlot(f,last,startAt,labelTxt){var email=(JOURNEY.emailKey&&answers[JOURNEY.emailKey])||'';var h='<div class="screen"><div class="q">Confirmar agendamento</div><div class="help">'+esc(labelTxt)+'</div>';if(!email)h+='<input id="bk-email" class="inp" type="email" placeholder="Seu e-mail (para enviar o convite)">';h+='<div class="err" id="bk-err"></div><div class="actions"><button class="btn-ghost" id="bk-back">Voltar</button><button class="btn" id="bk-go">Confirmar</button></div></div>';root.innerHTML=h;document.getElementById('bk-back').onclick=function(){renderSchedule(f,last);};
-document.getElementById('bk-go').onclick=function(){var ie=document.getElementById('bk-email');var em=email||(ie?ie.value.trim():'');var er=document.getElementById('bk-err');var ph=(JOURNEY.phoneKey&&answers[JOURNEY.phoneKey])||'';if(!em&&!ph){er.textContent='Informe seu e-mail';return;}if(em&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)){er.textContent='E-mail inválido';return;}if(em&&JOURNEY.emailKey)answers[JOURNEY.emailKey]=em;var go=document.getElementById('bk-go');go.disabled=true;go.textContent='Agendando…';var nm=(JOURNEY.nameKey&&answers[JOURNEY.nameKey])||'Lead';var utm={};if(TRACK.utm_source)utm.source=TRACK.utm_source;if(TRACK.utm_medium)utm.medium=TRACK.utm_medium;if(TRACK.utm_campaign)utm.campaign=TRACK.utm_campaign;
+document.getElementById('bk-go').onclick=function(){var ie=document.getElementById('bk-email');var em=email||(ie?ie.value.trim():'');var er=document.getElementById('bk-err');var ph=(JOURNEY.phoneKey&&answers[JOURNEY.phoneKey])||'';if(!em&&!ph){er.textContent='Informe seu e-mail';return;}if(em&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)){er.textContent='E-mail inválido';return;}if(em&&JOURNEY.emailKey)answers[JOURNEY.emailKey]=em;var go=document.getElementById('bk-go');go.disabled=true;go.textContent='Agendando…';var nm=(JOURNEY.nameKey&&answers[JOURNEY.nameKey])||'Lead';var utm={};if(TRACK.utm_source)utm.source=TRACK.utm_source;if(TRACK.utm_medium)utm.medium=TRACK.utm_medium;if(TRACK.utm_campaign)utm.campaign=TRACK.utm_campaign;if(TRACK.utm_content)utm.content=TRACK.utm_content;if(TRACK.utm_term)utm.term=TRACK.utm_term;
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
 function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';return '';}
 function submit(){if(!consentGiven){renderConsent();return;}doSubmit();}
 function renderConsent(){var h='<div class="screen"><div class="q">Quase lá!</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions"><button class="btn-ghost" id="back">Voltar</button><button class="btn" id="next">'+esc(CFG.submitText)+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');document.getElementById('back').onclick=function(){render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para enviar.';return;}consentGiven=true;doSubmit();};}
-function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else payload[k]=TRACK[k];}
+function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}
 fetch(API+'/api/forms/submit/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res.ok){fireConv();if(res.redirect){location.href=res.redirect;return;}renderSuccess(res.successHtml);}else{root.innerHTML='<div class="screen"><div class="q">Ops…</div><div class="help">'+esc(res.error||'Erro ao enviar')+'</div></div>';}}).catch(function(){root.innerHTML='<div class="screen"><div class="q">Erro de conexão</div></div>';});}
 function fireConv(){try{if(window.fbq)fbq('track',CFG.metaEventName,{},{eventID:EVID});}catch(ex){}try{if(window.gtag&&GADS.id){var st=GADS.id+(GADS.label?('/'+GADS.label):'');gtag('event','conversion',{send_to:st});}}catch(ex){}try{if(window.BT){var idd={};if(answers.email)idd.email=answers.email;var ph=answers.whatsapp||answers.telefone||answers.phone;if(ph)idd.phone=ph;if(answers.nome||answers.name)idd.name=answers.nome||answers.name;if(BT.identify&&Object.keys(idd).length)BT.identify(idd);if(BT.track)BT.track('form_conversion',{formId:FID});}}catch(ex){}}
 function renderSuccess(overrideHtml){setBar(100);var h='<div class="screen" style="text-align:center">';var oh=overrideHtml||CFG.successHtml;if(oh){h+='<div class="bf-html" style="text-align:center">'+oh+'</div>';}else{h+='<div class="success-ico">✓</div><div class="success-title">'+esc(CFG.successTitle)+'</div><div class="help">'+esc(CFG.successMessage)+'</div>';}h+='</div>';root.innerHTML=h;}

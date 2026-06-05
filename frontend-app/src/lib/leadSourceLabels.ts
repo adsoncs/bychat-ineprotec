@@ -21,6 +21,7 @@ export const LEAD_SOURCE_LABELS: Record<string, string> = {
   enrollment_portal_interest: 'Portal de Matrícula (Interesse)',
   portal_chat: 'Chat do Portal',
   landing_page: 'Landing Page',
+  scheduling: 'Agendamento',
   manual: 'Manual',
   api: 'API',
   chatbot: 'Chatbot',

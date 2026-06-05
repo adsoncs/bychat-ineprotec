@@ -5,6 +5,9 @@ export interface ChatbotItem {
   id: number
   name: string
   channel: string
+  mode: string
+  formId: number | null
+  scriptedMessages: Record<string, string> | null
   active: boolean
   systemPrompt: string | null
   extractionPrompt: string | null
@@ -28,6 +31,9 @@ export interface ChatbotItem {
 export interface ChatbotInput {
   name: string
   channel?: string | undefined
+  mode?: string | undefined
+  formId?: number | null | undefined
+  scriptedMessages?: Record<string, string> | null | undefined
   systemPrompt?: string | null | undefined
   extractionPrompt?: string | null | undefined
   analysisPrompt?: string | null | undefined

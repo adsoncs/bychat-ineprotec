@@ -278,7 +278,7 @@ export async function usersRoutes(app: FastifyInstance) {
       select: {
         id: true, email: true, name: true, role: true, active: true,
         lastLoginAt: true, lastSeenAt: true, createdAt: true,
-        workStatus: true, workStatusUpdatedAt: true, capacity: true,
+        workStatus: true, workStatusUpdatedAt: true, capacity: true, notifyWhatsapp: true,
       }
     })
     return { users }
@@ -331,7 +331,7 @@ export async function usersRoutes(app: FastifyInstance) {
   // ── PUT /api/admin/users/:id — Editar usuário ──
   app.put('/api/admin/users/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const { email, name, role, active, password, capacity } = req.body as any
+    const { email, name, role, active, password, capacity, notifyWhatsapp } = req.body as any
 
     const user = await prisma.user.findUnique({ where: { id: Number(id) } })
     if (!user) return reply.code(404).send({ error: 'Usuário não encontrado' })
@@ -369,6 +369,7 @@ export async function usersRoutes(app: FastifyInstance) {
       }
       data.capacity = Math.floor(c)
     }
+    if (notifyWhatsapp !== undefined) data.notifyWhatsapp = notifyWhatsapp ? String(notifyWhatsapp).replace(/\D/g, '').slice(0, 30) || null : null
 
     const updated = await prisma.user.update({ where: { id: Number(id) }, data })
 

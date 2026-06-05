@@ -5,6 +5,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
 import crypto from 'crypto'
 
 // ─── Bot Detection ───────────────────────────────────────
@@ -592,16 +593,10 @@ export async function trackingRoutes(app: FastifyInstance) {
     return { visitor, sessions, events }
   })
 
-  // ── GET /api/tracking/snippet ─── Snippet de instalação ──
+  // ── GET /api/tracking/snippet ─── Snippet de instalação (cópia manual) ──
   app.get('/api/tracking/snippet', { preHandler: authMiddleware }, async (req, reply) => {
     const baseUrl = process.env.APP_URL || `https://${req.hostname}`
-    const snippet = `<!-- Beyond Tracking -->
-<script>
-(function(b,e,y,o,n,d){b.BT=b.BT||{q:[]};['identify','track','page'].forEach(function(m){
-b.BT[m]=function(){b.BT.q.push([m,[].slice.call(arguments)])}});d=e.createElement('script');
-d.async=1;d.src=o+'/api/t/bt.js';e.head.appendChild(d)})(window,document,0,'${baseUrl}');
-</script>`
-    return { snippet, baseUrl }
+    return { snippet: beyondTrackingSnippet(baseUrl), baseUrl }
   })
 
   // ── POST /api/tracking/validate-url ─── Validar se URL tem bt.js instalado ──

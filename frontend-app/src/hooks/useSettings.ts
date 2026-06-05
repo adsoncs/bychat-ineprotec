@@ -57,6 +57,35 @@ export function useUpdateLegalSettings() {
   })
 }
 
+// ── Empresa (dados + notificações) ─────────────────────────────
+export interface CompanyConfig {
+  companyName: string
+  cnpj: string
+  notifyEmails: string[]
+  notifyWhatsapps: string[]
+  ccAgents: boolean
+}
+
+export function useCompanySettings() {
+  return useQuery({
+    queryKey: ['company-settings'],
+    queryFn: () => api.get<CompanyConfig>('/admin/company'),
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateCompanySettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (updates: Partial<CompanyConfig>) =>
+      api.put<{ ok: true }>('/admin/company', updates),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['company-settings'] })
+      qc.invalidateQueries({ queryKey: ['legal-settings'] })
+    },
+  })
+}
+
 // ── Requisições de titulares (LGPD art. 18) ────────────────────
 export interface DsarRequest {
   id: number

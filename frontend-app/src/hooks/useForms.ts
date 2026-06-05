@@ -316,6 +316,25 @@ export function useDuplicateForm() {
   })
 }
 
+// Modelos pré-definidos para "A partir de um modelo" (espelha usePageTemplates).
+export interface FormTemplate {
+  id: string
+  name: string
+  description?: string | null | undefined
+  category?: string | null | undefined
+  fields: FormField[]
+  settings: FormSettings
+  styling?: FormStyling | null | undefined
+}
+
+export function useFormTemplates() {
+  return useQuery({
+    queryKey: ['form-templates'],
+    queryFn: () => api.get<{ templates: FormTemplate[] }>('/forms/templates'),
+    staleTime: 30 * 60_000,
+  })
+}
+
 export function useFormEmbedCode(id: number | null) {
   return useQuery({
     queryKey: ['form-embed', id],

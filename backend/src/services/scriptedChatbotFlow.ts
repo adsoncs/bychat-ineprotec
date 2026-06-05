@@ -1,0 +1,380 @@
+// src/services/scriptedChatbotFlow.ts
+//
+// Runner de chatbot DETERMINÍSTICO para WhatsApp. Conduz, por mensagens, EXATAMENTE
+// a mesma jornada do formulário conversacional vinculado (Chatbot.formId): mesmas
+// perguntas na mesma ordem, mesma validação, MESMA qualificação ("negativo vence",
+// positiveValues, qualifyNegative/Positive via resolveQualification) e mesmas etapas
+// do funil, terminando no agendamento (createBooking → REUNIAO).
+//
+// A fidelidade vem de reusar formFlow.ts (mesmas funções da rota de form) e o form
+// é lido on-the-fly — se o editor de forms mudar, o chatbot acompanha.
+
+import { FastifyInstance } from 'fastify'
+import { prisma } from '../lib/prisma.js'
+import type { SendFn, ProviderType } from './chatbotFlow.js'
+import type { OriginData } from './originDetection.js'
+import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { createLeadFromForm, moveLeadStage, resolveQualification, validateFieldValue, matchSelectChoice, buildCustomFieldValues } from './formFlow.js'
+import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
+import { interpolate } from '../lib/interpolate.js'
+
+const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const MAX_SLOTS = 10
+
+// Mensagens interativas do runner. Editáveis por chatbot em Chatbot.scriptedMessages
+// (override por chave); estes são os defaults usados quando a chave não foi ajustada.
+// Variáveis disponíveis por chave estão indicadas nos comentários.
+const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
+  invalidSelect: 'Não entendi. 🙂 Por favor, responda com o *número* da opção.',
+  invalidAnswer: '{{erro}}. Vamos tentar de novo:', // {{erro}}
+  noMeetingType: 'Perfeito! Em breve entraremos em contato para agendar. 😊',
+  noSlots: 'No momento não há horários disponíveis. Nossa equipe vai entrar em contato para combinar o melhor horário com você. 😊',
+  slotPrompt: '{{titulo}}:\n\n{{horarios}}\n\n_Responda com o número do horário._', // {{titulo}} {{horarios}}
+  invalidSlot: 'Não entendi o horário. Responda com o número:\n\n{{horarios}}', // {{horarios}}
+  slotTaken: '{{erro}}. Escolha outro:\n\n{{horarios}}', // {{erro}} {{horarios}}
+  bookingUnavailable: 'Agendamento indisponível no momento. Nossa equipe entrará em contato.',
+  bookingConfirmed: '✅ Reunião agendada para *{{horario}}*!\n\nVocê vai receber os detalhes por aqui. Até lá! 🚀', // {{horario}} {{nome}}
+  disqualifiedFallback: 'Obrigado pelas respostas! Em breve entraremos em contato. 😊',
+  qualifiedDone: 'Obrigado! Em breve entraremos em contato. 😊',
+}
+
+// Resolve a mensagem de uma chave: override do chatbot → default; interpola variáveis.
+function msg(chatbot: any, key: keyof typeof DEFAULT_SCRIPTED_MESSAGES | string, vars: Record<string, any> = {}): string {
+  const overrides = (chatbot?.scriptedMessages as Record<string, string> | null) || {}
+  const tpl = (overrides[key] && String(overrides[key]).trim()) || DEFAULT_SCRIPTED_MESSAGES[key] || ''
+  return interpolate(tpl, vars)
+}
+
+interface ScriptState {
+  stepIndex: number
+  answers: Record<string, any>
+  leadId: number | null
+  phase: 'asking' | 'scheduling' | 'done' | 'disqualified'
+  slots?: Array<{ startAt: string; text: string }>
+}
+
+// Lock leve por telefone: serializa o processamento por número para evitar que
+// duas mensagens em rajada pulem/repitam passos (single-process tsx).
+const locks = new Map<string, Promise<void>>()
+
+function stripTags(s: string | null | undefined): string {
+  return String(s ?? '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function nextRealIndex(fields: any[], from: number): number {
+  let i = from
+  while (i < fields.length && fields[i]?.type === 'statement') i++
+  return i
+}
+
+function fieldKeyByMap(fields: any[], mapTo: string): string | null {
+  const f = fields.find((x) => x?.mapTo === mapTo)
+  return f?.key ?? null
+}
+
+// Texto da pergunta de um campo (label limpo + dica de placeholder/opções).
+function questionText(field: any): string {
+  const label = stripTags(field.label) || field.key
+  if (field.type === 'select' && Array.isArray(field.options) && field.options.length) {
+    const opts = field.options.map((o: any, i: number) => `${i + 1}) ${stripTags(o.label)}`).join('\n')
+    return `${label}\n\n${opts}\n\n_Responda com o número da opção._`
+  }
+  if (field.placeholder) return `${label}`
+  return label
+}
+
+export async function processScriptedChatbotMessage(
+  phone: string,
+  text: string,
+  app: FastifyInstance,
+  messageId: string | undefined,
+  sendFn: SendFn,
+  provider: ProviderType,
+  originData?: OriginData | null,
+  chatbotId?: number | null,
+  instanceName?: string | null,
+  chatbot?: any,
+  form?: any,
+): Promise<void> {
+  const prev = locks.get(phone) ?? Promise.resolve()
+  const run = prev.then(() =>
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form)
+      .catch((e) => { app.log.error(`[scriptedChatbot] erro: ${e?.stack || e}`) }),
+  )
+  locks.set(phone, run.then(() => undefined))
+  await run
+}
+
+async function _process(
+  phone: string, text: string, app: FastifyInstance, messageId: string | undefined,
+  sendFn: SendFn, provider: ProviderType, originData: OriginData | null | undefined,
+  chatbotId: number | null | undefined, instanceName: string | null | undefined,
+  chatbot: any, form: any,
+): Promise<void> {
+  if (!form || !Array.isArray(form.fields)) { app.log.warn('[scriptedChatbot] form sem fields'); return }
+  const fields: any[] = form.fields
+  const settings: any = form.settings || {}
+  const attendantName = chatbot?.name || 'Atendimento'
+
+  // Dedup de messageId (rajada / reentrega do webhook).
+  if (messageId) {
+    const dup = await prisma.message.findFirst({ where: { externalId: messageId, fromMe: false }, select: { id: true } })
+    if (dup) return
+  }
+
+  // ── Helpers de envio/persistência (espelham chatbotFlow.ts) ──
+  const saveOutgoing = async (leadId: number, body: string, extId: string | null) => {
+    try {
+      await prisma.message.create({ data: {
+        leadId, fromMe: true, body, mediaType: 'text', provider,
+        ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+        senderName: attendantName, isInternal: false, externalId: extId, ack: extId ? 1 : 0, timestamp: new Date(),
+      } })
+      await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } })
+    } catch (e) { app.log.warn(`[scriptedChatbot] save outgoing: ${e}`) }
+  }
+  const saveIncoming = async (leadId: number, body: string) => {
+    try {
+      await prisma.message.create({ data: {
+        leadId, fromMe: false, body, mediaType: 'text', provider,
+        ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+        senderName: body ? body.slice(0, 60) : phone, externalId: messageId || null, timestamp: new Date(),
+      } })
+      await prisma.lead.update({ where: { id: leadId }, data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date() } }).catch(() => {})
+    } catch (e) { app.log.warn(`[scriptedChatbot] save incoming: ${e}`) }
+  }
+  const send = async (leadId: number, body: string) => {
+    const r = await sendFn(phone, body)
+    await saveOutgoing(leadId, body, r.messageId)
+  }
+
+  // ── Localiza lead + estado ──
+  const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+  const fd: any = (lead?.formData as any) || {}
+  let state: ScriptState | null = fd._script || null
+
+  // ── Início (sem lead ou sem estado de script) ──
+  if (!lead || !state) {
+    const body = { ctwaClid: originData?.ctwaClid ?? null, originType: originData?.originType ?? null, utmSource: originData?.utmSource ?? null, gclid: originData?.gclid ?? null }
+    let leadId = lead?.id ?? null
+    if (!leadId) {
+      const created = await createLeadFromForm(form, fields, {}, body, instanceName || '', null, undefined, {
+        channel: 'whatsapp', leadSource: 'whatsapp', chatbotId: chatbotId ?? null,
+        routing: { source: 'whatsapp', chatbotId: chatbotId ?? null, instanceName: instanceName ?? null },
+        forceWhatsapp: phone, qualificationSource: 'form',
+      })
+      leadId = created?.leadId ?? null
+    }
+    if (!leadId) { app.log.warn('[scriptedChatbot] não criou lead'); return }
+    logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: `Chatbot iniciado: ${chatbot?.name || form.name}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+
+    // Welcome + primeira pergunta.
+    const welcome = (chatbot?.greetingMessage && chatbot.greetingMessage.trim())
+      || [stripTags(settings?.conversational?.welcomeTitle), stripTags(settings?.conversational?.welcomeText)].filter(Boolean).join('\n\n')
+    if (welcome) await send(leadId, welcome)
+    const firstIdx = nextRealIndex(fields, 0)
+    const newState: ScriptState = { stepIndex: firstIdx, answers: {}, leadId, phase: 'asking' }
+    if (firstIdx < fields.length) await send(leadId, questionText(fields[firstIdx]))
+    await persist(leadId, newState)
+    return
+  }
+
+  const leadId = state.leadId ?? lead.id
+
+  // Conversa encerrada → não reinicia o bot; registra a mensagem para atendimento humano.
+  if (lead.completed || state.phase === 'done' || state.phase === 'disqualified') {
+    await saveIncoming(leadId, text)
+    return
+  }
+
+  await saveIncoming(leadId, text)
+
+  // ── Fase de agendamento ──
+  if (state.phase === 'scheduling') {
+    await handleSchedulingReply(leadId, state, fields, text, send, persist, app, phone, chatbot)
+    return
+  }
+
+  // ── Fase de perguntas ──
+  const field = fields[state.stepIndex]
+  if (!field) { // segurança: fora do range → finaliza
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+    return
+  }
+
+  // Validação / parse da resposta do campo atual.
+  if (field.type === 'select') {
+    const choice = matchSelectChoice(field, text)
+    if (!choice) { await send(leadId, `${msg(chatbot, 'invalidSelect')}\n\n${questionText(field)}`); return }
+    state.answers[field.key] = choice.value
+  } else {
+    const err = validateFieldValue(field, text)
+    if (err) { await send(leadId, `${msg(chatbot, 'invalidAnswer', { erro: err })}\n\n${questionText(field)}`); return }
+    state.answers[field.key] = text.trim()
+  }
+
+  // Persiste a resposta no lead (campos nativos via mapTo + customFields).
+  await applyAnswerToLead(leadId, field, state.answers)
+
+  // Qualificação após cada qualificador (negativo vence → desqualifica já).
+  if (field.isQualifier) {
+    const q = resolveQualification(fields, state.answers, settings)
+    if (q?.finish) {
+      await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      // Redirect/mensagem configurados no FORM (editáveis no editor de forms) têm
+      // prioridade; senão cai na mensagem editável do chatbot (disqualifiedFallback).
+      const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
+        ? `${stripTags(settings?.successMessage) || msg(chatbot, 'disqualifiedFallback')}\n\n${q.redirectUrl}`
+        : (stripTags(q.message) || msg(chatbot, 'disqualifiedFallback'))
+      await send(leadId, finishMsg)
+      state.phase = 'disqualified'
+      await persist(leadId, state, true)
+      logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: 'Chatbot: lead desqualificado', channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+      return
+    }
+  }
+
+  // Avança para o próximo campo.
+  const nextIdx = nextRealIndex(fields, state.stepIndex + 1)
+  state.stepIndex = nextIdx
+  if (nextIdx >= fields.length) { // não há mais campos → finaliza qualificado (sem scheduling)
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+    return
+  }
+  const nextField = fields[nextIdx]
+  if (nextField.type === 'scheduling') {
+    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, persist, app, chatbot)
+    return
+  }
+  await send(leadId, questionText(nextField))
+  await persist(leadId, state)
+}
+
+// ── Persistência do estado em lead.formData._script (+ answers no topo) ──
+async function persist(leadId: number, state: ScriptState, completed = false): Promise<void> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+  const fd: any = (lead?.formData as any) || {}
+  const merged = { ...fd, ...state.answers, _source: 'whatsapp', _script: state }
+  await prisma.lead.update({ where: { id: leadId }, data: { formData: merged, lastStep: state.stepIndex, ...(completed ? { completed: true } : {}) } })
+}
+
+// Grava a resposta de um campo nos campos nativos do lead (via mapTo) + customFields.
+async function applyAnswerToLead(leadId: number, field: any, answers: Record<string, any>): Promise<void> {
+  const data: any = {}
+  const v = answers[field.key]
+  if (field.mapTo === 'nome') data.nome = String(v)
+  else if (field.mapTo === 'email') data.email = String(v)
+  else if (field.mapTo === 'empresa') data.empresa = String(v)
+  else if (field.mapTo === 'cidade') data.cidade = String(v)
+  else if (field.mapTo === 'segmento') data.segmento = String(v)
+  // customFields a partir das respostas acumuladas.
+  const cfv = await buildCustomFieldValues([field], answers)
+  if (Object.keys(cfv).length) {
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { customFields: true } })
+    data.customFields = { ...((lead?.customFields as any) || {}), ...cfv }
+  }
+  if (Object.keys(data).length) await prisma.lead.update({ where: { id: leadId }, data }).catch(() => {})
+}
+
+// Move o lead para a etapa de qualificação positiva e abre a fase de agendamento.
+async function enterSchedulingPhase(
+  leadId: number, state: ScriptState, fields: any[], settings: any, form: any, schedField: any,
+  send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, app: FastifyInstance, chatbot: any,
+): Promise<void> {
+  const q = resolveQualification(fields, state.answers, settings)
+  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+
+  const mt = schedField.meetingSlug ? await getActiveMeetingType(schedField.meetingSlug) : null
+  if (!mt) {
+    await send(leadId, msg(chatbot, 'noMeetingType'))
+    state.phase = 'done'
+    await persistFn(leadId, state, true)
+    return
+  }
+  const days = await getMeetingTypeSlots(mt, {}).catch((e) => { app.log.warn(`[scriptedChatbot] slots: ${e}`); return [] as any[] })
+  const flat: Array<{ startAt: string; text: string }> = []
+  for (const day of (days as any[])) {
+    for (const sl of (day.slots || [])) {
+      if (flat.length >= MAX_SLOTS) break
+      const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
+      flat.push({ startAt: sl.startAt, text: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
+    }
+    if (flat.length >= MAX_SLOTS) break
+  }
+  if (!flat.length) {
+    await send(leadId, msg(chatbot, 'noSlots'))
+    state.phase = 'done'
+    await persistFn(leadId, state, true)
+    return
+  }
+  const list = flat.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
+  const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento' ? stripTags(schedField.label) : 'Escolha o melhor horário para a nossa conversa'
+  await send(leadId, msg(chatbot, 'slotPrompt', { titulo: label, horarios: list }))
+  state.slots = flat
+  state.phase = 'scheduling'
+  await persistFn(leadId, state)
+}
+
+// Trata a escolha do horário e cria a reserva (createBooking move REUNIAO/notifica/CAPI).
+async function handleSchedulingReply(
+  leadId: number, state: ScriptState, fields: any[], text: string,
+  send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, app: FastifyInstance, phone: string, chatbot: any,
+): Promise<void> {
+  const slots = state.slots || []
+  const v = text.trim()
+  const idx = /^\d+$/.test(v) ? parseInt(v, 10) - 1 : -1
+  const chosen = idx >= 0 && idx < slots.length ? slots[idx] : null
+  if (!chosen) {
+    const list = slots.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
+    await send(leadId, msg(chatbot, 'invalidSlot', { horarios: list }))
+    return
+  }
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, email: true } })
+  const schedField = fields.find((f) => f?.type === 'scheduling')
+  const mt = schedField?.meetingSlug ? await getActiveMeetingType(schedField.meetingSlug) : null
+  if (!mt) { await send(leadId, msg(chatbot, 'bookingUnavailable')); state.phase = 'done'; await persistFn(leadId, state, true); return }
+
+  const result = await createBooking(mt, {
+    name: lead?.nome || 'Lead', email: lead?.email || null, phone, startAt: chosen.startAt,
+    answers: state.answers, timezone: mt.timezone, visitorId: null, utm: null,
+  } as any).catch((e) => { app.log.error(`[scriptedChatbot] booking: ${e}`); return { ok: false, error: 'Erro ao agendar' } as any })
+
+  if (!result.ok) {
+    // Horário ficou indisponível → recarrega e reapresenta.
+    const days = await getMeetingTypeSlots(mt, {}).catch(() => [] as any[])
+    const flat: Array<{ startAt: string; text: string }> = []
+    for (const day of (days as any[])) {
+      for (const sl of (day.slots || [])) {
+        if (flat.length >= MAX_SLOTS) break
+        const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
+        flat.push({ startAt: sl.startAt, text: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
+      }
+      if (flat.length >= MAX_SLOTS) break
+    }
+    if (!flat.length) { await send(leadId, msg(chatbot, 'noSlots')); state.phase = 'done'; await persistFn(leadId, state, true); return }
+    state.slots = flat
+    const list = flat.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
+    await send(leadId, msg(chatbot, 'slotTaken', { erro: result.error || 'Horário indisponível', horarios: list }))
+    await persistFn(leadId, state)
+    return
+  }
+
+  await send(leadId, msg(chatbot, 'bookingConfirmed', { horario: chosen.text, nome: lead?.nome || '' }))
+  state.phase = 'done'
+  await persistFn(leadId, state, true)
+}
+
+// Qualificado mas sem etapa de agendamento (form sem campo scheduling): aplica a
+// qualificação positiva e encerra com a mensagem de sucesso.
+async function finishQualifiedFlow(
+  leadId: number, state: ScriptState, fields: any[], settings: any, form: any,
+  send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, chatbot: any,
+): Promise<void> {
+  const q = resolveQualification(fields, state.answers, settings)
+  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+  await send(leadId, msg(chatbot, 'qualifiedDone'))
+  state.phase = 'done'
+  await persistFn(leadId, state, true)
+}

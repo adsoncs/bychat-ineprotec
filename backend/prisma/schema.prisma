@@ -50,6 +50,9 @@ model User {
   // Módulo VoIP: ramal (extension) do operador no PABX FaleMaisVoip. Usado pelo
   // click-to-call (v1/dial) — a chamada toca neste ramal e depois disca o destino.
   voipExtension        String?   @db.VarChar(20)
+  // Número de WhatsApp para receber avisos internos (ex.: novo lead). Opcional;
+  // sem ele, o aviso por WhatsApp cai no número geral de notificação.
+  notifyWhatsapp       String?   @db.VarChar(30)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -485,7 +488,7 @@ model Setting {
   @@map("bychat_settings")
 }
 
-// Registro de consentimento (LGPD)
+// Registro de consentimento (LGPD) — banner de cookies / preferências do titular
 model ConsentLog {
   id            Int      @id @default(autoincrement())
   visitorId     String?  @db.VarChar(64)
@@ -504,6 +507,7 @@ model ConsentLog {
   @@index([createdAt])
   @@map("bychat_consent_logs")
 }
+
 // Requisição de direitos do titular (LGPD art. 18) — portal /meus-dados.
 // type: access | correction | deletion | portability | revocation
 // status: pending | in_progress | done | rejected
@@ -559,6 +563,14 @@ model Chatbot {
   id                Int      @id @default(autoincrement())
   name              String   @db.VarChar(191)
   channel           String   @db.VarChar(30)
+  // Modo do motor: 'ai' (LLM + scoring) | 'scripted' (jornada determinística do form)
+  mode              String   @default("ai") @db.VarChar(20)
+  // Form vinculado quando mode='scripted' — o runner lê fields/qualificação dele.
+  formId            Int?
+  form              Form?    @relation(fields: [formId], references: [id], onDelete: SetNull)
+  // Mensagens interativas editáveis do runner scripted (sobrescreve os defaults
+  // de código por chave: noSlots, slotPrompt, bookingConfirmed, etc.).
+  scriptedMessages  Json?    @db.Json
   funnelId          Int?
   funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   systemPrompt      String   @db.LongText
@@ -596,6 +608,7 @@ model Chatbot {
   @@index([channel])
   @@index([active])
   @@index([funnelId])
+  @@index([formId])
   @@index([defaultTeamId])
   @@index([enrollmentPortalId])
   @@map("bychat_chatbots")
@@ -706,11 +719,13 @@ model Lead {
   utmCampaign       String? @db.VarChar(191)
   utmContent        String? @db.VarChar(191)
   utmTerm           String? @db.VarChar(191)
+  utmId             String? @db.VarChar(191) // utm_id da campanha (ID Meta/Google p/ cruzar com a API)
   trackingVisitorId String? @db.VarChar(64) // Vincula com visitor de tracking
 
   // Rastreamento inteligente (Fase 7)
   originType       String?   @db.VarChar(50) // trackable_link, meta_ctwa, google_ads, meta_lead_ads, organic, web_form, manual
   gclid            String?   @db.VarChar(191) // Google Click ID
+  fbclid           String?   @db.VarChar(255) // Meta Click ID (fbclid) — landing/site
   ctwaClid         String?   @db.VarChar(191) // Meta Click-to-WhatsApp Click ID
   trackableLinkId  Int? // Link rastreável de origem
   saleDetected     Boolean   @default(false) // Flag de venda detectada
@@ -1084,7 +1099,10 @@ model LeadAttachment {
 
 model MessageTemplate {
   id             Int      @id @default(autoincrement())
-  name           String   @db.VarChar(191) // nome do template
+  name           String   @db.VarChar(191) // nome de exibição (editável livremente pelo usuário)
+  // Chave ESTÁVEL para referência por código (ex.: agendamento_confirmado_wa). Não
+  // muda quando o usuário renomeia o `name`. Null para templates criados à mão.
+  key            String?  @db.VarChar(80)
   channel        String   @db.VarChar(30) // whatsapp, email, sms
   category       String   @default("general") @db.VarChar(50) // general, proposal, follow_up, onboarding, report, reminder
   subject        String?  @db.VarChar(191) // assunto (email)
@@ -1103,6 +1121,7 @@ model MessageTemplate {
   @@index([channel])
   @@index([category])
   @@index([active])
+  @@index([key])
   @@map("bychat_message_templates")
 }
 
@@ -1491,6 +1510,7 @@ model Form {
   updatedAt DateTime @updatedAt
 
   formSubmissions FormSubmission[]
+  chatbots        Chatbot[]
 
   @@index([active])
   @@index([defaultTeamId])

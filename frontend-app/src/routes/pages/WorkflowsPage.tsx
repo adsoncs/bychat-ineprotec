@@ -51,6 +51,7 @@ const LEAD_SOURCES = [
   { value: 'meta_lead_ads', label: 'Meta Lead Ads' },
   { value: 'web_chat', label: 'Chat Web' },
   { value: 'web_form', label: 'Formulário Web' },
+  { value: 'scheduling', label: 'Agendamento' },
   { value: 'manual', label: 'Manual' },
   { value: 'api', label: 'API' },
 ]

@@ -21,6 +21,52 @@ export async function getEmailConfig(): Promise<Record<string, string>> {
   return cfg
 }
 
+// ── Destinos de notificação interna (novo lead, agendamento, LGPD) ──
+// Fonte única configurável em Configurações › Empresa › Dados de Notificações.
+// Listas de e-mails e WhatsApps (múltiplos). Fallback para as env vars antigas
+// (NOTIFY_EMAIL_TO/CC, NOTIF_WHATSAPP_NUMBER) quando o banco ainda está vazio,
+// para não quebrar instalações que ainda não preencheram a tela.
+export interface NotificationTargets {
+  emails: string[]
+  whatsapps: string[]
+  ccAgents: boolean
+}
+
+function parseList(raw: any): string[] {
+  let arr: any[] = []
+  if (Array.isArray(raw)) arr = raw
+  else if (typeof raw === 'string') {
+    const s = raw.trim()
+    if (!s) return []
+    try {
+      const parsed = JSON.parse(s)
+      arr = Array.isArray(parsed) ? parsed : [s]
+    } catch {
+      arr = s.split(/[,;\n]/)
+    }
+  }
+  return Array.from(new Set(arr.map((v) => String(v).trim()).filter(Boolean)))
+}
+
+export async function getNotificationTargets(): Promise<NotificationTargets> {
+  const keys = ['company.notify_emails', 'company.notify_whatsapps', 'company.notify_cc_agents']
+  const rows = await prisma.setting.findMany({ where: { key: { in: keys } } })
+  const byKey = new Map(rows.map((r) => [r.key, r.value]))
+
+  let emails = parseList(byKey.get('company.notify_emails'))
+  let whatsapps = parseList(byKey.get('company.notify_whatsapps'))
+
+  // Fallback para as variáveis de ambiente legadas.
+  if (emails.length === 0) emails = parseList(process.env.NOTIFY_EMAIL_TO)
+  if (whatsapps.length === 0) whatsapps = parseList(process.env.NOTIF_WHATSAPP_NUMBER)
+
+  // ccAgents: default true (preserva o comportamento atual de copiar agentes ativos).
+  const ccRaw = byKey.get('company.notify_cc_agents')
+  const ccAgents = ccRaw === undefined || ccRaw === null ? true : (ccRaw === true || ccRaw === 'true' || ccRaw === 1)
+
+  return { emails, whatsapps, ccAgents }
+}
+
 export async function sendEmailGeneric(opts: { from: string, to: string, cc?: string, subject: string, html: string }): Promise<void> {
   const cfg = await getEmailConfig()
   const provider = cfg['email.provider'] || 'resend'
@@ -119,27 +165,32 @@ export async function notifyNewLead(lead: any): Promise<void> {
 }
 
 async function sendWhatsApp(text: string): Promise<void> {
-  const num = process.env.NOTIF_WHATSAPP_NUMBER
-  if (!num) {
-    console.warn('WhatsApp notify: NOTIF_WHATSAPP_NUMBER nao configurado, pulando.')
+  const { whatsapps } = await getNotificationTargets()
+  if (whatsapps.length === 0) {
+    console.warn('WhatsApp notify: nenhum destino configurado (Empresa › Notificações), pulando.')
     return
   }
 
-  try {
-    const { getDefaultProvider } = await import('./whatsappProvider.js')
-    const provider = await getDefaultProvider()
-    await provider.sendText(num, text)
-  } catch (err: any) {
-    console.error(`WhatsApp notify error: ${err.message}`)
+  // Aviso interno → Evolution (número conectado da instância). Cloud API não
+  // entrega texto livre a número fora da janela 24h.
+  const { createEvolutionProvider } = await import('./whatsappProvider.js')
+  const provider = createEvolutionProvider()
+  for (const num of whatsapps) {
+    try {
+      await provider.sendText(num, text)
+    } catch (err: any) {
+      console.error(`WhatsApp notify error (${num}): ${err.message}`)
+    }
   }
 }
 
 async function sendEmail(lead: any, sc: any, inv: string): Promise<void> {
-  const to  = process.env.NOTIFY_EMAIL_TO
-  const cc  = process.env.NOTIFY_EMAIL_CC
+  const targets = await getNotificationTargets()
+  const to = targets.emails.join(', ')
+  const cc = process.env.NOTIFY_EMAIL_CC || ''
 
   if (!to) {
-    console.warn('Email notify: NOTIFY_EMAIL_TO não configurado, pulando.')
+    console.warn('Email notify: nenhum e-mail configurado (Empresa › Notificações), pulando.')
     return
   }
 

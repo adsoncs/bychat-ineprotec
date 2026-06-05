@@ -1,7 +1,7 @@
 // Página pública de agendamento + API pública (sem auth). Fase 3.
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { getMeetingTypeSlots, createBooking, validateSlot } from '../services/schedulingService.js'
+import { getMeetingTypeSlots, createBooking, validateSlot, getActiveMeetingType } from '../services/schedulingService.js'
 import { notifyBooking, notifyCancelled } from '../services/schedulingNotify.js'
 
 const LOCATION_LABELS: Record<string, string> = {
@@ -12,11 +12,7 @@ function esc(s: string): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 }
 
-async function getActiveType(slug: string) {
-  const mt = await prisma.meetingType.findUnique({ where: { slug } })
-  if (!mt || !mt.active) return null
-  return mt
-}
+const getActiveType = getActiveMeetingType
 
 export async function schedulingPublicRoutes(app: FastifyInstance) {
   // ── Página pública (SSR shell + JS) ──

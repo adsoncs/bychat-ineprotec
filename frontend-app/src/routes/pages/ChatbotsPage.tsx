@@ -14,6 +14,7 @@ import {
 } from '@/hooks/useChatbots'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTeams } from '@/hooks/useTeams'
+import { useForms } from '@/hooks/useForms'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -45,6 +46,22 @@ const INACTIVITY_ACTIONS = [
   { value: 'notify', label: 'Enviar mensagem de reengajamento' },
   { value: 'close', label: 'Fechar conversa diretamente' },
   { value: 'notify_then_close', label: 'Reengajar e depois fechar' },
+]
+
+// Mensagens interativas editáveis do chatbot em modo Roteiro (scripted). As chaves
+// batem com DEFAULT_SCRIPTED_MESSAGES no backend (scriptedChatbotFlow.ts).
+const SCRIPTED_MSG_FIELDS: { key: string; label: string; vars?: string; placeholder: string }[] = [
+  { key: 'invalidSelect', label: 'Opção não reconhecida', placeholder: 'Não entendi. 🙂 Por favor, responda com o número da opção.' },
+  { key: 'invalidAnswer', label: 'Resposta inválida', vars: '{{erro}}', placeholder: '{{erro}}. Vamos tentar de novo:' },
+  { key: 'slotPrompt', label: 'Pedir horário', vars: '{{titulo}} {{horarios}}', placeholder: '{{titulo}}:\n\n{{horarios}}\n\n_Responda com o número do horário._' },
+  { key: 'invalidSlot', label: 'Horário não reconhecido', vars: '{{horarios}}', placeholder: 'Não entendi o horário. Responda com o número:\n\n{{horarios}}' },
+  { key: 'slotTaken', label: 'Horário indisponível', vars: '{{erro}} {{horarios}}', placeholder: '{{erro}}. Escolha outro:\n\n{{horarios}}' },
+  { key: 'bookingConfirmed', label: 'Reunião confirmada', vars: '{{horario}} {{nome}}', placeholder: '✅ Reunião agendada para *{{horario}}*! Você vai receber os detalhes por aqui. 🚀' },
+  { key: 'noSlots', label: 'Sem horários disponíveis', placeholder: 'No momento não há horários disponíveis. Nossa equipe vai entrar em contato. 😊' },
+  { key: 'noMeetingType', label: 'Agendamento não configurado', placeholder: 'Perfeito! Em breve entraremos em contato para agendar. 😊' },
+  { key: 'bookingUnavailable', label: 'Agendamento indisponível', placeholder: 'Agendamento indisponível no momento. Nossa equipe entrará em contato.' },
+  { key: 'qualifiedDone', label: 'Encerramento (qualificado, sem agenda)', placeholder: 'Obrigado! Em breve entraremos em contato. 😊' },
+  { key: 'disqualifiedFallback', label: 'Encerramento (desqualificado, sem redirect)', placeholder: 'Obrigado pelas respostas! Em breve entraremos em contato. 😊' },
 ]
 
 export function ChatbotsPage() {
@@ -485,6 +502,9 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
   const [form, setForm] = useState({
     name: chatbot?.name ?? tplDefaults?.name ?? '',
     channel: chatbot?.channel ?? tplDefaults?.channel ?? 'chat',
+    mode: chatbot?.mode ?? 'ai',
+    formId: chatbot?.formId ? String(chatbot.formId) : '',
+    scriptedMessages: (chatbot?.scriptedMessages ?? {}) as Record<string, string>,
     funnelId: chatbot?.funnelId ? String(chatbot.funnelId) : '',
     defaultTeamId: chatbot?.defaultTeamId ? String(chatbot.defaultTeamId) : '',
     active: chatbot?.active ?? true,
@@ -503,6 +523,7 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
   })
   const { data: funnels } = useFunnels()
   const { data: teamsData } = useTeams()
+  const { data: formsData } = useForms()
   const create = useCreateChatbot()
   const update = useUpdateChatbot()
   const loading = create.isPending || update.isPending
@@ -516,6 +537,9 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     const payload = {
       name: form.name.trim(),
       channel: form.channel,
+      mode: form.mode,
+      formId: form.mode === 'scripted' && form.formId ? Number(form.formId) : null,
+      scriptedMessages: form.mode === 'scripted' ? form.scriptedMessages : null,
       funnelId: form.funnelId ? Number(form.funnelId) : null,
       defaultTeamId: form.defaultTeamId ? Number(form.defaultTeamId) : null,
       active: form.active,
@@ -589,6 +613,55 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
             </div>
           )}
           <Input label="Nome" value={form.name} onInput={(e) => patch('name', (e.target as HTMLInputElement).value)} />
+          <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+            <Select
+              label="Motor"
+              value={form.mode}
+              onChange={(e) => patch('mode', (e.target as HTMLSelectElement).value)}
+              hint="IA = conversa livre + scoring. Roteiro = jornada determinística de um formulário (mesmas perguntas, qualificação e agendamento)."
+            >
+              <option value="ai">🤖 IA (conversa livre)</option>
+              <option value="scripted">🧭 Roteiro de formulário</option>
+            </Select>
+            {form.mode === 'scripted' && (
+              <Select
+                label="Formulário vinculado"
+                value={form.formId}
+                onChange={(e) => patch('formId', (e.target as HTMLSelectElement).value)}
+                hint="O chatbot conduz exatamente este formulário (perguntas, condicionais e agendamento)."
+              >
+                <option value="">— Selecione o formulário —</option>
+                {formsData?.forms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </Select>
+            )}
+          </div>
+          {form.mode === 'scripted' && (
+            <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info flex items-center gap-2">
+              <Sparkles size={14} class="shrink-0" />
+              <span>No modo Roteiro, as perguntas, a qualificação e o agendamento vêm do formulário vinculado. As mensagens de IA e a saudação acima são ignoradas (a saudação, se preenchida, substitui o texto de boas-vindas do formulário).</span>
+            </div>
+          )}
+          {form.mode === 'scripted' && (
+            <details class="rounded-md border border-border bg-surface-2 p-3">
+              <summary class="cursor-pointer text-sm font-medium text-fg">Mensagens da conversa (editáveis)</summary>
+              <p class="mt-1 mb-3 text-[0.6875rem] text-fg-muted">Deixe em branco para usar o texto padrão. Use as variáveis indicadas entre chaves.</p>
+              <div class="space-y-3">
+                {SCRIPTED_MSG_FIELDS.map((m) => (
+                  <Textarea
+                    key={m.key}
+                    label={m.label + (m.vars ? `  ·  ${m.vars}` : '')}
+                    value={form.scriptedMessages[m.key] ?? ''}
+                    placeholder={m.placeholder}
+                    rows={2}
+                    onInput={(e) => {
+                      const v = (e.target as HTMLTextAreaElement).value
+                      setForm((f) => ({ ...f, scriptedMessages: { ...f.scriptedMessages, [m.key]: v } }))
+                    }}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
             <Select label="Canal" value={form.channel} onChange={(e) => patch('channel', (e.target as HTMLSelectElement).value)}>
               {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.emoji} {c.label}</option>)}

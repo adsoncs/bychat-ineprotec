@@ -388,18 +388,33 @@ export async function schedulingRoutes(app: FastifyInstance) {
       })),
     ]
 
-    // Eventos externos do Google Calendar do operador (read-only) — só quando há um
-    // operador específico em foco (evita N chamadas na visão "todos").
-    let googleConnected = false
-    if (operatorId) {
-      const gext = await getExternalGoogleEvents(operatorId, from, to)
-      googleConnected = !!(await prisma.googleConnection.findFirst({ where: { userId: operatorId, active: true, kind: 'OPERATOR' }, select: { id: true } }))
-      for (const e of gext) {
+    // Eventos externos do Google Calendar (read-only). Para um operador específico,
+    // busca só o dele; na visão "Todos os operadores", busca de TODOS os operadores
+    // com Google conectado — antes só buscava no modo individual, por isso a agenda
+    // do Google não aparecia em "Todos". getExternalGoogleEvents é cacheado (TTL),
+    // então as N chamadas ficam baratas após o primeiro load.
+    const googleConns = await prisma.googleConnection.findMany({
+      where: { active: true, kind: 'OPERATOR', ...(operatorId ? { userId: operatorId } : {}) },
+      select: { userId: true },
+    })
+    const googleOpIds = [...new Set(googleConns.map((c) => c.userId).filter((x): x is number => x != null))]
+    const googleConnected = googleOpIds.length > 0
+    // Resolve nomes de operadores que só têm evento no Google (não estavam no opMap).
+    const missingNameIds = googleOpIds.filter((id) => !opMap.has(id))
+    if (missingNameIds.length) {
+      const more = await prisma.user.findMany({ where: { id: { in: missingNameIds } }, select: { id: true, name: true } })
+      for (const u of more) opMap.set(u.id, u.name)
+    }
+    const googleResults = await Promise.all(
+      googleOpIds.map(async (opId) => ({ opId, ext: await getExternalGoogleEvents(opId, from, to) })),
+    )
+    for (const { opId, ext } of googleResults) {
+      for (const e of ext) {
         events.push({
-          id: `google:${e.eventId}`, refId: 0, kind: 'google', googleEventId: e.eventId,
+          id: `google:${opId}:${e.eventId}`, refId: 0, kind: 'google', googleEventId: e.eventId,
           title: e.summary, startAt: e.startAt, endAt: e.endAt, allDay: e.allDay,
           status: 'busy', color: '#0b8043', htmlLink: e.htmlLink,
-          operatorUserId: operatorId, operatorName: opMap.get(operatorId) ?? null,
+          operatorUserId: opId, operatorName: opMap.get(opId) ?? null,
         } as any)
       }
     }

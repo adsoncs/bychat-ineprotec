@@ -1,12 +1,12 @@
 import { lazy, Suspense } from 'preact/compat'
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { FormInput, Plus, Pencil, Trash2, Code, BarChart3, Eye, Copy, HelpCircle } from 'lucide-preact'
+import { FormInput, Plus, Pencil, Trash2, Code, BarChart3, Eye, Copy, HelpCircle, LayoutTemplate } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useForms, useCreateForm, useUpdateForm, useDeleteForm, useDuplicateForm,
-  useFormEmbedCode, useFormSubmissions,
-  type FormItem, type FormSubmission,
+  useFormEmbedCode, useFormSubmissions, useFormTemplates,
+  type FormItem, type FormSubmission, type FormTemplate,
 } from '@/hooks/useForms'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -32,6 +32,7 @@ export function FormsPage() {
   const [embedOf, setEmbedOf] = useState<FormItem | null>(null)
   const [submissionsOf, setSubmissionsOf] = useState<FormItem | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [pickingTemplate, setPickingTemplate] = useState(false)
   const update = useUpdateForm()
   const duplicate = useDuplicateForm()
   const createForm = useCreateForm()
@@ -65,6 +66,9 @@ export function FormsPage() {
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setPickingTemplate(true)}>
+            <LayoutTemplate size={14} /> A partir de um modelo
           </Button>
           <Button variant="primary" size="sm" onClick={handleNew}>
             <Plus size={14} /> Novo formulário
@@ -193,7 +197,84 @@ export function FormsPage() {
           body: <>Pra rodar um teste A/B: duplique o formulário existente, ajuste cor/texto/campos, embede em landings diferentes e compare as conversões. Use o exportar/importar pra mover entre contas.</>,
         }}
       />
+
+      {pickingTemplate && (
+        <FormTemplatePickerModal
+          onClose={() => setPickingTemplate(false)}
+          onCreated={(form) => navigate(`/forms/${form.id}`)}
+        />
+      )}
     </Page>
+  )
+}
+
+function FormTemplatePickerModal({ onClose, onCreated }: { onClose: () => void; onCreated: (f: FormItem) => void }) {
+  const { data, isLoading } = useFormTemplates()
+  const create = useCreateForm()
+  const [picked, setPicked] = useState<FormTemplate | null>(null)
+  const [name, setName] = useState('')
+
+  function handleCreate() {
+    if (!picked) return
+    if (!name.trim()) { toast('Informe o nome do formulário', 'danger'); return }
+    create.mutate(
+      { name: name.trim(), fields: picked.fields, settings: picked.settings, styling: picked.styling ?? null },
+      {
+        onSuccess: ({ form }) => { toast('Formulário criado — abrindo editor', 'success'); onClose(); onCreated(form) },
+        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      },
+    )
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Criar a partir de modelo"
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={create.isPending}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={handleCreate} disabled={!picked || !name.trim() || create.isPending}>
+            {create.isPending ? 'Criando…' : 'Criar formulário'}
+          </Button>
+        </>
+      }
+    >
+      {isLoading && <Skeleton class="h-32 w-full" />}
+      {!isLoading && data && data.templates.length > 0 && (
+        <div class="space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {data.templates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                class={cn(
+                  'text-left rounded-md border p-3 cursor-pointer transition-colors',
+                  picked?.id === t.id ? 'border-accent bg-accent/5' : 'border-border hover:bg-surface-3',
+                )}
+                onClick={() => { setPicked(t); if (!name) setName(t.name) }}
+              >
+                <div class="text-sm font-medium text-fg">{t.name}</div>
+                {t.category && <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mt-0.5">{t.category}</div>}
+                {t.description && <div class="text-xs text-fg-muted mt-1 line-clamp-2">{t.description}</div>}
+                <div class="text-[0.6875rem] text-fg-subtle mt-1.5">{t.fields.length} campos · {t.settings.displayMode === 'conversational' ? 'Conversacional' : 'Clássico'}</div>
+              </button>
+            ))}
+          </div>
+          {picked && (
+            <div class="border-t border-border pt-3">
+              <Input
+                label="Nome do novo formulário"
+                value={name}
+                onInput={(e) => setName((e.target as HTMLInputElement).value)}
+                placeholder="Ex.: Captação — Campanha Escolas"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
   )
 }
 

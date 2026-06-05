@@ -164,6 +164,13 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
           <path d="M3 3h18a1 1 0 011 1v16a1 1 0 01-1 1H3a1 1 0 01-1-1V4a1 1 0 011-1zm1 6v10h16V9H4zm0-2h16V5H4v2zm3 4h6v2H7v-2zm0 4h10v2H7v-2z" />
         </svg>
       )
+    case 'scheduling':
+      return (
+        <svg {...common} fill="#0ea5e9" aria-label={title}>
+          <title>{title}</title>
+          <path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 18H5V9h14v12zm0-14H5V5h14v2zM7 11h5v5H7v-5z" />
+        </svg>
+      )
     case 'chatbot':
       return (
         <svg {...common} fill="#8b5cf6" aria-label={title}>

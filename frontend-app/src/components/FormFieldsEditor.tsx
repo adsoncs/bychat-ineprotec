@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Plus, Save, Trash2, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock } from 'lucide-preact'
+import { Plus, Save, Trash2, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from 'lucide-preact'
 import { useMeetingTypes } from '@/hooks/useScheduling'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -477,8 +477,13 @@ interface FieldEditorColumnProps {
   funnels?: { id: number; name: string }[] | undefined
 }
 
+// Campos nativos do lead que o select "Mapear para" oferece.
+const NATIVE_MAP_KEYS = new Set(['nome', 'email', 'whatsapp', 'empresa', 'cidade', 'segmento'])
+
 export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: FieldEditorColumnProps) {
   const mtItems = useMeetingTypes().data?.items?.filter((m) => m.active) ?? []
+  const cfList = useCustomFields().data?.fields ?? []
+  const createCf = useCreateCustomField()
   if (!field) {
     return (
       <div class="grid h-full place-items-center rounded-md border border-dashed border-border p-8 text-center">
@@ -492,6 +497,43 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
   const isStatement = field.type === 'statement'
   const isScheduling = field.type === 'scheduling'
   const isInput = !isHidden && !isStatement && !isScheduling
+
+  // Vínculo com o CRM: o dado só chega na ficha do lead quando o campo está
+  // mapeado para um campo nativo, ou para um campo personalizado (mapTo "cf_x",
+  // ou a própria chave casa com um CustomField ativo). Sem isso, a resposta fica
+  // só no histórico do formulário (formData) — é o "dado perdido" que evitamos.
+  const cfKeys = new Set(cfList.filter((c) => c.active).map((c) => c.key))
+  const mt = field.mapTo
+  const linkedCustomKey = (mt && mt.startsWith('cf_')) ? mt.slice(3) : ((!mt && cfKeys.has(field.key)) ? field.key : null)
+  const linkedCustom = linkedCustomKey ? cfList.find((c) => c.key === linkedCustomKey) ?? null : null
+  const mappedToCrm = isInput && (
+    (!!mt && NATIVE_MAP_KEYS.has(mt)) ||
+    (!!mt && cfKeys.has(mt)) ||
+    !!linkedCustom
+  )
+  // Pode virar campo personalizado: é input que coleta dado, tem chave/rótulo e
+  // ainda não está vinculado a lugar nenhum do CRM.
+  const canPersistViaCustom = isInput && !mappedToCrm && !!field.key && !!stripHtml(field.label).trim()
+
+  function createAsCustomField() {
+    if (!field) return
+    const opts = isSelect && Array.isArray(field.options) && field.options.length ? field.options : undefined
+    createCf.mutate(
+      {
+        key: field.key,
+        label: stripHtml(field.label).trim() || field.key,
+        type: field.type,
+        showInForm: true,
+        showInList: true,
+        group: 'custom',
+        ...(opts ? { options: opts } : {}),
+      },
+      {
+        onSuccess: ({ field: cf }) => { onPatch({ mapTo: `cf_${cf.key}` }); toast('Campo personalizado criado e vinculado ao CRM', 'success') },
+        onError: (e: unknown) => toast((e as Error).message || 'Falha ao criar campo personalizado', 'danger'),
+      },
+    )
+  }
 
   return (
     <div class="space-y-3 rounded-md border border-border bg-surface p-4">
@@ -560,6 +602,29 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
           />
         )}
       </div>
+
+      {/* ── Vínculo com o CRM: garante que o dado digitado pelo lead não se perca ── */}
+      {canPersistViaCustom && (
+        <div class="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3">
+          <div class="flex items-start gap-2">
+            <AlertTriangle size={14} class="mt-0.5 shrink-0 text-warning" />
+            <p class="text-[0.6875rem] leading-relaxed text-fg-muted">
+              Este campo <strong>não está vinculado ao CRM</strong>. As respostas ficam só no histórico do formulário e <strong>não aparecem na ficha do lead</strong>. Crie um campo personalizado para nunca perder esse dado.
+            </p>
+          </div>
+          <Button size="sm" variant="secondary" onClick={createAsCustomField} disabled={createCf.isPending}>
+            <Sparkles size={12} /> {createCf.isPending ? 'Criando…' : 'Criar campo personalizado e salvar'}
+          </Button>
+        </div>
+      )}
+      {isInput && linkedCustom && (
+        <div class="flex items-center gap-2 rounded-md border border-success/40 bg-success/10 p-2.5">
+          <CheckCircle2 size={14} class="shrink-0 text-success" />
+          <p class="text-[0.6875rem] text-fg-muted">
+            Vinculado ao campo personalizado <strong>{linkedCustom.label}</strong> — as respostas vão para a ficha do lead. <code class="text-fg-subtle">cf_{linkedCustom.key}</code>
+          </p>
+        </div>
+      )}
 
       {/* ── Campo de agendamento ── */}
       {isScheduling && (

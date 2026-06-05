@@ -27,11 +27,13 @@ export async function chatbotsRoutes(app: FastifyInstance) {
 
   // POST /api/admin/chatbots — Create
   app.post('/api/admin/chatbots', { preHandler: adminOnly }, async (req) => {
-    const { name, channel, systemPrompt, extractionPrompt, analysisPrompt, greetingMessage, completionMessage } = req.body as any
+    const { name, channel, mode, formId, systemPrompt, extractionPrompt, analysisPrompt, greetingMessage, completionMessage } = req.body as any
     const chatbot = await prisma.chatbot.create({
       data: {
         name: name || 'Novo Chatbot',
         channel: channel || 'chat',
+        mode: mode === 'scripted' ? 'scripted' : 'ai',
+        ...(formId ? { formId: Number(formId) } : {}),
         systemPrompt: systemPrompt || '',
         extractionPrompt: extractionPrompt || '',
         analysisPrompt: analysisPrompt || '',
@@ -47,7 +49,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const body = req.body as any
     const data: any = {}
-    for (const k of ['name', 'channel', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin']) {
+    for (const k of ['name', 'channel', 'mode', 'formId', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin']) {
       if (body[k] !== undefined) data[k] = body[k]
     }
     const chatbot = await prisma.chatbot.update({ where: { id: Number(id) }, data })

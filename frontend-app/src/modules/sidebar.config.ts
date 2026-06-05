@@ -122,6 +122,7 @@ export const sidebarSchema: SidebarSchema = {
       items: [
         { id: 'chatbots', label: 'Chatbots', href: '/app/chatbots', icon: 'Bot', permission: 'captacao' },
         { id: 'pages', label: 'Landing Pages', href: '/app/pages', icon: 'Globe', permission: 'captacao' },
+        { id: 'forms', label: 'Formulários', href: '/app/forms', icon: 'FormInput', permission: 'captacao' },
         { id: 'meta-ads', label: 'Meta Ads', href: '/app/meta-ads', icon: 'Megaphone', permission: 'marketing' },
         { id: 'google-ads', label: 'Google Ads', href: '/app/google-ads', icon: 'Search', permission: 'marketing' },
         { id: 'links', label: 'Links rastreáveis', href: '/app/links', icon: 'Link2', permission: 'marketing' },
@@ -206,7 +207,6 @@ export const sidebarSchema: SidebarSchema = {
       items: [
         { id: 'funnels', label: 'Funis', href: '/app/funnels', icon: 'GitFork', permission: 'funnels' },
         { id: 'tags', label: 'Etiquetas', href: '/app/tags', icon: 'Tag', permission: 'tags' },
-        { id: 'forms', label: 'Formulários', href: '/app/forms', icon: 'FormInput', permission: 'captacao' },
         // Modelos: cadastro operacional usado em cadências/atividades. Gated
         // por 'leads' (não mais 'captacao') — AGENT já possui leads, evita
         // exigir role administrativo para item de gestão de mensagens.
