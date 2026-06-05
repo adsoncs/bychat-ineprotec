@@ -576,6 +576,10 @@ model Chatbot {
   // F3: coletar dados via WhatsApp Flow (formulário nativo em tela única) em vez de
   // pergunta-a-pergunta. Requer Cloud API + um CloudApiFlow publicado do form.
   useFlow           Boolean  @default(false)
+  // Atendimento por IA após o roteiro encerrar: quando o lead já concluiu/foi
+  // desqualificado e volta a mandar mensagem, a IA responde com contexto do desfecho.
+  postChatAi        Boolean  @default(false)
+  postChatPrompt    String?  @db.Text // instruções da IA pós-atendimento (vazio = usa systemPrompt)
   funnelId          Int?
   funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   systemPrompt      String   @db.LongText

@@ -295,9 +295,15 @@ async function _process(
 
   const leadId = state.leadId ?? lead.id
 
-  // Conversa encerrada → não reinicia o bot; registra a mensagem para atendimento humano.
+  // Conversa encerrada → não reinicia o roteiro. Se o chatbot tem IA pós-atendimento
+  // ligada, a IA assume com o contexto do desfecho; senão, só registra (atendimento humano).
   if (lead.completed || state.phase === 'done' || state.phase === 'disqualified') {
     await saveIncoming(leadId, text)
+    if (chatbot?.postChatAi) {
+      const { postJourneyAiReply } = await import('./chatbotFlow.js')
+      await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app })
+        .catch((e: any) => app.log.warn(`[scriptedChatbot] postChatAi: ${e?.message || e}`))
+    }
     return
   }
 

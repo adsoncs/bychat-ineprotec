@@ -506,6 +506,8 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     mode: chatbot?.mode ?? 'ai',
     formId: chatbot?.formId ? String(chatbot.formId) : '',
     useFlow: chatbot?.useFlow ?? false,
+    postChatAi: chatbot?.postChatAi ?? false,
+    postChatPrompt: chatbot?.postChatPrompt ?? '',
     scriptedMessages: (chatbot?.scriptedMessages ?? {}) as Record<string, string>,
     funnelId: chatbot?.funnelId ? String(chatbot.funnelId) : '',
     defaultTeamId: chatbot?.defaultTeamId ? String(chatbot.defaultTeamId) : '',
@@ -545,6 +547,8 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
       mode: form.mode,
       formId: form.mode === 'scripted' && form.formId ? Number(form.formId) : null,
       useFlow: form.mode === 'scripted' ? form.useFlow : false,
+      postChatAi: form.mode === 'scripted' ? form.postChatAi : false,
+      postChatPrompt: form.mode === 'scripted' ? (form.postChatPrompt || null) : null,
       scriptedMessages: form.mode === 'scripted' ? form.scriptedMessages : null,
       funnelId: form.funnelId ? Number(form.funnelId) : null,
       defaultTeamId: form.defaultTeamId ? Number(form.defaultTeamId) : null,
@@ -669,6 +673,36 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
           )}
           {flowEditorOpen && form.formId && (
             <FlowEditorModal formId={Number(form.formId)} onClose={() => setFlowEditorOpen(false)} />
+          )}
+          {form.mode === 'scripted' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="mt-0.5"
+                  checked={form.postChatAi}
+                  onChange={(e) => patch('postChatAi', (e.target as HTMLInputElement).checked)}
+                />
+                <span class="text-sm text-fg">
+                  Atendimento por IA após concluir o roteiro
+                  <span class="block text-xs text-fg-muted">
+                    Quando o lead já concluiu (ou foi desqualificado) e volta a mandar mensagem, a IA
+                    responde com o contexto do desfecho (ex.: reconhecendo o agendamento) em vez de ficar
+                    sem resposta. Não recomeça o formulário.
+                  </span>
+                </span>
+              </label>
+              {form.postChatAi && (
+                <Textarea
+                  label="Instruções da IA pós-atendimento (opcional)"
+                  rows={4}
+                  value={form.postChatPrompt}
+                  placeholder="Ex.: Você atende pela Faculdade X. Reconheça o agendamento do lead, tire dúvidas sobre cursos, polos e processo seletivo, e ofereça remarcar se necessário. Tom cordial e objetivo."
+                  onInput={(e) => patch('postChatPrompt', (e.target as HTMLTextAreaElement).value)}
+                  hint="Vazio = usa o prompt de IA do chatbot. O sistema injeta automaticamente o nome do lead e o desfecho (agendou / concluiu / desqualificado)."
+                />
+              )}
+            </div>
           )}
           {form.mode === 'scripted' && (
             <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info flex items-center gap-2">

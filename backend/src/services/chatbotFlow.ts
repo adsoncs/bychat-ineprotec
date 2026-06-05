@@ -215,6 +215,52 @@ async function extractDataWithAI(conversation: Array<{role: string, content: str
   return JSON.parse(txt.replace(/```json|```/g, '').trim())
 }
 
+// ─── Atendimento por IA pós-jornada (scripted concluído/desqualificado) ──
+// O lead já terminou o roteiro e voltou a falar; a IA responde com o contexto do
+// desfecho (sem recomeçar o formulário). Histórico próprio em formData._postChat.
+export async function postJourneyAiReply(params: {
+  lead: any; text: string; phone: string; sendFn: SendFn; provider: ProviderType;
+  instanceName?: string | null; chatbot: any; app: FastifyInstance;
+}): Promise<void> {
+  const { lead, text, phone, sendFn, provider, instanceName, chatbot, app } = params
+  try {
+    const brand = await getBranding()
+    const nome = lead?.nome || ''
+    // Desfecho do roteiro → contexto para a IA.
+    let outcome = 'já concluiu o atendimento inicial pelo formulário'
+    const booking = await prisma.booking.findFirst({ where: { leadId: lead.id, status: 'scheduled' }, orderBy: { startAt: 'desc' }, select: { startAt: true } }).catch(() => null)
+    const sc: any = (lead.formData as any)?._script
+    if (booking) {
+      const d = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(booking.startAt)
+      outcome = `já agendou uma reunião com a equipe para ${d}`
+    } else if (sc?.phase === 'disqualified') {
+      outcome = 'concluiu o formulário, mas não seguiu para o agendamento (perfil fora do critério atual)'
+    }
+    const base = (chatbot?.postChatPrompt && String(chatbot.postChatPrompt).trim())
+      || chatbot?.systemPrompt || `Você é um atendente da ${brand.brandName}.`
+    const systemPrompt = String(base)
+      .replace(/\{\{attendant_name\}\}/g, chatbot?.name || 'Atendimento')
+      .replace(/\{\{brand_name\}\}/g, brand.brandName)
+      + `\n\n## Contexto desta conversa\nVocê está no WhatsApp com ${nome || 'o lead'}, que ${outcome}. NÃO recomece o formulário nem repita perguntas de cadastro/qualificação. Reconheça o que ele já fez, seja cordial e objetivo, e ajude com dúvidas dentro do contexto da empresa e dos serviços. Se ele quiser remarcar, cancelar ou falar com um humano, oriente com gentileza.`
+
+    const fd: any = (lead.formData as any) || {}
+    const history: Array<{ role: string; content: string }> = Array.isArray(fd._postChat) ? fd._postChat : []
+    history.push({ role: 'user', content: text })
+    const reply = (await chatWithAI(systemPrompt, history.slice(-20))) || 'Certo! Como posso ajudar?'
+    history.push({ role: 'assistant', content: reply })
+
+    const r = await sendFn(phone, reply)
+    await prisma.message.create({ data: {
+      leadId: lead.id, fromMe: true, body: reply, mediaType: 'text', provider,
+      ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      senderName: chatbot?.name || 'IA', isInternal: false, externalId: r.messageId, ack: r.messageId ? 1 : 0, timestamp: new Date(),
+    } }).catch(() => {})
+    await prisma.lead.update({ where: { id: lead.id }, data: { formData: { ...fd, _postChat: history.slice(-20) }, lastMessageAt: new Date() } }).catch(() => {})
+  } catch (e: any) {
+    app.log.warn(`[postChatAi] ${e?.message || e}`)
+  }
+}
+
 // ─── Main Chatbot Flow ──────────────────────────────────
 
 /**

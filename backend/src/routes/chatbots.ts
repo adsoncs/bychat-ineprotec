@@ -49,7 +49,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const body = req.body as any
     const data: any = {}
-    for (const k of ['name', 'channel', 'mode', 'formId', 'useFlow', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin']) {
+    for (const k of ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin']) {
       if (body[k] !== undefined) data[k] = body[k]
     }
     const chatbot = await prisma.chatbot.update({ where: { id: Number(id) }, data })

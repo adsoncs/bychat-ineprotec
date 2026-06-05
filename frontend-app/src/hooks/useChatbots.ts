@@ -8,6 +8,8 @@ export interface ChatbotItem {
   mode: string
   formId: number | null
   useFlow: boolean
+  postChatAi: boolean
+  postChatPrompt: string | null
   scriptedMessages: Record<string, string> | null
   active: boolean
   systemPrompt: string | null
@@ -35,6 +37,8 @@ export interface ChatbotInput {
   mode?: string | undefined
   formId?: number | null | undefined
   useFlow?: boolean | undefined
+  postChatAi?: boolean | undefined
+  postChatPrompt?: string | null | undefined
   scriptedMessages?: Record<string, string> | null | undefined
   systemPrompt?: string | null | undefined
   extractionPrompt?: string | null | undefined
