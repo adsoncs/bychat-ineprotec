@@ -11,10 +11,35 @@ import { onChatbotComplete, getScoringConfig } from './scoring.js'
 import { generateUid } from './dedup.js'
 import { saveLeadOrigin, type OriginData } from './originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from './teamRouting.js'
+import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+
+// Protocolo de opções clicáveis: injetado no system prompt só quando o canal é
+// Cloud API (botões nativos). O modelo termina a mensagem com [[OPTIONS: a | b | c]]
+// quando a resposta é uma escolha entre poucas alternativas fixas.
+const OPTIONS_PROTOCOL = `
+
+## Opções clicáveis (WhatsApp)
+Quando a sua pergunta tiver como resposta uma escolha entre poucas alternativas fixas (no máximo 10), ofereça-as como opções clicáveis. Para isso, termine a mensagem com UMA única linha exatamente neste formato:
+[[OPTIONS: Texto 1 | Texto 2 | Texto 3]]
+Regras: no máximo 10 opções; cada opção com no máximo 20 caracteres; use só quando as alternativas forem realmente fixas (ex.: Sim/Não, faixas de orçamento, categorias). NUNCA use para perguntas abertas (nome, e-mail, telefone). Escreva a pergunta normalmente acima do marcador e não repita as opções no corpo do texto.`
+
+// Extrai o marcador [[OPTIONS: ...]] da resposta da IA. Retorna o texto limpo
+// (sem o marcador) e as opções como Choice[]. Sem marcador → choices vazio.
+function parseAiOptions(raw: string): { text: string; choices: Choice[] } {
+  const m = /\[\[\s*OPTIONS:(.+?)\]\]/is.exec(raw || '')
+  if (!m) return { text: (raw || '').trim(), choices: [] }
+  const text = (raw || '').replace(m[0], '').trim()
+  const parts = String(m[1]).split('|').map((s) => s.trim()).filter(Boolean).slice(0, 10)
+  const choices: Choice[] = parts.map((title, i) => ({ id: `opt_${i}`, title }))
+  return { text, choices }
+}
 
 // ─── Types ──────────────────────────────────────────────
 
 export type SendFn = (phone: string, text: string) => Promise<{ messageId: string | null }>
+// Envio de mensagem interativa nativa (botões/lista). Injetado só na Cloud API;
+// na Evolution é undefined → motor cai no texto numerado.
+export type SendInteractiveFn = (phone: string, interactive: any) => Promise<{ messageId: string | null }>
 export type ProviderType = 'evolution' | 'cloud_api'
 
 // ─── Constants ──────────────────────────────────────────
@@ -256,7 +281,12 @@ export async function processChatbotMessage(
   provider: ProviderType,
   originData?: OriginData | null,
   chatbotId?: number | null,
-  instanceName?: string | null
+  instanceName?: string | null,
+  // Fase 2: botões no motor de IA. sendInteractiveFn só vem na Cloud API; o clique
+  // volta como o texto do botão (vira a próxima mensagem do usuário), então não
+  // precisamos do id aqui — apenas renderizar as opções como botões na saída.
+  sendInteractiveFn?: SendInteractiveFn | null,
+  _interactiveReplyId?: string | null,
 ): Promise<void> {
   // Carregar chatbot do banco se disponível
   let chatbot: any = null
@@ -269,9 +299,12 @@ export async function processChatbotMessage(
 
   // Determinar prompts: do chatbot do banco ou hardcoded
   const brand = await getBranding()
-  const systemPrompt = chatbot?.systemPrompt
+  let systemPrompt = chatbot?.systemPrompt
     ? chatbot.systemPrompt.replace(/\{\{attendant_name\}\}/g, attendantName).replace(/\{\{brand_name\}\}/g, brand.brandName)
     : buildChatSystemPrompt(brand.brandName)
+  // Botões só na Cloud API → só aí instruímos o modelo a oferecer opções clicáveis.
+  const canInteractive = provider === 'cloud_api' && !!sendInteractiveFn
+  if (canInteractive) systemPrompt += OPTIONS_PROTOCOL
   const extractionPrompt = chatbot?.extractionPrompt || EXTRACTION_PROMPT
   const greetingMsg = chatbot?.greetingMessage
     ? chatbot.greetingMessage.replace(/\{\{attendant_name\}\}/g, attendantName).replace(/\{\{brand_name\}\}/g, brand.brandName)
@@ -421,7 +454,10 @@ Para começar, qual é o seu *nome*?`
     content: m.content
   }))
 
-  const aiResponse = await chatWithAI(systemPrompt, aiMessages)
+  const aiResponseRaw = await chatWithAI(systemPrompt, aiMessages)
+  // Separa o texto das opções clicáveis (marcador [[OPTIONS:...]]). O histórico
+  // guarda o texto LIMPO (sem o marcador) para não poluir os próximos turnos.
+  const { text: aiResponse, choices: aiChoices } = parseAiOptions(aiResponseRaw)
   chatMessages.push({ role: 'assistant', content: aiResponse })
 
   // Extrai dados estruturados
@@ -499,8 +535,20 @@ Para começar, qual é o seu *nome*?`
         app.log.warn(`Failed to save incoming msg (completed): ${msgErr}`)
       }
 
-      // Envia resposta da IA
-      const compAiResult = await sendFn(phone, aiResponse)
+      // Envia resposta da IA (com opções clicáveis quando houver e o canal permitir).
+      const compInteractive = (aiChoices.length && canInteractive) ? buildChoices(aiResponse, aiChoices) : null
+      const compOutBody = aiChoices.length ? choicesToText(aiResponse, aiChoices) : aiResponse
+      let compAiResult: { messageId: string | null }
+      if (compInteractive) {
+        try {
+          compAiResult = await sendInteractiveFn!(phone, compInteractive)
+        } catch (e: any) {
+          app.log.warn(`[chatbotFlow] interactive (completed) falhou, fallback texto: ${e?.message || e}`)
+          compAiResult = await sendFn(phone, compOutBody)
+        }
+      } else {
+        compAiResult = await sendFn(phone, compOutBody)
+      }
       const compAiMsgId = compAiResult.messageId
 
       // Save AI response to Message table (completed path)
@@ -509,7 +557,7 @@ Para começar, qual é o seu *nome*?`
           data: {
             leadId: lead.id,
             fromMe: true,
-            body: aiResponse,
+            body: compOutBody,
             mediaType: 'text',
             provider,
             ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
@@ -632,8 +680,22 @@ Quer conversar sobre o seu resultado? Estamos à disposição! 💬
     app.log.warn(`Failed to save incoming message: ${msgErr}`)
   }
 
-  // Envia resposta da IA via WhatsApp
-  const aiSendResult = await sendFn(phone, aiResponse)
+  // Envia resposta da IA via WhatsApp. Se a IA ofereceu opções e o canal é Cloud
+  // API, manda como botões/lista nativos; senão (ou se falhar) cai no texto. O log
+  // sempre guarda a versão textual (operador vê o conteúdo igual).
+  const interactive = (aiChoices.length && canInteractive) ? buildChoices(aiResponse, aiChoices) : null
+  const outBody = aiChoices.length ? choicesToText(aiResponse, aiChoices) : aiResponse
+  let aiSendResult: { messageId: string | null }
+  if (interactive) {
+    try {
+      aiSendResult = await sendInteractiveFn!(phone, interactive)
+    } catch (e: any) {
+      app.log.warn(`[chatbotFlow] interactive falhou, fallback texto: ${e?.message || e}`)
+      aiSendResult = await sendFn(phone, outBody)
+    }
+  } else {
+    aiSendResult = await sendFn(phone, outBody)
+  }
   const aiMsgId = aiSendResult.messageId
 
   // Save AI response to Message table
@@ -642,7 +704,7 @@ Quer conversar sobre o seu resultado? Estamos à disposição! 💬
       data: {
         leadId: lead.id,
         fromMe: true,
-        body: aiResponse,
+        body: outBody,
         mediaType: 'text',
         provider,
         ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),

@@ -11,12 +11,23 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import type { SendFn, ProviderType } from './chatbotFlow.js'
+import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage, resolveQualification, validateFieldValue, matchSelectChoice, buildCustomFieldValues } from './formFlow.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
 import { interpolate } from '../lib/interpolate.js'
+import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+
+// Envia um conjunto de opções como botões/lista (Cloud API) ou texto numerado
+// (fallback). textRender permite um texto de log/fallback customizado (ex.: slots).
+type SendChoicesFn = (
+  leadId: number,
+  body: string,
+  choices: Choice[],
+  textRender?: (c: Choice[]) => string,
+  listOpts?: { button?: string; sectionTitle?: string },
+) => Promise<void>
 
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 const MAX_SLOTS = 10
@@ -97,10 +108,12 @@ export async function processScriptedChatbotMessage(
   instanceName?: string | null,
   chatbot?: any,
   form?: any,
+  sendInteractiveFn?: SendInteractiveFn | null,
+  interactiveReplyId?: string | null,
 ): Promise<void> {
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
-    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form)
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, interactiveReplyId)
       .catch((e) => { app.log.error(`[scriptedChatbot] erro: ${e?.stack || e}`) }),
   )
   locks.set(phone, run.then(() => undefined))
@@ -112,6 +125,7 @@ async function _process(
   sendFn: SendFn, provider: ProviderType, originData: OriginData | null | undefined,
   chatbotId: number | null | undefined, instanceName: string | null | undefined,
   chatbot: any, form: any,
+  sendInteractiveFn?: SendInteractiveFn | null, interactiveReplyId?: string | null,
 ): Promise<void> {
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[scriptedChatbot] form sem fields'); return }
   const fields: any[] = form.fields
@@ -149,6 +163,33 @@ async function _process(
     const r = await sendFn(phone, body)
     await saveOutgoing(leadId, body, r.messageId)
   }
+  // Envia opções como botões/lista nativos (Cloud API) com fallback texto numerado.
+  // O log/conversa sempre guarda a versão textual (operador vê o conteúdo igual).
+  const sendChoices: SendChoicesFn = async (leadId, body, choices, textRender, listOpts) => {
+    const logText = textRender ? textRender(choices) : choicesToText(body, choices)
+    const interactive = (provider === 'cloud_api' && sendInteractiveFn) ? buildChoices(body, choices, listOpts) : null
+    if (interactive) {
+      try {
+        const r = await sendInteractiveFn!(phone, interactive)
+        await saveOutgoing(leadId, logText, r.messageId)
+        return
+      } catch (e: any) {
+        // Falha no envio interativo (payload/janela 24h) → degrada para texto numerado.
+        app.log.warn(`[scriptedChatbot] interactive falhou, fallback texto: ${e?.message || e}`)
+      }
+    }
+    await send(leadId, logText)
+  }
+  // Pergunta um campo: select → botões/lista; demais → texto.
+  const askField = async (leadId: number, field: any) => {
+    if (field?.type === 'select' && Array.isArray(field.options) && field.options.length) {
+      const body = stripTags(field.label) || field.key
+      const choices: Choice[] = field.options.map((o: any) => ({ id: String(o.value), title: stripTags(o.label) }))
+      await sendChoices(leadId, body, choices)
+    } else {
+      await send(leadId, questionText(field))
+    }
+  }
 
   // ── Localiza lead + estado ──
   const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
@@ -176,7 +217,7 @@ async function _process(
     if (welcome) await send(leadId, welcome)
     const firstIdx = nextRealIndex(fields, 0)
     const newState: ScriptState = { stepIndex: firstIdx, answers: {}, leadId, phase: 'asking' }
-    if (firstIdx < fields.length) await send(leadId, questionText(fields[firstIdx]))
+    if (firstIdx < fields.length) await askField(leadId, fields[firstIdx])
     await persist(leadId, newState)
     return
   }
@@ -193,7 +234,7 @@ async function _process(
 
   // ── Fase de agendamento ──
   if (state.phase === 'scheduling') {
-    await handleSchedulingReply(leadId, state, fields, text, send, persist, app, phone, chatbot)
+    await handleSchedulingReply(leadId, state, fields, text, send, sendChoices, persist, app, phone, chatbot, interactiveReplyId)
     return
   }
 
@@ -206,8 +247,15 @@ async function _process(
 
   // Validação / parse da resposta do campo atual.
   if (field.type === 'select') {
-    const choice = matchSelectChoice(field, text)
-    if (!choice) { await send(leadId, `${msg(chatbot, 'invalidSelect')}\n\n${questionText(field)}`); return }
+    // Casa primeiro pelo id do botão/linha (value exato, robusto a truncamento do
+    // título); senão pela resposta digitada (número/label/value).
+    let choice: { value: string; label: string } | null = null
+    if (interactiveReplyId) {
+      const byId = (field.options || []).find((o: any) => String(o.value) === interactiveReplyId)
+      if (byId) choice = { value: byId.value, label: byId.label }
+    }
+    if (!choice) choice = matchSelectChoice(field, text)
+    if (!choice) { await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return }
     state.answers[field.key] = choice.value
   } else {
     const err = validateFieldValue(field, text)
@@ -245,10 +293,10 @@ async function _process(
   }
   const nextField = fields[nextIdx]
   if (nextField.type === 'scheduling') {
-    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, persist, app, chatbot)
+    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, sendChoices, persist, app, chatbot)
     return
   }
-  await send(leadId, questionText(nextField))
+  await askField(leadId, nextField)
   await persist(leadId, state)
 }
 
@@ -281,7 +329,7 @@ async function applyAnswerToLead(leadId: number, field: any, answers: Record<str
 // Move o lead para a etapa de qualificação positiva e abre a fase de agendamento.
 async function enterSchedulingPhase(
   leadId: number, state: ScriptState, fields: any[], settings: any, form: any, schedField: any,
-  send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, app: FastifyInstance, chatbot: any,
+  send: (leadId: number, body: string) => Promise<void>, sendChoices: SendChoicesFn, persistFn: typeof persist, app: FastifyInstance, chatbot: any,
 ): Promise<void> {
   const q = resolveQualification(fields, state.answers, settings)
   if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
@@ -309,9 +357,13 @@ async function enterSchedulingPhase(
     await persistFn(leadId, state, true)
     return
   }
-  const list = flat.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
   const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento' ? stripTags(schedField.label) : 'Escolha o melhor horário para a nossa conversa'
-  await send(leadId, msg(chatbot, 'slotPrompt', { titulo: label, horarios: list }))
+  const choices: Choice[] = flat.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
+  await sendChoices(
+    leadId, label, choices,
+    (cs) => msg(chatbot, 'slotPrompt', { titulo: label, horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
+    { button: 'Ver horários', sectionTitle: 'Horários' },
+  )
   state.slots = flat
   state.phase = 'scheduling'
   await persistFn(leadId, state)
@@ -320,15 +372,24 @@ async function enterSchedulingPhase(
 // Trata a escolha do horário e cria a reserva (createBooking move REUNIAO/notifica/CAPI).
 async function handleSchedulingReply(
   leadId: number, state: ScriptState, fields: any[], text: string,
-  send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, app: FastifyInstance, phone: string, chatbot: any,
+  send: (leadId: number, body: string) => Promise<void>, sendChoices: SendChoicesFn, persistFn: typeof persist, app: FastifyInstance, phone: string, chatbot: any,
+  interactiveReplyId?: string | null,
 ): Promise<void> {
   const slots = state.slots || []
   const v = text.trim()
-  const idx = /^\d+$/.test(v) ? parseInt(v, 10) - 1 : -1
+  // Casa pelo id do botão/linha (slot_N) ou pelo número digitado.
+  let idx = -1
+  const m = interactiveReplyId && /^slot_(\d+)$/.exec(interactiveReplyId)
+  if (m) idx = parseInt(m[1]!, 10)
+  else if (/^\d+$/.test(v)) idx = parseInt(v, 10) - 1
   const chosen = idx >= 0 && idx < slots.length ? slots[idx] : null
   if (!chosen) {
-    const list = slots.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
-    await send(leadId, msg(chatbot, 'invalidSlot', { horarios: list }))
+    const choices: Choice[] = slots.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
+    await sendChoices(
+      leadId, 'Não entendi o horário. Escolha um:', choices,
+      (cs) => msg(chatbot, 'invalidSlot', { horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
+      { button: 'Ver horários', sectionTitle: 'Horários' },
+    )
     return
   }
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, email: true } })
@@ -355,8 +416,12 @@ async function handleSchedulingReply(
     }
     if (!flat.length) { await send(leadId, msg(chatbot, 'noSlots')); state.phase = 'done'; await persistFn(leadId, state, true); return }
     state.slots = flat
-    const list = flat.map((s, i) => `${i + 1}) ${s.text}`).join('\n')
-    await send(leadId, msg(chatbot, 'slotTaken', { erro: result.error || 'Horário indisponível', horarios: list }))
+    const choices: Choice[] = flat.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
+    await sendChoices(
+      leadId, 'Esse horário ficou indisponível. Escolha outro:', choices,
+      (cs) => msg(chatbot, 'slotTaken', { erro: result.error || 'Horário indisponível', horarios: cs.map((c, i) => `${i + 1}) ${c.title}`).join('\n') }),
+      { button: 'Ver horários', sectionTitle: 'Horários' },
+    )
     await persistFn(leadId, state)
     return
   }

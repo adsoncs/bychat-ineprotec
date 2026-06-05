@@ -173,6 +173,10 @@ async function processIncomingMessage(
   let mediaType = 'text'
   let mediaUrl = ''
   let mediaName = ''
+  // Id do botão/linha clicado (interactive reply). Preservado para casar a opção
+  // diretamente pelo value no motor de chatbot (mais robusto que casar por texto,
+  // que pode vir truncado ao limite de 20 chars do WhatsApp).
+  let interactiveReplyId: string | null = null
 
   switch (msgType) {
     case 'text':
@@ -226,8 +230,10 @@ async function processIncomingMessage(
     case 'interactive':
       if (msg.interactive?.button_reply) {
         text = msg.interactive.button_reply.title || msg.interactive.button_reply.id || ''
+        interactiveReplyId = msg.interactive.button_reply.id || null
       } else if (msg.interactive?.list_reply) {
         text = msg.interactive.list_reply.title || msg.interactive.list_reply.id || ''
+        interactiveReplyId = msg.interactive.list_reply.id || null
       }
       break
 
@@ -398,17 +404,23 @@ async function processIncomingMessage(
     const { sendTextMessage } = await import('../services/cloudApi.js')
     return sendTextMessage(phoneNumberId, token, p, t)
   }
+  // Cloud API → suporta botões/lista nativos. Injetado nos motores de chatbot;
+  // se ausente (Evolution), eles renderizam as opções como texto numerado.
+  const sendInteractiveFn = async (p: string, interactive: any) => {
+    const { sendInteractiveMessage } = await import('../services/cloudApi.js')
+    return sendInteractiveMessage(phoneNumberId, token, p, interactive)
+  }
 
   // Chatbot determinístico (scripted): roda a jornada do form vinculado.
   const chatbot = conn.chatbotId ? await prisma.chatbot.findUnique({ where: { id: conn.chatbotId } }) : null
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
-      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form)
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId)
       return
     }
   }
-  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null)
+  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, sendInteractiveFn, interactiveReplyId)
 }
 
 // ─── Process Status Update ──────────────────────────────
