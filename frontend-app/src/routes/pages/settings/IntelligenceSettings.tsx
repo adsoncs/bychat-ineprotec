@@ -311,7 +311,7 @@ function PhoneIdentityCard() {
             <textarea
               value={purpose}
               onInput={(e) => setPurpose((e.target as HTMLTextAreaElement).value)}
-              placeholder="Ex.: Validação de identidade do lead inscrito em processo seletivo, conforme termo de consentimento aceito no portal de matrículas."
+              placeholder="Ex.: Validação de identidade do lead, conforme termo de consentimento aceito no cadastro."
               rows={2}
               class="w-full text-sm rounded-md border border-border bg-surface px-2 py-1.5 focus:outline-none focus:border-accent"
               maxLength={500}

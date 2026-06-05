@@ -374,7 +374,7 @@ function TemplatePickerModal({ onClose, onCreated }: { onClose: () => void; onCr
                 label="Título da nova página"
                 value={title}
                 onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
-                placeholder="Ex.: Vestibular 2027/1"
+                placeholder="Ex.: Campanha 2027/1"
               />
             </div>
           )}

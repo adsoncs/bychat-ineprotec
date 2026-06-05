@@ -268,7 +268,7 @@ function FormTemplatePickerModal({ onClose, onCreated }: { onClose: () => void; 
                 label="Nome do novo formulário"
                 value={name}
                 onInput={(e) => setName((e.target as HTMLInputElement).value)}
-                placeholder="Ex.: Captação — Campanha Escolas"
+                placeholder="Ex.: Captação — Campanha de Leads"
               />
             </div>
           )}

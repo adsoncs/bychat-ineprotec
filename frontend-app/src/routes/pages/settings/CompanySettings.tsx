@@ -128,7 +128,7 @@ export function CompanySettings() {
           <Input
             label="Razão social"
             value={draft.companyName}
-            placeholder="Minha Empresa Educacional LTDA"
+            placeholder="Minha Empresa LTDA"
             onInput={(e) => set('companyName', (e.target as HTMLInputElement).value)}
           />
           <Input

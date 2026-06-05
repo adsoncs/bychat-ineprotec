@@ -348,7 +348,7 @@ function PersonaFormModal({ persona, onClose }: { persona: Persona | null; onClo
           label="Nome da persona *"
           value={f.name}
           onInput={(e) => up('name', (e.target as HTMLInputElement).value)}
-          placeholder="Ex.: Coordenadora pedagógica de escola média"
+          placeholder="Ex.: Gerente de marketing de uma PME"
         />
 
         <div>

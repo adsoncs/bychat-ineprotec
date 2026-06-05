@@ -418,7 +418,7 @@ function ImportChatbotModal({ onClose }: { onClose: () => void }) {
               label="Novo nome do chatbot *"
               value={name}
               onInput={(e) => setName((e.target as HTMLInputElement).value)}
-              placeholder="Ex.: Captação Educacional 2026"
+              placeholder="Ex.: Captação de Leads 2026"
               hint="Você está criando um chatbot novo — este nome aparece na lista."
             />
 

@@ -799,7 +799,7 @@ function TemplateFormModal({
               maxLength={1024}
               onInput={(e) => setBodyText((e.target as HTMLTextAreaElement).value)}
               rows={5}
-              placeholder="Olá {{1}}, sua matrícula em {{2}} foi confirmada!"
+              placeholder="Olá {{1}}, seu pedido {{2}} foi confirmado!"
               class="min-h-[5rem] w-full px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-y"
             />
             <div class="text-[0.6875rem] text-fg-subtle">{bodyText.length}/1024 caracteres</div>
