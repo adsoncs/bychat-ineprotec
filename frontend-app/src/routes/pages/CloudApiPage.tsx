@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { EmbeddedSignupModal } from '@/components/EmbeddedSignupModal'
 import { cloudApiQualityLabel } from '@/lib/statusLabels'
 import { toast } from '@/lib/toast'
@@ -352,6 +353,19 @@ function ConnectionCard({
           Conexão ativa (recebe mensagens e modelos)
         </label>
       </div>
+
+      {/* Funil dos leads do chatbot — só quando há chatbot vinculado */}
+      {c.chatbotId != null && (
+        <ConnectionFunnelPicker
+          funnelId={c.funnelId}
+          stageKey={c.stageKey}
+          disabled={update.isPending}
+          onSave={({ funnelId, stageKey }) => update.mutate({ id: c.id, funnelId, stageKey }, {
+            onSuccess: () => toast('Funil da conexão atualizado', 'success', 1_500),
+            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          })}
+        />
+      )}
 
       {/* Roteamento: setor padrão OU agente dedicado (paridade com instância Evolution) */}
       <div class="mt-3 pt-3 border-t border-border">

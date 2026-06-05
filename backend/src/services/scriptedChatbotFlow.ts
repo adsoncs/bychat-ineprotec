@@ -113,10 +113,12 @@ export async function processScriptedChatbotMessage(
   sendInteractiveFn?: SendInteractiveFn | null,
   interactiveReplyId?: string | null,
   flowResponse?: Record<string, any> | null,
+  promoteFunnelId?: number | null,
+  promoteStageKey?: string | null,
 ): Promise<void> {
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
-    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse)
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, promoteFunnelId, promoteStageKey)
       .catch((e) => { app.log.error(`[scriptedChatbot] erro: ${e?.stack || e}`) }),
   )
   locks.set(phone, run.then(() => undefined))
@@ -130,6 +132,7 @@ async function _process(
   chatbot: any, form: any,
   sendInteractiveFn?: SendInteractiveFn | null, interactiveReplyId?: string | null,
   flowResponse?: Record<string, any> | null,
+  promoteFunnelId?: number | null, promoteStageKey?: string | null,
 ): Promise<void> {
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[scriptedChatbot] form sem fields'); return }
   const fields: any[] = form.fields
@@ -228,7 +231,7 @@ async function _process(
     }
     const q = resolveQualification(fields, state.answers, settings)
     if (q?.finish) {
-      await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
       const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
         ? `${stripTags(settings?.successMessage) || msg(chatbot, 'disqualifiedFallback')}\n\n${q.redirectUrl}`
         : (stripTags(q.message) || msg(chatbot, 'disqualifiedFallback'))
@@ -240,10 +243,10 @@ async function _process(
     }
     const schedField = fields.find((f) => f?.type === 'scheduling')
     if (schedField) {
-      await enterSchedulingPhase(leadId, state, fields, settings, form, schedField, send, sendChoices, persist, app, chatbot)
+      await enterSchedulingPhase(leadId, state, fields, settings, form, schedField, send, sendChoices, persist, app, chatbot, promoteFunnelId)
       return
     }
-    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot, promoteFunnelId)
   }
 
   // ── Localiza lead + estado ──
@@ -256,7 +259,10 @@ async function _process(
     const body = { ctwaClid: originData?.ctwaClid ?? null, originType: originData?.originType ?? null, utmSource: originData?.utmSource ?? null, gclid: originData?.gclid ?? null }
     let leadId = lead?.id ?? null
     if (!leadId) {
-      const created = await createLeadFromForm(form, fields, {}, body, instanceName || '', null, undefined, {
+      // Funil da conexão (promoteFunnelId) sobrepõe o funil do form — leads do
+      // chatbot caem no funil escolhido na conexão. Sem ele → comportamento atual.
+      const created = await createLeadFromForm(form, fields, {}, body, instanceName || '', null,
+        promoteFunnelId ? { funnelId: promoteFunnelId, stageKey: promoteStageKey ?? null } : undefined, {
         channel: 'whatsapp', leadSource: 'whatsapp', chatbotId: chatbotId ?? null,
         routing: { source: 'whatsapp', chatbotId: chatbotId ?? null, instanceName: instanceName ?? null },
         forceWhatsapp: phone, qualificationSource: 'form',
@@ -310,14 +316,14 @@ async function _process(
 
   // ── Fase de agendamento ──
   if (state.phase === 'scheduling') {
-    await handleSchedulingReply(leadId, state, fields, text, send, sendChoices, persist, app, phone, chatbot, interactiveReplyId)
+    await handleSchedulingReply(leadId, state, fields, text, send, sendChoices, persist, app, phone, chatbot, interactiveReplyId, promoteFunnelId)
     return
   }
 
   // ── Fase de perguntas ──
   const field = fields[state.stepIndex]
   if (!field) { // segurança: fora do range → finaliza
-    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot, promoteFunnelId)
     return
   }
 
@@ -346,7 +352,7 @@ async function _process(
   if (field.isQualifier) {
     const q = resolveQualification(fields, state.answers, settings)
     if (q?.finish) {
-      await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
       // Redirect/mensagem configurados no FORM (editáveis no editor de forms) têm
       // prioridade; senão cai na mensagem editável do chatbot (disqualifiedFallback).
       const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
@@ -364,12 +370,12 @@ async function _process(
   const nextIdx = nextRealIndex(fields, state.stepIndex + 1)
   state.stepIndex = nextIdx
   if (nextIdx >= fields.length) { // não há mais campos → finaliza qualificado (sem scheduling)
-    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot)
+    await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot, promoteFunnelId)
     return
   }
   const nextField = fields[nextIdx]
   if (nextField.type === 'scheduling') {
-    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, sendChoices, persist, app, chatbot)
+    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, sendChoices, persist, app, chatbot, promoteFunnelId)
     return
   }
   await askField(leadId, nextField)
@@ -406,9 +412,10 @@ async function applyAnswerToLead(leadId: number, field: any, answers: Record<str
 async function enterSchedulingPhase(
   leadId: number, state: ScriptState, fields: any[], settings: any, form: any, schedField: any,
   send: (leadId: number, body: string) => Promise<void>, sendChoices: SendChoicesFn, persistFn: typeof persist, app: FastifyInstance, chatbot: any,
+  promoteFunnelId: number | null | undefined,
 ): Promise<void> {
   const q = resolveQualification(fields, state.answers, settings)
-  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
 
   const mt = schedField.meetingSlug ? await getActiveMeetingType(schedField.meetingSlug) : null
   if (!mt) {
@@ -449,7 +456,7 @@ async function enterSchedulingPhase(
 async function handleSchedulingReply(
   leadId: number, state: ScriptState, fields: any[], text: string,
   send: (leadId: number, body: string) => Promise<void>, sendChoices: SendChoicesFn, persistFn: typeof persist, app: FastifyInstance, phone: string, chatbot: any,
-  interactiveReplyId?: string | null,
+  interactiveReplyId?: string | null, promoteFunnelId?: number | null,
 ): Promise<void> {
   const slots = state.slots || []
   const v = text.trim()
@@ -476,6 +483,7 @@ async function handleSchedulingReply(
   const result = await createBooking(mt, {
     name: lead?.nome || 'Lead', email: lead?.email || null, phone, startAt: chosen.startAt,
     answers: state.answers, timezone: mt.timezone, visitorId: null, utm: null,
+    funnelOverride: promoteFunnelId ?? null,
   } as any).catch((e) => { app.log.error(`[scriptedChatbot] booking: ${e}`); return { ok: false, error: 'Erro ao agendar' } as any })
 
   if (!result.ok) {
@@ -512,9 +520,10 @@ async function handleSchedulingReply(
 async function finishQualifiedFlow(
   leadId: number, state: ScriptState, fields: any[], settings: any, form: any,
   send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, chatbot: any,
+  promoteFunnelId?: number | null,
 ): Promise<void> {
   const q = resolveQualification(fields, state.answers, settings)
-  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
   await send(leadId, msg(chatbot, 'qualifiedDone'))
   state.phase = 'done'
   await persistFn(leadId, state, true)

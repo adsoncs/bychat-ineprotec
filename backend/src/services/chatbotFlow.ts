@@ -287,6 +287,10 @@ export async function processChatbotMessage(
   // precisamos do id aqui — apenas renderizar as opções como botões na saída.
   sendInteractiveFn?: SendInteractiveFn | null,
   _interactiveReplyId?: string | null,
+  // Funil dos leads desta conexão/instância (só com chatbot). Quando setado, o lead
+  // do chatbot de IA nasce promovido a este funil/etapa; senão continua cru.
+  promoteFunnelId?: number | null,
+  promoteStageKey?: string | null,
 ): Promise<void> {
   // Carregar chatbot do banco se disponível
   let chatbot: any = null
@@ -358,6 +362,18 @@ Para começar, qual é o seu *nome*?`
       gclid: originData?.gclid ?? null,
       trackableLinkId: originData?.trackableLinkId ?? null,
     })
+    // Promoção opcional ao funil da conexão/instância (só com chatbot). Sem ele, o
+    // lead nasce cru (qualifiedAt null, sem funil) — promover manual via /qualify.
+    let promote: any = {}
+    if (promoteFunnelId) {
+      let stageKey: string | null = promoteStageKey || null
+      const se = stageKey ? await prisma.stage.findFirst({ where: { funnelId: promoteFunnelId, key: stageKey, active: true }, select: { key: true } }) : null
+      if (!se) {
+        const fs = await prisma.stage.findFirst({ where: { funnelId: promoteFunnelId, active: true }, orderBy: { position: 'asc' }, select: { key: true } })
+        stageKey = fs?.key || stageKey || 'NOVO'
+      }
+      promote = { funnelId: promoteFunnelId, status: stageKey, qualifiedAt: new Date(), qualificationSource: 'chatbot' }
+    }
     lead = await prisma.lead.create({
       data: {
         uid: await generateUid(),
@@ -379,6 +395,7 @@ Para começar, qual é o seu *nome*?`
         teamId: routedTeamId,
         assignedUserId: routedUserId,
         assignedAt: routedUserId ? new Date() : null,
+        ...promote,
       }
     })
 

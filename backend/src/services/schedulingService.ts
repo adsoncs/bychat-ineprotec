@@ -104,6 +104,9 @@ export interface BookInput {
   timezone?: string | null
   visitorId?: string | null
   utm?: { source?: string; medium?: string; campaign?: string; content?: string; term?: string } | null
+  // Funil efetivo (ex.: funil da conexão do chatbot). Quando setado, a reunião move
+  // o lead para a etapa do tipo (mt.stageKey) DENTRO deste funil, em vez de mt.funnelId.
+  funnelOverride?: number | null
 }
 
 export interface BookResult {
@@ -123,6 +126,8 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   const endAt = new Date(startAt.getTime() + mt.durationMin * 60000)
   const whatsapp = input.phone ? normalizePhone(String(input.phone)) : ''
   const email = input.email ? String(input.email).trim().toLowerCase() : ''
+  // Funil efetivo: override (funil da conexão) tem prioridade sobre o do tipo.
+  const effFunnelId = input.funnelOverride ?? mt.funnelId ?? null
 
   // Dedup: linka lead existente por whatsapp/email; senão cria novo.
   let leadId: number | null = null
@@ -150,7 +155,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
         teamId: mt.defaultTeamId ?? null,
         assignedUserId: mt.ownerUserId ?? null,
         assignedAt: mt.ownerUserId ? new Date() : null,
-        ...(mt.funnelId ? { funnelId: mt.funnelId } : {}),
+        ...(effFunnelId ? { funnelId: effFunnelId } : {}),
         completed: false,
         source: 'scheduling',
         utmSource: input.utm?.source ?? null,
@@ -199,15 +204,15 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // ── Fase 6: integração CRM ──
   if (leadId) {
     // Move o lead pra etapa do tipo (novos já nascem lá; dedup-existentes movem).
-    if (mt.funnelId && mt.stageKey) {
+    if (effFunnelId && mt.stageKey) {
       try {
         const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true, status: true } })
-        if (lead && (lead.status !== mt.stageKey || lead.funnelId !== mt.funnelId)) {
+        if (lead && (lead.status !== mt.stageKey || lead.funnelId !== effFunnelId)) {
           const prevStatus = lead.status
           const prevFunnel = lead.funnelId
-          await prisma.lead.update({ where: { id: leadId }, data: { status: mt.stageKey, funnelId: mt.funnelId } })
+          await prisma.lead.update({ where: { id: leadId }, data: { status: mt.stageKey, funnelId: effFunnelId } })
           await prisma.leadStageMovement.create({
-            data: { leadId, fromFunnelId: prevFunnel, toFunnelId: mt.funnelId, fromStageKey: prevStatus ?? null, toStageKey: mt.stageKey, source: 'scheduling' },
+            data: { leadId, fromFunnelId: prevFunnel, toFunnelId: effFunnelId, fromStageKey: prevStatus ?? null, toStageKey: mt.stageKey, source: 'scheduling' },
           }).catch(() => {})
         }
       } catch { /* não bloqueia a reserva */ }

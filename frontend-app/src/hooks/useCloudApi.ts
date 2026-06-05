@@ -12,6 +12,8 @@ export interface CloudApiConnection {
   chatbotId: number | null
   defaultTeamId: number | null
   ownerUserId: number | null
+  funnelId: number | null
+  stageKey: string | null
   active: boolean
   tokenStatus: 'valid' | 'expired' | 'unknown'
   tokenError?: string
@@ -126,7 +128,7 @@ export function useCloudApiDispatchReport(connectionId?: number | null, enabled 
 export function useUpdateCloudApiConnection() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: number; chatbotId?: number | null; active?: boolean; defaultTeamId?: number | null; ownerUserId?: number | null }) =>
+    mutationFn: ({ id, ...input }: { id: number; chatbotId?: number | null; active?: boolean; defaultTeamId?: number | null; ownerUserId?: number | null; funnelId?: number | null; stageKey?: string | null }) =>
       api.put<{ ok: true }>(`/cloud-api/connection/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-connections'] }),
   })

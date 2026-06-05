@@ -260,6 +260,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         chatbotId: conn.chatbotId,
         defaultTeamId: conn.defaultTeamId,
         ownerUserId: conn.ownerUserId,
+        funnelId: conn.funnelId,
+        stageKey: conn.stageKey,
         active: conn.active,
         tokenStatus,
         tokenError,
@@ -277,10 +279,26 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // (chatbotId, active, defaultTeamId, ownerUserId — paridade com a instância Evolution)
   app.put('/api/cloud-api/connection/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const { chatbotId, active, defaultTeamId, ownerUserId } = req.body as any
+    const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey } = req.body as any
     const data: any = {}
     if (chatbotId !== undefined) data.chatbotId = chatbotId || null
     if (active !== undefined) data.active = active
+
+    // Funil dos leads do chatbot (validar funil + etapa). Vazio = não promove.
+    if (funnelId !== undefined || stageKey !== undefined) {
+      const fid = funnelId ? Number(funnelId) : null
+      let skey: string | null = stageKey ? String(stageKey) : null
+      if (fid) {
+        const f = await prisma.funnel.findUnique({ where: { id: fid }, select: { id: true } })
+        if (!f) return reply.code(400).send({ error: 'Funil não encontrado' })
+        if (skey) {
+          const s = await prisma.stage.findFirst({ where: { funnelId: fid, key: skey, active: true }, select: { key: true } })
+          if (!s) skey = null // etapa inválida → 1ª etapa (resolvida no fluxo)
+        }
+      } else { skey = null }
+      data.funnelId = fid
+      data.stageKey = skey
+    }
 
     // Setor padrão e agente dedicado são mutuamente exclusivos (mesma regra da
     // Reforma F2 nas instâncias Evolution). Trocar para um zera o outro.

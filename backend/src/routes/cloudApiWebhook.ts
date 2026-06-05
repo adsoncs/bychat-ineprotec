@@ -422,11 +422,11 @@ async function processIncomingMessage(
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
-      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse)
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, conn.funnelId ?? null, conn.stageKey ?? null)
       return
     }
   }
-  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, sendInteractiveFn, interactiveReplyId)
+  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, sendInteractiveFn, interactiveReplyId, conn.funnelId ?? null, conn.stageKey ?? null)
 }
 
 // ─── Process Status Update ──────────────────────────────

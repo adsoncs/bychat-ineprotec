@@ -275,6 +275,8 @@ model Funnel {
   enrollmentPortals EnrollmentPortal[]
   stageSuggestions  LeadStageSuggestion[]
   dbConnectors      DbConnector[]
+  cloudApiConnections CloudApiConnection[]
+  whatsappInstances WhatsAppInstance[]
 
   @@map("bychat_funnels")
 }
@@ -651,6 +653,12 @@ model WhatsAppInstance {
   // convenção: ownerUserId ganha prioridade no roteamento.
   ownerUserId   Int?
   owner         User?    @relation("WhatsAppInstanceOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  // Funil dos leads do chatbot desta instância (só faz sentido com chatbotId).
+  // Quando setado, leads do chatbot são promovidos a este funil/etapa, respeitando
+  // as regras do form (qualificação/agendamento). Vazio = comportamento atual.
+  funnelId      Int?
+  funnel        Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  stageKey      String?  @db.VarChar(80)
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -659,6 +667,7 @@ model WhatsAppInstance {
   @@index([active])
   @@index([defaultTeamId])
   @@index([ownerUserId])
+  @@index([funnelId])
   @@map("bychat_whatsapp_instances")
 }
 
@@ -1147,6 +1156,12 @@ model CloudApiConnection {
   // (bypass da cascata por setor). ownerUserId tem prioridade no roteamento.
   ownerUserId     Int?
   owner           User?     @relation("CloudApiConnectionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  // Funil dos leads do chatbot desta conexão (só faz sentido com chatbotId).
+  // Quando setado, leads do chatbot são promovidos a este funil/etapa, respeitando
+  // as regras do form (qualificação/agendamento). Vazio = comportamento atual.
+  funnelId        Int?
+  funnel          Funnel?   @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  stageKey        String?   @db.VarChar(80)
   displayName     String?   @db.VarChar(191) // Nome do WABA
   qualityRating   String?   @db.VarChar(20) // GREEN, YELLOW, RED
   messagingLimit  String?   @db.VarChar(50) // Tier: 1K, 10K, 100K, UNLIMITED
@@ -1163,6 +1178,7 @@ model CloudApiConnection {
   @@index([phoneNumberId])
   @@index([defaultTeamId])
   @@index([ownerUserId])
+  @@index([funnelId])
   @@map("bychat_cloud_api_connections")
 }
 

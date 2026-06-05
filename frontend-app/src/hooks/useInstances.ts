@@ -12,6 +12,8 @@ export interface WhatsAppInstance {
   defaultTeamId: number | null
   // Reforma F2: instância dedicada a um agente. Mutuamente exclusivo com defaultTeamId.
   ownerUserId: number | null
+  funnelId: number | null
+  stageKey: string | null
   createdAt: string
   updatedAt: string
   status: 'connected' | 'disconnected' | 'error' | 'unknown'
@@ -48,6 +50,8 @@ export interface InstanceUpdateInput {
   chatbotId?: number | null | undefined
   defaultTeamId?: number | null | undefined
   ownerUserId?: number | null | undefined
+  funnelId?: number | null | undefined
+  stageKey?: string | null | undefined
   active?: boolean | undefined
 }
 

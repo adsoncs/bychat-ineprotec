@@ -742,7 +742,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // que recebeu o webhook, não a env var EVOLUTION_INSTANCE.
       const whatsappInstance = await prisma.whatsAppInstance.findFirst({
         where: { instanceName: inboundInstance },
-        select: { chatbotId: true }
+        select: { chatbotId: true, funnelId: true, stageKey: true }
       })
       const hasChatbot = whatsappInstance?.chatbotId != null
 
@@ -863,14 +863,16 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // Chatbot determinístico (scripted): roda a jornada do form vinculado.
       const cbId = whatsappInstance?.chatbotId
       const chatbot = cbId ? await prisma.chatbot.findUnique({ where: { id: cbId } }) : null
+      const promoteFunnelId = whatsappInstance?.funnelId ?? null
+      const promoteStageKey = whatsappInstance?.stageKey ?? null
       if (chatbot?.mode === 'scripted' && chatbot.formId) {
         const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
         if (form?.active) {
-          await processScriptedChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form)
+          await processScriptedChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, null, null, promoteFunnelId, promoteStageKey)
           return { ok: true }
         }
       }
-      await processChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance)
+      await processChatbotMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, null, null, promoteFunnelId, promoteStageKey)
 
       return { ok: true }
     } catch (err: any) {

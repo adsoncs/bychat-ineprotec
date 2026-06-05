@@ -33,6 +33,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
+import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
@@ -562,6 +563,8 @@ function CreateInstanceModal({ onClose }: { onClose: () => void }) {
 function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; onClose: () => void }) {
   const [name, setName] = useState(instance.name)
   const [chatbotId, setChatbotId] = useState(instance.chatbotId != null ? String(instance.chatbotId) : '')
+  const [funnelId, setFunnelId] = useState(instance.funnelId != null ? String(instance.funnelId) : '')
+  const [stageKey, setStageKey] = useState(instance.stageKey ?? '')
   // Reforma F2: dono = setor OU agente, mutuamente exclusivos.
   const initialDonoTipo: 'team' | 'agent' | 'none' =
     instance.ownerUserId != null ? 'agent'
@@ -598,6 +601,9 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       chatbotId: chatbotId ? Number(chatbotId) : null,
       defaultTeamId: donoTipo === 'team' ? Number(defaultTeamId) : null,
       ownerUserId: donoTipo === 'agent' ? Number(ownerUserId) : null,
+      // Funil dos leads do chatbot (sem chatbot → sempre limpo).
+      funnelId: chatbotId && funnelId ? Number(funnelId) : null,
+      stageKey: chatbotId && funnelId && stageKey ? stageKey : null,
       active,
     }, {
       onSuccess: () => { toast('Instância atualizada', 'success'); onClose() },
@@ -626,6 +632,13 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
           <option value="">Sem chatbot</option>
           {chatbots?.chatbots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </Select>
+        {chatbotId && (
+          <ConnectionFunnelPicker
+            funnelId={funnelId ? Number(funnelId) : null}
+            stageKey={stageKey || null}
+            onSave={({ funnelId: f, stageKey: s }) => { setFunnelId(f ? String(f) : ''); setStageKey(s ?? '') }}
+          />
+        )}
 
         <div>
           <div class="text-sm font-medium text-fg mb-2">Dono da instância</div>
