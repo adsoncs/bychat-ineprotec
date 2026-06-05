@@ -1196,6 +1196,11 @@ model CloudApiFlow {
   status       String             @default("draft") @db.VarChar(30) // draft | published | error
   flowJson     Json               @db.Json
   screenId     String             @default("INTAKE") @db.VarChar(60)
+  // Config editável pelo editor visual (desacoplada do form). Vazio = defaults.
+  cta          String?            @db.VarChar(40) // texto do botão (flow_cta)
+  bodyText     String?            @db.Text // mensagem que acompanha o Flow
+  screenTitle  String?            @db.VarChar(60) // título da tela do formulário
+  fieldConfig  Json?              @db.Json // [{ key, label, include, required }]
   lastError    String?            @db.Text
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt

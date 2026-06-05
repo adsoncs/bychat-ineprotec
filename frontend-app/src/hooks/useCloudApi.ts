@@ -274,3 +274,52 @@ export function parseTemplateComponents(components: unknown): ParsedTemplate {
   if (matches) result.variables = Array.from(new Set(matches)).sort()
   return result
 }
+
+// ── Editor visual do WhatsApp Flow ─────────────────────────────
+export interface FlowFieldConfigItem {
+  key: string
+  type: string
+  formLabel: string
+  label: string
+  include: boolean
+  required: boolean
+  hasOptions: boolean
+}
+export interface FlowConfig {
+  formId: number
+  formName: string
+  metaFlowId: string | null
+  status: string | null
+  lastError: string | null
+  cta: string
+  bodyText: string
+  screenTitle: string
+  fields: FlowFieldConfigItem[]
+}
+
+export function useFlowConfig(formId: number | null) {
+  return useQuery({
+    queryKey: ['flow-config', formId],
+    queryFn: () => api.get<FlowConfig>(`/cloud-api/flows/by-form/${formId}`),
+    enabled: !!formId,
+    staleTime: 0,
+  })
+}
+
+export function useSaveFlowConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ formId, ...body }: { formId: number; cta: string; bodyText: string; screenTitle: string; fieldConfig: { key: string; label: string; include: boolean; required: boolean }[] }) =>
+      api.put<{ ok: true; id: number }>(`/cloud-api/flows/by-form/${formId}`, body),
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['flow-config', v.formId] }),
+  })
+}
+
+export function usePublishFlow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ formId }: { formId: number }) =>
+      api.post<{ ok: true; metaFlowId: string }>(`/cloud-api/flows/by-form/${formId}/publish`, {}),
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['flow-config', v.formId] }),
+  })
+}

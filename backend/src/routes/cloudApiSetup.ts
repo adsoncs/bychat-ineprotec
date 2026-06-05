@@ -779,6 +779,94 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     await prisma.cloudApiFlow.delete({ where: { id } }).catch(() => {})
     return { ok: true }
   })
+
+  // ── Editor visual do Flow (config por form, desacoplada do formulário) ────
+  const stripTags = (s: any) => String(s ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  // GET — config do Flow do form (existente OU derivada do form).
+  app.get('/api/cloud-api/flows/by-form/:formId', { preHandler: adminOnly }, async (req, reply) => {
+    const formId = Number((req.params as any).formId)
+    const form = await prisma.form.findUnique({ where: { id: formId } })
+    if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
+    const row = await prisma.cloudApiFlow.findFirst({ where: { formId }, orderBy: { id: 'desc' } })
+    const { flowInputFields } = await import('../services/whatsappFlows.js')
+    const cfg = (row?.fieldConfig as any[]) || []
+    const cfgByKey = new Map(cfg.map((c: any) => [String(c.key), c]))
+    const fields = flowInputFields(form).map((f: any) => {
+      const o: any = cfgByKey.get(String(f.key)) || {}
+      const formLabel = stripTags(f.label) || f.key
+      return {
+        key: f.key, type: f.type, formLabel,
+        label: o.label ?? formLabel, include: o.include ?? true, required: o.required ?? !!f.required,
+        hasOptions: f.type === 'select' && Array.isArray(f.options) && f.options.length > 0,
+      }
+    })
+    const welcome = stripTags((form.settings as any)?.conversational?.welcomeText)
+    return {
+      formId, formName: form.name,
+      metaFlowId: row?.metaFlowId || null, status: row?.status || null, lastError: row?.lastError || null,
+      cta: row?.cta || 'Preencher',
+      bodyText: row?.bodyText ?? (welcome || 'Para começar, toque no botão e preencha rapidamente:'),
+      screenTitle: row?.screenTitle ?? form.name,
+      fields,
+    }
+  })
+
+  // PUT — salva a config (não publica; mensagem/CTA valem na hora no envio).
+  app.put('/api/cloud-api/flows/by-form/:formId', { preHandler: adminOnly }, async (req, reply) => {
+    const formId = Number((req.params as any).formId)
+    const form = await prisma.form.findUnique({ where: { id: formId }, select: { id: true, name: true } })
+    if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
+    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    if (!conn) return reply.code(400).send({ error: 'Nenhuma conexão Cloud API ativa' })
+    const b = (req.body as any) || {}
+    const cta = b.cta != null ? String(b.cta).slice(0, 40) : null
+    const bodyText = b.bodyText != null ? String(b.bodyText).slice(0, 1024) : null
+    const screenTitle = b.screenTitle != null ? String(b.screenTitle).slice(0, 60) : null
+    const fieldConfig = Array.isArray(b.fieldConfig)
+      ? b.fieldConfig.map((c: any) => ({ key: String(c.key), label: c.label != null ? String(c.label).slice(0, 80) : undefined, include: c.include !== false, required: !!c.required }))
+      : null
+    const existing = await prisma.cloudApiFlow.findFirst({ where: { formId }, orderBy: { id: 'desc' } })
+    const row = existing
+      ? await prisma.cloudApiFlow.update({ where: { id: existing.id }, data: { cta, bodyText, screenTitle, fieldConfig: fieldConfig as any } })
+      : await prisma.cloudApiFlow.create({ data: { connectionId: conn.id, formId, name: `Flow — ${form.name}`, status: 'draft', flowJson: {} as any, cta, bodyText, screenTitle, fieldConfig: fieldConfig as any } })
+    return { ok: true, id: row.id }
+  })
+
+  // POST — publica/republica o Flow na Meta a partir da config salva.
+  app.post('/api/cloud-api/flows/by-form/:formId/publish', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      const formId = Number((req.params as any).formId)
+      const form = await prisma.form.findUnique({ where: { id: formId } })
+      if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      if (!conn) return reply.code(400).send({ error: 'Nenhuma conexão Cloud API ativa' })
+      const row = await prisma.cloudApiFlow.findFirst({ where: { formId }, orderBy: { id: 'desc' } })
+
+      const { buildFlowJson, createAndPublishFlow } = await import('../services/whatsappFlows.js')
+      const { json, screenId } = buildFlowJson(form, {
+        title: row?.screenTitle || undefined, cta: row?.cta || undefined, fieldConfig: (row?.fieldConfig as any[]) || undefined,
+      })
+      const inputTypes = new Set(['TextInput', 'TextArea', 'Dropdown'])
+      const inputCount = ((json.screens?.[0]?.layout?.children?.[0]?.children) || []).filter((c: any) => inputTypes.has(c.type)).length
+      if (inputCount < 1) return reply.code(400).send({ error: 'O formulário não tem nenhum campo ativo para o Flow.' })
+
+      const flowName = `Flow — ${form.name}`.slice(0, 200)
+      const ensured = row
+        ? await prisma.cloudApiFlow.update({ where: { id: row.id }, data: { flowJson: json as any, screenId, name: flowName } })
+        : await prisma.cloudApiFlow.create({ data: { connectionId: conn.id, formId, name: flowName, status: 'draft', flowJson: json as any, screenId } })
+      try {
+        const { metaFlowId } = await createAndPublishFlow(conn, flowName, json, ensured.metaFlowId || null)
+        await prisma.cloudApiFlow.update({ where: { id: ensured.id }, data: { metaFlowId, status: 'published', lastError: null } })
+        return { ok: true, metaFlowId }
+      } catch (e: any) {
+        await prisma.cloudApiFlow.update({ where: { id: ensured.id }, data: { status: 'error', lastError: String(e?.message || e).slice(0, 2000) } })
+        return reply.code(502).send({ error: `Falha ao publicar o Flow na Meta: ${e?.message || e}` })
+      }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
 }
 
 // O helper syncTemplatesFromMeta foi movido para services/cloudApiTemplates.ts

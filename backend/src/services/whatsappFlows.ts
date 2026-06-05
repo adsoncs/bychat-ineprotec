@@ -46,24 +46,43 @@ export function flowInputFields(form: any): any[] {
   return fields.filter((f) => f && !SKIP_TYPES.has(f.type))
 }
 
-/** Constrói o Flow JSON estático de tela única a partir do form. */
-export function buildFlowJson(form: any, opts?: { title?: string; cta?: string }): { json: any; screenId: string } {
+// Override editável por campo (editor visual), desacoplado do form.
+export interface FlowFieldConfig { key: string; label?: string; include?: boolean; required?: boolean }
+const LABEL_MAX = 30
+const SUBHEADING_MAX = 80
+
+/** Constrói o Flow JSON estático de tela única a partir do form + overrides do editor. */
+export function buildFlowJson(form: any, opts?: { title?: string; cta?: string; fieldConfig?: FlowFieldConfig[] }): { json: any; screenId: string } {
   const screenId = 'INTAKE'
   const children: any[] = []
   const payload: Record<string, string> = {}
+  const cfgByKey = new Map<string, FlowFieldConfig>((opts?.fieldConfig || []).map((c) => [String(c.key), c]))
 
   for (const f of flowInputFields(form)) {
+    const cfg = cfgByKey.get(String(f.key))
+    if (cfg?.include === false) continue // campo removido do formulário do WhatsApp
     const name = flowFieldName(f.key)
-    const label = trunc(stripTags(f.label) || f.key, 30)
+    const required = cfg?.required ?? !!f.required
+    const fullLabel = stripTags(cfg?.label ?? f.label) || f.key
+
+    // Rótulo longo (> 30) → vira um subtítulo acima + input com rótulo curto, em vez
+    // de cortar a pergunta no meio (limite de rótulo do componente da Meta).
+    let label = fullLabel
+    if (fullLabel.length > LABEL_MAX) {
+      children.push({ type: 'TextSubheading', text: trunc(fullLabel, SUBHEADING_MAX) })
+      label = f.type === 'select' ? 'Selecione' : 'Sua resposta'
+    }
+    label = trunc(label, LABEL_MAX)
+
     if (f.type === 'select' && Array.isArray(f.options) && f.options.length) {
       children.push({
-        type: 'Dropdown', name, label, required: !!f.required,
+        type: 'Dropdown', name, label, required,
         'data-source': f.options.slice(0, 200).map((o: any) => ({ id: String(o.value), title: trunc(stripTags(o.label), 30) })),
       })
     } else if (f.type === 'textarea') {
-      children.push({ type: 'TextArea', name, label, required: !!f.required })
+      children.push({ type: 'TextArea', name, label, required })
     } else {
-      children.push({ type: 'TextInput', name, label, 'input-type': INPUT_TYPE[f.type] || 'text', required: !!f.required })
+      children.push({ type: 'TextInput', name, label, 'input-type': INPUT_TYPE[f.type] || 'text', required })
     }
     payload[name] = '${form.' + name + '}'
   }
@@ -98,9 +117,18 @@ async function uploadFlowAsset(flowId: string, token: string, flowJson: any): Pr
   }
 }
 
-/** Cria, sobe o JSON e publica o Flow na Meta. Retorna o id do Flow publicado. */
-export async function createAndPublishFlow(conn: any, name: string, flowJson: any): Promise<{ metaFlowId: string }> {
+/** Cria (ou ATUALIZA, se existingFlowId) e publica o Flow na Meta. Retorna o id. */
+export async function createAndPublishFlow(conn: any, name: string, flowJson: any, existingFlowId?: string | null): Promise<{ metaFlowId: string }> {
   const token = decryptToken(conn.systemUserToken)
+  // Republicar: re-sobe o asset no MESMO flow e publica de novo. Se a Meta recusar
+  // (ex.: flow já publicado não aceita update), cai no fluxo de criar um novo.
+  if (existingFlowId) {
+    try {
+      await uploadFlowAsset(String(existingFlowId), token, flowJson)
+      await cloudApiFetch(`/${existingFlowId}/publish`, token, 'POST', {})
+      return { metaFlowId: String(existingFlowId) }
+    } catch { /* fallback: cria um novo flow abaixo */ }
+  }
   const created = await cloudApiFetch(`/${conn.wabaId}/flows`, token, 'POST', { name: trunc(name, 200), categories: ['OTHER'] })
   const flowId = created?.id
   if (!flowId) throw new Error('Meta não retornou o id do Flow (verifique a permissão whatsapp_business_management do token).')

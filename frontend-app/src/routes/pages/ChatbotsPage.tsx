@@ -29,7 +29,7 @@ import { ChatbotTester } from '@/components/chatbot/ChatbotTester'
 import { CHATBOT_TEMPLATES, type ChatbotTemplate } from '@/components/chatbot/ChatbotTemplates'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { api } from '@/lib/apiClient'
+import { FlowEditorModal } from '@/components/FlowEditorModal'
 
 const CHANNELS: { value: string; label: string; emoji: string }[] = [
   { value: 'chat',      label: 'Chat Web',  emoji: '💬' },
@@ -534,18 +534,8 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     setForm((f) => ({ ...f, [k]: v }))
   }
 
-  const [publishingFlow, setPublishingFlow] = useState(false)
-  // Gera o WhatsApp Flow JSON do formulário e publica na Meta (ação do admin).
-  async function publishFlow() {
-    if (!form.formId) { toast('Selecione o formulário vinculado primeiro.', 'danger'); return }
-    setPublishingFlow(true)
-    try {
-      await api.post<{ ok: boolean }>('/cloud-api/flows', { formId: Number(form.formId) })
-      toast('Flow publicado na Meta! Marque "Coletar via Flow" e salve o chatbot.', 'success')
-    } catch (e: any) {
-      toast(e?.message || 'Falha ao publicar o Flow na Meta.', 'danger')
-    } finally { setPublishingFlow(false) }
-  }
+  // Editor visual do Formulário do WhatsApp (Flow).
+  const [flowEditorOpen, setFlowEditorOpen] = useState(false)
 
   function handleSubmit() {
     if (!form.name.trim()) { toast('Nome é obrigatório', 'danger'); return }
@@ -664,15 +654,21 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
                   Coletar dados via WhatsApp Flow (formulário único)
                   <span class="block text-xs text-fg-muted">
                     Em vez de pergunta por pergunta, envia um formulário nativo do WhatsApp (uma tela) e
-                    recebe todas as respostas de uma vez. Só funciona em número Cloud API e exige publicar o
-                    Flow na Meta (botão abaixo). Sem Flow publicado, cai automaticamente no fluxo normal.
+                    recebe todas as respostas de uma vez. Só funciona em número Cloud API. Edite e publique o
+                    formulário no botão abaixo. Sem Flow publicado, cai automaticamente no fluxo normal.
                   </span>
                 </span>
               </label>
-              <Button type="button" variant="ghost" size="sm" onClick={publishFlow} disabled={publishingFlow || !form.formId}>
-                {publishingFlow ? 'Publicando…' : 'Publicar Flow na Meta (do formulário vinculado)'}
+              <Button type="button" variant="secondary" size="sm" onClick={() => {
+                if (!form.formId) { toast('Selecione o formulário vinculado primeiro.', 'danger'); return }
+                setFlowEditorOpen(true)
+              }} disabled={!form.formId}>
+                Editar formulário do WhatsApp (Flow)
               </Button>
             </div>
+          )}
+          {flowEditorOpen && form.formId && (
+            <FlowEditorModal formId={Number(form.formId)} onClose={() => setFlowEditorOpen(false)} />
           )}
           {form.mode === 'scripted' && (
             <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info flex items-center gap-2">

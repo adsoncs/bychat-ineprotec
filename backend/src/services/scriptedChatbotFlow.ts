@@ -206,12 +206,15 @@ async function _process(
       orderBy: { id: 'desc' },
     }).catch(() => null)
     if (!flowRow?.metaFlowId) return false
+    // Mensagem e CTA vêm do editor visual (CloudApiFlow.bodyText/cta); fallback aos
+    // textos antigos. São do payload de envio → editar não exige republicar.
     const welcome = stripTags(form?.settings?.conversational?.welcomeText)
+    const editedBody = (flowRow.bodyText && flowRow.bodyText.trim()) || ''
     const body = nudge
-      ? 'Por favor, toque no botão abaixo e preencha o formulário. 🙂'
-      : (welcome || 'Para começar, toque no botão e preencha rapidamente:')
+      ? (editedBody ? `${editedBody}` : 'Por favor, toque no botão abaixo e preencha o formulário. 🙂')
+      : (editedBody || welcome || 'Para começar, toque no botão e preencha rapidamente:')
     const payload = buildFlowSendPayload(flowRow.metaFlowId, flowRow.screenId, {
-      bodyText: body, cta: 'Preencher', flowToken: `lead_${leadId}_${Date.now()}`,
+      bodyText: body, cta: (flowRow.cta && flowRow.cta.trim()) || 'Preencher', flowToken: `lead_${leadId}_${Date.now()}`,
     })
     try {
       const r = await sendInteractiveFn!(phone, payload)
