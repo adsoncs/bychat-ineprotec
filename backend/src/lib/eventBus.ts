@@ -14,12 +14,15 @@ export interface DomainEvent {
 
 class DomainEventBus extends EventEmitter {
   emitDomain(event: DomainEvent): void {
+    // Garante timestamp: emits "crus" (ex.: meeting.scheduled) podem vir sem ele, e o
+    // workflowEngine faz event.timestamp.toISOString() — sem isso, estoura e nada dispara.
+    const ev: DomainEvent = event.timestamp ? event : { ...event, timestamp: new Date() }
     setImmediate(() => {
       try {
-        this.emit(event.type, event)
-        this.emit('*', event)
+        this.emit(ev.type, ev)
+        this.emit('*', ev)
       } catch (err) {
-        console.error(`[EventBus] Error emitting ${event.type}:`, err)
+        console.error(`[EventBus] Error emitting ${ev.type}:`, err)
       }
     })
   }

@@ -150,7 +150,9 @@ export async function createLeadFromForm(
       uid: await generateUid(),
       nome: nome || 'Lead LP', email: email || '', whatsapp: whatsapp || '', empresa: empresa || '',
       segmento: mapped.segmento || null, cidade: mapped.cidade || null,
-      formData: data, scores: {}, lastStep: 0, completed: false,
+      // _formId: lembra o formulário de origem (usado p/ filtrar notificações no
+      // agendamento — ex.: avisar operador só de leads do form X que agendaram).
+      formData: { ...data, _formId: form.id }, scores: {}, lastStep: 0, completed: false,
       status: targetStageKey, funnelId: targetFunnelId, teamId: routedTeamId,
       assignedUserId: routedUserId, assignedAt: routedUserId ? new Date() : null,
       source: leadSource,

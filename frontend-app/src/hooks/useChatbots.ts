@@ -10,6 +10,12 @@ export interface ChatbotItem {
   useFlow: boolean
   postChatAi: boolean
   postChatPrompt: string | null
+  aiInterpret: boolean
+  interpretPrompt: string | null
+  aiJourneyPrompt: string | null
+  triggerMode: string
+  triggerKeywords: string[] | null
+  schedulingIntro: string | null
   scriptedMessages: Record<string, string> | null
   active: boolean
   systemPrompt: string | null
@@ -39,6 +45,12 @@ export interface ChatbotInput {
   useFlow?: boolean | undefined
   postChatAi?: boolean | undefined
   postChatPrompt?: string | null | undefined
+  aiInterpret?: boolean | undefined
+  interpretPrompt?: string | null | undefined
+  aiJourneyPrompt?: string | null | undefined
+  triggerMode?: string | undefined
+  triggerKeywords?: string[] | null | undefined
+  schedulingIntro?: string | null | undefined
   scriptedMessages?: Record<string, string> | null | undefined
   systemPrompt?: string | null | undefined
   extractionPrompt?: string | null | undefined

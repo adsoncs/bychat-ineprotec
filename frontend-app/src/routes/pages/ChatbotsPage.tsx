@@ -508,6 +508,12 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
     useFlow: chatbot?.useFlow ?? false,
     postChatAi: chatbot?.postChatAi ?? false,
     postChatPrompt: chatbot?.postChatPrompt ?? '',
+    aiInterpret: chatbot?.aiInterpret ?? false,
+    interpretPrompt: chatbot?.interpretPrompt ?? '',
+    aiJourneyPrompt: chatbot?.aiJourneyPrompt ?? '',
+    triggerMode: chatbot?.triggerMode ?? 'always',
+    triggerKeywords: (chatbot?.triggerKeywords ?? []).join(', '),
+    schedulingIntro: chatbot?.schedulingIntro ?? '',
     scriptedMessages: (chatbot?.scriptedMessages ?? {}) as Record<string, string>,
     funnelId: chatbot?.funnelId ? String(chatbot.funnelId) : '',
     defaultTeamId: chatbot?.defaultTeamId ? String(chatbot.defaultTeamId) : '',
@@ -545,10 +551,18 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
       name: form.name.trim(),
       channel: form.channel,
       mode: form.mode,
-      formId: form.mode === 'scripted' && form.formId ? Number(form.formId) : null,
+      formId: (form.mode === 'scripted' || form.mode === 'ai_journey') && form.formId ? Number(form.formId) : null,
+      aiJourneyPrompt: form.mode === 'ai_journey' ? (form.aiJourneyPrompt || null) : null,
+      triggerMode: form.triggerMode,
+      triggerKeywords: form.triggerMode === 'keyword'
+        ? form.triggerKeywords.split(',').map((s) => s.trim()).filter(Boolean)
+        : null,
+      schedulingIntro: (form.mode === 'scripted' || form.mode === 'ai_journey') ? (form.schedulingIntro || null) : null,
       useFlow: form.mode === 'scripted' ? form.useFlow : false,
       postChatAi: form.mode === 'scripted' ? form.postChatAi : false,
       postChatPrompt: form.mode === 'scripted' ? (form.postChatPrompt || null) : null,
+      aiInterpret: form.mode === 'scripted' ? form.aiInterpret : false,
+      interpretPrompt: form.mode === 'scripted' ? (form.interpretPrompt || null) : null,
       scriptedMessages: form.mode === 'scripted' ? form.scriptedMessages : null,
       funnelId: form.funnelId ? Number(form.funnelId) : null,
       defaultTeamId: form.defaultTeamId ? Number(form.defaultTeamId) : null,
@@ -632,19 +646,70 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
             >
               <option value="ai">🤖 IA (conversa livre)</option>
               <option value="scripted">🧭 Roteiro de formulário</option>
+              <option value="ai_journey">✨ Jornada 100% IA (IA conduz + agenda)</option>
             </Select>
-            {form.mode === 'scripted' && (
+            {(form.mode === 'scripted' || form.mode === 'ai_journey') && (
               <Select
                 label="Formulário vinculado"
                 value={form.formId}
                 onChange={(e) => patch('formId', (e.target as HTMLSelectElement).value)}
-                hint="O chatbot conduz exatamente este formulário (perguntas, condicionais e agendamento)."
+                hint={form.mode === 'ai_journey'
+                  ? 'A IA usa as perguntas/qualificação/agendamento DESTE formulário como conhecimento (não como roteiro fixo).'
+                  : 'O chatbot conduz exatamente este formulário (perguntas, condicionais e agendamento).'}
               >
                 <option value="">— Selecione o formulário —</option>
                 {formsData?.forms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </Select>
             )}
           </div>
+          <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+            <Select
+              label="Ativação do fluxo"
+              value={form.triggerMode}
+              onChange={(e) => patch('triggerMode', (e.target as HTMLSelectElement).value)}
+              hint="Quando o chatbot deve iniciar a conversa com um lead novo."
+            >
+              <option value="always">Sempre (qualquer mensagem inicia)</option>
+              <option value="keyword">Só por palavra-chave/frase</option>
+            </Select>
+            {form.triggerMode === 'keyword' && (
+              <>
+                <Input
+                  label="Palavras-chave (separadas por vírgula)"
+                  value={form.triggerKeywords}
+                  onInput={(e) => patch('triggerKeywords', (e.target as HTMLInputElement).value)}
+                  placeholder="agendar, quero agendar, reunião"
+                />
+                <p class="text-xs text-fg-muted">O fluxo só inicia quando a mensagem do lead <b>contém</b> uma dessas palavras/frases (ignora maiúsculas e acentos). Qualquer outra mensagem de um lead novo vai para o <b>atendimento humano</b>. Quem já está no meio da conversa continua normalmente.</p>
+              </>
+            )}
+          </div>
+          {(form.mode === 'scripted' || form.mode === 'ai_journey') && (
+            <Textarea
+              label="Mensagem de boas-vindas do agendamento"
+              rows={3}
+              value={form.schedulingIntro}
+              onInput={(e) => patch('schedulingIntro', (e.target as HTMLTextAreaElement).value)}
+              placeholder="Olá {{nome}}, excelente decisão em buscar uma estratégia validada! Vamos iniciar o seu agendamento. 🚀"
+              hint={form.mode === 'ai_journey'
+                ? 'A IA abre o agendamento com uma mensagem nesse espírito (personaliza com o nome). Variáveis: {{nome}}, {{reuniao}}.'
+                : 'Enviada logo antes de mostrar os horários. Variáveis: {{nome}}, {{reuniao}}.'}
+            />
+          )}
+          {form.mode === 'ai_journey' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+              <div class="text-sm font-medium text-fg flex items-center gap-1.5">✨ Jornada 100% IA</div>
+              <p class="text-xs text-fg-muted">A IA conduz a conversa livremente e chama as ações determinísticas (salvar dados, qualificar, listar horários, <b>agendar</b>) reusando o formulário vinculado. As respostas/qualificação/agendamento continuam server-side — a IA não inventa horário nem "finge" que agendou.</p>
+              <Textarea
+                label="Prompt-mestre (opcional)"
+                rows={6}
+                value={form.aiJourneyPrompt}
+                onInput={(e) => patch('aiJourneyPrompt', (e.target as HTMLTextAreaElement).value)}
+                placeholder="Ex.: Você é um(a) consultor(a) comercial da [empresa]. Seu objetivo é entender a necessidade do lead, coletar os dados, qualificar e agendar uma reunião. Tom cordial e objetivo…"
+                hint="Vazio = usa um prompt padrão. Os dados a coletar vêm dos campos do formulário vinculado."
+              />
+            </div>
+          )}
           {form.mode === 'scripted' && (
             <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
               <label class="flex items-start gap-2 cursor-pointer">
@@ -700,6 +765,37 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
                   placeholder="Ex.: Você atende pela Faculdade X. Reconheça o agendamento do lead, tire dúvidas sobre cursos, polos e processo seletivo, e ofereça remarcar se necessário. Tom cordial e objetivo."
                   onInput={(e) => patch('postChatPrompt', (e.target as HTMLTextAreaElement).value)}
                   hint="Vazio = usa o prompt de IA do chatbot. O sistema injeta automaticamente o nome do lead e o desfecho (agendou / concluiu / desqualificado)."
+                />
+              )}
+            </div>
+          )}
+          {form.mode === 'scripted' && (
+            <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="mt-0.5"
+                  checked={form.aiInterpret}
+                  onChange={(e) => patch('aiInterpret', (e.target as HTMLInputElement).checked)}
+                />
+                <span class="text-sm text-fg">
+                  Interpretar respostas com IA
+                  <span class="block text-xs text-fg-muted">
+                    Quando a resposta a uma pergunta de seleção não casar com nenhuma opção (o lead respondeu
+                    em linguagem natural, ex.: "uns 80 mil"), a IA mapeia o texto para a opção mais próxima em
+                    vez de pedir para repetir. A IA só interpreta a resposta — a qualificação e as etapas do
+                    funil continuam determinísticas. Se a IA não tiver certeza, a pergunta é reapresentada.
+                  </span>
+                </span>
+              </label>
+              {form.aiInterpret && (
+                <Textarea
+                  label="Instrução extra para o classificador (opcional)"
+                  rows={3}
+                  value={form.interpretPrompt}
+                  placeholder="Ex.: Faturamento em reais por mês; trate valores aproximados e abreviações (k = mil). Investimento 'sim' inclui quem diz já investir ou ter verba."
+                  onInput={(e) => patch('interpretPrompt', (e.target as HTMLTextAreaElement).value)}
+                  hint="Vazio = usa o prompt padrão. Ajuda a IA a entender o contexto das suas perguntas/opções."
                 />
               )}
             </div>

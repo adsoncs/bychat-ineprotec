@@ -1,0 +1,560 @@
+// src/services/aiJourneyEngine.ts
+//
+// Jornada 100% IA (mode='ai_journey'). A IA CONDUZ a conversa (livre, natural, sem
+// roteiro fixo) e CHAMA FERRAMENTAS (tool use) para tudo que tem efeito de negócio:
+// salvar dados, qualificar, mover etapa, listar horários, agendar. A lógica
+// determinística roda no servidor — reusa exatamente o que o motor scripted/form usa
+// (createLeadFromForm, evaluateQualification, resolveStageMove, moveLeadStage,
+// getMeetingTypeSlots, createBooking). O prompt orquestra; ele NÃO simula as regras.
+//
+// Garantias: a IA nunca inventa horário (só os que `listar_horarios` devolveu) e nunca
+// "diz que agendou" sem `agendar` retornar ok — o servidor é a fonte da verdade.
+
+import { FastifyInstance } from 'fastify'
+import { prisma } from '../lib/prisma.js'
+import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
+import type { OriginData } from './originDetection.js'
+import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { createLeadFromForm, moveLeadStage } from './formFlow.js'
+import { applyAnswerToLead } from './scriptedChatbotFlow.js'
+import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
+import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
+import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+
+const MAX_TOOL_ITERS = 6
+const HISTORY_LIMIT = 24
+const LLM_TIMEOUT_MS = 30000   // teto por chamada ao LLM (evita travar a conversa)
+const TOOL_TIMEOUT_MS = 20000  // teto por execução de ferramenta (ex.: slots/Google)
+const TURN_BUDGET_MS = 90000   // teto total do turno (libera o lock no pior caso)
+
+// fetch com timeout (AbortController) — nenhuma chamada externa pode pendurar o turno.
+async function fetchWithTimeout(url: string, opts: any, ms: number): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }) }
+  finally { clearTimeout(t) }
+}
+const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+interface AiState {
+  leadId: number | null
+  phase: 'active' | 'done' | 'disqualified'
+  answers: Record<string, any>
+  bookingId?: number | null
+}
+
+const locks = new Map<string, Promise<void>>()
+
+function stripTags(s: string | null | undefined): string {
+  return String(s ?? '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// Mapeia o que a IA salvou num campo de seleção para o VALUE da opção (a qualificação
+// usa o value, não o label). Casa por value exato ou por label (case/acento-insensível,
+// contém em qualquer direção). Sem match → mantém como veio.
+function mapSelectValue(field: any, valor: string): string {
+  if (field?.type !== 'select' || !Array.isArray(field.options) || !field.options.length) return valor
+  const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  const byVal = field.options.find((o: any) => String(o.value) === String(valor))
+  if (byVal) return byVal.value
+  const v = norm(valor)
+  if (!v) return valor
+  const byLabel = field.options.find((o: any) => {
+    const l = norm(stripTags(o.label))
+    return l && (l === v || v.includes(l) || l.includes(v))
+  })
+  return byLabel ? byLabel.value : valor
+}
+
+// Extrai botões do marcador [[OPTIONS: a | b | c]] no fim do texto da IA.
+function extractOptions(raw: string): { text: string; options: string[] } {
+  const m = /\[\[\s*OPTIONS:(.+?)\]\]/is.exec(raw || '')
+  if (!m) return { text: (raw || '').trim(), options: [] }
+  const options = m[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 10)
+  const text = (raw || '').replace(m[0], '').trim()
+  return { text, options }
+}
+
+function fmtWhen(d: Date, tz: string): string {
+  try { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, dateStyle: 'full', timeStyle: 'short' }).format(d) }
+  catch { return d.toISOString() }
+}
+
+// ── Esquema das ferramentas (formato Anthropic; convertido p/ OpenAI on-the-fly) ──
+const TOOLS = [
+  {
+    name: 'salvar_dados',
+    description: 'Grava no lead as respostas coletadas. Chame sempre que o lead informar um dado (nome, e-mail, e os campos do formulário). Use as CHAVES exatas listadas em "Dados a coletar".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        campos: {
+          type: 'array',
+          description: 'Lista de pares chave/valor a salvar.',
+          items: { type: 'object', properties: { chave: { type: 'string' }, valor: { type: 'string' } }, required: ['chave', 'valor'] },
+        },
+      },
+      required: ['campos'],
+    },
+  },
+  {
+    name: 'avaliar_qualificacao',
+    description: 'Avalia (de forma determinística, no servidor) se o lead está qualificado com base nas respostas já salvas. Chame depois de coletar os campos qualificadores. Retorna se está qualificado e a instrução do que fazer.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'listar_horarios',
+    description: 'Retorna os horários REAIS disponíveis para agendar a reunião. Use SOMENTE estes horários ao oferecer ao lead — nunca invente.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'agendar',
+    description: 'Agenda a reunião no horário escolhido pelo lead. Recebe o horário no formato ISO exatamente como veio de listar_horarios (campo startAt). Cria o evento na agenda + link da reunião e dispara a confirmação. Só confirme o agendamento ao lead DEPOIS desta ferramenta retornar ok=true.',
+    input_schema: {
+      type: 'object',
+      properties: { startAt: { type: 'string', description: 'Horário ISO escolhido (campo startAt de listar_horarios).' } },
+      required: ['startAt'],
+    },
+  },
+  {
+    name: 'encerrar',
+    description: 'Encerra a jornada quando não há mais o que fazer (lead desqualificado, ou concluído sem agendar). Informe se ficou qualificado.',
+    input_schema: {
+      type: 'object',
+      properties: { qualificado: { type: 'boolean' }, motivo: { type: 'string' } },
+      required: ['qualificado'],
+    },
+  },
+  {
+    name: 'transferir_humano',
+    description: 'Transfere a conversa para um atendente humano (lead pediu, caso complexo, ou fora do escopo). A IA para de responder.',
+    input_schema: { type: 'object', properties: { motivo: { type: 'string' } }, required: [] },
+  },
+]
+
+// ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
+function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): string {
+  const fields: any[] = form?.fields || []
+  const collect = fields
+    .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
+    .map((f) => {
+      const label = stripTags(f.label) || f.key
+      const opts = f.type === 'select' && Array.isArray(f.options) && f.options.length
+        ? ` — opções: ${f.options.map((o: any) => stripTags(o.label)).join(' | ')}` : ''
+      const tags = [f.required ? 'obrigatório' : '', f.isQualifier ? 'qualificador' : ''].filter(Boolean).join(', ')
+      return `- chave \`${f.key}\`: ${label}${opts}${tags ? ` (${tags})` : ''}`
+    }).join('\n')
+
+  const known = [
+    lead?.nome ? `nome: ${lead.nome}` : '',
+    lead?.whatsapp ? `whatsapp: ${lead.whatsapp}` : '',
+    lead?.email ? `email: ${lead.email}` : '',
+  ].filter(Boolean).join(' · ')
+  const already = Object.keys(state.answers || {})
+  const hasSched = fields.some((f) => f?.type === 'scheduling')
+
+  const nm = lead?.nome || state.answers?.nome || ''
+  const schedIntro = (chatbot?.schedulingIntro && String(chatbot.schedulingIntro).trim())
+    ? String(chatbot.schedulingIntro).replace(/\{\{\s*nome\s*\}\}/gi, nm || '{nome do lead}').replace(/\{\{\s*reuniao\s*\}\}/gi, 'reunião').trim()
+    : ''
+
+  const base = (chatbot?.aiJourneyPrompt && String(chatbot.aiJourneyPrompt).trim()) || [
+    `Você é um(a) atendente comercial da nossa empresa, conversando por WhatsApp com um lead.`,
+    `Seu objetivo: conduzir uma conversa natural e cordial para conhecer o lead, coletar os dados necessários, qualificá-lo e — se qualificado${hasSched ? ' — agendar uma reunião' : ''}.`,
+    `Seja humano, objetivo e simpático. Faça UMA pergunta por vez. Não despeje todas as perguntas de uma vez.`,
+  ].join('\n')
+
+  return [
+    base,
+    `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
+    known ? `\n## Já sabemos sobre o lead\n${known}` : '',
+    already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
+    `\n## Como agir
+- Cumprimente e comece a coletar os dados que faltam, um por vez, de forma natural.
+- Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
+- Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
+- Se qualificado${hasSched ? ' e houver agendamento: chame **listar_horarios**, ofereça os horários ao lead, e ao ele escolher chame **agendar** com o startAt exato. Só diga que está agendado depois de agendar retornar ok=true.' : ': agradeça e finalize com **encerrar**.'}
+- Se desqualificado: agradeça cordialmente, NÃO ofereça agendamento, e chame **encerrar**.
+- Se o lead pedir um humano ou fugir do escopo, chame **transferir_humano**.`,
+    schedIntro ? `\n## Ao iniciar o agendamento\nQuando começar a etapa de agendamento (logo antes de chamar listar_horarios / oferecer os horários), ABRA com uma mensagem de boas-vindas ao agendamento no espírito desta — personalize com o nome do lead, mantenha objetiva e profissional, não copie ao pé da letra:\n"${schedIntro}"` : '',
+    `\n## Regras
+- O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
+- NUNCA invente horários: use só os que listar_horarios devolveu.
+- NUNCA afirme que agendou sem agendar ter retornado ok=true.
+- Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).
+- Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões.`,
+  ].filter(Boolean).join('\n')
+}
+
+// ── Executor das ferramentas (chamadas pela IA → funções determinísticas reais) ──
+async function executeTool(
+  name: string, input: any, ctx: { leadId: number; phone: string; form: any; chatbot: any; state: AiState; promoteFunnelId: number | null; promoteStageKey: string | null; app: FastifyInstance },
+): Promise<string> {
+  const { leadId, phone, form, state, promoteFunnelId, app } = ctx
+  const fields: any[] = form?.fields || []
+  const settings: any = form?.settings || {}
+  try {
+    if (name === 'salvar_dados') {
+      const campos: Array<{ chave: string; valor: string }> = Array.isArray(input?.campos) ? input.campos : []
+      const salvos: string[] = []
+      for (const c of campos) {
+        const field = fields.find((f) => f?.key === c.chave)
+        if (!field) continue
+        // Campos de seleção: a IA costuma mandar o LABEL que o lead falou, mas a
+        // qualificação determinística compara com o VALUE da opção. Mapeia para o value.
+        state.answers[c.chave] = mapSelectValue(field, c.valor)
+        await applyAnswerToLead(leadId, field, state.answers).catch(() => {})
+        salvos.push(c.chave)
+      }
+      return JSON.stringify({ ok: true, salvos })
+    }
+
+    if (name === 'avaliar_qualificacao') {
+      const q = evaluateQualification(fields, state.answers, settings)
+      if (q?.finish) {
+        const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: true })
+        if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
+        state.phase = 'disqualified'
+        logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: 'Jornada IA: lead desqualificado', channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+        return JSON.stringify({ qualificado: false, motivo: stripTags(q.message) || 'não atende aos critérios', instrucao: 'Agradeça cordialmente e encerre. NÃO ofereça agendamento. Depois chame encerrar(qualificado=false).' })
+      }
+      // Qualificado (ou outcome positivo): move adiante se houver etapa.
+      if (q) {
+        const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: false })
+        if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
+      }
+      const hasSched = fields.some((f) => f?.type === 'scheduling')
+      return JSON.stringify({ qualificado: true, instrucao: hasSched ? 'Lead qualificado. Ofereça agendar: chame listar_horarios e proponha um horário.' : 'Lead qualificado. Agradeça e finalize com encerrar(qualificado=true).' })
+    }
+
+    if (name === 'listar_horarios') {
+      const schedField = fields.find((f) => f?.type === 'scheduling')
+      const slug = schedField?.meetingSlug
+      if (!slug) return JSON.stringify({ ok: false, erro: 'Agendamento não configurado neste formulário.' })
+      const mt = await getActiveMeetingType(slug)
+      if (!mt) return JSON.stringify({ ok: false, erro: 'Tipo de reunião indisponível.' })
+      const days = await getMeetingTypeSlots(mt, {}).catch(() => [] as any[])
+      const out: Array<{ startAt: string; label: string }> = []
+      for (const day of (days as any[])) {
+        for (const sl of (day.slots || [])) {
+          if (out.length >= 12) break
+          const dd = String(day.date).slice(8, 10) + '/' + String(day.date).slice(5, 7)
+          out.push({ startAt: sl.startAt, label: `${WD[day.weekday] || ''} ${dd} ${sl.label}`.trim() })
+        }
+        if (out.length >= 12) break
+      }
+      if (!out.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
+      return JSON.stringify({ ok: true, horarios: out })
+    }
+
+    if (name === 'agendar') {
+      const schedField = fields.find((f) => f?.type === 'scheduling')
+      const slug = schedField?.meetingSlug
+      if (!slug) return JSON.stringify({ ok: false, erro: 'Agendamento não configurado.' })
+      const mt = await getActiveMeetingType(slug)
+      if (!mt) return JSON.stringify({ ok: false, erro: 'Tipo de reunião indisponível.' })
+      const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, email: true } })
+      const result = await createBooking(mt, {
+        name: lead?.nome || state.answers.nome || 'Lead', email: lead?.email || state.answers.email || null,
+        phone, startAt: String(input?.startAt || ''), answers: state.answers, timezone: mt.timezone, visitorId: null, utm: null,
+        funnelOverride: promoteFunnelId ?? null,
+      } as any).catch((e) => { app.log.error(`[aiJourney] booking: ${e}`); return { ok: false, error: 'Erro ao agendar' } as any })
+      if (!result.ok) return JSON.stringify({ ok: false, erro: result.error, instrucao: 'Horário indisponível. Chame listar_horarios de novo e ofereça outro.' })
+      state.phase = 'done'
+      state.bookingId = result.booking?.id ?? null
+      const when = result.booking?.startAt ? fmtWhen(new Date(result.booking.startAt), mt.timezone) : ''
+      return JSON.stringify({ ok: true, quando: when, instrucao: 'Horário reservado. O sistema JÁ enviou ao lead, logo em seguida, uma mensagem com o link da reunião e o botão "Confirmar reunião". Diga UMA frase curta e calorosa pedindo para ele CONFIRMAR a presença tocando no botão "Confirmar reunião" acima. NÃO diga que já está confirmado nem inclua link — a confirmação só acontece quando ele toca no botão.' })
+    }
+
+    if (name === 'encerrar') {
+      state.phase = input?.qualificado === false ? 'disqualified' : 'done'
+      return JSON.stringify({ ok: true })
+    }
+
+    if (name === 'transferir_humano') {
+      state.phase = 'done'
+      logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+      return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
+    }
+
+    return JSON.stringify({ ok: false, erro: 'ferramenta desconhecida' })
+  } catch (e: any) {
+    app.log.warn(`[aiJourney] tool ${name} erro: ${e?.message || e}`)
+    return JSON.stringify({ ok: false, erro: 'falha ao executar a ação' })
+  }
+}
+
+// ── Chamadas ao LLM com tool use (Anthropic primário; OpenAI fallback) ──
+type LlmMsg = { role: 'user' | 'assistant'; content: any }
+type LlmTurn = { kind: 'text'; text: string } | { kind: 'tools'; calls: Array<{ id: string; name: string; input: any }>; assistant: any }
+
+async function getSetting(key: string): Promise<string | null> {
+  const s = await prisma.setting.findUnique({ where: { key } }).catch(() => null)
+  return s ? String(s.value).replace(/^"|"$/g, '') : null
+}
+
+async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY ausente')
+  const model = (await getSetting('ai.journey_model')) || 'claude-sonnet-4-6'
+  const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model, max_tokens: 1500,
+      system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+      tools: TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      messages,
+    }),
+  }, LLM_TIMEOUT_MS)
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
+  const data = await res.json() as any
+  const content = data.content || []
+  const calls = content.filter((b: any) => b.type === 'tool_use').map((b: any) => ({ id: b.id, name: b.name, input: b.input }))
+  if (calls.length) return { kind: 'tools', calls, assistant: content }
+  const text = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim()
+  return { kind: 'text', text }
+}
+
+async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new Error('OPENAI_API_KEY ausente')
+  const model = (await getSetting('ai.journey_model_openai')) || 'gpt-4o'
+  // Converte mensagens (formato Anthropic interno) → formato OpenAI.
+  const oaMsgs: any[] = [{ role: 'system', content: system }]
+  for (const m of messages) {
+    if (typeof m.content === 'string') { oaMsgs.push({ role: m.role, content: m.content }); continue }
+    if (m.role === 'assistant') {
+      const text = m.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('')
+      const toolCalls = m.content.filter((b: any) => b.type === 'tool_use').map((b: any) => ({ id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input) } }))
+      oaMsgs.push({ role: 'assistant', content: text || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) })
+    } else {
+      const results = m.content.filter((b: any) => b.type === 'tool_result')
+      if (results.length) for (const r of results) oaMsgs.push({ role: 'tool', tool_call_id: r.tool_use_id, content: r.content })
+      else oaMsgs.push({ role: 'user', content: m.content.map((b: any) => b.text || '').join('') })
+    }
+  }
+  const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model, max_tokens: 1500, messages: oaMsgs,
+      tools: TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+    }),
+  }, LLM_TIMEOUT_MS)
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
+  const data = await res.json() as any
+  const msg = data.choices?.[0]?.message || {}
+  if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
+    const calls = msg.tool_calls.map((c: any) => ({ id: c.id, name: c.function?.name, input: safeJson(c.function?.arguments) }))
+    // Representa o turno do assistant no formato interno (Anthropic) p/ continuar o loop.
+    const assistant = [
+      ...(msg.content ? [{ type: 'text', text: msg.content }] : []),
+      ...calls.map((c: any) => ({ type: 'tool_use', id: c.id, name: c.name, input: c.input })),
+    ]
+    return { kind: 'tools', calls, assistant }
+  }
+  return { kind: 'text', text: (msg.content || '').trim() }
+}
+
+function safeJson(s: any): any { try { return JSON.parse(s || '{}') } catch { return {} } }
+
+async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+  const primary = (await getSetting('ai.primary_provider')) || 'anthropic'
+  try {
+    return primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
+  } catch (e) {
+    // Fallback para o outro provider.
+    try { return primary === 'openai' ? await anthropicTurn(system, messages) : await openaiTurn(system, messages) }
+    catch { throw e }
+  }
+}
+
+// ── Entrada (chamada pelo webhook quando chatbot.mode === 'ai_journey') ──
+export async function processAiJourneyMessage(
+  phone: string, text: string, app: FastifyInstance, messageId: string | undefined,
+  sendFn: SendFn, provider: ProviderType, originData: OriginData | null | undefined,
+  chatbotId: number | null | undefined, instanceName: string | null | undefined,
+  chatbot: any, form: any,
+  sendInteractiveFn?: SendInteractiveFn | null,
+  promoteFunnelId?: number | null, promoteStageKey?: string | null,
+  contactName?: string | null,
+): Promise<void> {
+  const prev = locks.get(phone) ?? Promise.resolve()
+  const run = prev.then(() =>
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName)
+      .catch((e) => app.log.error(`[aiJourney] erro: ${e?.stack || e}`)),
+  )
+  locks.set(phone, run.then(() => undefined))
+  await run
+}
+
+async function _process(
+  phone: string, text: string, app: FastifyInstance, messageId: string | undefined,
+  sendFn: SendFn, provider: ProviderType, originData: OriginData | null | undefined,
+  chatbotId: number | null | undefined, instanceName: string | null | undefined,
+  chatbot: any, form: any, sendInteractiveFn: SendInteractiveFn | null | undefined,
+  promoteFunnelId: number | null | undefined, promoteStageKey: string | null | undefined,
+  contactName?: string | null,
+): Promise<void> {
+  if (!form || !Array.isArray(form.fields)) { app.log.warn('[aiJourney] form sem fields'); return }
+  const attendantName = chatbot?.name || 'Atendimento'
+
+  if (messageId) {
+    const dup = await prisma.message.findFirst({ where: { externalId: messageId, fromMe: false }, select: { id: true } })
+    if (dup) return
+  }
+
+  const saveOutgoing = async (leadId: number, body: string, extId: string | null) => {
+    await prisma.message.create({ data: {
+      leadId, fromMe: true, body, mediaType: 'text', provider,
+      ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      senderName: attendantName, isInternal: false, externalId: extId, ack: extId ? 1 : 0, timestamp: new Date(),
+    } }).catch((e) => app.log.warn(`[aiJourney] save out: ${e}`))
+    await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
+  }
+  const saveIncoming = async (leadId: number, body: string) => {
+    await prisma.message.create({ data: {
+      leadId, fromMe: false, body, mediaType: 'text', provider,
+      ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      senderName: body ? body.slice(0, 60) : phone, externalId: messageId || null, timestamp: new Date(),
+    } }).catch((e) => app.log.warn(`[aiJourney] save in: ${e}`))
+    await prisma.lead.update({ where: { id: leadId }, data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date() } }).catch(() => {})
+  }
+  const send = async (leadId: number, body: string, options: string[]) => {
+    if (provider === 'cloud_api' && sendInteractiveFn && options.length) {
+      const choices: Choice[] = options.map((o, i) => ({ id: `opt_${i}`, title: o.slice(0, 24) }))
+      try {
+        const r = await sendInteractiveFn(phone, buildChoices(body, choices))
+        await saveOutgoing(leadId, choicesToText(body, choices), r.messageId)
+        return
+      } catch (e: any) { app.log.warn(`[aiJourney] interactive fallback: ${e?.message || e}`) }
+    }
+    const full = options.length ? `${body}\n\n${options.map((o, i) => `${i + 1}) ${o}`).join('\n')}` : body
+    const r = await sendFn(phone, full)
+    await saveOutgoing(leadId, full, r.messageId)
+  }
+
+  // ── Lead + estado ──
+  let lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+  const fd: any = (lead?.formData as any) || {}
+  let state: AiState | null = fd._aiJourney || null
+
+  const cname = (contactName || '').trim()
+  if (!lead || !state) {
+    let leadId = lead?.id ?? null
+    if (!leadId) {
+      const body = { ctwaClid: originData?.ctwaClid ?? null, originType: originData?.originType ?? null, utmSource: originData?.utmSource ?? null, gclid: originData?.gclid ?? null }
+      // Nome do perfil do WhatsApp já vem na Cloud API → nasce no lead (sem a IA perguntar).
+      const created = await createLeadFromForm(form, form.fields, cname ? { nome: cname } : {}, body, instanceName || '', null,
+        promoteFunnelId ? { funnelId: promoteFunnelId, stageKey: promoteStageKey ?? null } : undefined, {
+        channel: 'whatsapp', leadSource: 'whatsapp', chatbotId: chatbotId ?? null,
+        routing: { source: 'whatsapp', chatbotId: chatbotId ?? null, instanceName: instanceName ?? null },
+        forceWhatsapp: phone, qualificationSource: 'form',
+      })
+      leadId = created?.leadId ?? null
+    } else if (promoteFunnelId ?? form.funnelId) {
+      // Lead já existe sem estado → promove para o funil/etapa da conexão (forwardOnly).
+      await moveLeadStage(leadId, promoteFunnelId ?? form.funnelId ?? null, promoteStageKey ?? form.stageKey ?? 'NOVO', 'chatbot', { forwardOnly: true }).catch(() => {})
+    }
+    if (!leadId) { app.log.warn('[aiJourney] não criou lead'); return }
+    state = { leadId, phase: 'active', answers: {} }
+    // Nome (do perfil WhatsApp) e WhatsApp (número) já são conhecidos: semeia no estado
+    // pra a IA NÃO perguntar, e garante no lead (mapTo nome/whatsapp do form).
+    const fieldKeyOf = (mapTo: string): string | null => (form.fields.find((f: any) => f?.mapTo === mapTo)?.key) || null
+    const nomeKey = fieldKeyOf('nome'); const waKey = fieldKeyOf('whatsapp')
+    if (nomeKey && cname) state.answers[nomeKey] = cname
+    if (waKey) state.answers[waKey] = phone
+    lead = await prisma.lead.findUnique({ where: { id: leadId } })
+    if (cname && (!lead?.nome || lead.nome === 'Lead LP')) {
+      await prisma.lead.update({ where: { id: leadId }, data: { nome: cname } }).catch(() => {})
+      if (lead) lead.nome = cname
+    }
+    if (!lead?.whatsapp) { await prisma.lead.update({ where: { id: leadId }, data: { whatsapp: phone } }).catch(() => {}); if (lead) lead.whatsapp = phone }
+    logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: `Jornada IA iniciada: ${chatbot?.name || form.name}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
+  }
+
+  const leadId = state.leadId!
+
+  // Conversa encerrada → não reabre o roteiro (pós-atendimento humano).
+  if (lead?.completed || state.phase === 'done' || state.phase === 'disqualified') {
+    await saveIncoming(leadId, text)
+    if (chatbot?.postChatAi) {
+      const { postJourneyAiReply } = await import('./chatbotFlow.js')
+      await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app }).catch((e: any) => app.log.warn(`[aiJourney] postChatAi: ${e?.message || e}`))
+    }
+    return
+  }
+
+  await saveIncoming(leadId, text)
+
+  // ── Histórico p/ o LLM (mensagens anteriores do lead) ──
+  const hist = await prisma.message.findMany({
+    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: HISTORY_LIMIT,
+    select: { fromMe: true, body: true },
+  })
+  const messages: LlmMsg[] = hist.reverse()
+    .filter((m) => (m.body || '').trim())
+    .map((m) => ({ role: m.fromMe ? 'assistant' : 'user', content: m.body }))
+  if (!messages.length || messages[messages.length - 1].role !== 'user') {
+    messages.push({ role: 'user', content: text })
+  }
+
+  const system = buildSystemPrompt(chatbot, form, lead, state)
+
+  // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
+  // Tudo com teto de tempo: nenhuma chamada (LLM ou ferramenta) pode pendurar o turno
+  // e congelar a conversa (o lock por telefone). O lead SEMPRE recebe uma resposta.
+  const startedAt = Date.now()
+  let replied = false
+  let failed = false
+  for (let i = 0; i < MAX_TOOL_ITERS; i++) {
+    if (Date.now() - startedAt > TURN_BUDGET_MS) { app.log.warn('[aiJourney] orçamento do turno esgotado'); failed = true; break }
+    let turn: LlmTurn
+    try { turn = await llmTurn(system, messages) }
+    catch (e: any) { app.log.error(`[aiJourney] LLM: ${e?.message || e}`); failed = true; break }
+
+    if (turn.kind === 'text') {
+      const { text: out, options } = extractOptions(turn.text)
+      if (out) { await send(leadId, out, options).catch(() => {}); replied = true }
+      else failed = true
+      break
+    }
+    // tool_use: executa as ferramentas pedidas (cada uma com timeout) e devolve os resultados.
+    messages.push({ role: 'assistant', content: turn.assistant })
+    const results: any[] = []
+    for (const call of turn.calls) {
+      const out = await Promise.race([
+        executeTool(call.name, call.input, { leadId, phone, form, chatbot, state, promoteFunnelId: promoteFunnelId ?? null, promoteStageKey: promoteStageKey ?? null, app }),
+        new Promise<string>((resolve) => setTimeout(() => resolve(JSON.stringify({ ok: false, erro: 'tempo esgotado na ação' })), TOOL_TIMEOUT_MS)),
+      ])
+      results.push({ type: 'tool_result', tool_use_id: call.id, content: out })
+    }
+    messages.push({ role: 'user', content: results })
+  }
+  // Fallback garantido: se o turno terminou sem resposta, o lead ainda recebe algo coerente.
+  if (!replied) {
+    const fp: string = state.phase
+    if (fp === 'disqualified') {
+      app.log.warn('[aiJourney] desqualificado sem resposta — encerrando cordialmente')
+      await send(leadId, 'Obrigado pelas suas respostas! No momento não seguimos com o agendamento, mas qualquer novidade a nossa equipe entra em contato. 😊', []).catch(() => {})
+    } else if (failed) {
+      app.log.warn('[aiJourney] sem resposta final — enviando fallback')
+      await send(leadId, 'Tive uma instabilidade aqui 😕 Pode repetir a sua última mensagem, por favor?', []).catch(() => {})
+    } else {
+      app.log.warn('[aiJourney] loop sem resposta final (limite de iterações)')
+      await send(leadId, 'Deixa eu verificar isso e já te respondo. 🙂', []).catch(() => {})
+    }
+  }
+
+  // ── Persiste estado em lead.formData._aiJourney (+ answers no topo) ──
+  const cur = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+  const base: any = (cur?.formData as any) || {}
+  const finalPhase: string = state.phase // executeTool pode tê-la mutado p/ done/disqualified
+  await prisma.lead.update({ where: { id: leadId }, data: {
+    formData: { ...base, ...state.answers, _source: 'whatsapp', _aiJourney: state },
+    ...(finalPhase === 'done' || finalPhase === 'disqualified' ? { completed: true } : {}),
+  } }).catch((e) => app.log.warn(`[aiJourney] persist: ${e}`))
+}

@@ -14,7 +14,9 @@ import { prisma } from '../lib/prisma.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
-import { createLeadFromForm, moveLeadStage, resolveQualification, validateFieldValue, matchSelectChoice, buildCustomFieldValues } from './formFlow.js'
+import { createLeadFromForm, moveLeadStage, buildCustomFieldValues } from './formFlow.js'
+import { parseAnswer, evaluateQualification, resolveStageMove, nextStep } from './journey/journeyEngine.js'
+import { interpretSelectAnswer } from './journey/interpret.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
 import { interpolate } from '../lib/interpolate.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
@@ -74,12 +76,6 @@ function stripTags(s: string | null | undefined): string {
   return String(s ?? '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"')
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-function nextRealIndex(fields: any[], from: number): number {
-  let i = from
-  while (i < fields.length && fields[i]?.type === 'statement') i++
-  return i
 }
 
 function fieldKeyByMap(fields: any[], mapTo: string): string | null {
@@ -232,9 +228,10 @@ async function _process(
     for (const f of flowInputFields(form)) {
       if (f.key in state.answers) await applyAnswerToLead(leadId, f, state.answers)
     }
-    const q = resolveQualification(fields, state.answers, settings)
+    const q = evaluateQualification(fields, state.answers, settings)
     if (q?.finish) {
-      await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: true })
+      if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
       const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
         ? `${stripTags(settings?.successMessage) || msg(chatbot, 'disqualifiedFallback')}\n\n${q.redirectUrl}`
         : (stripTags(q.message) || msg(chatbot, 'disqualifiedFallback'))
@@ -271,12 +268,25 @@ async function _process(
         forceWhatsapp: phone, qualificationSource: 'form',
       })
       leadId = created?.leadId ?? null
+    } else {
+      // Lead já existe (veio do site/agendamento, conversa anterior ou da rota de
+      // atendimento humano) e ainda não tem estado de roteiro → createLeadFromForm
+      // não roda e ele nunca seria promovido. Coloca-o no funil/etapa da conexão
+      // (ou do form) já no início, para cair no Kanban mesmo que abandone antes de
+      // qualificar/agendar. forwardOnly não regride um lead já avançado; só promove
+      // quem está sem funil (caixa de entrada bruta) ou já no funil-alvo — evita
+      // puxar para cá um lead que está em outro funil.
+      const baseFunnel = promoteFunnelId ?? form.funnelId ?? null
+      const baseStage = promoteStageKey ?? form.stageKey ?? 'NOVO'
+      if (baseFunnel && (lead!.funnelId == null || lead!.funnelId === baseFunnel)) {
+        await moveLeadStage(leadId, baseFunnel, baseStage, 'chatbot', { forwardOnly: true })
+      }
     }
     if (!leadId) { app.log.warn('[scriptedChatbot] não criou lead'); return }
     logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: `Chatbot iniciado: ${chatbot?.name || form.name}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
 
-    const firstIdx = nextRealIndex(fields, 0)
-    const newState: ScriptState = { stepIndex: firstIdx, answers: {}, leadId, phase: 'asking' }
+    const first = nextStep(fields, 0)
+    const newState: ScriptState = { stepIndex: first.index, answers: {}, leadId, phase: 'asking' }
     // F3: se o chatbot coleta via WhatsApp Flow, envia o formulário único (welcome
     // embutido no corpo do Flow) e aguarda o nfm_reply — sem perguntar campo a campo.
     if (chatbot?.useFlow && await tryStartFlow(leadId)) {
@@ -288,7 +298,7 @@ async function _process(
     const welcome = (chatbot?.greetingMessage && chatbot.greetingMessage.trim())
       || [stripTags(settings?.conversational?.welcomeTitle), stripTags(settings?.conversational?.welcomeText)].filter(Boolean).join('\n\n')
     if (welcome) await send(leadId, welcome)
-    if (firstIdx < fields.length) await askField(leadId, fields[firstIdx])
+    if (first.kind !== 'finish') await askField(leadId, first.field)
     await persist(leadId, newState)
     return
   }
@@ -336,22 +346,22 @@ async function _process(
     return
   }
 
-  // Validação / parse da resposta do campo atual.
-  if (field.type === 'select') {
-    // Casa primeiro pelo id do botão/linha (value exato, robusto a truncamento do
-    // título); senão pela resposta digitada (número/label/value).
-    let choice: { value: string; label: string } | null = null
-    if (interactiveReplyId) {
-      const byId = (field.options || []).find((o: any) => String(o.value) === interactiveReplyId)
-      if (byId) choice = { value: byId.value, label: byId.label }
-    }
-    if (!choice) choice = matchSelectChoice(field, text)
-    if (!choice) { await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return }
-    state.answers[field.key] = choice.value
+  // Validação / parse da resposta do campo atual (lógica única em journeyEngine:
+  // select casa por id do botão → número/label/value; demais campos validam).
+  const parsed = parseAnswer(field, text, interactiveReplyId)
+  if (parsed.ok) {
+    state.answers[field.key] = parsed.value
+  } else if (parsed.kind === 'select' && chatbot?.aiInterpret) {
+    // Híbrido: o select não casou de forma determinística → a IA mapeia o texto
+    // livre para uma opção existente (ou unclear → reask). A IA só escolhe o
+    // value; a qualificação/roteamento abaixo continua determinístico sobre ele.
+    const ai = await interpretSelectAnswer(field, text, { instruction: chatbot?.interpretPrompt })
+    if (ai.value) state.answers[field.key] = ai.value
+    else { await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return }
+  } else if (parsed.kind === 'select') {
+    await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return
   } else {
-    const err = validateFieldValue(field, text)
-    if (err) { await send(leadId, `${msg(chatbot, 'invalidAnswer', { erro: err })}\n\n${questionText(field)}`); return }
-    state.answers[field.key] = text.trim()
+    await send(leadId, `${msg(chatbot, 'invalidAnswer', { erro: parsed.error })}\n\n${questionText(field)}`); return
   }
 
   // Persiste a resposta no lead (campos nativos via mapTo + customFields).
@@ -359,9 +369,10 @@ async function _process(
 
   // Qualificação após cada qualificador (negativo vence → desqualifica já).
   if (field.isQualifier) {
-    const q = resolveQualification(fields, state.answers, settings)
+    const q = evaluateQualification(fields, state.answers, settings)
     if (q?.finish) {
-      await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey || 'DESQUALIFICADO_FORMS', 'chatbot', { forwardOnly: false })
+      const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: true })
+      if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
       // Redirect/mensagem configurados no FORM (editáveis no editor de forms) têm
       // prioridade; senão cai na mensagem editável do chatbot (disqualifiedFallback).
       const finishMsg = q.finishAction === 'redirect' && q.redirectUrl
@@ -375,19 +386,18 @@ async function _process(
     }
   }
 
-  // Avança para o próximo campo.
-  const nextIdx = nextRealIndex(fields, state.stepIndex + 1)
-  state.stepIndex = nextIdx
-  if (nextIdx >= fields.length) { // não há mais campos → finaliza qualificado (sem scheduling)
+  // Avança para o próximo campo (journeyEngine classifica: perguntar / agendar / finalizar).
+  const ns = nextStep(fields, state.stepIndex + 1)
+  state.stepIndex = ns.index
+  if (ns.kind === 'finish') { // não há mais campos → finaliza qualificado (sem scheduling)
     await finishQualifiedFlow(leadId, state, fields, settings, form, send, persist, chatbot, promoteFunnelId)
     return
   }
-  const nextField = fields[nextIdx]
-  if (nextField.type === 'scheduling') {
-    await enterSchedulingPhase(leadId, state, fields, settings, form, nextField, send, sendChoices, persist, app, chatbot, promoteFunnelId)
+  if (ns.kind === 'scheduling') {
+    await enterSchedulingPhase(leadId, state, fields, settings, form, ns.field, send, sendChoices, persist, app, chatbot, promoteFunnelId)
     return
   }
-  await askField(leadId, nextField)
+  await askField(leadId, ns.field)
   await persist(leadId, state)
 }
 
@@ -400,7 +410,7 @@ async function persist(leadId: number, state: ScriptState, completed = false): P
 }
 
 // Grava a resposta de um campo nos campos nativos do lead (via mapTo) + customFields.
-async function applyAnswerToLead(leadId: number, field: any, answers: Record<string, any>): Promise<void> {
+export async function applyAnswerToLead(leadId: number, field: any, answers: Record<string, any>): Promise<void> {
   const data: any = {}
   const v = answers[field.key]
   if (field.mapTo === 'nome') data.nome = String(v)
@@ -423,8 +433,9 @@ async function enterSchedulingPhase(
   send: (leadId: number, body: string) => Promise<void>, sendChoices: SendChoicesFn, persistFn: typeof persist, app: FastifyInstance, chatbot: any,
   promoteFunnelId: number | null | undefined,
 ): Promise<void> {
-  const q = resolveQualification(fields, state.answers, settings)
-  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+  const q = evaluateQualification(fields, state.answers, settings)
+  const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: false })
+  if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
 
   const mt = schedField.meetingSlug ? await getActiveMeetingType(schedField.meetingSlug) : null
   if (!mt) {
@@ -448,6 +459,11 @@ async function enterSchedulingPhase(
     state.phase = 'done'
     await persistFn(leadId, state, true)
     return
+  }
+  // Mensagem de boas-vindas ao iniciar o agendamento (configurável, com o tema do negócio).
+  if (chatbot?.schedulingIntro && String(chatbot.schedulingIntro).trim()) {
+    const ld = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true } })
+    await send(leadId, interpolate(String(chatbot.schedulingIntro), { nome: ld?.nome || state.answers?.nome || '', reuniao: mt.name }))
   }
   const label = stripTags(schedField.label) && stripTags(schedField.label) !== 'Agendamento' ? stripTags(schedField.label) : 'Escolha o melhor horário para a nossa conversa'
   const choices: Choice[] = flat.map((s, i) => ({ id: `slot_${i}`, title: s.text }))
@@ -531,8 +547,9 @@ async function finishQualifiedFlow(
   send: (leadId: number, body: string) => Promise<void>, persistFn: typeof persist, chatbot: any,
   promoteFunnelId?: number | null,
 ): Promise<void> {
-  const q = resolveQualification(fields, state.answers, settings)
-  if (q?.stageKey) await moveLeadStage(leadId, q.funnelId ?? promoteFunnelId ?? form.funnelId ?? null, q.stageKey, 'chatbot', { forwardOnly: true })
+  const q = evaluateQualification(fields, state.answers, settings)
+  const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: false })
+  if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
   await send(leadId, msg(chatbot, 'qualifiedDone'))
   state.phase = 'done'
   await persistFn(leadId, state, true)

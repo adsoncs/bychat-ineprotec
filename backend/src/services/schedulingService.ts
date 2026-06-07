@@ -255,12 +255,15 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
       import('./schedulingNotify.js').then((n) => n.notifyBooking(booking.id, 'confirmation')).catch(() => {})
     }
 
-    // Evento de domínio (workflows escutam).
+    // Evento de domínio (workflows escutam). Inclui o form de origem do lead (_formId)
+    // p/ permitir filtrar notificações por formulário no agendamento.
+    const leadForm = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+    const originFormId = (leadForm?.formData as any)?._formId ?? null
     eventBus.emitDomain({
       type: 'meeting.scheduled',
       leadId,
       ...(mt.funnelId ? { funnelId: mt.funnelId } : {}),
-      payload: { bookingId: booking.id, meetingTypeId: mt.id, startAt: booking.startAt.toISOString() },
+      payload: { bookingId: booking.id, meetingTypeId: mt.id, startAt: booking.startAt.toISOString(), formId: originFormId, metadata: { formId: originFormId } },
     } as any)
   }
 

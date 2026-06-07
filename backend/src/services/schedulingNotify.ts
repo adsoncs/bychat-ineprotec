@@ -34,15 +34,38 @@ async function sendWa(leadId: number | null, phone: string, text: string): Promi
 // pode ser enviado a número frio (fora da janela 24h) sem risco de banir a sessão.
 const CONFIRM_TEMPLATE = 'confirmacao_agendamento_reuniao'
 
-// Envia a confirmação ao lead via template HSM e marca confirmRequestedAt (escopo do
-// auto-cancelamento). Só envia se o template estiver APROVADO; senão registra e sai
-// (o e-mail de confirmação já cobre o lead enquanto a aprovação não sai).
-async function sendBookingConfirmationTemplate(
-  bookingId: number, mt: { name: string; locationDetail: string | null }, name: string, when: string, meetLink: string | null, phone: string,
+// Envia a confirmação de agendamento ao lead pelo WhatsApp e marca confirmRequestedAt
+// (escopo do auto-cancelamento + detecção do clique "Confirmar reunião").
+//   • Janela 24h ABERTA (lead conversando agora pela Cloud API — ex.: Jornada IA):
+//     entrega TEXTO + link do Meet + botão interativo "Confirmar reunião" direto,
+//     SEM depender da aprovação do template HSM.
+//   • Lead FRIO (fora da janela, ex.: lead de formulário): template HSM aprovado.
+async function sendBookingConfirmationToLead(
+  bookingId: number, leadId: number | null, mt: { name: string; locationDetail: string | null }, name: string, when: string, meetLink: string | null, phone: string,
 ): Promise<void> {
   try {
     const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (!conn) { console.warn('[scheduling] sem conexão Cloud API — confirmação WhatsApp não enviada'); return }
+    const wp = await import('./whatsappProvider.js')
+    const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
+    const linkText = meetLink || mt.locationDetail || ''
+
+    const openWindow = leadId
+      ? await prisma.message.findFirst({ where: { leadId, provider: 'cloud_api', fromMe: false, createdAt: { gt: new Date(Date.now() - 24 * 3600000) } }, select: { id: true } })
+      : null
+
+    if (openWindow) {
+      const body = `✅ *Reunião agendada!*\n📅 ${when}` + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '') + `\n\nPara garantir a sua presença, confirme tocando no botão abaixo. 👇`
+      const { buildChoices } = await import('../lib/waInteractive.js')
+      const interactive = buildChoices(body, [{ id: 'confirm_booking', title: 'Confirmar reunião' }])
+      if (interactive) {
+        await provider.sendInteractive(phone, interactive)
+        await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
+        return
+      }
+    }
+
+    // Lead frio → template HSM (quando aprovado). {{4}} nunca pode ir vazio (Meta rejeita).
     const tpl = await prisma.cloudApiTemplate.findFirst({
       where: { name: CONFIRM_TEMPLATE, ...(conn.wabaId ? { wabaId: conn.wabaId } : {}) },
       select: { status: true, language: true },
@@ -51,22 +74,18 @@ async function sendBookingConfirmationTemplate(
       console.warn(`[scheduling] template ${CONFIRM_TEMPLATE} não aprovado (${tpl?.status ?? 'inexistente'}) — confirmação WhatsApp adiada (e-mail enviado)`)
       return
     }
-    // {{4}} nunca pode ir vazio (a Meta rejeita): link do Meet → local → fallback.
-    const linkText = meetLink || mt.locationDetail || 'a combinar com nossa equipe'
     const components = [{
       type: 'body',
       parameters: [
         { type: 'text', text: name?.trim() || 'tudo bem' },
         { type: 'text', text: mt.name },
         { type: 'text', text: when },
-        { type: 'text', text: linkText },
+        { type: 'text', text: linkText || 'a combinar com nossa equipe' },
       ],
     }]
-    const wp = await import('./whatsappProvider.js')
-    const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
     await provider.sendTemplate(phone, CONFIRM_TEMPLATE, tpl.language || 'pt_BR', components)
     await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
-  } catch (e: any) { console.warn('[scheduling] confirmação (HSM) falhou:', e?.message) }
+  } catch (e: any) { console.warn('[scheduling] confirmação ao lead falhou:', e?.message) }
 }
 
 // Detecta resposta afirmativa em texto livre (caso o lead digite em vez de tocar no botão).
@@ -76,13 +95,20 @@ export function isAffirmative(text: string): boolean {
   return !!t && AFFIRMATIVE.test(t)
 }
 
-// Confirmação de agendamento a partir de uma mensagem recebida do lead. Confirma se o
-// lead tem reserva pendente (scheduled, com pedido de confirmação enviado, futura) E
-// tocou no botão do template OU respondeu de forma afirmativa. Retorna true se confirmou
-// (o webhook deve então parar e não rodar o chatbot sobre esse "Sim").
-export async function tryConfirmBookingReply(phone: string, text: string, isButton: boolean): Promise<boolean> {
+// Confirmação de agendamento a partir de uma mensagem recebida do lead. Só confirma se o
+// lead CLICAR no botão "Confirmar reunião" (id confirm_booking, ou o quick-reply do HSM
+// com título "Confirmar reunião") OU digitar explicitamente "confirmar/confirmo". NÃO
+// confirma com afirmativos genéricos ("sim", "ok") nem com outro botão (ex.: escolher
+// horário) — a confirmação exige o compromisso explícito do lead. Retorna true se confirmou
+// (o webhook deve então parar e não rodar o chatbot sobre essa mensagem).
+export async function tryConfirmBookingReply(phone: string, text: string, interactiveReplyId: string | null): Promise<boolean> {
   const norm = (phone || '').replace(/\D/g, '')
   if (!norm) return false
+  const t = (text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  const isConfirmButton = interactiveReplyId === 'confirm_booking'
+  const isConfirmText = /^(confirmo|confirmar|confirmado|confirmada)\b/.test(t) || /confirmar reuni/.test(t)
+  if (!isConfirmButton && !isConfirmText) return false
+
   let lead = await prisma.lead.findFirst({ where: { whatsapp: norm }, orderBy: { createdAt: 'desc' }, select: { id: true } })
   if (!lead && norm.length >= 8) {
     lead = await prisma.lead.findFirst({ where: { whatsapp: { contains: norm.slice(-8) } }, orderBy: { createdAt: 'desc' }, select: { id: true } })
@@ -94,7 +120,6 @@ export async function tryConfirmBookingReply(phone: string, text: string, isButt
     select: { id: true },
   })
   if (!booking) return false
-  if (!isButton && !isAffirmative(text)) return false
 
   await prisma.booking.update({ where: { id: booking.id }, data: { status: 'confirmed', confirmedAt: new Date() } })
   // Resposta de confirmação — a mensagem do lead abriu a janela de 24h, então texto livre
@@ -146,11 +171,11 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
   const phone = lead?.whatsapp || booking.inviteePhone || ''
   if (phone) {
     if (kind === 'confirmation') {
-      // Confirmação ao lead. COM Cloud API → template HSM (sem risco de ban, com botão de
-      // confirmação). SEM Cloud API → comportamento antigo (texto livre via Evolution).
+      // Confirmação ao lead. COM Cloud API → interativo (janela aberta) ou HSM (frio),
+      // com link + botão "Confirmar reunião". SEM Cloud API → texto livre via Evolution.
       const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, select: { id: true } })
       if (cloudConn) {
-        await sendBookingConfirmationTemplate(booking.id, mt, name, when, meetLink, phone)
+        await sendBookingConfirmationToLead(booking.id, lead?.id ?? null, mt, name, when, meetLink, phone)
       } else if (wa.body.trim()) {
         await sendWa(lead?.id ?? null, phone, wa.body)
       }

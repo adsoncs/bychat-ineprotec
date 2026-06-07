@@ -586,6 +586,18 @@ model Chatbot {
   // o roteamento de etapa continua determinístico (resolveQualification).
   aiInterpret       Boolean  @default(false)
   interpretPrompt   String?  @db.Text // instrução extra p/ o classificador (vazio = prompt padrão)
+// mode='ai_journey': prompt-mestre da jornada 100% IA (a IA conduz a conversa e chama
+  // ferramentas determinísticas: salvar dados, qualificar, listar horários, agendar…).
+  // Vazio = usa o prompt padrão. Os dados a coletar vêm dos fields do form vinculado.
+  aiJourneyPrompt   String?  @db.Text
+  // Ativação do chatbot: 'always' (qualquer mensagem inicia o fluxo — padrão atual) |
+  // 'keyword' (só inicia quando a 1ª mensagem do lead CONTÉM uma das triggerKeywords;
+  // fora disso vai para atendimento humano). Lead já em fluxo continua sempre.
+  triggerMode       String   @default("always") @db.VarChar(20)
+  triggerKeywords   Json?    @db.Json // string[] de palavras/frases que ativam o fluxo
+  // Mensagem de boas-vindas ao INICIAR o agendamento (após qualificar). Tema do negócio,
+  // objetiva e profissional. Variáveis: {{nome}} {{reuniao}}. Vazio = sem intro dedicada.
+  schedulingIntro   String?  @db.Text
   funnelId          Int?
   funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   systemPrompt      String   @db.LongText

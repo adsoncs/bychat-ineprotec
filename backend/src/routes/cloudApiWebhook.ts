@@ -5,7 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { getMetaAppSecret } from '../lib/meta.js'
 import { validateWebhookSignature, markAsRead, downloadMedia, decryptToken, normalizePhone } from '../services/cloudApi.js'
-import { processChatbotMessage } from '../services/chatbotFlow.js'
+import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
@@ -265,7 +265,7 @@ async function processIncomingMessage(
   // reunião" (type button/interactive) ou respondeu afirmativo. Marca confirmada e
   // responde — sem deixar o chatbot tratar o "Sim" como conversa.
   try {
-    const confirmed = await tryConfirmBookingReply(phone, msgText, msgType === 'button' || msgType === 'interactive')
+    const confirmed = await tryConfirmBookingReply(phone, msgText, interactiveReplyId)
     if (confirmed) return
   } catch (e) { app.log.warn(`Booking confirm error: ${e}`) }
 
@@ -277,7 +277,9 @@ async function processIncomingMessage(
 
   // conn.chatbotId define o modo, espelhando a instância Evolution
   // (COM chatbot → bot de IA; SEM chatbot → atendimento humano).
-  const hasChatbot = conn.chatbotId != null
+  // Gate de ativação: se o chatbot exige palavra-chave e a mensagem (cold start) não
+  // casa, trata como SEM chatbot → cai no atendimento humano abaixo.
+  const hasChatbot = conn.chatbotId != null && await chatbotTriggerAllows(conn.chatbotId, phone, msgText)
 
   if (!hasChatbot) {
     // ── Atendimento humano: salva a mensagem e roteia, sem rodar IA ──
@@ -428,6 +430,15 @@ async function processIncomingMessage(
 
   // Chatbot determinístico (scripted): roda a jornada do form vinculado.
   const chatbot = conn.chatbotId ? await prisma.chatbot.findUnique({ where: { id: conn.chatbotId } }) : null
+  // Jornada 100% IA: a IA conduz a conversa e chama ferramentas determinísticas.
+  if (chatbot?.mode === 'ai_journey' && chatbot.formId) {
+    const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
+    if (form?.active) {
+      const { processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
+      await processAiJourneyMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, conn.funnelId ?? null, conn.stageKey ?? null, contactName)
+      return
+    }
+  }
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {

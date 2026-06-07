@@ -5,7 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
-import { processChatbotMessage } from '../services/chatbotFlow.js'
+import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/teamRouting.js'
@@ -744,7 +744,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
         where: { instanceName: inboundInstance },
         select: { chatbotId: true, funnelId: true, stageKey: true }
       })
-      const hasChatbot = whatsappInstance?.chatbotId != null
+      // Gate de ativação por palavra-chave: se o chatbot exige gatilho e a mensagem
+      // (cold start) não casa, trata como SEM chatbot → atendimento humano.
+      const hasChatbot = whatsappInstance?.chatbotId != null && await chatbotTriggerAllows(whatsappInstance.chatbotId, phone, cleanMsg)
 
       if (!hasChatbot) {
         // Sem chatbot vinculado — apenas salvar mensagem no atendimento, sem IA
@@ -865,6 +867,15 @@ export async function whatsappRoutes(app: FastifyInstance) {
       const chatbot = cbId ? await prisma.chatbot.findUnique({ where: { id: cbId } }) : null
       const promoteFunnelId = whatsappInstance?.funnelId ?? null
       const promoteStageKey = whatsappInstance?.stageKey ?? null
+      // Jornada 100% IA: a IA conduz a conversa e chama ferramentas determinísticas.
+      if (chatbot?.mode === 'ai_journey' && chatbot.formId) {
+        const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
+        if (form?.active) {
+          const { processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
+          await processAiJourneyMessage(phone, cleanMsg, app, messageId, evoSendFn, 'evolution', originData, cbId, inboundInstance, chatbot, form, null, promoteFunnelId, promoteStageKey, data.pushName || null)
+          return { ok: true }
+        }
+      }
       if (chatbot?.mode === 'scripted' && chatbot.formId) {
         const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
         if (form?.active) {

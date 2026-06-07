@@ -190,7 +190,7 @@ async function callOpenAIChat(systemPrompt: string, messages: Array<{role: strin
   return data.choices?.[0]?.message?.content || ''
 }
 
-async function chatWithAI(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
+export async function chatWithAI(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
   try {
     return await callAnthropicChat(systemPrompt, messages)
   } catch (errA) {
@@ -316,6 +316,29 @@ async function getAttendantName(chatbotId: number | null): Promise<string> {
   } catch {
     return ''
   }
+}
+
+// Gate de ativação do chatbot por palavra-chave. Retorna true se o bot DEVE rodar.
+// - triggerMode 'always' (ou sem palavras) → sempre roda (comportamento atual).
+// - 'keyword' → só inicia se a mensagem (lead em "cold start") CONTÉM uma das palavras;
+//   lead já dentro de um fluxo ativo continua sempre (não re-filtra no meio).
+// Quando retorna false, o webhook trata como "sem chatbot" → atendimento humano.
+export async function chatbotTriggerAllows(chatbotId: number | null | undefined, phone: string, msgText: string): Promise<boolean> {
+  if (!chatbotId) return false
+  const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { triggerMode: true, triggerKeywords: true } }).catch(() => null)
+  if (!cb || cb.triggerMode !== 'keyword') return true
+  const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)
+  if (!kws.length) return true
+  // Lead já em fluxo ativo → não bloqueia (continua a conversa em andamento).
+  const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' }, select: { completed: true, formData: true } }).catch(() => null)
+  const fd: any = lead?.formData || {}
+  const aiActive = fd._aiJourney && fd._aiJourney.phase === 'active'
+  const scrActive = fd._script && fd._script.phase && !['done', 'disqualified'].includes(fd._script.phase)
+  if (!lead?.completed && (aiActive || scrActive)) return true
+  // Cold start → exige conter uma palavra-chave (case/acento-insensível).
+  const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  const t = norm(msgText)
+  return kws.some((k) => t.includes(norm(k)))
 }
 
 export async function processChatbotMessage(
