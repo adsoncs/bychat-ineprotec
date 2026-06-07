@@ -254,6 +254,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           enrollment_portal_interest: 'Portal de Matrícula (Interesse)',
           portal_chat: 'Chat do Portal',
           landing_page: 'Landing Page',
+          scheduling: 'Agendamento',
           manual: 'Manual',
           api: 'API',
           chatbot: 'Chatbot',
