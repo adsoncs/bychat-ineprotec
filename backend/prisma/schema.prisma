@@ -580,6 +580,12 @@ model Chatbot {
   // desqualificado e volta a mandar mensagem, a IA responde com contexto do desfecho.
   postChatAi        Boolean  @default(false)
   postChatPrompt    String?  @db.Text // instruções da IA pós-atendimento (vazio = usa systemPrompt)
+  // Interpretação por IA das respostas no chatbot scripted: quando ligado e a
+  // resposta a um select NÃO casa de forma determinística, a IA mapeia o texto
+  // livre para a opção mais próxima (ou 'unclear' → reask). A IA só INTERPRETA;
+  // o roteamento de etapa continua determinístico (resolveQualification).
+  aiInterpret       Boolean  @default(false)
+  interpretPrompt   String?  @db.Text // instrução extra p/ o classificador (vazio = prompt padrão)
   funnelId          Int?
   funnel            Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   systemPrompt      String   @db.LongText
@@ -4204,6 +4210,10 @@ model Booking {
 
   cancelReason      String? @db.VarChar(255)
   rescheduledFromId Int?
+  // Confirmação do lead (status scheduled→confirmed). confirmRequestedAt marca quando
+  // enviamos o pedido de confirmação (HSM) — escopo do auto-cancelamento 3h antes.
+  confirmRequestedAt DateTime?
+  confirmedAt        DateTime?
   source            String  @default("scheduling") @db.VarChar(30)
   visitorId         String? @db.VarChar(64)
   utmSource         String? @db.VarChar(191)

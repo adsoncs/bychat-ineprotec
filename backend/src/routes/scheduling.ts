@@ -363,6 +363,8 @@ export async function schedulingRoutes(app: FastifyInstance) {
           title: b.inviteeName || (b.leadId ? leadMap.get(b.leadId) : '') || t?.name || 'Reunião',
           startAt: b.startAt.toISOString(), endAt: b.endAt.toISOString(), allDay: false,
           status: b.status, color: t?.color || '#1a73e8',
+          confirmedAt: b.confirmedAt ? b.confirmedAt.toISOString() : null,
+          confirmRequestedAt: b.confirmRequestedAt ? b.confirmRequestedAt.toISOString() : null,
           meetingTypeName: t?.name ?? null, locationType: b.locationType || t?.locationType || null,
           meetLink: b.meetLink ?? null,
           operatorUserId: b.operatorUserId ?? null, operatorName: b.operatorUserId ? (opMap.get(b.operatorUserId) ?? null) : null,

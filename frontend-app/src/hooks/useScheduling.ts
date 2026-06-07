@@ -148,6 +148,8 @@ export interface CalendarEvent {
   allDay: boolean
   status: string
   color: string
+  confirmedAt?: string | null
+  confirmRequestedAt?: string | null
   note?: string | null
   meetingTypeName?: string | null
   locationType?: string | null

@@ -255,19 +255,23 @@ function createEvolutionProviderFor(instanceName: string): EvolutionProvider {
  * (provider lead-based / default).
  */
 export async function getProviderForLeadOwner(lead: { id: number; whatsapp: string }): Promise<{ provider: WhatsAppProvider; instanceName: string | null }> {
-  // Canal de ORIGEM do lead: se conversou pela Cloud API, mantém Cloud API.
-  const cloudMsg = await prisma.message.findFirst({
-    where: { leadId: lead.id, provider: 'cloud_api' },
+  // A Cloud API só entrega TEXTO LIVRE dentro da janela de 24h (a partir da última
+  // mensagem RECEBIDA do lead). Só mantemos a conversa na Cloud API se a janela
+  // estiver aberta; senão o número é "frio" (ex.: lead de formulário/landing/
+  // tráfego pago) e o texto livre seria rejeitado pela Meta (erro 131047/131026).
+  // Nesse caso usamos a Evolution, que entrega texto livre a qualquer número.
+  const openWindow = await prisma.message.findFirst({
+    where: { leadId: lead.id, provider: 'cloud_api', fromMe: false, createdAt: { gt: new Date(Date.now() - 24 * 3600000) } },
     select: { id: true },
   })
-  if (cloudMsg) {
+  if (openWindow) {
     const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (cloudConn) {
       return { provider: new CloudApiProvider(cloudConn.phoneNumberId, cloudConn.systemUserToken), instanceName: null }
     }
   }
 
-  // Busca dono do lead → instância dele
+  // Busca dono do lead → instância dedicada dele (Evolution)
   const leadInfo = await prisma.lead.findUnique({
     where: { id: lead.id },
     select: { assignedUserId: true },
@@ -283,10 +287,11 @@ export async function getProviderForLeadOwner(lead: { id: number; whatsapp: stri
     }
   }
 
-  // Fallback legado (histórico ou default env)
-  const provider = await getProviderForLead(lead)
-  const inst = provider instanceof EvolutionProvider ? provider.instanceName : (process.env.EVOLUTION_INSTANCE ?? null)
-  return { provider, instanceName: inst }
+  // Sem janela Cloud aberta e sem instância dedicada do dono → Evolution padrão
+  // (beyond-main), que entrega texto livre ao número frio. NÃO cai na Cloud API,
+  // que rejeitaria o texto livre fora da janela de 24h.
+  const provider = createEvolutionProvider()
+  return { provider, instanceName: provider.instanceName }
 }
 
 /**

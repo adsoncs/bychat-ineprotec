@@ -85,10 +85,31 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
 
     const lead = await prisma.lead.findUnique({
       where: { id: activity.leadId },
-      select: { nome: true, empresa: true, email: true, whatsapp: true },
+      select: { id: true, nome: true, empresa: true, email: true, whatsapp: true },
     })
 
-    for (const integration of matched) {
+    // Agendamentos (bookings): por configuração, a reunião é criada na agenda CENTRAL
+    // (ex.: contato@agenciabeyond.com.br) com o operador dono como convidado — em vez de
+    // cair só no calendário do dono. Setting: scheduling.central_calendar_email.
+    let targetIntegrations = matched
+    const extraAttendees: string[] = []
+    const meta0 = (activity.metadata as any) || {}
+    if (meta0.bookingId) {
+      const setting = await prisma.setting.findUnique({ where: { key: 'scheduling.central_calendar_email' } }).catch(() => null)
+      const centralEmail = setting ? String(setting.value).replace(/"/g, '').trim().toLowerCase() : ''
+      if (centralEmail) {
+        const central = integrations.find((i) => i.calendarId.toLowerCase() === centralEmail && i.activityTypes.includes(activity.type))
+        if (central) {
+          targetIntegrations = [central]
+          if (activity.userId) {
+            const owner = await prisma.user.findUnique({ where: { id: activity.userId }, select: { email: true } })
+            if (owner?.email) extraAttendees.push(owner.email)
+          }
+        }
+      }
+    }
+
+    for (const integration of targetIntegrations) {
       const startTime = Date.now()
       try {
         const start = activity.scheduledAt
@@ -96,6 +117,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
 
         const attendees: string[] = []
         if (lead?.email) attendees.push(lead.email)
+        for (const a of extraAttendees) if (!attendees.includes(a)) attendees.push(a)
 
         const description = [
           activity.description || '',
@@ -149,7 +171,9 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
         const scope = integration.connectionKind === 'OPERATOR' ? 'op' : 'co'
         console.log(`[Calendar:${scope}] Activity #${activityId} synced → event ${result.eventId} (${duration}ms)${result.meetLink ? ' + Meet link' : ''}`)
 
-        if (integration.notifyLead && result.meetLink && lead?.whatsapp) {
+        // Para agendamentos (bookings) a confirmação por WhatsApp é feita por notifyBooking
+        // (template HSM) — não disparar aqui pra não duplicar nem cair em texto livre.
+        if (integration.notifyLead && result.meetLink && lead?.whatsapp && !meta0.bookingId) {
           try {
             // Notificação pelo número do dono do lead (não pelo default da env)
             // pra preservar identidade do operador no histórico do contato.

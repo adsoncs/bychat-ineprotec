@@ -12,6 +12,7 @@ import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/orig
 import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
+import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { writeFileSync, mkdirSync } from 'fs'
@@ -259,6 +260,14 @@ async function processIncomingMessage(
 
   // Sem conteúdo de texto nem mídia — nada a registrar
   if (!msgText && mediaType === 'text') return
+
+  // Confirmação de agendamento: lead com reserva pendente tocou no botão "Confirmar
+  // reunião" (type button/interactive) ou respondeu afirmativo. Marca confirmada e
+  // responde — sem deixar o chatbot tratar o "Sim" como conversa.
+  try {
+    const confirmed = await tryConfirmBookingReply(phone, msgText, msgType === 'button' || msgType === 'interactive')
+    if (confirmed) return
+  } catch (e) { app.log.warn(`Booking confirm error: ${e}`) }
 
   // Detectar origem da conversa (Cloud API pode ter referral de CTWA ads)
   let originData = null

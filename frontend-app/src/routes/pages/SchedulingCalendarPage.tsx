@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, X, Trash2, MapPin,
-  Video, User as UserIcon, ExternalLink, Ban, Clock,
+  Video, User as UserIcon, ExternalLink, Ban, Clock, BadgeCheck,
 } from 'lucide-preact'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -330,7 +330,11 @@ function TimeGrid({ days, events, onEvent, onAddAt }: {
                     <button key={ev.id} onClick={() => onEvent(ev)}
                       class="absolute rounded-md px-1.5 py-0.5 text-left text-white overflow-hidden border border-white/20 shadow-sm"
                       style={`top:${top}px;height:${dur}px;left:calc(${lane * w}% + 1px);width:calc(${w}% - 2px);background:${ev.color};${struck ? 'opacity:.55' : ''}`}>
-                      <div class={`text-[0.6875rem] font-medium leading-tight truncate ${struck ? 'line-through' : ''}`}>{ev.title}</div>
+                      <div class={`flex items-center gap-1 text-[0.6875rem] font-medium leading-tight ${struck ? 'line-through' : ''}`}>
+                        {ev.kind === 'booking' && (ev.status === 'confirmed' || ev.confirmedAt) && <BadgeCheck size={11} class="shrink-0" />}
+                        {ev.kind === 'booking' && ev.status !== 'confirmed' && !ev.confirmedAt && ev.confirmRequestedAt && <Clock size={11} class="shrink-0 opacity-80" />}
+                        <span class="truncate">{ev.title}</span>
+                      </div>
                       <div class="text-[0.625rem] opacity-90 truncate">{hm(s)}–{hm(e)}</div>
                     </button>
                   )
@@ -438,6 +442,24 @@ function EventDetail({ event, onClose, onEditBlock }: {
       title={event.title}
       description={`${KIND_LABEL[event.kind] ?? event.kind} · ${STATUS_LABEL[event.status] ?? event.status}`}>
       <div class="space-y-3 text-sm">
+        {event.kind === 'booking' && event.status !== 'cancelled' && event.status !== 'no_show' && (() => {
+          const confirmed = event.status === 'confirmed' || !!event.confirmedAt
+          if (confirmed) return (
+            <div class="inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success px-2.5 py-1 text-xs font-medium">
+              <BadgeCheck size={14} /> Confirmada pelo lead
+            </div>
+          )
+          if (event.confirmRequestedAt) return (
+            <div class="inline-flex items-center gap-1.5 rounded-full bg-warning/15 text-warning px-2.5 py-1 text-xs font-medium">
+              <Clock size={14} /> Aguardando confirmação
+            </div>
+          )
+          return (
+            <div class="inline-flex items-center gap-1.5 rounded-full bg-surface-2 text-fg-muted px-2.5 py-1 text-xs font-medium">
+              Não confirmada
+            </div>
+          )
+        })()}
         <div class="flex items-center gap-2 text-fg"><Clock size={15} class="text-fg-muted" /> <span class="capitalize">{when}</span></div>
         {event.operatorName && <div class="flex items-center gap-2"><UserIcon size={15} class="text-fg-muted" /> {event.operatorName}</div>}
         {event.meetingTypeName && <div class="flex items-center gap-2"><CalendarDays size={15} class="text-fg-muted" /> {event.meetingTypeName}</div>}
