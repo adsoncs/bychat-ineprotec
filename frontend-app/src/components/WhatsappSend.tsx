@@ -13,7 +13,7 @@
 //   - <SendWhatsAppButton ... compact /> → ícone-only (kanban/listas estreitas)
 //   - <WhatsappChoiceModal ... /> → controle manual do modal (já está aberto)
 
-import { useState } from 'preact/hooks'
+import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ArrowLeft } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
@@ -115,6 +115,15 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   const channels = channelsData?.channels ?? []
   const [channelId, setChannelId] = useState<string | null>(null)
   const channel = channels.find((c) => c.id === channelId) ?? null
+
+  // Pré-seleciona o canal de ENTRADA do lead (o número pelo qual ele falou por
+  // último), sugerido pelo backend — assim a resposta sai pelo mesmo número que
+  // o lead usou. O operador ainda pode trocar (botão de trocar número).
+  useEffect(() => {
+    if (channelId) return
+    const suggested = channelsData?.suggestedChannelId
+    if (suggested && channels.some((c) => c.id === suggested)) setChannelId(suggested)
+  }, [channelsData])
   const isCloud = channel?.provider === 'cloud_api'
   const windowOpen = channel?.window?.open ?? false
 

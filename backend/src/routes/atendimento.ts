@@ -465,7 +465,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             // admin sem instância usa default). Agora também resolve conexão
             // Cloud dedicada do remetente (paridade Evolution).
             const r = await wp.getProviderForSender(lead, { userId: user.userId, role: user.role })
-            provider = r.provider; instanceName = r.instanceName
+            provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId ?? null
           }
           sentProvider = provider.providerName
           sentInstance = instanceName

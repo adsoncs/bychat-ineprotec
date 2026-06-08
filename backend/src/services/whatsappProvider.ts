@@ -311,24 +311,52 @@ export async function getProviderForLeadOwner(lead: { id: number; whatsapp: stri
 export async function getProviderForSender(
   lead: { id: number; whatsapp: string },
   sender: { userId: number; role: string },
-): Promise<{ provider: WhatsAppProvider; instanceName: string | null }> {
-  // 1. Canal de ORIGEM do lead manda: se o lead já conversou pela Cloud API,
-  //    a resposta sai pela Cloud API (número compartilhado). Leads Evolution
-  //    (ou sem histórico) seguem para a instância dedicada do agente abaixo —
-  //    senão respostas a leads Evolution sairiam do número errado.
-  const cloudMsg = await prisma.message.findFirst({
-    where: { leadId: lead.id, provider: 'cloud_api' },
-    select: { id: true },
+): Promise<{ provider: WhatsAppProvider; instanceName: string | null; cloudApiConnectionId?: number | null }> {
+  // 1. Canal de ENTRADA do lead manda: a resposta sai pelo MESMO canal/número
+  //    pela qual o lead falou por último — seja Cloud API ou Evolution. Olha a
+  //    ÚLTIMA mensagem do lead (priorizando a última RECEBIDA, fromMe=false), e
+  //    NÃO a mera existência de uma mensagem Cloud no histórico. (A regra antiga
+  //    — "se existe qualquer msg cloud_api, responde pela Cloud" — privilegiava
+  //    a Cloud API para sempre, mesmo depois da conversa migrar para a Evolution.)
+  const lastInbound = await prisma.message.findFirst({
+    where: { leadId: lead.id, fromMe: false, isInternal: false },
+    orderBy: { timestamp: 'desc' },
+    select: { provider: true, evolutionInstance: true, cloudApiConnectionId: true },
   })
-  if (cloudMsg) {
-    const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+  const channelMsg = lastInbound ?? await prisma.message.findFirst({
+    where: { leadId: lead.id, isInternal: false },
+    orderBy: { timestamp: 'desc' },
+    select: { provider: true, evolutionInstance: true, cloudApiConnectionId: true },
+  })
+  if (channelMsg?.provider === 'cloud_api') {
+    // Usa a conexão Cloud EXATA pela qual o lead falou (não a "primeira ativa").
+    const cloudConn =
+      (channelMsg.cloudApiConnectionId
+        ? await prisma.cloudApiConnection.findFirst({ where: { id: channelMsg.cloudApiConnectionId, active: true } })
+        : null)
+      ?? await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (cloudConn) {
       return {
         provider: new CloudApiProvider(cloudConn.phoneNumberId, cloudConn.systemUserToken),
         instanceName: null,
+        cloudApiConnectionId: cloudConn.id,
       }
     }
+  } else if (channelMsg?.provider === 'evolution' && channelMsg.evolutionInstance) {
+    // Responde pela MESMA instância Evolution pela qual o lead falou (espelha o
+    // número de entrada, mesmo que não seja a instância dedicada do operador).
+    const inst = await prisma.whatsAppInstance.findFirst({
+      where: { instanceName: channelMsg.evolutionInstance, active: true },
+      select: { instanceName: true },
+    })
+    const instanceName = inst?.instanceName ?? channelMsg.evolutionInstance
+    return {
+      provider: createEvolutionProviderFor(instanceName),
+      instanceName,
+      cloudApiConnectionId: null,
+    }
   }
+  // Sem histórico de canal identificável → segue para o canal do remetente.
 
   // 2. Sender com instância Evolution dedicada → usa a dele
   const ownInstance = await prisma.whatsAppInstance.findFirst({
@@ -350,12 +378,13 @@ export async function getProviderForSender(
   const ownCloud = await prisma.cloudApiConnection.findFirst({
     where: { ownerUserId: sender.userId, active: true },
     orderBy: { id: 'asc' },
-    select: { phoneNumberId: true, systemUserToken: true },
+    select: { id: true, phoneNumberId: true, systemUserToken: true },
   })
   if (ownCloud) {
     return {
       provider: new CloudApiProvider(ownCloud.phoneNumberId, ownCloud.systemUserToken),
       instanceName: null,
+      cloudApiConnectionId: ownCloud.id,
     }
   }
 
@@ -441,11 +470,22 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
 
 /** Resolve o canal SUGERIDO pela origem do lead (último número que falou com ele). */
 export async function suggestChannelForLead(leadId: number): Promise<string | null> {
-  const last = await prisma.message.findFirst({
-    where: { leadId },
-    orderBy: { timestamp: 'desc' },
-    select: { provider: true, evolutionInstance: true, cloudApiConnectionId: true },
-  })
+  // Sugere o canal de ENTRADA do lead: a última mensagem RECEBIDA (fromMe=false)
+  // define por onde ele falou por último. Só cai para a última mensagem qualquer
+  // quando não há nenhuma recebida (ex.: primeiro contato 100% outbound). Usar a
+  // última msg "qualquer" sozinha criava um ciclo: uma resposta enviada pela Cloud
+  // passava a sugerir Cloud para sempre, mesmo após o lead voltar pela Evolution.
+  const last =
+    (await prisma.message.findFirst({
+      where: { leadId, fromMe: false, isInternal: false },
+      orderBy: { timestamp: 'desc' },
+      select: { provider: true, evolutionInstance: true, cloudApiConnectionId: true },
+    }))
+    ?? (await prisma.message.findFirst({
+      where: { leadId, isInternal: false },
+      orderBy: { timestamp: 'desc' },
+      select: { provider: true, evolutionInstance: true, cloudApiConnectionId: true },
+    }))
   if (!last) return null
   if (last.provider === 'cloud_api' && last.cloudApiConnectionId) return cloudChannelId(last.cloudApiConnectionId)
   if (last.provider === 'evolution' && last.evolutionInstance) return evoChannelId(last.evolutionInstance)
