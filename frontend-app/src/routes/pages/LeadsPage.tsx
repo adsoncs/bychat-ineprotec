@@ -18,6 +18,7 @@ import {
   useLeads,
   useCreateManualLead,
   useDeleteLead,
+  getRegistrationConflict,
   useLeadNotes,
   useCreateLeadNote,
   useLead,
@@ -131,6 +132,7 @@ export function LeadsPage() {
   const [answersLeadId, setAnswersLeadId] = useState<number | null>(null)
   const [whatsappLead, setWhatsappLead] = useState<{ id: number; whatsapp: string | null } | null>(null)
   const [confirmDeleteLead, setConfirmDeleteLead] = useState<{ id: number; label: string } | null>(null)
+  const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [transferLead, setTransferLead] = useState<{ id: number; label: string } | null>(null)
   const [moveToKanbanLead, setMoveToKanbanLead] = useState<number | null>(null)
 
@@ -470,15 +472,21 @@ export function LeadsPage() {
       {confirmDeleteLead !== null && (
         <ConfirmDialog
           open
-          onOpenChange={(o) => { if (!o) setConfirmDeleteLead(null) }}
+          onOpenChange={(o) => { if (!o) { setConfirmDeleteLead(null); setForceDeleteReg(null) } }}
           title={`Excluir lead "${confirmDeleteLead.label}"`}
-          description="O lead vai para a lixeira e pode ser restaurado."
+          description={forceDeleteReg !== null
+            ? `⚠️ Este lead tem ${forceDeleteReg} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las — elas ficam órfãs no módulo de Matrículas (sem lead). Confirme para apagar mesmo assim.`
+            : 'O lead vai para a lixeira e pode ser restaurado.'}
           destructive
-          confirmLabel="Excluir"
+          confirmLabel={forceDeleteReg !== null ? 'Apagar mesmo assim' : 'Excluir'}
           loading={delMut.isPending}
-          onConfirm={() => delMut.mutate(confirmDeleteLead.id, {
-            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDeleteLead(null) },
-            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          onConfirm={() => delMut.mutate({ id: confirmDeleteLead.id, force: forceDeleteReg !== null }, {
+            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDeleteLead(null); setForceDeleteReg(null) },
+            onError: (e: unknown) => {
+              const c = getRegistrationConflict(e)
+              if (c && forceDeleteReg === null) setForceDeleteReg(c.count)
+              else toast((e as Error).message, 'danger')
+            },
           })}
         />
       )}
@@ -777,18 +785,25 @@ function BulkStatusModal({ leadIds, onClose, onDone }: { leadIds: number[]; onCl
 
 function BulkDeleteDialog({ leadIds, onClose, onDone }: { leadIds: number[]; onClose: () => void; onDone: () => void }) {
   const mutation = useBulkDeleteLeads()
+  const [forceReg, setForceReg] = useState<{ leads: number; regs: number } | null>(null)
   return (
     <ConfirmDialog
       open
       onOpenChange={(o) => { if (!o) onClose() }}
       title={`Excluir ${leadIds.length} leads`}
-      description="Os leads vão para a lixeira e podem ser restaurados pelo painel de Lixeira."
+      description={forceReg
+        ? `⚠️ ${forceReg.leads} dos leads selecionados têm inscrições no portal de matrículas (${forceReg.regs} no total). Apagá-los vai desvinculá-las — ficam órfãs no módulo de Matrículas. Confirme para apagar mesmo assim.`
+        : 'Os leads vão para a lixeira e podem ser restaurados pelo painel de Lixeira.'}
       destructive
-      confirmLabel="Excluir"
+      confirmLabel={forceReg ? 'Apagar mesmo assim' : 'Excluir'}
       loading={mutation.isPending}
-      onConfirm={() => mutation.mutate(leadIds, {
+      onConfirm={() => mutation.mutate({ leadIds, force: forceReg !== null }, {
         onSuccess: (r) => { toast(`${r.deleted} leads movidos para a lixeira`, 'success'); onDone() },
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        onError: (e: unknown) => {
+          const c = getRegistrationConflict(e)
+          if (c && !forceReg) setForceReg({ leads: c.leadIds?.length ?? 0, regs: c.count })
+          else toast((e as Error).message, 'danger')
+        },
       })}
     />
   )
@@ -1675,6 +1690,7 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
   const { data: lead, isLoading } = useLead(id)
   const [tab, setTab] = useState<DetailTab>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const delMut = useDeleteLead()
@@ -1829,15 +1845,21 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
       {confirmDelete && (
         <ConfirmDialog
           open
-          onOpenChange={(o) => { if (!o) setConfirmDelete(false) }}
+          onOpenChange={(o) => { if (!o) { setConfirmDelete(false); setForceDeleteReg(null) } }}
           title={`Excluir lead "${lead?.empresa ?? id}"`}
-          description="O lead vai para a lixeira e pode ser restaurado."
+          description={forceDeleteReg !== null
+            ? `⚠️ Este lead tem ${forceDeleteReg} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las — elas ficam órfãs no módulo de Matrículas (sem lead). Confirme para apagar mesmo assim.`
+            : 'O lead vai para a lixeira e pode ser restaurado.'}
           destructive
-          confirmLabel="Excluir"
+          confirmLabel={forceDeleteReg !== null ? 'Apagar mesmo assim' : 'Excluir'}
           loading={delMut.isPending}
-          onConfirm={() => delMut.mutate(id, {
-            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDelete(false); onClose() },
-            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          onConfirm={() => delMut.mutate({ id, force: forceDeleteReg !== null }, {
+            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDelete(false); setForceDeleteReg(null); onClose() },
+            onError: (e: unknown) => {
+              const c = getRegistrationConflict(e)
+              if (c && forceDeleteReg === null) setForceDeleteReg(c.count)
+              else toast((e as Error).message, 'danger')
+            },
           })}
         />
       )}
