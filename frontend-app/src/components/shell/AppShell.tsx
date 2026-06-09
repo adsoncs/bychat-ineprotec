@@ -6,6 +6,8 @@ import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { CommandPalette } from './CommandPalette'
 import { CallWidget } from '@/components/voip/CallWidget'
+import { WaCallWidget } from '@/components/voip/WaCallWidget'
+import { initWaCallManager } from '@/lib/waCallManager'
 
 interface AppShellProps {
   children: ComponentChildren
@@ -28,6 +30,10 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Inicializa o gerenciador de chamadas WhatsApp (WebRTC): escuta os eventos
+  // wa_call:* do WebSocket e controla a mídia. Cleanup ao desmontar.
+  useEffect(() => initWaCallManager(), [])
+
   return (
     <div class="app-shell" data-shell-layout={layout}>
       <a href="#main-content" class="skip-link">
@@ -40,6 +46,7 @@ export function AppShell({ children }: AppShellProps) {
       </main>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <CallWidget />
+      <WaCallWidget />
     </div>
   )
 }

@@ -93,6 +93,7 @@ import { googleAdsRoutes } from './routes/googleAds.js'
 import { googleAdsReportRoutes } from './routes/googleAdsReport.js'
 import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
+import { waCallsRoutes } from './routes/waCalls.js'
 import { schedulingRoutes } from './routes/scheduling.js'
 import { schedulingPublicRoutes } from './routes/schedulingPublic.js'
 import { legalRoutes } from './routes/legal.js'
@@ -498,6 +499,7 @@ await app.register(googleAdsRoutes)
 await app.register(googleAdsReportRoutes)
 await app.register(utmsRoutes)
 await app.register(voipRoutes)
+await app.register(waCallsRoutes)
 await app.register(schedulingRoutes)
 await app.register(schedulingPublicRoutes)
 await app.register(legalRoutes)
