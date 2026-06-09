@@ -5,6 +5,7 @@ import { useState } from 'preact/hooks'
 import { Phone } from 'lucide-preact'
 import { startOutbound, requestCallPermission } from '@/lib/waCallManager'
 import { useWaCall } from '@/stores/waCall'
+import { env } from '@/lib/env'
 import { cn } from '@/lib/cn'
 
 interface WaCallButtonProps {
@@ -18,6 +19,9 @@ interface WaCallButtonProps {
 export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null, class: className, label }: WaCallButtonProps) {
   const [busy, setBusy] = useState(false)
   const inCall = useWaCall((s) => s.call !== null)
+
+  // Oculto até a Calling API ser habilitada (Meta + backend) — ver env.waCalling.
+  if (!env.waCalling) return null
 
   async function onClick() {
     if (busy || inCall || !phone) return
