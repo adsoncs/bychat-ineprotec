@@ -12,6 +12,7 @@ import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/orig
 import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
+import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
@@ -99,6 +100,23 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
           if (change.field === 'message_template_quality_update') {
             await handleTemplateQualityWebhook(wabaId, value).catch(err =>
               app.log.error(`[CloudAPI] template quality update error: ${err.message}`))
+            continue
+          }
+
+          // ── Chamadas de voz (WhatsApp Business Calling API) ──
+          // Requer o campo `calls` habilitado no Webhook do App Meta.
+          if (change.field === 'calls') {
+            const callPhoneNumberId = value.metadata?.phone_number_id || ''
+            const callConn = await prisma.cloudApiConnection.findFirst({
+              where: { active: true, phoneNumberId: callPhoneNumberId },
+              select: { id: true, phoneNumberId: true, ownerUserId: true },
+            })
+            if (!callConn) {
+              app.log.warn(`[CloudAPI][calls] No connection for phoneNumberId ${callPhoneNumberId}`)
+              continue
+            }
+            await handleCallsWebhook(value, callConn, app).catch(err =>
+              app.log.error(`[CloudAPI][calls] handler error: ${err.message}`))
             continue
           }
 
