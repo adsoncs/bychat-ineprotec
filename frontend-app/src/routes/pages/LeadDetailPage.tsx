@@ -25,6 +25,7 @@ import {
 import { LeadDetailToc } from '@/components/LeadDetailToc'
 import { LeadOutcomeControls, OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
+import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
@@ -243,6 +244,8 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
         <CallButton leadId={id} phone={lead.whatsapp} />
+
+        <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} />
 
         <div class="ml-auto">
           <ActionsMenu actions={actions} />

@@ -16,6 +16,7 @@
 // não foi habilitada na WABA, validar os nomes de campo no primeiro teste ao vivo.
 
 import { cloudApiFetch } from './cloudApi.js'
+import { prisma } from '../lib/prisma.js'
 
 export type CallAction = 'connect' | 'pre_accept' | 'accept' | 'reject' | 'terminate'
 export type SdpType = 'offer' | 'answer'
@@ -167,6 +168,58 @@ export async function getCallPermissions(
     token,
     'GET'
   )
+}
+
+/**
+ * Envia um pedido de permissão de chamada (call permission request) ao consumidor.
+ * Necessário antes de uma chamada business-initiated quando ainda não há permissão.
+ * OBS: forma do payload (interactive call_permission_request) a confirmar no 1º teste.
+ */
+export async function sendCallPermissionRequest(
+  phoneNumberId: string,
+  token: string,
+  to: string,
+  bodyText = 'Podemos te ligar pelo WhatsApp para falar sobre seu atendimento?'
+): Promise<any> {
+  return cloudApiFetch(`/${phoneNumberId}/messages`, token, 'POST', {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'call_permission_request',
+      body: { text: bodyText },
+      action: { name: 'call_permission_request' },
+    },
+  })
+}
+
+// ─── Persistência de permissão (opt-in) ─────────────────
+
+/** Grava/atualiza o estado de permissão de chamada de um consumidor. */
+export async function upsertCallPermission(
+  phone: string,
+  phoneNumberId: string,
+  status: string,
+  expiresAt?: Date | null
+): Promise<void> {
+  await prisma.waCallPermission.upsert({
+    where: { phone_phoneNumberId: { phone, phoneNumberId } },
+    create: { phone, phoneNumberId, status, expiresAt: expiresAt ?? null },
+    update: { status, expiresAt: expiresAt ?? null },
+  })
+}
+
+/** True se o consumidor concedeu permissão válida (temporary/permanent não expirada). */
+export async function hasCallPermission(phone: string, phoneNumberId: string): Promise<boolean> {
+  const perm = await prisma.waCallPermission.findUnique({
+    where: { phone_phoneNumberId: { phone, phoneNumberId } },
+  })
+  if (!perm) return false
+  const granted = perm.status === 'temporary' || perm.status === 'permanent'
+  if (!granted) return false
+  if (perm.expiresAt && perm.expiresAt.getTime() < Date.now()) return false
+  return true
 }
 
 // ─── Readiness ──────────────────────────────────────────

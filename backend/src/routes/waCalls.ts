@@ -13,22 +13,33 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { decryptToken } from '../services/cloudApi.js'
-import { acceptCall, rejectCall, terminateCall, connectCall } from '../services/cloudApiCalling.js'
+import {
+  acceptCall,
+  rejectCall,
+  terminateCall,
+  connectCall,
+  hasCallPermission,
+  sendCallPermissionRequest,
+} from '../services/cloudApiCalling.js'
 import { getTurnCredentials, isTurnReady } from '../lib/turnCredentials.js'
+import { normalizePhone } from '../services/cloudApi.js'
 
 interface ConnResolved {
   phoneNumberId: string
   token: string
 }
 
-/** Resolve a conexão Cloud API e o token a partir do id (ou do phoneNumberId). */
+/**
+ * Resolve a conexão Cloud API e o token. Por id ou phoneNumberId; na ausência,
+ * cai para a única conexão ativa (tenants com 1 número) — assim o painel só
+ * precisa passar o telefone do cliente.
+ */
 async function resolveConnection(body: any): Promise<ConnResolved | null> {
   const where: any = { active: true }
   if (body?.cloudApiConnectionId) where.id = Number(body.cloudApiConnectionId)
   else if (body?.phoneNumberId) where.phoneNumberId = String(body.phoneNumberId)
-  else return null
 
-  const conn = await prisma.cloudApiConnection.findFirst({ where })
+  const conn = await prisma.cloudApiConnection.findFirst({ where, orderBy: { id: 'asc' } })
   if (!conn) return null
   return { phoneNumberId: conn.phoneNumberId, token: decryptToken(conn.systemUserToken) }
 }
@@ -102,11 +113,39 @@ export async function waCallsRoutes(app: FastifyInstance) {
     const conn = await resolveConnection(req.body)
     if (!conn) return reply.code(404).send({ error: 'Conexão Cloud API não encontrada' })
 
+    const to = normalizePhone(body.to)
+
+    // Gate de opt-in: chamada business-initiated exige permissão do consumidor.
+    const allowed = await hasCallPermission(to, conn.phoneNumberId)
+    if (!allowed) {
+      return reply.code(403).send({
+        error: 'no_permission',
+        message: 'O cliente ainda não autorizou chamadas. Envie um pedido de permissão primeiro.',
+      })
+    }
+
     try {
-      const res = await connectCall(conn.phoneNumberId, conn.token, body.to, body.sdpOffer)
+      const res = await connectCall(conn.phoneNumberId, conn.token, to, body.sdpOffer)
       return { ok: true, callId: res.callId }
     } catch (e: any) {
       app.log.error(`[wa-calls] connect error: ${e.message}`)
+      return reply.code(502).send({ error: e.message })
+    }
+  })
+
+  // Envia um pedido de permissão de chamada ao consumidor (opt-in).
+  app.post('/api/wa-calls/request-permission', { preHandler: authMiddleware }, async (req, reply) => {
+    const body = req.body as { to?: string; bodyText?: string }
+    if (!body?.to) return reply.code(400).send({ error: 'to obrigatório' })
+
+    const conn = await resolveConnection(req.body)
+    if (!conn) return reply.code(404).send({ error: 'Conexão Cloud API não encontrada' })
+
+    try {
+      await sendCallPermissionRequest(conn.phoneNumberId, conn.token, normalizePhone(body.to), body.bodyText)
+      return { ok: true }
+    } catch (e: any) {
+      app.log.error(`[wa-calls] request-permission error: ${e.message}`)
       return reply.code(502).send({ error: e.message })
     }
   })

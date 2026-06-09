@@ -158,10 +158,14 @@ export async function hangup(): Promise<void> {
   cleanup('ended')
 }
 
-/** Inicia uma chamada de saída para `to` (E.164 sem +). Requer permissão (Fase 4). */
+/**
+ * Inicia uma chamada de saída para `to` (E.164 sem +). Requer permissão (opt-in).
+ * `cloudApiConnectionId` é opcional — o backend cai para a única conexão ativa.
+ * Retorna { ok:false, error:'no_permission' } quando falta o opt-in do cliente.
+ */
 export async function startOutbound(
   to: string,
-  cloudApiConnectionId: number,
+  cloudApiConnectionId: number | null = null,
   leadId: number | null = null
 ): Promise<{ ok: boolean; error?: string }> {
   if (store().call) return { ok: false, error: 'Já existe uma chamada em andamento' }
@@ -185,14 +189,32 @@ export async function startOutbound(
     const res = await api.post<{ ok: boolean; callId: string | null }>('/wa-calls/connect', {
       to,
       sdpOffer: pc.localDescription?.sdp,
-      cloudApiConnectionId,
+      ...(cloudApiConnectionId ? { cloudApiConnectionId } : {}),
     })
     if (!res.callId) throw new Error('Gateway não retornou callId')
     store().patch({ callId: res.callId })
     return { ok: true }
   } catch (e: any) {
-    store().patch({ status: 'ended', error: e?.message || 'Falha ao ligar' })
+    // 403 no_permission: limpa silenciosamente (o botão oferece pedir permissão).
+    const msg = e?.message || 'Falha ao ligar'
     cleanup('ended')
+    useWaCall.getState().clear()
+    return { ok: false, error: msg }
+  }
+}
+
+/** Pede ao cliente a permissão de chamada (opt-in). */
+export async function requestCallPermission(
+  to: string,
+  cloudApiConnectionId: number | null = null
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await api.post('/wa-calls/request-permission', {
+      to,
+      ...(cloudApiConnectionId ? { cloudApiConnectionId } : {}),
+    })
+    return { ok: true }
+  } catch (e: any) {
     return { ok: false, error: e?.message }
   }
 }

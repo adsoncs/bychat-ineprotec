@@ -1204,6 +1204,23 @@ model CloudApiConnection {
   @@map("bychat_cloud_api_connections")
 }
 
+// Permissão de chamada de voz (opt-in) por consumidor — WhatsApp Business Calling API.
+// Chamadas business-initiated exigem que o usuário tenha concedido permissão.
+// Atualizada pelo webhook (call_permission_update) e consultada antes de ligar (saída).
+model WaCallPermission {
+  id            Int       @id @default(autoincrement())
+  phone         String    @db.VarChar(30) // wa_id / telefone E.164 sem +
+  phoneNumberId String    @db.VarChar(100) // número business (Cloud API)
+  status        String    @db.VarChar(30) // no_permission | temporary | permanent
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([phone, phoneNumberId])
+  @@index([phone])
+  @@map("bychat_wa_call_permissions")
+}
+
 // F3 — WhatsApp Flows estáticos: formulário nativo do WhatsApp (tela única) gerado
 // a partir de um Form. flowJson é o Flow JSON publicado na Meta; metaFlowId é o id
 // retornado pela Meta após publicar. Sem endpoint/criptografia (respostas voltam de
