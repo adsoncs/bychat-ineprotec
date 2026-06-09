@@ -2,9 +2,9 @@
 // Reutilizável: basta o telefone do cliente (o backend resolve a conexão Cloud API).
 // Sem opt-in do cliente, o backend responde no_permission e oferecemos enviar o pedido.
 import { useState } from 'preact/hooks'
-import { Phone } from 'lucide-preact'
 import { startOutbound, requestCallPermission } from '@/lib/waCallManager'
 import { useWaCall } from '@/stores/waCall'
+import { WhatsappIcon } from '@/components/WhatsappSend'
 import { env } from '@/lib/env'
 import { cn } from '@/lib/cn'
 
@@ -28,6 +28,10 @@ export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null
     setBusy(true)
     try {
       const res = await startOutbound(phone, cloudApiConnectionId, leadId)
+      if (!res.ok && res.error === 'permission_denied') {
+        // O widget já mostra o estado de microfone bloqueado + "Tentar novamente".
+        return
+      }
       if (!res.ok && res.error === 'no_permission') {
         const ask = window.confirm(
           'O cliente ainda não autorizou chamadas pelo WhatsApp.\n\nEnviar um pedido de permissão agora?'
@@ -51,12 +55,12 @@ export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null
       disabled={busy || inCall}
       title="Ligar via WhatsApp"
       class={cn(
-        'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium',
-        'bg-[#25D366]/15 text-[#128C7E] hover:bg-[#25D366]/25 disabled:opacity-50 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors shadow-sm h-9 px-3 text-xs',
+        'bg-[#25D366] hover:bg-[#1fb855] text-white disabled:opacity-50 disabled:cursor-not-allowed',
         className
       )}
     >
-      <Phone size={15} />
+      <WhatsappIcon size={14} />
       {label ?? 'Ligar'}
     </button>
   )

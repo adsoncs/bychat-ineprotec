@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'preact/hooks'
 import { Phone, PhoneOff, Mic, MicOff } from 'lucide-preact'
 import { useWaCall } from '@/stores/waCall'
-import { acceptIncoming, rejectIncoming, hangup, toggleMute } from '@/lib/waCallManager'
+import { acceptIncoming, rejectIncoming, hangup, toggleMute, retryPermission, cancelCall } from '@/lib/waCallManager'
 import { cn } from '@/lib/cn'
 
 const STATUS_LABEL: Record<string, string> = {
   ringing: 'Chamada recebida no WhatsApp',
+  requesting_permission: 'Permitindo microfone…',
+  permission_denied: 'Microfone bloqueado',
   connecting: 'Conectando…',
   active: 'Em chamada',
   ended: 'Encerrada',
@@ -61,7 +63,35 @@ export function WaCallWidget() {
         {call.error && <div class="mb-2 text-xs text-danger">{call.error}</div>}
 
         <div class="flex items-center justify-center gap-3">
-          {isRinging ? (
+          {call.status === 'permission_denied' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void retryPermission()}
+                class="inline-flex items-center gap-1.5 rounded-full bg-success px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+              >
+                <Mic size={16} /> Tentar novamente
+              </button>
+              <button
+                type="button"
+                onClick={() => cancelCall()}
+                class="inline-flex items-center gap-1.5 rounded-full bg-surface-2 border border-border px-4 py-2 text-sm font-medium text-fg hover:bg-surface-3"
+              >
+                Cancelar
+              </button>
+            </>
+          ) : call.status === 'requesting_permission' ? (
+            <>
+              <span class="text-sm text-fg-muted">Aguardando permissão do microfone…</span>
+              <button
+                type="button"
+                onClick={() => cancelCall()}
+                class="inline-flex items-center gap-1.5 rounded-full bg-surface-2 border border-border px-3 py-1.5 text-xs font-medium text-fg hover:bg-surface-3"
+              >
+                Cancelar
+              </button>
+            </>
+          ) : isRinging ? (
             <>
               <button
                 type="button"

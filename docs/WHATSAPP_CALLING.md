@@ -21,7 +21,8 @@ Status: **Fase 0 (infra) concluída.** Fases 1–5 em andamento — ver `ROADMAP
 > cobradas por minuto conforme o país e exigem permissão do usuário.
 
 URL do webhook (já existente, trata `messages` e agora `calls`):
-`https://bychat.ia.br/api/cloud-api/webhook` (confirmar o path real em `routes/cloudApiWebhook.ts`).
+`https://bychat.ia.br/api/cloud-api/webhook` — JÁ cadastrada na Meta (mensagens funcionam).
+Só falta marcar o campo `calls` na assinatura do webhook (não precisa reconfigurar URL/verify token).
 
 ---
 

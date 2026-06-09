@@ -11,14 +11,14 @@
 
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { authMiddleware } from '../lib/auth.js'
+import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { decryptToken } from '../services/cloudApi.js'
+import { saveWaCallRecording } from '../services/waCallRecording.js'
 import {
   acceptCall,
   rejectCall,
   terminateCall,
   connectCall,
-  hasCallPermission,
   sendCallPermissionRequest,
 } from '../services/cloudApiCalling.js'
 import { getTurnCredentials, isTurnReady } from '../lib/turnCredentials.js'
@@ -115,21 +115,21 @@ export async function waCallsRoutes(app: FastifyInstance) {
 
     const to = normalizePhone(body.to)
 
-    // Gate de opt-in: chamada business-initiated exige permissão do consumidor.
-    const allowed = await hasCallPermission(to, conn.phoneNumberId)
-    if (!allowed) {
-      return reply.code(403).send({
-        error: 'no_permission',
-        message: 'O cliente ainda não autorizou chamadas. Envie um pedido de permissão primeiro.',
-      })
-    }
-
+    // Sem gate local: a Meta é a fonte da verdade da permissão. Tenta conectar;
+    // se faltar opt-in do consumidor, a Meta rejeita e mapeamos para no_permission.
     try {
       const res = await connectCall(conn.phoneNumberId, conn.token, to, body.sdpOffer)
       return { ok: true, callId: res.callId }
     } catch (e: any) {
-      app.log.error(`[wa-calls] connect error: ${e.message}`)
-      return reply.code(502).send({ error: e.message })
+      const msg = e?.message || ''
+      app.log.error(`[wa-calls] connect error: ${msg}`)
+      if (/permission/i.test(msg) || /not.*allow.*call|call.*not.*allow/i.test(msg)) {
+        return reply.code(403).send({
+          error: 'no_permission',
+          message: 'O cliente ainda não autorizou chamadas. Envie um pedido de permissão e aguarde ele aceitar.',
+        })
+      }
+      return reply.code(502).send({ error: msg })
     }
   })
 
@@ -145,8 +145,34 @@ export async function waCallsRoutes(app: FastifyInstance) {
       await sendCallPermissionRequest(conn.phoneNumberId, conn.token, normalizePhone(body.to), body.bodyText)
       return { ok: true }
     } catch (e: any) {
-      app.log.error(`[wa-calls] request-permission error: ${e.message}`)
-      return reply.code(502).send({ error: e.message })
+      const msg = e?.message || ''
+      app.log.error(`[wa-calls] request-permission error: ${msg}`)
+      // #138009: limite de pedidos para este par empresa-consumidor.
+      if (/138009/.test(msg) || /limit.*call permission/i.test(msg)) {
+        return reply.code(429).send({
+          error: 'permission_limit',
+          message: 'O cliente já recebeu o pedido de permissão (limite de reenvios atingido). Peça para ele tocar em "Permitir" na conversa do WhatsApp e tente ligar de novo — não é preciso reenviar.',
+        })
+      }
+      return reply.code(502).send({ error: msg })
     }
+  })
+
+  // Upload da gravação da chamada (áudio gravado no navegador via MediaRecorder).
+  // multipart: campo de arquivo único. Salva + vincula Activity + histórico do lead.
+  app.post('/api/wa-calls/:callId/recording', { preHandler: authMiddleware }, async (req, reply) => {
+    const { callId } = req.params as { callId: string }
+    const data = await req.file()
+    if (!data) return reply.code(400).send({ error: 'arquivo de áudio obrigatório' })
+
+    const buffer = await data.toBuffer()
+    const user = (req as any).user as JwtPayload
+    const result = await saveWaCallRecording(callId, buffer, data.mimetype || 'audio/webm', {
+      userId: user.userId,
+      name: user.name,
+      email: user.email,
+    })
+    if (!result.ok) return reply.code(422).send({ error: result.reason })
+    return { ok: true, url: result.url }
   })
 }

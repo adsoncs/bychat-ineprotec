@@ -3340,7 +3340,7 @@ model VoipCall {
   direction String  @default("outbound") @db.VarChar(10) // outbound | inbound
 
   provider       String  @default("falemais") @db.VarChar(30)
-  providerCallId String? @db.VarChar(64) // id retornado pelo v1/dial (32 hex) — chave do polling de áudio
+  providerCallId String? @db.VarChar(191) // FaleMais: id do v1/dial (32 hex). WhatsApp: call_id (~80 chars) — por isso 191.
   uniqueid       String? @db.VarChar(64) // uniqueid do CDR da API de Gravações
 
   // dialing | answered | no_answer | busy | failed | completed

@@ -2,7 +2,13 @@
 // Diferente de voipCall.ts (FaleMais click-to-call): aqui o áudio roda no navegador.
 import { create } from 'zustand'
 
-export type WaCallStatus = 'ringing' | 'connecting' | 'active' | 'ended'
+export type WaCallStatus =
+  | 'ringing'
+  | 'requesting_permission'
+  | 'permission_denied'
+  | 'connecting'
+  | 'active'
+  | 'ended'
 export type WaCallDirection = 'incoming' | 'outgoing'
 
 export interface WaCallState {

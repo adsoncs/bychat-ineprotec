@@ -19,10 +19,75 @@ interface IceResponse {
 
 let pc: RTCPeerConnection | null = null
 let localStream: MediaStream | null = null
+let remoteStream: MediaStream | null = null
 let remoteAudio: HTMLAudioElement | null = null
 // Dados da entrante enquanto "tocando" (antes do operador aceitar).
 let pendingOffer: { callId: string; sdp: string; cloudApiConnectionId: number | null } | null = null
 let initialized = false
+
+// ─── Gravação (MediaRecorder mixando mic + áudio remoto) ──
+let mediaRecorder: MediaRecorder | null = null
+let recordedChunks: BlobPart[] = []
+let recordAudioCtx: AudioContext | null = null
+
+function pickRecMime(): string {
+  const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  for (const m of opts) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m)) return m
+  }
+  return ''
+}
+
+/** Inicia a gravação misturando microfone local + áudio remoto. Best-effort. */
+function startRecording() {
+  if (mediaRecorder || !localStream || !remoteStream) return
+  try {
+    const Ctx: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext
+    recordAudioCtx = new Ctx()
+    const dest = recordAudioCtx.createMediaStreamDestination()
+    recordAudioCtx.createMediaStreamSource(localStream).connect(dest)
+    recordAudioCtx.createMediaStreamSource(remoteStream).connect(dest)
+    const mime = pickRecMime()
+    recordedChunks = []
+    mediaRecorder = mime ? new MediaRecorder(dest.stream, { mimeType: mime }) : new MediaRecorder(dest.stream)
+    mediaRecorder.addEventListener('dataavailable', (e) => {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data)
+    })
+    mediaRecorder.start(1000) // coleta em blocos de 1s (não perde áudio se cair)
+  } catch {
+    mediaRecorder = null
+  }
+}
+
+/** Para a gravação e envia ao backend (vincula à Activity + histórico do lead). */
+async function stopAndUploadRecording(callId: string | null) {
+  const recorder = mediaRecorder
+  mediaRecorder = null
+  if (recorder && recorder.state !== 'inactive') {
+    await new Promise<void>((resolve) => {
+      recorder.addEventListener('stop', () => resolve(), { once: true })
+      try { recorder.stop() } catch { resolve() }
+    })
+  }
+  try { recordAudioCtx?.close() } catch { /* ignore */ }
+  recordAudioCtx = null
+
+  const chunks = recordedChunks
+  recordedChunks = []
+  if (!callId || chunks.length === 0) return
+
+  const type = (recorder?.mimeType || 'audio/webm').split(';')[0] || 'audio/webm'
+  const blob = new Blob(chunks, { type })
+  if (blob.size < 1024) return // descarta gravação vazia/curtíssima
+
+  try {
+    const form = new FormData()
+    form.append('file', blob, `wa-call.${type.includes('mp4') ? 'm4a' : 'webm'}`)
+    await api.post(`/wa-calls/${encodeURIComponent(callId)}/recording`, form)
+  } catch {
+    /* gravação é best-effort — não interrompe o fim da chamada */
+  }
+}
 
 function store() {
   return useWaCall.getState()
@@ -65,16 +130,71 @@ function waitIceComplete(peer: RTCPeerConnection, timeoutMs = 2500): Promise<voi
   })
 }
 
-async function createPeer(): Promise<RTCPeerConnection> {
+// Erro de microfone com uma flag indicando bloqueio definitivo do site (precisa reset manual).
+class MicError extends Error {
+  blocked: boolean
+  constructor(message: string, blocked = false) {
+    super(message)
+    this.blocked = blocked
+  }
+}
+
+const MIC_BLOCKED_MSG =
+  'Este site está bloqueado para o microfone. Vá em chrome://settings/content/microphone, '
+  + 'remova "bychat.ia.br" da lista "Não tem permissão" (ícone de lixeira) — ou clique no cadeado '
+  + 'da barra de endereço → Microfone → Permitir — recarregue a página e tente de novo.'
+
+/** Estado atual da permissão de microfone (Permissions API), se disponível. */
+async function micPermissionState(): Promise<PermissionState | 'unknown'> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName })
+    return status?.state ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** Captura o microfone, traduzindo os erros do getUserMedia para mensagens claras. */
+async function getMicStream(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new MicError('Seu navegador não permite áudio aqui (use HTTPS e um navegador compatível).')
+  }
+  // IMPORTANTE: chamar getUserMedia DIRETO, sem nenhum await antes — qualquer await
+  // (ex.: permissions.query) consome a "ativação por gesto" e o Chrome rejeita SEM
+  // mostrar o pedido. O estado da permissão só é consultado DEPOIS, em caso de erro.
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+  } catch (e: any) {
+    const name = e?.name || ''
+    if (name === 'NotAllowedError' || name === 'SecurityError' || /permission|denied/i.test(e?.message || '')) {
+      // Distingue "negou agora no prompt" (pode tentar de novo) de "site bloqueado" (precisa reset).
+      const blocked = (await micPermissionState()) === 'denied'
+      throw new MicError(blocked ? MIC_BLOCKED_MSG : 'Permissão de microfone negada. Clique em "Tentar novamente" e escolha Permitir.', blocked)
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      throw new MicError('Nenhum microfone encontrado neste dispositivo.')
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      throw new MicError('O microfone está em uso por outro app. Feche-o e tente de novo.')
+    }
+    throw new MicError('Não foi possível acessar o microfone: ' + (e?.message || name || 'erro desconhecido'))
+  }
+}
+
+async function createPeer(stream: MediaStream): Promise<RTCPeerConnection> {
   const iceServers = await fetchIceServers()
   const peer = new RTCPeerConnection({ iceServers })
 
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-  for (const track of localStream.getTracks()) peer.addTrack(track, localStream)
+  localStream = stream
+  for (const track of stream.getTracks()) peer.addTrack(track, stream)
 
   peer.addEventListener('track', (ev) => {
     const [stream] = ev.streams
-    if (stream) ensureRemoteAudio().srcObject = stream
+    if (stream) {
+      remoteStream = stream
+      ensureRemoteAudio().srcObject = stream
+      startRecording() // grava assim que há os dois lados de áudio
+    }
   })
 
   peer.addEventListener('connectionstatechange', () => {
@@ -87,12 +207,19 @@ async function createPeer(): Promise<RTCPeerConnection> {
 }
 
 function cleanup(finalStatus: WaCallState['status'] = 'ended') {
+  // Para e envia a gravação (best-effort) ANTES de derrubar os streams — o stop()
+  // dispara o flush do último bloco; o upload roda em background.
+  const recCallId = store().call?.callId || null
+  void stopAndUploadRecording(recCallId)
+
   try { pc?.getSenders().forEach((s) => s.track?.stop()) } catch { /* ignore */ }
   try { localStream?.getTracks().forEach((t) => t.stop()) } catch { /* ignore */ }
   try { pc?.close() } catch { /* ignore */ }
   pc = null
   localStream = null
+  remoteStream = null
   pendingOffer = null
+  outboundParams = null
   if (remoteAudio) remoteAudio.srcObject = null
 
   const cur = store().call
@@ -108,29 +235,84 @@ function cleanup(finalStatus: WaCallState['status'] = 'ended') {
 
 // ─── Ações expostas ao widget ───────────────────────────
 
-/** Operador aceita a chamada entrante: cria o peer e responde o SDP offer da Meta. */
+// Parâmetros da chamada de saída em curso — usados para retomar após conceder o microfone.
+let outboundParams: { to: string; connId: number | null } | null = null
+
+/**
+ * Pede o microfone e prossegue a chamada (entrante ou saída). Se a permissão for
+ * negada, deixa a chamada no estado 'permission_denied' (com botão "Tentar novamente"),
+ * sem derrubar o fluxo. Ao conceder, segue automaticamente.
+ */
+async function proceedCall(): Promise<{ ok: boolean; error?: string }> {
+  const call = store().call
+  if (!call) return { ok: false }
+
+  // 1) Solicita o microfone (mostra "Permitindo microfone…" durante o prompt nativo).
+  store().patch({ status: 'requesting_permission', error: '' })
+  let stream: MediaStream
+  try {
+    stream = await getMicStream()
+  } catch (e: any) {
+    store().patch({ status: 'permission_denied', error: e?.message || 'Microfone bloqueado' })
+    return { ok: false, error: 'permission_denied' }
+  }
+
+  // 2) Mídia + sinalização.
+  store().patch({ status: 'connecting', error: '' })
+  try {
+    pc = await createPeer(stream)
+
+    if (call.direction === 'incoming') {
+      if (!pendingOffer) throw new Error('Chamada não está mais disponível')
+      await pc.setRemoteDescription({ type: 'offer', sdp: pendingOffer.sdp })
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      await waitIceComplete(pc)
+      await api.post(`/wa-calls/${encodeURIComponent(call.callId)}/accept`, {
+        sdpAnswer: pc.localDescription?.sdp,
+        cloudApiConnectionId: pendingOffer.cloudApiConnectionId,
+      })
+      pendingOffer = null
+      store().patch({ status: 'active', startedAt: Date.now() })
+      return { ok: true }
+    }
+
+    // Saída
+    const offer = await pc.createOffer({ offerToReceiveAudio: true })
+    await pc.setLocalDescription(offer)
+    await waitIceComplete(pc)
+    const res = await api.post<{ ok: boolean; callId: string | null }>('/wa-calls/connect', {
+      to: outboundParams?.to ?? call.from,
+      sdpOffer: pc.localDescription?.sdp,
+      ...(outboundParams?.connId ? { cloudApiConnectionId: outboundParams.connId } : {}),
+    })
+    if (!res.callId) throw new Error('Gateway não retornou callId')
+    store().patch({ callId: res.callId })
+    return { ok: true }
+  } catch (e: any) {
+    const msg = e?.message || 'Falha na chamada'
+    cleanup('ended')
+    useWaCall.getState().clear()
+    return { ok: false, error: msg }
+  }
+}
+
+/** Re-tenta após o operador conceder o microfone nas configurações do navegador. */
+export async function retryPermission(): Promise<{ ok: boolean; error?: string }> {
+  return proceedCall()
+}
+
+/** Cancela a chamada antes de conectar (ex.: a partir da tela de permissão). */
+export function cancelCall(): void {
+  cleanup('ended')
+  useWaCall.getState().clear()
+}
+
+/** Operador aceita a chamada entrante. */
 export async function acceptIncoming(): Promise<void> {
   const call = store().call
   if (!call || call.direction !== 'incoming' || !pendingOffer) return
-  store().patch({ status: 'connecting' })
-
-  try {
-    pc = await createPeer()
-    await pc.setRemoteDescription({ type: 'offer', sdp: pendingOffer.sdp })
-    const answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-    await waitIceComplete(pc)
-
-    await api.post(`/wa-calls/${encodeURIComponent(call.callId)}/accept`, {
-      sdpAnswer: pc.localDescription?.sdp,
-      cloudApiConnectionId: pendingOffer.cloudApiConnectionId,
-    })
-    pendingOffer = null
-    store().patch({ status: 'active', startedAt: Date.now() })
-  } catch (e: any) {
-    store().patch({ status: 'ended', error: e?.message || 'Falha ao atender' })
-    cleanup('ended')
-  }
+  await proceedCall()
 }
 
 /** Operador recusa a chamada entrante. */
@@ -170,37 +352,18 @@ export async function startOutbound(
 ): Promise<{ ok: boolean; error?: string }> {
   if (store().call) return { ok: false, error: 'Já existe uma chamada em andamento' }
 
+  outboundParams = { to, connId: cloudApiConnectionId }
   store().setCall({
     callId: '',
     leadId,
     from: to,
     direction: 'outgoing',
-    status: 'connecting',
+    status: 'requesting_permission',
     cloudApiConnectionId,
     startedAt: null,
   })
 
-  try {
-    pc = await createPeer()
-    const offer = await pc.createOffer({ offerToReceiveAudio: true })
-    await pc.setLocalDescription(offer)
-    await waitIceComplete(pc)
-
-    const res = await api.post<{ ok: boolean; callId: string | null }>('/wa-calls/connect', {
-      to,
-      sdpOffer: pc.localDescription?.sdp,
-      ...(cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-    })
-    if (!res.callId) throw new Error('Gateway não retornou callId')
-    store().patch({ callId: res.callId })
-    return { ok: true }
-  } catch (e: any) {
-    // 403 no_permission: limpa silenciosamente (o botão oferece pedir permissão).
-    const msg = e?.message || 'Falha ao ligar'
-    cleanup('ended')
-    useWaCall.getState().clear()
-    return { ok: false, error: msg }
-  }
+  return proceedCall()
 }
 
 /** Pede ao cliente a permissão de chamada (opt-in). */

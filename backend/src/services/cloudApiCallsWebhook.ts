@@ -113,6 +113,46 @@ export async function handleCallsWebhook(
       app.log.error(`[CloudAPI][calls] call event error: ${e.message}`)
     }
   }
+
+  // Status da chamada (RINGING/ACCEPTED/...) chegam em value.statuses com type='call'.
+  const statuses = (value.statuses || []).filter((s: any) => s?.type === 'call')
+  for (const st of statuses) {
+    try {
+      await handleCallStatus(st, conn, app)
+    } catch (e: any) {
+      app.log.error(`[CloudAPI][calls] call status error: ${e.message}`)
+    }
+  }
+}
+
+/** Status intermediário de uma chamada (ringing/accepted). Atualiza VoipCall + avisa a UI. */
+async function handleCallStatus(
+  st: any,
+  conn: { id: number; phoneNumberId: string; ownerUserId: number | null },
+  app: FastifyInstance
+): Promise<void> {
+  const callId: string = st.id || ''
+  const raw: string = String(st.status || '').toUpperCase()
+  if (!callId || !raw) return
+
+  const mapped = raw === 'RINGING' ? 'ringing'
+    : raw === 'ACCEPTED' ? 'answered'
+    : raw === 'REJECTED' ? 'no_answer'
+    : raw.toLowerCase()
+
+  // Atualiza o status no histórico (sem sobrescrever um 'completed' já gravado).
+  if (mapped === 'ringing' || mapped === 'answered') {
+    await prisma.voipCall.updateMany({
+      where: { provider: 'whatsapp', providerCallId: callId, status: { notIn: ['completed', 'failed'] } },
+      data: { status: mapped, ...(mapped === 'answered' ? { answeredAt: new Date() } : {}) },
+    }).catch(() => {})
+  }
+
+  await broadcastRealtimeEvent({
+    type: 'wa_call:status',
+    payload: { callId, status: mapped, phoneNumberId: conn.phoneNumberId, cloudApiConnectionId: conn.id },
+  })
+  app.log.info(`[CloudAPI][calls] status ${raw} call=${callId}`)
 }
 
 async function handleSingleCall(
@@ -122,7 +162,6 @@ async function handleSingleCall(
 ): Promise<void> {
   const callId: string = call.id || ''
   const event: string = call.event || call.status || ''
-  const fromPhone = normalizePhone(call.from || '')
   const direction: string = (call.direction || '').toUpperCase()
   const session = call.session || {}
 
@@ -130,6 +169,12 @@ async function handleSingleCall(
     app.log.warn('[CloudAPI][calls] evento sem call id, ignorado')
     return
   }
+
+  // O CLIENTE é `to` quando a empresa liga (BUSINESS_INITIATED) e `from` quando o
+  // cliente liga (USER_INITIATED). `from` na saída é o número da empresa.
+  const fromPhone = direction === 'BUSINESS_INITIATED'
+    ? normalizePhone(call.to || '')
+    : normalizePhone(call.from || '')
 
   const lead = fromPhone ? await findLeadByPhone(fromPhone) : null
   // Operador alvo: dono do lead → dono da conexão. Sem nenhum, vai para todos (scope amplo).
@@ -172,7 +217,8 @@ async function handleSingleCall(
 
     if (direction === 'BUSINESS_INITIATED' || sdpType === 'answer') {
       // Resposta SDP da nossa chamada de saída → entrega ao navegador que originou.
-      await upsertWaCall({ callId, phone: fromPhone, leadId: lead?.id ?? null, direction: 'outbound', status: 'answered', answeredAt: new Date() }).catch(() => {})
+      // Ainda é "discando" (o atendimento real vem no status ACCEPTED).
+      await upsertWaCall({ callId, phone: fromPhone, leadId: lead?.id ?? null, direction: 'outbound', status: 'dialing' }).catch(() => {})
       await broadcastRealtimeEvent({
         type: 'wa_call:answer',
         payload: { ...base, sdpAnswer: sdp },

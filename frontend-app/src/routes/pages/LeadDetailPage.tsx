@@ -243,9 +243,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
-        <CallButton leadId={id} phone={lead.whatsapp} />
+        <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
 
-        <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} />
+        <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
 
         <div class="ml-auto">
           <ActionsMenu actions={actions} />
