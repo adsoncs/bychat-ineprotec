@@ -286,6 +286,12 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (Object.keys(scopeWhere).length > 0) whereAnd.push(scopeWhere)
     if (q.status) where.status = q.status
     if (q.segmento) where.segmento = q.segmento
+    // Filtro por funil (pipeline). Sem isto o filtro da tela de Leads era ignorado
+    // e apareciam leads de outros funis.
+    if (q.funnelId) {
+      const fid = parseInt(String(q.funnelId))
+      if (Number.isInteger(fid)) where.funnelId = fid
+    }
     // Origem (source): aceita ?source=meta_lead_ads (legacy single) OU ?sources=meta_lead_ads,whatsapp (multi)
     if (q.sources) {
       const arr = String(q.sources).split(',').map((s) => s.trim()).filter(Boolean)
