@@ -15,6 +15,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { normalizePhone } from './cloudApi.js'
+import { upsertCallPermission } from './cloudApiCalling.js'
 import { broadcastRealtimeEvent } from '../routes/realtime.js'
 
 /** Casa o lead pelo telefone, tolerante ao 9º dígito (mesma regra do webhook de mensagens). */
@@ -32,6 +33,60 @@ async function findLeadByPhone(phone: string): Promise<{ id: number; assignedUse
     })
   }
   return lead
+}
+
+// ─── Persistência no histórico de chamadas (VoipCall, provider='whatsapp') ──
+
+async function upsertWaCall(input: {
+  callId: string
+  phone: string
+  leadId: number | null
+  direction: 'inbound' | 'outbound'
+  status: string
+  answeredAt?: Date
+}): Promise<void> {
+  const existing = await prisma.voipCall.findFirst({
+    where: { provider: 'whatsapp', providerCallId: input.callId },
+    select: { id: true },
+  })
+  if (existing) {
+    await prisma.voipCall.update({
+      where: { id: existing.id },
+      data: {
+        status: input.status,
+        ...(input.answeredAt ? { answeredAt: input.answeredAt } : {}),
+        ...(input.leadId ? { leadId: input.leadId } : {}),
+      },
+    })
+    return
+  }
+  await prisma.voipCall.create({
+    data: {
+      provider: 'whatsapp',
+      providerCallId: input.callId,
+      phone: input.phone || 'desconhecido',
+      direction: input.direction,
+      status: input.status,
+      leadId: input.leadId,
+      source: 'whatsapp_calling',
+      ...(input.answeredAt ? { answeredAt: input.answeredAt } : {}),
+    },
+  })
+}
+
+async function finishWaCall(callId: string, status: string, durationSec: number | null): Promise<void> {
+  const existing = await prisma.voipCall.findFirst({
+    where: { provider: 'whatsapp', providerCallId: callId },
+    select: { id: true },
+  })
+  if (!existing) return
+  await prisma.voipCall.update({
+    where: { id: existing.id },
+    data: {
+      status,
+      ...(durationSec != null ? { durationSec } : {}),
+    },
+  })
 }
 
 export async function handleCallsWebhook(
@@ -93,6 +148,8 @@ async function handleSingleCall(
 
   // ── Encerramento ──
   if (event === 'terminate' || event === 'TERMINATE' || call.status === 'COMPLETED') {
+    const finalStatus = (call.status === 'COMPLETED' || call.duration) ? 'completed' : 'no_answer'
+    await finishWaCall(callId, finalStatus, call.duration ?? null).catch(() => {})
     await broadcastRealtimeEvent({
       type: 'wa_call:ended',
       payload: {
@@ -115,6 +172,7 @@ async function handleSingleCall(
 
     if (direction === 'BUSINESS_INITIATED' || sdpType === 'answer') {
       // Resposta SDP da nossa chamada de saída → entrega ao navegador que originou.
+      await upsertWaCall({ callId, phone: fromPhone, leadId: lead?.id ?? null, direction: 'outbound', status: 'answered', answeredAt: new Date() }).catch(() => {})
       await broadcastRealtimeEvent({
         type: 'wa_call:answer',
         payload: { ...base, sdpAnswer: sdp },
@@ -123,6 +181,7 @@ async function handleSingleCall(
       app.log.info(`[CloudAPI][calls] outbound answer call=${callId} lead=${lead?.id ?? '-'}`)
     } else {
       // Chamada entrante (user-initiated): toca no painel com o SDP offer da Meta.
+      await upsertWaCall({ callId, phone: fromPhone, leadId: lead?.id ?? null, direction: 'inbound', status: 'ringing' }).catch(() => {})
       await broadcastRealtimeEvent({
         type: 'wa_call:incoming',
         payload: { ...base, sdpOffer: sdp },
@@ -151,7 +210,12 @@ async function handlePermissionUpdate(
   if (!fromPhone) return
 
   const lead = await findLeadByPhone(fromPhone)
-  // A persistência do opt-in (tabela própria) entra na Fase 4; aqui só roteamos o evento.
+
+  // Persiste o opt-in (consultado antes de uma chamada de saída).
+  const expiresAt = perm.expiration_timestamp
+    ? new Date(Number(perm.expiration_timestamp) * 1000)
+    : null
+  await upsertCallPermission(fromPhone, conn.phoneNumberId, status || 'no_permission', expiresAt).catch(() => {})
 
   await broadcastRealtimeEvent({
     type: 'wa_call:permission',
