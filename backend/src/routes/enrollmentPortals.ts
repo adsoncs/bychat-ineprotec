@@ -14,6 +14,7 @@ import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
+import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, type AsaasOrderMethod } from '../services/paymentAsaas.js'
@@ -1025,6 +1026,18 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     return { ok: true, registration: updated }
+  })
+
+  // POST /api/admin/enrollment-registrations/:id/ensure-lead — cria ou re-vincula o Lead
+  // de uma inscrição órfã (leadId nulo, ex.: lead apagado). Idempotente.
+  app.post('/api/admin/enrollment-registrations/:id/ensure-lead', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id } = req.params as any
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: parseInt(id) }, select: { id: true } })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const result = await ensureLeadForRegistration(reg.id)
+    if (!result.leadId) return reply.code(422).send({ error: result.reason || 'Não foi possível criar/vincular o lead' })
+    return { ok: true, ...result }
   })
 
   // POST /api/admin/enrollment-registrations/:id/resend-link — admin reenvia link de continuação ao candidato

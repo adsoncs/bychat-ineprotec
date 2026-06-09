@@ -725,6 +725,22 @@ export function useResendRegistrationLink() {
   })
 }
 
+// Cria ou re-vincula o Lead de uma inscrição órfã (leadId nulo).
+export function useEnsureRegistrationLead(portalId: number | null | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: true; leadId: number | null; action: 'already' | 'linked' | 'created' | 'skipped' }>(
+        `/admin/enrollment-registrations/${id}/ensure-lead`,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal-registrations', portalId] })
+      void qc.invalidateQueries({ queryKey: ['registration-full'] })
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
 // ── Check de disponibilidade de slug ───────────────────────────
 
 export interface CheckSlugResult {

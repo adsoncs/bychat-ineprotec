@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code,
+  QrCode, Code, UserPlus,
 } from 'lucide-preact'
 import {
   useEnrollmentPortal,
@@ -11,6 +11,7 @@ import {
   useUpdateEnrollmentPortal,
   useCancelRegistration,
   useResendRegistrationLink,
+  useEnsureRegistrationLead,
   usePortalAnalytics,
   type EnrollmentPortal,
   type EnrollmentRegistration,
@@ -612,6 +613,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
 
   const cancel = useCancelRegistration(portal.id)
   const resend = useResendRegistrationLink()
+  const ensureLead = useEnsureRegistrationLead(portal.id)
   const [cancelling, setCancelling] = useState<EnrollmentRegistration | null>(null)
 
   const activeFiltersCount = [status, paymentStatus, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo].filter(Boolean).length
@@ -637,6 +639,19 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   function handleResend(r: EnrollmentRegistration) {
     resend.mutate(r.id, {
       onSuccess: () => toast(`Link reenviado para ${r.candidateCode}`, 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  function handleEnsureLead(r: EnrollmentRegistration) {
+    ensureLead.mutate(r.id, {
+      onSuccess: (res) => {
+        const msg = res.action === 'created' ? 'Lead criado e vinculado'
+          : res.action === 'linked' ? 'Inscrição vinculada a lead existente'
+          : res.action === 'already' ? 'Inscrição já tinha lead'
+          : 'Nada a fazer'
+        toast(`${msg} (${r.candidateCode})`, 'success')
+      },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -759,7 +774,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                     onOpenLead={() => {
                       if (r.lead?.id) navigate(`/conversations?leadId=${r.lead.id}`)
                     }}
-                    busy={resend.isPending}
+                    onEnsureLead={() => handleEnsureLead(r)}
+                    busy={resend.isPending || ensureLead.isPending}
                   />
                 ))}
               </tbody>
@@ -814,7 +830,7 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
 }
 
 function RegistrationRow({
-  r, portal, onClick, onResend, onCancel, onOpenLead, busy,
+  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -822,6 +838,7 @@ function RegistrationRow({
   onResend: () => void
   onCancel: () => void
   onOpenLead: () => void
+  onEnsureLead: () => void
   busy: boolean
 }) {
   const fd = (r.formData ?? {})
@@ -878,6 +895,7 @@ function RegistrationRow({
           onResend={onResend}
           onCancel={onCancel}
           onOpenLead={onOpenLead}
+          onEnsureLead={onEnsureLead}
           canCancel={canCancel}
           busy={busy}
         />
@@ -887,13 +905,14 @@ function RegistrationRow({
 }
 
 function RowActionsMenu({
-  r, portal, onResend, onCancel, onOpenLead, canCancel, busy,
+  r, portal, onResend, onCancel, onOpenLead, onEnsureLead, canCancel, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
   onResend: () => void
   onCancel: () => void
   onOpenLead: () => void
+  onEnsureLead: () => void
   canCancel: boolean
   busy: boolean
 }) {
@@ -936,11 +955,18 @@ function RowActionsMenu({
             label="Copiar link público"
             onClick={() => { setOpen(false); copyPublicLink() }}
           />
-          {r.lead?.id && (
+          {r.lead?.id ? (
             <MenuButton
               icon={<MessageCircle size={12} />}
               label="Abrir lead no chat"
               onClick={() => { setOpen(false); onOpenLead() }}
+            />
+          ) : (
+            <MenuButton
+              icon={<UserPlus size={12} />}
+              label="Criar/vincular Lead"
+              disabled={busy}
+              onClick={() => { setOpen(false); onEnsureLead() }}
             />
           )}
           <div class="my-1 h-px bg-border" />

@@ -1206,6 +1206,21 @@ export async function leadsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     if (!await assertLeadAccess(req, reply, parseInt(id))) return
     const user = (req as any).user as JwtPayload
+
+    // Guard: apagar um lead com inscrições no portal de matrículas as deixa órfãs
+    // (onDelete:SetNull). Bloqueia salvo confirmação explícita (?force=true).
+    const force = (req.query as any)?.force === 'true' || (req.query as any)?.force === '1' || (req.body as any)?.force === true
+    if (!force) {
+      const regCount = await prisma.enrollmentRegistration.count({ where: { leadId: parseInt(id) } })
+      if (regCount > 0) {
+        return reply.code(409).send({
+          error: 'lead_has_registrations',
+          message: `Este lead tem ${regCount} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las (ficam órfãs no módulo de Matrículas). Confirme para prosseguir mesmo assim.`,
+          registrationCount: regCount,
+        })
+      }
+    }
+
     try {
       const snapshot = await snapshotLead(parseInt(id))
       if (!snapshot) return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1505,6 +1520,26 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+
+    // Guard: leads com inscrições no portal de matrículas ficariam órfãos (onDelete:SetNull).
+    const force = (req.query as any)?.force === 'true' || (req.body as any)?.force === true
+    if (!force) {
+      const withRegs = await prisma.enrollmentRegistration.groupBy({
+        by: ['leadId'],
+        where: { leadId: { in: ids } },
+        _count: { _all: true },
+      })
+      if (withRegs.length > 0) {
+        const regCount = withRegs.reduce((a, g) => a + g._count._all, 0)
+        return reply.code(409).send({
+          error: 'leads_have_registrations',
+          message: `${withRegs.length} lead(s) selecionado(s) têm inscrições no portal de matrículas (${regCount} no total). Apagá-los vai desvinculá-las. Confirme para prosseguir mesmo assim.`,
+          leadIds: withRegs.map((g) => g.leadId),
+          registrationCount: regCount,
+        })
+      }
+    }
+
     const snapshots = await snapshotLeads(ids)
 
     // Mover cada lead para lixeira antes de deletar
