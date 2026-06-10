@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code, UserPlus,
+  QrCode, Code, UserPlus, Plus, Pencil, Trash2,
 } from 'lucide-preact'
 import {
   useEnrollmentPortal,
@@ -12,10 +12,14 @@ import {
   useCancelRegistration,
   useResendRegistrationLink,
   useEnsureRegistrationLead,
+  useCreateEnrollmentRegistration,
+  useUpdateEnrollmentRegistration,
+  useDeleteEnrollmentRegistration,
   usePortalAnalytics,
   type EnrollmentPortal,
   type EnrollmentRegistration,
   type RegistrationStatus,
+  type RegistrationUpsertInput,
   type RegistrationsKpis,
   type RegistrationFilters,
 } from '@/hooks/useEnrollmentPortals'
@@ -614,7 +618,11 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const cancel = useCancelRegistration(portal.id)
   const resend = useResendRegistrationLink()
   const ensureLead = useEnsureRegistrationLead(portal.id)
+  const deleteReg = useDeleteEnrollmentRegistration(portal.id)
   const [cancelling, setCancelling] = useState<EnrollmentRegistration | null>(null)
+  const [editing, setEditing] = useState<EnrollmentRegistration | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<EnrollmentRegistration | null>(null)
 
   const activeFiltersCount = [status, paymentStatus, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo].filter(Boolean).length
 
@@ -696,7 +704,10 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               <option value="">Todos</option>
               {PAYMENT_STATUS_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </Select>
-            <Button size="sm" variant="secondary" onClick={handleExport} class="ml-auto self-end">
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)} class="ml-auto self-end">
+              <Plus size={12} /> Nova inscrição
+            </Button>
+            <Button size="sm" variant="secondary" onClick={handleExport} class="self-end">
               <Download size={12} /> Exportar CSV
             </Button>
           </div>
@@ -775,6 +786,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                       if (r.lead?.id) navigate(`/conversations?leadId=${r.lead.id}`)
                     }}
                     onEnsureLead={() => handleEnsureLead(r)}
+                    onEdit={() => setEditing(r)}
+                    onDelete={() => setDeleting(r)}
                     busy={resend.isPending || ensureLead.isPending}
                   />
                 ))}
@@ -806,6 +819,28 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
           loading={cancel.isPending}
         />
       )}
+
+      {(creating || editing) && (
+        <RegistrationFormModal
+          portalId={portal.id}
+          registration={editing}
+          onClose={() => { setCreating(false); setEditing(null) }}
+        />
+      )}
+
+      {deleting && (
+        <DeleteRegistrationDialog
+          registration={deleting}
+          loading={deleteReg.isPending}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => {
+            deleteReg.mutate(deleting.id, {
+              onSuccess: () => { toast(`Inscrição ${deleting.candidateCode} excluída`, 'success'); setDeleting(null) },
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            })
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -830,7 +865,7 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
 }
 
 function RegistrationRow({
-  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, busy,
+  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -839,6 +874,8 @@ function RegistrationRow({
   onCancel: () => void
   onOpenLead: () => void
   onEnsureLead: () => void
+  onEdit: () => void
+  onDelete: () => void
   busy: boolean
 }) {
   const fd = (r.formData ?? {})
@@ -896,6 +933,8 @@ function RegistrationRow({
           onCancel={onCancel}
           onOpenLead={onOpenLead}
           onEnsureLead={onEnsureLead}
+          onEdit={onEdit}
+          onDelete={onDelete}
           canCancel={canCancel}
           busy={busy}
         />
@@ -905,7 +944,7 @@ function RegistrationRow({
 }
 
 function RowActionsMenu({
-  r, portal, onResend, onCancel, onOpenLead, onEnsureLead, canCancel, busy,
+  r, portal, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, canCancel, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -913,6 +952,8 @@ function RowActionsMenu({
   onCancel: () => void
   onOpenLead: () => void
   onEnsureLead: () => void
+  onEdit: () => void
+  onDelete: () => void
   canCancel: boolean
   busy: boolean
 }) {
@@ -945,6 +986,11 @@ function RowActionsMenu({
       {open && (
         <div class="absolute right-0 top-full mt-1 w-56 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20">
           <MenuButton
+            icon={<Pencil size={12} />}
+            label="Editar inscrição"
+            onClick={() => { setOpen(false); onEdit() }}
+          />
+          <MenuButton
             icon={<Send size={12} />}
             label="Reenviar link"
             disabled={busy}
@@ -976,6 +1022,12 @@ function RowActionsMenu({
             disabled={!canCancel}
             destructive
             onClick={() => { setOpen(false); if (canCancel) onCancel() }}
+          />
+          <MenuButton
+            icon={<Trash2 size={12} />}
+            label="Excluir inscrição"
+            destructive
+            onClick={() => { setOpen(false); onDelete() }}
           />
         </div>
       )}
@@ -1048,6 +1100,123 @@ function CancelRegistrationDialog({
           placeholder="Ex.: candidato desistiu, duplicidade, dados incorretos…"
         />
       </div>
+    </Modal>
+  )
+}
+
+// Criar (registration=null) ou editar uma inscrição do portal.
+function RegistrationFormModal({
+  portalId, registration, onClose,
+}: {
+  portalId: number
+  registration: EnrollmentRegistration | null
+  onClose: () => void
+}) {
+  const isEdit = !!registration
+  const fd = (registration?.formData ?? {}) as Record<string, unknown>
+  const [nome, setNome] = useState(String(fd.nome ?? ''))
+  const [email, setEmail] = useState(String(fd.email ?? ''))
+  const [whatsapp, setWhatsapp] = useState(String(fd.whatsapp ?? ''))
+  const [cpf, setCpf] = useState(String(fd.cpf ?? ''))
+  const [status, setStatus] = useState<RegistrationStatus>(registration?.status ?? 'submitted')
+  const [paymentStatus, setPaymentStatus] = useState(registration?.paymentStatus ?? '')
+  const [amount, setAmount] = useState(
+    registration?.paymentAmount != null ? String(Number(registration.paymentAmount)) : '',
+  )
+
+  const createReg = useCreateEnrollmentRegistration(portalId)
+  const updateReg = useUpdateEnrollmentRegistration(portalId)
+  const loading = createReg.isPending || updateReg.isPending
+
+  function handleSubmit() {
+    if (!nome.trim() && !whatsapp.trim() && !email.trim()) {
+      toast('Informe ao menos Nome, WhatsApp ou E-mail', 'danger')
+      return
+    }
+    const input: RegistrationUpsertInput = {
+      status,
+      paymentStatus: paymentStatus || null,
+      paymentAmount: amount.trim() ? Number(amount) : null,
+      formData: {
+        nome: nome.trim(),
+        email: email.trim(),
+        whatsapp: whatsapp.trim(),
+        cpf: cpf.trim(),
+      },
+    }
+    if (isEdit && registration) {
+      updateReg.mutate({ id: registration.id, ...input }, {
+        onSuccess: () => { toast(`Inscrição ${registration.candidateCode} atualizada`, 'success'); onClose() },
+        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      })
+    } else {
+      createReg.mutate({ ...input, createLead: true }, {
+        onSuccess: (res) => { toast(`Inscrição ${res.registration.candidateCode} criada`, 'success'); onClose() },
+        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      })
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title={isEdit ? `Editar inscrição ${registration?.candidateCode}` : 'Nova inscrição'}
+      description={isEdit ? undefined : 'Cria a inscrição no portal e gera o código do candidato. Um Lead é criado/vinculado automaticamente.'}
+      size="md"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={loading}>
+            {loading ? 'Salvando…' : (isEdit ? 'Salvar' : 'Criar inscrição')}
+          </Button>
+        </>
+      }
+    >
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        <Input label="Nome" value={nome} onInput={(e) => setNome((e.target as HTMLInputElement).value)} />
+        <Input label="WhatsApp" value={whatsapp} onInput={(e) => setWhatsapp((e.target as HTMLInputElement).value)} placeholder="5511999999999" />
+        <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
+        <Input label="CPF" value={cpf} onInput={(e) => setCpf((e.target as HTMLInputElement).value)} />
+        <Select label="Status" value={status} onChange={(e) => setStatus((e.target as HTMLSelectElement).value as RegistrationStatus)}>
+          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </Select>
+        <Select label="Pagamento" value={paymentStatus} onChange={(e) => setPaymentStatus((e.target as HTMLSelectElement).value)}>
+          <option value="">Sem pagamento</option>
+          {PAYMENT_STATUS_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+        </Select>
+        <Input label="Valor (R$)" type="number" value={amount} onInput={(e) => setAmount((e.target as HTMLInputElement).value)} placeholder="0,00" />
+      </div>
+    </Modal>
+  )
+}
+
+function DeleteRegistrationDialog({
+  registration, onClose, onConfirm, loading,
+}: {
+  registration: EnrollmentRegistration
+  onClose: () => void
+  onConfirm: () => void
+  loading: boolean
+}) {
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title={`Excluir inscrição ${registration.candidateCode}?`}
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>Voltar</Button>
+          <Button variant="danger" size="sm" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Excluindo…' : 'Excluir definitivamente'}
+          </Button>
+        </>
+      }
+    >
+      <p class="text-sm text-fg-muted">
+        A inscrição e seus dados associados (documentos, métodos de pagamento) serão <strong>removidos definitivamente</strong>. O Lead vinculado <strong>não</strong> é apagado. Esta ação não pode ser desfeita.
+      </p>
     </Modal>
   )
 }

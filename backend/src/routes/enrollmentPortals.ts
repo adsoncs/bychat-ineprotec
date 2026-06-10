@@ -1040,6 +1040,152 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return { ok: true, ...result }
   })
 
+  // Status válidos de uma inscrição (espelha STATUS_LABELS do frontend).
+  const REGISTRATION_STATUSES = [
+    'draft', 'pending', 'submitted', 'paid',
+    'docs_uploaded', 'docs_reviewing', 'docs_approved', 'docs_rejected',
+    'reviewing', 'approved', 'enrolled', 'rejected', 'cancelled', 'expired',
+  ]
+
+  // Normaliza o valor de pagamento vindo do body p/ Decimal | null.
+  function parseAmount(v: unknown): number | null {
+    if (v === undefined || v === null || v === '') return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+
+  // POST /api/admin/enrollment-registrations — criar inscrição manualmente (admin).
+  app.post('/api/admin/enrollment-registrations', { preHandler: adminOnly }, async (req, reply) => {
+    const body = (req.body as any) || {}
+    const u = (req as any).user as JwtPayload | undefined
+    const portalId = body.portalId ? parseInt(body.portalId) : NaN
+    if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'portalId é obrigatório' })
+
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+
+    const status = body.status && REGISTRATION_STATUSES.includes(body.status) ? body.status : 'submitted'
+    const formData = (body.formData && typeof body.formData === 'object') ? body.formData : {}
+    const candidateCode = await generateCandidateCode(portalId)
+
+    const reg = await prisma.enrollmentRegistration.create({
+      data: {
+        portalId,
+        candidateCode,
+        status,
+        paymentStatus: body.paymentStatus || null,
+        paymentAmount: parseAmount(body.paymentAmount),
+        formData,
+      },
+      select: { id: true, candidateCode: true },
+    })
+
+    // Por padrão cria/vincula um Lead (igual à submissão pública). Best-effort:
+    // se faltar contato no formData, ensureLeadForRegistration apenas pula.
+    let leadId: number | null = null
+    if (body.createLead !== false) {
+      const r = await ensureLeadForRegistration(reg.id).catch(() => ({ leadId: null as number | null }))
+      leadId = r.leadId
+    }
+
+    if (leadId) {
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} criada manualmente`,
+        description: `Status: ${status}`,
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    const full = await prisma.enrollmentRegistration.findUnique({
+      where: { id: reg.id },
+      include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
+    })
+    return reply.code(201).send({ ok: true, registration: full })
+  })
+
+  // PUT /api/admin/enrollment-registrations/:id — editar inscrição (admin).
+  app.put('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const body = (req.body as any) || {}
+    const u = (req as any).user as JwtPayload | undefined
+
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: parseInt(id) },
+      select: { id: true, status: true, leadId: true, candidateCode: true, formData: true },
+    })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const data: any = {}
+    if (body.status !== undefined) {
+      if (!REGISTRATION_STATUSES.includes(body.status)) return reply.code(400).send({ error: 'Status inválido' })
+      data.status = body.status
+    }
+    if (body.paymentStatus !== undefined) data.paymentStatus = body.paymentStatus || null
+    if (body.paymentAmount !== undefined) data.paymentAmount = parseAmount(body.paymentAmount)
+    if (body.formData !== undefined && typeof body.formData === 'object' && body.formData) {
+      // Merge sobre o formData existente (preserva campos não enviados pelo form do admin).
+      data.formData = { ...((reg.formData as object) ?? {}), ...body.formData }
+    }
+
+    const updated = await prisma.enrollmentRegistration.update({
+      where: { id: reg.id },
+      data,
+      include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
+    })
+
+    if (reg.leadId) {
+      const statusChanged = data.status && data.status !== reg.status
+      logEvent({
+        leadId: reg.leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} editada`,
+        description: statusChanged ? `Status: ${reg.status} → ${data.status}` : 'Dados atualizados pelo admin',
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    return { ok: true, registration: updated }
+  })
+
+  // DELETE /api/admin/enrollment-registrations/:id — excluir inscrição (admin).
+  // Cascade remove filhos (documentos, métodos de pagamento, redações, etc.).
+  app.delete('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: parseInt(id) },
+      select: { id: true, status: true, candidateCode: true, leadId: true },
+    })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    if (reg.status === 'enrolled') {
+      return reply.code(409).send({ error: 'Inscrição matriculada não pode ser excluída — cancele antes.' })
+    }
+
+    await prisma.enrollmentRegistration.delete({ where: { id: reg.id } })
+
+    if (reg.leadId) {
+      const u = (req as any).user as JwtPayload | undefined
+      logEvent({
+        leadId: reg.leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} excluída`,
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    return { ok: true }
+  })
+
   // POST /api/admin/enrollment-registrations/:id/resend-link — admin reenvia link de continuação ao candidato
   app.post('/api/admin/enrollment-registrations/:id/resend-link', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
