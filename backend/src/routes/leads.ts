@@ -1390,8 +1390,8 @@ export async function leadsRoutes(app: FastifyInstance) {
     const body = req.body as any
     const user = (req as any).user as JwtPayload
 
-    if (!body.empresa || !body.whatsapp) {
-      return reply.code(400).send({ error: 'Empresa e WhatsApp são obrigatórios' })
+    if (!body.nome || !body.whatsapp || !body.email) {
+      return reply.code(400).send({ error: 'Nome, WhatsApp e e-mail são obrigatórios' })
     }
 
     // Dedup: verificar se já existe
@@ -1410,7 +1410,7 @@ export async function leadsRoutes(app: FastifyInstance) {
     const lead = await prisma.lead.create({
       data: {
         uid:       await generateUid(),
-        empresa:   body.empresa,
+        empresa:   body.empresa || '',
         nome:      body.nome || '',
         whatsapp:  body.whatsapp,
         email:     body.email || '',

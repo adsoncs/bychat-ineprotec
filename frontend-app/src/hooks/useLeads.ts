@@ -222,7 +222,7 @@ export function useLeadSources() {
 }
 
 export interface ManualLeadInput {
-  empresa: string
+  empresa?: string | undefined
   nome?: string | undefined
   whatsapp: string
   email?: string | undefined

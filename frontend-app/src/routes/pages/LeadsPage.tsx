@@ -1633,15 +1633,15 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
   const create = useCreateManualLead()
 
   function handleSubmit() {
-    if (!empresa.trim() || !whatsapp.trim()) {
-      toast('Empresa e WhatsApp obrigatórios', 'danger')
+    if (!nome.trim() || !whatsapp.trim() || !email.trim()) {
+      toast('Nome, WhatsApp e e-mail são obrigatórios', 'danger')
       return
     }
     const payload: ManualLeadInput = {
-      empresa: empresa.trim(),
+      nome: nome.trim(),
       whatsapp: whatsapp.trim(),
-      nome: nome || undefined,
-      email: email || undefined,
+      email: email.trim(),
+      empresa: empresa.trim() || undefined,
       segmento: segmento || undefined,
       cidade: cidade || undefined,
       funnelId: funnelId ? Number(funnelId) : undefined,
@@ -1669,10 +1669,10 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
       }
     >
       <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
-        <Input label="Empresa *" value={empresa} onInput={(e) => setEmpresa((e.target as HTMLInputElement).value)} />
-        <Input label="Nome" value={nome} onInput={(e) => setNome((e.target as HTMLInputElement).value)} />
+        <Input label="Nome *" value={nome} onInput={(e) => setNome((e.target as HTMLInputElement).value)} />
         <Input label="WhatsApp *" value={whatsapp} onInput={(e) => setWhatsapp((e.target as HTMLInputElement).value)} placeholder="5511999999999" />
-        <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
+        <Input label="E-mail *" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
+        <Input label="Empresa" value={empresa} onInput={(e) => setEmpresa((e.target as HTMLInputElement).value)} />
         <Input label="Segmento" value={segmento} onInput={(e) => setSegmento((e.target as HTMLInputElement).value)} />
         <Input label="Cidade" value={cidade} onInput={(e) => setCidade((e.target as HTMLInputElement).value)} />
         <Select label="Funil" value={funnelId} onChange={(e) => setFunnelId((e.target as HTMLSelectElement).value)}>
@@ -2701,6 +2701,10 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
   }
 
   function save() {
+    if (!form.nome?.trim() || !form.whatsapp?.trim() || !form.email?.trim()) {
+      toast('Nome, WhatsApp e e-mail são obrigatórios', 'danger')
+      return
+    }
     update.mutate({ id, ...form }, {
       onSuccess: () => { toast('Lead atualizado', 'success'); onClose() },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -2711,7 +2715,7 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title={`Editar lead${lead?.empresa ? ` — ${lead.empresa}` : ''}`}
+      title={`Editar lead${lead?.nome ? ` — ${lead.nome}` : ''}`}
       size="lg"
       footer={
         <>
@@ -2725,10 +2729,10 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
       {isLoading && <Skeleton class="h-32 w-full" />}
       {lead && (
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          <Input label="Nome *" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
+          <Input label="WhatsApp *" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
+          <Input label="E-mail *" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
           <Input label="Empresa" value={form.empresa ?? ''} onInput={(e) => set('empresa', (e.target as HTMLInputElement).value)} />
-          <Input label="Nome" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
-          <Input label="WhatsApp" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
-          <Input label="E-mail" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
           <Input label="Segmento" value={form.segmento ?? ''} onInput={(e) => set('segmento', (e.target as HTMLInputElement).value)} />
           <Input label="Cidade" value={form.cidade ?? ''} onInput={(e) => set('cidade', (e.target as HTMLInputElement).value)} />
         </div>
