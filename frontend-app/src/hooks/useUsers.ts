@@ -42,8 +42,14 @@ export interface UserAuditEntry {
   action: string
   actorName: string | null
   actorId: number | null
+  userId: number | null
+  targetType: string | null
+  targetLabel: string | null
   changes: Record<string, unknown> | null
+  ipAddress: string | null
   createdAt: string
+  // true = ação que ESTE usuário fez; false = ação que fizeram com ele.
+  viewerIsActor: boolean
 }
 
 export function useUsers() {

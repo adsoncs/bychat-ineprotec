@@ -10,6 +10,7 @@ import { onLeadStageChanged } from '../services/metaCapi.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { markLeadWon, markLeadLost, reopenLead } from '../services/leadOutcome.js'
 import { moveToTrash, snapshotLead, snapshotLeads } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { queues } from '../lib/queues.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { validateLeadAcquiresSlot } from '../services/educationalSlots.js'
@@ -1242,6 +1243,13 @@ export async function leadsRoutes(app: FastifyInstance) {
 
       await prisma.lead.delete({ where: { id: parseInt(id) } })
       console.log(`[Trash] Lead #${id} moved to trash by ${user.email} (${snapshot.empresa})`)
+      void logUserAudit({
+        action: 'lead.deleted',
+        targetType: 'lead',
+        targetLabel: `${snapshot.empresa || ''} — ${snapshot.nome || snapshot.whatsapp || `#${id}`}`.trim(),
+        changes: { leadId: parseInt(id), forced: force },
+        ...auditActor(req),
+      })
       return { ok: true }
     } catch {
       return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1563,6 +1571,14 @@ export async function leadsRoutes(app: FastifyInstance) {
     await prisma.lead.deleteMany({ where: { id: { in: ids } } })
 
     console.log(`[Trash] Bulk delete: ${snapshots.length} leads moved to trash by ${user.email} — IDs: ${ids.join(',')}`)
+
+    void logUserAudit({
+      action: 'lead.bulk_deleted',
+      targetType: 'lead',
+      targetLabel: `${snapshots.length} leads`,
+      changes: { leadIds: ids, forced: force },
+      ...auditActor(req),
+    })
 
     return { ok: true, deleted: snapshots.length }
   })

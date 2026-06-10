@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, superadminOnly, type JwtPayload } from '../lib/auth.js'
 import { isPrimaryInstall } from '../lib/install.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 export async function settingsRoutes(app: FastifyInstance) {
 
@@ -33,6 +34,18 @@ export async function settingsRoutes(app: FastifyInstance) {
     if (Object.keys(updates).some(k => k === 'google.ads.developer_token')) {
       const { invalidateGoogleAdsTokenCache } = await import('./googleAds.js')
       invalidateGoogleAdsTokenCache()
+    }
+    // Auditoria: registra apenas as CHAVES alteradas — nunca os valores (podem
+    // conter segredos: tokens, api keys, senhas SMTP).
+    const keys = Object.keys(updates)
+    if (keys.length > 0) {
+      void logUserAudit({
+        action: 'setting.changed',
+        targetType: 'setting',
+        targetLabel: keys.length <= 3 ? keys.join(', ') : `${keys.length} configurações`,
+        changes: { keys },
+        ...auditActor(req),
+      })
     }
     return { ok: true }
   })

@@ -7,6 +7,7 @@ import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { listModulesWithStatus, setModuleEnabled, getModuleDefinition } from '../lib/moduleManager.js'
 import { getAllModuleUsage, getModuleUsage } from '../services/moduleUsage.js'
 import { prisma } from '../lib/prisma.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 export async function modulesRoutes(app: FastifyInstance) {
   // Lista todos os módulos do sistema com seu status atual + uso real (counts).
@@ -84,6 +85,13 @@ export async function modulesRoutes(app: FastifyInstance) {
           fieldType: 'json',
         },
         update: { value: auditValue },
+      })
+      void logUserAudit({
+        action: 'module.toggled',
+        targetType: 'module',
+        targetLabel: def.name,
+        changes: { enabled: { from: !body.enabled, to: body.enabled } },
+        ...auditActor(req),
       })
       return { ok: true, moduleId: id, enabled: body.enabled }
     } catch (err: any) {

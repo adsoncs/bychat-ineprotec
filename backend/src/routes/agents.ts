@@ -18,6 +18,7 @@ import { invalidateRoutingCache, invalidateShiftCache } from '../services/teamRo
 import { invalidateWorkingHoursCache } from '../services/routing/workingHours.js'
 import { invalidateRulesCache, validateConditions, validateAction, simulateRouting, type RoutingContext } from '../services/routing/policyEngine.js'
 import { resolveRoutingFromContext } from '../services/teamRouting.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 // Working hours — validações compartilhadas entre endpoints de agente e setor.
 
@@ -821,6 +822,7 @@ export async function agentsRoutes(app: FastifyInstance) {
         },
       })
       invalidateRulesCache()
+      void logUserAudit({ action: 'routing_rule.created', targetType: 'routing_rule', targetLabel: rule.name, ...auditActor(req) })
       return { rule }
     },
   )
@@ -866,6 +868,7 @@ export async function agentsRoutes(app: FastifyInstance) {
 
       const rule = await prisma.routingRule.update({ where: { id: ruleId }, data: patch })
       invalidateRulesCache()
+      void logUserAudit({ action: 'routing_rule.updated', targetType: 'routing_rule', targetLabel: rule.name, changes: { fields: Object.keys(patch) }, ...auditActor(req) })
       return { rule }
     },
   )
@@ -880,6 +883,7 @@ export async function agentsRoutes(app: FastifyInstance) {
       if (!existing) return reply.code(404).send({ error: 'Regra não encontrada' })
       await prisma.routingRule.delete({ where: { id: ruleId } })
       invalidateRulesCache()
+      void logUserAudit({ action: 'routing_rule.deleted', targetType: 'routing_rule', targetLabel: existing.name, ...auditActor(req) })
       return { deleted: true }
     },
   )

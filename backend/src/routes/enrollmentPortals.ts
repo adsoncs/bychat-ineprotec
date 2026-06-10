@@ -14,6 +14,7 @@ import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
@@ -568,8 +569,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // DELETE /api/admin/enrollment-portals/:id
   app.delete('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
+    const existing = await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) }, select: { nome: true, slug: true } })
     try {
       await prisma.enrollmentPortal.delete({ where: { id: parseInt(id) } })
+      void logUserAudit({
+        action: 'portal.deleted',
+        targetType: 'portal',
+        targetLabel: existing?.nome || existing?.slug || `Portal #${id}`,
+        ...auditActor(req),
+      })
       return { ok: true }
     } catch (err: any) {
       return reply.code(400).send({ error: 'Não foi possível excluir (há inscrições vinculadas)' })
@@ -1182,6 +1190,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         userName: u?.name,
       })
     }
+
+    void logUserAudit({
+      action: 'registration.deleted',
+      targetType: 'enrollment_registration',
+      targetLabel: reg.candidateCode,
+      changes: { status: reg.status, leadId: reg.leadId },
+      ...auditActor(req),
+    })
 
     return { ok: true }
   })

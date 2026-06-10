@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
 import { isInternalUrl } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
@@ -566,6 +567,12 @@ export async function formsRoutes(app: FastifyInstance) {
       })
     }
     await prisma.form.delete({ where: { id: parseInt(id) } })
+    void logUserAudit({
+      action: 'form.deleted',
+      targetType: 'form',
+      targetLabel: (snapshot as any)?.name || `Formulário #${id}`,
+      ...auditActor(req),
+    })
     return { ok: true }
   })
 

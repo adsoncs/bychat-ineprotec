@@ -223,16 +223,26 @@ model RefreshToken {
 
 model UserAudit {
   id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation("AuditTarget", fields: [userId], references: [id], onDelete: Cascade)
-  action    String   @db.VarChar(30)
+  // Usuário-ALVO da ação. Nullable: ações de sistema (mudar config, excluir
+  // conexão Cloud API, etc.) não têm usuário-alvo — só ator + targetType/Label.
+  // onDelete: SetNull (NÃO Cascade) — auditoria é IMUTÁVEL: excluir o usuário-alvo
+  // NÃO apaga o histórico; userId vira null mas targetLabel preserva quem era.
+  userId    Int?
+  user      User?    @relation("AuditTarget", fields: [userId], references: [id], onDelete: SetNull)
+  action    String   @db.VarChar(40)
   actorId   Int?
   actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   actorName String?  @db.VarChar(191)
+  // Alvo genérico p/ ações que não são sobre um usuário (config, cloud_api,
+  // api_key, module_permission, lead, chatbot, form, portal, routing_rule…).
+  targetType  String? @db.VarChar(40)
+  targetLabel String? @db.VarChar(191)
   changes   Json?    @db.Json
+  ipAddress String?  @db.VarChar(45)
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([actorId, createdAt])
   @@map("bychat_user_audits")
 }
 
