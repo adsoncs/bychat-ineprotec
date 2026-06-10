@@ -119,6 +119,22 @@ function methodToAction(method: string): Action {
   }
 }
 
+// Rotas cuja ação derivada do método HTTP não reflete o impacto real.
+// Gerenciar as TAGS de um lead (adicionar/remover, inclusive em massa) é
+// EDITAR o lead — não criar nem EXCLUIR o lead. Sem este override, a rota
+// resolve para o módulo 'leads' (prefixo /api/leads casa antes de /api/tags)
+// e remover tag (DELETE) exigiria canDelete em 'leads', a mesma permissão
+// que apaga o lead inteiro (DELETE /api/leads/:id). Ver routes/tags.ts.
+const ACTION_OVERRIDES: { test: RegExp; action: Action }[] = [
+  { test: /^\/api\/leads\/\d+\/tags(\/\d+)?$/, action: 'edit' },
+  { test: /^\/api\/leads\/bulk\/tags$/, action: 'edit' },
+]
+
+function resolveAction(method: string, pathOnly: string): Action {
+  const ov = ACTION_OVERRIDES.find(o => o.test.test(pathOnly))
+  return ov ? ov.action : methodToAction(method)
+}
+
 function checkAction(perms: ModulePerms, action: Action): boolean {
   switch (action) {
     case 'view': return perms.canView
@@ -340,7 +356,7 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
   try {
     const perms = await resolvePermissions(user.userId, user.role)
     const modPerms = perms[mod.id]
-    const act = methodToAction(req.method)
+    const act = resolveAction(req.method, pathOnly)
 
     // Self-service de conexão Google: basta ter acesso a um módulo que usa Google
     // (Agenda ou Google). Conecta/desconecta só a conta do próprio operador.
