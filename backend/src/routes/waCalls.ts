@@ -172,7 +172,11 @@ export async function waCallsRoutes(app: FastifyInstance) {
       name: user.name,
       email: user.email,
     })
-    if (!result.ok) return reply.code(422).send({ error: result.reason })
+    if (!result.ok) {
+      req.log.warn(`[wa-call] gravação NÃO salva (call=${callId}): ${result.reason}`)
+      return reply.code(422).send({ error: result.reason })
+    }
+    req.log.info(`[wa-call] gravação salva (call=${callId}) → ${result.url}`)
     return { ok: true, url: result.url }
   })
 }

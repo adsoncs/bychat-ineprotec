@@ -39,11 +39,15 @@ function pickRecMime(): string {
 }
 
 /** Inicia a gravação misturando microfone local + áudio remoto. Best-effort. */
-function startRecording() {
+async function startRecording() {
   if (mediaRecorder || !localStream || !remoteStream) return
   try {
     const Ctx: typeof AudioContext = (window as any).AudioContext || (window as any).webkitAudioContext
     recordAudioCtx = new Ctx()
+    // O AudioContext nasce 'suspended' pela política de autoplay → o destino de mixagem
+    // fica MUDO e a gravação sai vazia (<1KB, descartada). resume() reativa — o clique em
+    // Atender/Ligar dá a "sticky activation" que o navegador exige. Sem isso, nada é gravado.
+    if (recordAudioCtx.state === 'suspended') { try { await recordAudioCtx.resume() } catch { /* ignore */ } }
     const dest = recordAudioCtx.createMediaStreamDestination()
     recordAudioCtx.createMediaStreamSource(localStream).connect(dest)
     recordAudioCtx.createMediaStreamSource(remoteStream).connect(dest)
@@ -74,18 +78,22 @@ async function stopAndUploadRecording(callId: string | null) {
 
   const chunks = recordedChunks
   recordedChunks = []
-  if (!callId || chunks.length === 0) return
+  // Diagnósticos: a gravação é best-effort, mas logamos o motivo de não subir — antes
+  // falhava em silêncio (era impossível saber por que a Activity não aparecia).
+  if (!callId) { console.warn('[wa-call] gravação não enviada: callId ausente'); return }
+  if (chunks.length === 0) { console.warn('[wa-call] gravação não enviada: nenhum áudio capturado (AudioContext suspenso? microfone?)'); return }
 
   const type = (recorder?.mimeType || 'audio/webm').split(';')[0] || 'audio/webm'
   const blob = new Blob(chunks, { type })
-  if (blob.size < 1024) return // descarta gravação vazia/curtíssima
+  if (blob.size < 1024) { console.warn(`[wa-call] gravação descartada: vazia/curtíssima (${blob.size} bytes)`); return }
 
   try {
     const form = new FormData()
     form.append('file', blob, `wa-call.${type.includes('mp4') ? 'm4a' : 'webm'}`)
     await api.post(`/wa-calls/${encodeURIComponent(callId)}/recording`, form)
-  } catch {
-    /* gravação é best-effort — não interrompe o fim da chamada */
+    console.info(`[wa-call] gravação enviada (${blob.size} bytes, call ${callId})`)
+  } catch (e) {
+    console.warn('[wa-call] falha ao enviar gravação:', e)
   }
 }
 
@@ -193,7 +201,7 @@ async function createPeer(stream: MediaStream): Promise<RTCPeerConnection> {
     if (stream) {
       remoteStream = stream
       ensureRemoteAudio().srcObject = stream
-      startRecording() // grava assim que há os dois lados de áudio
+      void startRecording() // grava assim que há os dois lados de áudio
     }
   })
 
