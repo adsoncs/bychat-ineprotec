@@ -3,6 +3,8 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
+import { isLikelyLid, onlyDigits } from '../lib/phone.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -531,59 +533,40 @@ export async function whatsappRoutes(app: FastifyInstance) {
       let waLidToPersist: string | null = null
 
       if (remoteJid.endsWith('@lid')) {
-        // LID format — Evolution API v2 com Baileys não inclui o telefone no webhook
-        // Resolver via consulta aos contatos da Evolution API (profilePicUrl ou pushName matching)
+        // LID (@lid) é um identificador de PRIVACIDADE do WhatsApp — NÃO é telefone.
+        // Tenta obter o número real via Evolution; o match CRM (waLid/phoneKey/nome)
+        // fica a cargo do resolvedor de identidade unificado, abaixo.
+        waLidToPersist = remoteJid
         const resolved = await resolveLidToPhone(remoteJid, data.pushName)
         if (resolved) {
           phone = resolved
           app.log.info(`[Webhook] LID ${remoteJid} resolved to phone: ${phone}`)
         } else {
-          // Estratégia CRM: associar o LID a lead existente via campo waLid ou via pushName.
-          // Evita criar leads duplicados quando o mesmo contato LID volta a mandar mensagem.
-          const pushName: string = (data.pushName || '').trim()
-
-          // 1) Já existe lead com este LID registrado?
-          const leadByLid = await prisma.lead.findFirst({
-            where: { waLid: remoteJid },
-            select: { id: true, whatsapp: true },
-          })
-          if (leadByLid) {
-            phone = leadByLid.whatsapp
-            app.log.info(`[Webhook] LID ${remoteJid} matched existing lead ${leadByLid.id} via waLid`)
-          } else if (pushName) {
-            // 2) Lead com pushName exato ainda sem LID atribuído — associa.
-            //    Limita a leads criados nos últimos 30 dias para evitar matches aleatórios antigos.
-            const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000)
-            const leadByName = await prisma.lead.findFirst({
-              where: {
-                nome: pushName,
-                waLid: null,
-                createdAt: { gte: cutoff },
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true, whatsapp: true },
-            })
-            if (leadByName) {
-              await prisma.lead.update({
-                where: { id: leadByName.id },
-                data: { waLid: remoteJid },
-              })
-              phone = leadByName.whatsapp
-              app.log.info(`[Webhook] LID ${remoteJid} associated to lead ${leadByName.id} via pushName "${pushName}"`)
-            } else {
-              // 3) Nada matcheou — cria lead novo mais tarde, e registra o LID no campo waLid.
-              phone = remoteJid.replace('@lid', '')
-              waLidToPersist = remoteJid
-              app.log.warn(`[Webhook] LID ${remoteJid} sem match — criando lead novo com waLid`)
-            }
-          } else {
-            phone = remoteJid.replace('@lid', '')
-            waLidToPersist = remoteJid
-            app.log.warn(`[Webhook] LID ${remoteJid} sem pushName — criando lead novo com waLid`)
-          }
+          phone = '' // sem número ainda — o resolvedor tenta achar o lead existente
         }
       } else {
         phone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+      }
+
+      // ── Identidade canônica unificada (fix definitivo de duplicação) ──
+      // Acha o lead deste contato por waLid → phoneKey → nome e ADOTA o telefone
+      // já cadastrado nele, fazendo todos os lookups abaixo convergirem para o
+      // MESMO lead. Reconcilia (backfill phoneKey, grava waLid recém-descoberto).
+      {
+        const ident = await resolveLeadForContact({ phone, waLid: waLidToPersist, pushName: data.pushName })
+        if (ident.lead) {
+          if (ident.lead.whatsapp && !isLikelyLid(ident.lead.whatsapp)) phone = ident.lead.whatsapp
+          await reconcileLeadIdentity(
+            ident.lead.id,
+            { whatsapp: ident.lead.whatsapp, waLid: ident.lead.waLid, phoneKey: ident.lead.phoneKey },
+            { phone: phone || undefined, waLid: waLidToPersist },
+          )
+        } else if (!phone && remoteJid.endsWith('@lid')) {
+          // Contato puro-LID NOVO (sem telefone, sem match): placeholder com os
+          // dígitos do LID só pra não derrubar a mensagem — waLid fica gravado e
+          // mensagens futuras (com o número real) convergem via reconcile.
+          phone = onlyDigits(remoteJid)
+        }
       }
 
       // Ignora mensagens de grupo

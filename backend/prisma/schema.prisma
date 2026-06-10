@@ -710,6 +710,12 @@ model Lead {
   empresa      String  @db.VarChar(191)
   nome         String  @db.VarChar(191)
   whatsapp     String  @db.VarChar(30)
+  // Chave canônica do telefone (lib/phone.ts phoneKey): "55"+DDD+9+8 dígitos.
+  // Colapsa todas as variações (com/sem 55, com/sem 9º dígito) numa só chave —
+  // é a base do match EXATO de identidade do contato. null quando não há telefone
+  // válido (ex.: contato só por LID). Indexada (não-única: o resolvedor central
+  // de inbound dedupa na escrita; LID/vazios podem repetir).
+  phoneKey     String? @db.VarChar(20)
   email        String  @db.VarChar(191)
   segmento     String? @db.VarChar(100)
   cidade       String? @db.VarChar(100)
@@ -897,6 +903,7 @@ model Lead {
   @@index([assignedUserId])
   @@index([teamId])
   @@index([waLid])
+  @@index([phoneKey])
   @@index([qualifiedAt])
   @@index([firstResponseAt])
   @@index([conversationOpenedAt, conversationClosedAt])

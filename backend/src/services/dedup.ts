@@ -1,6 +1,7 @@
 // services/dedup.ts — UID generation, duplicate detection, flagging & lead merge
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { phoneKey } from '../lib/phone.js'
 
 // Canais de origem da Categoria A (Captura) — sempre criam lead novo + flag.
 // Usado por reporting/UI pra mostrar de onde veio cada inscrição duplicada.
@@ -106,8 +107,20 @@ export interface DedupResult {
  * WhatsApp é chave primária por ser sistema de conversação.
  */
 export async function findDuplicate(whatsapp?: string, email?: string): Promise<DedupResult> {
-  // 1. WhatsApp — chave principal
+  // 1. WhatsApp — chave principal. Casa por phoneKey CANÔNICO (lib/phone.ts),
+  // que colapsa todas as variações (com/sem 55, com/sem 9º dígito). Mesmo critério
+  // do resolvedor de inbound → agendamento/formulário/manual NÃO duplicam um
+  // contato que já existe. Fallback por últimos-8 cobre leads legados ainda sem
+  // phoneKey (janela até o backfill rodar).
   if (whatsapp) {
+    const pk = phoneKey(whatsapp)
+    if (pk) {
+      const byKey = await prisma.lead.findFirst({
+        where: { phoneKey: pk },
+        orderBy: { createdAt: 'desc' },
+      })
+      if (byKey) return { lead: byKey, matchType: 'whatsapp' }
+    }
     const digits = phoneDigits(whatsapp)
     if (digits.length >= 8) {
       const lead = await prisma.lead.findFirst({

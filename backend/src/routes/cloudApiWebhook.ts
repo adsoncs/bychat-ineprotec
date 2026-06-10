@@ -15,6 +15,7 @@ import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../se
 import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
+import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -305,15 +306,20 @@ async function processIncomingMessage(
     // sem o nono dígito (5562991138484 → 556291138484). Tenta exato e cai para
     // os últimos 8 dígitos, igual ao webhook Evolution (whatsapp.ts:481,879) —
     // evita criar lead duplicado para um contato que já existe.
-    let lead = await prisma.lead.findFirst({
-      where: { whatsapp: phone },
-      orderBy: { createdAt: 'desc' }
-    })
-    if (!lead && phone.length >= 8) {
-      lead = await prisma.lead.findFirst({
-        where: { whatsapp: { contains: phone.slice(-8) } },
-        orderBy: { createdAt: 'desc' }
-      })
+    // Identidade canônica unificada (lib/phone.ts + contactIdentity): casa por
+    // phoneKey EXATO, colapsando todas as variações (com/sem 55, com/sem 9º dígito).
+    // Substitui o antigo "whatsapp contains últimos-8" (frágil e propenso a duplicar).
+    const resolved = await resolveLeadForContact({ phone })
+    let lead = resolved.lead
+      ? await prisma.lead.findUnique({ where: { id: resolved.lead.id } })
+      : null
+    if (lead) {
+      // Backfill preguiçoso: garante phoneKey em leads legados que casaram.
+      await reconcileLeadIdentity(
+        lead.id,
+        { whatsapp: lead.whatsapp, waLid: lead.waLid, phoneKey: lead.phoneKey },
+        { phone },
+      )
     }
 
     if (!lead) {
