@@ -271,6 +271,17 @@ const GOOGLE_SELF_CONNECT_PATHS = new Set<string>([
 ])
 const GOOGLE_SELF_CONNECT_MODULES = ['google', 'scheduling']
 
+// Leitura das DEFINIÇÕES de campos personalizados (GET) é usada pelo operador
+// para ver/preencher os campos no lead. Resolve para o módulo administrativo
+// 'settings' (prefixo /api/custom-fields), mas quem só trabalha leads não deve
+// precisar de acesso a Configurações. Liberada a quem tem 'Ver' em Leads.
+// Criar/editar/excluir definições (POST/PUT/DELETE) continua em 'settings'.
+const CUSTOM_FIELDS_READ_PATHS = new Set<string>([
+  '/api/custom-fields',
+  '/api/custom-fields/all',
+])
+const CUSTOM_FIELDS_READ_MODULES = ['leads']
+
 // Tenta resolver o user a partir do Bearer token DIRETAMENTE no hook global,
 // sem depender do `authMiddleware` da rota (que é preHandler de ROTA — roda
 // DEPOIS deste preHandler global e portanto deixaria `req.user` indefinido).
@@ -361,6 +372,11 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
     // Self-service de conexão Google: basta ter acesso a um módulo que usa Google
     // (Agenda ou Google). Conecta/desconecta só a conta do próprio operador.
     if (GOOGLE_SELF_CONNECT_PATHS.has(pathOnly) && GOOGLE_SELF_CONNECT_MODULES.some(m => perms[m]?.canView)) {
+      return
+    }
+
+    // Leitura de campos personalizados: basta 'Ver' em Leads (não exige Configurações).
+    if (req.method === 'GET' && CUSTOM_FIELDS_READ_PATHS.has(pathOnly) && CUSTOM_FIELDS_READ_MODULES.some(m => perms[m]?.canView)) {
       return
     }
 
