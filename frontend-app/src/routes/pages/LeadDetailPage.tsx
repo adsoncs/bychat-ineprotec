@@ -138,8 +138,8 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
     return <Skeleton class="h-32 w-full" />
   }
 
-  const title = lead.empresa || lead.nome || `Lead #${id}`
-  const subtitle = lead.empresa && lead.nome ? lead.nome : null
+  const title = lead.nome || lead.empresa || `Lead #${id}`
+  const subtitle = lead.nome && lead.empresa ? lead.empresa : null
   const score = lead.scores?.geral
   const tags = lead.tags ?? []
   const initials = (title.trim().charAt(0) || '?').toUpperCase()
