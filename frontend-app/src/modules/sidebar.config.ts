@@ -147,6 +147,7 @@ export const sidebarSchema: SidebarSchema = {
       items: [
         { id: 'analytics', label: 'Meus Painéis', href: '/app/analytics', icon: 'LineChart', permission: 'dashboard' },
         { id: 'meta-ads-report', label: 'Relatório Meta Ads', href: '/app/meta-ads-report', icon: 'BarChart3', permission: 'vendas' },
+        { id: 'funnel-report', label: 'Relatório de Funil', href: '/app/funnel-report', icon: 'Workflow', permission: 'vendas' },
         { id: 'google-ads-report', label: 'Relatório Google Ads', href: '/app/google-ads-report', icon: 'BarChart3', permission: 'vendas' },
         { id: 'conversation-audit', label: 'Auditoria de Conversas', href: '/app/conversation-audit', icon: 'Bot', permission: 'intelligence' },
         { id: 'ai-journey', label: 'Jornada IA', href: '/app/ai-journey', icon: 'Sparkles', permission: 'intelligence' },

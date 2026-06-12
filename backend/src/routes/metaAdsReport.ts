@@ -261,8 +261,13 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     }
     if (funnelId) leadWhere.funnelId = funnelId
 
+    // CampaignCost.date é @db.Date (UTC midnight). Filtrar com limites em fuso
+    // Brasil (03:00Z) descartava o 1º dia do período — usar limites em UTC do
+    // dia-calendário do gasto.
+    const costDateFrom = new Date(toBrazilDay(dateFrom) + 'T00:00:00.000Z')
+    const costDateTo = new Date(toBrazilDay(dateTo) + 'T23:59:59.999Z')
     const costWhereBase: any = {
-      date: { gte: dateFrom, lte: dateTo }
+      date: { gte: costDateFrom, lte: costDateTo }
     }
     if (campaignId) costWhereBase.campaignId = campaignId
 
@@ -624,7 +629,8 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       else if (lead.outcome === 'lost') dailyTotal[day].lost++
     }
     for (const cost of costs) {
-      const day = toBrazilDay(cost.date)
+      // cost.date é @db.Date (UTC midnight) = dia-calendário do gasto → dia UTC.
+      const day = cost.date.toISOString().slice(0, 10)
       if (!dailyTotal[day]) dailyTotal[day] = empty()
       dailyTotal[day].spend += Number(cost.spend)
       dailyTotal[day].impressions += cost.impressions || 0

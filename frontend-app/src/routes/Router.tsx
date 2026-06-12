@@ -47,6 +47,7 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })),
   ),
   'meta-ads-report': lazy(() => import('./pages/MetaAdsReportPage').then((m) => ({ default: m.MetaAdsReportPage }))),
+  'funnel-report': lazy(() => import('./pages/FunnelReportPage').then((m) => ({ default: m.FunnelReportPage }))),
   conversions: lazy(() => import('./pages/ConversionsPage').then((m) => ({ default: m.ConversionsPage }))),
   tracking: lazy(() =>
     import('./pages/TrackingPage').then((m) => ({ default: m.TrackingPage })),

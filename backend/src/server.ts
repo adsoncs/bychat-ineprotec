@@ -67,6 +67,7 @@ import { cloudApiSetupRoutes } from './routes/cloudApiSetup.js'
 import { broadcastRoutes } from './routes/broadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
 import { metaAdsReportRoutes } from './routes/metaAdsReport.js'
+import { funnelReportRoutes } from './routes/funnelReport.js'
 import { trackableLinksRoutes } from './routes/trackableLinks.js'
 import { pixelRoutes } from './routes/pixel.js'
 import { educationalRoutes } from './routes/educational.js'
@@ -507,6 +508,7 @@ await app.register(userDashboardsRoutes)
 await app.register(installationsRoutes)
 await app.register(securityRoutes)
 await app.register(metaAdsReportRoutes)
+await app.register(funnelReportRoutes)
 await app.register(trackableLinksRoutes)
 await app.register(pixelRoutes)
 await app.register(educationalRoutes)
