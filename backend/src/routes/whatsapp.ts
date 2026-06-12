@@ -677,8 +677,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       const msgText = text || mediaCaption
 
-      // Save media messages to Message table even if no text (for atendimento view)
-      if (mediaType !== 'text' && phone) {
+      // Salva mídia SEM texto (imagem/áudio sem legenda/transcrição) aqui, pois
+      // o fluxo abaixo só persiste quando há `msgText` (retorna em !msgText).
+      // Mídia COM texto (ex.: áudio transcrito, imagem com legenda) NÃO entra
+      // aqui: é persistida uma única vez pelo create downstream (atendimento ou
+      // engine do chatbot), que já grava mediaType/mediaUrl/mediaName — evita a
+      // duplicação (este bloco + o create de baixo gravavam a mesma mensagem).
+      if (mediaType !== 'text' && !msgText && phone) {
         const existingLead = await prisma.lead.findFirst({
           where: { whatsapp: phone },
           orderBy: { createdAt: 'desc' }
