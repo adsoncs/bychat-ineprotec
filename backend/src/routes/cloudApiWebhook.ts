@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
 import { getMetaAppSecret } from '../lib/meta.js'
 import { validateWebhookSignature, markAsRead, downloadMedia, decryptToken, normalizePhone } from '../services/cloudApi.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -74,6 +75,15 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
           app.log.warn('[CloudAPI] Invalid webhook signature')
           return reply.code(401).send('Invalid signature')
         }
+      } else {
+        // Sem app secret configurado não há como validar a assinatura. Por padrão
+        // aceitamos (legado) com alerta; com CLOUD_API_WEBHOOK_STRICT=1 rejeitamos
+        // (fail-closed) para impedir injeção de eventos forjados.
+        if (process.env.CLOUD_API_WEBHOOK_STRICT === '1') {
+          app.log.warn('[CloudAPI][SECURITY] sem app secret + STRICT — rejeitando webhook não verificável')
+          return reply.code(401).send('Webhook signature required')
+        }
+        app.log.warn('[CloudAPI][SECURITY] app secret ausente — webhook aceito SEM verificação de assinatura. Configure META_APP_SECRET.')
       }
 
       const body = req.body as any
@@ -186,6 +196,16 @@ async function processIncomingMessage(
   // Marcar como lida automaticamente
   if (msgId) {
     markAsRead(phoneNumberId, token, msgId).catch(() => {})
+  }
+
+  // Idempotência/anti-replay: a Meta reenvia o mesmo evento em falha de ACK.
+  // SET NX no wamid garante que cada mensagem é processada uma única vez (evita
+  // mensagem duplicada + re-disparo de fluxos de chatbot/IA).
+  if (msgId) {
+    try {
+      const fresh = await redis.set(`wamsg:${msgId}`, '1', 'EX', 86400, 'NX')
+      if (fresh === null) return // já processado
+    } catch { /* redis indisponível — segue (a coluna externalId ainda evita parte) */ }
   }
 
   // Extrair conteudo baseado no tipo

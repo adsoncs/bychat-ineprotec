@@ -2,7 +2,9 @@
 // Gerenciamento de instância WhatsApp via Evolution API + webhook para chat diagnóstico
 
 import { FastifyInstance } from 'fastify'
+import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
+import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
 import { isLikelyLid, onlyDigits } from '../lib/phone.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
@@ -14,6 +16,9 @@ import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/tea
 import { broadcastRealtimeEvent } from './realtime.js'
 
 // ─── Evolution API helpers ────────────────────────────────
+
+// Throttle do alerta de webhook sem autenticação (1x/h) — evita flood de logs.
+let lastEvolutionWebhookWarn = 0
 
 function evoUrl() { return process.env.EVOLUTION_API_URL || '' }
 function evoKey() { return process.env.EVOLUTION_API_KEY || '' }
@@ -48,8 +53,13 @@ const lidPhoneCache = new Map<string, string>()
 let evoPgPool: pg.Pool | null = null
 function getEvoPgPool(): pg.Pool {
   if (!evoPgPool) {
+    // Sem credencial default no código — exige EVOLUTION_PG_URL configurada.
+    const connectionString = process.env.EVOLUTION_PG_URL
+    if (!connectionString) {
+      throw new Error('EVOLUTION_PG_URL não configurada — pool Postgres do Evolution indisponível')
+    }
     evoPgPool = new pg.Pool({
-      connectionString: process.env.EVOLUTION_PG_URL || 'postgresql://evolution:evolution@localhost:5432/evolution',
+      connectionString,
       max: 3,
       idleTimeoutMillis: 30000
     })
@@ -367,6 +377,27 @@ export async function whatsappRoutes(app: FastifyInstance) {
   // POST /api/whatsapp/webhook — Recebe mensagens do Evolution API
   app.post('/api/whatsapp/webhook', async (req, reply) => {
     try {
+      // ── Autenticidade do webhook ──────────────────────────────────────
+      // Sem auth, qualquer um pode injetar mensagens/leads forjados. Configure
+      // EVOLUTION_WEBHOOK_KEY no .env e adicione o mesmo valor como header
+      // (x-webhook-token ou apikey) na config do webhook do Evolution. Quando a
+      // env está setada a verificação é obrigatória (fail-closed); sem ela,
+      // mantemos o comportamento legado com alerta para não perder mensagens.
+      const expectedWebhookKey = process.env.EVOLUTION_WEBHOOK_KEY || ''
+      if (expectedWebhookKey) {
+        const got = String(req.headers['x-webhook-token'] || req.headers['apikey'] || '')
+        const gotBuf = Buffer.from(got)
+        const expBuf = Buffer.from(expectedWebhookKey)
+        const valid = gotBuf.length === expBuf.length && crypto.timingSafeEqual(gotBuf, expBuf)
+        if (!valid) {
+          await logSecurityEvent({ ip: req.ip, type: 'whatsapp_webhook_unauthorized', severity: 'high', path: req.url, details: 'Webhook Evolution sem token válido' }).catch(() => {})
+          return reply.code(401).send({ error: 'Não autorizado' })
+        }
+      } else if (Date.now() - lastEvolutionWebhookWarn > 3600_000) {
+        lastEvolutionWebhookWarn = Date.now()
+        app.log.warn('[WA/webhook][SECURITY] EVOLUTION_WEBHOOK_KEY não configurada — webhook aceita requests não autenticados. Configure para impedir injeção de mensagens/leads.')
+      }
+
       const body = req.body as any
 
       // Evolution API envia eventos com diferentes formatos

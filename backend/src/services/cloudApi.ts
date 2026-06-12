@@ -1,7 +1,7 @@
 // src/services/cloudApi.ts
 // Servico para chamadas à WhatsApp Cloud API (API Oficial Meta)
 
-import { createCipheriv, createDecipheriv, randomBytes, createHmac } from 'crypto'
+import { createCipheriv, createDecipheriv, randomBytes, createHmac, timingSafeEqual } from 'crypto'
 
 const GRAPH_URL = 'https://graph.facebook.com/v22.0'
 
@@ -41,8 +41,12 @@ export function decryptToken(ciphertext: string): string {
 
 export function validateWebhookSignature(rawBody: Buffer, signature: string, appSecret: string): boolean {
   if (!signature || !signature.startsWith('sha256=')) return false
-  const expectedSig = createHmac('sha256', appSecret).update(rawBody).digest('hex')
-  return `sha256=${expectedSig}` === signature
+  const expectedSig = `sha256=${createHmac('sha256', appSecret).update(rawBody).digest('hex')}`
+  // Comparação em tempo constante (evita timing attack na assinatura).
+  const a = Buffer.from(signature)
+  const b = Buffer.from(expectedSig)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }
 
 // ─── Cloud API HTTP Client ──────────────────────────────

@@ -6,8 +6,7 @@ import jwt from 'jsonwebtoken'
 import { prisma } from './prisma.js'
 import { type JwtPayload } from './auth.js'
 import { getModuleForRoute, MODULE_REGISTRY } from './moduleRegistry.js'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me'
+import { JWT_SECRET } from './secrets.js'
 
 type Action = 'view' | 'create' | 'edit' | 'delete'
 

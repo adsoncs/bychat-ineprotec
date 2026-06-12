@@ -32,6 +32,18 @@ export async function leadsRoutes(app: FastifyInstance) {
     return true
   }
 
+  // Filtra uma lista de IDs ao escopo de acesso do usuário (own/team/all).
+  // Operações em massa só agem sobre leads que o usuário realmente pode acessar.
+  async function filterAccessibleLeadIds(user: JwtPayload, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return []
+    const scope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
+    const rows = await prisma.lead.findMany({
+      where: { AND: [{ id: { in: ids } }, scope] },
+      select: { id: true },
+    })
+    return rows.map(r => r.id)
+  }
+
   // Auto-seed Settings Fase 24 (dedup.mode.* por canal de captura)
   const dedupSettings: { key: string; label: string }[] = [
     { key: 'dedup.mode.forms', label: 'Forms / Landing Pages — modo de duplicação' },
@@ -214,9 +226,20 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (!fd) return reply.code(400).send({ error: 'formData obrigatório' })
 
     // Verificar se lead existe e não foi completado (impede reescrita de dados)
-    const existing = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, completed: true } })
+    const existing = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, completed: true, whatsapp: true } })
     if (!existing) return reply.code(404).send({ error: 'Lead não encontrado' })
     if (existing.completed) return reply.code(409).send({ error: 'Diagnóstico já finalizado' })
+
+    // Binding anti-IDOR: este endpoint é público e o :id é sequencial. Sem prova de
+    // posse, qualquer um sobrescreveria o lead de outra pessoa por enumeração.
+    // O fluxo legítimo continua com o MESMO whatsapp informado na criação — exigimos
+    // que o whatsapp do corpo bata com o do lead (comparação só por dígitos).
+    const onlyDigits = (s: any) => String(s || '').replace(/\D/g, '')
+    const existingWa = onlyDigits(existing.whatsapp)
+    const incomingWa = onlyDigits(fd.whatsapp)
+    if (existingWa && incomingWa !== existingWa) {
+      return reply.code(403).send({ error: 'Não autorizado a alterar este registro' })
+    }
 
     const data: any = {
       formData:  fd,
@@ -629,10 +652,11 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── POST /api/bychat/leads/bulk/won ─── Classificar em massa como Ganho ──
   app.post('/api/bychat/leads/bulk/won', { preHandler: authMiddleware }, async (req, reply) => {
     const body = (req.body || {}) as { ids?: number[]; value?: number | null; note?: string | null }
-    const ids = (body.ids || []).filter((n) => Number.isInteger(n))
-    if (ids.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
-    if (ids.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
+    const reqIds = (body.ids || []).filter((n) => Number.isInteger(n))
+    if (reqIds.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
+    if (reqIds.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
     const user = (req as any).user as JwtPayload
+    const ids = await filterAccessibleLeadIds(user, reqIds)
     let processed = 0, failed = 0
     for (const id of ids) {
       try {
@@ -654,10 +678,11 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── POST /api/bychat/leads/bulk/lost ─── Classificar em massa como Perdido ──
   app.post('/api/bychat/leads/bulk/lost', { preHandler: authMiddleware }, async (req, reply) => {
     const body = (req.body || {}) as { ids?: number[]; reasonId?: number | null; note?: string | null }
-    const ids = (body.ids || []).filter((n) => Number.isInteger(n))
-    if (ids.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
-    if (ids.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
+    const reqIds = (body.ids || []).filter((n) => Number.isInteger(n))
+    if (reqIds.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
+    if (reqIds.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
     const user = (req as any).user as JwtPayload
+    const ids = await filterAccessibleLeadIds(user, reqIds)
     let processed = 0, failed = 0
     for (const id of ids) {
       try {
@@ -975,8 +1000,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id)).filter((n) => Number.isFinite(n))
+    // Escopo: só qualifica leads acessíveis ao usuário.
+    const qbScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, qbScope] },
       select: { id: true, qualifiedAt: true, status: true },
     })
 
@@ -1018,6 +1045,7 @@ export async function leadsRoutes(app: FastifyInstance) {
   // Usado quando o operador percebe que classificou errado (ex: era spam).
   app.post('/api/bychat/leads/:id/unqualify', { preHandler: authMiddleware }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
+    if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
     const lead = await prisma.lead.findUnique({ where: { id }, select: { id: true, qualifiedAt: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1363,8 +1391,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: só envia ao kanban leads acessíveis ao usuário.
+    const skScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, skScope] },
       select: { id: true, empresa: true, status: true, funnelId: true }
     })
 
@@ -1485,8 +1515,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: só altera status de leads acessíveis ao usuário.
+    const bsScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, bsScope] },
       select: { id: true, empresa: true, status: true }
     })
 
@@ -1592,14 +1624,18 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: AGENT/operador só exporta leads que pode acessar (não IDs arbitrários).
+    const exportUser = (req as any).user as JwtPayload
+    const exportScope = await buildLeadAccessWhere(exportUser.userId, exportUser.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, exportScope] },
       orderBy: { createdAt: 'desc' }
     })
 
-    // Buscar tags dos leads
+    // Buscar tags apenas dos leads efetivamente acessíveis
+    const accessibleIds = leads.map(l => l.id)
     const leadTags = await prisma.leadTag.findMany({
-      where: { leadId: { in: ids } },
+      where: { leadId: { in: accessibleIds } },
       include: { tag: { select: { name: true } } }
     })
     const tagsByLead: Record<number, string[]> = {}
@@ -1627,7 +1663,11 @@ export async function leadsRoutes(app: FastifyInstance) {
 
   // ── GET /api/bychat/leads/export/csv ─── Export ──
   app.get('/api/bychat/leads/export/csv', { preHandler: authMiddleware }, async (req, reply) => {
+    // Escopo: AGENT/operador exporta apenas leads acessíveis (não a base inteira).
+    const csvUser = (req as any).user as JwtPayload
+    const csvScope = await buildLeadAccessWhere(csvUser.userId, csvUser.role as AccessRole)
     const leads = await prisma.lead.findMany({
+      where: csvScope,
       orderBy: { createdAt: 'desc' },
       take: 5000
     })
@@ -1706,6 +1746,12 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
     if (targetIds.includes(masterId)) {
       return reply.code(400).send({ error: 'Não é possível mesclar um lead consigo mesmo' })
+    }
+
+    // Escopo: só mescla leads que o usuário pode acessar (master + todos os alvos).
+    if (!await assertLeadAccess(req, reply, masterId)) return
+    for (const tid of targetIds) {
+      if (!await assertLeadAccess(req, reply, tid)) return
     }
 
     try {

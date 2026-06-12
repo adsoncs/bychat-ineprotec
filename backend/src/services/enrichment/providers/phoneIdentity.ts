@@ -74,6 +74,13 @@ async function lookupCustomHttp(
   token: string,
   purpose: string,
 ): Promise<LookupResponse> {
+  // SSRF: o endpoint vem de Setting (admin) e recebe um Bearer secreto — se
+  // apontar para host interno, vaza o token. Bloqueia destinos internos.
+  const { assertUrlIsPublic } = await import('../../../lib/urlSafety.js')
+  const pub = await assertUrlIsPublic(endpoint)
+  if (!pub.ok) {
+    throw new Error(`endpoint de phone-identity bloqueado por segurança: ${pub.reason}`)
+  }
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {

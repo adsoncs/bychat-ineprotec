@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly } from '../lib/auth.js'
+import { adminStrict } from '../lib/auth.js'
 import { generateApiKey, hashApiKey, ALL_PERMISSIONS, ApiPermission } from '../lib/apiKey.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 
@@ -8,7 +8,7 @@ export async function apiKeysRoutes(app: FastifyInstance) {
 
   // GET /api/admin/api-keys — Listar API keys
   app.get('/api/admin/api-keys', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async () => {
     const keys = await prisma.apiKey.findMany({
       orderBy: { createdAt: 'desc' },
@@ -32,14 +32,14 @@ export async function apiKeysRoutes(app: FastifyInstance) {
   // GET /api/admin/api-keys/permissions — Listar permissoes disponiveis
   // (must be before :id routes to avoid param conflict)
   app.get('/api/admin/api-keys/permissions', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async () => {
     return { data: ALL_PERMISSIONS }
   })
 
   // POST /api/admin/api-keys — Criar nova API key
   app.post('/api/admin/api-keys', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async (req, reply) => {
     const body = req.body as any
     if (!body.name) {
@@ -96,7 +96,7 @@ export async function apiKeysRoutes(app: FastifyInstance) {
 
   // PUT /api/admin/api-keys/:id — Atualizar API key
   app.put('/api/admin/api-keys/:id', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async (req, reply) => {
     const { id } = req.params as any
     const body = req.body as any
@@ -150,7 +150,7 @@ export async function apiKeysRoutes(app: FastifyInstance) {
 
   // DELETE /api/admin/api-keys/:id — Revogar API key
   app.delete('/api/admin/api-keys/:id', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async (req, reply) => {
     const { id } = req.params as any
     const existing = await prisma.apiKey.findUnique({ where: { id: parseInt(id) } })
@@ -168,7 +168,7 @@ export async function apiKeysRoutes(app: FastifyInstance) {
 
   // GET /api/admin/api-keys/:id/logs — Logs de uso
   app.get('/api/admin/api-keys/:id/logs', {
-    preHandler: adminOnly,
+    preHandler: adminStrict,
   }, async (req, reply) => {
     const { id } = req.params as any
     const q = req.query as any

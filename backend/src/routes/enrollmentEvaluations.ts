@@ -657,7 +657,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   async function requireCandidateLocal(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
     const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
     const crypto = await import('crypto')
-    const SECRET = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-candidate-secret'
+    const { CANDIDATE_SECRET: SECRET } = await import('../lib/secrets.js')
     if (!auth || !auth.includes('.')) { reply.code(401).send({ error: 'Sessão inválida' }); return null }
     const [body, sig] = auth.split('.')
     const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')

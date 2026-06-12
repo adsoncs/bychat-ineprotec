@@ -21,8 +21,8 @@ import { adminOnly, type JwtPayload } from '../lib/auth.js'
 import { logEvent, getIp } from '../services/leadHistory.js'
 import { getPreferencesUrl } from '../services/preferencesToken.js'
 import { moveToTrash, snapshotLead } from '../services/trash.js'
+import { CANDIDATE_SECRET as SECRET } from '../lib/secrets.js'
 
-const SECRET = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-titular-secret'
 const TTL_MS = 2 * 24 * 60 * 60 * 1000 // 2 dias
 
 interface TitularTokenPayload { leadId: number; exp: number; kind: 'dsar' }

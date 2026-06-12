@@ -4,7 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly, type JwtPayload } from '../lib/auth.js'
+import { adminStrict, type JwtPayload } from '../lib/auth.js'
 import { encryptToken, decryptToken } from '../services/cloudApi.js'
 import { pingPagarme, detectPagarmeEnvironment } from '../services/paymentPagarme.js'
 
@@ -81,7 +81,7 @@ async function testProviderConnection(provider: ProviderKind, apiKeyPlain: strin
 export async function paymentProvidersRoutes(app: FastifyInstance) {
 
   // GET /api/admin/payment-providers — listar conexões
-  app.get('/api/admin/payment-providers', { preHandler: adminOnly }, async () => {
+  app.get('/api/admin/payment-providers', { preHandler: adminStrict }, async () => {
     const rows = await prisma.paymentProviderConnection.findMany({
       orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
       include: { _count: { select: { portals: true } } },
@@ -90,7 +90,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/payment-providers/:id
-  app.get('/api/admin/payment-providers/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.get('/api/admin/payment-providers/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const c = await prisma.paymentProviderConnection.findUnique({
       where: { id: parseInt(id) },
@@ -101,7 +101,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/payment-providers — criar
-  app.post('/api/admin/payment-providers', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/payment-providers', { preHandler: adminStrict }, async (req, reply) => {
     const body = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
 
@@ -146,7 +146,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/payment-providers/:id — atualizar
-  app.put('/api/admin/payment-providers/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/payment-providers/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const data: any = {}
@@ -193,7 +193,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/payment-providers/:id/test — ping do provedor
-  app.post('/api/admin/payment-providers/:id/test', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/payment-providers/:id/test', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const c = await prisma.paymentProviderConnection.findUnique({ where: { id: parseInt(id) } })
     if (!c) return reply.code(404).send({ error: 'Conexão não encontrada' })
@@ -214,7 +214,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
   })
 
   // DELETE /api/admin/payment-providers/:id
-  app.delete('/api/admin/payment-providers/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/payment-providers/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const usedBy = await prisma.enrollmentPortal.count({ where: { paymentConnectionId: parseInt(id) } })
     if (usedBy > 0) {

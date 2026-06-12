@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
-import { signToken, authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
+import { signToken, authMiddleware, adminOnly, adminStrict, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail } from '../services/notify.js'
@@ -304,7 +304,7 @@ export async function usersRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/admin/users — Criar usuário (admin only) ──
-  app.post('/api/admin/users', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/users', { preHandler: adminStrict }, async (req, reply) => {
     const { email, name, password, role } = req.body as any
     if (!email || !name || !password) {
       return reply.code(400).send({ error: 'Email, nome e senha são obrigatórios' })
@@ -348,7 +348,7 @@ export async function usersRoutes(app: FastifyInstance) {
   })
 
   // ── PUT /api/admin/users/:id — Editar usuário ──
-  app.put('/api/admin/users/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/users/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const { email, name, role, active, password, capacity, notifyWhatsapp } = req.body as any
 
@@ -416,7 +416,7 @@ export async function usersRoutes(app: FastifyInstance) {
   })
 
   // ── DELETE /api/admin/users/:id — Remover usuário (move para lixeira) ──
-  app.delete('/api/admin/users/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/users/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const requester = (req as any).user as JwtPayload
 
@@ -649,6 +649,11 @@ export async function usersRoutes(app: FastifyInstance) {
     if (!Array.isArray(overrides)) return reply.code(400).send({ error: 'overrides deve ser um array' })
 
     const uid = Number(userId)
+    // ADMIN não pode conceder overrides para si mesmo (auto-escalonamento de privilégio).
+    // Apenas SUPERADMIN pode editar as próprias permissões de módulo.
+    if (user.role !== 'SUPERADMIN' && uid === user.userId) {
+      return reply.code(403).send({ error: 'Você não pode alterar suas próprias permissões de módulo' })
+    }
     for (const o of overrides) {
       // Se todos null, deletar override (herdar do role)
       if (o.canView === null && o.canCreate === null && o.canEdit === null && o.canDelete === null) {

@@ -2,15 +2,34 @@ import { FastifyInstance } from 'fastify'
 import nodemailer from 'nodemailer'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly, superadminOnly, type JwtPayload } from '../lib/auth.js'
+import { adminOnly, adminStrict, superadminOnly, type JwtPayload } from '../lib/auth.js'
 import { isPrimaryInstall } from '../lib/install.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 
+// ── Mascaramento de segredos ────────────────────────────────────────────
+// Configurações cujo nome indica credencial (api key, token, secret, senha)
+// NUNCA devem trafegar em texto plano no GET. O painel exibe a máscara; ao
+// salvar, valores ainda mascarados são ignorados (não sobrescrevem o segredo).
+const SECRET_MASK = '••••••••'
+function isSecretKey(key: string): boolean {
+  return /(secret|token|api[_-]?key|apikey|password|passwd|\.pass\b|\.key\b|credential|client[_-]?secret|private[_-]?key|access[_-]?key)/i.test(key)
+}
+function isMaskedValue(v: unknown): boolean {
+  return typeof v === 'string' && (v === SECRET_MASK || /^["']?[•·]+["']?$/.test(v))
+}
+
 export async function settingsRoutes(app: FastifyInstance) {
 
-  // GET /api/admin/settings — All settings grouped
-  app.get('/api/admin/settings', { preHandler: adminOnly }, async () => {
-    const settings = await prisma.setting.findMany({ orderBy: { key: 'asc' } })
+  // GET /api/admin/settings — All settings grouped (segredos mascarados)
+  app.get('/api/admin/settings', { preHandler: adminStrict }, async () => {
+    const rows = await prisma.setting.findMany({ orderBy: { key: 'asc' } })
+    const settings = rows.map(s => {
+      const v = typeof s.value === 'string' ? s.value : String(s.value ?? '')
+      if (isSecretKey(s.key) && v && v !== '""' && v !== 'null') {
+        return { ...s, value: SECRET_MASK, _masked: true }
+      }
+      return s
+    })
     const grouped: Record<string, any[]> = {}
     settings.forEach(s => {
       if (!grouped[s.grp]) grouped[s.grp] = []
@@ -20,9 +39,17 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/settings — Bulk update
-  app.put('/api/admin/settings', { preHandler: adminOnly }, async (req) => {
+  app.put('/api/admin/settings', { preHandler: adminStrict }, async (req, reply) => {
     const updates = req.body as Record<string, any>
+    // Códigos personalizados (scripts head/body/CTA) injetados executáveis →
+    // só SUPERADMIN, mesma regra do PUT /api/admin/appearance.
+    const actor = (req as any).user as JwtPayload
+    if (actor.role !== 'SUPERADMIN' && Object.keys(updates).some(k => /custom_head_code|custom_body_code|lp_event_btn_(form|chat)/.test(k))) {
+      return reply.code(403).send({ error: 'Apenas SUPERADMIN pode alterar códigos personalizados (head/body/scripts).' })
+    }
     for (const [key, value] of Object.entries(updates)) {
+      // Não sobrescrever um segredo existente com a máscara reenviada pelo painel.
+      if (isSecretKey(key) && isMaskedValue(value)) continue
       await prisma.setting.updateMany({ where: { key }, data: { value } })
     }
     // Invalida cache de modos de dedup quando relevantes mudam (Fase 24)

@@ -4,27 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { adminOnly } from '../lib/auth.js'
 import { WEBHOOK_EVENTS, WEBHOOK_EVENT_LABELS, invalidateWebhookCache, testWebhook } from '../services/webhookDispatcher.js'
 
-// Validação SSRF — bloqueia URLs apontando para rede interna
-function isInternalUrl(urlStr: string): boolean {
-  try {
-    const u = new URL(urlStr)
-    const host = u.hostname.toLowerCase()
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return true
-    if (host.endsWith('.local') || host.endsWith('.internal')) return true
-    // IPs privados
-    const parts = host.split('.').map(Number)
-    if (parts.length === 4 && !parts.some(isNaN)) {
-      if (parts[0] === 10) return true // 10.0.0.0/8
-      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true // 172.16.0.0/12
-      if (parts[0] === 192 && parts[1] === 168) return true // 192.168.0.0/16
-      if (parts[0] === 169 && parts[1] === 254) return true // link-local / AWS metadata
-      if (parts[0] === 127) return true // 127.0.0.0/8
-    }
-    // Protocolo inválido
-    if (!['http:', 'https:'].includes(u.protocol)) return true
-    return false
-  } catch { return true }
-}
+import { isInternalUrl } from '../lib/urlSafety.js'
 
 export async function webhooksRoutes(app: FastifyInstance) {
 

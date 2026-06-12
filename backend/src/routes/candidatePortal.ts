@@ -9,6 +9,10 @@ import { prisma } from '../lib/prisma.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
 import { signCandidateToken, verifyCandidateToken } from '../lib/candidateAuth.js'
+import { adminOnly } from '../lib/auth.js'
+import { redis } from '../lib/redis.js'
+import { logSecurityEvent } from '../services/security.js'
+import { validateUploadContent, UploadValidationError } from '../lib/uploadSafety.js'
 
 async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
   const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
@@ -27,17 +31,44 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     const cpf = normalizeCpf(String(body.cpf || ''))
     if (!candidateCode || !cpf) return reply.code(400).send({ error: 'Informe o código do candidato e CPF' })
 
+    // ── Lockout anti-brute-force (por IP e por código) ────────────────────
+    // Impede enumeração de código + força bruta de CPF. Janela de 15 min.
+    const ipKey = `candlogin:ip:${req.ip}`
+    const codeKey = `candlogin:code:${candidateCode}`
+    try {
+      const [ipFails, codeFails] = await Promise.all([redis.get(ipKey), redis.get(codeKey)])
+      if (Number(ipFails) >= 20 || Number(codeFails) >= 8) {
+        await logSecurityEvent({ ip: req.ip, type: 'candidate_login_lockout', severity: 'medium', path: req.url, details: `code=${candidateCode}` }).catch(() => {})
+        return reply.code(429).send({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' })
+      }
+    } catch { /* redis indisponível — não bloqueia login legítimo */ }
+
+    // Resposta 401 genérica para código inexistente E CPF divergente — sem
+    // oráculo de enumeração (não revela se o código existe).
+    const fail = async () => {
+      try {
+        await Promise.all([
+          redis.incr(ipKey).then(() => redis.expire(ipKey, 900)),
+          redis.incr(codeKey).then(() => redis.expire(codeKey, 900)),
+        ])
+      } catch { /* ignore */ }
+      return reply.code(401).send({ error: 'Código do candidato ou CPF inválido' })
+    }
+
     const enrollment = await prisma.enrollmentRegistration.findUnique({
       where: { candidateCode },
       include: { lead: true, portal: { select: { id: true, nome: true } } },
     })
-    if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    if (!enrollment) return fail()
 
     // Valida CPF bate com o salvo em formData
     const storedCpf = normalizeCpf(String((enrollment.formData as any)?.cpf || ''))
     if (!storedCpf || storedCpf !== cpf) {
-      return reply.code(401).send({ error: 'CPF não corresponde ao cadastro' })
+      return fail()
     }
+
+    // Sucesso — zera contadores de falha
+    try { await Promise.all([redis.del(ipKey), redis.del(codeKey)]) } catch { /* ignore */ }
 
     const token = signCandidateToken(enrollment.id, enrollment.candidateCode)
     return {
@@ -237,7 +268,15 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       if (total > MAX) return reply.code(413).send({ error: 'Arquivo muito grande (máx 25MB)' })
       chunks.push(c)
     }
-    await fs.writeFile(filePath, Buffer.concat(chunks))
+    // Valida magic bytes: rejeita markup disfarçado de imagem/PDF (A8/M6).
+    let docBuf: Buffer = Buffer.concat(chunks)
+    try {
+      docBuf = validateUploadContent(docBuf, ext, { allowSvg: false })
+    } catch (err: any) {
+      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
+      return reply.code(500).send({ error: 'Falha ao processar arquivo' })
+    }
+    await fs.writeFile(filePath, docBuf)
 
     // IMPORTANTE: lê os fields APÓS consumir o stream do arquivo. fastify-multipart
     // só popula `file.fields` com campos parseados até aquele momento — campos
@@ -330,14 +369,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // ── Admin: GET /api/admin/enrollment-documents — fila de revisão ──
   // Filtros: status (pending|approved|rejected|all), aiSuggestion (approve|review|reject),
   // portalId, q (busca por nome candidato/code), sort (oldest|newest), limit, offset.
-  app.get('/api/admin/enrollment-documents', async (req, reply) => {
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return reply.code(401).send({ error: 'Token não fornecido' })
-    const { verifyToken } = await import('../lib/auth.js')
-    let user: any
-    try { user = verifyToken(token) } catch { return reply.code(401).send({ error: 'Token inválido' }) }
-    if (!['SUPERADMIN','ADMIN','MANAGER'].includes(user.role)) return reply.code(403).send({ error: 'Sem permissão' })
-
+  app.get('/api/admin/enrollment-documents', { preHandler: adminOnly }, async (req, reply) => {
+    const user = (req as any).user as any
     const q = req.query as any
     const where: any = {}
     if (q.status && q.status !== 'all') where.status = String(q.status)
@@ -402,15 +435,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   })
 
   // ── Admin: aprovar/rejeitar documento ──
-  app.put('/api/admin/enrollment-documents/:id/review', async (req, reply) => {
-    // Reaproveita autenticação admin padrão via authMiddleware (inline pra evitar import cíclico)
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return reply.code(401).send({ error: 'Token não fornecido' })
-    const { verifyToken } = await import('../lib/auth.js')
-    let user: any
-    try { user = verifyToken(token) } catch { return reply.code(401).send({ error: 'Token inválido' }) }
-    if (!['SUPERADMIN','ADMIN','MANAGER'].includes(user.role)) return reply.code(403).send({ error: 'Sem permissão' })
-
+  app.put('/api/admin/enrollment-documents/:id/review', { preHandler: adminOnly }, async (req, reply) => {
+    const user = (req as any).user as any
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const status = body.status === 'approved' ? 'approved' : body.status === 'rejected' ? 'rejected' : null
@@ -445,14 +471,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // Reemite o domain event de aprovação/rejeição. Útil quando o workflow não
   // disparou na vez original (engine estava com bug, lead bloqueado por execution
   // stuck, etc.). Idempotente — não altera status do doc, apenas reemite o evento.
-  app.post('/api/admin/enrollment-documents/:id/renotify', async (req, reply) => {
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return reply.code(401).send({ error: 'Token não fornecido' })
-    const { verifyToken } = await import('../lib/auth.js')
-    let user: any
-    try { user = verifyToken(token) } catch { return reply.code(401).send({ error: 'Token inválido' }) }
-    if (!['SUPERADMIN','ADMIN','MANAGER'].includes(user.role)) return reply.code(403).send({ error: 'Sem permissão' })
-
+  app.post('/api/admin/enrollment-documents/:id/renotify', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const doc = await prisma.enrollmentDocument.findUnique({ where: { id: parseInt(id) } })
     if (!doc) return reply.code(404).send({ error: 'Documento não encontrado' })
@@ -467,14 +486,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/enrollment-documents/:id/reanalyze — re-disparar IA ──
   // Útil para forçar nova análise após ajuste de template/chave Anthropic.
-  app.post('/api/admin/enrollment-documents/:id/reanalyze', async (req, reply) => {
-    const token = req.headers.authorization?.replace('Bearer ', '')
-    if (!token) return reply.code(401).send({ error: 'Token não fornecido' })
-    const { verifyToken } = await import('../lib/auth.js')
-    let user: any
-    try { user = verifyToken(token) } catch { return reply.code(401).send({ error: 'Token inválido' }) }
-    if (!['SUPERADMIN','ADMIN','MANAGER'].includes(user.role)) return reply.code(403).send({ error: 'Sem permissão' })
-
+  app.post('/api/admin/enrollment-documents/:id/reanalyze', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const doc = await prisma.enrollmentDocument.findUnique({
       where: { id: parseInt(id) },

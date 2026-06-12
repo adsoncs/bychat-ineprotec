@@ -3,6 +3,7 @@ initObservability()
 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
 import staticFiles from '@fastify/static'
 import multipart from '@fastify/multipart'
 import { join, dirname } from 'path'
@@ -150,8 +151,28 @@ await app.register(cors, {
   credentials: true,
 })
 
+// ── HELMET (headers de segurança — defesa em profundidade, F5) ──────────────
+// O nginx já injeta os headers para as respostas proxied; o helmet garante a
+// mesma proteção caso o backend seja acessado direto (bypass do proxy).
+// CSP fica DESLIGADA aqui: o documento HTML é coberto pela CSP do nginx e o
+// /uploads tem CSP própria por rota (setHeaders) — evita header duplicado e
+// interseção restritiva. Os valores abaixo espelham o nginx para que, quando
+// duplicados atrás do proxy, sejam idênticos (inofensivos).
+await app.register(helmet, {
+  global: true,
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,                                  // não quebra SDKs externos (FB/Google)
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },   // popups de OAuth
+  crossOriginResourcePolicy: false,                                  // mantém comportamento atual (sem CORP)
+  hsts: { maxAge: 63072000, includeSubDomains: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'sameorigin' },
+})
+
 // ── MULTIPART (file uploads) ─────────────────
-// CVE-2024: limites rigorosos para mitigar DoS do @fastify/multipart v7 (antes de upgrade p/ v10)
+// @fastify/multipart 8.3.1 (corrige GHSA-27c6-mcxv-x3fh / DoS; compatível com
+// fastify v4). Limites globais rigorosos como defesa em profundidade — rotas
+// específicas elevam o fileSize via req.file({ limits }) quando necessário.
 await app.register(multipart, {
   limits: {
     fileSize: 10 * 1024 * 1024,  // 10 MB por arquivo
@@ -221,10 +242,23 @@ await app.register(staticFiles, {
 })
 
 // ── STATIC FILES (uploads) ──────────────────
+// Defesa contra XSS armazenado (A8): arquivos de usuário servidos do domínio
+// principal. nosniff impede MIME confusion; a CSP `default-src 'none'; sandbox`
+// neutraliza qualquer script embutido (ex.: SVG/HTML) mesmo se o arquivo for
+// aberto como documento de topo; para tipos que o browser renderiza como
+// documento (svg/html/xml) força download em navegação direta — sem afetar o
+// uso legítimo via <img>/CSS, que ignora Content-Disposition.
 await app.register(staticFiles, {
   root: join(__dirname, '../../uploads'),
   prefix: '/uploads/',
-  decorateReply: false
+  decorateReply: false,
+  setHeaders: (res: any, filePath: string) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    if (/\.(svgz?|html?|xht|xhtml|xml)$/i.test(filePath)) {
+      res.setHeader('Content-Disposition', 'attachment')
+    }
+  },
 })
 
 // ── STATIC FILES (frontend-app — SPA novo, Fase 0+) ───────
@@ -251,7 +285,7 @@ await app.register(staticFiles, {
 
 // ── RAW BODY CAPTURE (Cloud API webhook signature validation) ──
 app.addHook('preParsing', async (req, _reply, payload) => {
-  if (req.url === '/api/cloud-api/webhook' && req.method === 'POST') {
+  if ((req.url === '/api/cloud-api/webhook' || req.url.startsWith('/api/meta/webhook')) && req.method === 'POST') {
     const chunks: Buffer[] = []
     for await (const chunk of payload as any) {
       chunks.push(chunk as Buffer)

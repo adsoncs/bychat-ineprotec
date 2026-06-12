@@ -9,8 +9,8 @@
 // usado depois no portal do candidato sem renovação.
 
 import crypto from 'crypto'
+import { CANDIDATE_SECRET as SECRET } from './secrets.js'
 
-const SECRET = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-candidate-secret'
 const DEFAULT_TTL_MS = 60 * 60 * 1000  // 1h — basta para o candidato terminar a inscrição
 
 export interface CandidateTokenPayload {

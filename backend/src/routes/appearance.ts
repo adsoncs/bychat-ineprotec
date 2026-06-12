@@ -1,12 +1,24 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly } from '../lib/auth.js'
+import { adminOnly, type JwtPayload } from '../lib/auth.js'
+
+// Chaves de aparência que injetam código/script executável (head, body, CTA tracking).
+// Editar qualquer uma equivale a executar JS arbitrário no painel/LP → só SUPERADMIN.
+const APPEARANCE_CODE_KEYS = new Set([
+  'appearance.custom_head_code',
+  'appearance.custom_body_code',
+  'appearance.lp_custom_head_code',
+  'appearance.lp_custom_body_code',
+  'appearance.lp_event_btn_form',
+  'appearance.lp_event_btn_chat',
+])
 import { isPrimaryInstall } from '../lib/install.js'
 import { invalidateBrandingCache } from '../lib/branding.js'
 import { join, dirname, extname } from 'path'
 import { fileURLToPath } from 'url'
-import { createWriteStream, existsSync, mkdirSync } from 'fs'
-import { pipeline } from 'stream/promises'
+import { existsSync, mkdirSync } from 'fs'
+import { writeFile } from 'fs/promises'
+import { bufferMultipart, validateUploadContent, UploadValidationError, UploadTooLargeError } from '../lib/uploadSafety.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const UPLOADS_DIR = join(__dirname, '../../../uploads')
@@ -124,8 +136,15 @@ export async function appearanceRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/appearance — Salvar configurações de aparência
-  app.put('/api/admin/appearance', { preHandler: adminOnly }, async (req) => {
+  app.put('/api/admin/appearance', { preHandler: adminOnly }, async (req, reply) => {
     const updates = req.body as Record<string, string>
+
+    // Códigos personalizados (scripts head/body/CTA) só por SUPERADMIN — são
+    // injetados executáveis para todos os usuários (inclusive pré-login).
+    const user = (req as any).user as JwtPayload
+    if (user.role !== 'SUPERADMIN' && Object.keys(updates).some(k => APPEARANCE_CODE_KEYS.has(k))) {
+      return reply.code(403).send({ error: 'Apenas SUPERADMIN pode alterar códigos personalizados (head/body/scripts).' })
+    }
 
     for (const [key, value] of Object.entries(updates)) {
       if (!key.startsWith('appearance.')) continue
@@ -155,7 +174,7 @@ export async function appearanceRoutes(app: FastifyInstance) {
 
   // POST /api/admin/appearance/logo — Upload de logotipo
   app.post('/api/admin/appearance/logo', { preHandler: adminOnly }, async (req, reply) => {
-    const data = await req.file()
+    const data = await req.file({ limits: { fileSize: 5 * 1024 * 1024 } })
     if (!data) {
       return reply.code(400).send({ error: 'Nenhum arquivo enviado' })
     }
@@ -164,6 +183,17 @@ export async function appearanceRoutes(app: FastifyInstance) {
     const allowed = ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.ico']
     if (!allowed.includes(ext)) {
       return reply.code(400).send({ error: 'Formato não suportado. Use: PNG, JPG, SVG, WebP, GIF ou ICO' })
+    }
+
+    // Valida magic bytes e sanitiza SVG antes de gravar (A8/M6).
+    let buf: Buffer
+    try {
+      const raw = await bufferMultipart(data.file, 5 * 1024 * 1024)
+      buf = validateUploadContent(raw, ext.slice(1), { allowSvg: ext === '.svg' })
+    } catch (err: any) {
+      if (err instanceof UploadTooLargeError) return reply.code(413).send({ error: 'Arquivo muito grande (máx 5MB)' })
+      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
+      return reply.code(500).send({ error: 'Falha ao processar arquivo' })
     }
 
     // Garante que o diretório existe
@@ -176,7 +206,7 @@ export async function appearanceRoutes(app: FastifyInstance) {
     const fileName = `${fieldName}${ext}`
     const filePath = join(brandDir, fileName)
 
-    await pipeline(data.file, createWriteStream(filePath))
+    await writeFile(filePath, buf)
 
     const url = `/uploads/brand/${fileName}`
 
