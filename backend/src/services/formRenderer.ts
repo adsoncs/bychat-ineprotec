@@ -63,8 +63,12 @@ const FORM_EDIT_SCRIPT = `<script>(function(){
   function find(id){var a=document.querySelectorAll('[data-form-field-id]');for(var i=0;i<a.length;i++){if(a[i].getAttribute('data-form-field-id')===id)return a[i];}return null;}
   function clear(){var a=document.querySelectorAll('.bf-edit-wrap.bf-sel');for(var i=0;i<a.length;i++)a[i].classList.remove('bf-sel');}
   function select(id,scroll){clear();var el=find(id);if(el){el.classList.add('bf-sel');if(scroll)el.scrollIntoView({behavior:'smooth',block:'center'});}}
-  document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;var w=t.closest('[data-form-field-id]');if(!w)return;e.preventDefault();e.stopPropagation();var id=w.getAttribute('data-form-field-id');select(id,false);parent.postMessage({source:'forms-canvas',type:'select',id:id},'*');},true);
-  document.addEventListener('submit',function(e){e.preventDefault();},true);
+  // Aviso de pré-visualização: o botão de envio no canvas é inerte de propósito
+  // (este é o editor de layout). Sem feedback, parece que o form "não envia" —
+  // então mostramos um toast deixando claro que o envio só ocorre no publicado.
+  function notice(msg){var n=document.getElementById('bf-prev-note');if(!n){n=document.createElement('div');n.id='bf-prev-note';n.style.cssText='position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483647;background:#1e293b;color:#fff;font:600 12px/1.45 system-ui,-apple-system,sans-serif;padding:10px 16px;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:92%;text-align:center;opacity:0;transition:opacity .2s';document.body.appendChild(n);}n.textContent=msg;n.style.opacity='1';clearTimeout(n._t);n._t=setTimeout(function(){n.style.opacity='0';},2800);}
+  document.addEventListener('click',function(e){var t=e.target;if(!t||!t.closest)return;if(t.closest('.bf-btn')){e.preventDefault();e.stopPropagation();notice('Pré-visualização — o envio só funciona no formulário publicado.');return;}var w=t.closest('[data-form-field-id]');if(!w)return;e.preventDefault();e.stopPropagation();var id=w.getAttribute('data-form-field-id');select(id,false);parent.postMessage({source:'forms-canvas',type:'select',id:id},'*');},true);
+  document.addEventListener('submit',function(e){e.preventDefault();notice('Pré-visualização — o envio só funciona no formulário publicado.');},true);
   window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='forms-highlight'&&d.id){select(d.id,!!d.scroll);}});
   parent.postMessage({source:'forms-canvas',type:'ready'},'*');
 })();</script>`
