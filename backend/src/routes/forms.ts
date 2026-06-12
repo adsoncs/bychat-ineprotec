@@ -389,9 +389,15 @@ export async function formsRoutes(app: FastifyInstance) {
 
     const script = generateEmbedScript(id, fields, settings, styling, baseUrl)
 
+    // O embed reflete a config AO VIVO do formulário (campos, opções, estilo).
+    // NÃO pode ser cacheado: um cache antigo serve um formulário desatualizado
+    // (ex.: opções de select sem `value` quebram a validação e o botão Enviar
+    // "não faz nada"). `Cloudflare-CDN-Cache-Control` instrui o edge do
+    // Cloudflare a não cachear, além do Cache-Control padrão para browsers.
     reply
       .header('Content-Type', 'application/javascript; charset=utf-8')
-      .header('Cache-Control', 'public, max-age=3600')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+      .header('Cloudflare-CDN-Cache-Control', 'no-store')
       .header('Access-Control-Allow-Origin', '*')
       .send(script)
   })
