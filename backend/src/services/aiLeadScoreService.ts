@@ -150,6 +150,7 @@ Regras:
 - 70-100 (hot): alta chance / forte fit e intenção / decisor engajado.
 - Penalize falta de dados, canais frios e sinais de "lead ruim" do contexto.
 - Premie aderência ao cliente ideal (ICP), urgência, orçamento e dados ricos vindos do enriquecimento.
+- As respostas aos CAMPOS PERSONALIZADOS são sinais PRIMÁRIOS de qualificação (foram definidas pelo cliente): pondere-as fortemente, tanto a favor quanto contra.
 - Seja realista: a maioria dos leads é warm/cold. Não infle notas.
 
 Responda SOMENTE com JSON válido neste formato exato:
@@ -190,6 +191,52 @@ async function buildCalibrationExamples(): Promise<string> {
   ].join('\n')
 }
 
+// ── Camada de campos personalizados (pesquisa + refinamento) ──────────────────
+// Lê TODO o catálogo do módulo "Campos Personalizados" (CustomField ativos) e
+// EXTRAI a resposta do lead para cada um — pesquisando em lead.customFields e,
+// como rede de segurança, no formData (chave direta ou prefixo cf_). Refina os
+// valores de select/multiselect traduzindo o `value` armazenado para o `label`
+// legível (ex.: "300_499" → "De 300 a 499 ha"), para a IA ler a resposta real.
+async function buildCustomFieldsBlock(lead: { customFields: any; formData: any }): Promise<string> {
+  const defs = await prisma.customField
+    .findMany({
+      where: { active: true },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: { key: true, label: true, type: true, options: true, group: true },
+    })
+    .catch(() => [] as any[])
+  if (!defs.length) return 'CAMPOS PERSONALIZADOS: nenhum campo cadastrado neste tenant.'
+
+  const cf = lead.customFields && typeof lead.customFields === 'object' ? (lead.customFields as Record<string, any>) : {}
+  const fd = lead.formData && typeof lead.formData === 'object' ? (lead.formData as Record<string, any>) : {}
+
+  const labelize = (def: any, raw: any): string => {
+    const opts: Array<{ label: string; value: any }> = Array.isArray(def.options) ? def.options : []
+    const one = (v: any) => {
+      const hit = opts.find((o) => String(o.value) === String(v))
+      return hit ? hit.label : String(v)
+    }
+    return Array.isArray(raw) ? raw.map(one).join(', ') : one(raw)
+  }
+  const isEmpty = (v: any) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+
+  const lines: string[] = []
+  let answered = 0
+  for (const def of defs) {
+    // pesquisa a resposta: customFields[key] → formData[key] → formData[cf_key]
+    let raw = cf[def.key]
+    if (isEmpty(raw)) raw = fd[def.key]
+    if (isEmpty(raw)) raw = fd[`cf_${def.key}`]
+    if (isEmpty(raw)) continue
+    answered++
+    const grp = def.group ? ` [${def.group}]` : ''
+    lines.push(`- ${def.label}${grp}: ${labelize(def, raw).slice(0, 200)}`)
+  }
+  const header = `CAMPOS PERSONALIZADOS (respostas do lead — ${answered}/${defs.length} preenchidos):`
+  if (!answered) return `${header}\n- (nenhum campo personalizado preenchido por este lead)`
+  return [header, ...lines].join('\n')
+}
+
 async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | null> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -197,7 +244,7 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
       id: true, nome: true, empresa: true, segmento: true, cidade: true,
       email: true, whatsapp: true, source: true, sourceId: true,
       completed: true, qualifiedAt: true, qualificationSource: true,
-      lgpdConsent: true, scores: true, formData: true,
+      lgpdConsent: true, scores: true, formData: true, customFields: true,
       enrichmentScore: true, enrichmentStatus: true,
       priorityScore: true, createdAt: true,
     },
@@ -227,6 +274,8 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     try { return JSON.stringify(lead.formData ?? {}).slice(0, 1500) } catch { return '{}' }
   })()
 
+  const customFieldsBlock = await buildCustomFieldsBlock(lead)
+
   return [
     `FASE DA ANÁLISE: ${phase}`,
     `LEAD #${lead.id}`,
@@ -243,6 +292,9 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     `- Priority score (urgência operacional): ${lead.priorityScore ?? '–'}`,
     `- Enrichment score (0-100): ${lead.enrichmentScore ?? '–'} (status ${lead.enrichmentStatus ?? '–'})`,
     `- Dossiê de enriquecimento: ${dossier}`,
+    '',
+    customFieldsBlock,
+    '',
     `- Dados do formulário/origem (JSON): ${fd}`,
   ].join('\n')
 }

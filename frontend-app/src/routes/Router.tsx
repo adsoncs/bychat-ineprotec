@@ -396,7 +396,7 @@ export function Router() {
           </Route>
           <Route path="/forms/:id">
             {(params: { id: string }) => (
-              <ModuleGate moduleId="forms"><FormEditor params={params} /></ModuleGate>
+              <ModuleGate moduleId="captacao"><FormEditor params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/enrollment-portals/:portalId/registrations/:regId">

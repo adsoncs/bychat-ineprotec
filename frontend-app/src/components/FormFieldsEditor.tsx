@@ -97,7 +97,7 @@ export function normalizeKey(label: string): string {
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '')
-    .slice(0, 40)
+    .slice(0, 80)
 }
 
 export function genFieldId(): string { return genId() }
