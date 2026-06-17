@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { Fragment } from 'preact'
 import type { ComponentChildren } from 'preact'
-import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Settings2, Copy, Clock, Timer, Zap, BookOpen, Eye, Star, Smile, Building2, BarChart3, Download, Sparkles } from 'lucide-preact'
+import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Settings2, Copy, Clock, Timer, Zap, BookOpen, Eye, Star, Smile, Building2, BarChart3, Download, Sparkles, List, Columns } from 'lucide-preact'
 import { env } from '@/lib/env'
 import { useLocation } from 'wouter-preact'
 import { Page } from '@/components/ui/Page'
@@ -82,6 +82,18 @@ const PRIORITY_TONE: Record<TicketPriority, 'neutral' | 'warning' | 'danger' | '
 const STATUSES: TicketStatus[] = ['new', 'open', 'pending', 'on_hold', 'solved', 'closed']
 const PRIORITIES: TicketPriority[] = ['low', 'normal', 'high', 'urgent']
 
+// Máquina de estados (espelha STATUS_TRANSITIONS do backend) — define quais
+// colunas do kanban aceitam um cartão arrastado de cada status.
+const STATUS_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
+  new: ['open', 'pending', 'on_hold', 'solved', 'closed'],
+  open: ['pending', 'on_hold', 'solved', 'closed'],
+  pending: ['open', 'on_hold', 'solved', 'closed'],
+  on_hold: ['open', 'pending', 'solved', 'closed'],
+  solved: ['open', 'closed'],
+  closed: ['open'],
+}
+const COLUMN_CAP = 50 // cartões renderizados por coluna (o total real vem dos counters)
+
 function fmt(d: string | null): string {
   if (!d) return '—'
   try { return new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) } catch { return d }
@@ -119,6 +131,7 @@ export function HelpdeskTabs({ active }: { active: string }) {
 export function HelpdeskPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [view, setView] = useState<'list' | 'kanban'>(() => (localStorage.getItem('helpdesk_view') === 'kanban' ? 'kanban' : 'list'))
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [assigneeFilter, setAssigneeFilter] = useState<string>('') // '' | 'me' | 'null'
   const [priorityFilter, setPriorityFilter] = useState<string>('')
@@ -126,16 +139,21 @@ export function HelpdeskPage() {
   const [search, setSearch] = useState('')
   const [spamView, setSpamView] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const kanban = view === 'kanban'
+  function changeView(v: 'list' | 'kanban') { setView(v); localStorage.setItem('helpdesk_view', v) }
 
   const agents = useAgents()
   const teams = useTeams()
+  const update = useUpdateTicket()
   const list = useTickets({
-    status: statusFilter || undefined,
+    // No kanban as colunas SÃO os status → ignora o filtro de status e busca um lote maior.
+    status: kanban ? undefined : (statusFilter || undefined),
     assignedUserId: assigneeFilter || undefined,
     priority: priorityFilter || undefined,
     ...(teamFilter ? { teamId: teamFilter } as any : {}),
     q: search || undefined,
     spam: spamView || undefined,
+    ...(kanban ? { limit: 200 } : {}),
   })
 
   if (selectedId !== null) {
@@ -164,23 +182,32 @@ export function HelpdeskPage() {
       actions={<Button variant="primary" size="sm" onClick={() => setCreating(true)}><Plus size={14} /> Novo chamado</Button>}
     >
       <HelpdeskTabs active="tickets" />
-      {/* Linha 1: views por status */}
+      {/* Linha 1: views por status (só na lista) + alternador Lista/Kanban */}
       <div class="flex flex-wrap items-center gap-2">
-        <button
-          class={`text-xs px-3 py-1.5 rounded-md border ${statusFilter === '' ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`}
-          onClick={() => setStatusFilter('')}
-        >
-          Todos {counters.open_total != null ? `(${counters.open_total} abertos)` : ''}
-        </button>
-        {STATUSES.map((s) => (
-          <button
-            key={s}
-            class={`text-xs px-3 py-1.5 rounded-md border ${statusFilter === s ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`}
-            onClick={() => setStatusFilter(s)}
-          >
-            {STATUS_LABEL[s]}{counters[s] ? ` (${counters[s]})` : ''}
-          </button>
-        ))}
+        {!kanban && (
+          <>
+            <button
+              class={`text-xs px-3 py-1.5 rounded-md border ${statusFilter === '' ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`}
+              onClick={() => setStatusFilter('')}
+            >
+              Todos {counters.open_total != null ? `(${counters.open_total} abertos)` : ''}
+            </button>
+            {STATUSES.map((s) => (
+              <button
+                key={s}
+                class={`text-xs px-3 py-1.5 rounded-md border ${statusFilter === s ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`}
+                onClick={() => setStatusFilter(s)}
+              >
+                {STATUS_LABEL[s]}{counters[s] ? ` (${counters[s]})` : ''}
+              </button>
+            ))}
+          </>
+        )}
+        {kanban && <span class="text-xs text-fg-muted">Arraste os cartões para mudar o status (apenas transições válidas).</span>}
+        <div class="ml-auto inline-flex rounded-md border border-border overflow-hidden">
+          <button class={`text-xs px-3 py-1.5 inline-flex items-center gap-1 ${!kanban ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-2'}`} onClick={() => changeView('list')}><List size={13} /> Lista</button>
+          <button class={`text-xs px-3 py-1.5 inline-flex items-center gap-1 border-l border-border ${kanban ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-2'}`} onClick={() => changeView('kanban')}><Columns size={13} /> Kanban</button>
+        </div>
       </div>
 
       {/* Linha 2: filtros + busca */}
@@ -204,8 +231,8 @@ export function HelpdeskPage() {
         </div>
       </div>
 
-      {/* Barra de ações em massa */}
-      {selected.size > 0 && (
+      {/* Barra de ações em massa (só na lista) */}
+      {!kanban && selected.size > 0 && (
         <BulkBar
           ids={[...selected]}
           agents={agents.data?.agents ?? []}
@@ -213,7 +240,16 @@ export function HelpdeskPage() {
         />
       )}
 
-      {list.isLoading ? (
+      {kanban ? (
+        <KanbanBoard
+          tickets={tickets}
+          counters={counters}
+          loading={list.isLoading}
+          agents={agents.data?.agents ?? []}
+          onOpen={(id) => setSelectedId(id)}
+          onMove={(id, status) => update.mutate({ id, status })}
+        />
+      ) : list.isLoading ? (
         <div class="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} class="h-14 w-full" />)}</div>
       ) : tickets.length === 0 ? (
         <EmptyState
@@ -252,6 +288,112 @@ export function HelpdeskPage() {
 
       <CreateTicketModal open={creating} onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setSelectedId(id) }} />
     </Page>
+  )
+}
+
+// ──────────────────────────── Kanban (visão por status) ────────────────────────────
+
+function KanbanBoard({ tickets, counters, loading, agents, onOpen, onMove }: {
+  tickets: Ticket[]
+  counters: Record<string, number>
+  loading: boolean
+  agents: Array<{ id: number; name: string | null; email: string }>
+  onOpen: (id: number) => void
+  onMove: (id: number, status: TicketStatus) => void
+}) {
+  const agentName = (id: number | null) => { if (id == null) return null; const a = agents.find((x) => x.id === id); return a ? (a.name || a.email) : `#${id}` }
+  // status do cartão sendo arrastado (para destacar só as colunas válidas)
+  const [dragging, setDragging] = useState<{ id: number; from: TicketStatus } | null>(null)
+  const [overCol, setOverCol] = useState<TicketStatus | null>(null)
+
+  const byStatus: Record<string, Ticket[]> = {}
+  for (const s of STATUSES) byStatus[s] = []
+  for (const t of tickets) (byStatus[t.status] ?? (byStatus[t.status] = [])).push(t)
+
+  const canDropHere = (col: TicketStatus) => dragging != null && (dragging.from === col || STATUS_TRANSITIONS[dragging.from]?.includes(col))
+
+  function handleDrop(col: TicketStatus) {
+    const d = dragging
+    setDragging(null); setOverCol(null)
+    if (!d || d.from === col) return
+    if (!STATUS_TRANSITIONS[d.from]?.includes(col)) return // transição inválida → ignora
+    onMove(d.id, col)
+  }
+
+  if (loading) {
+    return <div class="flex gap-3 overflow-x-auto pb-2">{STATUSES.map((s) => <Skeleton key={s} class="h-64 w-72 shrink-0" />)}</div>
+  }
+
+  return (
+    <div class="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+      {STATUSES.map((s) => {
+        const items = byStatus[s] ?? []
+        const total = counters[s] ?? items.length
+        const droppable = canDropHere(s)
+        const isOver = overCol === s && droppable
+        const dim = dragging != null && !droppable
+        return (
+          <div
+            key={s}
+            class={`shrink-0 w-72 rounded-lg border flex flex-col max-h-[calc(100vh-18rem)] transition-colors ${isOver ? 'border-accent bg-accent/5' : droppable ? 'border-dashed border-accent/50' : 'border-border'} ${dim ? 'opacity-40' : ''}`}
+            onDragOver={(e) => { if (droppable) { e.preventDefault(); setOverCol(s) } }}
+            onDragLeave={() => { if (overCol === s) setOverCol(null) }}
+            onDrop={(e) => { e.preventDefault(); handleDrop(s) }}
+          >
+            <div class="flex items-center justify-between px-3 py-2 border-b border-border sticky top-0 bg-surface rounded-t-lg">
+              <span class="text-sm font-medium text-fg inline-flex items-center gap-1.5">
+                <span class={`size-2 rounded-full ${STATUS_DOT[s]}`} />{STATUS_LABEL[s]}
+              </span>
+              <span class="text-xs text-fg-muted tabular-nums">{total}</span>
+            </div>
+            <div class="flex-1 overflow-y-auto p-2 space-y-2">
+              {items.length === 0 ? (
+                <p class="text-xs text-fg-subtle text-center py-6">{dragging ? (droppable ? 'Solte aqui' : '—') : 'Vazio'}</p>
+              ) : (
+                <>
+                  {items.slice(0, COLUMN_CAP).map((t) => (
+                    <KanbanCard key={t.id} t={t} assignee={agentName(t.assignedUserId)} onOpen={onOpen} onDragStart={() => setDragging({ id: t.id, from: t.status })} onDragEnd={() => { setDragging(null); setOverCol(null) }} />
+                  ))}
+                  {total > Math.min(items.length, COLUMN_CAP) && (
+                    <p class="text-[11px] text-fg-muted text-center py-1">+{total - Math.min(items.length, COLUMN_CAP)} a mais — refine os filtros para ver</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const STATUS_DOT: Record<TicketStatus, string> = {
+  new: 'bg-info', open: 'bg-accent', pending: 'bg-warning', on_hold: 'bg-warning', solved: 'bg-success', closed: 'bg-fg-subtle',
+}
+
+function KanbanCard({ t, assignee, onOpen, onDragStart, onDragEnd }: { t: Ticket; assignee: string | null; onOpen: (id: number) => void; onDragStart: () => void; onDragEnd: () => void }) {
+  return (
+    <div
+      draggable
+      onDragStart={(e) => { (e as DragEvent).dataTransfer?.setData('text/plain', String(t.id)); onDragStart() }}
+      onDragEnd={onDragEnd}
+      onClick={() => onOpen(t.id)}
+      class="rounded-md border border-border bg-surface p-2.5 cursor-grab active:cursor-grabbing hover:border-accent/60 hover:shadow-sm space-y-1.5"
+    >
+      <div class="flex items-center gap-1.5 text-[11px] text-fg-muted">
+        <Hash size={10} />{t.number}
+        <span class="ml-auto"><Badge tone={PRIORITY_TONE[t.priority]}>{PRIORITY_LABEL[t.priority]}</Badge></span>
+      </div>
+      <div class="text-sm text-fg font-medium line-clamp-2 leading-snug">{t.subject}</div>
+      <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+        <span class="truncate flex-1">{t.requesterName || t.requesterEmail || 'Sem solicitante'}</span>
+        <SlaBadge status={t.slaResolutionStatus} target={t.targetResolutionAt} />
+      </div>
+      <div class="flex items-center gap-1.5 text-[11px] text-fg-subtle">
+        <span>{CHANNEL_LABEL[t.channel] || t.channel}</span>
+        <span class="ml-auto truncate max-w-[8rem]">{assignee ? <span class="inline-flex items-center gap-1"><UserPlus size={10} /> {assignee}</span> : 'sem dono'}</span>
+      </div>
+    </div>
   )
 }
 

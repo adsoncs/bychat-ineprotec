@@ -434,6 +434,12 @@ export async function helpdeskRoutes(app: FastifyInstance) {
     await prisma.helpdeskSurvey.deleteMany({ where: { ticketId: id } })
     await prisma.helpdeskQaReview.deleteMany({ where: { ticketId: id } })
     await prisma.helpdeskTicketLink.deleteMany({ where: { OR: [{ ticketId: id }, { linkedTicketId: id }] } })
+    // Conversas paralelas (F27): ticketId sem @relation → não cascateia; remover mensagens + conversas.
+    const scs = await prisma.helpdeskSideConversation.findMany({ where: { ticketId: id }, select: { id: true } })
+    if (scs.length) {
+      await prisma.helpdeskSideMessage.deleteMany({ where: { sideConversationId: { in: scs.map((s) => s.id) } } })
+      await prisma.helpdeskSideConversation.deleteMany({ where: { ticketId: id } })
+    }
     await prisma.helpdeskTicket.delete({ where: { id } }) // cascata remove comments/events/followers/attachments
     return { ok: true }
   })
