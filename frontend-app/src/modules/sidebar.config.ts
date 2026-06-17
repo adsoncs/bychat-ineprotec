@@ -68,6 +68,7 @@ export type IconName =
   | 'XCircle'
   | 'Database'
   | 'Upload'
+  | 'LifeBuoy'
 
 export interface SidebarItem {
   id: string
@@ -138,6 +139,22 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'workflows', label: 'Fluxos', href: '/app/workflows', icon: 'Workflow', permission: 'workflows' },
         { id: 'sales-cadences', label: 'Cadências', href: '/app/sales-cadences', icon: 'Megaphone', permission: 'sales_engagement' },
         { id: 'jobs', label: 'Filas & Monitor', href: '/app/jobs', icon: 'GanttChart', permission: 'workflows' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'support',
+      label: 'Suporte',
+      items: [
+        { id: 'helpdesk', label: 'Chamados', href: '/app/helpdesk', icon: 'LifeBuoy', permission: 'helpdesk' },
+        { id: 'helpdesk-sla', label: 'SLA', href: '/app/helpdesk/sla', icon: 'Clock', permission: 'helpdesk' },
+        { id: 'helpdesk-automation', label: 'Automação', href: '/app/helpdesk/automation', icon: 'Workflow', permission: 'helpdesk' },
+        { id: 'helpdesk-kb', label: 'Base de Conhecimento', href: '/app/helpdesk/kb', icon: 'BookOpen', permission: 'helpdesk' },
+        { id: 'helpdesk-csat', label: 'CSAT', href: '/app/helpdesk/csat', icon: 'Award', permission: 'helpdesk' },
+        { id: 'helpdesk-orgs', label: 'Organizações', href: '/app/helpdesk/organizations', icon: 'Building2', permission: 'helpdesk' },
+        { id: 'helpdesk-reports', label: 'Relatórios', href: '/app/helpdesk/reports', icon: 'BarChart3', permission: 'helpdesk' },
+        { id: 'helpdesk-channels', label: 'Canais', href: '/app/helpdesk/channels', icon: 'Settings', permission: 'helpdesk' },
+        { id: 'helpdesk-import', label: 'Importar', href: '/app/helpdesk/import', icon: 'Download', permission: 'helpdesk' },
       ],
       initiallyCollapsed: true,
     },

@@ -1,6 +1,12 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { computeHelpdeskReport } from '../services/helpdesk.js'
+
+// Rótulos PT p/ os widgets do helpdesk (espelham a UI do módulo).
+const HD_STATUS_LABEL: Record<string, string> = { new: 'Novo', open: 'Aberto', pending: 'Pendente', on_hold: 'Em espera', solved: 'Resolvido', closed: 'Fechado' }
+const HD_PRIORITY_LABEL: Record<string, string> = { low: 'Baixa', normal: 'Normal', high: 'Alta', urgent: 'Urgente' }
+const HD_CHANNEL_LABEL: Record<string, string> = { email: 'E-mail', web: 'Web', whatsapp: 'WhatsApp', chat: 'Chat', api: 'API', phone: 'Telefone', manual: 'Manual' }
 
 export async function userDashboardsRoutes(app: FastifyInstance) {
 
@@ -726,6 +732,56 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           }
         })
         return { data }
+      }
+
+      // ════════════════════ HELPDESK (F24) ════════════════════
+      // Reusa computeHelpdeskReport (mesma fonte do painel de Relatórios).
+      // Cada métrica devolve um superset p/ funcionar em vários tipos de widget.
+      case 'helpdesk_volume': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { ...rep.volume, value: rep.volume.created }
+      }
+      case 'helpdesk_sla': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return {
+          frPct: rep.sla.frPct, resPct: rep.sla.resPct, value: rep.sla.resPct ?? 0,
+          data: [
+            { label: '1ª resposta', value: rep.sla.frPct ?? 0 },
+            { label: 'Resolução', value: rep.sla.resPct ?? 0 },
+          ],
+        }
+      }
+      case 'helpdesk_times': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { avgFirstResponseMins: rep.times.avgFirstResponseMins, avgResolutionMins: rep.times.avgResolutionMins }
+      }
+      case 'helpdesk_csat': {
+        const days = cfg.range === '7d' ? 7 : cfg.range === '90d' ? 90 : 30
+        const since = new Date(Date.now() - days * 86_400_000)
+        const surveys = await prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since } }, select: { rating: true, respondedAt: true } })
+        const responded = surveys.filter((s) => s.respondedAt && s.rating)
+        const avg = responded.length ? Number((responded.reduce((a, s) => a + (s.rating || 0), 0) / responded.length).toFixed(1)) : 0
+        return { avg, value: avg, responded: responded.length, sent: surveys.length }
+      }
+      case 'helpdesk_by_status': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { data: rep.byStatus.map((s) => ({ label: HD_STATUS_LABEL[s.key] || s.key, value: s.count })) }
+      }
+      case 'helpdesk_by_priority': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { data: rep.byPriority.map((s) => ({ label: HD_PRIORITY_LABEL[s.key] || s.key, value: s.count })) }
+      }
+      case 'helpdesk_by_channel': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { data: rep.byChannel.map((s) => ({ label: HD_CHANNEL_LABEL[s.key] || s.key, value: s.count })) }
+      }
+      case 'helpdesk_trend': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { data: rep.trend.map((t) => ({ label: t.date.slice(5), created: t.created, solved: t.solved, value: t.created })) }
+      }
+      case 'helpdesk_by_agent': {
+        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        return { data: rep.byAgent }
       }
 
       default:

@@ -18,6 +18,7 @@ import {
   Activity,
   TrendingUp,
   BarChart3,
+  Download,
   LineChart,
   FileSpreadsheet,
   Workflow,
@@ -54,6 +55,7 @@ import {
   XCircle,
   Database,
   Upload,
+  LifeBuoy,
 } from 'lucide-preact'
 import type { JSX as JSXNs } from 'preact'
 
@@ -104,6 +106,7 @@ const ICONS: Record<IconName, unknown> = {
   Activity,
   TrendingUp,
   BarChart3,
+  Download,
   LineChart,
   FileSpreadsheet,
   Workflow,
@@ -141,6 +144,7 @@ const ICONS: Record<IconName, unknown> = {
   XCircle,
   Database,
   Upload,
+  LifeBuoy,
 }
 
 interface SidebarIconProps {

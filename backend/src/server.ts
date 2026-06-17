@@ -114,6 +114,12 @@ import { integrationsGoogleRoutes } from './routes/integrationsGoogle.js'
 import { lossReasonsRoutes } from './routes/lossReasons.js'
 import { lookerStudioRoutes } from './routes/lookerStudio.js'
 import { enrichmentRoutes } from './routes/enrichment.js'
+import { helpdeskRoutes } from './routes/helpdesk.js'
+import { helpdeskKbRoutes } from './routes/helpdeskKb.js'
+import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
+import { startSlaScheduler } from './services/helpdeskSla.js'
+import { startAutomationScheduler } from './services/helpdeskAutomation.js'
+import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
 import { startTrashPurgeScheduler } from './services/trash.js'
 import { startEscalationScheduler } from './services/routing/escalation.js'
 import { startTransferExpireScheduler } from './services/routing/transferExpire.js'
@@ -554,6 +560,9 @@ await app.register(lossReasonsRoutes)
 await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
+await app.register(helpdeskRoutes)
+await app.register(helpdeskKbRoutes)
+await app.register(helpdeskPortalRoutes)
 
 // Health check
 app.get('/api/health', async () => ({
@@ -1122,6 +1131,9 @@ try {
   startEscalationScheduler()
   startTransferExpireScheduler()
   startShiftHandoverScheduler()
+  startSlaScheduler()
+  startAutomationScheduler()
+  startHelpdeskRoutingScheduler()
   import('./services/cloudApiTemplates.js')
     .then(m => m.startCloudApiTemplateScheduler())
     .catch(err => console.warn('[cloudApiTemplates] init falhou:', err?.message || err))

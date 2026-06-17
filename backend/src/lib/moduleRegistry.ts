@@ -257,6 +257,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'helpdesk', name: 'Helpdesk / Chamados', icon: '🎫', category: 'support',
+    description: 'Central de chamados/tickets de suporte com protocolo, prioridade, tipos, atribuição por setor, thread público/interno e timeline. Base para SLA, automações, base de conhecimento e portal do cliente (módulo em construção).',
+    pages: ['helpdesk'],
+    routePrefixes: ['/api/helpdesk', '/api/admin/helpdesk'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
+  {
     id: 'voip', name: 'VoIP', icon: '📞', category: 'integracoes',
     description: 'Telefonia integrada (FaleMaisVoip): click-to-call pelo ramal do operador, registro de ligações como atividade e sincronização de gravações.',
     pages: ['voip'],

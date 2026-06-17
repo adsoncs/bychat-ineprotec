@@ -127,6 +127,19 @@ function methodToAction(method: string): Action {
 const ACTION_OVERRIDES: { test: RegExp; action: Action }[] = [
   { test: /^\/api\/leads\/\d+\/tags(\/\d+)?$/, action: 'edit' },
   { test: /^\/api\/leads\/bulk\/tags$/, action: 'edit' },
+  // ── Helpdesk: AGENTE COLABORADOR (light agent, F25) ──
+  // Quem tem só "Ver" no Helpdesk (canView, sem canEdit) é colaborador: pode
+  // COMENTAR (notas internas) e SEGUIR o chamado, sem editá-lo. Estas duas
+  // sub-rotas resolvem para 'view' (mais específicas vêm ANTES da regra ampla,
+  // pois `.find` pega o 1º match). O handler de /comments ainda exige canEdit
+  // para resposta PÚBLICA (colaborador só posta interna).
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/comments$/, action: 'view' },
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/follow$/, action: 'view' },
+  // Demais ações sobre um chamado existente (claim/assign/links/merge/spam/ai/…)
+  // são EDIÇÃO. POST /tickets (criar) e DELETE /tickets/:id mantêm o default;
+  // /tickets/bulk é edição.
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/.+/, action: 'edit' },
+  { test: /^\/api\/helpdesk\/tickets\/bulk$/, action: 'edit' },
 ]
 
 function resolveAction(method: string, pathOnly: string): Action {

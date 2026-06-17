@@ -30,6 +30,10 @@ export const WEBHOOK_EVENTS = [
   'enrichment.completed',
   'enrichment.failed',
   'loss_reason.spike',
+  'helpdesk.ticket.created',
+  'helpdesk.ticket.status_changed',
+  'helpdesk.ticket.solved',
+  'helpdesk.ticket.replied',
 ] as const
 
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number]
@@ -57,6 +61,10 @@ export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   'enrichment.completed': 'Enriquecimento concluído',
   'enrichment.failed': 'Enriquecimento falhou',
   'loss_reason.spike': 'Pico de objeção detectado',
+  'helpdesk.ticket.created': 'Chamado criado',
+  'helpdesk.ticket.status_changed': 'Status do chamado alterado',
+  'helpdesk.ticket.solved': 'Chamado resolvido',
+  'helpdesk.ticket.replied': 'Resposta no chamado',
 }
 
 // ── In-memory webhook cache (refresh every 60s) ────────

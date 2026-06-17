@@ -4325,3 +4325,465 @@ model KommoMapping {
   @@index([entityType, localId])
   @@map("bychat_kommo_mappings")
 }
+
+// ═════════════════════════════════════════════
+// MÓDULO HELPDESK / CHAMADOS (Fase 0 — núcleo)
+// ═════════════════════════════════════════════
+//
+// Entidade Ticket dedicada (NÃO estende Lead): um solicitante abre N tickets ao
+// longo do tempo e suporte por email/portal não deve poluir o pipeline de vendas.
+// Vínculos com Lead/User/Team são escalares indexados (sem @relation) para que a
+// migração seja 100% aditiva — `prisma db push` só cria tabelas novas, sem tocar
+// em Lead/User/Team. FK relations declaradas serão adicionadas em fases futuras
+// conforme a necessidade (relatórios, joins). Ver docs/helpdesk/PLANO_MODULO_HELPDESK.md.
+
+model HelpdeskTicket {
+  id      Int    @id @default(autoincrement())
+  number  Int    @unique // protocolo sequencial por tenant (ver HelpdeskSequence)
+  subject String @db.VarChar(255)
+
+  // new | open | pending | on_hold | solved | closed
+  status   String @default("new") @db.VarChar(20)
+  // low | normal | high | urgent
+  priority String @default("normal") @db.VarChar(10)
+  // question | incident | problem | task
+  type     String @default("question") @db.VarChar(20)
+  // email | web | whatsapp | chat | api | phone | manual
+  channel  String @default("manual") @db.VarChar(20)
+
+  // Atribuição (escalares indexados — sem FK em F0)
+  assignedUserId Int?
+  teamId         Int?
+
+  // Solicitante: vincula opcionalmente a um Lead existente; campos desnormalizados
+  // cobrem tickets sem lead (suporte anônimo / email externo).
+  requesterLeadId Int?
+  requesterName   String? @db.VarChar(191)
+  requesterEmail  String? @db.VarChar(191)
+  requesterPhone  String? @db.VarChar(30)
+
+  organizationId Int? // F9 — vínculo B2B (auto por domínio do e-mail)
+  isSpam         Boolean @default(false) // F13 — fila de spam/suspeitos
+
+  customFields Json? @db.Json
+  tags         Json? @db.Json // [tagId,...] simplificado em F0; junction dedicada em fase futura
+
+  // Marcos de SLA / ciclo de vida (preenchidos por F1/F4)
+  firstResponseAt DateTime?
+  solvedAt        DateTime?
+  closedAt        DateTime?
+  reopenCount     Int       @default(0)
+  lastActivityAt  DateTime  @default(now())
+
+  // SLA (F4) — metas calculadas e status corrente. Status: pending|met|at_risk|breached.
+  slaPolicyId             Int?
+  targetFirstResponseAt   DateTime?
+  targetResolutionAt      DateTime?
+  slaFirstResponseStatus  String?   @db.VarChar(10)
+  slaResolutionStatus     String?   @db.VarChar(10)
+  slaPausedAt             DateTime? // != null quando o relógio de resolução está pausado
+  slaPausedMs             Int       @default(0) // tempo total já pausado (ms)
+  slaBreachNotifiedAt     DateTime? // evita notificar breach repetidamente
+
+  // F27 — SLA de PRÓXIMA RESPOSTA: relógio que arma quando o cliente responde e
+  // para quando o agente responde publicamente. Status: pending|met|at_risk|breached.
+  targetNextResponseAt    DateTime?
+  slaNextResponseStatus   String?   @db.VarChar(10)
+
+  createdById   Int?
+  createdByName String? @db.VarChar(100)
+
+  // F26 — origem de migração (importador Zendesk/Freshdesk). Idempotência por
+  // (externalSource, externalId): re-import não duplica.
+  externalSource String? @db.VarChar(20) // zendesk | freshdesk
+  externalId     String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comments    HelpdeskComment[]
+  events      HelpdeskTicketEvent[]
+  followers   HelpdeskFollower[]
+  attachments HelpdeskAttachment[]
+
+  @@index([status, priority])
+  @@index([assignedUserId])
+  @@index([teamId])
+  @@index([requesterLeadId])
+  @@index([requesterEmail])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([externalSource, externalId])
+  @@map("bychat_helpdesk_tickets")
+}
+
+// Seguidores/CC de um ticket: usuários internos (userId) ou e-mails externos
+// (email) que recebem cópia das respostas públicas. Notificação real chega na F5.
+model HelpdeskFollower {
+  id       Int            @id @default(autoincrement())
+  ticketId Int
+  ticket   HelpdeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  userId Int? // seguidor interno (operador)
+  email  String? @db.VarChar(191) // seguidor externo (CC)
+  name   String? @db.VarChar(100)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("bychat_helpdesk_followers")
+}
+
+// Anexos do ticket. Reusa o padrão de storage de LeadAttachment (uploads/ servido
+// via /uploads/*). commentId opcional vincula o anexo a uma mensagem da thread.
+model HelpdeskAttachment {
+  id       Int            @id @default(autoincrement())
+  ticketId Int
+  ticket   HelpdeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  commentId   Int? // anexo de um comentário específico (opcional)
+  fileName    String  @db.VarChar(255)
+  fileSize    Int
+  mimeType    String  @db.VarChar(120)
+  storagePath String  @db.VarChar(255) // relativo a /uploads (ex: helpdesk-attachments/12-xxx.png)
+
+  uploadedById   Int?
+  uploadedByName String? @db.VarChar(100)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([commentId])
+  @@map("bychat_helpdesk_attachments")
+}
+
+model HelpdeskComment {
+  id       Int            @id @default(autoincrement())
+  ticketId Int
+  ticket   HelpdeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorType   String  @default("agent") @db.VarChar(20) // agent | requester | system
+  authorUserId Int?
+  authorName   String? @db.VarChar(100)
+  visibility   String  @default("public") @db.VarChar(10) // public | internal
+  channel      String? @db.VarChar(20)
+
+  body        String  @db.Text
+  bodyHtml    String? @db.Text
+  messageId   Int? // link p/ bychat_messages quando o canal é WhatsApp (sem FK em F0)
+  attachments Json?   @db.Json
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@map("bychat_helpdesk_comments")
+}
+
+model HelpdeskTicketEvent {
+  id       Int            @id @default(autoincrement())
+  ticketId Int
+  ticket   HelpdeskTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  type      String  @db.VarChar(40) // created | status_changed | assigned | priority_changed | comment_added | ...
+  userId    Int?
+  userName  String? @db.VarChar(100)
+  actorType String  @default("system") @db.VarChar(20) // agent | requester | system
+
+  title    String  @db.VarChar(191)
+  oldValue String? @db.Text
+  newValue String? @db.Text
+  metadata Json?   @db.Json
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId, createdAt])
+  @@index([type])
+  @@map("bychat_helpdesk_ticket_events")
+}
+
+// Política de SLA (F4). Avaliadas por `order` ASC; a primeira cujas `conditions`
+// casam define as metas. `firstResponseMins`/`resolutionMins` são mapas por
+// prioridade ({low,normal,high,urgent} → minutos). `useBusinessHours` faz o
+// cálculo respeitar o calendário (`calendarId`); senão é 24/7.
+model HelpdeskSlaPolicy {
+  id       Int     @id @default(autoincrement())
+  name     String  @db.VarChar(120)
+  order    Int     @default(0)
+  active   Boolean @default(true)
+
+  // { priorities?: string[], channels?: string[], types?: string[], teamIds?: number[] }
+  conditions        Json @db.Json
+  firstResponseMins Json @db.Json // { low, normal, high, urgent } em minutos
+  resolutionMins    Json @db.Json // { low, normal, high, urgent } em minutos
+  nextResponseMins  Json? @db.Json // F27 — meta de PRÓXIMA resposta (opcional) { low, normal, high, urgent }
+
+  useBusinessHours Boolean @default(false)
+  calendarId       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, order])
+  @@map("bychat_helpdesk_sla_policies")
+}
+
+// Calendário de expediente p/ SLA com business hours. `weekdayHours` mapeia
+// 0(domingo)..6(sábado) → faixas [{start:"09:00",end:"18:00"}]. `holidays` são
+// datas "YYYY-MM-DD" ignoradas. `timezone` IANA (default America/Sao_Paulo).
+model HelpdeskBusinessCalendar {
+  id           Int    @id @default(autoincrement())
+  name         String @db.VarChar(120)
+  timezone     String @default("America/Sao_Paulo") @db.VarChar(50)
+  weekdayHours Json   @db.Json
+  holidays     Json   @db.Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_helpdesk_business_calendars")
+}
+
+// AUTOMAÇÃO (F5) — macros, triggers e automations compartilham o mesmo formato
+// de `actions` Json: { setStatus?, setPriority?, setType?, assignUserId?,
+// teamId?, addTagIds?: number[], reply?: { body, visibility } }.
+
+// Macro: conjunto nomeado de ações + texto de resposta, aplicado com 1 clique.
+model HelpdeskMacro {
+  id            Int     @id @default(autoincrement())
+  name          String  @db.VarChar(120)
+  actions       Json    @db.Json
+  replyTemplate String? @db.Text
+  active        Boolean @default(true)
+  usageCount    Int     @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("bychat_helpdesk_macros")
+}
+
+// Trigger: executa AÇÕES quando um EVENTO ocorre e as CONDIÇÕES casam.
+// event: created | replied | status_changed
+model HelpdeskTrigger {
+  id         Int     @id @default(autoincrement())
+  name       String  @db.VarChar(120)
+  event      String  @db.VarChar(30)
+  conditions Json    @db.Json // { priorities?, channels?, types?, statuses?, teamIds?, subjectContains? }
+  actions    Json    @db.Json
+  active     Boolean @default(true)
+  order      Int     @default(0)
+  runCount   Int     @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active, event, order])
+  @@map("bychat_helpdesk_triggers")
+}
+
+// Automation: regra baseada em TEMPO (cron), ex.: "pending há 3 dias → fechar".
+model HelpdeskAutomation {
+  id         Int     @id @default(autoincrement())
+  name       String  @db.VarChar(120)
+  conditions Json    @db.Json // { statuses?, olderThanMins?, noFirstResponse?, channels? }
+  actions    Json    @db.Json
+  active     Boolean @default(true)
+  runCount   Int     @default(0)
+  lastRunAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("bychat_helpdesk_automations")
+}
+
+// BASE DE CONHECIMENTO / HELP CENTER (F6)
+model KbCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(150)
+  slug        String   @unique @db.VarChar(160)
+  description String?  @db.VarChar(500)
+  icon        String?  @db.VarChar(40)
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  externalSource String? @db.VarChar(20) // F26 — migração
+  externalId     String? @db.VarChar(64)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  articles KbArticle[]
+
+  @@index([active, position])
+  @@index([externalSource, externalId])
+  @@map("bychat_helpdesk_kb_categories")
+}
+
+model KbArticle {
+  id         Int         @id @default(autoincrement())
+  categoryId Int?
+  category   KbCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  title    String  @db.VarChar(255)
+  slug     String  @unique @db.VarChar(280)
+  excerpt  String? @db.VarChar(500)
+  body     String  @db.LongText // HTML/markdown
+  keywords String? @db.VarChar(500) // termos extras p/ busca
+
+  status     String @default("draft") @db.VarChar(12) // draft | published
+  visibility String @default("public") @db.VarChar(12) // public | internal
+  locale     String @default("pt-BR") @db.VarChar(10)
+
+  votesUp   Int @default(0)
+  votesDown Int @default(0)
+  viewCount Int @default(0)
+
+  seoTitle       String? @db.VarChar(255)
+  seoDescription String? @db.VarChar(500)
+
+  authorId   Int?
+  authorName String? @db.VarChar(100)
+
+  externalSource String? @db.VarChar(20) // F26 — migração
+  externalId     String? @db.VarChar(64)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, visibility])
+  @@index([categoryId])
+  @@index([externalSource, externalId])
+  @@map("bychat_helpdesk_kb_articles")
+}
+
+// Relacionamento entre tickets (F10). Uma linha por relação, na perspectiva de
+// `ticketId` → `linkedTicketId`. Tipos: related | duplicate | blocks |
+// blocked_by | parent | child | problem | incident | follow_up | merged.
+// O lado inverso é computado na exibição (ver inverseLinkType no código).
+model HelpdeskTicketLink {
+  id             Int    @id @default(autoincrement())
+  ticketId       Int
+  linkedTicketId Int
+  type           String @db.VarChar(20)
+
+  createdById   Int?
+  createdByName String? @db.VarChar(100)
+  createdAt     DateTime @default(now())
+
+  @@unique([ticketId, linkedTicketId, type])
+  @@index([ticketId])
+  @@index([linkedTicketId])
+  @@map("bychat_helpdesk_ticket_links")
+}
+
+// Organização (B2B, F9). `domains` (["acme.com"]) auto-vinculam o solicitante
+// pelo domínio do e-mail. `slaPolicyId` força uma política de SLA para a org.
+model HelpdeskOrganization {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(150)
+  domains     Json     @db.Json // ["acme.com", "acme.com.br"]
+  supportPlan String?  @db.VarChar(80) // ex.: Free | Standard | Premium
+  slaPolicyId Int? // override de política de SLA para a org
+  notes       String?  @db.Text
+  active      Boolean  @default(true)
+  externalSource String? @db.VarChar(20) // F26 — migração
+  externalId     String? @db.VarChar(64)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+  @@index([externalSource, externalId])
+  @@map("bychat_helpdesk_organizations")
+}
+
+// F27 — Conversa paralela ("side conversation"): thread separada com um TERCEIRO
+// (fornecedor, outra área, especialista) vinculada a um ticket, invisível ao
+// solicitante. Enviada por e-mail ou WhatsApp reusando os providers de canal.
+model HelpdeskSideConversation {
+  id       Int @id @default(autoincrement())
+  ticketId Int
+
+  channel     String  @db.VarChar(20) // email | whatsapp
+  targetName  String? @db.VarChar(150)
+  targetEmail String? @db.VarChar(191)
+  targetPhone String? @db.VarChar(30)
+  subject     String? @db.VarChar(255)
+  status      String  @default("open") @db.VarChar(10) // open | closed
+
+  createdById    Int?
+  createdByName  String?  @db.VarChar(100)
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  messages HelpdeskSideMessage[]
+
+  @@index([ticketId])
+  @@map("bychat_helpdesk_side_conversations")
+}
+
+model HelpdeskSideMessage {
+  id                 Int                      @id @default(autoincrement())
+  sideConversationId Int
+  conversation       HelpdeskSideConversation @relation(fields: [sideConversationId], references: [id], onDelete: Cascade)
+
+  direction  String  @db.VarChar(10) // outbound | inbound
+  authorName String? @db.VarChar(100)
+  body       String  @db.Text
+
+  createdAt DateTime @default(now())
+
+  @@index([sideConversationId, createdAt])
+  @@map("bychat_helpdesk_side_messages")
+}
+
+// CSAT / Pesquisa de satisfação (F8). Uma pesquisa por ticket (idempotente),
+// criada ao resolver. `token` é a credencial pública do link de avaliação.
+model HelpdeskSurvey {
+  id       Int @id @default(autoincrement())
+  ticketId Int @unique
+  token    String @unique @db.VarChar(48)
+
+  rating  Int?    // 1..5 (👍=5 / 👎=1 quando thumbs)
+  comment String? @db.Text
+
+  agentUserId Int?
+  teamId      Int?
+
+  sentAt      DateTime  @default(now())
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([respondedAt])
+  @@index([agentUserId])
+  @@map("bychat_helpdesk_surveys")
+}
+
+// QA automático (F19) — auditoria de qualidade do atendimento por IA. Uma por ticket.
+model HelpdeskQaReview {
+  id        Int     @id @default(autoincrement())
+  ticketId  Int     @unique
+  score     Int? // 0-100
+  tone      String? @db.VarChar(20) // cordial | neutro | frio | agressivo | inconsistente
+  strengths Json?
+  weaknesses Json?
+  summary   String? @db.Text
+
+  agentUserId    Int?
+  autoGenerated  Boolean @default(true)
+  reviewerUserId Int? // revisão/ajuste humano opcional
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentUserId])
+  @@map("bychat_helpdesk_qa_reviews")
+}
+
+// Contador de protocolo por tenant. `update ... increment` é atômico no InnoDB;
+// o @unique em HelpdeskTicket.number é a defesa final contra colisão.
+model HelpdeskSequence {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50) // 'ticket'
+  current   Int      @default(1000)
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_helpdesk_sequences")
+}

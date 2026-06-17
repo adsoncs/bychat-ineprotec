@@ -10,6 +10,7 @@ export type ApiPermission =
   | 'stages:read' | 'stages:write'
   | 'activities:read' | 'activities:write'
   | 'contacts:read' | 'contacts:write'
+  | 'helpdesk:read' | 'helpdesk:write'
   | 'webhooks:manage'
 
 export const ALL_PERMISSIONS: ApiPermission[] = [
@@ -19,6 +20,7 @@ export const ALL_PERMISSIONS: ApiPermission[] = [
   'stages:read', 'stages:write',
   'activities:read', 'activities:write',
   'contacts:read', 'contacts:write',
+  'helpdesk:read', 'helpdesk:write',
   'webhooks:manage',
 ]
 

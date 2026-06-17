@@ -36,6 +36,7 @@ export const WIDGET_CATEGORIES: WidgetCategory[] = [
   { id: 'mensagens', label: 'Mensagens' },
   { id: 'sistema', label: 'Sistema' },
   { id: 'matriculas', label: 'Matrículas', requiresPermission: 'educacional', domainBadge: 'Educacional' },
+  { id: 'helpdesk', label: 'Helpdesk', requiresPermission: 'helpdesk', domainBadge: 'Suporte' },
 ]
 
 export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
@@ -85,6 +86,16 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   { category: 'matriculas', metric: 'registrations_by_status', title: 'Inscrições por Status', description: 'Pendente, pago, aprovado, etc', icon: '🔀', defaultSize: 'md', defaultType: 'donut', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'matriculas', metric: 'registrations_by_source', title: 'Fontes de Inscrição', description: 'Top UTM sources das matrículas', icon: '🔗', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'matriculas', metric: 'registrations_recent', title: 'Últimas Inscrições', description: 'Tabela com inscrições mais recentes', icon: '📋', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
+
+  { category: 'helpdesk', metric: 'helpdesk_volume', title: 'Volume de Chamados', description: 'Criados, resolvidos, backlog e reaberturas', icon: '🎫', defaultSize: 'md', defaultType: 'stat_grid', availableTypes: ['stat_grid', 'kpi'] },
+  { category: 'helpdesk', metric: 'helpdesk_sla', title: 'Cumprimento de SLA', description: '% de SLA cumprido (1ª resposta e resolução)', icon: '⏱️', defaultSize: 'sm', defaultType: 'stat_grid', availableTypes: ['stat_grid', 'gauge'] },
+  { category: 'helpdesk', metric: 'helpdesk_times', title: 'Tempos Médios (TMA/TMR)', description: 'Tempo médio de 1ª resposta e de resolução', icon: '⏳', defaultSize: 'sm', defaultType: 'stat_grid', availableTypes: ['stat_grid'] },
+  { category: 'helpdesk', metric: 'helpdesk_csat', title: 'Satisfação (CSAT)', description: 'Nota média e respostas no período', icon: '😊', defaultSize: 'sm', defaultType: 'stat_grid', availableTypes: ['stat_grid', 'kpi'] },
+  { category: 'helpdesk', metric: 'helpdesk_trend', title: 'Tendência de Chamados', description: 'Criados vs resolvidos por dia', icon: '📈', defaultSize: 'lg', defaultType: 'line', availableTypes: ['line', 'area', 'bar'] },
+  { category: 'helpdesk', metric: 'helpdesk_by_status', title: 'Chamados por Status', description: 'Distribuição por status', icon: '🔀', defaultSize: 'md', defaultType: 'donut', availableTypes: ['donut', 'pie', 'polar', 'bar', 'hbar', 'hbar_list'] },
+  { category: 'helpdesk', metric: 'helpdesk_by_priority', title: 'Chamados por Prioridade', description: 'Distribuição por prioridade', icon: '🚨', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'donut', 'pie', 'polar', 'hbar_list'] },
+  { category: 'helpdesk', metric: 'helpdesk_by_channel', title: 'Chamados por Canal', description: 'E-mail, WhatsApp, web, etc', icon: '📨', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'donut', 'pie', 'polar', 'hbar_list'] },
+  { category: 'helpdesk', metric: 'helpdesk_by_agent', title: 'Desempenho por Agente', description: 'Atribuídos, resolvidos, TMR e CSAT', icon: '👤', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
 ]
 
 export const FUNNEL_AWARE_METRICS = [

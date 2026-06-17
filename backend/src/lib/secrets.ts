@@ -17,3 +17,9 @@ export const JWT_SECRET: string = process.env.JWT_SECRET
  * (ambos garantidos não-vazios pelo check de boot acima).
  */
 export const CANDIDATE_SECRET: string = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET
+
+/**
+ * Segredo dos tokens do Portal de Suporte (Helpdesk) — magic link do solicitante.
+ * Dedicado quando definido; senão recai em CANDIDATE_SECRET/JWT_SECRET.
+ */
+export const HELPDESK_PORTAL_SECRET: string = process.env.HELPDESK_PORTAL_SECRET || process.env.CANDIDATE_SECRET || process.env.JWT_SECRET
