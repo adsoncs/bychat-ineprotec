@@ -184,6 +184,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'academico', name: 'ERP Acadêmico', icon: '📚', category: 'educacional',
+    description: 'ERP acadêmico nativo: alunos (sobre o CRM), estrutura acadêmica (disciplinas, matriz, turmas, períodos), matrícula com ciclo de vida, financeiro (mensalidades/Asaas), núcleo acadêmico (diário, notas) e secretaria. Estende o módulo Educacional.',
+    pages: ['acaDashboard', 'acaAlunos', 'acaCatalogo', 'acaTurmas', 'acaMatriculas', 'acaFinanceiro'],
+    routePrefixes: ['/api/aca', '/api/admin/aca'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
+  {
     id: 'settings', name: 'Configurações', icon: '⚙', category: 'config',
     description: 'Configurações gerais do sistema, aparência e campos personalizados.',
     pages: ['settings', 'appearance', 'customfields'],
