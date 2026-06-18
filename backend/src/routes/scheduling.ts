@@ -22,7 +22,9 @@ async function loadAvailability(meetingTypeId: number) {
 
 const MANAGER_ROLES = ['SUPERADMIN', 'ADMIN', 'MANAGER']
 const LOCATION_TYPES = ['google_meet', 'phone', 'whatsapp', 'in_person', 'custom']
-const ASSIGNMENT_MODES = ['fixed', 'round_robin']
+// fixed: dono operador fixo (mt.ownerUserId). team_routing: distribui pela Equipe
+// (mt.teamId) usando o motor de Roteamento de Leads. round_robin: legado, não usado.
+const ASSIGNMENT_MODES = ['fixed', 'round_robin', 'team_routing']
 
 function slugify(s: string): string {
   return String(s || '')

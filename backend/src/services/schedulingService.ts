@@ -6,6 +6,7 @@ import { computeSlots, type WeeklyRule, type ExceptionRule, type DaySlots } from
 import { generateUid, normalizePhone, findDuplicate } from './dedup.js'
 import { eventBus } from '../lib/eventBus.js'
 import { getExternalGoogleEvents } from './schedulingGoogle.js'
+import { pickOperatorForTeam } from './teamRouting.js'
 
 export const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
 
@@ -43,26 +44,29 @@ export async function resolveScheduleForType(mt: { id: number; ownerUserId: numb
 }
 
 export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts: { from?: string; to?: string } = {}): Promise<DaySlots[]> {
-  const { rules, exceptions } = await resolveScheduleForType(mt)
+  // No modo "Orquestrar pela Equipe" não há dono fixo: a disponibilidade usa a agenda
+  // própria do tipo e conta as reservas pelo próprio tipo (não pela agenda de 1 operador).
+  const ownerForAgenda = mt.assignmentMode === 'team_routing' ? null : mt.ownerUserId
+  const { rules, exceptions } = await resolveScheduleForType({ id: mt.id, ownerUserId: ownerForAgenda })
   const windowEnd = new Date(Date.now() + mt.bookingWindowDays * 86400000)
   const bookings = await prisma.booking.findMany({
     where: {
       status: { notIn: ['cancelled', 'no_show', 'rescheduled'] },
       endAt: { gt: new Date() },
       startAt: { lt: windowEnd },
-      ...(mt.ownerUserId ? { operatorUserId: mt.ownerUserId } : { meetingTypeId: mt.id }),
+      ...(ownerForAgenda ? { operatorUserId: ownerForAgenda } : { meetingTypeId: mt.id }),
     },
     select: { startAt: true, endAt: true },
   })
   // Bloqueios/compromissos manuais do dono também ocupam a agenda → removem slots.
-  const blocks = mt.ownerUserId
+  const blocks = ownerForAgenda
     ? await prisma.calendarBlock.findMany({
-        where: { operatorUserId: mt.ownerUserId, endAt: { gt: new Date() }, startAt: { lt: windowEnd } },
+        where: { operatorUserId: ownerForAgenda, endAt: { gt: new Date() }, startAt: { lt: windowEnd } },
         select: { startAt: true, endAt: true },
       })
     : []
   // Eventos do Google Calendar pessoal do dono também ocupam a agenda (free/busy).
-  const googleBusyRaw = await getExternalGoogleEvents(mt.ownerUserId, new Date(), windowEnd)
+  const googleBusyRaw = await getExternalGoogleEvents(ownerForAgenda, new Date(), windowEnd)
   const googleBusy = googleBusyRaw.map((e) => ({ startAt: new Date(e.startAt), endAt: new Date(e.endAt) }))
   const busy = [...bookings, ...blocks, ...googleBusy]
   return computeSlots({
@@ -129,18 +133,32 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // Funil efetivo: override (funil da conexão) tem prioridade sobre o do tipo.
   const effFunnelId = input.funnelOverride ?? mt.funnelId ?? null
 
+  // Operador/equipe efetivos da reunião.
+  //  • fixed (padrão): dono operador fixo do tipo (mt.ownerUserId).
+  //  • team_routing: distribui pela Equipe (mt.teamId) usando o motor de Roteamento
+  //    de Leads (pickOperatorForTeam: round-robin/least-loaded, working-hours e
+  //    disponibilidade). Se ninguém elegível, fica na fila da equipe (operador null).
+  let effectiveOperatorId: number | null = mt.ownerUserId
+  let effectiveTeamId: number | null = mt.defaultTeamId ?? null
+  if (mt.assignmentMode === 'team_routing' && mt.teamId) {
+    effectiveTeamId = mt.teamId
+    effectiveOperatorId = await pickOperatorForTeam(mt.teamId).catch(() => null)
+  }
+
   // Dedup: linka lead existente por whatsapp/email; senão cria novo.
   let leadId: number | null = null
   const dup = await findDuplicate(whatsapp || undefined, email || undefined)
   if (dup?.lead?.id) {
     const lid = dup.lead.id
     leadId = lid
-    // A reunião pertence ao DONO do tipo (operador principal de agendamentos).
-    // Mesmo que o lead tenha sido roteado antes para outro agente (form/chatbot),
-    // ao agendar ele passa a ser do dono — só o dono atende os agendamentos.
-    if (mt.ownerUserId) {
-      await prisma.lead.update({ where: { id: lid }, data: { assignedUserId: mt.ownerUserId, assignedAt: new Date() } }).catch(() => {})
-    }
+    // A reunião passa para o operador efetivo (dono fixo do tipo OU operador roteado
+    // pela equipe). Mesmo que o lead já tenha outro responsável, ao agendar ele vai
+    // para quem atende os agendamentos. No modo equipe, também vincula a equipe (mantém
+    // o lead na fila dela quando ninguém está elegível no momento).
+    const dupData: { assignedUserId?: number; assignedAt?: Date; teamId?: number } = {}
+    if (effectiveOperatorId) { dupData.assignedUserId = effectiveOperatorId; dupData.assignedAt = new Date() }
+    if (mt.assignmentMode === 'team_routing' && effectiveTeamId) dupData.teamId = effectiveTeamId
+    if (Object.keys(dupData).length) await prisma.lead.update({ where: { id: lid }, data: dupData }).catch(() => {})
   } else {
     const lead = await prisma.lead.create({
       data: {
@@ -152,9 +170,9 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
         formData: { _source: 'scheduling', _meetingTypeId: mt.id, answers: input.answers ?? null },
         scores: {},
         status: mt.stageKey || 'NOVO',
-        teamId: mt.defaultTeamId ?? null,
-        assignedUserId: mt.ownerUserId ?? null,
-        assignedAt: mt.ownerUserId ? new Date() : null,
+        teamId: effectiveTeamId,
+        assignedUserId: effectiveOperatorId ?? null,
+        assignedAt: effectiveOperatorId ? new Date() : null,
         ...(effFunnelId ? { funnelId: effFunnelId } : {}),
         completed: false,
         source: 'scheduling',
@@ -178,7 +196,7 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
       token,
       meetingTypeId: mt.id,
       leadId,
-      operatorUserId: mt.ownerUserId ?? null,
+      operatorUserId: effectiveOperatorId ?? null,
       startAt,
       endAt,
       timezone: mt.timezone,
@@ -221,15 +239,15 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     // Activity 'meeting' (timeline + agenda + sync Google Calendar/Meet).
     try {
       let ownerName: string | null = null
-      if (mt.ownerUserId) {
-        const u = await prisma.user.findUnique({ where: { id: mt.ownerUserId }, select: { name: true, email: true } })
+      if (effectiveOperatorId) {
+        const u = await prisma.user.findUnique({ where: { id: effectiveOperatorId }, select: { name: true, email: true } })
         ownerName = u?.name || u?.email || null
       }
       const reminderAt = new Date(startAt.getTime() - 60 * 60000)
       const activity = await prisma.activity.create({
         data: {
           leadId,
-          userId: mt.ownerUserId ?? null,
+          userId: effectiveOperatorId ?? null,
           userName: ownerName,
           type: 'meeting',
           title: `Reunião: ${mt.name}`,
