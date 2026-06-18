@@ -4,7 +4,8 @@
 
 import { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
-import { listModulesWithStatus, setModuleEnabled, getModuleDefinition } from '../lib/moduleManager.js'
+import { listModulesWithStatus, setModuleEnabled, getModuleDefinition, isModuleEnabled } from '../lib/moduleManager.js'
+import { getModuleDependents, getModuleDependencies } from '../lib/moduleRegistry.js'
 import { getAllModuleUsage, getModuleUsage } from '../services/moduleUsage.js'
 import { prisma } from '../lib/prisma.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -47,6 +48,27 @@ export async function modulesRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: `Módulo "${def.name}" é essencial e não pode ser desativado` })
     }
 
+    // Bloqueio de dependência: não dá pra desligar um módulo enquanto houver
+    // módulos ativos que dependem dele (ex.: desligar aca_matriculas com
+    // aca_financeiro ativo). O admin deve desligar os dependentes antes.
+    if (!body.enabled) {
+      const dependents = getModuleDependents(id)
+      const activeDependents: Array<{ id: string; name: string }> = []
+      for (const depId of dependents) {
+        if (await isModuleEnabled(depId)) {
+          const d = getModuleDefinition(depId)
+          if (d) activeDependents.push({ id: d.id, name: d.name })
+        }
+      }
+      if (activeDependents.length > 0) {
+        return reply.code(409).send({
+          error: `Não é possível desativar "${def.name}": desative antes os módulos que dependem dele.`,
+          requiresDependentsDisabled: true,
+          dependents: activeDependents,
+        })
+      }
+    }
+
     // Type-to-confirm na desativação de módulo com uso ativo.
     if (!body.enabled) {
       const usage = await getModuleUsage(id)
@@ -60,6 +82,16 @@ export async function modulesRoutes(app: FastifyInstance) {
             expectedConfirmName: def.name,
           })
         }
+      }
+    }
+
+    // Ao ligar, descobre quais dependências estavam desligadas (serão ligadas em
+    // cascata por setModuleEnabled) para informar o admin no retorno.
+    const autoEnabled: Array<{ id: string; name: string }> = []
+    if (body.enabled) {
+      for (const depId of getModuleDependencies(id)) {
+        const d = getModuleDefinition(depId)
+        if (d && !d.core && !(await isModuleEnabled(depId))) autoEnabled.push({ id: d.id, name: d.name })
       }
     }
 
@@ -93,7 +125,7 @@ export async function modulesRoutes(app: FastifyInstance) {
         changes: { enabled: { from: !body.enabled, to: body.enabled } },
         ...auditActor(req),
       })
-      return { ok: true, moduleId: id, enabled: body.enabled }
+      return { ok: true, moduleId: id, enabled: body.enabled, autoEnabled }
     } catch (err: any) {
       return reply.code(400).send({ error: err.message })
     }
