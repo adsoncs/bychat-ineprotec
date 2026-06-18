@@ -47,6 +47,10 @@ export type IconName =
   | 'Building2'
   | 'MapPin'
   | 'BookOpen'
+  | 'Gavel'
+  | 'Wallet'
+  | 'Inbox'
+  | 'Briefcase'
   | 'CalendarRange'
   | 'FileCheck2'
   | 'ClipboardList'
@@ -244,22 +248,61 @@ export const sidebarSchema: SidebarSchema = {
       ],
       initiallyCollapsed: true,
     },
+    // ── Educacional · operação do dia a dia ──
     {
       id: 'educational',
       label: 'Educacional',
       items: [
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
-        { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },
-        { id: 'edu-modalities', label: 'Modalidades', href: '/app/educational/modalities', icon: 'Layers', permission: 'educacional' },
-        { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
-        { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
-        { id: 'edu-courses', label: 'Cursos', href: '/app/educational/courses', icon: 'BookOpen', permission: 'educacional' },
-        { id: 'edu-offerings', label: 'Ofertas', href: '/app/educational/offerings', icon: 'CalendarRange', permission: 'educacional' },
-        { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
-        { id: 'edu-selection-processes', label: 'Processos seletivos', href: '/app/educational/selection-processes', icon: 'FileCheck2', permission: 'educacional' },
+        { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'academico' },
+        { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'academico' },
+        { id: 'aca-diario', label: 'Diário de Classe', href: '/app/aca/diario', icon: 'BookOpen', permission: 'academico' },
+        { id: 'aca-conselho', label: 'Conselho de Classe', href: '/app/aca/conselho', icon: 'Gavel', permission: 'academico' },
+        { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'academico' },
+        { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
         { id: 'edu-doc-review', label: 'Revisão de documentos', href: '/app/educational/doc-review', icon: 'ClipboardList', permission: 'educacional' },
         { id: 'edu-evaluations', label: 'Avaliações', href: '/app/educational/evaluations', icon: 'Award', permission: 'educacional' },
-        { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
+      ],
+      initiallyCollapsed: true,
+    },
+    // ── Educacional · secretaria, financeiro e atendimento ao aluno ──
+    {
+      id: 'educational-secretaria',
+      label: 'Secretaria & Financeiro',
+      items: [
+        { id: 'aca-secretaria', label: 'Secretaria', href: '/app/aca/secretaria', icon: 'FileText', permission: 'academico' },
+        { id: 'aca-requerimentos', label: 'Requerimentos', href: '/app/aca/requerimentos', icon: 'Inbox', permission: 'academico' },
+        { id: 'aca-financeiro', label: 'Financeiro', href: '/app/aca/financeiro', icon: 'Wallet', permission: 'academico' },
+        { id: 'aca-estagio', label: 'Estágio & Atividades', href: '/app/aca/estagio', icon: 'Briefcase', permission: 'academico' },
+        { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'academico' },
+        { id: 'aca-comunicacao', label: 'Comunicação', href: '/app/aca/comunicacao', icon: 'MessageSquare', permission: 'academico' },
+      ],
+      initiallyCollapsed: true,
+    },
+    // ── Educacional · cadastros / pré-configuração ──
+    {
+      id: 'educational-cadastros',
+      label: 'Cadastros acadêmicos',
+      items: [
+        { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
+        { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
+        { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },
+        { id: 'edu-modalities', label: 'Modalidades', href: '/app/educational/modalities', icon: 'Layers', permission: 'educacional' },
+        { id: 'edu-courses', label: 'Cursos', href: '/app/educational/courses', icon: 'BookOpen', permission: 'educacional' },
+        { id: 'edu-offerings', label: 'Ofertas', href: '/app/educational/offerings', icon: 'CalendarRange', permission: 'educacional' },
+        { id: 'aca-estrutura', label: 'Estrutura Acadêmica', href: '/app/aca/estrutura', icon: 'Layers', permission: 'academico' },
+        { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
+        { id: 'edu-selection-processes', label: 'Processos seletivos', href: '/app/educational/selection-processes', icon: 'FileCheck2', permission: 'educacional' },
+      ],
+      initiallyCollapsed: true,
+    },
+    // ── Educacional · relatórios e indicadores ──
+    {
+      id: 'educational-relatorios',
+      label: 'Relatórios acadêmicos',
+      items: [
+        { id: 'aca-bi', label: 'Indicadores (BI)', href: '/app/aca/bi', icon: 'BarChart3', permission: 'academico' },
+        { id: 'aca-sistec', label: 'Censo / SISTEC', href: '/app/aca/sistec', icon: 'Database', permission: 'academico' },
       ],
       initiallyCollapsed: true,
     },

@@ -884,6 +884,7 @@ model Lead {
   conversationAudits       ConversationAudit[]
   stageSuggestions         LeadStageSuggestion[]
   transferRequests         LeadTransferRequest[]
+  aluno                    Aluno?                // Módulo Acadêmico (1:1) — Pessoa = Contato
 
   @@index([status])
   @@index([createdAt])
@@ -4786,4 +4787,684 @@ model HelpdeskSequence {
   updatedAt DateTime @updatedAt
 
   @@map("bychat_helpdesk_sequences")
+}
+
+// =====================================================================
+// MÓDULO ACADÊMICO (NATIVO) — Fase 0 (M1/M2/M4/M5)
+// ids Int; sem tenantId (multi-tenant por install); centavos Int;
+// tabelas bychat_aca_. Ver docs/projeto-erp-academico/04_05_06.
+// FKs cross-módulo (courseId, courseOfferingId, enrollmentDraftId,
+// userId) são escalares por design (sem @relation, p/ não tocar models
+// existentes). Lead↔Aluno é relação 1:1 (Pessoa = Contato).
+// =====================================================================
+
+enum AcaPapel {
+  ALUNO
+  PROFESSOR
+  RESPONSAVEL
+  COORDENADOR
+  SECRETARIA
+}
+enum AcaTipoResponsavel {
+  FINANCEIRO
+  PEDAGOGICO
+  LEGAL
+}
+enum AcaTurno {
+  MATUTINO
+  VESPERTINO
+  NOTURNO
+  INTEGRAL
+  EAD
+}
+enum AcaMatriculaStatus {
+  INSCRITO
+  PRE_MATRICULA
+  MATRICULADO
+  TRANCADO
+  TRANSFERIDO
+  CONCLUIDO
+  EVADIDO
+  CANCELADO
+}
+enum AcaParcelaTipo {
+  MATRICULA
+  MENSALIDADE
+  MATERIAL
+  TAXA
+  OUTRO
+  ACORDO
+}
+enum AcaParcelaSituacao {
+  ABERTA
+  PAGA
+  VENCIDA
+  CANCELADA
+  RENEGOCIADA
+}
+enum AcaContratoStatus {
+  ATIVO
+  QUITADO
+  CANCELADO
+  RENEGOCIADO
+}
+enum AcaBolsaTipo {
+  PERCENTUAL
+  VALOR
+  INTEGRAL
+}
+enum AcaIntegracaoStatus {
+  PENDENTE
+  SUCESSO
+  ERRO
+}
+
+model Aluno {
+  id             Int      @id @default(autoincrement())
+  leadId         Int      @unique
+  ra             String?  @unique @db.VarChar(30)
+  cpf            String?  @db.VarChar(20)
+  dataNascimento DateTime?
+  sexo           String?  @db.VarChar(12)
+  nomeSocial     String?  @db.VarChar(191)
+  fotoUrl        String?  @db.Text
+  ativo          Boolean  @default(true)
+  documentosJson     Json? @db.Json
+  socioEconomicoJson Json? @db.Json
+  roadmapJson        Json? @db.Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  responsaveis   AcaResponsavel[]
+  matriculas     AcaMatricula[]
+  ocorrencias    AcaOcorrencia[]
+
+  @@index([cpf])
+  @@index([ra])
+  @@map("bychat_aca_alunos")
+}
+
+model AcaResponsavel {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int
+  leadId     Int?
+  nome       String   @db.VarChar(191)
+  cpf        String?  @db.VarChar(20)
+  parentesco String?  @db.VarChar(40)
+  tipo       AcaTipoResponsavel @default(FINANCEIRO)
+  telefone   String?  @db.VarChar(30)
+  email      String?  @db.VarChar(191)
+  ativo      Boolean  @default(true)
+
+  aluno      Aluno    @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+  @@index([alunoId])
+  @@map("bychat_aca_responsaveis")
+}
+
+model AcaPeriodoLetivo {
+  id         Int      @id @default(autoincrement())
+  codigo     String   @unique @db.VarChar(20)
+  descricao  String   @db.VarChar(191)
+  anoLetivo  Int?
+  dataInicio DateTime?
+  dataFim    DateTime?
+  ativo      Boolean  @default(true)
+
+  turmas     AcaTurma[]
+  @@map("bychat_aca_periodos_letivos")
+}
+
+model AcaDisciplina {
+  id           Int      @id @default(autoincrement())
+  courseId     Int
+  nome         String   @db.VarChar(191)
+  codigo       String?  @db.VarChar(50)
+  cargaHoraria Int      @default(0)
+  ementa       String?  @db.Text
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  componentes  AcaComponente[]
+  @@index([courseId])
+  @@map("bychat_aca_disciplinas")
+}
+
+model AcaMatriz {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  versao    String   @db.VarChar(40)
+  vigenteDe DateTime?
+  ativo     Boolean  @default(true)
+
+  componentes AcaComponente[]
+  @@index([courseId])
+  @@map("bychat_aca_matrizes")
+}
+
+model AcaComponente {
+  id           Int      @id @default(autoincrement())
+  matrizId     Int
+  disciplinaId Int
+  fase         Int      @default(1)
+  obrigatoria  Boolean  @default(true)
+
+  matriz       AcaMatriz     @relation(fields: [matrizId], references: [id], onDelete: Cascade)
+  disciplina   AcaDisciplina @relation(fields: [disciplinaId], references: [id])
+  preRequisitos AcaPreRequisito[] @relation("AcaComponenteAlvo")
+
+  @@unique([matrizId, disciplinaId])
+  @@index([matrizId, fase])
+  @@map("bychat_aca_componentes")
+}
+
+model AcaPreRequisito {
+  id                    Int @id @default(autoincrement())
+  componenteId          Int
+  componenteRequeridoId Int
+
+  componente            AcaComponente @relation("AcaComponenteAlvo", fields: [componenteId], references: [id], onDelete: Cascade)
+  @@unique([componenteId, componenteRequeridoId])
+  @@map("bychat_aca_prerequisitos")
+}
+
+model AcaTurma {
+  id               Int      @id @default(autoincrement())
+  courseOfferingId Int?
+  periodoLetivoId  Int
+  matrizId         Int?
+  nome             String   @db.VarChar(191)
+  faseAtual        Int?
+  turno            AcaTurno?
+  capacidade       Int?
+  ativo            Boolean  @default(true)
+  matriculaAberta  Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  periodoLetivo    AcaPeriodoLetivo @relation(fields: [periodoLetivoId], references: [id])
+  matriculas       AcaMatricula[]
+
+  @@index([periodoLetivoId])
+  @@index([courseOfferingId])
+  @@map("bychat_aca_turmas")
+}
+
+model AcaMatricula {
+  id                Int      @id @default(autoincrement())
+  alunoId           Int
+  turmaId           Int
+  courseOfferingId  Int?
+  status            AcaMatriculaStatus @default(INSCRITO)
+  origem            String?  @db.VarChar(40)
+  enrollmentDraftId Int?
+  listaEspera       Boolean  @default(false)
+  dataMatricula     DateTime @default(now())
+  dataConclusao     DateTime?
+  motivoSaida       String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  aluno             Aluno    @relation(fields: [alunoId], references: [id])
+  turma             AcaTurma @relation(fields: [turmaId], references: [id])
+  contrato          AcaContrato?
+  eventos           AcaMatriculaEvento[]
+
+  @@unique([alunoId, turmaId])
+  @@index([status])
+  @@map("bychat_aca_matriculas")
+}
+
+model AcaMatriculaEvento {
+  id          Int      @id @default(autoincrement())
+  matriculaId Int
+  de          String?  @db.VarChar(20)
+  para        String   @db.VarChar(20)
+  obs         String?  @db.Text
+  userId      Int?
+  createdAt   DateTime @default(now())
+
+  matricula   AcaMatricula @relation(fields: [matriculaId], references: [id], onDelete: Cascade)
+  @@index([matriculaId])
+  @@map("bychat_aca_matricula_eventos")
+}
+
+model AcaPlanoPagamento {
+  id                    Int      @id @default(autoincrement())
+  courseOfferingId      Int
+  nome                  String   @db.VarChar(191)
+  numParcelas           Int
+  valorParcelaCentavos  Int
+  taxaMatriculaCentavos Int      @default(0)
+  diaVencimento         Int      @default(10)
+  ativo                 Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([courseOfferingId])
+  @@map("bychat_aca_planos_pagamento")
+}
+
+model AcaBolsa {
+  id             Int      @id @default(autoincrement())
+  alunoId        Int
+  tipo           AcaBolsaTipo
+  valor          Int
+  motivo         String?  @db.Text
+  validadeInicio DateTime?
+  validadeFim    DateTime?
+  ativo          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@index([alunoId])
+  @@map("bychat_aca_bolsas")
+}
+
+model AcaContrato {
+  id                 Int      @id @default(autoincrement())
+  matriculaId        Int      @unique
+  planoPagamentoId   Int?
+  valorTotalCentavos Int
+  descontoCentavos   Int      @default(0)
+  bolsaId            Int?
+  asaasCustomerId    String?  @db.VarChar(191)
+  status             AcaContratoStatus @default(ATIVO)
+  aceiteEm           DateTime?
+  aceiteIp           String?  @db.VarChar(60)
+  aceiteNome         String?  @db.VarChar(191)
+  aceiteTermo        String?  @db.Text
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  matricula          AcaMatricula @relation(fields: [matriculaId], references: [id], onDelete: Cascade)
+  parcelas           AcaParcela[]
+  @@map("bychat_aca_contratos")
+}
+
+model AcaParcela {
+  id                 Int      @id @default(autoincrement())
+  contratoId         Int
+  nroParcela         Int
+  tipo               AcaParcelaTipo @default(MENSALIDADE)
+  valorBrutoCentavos Int
+  valorPagoCentavos  Int      @default(0)
+  dataVencimento     DateTime
+  situacao           AcaParcelaSituacao @default(ABERTA)
+  pagoEm             DateTime?
+  asaasChargeId      String?  @db.VarChar(191)
+  linhaDigitavel     String?  @db.Text
+  pixCopiaCola       String?  @db.Text
+  acordoId           Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  contrato           AcaContrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  @@index([contratoId])
+  @@index([situacao, dataVencimento])
+  @@index([asaasChargeId])
+  @@map("bychat_aca_parcelas")
+}
+
+model AcaIntegracaoEvento {
+  id              Int      @id @default(autoincrement())
+  origem          String   @db.VarChar(40)
+  eventoExternoId String   @db.VarChar(191)
+  status          AcaIntegracaoStatus @default(PENDENTE)
+  requestJson     Json?    @db.Json
+  responseJson    Json?    @db.Json
+  erroMotivo      String?  @db.Text
+  tentativas      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([origem, eventoExternoId])
+  @@index([status])
+  @@map("bychat_aca_integracao_eventos")
+}
+
+model AcaOcorrencia {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int?
+  turmaId    Int?
+  tipo       String   @db.VarChar(60)
+  descricao  String   @db.Text
+  anexosJson Json?    @db.Json
+  userId     Int?
+  createdAt  DateTime @default(now())
+
+  aluno      Aluno?   @relation(fields: [alunoId], references: [id])
+  @@index([alunoId])
+  @@map("bychat_aca_ocorrencias")
+}
+
+// ───────────────── M6 · NÚCLEO ACADÊMICO — P6.1 Diário + Frequência ─────────────────
+// Diário por turma×disciplina. Aulas registradas. Frequência por aula×matrícula.
+// turmaId/disciplinaId/matriculaId/professorUserId são escalares (sem @relation).
+
+model AcaDiario {
+  id              Int      @id @default(autoincrement())
+  turmaId         Int
+  disciplinaId    Int
+  professorUserId Int?
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  aulas           AcaAula[]
+  avaliacoes      AcaAvaliacao[]
+  @@unique([turmaId, disciplinaId])
+  @@index([turmaId])
+  @@map("bychat_aca_diarios")
+}
+
+model AcaAula {
+  id               Int      @id @default(autoincrement())
+  diarioId         Int
+  data             DateTime
+  conteudo         String   @db.Text
+  quantidadeAulas  Int      @default(1)
+  createdAt        DateTime @default(now())
+
+  diario           AcaDiario @relation(fields: [diarioId], references: [id], onDelete: Cascade)
+  frequencias      AcaFrequencia[]
+  @@index([diarioId, data])
+  @@map("bychat_aca_aulas")
+}
+
+model AcaFrequencia {
+  id          Int     @id @default(autoincrement())
+  aulaId      Int
+  matriculaId Int
+  presente    Boolean @default(true)
+  justificada Boolean @default(false)
+
+  aula        AcaAula @relation(fields: [aulaId], references: [id], onDelete: Cascade)
+  @@unique([aulaId, matriculaId])
+  @@index([matriculaId])
+  @@map("bychat_aca_frequencias")
+}
+
+// ───────────────── P6.2 · Avaliações + Notas ─────────────────
+// Notas em Float (grades, não dinheiro). matriculaId escalar.
+
+model AcaAvaliacao {
+  id          Int      @id @default(autoincrement())
+  diarioId    Int
+  nome        String   @db.VarChar(120)
+  peso        Int      @default(1)
+  valorMaximo Float    @default(10)
+  data        DateTime?
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  diario      AcaDiario @relation(fields: [diarioId], references: [id], onDelete: Cascade)
+  notas       AcaNota[]
+  @@index([diarioId])
+  @@map("bychat_aca_avaliacoes")
+}
+
+model AcaNota {
+  id           Int      @id @default(autoincrement())
+  avaliacaoId  Int
+  matriculaId  Int
+  valor        Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  avaliacao    AcaAvaliacao @relation(fields: [avaliacaoId], references: [id], onDelete: Cascade)
+  @@unique([avaliacaoId, matriculaId])
+  @@index([matriculaId])
+  @@map("bychat_aca_notas")
+}
+
+// ───────────────── P6.3 · Fechamento + Conselho de Classe ─────────────────
+// Resultado por diário×matrícula (média + frequência → situação). Ata por turma.
+
+model AcaResultado {
+  id            Int      @id @default(autoincrement())
+  diarioId      Int
+  matriculaId   Int
+  mediaFinal    Float?
+  frequenciaPct Int      @default(100)
+  situacao      String   @db.VarChar(30) // APROVADO|RECUPERACAO|REPROVADO_NOTA|REPROVADO_FREQUENCIA
+  observacao    String?  @db.Text
+  fechadoEm     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([diarioId, matriculaId])
+  @@index([matriculaId])
+  @@map("bychat_aca_resultados")
+}
+
+model AcaConselho {
+  id        Int      @id @default(autoincrement())
+  turmaId   Int      @unique
+  ata       String?  @db.Text
+  fechadoEm DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("bychat_aca_conselhos")
+}
+
+// ───────────────── P7 · Secretaria / Documentos ─────────────────
+// Documentos oficiais NUMERADOS (histórico, declarações, atas). Guarda o
+// snapshot dos dados (dadosJson) para reemissão idêntica.
+
+model AcaDocumento {
+  id               Int      @id @default(autoincrement())
+  numero           String   @unique @db.VarChar(30) // ex.: 2026/0001
+  tipo             String   @db.VarChar(40) // HISTORICO|DECLARACAO_MATRICULA|DECLARACAO_FREQUENCIA|ATA_RESULTADOS
+  alunoId          Int?
+  turmaId          Int?
+  titulo           String   @db.VarChar(191)
+  dadosJson        Json?    @db.Json
+  emitidoPorUserId Int?
+  emitidoEm        DateTime @default(now())
+
+  @@index([alunoId])
+  @@index([turmaId])
+  @@index([tipo])
+  @@map("bychat_aca_documentos")
+}
+
+// ───────────────── P9 · Comunicação ─────────────────
+// Log de avisos enviados ao aluno (idempotência via chaveDedup).
+
+model AcaComunicacao {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int
+  tipo       String   @db.VarChar(20) // VENCIMENTO|FALTAS|NOTAS|MANUAL
+  canal      String   @db.VarChar(20) // whatsapp|email
+  destino    String   @db.VarChar(191)
+  assunto    String?  @db.VarChar(191)
+  conteudo   String   @db.Text
+  status     String   @db.VarChar(12) @default("ENVIADO") // ENVIADO|FALHA
+  erro       String?  @db.Text
+  refId      Int?
+  chaveDedup String   @unique @db.VarChar(120)
+  createdAt  DateTime @default(now())
+
+  @@index([alunoId])
+  @@index([tipo])
+  @@map("bychat_aca_comunicacoes")
+}
+
+// ───────────────── Fin-3 · Renegociação / Acordos ─────────────────
+model AcaAcordo {
+  id                    Int      @id @default(autoincrement())
+  alunoId               Int
+  contratoId            Int
+  valorOriginalCentavos Int
+  valorEncargosCentavos Int      @default(0)
+  valorTotalCentavos    Int
+  entradaCentavos       Int      @default(0)
+  numParcelas           Int
+  valorParcelaCentavos  Int
+  status                String   @db.VarChar(12) @default("ATIVO") // ATIVO|QUITADO|CANCELADO
+  observacao            String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([alunoId])
+  @@map("bychat_aca_acordos")
+}
+
+// ───────────────── Fin-5 · Fiscal (controle de NFS-e) ─────────────────
+// Recibo de pagamento usa AcaDocumento (tipo RECIBO). Aqui o controle fiscal:
+// rastreia a NFS-e de cada pagamento (registro manual ou via provedor futuro).
+
+model AcaNotaFiscal {
+  id            Int      @id @default(autoincrement())
+  alunoId       Int
+  parcelaId     Int?
+  valorCentavos Int
+  status        String   @db.VarChar(12) @default("PENDENTE") // PENDENTE|EMITIDA|CANCELADA
+  numero        String?  @db.VarChar(40)
+  serie         String?  @db.VarChar(20)
+  link          String?  @db.Text
+  observacao    String?  @db.Text
+  emitidaEm     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([alunoId])
+  @@index([parcelaId])
+  @@map("bychat_aca_notas_fiscais")
+}
+
+// ───────────────── O2.2 · Secretaria Virtual / Requerimentos ─────────────────
+model AcaRequerimentoTipo {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(120)
+  descricao   String?  @db.Text
+  slaDias     Int      @default(5)
+  geraDocumento String? @db.VarChar(40) // se preenchido, emite doc desse tipo ao deferir
+  ativo       Boolean  @default(true)
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@map("bychat_aca_requerimento_tipos")
+}
+
+model AcaRequerimento {
+  id                 Int      @id @default(autoincrement())
+  protocolo          String   @unique @db.VarChar(30) // REQ-2026-0001
+  alunoId            Int
+  tipoId             Int?
+  tipoNome           String   @db.VarChar(120)
+  assunto            String   @db.VarChar(191)
+  descricao          String?  @db.Text
+  status             String   @db.VarChar(16) @default("ABERTO") // ABERTO|EM_ANALISE|DEFERIDO|INDEFERIDO|CONCLUIDO|CANCELADO
+  resposta           String?  @db.Text
+  documentoId        Int?     // doc gerado ao deferir (se houver)
+  prazoEm            DateTime?
+  respondidoPorUserId Int?
+  respondidoEm       DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([alunoId])
+  @@index([status])
+  @@map("bychat_aca_requerimentos")
+}
+
+// ───────────────── O2.5 · Calendário acadêmico ─────────────────
+model AcaEvento {
+  id              Int      @id @default(autoincrement())
+  periodoLetivoId Int?     // null = evento global (toda a instituição)
+  turmaId         Int?     // null = vale para o período/instituição
+  tipo            String   @db.VarChar(20) @default("EVENTO") // PROVA|FERIADO|MATRICULA|RECESSO|EVENTO|REUNIAO
+  titulo          String   @db.VarChar(191)
+  descricao       String?  @db.Text
+  dataInicio      DateTime
+  dataFim         DateTime?
+  diaInteiro      Boolean  @default(true)
+  cor             String?  @db.VarChar(20)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([periodoLetivoId])
+  @@index([dataInicio])
+  @@map("bychat_aca_eventos")
+}
+
+// ───────────────── O2.6 · Quadro de horários ─────────────────
+model AcaHorario {
+  id              Int      @id @default(autoincrement())
+  turmaId         Int
+  disciplinaId    Int
+  professorUserId Int?
+  sala            String?  @db.VarChar(60)
+  diaSemana       Int      // 1=segunda … 7=domingo
+  horaInicio      String   @db.VarChar(5) // "HH:MM"
+  horaFim         String   @db.VarChar(5)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([turmaId])
+  @@index([professorUserId])
+  @@index([diaSemana])
+  @@map("bychat_aca_horarios")
+}
+
+// ───────────────── O2.7 · Plano de ensino + Materiais ─────────────────
+model AcaPlanoEnsino {
+  id           Int      @id @default(autoincrement())
+  diarioId     Int      @unique
+  ementa       String?  @db.Text
+  objetivos    String?  @db.Text
+  conteudo     String?  @db.Text
+  metodologia  String?  @db.Text
+  bibliografia String?  @db.Text
+  criterios    String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@map("bychat_aca_planos_ensino")
+}
+
+model AcaMaterial {
+  id        Int      @id @default(autoincrement())
+  diarioId  Int
+  aulaId    Int?
+  titulo    String   @db.VarChar(191)
+  tipo      String   @db.VarChar(12) @default("LINK") // LINK|ARQUIVO|VIDEO
+  url       String   @db.Text
+  descricao String?  @db.Text
+  createdAt DateTime @default(now())
+  @@index([diarioId])
+  @@map("bychat_aca_materiais")
+}
+
+// ───────────────── O2.9 · Estágio + Atividades complementares ─────────────────
+model AcaEstagio {
+  id            Int      @id @default(autoincrement())
+  alunoId       Int
+  empresa       String   @db.VarChar(191)
+  supervisor    String?  @db.VarChar(191)
+  cargaHorariaH Int      @default(0)
+  dataInicio    DateTime?
+  dataFim       DateTime?
+  status        String   @db.VarChar(14) @default("EM_ANDAMENTO") // EM_ANDAMENTO|CONCLUIDO|CANCELADO
+  descricao     String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([alunoId])
+  @@map("bychat_aca_estagios")
+}
+
+model AcaAtividadeComplementar {
+  id             Int      @id @default(autoincrement())
+  alunoId        Int
+  titulo         String   @db.VarChar(191)
+  categoria      String?  @db.VarChar(40)
+  horas          Int      @default(0)
+  data           DateTime?
+  comprovanteUrl String?  @db.Text
+  status         String   @db.VarChar(12) @default("PENDENTE") // PENDENTE|APROVADA|REJEITADA
+  observacao     String?  @db.Text
+  createdAt      DateTime @default(now())
+  @@index([alunoId])
+  @@map("bychat_aca_atividades")
 }

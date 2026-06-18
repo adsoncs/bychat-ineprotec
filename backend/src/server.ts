@@ -117,6 +117,27 @@ import { enrichmentRoutes } from './routes/enrichment.js'
 import { helpdeskRoutes } from './routes/helpdesk.js'
 import { helpdeskKbRoutes } from './routes/helpdeskKb.js'
 import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
+import { acaAlunoRoutes } from './routes/acaAluno.js'
+import { acaCatalogoRoutes } from './routes/acaCatalogo.js'
+import { acaInscricaoRoutes } from './routes/acaInscricao.js'
+import { acaMatriculaRoutes } from './routes/acaMatricula.js'
+import { acaFinanceiroRoutes } from './routes/acaFinanceiro.js'
+import { acaDiarioRoutes } from './routes/acaDiario.js'
+import { acaNotaRoutes } from './routes/acaNota.js'
+import { acaFechamentoRoutes } from './routes/acaFechamento.js'
+import { acaSecretariaRoutes } from './routes/acaSecretaria.js'
+import { acaPortalRoutes } from './routes/acaPortal.js'
+import { acaComunicacaoRoutes } from './routes/acaComunicacao.js'
+import { acaBiRoutes } from './routes/acaBi.js'
+import { acaFinanceiroCentralRoutes } from './routes/acaFinanceiroCentral.js'
+import { acaRenegociacaoRoutes } from './routes/acaRenegociacao.js'
+import { acaFiscalRoutes } from './routes/acaFiscal.js'
+import { acaRequerimentoRoutes } from './routes/acaRequerimento.js'
+import { acaCalendarioRoutes } from './routes/acaCalendario.js'
+import { acaHorarioRoutes } from './routes/acaHorario.js'
+import { acaMaterialRoutes } from './routes/acaMaterial.js'
+import { acaEstagioRoutes } from './routes/acaEstagio.js'
+import { acaSistecRoutes } from './routes/acaSistec.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
@@ -455,9 +476,15 @@ app.addHook('onRequest', async (req, reply) => {
   }
 
   // 3. Analyze request for malicious patterns
-  const analysis = await analyzeRequest(ip, req.url, ua)
-  if (analysis.blocked) {
-    return reply.code(403).send({ error: 'Requisição bloqueada por motivos de segurança.' })
+  // Portais acadêmicos públicos (/api/public/aca/*) carregam um token HMAC longo
+  // em base64url na query — o analisador de padrões dá falso-positivo (e poderia
+  // banir o IP do próprio aluno). Já têm auth própria (token assinado); isenta
+  // SÓ da análise de padrões (IP-block e rate-limit acima continuam valendo).
+  if (!req.url.startsWith('/api/public/aca/')) {
+    const analysis = await analyzeRequest(ip, req.url, ua)
+    if (analysis.blocked) {
+      return reply.code(403).send({ error: 'Requisição bloqueada por motivos de segurança.' })
+    }
   }
 })
 
@@ -563,6 +590,27 @@ await app.register(kommoIntegrationRoutes)
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
 await app.register(helpdeskPortalRoutes)
+await app.register(acaAlunoRoutes)
+await app.register(acaCatalogoRoutes)
+await app.register(acaInscricaoRoutes)
+await app.register(acaMatriculaRoutes)
+await app.register(acaFinanceiroRoutes)
+await app.register(acaDiarioRoutes)
+await app.register(acaNotaRoutes)
+  await app.register(acaFechamentoRoutes)
+  await app.register(acaSecretariaRoutes)
+  await app.register(acaPortalRoutes)
+  await app.register(acaComunicacaoRoutes)
+  await app.register(acaBiRoutes)
+  await app.register(acaFinanceiroCentralRoutes)
+  await app.register(acaRenegociacaoRoutes)
+  await app.register(acaFiscalRoutes)
+  await app.register(acaRequerimentoRoutes)
+  await app.register(acaCalendarioRoutes)
+  await app.register(acaHorarioRoutes)
+  await app.register(acaMaterialRoutes)
+  await app.register(acaEstagioRoutes)
+  await app.register(acaSistecRoutes)
 
 // Health check
 app.get('/api/health', async () => ({
@@ -1146,6 +1194,9 @@ try {
   import('./services/paymentSync.js')
     .then(m => m.startPaymentReconciliationScheduler())
     .catch(err => console.warn('[paymentSync] init falhou:', err?.message || err))
+  import('./services/acaComunicacao.js')
+    .then(m => m.startAcaComunicacaoScheduler())
+    .catch(err => console.warn('[acaComunicacao] init falhou:', err?.message || err))
   import('./services/googleAdsConversions.js')
     .then(m => m.startGoogleAdsConversionDispatcher())
     .catch(err => console.warn('[googleAdsConversions] init falhou:', err?.message || err))

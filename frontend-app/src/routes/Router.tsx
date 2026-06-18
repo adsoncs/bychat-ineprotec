@@ -181,6 +181,48 @@ const migratedPages: Record<string, ComponentType> = {
   'edu-courses': lazy(() =>
     import('./pages/educational/EducationalCoursesPage').then((m) => ({ default: m.EducationalCoursesPage })),
   ),
+  'aca-alunos': lazy(() =>
+    import('./pages/AcademicoAlunosPage').then((m) => ({ default: m.AcademicoAlunosPage })),
+  ),
+  'aca-estrutura': lazy(() =>
+    import('./pages/AcademicoEstruturaPage').then((m) => ({ default: m.AcademicoEstruturaPage })),
+  ),
+  'aca-matriculas': lazy(() =>
+    import('./pages/AcademicoMatriculasPage').then((m) => ({ default: m.AcademicoMatriculasPage })),
+  ),
+  'aca-diario': lazy(() =>
+    import('./pages/AcademicoDiarioPage').then((m) => ({ default: m.AcademicoDiarioPage })),
+  ),
+  'aca-conselho': lazy(() =>
+    import('./pages/AcademicoConselhoPage').then((m) => ({ default: m.AcademicoConselhoPage })),
+  ),
+  'aca-calendario': lazy(() =>
+    import('./pages/AcademicoCalendarioPage').then((m) => ({ default: m.AcademicoCalendarioPage })),
+  ),
+  'aca-secretaria': lazy(() =>
+    import('./pages/AcademicoSecretariaPage').then((m) => ({ default: m.AcademicoSecretariaPage })),
+  ),
+  'aca-requerimentos': lazy(() =>
+    import('./pages/AcademicoRequerimentosPage').then((m) => ({ default: m.AcademicoRequerimentosPage })),
+  ),
+  'aca-egressos': lazy(() =>
+    import('./pages/AcademicoEgressosPage').then((m) => ({ default: m.AcademicoEgressosPage })),
+  ),
+  'aca-estagio': lazy(() =>
+    import('./pages/AcademicoEstagioPage').then((m) => ({ default: m.AcademicoEstagioPage })),
+  ),
+  'aca-sistec': lazy(() =>
+    import('./pages/AcademicoSistecPage').then((m) => ({ default: m.AcademicoSistecPage })),
+  ),
+  'aca-comunicacao': lazy(() =>
+    import('./pages/AcademicoComunicacaoPage').then((m) => ({ default: m.AcademicoComunicacaoPage })),
+  ),
+  'aca-bi': lazy(() =>
+    import('./pages/AcademicoBiPage').then((m) => ({ default: m.AcademicoBiPage })),
+  ),
+  'aca-financeiro': lazy(() =>
+    import('./pages/AcademicoFinanceiroPage').then((m) => ({ default: m.AcademicoFinanceiroPage })),
+  ),
   'edu-offerings': lazy(() =>
     import('./pages/educational/EducationalOfferingsPage').then((m) => ({ default: m.EducationalOfferingsPage })),
   ),
