@@ -235,6 +235,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_financeiro'],
   },
   {
+    id: 'aca_cobranca_fiscal', name: 'Cobrança Judicial & Fiscal', icon: '⚖️', category: 'educacional',
+    description: 'Dívida ativa (CDA) e cobrança judicial, integração contábil (regras + lançamentos) e geração de lote de NFS-e.',
+    pages: ['acaCobrancaFiscal'],
+    routePrefixes: ['/api/admin/aca/cobranca-fiscal'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_financeiro_bancario'],
+  },
+  {
     id: 'aca_pedagogico', name: 'Núcleo Pedagógico', icon: '📖', category: 'educacional',
     description: 'Diário de classe, frequência, avaliações/notas, conselho de classe e fechamento, calendário acadêmico, quadro de horários e plano de ensino & materiais.',
     pages: ['acaDiario', 'acaConselho', 'acaCalendario'],

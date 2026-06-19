@@ -235,6 +235,9 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-fin-banco': lazy(() =>
     import('./pages/AcademicoFinBancoPage').then((m) => ({ default: m.AcademicoFinBancoPage })),
   ),
+  'aca-cobranca-fiscal': lazy(() =>
+    import('./pages/AcademicoCobrancaFiscalPage').then((m) => ({ default: m.AcademicoCobrancaFiscalPage })),
+  ),
   'edu-offerings': lazy(() =>
     import('./pages/educational/EducationalOfferingsPage').then((m) => ({ default: m.EducationalOfferingsPage })),
   ),

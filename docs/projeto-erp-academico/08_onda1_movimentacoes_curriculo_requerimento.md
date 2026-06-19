@@ -193,6 +193,31 @@ estorno, agrupamento e prorrogação em lote ficaram fora; CNAB 240 ainda usa o 
 
 ---
 
+## Onda 3 · F10 — Cobrança Judicial & Fiscal — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_cobranca_fiscal` (`dependsOn: ['aca_financeiro_bancario']`). Schema: enum
+AcaCDAStatus + models AcaCDA, AcaRegraContabil, AcaLancamentoContabil, AcaNfseConfig;
+AcaParcela ganhou cdaId. `services/acaCobrancaFiscal.ts`:
+- **Dívida ativa** — `inscreverDividaAtiva(diasMin)`: agrupa parcelas VENCIDAS há > N dias por
+  aluno e cria uma CDA (CDA-AAAA-NNNN), marcando as parcelas; quitar/cancelar solta as parcelas.
+- **Contábil** — `contabilizar`: gera lançamentos (partida dobrada) das parcelas PAGAS sem
+  lançamento, usando a regra ativa (evento PARCELA_PAGA) e renderizando o histórico
+  ({aluno}{parcela}{valor}{data}); desfazer marca `desfeito`. Export CSV.
+- **NFS-e** — `gerarLoteNfse`: cria AcaNotaFiscal (reusa Fin-5) em PENDENTE para parcelas pagas
+  sem nota. Config (provedor/ambiente/alíquota). **Transmissão real = ponto de integração**
+  (webservice da prefeitura varia por município).
+
+`routes/acaCobrancaFiscal.ts` (`/api/admin/aca/cobranca-fiscal`): CDA (livro + inscrever + status),
+regras (CRUD), contabilizar, lançamentos (+CSV +desfazer), nfse-config + gerar-lote.
+Frontend: página **Cobrança Judicial & Fiscal** (sidebar, ícone Gavel) com abas Dívida ativa ·
+Contábil · NFS-e. Smoke 15/15 com cleanup total.
+
+**Pendência F10:** transmissão NFS-e ao provedor municipal (integração final); contábil é
+partida-dobrada simplificada (1 regra por evento; sem rateio/centro de custo); livro de dívida
+ativa sem geração do PDF/petição; acordo judicial liga via campo mas sem fluxo dedicado.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

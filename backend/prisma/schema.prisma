@@ -5258,6 +5258,79 @@ model AcaRemessa {
   @@map("bychat_aca_remessas")
 }
 
+// ── F10 — Cobrança Judicial / Dívida Ativa + Contábil + NFS-e (estende aca_financeiro_bancario) ──
+enum AcaCDAStatus {
+  INSCRITA
+  AJUIZADA
+  QUITADA
+  CANCELADA
+}
+
+// Certidão de Dívida Ativa: consolida parcelas vencidas de um aluno para cobrança judicial.
+model AcaCDA {
+  id               Int      @id @default(autoincrement())
+  numero           String   @unique @db.VarChar(30) // CDA-AAAA-NNNN
+  alunoId          Int
+  valorCentavos    Int
+  qtdParcelas      Int      @default(0)
+  status           AcaCDAStatus @default(INSCRITA)
+  bloqueioJudicial Boolean  @default(false)
+  acordoId         Int?
+  inscritaEm       DateTime @default(now())
+  ajuizadaEm       DateTime?
+  quitadaEm        DateTime?
+  observacao       String?  @db.Text
+  createdAt        DateTime @default(now())
+  @@index([alunoId])
+  @@index([status])
+  @@map("bychat_aca_cda")
+}
+
+// Regra contábil: mapeia um evento financeiro a um par de contas + expressão de histórico.
+model AcaRegraContabil {
+  id             Int      @id @default(autoincrement())
+  evento         String   @db.VarChar(40) // PARCELA_PAGA | PARCELA_GERADA | INSCRICAO_CDA
+  contaDebitoId  Int?
+  contaCreditoId Int?
+  historico      String   @db.VarChar(191) // expressão: {aluno} {parcela} {valor} {data}
+  ativo          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  @@map("bychat_aca_regras_contabeis")
+}
+
+// Lançamento contábil gerado (partida dobrada simplificada).
+model AcaLancamentoContabil {
+  id             Int      @id @default(autoincrement())
+  data           DateTime @default(now())
+  historico      String   @db.VarChar(255)
+  contaDebitoId  Int?
+  contaCreditoId Int?
+  valorCentavos  Int
+  origem         String   @db.VarChar(40) // PARCELA_PAGA
+  parcelaId      Int?
+  regraId        Int?
+  desfeito       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  @@index([parcelaId])
+  @@index([origem])
+  @@map("bychat_aca_lancamentos_contabeis")
+}
+
+// Configuração de NFS-e (provedor da prefeitura). A transmissão real depende do
+// webservice municipal — aqui guardamos config + ponto de integração.
+model AcaNfseConfig {
+  id                 Int      @id @default(autoincrement())
+  provedor           String?  @db.VarChar(60) // abrasf | ginfes | betha | ...
+  ambiente           String   @db.VarChar(12) @default("homologacao")
+  cnpjPrestador      String?  @db.VarChar(20)
+  inscricaoMunicipal String?  @db.VarChar(30)
+  codigoServico      String?  @db.VarChar(20)
+  aliquotaPct        Float    @default(0)
+  ativo              Boolean  @default(false)
+  updatedAt          DateTime @updatedAt @default(now())
+  @@map("bychat_aca_nfse_config")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int
@@ -5327,6 +5400,7 @@ model AcaParcela {
   remessaId          Int?     // F9 — remessa CNAB em que o título foi incluído
   nossoNumero        String?  @db.VarChar(30) // F9 — nosso número do boleto registrado
   contaFinanceiraId  Int?     // F9 — classificação no plano de contas
+  cdaId              Int?     // F10 — Certidão de Dívida Ativa em que foi inscrita
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
