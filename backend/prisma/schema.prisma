@@ -5629,6 +5629,53 @@ model AcaCensoJustificativa {
   @@map("bychat_aca_censo_justificativas")
 }
 
+// ── F20 — Cadastros Auxiliares (módulo aca_cadastros) ──
+// Tabela flexível de listas de apoio. tipo distingue a lista:
+// AREA_CONHECIMENTO | FORMACAO | ATENDIMENTO_ESPECIAL | TIPO_DOCUMENTO.
+model AcaCadastroAux {
+  id        Int      @id @default(autoincrement())
+  tipo      String   @db.VarChar(40)
+  nome      String   @db.VarChar(191)
+  descricao String?  @db.VarChar(255)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@index([tipo])
+  @@map("bychat_aca_cadastros_aux")
+}
+
+// ── F21 — GED: arquivos do aluno (módulo aca_ged) ──
+model AcaGedArquivo {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int
+  tipo       String   @db.VarChar(60)
+  nome       String   @db.VarChar(191)
+  url        String   @db.Text
+  status     String   @db.VarChar(12) @default("RECEBIDO") // RECEBIDO | CONFERIDO | PENDENTE
+  observacao String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([alunoId])
+  @@map("bychat_aca_ged_arquivos")
+}
+
+// ── F22 — TCC (estende aca_secretaria) ──
+model AcaTcc {
+  id               Int      @id @default(autoincrement())
+  matriculaId      Int
+  alunoId          Int
+  titulo           String   @db.VarChar(255)
+  orientador       String?  @db.VarChar(191)
+  orientadorUserId Int?
+  resumo           String?  @db.Text
+  status           String   @db.VarChar(16) @default("REGISTRADO") // REGISTRADO | EM_ANDAMENTO | ENTREGUE | APROVADO | REPROVADO
+  nota             Float?
+  dataDefesa       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  @@index([alunoId])
+  @@map("bychat_aca_tccs")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

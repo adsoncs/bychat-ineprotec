@@ -337,6 +337,22 @@ vigente (mesma natureza do SISTEC). **Pendência F18:** registro Docente e Curso
 
 ---
 
+## Onda 6 · F20–22 — Cadastros base + GED + TCC — ✅ ENTREGUE (2026-06-19)
+
+Bloco de 3 itens entregue junto. **F20** módulo `aca_cadastros` (dependsOn educacional): tabela
+flexível `AcaCadastroAux` (tipo: AREA_CONHECIMENTO/FORMACAO/ATENDIMENTO_ESPECIAL/TIPO_DOCUMENTO),
+CRUD por tipo — página com abas. **F21** módulo `aca_ged` (dependsOn aca_secretaria): `AcaGedArquivo`
+(documento do aluno por link, tipo, status RECEBIDO/CONFERIDO/PENDENTE); página busca aluno → anexar +
+conferir. **F22** estende `aca_secretaria` (prefixo `/api/admin/aca/tcc`): `AcaTcc` (matrícula, título,
+orientador, status REGISTRADO→…→APROVADO/REPROVADO, nota, defesa); página de registro/acompanhamento
+com filtro por status. Rotas acaCadastros/acaGed/acaTcc registradas no server.ts. Sidebar: Cadastros
+auxiliares (grupo Cadastros), TCC + GED (grupo Educacional). Smoke 10/10 com cleanup.
+
+**Pendência F20–22:** atividade complementar com categorias/CH-máx e curricularização da extensão
+(ficou fora — só TCC entrou na F22); upload binário no GED (hoje só link); banca/parecer do TCC.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

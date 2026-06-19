@@ -293,10 +293,26 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     routePrefixes: [
       '/api/admin/aca/documentos', '/api/admin/aca/requerimentos', '/api/admin/aca/requerimento-tipos',
       '/api/admin/aca/requerimento-categorias',
-      '/api/admin/aca/egressos', '/api/admin/aca/estagio', '/api/admin/aca/atividades',
+      '/api/admin/aca/egressos', '/api/admin/aca/estagio', '/api/admin/aca/atividades', '/api/admin/aca/tcc',
     ],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_cadastros', name: 'Cadastros Auxiliares', icon: '🗂', category: 'educacional',
+    description: 'Listas de apoio acadêmicas: áreas de conhecimento, formações, atendimentos especiais (acessibilidade) e tipos de documento.',
+    pages: ['acaCadastros'],
+    routePrefixes: ['/api/admin/aca/cadastros'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
+    id: 'aca_ged', name: 'GED (Documentos do Aluno)', icon: '🗄', category: 'educacional',
+    description: 'Gestão eletrônica de documentos do aluno (GED): anexar por link, classificar por tipo e conferir (recebido/conferido/pendente).',
+    pages: ['acaGed'],
+    routePrefixes: ['/api/admin/aca/ged'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
   },
   {
     id: 'aca_comunicacao', name: 'Comunicação Acadêmica', icon: '📨', category: 'educacional',

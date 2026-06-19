@@ -211,6 +211,15 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-alocacao': lazy(() =>
     import('./pages/AcademicoAlocacaoPage').then((m) => ({ default: m.AcademicoAlocacaoPage })),
   ),
+  'aca-cadastros': lazy(() =>
+    import('./pages/AcademicoCadastrosPage').then((m) => ({ default: m.AcademicoCadastrosPage })),
+  ),
+  'aca-ged': lazy(() =>
+    import('./pages/AcademicoGedPage').then((m) => ({ default: m.AcademicoGedPage })),
+  ),
+  'aca-tcc': lazy(() =>
+    import('./pages/AcademicoTccPage').then((m) => ({ default: m.AcademicoTccPage })),
+  ),
   'aca-conselho': lazy(() =>
     import('./pages/AcademicoConselhoPage').then((m) => ({ default: m.AcademicoConselhoPage })),
   ),
