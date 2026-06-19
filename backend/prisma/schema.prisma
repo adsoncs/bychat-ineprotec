@@ -5124,6 +5124,20 @@ model AcaAproveitamento {
   @@map("bychat_aca_aproveitamentos")
 }
 
+// F7 — Coordenador de curso (Central do Coordenador). Vincula uma pessoa a um
+// Course; o portal mostra as turmas/ofertas desse curso e o conteúdo ministrado.
+model AcaCoordenador {
+  id        Int      @id @default(autoincrement())
+  courseId  Int
+  nome      String   @db.VarChar(191)
+  email     String?  @db.VarChar(191)
+  leadId    Int?
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@index([courseId])
+  @@map("bychat_aca_coordenadores")
+}
+
 // Dependência / Adaptação (DP) — componente que o aluno cursa fora da fase regular.
 model AcaDependencia {
   id           Int      @id @default(autoincrement())

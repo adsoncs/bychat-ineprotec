@@ -137,7 +137,7 @@ no financeiro ao deferir, e um requerimento tramita ao professor e volta para co
 
 ---
 
-## Onda 2 · F7 — Portais por perfil — ✅ PARCIAL ENTREGUE (2026-06-18)
+## Onda 2 · F7 — Portais por perfil — ✅ ENTREGUE (2026-06-18)
 
 Novo módulo `aca_portais_plus` (`dependsOn: ['aca_portais']`) — **sem schema novo** (reusa
 AcaResponsavel/Aluno/documentos). Reusa a infra SSR magic-link de `acaPortal.ts` (token HMAC
@@ -155,9 +155,17 @@ Token ganhou kinds `aca-responsavel` e `aca-exaluno`.
 - Frontend: página **Centrais (Resp./Ex-aluno)** (sidebar grupo Acadêmico, ícone Key) — busca
   aluno → gera link por responsável/egresso com copiar. Smoke 7/7.
 
-**Pendência F7:** Central do Candidato (boletim de desempenho/prova online/socioeconômico) e
-Central do Coordenador (conteúdo ministrado/aprovação de plano) ainda não feitas; "troca de aluno"
-do responsável com múltiplos dependentes (hoje 1 token = 1 dependente); caixa de mensagens.
+**Central do Coordenador** (`/portal/aca/coordenador`, kind `aca-coord`, model novo `AcaCoordenador`
+courseId+nome): mostra as turmas das ofertas do curso + conteúdo ministrado (últimas aulas por
+diário) + nº de alunos. Admin: CRUD coordenadores + cursos (picker) + link.
+
+**Central do Candidato**: NÃO reconstruída — já existe e é robusta no módulo educacional
+(`candidatePortal.ts` + `/candidato/:code`: login, dados, documentos, **prova/redação online**,
+prova presencial). F7 apenas faz o **wire-up**: `GET /portal-plus/candidatos` lista as inscrições
+e a tela admin gera/copia o link `/candidato/:code`. Smoke coord+cand 8/8.
+
+**Pendência F7:** "troca de aluno" do responsável com múltiplos dependentes (hoje 1 token = 1
+dependente); caixa de mensagens; aprovação de plano de aula pelo coordenador (hoje só visualiza).
 
 ---
 

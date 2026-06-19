@@ -60,7 +60,99 @@ export async function acaPortalPlusRoutes(app: FastifyInstance) {
       const token = mintToken('aca-exaluno', id, dias)
       return { url: `${baseUrl(req)}/portal/aca/exaluno?t=${encodeURIComponent(token)}`, token, expiraEm: new Date(Date.now() + dias * 86400_000) }
     }
-    return reply.code(400).send({ error: 'tipo inválido (responsavel|exaluno)' })
+    if (b.tipo === 'coord') {
+      const c = await prisma.acaCoordenador.findUnique({ where: { id }, select: { id: true } })
+      if (!c) return reply.code(404).send({ error: 'Coordenador não encontrado' })
+      const token = mintToken('aca-coord', id, dias)
+      return { url: `${baseUrl(req)}/portal/aca/coordenador?t=${encodeURIComponent(token)}`, token, expiraEm: new Date(Date.now() + dias * 86400_000) }
+    }
+    return reply.code(400).send({ error: 'tipo inválido (responsavel|exaluno|coord)' })
+  })
+
+  // ───────── Admin: cursos (picker) e coordenadores (CRUD) ─────────
+  app.get('/api/admin/aca/portal-plus/cursos', { preHandler: authMiddleware }, async () => {
+    const courses = await prisma.course.findMany({ where: { active: true }, orderBy: { nome: 'asc' }, select: { id: true, nome: true }, take: 300 })
+    return { cursos: courses }
+  })
+  app.get('/api/admin/aca/portal-plus/coordenadores', { preHandler: authMiddleware }, async () => {
+    const rows = await prisma.acaCoordenador.findMany({ orderBy: { id: 'desc' }, take: 300 })
+    const cursoIds = [...new Set(rows.map((r) => r.courseId))]
+    const cursos = cursoIds.length ? await prisma.course.findMany({ where: { id: { in: cursoIds } }, select: { id: true, nome: true } }) : []
+    const cMap = new Map(cursos.map((c) => [c.id, c.nome]))
+    return { coordenadores: rows.map((r) => ({ ...r, cursoNome: cMap.get(r.courseId) ?? '—' })) }
+  })
+  app.post('/api/admin/aca/portal-plus/coordenadores', { preHandler: authMiddleware }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    if (!b.nome || !b.courseId) return reply.code(400).send({ error: 'nome e courseId obrigatórios' })
+    const coord = await prisma.acaCoordenador.create({ data: { nome: String(b.nome).slice(0, 191), email: b.email || null, courseId: Number(b.courseId), leadId: b.leadId ? Number(b.leadId) : null } })
+    return reply.code(201).send({ coordenador: coord })
+  })
+  app.put('/api/admin/aca/portal-plus/coordenadores/:id', { preHandler: authMiddleware }, async (req) => {
+    const id = Number((req.params as any).id); const b = (req.body as any) || {}
+    const data: any = {}
+    if ('nome' in b) data.nome = String(b.nome).slice(0, 191)
+    if ('email' in b) data.email = b.email || null
+    if ('courseId' in b) data.courseId = Number(b.courseId)
+    if ('ativo' in b) data.ativo = !!b.ativo
+    return { coordenador: await prisma.acaCoordenador.update({ where: { id }, data }) }
+  })
+
+  // ───────── Admin: candidatos (link reusa o portal /candidato/:code existente) ─────────
+  app.get('/api/admin/aca/portal-plus/candidatos', { preHandler: authMiddleware }, async (req) => {
+    const q = String((req.query as any)?.q || '').trim()
+    const regs = await prisma.enrollmentRegistration.findMany({
+      where: q ? { OR: [{ candidateCode: { contains: q } }] } : {},
+      orderBy: { id: 'desc' }, take: 50,
+      select: { id: true, candidateCode: true, status: true, lead: { select: { nome: true } }, portal: { select: { slug: true } } },
+    })
+    return {
+      candidatos: regs.map((r) => ({
+        id: r.id, candidateCode: r.candidateCode, status: r.status,
+        nome: r.lead?.nome ?? null, url: `${baseUrl(req)}/candidato/${r.candidateCode}`,
+      })),
+    }
+  })
+
+  // ───────── Página: Central do Coordenador ─────────
+  app.get('/portal/aca/coordenador', async (req, reply) => {
+    const p = verifyToken(tokOf(req), 'aca-coord')
+    if (!p) return pageErr(reply, 403, 'Link inválido ou expirado', 'Solicite um novo acesso à secretaria.')
+    const coord = await prisma.acaCoordenador.findUnique({ where: { id: p.id }, select: { nome: true, courseId: true } })
+    if (!coord) return pageErr(reply, 404, 'Coordenador não encontrado')
+    const course = await prisma.course.findUnique({ where: { id: coord.courseId }, select: { nome: true } })
+    const offerings = await prisma.courseOffering.findMany({ where: { courseId: coord.courseId }, select: { id: true } })
+    const turmas = await prisma.acaTurma.findMany({
+      where: { courseOfferingId: { in: offerings.map((o) => o.id) } },
+      orderBy: { id: 'desc' }, take: 100,
+      select: { id: true, nome: true, ativo: true, periodoLetivo: { select: { codigo: true } } },
+    })
+
+    const blocos: string[] = []
+    for (const t of turmas) {
+      const [nAlunos, diarios] = await Promise.all([
+        prisma.acaMatricula.count({ where: { turmaId: t.id, status: { in: ['MATRICULADO', 'CONCLUIDO', 'TRANCADO'] as any } } }),
+        prisma.acaDiario.findMany({ where: { turmaId: t.id }, select: { id: true, disciplinaId: true } }),
+      ])
+      const discIds = [...new Set(diarios.map((d) => d.disciplinaId))]
+      const discs = discIds.length ? await prisma.acaDisciplina.findMany({ where: { id: { in: discIds } }, select: { id: true, nome: true } }) : []
+      const dMap = new Map(discs.map((d) => [d.id, d.nome]))
+      const linhasDisc: string[] = []
+      for (const d of diarios) {
+        const aulas = await prisma.acaAula.findMany({ where: { diarioId: d.id }, orderBy: { data: 'desc' }, take: 3, select: { data: true, conteudo: true, quantidadeAulas: true } })
+        const totalAulas = await prisma.acaAula.aggregate({ where: { diarioId: d.id }, _sum: { quantidadeAulas: true } })
+        const ultimas = aulas.length === 0 ? '<span style="color:#9ca3af">sem aulas registradas</span>' : aulas.map((a) => `${new Date(a.data).toLocaleDateString('pt-BR')}: ${esc((a.conteudo || '').slice(0, 80) || '—')}`).join('<br>')
+        linhasDisc.push(`<tr><td><b>${esc(dMap.get(d.disciplinaId) || '—')}</b><span class="block" style="font-size:12px;color:#9ca3af">${totalAulas._sum.quantidadeAulas || 0} aula(s) registradas</span></td><td style="font-size:13px">${ultimas}</td></tr>`)
+      }
+      blocos.push(`<div class="card"><h2 style="margin-top:0">${esc(t.nome)} <span class="badge">${esc(t.periodoLetivo?.codigo || '')}</span>${t.ativo ? '' : ' <span class="badge no">inativa</span>'}</h2>
+        <p class="sub">${nAlunos} aluno(s) · conteúdo ministrado (últimos registros):</p>
+        ${linhasDisc.length ? `<table><tbody>${linhasDisc.join('')}</tbody></table>` : '<p class="sub">Nenhum diário nesta turma.</p>'}</div>`)
+    }
+
+    reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Central do Coordenador</title>${HEAD}</head><body>
+      <h1>Olá, ${esc(coord.nome)}</h1>
+      <p class="sub">Coordenação · ${esc(course?.nome || '—')} · ${turmas.length} turma(s)</p>
+      ${blocos.join('') || '<div class="card"><p class="sub">Nenhuma turma vinculada às ofertas deste curso ainda.</p></div>'}
+      <footer>Acesso seguro por link temporário.</footer></body></html>`)
   })
 
   // ───────── Página: Central do Responsável ─────────
