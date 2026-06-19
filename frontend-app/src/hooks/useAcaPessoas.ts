@@ -51,6 +51,23 @@ export function useResponsavelMut(alunoId: number) {
   }
 }
 
+export interface PessoasRefs {
+  usuarios: Array<{ id: number; name: string; jaDocente: boolean }>
+  cursos: Array<{ id: number; nome: string }>
+  processos: Array<{ id: number; nome: string }>
+  offerings: Array<{ id: number; nome: string }>
+}
+export const usePessoasRefs = (enabled: boolean) =>
+  useQuery({ queryKey: ['aca-pessoas-refs'], queryFn: () => api.get<PessoasRefs>('/admin/aca/pessoas/refs'), enabled, staleTime: 30_000 })
+
+export function useCriarPessoa() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (b: any) => api.post<{ papel: string; alunoId?: number; docenteId?: number; coordenadorId?: number; registrationId?: number }>('/admin/aca/pessoas/criar', b),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['aca-pessoas'] }) },
+  })
+}
+
 export const useFichaProfessor = (id: number | null) =>
   useQuery({ queryKey: ['aca-ficha-prof', id], queryFn: () => api.get<{ docente: FichaProfessor }>(`/admin/aca/docente/docentes/${id}`), enabled: id !== null })
 

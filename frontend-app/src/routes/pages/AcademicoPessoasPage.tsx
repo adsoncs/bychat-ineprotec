@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Users, ArrowLeft, Save, IdCard, FileText, Home, Coins, UserSquare, Trash2, Plus, Briefcase } from 'lucide-preact'
+import { Users, ArrowLeft, Save, IdCard, FileText, Home, Coins, UserSquare, Trash2, Plus, Briefcase, UserPlus } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -8,9 +8,11 @@ import { Input, Select } from '@/components/ui/Input'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
+import { Modal } from '@/components/ui/Modal'
+import { toast } from '@/lib/toast'
 import {
   usePessoas, useFichaAluno, useSalvarFicha, useResponsavelMut, useFichaProfessor, useSalvarProfessor,
-  PAPEL_LABEL, RESP_TIPOS, type FichaAluno,
+  usePessoasRefs, useCriarPessoa, PAPEL_LABEL, RESP_TIPOS, type FichaAluno,
 } from '@/hooks/useAcaPessoas'
 
 const PAPEIS = ['', 'ALUNO', 'PROFESSOR', 'ORIENTADOR', 'COORDENADOR', 'CANDIDATO']
@@ -25,13 +27,18 @@ export function AcademicoPessoasPage() {
 function Lista({ onOpen }: { onOpen: (tipo: 'aluno' | 'prof', id: number) => void }) {
   const [papel, setPapel] = useState('')
   const [q, setQ] = useState('')
+  const [novo, setNovo] = useState(false)
   const data = usePessoas(papel, q)
   const pessoas = data.data?.pessoas ?? []
   const counts = data.data?.counts ?? {}
 
   return (
     <Page title="Pessoas" description="Cadastro unificado de pessoas por papel: aluno, professor, coordenador e candidato.">
-      <SearchInput value={q} onChange={setQ} placeholder="Buscar por nome, CPF ou RA…" />
+      <div class="flex items-center gap-2">
+        <div class="flex-1"><SearchInput value={q} onChange={setQ} placeholder="Buscar por nome, CPF ou RA…" /></div>
+        <Button variant="primary" onClick={() => setNovo(true)}><UserPlus size={15} /> Novo</Button>
+      </div>
+      {novo && <NovaPessoaModal onClose={() => setNovo(false)} onCreated={onOpen} />}
       <div class="flex flex-wrap gap-1">
         {PAPEIS.map((p) => (
           <button key={p || 'all'} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>
@@ -62,6 +69,66 @@ function Lista({ onOpen }: { onOpen: (tipo: 'aluno' | 'prof', id: number) => voi
         )}
       <p class="text-xs text-fg-muted">A ficha completa (documentos, dados complementares, sócio-econômico, endereço) é editável para <b>Aluno</b>. Professor/Coordenador/Candidato são geridos em seus próprios módulos.</p>
     </Page>
+  )
+}
+
+function NovaPessoaModal({ onClose, onCreated }: { onClose: () => void; onCreated: (tipo: 'aluno' | 'prof', id: number) => void }) {
+  const refs = usePessoasRefs(true)
+  const mut = useCriarPessoa()
+  const [papel, setPapel] = useState('ALUNO')
+  const [f, setF] = useState<any>({ regime: 'HORISTA' })
+  const set = (k: string, v: any) => setF({ ...f, [k]: v })
+  const r = refs.data
+  const podeSalvar = papel === 'ALUNO' ? !!f.nome : papel === 'COORDENADOR' ? (!!f.nome && !!f.courseId) : papel === 'CANDIDATO' ? (!!f.nome && !!f.selectionProcessId && !!f.offeringId) : !!f.userId
+  const submit = () => {
+    const body: any = { papel, ...f }
+    if (papel === 'PROFESSOR' || papel === 'ORIENTADOR') body.valorHoraCentavos = Math.round(parseFloat((f.valorHora || '0').replace(',', '.')) * 100)
+    mut.mutate(body, {
+      onSuccess: (res: any) => { toast.success('Pessoa criada'); onClose(); if (res.alunoId) onCreated('aluno', res.alunoId); else if (res.docenteId) onCreated('prof', res.docenteId) },
+      onError: (e: any) => toast.error(e?.message || 'Erro ao criar'),
+    })
+  }
+  return (
+    <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Nova pessoa" description="Escolha o papel e preencha os dados."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.isPending} disabled={!podeSalvar} onClick={submit}>Criar</Button></>}>
+      <div class="space-y-3">
+        <div class="flex flex-wrap gap-1">
+          {['ALUNO', 'PROFESSOR', 'ORIENTADOR', 'COORDENADOR', 'CANDIDATO'].map((p) => (
+            <button key={p} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-accent/10 border-accent text-accent' : 'border-border text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>{PAPEL_LABEL[p].label}</button>
+          ))}
+        </div>
+        {(papel === 'ALUNO' || papel === 'CANDIDATO') && (
+          <div class="grid sm:grid-cols-2 gap-3">
+            <Input label="Nome*" value={f.nome || ''} onInput={(e: any) => set('nome', e.currentTarget.value)} />
+            <Input label="E-mail" value={f.email || ''} onInput={(e: any) => set('email', e.currentTarget.value)} />
+            <Input label="WhatsApp" value={f.whatsapp || ''} onInput={(e: any) => set('whatsapp', e.currentTarget.value)} />
+            {papel === 'ALUNO' && <Input label="CPF" value={f.cpf || ''} onInput={(e: any) => set('cpf', e.currentTarget.value)} />}
+          </div>
+        )}
+        {papel === 'CANDIDATO' && (
+          <div class="grid sm:grid-cols-2 gap-3">
+            <Select label="Processo seletivo*" value={f.selectionProcessId || ''} onChange={(e: any) => set('selectionProcessId', e.currentTarget.value)}><option value="">—</option>{r?.processos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</Select>
+            <Select label="Oferta*" value={f.offeringId || ''} onChange={(e: any) => set('offeringId', e.currentTarget.value)}><option value="">—</option>{r?.offerings.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}</Select>
+          </div>
+        )}
+        {(papel === 'PROFESSOR' || papel === 'ORIENTADOR') && (
+          <div class="grid sm:grid-cols-2 gap-3">
+            <Select label="Usuário*" value={f.userId || ''} onChange={(e: any) => set('userId', e.currentTarget.value)}><option value="">—</option>{r?.usuarios.filter((u) => !u.jaDocente).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}</Select>
+            <Input label="Titulação" value={f.titulacao || ''} onInput={(e: any) => set('titulacao', e.currentTarget.value)} />
+            <Select label="Regime" value={f.regime} onChange={(e: any) => set('regime', e.currentTarget.value)}><option value="HORISTA">Horista</option><option value="PARCIAL">Parcial</option><option value="INTEGRAL">Integral</option></Select>
+            <Input label="Valor/hora (R$)" value={f.valorHora || ''} onInput={(e: any) => set('valorHora', e.currentTarget.value)} />
+            <p class="text-xs text-fg-muted sm:col-span-2">Só usuários do sistema que ainda não são docentes aparecem na lista.</p>
+          </div>
+        )}
+        {papel === 'COORDENADOR' && (
+          <div class="grid sm:grid-cols-2 gap-3">
+            <Input label="Nome*" value={f.nome || ''} onInput={(e: any) => set('nome', e.currentTarget.value)} />
+            <Input label="E-mail" value={f.email || ''} onInput={(e: any) => set('email', e.currentTarget.value)} />
+            <Select label="Curso*" class="sm:col-span-2" value={f.courseId || ''} onChange={(e: any) => set('courseId', e.currentTarget.value)}><option value="">—</option>{r?.cursos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</Select>
+          </div>
+        )}
+      </div>
+    </Modal>
   )
 }
 

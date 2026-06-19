@@ -172,6 +172,53 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
     return { pessoas: pessoas.slice(0, 400), counts }
   })
 
+  // ── GET /pessoas/refs — apoio ao "Novo" (usuários p/ professor, cursos, processos) ──
+  app.get('/api/admin/aca/pessoas/refs', { preHandler: authMiddleware }, async () => {
+    const [users, docentes, cursos, processos, offerings] = await Promise.all([
+      prisma.user.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' }, take: 300 }),
+      prisma.acaDocente.findMany({ select: { userId: true } }),
+      prisma.course.findMany({ where: { active: true }, select: { id: true, nome: true }, orderBy: { nome: 'asc' }, take: 300 }),
+      prisma.selectionProcess.findMany({ where: { active: true }, select: { id: true, nome: true }, orderBy: { id: 'desc' }, take: 100 }),
+      prisma.courseOffering.findMany({ select: { id: true, nome: true }, orderBy: { id: 'desc' }, take: 200 }),
+    ])
+    const jaDoc = new Set(docentes.map((d) => d.userId))
+    return { usuarios: users.map((u) => ({ ...u, jaDocente: jaDoc.has(u.id) })), cursos, processos, offerings }
+  })
+
+  // ── POST /pessoas/criar — criação unificada por papel (o botão "Novo") ──
+  app.post('/api/admin/aca/pessoas/criar', { preHandler: authMiddleware }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const papel = String(b.papel || '')
+    const novoLead = async () => prisma.lead.create({ data: { empresa: b.empresa || b.nome || '—', nome: String(b.nome || '').slice(0, 191), whatsapp: b.whatsapp || `manual-${Date.now()}`, email: b.email || `sememail-${Date.now()}@local`, formData: {}, scores: {}, source: 'manual_aca' } })
+
+    if (papel === 'ALUNO') {
+      let leadId = b.leadId ? Number(b.leadId) : null
+      if (leadId) { if (await prisma.aluno.findUnique({ where: { leadId }, select: { id: true } })) return reply.code(409).send({ error: 'Este contato já é aluno' }) }
+      else { if (!b.nome) return reply.code(400).send({ error: 'nome obrigatório' }); leadId = (await novoLead()).id }
+      const aluno = await prisma.aluno.create({ data: { leadId, ra: await nextRa(), cpf: b.cpf || null, dataNascimento: b.dataNascimento ? new Date(b.dataNascimento) : null, sexo: b.sexo || null }, select: { id: true } })
+      return reply.code(201).send({ papel: 'ALUNO', alunoId: aluno.id })
+    }
+    if (papel === 'PROFESSOR' || papel === 'ORIENTADOR') {
+      const userId = Number(b.userId)
+      if (!userId) return reply.code(400).send({ error: 'Selecione um usuário' })
+      if (await prisma.acaDocente.findUnique({ where: { userId }, select: { id: true } })) return reply.code(409).send({ error: 'Usuário já é docente' })
+      const doc = await prisma.acaDocente.create({ data: { userId, titulacao: b.titulacao || null, regime: ['HORISTA', 'PARCIAL', 'INTEGRAL'].includes(b.regime) ? b.regime : 'HORISTA', valorHoraCentavos: Math.max(0, Number(b.valorHoraCentavos) || 0), orientador: papel === 'ORIENTADOR' || !!b.orientador }, select: { id: true } })
+      return reply.code(201).send({ papel, docenteId: doc.id })
+    }
+    if (papel === 'COORDENADOR') {
+      if (!b.nome || !b.courseId) return reply.code(400).send({ error: 'nome e curso obrigatórios' })
+      const c = await prisma.acaCoordenador.create({ data: { nome: String(b.nome).slice(0, 191), email: b.email || null, courseId: Number(b.courseId) }, select: { id: true } })
+      return reply.code(201).send({ papel: 'COORDENADOR', coordenadorId: c.id })
+    }
+    if (papel === 'CANDIDATO') {
+      if (!b.nome || !b.selectionProcessId || !b.offeringId) return reply.code(400).send({ error: 'nome, processo e oferta obrigatórios' })
+      const lead = await novoLead()
+      const reg = await prisma.processRegistration.create({ data: { leadId: lead.id, offeringId: Number(b.offeringId), selectionProcessId: Number(b.selectionProcessId), status: 'inscrito' }, select: { id: true } })
+      return reply.code(201).send({ papel: 'CANDIDATO', registrationId: reg.id })
+    }
+    return reply.code(400).send({ error: 'papel inválido' })
+  })
+
   // ── POST /alunos/:id/responsaveis — adiciona responsável ──
   app.post('/api/admin/aca/alunos/:id/responsaveis', { preHandler: authMiddleware }, async (req, reply) => {
     const alunoId = Number((req.params as any).id)
