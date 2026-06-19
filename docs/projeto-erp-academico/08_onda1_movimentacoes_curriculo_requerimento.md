@@ -169,6 +169,30 @@ dependente); caixa de mensagens; aprovação de plano de aula pelo coordenador (
 
 ---
 
+## Onda 3 · F9 — Financeiro Bancário — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_financeiro_bancario` (`dependsOn: ['aca_financeiro']`). Schema: enums
+AcaContaFinanceiraTipo/AcaRecorrenciaPeriodo + models AcaContaFinanceira (plano de contas),
+AcaContaBancaria (convênio/CNAB), AcaIndexador+AcaIndexadorValor, AcaFeriado,
+AcaCobrancaRecorrente, AcaRemessa; AcaParcela ganhou remessaId/nossoNumero/contaFinanceiraId.
+
+`services/acaFinBanco.ts`: `ajustarDiaUtil` (pula fim de semana + feriados), `gerarRemessaCNAB400`
+(layout-base FEBRABAN, registros 0/1/9, linhas de 400 col — calibrável por banco),
+`gerarRecorrencias` (cria AcaParcela das recorrências vencidas e avança proximaGeracao),
+`processarRetornoCNAB400` (baixa por nosso número, tolerante). `routes/acaFinBanco.ts`
+(`/api/admin/aca/fin-banco`): CRUD plano de contas/contas bancárias/indexadores(+valores)/
+feriados/recorrentes; cobrança avulsa; geração+download de remessa; processamento de retorno.
+
+Frontend: página **Financeiro Bancário** (sidebar, ícone CreditCard) com abas Contas & bancos ·
+Cobranças recorrentes (gerar) · Remessas CNAB (selecionar títulos → gerar → baixar .REM →
+processar retorno) · Indexadores & feriados. Smoke 18/18 com cleanup total.
+
+**Pendência F9:** CNAB precisa calibração por banco na homologação (nosso número/carteira/posições);
+recorrente/avulsa pedem o **contrato ID** numérico (falta picker aluno→contrato); rateio de contas,
+estorno, agrupamento e prorrogação em lote ficaram fora; CNAB 240 ainda usa o gerador 400.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

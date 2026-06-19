@@ -274,6 +274,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-secretaria', label: 'Secretaria', href: '/app/aca/secretaria', icon: 'FileText', permission: 'aca_secretaria' },
         { id: 'aca-requerimentos', label: 'Requerimentos', href: '/app/aca/requerimentos', icon: 'Inbox', permission: 'aca_secretaria' },
         { id: 'aca-financeiro', label: 'Financeiro', href: '/app/aca/financeiro', icon: 'Wallet', permission: 'aca_financeiro' },
+        { id: 'aca-fin-banco', label: 'Financeiro Bancário', href: '/app/aca/fin-banco', icon: 'CreditCard', permission: 'aca_financeiro_bancario' },
         { id: 'aca-estagio', label: 'Estágio & Atividades', href: '/app/aca/estagio', icon: 'Briefcase', permission: 'aca_secretaria' },
         { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
         { id: 'aca-portais-plus', label: 'Centrais (Resp./Ex-aluno)', href: '/app/aca/portais', icon: 'Key', permission: 'aca_portais_plus' },

@@ -227,6 +227,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
   {
+    id: 'aca_financeiro_bancario', name: 'Financeiro Bancário', icon: '🏦', category: 'educacional',
+    description: 'Back-office financeiro: plano de contas, contas bancárias, indexadores, feriados, cobranças recorrentes/avulsas e remessa/retorno CNAB (boleto registrado).',
+    pages: ['acaFinBanco'],
+    routePrefixes: ['/api/admin/aca/fin-banco'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_financeiro'],
+  },
+  {
     id: 'aca_pedagogico', name: 'Núcleo Pedagógico', icon: '📖', category: 'educacional',
     description: 'Diário de classe, frequência, avaliações/notas, conselho de classe e fechamento, calendário acadêmico, quadro de horários e plano de ensino & materiais.',
     pages: ['acaDiario', 'acaConselho', 'acaCalendario'],

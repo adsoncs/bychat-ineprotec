@@ -124,6 +124,7 @@ import { acaMatriculaRoutes } from './routes/acaMatricula.js'
 import { acaMovimentacaoRoutes } from './routes/acaMovimentacao.js'
 import { acaCurriculoRoutes } from './routes/acaCurriculo.js'
 import { acaFinanceiroRoutes } from './routes/acaFinanceiro.js'
+import { acaFinBancoRoutes } from './routes/acaFinBanco.js'
 import { acaDiarioRoutes } from './routes/acaDiario.js'
 import { acaNotaRoutes } from './routes/acaNota.js'
 import { acaFechamentoRoutes } from './routes/acaFechamento.js'
@@ -600,6 +601,7 @@ await app.register(acaMatriculaRoutes)
 await app.register(acaMovimentacaoRoutes)
 await app.register(acaCurriculoRoutes)
 await app.register(acaFinanceiroRoutes)
+await app.register(acaFinBancoRoutes)
 await app.register(acaDiarioRoutes)
 await app.register(acaNotaRoutes)
   await app.register(acaFechamentoRoutes)

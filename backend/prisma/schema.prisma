@@ -5154,6 +5154,110 @@ model AcaDependencia {
   @@map("bychat_aca_dependencias")
 }
 
+// ── F9 — Financeiro Bancário (back-office; estende aca_financeiro) ──
+enum AcaContaFinanceiraTipo {
+  RECEITA
+  DESPESA
+}
+enum AcaRecorrenciaPeriodo {
+  MENSAL
+  BIMESTRAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+// Plano de contas financeiras (classificação de receitas/despesas).
+model AcaContaFinanceira {
+  id        Int      @id @default(autoincrement())
+  codigo    String   @db.VarChar(30)
+  nome      String   @db.VarChar(191)
+  tipo      AcaContaFinanceiraTipo @default(RECEITA)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_contas_financeiras")
+}
+
+// Conta bancária / convênio de cobrança (boleto registrado, CNAB).
+model AcaContaBancaria {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(120)
+  bancoCodigo String   @db.VarChar(5)
+  agencia     String?  @db.VarChar(12)
+  conta       String?  @db.VarChar(20)
+  carteira    String?  @db.VarChar(6)
+  convenio    String?  @db.VarChar(30)
+  cnab        String   @db.VarChar(3) @default("400") // 240 | 400
+  cedente     String?  @db.VarChar(191)
+  documentoCedente String? @db.VarChar(20) // CNPJ do cedente
+  sequencialRemessa Int   @default(0)
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  @@map("bychat_aca_contas_bancarias")
+}
+
+// Indexador (IGPM, IPCA…) e seus valores por competência.
+model AcaIndexador {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(60)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  valores   AcaIndexadorValor[]
+  @@map("bychat_aca_indexadores")
+}
+model AcaIndexadorValor {
+  id           Int      @id @default(autoincrement())
+  indexadorId  Int
+  competencia  String   @db.VarChar(7) // "AAAA-MM"
+  valorPct     Float
+  indexador    AcaIndexador @relation(fields: [indexadorId], references: [id], onDelete: Cascade)
+  @@unique([indexadorId, competencia])
+  @@map("bychat_aca_indexador_valores")
+}
+
+// Feriado financeiro (ajuste de vencimento p/ próximo dia útil).
+model AcaFeriado {
+  id    Int      @id @default(autoincrement())
+  data  DateTime
+  nome  String   @db.VarChar(120)
+  @@unique([data])
+  @@map("bychat_aca_feriados")
+}
+
+// Cobrança recorrente: gera parcelas periodicamente para um contrato/aluno.
+model AcaCobrancaRecorrente {
+  id                Int      @id @default(autoincrement())
+  contratoId        Int
+  alunoId           Int
+  descricao         String   @db.VarChar(191)
+  valorCentavos     Int
+  periodo           AcaRecorrenciaPeriodo @default(MENSAL)
+  diaVencimento     Int      @default(10)
+  contaFinanceiraId Int?
+  proximaGeracao    DateTime
+  ativo             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@index([ativo, proximaGeracao])
+  @@map("bychat_aca_cobrancas_recorrentes")
+}
+
+// Remessa CNAB gerada (lote de títulos enviados ao banco).
+model AcaRemessa {
+  id                Int      @id @default(autoincrement())
+  contaBancariaId   Int
+  sequencial        Int
+  layout            String   @db.VarChar(3) // 240 | 400
+  qtdTitulos        Int      @default(0)
+  valorTotalCentavos Int     @default(0)
+  arquivo           String   @db.LongText
+  nomeArquivo       String   @db.VarChar(60)
+  status            String   @db.VarChar(16) @default("GERADA") // GERADA | ENVIADA | PROCESSADA
+  createdAt         DateTime @default(now())
+  @@index([contaBancariaId])
+  @@map("bychat_aca_remessas")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int
@@ -5220,6 +5324,9 @@ model AcaParcela {
   linhaDigitavel     String?  @db.Text
   pixCopiaCola       String?  @db.Text
   acordoId           Int?
+  remessaId          Int?     // F9 — remessa CNAB em que o título foi incluído
+  nossoNumero        String?  @db.VarChar(30) // F9 — nosso número do boleto registrado
+  contaFinanceiraId  Int?     // F9 — classificação no plano de contas
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
