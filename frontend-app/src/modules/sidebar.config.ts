@@ -260,6 +260,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-diario', label: 'Diário de Classe', href: '/app/aca/diario', icon: 'BookOpen', permission: 'aca_pedagogico' },
         { id: 'aca-conselho', label: 'Conselho de Classe', href: '/app/aca/conselho', icon: 'Gavel', permission: 'aca_pedagogico' },
         { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'aca_pedagogico' },
+        { id: 'aca-docente', label: 'Docentes / RH', href: '/app/aca/docente', icon: 'School', permission: 'aca_docente' },
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
         { id: 'edu-doc-review', label: 'Revisão de documentos', href: '/app/educational/doc-review', icon: 'ClipboardList', permission: 'educacional' },
         { id: 'edu-evaluations', label: 'Avaliações', href: '/app/educational/evaluations', icon: 'Award', permission: 'educacional' },

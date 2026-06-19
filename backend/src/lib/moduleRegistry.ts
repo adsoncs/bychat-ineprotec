@@ -271,6 +271,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
   {
+    id: 'aca_docente', name: 'Docente / RH Acadêmico', icon: '👨‍🏫', category: 'educacional',
+    description: 'Cadastro de docentes (titulação/regime/valor-hora), tipos de atividade com fator, atividades docentes mensais com cálculo de valores e aceite/disponibilidade de disciplinas.',
+    pages: ['acaDocente'],
+    routePrefixes: ['/api/admin/aca/docente'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_pedagogico'],
+  },
+  {
     id: 'aca_secretaria', name: 'Secretaria & Documentos', icon: '📁', category: 'educacional',
     description: 'Histórico escolar, declarações, atas, certificados/egressos, requerimentos (secretaria virtual) e estágio & atividades complementares.',
     pages: ['acaSecretaria', 'acaRequerimentos', 'acaEstagio', 'acaEgressos'],

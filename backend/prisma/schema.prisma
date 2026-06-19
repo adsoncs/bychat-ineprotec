@@ -5440,6 +5440,84 @@ model AcaAvalResposta {
   @@map("bychat_aca_aval_respostas")
 }
 
+// ── F14 — Docente / RH Acadêmico (depende: aca_pedagogico) ──
+enum AcaDocenteRegime {
+  HORISTA
+  PARCIAL
+  INTEGRAL
+}
+enum AcaAtividadeDocenteStatus {
+  LANCADA
+  APROVADA
+  PAGA
+}
+enum AcaDocenteAceiteStatus {
+  PENDENTE
+  ACEITO
+  RECUSADO
+}
+
+// Docente: dados acadêmicos/RH sobre um User-professor (userId scalar).
+model AcaDocente {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  titulacao       String?  @db.VarChar(40) // Especialista | Mestre | Doutor
+  regime          AcaDocenteRegime @default(HORISTA)
+  valorHoraCentavos Int    @default(0)
+  ativo           Boolean  @default(true)
+  observacao      String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  atividades      AcaAtividadeDocente[]
+  aceites         AcaDocenteAceite[]
+  @@map("bychat_aca_docentes")
+}
+
+// Tipo de atividade docente com fator (aula=1, preparação=0.5, etc.).
+model AcaTipoAtividadeDocente {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  fatorHora Float    @default(1)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_tipos_atividade_docente")
+}
+
+// Atividade docente lançada numa competência (mês), com valor calculado.
+model AcaAtividadeDocente {
+  id              Int      @id @default(autoincrement())
+  docenteId       Int
+  tipoId          Int
+  competencia     String   @db.VarChar(7) // AAAA-MM
+  descricao       String?  @db.VarChar(191)
+  horas           Float    @default(0)
+  valorHoraCentavos Int    @default(0)
+  fatorHora       Float    @default(1)
+  valorCentavos   Int      @default(0) // horas * valorHora * fator
+  status          AcaAtividadeDocenteStatus @default(LANCADA)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  docente         AcaDocente @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+  @@index([docenteId])
+  @@index([competencia])
+  @@map("bychat_aca_atividades_docente")
+}
+
+// Aceite/disponibilidade do docente para um diário (turma×disciplina).
+model AcaDocenteAceite {
+  id         Int      @id @default(autoincrement())
+  docenteId  Int
+  diarioId   Int
+  status     AcaDocenteAceiteStatus @default(PENDENTE)
+  observacao String?  @db.Text
+  decididoEm DateTime?
+  createdAt  DateTime @default(now())
+  docente    AcaDocente @relation(fields: [docenteId], references: [id], onDelete: Cascade)
+  @@unique([docenteId, diarioId])
+  @@index([docenteId])
+  @@map("bychat_aca_docente_aceites")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

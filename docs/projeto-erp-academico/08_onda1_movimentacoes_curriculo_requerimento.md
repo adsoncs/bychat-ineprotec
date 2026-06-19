@@ -262,6 +262,26 @@ do relatório CPA em PDF; indicadores/metas por dimensão.
 
 ---
 
+## Onda 5 · F14 — Docente / RH Acadêmico — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_docente` (`dependsOn: ['aca_pedagogico']`). O professor é um `User`
+(professorUserId nos diários); `AcaDocente.userId` é scalar. Schema: enums AcaDocenteRegime/
+AcaAtividadeDocenteStatus/AcaDocenteAceiteStatus + models AcaDocente (titulação/regime/valor-hora),
+AcaTipoAtividadeDocente (fator), AcaAtividadeDocente (valor = horas × valor-hora × fator),
+AcaDocenteAceite (por diário). `services/acaDocente.ts`: `calcValorAtividade`, `gerarAceitesPendentes`
+(cria PENDENTE para os diários do professor sem aceite), `resumoCompetencia` (total horas/valor por
+docente no mês). `routes/acaDocente.ts` (`/api/admin/aca/docente`): usuários (picker), docentes CRUD,
+tipos CRUD, atividades CRUD + calcular, aceites (gerar/decidir). Frontend: página **Docente / RH**
+(sidebar grupo Educacional, ícone School) com abas Docentes · Atividades & valores (tipos + lançar +
+calcular mês) · Aceite de disciplinas. Smoke 8/8 com cleanup. ⚠️AcaDiario não tem relação `turma`
+(só turmaId) — enriquecer turma por busca separada.
+
+**Pendência F14:** processo de seleção/recrutamento de docente (não feito); aceite pelo próprio
+professor via portal; folha/exportação de pagamento de atividades; vínculo automático
+diário→atividade (hoje as horas são lançadas manualmente).
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
