@@ -20,14 +20,14 @@ import { gradeDoAluno, DIAS } from './acaHorario.js'
 import { materiaisDoAluno } from './acaMaterial.js'
 import { resumoHoras } from './acaEstagio.js'
 
-function esc(s: any): string {
+export function esc(s: any): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 }
-function baseUrl(req: any): string {
+export function baseUrl(req: any): string {
   const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
   return `${proto.split(',')[0]}://${req.headers.host}`
 }
-const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+export const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <style>
 :root{color-scheme:light}*{box-sizing:border-box}
 body{font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:28px auto;padding:0 16px;color:#1f2937;background:#f7f8fa}
@@ -48,11 +48,11 @@ footer{text-align:center;color:#9ca3af;font-size:13px;margin-top:20px}
 </style>`
 
 const SIT_LABEL: Record<string, string> = { APROVADO: 'Aprovado', RECUPERACAO: 'Recuperação', REPROVADO_NOTA: 'Reprovado (nota)', REPROVADO_FREQUENCIA: 'Reprovado (freq.)', REPROVADO: 'Reprovado', EM_ANDAMENTO: 'Cursando' }
-function sitBadge(s: string) { const cls = s === 'APROVADO' ? 'ok' : s === 'RECUPERACAO' ? 'warn' : s.startsWith('REPROVADO') ? 'no' : ''; return `<span class="badge ${cls}">${SIT_LABEL[s] || s}</span>` }
-const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+export function sitBadge(s: string) { const cls = s === 'APROVADO' ? 'ok' : s === 'RECUPERACAO' ? 'warn' : s.startsWith('REPROVADO') ? 'no' : ''; return `<span class="badge ${cls}">${SIT_LABEL[s] || s}</span>` }
+export const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 /** Boletim AO VIVO do aluno: por matrícula ativa → disciplinas (média/freq/situação). */
-async function boletimAluno(alunoId: number) {
+export async function boletimAluno(alunoId: number) {
   const mats = await prisma.acaMatricula.findMany({
     where: { alunoId, status: { in: ['MATRICULADO', 'CONCLUIDO', 'TRANCADO'] as any } },
     select: { id: true, turmaId: true, turma: { select: { nome: true } } },
@@ -88,7 +88,7 @@ async function boletimAluno(alunoId: number) {
 }
 
 /** Parcelas do aluno (todas as matrículas com contrato). */
-async function financeiroAluno(alunoId: number) {
+export async function financeiroAluno(alunoId: number) {
   const mats = await prisma.acaMatricula.findMany({ where: { alunoId }, select: { id: true } })
   const contratos = await prisma.acaContrato.findMany({ where: { matriculaId: { in: mats.map((m) => m.id) } }, select: { id: true } })
   if (!contratos.length) return []

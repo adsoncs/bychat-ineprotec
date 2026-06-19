@@ -267,6 +267,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
   {
+    id: 'aca_portais_plus', name: 'Centrais (Responsável/Ex-aluno)', icon: '🧑‍🤝‍🧑', category: 'educacional',
+    description: 'Portais magic-link adicionais por perfil: Central do Responsável (acompanha boletim/financeiro do dependente) e Central do Ex-aluno (histórico + 2ª via de documentos).',
+    pages: ['acaPortaisPlus'],
+    routePrefixes: ['/api/admin/aca/portal-plus'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_portais'],
+  },
+  {
     id: 'aca_relatorios', name: 'Indicadores & Censo', icon: '📈', category: 'educacional',
     description: 'BI acadêmico/financeiro (KPIs) e exportação Censo/SISTEC. Somente leitura — agrega os dados dos demais módulos.',
     pages: ['acaBi', 'acaSistec'],

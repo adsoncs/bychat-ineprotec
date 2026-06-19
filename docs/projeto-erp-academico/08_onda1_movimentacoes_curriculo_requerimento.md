@@ -137,6 +137,30 @@ no financeiro ao deferir, e um requerimento tramita ao professor e volta para co
 
 ---
 
+## Onda 2 · F7 — Portais por perfil — ✅ PARCIAL ENTREGUE (2026-06-18)
+
+Novo módulo `aca_portais_plus` (`dependsOn: ['aca_portais']`) — **sem schema novo** (reusa
+AcaResponsavel/Aluno/documentos). Reusa a infra SSR magic-link de `acaPortal.ts` (token HMAC
+por `?t=`, helpers exportados: HEAD/esc/money/sitBadge/baseUrl/boletimAluno/financeiroAluno).
+Token ganhou kinds `aca-responsavel` e `aca-exaluno`.
+
+**Entregue:**
+- **Central do Responsável** (`/portal/aca/responsavel`): boletim + financeiro (2ª via Asaas) +
+  próximas datas do dependente (via AcaResponsavel→alunoId).
+- **Central do Ex-aluno** (`/portal/aca/exaluno`, exige matrícula CONCLUÍDA): histórico escolar +
+  documentos + emissão de 2ª via do histórico.
+- `routes/acaPortalPlus.ts`: `GET /api/admin/aca/portal-plus/alunos?q=` (busca + responsáveis +
+  flag concluído), `POST /api/admin/aca/portal-plus/link` (gera link responsavel|exaluno),
+  ações públicas (2ª via, emitir-documento, download de doc).
+- Frontend: página **Centrais (Resp./Ex-aluno)** (sidebar grupo Acadêmico, ícone Key) — busca
+  aluno → gera link por responsável/egresso com copiar. Smoke 7/7.
+
+**Pendência F7:** Central do Candidato (boletim de desempenho/prova online/socioeconômico) e
+Central do Coordenador (conteúdo ministrado/aprovação de plano) ainda não feitas; "troca de aluno"
+do responsável com múltiplos dependentes (hoje 1 token = 1 dependente); caixa de mensagens.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
