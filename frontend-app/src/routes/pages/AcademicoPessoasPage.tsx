@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
 import {
   usePessoas, useFichaAluno, useSalvarFicha, useResponsavelMut, useFichaProfessor, useSalvarProfessor,
-  usePessoasRefs, useCriarPessoa, PAPEL_LABEL, RESP_TIPOS, type FichaAluno,
+  usePessoasRefs, useCriarPessoa, useBuscarLeads, PAPEL_LABEL, RESP_TIPOS, type FichaAluno,
 } from '@/hooks/useAcaPessoas'
 
 const PAPEIS = ['', 'ALUNO', 'PROFESSOR', 'ORIENTADOR', 'COORDENADOR', 'CANDIDATO']
@@ -77,11 +77,16 @@ function NovaPessoaModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const mut = useCriarPessoa()
   const [papel, setPapel] = useState('ALUNO')
   const [f, setF] = useState<any>({ regime: 'HORISTA' })
+  const [modo, setModo] = useState<'novo' | 'existente'>('novo') // só ALUNO
+  const [leadQ, setLeadQ] = useState('')
+  const buscaLeads = useBuscarLeads(leadQ)
   const set = (k: string, v: any) => setF({ ...f, [k]: v })
   const r = refs.data
-  const podeSalvar = papel === 'ALUNO' ? !!f.nome : papel === 'COORDENADOR' ? (!!f.nome && !!f.courseId) : papel === 'CANDIDATO' ? (!!f.nome && !!f.selectionProcessId && !!f.offeringId) : !!f.userId
+  const alunoExistente = papel === 'ALUNO' && modo === 'existente'
+  const podeSalvar = papel === 'ALUNO' ? (alunoExistente ? !!f.leadId : !!f.nome) : papel === 'COORDENADOR' ? (!!f.nome && !!f.courseId) : papel === 'CANDIDATO' ? (!!f.nome && !!f.selectionProcessId && !!f.offeringId) : !!f.userId
   const submit = () => {
     const body: any = { papel, ...f }
+    if (papel === 'ALUNO') { if (alunoExistente) { delete body.nome; delete body.email; delete body.whatsapp } else delete body.leadId }
     if (papel === 'PROFESSOR' || papel === 'ORIENTADOR') body.valorHoraCentavos = Math.round(parseFloat((f.valorHora || '0').replace(',', '.')) * 100)
     mut.mutate(body, {
       onSuccess: (res: any) => { toast.success('Pessoa criada'); onClose(); if (res.alunoId) onCreated('aluno', res.alunoId); else if (res.docenteId) onCreated('prof', res.docenteId) },
@@ -97,12 +102,51 @@ function NovaPessoaModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <button key={p} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-accent/10 border-accent text-accent' : 'border-border text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>{PAPEL_LABEL[p].label}</button>
           ))}
         </div>
-        {(papel === 'ALUNO' || papel === 'CANDIDATO') && (
+        {papel === 'ALUNO' && (
+          <div class="space-y-3">
+            <div class="flex gap-1">
+              <button class={`text-xs px-3 py-1.5 rounded-md border ${modo === 'novo' ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => { setModo('novo'); setF({ ...f, leadId: undefined, leadNome: undefined }) }}>Novo contato</button>
+              <button class={`text-xs px-3 py-1.5 rounded-md border ${modo === 'existente' ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setModo('existente')}>Contato existente</button>
+            </div>
+            {modo === 'novo' ? (
+              <div class="grid sm:grid-cols-2 gap-3">
+                <Input label="Nome*" value={f.nome || ''} onInput={(e: any) => set('nome', e.currentTarget.value)} />
+                <Input label="E-mail" value={f.email || ''} onInput={(e: any) => set('email', e.currentTarget.value)} />
+                <Input label="WhatsApp" value={f.whatsapp || ''} onInput={(e: any) => set('whatsapp', e.currentTarget.value)} />
+                <Input label="CPF" value={f.cpf || ''} onInput={(e: any) => set('cpf', e.currentTarget.value)} />
+              </div>
+            ) : f.leadId ? (
+              <div class="space-y-3">
+                <div class="flex items-center gap-2 text-sm bg-surface-2 rounded-md px-3 py-2">
+                  <span class="flex-1 text-fg">Contato selecionado: <b>{f.leadNome}</b></span>
+                  <button class="text-xs text-accent" onClick={() => setF({ ...f, leadId: undefined, leadNome: undefined })}>trocar</button>
+                </div>
+                <Input label="CPF (opcional)" value={f.cpf || ''} onInput={(e: any) => set('cpf', e.currentTarget.value)} />
+              </div>
+            ) : (
+              <div class="space-y-2">
+                <Input label="Buscar contato (nome, e-mail, WhatsApp)" value={leadQ} onInput={(e: any) => setLeadQ(e.currentTarget.value)} placeholder="Digite ao menos 2 letras…" />
+                {buscaLeads.isLoading && leadQ.trim().length >= 2 && <p class="text-xs text-fg-muted">Buscando…</p>}
+                {(buscaLeads.data?.leads?.length ?? 0) > 0 && (
+                  <Card class="p-0 overflow-hidden divide-y divide-border max-h-48 overflow-y-auto">
+                    {buscaLeads.data!.leads.map((l) => (
+                      <button key={l.id} class="w-full text-left px-3 py-2 text-sm hover:bg-surface-2" onClick={() => { setF({ ...f, leadId: l.id, leadNome: l.nome }); setLeadQ('') }}>
+                        <span class="block text-fg">{l.nome}</span>
+                        <span class="block text-xs text-fg-muted">{l.email}{l.whatsapp ? ` · ${l.whatsapp}` : ''}</span>
+                      </button>
+                    ))}
+                  </Card>
+                )}
+                {buscaLeads.data && leadQ.trim().length >= 2 && buscaLeads.data.leads.length === 0 && <p class="text-xs text-fg-muted">Nenhum contato (sem aluno) encontrado. Use "Novo contato".</p>}
+              </div>
+            )}
+          </div>
+        )}
+        {papel === 'CANDIDATO' && (
           <div class="grid sm:grid-cols-2 gap-3">
             <Input label="Nome*" value={f.nome || ''} onInput={(e: any) => set('nome', e.currentTarget.value)} />
             <Input label="E-mail" value={f.email || ''} onInput={(e: any) => set('email', e.currentTarget.value)} />
             <Input label="WhatsApp" value={f.whatsapp || ''} onInput={(e: any) => set('whatsapp', e.currentTarget.value)} />
-            {papel === 'ALUNO' && <Input label="CPF" value={f.cpf || ''} onInput={(e: any) => set('cpf', e.currentTarget.value)} />}
           </div>
         )}
         {papel === 'CANDIDATO' && (

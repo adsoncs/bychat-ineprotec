@@ -60,6 +60,10 @@ export interface PessoasRefs {
 export const usePessoasRefs = (enabled: boolean) =>
   useQuery({ queryKey: ['aca-pessoas-refs'], queryFn: () => api.get<PessoasRefs>('/admin/aca/pessoas/refs'), enabled, staleTime: 30_000 })
 
+export interface LeadBusca { id: number; uid: string | null; nome: string; email: string; whatsapp: string }
+export const useBuscarLeads = (q: string) =>
+  useQuery({ queryKey: ['aca-leads-search', q], queryFn: () => api.get<{ leads: LeadBusca[] }>(`/admin/aca/leads/search?q=${encodeURIComponent(q)}`), enabled: q.trim().length >= 2, staleTime: 5_000 })
+
 export function useCriarPessoa() {
   const qc = useQueryClient()
   return useMutation({
