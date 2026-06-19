@@ -5658,6 +5658,39 @@ model AcaGedArquivo {
   @@map("bychat_aca_ged_arquivos")
 }
 
+// ── F16 — Controle de Acesso Físico (módulo aca_acesso) ──
+// A catraca/leitor físico é o ponto de integração: chama registrarAcesso com o
+// token do QR + ponto; a decisão (credencial válida + bloqueio + log) é nativa.
+model AcaPontoAcesso {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  local     String?  @db.VarChar(191)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_pontos_acesso")
+}
+model AcaCredencial {
+  id        Int      @id @default(autoincrement())
+  alunoId   Int      @unique
+  token     String   @unique @db.VarChar(64) // conteúdo do QR
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("bychat_aca_credenciais")
+}
+model AcaAcessoLog {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int?
+  pontoId    Int?
+  tipo       String   @db.VarChar(8) @default("ENTRADA") // ENTRADA | SAIDA
+  autorizado Boolean  @default(true)
+  motivo     String?  @db.VarChar(191)
+  createdAt  DateTime @default(now())
+  @@index([alunoId])
+  @@index([createdAt])
+  @@map("bychat_aca_acesso_logs")
+}
+
 // ── F17 — Diploma Digital MEC (módulo aca_diploma) ──
 // Estrutura do diploma digital + ponto de integração de assinatura ICP-Brasil.
 enum AcaDiplomaStatus {

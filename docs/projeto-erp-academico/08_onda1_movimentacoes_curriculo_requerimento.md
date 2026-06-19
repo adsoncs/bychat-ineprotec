@@ -371,6 +371,24 @@ o XSD oficial do MEC (versionado por ano). Estrutura e fluxo 100% prontos; falta
 
 ---
 
+## Onda 6 · F16 — Controle de Acesso Físico — ✅ ENTREGUE (2026-06-19)
+
+Novo módulo `aca_acesso` (`dependsOn: ['aca_matriculas']`). Schema: AcaPontoAcesso (catraca/ponto),
+AcaCredencial (token do QR por aluno, @unique), AcaAcessoLog (entrada/saída, autorizado, motivo).
+`services/acaAcesso.ts`: `gerarCredencial` (token aleatório), `registrarAcesso` (**decisão nativa**:
+credencial ativa + `statusBloqueio` financeiro → autoriza/nega, sempre loga). `routes/acaAcesso.ts`:
+pontos CRUD, credenciais (gerar/toggle/listar), logs, e `POST /registrar` — o **endpoint que a
+catraca chama** (ponto de integração). Frontend: página **Controle de Acesso** (sidebar grupo
+Educacional, ícone Key) com abas Credenciais (gerar QR + **simular leitura** p/ testar a liberação) ·
+Pontos · Acessos (logs). Smoke 7/7 com cleanup.
+
+**⚠️ Ponto de integração:** o hardware da catraca/leitor chama `POST /registrar` com o token do QR;
+a lógica de liberação é 100% nativa e testável. Em produção o device usa uma credencial própria
+(API key do equipamento — follow-up). **Pendência F16:** aviso de chegada ao responsável (reusar
+comunicação); credencial do device; QR renderizado como imagem.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

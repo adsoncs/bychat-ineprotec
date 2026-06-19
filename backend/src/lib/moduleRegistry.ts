@@ -235,6 +235,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['educacional'],
   },
   {
+    id: 'aca_acesso', name: 'Controle de Acesso', icon: '🚪', category: 'educacional',
+    description: 'Controle de acesso físico (catraca/QR): pontos de acesso, credenciais por aluno, decisão de liberação (credencial válida + bloqueio) e registro de acessos. A catraca é o ponto de integração.',
+    pages: ['acaAcesso'],
+    routePrefixes: ['/api/admin/aca/acesso'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
     id: 'aca_movimentacoes', name: 'Movimentações Acadêmicas', icon: '🔁', category: 'educacional',
     description: 'Trancamento, afastamento, transferência (interna/externa), remanejamento, reclassificação, cancelamento e reingresso — com registro auditável e processo de "atualiza situações" em lote (alunos sem rematrícula → evadidos).',
     pages: ['acaMovimentacoes'],
