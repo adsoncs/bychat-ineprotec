@@ -3,10 +3,14 @@
 // módulo acadêmico limpo. Seguro: só toca em registros com os marcadores DEMO.
 
 import { prisma } from '../src/lib/prisma.js'
+import { cleanupPlus } from './demoAcaSeedPlus.js'
 
 const TURMA_TAG = 'DEMO — '
 
 async function main() {
+  // remove primeiro a carga dos módulos novos (F5–F22 + F16/F17/F19), que
+  // referencia matrículas/alunos demo ainda existentes neste ponto.
+  await cleanupPlus().catch((e) => console.warn('cleanupPlus:', e?.message))
   // turmas demo
   const turmas = await prisma.acaTurma.findMany({ where: { nome: { startsWith: TURMA_TAG } }, select: { id: true } })
   const turmaIds = turmas.map((t) => t.id)
