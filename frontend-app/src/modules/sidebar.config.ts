@@ -286,6 +286,7 @@ export const sidebarSchema: SidebarSchema = {
       id: 'erp-academico',
       label: 'ERP · Acadêmico',
       items: [
+        { id: 'aca-pessoas', label: 'Pessoas', href: '/app/aca/pessoas', icon: 'Users', permission: 'aca_matriculas' },
         { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'aca_matriculas' },
         { id: 'aca-movimentacoes', label: 'Movimentações', href: '/app/aca/movimentacoes', icon: 'Repeat', permission: 'aca_movimentacoes' },

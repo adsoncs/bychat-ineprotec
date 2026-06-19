@@ -147,6 +147,24 @@ async function main() {
     log('✓ F6 currículo (equivalência/aproveitamento/DP)')
   } catch (e: any) { log('skip F6: ' + e?.message) }
 
+  // ── F23 Ficha completa da pessoa (alguns alunos demo) ──
+  try {
+    const fichas = [
+      { racaCor: 'Parda', nacionalidade: 'Brasileira', naturalidade: 'Goiânia/GO', estadoCivil: 'Solteiro(a)', religiao: 'Católica', nomePai: 'João Pereira', nomeMae: 'Ana Pereira', codigoInep: '110045678', rg: '12.345.678-9', rgOrgaoEmissor: 'SSP/GO' },
+      { racaCor: 'Branca', nacionalidade: 'Brasileira', naturalidade: 'Anápolis/GO', estadoCivil: 'Solteiro(a)', religiao: 'Evangélica', nomePai: 'Carlos Souza', nomeMae: 'Marta Souza', codigoInep: '110045679', rg: '98.765.432-1', rgOrgaoEmissor: 'SSP/GO' },
+      { racaCor: 'Preta', nacionalidade: 'Brasileira', naturalidade: 'Aparecida de Goiânia/GO', estadoCivil: 'Casado(a)', religiao: 'Sem religião', nomePai: 'Pedro Lima', nomeMae: 'Rosa Lima', codigoInep: '110045680', rg: '45.678.912-3', rgOrgaoEmissor: 'SSP/GO' },
+    ]
+    for (let i = 0; i < Math.min(3, ativos.length); i++) {
+      await prisma.aluno.update({ where: { id: ativos[i].alunoId }, data: {
+        ...fichas[i], emancipado: false,
+        documentosJson: { cnh: i === 0 ? '01234567890' : '', cnhCategoria: i === 0 ? 'B' : '', pis: `1234567890${i}`, lattes: '', tituloEleitor: { numero: `12345678901${i}`, zona: '001', secao: `004${i}`, municipio: 'Goiânia' }, certidaoCivil: { tipo: 'Nascimento', numero: `${50 + i}`, livro: 'A-1', folha: `${10 + i}`, cartorio: '1º Ofício de Goiânia' } },
+        socioEconomicoJson: { renda: i === 2 ? '2 a 3 salários' : '1 a 2 salários', beneficioGov: i === 0, transporteEscolarPublico: i === 1, moradia: i === 2 ? 'Alugada' : 'Própria', comQuemMora: 'Pais', internetDomicilio: true, refeicaoInstituicao: i === 1, povoIndigena: '' },
+        enderecoJson: { cep: `7400${i}-000`, logradouro: `Rua ${i + 1}`, numero: `${100 + i}`, bairro: 'Centro', complemento: i === 0 ? 'Apto 2' : '', municipio: 'Goiânia', uf: 'GO', zona: 'Urbana', telResidencial: `623200000${i}`, telCelular: `6299999000${i}`, emailAlternativo: '' },
+      } })
+    }
+    log('✓ F23 ficha completa (3 alunos)')
+  } catch (e: any) { log('skip F23: ' + e?.message) }
+
   // ── F14 Docente / RH ──
   try {
     if (professor) {

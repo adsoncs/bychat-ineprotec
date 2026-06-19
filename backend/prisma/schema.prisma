@@ -4883,6 +4883,20 @@ model Aluno {
   documentosJson     Json? @db.Json
   socioEconomicoJson Json? @db.Json
   roadmapJson        Json? @db.Json
+  // F23 — Ficha completa da pessoa física (campos consultáveis em colunas;
+  // o restante [CNH/PIS/título/certidão/militar, sócio-econômico] vive nos JSON).
+  rg             String?  @db.VarChar(30)
+  rgOrgaoEmissor String?  @db.VarChar(40)
+  racaCor        String?  @db.VarChar(40)  // Censo/INEP
+  nacionalidade  String?  @db.VarChar(60)
+  naturalidade   String?  @db.VarChar(120) // município/UF
+  estadoCivil    String?  @db.VarChar(40)
+  religiao       String?  @db.VarChar(60)
+  nomePai        String?  @db.VarChar(191)
+  nomeMae        String?  @db.VarChar(191)
+  codigoInep     String?  @db.VarChar(30)
+  emancipado     Boolean  @default(false)
+  enderecoJson   Json?    @db.Json
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

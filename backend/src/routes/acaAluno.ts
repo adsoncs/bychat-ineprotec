@@ -111,9 +111,53 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
     if ('nomeSocial' in b) data.nomeSocial = b.nomeSocial || null
     if ('dataNascimento' in b) data.dataNascimento = b.dataNascimento ? new Date(b.dataNascimento) : null
     if ('ativo' in b) data.ativo = !!b.ativo
+    // F23 — ficha completa: colunas consultáveis
+    for (const k of ['rg', 'rgOrgaoEmissor', 'racaCor', 'nacionalidade', 'naturalidade', 'estadoCivil', 'religiao', 'nomePai', 'nomeMae', 'codigoInep']) if (k in b) data[k] = b[k] || null
+    if ('emancipado' in b) data.emancipado = !!b.emancipado
+    // JSON (documentos / sócio-econômico / endereço & contatos) — substitui o objeto
+    if ('documentosJson' in b) data.documentosJson = b.documentosJson ?? null
+    if ('socioEconomicoJson' in b) data.socioEconomicoJson = b.socioEconomicoJson ?? null
+    if ('enderecoJson' in b) data.enderecoJson = b.enderecoJson ?? null
     if (Object.keys(data).length === 0) return { ok: true }
     const aluno = await prisma.aluno.update({ where: { id }, data, select: ALUNO_SELECT })
     return { aluno }
+  })
+
+  // ── GET /pessoas — listagem unificada por papel (Aluno/Professor/Coordenador/Candidato) ──
+  app.get('/api/admin/aca/pessoas', { preHandler: authMiddleware }, async (req) => {
+    const q = ((req.query as any).q || '').toString().trim()
+    const papel = ((req.query as any).papel || '').toString()
+    const like = q ? { contains: q } : undefined
+    const pessoas: any[] = []
+
+    if (!papel || papel === 'ALUNO') {
+      const alunos = await prisma.aluno.findMany({
+        where: q ? { OR: [{ ra: like }, { cpf: like }, { lead: { nome: like } }] } : {},
+        select: { id: true, ra: true, cpf: true, ativo: true, lead: { select: { nome: true, email: true } } },
+        orderBy: { id: 'desc' }, take: 200,
+      })
+      for (const a of alunos) pessoas.push({ papel: 'ALUNO', nome: a.lead.nome, documento: a.cpf, ra: a.ra, email: a.lead.email, alunoId: a.id, refId: a.id, ativo: a.ativo })
+    }
+    if (!papel || papel === 'PROFESSOR') {
+      const docs = await prisma.acaDocente.findMany({ select: { id: true, userId: true, titulacao: true, ativo: true }, take: 200 })
+      const users = docs.length ? await prisma.user.findMany({ where: { id: { in: docs.map((d) => d.userId) } }, select: { id: true, name: true, email: true } }) : []
+      const uMap = new Map(users.map((u) => [u.id, u]))
+      for (const d of docs) { const u = uMap.get(d.userId); if (q && !(u?.name || '').toLowerCase().includes(q.toLowerCase())) continue; pessoas.push({ papel: 'PROFESSOR', nome: u?.name ?? `User #${d.userId}`, documento: null, email: u?.email ?? null, refId: d.id, ativo: d.ativo, extra: d.titulacao }) }
+    }
+    if (!papel || papel === 'COORDENADOR') {
+      const coords = await prisma.acaCoordenador.findMany({ where: q ? { nome: like } : {}, select: { id: true, nome: true, email: true, ativo: true, courseId: true }, take: 200 })
+      for (const c of coords) pessoas.push({ papel: 'COORDENADOR', nome: c.nome, documento: null, email: c.email, refId: c.id, ativo: c.ativo })
+    }
+    if (!papel || papel === 'CANDIDATO') {
+      const regs = await prisma.processRegistration.findMany({
+        where: { status: { notIn: ['matriculado', 'desistente'] }, ...(q ? { lead: { is: { nome: like } } } : {}) },
+        select: { id: true, status: true, lead: { select: { nome: true, email: true } } }, orderBy: { id: 'desc' }, take: 200,
+      })
+      for (const r of regs) pessoas.push({ papel: 'CANDIDATO', nome: r.lead.nome, documento: null, email: r.lead.email, refId: r.id, extra: r.status })
+    }
+    const counts: Record<string, number> = {}
+    for (const p of pessoas) counts[p.papel] = (counts[p.papel] ?? 0) + 1
+    return { pessoas: pessoas.slice(0, 400), counts }
   })
 
   // ── POST /alunos/:id/responsaveis — adiciona responsável ──

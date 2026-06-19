@@ -408,6 +408,27 @@ com a decisão estratégica de LMS nativo.
 
 ---
 
+## F23 — Ficha Completa da Pessoa Física + menu "Pessoas" — ✅ ENTREGUE (2026-06-19)
+
+Sem módulo novo (estende `aca_matriculas`). `Aluno` ganhou colunas consultáveis (rg, rgOrgaoEmissor,
+racaCor, nacionalidade, naturalidade, estadoCivil, religiao, nomePai, nomeMae, codigoInep, emancipado,
+enderecoJson) — o resto vai nos JSON já reservados (`documentosJson` = CNH/PIS/Lattes/título eleitor/
+certidão civil/RNM; `socioEconomicoJson` = renda/benefício/transporte/moradia/internet/refeição/povo
+indígena; `enderecoJson` = CEP/logradouro/bairro/UF/telefones/e-mail alt.). Rotas em `acaAluno.ts`:
+PATCH estendido p/ a ficha; **GET `/api/admin/aca/pessoas`** (listagem UNIFICADA por papel — Aluno/
+Professor[AcaDocente]/Coordenador[AcaCoordenador]/Candidato[ProcessRegistration] — com filtro+busca+counts).
+Frontend: página **Pessoas** (sidebar topo do grupo ERP·Acadêmico, ícone Users) com lista por papel →
+abre **Ficha Completa do aluno** em 5 abas (Identidade · Complementares · Documentos · Sócio-econômico ·
+Endereço & contatos). Smoke 9/9. Seed: 3 alunos demo com ficha preenchida.
+
+**Diferença de arquitetura:** MentorWeb tem 1 "Pessoa" com papéis (checkbox); nós mantemos modelos
+separados (Aluno/User/AcaDocente/AcaCoordenador/Lead) e a tela Pessoas os **agrega** numa lista. A ficha
+completa é editável p/ Aluno; demais papéis vivem nos seus módulos. **Pendência F23:** ficha completa
+p/ professor/colaborador (conta bancária/CTPS); responsáveis contrato/financeiro/pedagógico/familiar com
+papéis distintos; ENEM/GDAE; "pode sair sozinho"/pessoas autorizadas; orientador como papel.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

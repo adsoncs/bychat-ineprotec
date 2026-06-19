@@ -214,7 +214,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'aca_matriculas', name: 'Alunos & Matrículas', icon: '🎓', category: 'erp_academico',
     description: 'Alunos (sobre o CRM), inscrições e matrícula com ciclo de vida (máquina de estados). Núcleo de cadastro do aluno.',
     pages: ['acaAlunos', 'acaMatriculas'],
-    routePrefixes: ['/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas'],
+    routePrefixes: ['/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas', '/api/admin/aca/pessoas'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_estrutura'],
   },
