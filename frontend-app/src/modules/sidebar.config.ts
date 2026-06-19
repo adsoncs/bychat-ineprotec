@@ -298,6 +298,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-curriculo', label: 'Currículo', href: '/app/aca/curriculo', icon: 'GitFork', permission: 'aca_estrutura' },
         { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
         { id: 'edu-selection-processes', label: 'Processos seletivos', href: '/app/educational/selection-processes', icon: 'FileCheck2', permission: 'educacional' },
+        { id: 'aca-vestibular', label: 'Vestibular (classificação)', href: '/app/aca/vestibular', icon: 'ClipboardList', permission: 'aca_vestibular' },
       ],
       initiallyCollapsed: true,
     },

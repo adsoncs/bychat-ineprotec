@@ -211,6 +211,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_estrutura'],
   },
   {
+    id: 'aca_vestibular', name: 'Processo Seletivo', icon: '📝', category: 'educacional',
+    description: 'Camada admin do processo seletivo: componentes de nota (digitação), classificação com critério de desempate, convocação por chamadas e ensalamento. Opera sobre os candidatos do módulo Educacional.',
+    pages: ['acaVestibular'],
+    routePrefixes: ['/api/admin/aca/vestibular'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
     id: 'aca_movimentacoes', name: 'Movimentações Acadêmicas', icon: '🔁', category: 'educacional',
     description: 'Trancamento, afastamento, transferência (interna/externa), remanejamento, reclassificação, cancelamento e reingresso — com registro auditável e processo de "atualiza situações" em lote (alunos sem rematrícula → evadidos).',
     pages: ['acaMovimentacoes'],

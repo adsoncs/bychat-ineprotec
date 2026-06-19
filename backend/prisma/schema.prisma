@@ -5331,6 +5331,49 @@ model AcaNfseConfig {
   @@map("bychat_aca_nfse_config")
 }
 
+// ── F11 — Processo Seletivo (camada admin sobre SelectionProcess/ProcessRegistration) ──
+// Reusa ProcessRegistration (status/notaClassificacao/posicaoClassificacao/convocadoEm)
+// do módulo educacional. Adiciona componentes de nota, salas e ensalamento.
+model AcaProcessoComponente {
+  id                 Int      @id @default(autoincrement())
+  selectionProcessId Int
+  nome               String   @db.VarChar(120)
+  peso               Float    @default(1)
+  ordem              Int      @default(0)
+  createdAt          DateTime @default(now())
+  @@index([selectionProcessId])
+  @@map("bychat_aca_proc_componentes")
+}
+model AcaProcessoNota {
+  id                    Int   @id @default(autoincrement())
+  processRegistrationId Int
+  componenteId          Int
+  nota                  Float
+  @@unique([processRegistrationId, componenteId])
+  @@index([processRegistrationId])
+  @@map("bychat_aca_proc_notas")
+}
+model AcaProcessoSala {
+  id                 Int      @id @default(autoincrement())
+  selectionProcessId Int
+  nome               String   @db.VarChar(120)
+  local              String?  @db.VarChar(191)
+  capacidade         Int      @default(30)
+  createdAt          DateTime @default(now())
+  @@index([selectionProcessId])
+  @@map("bychat_aca_proc_salas")
+}
+model AcaProcessoEnsalamento {
+  id                    Int @id @default(autoincrement())
+  selectionProcessId    Int
+  processRegistrationId Int @unique
+  salaId                Int
+  ordem                 Int
+  @@index([selectionProcessId])
+  @@index([salaId])
+  @@map("bychat_aca_proc_ensalamento")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

@@ -218,6 +218,30 @@ ativa sem geração do PDF/petição; acordo judicial liga via campo mas sem flu
 
 ---
 
+## Onda 4 · F11 — Processo Seletivo (camada admin) — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_vestibular` (`dependsOn: ['educacional']`). **Reusa** `ProcessRegistration`
+(status/notaClassificacao/posicaoClassificacao/convocadoEm) do módulo educacional — o lado
+candidato (inscrição, redação/prova online, prova presencial) já existe em `candidatePortal.ts`,
+não foi reconstruído. Schema novo só para o que faltava: AcaProcessoComponente (peso),
+AcaProcessoNota (nota por candidato×componente), AcaProcessoSala, AcaProcessoEnsalamento.
+
+`services/acaVestibular.ts`: `classificar` (nota final = média ponderada dos componentes,
+ordena desc com critério de desempate [ordem de inscrição | maior nota em componente], aplica
+`SelectionProcess.notaCorte` → classificado/reprovado, grava posição), `convocar` (marca as
+próximas N posições como convocado), `ensalar` (distribui por capacidade nas salas).
+`routes/acaVestibular.ts` (`/api/admin/aca/vestibular`): processos, candidatos, componentes CRUD,
+digitação de notas (bulk), classificar, convocar, salas CRUD, ensalar. Frontend: página
+**Processo Seletivo** (sidebar grupo Cadastros, ícone ClipboardList) com seletor de processo +
+abas Candidatos & notas (grade editável) · Classificação (classificar + convocar + ranking) ·
+Ensalamento (salas + alocação). Smoke 13/13 com cleanup total.
+
+**Pendência F11:** prova objetiva online com gabarito/autocorreção (hoje a nota objetiva é
+digitada pelo admin — a redação/presencial já vêm do portal do candidato); remanejamento de
+chamadas e bolsa social; geração de PDF do mapa de sala/lista de classificados.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
