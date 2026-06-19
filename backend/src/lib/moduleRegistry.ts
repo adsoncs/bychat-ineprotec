@@ -197,7 +197,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     routePrefixes: [
       '/api/admin/aca/disciplinas', '/api/admin/aca/matrizes', '/api/admin/aca/turmas',
       '/api/admin/aca/periodos', '/api/admin/aca/ofertas', '/api/admin/aca/planos-pagamento',
-      '/api/admin/aca/componentes', '/api/admin/aca/pre-requisitos',
+      '/api/admin/aca/componentes', '/api/admin/aca/pre-requisitos', '/api/admin/aca/curriculo',
     ],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['educacional'],

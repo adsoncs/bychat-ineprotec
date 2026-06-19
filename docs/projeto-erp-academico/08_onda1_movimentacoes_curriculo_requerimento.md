@@ -45,9 +45,27 @@ movimentação também no detalhe da Matrícula; reclassificação (mudança de 
 
 ---
 
-## F6 · Currículo Avançado — estende `aca_estrutura`
+## F6 · Currículo Avançado — ✅ ENTREGUE (2026-06-18) · estende `aca_estrutura`
 
 Sem módulo novo (entra no `aca_estrutura` já existente; só telas/rotas aditivas).
+
+**Entregue:** models `AcaEquivalencia`, `AcaAproveitamento` (origem INTERNO/EXTERNO/SUFICIENCIA,
+status SOLICITADO/DEFERIDO/INDEFERIDO, CH/nota/parecer) e `AcaDependencia` (DEPENDENCIA/ADAPTACAO).
+`services/acaCurriculo.ts` (`montarGrade` cruza matriz × resultados × aproveitamentos × dependências
+→ status por componente: APROVADO/CURSANDO/APROVEITADO/DEPENDENCIA/REPROVADO/PENDENTE + resumo).
+`routes/acaCurriculo.ts` (`/api/admin/aca/curriculo`): componentes, equivalências (CRUD), aproveitamentos
+(solicitar/deferir/indeferir), dependências (CRUD), grade. **Integração com histórico**:
+`montarHistorico` ganhou bloco "Aproveitamento" — aproveitamento DEFERIDO soma a CH ao `chTotal`
+(reflete no histórico oficial e no certificado). Frontend: página **Currículo** (sidebar grupo
+Cadastros, ícone GitFork) com abas Grade do aluno (tabela por componente + solicitar aproveitamento/
+lançar DP) · Aproveitamentos (fila + deferir) · Equivalências (por matriz). Smoke 13/13 com cleanup
+(histórico restaurado).
+
+**Pendência F6:** equivalência ainda não é aplicada automaticamente na validação de matrícula
+(hoje é cadastro/consulta); prova de suficiência registra como aproveitamento mas sem fluxo de prova;
+cadastros auxiliares (departamentos/centros/tipos de curso/subturmas) ficaram fora (baixo valor).
+
+### Plano original (referência):
 
 **Schema (aditivo):**
 - `AcaEquivalencia` (`bychat_aca_equivalencias`): componenteId, componenteEquivalenteId,

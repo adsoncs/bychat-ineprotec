@@ -292,6 +292,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-courses', label: 'Cursos', href: '/app/educational/courses', icon: 'BookOpen', permission: 'educacional' },
         { id: 'edu-offerings', label: 'Ofertas', href: '/app/educational/offerings', icon: 'CalendarRange', permission: 'educacional' },
         { id: 'aca-estrutura', label: 'Estrutura Acadêmica', href: '/app/aca/estrutura', icon: 'Layers', permission: 'aca_estrutura' },
+        { id: 'aca-curriculo', label: 'Currículo', href: '/app/aca/curriculo', icon: 'GitFork', permission: 'aca_estrutura' },
         { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
         { id: 'edu-selection-processes', label: 'Processos seletivos', href: '/app/educational/selection-processes', icon: 'FileCheck2', permission: 'educacional' },
       ],

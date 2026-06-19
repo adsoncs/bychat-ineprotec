@@ -44,6 +44,23 @@ export async function montarHistorico(alunoId: number) {
     })
     periodos.push({ periodo: m.turma.periodoLetivo?.codigo || '—', turma: m.turma.nome, disciplinas })
   }
+  // F6 — aproveitamentos DEFERIDOS entram como bloco extra e somam carga horária.
+  const aproveitamentos = await prisma.acaAproveitamento.findMany({
+    where: { matriculaId: { in: matriculas.map((m) => m.id) }, status: 'DEFERIDO' },
+    select: { componenteId: true, cargaHorariaAproveitada: true, nota: true, instituicaoOrigem: true },
+  })
+  if (aproveitamentos.length) {
+    const compIds = [...new Set(aproveitamentos.map((a) => a.componenteId))]
+    const comps = await prisma.acaComponente.findMany({ where: { id: { in: compIds } }, select: { id: true, disciplina: { select: { nome: true, cargaHoraria: true } } } })
+    const cMap = new Map(comps.map((c) => [c.id, c.disciplina]))
+    const disciplinas = aproveitamentos.map((a) => {
+      const disc = cMap.get(a.componenteId)
+      const ch = a.cargaHorariaAproveitada || disc?.cargaHoraria || 0
+      chTotal += ch
+      return { nome: disc?.nome || '—', cargaHoraria: ch, media: a.nota, freqPct: 100, situacao: 'APROVEITADO' }
+    })
+    periodos.push({ periodo: 'Aproveitamento', turma: 'Aproveitamento de estudos', disciplinas })
+  }
   return { aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf }, curso, periodos, chTotal }
 }
 

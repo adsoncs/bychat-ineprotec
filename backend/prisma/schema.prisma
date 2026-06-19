@@ -5070,6 +5070,76 @@ model AcaMovimentacao {
   @@map("bychat_aca_movimentacoes")
 }
 
+// ── F6 — Currículo Avançado (estende aca_estrutura) ──
+enum AcaAproveitamentoOrigem {
+  INTERNO
+  EXTERNO
+  SUFICIENCIA
+}
+enum AcaAproveitamentoStatus {
+  SOLICITADO
+  DEFERIDO
+  INDEFERIDO
+}
+enum AcaDependenciaTipo {
+  DEPENDENCIA
+  ADAPTACAO
+}
+
+// Equivalência entre componentes (disciplinas) — usada na validação de grade e
+// como base para aproveitamento. FKs scalar (componentes de matriz).
+model AcaEquivalencia {
+  id                      Int      @id @default(autoincrement())
+  componenteId            Int      // componente da matriz (alvo)
+  componenteEquivalenteId Int      // componente considerado equivalente
+  bidirecional            Boolean  @default(true)
+  observacao              String?  @db.Text
+  createdAt               DateTime @default(now())
+  @@index([componenteId])
+  @@map("bychat_aca_equivalencias")
+}
+
+// Aproveitamento de estudos / dispensa de componente. Quando DEFERIDO, o componente
+// conta como cumprido no histórico (montarHistorico soma a carga aproveitada).
+model AcaAproveitamento {
+  id                      Int      @id @default(autoincrement())
+  matriculaId             Int
+  alunoId                 Int
+  componenteId            Int
+  origem                  AcaAproveitamentoOrigem @default(EXTERNO)
+  instituicaoOrigem       String?  @db.VarChar(191)
+  disciplinaOrigem        String?  @db.VarChar(191)
+  cargaHorariaAproveitada Int      @default(0)
+  nota                    Float?
+  status                  AcaAproveitamentoStatus @default(SOLICITADO)
+  parecer                 String?  @db.Text
+  documentoId             Int?
+  decididoPorUserId       Int?
+  decididoEm              DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  @@index([matriculaId])
+  @@index([alunoId])
+  @@index([status])
+  @@map("bychat_aca_aproveitamentos")
+}
+
+// Dependência / Adaptação (DP) — componente que o aluno cursa fora da fase regular.
+model AcaDependencia {
+  id           Int      @id @default(autoincrement())
+  matriculaId  Int
+  alunoId      Int
+  componenteId Int
+  tipo         AcaDependenciaTipo @default(DEPENDENCIA)
+  turmaId      Int?
+  situacao     String   @db.VarChar(20) @default("EM_CURSO") // EM_CURSO|CUMPRIDA|PENDENTE
+  observacao   String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([matriculaId])
+  @@map("bychat_aca_dependencias")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int
