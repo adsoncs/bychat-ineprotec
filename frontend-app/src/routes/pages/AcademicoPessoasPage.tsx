@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Users, ArrowLeft, Save, IdCard, FileText, Home, Coins, UserSquare } from 'lucide-preact'
+import { Users, ArrowLeft, Save, IdCard, FileText, Home, Coins, UserSquare, Trash2, Plus, Briefcase } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -8,17 +8,21 @@ import { Input, Select } from '@/components/ui/Input'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SearchInput } from '@/components/ui/SearchInput'
-import { usePessoas, useFichaAluno, useSalvarFicha, PAPEL_LABEL, type FichaAluno } from '@/hooks/useAcaPessoas'
+import {
+  usePessoas, useFichaAluno, useSalvarFicha, useResponsavelMut, useFichaProfessor, useSalvarProfessor,
+  PAPEL_LABEL, RESP_TIPOS, type FichaAluno,
+} from '@/hooks/useAcaPessoas'
 
-const PAPEIS = ['', 'ALUNO', 'PROFESSOR', 'COORDENADOR', 'CANDIDATO']
+const PAPEIS = ['', 'ALUNO', 'PROFESSOR', 'ORIENTADOR', 'COORDENADOR', 'CANDIDATO']
 
 export function AcademicoPessoasPage() {
-  const [alunoId, setAlunoId] = useState<number | null>(null)
-  if (alunoId !== null) return <FichaCompleta id={alunoId} onBack={() => setAlunoId(null)} />
-  return <Lista onOpenAluno={setAlunoId} />
+  const [aberto, setAberto] = useState<{ tipo: 'aluno' | 'prof'; id: number } | null>(null)
+  if (aberto?.tipo === 'aluno') return <FichaCompleta id={aberto.id} onBack={() => setAberto(null)} />
+  if (aberto?.tipo === 'prof') return <FichaProfessor id={aberto.id} onBack={() => setAberto(null)} />
+  return <Lista onOpen={(tipo, id) => setAberto({ tipo, id })} />
 }
 
-function Lista({ onOpenAluno }: { onOpenAluno: (id: number) => void }) {
+function Lista({ onOpen }: { onOpen: (tipo: 'aluno' | 'prof', id: number) => void }) {
   const [papel, setPapel] = useState('')
   const [q, setQ] = useState('')
   const data = usePessoas(papel, q)
@@ -39,17 +43,21 @@ function Lista({ onOpenAluno }: { onOpenAluno: (id: number) => void }) {
       {data.isLoading ? <div class="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} class="h-12 w-full" />)}</div> :
         pessoas.length === 0 ? <EmptyState icon={<Users size={28} />} title="Nenhuma pessoa" description="Ajuste a busca ou o filtro de papel." /> : (
           <Card class="p-0 overflow-hidden divide-y divide-border">
-            {pessoas.map((p) => (
-              <div key={`${p.papel}-${p.refId}`} class={`px-4 py-2.5 flex items-center gap-3 text-sm ${p.papel === 'ALUNO' ? 'cursor-pointer hover:bg-surface-2' : ''}`} onClick={() => p.papel === 'ALUNO' && p.alunoId && onOpenAluno(p.alunoId)}>
-                <span class="flex-1 min-w-0">
-                  <span class="block truncate text-fg">{p.nome}</span>
-                  <span class="block text-xs text-fg-muted">{p.ra ? `RA ${p.ra}` : ''}{p.documento ? ` · CPF ${p.documento}` : ''}{p.email ? ` · ${p.email}` : ''}{p.extra ? ` · ${p.extra}` : ''}</span>
-                </span>
-                {p.ativo === false && <Badge tone="neutral">inativo</Badge>}
-                <Badge tone={PAPEL_LABEL[p.papel]?.tone ?? 'neutral'}>{PAPEL_LABEL[p.papel]?.label ?? p.papel}</Badge>
-                {p.papel === 'ALUNO' && <span class="text-xs text-accent">abrir ficha →</span>}
-              </div>
-            ))}
+            {pessoas.map((p) => {
+              const abrivel = (p.papel === 'ALUNO' && p.alunoId) || p.papel === 'PROFESSOR' || p.papel === 'ORIENTADOR'
+              const abrir = () => { if (p.papel === 'ALUNO' && p.alunoId) onOpen('aluno', p.alunoId); else if (p.papel === 'PROFESSOR' || p.papel === 'ORIENTADOR') onOpen('prof', p.refId) }
+              return (
+                <div key={`${p.papel}-${p.refId}`} class={`px-4 py-2.5 flex items-center gap-3 text-sm ${abrivel ? 'cursor-pointer hover:bg-surface-2' : ''}`} onClick={abrir}>
+                  <span class="flex-1 min-w-0">
+                    <span class="block truncate text-fg">{p.nome}</span>
+                    <span class="block text-xs text-fg-muted">{p.ra ? `RA ${p.ra}` : ''}{p.documento ? ` · CPF ${p.documento}` : ''}{p.email ? ` · ${p.email}` : ''}{p.extra ? ` · ${p.extra}` : ''}</span>
+                  </span>
+                  {p.ativo === false && <Badge tone="neutral">inativo</Badge>}
+                  <Badge tone={PAPEL_LABEL[p.papel]?.tone ?? 'neutral'}>{PAPEL_LABEL[p.papel]?.label ?? p.papel}</Badge>
+                  {abrivel && <span class="text-xs text-accent">abrir ficha →</span>}
+                </div>
+              )
+            })}
           </Card>
         )}
       <p class="text-xs text-fg-muted">A ficha completa (documentos, dados complementares, sócio-econômico, endereço) é editável para <b>Aluno</b>. Professor/Coordenador/Candidato são geridos em seus próprios módulos.</p>
@@ -57,7 +65,7 @@ function Lista({ onOpenAluno }: { onOpenAluno: (id: number) => void }) {
   )
 }
 
-type Tab = 'identidade' | 'complementares' | 'documentos' | 'socio' | 'endereco'
+type Tab = 'identidade' | 'complementares' | 'responsaveis' | 'documentos' | 'socio' | 'endereco'
 
 function FichaCompleta({ id, onBack }: { id: number; onBack: () => void }) {
   const q = useFichaAluno(id)
@@ -74,7 +82,7 @@ function FichaCompleta({ id, onBack }: { id: number; onBack: () => void }) {
   const setJ2 = (grupo: 'doc', sub: string, k: string, v: any) => setF({ ...f, [grupo]: { ...f[grupo], [sub]: { ...(f[grupo][sub] || {}), [k]: v } } })
   const salvar = () => mut.mutate(payload(f), { onSuccess: onBack })
 
-  const TABS: [Tab, string, any][] = [['identidade', 'Identidade', IdCard], ['complementares', 'Complementares', UserSquare], ['documentos', 'Documentos', FileText], ['socio', 'Sócio-econômico', Coins], ['endereco', 'Endereço & contatos', Home]]
+  const TABS: [Tab, string, any][] = [['identidade', 'Identidade', IdCard], ['complementares', 'Complementares', UserSquare], ['responsaveis', 'Responsáveis', Users], ['documentos', 'Documentos', FileText], ['socio', 'Sócio-econômico', Coins], ['endereco', 'Endereço & contatos', Home]]
 
   return (
     <Page title={`Ficha — ${a.lead.nome}`} description={`RA ${a.ra || '—'} · ${a.matriculas.length} matrícula(s)`}>
@@ -107,13 +115,40 @@ function FichaCompleta({ id, onBack }: { id: number; onBack: () => void }) {
       )}
 
       {tab === 'complementares' && (
-        <Card class="grid sm:grid-cols-2 gap-3">
-          <Input label="Nome do pai" value={f.nomePai} onInput={(e: any) => set('nomePai', e.currentTarget.value)} />
-          <Input label="Nome da mãe" value={f.nomeMae} onInput={(e: any) => set('nomeMae', e.currentTarget.value)} />
-          <Input label="Código INEP" value={f.codigoInep} onInput={(e: any) => set('codigoInep', e.currentTarget.value)} />
-          <label class="flex items-center gap-2 text-sm text-fg-muted self-end pb-2"><input type="checkbox" checked={f.emancipado} onChange={(e: any) => set('emancipado', e.currentTarget.checked)} /> Emancipado(a)</label>
-        </Card>
+        <div class="space-y-3">
+          <Card class="grid sm:grid-cols-2 gap-3">
+            <Input label="Nome do pai" value={f.nomePai} onInput={(e: any) => set('nomePai', e.currentTarget.value)} />
+            <Input label="Nome da mãe" value={f.nomeMae} onInput={(e: any) => set('nomeMae', e.currentTarget.value)} />
+            <Input label="Código INEP" value={f.codigoInep} onInput={(e: any) => set('codigoInep', e.currentTarget.value)} />
+            <Input label="Código GDAE" value={f.codigoGdae} onInput={(e: any) => set('codigoGdae', e.currentTarget.value)} />
+            <label class="flex items-center gap-2 text-sm text-fg-muted self-end pb-2"><input type="checkbox" checked={f.emancipado} onChange={(e: any) => set('emancipado', e.currentTarget.checked)} /> Emancipado(a)</label>
+          </Card>
+          <Card class="space-y-2">
+            <div class="text-sm font-semibold text-fg">ENEM</div>
+            <div class="grid sm:grid-cols-3 gap-2">
+              <Input label="Ano" type="number" value={f.enemAno} onInput={(e: any) => set('enemAno', e.currentTarget.value)} />
+              <Input label="Código de inscrição" value={f.enemInscricao} onInput={(e: any) => set('enemInscricao', e.currentTarget.value)} />
+              <Input label="Nota" type="number" step="0.1" value={f.enemNota} onInput={(e: any) => set('enemNota', e.currentTarget.value)} />
+            </div>
+          </Card>
+          <Card class="space-y-2">
+            <div class="text-sm font-semibold text-fg">Saída do aluno</div>
+            <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.podeSairSozinho} onChange={(e: any) => set('podeSairSozinho', e.currentTarget.checked)} /> Pode sair sozinho</label>
+            <div class="text-xs text-fg-muted">Pessoas autorizadas a retirar o aluno:</div>
+            {(f.autorizados as any[]).map((p: any, i: number) => (
+              <div key={i} class="flex gap-2 items-center">
+                <Input class="flex-1" placeholder="Nome" value={p.nome} onInput={(e: any) => { const arr = [...f.autorizados]; arr[i] = { ...arr[i], nome: e.currentTarget.value }; set('autorizados', arr) }} />
+                <Input class="!w-32" placeholder="Parentesco" value={p.parentesco} onInput={(e: any) => { const arr = [...f.autorizados]; arr[i] = { ...arr[i], parentesco: e.currentTarget.value }; set('autorizados', arr) }} />
+                <Input class="!w-32" placeholder="Documento" value={p.documento} onInput={(e: any) => { const arr = [...f.autorizados]; arr[i] = { ...arr[i], documento: e.currentTarget.value }; set('autorizados', arr) }} />
+                <button class="text-fg-muted hover:text-danger" onClick={() => set('autorizados', f.autorizados.filter((_: any, j: number) => j !== i))}><Trash2 size={14} /></button>
+              </div>
+            ))}
+            <Button size="sm" variant="ghost" onClick={() => set('autorizados', [...f.autorizados, { nome: '', parentesco: '', documento: '' }])}><Plus size={14} /> Adicionar pessoa</Button>
+          </Card>
+        </div>
       )}
+
+      {tab === 'responsaveis' && <ResponsaveisTab alunoId={id} responsaveis={a.responsaveis} />}
 
       {tab === 'documentos' && (
         <div class="space-y-3">
@@ -184,6 +219,8 @@ function montar(a: FichaAluno): any {
     dataNascimento: a.dataNascimento ? a.dataNascimento.slice(0, 10) : '', sexo: a.sexo ?? '', racaCor: a.racaCor ?? '',
     nacionalidade: a.nacionalidade ?? '', naturalidade: a.naturalidade ?? '', estadoCivil: a.estadoCivil ?? '', religiao: a.religiao ?? '',
     nomePai: a.nomePai ?? '', nomeMae: a.nomeMae ?? '', codigoInep: a.codigoInep ?? '', emancipado: !!a.emancipado, ativo: a.ativo,
+    codigoGdae: a.codigoGdae ?? '', enemAno: a.enemAno ?? '', enemInscricao: a.enemInscricao ?? '', enemNota: a.enemNota ?? '',
+    podeSairSozinho: a.podeSairSozinho ?? true, autorizados: Array.isArray(a.pessoasAutorizadasJson) ? a.pessoasAutorizadasJson : [],
     doc: a.documentosJson ?? {}, socio: a.socioEconomicoJson ?? {}, end: a.enderecoJson ?? {},
   }
 }
@@ -192,6 +229,79 @@ function payload(f: any): any {
     nomeSocial: f.nomeSocial, cpf: f.cpf, rg: f.rg, rgOrgaoEmissor: f.rgOrgaoEmissor, dataNascimento: f.dataNascimento || null,
     sexo: f.sexo, racaCor: f.racaCor, nacionalidade: f.nacionalidade, naturalidade: f.naturalidade, estadoCivil: f.estadoCivil,
     religiao: f.religiao, nomePai: f.nomePai, nomeMae: f.nomeMae, codigoInep: f.codigoInep, emancipado: f.emancipado, ativo: f.ativo,
+    codigoGdae: f.codigoGdae, enemAno: f.enemAno || null, enemInscricao: f.enemInscricao, enemNota: f.enemNota === '' ? null : f.enemNota,
+    podeSairSozinho: f.podeSairSozinho, pessoasAutorizadasJson: f.autorizados,
     documentosJson: f.doc, socioEconomicoJson: f.socio, enderecoJson: f.end,
   }
+}
+
+function ResponsaveisTab({ alunoId, responsaveis }: { alunoId: number; responsaveis: any[] }) {
+  const mut = useResponsavelMut(alunoId)
+  const [novo, setNovo] = useState({ nome: '', tipo: 'CONTRATO', parentesco: '', telefone: '', cpf: '' })
+  const add = () => { if (!novo.nome) return; mut.criar.mutate(novo, { onSuccess: () => setNovo({ nome: '', tipo: 'CONTRATO', parentesco: '', telefone: '', cpf: '' }) }) }
+  const tipoLabel = (t: string) => RESP_TIPOS.find((x) => x.key === t)?.label ?? t
+  return (
+    <div class="space-y-3">
+      <Card class="space-y-2">
+        <div class="text-sm font-semibold text-fg">Novo responsável</div>
+        <div class="grid sm:grid-cols-5 gap-2">
+          <Input class="sm:col-span-2" placeholder="Nome" value={novo.nome} onInput={(e: any) => setNovo({ ...novo, nome: e.currentTarget.value })} />
+          <Select value={novo.tipo} onChange={(e: any) => setNovo({ ...novo, tipo: e.currentTarget.value })}>{RESP_TIPOS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</Select>
+          <Input placeholder="Parentesco" value={novo.parentesco} onInput={(e: any) => setNovo({ ...novo, parentesco: e.currentTarget.value })} />
+          <Input placeholder="Telefone" value={novo.telefone} onInput={(e: any) => setNovo({ ...novo, telefone: e.currentTarget.value })} />
+        </div>
+        <Button size="sm" variant="secondary" disabled={!novo.nome || mut.criar.isPending} onClick={add}><Plus size={14} /> Adicionar</Button>
+      </Card>
+      {responsaveis.length === 0 ? <p class="text-sm text-fg-muted">Nenhum responsável cadastrado.</p> : (
+        <Card class="p-0 overflow-hidden divide-y divide-border">
+          {responsaveis.map((r) => (
+            <div key={r.id} class="px-4 py-2.5 flex items-center gap-3 text-sm">
+              <span class="flex-1 min-w-0"><span class="block truncate text-fg">{r.nome}</span><span class="block text-xs text-fg-muted">{r.parentesco || '—'}{r.telefone ? ` · ${r.telefone}` : ''}</span></span>
+              <Badge tone="info">{tipoLabel(r.tipo)}</Badge>
+              <button class="text-fg-muted hover:text-danger" onClick={() => mut.excluir.mutate(r.id)}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function FichaProfessor({ id, onBack }: { id: number; onBack: () => void }) {
+  const q = useFichaProfessor(id)
+  const mut = useSalvarProfessor(id)
+  const [f, setF] = useState<any>(null)
+  const d = q.data?.docente
+  useEffect(() => { if (d && f === null) setF({ titulacao: d.titulacao ?? '', regime: d.regime, valorHora: (d.valorHoraCentavos / 100).toString(), ativo: d.ativo, orientador: d.orientador, dados: d.dadosJson ?? {} }) }, [d])
+  if (q.isLoading || !d || f === null) return <Page title="Ficha"><Skeleton class="h-64 w-full" /></Page>
+  const set = (k: string, v: any) => setF({ ...f, [k]: v })
+  const setD = (k: string, v: any) => setF({ ...f, dados: { ...f.dados, [k]: v } })
+  const salvar = () => mut.mutate({ titulacao: f.titulacao, regime: f.regime, valorHoraCentavos: Math.round(parseFloat(f.valorHora.replace(',', '.') || '0') * 100), ativo: f.ativo, orientador: f.orientador, dadosJson: f.dados }, { onSuccess: onBack })
+  return (
+    <Page title={`Ficha — ${d.nome}`} description="Professor / Colaborador">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={14} /> Voltar</Button>
+        <Button variant="primary" size="sm" loading={mut.isPending} onClick={salvar}><Save size={14} /> Salvar</Button>
+      </div>
+      <Card class="grid sm:grid-cols-3 gap-3">
+        <Input label="Titulação" value={f.titulacao} onInput={(e: any) => set('titulacao', e.currentTarget.value)} />
+        <Select label="Regime" value={f.regime} onChange={(e: any) => set('regime', e.currentTarget.value)}><option value="HORISTA">Horista</option><option value="PARCIAL">Parcial</option><option value="INTEGRAL">Integral</option></Select>
+        <Input label="Valor/hora (R$)" value={f.valorHora} onInput={(e: any) => set('valorHora', e.currentTarget.value)} />
+        <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.ativo} onChange={(e: any) => set('ativo', e.currentTarget.checked)} /> Ativo</label>
+        <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.orientador} onChange={(e: any) => set('orientador', e.currentTarget.checked)} /> É orientador</label>
+      </Card>
+      <Card class="space-y-2">
+        <div class="text-sm font-semibold text-fg flex items-center gap-2"><Briefcase size={16} /> Dados profissionais</div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <Input label="Conta bancária" value={f.dados.contaBancaria ?? ''} onInput={(e: any) => setD('contaBancaria', e.currentTarget.value)} hint="banco / agência / conta" />
+          <Input label="Tipo de professor" value={f.dados.tipoProfessor ?? ''} onInput={(e: any) => setD('tipoProfessor', e.currentTarget.value)} />
+          <Input label="Registro estadual" value={f.dados.registroEstadual ?? ''} onInput={(e: any) => setD('registroEstadual', e.currentTarget.value)} />
+          <Input label="Departamento" value={f.dados.departamento ?? ''} onInput={(e: any) => setD('departamento', e.currentTarget.value)} />
+          <Input label="CTPS (nº/série)" value={f.dados.ctps ?? ''} onInput={(e: any) => setD('ctps', e.currentTarget.value)} />
+          <Input label="Qualificação profissional" value={f.dados.qualificacao ?? ''} onInput={(e: any) => setD('qualificacao', e.currentTarget.value)} />
+        </div>
+        <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.dados.credenciadoPos} onChange={(e: any) => setD('credenciadoPos', e.currentTarget.checked)} /> Credenciado para ministrar na Pós-graduação</label>
+      </Card>
+    </Page>
+  )
 }

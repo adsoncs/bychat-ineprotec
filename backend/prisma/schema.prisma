@@ -4809,6 +4809,8 @@ enum AcaTipoResponsavel {
   FINANCEIRO
   PEDAGOGICO
   LEGAL
+  CONTRATO
+  FAMILIAR
 }
 enum AcaTurno {
   MATUTINO
@@ -4897,6 +4899,13 @@ model Aluno {
   codigoInep     String?  @db.VarChar(30)
   emancipado     Boolean  @default(false)
   enderecoJson   Json?    @db.Json
+  // F23+ — ENEM/GDAE + dados escolares (saída/autorizados)
+  codigoGdae     String?  @db.VarChar(30)
+  enemAno        Int?
+  enemInscricao  String?  @db.VarChar(30)
+  enemNota       Float?
+  podeSairSozinho Boolean @default(true)
+  pessoasAutorizadasJson Json? @db.Json // [{nome, parentesco, documento}]
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -5479,7 +5488,9 @@ model AcaDocente {
   regime          AcaDocenteRegime @default(HORISTA)
   valorHoraCentavos Int    @default(0)
   ativo           Boolean  @default(true)
+  orientador      Boolean  @default(false) // F23+ — papel Orientador
   observacao      String?  @db.Text
+  dadosJson       Json?    @db.Json // conta bancária, registro estadual, departamento, tipo, CTPS, qualificação
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   atividades      AcaAtividadeDocente[]

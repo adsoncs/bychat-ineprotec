@@ -157,6 +157,8 @@ async function main() {
     for (let i = 0; i < Math.min(3, ativos.length); i++) {
       await prisma.aluno.update({ where: { id: ativos[i].alunoId }, data: {
         ...fichas[i], emancipado: false,
+        codigoGdae: `GDAE-${1000 + i}`, enemAno: 2025, enemInscricao: `2025${String(100 + i)}`, enemNota: 680 + i * 20,
+        podeSairSozinho: i !== 1, pessoasAutorizadasJson: i === 1 ? [{ nome: 'Tio José', parentesco: 'Tio', documento: '123.456.789-00' }] : [],
         documentosJson: { cnh: i === 0 ? '01234567890' : '', cnhCategoria: i === 0 ? 'B' : '', pis: `1234567890${i}`, lattes: '', tituloEleitor: { numero: `12345678901${i}`, zona: '001', secao: `004${i}`, municipio: 'Goiânia' }, certidaoCivil: { tipo: 'Nascimento', numero: `${50 + i}`, livro: 'A-1', folha: `${10 + i}`, cartorio: '1º Ofício de Goiânia' } },
         socioEconomicoJson: { renda: i === 2 ? '2 a 3 salários' : '1 a 2 salários', beneficioGov: i === 0, transporteEscolarPublico: i === 1, moradia: i === 2 ? 'Alugada' : 'Própria', comQuemMora: 'Pais', internetDomicilio: true, refeicaoInstituicao: i === 1, povoIndigena: '' },
         enderecoJson: { cep: `7400${i}-000`, logradouro: `Rua ${i + 1}`, numero: `${100 + i}`, bairro: 'Centro', complemento: i === 0 ? 'Apto 2' : '', municipio: 'Goiânia', uf: 'GO', zona: 'Urbana', telResidencial: `623200000${i}`, telCelular: `6299999000${i}`, emailAlternativo: '' },
@@ -168,7 +170,7 @@ async function main() {
   // ── F14 Docente / RH ──
   try {
     if (professor) {
-      const doc = await prisma.acaDocente.upsert({ where: { userId: professor.id }, create: { userId: professor.id, titulacao: 'Mestre', regime: 'HORISTA', valorHoraCentavos: 6000, observacao: '[DEMO] docente exemplo' }, update: { observacao: '[DEMO] docente exemplo' } })
+      const doc = await prisma.acaDocente.upsert({ where: { userId: professor.id }, create: { userId: professor.id, titulacao: 'Mestre', regime: 'HORISTA', valorHoraCentavos: 6000, orientador: true, observacao: '[DEMO] docente exemplo', dadosJson: { contaBancaria: '001 / 1234 / 56789-0', tipoProfessor: 'Titular', registroEstadual: 'RE-987654', departamento: 'Agrimensura', credenciadoPos: true, ctps: '1234567 / 0001', qualificacao: 'Especialização em Geodésia' } }, update: { orientador: true, observacao: '[DEMO] docente exemplo', dadosJson: { contaBancaria: '001 / 1234 / 56789-0', tipoProfessor: 'Titular', departamento: 'Agrimensura', credenciadoPos: true } } })
       const tAula = await prisma.acaTipoAtividadeDocente.create({ data: { nome: 'DEMO Aula', fatorHora: 1 } })
       const tPrep = await prisma.acaTipoAtividadeDocente.create({ data: { nome: 'DEMO Preparação', fatorHora: 0.5 } })
       const comp = new Date().toISOString().slice(0, 7)
@@ -232,7 +234,14 @@ async function main() {
 
   // ── F7 Centrais (responsável + coordenador) ──
   try {
-    if (ativos[0]) await prisma.acaResponsavel.create({ data: { alunoId: ativos[0].alunoId, nome: 'Maria (mãe) — demo', parentesco: 'Mãe', tipo: 'FINANCEIRO', telefone: '5562999990000', email: 'resp.demo@exemplo.test' } })
+    if (ativos[0]) {
+      await prisma.acaResponsavel.deleteMany({ where: { alunoId: ativos[0].alunoId } })
+      await prisma.acaResponsavel.createMany({ data: [
+        { alunoId: ativos[0].alunoId, nome: 'Maria da Silva (mãe)', parentesco: 'Mãe', tipo: 'CONTRATO', telefone: '5562999990000', email: 'maria.demo@exemplo.test' },
+        { alunoId: ativos[0].alunoId, nome: 'João da Silva (pai)', parentesco: 'Pai', tipo: 'FINANCEIRO', telefone: '5562999990001' },
+        { alunoId: ativos[0].alunoId, nome: 'Avó Joana', parentesco: 'Avó', tipo: 'FAMILIAR', telefone: '5562999990002' },
+      ] })
+    }
     const off = turma.courseOfferingId ? await prisma.courseOffering.findUnique({ where: { id: turma.courseOfferingId }, select: { courseId: true } }) : null
     if (off) await prisma.acaCoordenador.create({ data: { courseId: off.courseId, nome: 'DEMO Coordenador do Curso', email: 'coord.demo@exemplo.test' } })
     log('✓ F7 centrais (responsável + coordenador)')

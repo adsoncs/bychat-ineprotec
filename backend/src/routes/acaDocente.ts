@@ -43,8 +43,17 @@ export async function acaDocenteRoutes(app: FastifyInstance) {
     if ('regime' in b && ['HORISTA', 'PARCIAL', 'INTEGRAL'].includes(b.regime)) data.regime = b.regime
     if ('valorHoraCentavos' in b) data.valorHoraCentavos = Math.max(0, Number(b.valorHoraCentavos) || 0)
     if ('ativo' in b) data.ativo = !!b.ativo
+    if ('orientador' in b) data.orientador = !!b.orientador
     if ('observacao' in b) data.observacao = b.observacao || null
+    if ('dadosJson' in b) data.dadosJson = b.dadosJson ?? null
     return { docente: await prisma.acaDocente.update({ where: { id }, data }) }
+  })
+  // ── GET /docentes/:id — ficha do professor ──
+  app.get('/api/admin/aca/docente/docentes/:id', { preHandler: authMiddleware }, async (req, reply) => {
+    const d = await prisma.acaDocente.findUnique({ where: { id: Number((req.params as any).id) } })
+    if (!d) return reply.code(404).send({ error: 'Docente não encontrado' })
+    const u = await prisma.user.findUnique({ where: { id: d.userId }, select: { name: true, email: true } })
+    return { docente: { ...d, nome: u?.name ?? `User #${d.userId}`, email: u?.email ?? null } }
   })
 
   // ── Tipos de atividade ──

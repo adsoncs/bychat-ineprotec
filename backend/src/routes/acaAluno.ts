@@ -112,12 +112,16 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
     if ('dataNascimento' in b) data.dataNascimento = b.dataNascimento ? new Date(b.dataNascimento) : null
     if ('ativo' in b) data.ativo = !!b.ativo
     // F23 — ficha completa: colunas consultáveis
-    for (const k of ['rg', 'rgOrgaoEmissor', 'racaCor', 'nacionalidade', 'naturalidade', 'estadoCivil', 'religiao', 'nomePai', 'nomeMae', 'codigoInep']) if (k in b) data[k] = b[k] || null
+    for (const k of ['rg', 'rgOrgaoEmissor', 'racaCor', 'nacionalidade', 'naturalidade', 'estadoCivil', 'religiao', 'nomePai', 'nomeMae', 'codigoInep', 'codigoGdae', 'enemInscricao']) if (k in b) data[k] = b[k] || null
     if ('emancipado' in b) data.emancipado = !!b.emancipado
-    // JSON (documentos / sócio-econômico / endereço & contatos) — substitui o objeto
+    if ('podeSairSozinho' in b) data.podeSairSozinho = !!b.podeSairSozinho
+    if ('enemAno' in b) data.enemAno = b.enemAno ? Number(b.enemAno) : null
+    if ('enemNota' in b) data.enemNota = b.enemNota != null && b.enemNota !== '' ? Number(b.enemNota) : null
+    // JSON (documentos / sócio-econômico / endereço / pessoas autorizadas) — substitui o objeto
     if ('documentosJson' in b) data.documentosJson = b.documentosJson ?? null
     if ('socioEconomicoJson' in b) data.socioEconomicoJson = b.socioEconomicoJson ?? null
     if ('enderecoJson' in b) data.enderecoJson = b.enderecoJson ?? null
+    if ('pessoasAutorizadasJson' in b) data.pessoasAutorizadasJson = b.pessoasAutorizadasJson ?? null
     if (Object.keys(data).length === 0) return { ok: true }
     const aluno = await prisma.aluno.update({ where: { id }, data, select: ALUNO_SELECT })
     return { aluno }
@@ -138,11 +142,19 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
       })
       for (const a of alunos) pessoas.push({ papel: 'ALUNO', nome: a.lead.nome, documento: a.cpf, ra: a.ra, email: a.lead.email, alunoId: a.id, refId: a.id, ativo: a.ativo })
     }
-    if (!papel || papel === 'PROFESSOR') {
-      const docs = await prisma.acaDocente.findMany({ select: { id: true, userId: true, titulacao: true, ativo: true }, take: 200 })
+    if (!papel || papel === 'PROFESSOR' || papel === 'ORIENTADOR') {
+      const where: any = {}
+      if (papel === 'ORIENTADOR') where.orientador = true
+      const docs = await prisma.acaDocente.findMany({ where, select: { id: true, userId: true, titulacao: true, ativo: true, orientador: true }, take: 200 })
       const users = docs.length ? await prisma.user.findMany({ where: { id: { in: docs.map((d) => d.userId) } }, select: { id: true, name: true, email: true } }) : []
       const uMap = new Map(users.map((u) => [u.id, u]))
-      for (const d of docs) { const u = uMap.get(d.userId); if (q && !(u?.name || '').toLowerCase().includes(q.toLowerCase())) continue; pessoas.push({ papel: 'PROFESSOR', nome: u?.name ?? `User #${d.userId}`, documento: null, email: u?.email ?? null, refId: d.id, ativo: d.ativo, extra: d.titulacao }) }
+      for (const d of docs) {
+        const u = uMap.get(d.userId)
+        if (q && !(u?.name || '').toLowerCase().includes(q.toLowerCase())) continue
+        const base = { nome: u?.name ?? `User #${d.userId}`, documento: null, email: u?.email ?? null, refId: d.id, ativo: d.ativo, extra: d.titulacao }
+        if ((!papel || papel === 'PROFESSOR')) pessoas.push({ papel: 'PROFESSOR', ...base })
+        if (d.orientador && (!papel || papel === 'ORIENTADOR')) pessoas.push({ papel: 'ORIENTADOR', ...base })
+      }
     }
     if (!papel || papel === 'COORDENADOR') {
       const coords = await prisma.acaCoordenador.findMany({ where: q ? { nome: like } : {}, select: { id: true, nome: true, email: true, ativo: true, courseId: true }, take: 200 })
@@ -165,11 +177,21 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
     const alunoId = Number((req.params as any).id)
     const b = (req.body as any) || {}
     if (!b.nome) return reply.code(400).send({ error: 'nome obrigatório' })
-    const tipo = ['FINANCEIRO', 'PEDAGOGICO', 'LEGAL'].includes(b.tipo) ? b.tipo : 'FINANCEIRO'
+    const tipo = ['FINANCEIRO', 'PEDAGOGICO', 'LEGAL', 'CONTRATO', 'FAMILIAR'].includes(b.tipo) ? b.tipo : 'FINANCEIRO'
     const responsavel = await prisma.acaResponsavel.create({
       data: { alunoId, nome: String(b.nome).slice(0, 191), cpf: b.cpf ?? null, parentesco: b.parentesco ?? null, tipo, telefone: b.telefone ?? null, email: b.email ?? null },
     })
     return reply.code(201).send({ responsavel })
+  })
+
+  // ── PUT /alunos/:id/responsaveis/:rid — edita responsável ──
+  app.put('/api/admin/aca/alunos/:id/responsaveis/:rid', { preHandler: authMiddleware }, async (req) => {
+    const rid = Number((req.params as any).rid); const b = (req.body as any) || {}
+    const data: any = {}
+    for (const k of ['nome', 'cpf', 'parentesco', 'telefone', 'email']) if (k in b) data[k] = b[k] || null
+    if ('tipo' in b && ['FINANCEIRO', 'PEDAGOGICO', 'LEGAL', 'CONTRATO', 'FAMILIAR'].includes(b.tipo)) data.tipo = b.tipo
+    if ('ativo' in b) data.ativo = !!b.ativo
+    return { responsavel: await prisma.acaResponsavel.update({ where: { id: rid }, data }) }
   })
 
   // ── DELETE /alunos/:id/responsaveis/:rid ──
