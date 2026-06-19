@@ -389,6 +389,25 @@ comunicação); credencial do device; QR renderizado como imagem.
 
 ---
 
+## Onda 6 · F19 — EAD / Ponte com LMS próprio — ✅ ENTREGUE (2026-06-19)
+
+Novo módulo `aca_ead` (`dependsOn: ['aca_pedagogico']`). **O LMS próprio (a construir) é o ponto
+de integração** — `AcaEadConfig.modo` SIMULADO (valida sem o LMS) | AO_VIVO (chamaria a API do LMS).
+Schema: AcaEadConfig, AcaEadTurma (turma EAD + CH), AcaEadMatricula (estado de sincronização),
+AcaEadNota (médias recebidas do LMS), AcaEadAcesso (acesso a aulas externas). `services/acaEad.ts`:
+`sincronizarTurmaEad` (matricula os alunos no LMS — SIMULADO grava vínculo local com ref `SIM-…`;
+AO_VIVO deixa PENDENTE p/ o LMS preencher), `receberNotasEad`. `routes/acaEad.ts`: config, turmas
+EAD (marcar/sincronizar/CH), turmas-disponíveis, matrículas (estado), notas (receber/listar — o LMS
+faz push), acessos. Frontend: página **EAD / LMS** (sidebar grupo Educacional, ícone Cloud) com
+abas Turmas EAD (marcar + sincronizar + ver matrículas) · Médias recebidas (push do LMS / manual) ·
+Configuração (nome/URL/modo do LMS). Smoke 11/11 com cleanup.
+
+**⚠️ Ponto de integração:** o LMS próprio. Estrutura e fluxo 100% prontos e testáveis em SIMULADO;
+quando o LMS existir, basta ligar o modo AO_VIVO e a API (criar curso, enrol, puxar notas). Alinha
+com a decisão estratégica de LMS nativo.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

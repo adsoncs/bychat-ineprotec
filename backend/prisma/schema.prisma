@@ -5658,6 +5658,56 @@ model AcaGedArquivo {
   @@map("bychat_aca_ged_arquivos")
 }
 
+// ── F19 — EAD / Ponte com LMS próprio (módulo aca_ead) ──
+// O LMS (próprio, a construir) é o ponto de integração. modo SIMULADO valida o
+// fluxo sem o LMS; AO_VIVO chamaria a API do LMS.
+model AcaEadConfig {
+  id        Int      @id @default(autoincrement())
+  lmsNome   String?  @db.VarChar(120)
+  lmsBaseUrl String? @db.VarChar(255)
+  modo      String   @db.VarChar(12) @default("SIMULADO") // SIMULADO | AO_VIVO
+  ativo     Boolean  @default(false)
+  updatedAt DateTime @updatedAt @default(now())
+  @@map("bychat_aca_ead_config")
+}
+model AcaEadTurma {
+  id        Int      @id @default(autoincrement())
+  turmaId   Int      @unique
+  chEad     Int      @default(0)
+  lmsRef    String?  @db.VarChar(80) // id/curso no LMS
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_ead_turmas")
+}
+model AcaEadMatricula {
+  id          Int      @id @default(autoincrement())
+  matriculaId Int      @unique
+  eadTurmaId  Int
+  lmsEnrollRef String? @db.VarChar(80)
+  status      String   @db.VarChar(14) @default("PENDENTE") // PENDENTE | SINCRONIZADA
+  syncedAt    DateTime?
+  @@index([eadTurmaId])
+  @@map("bychat_aca_ead_matriculas")
+}
+model AcaEadNota {
+  id          Int      @id @default(autoincrement())
+  matriculaId Int
+  disciplina  String   @db.VarChar(191)
+  nota        Float
+  origem      String   @db.VarChar(10) @default("LMS") // LMS | MANUAL
+  recebidaEm  DateTime @default(now())
+  @@index([matriculaId])
+  @@map("bychat_aca_ead_notas")
+}
+model AcaEadAcesso {
+  id          Int      @id @default(autoincrement())
+  matriculaId Int
+  recurso     String   @db.VarChar(191)
+  acessadoEm  DateTime @default(now())
+  @@index([matriculaId])
+  @@map("bychat_aca_ead_acessos")
+}
+
 // ── F16 — Controle de Acesso Físico (módulo aca_acesso) ──
 // A catraca/leitor físico é o ponto de integração: chama registrarAcesso com o
 // token do QR + ponto; a decisão (credencial válida + bloqueio + log) é nativa.

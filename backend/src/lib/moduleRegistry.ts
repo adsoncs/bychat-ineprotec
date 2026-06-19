@@ -287,6 +287,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
   {
+    id: 'aca_ead', name: 'EAD / LMS', icon: '🖥', category: 'educacional',
+    description: 'Ponte EAD com o LMS próprio (a construir): turmas EAD, sincronização de matrículas, recebimento de médias e registro de acesso. O LMS é o ponto de integração (modo simulado para validar sem ele).',
+    pages: ['acaEad'],
+    routePrefixes: ['/api/admin/aca/ead'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_pedagogico'],
+  },
+  {
     id: 'aca_docente', name: 'Docente / RH Acadêmico', icon: '👨‍🏫', category: 'educacional',
     description: 'Cadastro de docentes (titulação/regime/valor-hora), tipos de atividade com fator, atividades docentes mensais com cálculo de valores e aceite/disponibilidade de disciplinas.',
     pages: ['acaDocente'],

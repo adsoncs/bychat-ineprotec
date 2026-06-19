@@ -262,6 +262,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-conselho', label: 'Conselho de Classe', href: '/app/aca/conselho', icon: 'Gavel', permission: 'aca_pedagogico' },
         { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'aca_pedagogico' },
         { id: 'aca-docente', label: 'Docentes / RH', href: '/app/aca/docente', icon: 'School', permission: 'aca_docente' },
+        { id: 'aca-ead', label: 'EAD / LMS', href: '/app/aca/ead', icon: 'Cloud', permission: 'aca_ead' },
         { id: 'aca-alocacao', label: 'Alocação de Recursos', href: '/app/aca/alocacao', icon: 'MapPin', permission: 'aca_alocacao' },
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
         { id: 'edu-doc-review', label: 'Revisão de documentos', href: '/app/educational/doc-review', icon: 'ClipboardList', permission: 'educacional' },
