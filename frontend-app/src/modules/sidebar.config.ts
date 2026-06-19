@@ -282,6 +282,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-tcc', label: 'TCC', href: '/app/aca/tcc', icon: 'BookOpen', permission: 'aca_secretaria' },
         { id: 'aca-ged', label: 'GED (Documentos)', href: '/app/aca/ged', icon: 'FileCheck2', permission: 'aca_ged' },
         { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
+        { id: 'aca-diploma', label: 'Diploma Digital', href: '/app/aca/diploma', icon: 'ShieldCheck', permission: 'aca_diploma' },
         { id: 'aca-portais-plus', label: 'Centrais (Resp./Ex-aluno)', href: '/app/aca/portais', icon: 'Key', permission: 'aca_portais_plus' },
         { id: 'aca-comunicacao', label: 'Comunicação', href: '/app/aca/comunicacao', icon: 'MessageSquare', permission: 'aca_comunicacao' },
       ],

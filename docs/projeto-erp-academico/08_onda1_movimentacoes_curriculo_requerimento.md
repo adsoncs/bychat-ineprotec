@@ -353,6 +353,24 @@ auxiliares (grupo Cadastros), TCC + GED (grupo Educacional). Smoke 10/10 com cle
 
 ---
 
+## Onda 6 · F17 — Diploma Digital MEC — ✅ ENTREGUE (2026-06-19)
+
+Novo módulo `aca_diploma` (`dependsOn: ['aca_secretaria']`). Schema: enum AcaDiplomaStatus
+(RASCUNHO→XML_GERADO→ASSINADO→REGISTRADO / ANULADO) + AcaDiploma (matrícula, número/livro/folha,
+XML, código de validação, assinaturaInfo) + AcaDiplomaConfig (IES emissora/registradora, reitor,
+provedor de assinatura). `services/acaDiploma.ts`: `gerarXmlDiploma` (XML padrão MEC a partir de
+aluno+curso+histórico+config, gera código de validação), `assinarDiploma` (**ponto de integração
+ICP-Brasil** — recebe/registra a assinatura), `registrarDiploma`, `anularDiploma`, `validarPorCodigo`.
+`routes/acaDiploma.ts`: config, lista de concluintes, ciclo (criar/xml/assinar/registrar/anular),
+download do XML, **validação pública** (`/diploma/validar?codigo=` SSR + JSON). Frontend: página
+**Diploma Digital** (sidebar grupo Educacional, ícone ShieldCheck) com config da IES + lista de
+concluintes com ações por etapa + link público de validação. Smoke 12/12 com cleanup.
+
+**⚠️ Pontos de integração:** assinatura ICP-Brasil (A1/A3 ou provedor — XMLDSig real é externo) e
+o XSD oficial do MEC (versionado por ano). Estrutura e fluxo 100% prontos; falta plugar o assinador.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

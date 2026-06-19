@@ -5658,6 +5658,51 @@ model AcaGedArquivo {
   @@map("bychat_aca_ged_arquivos")
 }
 
+// ── F17 — Diploma Digital MEC (módulo aca_diploma) ──
+// Estrutura do diploma digital + ponto de integração de assinatura ICP-Brasil.
+enum AcaDiplomaStatus {
+  RASCUNHO
+  XML_GERADO
+  ASSINADO
+  REGISTRADO
+  ANULADO
+}
+model AcaDiploma {
+  id              Int      @id @default(autoincrement())
+  matriculaId     Int      @unique
+  alunoId         Int
+  numero          String?  @db.VarChar(40)
+  livro           String?  @db.VarChar(20)
+  folha           String?  @db.VarChar(20)
+  status          AcaDiplomaStatus @default(RASCUNHO)
+  dataColacao     DateTime?
+  dataEmissao     DateTime?
+  cargaHoraria    Int      @default(0)
+  xmlDiplomado    String?  @db.LongText // XML do diploma (padrão MEC)
+  assinaturaInfo  String?  @db.Text     // ponto de integração: dados da assinatura ICP-Brasil
+  codigoValidacao String?  @unique @db.VarChar(40)
+  motivoAnulacao  String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@index([alunoId])
+  @@map("bychat_aca_diplomas")
+}
+model AcaDiplomaConfig {
+  id                Int     @id @default(autoincrement())
+  iesEmissora       String? @db.VarChar(191)
+  cnpjEmissora      String? @db.VarChar(20)
+  codigoMecEmissora String? @db.VarChar(20)
+  iesRegistradora   String? @db.VarChar(191)
+  codigoMecRegistradora String? @db.VarChar(20)
+  reitor            String? @db.VarChar(191)
+  secretario        String? @db.VarChar(191)
+  // ponto de integração da assinatura: provedor/certificado (sem segredo aqui)
+  provedorAssinatura String? @db.VarChar(60) // ex.: A1-local | A3-token | provedor-externo
+  ativo             Boolean @default(false)
+  updatedAt         DateTime @updatedAt @default(now())
+  @@map("bychat_aca_diploma_config")
+}
+
 // ── F22 — TCC (estende aca_secretaria) ──
 model AcaTcc {
   id               Int      @id @default(autoincrement())

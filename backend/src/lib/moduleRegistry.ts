@@ -307,6 +307,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['educacional'],
   },
   {
+    id: 'aca_diploma', name: 'Diploma Digital (MEC)', icon: '🎓', category: 'educacional',
+    description: 'Diploma digital no padrão MEC: geração do XML, assinatura ICP-Brasil (ponto de integração), registro, anulação e validação pública por código.',
+    pages: ['acaDiploma'],
+    routePrefixes: ['/api/admin/aca/diploma'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
+  },
+  {
     id: 'aca_ged', name: 'GED (Documentos do Aluno)', icon: '🗄', category: 'educacional',
     description: 'Gestão eletrônica de documentos do aluno (GED): anexar por link, classificar por tipo e conferir (recebido/conferido/pendente).',
     pages: ['acaGed'],
