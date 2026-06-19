@@ -5518,6 +5518,48 @@ model AcaDocenteAceite {
   @@map("bychat_aca_docente_aceites")
 }
 
+// ── F12 — Inscrição Avançada (estende aca_vestibular) ──
+model AcaGrupoInscricao {
+  id                 Int      @id @default(autoincrement())
+  selectionProcessId Int
+  nome               String   @db.VarChar(120)
+  ordem              Int      @default(0)
+  ativo              Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  @@index([selectionProcessId])
+  @@map("bychat_aca_grupos_inscricao")
+}
+model AcaMotivoCancelamento {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_motivos_cancelamento")
+}
+model AcaInscricaoEmpresa {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(191)
+  cnpj      String?  @db.VarChar(20)
+  contato   String?  @db.VarChar(191)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_inscricao_empresas")
+}
+// Atributos extras por inscrição (ProcessRegistration scalar): grupo, empresa,
+// como conheceu. 1 linha por inscrição.
+model AcaInscricaoExtra {
+  id                    Int      @id @default(autoincrement())
+  processRegistrationId Int      @unique
+  grupoId               Int?
+  empresaId             Int?
+  comoConheceu          String?  @db.VarChar(120)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  @@index([grupoId])
+  @@index([empresaId])
+  @@map("bychat_aca_inscricao_extra")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

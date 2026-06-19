@@ -29,5 +29,26 @@ export function useVestibularMut() {
     criarSala: useMutation({ mutationFn: (b: any) => api.post(`${base}/salas`, b), onSuccess: () => inval('aca-vest-salas') }),
     delSala: useMutation({ mutationFn: (id: number) => api.delete(`${base}/salas/${id}`), onSuccess: () => inval('aca-vest-salas', 'aca-vest-cand') }),
     ensalar: useMutation({ mutationFn: (b: { selectionProcessId: number }) => api.post<{ alocados: number; semSala: number }>(`${base}/ensalar`, b), onSuccess: () => inval('aca-vest-cand') }),
+    // F12 — inscrição avançada
+    criarGrupo: useMutation({ mutationFn: (b: any) => api.post(`${base}/grupos`, b), onSuccess: () => inval('aca-vest-grupos') }),
+    delGrupo: useMutation({ mutationFn: (id: number) => api.delete(`${base}/grupos/${id}`), onSuccess: () => inval('aca-vest-grupos', 'aca-vest-extras') }),
+    criarMotivo: useMutation({ mutationFn: (b: any) => api.post(`${base}/motivos-cancelamento`, b), onSuccess: () => inval('aca-vest-motivos') }),
+    criarEmpresa: useMutation({ mutationFn: (b: any) => api.post(`${base}/empresas`, b), onSuccess: () => inval('aca-vest-empresas') }),
+    setExtra: useMutation({ mutationFn: ({ regId, ...b }: any) => api.put(`${base}/inscricoes/${regId}/extra`, b), onSuccess: () => inval('aca-vest-extras') }),
+    cancelarInscricao: useMutation({ mutationFn: ({ regId, motivoId }: { regId: number; motivoId?: number }) => api.post(`${base}/inscricoes/${regId}/cancelar`, { motivoId }), onSuccess: () => inval('aca-vest-cand') }),
   }
 }
+
+export interface GrupoInsc { id: number; selectionProcessId: number; nome: string; ordem: number; ativo: boolean }
+export interface MotivoCanc { id: number; nome: string; ativo: boolean }
+export interface EmpresaInsc { id: number; nome: string; cnpj: string | null; contato: string | null; ativo: boolean }
+export interface ExtraInsc { grupoId: number | null; grupoNome: string | null; empresaId: number | null; empresaNome: string | null; comoConheceu: string | null }
+
+export const useGruposInsc = (processoId: number | null) =>
+  useQuery({ queryKey: ['aca-vest-grupos', processoId], queryFn: () => api.get<{ grupos: GrupoInsc[] }>(`${base}/grupos?processoId=${processoId}`), enabled: processoId !== null, staleTime: 10_000 })
+export const useMotivosCanc = () =>
+  useQuery({ queryKey: ['aca-vest-motivos'], queryFn: () => api.get<{ motivos: MotivoCanc[] }>(`${base}/motivos-cancelamento`), staleTime: 30_000 })
+export const useEmpresasInsc = () =>
+  useQuery({ queryKey: ['aca-vest-empresas'], queryFn: () => api.get<{ empresas: EmpresaInsc[] }>(`${base}/empresas`), staleTime: 30_000 })
+export const useExtrasInsc = (processoId: number | null) =>
+  useQuery({ queryKey: ['aca-vest-extras', processoId], queryFn: () => api.get<{ extras: Record<number, ExtraInsc> }>(`${base}/processos/${processoId}/extras`), enabled: processoId !== null, staleTime: 5_000 })

@@ -282,6 +282,24 @@ diário→atividade (hoje as horas são lançadas manualmente).
 
 ---
 
+## Onda 5 · F12 — Inscrição Avançada — ✅ ENTREGUE (2026-06-18) · estende `aca_vestibular`
+
+Sem módulo novo (entra no `aca_vestibular`). Schema: AcaGrupoInscricao (por processo),
+AcaMotivoCancelamento, AcaInscricaoEmpresa, AcaInscricaoExtra (1 linha/inscrição: grupo + empresa
++ "como conheceu"; processRegistrationId scalar). Rotas adicionadas em `acaVestibular.ts`:
+grupos CRUD, motivos CRUD, empresas CRUD, `PUT /inscricoes/:regId/extra` (atributos), `POST
+/inscricoes/:regId/cancelar` (→ ProcessRegistration status `desistente` + observação com o motivo),
+`GET /processos/:id/extras` (mapa enriquecido). Frontend: **4ª aba "Inscrição"** na página Processo
+Seletivo — cadastros (grupos/motivos/empresas) + lista de candidatos com atribuição de grupo/empresa
+e cancelamento com motivo. Smoke 8/8 com cleanup.
+
+**⚠️ Validação SQL NÃO implementada** (de propósito): executar SQL arbitrário do admin é risco de
+segurança (injeção/escalonamento). Substituível por regras estruturadas no futuro, se necessário.
+**Pendência F12:** inscrição em lote por empresa (hoje vincula 1 a 1); "como conheceu" como
+relatório/cadastro; configurações de inscrição (taxa/prazos) já vivem no SelectionProcess.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
