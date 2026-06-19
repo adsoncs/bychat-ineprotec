@@ -4858,6 +4858,17 @@ enum AcaIntegracaoStatus {
   SUCESSO
   ERRO
 }
+enum AcaMovimentacaoTipo {
+  TRANCAMENTO
+  REINGRESSO
+  AFASTAMENTO
+  TRANSFERENCIA_INTERNA
+  TRANSFERENCIA_EXTERNA
+  REMANEJAMENTO
+  RECLASSIFICACAO
+  CANCELAMENTO
+  EVASAO
+}
 
 model Aluno {
   id             Int      @id @default(autoincrement())
@@ -5028,6 +5039,35 @@ model AcaMatriculaEvento {
   matricula   AcaMatricula @relation(fields: [matriculaId], references: [id], onDelete: Cascade)
   @@index([matriculaId])
   @@map("bychat_aca_matricula_eventos")
+}
+
+// F5 — Movimentações Acadêmicas. Registro formal (auditável) de cada movimentação
+// da vida do aluno (trancamento, transferência, remanejamento, cancelamento…),
+// distinto do simples AcaMatriculaEvento (que só anota a troca de status).
+// FKs cross-módulo são SCALAR Int sem @relation (convenção do ERP nativo) — o
+// enriquecimento (aluno/turma) é feito na rota por busca explícita.
+model AcaMovimentacao {
+  id                  Int      @id @default(autoincrement())
+  matriculaId         Int
+  alunoId             Int
+  tipo                AcaMovimentacaoTipo
+  statusDe            String?  @db.VarChar(20)
+  statusPara          String?  @db.VarChar(20)
+  turmaDestinoId      Int?     // transferência interna / remanejamento
+  matriculaDestinoId  Int?     // matrícula criada no destino (transf. interna)
+  instituicaoDestino  String?  @db.VarChar(191) // transferência externa
+  motivo              String?  @db.Text
+  dataEfeito          DateTime @default(now())
+  dataRetornoPrevista DateTime? // trancamento / afastamento
+  protocolo           String?  @db.VarChar(30)
+  anexoUrl            String?  @db.Text
+  userId              Int?
+  createdAt           DateTime @default(now())
+
+  @@index([matriculaId])
+  @@index([alunoId])
+  @@index([tipo])
+  @@map("bychat_aca_movimentacoes")
 }
 
 model AcaPlanoPagamento {

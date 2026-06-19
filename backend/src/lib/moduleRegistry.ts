@@ -211,6 +211,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_estrutura'],
   },
   {
+    id: 'aca_movimentacoes', name: 'Movimentações Acadêmicas', icon: '🔁', category: 'educacional',
+    description: 'Trancamento, afastamento, transferência (interna/externa), remanejamento, reclassificação, cancelamento e reingresso — com registro auditável e processo de "atualiza situações" em lote (alunos sem rematrícula → evadidos).',
+    pages: ['acaMovimentacoes'],
+    routePrefixes: ['/api/admin/aca/movimentacoes'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
     id: 'aca_financeiro', name: 'Financeiro Acadêmico', icon: '💳', category: 'educacional',
     description: 'Mensalidades/contratos (Asaas), central financeira, encargos (juros/multa/desconto), renegociação, bloqueio acadêmico, recibos e controle de NFS-e.',
     pages: ['acaFinanceiro'],

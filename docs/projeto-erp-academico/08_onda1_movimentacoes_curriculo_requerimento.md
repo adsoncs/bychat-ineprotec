@@ -1,0 +1,114 @@
+# 08 — Onda 1 (F5 + F6 + F8) · Playbook executável
+
+> Detalha a **Onda 1** do plano `07_gap_analise_mentorweb.md`: completar o acadêmico
+> operacional. Mesmo rito do `06_`: schema aditivo → backend (Fastify+Zod) → smoke
+> (JWT forjado+curl) → frontend (Preact + `npx vite build`) → módulo/sidebar/gate → commit.
+> Convenções: tabelas `bychat_aca_*`, ids `Int`, centavos `Int`, FKs cross-módulo SCALAR
+> sem `@relation`, `prisma db push`. Backend porta 3102 (tsx via pm2). **Gate de módulo
+> bloqueia com 404 quando o módulo está desativado** — ligar o sub-módulo no `bychat_modules`
+> faz parte da entrega (via `setModuleEnabled`).
+
+---
+
+## F5 · Movimentações Acadêmicas — ✅ ENTREGUE (2026-06-18)
+
+Módulo `aca_movimentacoes` (`dependsOn: ['aca_matriculas']`, sidebar grupo Educacional,
+item **Movimentações** ícone `Repeat`).
+
+**Schema** (`db push` aplicado): enum `AcaMovimentacaoTipo` (TRANCAMENTO/REINGRESSO/AFASTAMENTO/
+TRANSFERENCIA_INTERNA/TRANSFERENCIA_EXTERNA/REMANEJAMENTO/RECLASSIFICACAO/CANCELAMENTO/EVASAO)
++ model `AcaMovimentacao` (`bychat_aca_movimentacoes`): matriculaId, alunoId, tipo, statusDe/Para,
+turmaDestinoId, matriculaDestinoId, instituicaoDestino, motivo, dataEfeito, dataRetornoPrevista,
+protocolo, anexoUrl, userId. FKs scalar (enriquecimento por busca na rota).
+
+**Backend**: `services/acaMovimentacao.ts` (regras: valida transição + troca status + trilha
+`AcaMatriculaEvento` + registro `AcaMovimentacao` em transação) e `routes/acaMovimentacao.ts`
+(`/api/admin/aca/movimentacoes`):
+- POST `/trancamento` `/reingresso` `/afastamento` `/cancelamento` `/evasao`
+- POST `/transferencia-externa` (institução destino) e `/transferencia-interna` (fecha origem
+  TRANSFERIDO + cria nova matrícula MATRICULADO na turma destino; flag `remanejamento`)
+- GET `/` (histórico + counters por tipo, enriquecido com aluno/turma)
+- GET `/sem-rematricula` (matriculados/trancados em período encerrado sem matrícula vigente)
+- POST `/atualiza-situacoes` (`dryRun` lista; senão evade os candidatos)
+- GET `/turmas-destino` (apoio aos modais)
+
+**Frontend**: `hooks/useAcaMovimentacao.ts` + `pages/AcademicoMovimentacoesPage.tsx`
+(seleciona matrícula → ações por status via modal; histórico com filtro por tipo; card
+"Alunos sem rematrícula" com preview + evasão em lote). Router + sidebar + ícone `Repeat`.
+
+**Smoke**: 14/14 OK (trancar→reingressar restaura, afastar mantém status, transição inválida
+→409, transferência interna cria destino + fecha origem, listas/lote) com **cleanup total**
+(piloto volta a 0 movimentações; matrícula alvo restaurada).
+
+**Pendências F5**: gravar `protocolo` (sequencial MOV-AAAA-NNNN) e `anexoUrl`; expor ação de
+movimentação também no detalhe da Matrícula; reclassificação (mudança de fase) ainda não tem UI.
+
+---
+
+## F6 · Currículo Avançado — estende `aca_estrutura`
+
+Sem módulo novo (entra no `aca_estrutura` já existente; só telas/rotas aditivas).
+
+**Schema (aditivo):**
+- `AcaEquivalencia` (`bychat_aca_equivalencias`): componenteId, componenteEquivalenteId,
+  bidirecional Bool, observacao — equivalência entre disciplinas/componentes.
+- `AcaAproveitamento` (`bychat_aca_aproveitamentos`): matriculaId, componenteId, origem
+  (INTERNO/EXTERNO/SUFICIENCIA), instituicaoOrigem, cargaHorariaAproveitada, nota, status
+  (SOLICITADO/DEFERIDO/INDEFERIDO), documentoId — aproveitamento de estudos / dispensa.
+- `AcaDependencia` (`bychat_aca_dependencias`): matriculaId, componenteId, tipo
+  (DEPENDENCIA/ADAPTACAO), turmaId?, situacao — controle de DP/adaptação.
+- Cadastros auxiliares: `AcaDepartamento`, `AcaCentroCurso`, `AcaTipoCurso` (cadastros leves
+  sob `Course`); `AcaSubturma` (turmaId, nome, vagas) para desmembrar turma grande.
+
+**Backend** (`routes/acaCurriculo.ts`, prefixo `/api/admin/aca/curriculo`):
+- CRUD equivalências; CRUD/deferimento de aproveitamento (ao deferir, marca o componente como
+  cumprido no histórico — integra `acaDocumentos.montarHistorico`); CRUD dependências.
+- `GET /grade/:matriculaId` — grade do aluno com status por componente (cumprido/cursando/
+  pendente/dependência/aproveitado), reusando matriz + resultados.
+- Validação de matrícula por fase/pré-requisito (reusa `AcaPreRequisito`): `GET /validar/:matriculaId`.
+
+**Frontend**: aba "Currículo" na `AcademicoEstruturaPage` (equivalências + departamentos/centros/
+tipos) e painel "Aproveitamento & DP" no detalhe da matrícula (solicitar/deferir aproveitamento,
+lançar DP). **Pronto quando:** secretaria registra um aproveitamento que dispensa um componente e
+ele aparece como "aproveitado" no histórico; cria uma equivalência usada na validação de grade.
+
+**Esforço:** G. **Risco:** médio (toca no cálculo de histórico — testar com 1 aluno real).
+
+---
+
+## F8 · Requerimento & Secretaria Avançada — estende `aca_secretaria`
+
+Evolui o requerimento atual (`AcaRequerimento`/`AcaRequerimentoTipo`) para fluxo configurável,
+reusando o motor de estados/SLA do **Helpdesk**.
+
+**Schema (aditivo):**
+- `AcaRequerimentoCategoria` (agrupa tipos) + campos novos em `AcaRequerimentoTipo`:
+  `fluxoJson` (etapas/estados customizados), `deferimentoAutomatico` Bool, `custoCentavos`
+  (gera parcela ao deferir), `processoAuto` (chave de processo de sistema), `restricaoJson`
+  (quem pode solicitar), `camposJson` (campos personalizados do formulário).
+- `AcaRequerimentoTramite` (`bychat_aca_requerimento_tramites`): requerimentoId, deUserId,
+  paraUserId/paraTeamId, estado, comentario, createdAt — trâmites entre setores/professor.
+
+**Backend** (estende `routes/acaRequerimento.ts`):
+- CRUD de categorias; editor de tipo com fluxo/campos/custo/restrição.
+- `POST /:id/tramitar` (encaminha a setor/professor, grava trâmite + notifica via ByChat).
+- Deferimento: se `custoCentavos>0` gera `AcaParcela` (tipo TAXA) no contrato do aluno; se
+  `deferimentoAutomatico`, resolve na criação; se `processoAuto`, dispara o processo mapeado.
+- Restrições: valida elegibilidade do solicitante na abertura (no portal e no admin).
+
+**Frontend**: editor de tipos de requerimento (categorias + fluxo + campos + custo) na
+`AcademicoRequerimentosPage`; timeline de trâmites no detalhe; no Portal do Aluno, formulário
+com campos personalizados + restrição. **Pronto quando:** um requerimento com custo gera a taxa
+no financeiro ao deferir, e um requerimento tramita ao professor e volta para conclusão.
+
+**Esforço:** M. **Reuso:** alto (Helpdesk: estados/SLA/timeline; financeiro: geração de parcela).
+
+---
+
+## Ordem e checkpoints da Onda 1
+1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
+2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
+3. **F6** (maior, toca histórico — rodar com 1 aluno real antes de confiar).
+
+> Cada fase é um checkpoint: smoke verde + validação humana da tela antes da próxima
+> (regra `feedback_bychat_migration_per_screen`).

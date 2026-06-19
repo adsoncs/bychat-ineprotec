@@ -256,6 +256,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
         { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'aca_matriculas' },
+        { id: 'aca-movimentacoes', label: 'Movimentações', href: '/app/aca/movimentacoes', icon: 'Repeat', permission: 'aca_movimentacoes' },
         { id: 'aca-diario', label: 'Diário de Classe', href: '/app/aca/diario', icon: 'BookOpen', permission: 'aca_pedagogico' },
         { id: 'aca-conselho', label: 'Conselho de Classe', href: '/app/aca/conselho', icon: 'Gavel', permission: 'aca_pedagogico' },
         { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'aca_pedagogico' },
