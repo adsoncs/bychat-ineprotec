@@ -242,6 +242,26 @@ chamadas e bolsa social; geração de PDF do mapa de sala/lista de classificados
 
 ---
 
+## Onda 4 · F13 — Avaliação Institucional / CPA — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_avaliacao_institucional` (`dependsOn: ['educacional']`). Schema: enums
+AcaAvalPublico/AcaAvalStatus/AcaPerguntaTipo + models **AcaAvaliacaoInst** (renomeado p/ não
+colidir com a AcaAvaliacao de notas do P6), AcaAvalDimensao, AcaAvalPergunta, AcaAvalResposta.
+`routes/acaAvaliacaoInst.ts` (`/api/admin/aca/avaliacao-inst`): CRUD avaliações + dimensões +
+perguntas (escala/NPS/texto/sim-não); abrir/encerrar; geração de **link público** (magic-link
+kind `aca-aval`); **resultado** (média por pergunta/dimensão, **NPS** = %promotores[9-10] −
+%detratores[0-6], %sim, respostas de texto, participação = sessões distintas). Aplicação por
+**formulário SSR público** (`GET /aval?t=` + `POST /api/public/aca/aval/responder`), anônimo,
+1 sessaoId por envio. Frontend: página **Avaliação Institucional (CPA)** (sidebar grupo
+Relatórios, ícone BarChart3): lista → builder de dimensões/perguntas + abrir/encerrar/link +
+dashboard de resultados. Smoke 15/15 com cleanup (NPS/médias/participação conferidos).
+
+**Pendência F13:** responder direto pelas centrais (aluno/professor) além do link público;
+agendamento de cálculo de resultado; segmentação de participação por turma/curso; exportação
+do relatório CPA em PDF; indicadores/metas por dimensão.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

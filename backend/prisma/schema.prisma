@@ -5374,6 +5374,72 @@ model AcaProcessoEnsalamento {
   @@map("bychat_aca_proc_ensalamento")
 }
 
+// ── F13 — Avaliação Institucional / CPA (depende: educacional) ──
+enum AcaAvalPublico {
+  ALUNO
+  PROFESSOR
+  TODOS
+}
+enum AcaAvalStatus {
+  RASCUNHO
+  ABERTA
+  ENCERRADA
+}
+enum AcaPerguntaTipo {
+  ESCALA
+  NPS
+  TEXTO
+  SIMNAO
+}
+
+model AcaAvaliacaoInst {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(191)
+  descricao String?  @db.Text
+  publico   AcaAvalPublico @default(TODOS)
+  status    AcaAvalStatus  @default(RASCUNHO)
+  anonima   Boolean  @default(true)
+  inicio    DateTime?
+  fim       DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  dimensoes AcaAvalDimensao[]
+  @@map("bychat_aca_avaliacoes_inst")
+}
+model AcaAvalDimensao {
+  id          Int      @id @default(autoincrement())
+  avaliacaoId Int
+  nome        String   @db.VarChar(191)
+  ordem       Int      @default(0)
+  avaliacao   AcaAvaliacaoInst @relation(fields: [avaliacaoId], references: [id], onDelete: Cascade)
+  perguntas   AcaAvalPergunta[]
+  @@index([avaliacaoId])
+  @@map("bychat_aca_aval_dimensoes")
+}
+model AcaAvalPergunta {
+  id         Int      @id @default(autoincrement())
+  dimensaoId Int
+  tipo       AcaPerguntaTipo @default(ESCALA)
+  enunciado  String   @db.Text
+  ordem      Int      @default(0)
+  dimensao   AcaAvalDimensao @relation(fields: [dimensaoId], references: [id], onDelete: Cascade)
+  @@index([dimensaoId])
+  @@map("bychat_aca_aval_perguntas")
+}
+model AcaAvalResposta {
+  id          Int      @id @default(autoincrement())
+  avaliacaoId Int
+  perguntaId  Int
+  sessaoId    String   @db.VarChar(40) // agrupa as respostas de um respondente
+  valor       Int?     // ESCALA(1-5) / NPS(0-10) / SIMNAO(0|1)
+  texto       String?  @db.Text
+  origem      String?  @db.VarChar(20) // aluno | professor
+  createdAt   DateTime @default(now())
+  @@index([avaliacaoId])
+  @@index([perguntaId])
+  @@map("bychat_aca_aval_respostas")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

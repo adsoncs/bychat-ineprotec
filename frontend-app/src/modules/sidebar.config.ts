@@ -308,6 +308,7 @@ export const sidebarSchema: SidebarSchema = {
       label: 'Relatórios acadêmicos',
       items: [
         { id: 'aca-bi', label: 'Indicadores (BI)', href: '/app/aca/bi', icon: 'BarChart3', permission: 'aca_relatorios' },
+        { id: 'aca-avaliacao-inst', label: 'Avaliação Institucional (CPA)', href: '/app/aca/avaliacao-inst', icon: 'BarChart3', permission: 'aca_avaliacao_institucional' },
         { id: 'aca-sistec', label: 'Censo / SISTEC', href: '/app/aca/sistec', icon: 'Database', permission: 'aca_relatorios' },
       ],
       initiallyCollapsed: true,

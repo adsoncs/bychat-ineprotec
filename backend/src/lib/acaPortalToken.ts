@@ -5,7 +5,7 @@
 import crypto from 'crypto'
 
 const SECRET = process.env.JWT_SECRET || 'dev-secret'
-export type PortalKind = 'aca-aluno' | 'aca-prof' | 'aca-responsavel' | 'aca-exaluno' | 'aca-coord'
+export type PortalKind = 'aca-aluno' | 'aca-prof' | 'aca-responsavel' | 'aca-exaluno' | 'aca-coord' | 'aca-aval'
 export interface PortalToken { kind: PortalKind; id: number; exp: number }
 
 export function mintPortalToken(kind: PortalKind, id: number, dias = 30): string {

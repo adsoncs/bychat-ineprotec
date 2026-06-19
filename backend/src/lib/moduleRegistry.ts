@@ -211,6 +211,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_estrutura'],
   },
   {
+    id: 'aca_avaliacao_institucional', name: 'Avaliação Institucional (CPA)', icon: '📊', category: 'educacional',
+    description: 'Avaliação institucional / CPA: questionários por dimensões, perguntas (escala/NPS/texto/sim-não), aplicação por link público e dashboard de resultados (médias, NPS, participação).',
+    pages: ['acaAvaliacaoInst'],
+    routePrefixes: ['/api/admin/aca/avaliacao-inst'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
     id: 'aca_vestibular', name: 'Processo Seletivo', icon: '📝', category: 'educacional',
     description: 'Camada admin do processo seletivo: componentes de nota (digitação), classificação com critério de desempate, convocação por chamadas e ensalamento. Opera sobre os candidatos do módulo Educacional.',
     pages: ['acaVestibular'],

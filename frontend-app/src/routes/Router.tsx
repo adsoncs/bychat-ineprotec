@@ -193,6 +193,9 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-vestibular': lazy(() =>
     import('./pages/AcademicoVestibularPage').then((m) => ({ default: m.AcademicoVestibularPage })),
   ),
+  'aca-avaliacao-inst': lazy(() =>
+    import('./pages/AcademicoAvaliacaoInstPage').then((m) => ({ default: m.AcademicoAvaliacaoInstPage })),
+  ),
   'aca-matriculas': lazy(() =>
     import('./pages/AcademicoMatriculasPage').then((m) => ({ default: m.AcademicoMatriculasPage })),
   ),
