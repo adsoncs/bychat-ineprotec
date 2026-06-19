@@ -244,6 +244,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     pages: ['acaSecretaria', 'acaRequerimentos', 'acaEstagio', 'acaEgressos'],
     routePrefixes: [
       '/api/admin/aca/documentos', '/api/admin/aca/requerimentos', '/api/admin/aca/requerimento-tipos',
+      '/api/admin/aca/requerimento-categorias',
       '/api/admin/aca/egressos', '/api/admin/aca/estagio', '/api/admin/aca/atividades',
     ],
     actions: ['view', 'create', 'edit', 'delete'],

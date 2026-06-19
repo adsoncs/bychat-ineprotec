@@ -76,10 +76,24 @@ ele aparece como "aproveitado" no histórico; cria uma equivalência usada na va
 
 ---
 
-## F8 · Requerimento & Secretaria Avançada — estende `aca_secretaria`
+## F8 · Requerimento & Secretaria Avançada — ✅ ENTREGUE (2026-06-18) · estende `aca_secretaria`
 
 Evolui o requerimento atual (`AcaRequerimento`/`AcaRequerimentoTipo`) para fluxo configurável,
 reusando o motor de estados/SLA do **Helpdesk**.
+
+**Entregue:** categorias (`AcaRequerimentoCategoria` CRUD); tipo estendido (categoriaId,
+custoCentavos, deferimentoAutomatico, restricaoJson, camposJson); trâmites
+(`AcaRequerimentoTramite` + `POST /requerimentos/:id/tramitar`, move ABERTO→EM_ANALISE);
+**custo no deferimento** (`gerarCustoRequerimento` gera parcela TAXA no contrato ativo via
+`contratoAtivoDoAluno`, idempotente por `custoParcelaId`); detalhe expõe tipo+trâmites.
+Frontend: modal "Tipos & categorias" (CRUD + editor de tipo com custo/categoria/SLA/auto) +
+timeline de trâmites + badge de taxa no detalhe. Smoke 12/12 com cleanup.
+
+**Pendência F8:** enforcement de `restricaoJson`/`camposJson` no Portal do Aluno (UI de campos
+personalizados na abertura); encaminhar a usuário/setor específico (paraUserId/paraTeamId já
+no schema/rota, falta seletor na UI); `processoAuto` (disparo de processo de sistema).
+
+### Plano original (referência):
 
 **Schema (aditivo):**
 - `AcaRequerimentoCategoria` (agrupa tipos) + campos novos em `AcaRequerimentoTipo`:

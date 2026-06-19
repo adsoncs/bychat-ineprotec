@@ -5383,9 +5383,39 @@ model AcaRequerimentoTipo {
   geraDocumento String? @db.VarChar(40) // se preenchido, emite doc desse tipo ao deferir
   ativo       Boolean  @default(true)
   ordem       Int      @default(0)
+  // F8 — secretaria avançada
+  categoriaId           Int?     // AcaRequerimentoCategoria (scalar)
+  custoCentavos         Int      @default(0)     // gera parcela TAXA ao deferir
+  deferimentoAutomatico Boolean  @default(false) // resolve já na criação
+  restricaoJson         String?  @db.Text        // {roles:[],status:[]} — quem pode solicitar
+  camposJson            String?  @db.Text        // campos personalizados do formulário
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   @@map("bychat_aca_requerimento_tipos")
+}
+
+// F8 — categoria que agrupa tipos de requerimento na secretaria virtual.
+model AcaRequerimentoCategoria {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  ordem     Int      @default(0)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_requerimento_categorias")
+}
+
+// F8 — trâmite (encaminhamento) de um requerimento entre setores/usuários.
+model AcaRequerimentoTramite {
+  id              Int      @id @default(autoincrement())
+  requerimentoId  Int
+  deUserId        Int?
+  paraUserId      Int?
+  paraTeamId      Int?
+  estado          String?  @db.VarChar(16) // status no momento do trâmite
+  comentario      String?  @db.Text
+  createdAt       DateTime @default(now())
+  @@index([requerimentoId])
+  @@map("bychat_aca_requerimento_tramites")
 }
 
 model AcaRequerimento {
@@ -5399,6 +5429,8 @@ model AcaRequerimento {
   status             String   @db.VarChar(16) @default("ABERTO") // ABERTO|EM_ANALISE|DEFERIDO|INDEFERIDO|CONCLUIDO|CANCELADO
   resposta           String?  @db.Text
   documentoId        Int?     // doc gerado ao deferir (se houver)
+  camposJson         String?  @db.Text // F8 — respostas dos campos personalizados
+  custoParcelaId     Int?     // F8 — parcela TAXA gerada ao deferir (se custoCentavos>0)
   prazoEm            DateTime?
   respondidoPorUserId Int?
   respondidoEm       DateTime?
