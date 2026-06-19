@@ -326,7 +326,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'aca_relatorios', name: 'Indicadores & Censo', icon: '📈', category: 'educacional',
     description: 'BI acadêmico/financeiro (KPIs) e exportação Censo/SISTEC. Somente leitura — agrega os dados dos demais módulos.',
     pages: ['acaBi', 'acaSistec'],
-    routePrefixes: ['/api/admin/aca/bi', '/api/admin/aca/sistec'],
+    routePrefixes: ['/api/admin/aca/bi', '/api/admin/aca/sistec', '/api/admin/aca/censo'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },

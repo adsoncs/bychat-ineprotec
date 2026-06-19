@@ -5616,6 +5616,19 @@ model AcaReserva {
   @@map("bychat_aca_reservas")
 }
 
+// ── F18 — Censo INEP / ENADE (estende aca_relatorios) ──
+// Justificativa de situação de um aluno no censo (ex.: por que está sem atividade).
+model AcaCensoJustificativa {
+  id          Int      @id @default(autoincrement())
+  matriculaId Int
+  anoBase     Int
+  motivo      String   @db.Text
+  createdAt   DateTime @default(now())
+  @@unique([matriculaId, anoBase])
+  @@index([anoBase])
+  @@map("bychat_aca_censo_justificativas")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int

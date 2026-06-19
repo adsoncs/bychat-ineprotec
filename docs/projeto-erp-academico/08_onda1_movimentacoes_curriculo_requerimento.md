@@ -318,6 +318,25 @@ de disponibilidade entre vários ambientes.
 
 ---
 
+## Onda 6 · F18 — Censo INEP / ENADE — ✅ ENTREGUE (2026-06-19) · estende `aca_relatorios`
+
+Sem módulo novo (entra no `aca_relatorios`, junto do BI e do SISTEC). Schema: AcaCensoJustificativa
+(matriculaId×anoBase, motivo). `services/acaCenso.ts`: `coletarMatriculas(anoBase)` (filtra por
+`periodoLetivo.anoLetivo`), `validarConsistencia` (campos ausentes: CPF/nascimento/sexo/curso, com
+flag de justificada), `selecaoEnade(ano)` (ingressantes = matriculados no ano; concluintes =
+CONCLUÍDO no ano; agregado por curso). `routes/acaCenso.ts` (`/api/admin/aca/censo`): anos,
+validação, **Censo Superior CSV** (BOM UTF-8), ENADE preview + **ENADE CSV**, justificativas
+(upsert/delete). Frontend: página **Censo INEP / ENADE** (sidebar grupo Relatórios, ícone
+FileSpreadsheet) com abas Validação & Censo Superior (KPIs + inconsistências + justificar inline +
+export) · ENADE (por curso + export). Smoke 9/9 (o "fail" de BOM era falso — `Response.text()`
+remove o BOM; bytes confirmados 239,187,191).
+
+**⚠️ Leiautes oficiais INEP variam por ano** — entregue como base consolidada mapeável ao layout
+vigente (mesma natureza do SISTEC). **Pendência F18:** registro Docente e Curso do Censo Superior
+(hoje só Aluno); validações cruzadas oficiais; geração do arquivo no formato posicional do INEP.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).
