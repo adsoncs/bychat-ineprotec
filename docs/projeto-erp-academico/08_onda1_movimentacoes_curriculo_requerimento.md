@@ -300,6 +300,24 @@ relatório/cadastro; configurações de inscrição (taxa/prazos) já vivem no S
 
 ---
 
+## Onda 5 · F15 — Alocação de Recursos — ✅ ENTREGUE (2026-06-18)
+
+Novo módulo `aca_alocacao` (`dependsOn: ['aca_estrutura']`). Schema: AcaTipoAmbiente, AcaAmbiente
+(capacidade/localização), AcaTipoEquipamento, AcaEquipamento (vinculável a um ambiente),
+AcaReserva (ambiente×dia×faixa de horário, status ATIVA|CANCELADA). `services/acaAlocacao.ts`:
+`conflitosReserva` (mesmo ambiente/dia, sobreposição de horário por comparação lexical "HH:MM").
+`routes/acaAlocacao.ts` (`/api/admin/aca/alocacao`): tipos-ambiente/ambientes CRUD,
+tipos-equipamento/equipamentos CRUD, reservas (GET por ambiente+dia, POST com **409 de conflito**
++ `force`, cancelar). Frontend: página **Alocação de Recursos** (sidebar grupo Educacional, ícone
+MapPin) com abas Ambientes · Equipamentos · Reservas (agenda por ambiente/dia + "reservar mesmo
+assim" no conflito). Smoke 14/14 com cleanup.
+
+**Pendência F15:** integração automática com os Horários (gerar reserva a partir do quadro de
+aulas); regras de alocação configuráveis; reserva de equipamento (hoje só de ambiente); pesquisa
+de disponibilidade entre vários ambientes.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

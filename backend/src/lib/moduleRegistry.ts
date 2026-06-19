@@ -203,6 +203,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['educacional'],
   },
   {
+    id: 'aca_alocacao', name: 'Alocação de Recursos', icon: '🏫', category: 'educacional',
+    description: 'Ambientes físicos (salas/laboratórios) e tipos, equipamentos e tipos, e reservas de espaço com detecção de conflito de horário.',
+    pages: ['acaAlocacao'],
+    routePrefixes: ['/api/admin/aca/alocacao'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_estrutura'],
+  },
+  {
     id: 'aca_matriculas', name: 'Alunos & Matrículas', icon: '🎓', category: 'educacional',
     description: 'Alunos (sobre o CRM), inscrições e matrícula com ciclo de vida (máquina de estados). Núcleo de cadastro do aluno.',
     pages: ['acaAlunos', 'acaMatriculas'],

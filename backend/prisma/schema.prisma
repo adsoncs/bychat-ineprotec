@@ -5560,6 +5560,62 @@ model AcaInscricaoExtra {
   @@map("bychat_aca_inscricao_extra")
 }
 
+// ── F15 — Alocação de Recursos (depende: aca_estrutura) ──
+model AcaTipoAmbiente {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_tipos_ambiente")
+}
+model AcaAmbiente {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(120)
+  tipoId      Int?
+  capacidade  Int      @default(0)
+  localizacao String?  @db.VarChar(191)
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  reservas    AcaReserva[]
+  equipamentos AcaEquipamento[]
+  @@map("bychat_aca_ambientes")
+}
+model AcaTipoEquipamento {
+  id        Int      @id @default(autoincrement())
+  nome      String   @db.VarChar(120)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@map("bychat_aca_tipos_equipamento")
+}
+model AcaEquipamento {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(120)
+  tipoId      Int?
+  ambienteId  Int?
+  patrimonio  String?  @db.VarChar(40)
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  ambiente    AcaAmbiente? @relation(fields: [ambienteId], references: [id], onDelete: SetNull)
+  @@index([ambienteId])
+  @@map("bychat_aca_equipamentos")
+}
+model AcaReserva {
+  id         Int      @id @default(autoincrement())
+  ambienteId Int
+  data       DateTime // dia da reserva (date)
+  horaInicio String   @db.VarChar(5) // "HH:MM"
+  horaFim    String   @db.VarChar(5)
+  finalidade String?  @db.VarChar(191)
+  responsavel String? @db.VarChar(191)
+  userId     Int?
+  status     String   @db.VarChar(12) @default("ATIVA") // ATIVA | CANCELADA
+  createdAt  DateTime @default(now())
+  ambiente   AcaAmbiente @relation(fields: [ambienteId], references: [id], onDelete: Cascade)
+  @@index([ambienteId, data])
+  @@map("bychat_aca_reservas")
+}
+
 model AcaPlanoPagamento {
   id                    Int      @id @default(autoincrement())
   courseOfferingId      Int
