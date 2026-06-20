@@ -129,7 +129,7 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
   // ── Gatilhos (disparo automático por evento) ──
   app.get('/api/admin/aca/assinatura/gatilhos', { preHandler: authMiddleware }, async () => {
     const gs = await prisma.acaContratoGatilho.findMany({ orderBy: { id: 'desc' } })
-    const tids = [...new Set(gs.map((g) => g.templateId))]
+    const tids = [...new Set(gs.map((g) => g.templateId).filter((x): x is number => x != null))]
     const ts = tids.length ? await prisma.acaContratoTemplate.findMany({ where: { id: { in: tids } }, select: { id: true, nome: true } }) : []
     const tMap = new Map(ts.map((t) => [t.id, t.nome]))
     return { gatilhos: gs.map((g) => ({ ...g, templateNome: tMap.get(g.templateId) ?? null })) }
