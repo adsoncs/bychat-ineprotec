@@ -246,14 +246,42 @@ export async function processarWebhook(body: any): Promise<{ ok: boolean; envelo
 }
 
 // ───────────────────────── Gatilhos (disparo automático) ─────────────────────────
+const MAP_NIVEL: Array<[RegExp, string]> = [
+  [/p[óo]s|lato\s*sensu/i, 'POS_GRADUACAO'], [/especializa/i, 'ESPECIALIZACAO'], [/mba/i, 'MBA'],
+  [/t[ée]cnic/i, 'TECNICO_TRADICIONAL'], [/gradua|bacharel|licenciatur|tecn[óo]log/i, 'GRADUACAO'],
+  [/extens[ãa]o/i, 'EXTENSAO'], [/idioma/i, 'IDIOMAS'], [/livre/i, 'CURSO_LIVRE'],
+]
+/** Resolve o tipo de negócio a partir do nível do curso da matrícula. */
+export async function resolverTipoNegocio(matriculaId?: number | null): Promise<string | null> {
+  if (!matriculaId) return null
+  const m = await prisma.acaMatricula.findUnique({ where: { id: matriculaId }, select: { turmaId: true } })
+  if (!m) return null
+  const turma = await prisma.acaTurma.findUnique({ where: { id: m.turmaId }, select: { courseOfferingId: true } })
+  if (!turma?.courseOfferingId) return null
+  const off = await prisma.courseOffering.findUnique({ where: { id: turma.courseOfferingId }, select: { levelId: true, courseId: true } })
+  let nome = ''
+  if (off?.levelId) nome = (await prisma.educationalLevel.findUnique({ where: { id: off.levelId }, select: { nome: true } }))?.nome || ''
+  if (!nome && off?.courseId) { const c = await prisma.course.findUnique({ where: { id: off.courseId }, select: { levelId: true } }); if (c?.levelId) nome = (await prisma.educationalLevel.findUnique({ where: { id: c.levelId }, select: { nome: true } }))?.nome || '' }
+  for (const [re, tn] of MAP_NIVEL) if (re.test(nome)) return tn
+  return null
+}
+
 /** Dispara os gatilhos ativos de um evento. Fire-and-forget nos pontos de origem. */
 export async function dispararEvento(evento: string, ctx: { alunoId?: number | null; matriculaId?: number | null; contratoId?: number | null; tipoNegocio?: string | null }): Promise<number[]> {
+  if (!ctx.tipoNegocio && ctx.matriculaId) ctx = { ...ctx, tipoNegocio: await resolverTipoNegocio(ctx.matriculaId).catch(() => null) }
   const gatilhos = await prisma.acaContratoGatilho.findMany({ where: { evento: evento as any, ativo: true } })
   const criados: number[] = []
   for (const g of gatilhos) {
     if (g.filtroTipoNegocio && ctx.tipoNegocio && g.filtroTipoNegocio !== ctx.tipoNegocio) continue
+    let tplId: number | null = g.templateId
+    if (g.autoPorTipo) {
+      let tpl = ctx.tipoNegocio ? await prisma.acaContratoTemplate.findFirst({ where: { tipoNegocio: ctx.tipoNegocio as any, ativo: true }, orderBy: { ordem: 'asc' } }) : null
+      if (!tpl) tpl = await prisma.acaContratoTemplate.findFirst({ where: { ativo: true }, orderBy: { ordem: 'asc' } }) // fallback
+      tplId = tpl?.id ?? null
+    }
+    if (!tplId) continue
     try {
-      const env = await criarDeTemplate(g.templateId, ctx)
+      const env = await criarDeTemplate(tplId, { ...ctx, tipoNegocio: ctx.tipoNegocio })
       if (g.autoEnviar) await enviar(env.id).catch(() => {})
       criados.push(env.id)
     } catch { /* gatilho não deve quebrar o fluxo de origem */ }

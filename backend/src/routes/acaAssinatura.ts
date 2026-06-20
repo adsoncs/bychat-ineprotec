@@ -136,9 +136,10 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
   })
   app.post('/api/admin/aca/assinatura/gatilhos', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
-    if (!b.nome || !b.evento || !b.templateId) return reply.code(400).send({ error: 'nome, evento e template obrigatórios' })
+    if (!b.nome || !b.evento || (!b.templateId && !b.autoPorTipo)) return reply.code(400).send({ error: 'nome, evento e template (ou "por tipo") obrigatórios' })
     const g = await prisma.acaContratoGatilho.create({ data: {
-      nome: String(b.nome).slice(0, 191), evento: b.evento, templateId: Number(b.templateId),
+      nome: String(b.nome).slice(0, 191), evento: b.evento, autoPorTipo: !!b.autoPorTipo,
+      templateId: b.autoPorTipo ? null : (b.templateId ? Number(b.templateId) : null),
       filtroTipoNegocio: b.filtroTipoNegocio || null, autoEnviar: !!b.autoEnviar, ativo: b.ativo !== false,
     } })
     return reply.code(201).send({ gatilho: g })
@@ -146,7 +147,8 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
   app.put('/api/admin/aca/assinatura/gatilhos/:id', { preHandler: authMiddleware }, async (req) => {
     const b = (req.body as any) || {}; const data: any = {}
     for (const k of ['nome', 'evento', 'filtroTipoNegocio']) if (k in b) data[k] = b[k] || null
-    if ('templateId' in b) data.templateId = Number(b.templateId)
+    if ('autoPorTipo' in b) data.autoPorTipo = !!b.autoPorTipo
+    if ('templateId' in b) data.templateId = b.templateId ? Number(b.templateId) : null
     if ('autoEnviar' in b) data.autoEnviar = !!b.autoEnviar
     if ('ativo' in b) data.ativo = !!b.ativo
     return { gatilho: await prisma.acaContratoGatilho.update({ where: { id: Number((req.params as any).id) }, data }) }

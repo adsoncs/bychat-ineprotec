@@ -310,7 +310,7 @@ function Gatilhos() {
         <Card class="p-0 overflow-hidden divide-y divide-border">
           {gs.map((g) => (
             <div key={g.id} class="px-4 py-2.5 flex items-center gap-3 text-sm cursor-pointer hover:bg-surface-2" onClick={() => setEdit(g)}>
-              <span class="flex-1 min-w-0"><span class="block truncate text-fg">{g.nome}</span><span class="block text-xs text-fg-muted">{EVENTO_LABEL[g.evento] ?? g.evento} → {g.templateNome || `template #${g.templateId}`}{g.autoEnviar ? ' · envia automático' : ' · cria rascunho'}</span></span>
+              <span class="flex-1 min-w-0"><span class="block truncate text-fg">{g.nome}</span><span class="block text-xs text-fg-muted">{EVENTO_LABEL[g.evento] ?? g.evento} → {g.autoPorTipo ? 'template do tipo do curso' : (g.templateNome || `template #${g.templateId}`)}{g.autoEnviar ? ' · envia automático' : ' · cria rascunho'}</span></span>
               {!g.ativo && <Badge tone="neutral">inativo</Badge>}
               <Badge tone={g.ativo ? 'success' : 'neutral'}>{g.ativo ? 'ativo' : 'off'}</Badge>
             </div>
@@ -325,20 +325,21 @@ function Gatilhos() {
 function GatilhoModal({ gatilho, onClose }: { gatilho: ContratoGatilho | null; onClose: () => void }) {
   const mut = useGatilhoMut()
   const templates = useTemplates()
-  const [f, setF] = useState<any>({ nome: gatilho?.nome || '', evento: gatilho?.evento || 'MATRICULA_CRIADA', templateId: gatilho?.templateId || '', filtroTipoNegocio: gatilho?.filtroTipoNegocio || '', autoEnviar: gatilho?.autoEnviar ?? false, ativo: gatilho?.ativo ?? true })
+  const [f, setF] = useState<any>({ nome: gatilho?.nome || '', evento: gatilho?.evento || 'MATRICULA_CRIADA', autoPorTipo: gatilho?.autoPorTipo ?? true, templateId: gatilho?.templateId || '', filtroTipoNegocio: gatilho?.filtroTipoNegocio || '', autoEnviar: gatilho?.autoEnviar ?? false, ativo: gatilho?.ativo ?? true })
   const set = (k: string, v: any) => setF({ ...f, [k]: v })
   const salvar = () => {
-    const body = { ...f, templateId: Number(f.templateId), filtroTipoNegocio: f.filtroTipoNegocio || null }
+    const body = { ...f, templateId: f.autoPorTipo ? null : (f.templateId ? Number(f.templateId) : null), filtroTipoNegocio: f.filtroTipoNegocio || null }
     const opts = { onSuccess: () => { toast('Gatilho salvo', 'success'); onClose() }, onError: (e: any) => toast(e?.message || 'Erro', 'danger') }
     if (gatilho) mut.atualizar.mutate({ id: gatilho.id, ...body }, opts); else mut.criar.mutate(body, opts)
   }
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={gatilho ? 'Editar gatilho' : 'Novo gatilho'}
-      footer={<><div class="flex-1">{gatilho && <Button variant="ghost" onClick={() => mut.excluir.mutate(gatilho.id, { onSuccess: () => { toast('Excluído', 'success'); onClose() } })}><Trash2 size={14} /> Excluir</Button>}</div><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.criar.isPending || mut.atualizar.isPending} disabled={!f.nome || !f.templateId} onClick={salvar}>Salvar</Button></>}>
+      footer={<><div class="flex-1">{gatilho && <Button variant="ghost" onClick={() => mut.excluir.mutate(gatilho.id, { onSuccess: () => { toast('Excluído', 'success'); onClose() } })}><Trash2 size={14} /> Excluir</Button>}</div><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.criar.isPending || mut.atualizar.isPending} disabled={!f.nome || (!f.autoPorTipo && !f.templateId)} onClick={salvar}>Salvar</Button></>}>
       <div class="space-y-3">
         <Input label="Nome" value={f.nome} onInput={(e: any) => set('nome', e.currentTarget.value)} />
         <Select label="Evento (quando disparar)" value={f.evento} onChange={(e: any) => set('evento', e.currentTarget.value)}>{Object.entries(EVENTO_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>
-        <Select label="Template do contrato" value={String(f.templateId)} onChange={(e: any) => set('templateId', e.currentTarget.value)}><option value="">Selecione…</option>{(templates.data?.templates ?? []).map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}</Select>
+        <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.autoPorTipo} onChange={(e: any) => set('autoPorTipo', e.currentTarget.checked)} /> Escolher o template pelo <b>tipo do curso</b> automaticamente</label>
+        {!f.autoPorTipo && <Select label="Template do contrato" value={String(f.templateId)} onChange={(e: any) => set('templateId', e.currentTarget.value)}><option value="">Selecione…</option>{(templates.data?.templates ?? []).map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}</Select>}
         <Select label="Filtrar por tipo de negócio (opcional)" value={f.filtroTipoNegocio} onChange={(e: any) => set('filtroTipoNegocio', e.currentTarget.value)}><option value="">Qualquer</option>{TIPO_NEGOCIO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</Select>
         <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.autoEnviar} onChange={(e: any) => set('autoEnviar', e.currentTarget.checked)} /> Enviar automaticamente (senão cria rascunho)</label>
         <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={f.ativo} onChange={(e: any) => set('ativo', e.currentTarget.checked)} /> Ativo</label>

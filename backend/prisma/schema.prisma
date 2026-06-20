@@ -6445,9 +6445,10 @@ model AcaContratoGatilho {
   id          Int      @id @default(autoincrement())
   nome        String   @db.VarChar(191)
   evento      AcaContratoEvento @default(MANUAL)
-  templateId  Int
-  filtroTipoNegocio String? @db.VarChar(40) // dispara só p/ este tipo (opcional)
-  autoEnviar  Boolean  @default(false)      // true = cria E envia; false = cria rascunho
+  templateId  Int?                            // null quando autoPorTipo
+  autoPorTipo Boolean  @default(false)         // escolhe o template pelo tipo de negócio do curso
+  filtroTipoNegocio String? @db.VarChar(40)    // dispara só p/ este tipo (opcional)
+  autoEnviar  Boolean  @default(false)         // true = cria E envia; false = cria rascunho
   ativo       Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

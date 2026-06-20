@@ -45,5 +45,13 @@ async function main() {
     console.log(`  ✓ ${t.nome}`)
   }
   console.log(`\n✅ Templates de contrato: ${novos} novos, ${atualizados} atualizados.`)
+
+  // Gatilho padrão: matrícula efetivada → contrato do tipo do curso (cria rascunho)
+  const NOME_GATILHO = 'Matrícula efetivada → contrato do tipo do curso'
+  const jaExiste = await prisma.acaContratoGatilho.findFirst({ where: { nome: NOME_GATILHO }, select: { id: true } })
+  if (!jaExiste) {
+    await prisma.acaContratoGatilho.create({ data: { nome: NOME_GATILHO, evento: 'MATRICULA_CRIADA', autoPorTipo: true, templateId: null, autoEnviar: false, ativo: true } })
+    console.log('✅ Gatilho padrão criado (autoPorTipo, cria rascunho ao efetivar matrícula).')
+  } else console.log('• Gatilho padrão já existe.')
 }
 main().then(() => prisma.$disconnect()).catch((e) => { console.error('ERRO:', e); prisma.$disconnect(); process.exit(1) })
