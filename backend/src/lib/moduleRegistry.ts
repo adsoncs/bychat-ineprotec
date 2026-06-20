@@ -339,6 +339,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false, dependsOn: ['aca_secretaria'],
   },
   {
+    id: 'aca_assinatura', name: 'Assinatura de Contratos', icon: '✍️', category: 'erp_academico',
+    description: 'Assinatura eletrônica de contratos do aluno via Autentique (envelope + signatários, links de assinatura, webhook de status). Modo simulado para testes sem credencial.',
+    pages: ['acaAssinatura'],
+    routePrefixes: ['/api/admin/aca/assinatura'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
+  },
+  {
     id: 'aca_comunicacao', name: 'Comunicação Acadêmica', icon: '📨', category: 'erp_academico',
     description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando WhatsApp/e-mail do ByChat.',
     pages: ['acaComunicacao'],

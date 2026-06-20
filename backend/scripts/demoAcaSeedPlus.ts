@@ -34,6 +34,7 @@ export async function cleanupPlus() {
     await prisma.acaEadAcesso.deleteMany({ where: { matriculaId: { in: matIds } } }).catch(() => {})
     await prisma.acaCDA.deleteMany({ where: { alunoId: { in: alunoIds } } }).catch(() => {})
     await prisma.acaDiploma.deleteMany({ where: { alunoId: { in: alunoIds } } }).catch(() => {})
+    await prisma.acaAssinatura.deleteMany({ where: { alunoId: { in: alunoIds } } }).catch(() => {}) // cascata signatários
   }
   if (alunoIds.length) {
     await prisma.acaGedArquivo.deleteMany({ where: { alunoId: { in: alunoIds } } }).catch(() => {})
@@ -281,6 +282,18 @@ async function main() {
     if (ativos[3]) await prisma.acaTcc.create({ data: { matriculaId: ativos[3].id, alunoId: ativos[3].alunoId, titulo: 'Georreferenciamento de imóveis rurais (demo)', orientador: 'Prof. Mestre (demo)', status: 'APROVADO', nota: 9.2, dataDefesa: new Date() } })
     log('✓ F22 TCC')
   } catch (e: any) { log('skip F22: ' + e?.message) }
+
+  // ── Assinatura de Contratos (SIMULADO): envelope enviado, 1 parte assinou ──
+  try {
+    const assina = await import('../src/services/acaAssinatura.js')
+    const contrato = ativos[0] ? await prisma.acaContrato.findUnique({ where: { matriculaId: ativos[0].id }, select: { id: true } }) : null
+    if (ativos[0]) {
+      const env = await assina.criar({ alunoId: ativos[0].alunoId, matriculaId: ativos[0].id, contratoId: contrato?.id ?? null, titulo: 'Contrato de Prestação de Serviços Educacionais (demo)' })
+      const enviado = await assina.enviar(env.id)
+      if (enviado?.signatarios?.[0]) await assina.simularAssinatura(env.id, enviado.signatarios[0].id) // 1ª parte assina → PARCIAL
+      log('✓ Assinatura (envelope SIMULADO enviado, 1 assinatura)')
+    }
+  } catch (e: any) { log('skip Assinatura: ' + e?.message) }
 
   // ── F16 Controle de Acesso ──
   try {

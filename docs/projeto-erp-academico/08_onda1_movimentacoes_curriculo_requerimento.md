@@ -429,6 +429,24 @@ papéis distintos; ENEM/GDAE; "pode sair sozinho"/pessoas autorizadas; orientado
 
 ---
 
+## Assinatura de Contratos (aca_assinatura) — ✅ ENTREGUE (2026-06-20)
+
+Módulo NATIVO togglável (depende de aca_secretaria). Assinatura eletrônica de contratos do
+aluno via **Autentique** (GraphQL v2, `api.autentique.com.br/v2/graphql`, Bearer, upload multipart)
++ **modo SIMULADO** (sem credencial → fluxo 100% testável). Models: `AcaAssinatura` (envelope:
+aluno/matrícula/contrato, status RASCUNHO→ENVIADO→PARCIAL→ASSINADO/REJEITADO/CANCELADO,
+documentoExternoId, provider) + `AcaSignatario` (papel ALUNO|RESPONSAVEL|FIADOR|INSTITUICAO|
+TESTEMUNHA, publicId, linkAssinatura, status). Serviços `autentique.ts` (config via Settings
+grp=academico / env AUTENTIQUE_API_TOKEN; criarDocumento; consultarDocumento) e `acaAssinatura.ts`
+(criar [auto-inclui aluno + responsável CONTRATO/FINANCEIRO]; gerarPdf via pdfContrato; enviar
+[Autentique real ou SIMULADO]; sincronizar; simularAssinatura; cancelar; processarWebhook). Rotas
+`/api/admin/aca/assinatura/*` + webhook público `POST /api/webhooks/autentique` (isento no server.ts).
+Frontend: useAcaAssinatura + AcademicoAssinaturaPage (lista/Novo/detalhe/Config) + sidebar
+ERP·Secretaria. Smoke 8/8. Seed: 1 envelope SIMULADO (PARCIAL). **DEP EXTERNA:** token Autentique
+(painel deles) — sem token roda SIMULADO; cadastrar webhook no painel Autentique → `/api/webhooks/autentique`.
+
+---
+
 ## Ordem e checkpoints da Onda 1
 1. **F5** ✅ (entregue; validar UI com a secretaria e commit).
 2. **F8** (próximo — alto reuso, baixo risco; tira trabalho manual da secretaria).

@@ -184,6 +184,9 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-pessoas': lazy(() =>
     import('./pages/AcademicoPessoasPage').then((m) => ({ default: m.AcademicoPessoasPage })),
   ),
+  'aca-assinatura': lazy(() =>
+    import('./pages/AcademicoAssinaturaPage').then((m) => ({ default: m.AcademicoAssinaturaPage })),
+  ),
   'aca-alunos': lazy(() =>
     import('./pages/AcademicoAlunosPage').then((m) => ({ default: m.AcademicoAlunosPage })),
   ),

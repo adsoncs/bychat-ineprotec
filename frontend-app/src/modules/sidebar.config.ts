@@ -53,6 +53,7 @@ export type IconName =
   | 'Briefcase'
   | 'CalendarRange'
   | 'FileCheck2'
+  | 'FileSignature'
   | 'ClipboardList'
   | 'School'
   | 'Award'
@@ -310,6 +311,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-estagio', label: 'Estágio & Atividades', href: '/app/aca/estagio', icon: 'Briefcase', permission: 'aca_secretaria' },
         { id: 'aca-tcc', label: 'TCC', href: '/app/aca/tcc', icon: 'BookOpen', permission: 'aca_secretaria' },
         { id: 'aca-ged', label: 'GED (Documentos)', href: '/app/aca/ged', icon: 'FileCheck2', permission: 'aca_ged' },
+        { id: 'aca-assinatura', label: 'Assinatura de Contratos', href: '/app/aca/assinatura', icon: 'FileSignature', permission: 'aca_assinatura' },
         { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
         { id: 'aca-diploma', label: 'Diploma Digital', href: '/app/aca/diploma', icon: 'ShieldCheck', permission: 'aca_diploma' },
         { id: 'aca-portais-plus', label: 'Centrais (Resp./Ex-aluno)', href: '/app/aca/portais', icon: 'Key', permission: 'aca_portais_plus' },

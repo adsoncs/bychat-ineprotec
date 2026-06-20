@@ -154,6 +154,7 @@ import { acaHorarioRoutes } from './routes/acaHorario.js'
 import { acaMaterialRoutes } from './routes/acaMaterial.js'
 import { acaEstagioRoutes } from './routes/acaEstagio.js'
 import { acaSistecRoutes } from './routes/acaSistec.js'
+import { acaAssinaturaRoutes } from './routes/acaAssinatura.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
@@ -405,6 +406,8 @@ app.addHook('onRequest', async (req, reply) => {
 
   // Webhook outbound test/endpoints
   if (req.url.startsWith('/api/webhooks/incoming/')) return
+  // Webhook da Autentique (assinatura de contratos) — chamado por servidor externo
+  if (req.url === '/api/webhooks/autentique') return
 
   // Rotas públicas chamadas de páginas externas (forms embedados, pixel,
   // tracking script). Não há sessão/credencial enviada — formulários são
@@ -643,6 +646,7 @@ await app.register(acaAvaliacaoInstRoutes)
   await app.register(acaMaterialRoutes)
   await app.register(acaEstagioRoutes)
   await app.register(acaSistecRoutes)
+await app.register(acaAssinaturaRoutes)
 
 // Health check
 app.get('/api/health', async () => ({

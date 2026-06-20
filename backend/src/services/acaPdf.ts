@@ -90,6 +90,24 @@ export function pdfDeclaracao(h: DocHeader, numero: string, dataExtenso: string,
   })
 }
 
+/** Contrato para assinatura eletrônica: corpo + blocos de assinatura por parte. */
+export function pdfContrato(h: DocHeader, titulo: string, dataExtenso: string, corpo: string, partes: Array<{ nome: string; papel: string; documento?: string | null }>) {
+  return build((doc) => {
+    cabecalho(doc, h, titulo, 'CONTRATO')
+    doc.fontSize(10.5).font('Helvetica').text(corpo, { align: 'justify', lineGap: 3.5 })
+    doc.moveDown(1.5)
+    doc.fontSize(10).font('Helvetica').text(dataExtenso, { align: 'right' })
+    doc.moveDown(2.5)
+    for (const p of partes) {
+      doc.fontSize(10).text('_________________________________________')
+      doc.font('Helvetica-Bold').text(p.nome, { continued: false })
+      doc.font('Helvetica').fontSize(9).fillColor('#444').text(`${p.papel}${p.documento ? ' · ' + p.documento : ''}`).fillColor('#000').fontSize(10)
+      doc.moveDown(1.4)
+    }
+    doc.fontSize(7).fillColor('#999').text('Documento destinado a assinatura eletrônica.', 50, 805, { align: 'center', width: 495 }).fillColor('#000')
+  })
+}
+
 export function pdfCertificado(h: DocHeader, numero: string, dataExtenso: string, d: { aluno: AlunoInfo; curso: string; cargaHoraria: number; conclusao: string }) {
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 40 })

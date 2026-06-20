@@ -6303,3 +6303,69 @@ model AcaAtividadeComplementar {
   @@index([alunoId])
   @@map("bychat_aca_atividades")
 }
+
+// ───────────────────────── Assinatura de Contratos (aca_assinatura) ─────────────────────────
+// Assinatura eletrônica de contratos do aluno via Autentique (provider-agnostic).
+enum AcaAssinaturaStatus {
+  RASCUNHO
+  ENVIADO
+  PARCIAL
+  ASSINADO
+  REJEITADO
+  CANCELADO
+}
+
+enum AcaSignatarioStatus {
+  PENDENTE
+  VISUALIZADO
+  ASSINADO
+  REJEITADO
+}
+
+enum AcaSignatarioPapel {
+  ALUNO
+  RESPONSAVEL
+  FIADOR
+  INSTITUICAO
+  TESTEMUNHA
+}
+
+model AcaAssinatura {
+  id                Int      @id @default(autoincrement())
+  alunoId           Int?
+  matriculaId       Int?
+  contratoId        Int?
+  titulo            String   @db.VarChar(191)
+  provider          String   @default("AUTENTIQUE") @db.VarChar(30)
+  documentoExternoId String? @db.VarChar(120) // id do documento no provedor
+  status            AcaAssinaturaStatus @default(RASCUNHO)
+  termoTexto        String?  @db.Text
+  arquivoAssinadoUrl String? @db.Text // link do PDF assinado no provedor
+  enviadoEm         DateTime?
+  finalizadoEm      DateTime?
+  metaJson          Json?    @db.Json // resposta crua do provedor
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  signatarios       AcaSignatario[]
+
+  @@index([alunoId])
+  @@index([status])
+}
+
+model AcaSignatario {
+  id             Int      @id @default(autoincrement())
+  assinaturaId   Int
+  nome           String   @db.VarChar(191)
+  email          String?  @db.VarChar(191)
+  papel          AcaSignatarioPapel @default(ALUNO)
+  publicId       String?  @db.VarChar(120) // signature.public_id no provedor
+  linkAssinatura String?  @db.Text         // short_link p/ assinar
+  status         AcaSignatarioStatus @default(PENDENTE)
+  viewedEm       DateTime?
+  assinadoEm     DateTime?
+  rejeitadoEm    DateTime?
+  ordem          Int      @default(0)
+  assinatura     AcaAssinatura @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
+
+  @@index([assinaturaId])
+}
