@@ -89,8 +89,8 @@ function NovaPessoaModal({ onClose, onCreated }: { onClose: () => void; onCreate
     if (papel === 'ALUNO') { if (alunoExistente) { delete body.nome; delete body.email; delete body.whatsapp } else delete body.leadId }
     if (papel === 'PROFESSOR' || papel === 'ORIENTADOR') body.valorHoraCentavos = Math.round(parseFloat((f.valorHora || '0').replace(',', '.')) * 100)
     mut.mutate(body, {
-      onSuccess: (res: any) => { toast.success('Pessoa criada'); onClose(); if (res.alunoId) onCreated('aluno', res.alunoId); else if (res.docenteId) onCreated('prof', res.docenteId) },
-      onError: (e: any) => toast.error(e?.message || 'Erro ao criar'),
+      onSuccess: (res: any) => { toast('Pessoa criada', 'success'); onClose(); if (res.alunoId) onCreated('aluno', res.alunoId); else if (res.docenteId) onCreated('prof', res.docenteId) },
+      onError: (e: any) => toast(e?.message || 'Erro ao criar', 'danger'),
     })
   }
   return (

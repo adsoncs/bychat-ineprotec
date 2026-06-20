@@ -79,7 +79,7 @@ function Detalhe({ id, onBack }: { id: number; onBack: () => void }) {
   const e = q.data?.envelope
   if (q.isLoading || !e) return <Page title="Contrato"><Skeleton class="h-64 w-full" /></Page>
 
-  const act = (fn: any, arg: any, msg: string) => fn.mutate(arg, { onSuccess: () => toast.success(msg), onError: (err: any) => toast.error(err?.message || 'Erro') })
+  const act = (fn: any, arg: any, msg: string) => fn.mutate(arg, { onSuccess: () => toast(msg, 'success'), onError: (err: any) => toast(err?.message || 'Erro', 'danger') })
   const simulado = e.provider === 'SIMULADO'
 
   return (
@@ -88,7 +88,7 @@ function Detalhe({ id, onBack }: { id: number; onBack: () => void }) {
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={14} /> Voltar</Button>
         <div class="flex items-center gap-2 flex-wrap">
           <Badge tone={ENV_STATUS[e.status]?.tone ?? 'neutral'}>{ENV_STATUS[e.status]?.label ?? e.status}</Badge>
-          <Button variant="ghost" size="sm" onClick={() => abrirPdfContrato(id).catch(() => toast.error('PDF indisponível'))}><FileText size={14} /> Ver PDF</Button>
+          <Button variant="ghost" size="sm" onClick={() => abrirPdfContrato(id).catch(() => toast('PDF indisponível', 'danger'))}><FileText size={14} /> Ver PDF</Button>
           {e.status === 'RASCUNHO' && <Button variant="primary" size="sm" loading={mut.enviar.isPending} onClick={() => act(mut.enviar, id, 'Enviado para assinatura')}><Send size={14} /> Enviar para assinatura</Button>}
           {(e.status === 'ENVIADO' || e.status === 'PARCIAL') && e.provider === 'AUTENTIQUE' && <Button variant="secondary" size="sm" loading={mut.sincronizar.isPending} onClick={() => act(mut.sincronizar, id, 'Status atualizado')}><RefreshCw size={14} /> Sincronizar</Button>}
           {e.status !== 'ASSINADO' && e.status !== 'CANCELADO' && <Button variant="ghost" size="sm" onClick={() => act(mut.cancelar, id, 'Cancelado')}><X size={14} /> Cancelar</Button>}
@@ -129,7 +129,7 @@ function NovoModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id
   })
   const criar = () => mut.criar.mutate(
     { alunoId: aluno?.id, titulo },
-    { onSuccess: (r: any) => { toast.success('Contrato criado'); onCreated(r.envelope.id) }, onError: (e: any) => toast.error(e?.message || 'Erro') },
+    { onSuccess: (r: any) => { toast('Contrato criado', 'success'); onCreated(r.envelope.id) }, onError: (e: any) => toast(e?.message || 'Erro', 'danger') },
   )
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Novo contrato" description="Selecione o aluno; o aluno e o responsável financeiro entram como signatários automaticamente."
@@ -175,7 +175,7 @@ function ConfigModal({ onClose }: { onClose: () => void }) {
   const salvar = () => {
     const body: any = { modo: modoVal, sandbox: sandboxVal }
     if (token.trim()) body.token = token.trim()
-    mut.setConfig.mutate(body, { onSuccess: () => { toast.success('Configuração salva'); onClose() }, onError: (e: any) => toast.error(e?.message || 'Erro') })
+    mut.setConfig.mutate(body, { onSuccess: () => { toast('Configuração salva', 'success'); onClose() }, onError: (e: any) => toast(e?.message || 'Erro', 'danger') })
   }
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Configurar assinatura" description="Autentique (assinatura real) ou modo simulado para testes."
