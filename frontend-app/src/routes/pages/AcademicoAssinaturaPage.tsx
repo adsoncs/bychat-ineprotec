@@ -170,6 +170,8 @@ function ConfigModal({ onClose }: { onClose: () => void }) {
   if (!c) return null
   const modoVal = modo || c.modo
   const sandboxVal = sandbox === null ? c.sandbox : sandbox
+  // colar token implica modo Autentique
+  const onToken = (v: string) => { setToken(v); if (v.trim() && modoVal !== 'AUTENTIQUE') setModo('AUTENTIQUE') }
   const salvar = () => {
     const body: any = { modo: modoVal, sandbox: sandboxVal }
     if (token.trim()) body.token = token.trim()
@@ -179,13 +181,17 @@ function ConfigModal({ onClose }: { onClose: () => void }) {
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Configurar assinatura" description="Autentique (assinatura real) ou modo simulado para testes."
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.setConfig.isPending} onClick={salvar}>Salvar</Button></>}>
       <div class="space-y-3">
+        <div class="text-xs text-fg-muted">Status atual: modo <b>{c.modo === 'AUTENTIQUE' ? 'Autentique' : 'Simulado'}</b> · token {c.tokenConfigurado ? '✓ configurado' : '— não configurado'}</div>
         <Select label="Modo" value={modoVal} onChange={(e: any) => setModo(e.currentTarget.value)}>
           <option value="SIMULADO">Simulado (sem credencial)</option>
           <option value="AUTENTIQUE">Autentique (assinatura real)</option>
         </Select>
-        <Input label="Token da API Autentique" type="password" value={token} onInput={(e: any) => setToken(e.currentTarget.value)} placeholder={c.tokenConfigurado ? '•••••• (configurado — deixe vazio p/ manter)' : 'cole o token da Autentique'} />
+        {/* campo texto (não 'password') p/ evitar interferência de gerenciador de senhas ao colar */}
+        <Input label="Token da API Autentique" type="text" autocomplete="off" autocorrect="off" spellcheck={false} class="font-mono text-xs"
+          value={token} onInput={(e: any) => onToken(e.currentTarget.value)}
+          placeholder={c.tokenConfigurado ? 'configurado — cole um novo para substituir' : 'cole o token da Autentique'} />
         <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={sandboxVal} onChange={(e: any) => setSandbox(e.currentTarget.checked)} /> Sandbox (não consome documentos no teste)</label>
-        <p class="text-xs text-fg-muted">No modo Autentique, o contrato é enviado de verdade e os signatários recebem o e-mail/link para assinar. O token é gerado no painel da Autentique.</p>
+        <p class="text-xs text-fg-muted">No modo Autentique, o contrato é enviado de verdade e os signatários recebem o e-mail/link para assinar. O token é gerado no painel da Autentique (Configurações › Integrações › API).</p>
       </div>
     </Modal>
   )

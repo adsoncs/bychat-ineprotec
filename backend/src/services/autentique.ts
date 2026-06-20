@@ -30,8 +30,11 @@ export async function getConfig(): Promise<AutentiqueConfig> {
 export async function setConfig(p: { modo?: string; token?: string; sandbox?: boolean }): Promise<void> {
   const up = async (key: string, value: string, label: string, fieldType = 'text') =>
     prisma.setting.upsert({ where: { key }, update: { value: value as any }, create: { key, label, grp: 'academico', fieldType, value: value as any } })
-  if (p.modo !== undefined) await up('assinatura.modo', p.modo === 'AUTENTIQUE' ? 'AUTENTIQUE' : 'SIMULADO', 'Modo de assinatura')
-  if (p.token !== undefined) await up('assinatura.autentique.token', p.token, 'Token Autentique', 'password')
+  const tokenInformado = typeof p.token === 'string' && p.token.trim().length > 0
+  if (p.token !== undefined) await up('assinatura.autentique.token', p.token.trim(), 'Token Autentique', 'text')
+  // Se um token foi informado e o modo não foi explicitamente SIMULADO, liga o Autentique.
+  const modoFinal = p.modo === 'SIMULADO' ? 'SIMULADO' : (p.modo === 'AUTENTIQUE' || tokenInformado) ? 'AUTENTIQUE' : undefined
+  if (modoFinal !== undefined) await up('assinatura.modo', modoFinal, 'Modo de assinatura')
   if (p.sandbox !== undefined) await up('assinatura.autentique.sandbox', p.sandbox ? 'true' : 'false', 'Sandbox Autentique', 'boolean')
 }
 
