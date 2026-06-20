@@ -5,7 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import * as svc from '../services/acaAssinatura.js'
-import { getConfig, setConfig } from '../services/autentique.js'
+import { getConfig, setConfig, verificarAssinaturaWebhook } from '../services/autentique.js'
 
 const ENV_INCLUDE = { signatarios: { orderBy: { ordem: 'asc' as const } } }
 
@@ -13,13 +13,15 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
   // ── Config (sem expor o token) ──
   app.get('/api/admin/aca/assinatura/config', { preHandler: authMiddleware }, async () => {
     const c = await getConfig()
-    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token }
+    const { getWebhookSecret } = await import('../services/autentique.js')
+    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token, webhookSecretConfigurado: !!(await getWebhookSecret()) }
   })
   app.put('/api/admin/aca/assinatura/config', { preHandler: authMiddleware }, async (req) => {
     const b = (req.body as any) || {}
-    await setConfig({ modo: b.modo, token: b.token, sandbox: b.sandbox })
+    await setConfig({ modo: b.modo, token: b.token, sandbox: b.sandbox, webhookSecret: b.webhookSecret })
     const c = await getConfig()
-    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token }
+    const { getWebhookSecret } = await import('../services/autentique.js')
+    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token, webhookSecretConfigurado: !!(await getWebhookSecret()) }
   })
 
   // ── Lista ──
@@ -169,7 +171,12 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
 
   // ── Webhook público da Autentique (sem auth) ──
   app.post('/api/webhooks/autentique', async (req, reply) => {
-    try { const r = await svc.processarWebhook(req.body); return reply.code(200).send(r) }
-    catch { return reply.code(200).send({ ok: true }) }
+    try {
+      const sig = (req.headers['x-autentique-signature'] as string) || undefined
+      const v = await verificarAssinaturaWebhook((req as any).rawBody, sig)
+      if (v === 'invalida') { req.log?.warn?.('autentique webhook: assinatura inválida'); return reply.code(200).send({ ok: true, ignored: 'signature' }) }
+      const r = await svc.processarWebhook(req.body)
+      return reply.code(200).send(r)
+    } catch { return reply.code(200).send({ ok: true }) }
   })
 }

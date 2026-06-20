@@ -14,7 +14,7 @@ export async function abrirPdfContrato(id: number) {
 export interface EnvelopeRow { id: number; titulo: string; status: string; provider: string; enviadoEm: string | null; finalizadoEm: string | null; alunoNome: string | null; ra: string | null; totalSignatarios: number; assinados: number }
 export interface Signatario { id: number; nome: string; email: string | null; papel: string; status: string; linkAssinatura: string | null; publicId: string | null; assinadoEm: string | null; viewedEm: string | null; rejeitadoEm: string | null; ordem: number }
 export interface EnvelopeDetail { id: number; titulo: string; status: string; provider: string; alunoId: number | null; contratoId: number | null; documentoExternoId: string | null; enviadoEm: string | null; finalizadoEm: string | null; termoTexto: string | null; arquivoAssinadoUrl: string | null; signatarios: Signatario[] }
-export interface AssinaturaConfig { modo: 'SIMULADO' | 'AUTENTIQUE'; sandbox: boolean; tokenConfigurado: boolean }
+export interface AssinaturaConfig { modo: 'SIMULADO' | 'AUTENTIQUE'; sandbox: boolean; tokenConfigurado: boolean; webhookSecretConfigurado?: boolean }
 
 export const ENV_STATUS: Record<string, { label: string; tone: 'neutral' | 'info' | 'warning' | 'success' | 'danger' }> = {
   RASCUNHO: { label: 'Rascunho', tone: 'neutral' }, ENVIADO: { label: 'Enviado', tone: 'info' },

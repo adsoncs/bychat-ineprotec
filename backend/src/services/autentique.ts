@@ -7,6 +7,7 @@
 // SIMULADO (sem rede), então o fluxo é 100% testável sem credencial.
 
 import { prisma } from '../lib/prisma.js'
+import crypto from 'crypto'
 
 const ENDPOINT = 'https://api.autentique.com.br/v2/graphql'
 
@@ -27,7 +28,7 @@ export async function getConfig(): Promise<AutentiqueConfig> {
   return { modo, token, sandbox }
 }
 
-export async function setConfig(p: { modo?: string; token?: string; sandbox?: boolean }): Promise<void> {
+export async function setConfig(p: { modo?: string; token?: string; sandbox?: boolean; webhookSecret?: string }): Promise<void> {
   const up = async (key: string, value: string, label: string, fieldType = 'text') =>
     prisma.setting.upsert({ where: { key }, update: { value: value as any }, create: { key, label, grp: 'academico', fieldType, value: value as any } })
   const tokenInformado = typeof p.token === 'string' && p.token.trim().length > 0
@@ -36,6 +37,26 @@ export async function setConfig(p: { modo?: string; token?: string; sandbox?: bo
   const modoFinal = p.modo === 'SIMULADO' ? 'SIMULADO' : (p.modo === 'AUTENTIQUE' || tokenInformado) ? 'AUTENTIQUE' : undefined
   if (modoFinal !== undefined) await up('assinatura.modo', modoFinal, 'Modo de assinatura')
   if (p.sandbox !== undefined) await up('assinatura.autentique.sandbox', p.sandbox ? 'true' : 'false', 'Sandbox Autentique', 'boolean')
+  if (p.webhookSecret !== undefined) await up('assinatura.autentique.webhook_secret', p.webhookSecret.trim(), 'Webhook secret Autentique', 'password')
+}
+
+/** Secret do webhook (Settings ou env). Vazio = verificação desligada. */
+export async function getWebhookSecret(): Promise<string | null> {
+  return process.env.AUTENTIQUE_WEBHOOK_SECRET || (await getSetting('assinatura.autentique.webhook_secret')) || null
+}
+
+/**
+ * Verifica a assinatura do webhook (header x-autentique-signature = HMAC-SHA256(secret, rawBody) em hex).
+ * Retorna: 'ok' (válida), 'invalida' (não confere), 'sem_secret' (verificação desligada — aceita).
+ */
+export async function verificarAssinaturaWebhook(rawBody: Buffer | string | undefined, signature: string | undefined): Promise<'ok' | 'invalida' | 'sem_secret'> {
+  const secret = await getWebhookSecret()
+  if (!secret) return 'sem_secret'
+  if (!rawBody || !signature) return 'invalida'
+  const calc = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+  const a = Buffer.from(calc, 'hex'); const b = Buffer.from(String(signature).trim(), 'hex')
+  if (a.length !== b.length) return 'invalida'
+  return crypto.timingSafeEqual(a, b) ? 'ok' : 'invalida'
 }
 
 interface GqlResult<T> { data?: T; errors?: Array<{ message: string }> }

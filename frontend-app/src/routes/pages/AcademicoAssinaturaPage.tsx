@@ -355,6 +355,7 @@ function ConfigModal({ onClose }: { onClose: () => void }) {
   const c = q.data
   const [modo, setModo] = useState<string>('')
   const [token, setToken] = useState('')
+  const [secret, setSecret] = useState('')
   const [sandbox, setSandbox] = useState<boolean | null>(null)
   if (!c) return null
   const modoVal = modo || c.modo
@@ -363,17 +364,19 @@ function ConfigModal({ onClose }: { onClose: () => void }) {
   const salvar = () => {
     const body: any = { modo: modoVal, sandbox: sandboxVal }
     if (token.trim()) body.token = token.trim()
+    if (secret.trim()) body.webhookSecret = secret.trim()
     mut.setConfig.mutate(body, { onSuccess: () => { toast('Configuração salva', 'success'); onClose() }, onError: (e: any) => toast(e?.message || 'Erro', 'danger') })
   }
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Configurar assinatura" description="Autentique (real) ou simulado para testes."
       footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.setConfig.isPending} onClick={salvar}>Salvar</Button></>}>
       <div class="space-y-3">
-        <div class="text-xs text-fg-muted">Status: modo <b>{c.modo === 'AUTENTIQUE' ? 'Autentique' : 'Simulado'}</b> · token {c.tokenConfigurado ? '✓ configurado' : '— não configurado'}</div>
+        <div class="text-xs text-fg-muted">Status: modo <b>{c.modo === 'AUTENTIQUE' ? 'Autentique' : 'Simulado'}</b> · token {c.tokenConfigurado ? '✓' : '—'} · webhook secret {c.webhookSecretConfigurado ? '✓' : '—'}</div>
         <Select label="Modo" value={modoVal} onChange={(e: any) => setModo(e.currentTarget.value)}><option value="SIMULADO">Simulado (sem credencial)</option><option value="AUTENTIQUE">Autentique (assinatura real)</option></Select>
         <Input label="Token da API Autentique" type="text" autocomplete="off" spellcheck={false} class="font-mono text-xs" value={token} onInput={(e: any) => onToken(e.currentTarget.value)} placeholder={c.tokenConfigurado ? 'configurado — cole um novo para substituir' : 'cole o token da Autentique'} />
+        <Input label="Webhook Endpoint Secret" type="text" autocomplete="off" spellcheck={false} class="font-mono text-xs" value={secret} onInput={(e: any) => setSecret(e.currentTarget.value)} placeholder={c.webhookSecretConfigurado ? 'configurado — cole um novo para substituir' : 'secret do endpoint de webhook'} />
         <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={sandboxVal} onChange={(e: any) => setSandbox(e.currentTarget.checked)} /> Sandbox (não consome documentos)</label>
-        <p class="text-xs text-fg-muted">O token é gerado no painel da Autentique (Configurações › Integrações › API). Webhook: aponte para <code>/api/webhooks/autentique</code>.</p>
+        <p class="text-xs text-fg-muted">Token: painel Autentique › Integrações › API. Webhook: <code>https://ineprotec.bychat.ia.br/api/webhooks/autentique</code> (eventos document.updated + document.finished). O secret valida a procedência (HMAC).</p>
       </div>
     </Modal>
   )
