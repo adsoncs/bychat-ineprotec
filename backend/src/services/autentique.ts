@@ -52,31 +52,63 @@ async function gql<T>(token: string, query: string, variables: any): Promise<T> 
   return j.data
 }
 
-export interface CriarDocSigner { nome: string; email: string }
+const DELIVERY: Record<string, string> = { EMAIL: 'DELIVERY_METHOD_EMAIL', SMS: 'DELIVERY_METHOD_SMS', WHATSAPP: 'DELIVERY_METHOD_WHATSAPP' }
+
+export interface CriarDocSigner {
+  nome: string; email?: string | null; telefone?: string | null
+  acao?: string          // SIGN | APPROVE | RECOGNIZE | WITNESS
+  delivery?: string      // EMAIL | SMS | WHATSAPP
+  exigeCpf?: boolean; exigeSelfie?: boolean; cpf?: string | null
+  positions?: Array<{ x: number; y: number; z: number; element?: string }>
+}
+export interface DocOptions {
+  message?: string | null
+  reminder?: string | null   // DAILY | WEEKLY
+  sortable?: boolean         // ordem sequencial
+  refusable?: boolean
+  deadlineAt?: string | null // ISO
+}
 export interface CriarDocResult {
   id: string
   signatures: Array<{ public_id: string; name: string | null; email: string | null; link: { short_link: string } | null }>
 }
 
-/** Cria um documento para assinatura enviando o PDF (multipart GraphQL upload). */
-export async function criarDocumento(token: string, sandbox: boolean, name: string, signers: CriarDocSigner[], pdf: Buffer): Promise<CriarDocResult> {
+/** Cria um documento para assinatura enviando o PDF (multipart GraphQL upload), com recursos completos. */
+export async function criarDocumento(token: string, sandbox: boolean, name: string, signers: CriarDocSigner[], pdf: Buffer, opts: DocOptions = {}): Promise<CriarDocResult> {
   const query = `mutation Criar($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!, $sandbox: Boolean) {
     createDocument(document: $document, signers: $signers, file: $file, sandbox: $sandbox) {
       id name
       signatures { public_id name email action { name } link { short_link } }
     }
   }`
-  const operations = {
-    query,
-    variables: {
-      document: { name },
-      signers: signers.map((s) => ({ name: s.nome, email: s.email, action: 'SIGN' })),
-      file: null,
-      sandbox,
-    },
+  const document: any = { name }
+  if (opts.message) document.message = opts.message
+  if (opts.reminder) document.reminder = opts.reminder
+  if (opts.sortable !== undefined) document.sortable = opts.sortable
+  if (opts.refusable !== undefined) document.refusable = opts.refusable
+  if (opts.deadlineAt) document.deadline_at = opts.deadlineAt
+
+  const variables = {
+    document,
+    signers: signers.map((s, i) => {
+      const sig: any = { action: s.acao || 'SIGN' }
+      if (s.email) sig.email = s.email
+      if (s.nome) sig.name = s.nome
+      if (s.telefone && (s.delivery === 'SMS' || s.delivery === 'WHATSAPP')) sig.phone = s.telefone
+      if (s.delivery && DELIVERY[s.delivery]) sig.delivery_method = DELIVERY[s.delivery]
+      const verifs: any[] = []
+      if (s.exigeCpf) verifs.push({ type: 'SECURITY_VERIFICATION_CPF', ...(s.cpf ? { cpf: s.cpf } : {}) })
+      if (s.exigeSelfie) verifs.push({ type: 'SECURITY_VERIFICATION_LIVENESS' })
+      if (verifs.length) sig.security_verifications = verifs
+      if (s.positions?.length) sig.positions = s.positions.map((p) => ({ x: String(p.x), y: String(p.y), z: p.z, element: p.element || 'SIGNATURE' }))
+      if (opts.sortable) sig.group = i // ordem sequencial = grupos crescentes
+      return sig
+    }),
+    file: null,
+    sandbox,
   }
   const form = new FormData()
-  form.append('operations', JSON.stringify(operations))
+  form.append('operations', JSON.stringify({ query, variables }))
   form.append('map', JSON.stringify({ '0': ['variables.file'] }))
   form.append('0', new Blob([pdf], { type: 'application/pdf' }), `${name}.pdf`)
 
@@ -87,8 +119,22 @@ export async function criarDocumento(token: string, sandbox: boolean, name: stri
   return j.data.createDocument
 }
 
+/** Remove um documento na Autentique. */
+export async function removerDocumento(token: string, id: string): Promise<boolean> {
+  const d = await gql<{ deleteDocument: boolean }>(token, `mutation($id: UUID!) { deleteDocument(id: $id) }`, { id })
+  return !!d.deleteDocument
+}
+
+/** Reenvia o convite de assinatura para signatários pendentes. */
+export async function reenviarAssinaturas(token: string, publicIds: string[]): Promise<boolean> {
+  if (!publicIds.length) return false
+  const d = await gql<{ resendSignatures: boolean }>(token, `mutation($public_ids: [String!]!) { resendSignatures(public_ids: $public_ids) }`, { public_ids: publicIds })
+  return !!d.resendSignatures
+}
+
 export interface DocStatus {
   id: string
+  files?: { signed: string | null; original: string | null } | null
   signatures: Array<{
     public_id: string; name: string | null; email: string | null
     viewed: { created_at: string } | null
@@ -97,10 +143,10 @@ export interface DocStatus {
   }>
 }
 
-/** Consulta o status de um documento (para reconciliar assinaturas). */
+/** Consulta o status de um documento (status das assinaturas + link do PDF assinado). */
 export async function consultarDocumento(token: string, id: string): Promise<DocStatus> {
   const query = `query($id: UUID!) { document(id: $id) {
-    id name
+    id name files { signed original }
     signatures { public_id name email viewed { created_at } signed { created_at } rejected { created_at } }
   } }`
   const d = await gql<{ document: DocStatus }>(token, query, { id })

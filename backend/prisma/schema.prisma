@@ -6344,6 +6344,18 @@ model AcaAssinatura {
   enviadoEm         DateTime?
   finalizadoEm      DateTime?
   metaJson          Json?    @db.Json // resposta crua do provedor
+  templateId        Int?
+  tipoNegocio       String?  @db.VarChar(40)
+  origem            AcaContratoOrigem @default(ESCRITO)
+  corpoTexto        String?  @db.Text       // contrato escrito/interpolado (ESCRITO/TEMPLATE)
+  arquivoBase64     String?  @db.LongText   // PDF enviado por upload (UPLOAD)
+  arquivoNome       String?  @db.VarChar(191)
+  deadlineEm        DateTime?               // prazo de assinatura
+  reminder          String?  @db.VarChar(10) // DAILY | WEEKLY | null
+  sortable          Boolean  @default(false) // assinatura em ordem sequencial
+  refusable         Boolean  @default(true)  // signatário pode recusar
+  mensagem          String?  @db.Text        // mensagem no convite
+  pastaExternaId    String?  @db.VarChar(120)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   signatarios       AcaSignatario[]
@@ -6358,6 +6370,12 @@ model AcaSignatario {
   nome           String   @db.VarChar(191)
   email          String?  @db.VarChar(191)
   papel          AcaSignatarioPapel @default(ALUNO)
+  acao           AcaSignatarioAcao @default(SIGN)        // SIGN/APPROVE/RECOGNIZE/WITNESS
+  deliveryMethod AcaDelivery @default(EMAIL)             // canal de entrega do convite
+  telefone       String?  @db.VarChar(30)               // p/ SMS/WHATSAPP
+  cpf            String?  @db.VarChar(20)
+  exigeCpf       Boolean  @default(false)
+  exigeSelfie    Boolean  @default(false)
   publicId       String?  @db.VarChar(120) // signature.public_id no provedor
   linkAssinatura String?  @db.Text         // short_link p/ assinar
   status         AcaSignatarioStatus @default(PENDENTE)
@@ -6368,4 +6386,71 @@ model AcaSignatario {
   assinatura     AcaAssinatura @relation(fields: [assinaturaId], references: [id], onDelete: Cascade)
 
   @@index([assinaturaId])
+}
+
+enum AcaContratoOrigem {
+  ESCRITO
+  UPLOAD
+  TEMPLATE
+}
+
+enum AcaSignatarioAcao {
+  SIGN
+  APPROVE
+  RECOGNIZE
+  WITNESS
+}
+
+enum AcaDelivery {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum AcaTipoNegocio {
+  GRADUACAO
+  POS_GRADUACAO
+  ESPECIALIZACAO
+  MBA
+  TECNICO_TRADICIONAL
+  CERTIFICACAO_COMPETENCIA
+  EXTENSAO
+  CURSO_LIVRE
+  IDIOMAS
+  OUTRO
+}
+
+enum AcaContratoEvento {
+  MANUAL
+  MATRICULA_CRIADA
+  INSCRICAO_APROVADA
+  CONTRATO_FINANCEIRO_CRIADO
+}
+
+model AcaContratoTemplate {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(191)
+  tipoNegocio AcaTipoNegocio @default(OUTRO)
+  descricao   String?  @db.VarChar(255)
+  corpoTexto  String   @db.Text   // corpo do contrato com {{variáveis}}
+  config      Json?    @db.Json   // {deadlineDias, reminder, sortable, refusable, mensagem}
+  signatariosPadrao Json? @db.Json // [{papel, acao, deliveryMethod, exigeCpf, exigeSelfie}]
+  ativo       Boolean  @default(true)
+  ordem       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AcaContratoGatilho {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(191)
+  evento      AcaContratoEvento @default(MANUAL)
+  templateId  Int
+  filtroTipoNegocio String? @db.VarChar(40) // dispara só p/ este tipo (opcional)
+  autoEnviar  Boolean  @default(false)      // true = cria E envia; false = cria rascunho
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([evento])
 }

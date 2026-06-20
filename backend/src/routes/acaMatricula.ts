@@ -107,6 +107,10 @@ export async function acaMatriculaRoutes(app: FastifyInstance) {
     await prisma.acaMatricula.update({ where: { id }, data: { status: 'MATRICULADO' } })
     await prisma.acaMatriculaEvento.create({ data: { matriculaId: id, de: m.status, para: 'MATRICULADO', obs: 'Matrícula efetivada', userId: op.userId ?? null } })
     const financeiroAviso = await gerarFinanceiro(id)
+    // gatilho de contrato (fire-and-forget; não bloqueia a efetivação)
+    prisma.acaMatricula.findUnique({ where: { id }, select: { alunoId: true } })
+      .then((mm) => mm && import('../services/acaAssinatura.js').then((s) => s.dispararEvento('MATRICULA_CRIADA', { alunoId: mm.alunoId, matriculaId: id })).catch(() => {}))
+      .catch(() => {})
     return { ok: true, status: 'MATRICULADO', financeiroAviso }
   })
 }
