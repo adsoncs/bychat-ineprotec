@@ -236,10 +236,23 @@ async function recompute(envelopeId: number) {
   return prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, include: { signatarios: { orderBy: { ordem: 'asc' } } } })
 }
 
+/** Coleta candidatos a ID de documento em qualquer formato de payload (busca por chaves id/uuid). */
+function coletarIds(obj: any, acc = new Set<string>(), depth = 0): Set<string> {
+  if (!obj || depth > 6) return acc
+  if (Array.isArray(obj)) { for (const v of obj) coletarIds(v, acc, depth + 1); return acc }
+  if (typeof obj === 'object') {
+    for (const [k, v] of Object.entries(obj)) {
+      if ((k === 'id' || k === 'uuid' || k === 'document_id' || k === 'documentId') && (typeof v === 'string' || typeof v === 'number')) acc.add(String(v))
+      else if (v && typeof v === 'object') coletarIds(v, acc, depth + 1)
+    }
+  }
+  return acc
+}
+
 export async function processarWebhook(body: any): Promise<{ ok: boolean; envelopeId?: number }> {
-  const docId = body?.document?.id || body?.documentId || body?.partner?.document_id || body?.id || null
-  if (!docId) return { ok: true }
-  const env = await prisma.acaAssinatura.findFirst({ where: { documentoExternoId: String(docId) }, select: { id: true } })
+  const ids = [...coletarIds(body)]
+  if (!ids.length) return { ok: true }
+  const env = await prisma.acaAssinatura.findFirst({ where: { documentoExternoId: { in: ids } }, select: { id: true } })
   if (!env) return { ok: true }
   await sincronizar(env.id).catch(() => {})
   return { ok: true, envelopeId: env.id }
