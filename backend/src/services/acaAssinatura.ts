@@ -168,6 +168,7 @@ export async function enviar(envelopeId: number) {
       if (sig) await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: sig.public_id, linkAssinatura: sig.link?.short_link || null } })
     }
     await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { provider: 'AUTENTIQUE', documentoExternoId: doc.id, status: 'ENVIADO', enviadoEm: new Date(), metaJson: doc as any } })
+    await sincronizar(envelopeId).catch(() => {}) // popula os links de assinatura (não vêm na criação)
   } else {
     for (const s of env.signatarios) await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: `sim-${envelopeId}-${s.id}`, linkAssinatura: `https://assinatura.simulada/local/${envelopeId}/${s.id}` } })
     await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { provider: 'SIMULADO', documentoExternoId: `sim-${envelopeId}`, status: 'ENVIADO', enviadoEm: new Date() } })
@@ -188,6 +189,7 @@ export async function sincronizar(envelopeId: number) {
         const status = sig.rejected ? 'REJEITADO' : sig.signed ? 'ASSINADO' : sig.viewed ? 'VISUALIZADO' : 'PENDENTE'
         await prisma.acaSignatario.update({ where: { id: s.id }, data: {
           status: status as any,
+          ...(sig.link?.short_link ? { linkAssinatura: sig.link.short_link } : {}),
           assinadoEm: sig.signed ? new Date(sig.signed.created_at) : null,
           viewedEm: sig.viewed ? new Date(sig.viewed.created_at) : null,
           rejeitadoEm: sig.rejected ? new Date(sig.rejected.created_at) : null,

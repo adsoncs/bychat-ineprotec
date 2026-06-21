@@ -158,17 +158,18 @@ export interface DocStatus {
   files?: { signed: string | null; original: string | null } | null
   signatures: Array<{
     public_id: string; name: string | null; email: string | null
+    link: { short_link: string | null } | null
     viewed: { created_at: string } | null
     signed: { created_at: string } | null
     rejected: { created_at: string } | null
   }>
 }
 
-/** Consulta o status de um documento (status das assinaturas + link do PDF assinado). */
+/** Consulta o status de um documento (status + link de assinatura + link do PDF assinado). */
 export async function consultarDocumento(token: string, id: string): Promise<DocStatus> {
   const query = `query($id: UUID!) { document(id: $id) {
     id name files { signed original }
-    signatures { public_id name email viewed { created_at } signed { created_at } rejected { created_at } }
+    signatures { public_id name email link { short_link } viewed { created_at } signed { created_at } rejected { created_at } }
   } }`
   const d = await gql<{ document: DocStatus }>(token, query, { id })
   return d.document
