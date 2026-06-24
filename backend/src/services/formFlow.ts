@@ -197,12 +197,22 @@ export async function moveLeadStage(leadId: number, funnelId: number | null, sta
   if (!lead) return stageKey
   const toFunnel = funnelId ?? lead.funnelId
   if (lead.status === stageKey && lead.funnelId === toFunnel) return lead.status ?? stageKey
-  if (opts?.forwardOnly && lead.status && lead.funnelId === toFunnel && toFunnel != null) {
-    const [cur, tgt] = await Promise.all([
-      prisma.stage.findFirst({ where: { funnelId: toFunnel, key: lead.status }, select: { position: true } }),
-      prisma.stage.findFirst({ where: { funnelId: toFunnel, key: stageKey }, select: { position: true } }),
-    ])
-    if (cur && tgt && tgt.position <= cur.position) return lead.status // mantém a etapa mais avançada
+  if (toFunnel != null) {
+    // Fail-safe: NUNCA gravar uma etapa que não existe no funil de destino. Uma
+    // config de qualificação apontando para um stageKey de OUTRO funil (ex.: form
+    // no funil 2 com qualifyPositive=QUALIFICACAO, que só existe no funil 5)
+    // órfãnava o lead numa etapa inexistente E furava a proteção forwardOnly
+    // (que exige achar as duas etapas p/ comparar posições) — regredindo um lead
+    // que já tinha avançado (ex.: agendou → REUNIAO). Sem etapa válida, não mexe.
+    const tgt = await prisma.stage.findFirst({ where: { funnelId: toFunnel, key: stageKey }, select: { position: true } })
+    if (!tgt) {
+      console.warn(`[moveLeadStage] etapa "${stageKey}" inexistente no funil ${toFunnel} (lead ${leadId}); movimentação ignorada`)
+      return lead.status ?? stageKey
+    }
+    if (opts?.forwardOnly && lead.status && lead.funnelId === toFunnel) {
+      const cur = await prisma.stage.findFirst({ where: { funnelId: toFunnel, key: lead.status }, select: { position: true } })
+      if (cur && tgt.position <= cur.position) return lead.status // mantém a etapa mais avançada
+    }
   }
   await prisma.lead.update({ where: { id: leadId }, data: { status: stageKey, funnelId: toFunnel } })
   await prisma.leadStageMovement.create({
