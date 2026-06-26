@@ -3,6 +3,8 @@
 
 import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
+import { writeFile, mkdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
@@ -37,6 +39,42 @@ async function evoFetch(path: string, method = 'GET', body?: any) {
   const text = await res.text()
   try { return JSON.parse(text) } catch { return text }
 }
+
+// ─── Foto de perfil do contato: hospedar LOCALMENTE ──────────────────────────
+// As URLs devolvidas pela Evolution (pps.whatsapp.net) são ASSINADAS e EXPIRAM
+// (parâmetro oe=) em alguns dias → guardá-las cru faz a foto "sumir" depois. Aqui
+// baixamos os bytes e salvamos em /uploads/avatars/<leadId>.jpg (servido pelo
+// próprio backend, URL estável que nunca expira). Auto-throttle pelo mtime do
+// arquivo: só re-busca se o avatar local tiver passado do TTL (a foto pode mudar
+// no WhatsApp). Roda em background — nunca bloqueia o processamento da mensagem.
+const AVATAR_DIR = join(process.cwd(), '..', 'uploads', 'avatars')
+const AVATAR_TTL_MS = 24 * 60 * 60 * 1000 // re-busca no máx. 1x/dia por contato
+
+async function cacheProfilePicture(leadId: number, currentUrl: string | null, phone: string, instance: string, app: FastifyInstance): Promise<void> {
+  if (!phone || /@lid$/.test(phone) || phone.replace(/\D/g, '').length > 15) return // ignora LID/placeholder
+  const file = join(AVATAR_DIR, `${leadId}.jpg`)
+  const isLocal = !!currentUrl && currentUrl.startsWith('/uploads/avatars/')
+  if (isLocal) {
+    // Já hospedado: só renova se o arquivo local passou do TTL.
+    try { const s = await stat(file); if (Date.now() - s.mtimeMs < AVATAR_TTL_MS) return } catch { /* sem arquivo → re-baixa */ }
+  }
+  try {
+    const result: any = await evoFetch(`/chat/fetchProfilePictureUrl/${instance}`, 'POST', { number: phone })
+    const picUrl: string | null = result?.profilePictureUrl || result?.picture || result?.url || null
+    if (!picUrl) return // contato sem foto pública (privacidade) — preserva o atual
+    const res = await fetch(picUrl)
+    if (!res.ok) return
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(AVATAR_DIR, { recursive: true })
+    await writeFile(file, buf)
+    // ?v= força o navegador a recarregar quando a foto é atualizada.
+    const publicUrl = `/uploads/avatars/${leadId}.jpg?v=${Date.now()}`
+    await prisma.lead.update({ where: { id: leadId }, data: { profilePicUrl: publicUrl } }).catch(() => {})
+  } catch (e: any) {
+    app.log.warn(`[avatar] lead ${leadId}: ${e?.message || e}`)
+  }
+}
+
 
 async function sendWhatsAppMessage(number: string, text: string) {
   return evoFetch(`/message/sendText/${evoInstance()}`, 'POST', { number, text })
@@ -720,18 +758,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // Log mensagem recebida (se lead existe)
       const existingLeadForLog = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
 
-      // Buscar foto de perfil do contato (assíncrono, não bloqueia).
-      // Usa a instância que recebeu a mensagem — em multi-instância, cada
-      // conexão tem sua própria store de contatos.
-      if (existingLeadForLog && !existingLeadForLog.profilePicUrl) {
-        evoFetch(`/chat/fetchProfilePictureUrl/${inboundInstance}`, 'POST', { number: phone })
-          .then((result: any) => {
-            const picUrl = result?.profilePictureUrl || result?.picture || result?.url || null
-            if (picUrl) {
-              prisma.lead.update({ where: { id: existingLeadForLog.id }, data: { profilePicUrl: picUrl } }).catch(() => {})
-            }
-          })
-          .catch(() => {})
+      // Foto de perfil do contato (assíncrono, não bloqueia): baixa e hospeda
+      // localmente. O helper se auto-limita pelo TTL e migra URLs antigas
+      // (pps.whatsapp.net, que expiram) para o avatar local estável.
+      if (existingLeadForLog) {
+        cacheProfilePicture(existingLeadForLog.id, existingLeadForLog.profilePicUrl, phone, inboundInstance, app)
+      } else if (phone) {
+        // Contato NOVO: o lead será criado adiante por este inbound (chatbot ou
+        // atendimento). Resolve em background e já baixa a foto na 1ª mensagem.
+        setTimeout(() => {
+          prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+            .then((l) => { if (l) cacheProfilePicture(l.id, l.profilePicUrl, phone, inboundInstance, app) })
+            .catch(() => {})
+        }, 4000)
       }
 
       if (existingLeadForLog) {
@@ -911,23 +950,18 @@ export async function whatsappRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/whatsapp/profile-pic/:phone — Busca foto de perfil do contato via Evolution API
+  // GET /api/whatsapp/profile-pic/:phone — Busca/atualiza a foto do contato e a
+  // hospeda localmente (URL estável). Força refresh removendo o avatar atual.
   app.get('/api/whatsapp/profile-pic/:phone', { preHandler: authMiddleware }, async (req, reply) => {
     try {
       const { phone } = req.params as any
       const number = String(phone).replace(/\D/g, '')
-      const result = await evoFetch(`/chat/fetchProfilePictureUrl/${evoInstance()}`, 'POST', {
-        number
-      })
-      const picUrl = result?.profilePictureUrl || result?.picture || result?.url || null
-      if (picUrl) {
-        // Salvar no lead
-        await prisma.lead.updateMany({
-          where: { whatsapp: { contains: number.slice(-8) } },
-          data: { profilePicUrl: picUrl }
-        })
-      }
-      return { profilePicUrl: picUrl }
+      const lead = await prisma.lead.findFirst({ where: { whatsapp: { contains: number.slice(-8) } }, orderBy: { createdAt: 'desc' } })
+      if (!lead) return { profilePicUrl: null }
+      // Força re-busca: passa currentUrl=null para ignorar o throttle.
+      await cacheProfilePicture(lead.id, null, lead.whatsapp || number, evoInstance(), app)
+      const updated = await prisma.lead.findUnique({ where: { id: lead.id }, select: { profilePicUrl: true } })
+      return { profilePicUrl: updated?.profilePicUrl ?? null }
     } catch (err: any) {
       return { profilePicUrl: null }
     }
