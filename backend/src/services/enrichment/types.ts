@@ -7,6 +7,11 @@ export interface EnrichmentFact {
   confidence: number       // 0.0 - 1.0
   rawData?: any            // payload bruto (auditoria)
   expiresInDays?: number   // TTL opcional
+  // 'fact' (default) → status 'active': entra no dossiê/score/promoção.
+  // 'candidate' → status 'candidate': NÃO entra no dossiê nem no score; fica num
+  // balde "a verificar" pro agente confirmar/descartar. Usado para descobertas por
+  // NOME (social via busca) sem corroboração de identidade suficiente.
+  kind?: 'fact' | 'candidate'
 }
 
 export interface LeadSeed {

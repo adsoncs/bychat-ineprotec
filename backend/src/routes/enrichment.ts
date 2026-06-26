@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma.js'
 import { queues } from '../lib/queues.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp } from '../services/leadHistory.js'
+import { socialSearchEnabled, invalidateSocialSearchCache } from '../services/enrichment/identity.js'
 
 export async function enrichmentRoutes(app: FastifyInstance) {
 
@@ -226,7 +227,25 @@ export async function enrichmentRoutes(app: FastifyInstance) {
       })
     }
 
-    return reply.send({ lead, facts, bySource, totalFacts: facts.length })
+    // Candidatos a verificar (descobertas por NOME, sem âncora de identidade). NÃO
+    // entram no dossiê/score — o agente confirma ou descarta. Inclui a proveniência
+    // (query usada + por que achamos) para o agente julgar.
+    const candidateRows = await prisma.leadEnrichment.findMany({
+      where: { leadId, status: 'candidate' },
+      orderBy: [{ confidence: 'desc' }, { source: 'asc' }],
+    })
+    const candidates = candidateRows.map((c) => {
+      const raw = (c.rawData ?? {}) as Record<string, any>
+      return {
+        id: c.id, source: c.source, field: c.field, value: c.value, confidence: c.confidence,
+        fetchedAt: c.fetchedAt,
+        platform: raw.platform ?? c.field.replace('_url', ''),
+        query: raw.query ?? null,
+        reason: raw.corroboration ?? null, // por que é só candidato
+      }
+    })
+
+    return reply.send({ lead, facts, bySource, totalFacts: facts.length, candidates })
   })
 
   // Disparar enriquecimento
@@ -301,6 +320,22 @@ export async function enrichmentRoutes(app: FastifyInstance) {
       await queues.enrichment.add('enrich', { leadId }, { attempts: 2, backoff: { type: 'exponential', delay: 5000 } })
     }
     return reply.send({ ok: true, lead: { id: lead.id, lgpdConsent: lead.lgpdConsent } })
+  })
+
+  // Toggle: busca SOCIAL por nome (gera "candidatos a verificar"). Default OFF —
+  // com ele desligado o motor não anexa social não-verificado (sem alucinação).
+  app.get('/api/bychat/enrichment/admin/social-search', { preHandler: authMiddleware }, async (_req, reply) => {
+    return reply.send({ enabled: await socialSearchEnabled() })
+  })
+  app.put('/api/bychat/enrichment/admin/social-search', { preHandler: authMiddleware }, async (req, reply) => {
+    const enabled = (req.body as { enabled?: boolean })?.enabled === true
+    await prisma.setting.upsert({
+      where: { key: 'enrichment.socialSearch.enabled' },
+      update: { value: enabled },
+      create: { key: 'enrichment.socialSearch.enabled', value: enabled, label: 'Busca social por nome (candidatos)', grp: 'intelligence', fieldType: 'boolean' },
+    })
+    invalidateSocialSearchCache()
+    return reply.send({ ok: true, enabled })
   })
 
   // Painel do operador: observabilidade do motor de enrichment.
@@ -613,6 +648,56 @@ export async function enrichmentRoutes(app: FastifyInstance) {
     })
 
     return reply.send({ ok: true, status: newStatus })
+  })
+
+  // Confirmar um CANDIDATO (descoberta por nome) como verdadeiro → vira fato 'active'
+  // e passa a contar no dossiê. Marca rawData.confirmed para sobreviver a re-runs.
+  app.post('/api/bychat/leads/:id/enrichment/:factId/confirm', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id, factId } = req.params as { id: string; factId: string }
+    const fact = await prisma.leadEnrichment.findUnique({ where: { id: parseInt(factId) } })
+    if (!fact || fact.leadId !== parseInt(id)) return reply.code(404).send({ error: 'Candidato não encontrado' })
+
+    await prisma.leadEnrichment.update({
+      where: { id: fact.id },
+      data: {
+        status: 'active',
+        rawData: { ...((fact.rawData ?? {}) as Record<string, unknown>), confirmed: { at: new Date().toISOString() } },
+      },
+    })
+    logEvent({
+      leadId: fact.leadId,
+      type: 'enrichment_candidate_confirmed',
+      category: 'system',
+      title: `Candidato confirmado: ${fact.source}.${fact.field}`,
+      channel: 'system', source: 'panel', actorType: 'operator', ipAddress: getIp(req),
+    })
+    return reply.send({ ok: true, status: 'active' })
+  })
+
+  // Descartar um CANDIDATO (não é a pessoa) → status 'rejected' (some da lista,
+  // preserva histórico para o motor aprender a não confiar na fonte/query).
+  app.post('/api/bychat/leads/:id/enrichment/:factId/dismiss', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id, factId } = req.params as { id: string; factId: string }
+    const body = (req.body ?? {}) as { reason?: string }
+    const fact = await prisma.leadEnrichment.findUnique({ where: { id: parseInt(factId) } })
+    if (!fact || fact.leadId !== parseInt(id)) return reply.code(404).send({ error: 'Candidato não encontrado' })
+
+    await prisma.leadEnrichment.update({
+      where: { id: fact.id },
+      data: {
+        status: 'rejected',
+        rawData: { ...((fact.rawData ?? {}) as Record<string, unknown>), dismissed: { at: new Date().toISOString(), reason: body.reason ?? null } },
+      },
+    })
+    logEvent({
+      leadId: fact.leadId,
+      type: 'enrichment_candidate_dismissed',
+      category: 'system',
+      title: `Candidato descartado: ${fact.source}.${fact.field}`,
+      description: body.reason ?? undefined,
+      channel: 'system', source: 'panel', actorType: 'operator', ipAddress: getIp(req),
+    })
+    return reply.send({ ok: true, status: 'rejected' })
   })
 
   // Lista as promoções do último enriquecimento (campos do Lead que foram preenchidos

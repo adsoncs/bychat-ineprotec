@@ -4,6 +4,7 @@
 
 import type { Provider, ProviderResult, EnrichmentFact } from '../types.js'
 import { fetchCnpj, buildCnpjFacts } from './brasilApi.js'
+import { socialSearchEnabled, corroborateSocialUrl } from '../identity.js'
 
 interface PlatformSpec {
   name: string
@@ -93,6 +94,10 @@ export const googleCseProvider: Provider = async (seed) => {
   const cx = process.env.GOOGLE_CSE_CX
   if (!key || !cx) return result  // silencioso quando não configurado
 
+  // Descoberta SOCIAL por nome só com o toggle ligado (default OFF). CNPJ/email/
+  // empresa continuam sempre (são ancorados em dado real, não alucinam).
+  const socialOn = await socialSearchEnabled()
+
   const nome = (seed.nome || '').trim()
   const email = (seed.email || '').trim()
   const empresa = (seed.empresa || '').trim()
@@ -146,26 +151,23 @@ export const googleCseProvider: Provider = async (seed) => {
       const url = item.link
       if (!url) continue
 
-      // 1. Classificação por plataforma social
-      const cls = classify(url)
+      // 1. Classificação por plataforma social (só com o toggle ligado)
+      const cls = socialOn ? classify(url) : null
       if (cls) {
         const factKey = `${cls.field}:${url}`
         if (!seen.has(factKey)) {
           seen.add(factKey)
-          const u = url.toLowerCase()
-          const matchHint = (emailLocal && u.includes(emailLocal.toLowerCase()))
-            || (firstName && u.includes(firstName.toLowerCase()))
-          const confidence = Math.min(cls.confidence + confBoost + (matchHint ? 0.03 : -0.05), 0.97)
-          if (confidence >= 0.5) {
-            result.facts.push({
-              source: 'google_cse',
-              field: cls.field,
-              value: url,
-              confidence,
-              rawData: { query: q, tag, platform: cls.name, title: item.title },
-              expiresInDays: 30,
-            })
-          }
+          // Corroboração: e-mail no handle → FATO; nome → CANDIDATO a verificar.
+          const corr = corroborateSocialUrl(seed, url, Math.min(cls.confidence + confBoost, 0.97))
+          result.facts.push({
+            source: 'google_cse',
+            field: cls.field,
+            value: url,
+            confidence: corr.confidence,
+            kind: corr.kind,
+            rawData: { query: q, tag, platform: cls.name, title: item.title, corroboration: corr.reason },
+            expiresInDays: 30,
+          })
         }
       }
 

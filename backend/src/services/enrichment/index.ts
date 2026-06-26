@@ -133,11 +133,18 @@ export async function enrichLead(leadId: number, opts: EnrichOptions = {}): Prom
     const existing = await prisma.leadEnrichment.findFirst({
       where: { leadId, source: fact.source, field: fact.field },
     })
+    // 'candidate' = descoberta por nome (social) sem âncora de identidade: fica num
+    // balde "a verificar", FORA do dossiê/score/promoção (que só leem status 'active').
+    const desiredStatus = fact.kind === 'candidate' ? 'candidate' : 'active'
+    // Preserva a decisão manual do agente: não revive um fato contestado nem rebaixa
+    // um candidato que o agente já confirmou (rawData.confirmed).
+    const manual = existing && (existing.status === 'disputed' || (existing.rawData as any)?.confirmed === true)
+    const status = manual ? existing!.status : desiredStatus
     const data = {
       value: fact.value.slice(0, 65000),
       confidence: fact.confidence,
       rawData: fact.rawData ?? undefined,
-      status: 'active',
+      status,
       fetchedAt: new Date(),
       expiresAt: fact.expiresInDays
         ? new Date(Date.now() + fact.expiresInDays * 24 * 60 * 60 * 1000)

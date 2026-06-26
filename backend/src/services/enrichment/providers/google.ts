@@ -4,6 +4,7 @@
 
 import { prisma } from '../../../lib/prisma.js'
 import type { Provider, ProviderResult } from '../types.js'
+import { socialSearchEnabled, corroborateSocialUrl } from '../identity.js'
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -117,6 +118,10 @@ function classify(url: string): { field: string; source: string; confidence: num
 export const googleProvider: Provider = async (seed) => {
   const result: ProviderResult = { facts: [] }
 
+  // Toggle (default OFF): sem ele, NÃO há descoberta social por nome — o vetor de
+  // alucinação (anexar qualquer homônimo) some. Admin liga em Inteligência.
+  if (!(await socialSearchEnabled())) return result
+
   // Se google_cse já trouxe URLs de redes sociais neste lead, pula scraping (evita bloqueio)
   if (process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_CX) {
     const cseHits = await prisma.leadEnrichment.count({
@@ -157,18 +162,17 @@ export const googleProvider: Provider = async (seed) => {
       const key = `${cls.field}:${url}`
       if (seen.has(key)) continue
       seen.add(key)
-      // Valida presença do nome ou e-mail na URL para reduzir falso positivo
-      const u = url.toLowerCase()
-      const matchHint = (email && u.includes(email.split('@')[0].toLowerCase()))
-        || (nome && u.includes(nome.split(' ')[0].toLowerCase()))
-      const confidence = Math.min(cls.confidence + confBoost + (matchHint ? 0.05 : -0.1), 0.95)
-      if (confidence < 0.4) continue
+      // Corroboração de identidade: só vira FATO com âncora forte (e-mail no handle);
+      // casamento por nome (mesmo nome completo) vira CANDIDATO a verificar — nunca
+      // fato automático. Isto mata o "achou qualquer jose_xavier e colou como real".
+      const corr = corroborateSocialUrl(seed, url, Math.min(cls.confidence + confBoost, 0.95))
       result.facts.push({
         source: 'google',
         field: cls.field,
         value: url,
-        confidence,
-        rawData: { query: q, platform: cls.source, engine: sr.engine },
+        confidence: corr.confidence,
+        kind: corr.kind,
+        rawData: { query: q, platform: cls.source, engine: sr.engine, corroboration: corr.reason },
       })
     }
     // delay maior entre queries (4-7s) para reduzir bloqueios

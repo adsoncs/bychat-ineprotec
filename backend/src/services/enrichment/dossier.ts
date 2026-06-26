@@ -32,6 +32,9 @@ export interface Dossier {
     position?: string
   }
   socials: { platform: string; url: string; title?: string; bio?: string; confidence: number }[]
+  // Perfis descobertos por NOME, sem âncora de identidade → "a verificar". Não são
+  // tratados como verdade: o agente confirma ou descarta no painel.
+  candidates: { id: number; platform: string; url: string; confidence: number; reason?: string; query?: string; title?: string; image?: string }[]
   company: {
     name?: string
     legal_name?: string
@@ -88,6 +91,29 @@ export async function buildDossier(leadId: number): Promise<Dossier> {
     const title = best(`${p}_profile_title`) as string | undefined
     const bio = best(`${p}_profile_bio`) as string | undefined
     socials.push({ platform: p, url: urlFact.value, title, bio, confidence: urlFact.confidence })
+  }
+
+  // Candidatos a verificar (status 'candidate') — descobertas por nome com preview.
+  const candFacts = await prisma.leadEnrichment.findMany({
+    where: { leadId, status: 'candidate' },
+    orderBy: { confidence: 'desc' },
+  })
+  const candByField = new Map<string, typeof candFacts>()
+  for (const f of candFacts) {
+    if (!candByField.has(f.field)) candByField.set(f.field, [])
+    candByField.get(f.field)!.push(f)
+  }
+  const candidates: Dossier['candidates'] = []
+  for (const p of socialPlatforms) {
+    const urlFact = pickBest(candByField.get(`${p}_url`) || [], f => f.confidence)
+    if (!urlFact) continue
+    const raw = (urlFact.rawData ?? {}) as Record<string, any>
+    const title = pickBest(candByField.get(`${p}_profile_title`) || [], f => f.confidence)?.value
+    const image = pickBest(candByField.get(`${p}_profile_image`) || [], f => f.confidence)?.value
+    candidates.push({
+      id: urlFact.id, platform: p, url: urlFact.value, confidence: urlFact.confidence,
+      reason: raw.corroboration, query: raw.query, title, image,
+    })
   }
 
   // Company
@@ -151,6 +177,7 @@ export async function buildDossier(leadId: number): Promise<Dossier> {
       position,
     },
     socials,
+    candidates,
     company: {
       name: (best('company_name_verified') || best('company_name') || lead.empresa || undefined) as string | undefined,
       legal_name: best('company_legal_name') as string | undefined,
