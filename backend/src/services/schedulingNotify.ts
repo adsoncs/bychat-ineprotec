@@ -55,14 +55,11 @@ async function sendBookingConfirmationToLead(
       : null
 
     if (openWindow) {
-      const body = `✅ *Reunião agendada!*\n📅 ${when}` + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '') + `\n\nPara garantir a sua presença, confirme tocando no botão abaixo. 👇`
-      const { buildChoices } = await import('../lib/waInteractive.js')
-      const interactive = buildChoices(body, [{ id: 'confirm_booking', title: 'Confirmar reunião' }])
-      if (interactive) {
-        await provider.sendInteractive(phone, interactive)
-        await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
-        return
-      }
+      // Sem pedido de confirmação (auto-cancel removido; cancelar/remarcar = manual):
+      // mensagem limpa de "agendado" com o link da reunião.
+      const body = `✅ *Reunião agendada!*\n📅 ${when}` + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '')
+      await provider.sendText(phone, body)
+      return
     }
 
     // Lead frio → template HSM (quando aprovado). {{4}} nunca pode ir vazio (Meta rejeita).
@@ -280,33 +277,16 @@ async function reminderTick(): Promise<void> {
   }
 }
 
-// Auto-cancelamento: reservas ainda NÃO confirmadas (pedido de confirmação enviado) a
-// menos de 3h da reunião são canceladas e o horário liberado (slots excluem 'cancelled').
-async function autoCancelUnconfirmed(): Promise<void> {
-  const now = new Date()
-  const cutoff = new Date(now.getTime() + 3 * 3600000)
-  const bookings = await prisma.booking.findMany({
-    where: { status: 'scheduled', confirmRequestedAt: { not: null }, confirmedAt: null, startAt: { gt: now, lte: cutoff } },
-    select: { id: true, activityId: true },
-    take: 100,
-  })
-  for (const b of bookings) {
-    try {
-      await prisma.booking.update({ where: { id: b.id }, data: { status: 'cancelled', cancelReason: 'Não confirmado pelo lead' } })
-      if (b.activityId) {
-        await prisma.activity.update({ where: { id: b.activityId }, data: { status: 'cancelled' } }).catch(() => {})
-        import('./googleCalendarSync.js').then((m) => m.unsyncActivityFromCalendar(b.activityId!)).catch(() => {})
-      }
-    } catch { /* tenta no próximo tick */ }
-  }
-  if (bookings.length) console.log(`[scheduling] auto-cancelados ${bookings.length} agendamento(s) não confirmado(s)`)
-}
+// Auto-cancelamento de reservas não confirmadas: REMOVIDO por política — apenas
+// CRIAR agendamento fica ativo; remarcar/cancelar são SOMENTE manuais (pela
+// equipe, no painel). Antes, uma cron (tick 5min) cancelava reservas não
+// confirmadas a <3h da reunião e APAGAVA o evento do Google (sumiço silencioso),
+// pior na Evolution onde a confirmação do lead nem é detectada.
 
 export function startSchedulingReminders(): void {
   if (reminderTimer) return
   reminderTimer = setInterval(() => {
     reminderTick().catch(() => {})
-    autoCancelUnconfirmed().catch(() => {})
   }, 5 * 60000)
-  console.log('[scheduling] lembretes + auto-cancelamento iniciados (tick 5min)')
+  console.log('[scheduling] lembretes iniciados (tick 5min) — sem auto-cancelamento (cancelar/remarcar = manual)')
 }
