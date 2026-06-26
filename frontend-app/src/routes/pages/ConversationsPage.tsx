@@ -38,6 +38,8 @@ import {
   HelpCircle,
   Cloud,
   Smartphone,
+  ChevronDown,
+  Check,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -45,6 +47,7 @@ import {
   useTicketMessages,
   useSendMessage,
   useSenderChannels,
+  type SenderChannel,
   useMarkAsRead,
   useClaimTicket,
   useReleaseTicket,
@@ -798,6 +801,9 @@ function ChatPanel({
   const [chatSearch, setChatSearch] = useState<string | null>(null)
   const [quotedMsg, setQuotedMsg] = useState<ChatMessage | null>(null)
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  // Menu de troca de número de envio (mantém visível só o número padrão/atual;
+  // os demais ficam neste dropdown — evita o rodapé poluído com muitos números).
+  const [numMenuOpen, setNumMenuOpen] = useState(false)
   // Modal de promoção pós-Assumir: aberto após claim quando o lead ainda não
   // está qualificado (qualifiedAt == null) — convida o operador a colocar
   // o contato em um funil/etapa. Se já é lead qualificado, modal não aparece.
@@ -821,6 +827,7 @@ function ChatPanel({
     setChatSearch(null)
     setQuotedMsg(null)
     setChannelId(null)
+    setNumMenuOpen(false)
   }, [leadId])
 
   // Pré-seleciona o canal sugerido (de entrada do lead) quando os canais chegam.
@@ -1357,37 +1364,85 @@ function ChatPanel({
             </div>
           )}
           <div class="p-3">
-            {!isInternalNote && channels.length >= 2 && (
-              <div class="mb-2 flex flex-wrap items-center gap-1.5">
-                <span class="text-[0.625rem] font-medium text-fg-subtle">Enviar por:</span>
-                {channels.map((c) => {
-                  const active = c.id === channelId
-                  const isCloud = c.provider === 'cloud_api'
-                  const Icon = isCloud ? Cloud : Smartphone
-                  const num = c.number || c.label
-                  return (
+            {!isInternalNote && channels.length >= 2 && (() => {
+              // Mantém VISÍVEL apenas o número selecionado (padrão = canal de entrada
+              // do lead). Os demais ficam no menu "Trocar" — assim o rodapé não fica
+              // poluído quando há muitos números.
+              const selected = channels.find((c) => c.id === channelId) ?? null
+              const suggestedId = senderChannels?.suggestedChannelId ?? null
+              const chanLabel = (c: SenderChannel) => `${c.provider === 'cloud_api' ? 'Cloud API' : 'Evolution'}${(c.number || c.label) ? ` · ${c.number || c.label}` : ''}`
+              const SelIcon = selected?.provider === 'cloud_api' ? Cloud : Smartphone
+              const selCloud = selected?.provider === 'cloud_api'
+              return (
+                <div class="mb-2 flex flex-wrap items-center gap-1.5">
+                  <span class="text-[0.625rem] font-medium text-fg-subtle">Enviar por:</span>
+                  {selected && (
+                    <span
+                      class={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold',
+                        selCloud ? 'border-info/40 bg-info/15 text-info' : 'border-success/40 bg-success/15 text-success',
+                      )}
+                      title={`Número atual: ${chanLabel(selected)}`}
+                    >
+                      <SelIcon size={11} />
+                      {chanLabel(selected)}
+                      {selected.id === suggestedId && (
+                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-[0.5625rem] font-medium uppercase tracking-wide">padrão</span>
+                      )}
+                    </span>
+                  )}
+                  <div class="relative">
                     <button
                       type="button"
-                      key={c.id}
-                      onClick={() => setChannelId(c.id)}
-                      class={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold transition-colors',
-                        active
-                          ? isCloud
-                            ? 'border-info/40 bg-info/15 text-info'
-                            : 'border-success/40 bg-success/15 text-success'
-                          : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg',
-                      )}
-                      title={`Enviar por ${c.label}${num ? ' · ' + num : ''}`}
-                      aria-pressed={active}
+                      onClick={() => setNumMenuOpen((v) => !v)}
+                      class="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] font-medium text-fg-muted hover:bg-surface-2 hover:text-fg transition-colors"
+                      aria-expanded={numMenuOpen}
+                      aria-haspopup="listbox"
+                      title="Trocar número de envio"
                     >
-                      <Icon size={11} />
-                      {isCloud ? 'Cloud API' : 'Evolution'}{num ? ` · ${num}` : ''}
+                      <ChevronDown size={11} />
+                      {selected ? 'Trocar' : 'Escolher número'}
                     </button>
-                  )
-                })}
-              </div>
-            )}
+                    {numMenuOpen && (
+                      <>
+                        <div class="fixed inset-0 z-30" onClick={() => setNumMenuOpen(false)} />
+                        <div
+                          role="listbox"
+                          class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
+                        >
+                          <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+                          {channels.map((c) => {
+                            const active = c.id === channelId
+                            const isCloud = c.provider === 'cloud_api'
+                            const Icon = isCloud ? Cloud : Smartphone
+                            return (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                key={c.id}
+                                onClick={() => { setChannelId(c.id); setNumMenuOpen(false) }}
+                                class={cn(
+                                  'w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
+                                  active ? 'text-fg font-semibold' : 'text-fg-muted',
+                                )}
+                              >
+                                <Icon size={12} class={isCloud ? 'text-info' : 'text-success'} />
+                                <span class="flex-1 truncate">{chanLabel(c)}</span>
+                                {c.id === suggestedId && (
+                                  <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">padrão</span>
+                                )}
+                                {active && <Check size={12} class="text-accent shrink-0" />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
             {recording ? (
               <AudioRecorder onComplete={handleAudio} onCancel={() => setRecording(false)} />
             ) : (
