@@ -15,6 +15,7 @@ import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage, buildCustomFieldValues } from './formFlow.js'
+import { pickOperatorForTeam } from './teamRouting.js'
 import { parseAnswer, evaluateQualification, resolveStageMove, nextStep } from './journey/journeyEngine.js'
 import { interpretSelectAnswer } from './journey/interpret.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
@@ -367,6 +368,11 @@ async function _process(
   // Persiste a resposta no lead (campos nativos via mapTo + customFields).
   await applyAnswerToLead(leadId, field, state.answers)
 
+  // Roteamento por opção de menu (select com `route`): encaminha o lead ao setor
+  // escolhido — move funil/etapa e (re)atribui equipe/operador. No-op se a opção
+  // não tem `route` (retrocompatível com forms sem menu de triagem).
+  await applyOptionRoute(leadId, field, state.answers[field.key], send, chatbot, app)
+
   // Qualificação após cada qualificador (negativo vence → desqualifica já).
   if (field.isQualifier) {
     const q = evaluateQualification(fields, state.answers, settings)
@@ -415,6 +421,9 @@ export async function applyAnswerToLead(leadId: number, field: any, answers: Rec
   const v = answers[field.key]
   if (field.mapTo === 'nome') data.nome = String(v)
   else if (field.mapTo === 'email') data.email = String(v)
+  // whatsapp coletado na conversa (canal web). No WhatsApp o número já nasce no
+  // lead; só grava quando vier um valor não-vazio para não sobrescrever à toa.
+  else if (field.mapTo === 'whatsapp') { const w = String(v).trim(); if (w) data.whatsapp = w }
   else if (field.mapTo === 'empresa') data.empresa = String(v)
   else if (field.mapTo === 'cidade') data.cidade = String(v)
   else if (field.mapTo === 'segmento') data.segmento = String(v)
@@ -425,6 +434,48 @@ export async function applyAnswerToLead(leadId: number, field: any, answers: Rec
     data.customFields = { ...((lead?.customFields as any) || {}), ...cfv }
   }
   if (Object.keys(data).length) await prisma.lead.update({ where: { id: leadId }, data }).catch(() => {})
+}
+
+// Roteamento por opção de menu. Quando a opção de um campo `select` escolhida traz
+// um objeto `route` ({ funnelId, stageKey, teamId, confirmText }), o lead é
+// encaminhado ao setor correspondente: move de funil/etapa (forwardOnly:false, é
+// uma escolha explícita do cliente) e (re)atribui a equipe + operador disponível
+// (mesma lógica de pickOperatorForTeam usada na criação do lead). `confirmText`,
+// se presente, é enviado como confirmação ({{opcao}} = rótulo escolhido). É um
+// no-op quando a opção não tem `route` — não afeta forms/chatbots existentes.
+async function applyOptionRoute(
+  leadId: number,
+  field: any,
+  value: any,
+  send: (leadId: number, body: string) => Promise<void>,
+  chatbot: any,
+  app: FastifyInstance,
+): Promise<void> {
+  if (field?.type !== 'select' || !Array.isArray(field.options)) return
+  const opt = field.options.find((o: any) => String(o.value) === String(value))
+  const route = opt?.route
+  if (!route) return
+  try {
+    if (route.funnelId != null && route.stageKey) {
+      await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false })
+    }
+    if (route.teamId != null) {
+      const userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() },
+      }).catch(() => {})
+      logEvent({
+        leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle',
+        title: `Menu do chatbot: encaminhado para ${stripTags(opt.label) || route.stageKey}`,
+        channel: 'whatsapp', source: 'chatbot', actorType: 'lead',
+        metadata: { teamId: route.teamId, userId, funnelId: route.funnelId, stageKey: route.stageKey },
+      })
+    }
+    if (route.confirmText) await send(leadId, interpolate(String(route.confirmText), { opcao: stripTags(opt.label) }))
+  } catch (e: any) {
+    app.log.warn(`[scriptedChatbot] applyOptionRoute: ${e?.message || e}`)
+  }
 }
 
 // Move o lead para a etapa de qualificação positiva e abre a fase de agendamento.
@@ -550,7 +601,8 @@ async function finishQualifiedFlow(
   const q = evaluateQualification(fields, state.answers, settings)
   const mv = resolveStageMove(q, { promoteFunnelId, formFunnelId: form.funnelId ?? null, isFinish: false })
   if (mv) await moveLeadStage(leadId, mv.funnelId, mv.stageKey, 'chatbot', { forwardOnly: mv.forwardOnly })
-  await send(leadId, msg(chatbot, 'qualifiedDone'))
+  const ld = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true } })
+  await send(leadId, msg(chatbot, 'qualifiedDone', { nome: ld?.nome || state.answers?.nome || '' }))
   state.phase = 'done'
   await persistFn(leadId, state, true)
 }
