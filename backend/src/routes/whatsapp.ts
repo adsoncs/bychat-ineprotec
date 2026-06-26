@@ -211,6 +211,53 @@ async function downloadAudioFromEvolution(messageKey: any, instanceName?: string
   }
 }
 
+// ─── Mídia recebida (Evolution): baixar/descriptografar e hospedar localmente ──
+// As URLs que a Evolution entrega (mmg.whatsapp.net/...*.enc) são CRIPTOGRAFADAS
+// ponta-a-ponta e NÃO renderizam no navegador. getBase64FromMediaMessage devolve
+// os bytes DECIFRADOS → salvamos em /uploads/evolution-media/<arquivo> (URL
+// estável servida pelo backend). Mesmo padrão do saveCloudApiMedia e dos avatares.
+const EVO_MEDIA_DIR = join(process.cwd(), '..', 'uploads', 'evolution-media')
+
+function evoExtFromMime(mime: string, fallback: string): string {
+  const m = (mime || '').split(';')[0].trim().toLowerCase()
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
+    'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/amr': 'amr', 'audio/wav': 'wav',
+    'application/pdf': 'pdf',
+  }
+  if (map[m]) return map[m]
+  const sub = (m.split('/')[1] || '').replace(/[^a-z0-9]/g, '')
+  return sub || fallback
+}
+
+// Persiste um buffer de mídia já decifrado e devolve a URL pública local.
+async function saveMediaBuffer(buf: Buffer, mime: string, mediaType: string, app: FastifyInstance): Promise<string> {
+  try {
+    const fb = mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'ogg' : mediaType === 'sticker' ? 'webp' : 'bin'
+    const ext = evoExtFromMime(mime, fb)
+    await mkdir(EVO_MEDIA_DIR, { recursive: true })
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`
+    await writeFile(join(EVO_MEDIA_DIR, fileName), buf)
+    return `/uploads/evolution-media/${fileName}`
+  } catch (e: any) {
+    app.log.warn(`[evo-media] write ${mediaType}: ${e?.message || e}`)
+    return ''
+  }
+}
+
+// Baixa+descriptografa a mídia da Evolution e salva localmente (URL estável).
+async function saveEvolutionMedia(messageKey: any, instance: string, mediaType: string, mime: string, app: FastifyInstance): Promise<string> {
+  try {
+    const result: any = await evoFetch(`/chat/getBase64FromMediaMessage/${instance}`, 'POST', { message: { key: messageKey } })
+    if (!result?.base64) return ''
+    return await saveMediaBuffer(Buffer.from(result.base64, 'base64'), mime || result?.mimetype || '', mediaType, app)
+  } catch (e: any) {
+    app.log.warn(`[evo-media] fetch ${mediaType}: ${e?.message || e}`)
+    return ''
+  }
+}
+
 async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
   try {
     const { writeFileSync, unlinkSync, mkdirSync } = await import('fs')
@@ -681,19 +728,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       if (message.imageMessage) {
         mediaType = 'image'
-        mediaUrl = message.imageMessage.url || ''
         mediaCaption = message.imageMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'image', message.imageMessage.mimetype || '', app)
       } else if (message.videoMessage) {
         mediaType = 'video'
-        mediaUrl = message.videoMessage.url || ''
         mediaCaption = message.videoMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'video', message.videoMessage.mimetype || '', app)
       } else if (message.audioMessage) {
         mediaType = 'audio'
-        mediaUrl = message.audioMessage.url || ''
-        // Transcribe audio to text
+        // Baixa UMA vez: salva o arquivo tocável E transcreve do mesmo buffer.
         try {
-          const audioBuf = await downloadAudioFromEvolution(key)
+          const audioBuf = await downloadAudioFromEvolution(key, inboundInstance)
           if (audioBuf) {
+            mediaUrl = await saveMediaBuffer(audioBuf, message.audioMessage.mimetype || '', 'audio', app)
             const transcription = await transcribeAudio(audioBuf)
             if (transcription) {
               mediaCaption = transcription
@@ -701,16 +748,16 @@ export async function whatsappRoutes(app: FastifyInstance) {
             }
           }
         } catch (transcribeErr: any) {
-          app.log.warn(`[Audio] Transcription error: ${transcribeErr.message}`)
+          app.log.warn(`[Audio] error: ${transcribeErr.message}`)
         }
       } else if (message.documentMessage) {
         mediaType = 'document'
-        mediaUrl = message.documentMessage.url || ''
         mediaName = message.documentMessage.fileName || ''
         mediaCaption = message.documentMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'document', message.documentMessage.mimetype || '', app)
       } else if (message.stickerMessage) {
         mediaType = 'sticker'
-        mediaUrl = message.stickerMessage.url || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'sticker', message.stickerMessage.mimetype || '', app)
       }
 
       const msgText = text || mediaCaption
