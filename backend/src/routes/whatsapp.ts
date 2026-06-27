@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { writeFile, mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
 import { isLikelyLid, onlyDigits } from '../lib/phone.js'
@@ -38,6 +39,12 @@ async function evoFetch(path: string, method = 'GET', body?: any) {
   const res = await fetch(`${evoUrl()}${path}`, opts)
   const text = await res.text()
   try { return JSON.parse(text) } catch { return text }
+}
+
+async function sendWhatsAppMessage(number: string, text: string, instanceName?: string | null) {
+  // Responde pela instância que RECEBEU a mensagem (multi-instância). Sem ela,
+  // cai na instância global do .env (EVOLUTION_INSTANCE) — comportamento antigo.
+  return evoFetch(`/message/sendText/${instanceName || evoInstance()}`, 'POST', { number, text })
 }
 
 // ─── Foto de perfil do contato: hospedar LOCALMENTE ──────────────────────────
@@ -73,11 +80,6 @@ async function cacheProfilePicture(leadId: number, currentUrl: string | null, ph
   } catch (e: any) {
     app.log.warn(`[avatar] lead ${leadId}: ${e?.message || e}`)
   }
-}
-
-
-async function sendWhatsAppMessage(number: string, text: string) {
-  return evoFetch(`/message/sendText/${evoInstance()}`, 'POST', { number, text })
 }
 
 // ─── LID → Phone resolver (consulta PostgreSQL da Evolution API) ───
@@ -714,6 +716,26 @@ export async function whatsappRoutes(app: FastifyInstance) {
         return { ok: true }
       }
 
+      // Idempotência (anti-reentrega): a Evolution reenvia o MESMO messages.upsert
+      // em reconexão/restart de instância/retry de webhook. Sem este guard, a mesma
+      // mensagem (mesmo key.id) era reinserida por algum dos message.create abaixo
+      // → duplicata na tela de Conversas. Mesma proteção que o Cloud API já tinha
+      // (wamsg). SET NX é atômico (vence reentregas quase simultâneas); o fallback
+      // em banco cobre Redis indisponível (reentregas em reconexão chegam depois,
+      // então o findFirst por externalId pega). Só recebidas (fromMe já retornou).
+      if (messageId) {
+        try {
+          const fresh = await redis.set(`evomsg:${messageId}`, '1', 'EX', 86400, 'NX')
+          if (fresh === null) return { ok: true } // já processado
+        } catch {
+          const dup = await prisma.message.findFirst({
+            where: { externalId: messageId, fromMe: false },
+            select: { id: true },
+          })
+          if (dup) return { ok: true }
+        }
+      }
+
       const text = message.conversation ||
                    message.extendedTextMessage?.text ||
                    message.buttonsResponseMessage?.selectedButtonId ||
@@ -964,7 +986,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       // Processar mensagem do diagnóstico (via chatbot flow com Evolution provider)
       const evoSendFn = async (p: string, t: string) => {
-        const result = await sendWhatsAppMessage(p, t)
+        // Responde pela instância que recebeu a mensagem (multi-instância).
+        const result = await sendWhatsAppMessage(p, t, inboundInstance)
         return { messageId: result?.key?.id || null }
       }
       // Chatbot determinístico (scripted): roda a jornada do form vinculado.
