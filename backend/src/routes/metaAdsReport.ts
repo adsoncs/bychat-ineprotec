@@ -1,7 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
-import { metaFetch } from '../lib/meta.js'
+import { metaFetch, getMetaAppId, getMetaAppSecret } from '../lib/meta.js'
+import { getNotificationTargets, getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
 
 // ── Cache de "window reach" (Fase 21.10 fix) ────────────────────
 // Reach do Meta é deduplicado dentro da janela — não dá pra somar dias.
@@ -1157,6 +1158,131 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
       cleanupSkipped: !anyIntegrationFullySynced && integrations.length > 0,
       errors: errors.length > 0 ? errors : undefined,
     }
+  })
+
+  // ── GET /api/admin/meta-ads-report/token-health — saúde dos tokens Meta ──
+  // Detecta token inválido/expirado/perto de expirar ANTES do sync quebrar em
+  // silêncio. Para cada integração ativa: (1) debug_token (is_valid + janela de
+  // acesso a dados); (2) probe funcional real (resolve ad accounts + 1 chamada
+  // de insights) — pega o caso "token válido mas sem permissão na página/conta".
+  // Com ?notify=1, dispara alerta (WhatsApp + e-mail) reusando os destinos de
+  // Configurações › Empresa › Notificações. Usado pelo cron meta-token-health.
+  app.get('/api/admin/meta-ads-report/token-health', { preHandler: authMiddleware }, async (req) => {
+    const q = req.query as any
+    const wantNotify = q.notify === '1' || q.notify === 'true'
+    const WARN_DAYS = parseInt(q.warnDays || '10', 10) // alerta se janela de dados < N dias
+
+    let appId = ''
+    let appSecret = ''
+    try { appId = await getMetaAppId() } catch {}
+    try { appSecret = await getMetaAppSecret() } catch {}
+
+    const integrations = await prisma.metaIntegration.findMany({ where: { active: true } })
+    const nowSec = Math.floor(Date.now() / 1000)
+    const results: any[] = []
+
+    for (const integ of integrations) {
+      const token = integ.userAccessToken || integ.pageAccessToken
+      const entry: any = {
+        integrationId: integ.id, pageId: integ.pageId, pageName: integ.pageName,
+        status: 'ok', valid: null, dataAccessExpiresAt: null, daysUntilDataExpiry: null,
+        functional: null, issues: [] as string[],
+      }
+      if (!token) {
+        entry.status = 'no_token'; entry.issues.push('sem token salvo')
+        results.push(entry); continue
+      }
+
+      // (1) debug_token
+      if (appId && appSecret) {
+        try {
+          const dbg = await metaFetch(`/debug_token?input_token=${token}`, `${appId}|${appSecret}`)
+          const d = dbg.data || dbg
+          entry.valid = !!d.is_valid
+          const dae = Number(d.data_access_expires_at || 0)
+          entry.dataAccessExpiresAt = dae > 0 ? new Date(dae * 1000).toISOString() : null
+          if (!d.is_valid) {
+            entry.status = 'invalid'
+            entry.issues.push(`token inválido${d.error?.message ? ': ' + d.error.message : ''}`)
+          } else if (dae > 0) {
+            const days = Math.floor((dae - nowSec) / 86400)
+            entry.daysUntilDataExpiry = days
+            if (days <= 0) { entry.status = 'invalid'; entry.issues.push('janela de acesso a dados expirada') }
+            else if (days <= WARN_DAYS) { entry.status = 'expiring_soon'; entry.issues.push(`acesso a dados expira em ${days} dia(s)`) }
+          }
+        } catch (e: any) {
+          entry.issues.push(`debug_token falhou: ${e.message}`)
+        }
+      } else {
+        entry.issues.push('App ID/Secret não configurado (não dá pra inspecionar token)')
+      }
+
+      // (2) probe funcional: resolve ad accounts + 1 linha de insights
+      try {
+        const accts = await resolveAdAccountIds(integ, token)
+        if (accts.length === 0) {
+          entry.functional = false
+          if (entry.status === 'ok') entry.status = 'degraded'
+          entry.issues.push('nenhuma conta de anúncio resolvida (configure adAccountIds)')
+        } else {
+          await metaFetch(`/${accts[0]}/insights?fields=spend&date_preset=today&limit=1`, token)
+          entry.functional = true
+        }
+      } catch (e: any) {
+        entry.functional = false
+        if (entry.status === 'ok') entry.status = 'invalid'
+        entry.issues.push(`probe de insights falhou: ${e.message}`)
+      }
+
+      results.push(entry)
+    }
+
+    const problems = results.filter(r => r.status !== 'ok')
+
+    // Notificação (idempotência leve: só dispara se houver problema e notify=1)
+    let notified = false
+    if (wantNotify && problems.length > 0) {
+      const brandHost = process.env.APP_URL || 'o painel'
+      const lines = problems.map(p =>
+        `• *${p.pageName}* (#${p.integrationId}): ${p.status.toUpperCase()} — ${p.issues.join('; ')}`)
+      const body = [
+        `⚠️ *Meta Ads — token com problema*`,
+        ``,
+        ...lines,
+        ``,
+        `Reconecte em Configurações › Meta Ads (${brandHost}). O relatório de investimento fica defasado até resolver.`,
+      ].join('\n')
+
+      // WhatsApp via Evolution (mesmo caminho de notify.ts)
+      try {
+        const { whatsapps } = await getNotificationTargets()
+        if (whatsapps.length > 0) {
+          const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
+          const provider = createEvolutionProvider()
+          for (const num of whatsapps) {
+            try { await provider.sendText(num, body) } catch (e: any) { app.log.warn(`[token-health] wpp ${num}: ${e.message}`) }
+          }
+        }
+      } catch (e: any) { app.log.warn(`[token-health] whatsapp falhou: ${e.message}`) }
+
+      // E-mail
+      try {
+        const targets = await getNotificationTargets()
+        const to = targets.emails.join(', ')
+        if (to) {
+          const cfg = await getEmailConfig()
+          const from = getFromAddress(cfg, 'Alertas')
+          const html = `<h2>Meta Ads — token com problema</h2><ul>${
+            problems.map(p => `<li><b>${p.pageName}</b> (#${p.integrationId}): <b>${p.status}</b> — ${p.issues.join('; ')}</li>`).join('')
+          }</ul><p>Reconecte em Configurações › Meta Ads. O relatório de investimento fica defasado até resolver.</p>`
+          await sendEmailGeneric({ from, to, subject: '⚠️ Meta Ads: token com problema', html })
+        }
+      } catch (e: any) { app.log.warn(`[token-health] email falhou: ${e.message}`) }
+
+      notified = true
+    }
+
+    return { ok: true, checkedAt: new Date().toISOString(), total: results.length, problems: problems.length, notified, integrations: results }
   })
 
   // ═══════════════════════════════════════════════
