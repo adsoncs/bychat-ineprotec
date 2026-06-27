@@ -1356,6 +1356,17 @@ async function createLeadFromMeta(
     }
   }
 
+  // Meta é fonte externa não confiável: o usuário pode digitar lixo no form e
+  // estourar o limite da coluna, fazendo o INSERT falhar e o poller retentar o
+  // mesmo lead pra sempre (incidente vantari: phone com 33 chars > VarChar(30)).
+  // Saneia o telefone (mantém + e dígitos, E.164) e trunca os campos núcleo.
+  if (mapped.whatsapp) mapped.whatsapp = mapped.whatsapp.replace(/[^\d+]/g, '').slice(0, 30)
+  if (mapped.nome) mapped.nome = mapped.nome.slice(0, 191)
+  if (mapped.empresa) mapped.empresa = mapped.empresa.slice(0, 191)
+  if (mapped.email) mapped.email = mapped.email.slice(0, 191)
+  if (mapped.segmento) mapped.segmento = mapped.segmento.slice(0, 100)
+  if (mapped.cidade) mapped.cidade = mapped.cidade.slice(0, 100)
+
   const cd = meta.campaignData || {}
 
   // Determinar funil e etapa (usar funil configurado ou funil padrao do sistema)
