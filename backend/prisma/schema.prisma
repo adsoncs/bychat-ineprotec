@@ -705,7 +705,7 @@ model WhatsAppInstance {
 
 model Lead {
   id  Int     @id @default(autoincrement())
-  uid String? @unique @db.VarChar(20) // Código único público (ex: LD-A3X9K2)
+  uid String? @unique @db.VarChar(50) // Código único público (ex: LD-A3X9K2)
 
   empresa      String  @db.VarChar(191)
   nome         String  @db.VarChar(191)

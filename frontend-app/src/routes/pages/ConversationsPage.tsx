@@ -38,6 +38,7 @@ import {
   HelpCircle,
   Cloud,
   Smartphone,
+  MessageCircle,
   ChevronDown,
   Check,
 } from 'lucide-preact'
@@ -614,14 +615,29 @@ export function ConversationsPage() {
   )
 }
 
+function InstagramLogo({ size = 9 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0">
+      <rect width="20" height="20" x="2" y="2" rx="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  )
+}
+
 function ChannelTag({ channel, compact = false }: {
-  channel: { provider: 'evolution' | 'cloud_api'; label: string; number: string | null; name: string | null } | null
+  channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string; number: string | null; name: string | null } | null
   compact?: boolean
 }) {
   if (!channel) return null
-  const isCloud = channel.provider === 'cloud_api'
-  const Icon = isCloud ? Cloud : Smartphone
-  const cls = isCloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success'
+  const map: Record<string, { Icon: any; cls: string; text: string }> = {
+    cloud_api: { Icon: Cloud, cls: 'bg-info/15 text-info', text: 'Cloud' },
+    instagram: { Icon: InstagramLogo, cls: 'bg-[#E1306C]/15 text-[#E1306C]', text: 'Instagram' },
+    messenger: { Icon: MessageCircle, cls: 'bg-[#0084FF]/15 text-[#0084FF]', text: 'Messenger' },
+    evolution: { Icon: Smartphone, cls: 'bg-success/15 text-success', text: 'Evolution' },
+  }
+  const { Icon, cls, text } = map[channel.provider] || map.evolution
   const num = channel.number || channel.name
   return (
     <span
@@ -629,7 +645,7 @@ function ChannelTag({ channel, compact = false }: {
       title={`Canal: ${channel.label}${num ? ' · ' + num : ''}`}
     >
       <Icon size={9} />
-      {isCloud ? 'Cloud' : 'Evolution'}{!compact && num ? ` · ${num}` : ''}
+      {text}{!compact && num ? ` · ${num}` : ''}
     </span>
   )
 }

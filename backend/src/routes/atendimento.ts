@@ -225,6 +225,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           const c = m.cloudApiConnection || soleCloud
           return { provider: 'cloud_api', label: 'Cloud API', number: c?.displayPhone ?? null, name: c?.displayName ?? null }
         }
+        if (m.provider === 'instagram') return { provider: 'instagram', label: 'Instagram', number: null, name: null }
+        if (m.provider === 'messenger') return { provider: 'messenger', label: 'Messenger', number: null, name: null }
         const inst = (m.evolutionInstance ? instByName.get(m.evolutionInstance) : null) || soleInstance
         return { provider: 'evolution', label: 'Evolution', number: inst?.phone ?? null, name: inst?.name ?? m.evolutionInstance ?? null }
       }
@@ -445,6 +447,29 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       })()
 
       if (!isInternal) {
+        // Lead de Instagram/Messenger → responde via Graph /me/messages (não WhatsApp).
+        const igRecipient: string | null = (lead.source === 'instagram' || lead.source === 'messenger' || (lead.uid || '').startsWith('instagram:') || (lead.uid || '').startsWith('messenger:'))
+          ? ((lead.formData as any)?.instagramSenderId || (lead.formData as any)?.messengerSenderId || (lead.uid || '').replace(/^(instagram|messenger):/, '') || null)
+          : null
+        if (igRecipient) {
+          const igChannel = (lead.source === 'messenger' || (lead.uid || '').startsWith('messenger:')) ? 'messenger' : 'instagram'
+          // Janela de 24h: dentro → RESPONSE; fora → tag HUMAN_AGENT (até 7 dias).
+          const lastIn = await prisma.message.findFirst({ where: { leadId: lid, fromMe: false }, orderBy: { timestamp: 'desc' }, select: { timestamp: true } })
+          const withinWindow = !!lastIn && (Date.now() - lastIn.timestamp.getTime()) < 24 * 3600 * 1000
+          // Mídia: a Meta baixa a URL pública → monta URL absoluta do nosso /uploads.
+          let attachment: { type: string; url: string } | undefined
+          if (mType !== 'text') {
+            if (!mediaUrl) return reply.code(400).send({ error: 'Mídia sem arquivo para enviar.' })
+            const igType = mType === 'image' ? 'image' : mType === 'video' ? 'video' : mType === 'audio' ? 'audio' : 'file'
+            const base = (process.env.APP_URL || '').replace(/\/$/, '')
+            attachment = { type: igType, url: /^https?:\/\//.test(mediaUrl) ? mediaUrl : `${base}${mediaUrl}` }
+          }
+          const { sendInstagramDM } = await import('./instagram.js')
+          const r = await sendInstagramDM(igRecipient, finalTextBody, { withinWindow, attachment })
+          sentProvider = igChannel
+          sentExternalId = r.messageId
+          sendError = r.error
+        } else {
         try {
           const wp = await import('../services/whatsappProvider.js')
           let provider: any
@@ -517,12 +542,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           sendError = sendErr.message
           app.log.error(`WhatsApp send error: ${sendErr.message}`)
         }
+        } // fim do else (envio WhatsApp; o ramo Instagram já tratou acima)
       }
 
-      // Se falhou o envio via WhatsApp (e não é nota interna), retorna erro sem salvar
+      // Se falhou o envio (e não é nota interna), retorna erro sem salvar.
       if (!isInternal && sendError) {
+        const canalLabel = sentProvider === 'instagram' ? 'Instagram' : sentProvider === 'messenger' ? 'Messenger' : 'WhatsApp'
         return reply.code(502).send({
-          error: `Falha ao enviar via WhatsApp: ${sendError}`,
+          error: `Falha ao enviar via ${canalLabel}: ${sendError}`,
           detail: sendError,
         })
       }
