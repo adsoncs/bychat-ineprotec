@@ -40,7 +40,8 @@ export interface AiScoreReason {
   positives: string[]          // sinais a favor
   risks: string[]              // sinais contra
   confidence: number           // 0-1 (confiança da IA na análise)
-  summary: string              // resumo curto
+  summary: string              // resumo curto (rationale da nota)
+  resumoRespostas: string      // resumo em linguagem natural das RESPOSTAS dos campos personalizados (card "Resumo do Lead")
   provider: string
   model: string
   inputTokens: number
@@ -153,8 +154,14 @@ Regras:
 - As respostas aos CAMPOS PERSONALIZADOS são sinais PRIMÁRIOS de qualificação (foram definidas pelo cliente): pondere-as fortemente, tanto a favor quanto contra.
 - Seja realista: a maioria dos leads é warm/cold. Não infle notas.
 
+Gere TAMBÉM "resumoRespostas": um resumo em português, de 2 a 4 frases, em linguagem comercial natural (fluida, não em tópicos), do que ESTE lead respondeu nos CAMPOS PERSONALIZADOS — interpretado no contexto do NEGÓCIO e do FUNIL/ETAPA. Regras do resumoRespostas:
+- Baseie-se SOMENTE nas respostas realmente fornecidas. NÃO invente, NÃO suponha e NÃO cite campos sem resposta.
+- Destaque o que ajuda o time comercial a definir a ABORDAGEM (perfil, necessidade, urgência, porte, fit com a oferta).
+- Não repita a nota nem fale de "score"; foque no conteúdo das respostas.
+- Se NÃO houver nenhuma resposta de campo personalizado, retorne "" (string vazia).
+
 Responda SOMENTE com JSON válido neste formato exato:
-{"score": <int 0-100>, "probability": <float 0-1>, "confidence": <float 0-1>, "positives": ["..."], "risks": ["..."], "summary": "<=240 chars>"}`
+{"score": <int 0-100>, "probability": <float 0-1>, "confidence": <float 0-1>, "positives": ["..."], "risks": ["..."], "summary": "<=240 chars>", "resumoRespostas": "<texto natural ou string vazia>"}`
 
 async function buildSystemPrompt(): Promise<string> {
   const parts: string[] = [SYSTEM_BASE]
@@ -246,10 +253,26 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
       completed: true, qualifiedAt: true, qualificationSource: true,
       lgpdConsent: true, scores: true, formData: true, customFields: true,
       enrichmentScore: true, enrichmentStatus: true,
-      priorityScore: true, createdAt: true,
+      priorityScore: true, createdAt: true, funnelId: true,
+      funnel: { select: { name: true } },
     },
   })
   if (!lead) return null
+
+  // Contexto do funil/etapa: nome do funil + etapa atual (última movimentação).
+  let funilCtx = lead.funnel?.name ? `Funil: ${lead.funnel.name}` : 'Funil: –'
+  if (lead.funnelId) {
+    const mov = await prisma.leadStageMovement.findFirst({
+      where: { leadId, toFunnelId: lead.funnelId, toStageKey: { not: null } },
+      orderBy: { movedAt: 'desc' }, select: { toStageKey: true },
+    }).catch(() => null)
+    if (mov?.toStageKey) {
+      const st = await prisma.stage.findFirst({
+        where: { funnelId: lead.funnelId, key: mov.toStageKey }, select: { name: true },
+      }).catch(() => null)
+      if (st?.name) funilCtx += ` · Etapa atual: ${st.name}`
+    }
+  }
 
   const filled = ['nome', 'empresa', 'email', 'whatsapp', 'cidade', 'segmento']
     .filter((k) => (lead as any)[k]).length
@@ -284,6 +307,7 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     `- Segmento: ${lead.segmento ?? '–'}`,
     `- Cidade: ${lead.cidade ?? '–'}`,
     `- Canal de origem: ${lead.source ?? '–'}${lead.sourceId ? ` (${lead.sourceId})` : ''}`,
+    `- ${funilCtx}`,
     `- Qualificado: ${lead.qualifiedAt ? `sim (${lead.qualificationSource ?? '?'})` : 'não'}`,
     `- Consentimento LGPD: ${lead.lgpdConsent ? 'sim' : 'não'}`,
     `- Fluxo/diagnóstico completo: ${lead.completed ? 'sim' : 'não'}`,
@@ -375,6 +399,7 @@ export async function scoreLead(
     risks: Array.isArray(parsed.risks) ? parsed.risks.slice(0, 6).map(String) : [],
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
     summary: String(parsed.summary ?? '').slice(0, 240),
+    resumoRespostas: String(parsed.resumoRespostas ?? '').slice(0, 1000),
     provider: res.provider,
     model: res.model,
     inputTokens: res.inputTokens,

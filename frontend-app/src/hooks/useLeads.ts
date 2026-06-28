@@ -28,6 +28,7 @@ export interface AiScoreReason {
   risks: string[]
   confidence: number
   summary: string
+  resumoRespostas?: string
   provider: string
   model: string
   costUsd: number
@@ -70,6 +71,8 @@ export interface LeadDetail extends LeadListItem {
   formData: Record<string, unknown> | null
   analysis: unknown
   annotation: string | null
+  // Agendamento vigente do lead (módulo de Agendamento) — sincroniza automático.
+  agendamento?: { startAt: string; endAt: string; status: string; timezone: string } | null
   metaFormId: string | null
   customFields: Record<string, unknown> | null
   updatedAt: string

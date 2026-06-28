@@ -490,7 +490,15 @@ export async function leadsRoutes(app: FastifyInstance) {
       }
     })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
-    return lead
+    // Agendamento vigente do lead (módulo de Agendamento). Remarcar marca o booking
+    // antigo como 'rescheduled' e cria um novo → excluímos cancelados/no_show/rescheduled
+    // p/ sempre pegar o horário atual (sincroniza automaticamente).
+    const agendamento = await prisma.booking.findFirst({
+      where: { leadId: lead.id, status: { notIn: ['cancelled', 'no_show', 'rescheduled'] } },
+      orderBy: { startAt: 'desc' },
+      select: { startAt: true, endAt: true, status: true, timezone: true },
+    }).catch(() => null)
+    return { ...lead, agendamento }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──

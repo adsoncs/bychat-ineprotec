@@ -1898,8 +1898,13 @@ function OverviewTab({
         <Field label="E-mail" value={lead.email} />
         <Field label="Origem" value={leadSourceLabel(lead.source)} />
         <Field label="Criado em" value={formatDateTime(lead.createdAt)} />
+        {lead.agendamento && (
+          <Field label="Agendamento" value={formatDateTime(lead.agendamento.startAt)} />
+        )}
         <Field label="Funil" value={funnel?.name ?? '—'} />
       </div>
+
+      <AiSummaryPanel lead={lead} />
 
       <AiScorePanel lead={lead} />
 
@@ -2586,6 +2591,51 @@ function AiScoreBadge({ score, label }: { score: number | null; label: string | 
     <span class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${tone.bg} ${tone.fg}`} title={`Lead Score por IA: ${score} (${tone.txt})`}>
       <Sparkles size={11} /> {score}
     </span>
+  )
+}
+
+// Card "Resumo do Lead (IA)" — resumo em linguagem natural das RESPOSTAS dos
+// campos personalizados (no contexto do negócio/funil). Vem ACIMA do score e é
+// gerado na MESMA chamada de IA (campo aiScoreReason.resumoRespostas) — custo zero.
+function AiSummaryPanel({ lead }: { lead: { id: number; aiScoreReason: AiScoreReason | null; aiScoredAt: string | null } }) {
+  const rescore = useRescoreLeadAi()
+  const resumo = lead.aiScoreReason?.resumoRespostas?.trim()
+
+  function handleRefresh() {
+    rescore.mutate(lead.id, {
+      onSuccess: () => toast('Resumo atualizado', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <div class="rounded-lg border border-border bg-surface p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
+          <Sparkles size={15} class="text-accent" /> Resumo do Lead (IA)
+        </div>
+        <Button size="sm" variant="secondary" onClick={handleRefresh} disabled={rescore.isPending}>
+          <RefreshCw size={12} class={rescore.isPending ? 'animate-spin' : ''} />
+          {rescore.isPending ? 'Gerando…' : 'Atualizar'}
+        </Button>
+      </div>
+
+      {resumo ? (
+        <>
+          <p class="mt-3 text-sm leading-relaxed text-fg">{resumo}</p>
+          {lead.aiScoredAt && (
+            <div class="mt-2 text-[0.6875rem] text-fg-subtle">
+              Síntese das respostas dos campos personalizados · {formatDateTime(lead.aiScoredAt)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div class="mt-3 text-sm text-fg-muted">
+          Sem resumo ainda. Ele é gerado junto com o Lead Score quando o lead tem respostas de
+          campos personalizados. Use <strong>Atualizar</strong> ou aguarde a análise automática.
+        </div>
+      )}
+    </div>
   )
 }
 

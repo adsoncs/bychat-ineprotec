@@ -22,15 +22,17 @@ import {
 } from '@/routes/pages/LeadsPage'
 import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadAuditTab } from '@/components/LeadAuditTab'
+import { LeadJourneyTab } from '@/components/LeadJourneyTab'
 import { toast } from '@/lib/toast'
 
 export const LEAD_DETAIL_SECTIONS = [
   { id: 'overview',   label: 'Visão geral' },
   { id: 'activities', label: 'Atividades' },
   { id: 'cadences',   label: 'Cadências' },
+  { id: 'jornada',    label: 'Jornada IA' },
   { id: 'intel',      label: 'Inteligência' },
   { id: 'tracking',   label: 'Tracking' },
-  { id: 'audit',      label: 'Auditoria IA' },
+  { id: 'audit',      label: 'Auditoria de Conversas' },
   { id: 'timeline',   label: 'Timeline' },
   { id: 'fields',     label: 'Campos Personalizados' },
 ] as const
@@ -63,6 +65,7 @@ export function LeadDetailContent({ id, section }: Props) {
     <div class="space-y-4">
       {section === 'overview'   && <LeadOverviewTab lead={lead} />}
       {section === 'tracking'   && <LeadTrackingTab lead={lead} />}
+      {section === 'jornada'    && <LeadJourneyTab leadId={lead.id} />}
       {section === 'intel'      && <LeadIntelTab leadId={lead.id} />}
       {section === 'audit'      && <LeadAuditTab leadId={lead.id} />}
       {section === 'activities' && <LeadActivitiesTab leadId={lead.id} />}
