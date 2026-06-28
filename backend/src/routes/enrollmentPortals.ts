@@ -5,15 +5,17 @@ import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { join, dirname, extname } from 'path'
 import { fileURLToPath } from 'url'
-import { createWriteStream, existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { unlink } from 'fs/promises'
-import { pipeline } from 'stream/promises'
+import { bufferMultipart, validateUploadContent, UploadValidationError, UploadTooLargeError } from '../lib/uploadSafety.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, type AsaasOrderMethod } from '../services/paymentAsaas.js'
@@ -21,6 +23,9 @@ import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEven
 import { decryptToken } from '../services/cloudApi.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
 import { syncChargeFromProvider, recordWebhookHit, updateWebhookHit } from '../services/paymentSync.js'
+import { logSecurityEvent } from '../services/security.js'
+import { CANDIDATE_SECRET } from '../lib/secrets.js'
+import { redis } from '../lib/redis.js'
 import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink } from '../lib/candidateAuth.js'
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
@@ -517,21 +522,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const fileName = `${kind}${ext}`
     const filePath = join(portalDir, fileName)
     let total = 0
-    const tap = new (await import('stream')).Transform({
-      transform(chunk, _enc, cb) {
-        total += chunk.length
-        if (total > spec.maxBytes) return cb(new Error('FILE_TOO_LARGE'))
-        cb(null, chunk)
-      },
-    })
+    // Buffer + validação de magic bytes + sanitização de SVG antes de gravar (A8/M6).
     try {
-      await pipeline(data.file, tap, createWriteStream(filePath))
+      const raw = await bufferMultipart(data.file, spec.maxBytes)
+      total = raw.length
+      const safe = validateUploadContent(raw, ext.slice(1), { allowSvg: ext === '.svg' })
+      await fsp.writeFile(filePath, safe)
     } catch (err: any) {
       await unlink(filePath).catch(() => {})
-      if (err?.message === 'FILE_TOO_LARGE') {
+      if (err instanceof UploadTooLargeError) {
         const mb = (spec.maxBytes / 1024 / 1024).toFixed(1)
         return reply.code(413).send({ error: `Arquivo muito grande (máximo ${mb}MB para ${kind})` })
       }
+      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
       return reply.code(500).send({ error: 'Falha ao salvar arquivo' })
     }
 
@@ -567,8 +570,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // DELETE /api/admin/enrollment-portals/:id
   app.delete('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
+    const existing = await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) }, select: { nome: true, slug: true } })
     try {
       await prisma.enrollmentPortal.delete({ where: { id: parseInt(id) } })
+      void logUserAudit({
+        action: 'portal.deleted',
+        targetType: 'portal',
+        targetLabel: existing?.nome || existing?.slug || `Portal #${id}`,
+        ...auditActor(req),
+      })
       return { ok: true }
     } catch (err: any) {
       return reply.code(400).send({ error: 'Não foi possível excluir (há inscrições vinculadas)' })
@@ -867,7 +877,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { verifyCandidateToken } = await import('./candidatePortal.js') as any
     // Workaround: reimplementa verificação inline pra evitar import circular
     const crypto = await import('crypto')
-    const secret = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-candidate-secret'
+    const secret = CANDIDATE_SECRET
     if (!auth.includes('.')) return reply.code(401).send({ error: 'Sessão inválida' })
     const [b, s] = auth.split('.')
     const expected = crypto.createHmac('sha256', secret).update(b).digest('base64url')
@@ -1025,6 +1035,172 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     return { ok: true, registration: updated }
+  })
+
+  // POST /api/admin/enrollment-registrations/:id/ensure-lead — cria ou re-vincula o Lead
+  // de uma inscrição órfã (leadId nulo, ex.: lead apagado). Idempotente.
+  app.post('/api/admin/enrollment-registrations/:id/ensure-lead', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id } = req.params as any
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: parseInt(id) }, select: { id: true } })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const result = await ensureLeadForRegistration(reg.id)
+    if (!result.leadId) return reply.code(422).send({ error: result.reason || 'Não foi possível criar/vincular o lead' })
+    return { ok: true, ...result }
+  })
+
+  // Status válidos de uma inscrição (espelha STATUS_LABELS do frontend).
+  const REGISTRATION_STATUSES = [
+    'draft', 'pending', 'submitted', 'paid',
+    'docs_uploaded', 'docs_reviewing', 'docs_approved', 'docs_rejected',
+    'reviewing', 'approved', 'enrolled', 'rejected', 'cancelled', 'expired',
+  ]
+
+  // Normaliza o valor de pagamento vindo do body p/ Decimal | null.
+  function parseAmount(v: unknown): number | null {
+    if (v === undefined || v === null || v === '') return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+
+  // POST /api/admin/enrollment-registrations — criar inscrição manualmente (admin).
+  app.post('/api/admin/enrollment-registrations', { preHandler: adminOnly }, async (req, reply) => {
+    const body = (req.body as any) || {}
+    const u = (req as any).user as JwtPayload | undefined
+    const portalId = body.portalId ? parseInt(body.portalId) : NaN
+    if (!Number.isFinite(portalId)) return reply.code(400).send({ error: 'portalId é obrigatório' })
+
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { id: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+
+    const status = body.status && REGISTRATION_STATUSES.includes(body.status) ? body.status : 'submitted'
+    const formData = (body.formData && typeof body.formData === 'object') ? body.formData : {}
+    const candidateCode = await generateCandidateCode(portalId)
+
+    const reg = await prisma.enrollmentRegistration.create({
+      data: {
+        portalId,
+        candidateCode,
+        status,
+        paymentStatus: body.paymentStatus || null,
+        paymentAmount: parseAmount(body.paymentAmount),
+        formData,
+      },
+      select: { id: true, candidateCode: true },
+    })
+
+    // Por padrão cria/vincula um Lead (igual à submissão pública). Best-effort:
+    // se faltar contato no formData, ensureLeadForRegistration apenas pula.
+    let leadId: number | null = null
+    if (body.createLead !== false) {
+      const r = await ensureLeadForRegistration(reg.id).catch(() => ({ leadId: null as number | null }))
+      leadId = r.leadId
+    }
+
+    if (leadId) {
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} criada manualmente`,
+        description: `Status: ${status}`,
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    const full = await prisma.enrollmentRegistration.findUnique({
+      where: { id: reg.id },
+      include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
+    })
+    return reply.code(201).send({ ok: true, registration: full })
+  })
+
+  // PUT /api/admin/enrollment-registrations/:id — editar inscrição (admin).
+  app.put('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const body = (req.body as any) || {}
+    const u = (req as any).user as JwtPayload | undefined
+
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: parseInt(id) },
+      select: { id: true, status: true, leadId: true, candidateCode: true, formData: true },
+    })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const data: any = {}
+    if (body.status !== undefined) {
+      if (!REGISTRATION_STATUSES.includes(body.status)) return reply.code(400).send({ error: 'Status inválido' })
+      data.status = body.status
+    }
+    if (body.paymentStatus !== undefined) data.paymentStatus = body.paymentStatus || null
+    if (body.paymentAmount !== undefined) data.paymentAmount = parseAmount(body.paymentAmount)
+    if (body.formData !== undefined && typeof body.formData === 'object' && body.formData) {
+      // Merge sobre o formData existente (preserva campos não enviados pelo form do admin).
+      data.formData = { ...((reg.formData as object) ?? {}), ...body.formData }
+    }
+
+    const updated = await prisma.enrollmentRegistration.update({
+      where: { id: reg.id },
+      data,
+      include: { lead: { select: { id: true, nome: true, email: true, whatsapp: true } } },
+    })
+
+    if (reg.leadId) {
+      const statusChanged = data.status && data.status !== reg.status
+      logEvent({
+        leadId: reg.leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} editada`,
+        description: statusChanged ? `Status: ${reg.status} → ${data.status}` : 'Dados atualizados pelo admin',
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    return { ok: true, registration: updated }
+  })
+
+  // DELETE /api/admin/enrollment-registrations/:id — excluir inscrição (admin).
+  // Cascade remove filhos (documentos, métodos de pagamento, redações, etc.).
+  app.delete('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: parseInt(id) },
+      select: { id: true, status: true, candidateCode: true, leadId: true },
+    })
+    if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    if (reg.status === 'enrolled') {
+      return reply.code(409).send({ error: 'Inscrição matriculada não pode ser excluída — cancele antes.' })
+    }
+
+    await prisma.enrollmentRegistration.delete({ where: { id: reg.id } })
+
+    if (reg.leadId) {
+      const u = (req as any).user as JwtPayload | undefined
+      logEvent({
+        leadId: reg.leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'operator',
+        title: `Inscrição ${reg.candidateCode} excluída`,
+        actorType: 'operator',
+        userId: u?.userId,
+        userName: u?.name,
+      })
+    }
+
+    void logUserAudit({
+      action: 'registration.deleted',
+      targetType: 'enrollment_registration',
+      targetLabel: reg.candidateCode,
+      changes: { status: reg.status, leadId: reg.leadId },
+      ...auditActor(req),
+    })
+
+    return { ok: true }
   })
 
   // POST /api/admin/enrollment-registrations/:id/resend-link — admin reenvia link de continuação ao candidato
@@ -2101,15 +2277,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const savedName = `${reg.id}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
     const filePath = join(uploadsDir, savedName)
 
-    const chunks: Buffer[] = []
     const MAX = 15 * 1024 * 1024
     let total = 0
-    for await (const c of file.file as any) {
-      total += c.length
-      if (total > MAX) return reply.code(413).send({ error: 'Arquivo muito grande (máx 15MB)' })
-      chunks.push(c)
+    let fileBuf: Buffer
+    try {
+      fileBuf = await bufferMultipart(file.file as any, MAX)
+      total = fileBuf.length
+      // SVG não está na allowlist deste endpoint; markup é rejeitado por padrão.
+      fileBuf = validateUploadContent(fileBuf, ext, { allowSvg: false })
+    } catch (err: any) {
+      if (err instanceof UploadTooLargeError) return reply.code(413).send({ error: 'Arquivo muito grande (máx 15MB)' })
+      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
+      return reply.code(500).send({ error: 'Falha ao processar arquivo' })
     }
-    await fsp.writeFile(filePath, Buffer.concat(chunks))
+    await fsp.writeFile(filePath, fileBuf)
 
     const docType = await prisma.documentType.findUnique({ where: { code: 'boletim_enem' } }).catch(() => null)
     const aiStatus = docType?.aiAnalysisTemplate ? 'pending' : 'skipped'
@@ -2524,6 +2705,18 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!/^[a-z0-9-]{3,100}$/.test(slug || '')) return reply.code(400).send({ error: 'Slug inválido' })
     if (!/^[a-zA-Z0-9_-]{16,64}$/.test(sessionId || '')) return reply.code(400).send({ error: 'sessionId inválido' })
 
+    // Anti-enumeração: o rascunho contém PII e o sessionId é o único segredo.
+    // Limita leituras por IP para inviabilizar varredura de sessionIds.
+    try {
+      const rlKey = `draftget:${req.ip}`
+      const hits = await redis.incr(rlKey)
+      if (hits === 1) await redis.expire(rlKey, 300)
+      if (hits > 60) {
+        await logSecurityEvent({ ip: req.ip, type: 'enrollment_draft_enum', severity: 'medium', path: req.url, details: 'Excesso de leituras de rascunho' }).catch(() => {})
+        return reply.code(429).send({ error: 'Muitas requisições' })
+      }
+    } catch { /* redis indisponível — não bloqueia */ }
+
     const portal = await prisma.enrollmentPortal.findUnique({ where: { slug }, select: { id: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal indisponível' })
 
@@ -2767,7 +2960,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
 
     const crypto = await import('crypto')
-    const secret = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-candidate-secret'
+    const secret = CANDIDATE_SECRET
     const body64 = Buffer.from(JSON.stringify(prefill)).toString('base64url')
     const sig = crypto.createHmac('sha256', secret).update(body64).digest('base64url')
     const token = `${body64}.${sig}`
@@ -2957,6 +3150,42 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return reply.send({ ok: true, transitionedToPaid, results })
   })
 
+  // ── Autenticidade dos webhooks de pagamento ────────────────────────────
+  // Asaas envia o token de autenticação configurado no painel no header
+  // `asaas-access-token`; Pagar.me usa Basic Auth (`authorization`). Comparamos
+  // com o `webhookSecret` da conexão em tempo constante. Sem o secret configurado,
+  // aceitamos por compatibilidade mas logamos alerta (configure para fechar a fraude).
+  function timingSafeEqualStr(a: string, b: string): boolean {
+    const ba = Buffer.from(a)
+    const bb = Buffer.from(b)
+    if (ba.length !== bb.length) return false
+    return crypto.timingSafeEqual(ba, bb)
+  }
+  function verifyPaymentWebhookAuth(
+    provider: 'asaas' | 'pagarme',
+    webhookSecret: string | null | undefined,
+    req: any,
+  ): { ok: boolean; configured: boolean } {
+    const secret = (webhookSecret || '').trim()
+    if (!secret) return { ok: true, configured: false }
+    if (provider === 'asaas') {
+      const got = String(req.headers['asaas-access-token'] || '')
+      return { ok: !!got && timingSafeEqualStr(got, secret), configured: true }
+    }
+    // pagarme: aceita o secret cru no Authorization, ou a senha do Basic Auth
+    const auth = String(req.headers['authorization'] || '')
+    if (auth && timingSafeEqualStr(auth, secret)) return { ok: true, configured: true }
+    const m = auth.match(/^Basic\s+(.+)$/i)
+    if (m) {
+      try {
+        const decoded = Buffer.from(m[1], 'base64').toString('utf-8') // user:pass
+        const pass = decoded.includes(':') ? decoded.slice(decoded.indexOf(':') + 1) : decoded
+        if (timingSafeEqualStr(decoded, secret) || timingSafeEqualStr(pass, secret)) return { ok: true, configured: true }
+      } catch { /* ignore */ }
+    }
+    return { ok: false, configured: true }
+  }
+
   // ══════════════════════════════════════════════
   // WEBHOOK DE PAGAMENTO — Asaas
   // URL pública: /api/public/payment-webhook/asaas/:token
@@ -2975,8 +3204,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let portal: any = null
     const conn = await prisma.paymentProviderConnection.findUnique({
       where: { webhookToken: token },
-      select: { id: true, active: true, provider: true },
+      select: { id: true, active: true, provider: true, webhookSecret: true },
     })
+
+    // Autenticidade: Asaas envia o token de autenticação no header asaas-access-token.
+    // Sem essa checagem, qualquer um que conheça a URL marca matrículas como pagas.
+    const asaasAuth = verifyPaymentWebhookAuth('asaas', conn?.webhookSecret, req)
+    if (!asaasAuth.ok) {
+      await logSecurityEvent({ ip: req.ip, type: 'payment_webhook_invalid_signature', severity: 'high', path: req.url, details: 'Asaas webhook: asaas-access-token inválido' }).catch(() => {})
+      return reply.code(401).send({ error: 'Assinatura inválida' })
+    }
+    if (!asaasAuth.configured) {
+      req.log.warn('[asaas-webhook][SECURITY] conexão sem webhookSecret — configure o token de autenticação no painel Asaas para impedir fraude de confirmação de pagamento')
+    }
     if (conn && conn.active && conn.provider === 'asaas') {
       // Qualquer portal ligado a essa conexão serve para identificar conversão.
       // O externalReference do payment linka ao enrollment diretamente — portal só
@@ -3071,6 +3311,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     // Log + atualiza counters do portal (apenas na primeira vez que virou pago)
     if (isPaidNow && !wasPaid) {
+      // Trilha de auditoria financeira (F5): registra toda confirmação de pagamento
+      // por webhook — ação sensível a fraude (C1). Severidade elevada quando a
+      // conexão aceitou o webhook SEM um webhookSecret configurado.
+      await logSecurityEvent({
+        ip: req.ip,
+        type: 'payment_confirmed_webhook',
+        severity: asaasAuth.configured ? 'info' : 'medium',
+        path: req.url,
+        details: `Asaas: ${enrollment.candidateCode} marcado PAGO (paymentId=${payment.id}, valor=${payment.value}, secretConfigurado=${asaasAuth.configured})`,
+      }).catch(() => {})
       await prisma.enrollmentPortal.update({
         where: { id: portal.id },
         data: { conversions: { increment: 1 } },
@@ -3112,10 +3362,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     const conn = await prisma.paymentProviderConnection.findUnique({
       where: { webhookToken: token },
-      select: { id: true, active: true, provider: true },
+      select: { id: true, active: true, provider: true, webhookSecret: true },
     })
     if (!conn || !conn.active || conn.provider !== 'pagarme') {
       return reply.code(404).send({ error: 'Conexão não encontrada' })
+    }
+
+    // Autenticidade: Pagar.me usa Basic Auth (header authorization) no webhook.
+    const pagarmeAuth = verifyPaymentWebhookAuth('pagarme', conn.webhookSecret, req)
+    if (!pagarmeAuth.ok) {
+      await logSecurityEvent({ ip: req.ip, type: 'payment_webhook_invalid_signature', severity: 'high', path: req.url, details: 'Pagar.me webhook: authorization inválido' }).catch(() => {})
+      return reply.code(401).send({ error: 'Assinatura inválida' })
+    }
+    if (!pagarmeAuth.configured) {
+      req.log.warn('[pagarme-webhook][SECURITY] conexão sem webhookSecret — configure Basic Auth no webhook do Pagar.me para impedir fraude de confirmação de pagamento')
     }
 
     const portal = await prisma.enrollmentPortal.findFirst({
@@ -3187,6 +3447,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     }).catch(() => {})
 
+    if (isPaidNow && !wasPaid) {
+      // Trilha de auditoria financeira (F5): ver bloco Asaas.
+      await logSecurityEvent({
+        ip: req.ip,
+        type: 'payment_confirmed_webhook',
+        severity: pagarmeAuth.configured ? 'info' : 'medium',
+        path: req.url,
+        details: `Pagar.me: ${enrollment.candidateCode} marcado PAGO (paymentId=${payment.id}, valor=${payment.value}, secretConfigurado=${pagarmeAuth.configured})`,
+      }).catch(() => {})
+    }
     if (isPaidNow && !wasPaid && portal) {
       await prisma.enrollmentPortal.update({
         where: { id: portal.id },

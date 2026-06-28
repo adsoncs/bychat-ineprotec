@@ -47,8 +47,13 @@ export type IconName =
   | 'Building2'
   | 'MapPin'
   | 'BookOpen'
+  | 'Gavel'
+  | 'Wallet'
+  | 'Inbox'
+  | 'Briefcase'
   | 'CalendarRange'
   | 'FileCheck2'
+  | 'FileSignature'
   | 'ClipboardList'
   | 'School'
   | 'Award'
@@ -68,6 +73,7 @@ export type IconName =
   | 'XCircle'
   | 'Database'
   | 'Upload'
+  | 'LifeBuoy'
 
 export interface SidebarItem {
   id: string
@@ -142,11 +148,28 @@ export const sidebarSchema: SidebarSchema = {
       initiallyCollapsed: true,
     },
     {
+      id: 'support',
+      label: 'Suporte',
+      items: [
+        { id: 'helpdesk', label: 'Chamados', href: '/app/helpdesk', icon: 'LifeBuoy', permission: 'helpdesk' },
+        { id: 'helpdesk-sla', label: 'SLA', href: '/app/helpdesk/sla', icon: 'Clock', permission: 'helpdesk' },
+        { id: 'helpdesk-automation', label: 'Automação', href: '/app/helpdesk/automation', icon: 'Workflow', permission: 'helpdesk' },
+        { id: 'helpdesk-kb', label: 'Base de Conhecimento', href: '/app/helpdesk/kb', icon: 'BookOpen', permission: 'helpdesk' },
+        { id: 'helpdesk-csat', label: 'CSAT', href: '/app/helpdesk/csat', icon: 'Award', permission: 'helpdesk' },
+        { id: 'helpdesk-orgs', label: 'Organizações', href: '/app/helpdesk/organizations', icon: 'Building2', permission: 'helpdesk' },
+        { id: 'helpdesk-reports', label: 'Relatórios', href: '/app/helpdesk/reports', icon: 'BarChart3', permission: 'helpdesk' },
+        { id: 'helpdesk-channels', label: 'Canais', href: '/app/helpdesk/channels', icon: 'Settings', permission: 'helpdesk' },
+        { id: 'helpdesk-import', label: 'Importar', href: '/app/helpdesk/import', icon: 'Download', permission: 'helpdesk' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
       id: 'reports',
       label: 'Relatórios',
       items: [
         { id: 'analytics', label: 'Meus Painéis', href: '/app/analytics', icon: 'LineChart', permission: 'dashboard' },
         { id: 'meta-ads-report', label: 'Relatório Meta Ads', href: '/app/meta-ads-report', icon: 'BarChart3', permission: 'vendas' },
+        { id: 'funnel-report', label: 'Relatório de Funil', href: '/app/funnel-report', icon: 'Workflow', permission: 'vendas' },
         { id: 'google-ads-report', label: 'Relatório Google Ads', href: '/app/google-ads-report', icon: 'BarChart3', permission: 'vendas' },
         { id: 'conversation-audit', label: 'Auditoria de Conversas', href: '/app/conversation-audit', icon: 'Bot', permission: 'intelligence' },
         { id: 'ai-journey', label: 'Jornada IA', href: '/app/ai-journey', icon: 'Sparkles', permission: 'intelligence' },
@@ -226,15 +249,18 @@ export const sidebarSchema: SidebarSchema = {
       ],
       initiallyCollapsed: true,
     },
+    // ── Educacional (base) — catálogo + processo seletivo + Portal de Matrículas.
+    //    É o "produto" do cliente que tem Educacional+Portal SEM ERP. Tudo aqui é
+    //    permission 'educacional' ou 'enrollment_portals' (independem do ERP). ──
     {
       id: 'educational',
       label: 'Educacional',
       items: [
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
-        { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },
-        { id: 'edu-modalities', label: 'Modalidades', href: '/app/educational/modalities', icon: 'Layers', permission: 'educacional' },
         { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
         { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
+        { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },
+        { id: 'edu-modalities', label: 'Modalidades', href: '/app/educational/modalities', icon: 'Layers', permission: 'educacional' },
         { id: 'edu-courses', label: 'Cursos', href: '/app/educational/courses', icon: 'BookOpen', permission: 'educacional' },
         { id: 'edu-offerings', label: 'Ofertas', href: '/app/educational/offerings', icon: 'CalendarRange', permission: 'educacional' },
         { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
@@ -242,6 +268,75 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-doc-review', label: 'Revisão de documentos', href: '/app/educational/doc-review', icon: 'ClipboardList', permission: 'educacional' },
         { id: 'edu-evaluations', label: 'Avaliações', href: '/app/educational/evaluations', icon: 'Award', permission: 'educacional' },
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
+      ],
+      initiallyCollapsed: true,
+    },
+    // ── ERP Acadêmico (add-on) — só aparece quando os sub-módulos aca_* estão
+    //    ativos. Cada grupo some inteiro se o cliente não tiver aquele bloco. ──
+    {
+      id: 'erp-estrutura',
+      label: 'ERP · Estrutura & Cadastros',
+      items: [
+        { id: 'aca-estrutura', label: 'Estrutura Acadêmica', href: '/app/aca/estrutura', icon: 'Layers', permission: 'aca_estrutura' },
+        { id: 'aca-curriculo', label: 'Currículo', href: '/app/aca/curriculo', icon: 'GitFork', permission: 'aca_estrutura' },
+        { id: 'aca-cadastros', label: 'Cadastros auxiliares', href: '/app/aca/cadastros', icon: 'Boxes', permission: 'aca_cadastros' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'erp-academico',
+      label: 'ERP · Acadêmico',
+      items: [
+        { id: 'aca-pessoas', label: 'Pessoas', href: '/app/aca/pessoas', icon: 'Users', permission: 'aca_matriculas' },
+        { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'aca_matriculas' },
+        { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'aca_matriculas' },
+        { id: 'aca-movimentacoes', label: 'Movimentações', href: '/app/aca/movimentacoes', icon: 'Repeat', permission: 'aca_movimentacoes' },
+        { id: 'aca-diario', label: 'Diário de Classe', href: '/app/aca/diario', icon: 'BookOpen', permission: 'aca_pedagogico' },
+        { id: 'aca-conselho', label: 'Conselho de Classe', href: '/app/aca/conselho', icon: 'Gavel', permission: 'aca_pedagogico' },
+        { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'aca_pedagogico' },
+        { id: 'aca-acesso', label: 'Controle de Acesso', href: '/app/aca/acesso', icon: 'Key', permission: 'aca_acesso' },
+        { id: 'aca-docente', label: 'Docentes / RH', href: '/app/aca/docente', icon: 'School', permission: 'aca_docente' },
+        { id: 'aca-ead', label: 'EAD / LMS', href: '/app/aca/ead', icon: 'Cloud', permission: 'aca_ead' },
+        { id: 'aca-alocacao', label: 'Alocação de Recursos', href: '/app/aca/alocacao', icon: 'MapPin', permission: 'aca_alocacao' },
+        { id: 'aca-vestibular', label: 'Vestibular (classificação)', href: '/app/aca/vestibular', icon: 'ClipboardList', permission: 'aca_vestibular' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'erp-secretaria',
+      label: 'ERP · Secretaria',
+      items: [
+        { id: 'aca-secretaria', label: 'Secretaria', href: '/app/aca/secretaria', icon: 'FileText', permission: 'aca_secretaria' },
+        { id: 'aca-requerimentos', label: 'Requerimentos', href: '/app/aca/requerimentos', icon: 'Inbox', permission: 'aca_secretaria' },
+        { id: 'aca-estagio', label: 'Estágio & Atividades', href: '/app/aca/estagio', icon: 'Briefcase', permission: 'aca_secretaria' },
+        { id: 'aca-tcc', label: 'TCC', href: '/app/aca/tcc', icon: 'BookOpen', permission: 'aca_secretaria' },
+        { id: 'aca-ged', label: 'GED (Documentos)', href: '/app/aca/ged', icon: 'FileCheck2', permission: 'aca_ged' },
+        { id: 'aca-assinatura', label: 'Assinatura de Contratos', href: '/app/aca/assinatura', icon: 'FileSignature', permission: 'aca_assinatura' },
+        { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
+        { id: 'aca-diploma', label: 'Diploma Digital', href: '/app/aca/diploma', icon: 'ShieldCheck', permission: 'aca_diploma' },
+        { id: 'aca-portais-plus', label: 'Centrais (Resp./Ex-aluno)', href: '/app/aca/portais', icon: 'Key', permission: 'aca_portais_plus' },
+        { id: 'aca-comunicacao', label: 'Comunicação', href: '/app/aca/comunicacao', icon: 'MessageSquare', permission: 'aca_comunicacao' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'erp-financeiro',
+      label: 'ERP · Financeiro',
+      items: [
+        { id: 'aca-financeiro', label: 'Financeiro', href: '/app/aca/financeiro', icon: 'Wallet', permission: 'aca_financeiro' },
+        { id: 'aca-fin-banco', label: 'Financeiro Bancário', href: '/app/aca/fin-banco', icon: 'CreditCard', permission: 'aca_financeiro_bancario' },
+        { id: 'aca-cobranca-fiscal', label: 'Cobrança Judicial & Fiscal', href: '/app/aca/cobranca-fiscal', icon: 'Gavel', permission: 'aca_cobranca_fiscal' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'erp-relatorios',
+      label: 'ERP · Relatórios',
+      items: [
+        { id: 'aca-bi', label: 'Indicadores (BI)', href: '/app/aca/bi', icon: 'BarChart3', permission: 'aca_relatorios' },
+        { id: 'aca-avaliacao-inst', label: 'Avaliação Institucional (CPA)', href: '/app/aca/avaliacao-inst', icon: 'BarChart3', permission: 'aca_avaliacao_institucional' },
+        { id: 'aca-sistec', label: 'Censo / SISTEC', href: '/app/aca/sistec', icon: 'Database', permission: 'aca_relatorios' },
+        { id: 'aca-censo', label: 'Censo INEP / ENADE', href: '/app/aca/censo', icon: 'FileSpreadsheet', permission: 'aca_relatorios' },
       ],
       initiallyCollapsed: true,
     },

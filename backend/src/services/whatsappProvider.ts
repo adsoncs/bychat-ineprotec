@@ -455,17 +455,22 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
     dedicated: c.ownerUserId === sender.userId,
   })
 
-  const dedicated: SenderChannel[] = [
-    ...instances.filter(i => i.ownerUserId === sender.userId).map(toEvo),
-    ...connections.filter(c => c.ownerUserId === sender.userId).map(toCloud),
+  // Política de canais de envio:
+  // - Admin-like (não-AGENT): vê TODOS os canais ativos (pode usar qualquer número).
+  // - AGENT: vê os próprios canais dedicados + os COMPARTILHADOS (sem dono); nunca
+  //   um número dedicado a OUTRO operador.
+  //
+  // Antes, ter QUALQUER canal dedicado fazia o operador ver SÓ os dedicados — então
+  // quem tinha uma conexão Cloud dedicada perdia as instâncias Evolution
+  // compartilhadas (e só conseguia enviar pela oficial). Agora os canais sem dono
+  // (pool comum) sempre aparecem ao lado dos dedicados.
+  if (sender.role !== 'AGENT') {
+    return [...instances.map(toEvo), ...connections.map(toCloud)]
+  }
+  return [
+    ...instances.filter(i => i.ownerUserId === sender.userId || i.ownerUserId == null).map(toEvo),
+    ...connections.filter(c => c.ownerUserId === sender.userId || c.ownerUserId == null).map(toCloud),
   ]
-  if (dedicated.length > 0) return dedicated
-
-  // Sem canal dedicado: AGENT não pode usar número alheio.
-  if (sender.role === 'AGENT') return []
-
-  // Admin-like: todos os canais ativos (pode escolher qualquer número).
-  return [...instances.map(toEvo), ...connections.map(toCloud)]
 }
 
 /** Resolve o canal SUGERIDO pela origem do lead (último número que falou com ele). */

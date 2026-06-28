@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotChatbot } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 export async function chatbotsRoutes(app: FastifyInstance) {
 
@@ -301,6 +302,12 @@ export async function chatbotsRoutes(app: FastifyInstance) {
       })
     }
     await prisma.chatbot.delete({ where: { id: Number(id) } })
+    void logUserAudit({
+      action: 'chatbot.deleted',
+      targetType: 'chatbot',
+      targetLabel: (snapshot as any)?.name || `Chatbot #${id}`,
+      ...auditActor(req),
+    })
     return { ok: true }
   })
 

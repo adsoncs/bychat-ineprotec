@@ -15,7 +15,7 @@
 
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ArrowLeft } from 'lucide-preact'
+import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -78,7 +78,7 @@ export function SendWhatsAppButton({ leadId, whatsapp, compact, class: className
 }
 
 // Ícone WhatsApp em SVG (lucide não tem oficial). Renderiza idêntico ao logotipo.
-function WhatsappIcon({ size = 14 }: { size?: number }) {
+export function WhatsappIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M16.04 5.33c-5.94 0-10.77 4.83-10.77 10.77 0 1.9.5 3.76 1.44 5.4L5.33 26.67l5.32-1.4a10.74 10.74 0 0 0 5.39 1.45h.01c5.94 0 10.77-4.83 10.77-10.77 0-2.88-1.12-5.58-3.16-7.61a10.7 10.7 0 0 0-7.62-3.01zm0 19.74h-.01a8.95 8.95 0 0 1-4.56-1.25l-.33-.19-3.16.83.84-3.08-.21-.34a8.93 8.93 0 0 1-1.37-4.74c0-4.94 4.02-8.96 8.96-8.96 2.4 0 4.65.93 6.34 2.62a8.91 8.91 0 0 1 2.62 6.34c0 4.94-4.02 8.96-8.96 8.96zm4.91-6.71c-.27-.13-1.6-.79-1.84-.88-.25-.09-.43-.13-.61.13-.18.27-.71.88-.87 1.06-.16.18-.32.2-.59.07-.27-.13-1.14-.42-2.17-1.34-.8-.71-1.34-1.59-1.5-1.86-.16-.27-.02-.42.12-.55.12-.12.27-.32.4-.48.13-.16.18-.27.27-.45.09-.18.04-.34-.02-.48-.07-.13-.61-1.46-.83-2-.22-.53-.45-.46-.61-.47-.16-.01-.34-.01-.52-.01-.18 0-.48.07-.73.34-.25.27-.95.93-.95 2.27 0 1.34.98 2.63 1.11 2.81.13.18 1.92 2.93 4.65 4.11.65.28 1.16.45 1.55.58.65.21 1.24.18 1.71.11.52-.08 1.6-.65 1.83-1.28.23-.63.23-1.17.16-1.28-.07-.11-.25-.18-.52-.31z"/>
@@ -123,6 +123,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
     if (channelId) return
     const suggested = channelsData?.suggestedChannelId
     if (suggested && channels.some((c) => c.id === suggested)) setChannelId(suggested)
+    else if (channels.length > 0) setChannelId(channels[0].id) // sem sugestão → 1º número como padrão
   }, [channelsData])
   const isCloud = channel?.provider === 'cloud_api'
   const windowOpen = channel?.window?.open ?? false
@@ -169,7 +170,9 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   }
 
   function backToTemplates() { resetComposition() }
-  function backToChannels() { resetComposition(); setChannelId(null) }
+  // Troca o número de envio mantendo o fluxo no mesmo passo; reseta a composição
+  // porque os modelos/regras dependem do provider (Evolution × Cloud API).
+  function switchChannel(id: string) { resetComposition(); setChannelId(id) }
 
   const isComposing = selectedEvo !== null || selectedCloud !== null || isFreeForm
 
@@ -281,7 +284,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       {/* PASSO 2 — escolher modelo / mensagem livre */}
       {channelId && !isComposing && channel && (
         <div class="space-y-2">
-          <ChannelHeader channel={channel} canSwitch={channels.length > 1} onSwitch={backToChannels} />
+          <ChannelHeader channels={channels} channelId={channelId} suggestedId={channelsData?.suggestedChannelId ?? null} onSelect={switchChannel} />
 
           {isCloud && (
             <div class={cn('rounded-md border p-2.5 text-xs flex items-start gap-2', windowOpen ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10')}>
@@ -408,19 +411,61 @@ function ChannelRow({ channel, suggested, onPick, disabled }: { channel: SenderC
   )
 }
 
-// Cabeçalho do canal escolhido (passo 2/3) com opção de trocar
-function ChannelHeader({ channel, canSwitch, onSwitch }: { channel: SenderChannel; canSwitch: boolean; onSwitch: () => void }) {
+// Cabeçalho do canal escolhido (passo 2/3): mostra só o número padrão/atual e,
+// quando há mais de um, um dropdown-checklist para trocar — evita listar todos os
+// números de uma vez (rodapé poluído quando há muitas conexões).
+function ChannelHeader({ channels, channelId, suggestedId, onSelect }: { channels: SenderChannel[]; channelId: string; suggestedId: string | null; onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const channel = channels.find((c) => c.id === channelId)
+  if (!channel) return null
   const isCloud = channel.provider === 'cloud_api'
+  const canSwitch = channels.length > 1
   return (
-    <div class="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2 mb-1">
-      <span class={cn('size-6 rounded-full grid place-items-center shrink-0', isCloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success')}>
-        {isCloud ? <Cloud size={12} /> : <Smartphone size={12} />}
-      </span>
-      <div class="min-w-0 flex-1 text-xs">
-        <span class="text-fg font-medium">{channel.label}</span>
-        <span class="text-fg-muted"> · {channel.number ?? '—'}</span>
+    <div class="relative mb-1">
+      <div class="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
+        <span class={cn('size-6 rounded-full grid place-items-center shrink-0', isCloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success')}>
+          {isCloud ? <Cloud size={12} /> : <Smartphone size={12} />}
+        </span>
+        <div class="min-w-0 flex-1 text-xs">
+          <span class="text-fg font-medium">{channel.label}</span>
+          <span class="text-fg-muted"> · {channel.number ?? '—'}</span>
+          {channelId === suggestedId && <span class="ml-1.5 text-[0.5625rem] font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info">padrão</span>}
+        </div>
+        {canSwitch && (
+          <button type="button" onClick={() => setOpen((v) => !v)} class="inline-flex items-center gap-1 text-[0.6875rem] text-info hover:underline shrink-0" aria-expanded={open} aria-haspopup="listbox">
+            <ChevronDown size={12} /> Trocar número
+          </button>
+        )}
       </div>
-      {canSwitch && <button type="button" onClick={onSwitch} class="text-[0.6875rem] text-info hover:underline shrink-0">Trocar número</button>}
+      {open && canSwitch && (
+        <>
+          <div class="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div role="listbox" class="absolute right-0 top-full mt-1 z-50 w-72 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
+            <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+            {channels.map((c) => {
+              const active = c.id === channelId
+              const cloud = c.provider === 'cloud_api'
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  key={c.id}
+                  onClick={() => { onSelect(c.id); setOpen(false) }}
+                  class={cn('w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3', active ? 'text-fg font-semibold' : 'text-fg-muted')}
+                >
+                  <span class={cn('size-5 rounded-full grid place-items-center shrink-0', cloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success')}>
+                    {cloud ? <Cloud size={11} /> : <Smartphone size={11} />}
+                  </span>
+                  <span class="flex-1 truncate">{c.label}{c.number ? ` · ${c.number}` : ''}</span>
+                  {c.id === suggestedId && <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">padrão</span>}
+                  {active && <Check size={12} class="text-accent shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

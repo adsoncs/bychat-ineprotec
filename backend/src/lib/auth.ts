@@ -65,6 +65,19 @@ export async function adminOnly(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
+// adminStrict — restringe a ADMIN/SUPERADMIN (exclui MANAGER). Use em rotas
+// sensíveis onde MANAGER não deve operar: gestão de usuários, leitura/escrita de
+// segredos (settings), API keys e conexões de pagamento. `adminOnly` (que inclui
+// MANAGER) permanece para operação cotidiana.
+export async function adminStrict(req: FastifyRequest, reply: FastifyReply) {
+  await authMiddleware(req, reply)
+  if (reply.sent) return
+  const user = (req as any).user as JwtPayload
+  if (user.role !== 'SUPERADMIN' && user.role !== 'ADMIN') {
+    return reply.code(403).send({ error: 'Acesso restrito a administradores' })
+  }
+}
+
 export async function superadminOnly(req: FastifyRequest, reply: FastifyReply) {
   await authMiddleware(req, reply)
   if (reply.sent) return

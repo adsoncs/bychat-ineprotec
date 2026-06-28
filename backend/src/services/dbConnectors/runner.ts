@@ -57,6 +57,13 @@ export async function runConnector(connectorId: number, opts: RunOptions): Promi
   let preview: Record<string, unknown>[] = []
 
   try {
+    // SSRF: o host do conector é definido pelo admin. Bloqueia apontar para
+    // 127.0.0.1/10.x/169.254.169.254 (metadata) etc. para varredura interna.
+    const { assertHostIsPublic } = await import('../../lib/urlSafety.js')
+    const hostCheck = await assertHostIsPublic(connector.host)
+    if (!hostCheck.ok) {
+      throw new Error(`host do conector bloqueado por segurança: ${hostCheck.reason}`)
+    }
     const adapter = getAdapter(connector.dbType as any)
     const password = decryptPassword(connector.passwordEnc)
     const result = await adapter.executeQuery(

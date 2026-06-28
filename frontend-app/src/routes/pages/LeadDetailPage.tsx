@@ -25,6 +25,7 @@ import {
 import { LeadDetailToc } from '@/components/LeadDetailToc'
 import { LeadOutcomeControls, OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
+import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
@@ -137,8 +138,8 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
     return <Skeleton class="h-32 w-full" />
   }
 
-  const title = lead.empresa || lead.nome || `Lead #${id}`
-  const subtitle = lead.empresa && lead.nome ? lead.nome : null
+  const title = lead.nome || lead.empresa || `Lead #${id}`
+  const subtitle = lead.nome && lead.empresa ? lead.empresa : null
   const score = lead.scores?.geral
   const tags = lead.tags ?? []
   const initials = (title.trim().charAt(0) || '?').toUpperCase()
@@ -242,7 +243,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
-        <CallButton leadId={id} phone={lead.whatsapp} />
+        <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
+
+        <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
 
         <div class="ml-auto">
           <ActionsMenu actions={actions} />

@@ -162,7 +162,7 @@ function SuggestionRow({ suggestion, canDecide, onApply, onReject }: {
       <div class="flex items-start justify-between gap-3">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap mb-1">
-            <Link href={`/leads/${suggestion.leadId}/audit`} class="text-sm font-medium text-fg hover:text-accent">
+            <Link href={`/leads/${suggestion.leadId}/jornada`} class="text-sm font-medium text-fg hover:text-accent">
               {suggestion.lead?.nome || `Lead #${suggestion.leadId}`}
             </Link>
             <Badge tone={tone} solid>{suggestion.confidence}% confiança</Badge>

@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { randomBytes } from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { getMetaAppId, getMetaAppSecret, getMetaWaConfigId, metaFetch, META_GRAPH_URL } from '../lib/meta.js'
 import {
   cloudApiFetch,
@@ -322,13 +323,31 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       where: { id: parseInt(id) },
       data,
     })
+    void logUserAudit({
+      action: 'cloudapi.updated',
+      targetType: 'cloud_api',
+      targetLabel: conn.displayName || conn.phoneNumberId,
+      changes: { fields: Object.keys(data) },
+      ...auditActor(req),
+    })
     return { ok: true, connection: conn }
   })
 
   // DELETE /api/cloud-api/connection/:id — Desconectar Cloud API
   app.delete('/api/cloud-api/connection/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
+    const existing = await prisma.cloudApiConnection.findUnique({
+      where: { id: parseInt(id) },
+      select: { displayName: true, phoneNumberId: true, wabaId: true },
+    })
     await prisma.cloudApiConnection.delete({ where: { id: parseInt(id) } })
+    void logUserAudit({
+      action: 'cloudapi.disconnected',
+      targetType: 'cloud_api',
+      targetLabel: existing?.displayName || existing?.phoneNumberId || `Conexão #${id}`,
+      changes: { wabaId: existing?.wabaId, phoneNumberId: existing?.phoneNumberId },
+      ...auditActor(req),
+    })
     return { ok: true }
   })
 

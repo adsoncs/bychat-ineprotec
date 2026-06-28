@@ -570,15 +570,47 @@ function DeleteUserDialog({ user, onClose }: { user: AdminUser; onClose: () => v
 }
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
-  created: 'Criado',
-  edited: 'Editado',
-  deleted: 'Excluído',
+  // Legado (entradas antigas sem namespace)
+  created: 'Usuário criado',
+  edited: 'Usuário editado',
+  deleted: 'Usuário excluído',
+  // Gestão de usuários + Auth
+  'user.created': 'Usuário criado',
+  'user.edited': 'Usuário editado',
+  'user.deleted': 'Usuário excluído',
+  'auth.login': 'Login',
+  'auth.logout': 'Logout',
+  'auth.password_reset': 'Senha redefinida',
+  // Permissões e módulos
+  'permission.role_changed': 'Permissões por perfil',
+  'permission.user_override_changed': 'Permissões do usuário',
+  'module.toggled': 'Módulo ativado/desativado',
+  // Configurações e integrações
+  'setting.changed': 'Configuração alterada',
+  'cloudapi.connected': 'Cloud API conectada',
+  'cloudapi.updated': 'Cloud API atualizada',
+  'cloudapi.disconnected': 'Cloud API desconectada',
+  'apikey.created': 'API key criada',
+  'apikey.updated': 'API key atualizada',
+  'apikey.revoked': 'API key revogada',
+  // Exclusões de dados
+  'lead.deleted': 'Lead excluído',
+  'lead.bulk_deleted': 'Leads excluídos (em massa)',
+  'chatbot.deleted': 'Chatbot excluído',
+  'form.deleted': 'Formulário excluído',
+  'portal.deleted': 'Portal excluído',
+  'registration.deleted': 'Inscrição excluída',
+  'routing_rule.created': 'Regra de roteamento criada',
+  'routing_rule.updated': 'Regra de roteamento editada',
+  'routing_rule.deleted': 'Regra de roteamento excluída',
 }
 
-const AUDIT_ACTION_TONES: Record<string, { color: string; bg: string }> = {
-  created: { color: 'var(--color-success)', bg: 'color-mix(in oklch, var(--color-success) 12%, transparent)' },
-  edited: { color: 'var(--color-info)', bg: 'color-mix(in oklch, var(--color-info) 12%, transparent)' },
-  deleted: { color: 'var(--color-danger)', bg: 'color-mix(in oklch, var(--color-danger) 12%, transparent)' },
+function auditTone(action: string): { color: string; bg: string } {
+  let c = 'var(--color-info)'
+  if (/(deleted|disconnected|revoked|logout)/.test(action)) c = 'var(--color-danger)'
+  else if (/(created|connected)/.test(action) || action === 'auth.login') c = 'var(--color-success)'
+  else if (/(toggled|changed|password_reset)/.test(action)) c = 'var(--color-warning)'
+  return { color: c, bg: `color-mix(in oklch, ${c} 12%, transparent)` }
 }
 
 const AUDIT_FIELD_LABELS: Record<string, string> = {
@@ -587,6 +619,15 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   role: 'Perfil',
   active: 'Status',
   password: 'Senha',
+  capacity: 'Capacidade',
+  enabled: 'Ativo',
+  keys: 'Chaves',
+  modules: 'Módulos',
+  roles: 'Perfis',
+  fields: 'Campos',
+  permissions: 'Permissões',
+  leadIds: 'Leads',
+  forced: 'Forçado',
 }
 
 function formatAuditValue(field: string, val: unknown): string {
@@ -633,13 +674,27 @@ function UserAuditModal({ user, onClose }: { user: AdminUser; onClose: () => voi
   )
 }
 
+function formatGenericValue(val: unknown): string {
+  if (Array.isArray(val)) return val.map((v) => String(v)).join(', ') || '∅'
+  if (val === null || val === undefined) return '∅'
+  if (typeof val === 'boolean') return val ? 'Sim' : 'Não'
+  if (typeof val === 'object') return JSON.stringify(val)
+  return String(val)
+}
+
+function isDiff(v: unknown): v is { from: unknown; to: unknown } {
+  return !!v && typeof v === 'object' && 'from' in (v as object) && 'to' in (v as object)
+}
+
 function AuditCard({ entry }: { entry: UserAuditEntry }) {
   const action = entry.action
   const label = AUDIT_ACTION_LABELS[action] ?? action
-  const tone = AUDIT_ACTION_TONES[action] ?? { color: 'var(--color-fg-subtle)', bg: 'var(--color-surface-3)' }
+  const tone = auditTone(action)
   const date = formatLastLogin(entry.createdAt)
   const changes: Record<string, unknown> = entry.changes ?? {}
   const changeKeys = Object.keys(changes)
+  const diffKeys = changeKeys.filter((k) => isDiff(changes[k]))
+  const plainKeys = changeKeys.filter((k) => !isDiff(changes[k]))
 
   return (
     <div
@@ -647,7 +702,7 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
       style={{ borderLeft: `3px solid ${tone.color}` }}
     >
       <div class="flex items-center justify-between gap-2 flex-wrap">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <span
             class="px-2.5 py-0.5 rounded-full text-[0.6875rem] font-semibold"
             style={{ background: tone.bg, color: tone.color }}
@@ -655,42 +710,38 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
             {label}
           </span>
           <span class="text-[0.8125rem] font-medium text-fg">{entry.actorName ?? 'Sistema'}</span>
+          {!entry.viewerIsActor && (
+            <span class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">recebida</span>
+          )}
         </div>
         <span class="text-[0.6875rem] text-fg-subtle whitespace-nowrap">{date}</span>
       </div>
 
-      {action === 'created' && (
+      {entry.targetLabel && (
         <div class="text-xs text-fg-muted mt-1">
-          Perfil: <strong class="text-fg">{formatAuditValue('role', changes.role) || '—'}</strong>
+          Alvo: <strong class="text-fg">{entry.targetLabel}</strong>
         </div>
       )}
 
-      {action === 'edited' && changeKeys.length > 0 && (
+      {/* Mudanças campo a campo (from → to) */}
+      {diffKeys.length > 0 && (
         <div class="mt-1.5 flex flex-col gap-1">
-          {changeKeys.map((k) => {
-            const c = changes[k]
-            if (!c || typeof c !== 'object' || !('from' in c) || !('to' in c)) return null
-            const obj: { from: unknown; to: unknown } = c
+          {diffKeys.map((k) => {
+            const obj = changes[k] as { from: unknown; to: unknown }
             const fieldLabel = AUDIT_FIELD_LABELS[k] ?? k
             return (
               <div key={k} class="text-xs text-fg flex items-center gap-1.5 flex-wrap">
                 <span class="text-fg-subtle min-w-[3.25rem]">{fieldLabel}:</span>
                 <span
                   class="px-1.5 py-0.5 rounded text-[0.6875rem] line-through"
-                  style={{
-                    background: 'color-mix(in oklch, var(--color-danger) 14%, transparent)',
-                    color: 'var(--color-danger)',
-                  }}
+                  style={{ background: 'color-mix(in oklch, var(--color-danger) 14%, transparent)', color: 'var(--color-danger)' }}
                 >
                   {formatAuditValue(k, obj.from)}
                 </span>
                 <ArrowRight size={12} class="text-fg-subtle" />
                 <span
                   class="px-1.5 py-0.5 rounded text-[0.6875rem]"
-                  style={{
-                    background: 'color-mix(in oklch, var(--color-success) 14%, transparent)',
-                    color: 'var(--color-success)',
-                  }}
+                  style={{ background: 'color-mix(in oklch, var(--color-success) 14%, transparent)', color: 'var(--color-success)' }}
                 >
                   {formatAuditValue(k, obj.to)}
                 </span>
@@ -698,6 +749,22 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
             )
           })}
         </div>
+      )}
+
+      {/* Detalhes simples (listas, contadores) */}
+      {plainKeys.length > 0 && (
+        <div class="mt-1.5 flex flex-col gap-0.5">
+          {plainKeys.map((k) => (
+            <div key={k} class="text-xs text-fg-muted">
+              <span class="text-fg-subtle">{AUDIT_FIELD_LABELS[k] ?? k}:</span>{' '}
+              <span class="text-fg">{formatGenericValue(changes[k])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {entry.ipAddress && (
+        <div class="text-[0.625rem] text-fg-subtle mt-1.5">IP: {entry.ipAddress}</div>
       )}
     </div>
   )

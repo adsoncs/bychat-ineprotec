@@ -4,6 +4,7 @@
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { eventBus, type DomainEvent } from '../lib/eventBus.js'
+import { assertUrlIsPublic } from '../lib/urlSafety.js'
 
 // ── Available events for webhook subscription ──────────
 export const WEBHOOK_EVENTS = [
@@ -29,6 +30,10 @@ export const WEBHOOK_EVENTS = [
   'enrichment.completed',
   'enrichment.failed',
   'loss_reason.spike',
+  'helpdesk.ticket.created',
+  'helpdesk.ticket.status_changed',
+  'helpdesk.ticket.solved',
+  'helpdesk.ticket.replied',
 ] as const
 
 export type WebhookEventType = (typeof WEBHOOK_EVENTS)[number]
@@ -56,6 +61,10 @@ export const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   'enrichment.completed': 'Enriquecimento concluído',
   'enrichment.failed': 'Enriquecimento falhou',
   'loss_reason.spike': 'Pico de objeção detectado',
+  'helpdesk.ticket.created': 'Chamado criado',
+  'helpdesk.ticket.status_changed': 'Status do chamado alterado',
+  'helpdesk.ticket.solved': 'Chamado resolvido',
+  'helpdesk.ticket.replied': 'Resposta no chamado',
 }
 
 // ── In-memory webhook cache (refresh every 60s) ────────
@@ -196,6 +205,13 @@ async function dispatchWebhook(
   let error: string | null = null
 
   try {
+    // Revalida a URL no momento do disparo (anti DNS-rebinding/TOCTOU): a URL
+    // foi validada na criação, mas o DNS pode ter mudado para um IP interno.
+    const pub = await assertUrlIsPublic(webhook.url)
+    if (!pub.ok) {
+      throw new Error(`URL bloqueada por segurança: ${pub.reason}`)
+    }
+
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), webhook.timeoutMs)
 
@@ -329,6 +345,8 @@ export async function testWebhook(webhookId: number): Promise<{ success: boolean
 
   const startTime = Date.now()
   try {
+    const pub = await assertUrlIsPublic(wh.url)
+    if (!pub.ok) throw new Error(`URL bloqueada por segurança: ${pub.reason}`)
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), wh.timeoutMs)
     const resp = await fetch(wh.url, { method: 'POST', headers, body: bodyStr, signal: controller.signal })

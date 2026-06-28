@@ -4,9 +4,11 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
+import { JWT_SECRET } from '../lib/secrets.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
-import { isInternalUrl } from '../lib/urlSafety.js'
+import { assertUrlIsPublic } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
 import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues } from '../services/formFlow.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
@@ -20,7 +22,7 @@ import { createHmac } from 'crypto'
 // o token (gerado no 'start') pode mover/finalizar AQUELE lead. HMAC do par
 // formId:leadId com JWT_SECRET — não dá pra forjar sem o segredo do servidor.
 function progressToken(formId: number, leadId: number): string {
-  return createHmac('sha256', process.env.JWT_SECRET || 'bychat-forms')
+  return createHmac('sha256', JWT_SECRET)
     .update(`${formId}:${leadId}`).digest('hex').slice(0, 32)
 }
 function verifyProgressToken(formId: number, leadId: number, token: any): boolean {
@@ -219,17 +221,26 @@ export async function formsRoutes(app: FastifyInstance) {
         console.error('[Forms] lead pipeline error:', (e as any).message)
       }
 
-      // Webhook externo (com SSRF protection + HMAC signature)
-      if (form.webhookUrl && !isInternalUrl(form.webhookUrl)) {
-        const payload = JSON.stringify({ formId: form.id, formName: form.name, data, submissionId: submission.id, leadId, timestamp: new Date().toISOString() })
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        const secret = (form as any).webhookSecret as string | undefined
-        if (secret) {
-          const crypto = await import('crypto')
-          const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex')
-          headers['X-Form-Signature'] = `sha256=${sig}`
-        }
-        fetch(form.webhookUrl, { method: 'POST', headers, body: payload }).catch(() => {})
+      // Webhook externo (com SSRF protection + HMAC signature). Revalida no
+      // disparo (resolve DNS) e usa timeout para não pendurar a request pública.
+      if (form.webhookUrl) {
+        const whUrl = form.webhookUrl
+        ;(async () => {
+          const pub = await assertUrlIsPublic(whUrl)
+          if (!pub.ok) return
+          const payload = JSON.stringify({ formId: form.id, formName: form.name, data, submissionId: submission.id, leadId, timestamp: new Date().toISOString() })
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          const secret = (form as any).webhookSecret as string | undefined
+          if (secret) {
+            const crypto = await import('crypto')
+            const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex')
+            headers['X-Form-Signature'] = `sha256=${sig}`
+          }
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 10000)
+          await fetch(whUrl, { method: 'POST', headers, body: payload, signal: controller.signal }).catch(() => {})
+          clearTimeout(timeout)
+        })().catch(() => {})
       }
 
       const response: any = { ok: true, submissionId: submission.id }
@@ -378,9 +389,15 @@ export async function formsRoutes(app: FastifyInstance) {
 
     const script = generateEmbedScript(id, fields, settings, styling, baseUrl)
 
+    // O embed reflete a config AO VIVO do formulário (campos, opções, estilo).
+    // NÃO pode ser cacheado: um cache antigo serve um formulário desatualizado
+    // (ex.: opções de select sem `value` quebram a validação e o botão Enviar
+    // "não faz nada"). `Cloudflare-CDN-Cache-Control` instrui o edge do
+    // Cloudflare a não cachear, além do Cache-Control padrão para browsers.
     reply
       .header('Content-Type', 'application/javascript; charset=utf-8')
-      .header('Cache-Control', 'public, max-age=3600')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+      .header('Cloudflare-CDN-Cache-Control', 'no-store')
       .header('Access-Control-Allow-Origin', '*')
       .send(script)
   })
@@ -566,6 +583,12 @@ export async function formsRoutes(app: FastifyInstance) {
       })
     }
     await prisma.form.delete({ where: { id: parseInt(id) } })
+    void logUserAudit({
+      action: 'form.deleted',
+      targetType: 'form',
+      targetLabel: (snapshot as any)?.name || `Formulário #${id}`,
+      ...auditActor(req),
+    })
     return { ok: true }
   })
 

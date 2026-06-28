@@ -4,6 +4,7 @@
 
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
+import { CANDIDATE_SECRET } from '../lib/secrets.js'
 
 export async function generateEnrollmentLinkForLead(leadId: number, portalId: number): Promise<string | null> {
   const [lead, portal] = await Promise.all([
@@ -26,7 +27,7 @@ export async function generateEnrollmentLinkForLead(leadId: number, portalId: nu
     exp: Date.now() + 14 * 24 * 3600 * 1000,
   }
 
-  const secret = process.env.CANDIDATE_SECRET || process.env.JWT_SECRET || 'bychat-candidate-secret'
+  const secret = CANDIDATE_SECRET
   const body64 = Buffer.from(JSON.stringify(prefill)).toString('base64url')
   const sig = crypto.createHmac('sha256', secret).update(body64).digest('base64url')
   const token = `${body64}.${sig}`

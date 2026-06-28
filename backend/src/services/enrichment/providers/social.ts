@@ -76,12 +76,15 @@ async function scrapePage(url: string): Promise<Record<string, string>> {
 export const socialProvider: Provider = async (seed) => {
   const result: ProviderResult = { facts: [] }
 
-  // Busca URLs já coletadas pelos providers anteriores (google, github, gravatar)
+  // Busca URLs já coletadas (google, googleCse, github, gravatar). Inclui também
+  // as URLs marcadas como CANDIDATO (status 'candidate'): o scraping dá ao agente
+  // um preview (bio/foto) para julgar se é a pessoa certa — mas o resultado HERDA
+  // o caráter de candidato (não entra no dossiê/score até o agente confirmar).
   const existingFacts = await prisma.leadEnrichment.findMany({
     where: {
       leadId: seed.id,
       field: { in: ['linkedin_url', 'instagram_url', 'facebook_url', 'twitter_url', 'youtube_url', 'tiktok_url', 'website', 'company_website_guess'] },
-      status: 'active',
+      status: { in: ['active', 'candidate'] },
     },
   })
 
@@ -90,18 +93,22 @@ export const socialProvider: Provider = async (seed) => {
   for (const fact of existingFacts) {
     const url = fact.value
     const platform = fact.field.replace('_url', '')
+    // Derivados de uma URL candidata também são candidatos (preview, não verdade).
+    const kind: 'fact' | 'candidate' = fact.status === 'candidate' ? 'candidate' : 'fact'
     const meta = await scrapePage(url)
     await delay(1500 + Math.floor(Math.random() * 1000))
 
     if (!Object.keys(meta).length) continue
 
     const prefix = `${platform}_profile`
-    if (meta.title) result.facts.push({ source: 'social', field: `${prefix}_title`, value: meta.title, confidence: 0.85 })
-    if (meta.description) result.facts.push({ source: 'social', field: `${prefix}_bio`, value: meta.description, confidence: 0.8 })
-    if (meta.image) result.facts.push({ source: 'social', field: `${prefix}_image`, value: meta.image, confidence: 0.8 })
-    if (meta.ld_name) result.facts.push({ source: 'social', field: 'name', value: meta.ld_name, confidence: 0.85 })
-    if (meta.ld_job) result.facts.push({ source: 'social', field: 'position', value: meta.ld_job, confidence: 0.85 })
-    if (meta.ld_company) result.facts.push({ source: 'social', field: 'company_name', value: meta.ld_company, confidence: 0.8 })
+    if (meta.title) result.facts.push({ source: 'social', field: `${prefix}_title`, value: meta.title, confidence: 0.85, kind })
+    if (meta.description) result.facts.push({ source: 'social', field: `${prefix}_bio`, value: meta.description, confidence: 0.8, kind })
+    if (meta.image) result.facts.push({ source: 'social', field: `${prefix}_image`, value: meta.image, confidence: 0.8, kind })
+    // name/position/company só viram FATO quando a URL-fonte é verificada; de um
+    // candidato, ficam como candidato (não promovem identidade/empresa do lead).
+    if (meta.ld_name) result.facts.push({ source: 'social', field: 'name', value: meta.ld_name, confidence: 0.85, kind })
+    if (meta.ld_job) result.facts.push({ source: 'social', field: 'position', value: meta.ld_job, confidence: 0.85, kind })
+    if (meta.ld_company) result.facts.push({ source: 'social', field: 'company_name', value: meta.ld_company, confidence: 0.8, kind })
   }
 
   return result

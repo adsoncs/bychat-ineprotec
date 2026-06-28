@@ -2,7 +2,14 @@
 // Gerenciamento de instância WhatsApp via Evolution API + webhook para chat diagnóstico
 
 import { FastifyInstance } from 'fastify'
+import crypto from 'crypto'
+import { writeFile, mkdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
+import { logSecurityEvent } from '../services/security.js'
+import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
+import { isLikelyLid, onlyDigits } from '../lib/phone.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -12,6 +19,9 @@ import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/tea
 import { broadcastRealtimeEvent } from './realtime.js'
 
 // ─── Evolution API helpers ────────────────────────────────
+
+// Throttle do alerta de webhook sem autenticação (1x/h) — evita flood de logs.
+let lastEvolutionWebhookWarn = 0
 
 function evoUrl() { return process.env.EVOLUTION_API_URL || '' }
 function evoKey() { return process.env.EVOLUTION_API_KEY || '' }
@@ -31,8 +41,45 @@ async function evoFetch(path: string, method = 'GET', body?: any) {
   try { return JSON.parse(text) } catch { return text }
 }
 
-async function sendWhatsAppMessage(number: string, text: string) {
-  return evoFetch(`/message/sendText/${evoInstance()}`, 'POST', { number, text })
+async function sendWhatsAppMessage(number: string, text: string, instanceName?: string | null) {
+  // Responde pela instância que RECEBEU a mensagem (multi-instância). Sem ela,
+  // cai na instância global do .env (EVOLUTION_INSTANCE) — comportamento antigo.
+  return evoFetch(`/message/sendText/${instanceName || evoInstance()}`, 'POST', { number, text })
+}
+
+// ─── Foto de perfil do contato: hospedar LOCALMENTE ──────────────────────────
+// As URLs devolvidas pela Evolution (pps.whatsapp.net) são ASSINADAS e EXPIRAM
+// (parâmetro oe=) em alguns dias → guardá-las cru faz a foto "sumir" depois. Aqui
+// baixamos os bytes e salvamos em /uploads/avatars/<leadId>.jpg (servido pelo
+// próprio backend, URL estável que nunca expira). Auto-throttle pelo mtime do
+// arquivo: só re-busca se o avatar local tiver passado do TTL (a foto pode mudar
+// no WhatsApp). Roda em background — nunca bloqueia o processamento da mensagem.
+const AVATAR_DIR = join(process.cwd(), '..', 'uploads', 'avatars')
+const AVATAR_TTL_MS = 24 * 60 * 60 * 1000 // re-busca no máx. 1x/dia por contato
+
+async function cacheProfilePicture(leadId: number, currentUrl: string | null, phone: string, instance: string, app: FastifyInstance): Promise<void> {
+  if (!phone || /@lid$/.test(phone) || phone.replace(/\D/g, '').length > 15) return // ignora LID/placeholder
+  const file = join(AVATAR_DIR, `${leadId}.jpg`)
+  const isLocal = !!currentUrl && currentUrl.startsWith('/uploads/avatars/')
+  if (isLocal) {
+    // Já hospedado: só renova se o arquivo local passou do TTL.
+    try { const s = await stat(file); if (Date.now() - s.mtimeMs < AVATAR_TTL_MS) return } catch { /* sem arquivo → re-baixa */ }
+  }
+  try {
+    const result: any = await evoFetch(`/chat/fetchProfilePictureUrl/${instance}`, 'POST', { number: phone })
+    const picUrl: string | null = result?.profilePictureUrl || result?.picture || result?.url || null
+    if (!picUrl) return // contato sem foto pública (privacidade) — preserva o atual
+    const res = await fetch(picUrl)
+    if (!res.ok) return
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(AVATAR_DIR, { recursive: true })
+    await writeFile(file, buf)
+    // ?v= força o navegador a recarregar quando a foto é atualizada.
+    const publicUrl = `/uploads/avatars/${leadId}.jpg?v=${Date.now()}`
+    await prisma.lead.update({ where: { id: leadId }, data: { profilePicUrl: publicUrl } }).catch(() => {})
+  } catch (e: any) {
+    app.log.warn(`[avatar] lead ${leadId}: ${e?.message || e}`)
+  }
 }
 
 // ─── LID → Phone resolver (consulta PostgreSQL da Evolution API) ───
@@ -46,8 +93,13 @@ const lidPhoneCache = new Map<string, string>()
 let evoPgPool: pg.Pool | null = null
 function getEvoPgPool(): pg.Pool {
   if (!evoPgPool) {
+    // Sem credencial default no código — exige EVOLUTION_PG_URL configurada.
+    const connectionString = process.env.EVOLUTION_PG_URL
+    if (!connectionString) {
+      throw new Error('EVOLUTION_PG_URL não configurada — pool Postgres do Evolution indisponível')
+    }
     evoPgPool = new pg.Pool({
-      connectionString: process.env.EVOLUTION_PG_URL || 'postgresql://evolution:evolution@localhost:5432/evolution',
+      connectionString,
       max: 3,
       idleTimeoutMillis: 30000
     })
@@ -158,6 +210,53 @@ async function downloadAudioFromEvolution(messageKey: any, instanceName?: string
   } catch (err) {
     console.error('[Audio] Failed to download from Evolution:', err)
     return null
+  }
+}
+
+// ─── Mídia recebida (Evolution): baixar/descriptografar e hospedar localmente ──
+// As URLs que a Evolution entrega (mmg.whatsapp.net/...*.enc) são CRIPTOGRAFADAS
+// ponta-a-ponta e NÃO renderizam no navegador. getBase64FromMediaMessage devolve
+// os bytes DECIFRADOS → salvamos em /uploads/evolution-media/<arquivo> (URL
+// estável servida pelo backend). Mesmo padrão do saveCloudApiMedia e dos avatares.
+const EVO_MEDIA_DIR = join(process.cwd(), '..', 'uploads', 'evolution-media')
+
+function evoExtFromMime(mime: string, fallback: string): string {
+  const m = (mime || '').split(';')[0].trim().toLowerCase()
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/3gpp': '3gp', 'video/quicktime': 'mov',
+    'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/amr': 'amr', 'audio/wav': 'wav',
+    'application/pdf': 'pdf',
+  }
+  if (map[m]) return map[m]
+  const sub = (m.split('/')[1] || '').replace(/[^a-z0-9]/g, '')
+  return sub || fallback
+}
+
+// Persiste um buffer de mídia já decifrado e devolve a URL pública local.
+async function saveMediaBuffer(buf: Buffer, mime: string, mediaType: string, app: FastifyInstance): Promise<string> {
+  try {
+    const fb = mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'ogg' : mediaType === 'sticker' ? 'webp' : 'bin'
+    const ext = evoExtFromMime(mime, fb)
+    await mkdir(EVO_MEDIA_DIR, { recursive: true })
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`
+    await writeFile(join(EVO_MEDIA_DIR, fileName), buf)
+    return `/uploads/evolution-media/${fileName}`
+  } catch (e: any) {
+    app.log.warn(`[evo-media] write ${mediaType}: ${e?.message || e}`)
+    return ''
+  }
+}
+
+// Baixa+descriptografa a mídia da Evolution e salva localmente (URL estável).
+async function saveEvolutionMedia(messageKey: any, instance: string, mediaType: string, mime: string, app: FastifyInstance): Promise<string> {
+  try {
+    const result: any = await evoFetch(`/chat/getBase64FromMediaMessage/${instance}`, 'POST', { message: { key: messageKey } })
+    if (!result?.base64) return ''
+    return await saveMediaBuffer(Buffer.from(result.base64, 'base64'), mime || result?.mimetype || '', mediaType, app)
+  } catch (e: any) {
+    app.log.warn(`[evo-media] fetch ${mediaType}: ${e?.message || e}`)
+    return ''
   }
 }
 
@@ -365,6 +464,27 @@ export async function whatsappRoutes(app: FastifyInstance) {
   // POST /api/whatsapp/webhook — Recebe mensagens do Evolution API
   app.post('/api/whatsapp/webhook', async (req, reply) => {
     try {
+      // ── Autenticidade do webhook ──────────────────────────────────────
+      // Sem auth, qualquer um pode injetar mensagens/leads forjados. Configure
+      // EVOLUTION_WEBHOOK_KEY no .env e adicione o mesmo valor como header
+      // (x-webhook-token ou apikey) na config do webhook do Evolution. Quando a
+      // env está setada a verificação é obrigatória (fail-closed); sem ela,
+      // mantemos o comportamento legado com alerta para não perder mensagens.
+      const expectedWebhookKey = process.env.EVOLUTION_WEBHOOK_KEY || ''
+      if (expectedWebhookKey) {
+        const got = String(req.headers['x-webhook-token'] || req.headers['apikey'] || '')
+        const gotBuf = Buffer.from(got)
+        const expBuf = Buffer.from(expectedWebhookKey)
+        const valid = gotBuf.length === expBuf.length && crypto.timingSafeEqual(gotBuf, expBuf)
+        if (!valid) {
+          await logSecurityEvent({ ip: req.ip, type: 'whatsapp_webhook_unauthorized', severity: 'high', path: req.url, details: 'Webhook Evolution sem token válido' }).catch(() => {})
+          return reply.code(401).send({ error: 'Não autorizado' })
+        }
+      } else if (Date.now() - lastEvolutionWebhookWarn > 3600_000) {
+        lastEvolutionWebhookWarn = Date.now()
+        app.log.warn('[WA/webhook][SECURITY] EVOLUTION_WEBHOOK_KEY não configurada — webhook aceita requests não autenticados. Configure para impedir injeção de mensagens/leads.')
+      }
+
       const body = req.body as any
 
       // Evolution API envia eventos com diferentes formatos
@@ -531,59 +651,40 @@ export async function whatsappRoutes(app: FastifyInstance) {
       let waLidToPersist: string | null = null
 
       if (remoteJid.endsWith('@lid')) {
-        // LID format — Evolution API v2 com Baileys não inclui o telefone no webhook
-        // Resolver via consulta aos contatos da Evolution API (profilePicUrl ou pushName matching)
+        // LID (@lid) é um identificador de PRIVACIDADE do WhatsApp — NÃO é telefone.
+        // Tenta obter o número real via Evolution; o match CRM (waLid/phoneKey/nome)
+        // fica a cargo do resolvedor de identidade unificado, abaixo.
+        waLidToPersist = remoteJid
         const resolved = await resolveLidToPhone(remoteJid, data.pushName)
         if (resolved) {
           phone = resolved
           app.log.info(`[Webhook] LID ${remoteJid} resolved to phone: ${phone}`)
         } else {
-          // Estratégia CRM: associar o LID a lead existente via campo waLid ou via pushName.
-          // Evita criar leads duplicados quando o mesmo contato LID volta a mandar mensagem.
-          const pushName: string = (data.pushName || '').trim()
-
-          // 1) Já existe lead com este LID registrado?
-          const leadByLid = await prisma.lead.findFirst({
-            where: { waLid: remoteJid },
-            select: { id: true, whatsapp: true },
-          })
-          if (leadByLid) {
-            phone = leadByLid.whatsapp
-            app.log.info(`[Webhook] LID ${remoteJid} matched existing lead ${leadByLid.id} via waLid`)
-          } else if (pushName) {
-            // 2) Lead com pushName exato ainda sem LID atribuído — associa.
-            //    Limita a leads criados nos últimos 30 dias para evitar matches aleatórios antigos.
-            const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000)
-            const leadByName = await prisma.lead.findFirst({
-              where: {
-                nome: pushName,
-                waLid: null,
-                createdAt: { gte: cutoff },
-              },
-              orderBy: { createdAt: 'desc' },
-              select: { id: true, whatsapp: true },
-            })
-            if (leadByName) {
-              await prisma.lead.update({
-                where: { id: leadByName.id },
-                data: { waLid: remoteJid },
-              })
-              phone = leadByName.whatsapp
-              app.log.info(`[Webhook] LID ${remoteJid} associated to lead ${leadByName.id} via pushName "${pushName}"`)
-            } else {
-              // 3) Nada matcheou — cria lead novo mais tarde, e registra o LID no campo waLid.
-              phone = remoteJid.replace('@lid', '')
-              waLidToPersist = remoteJid
-              app.log.warn(`[Webhook] LID ${remoteJid} sem match — criando lead novo com waLid`)
-            }
-          } else {
-            phone = remoteJid.replace('@lid', '')
-            waLidToPersist = remoteJid
-            app.log.warn(`[Webhook] LID ${remoteJid} sem pushName — criando lead novo com waLid`)
-          }
+          phone = '' // sem número ainda — o resolvedor tenta achar o lead existente
         }
       } else {
         phone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
+      }
+
+      // ── Identidade canônica unificada (fix definitivo de duplicação) ──
+      // Acha o lead deste contato por waLid → phoneKey → nome e ADOTA o telefone
+      // já cadastrado nele, fazendo todos os lookups abaixo convergirem para o
+      // MESMO lead. Reconcilia (backfill phoneKey, grava waLid recém-descoberto).
+      {
+        const ident = await resolveLeadForContact({ phone, waLid: waLidToPersist, pushName: data.pushName })
+        if (ident.lead) {
+          if (ident.lead.whatsapp && !isLikelyLid(ident.lead.whatsapp)) phone = ident.lead.whatsapp
+          await reconcileLeadIdentity(
+            ident.lead.id,
+            { whatsapp: ident.lead.whatsapp, waLid: ident.lead.waLid, phoneKey: ident.lead.phoneKey },
+            { phone: phone || undefined, waLid: waLidToPersist },
+          )
+        } else if (!phone && remoteJid.endsWith('@lid')) {
+          // Contato puro-LID NOVO (sem telefone, sem match): placeholder com os
+          // dígitos do LID só pra não derrubar a mensagem — waLid fica gravado e
+          // mensagens futuras (com o número real) convergem via reconcile.
+          phone = onlyDigits(remoteJid)
+        }
       }
 
       // Ignora mensagens de grupo
@@ -615,6 +716,26 @@ export async function whatsappRoutes(app: FastifyInstance) {
         return { ok: true }
       }
 
+      // Idempotência (anti-reentrega): a Evolution reenvia o MESMO messages.upsert
+      // em reconexão/restart de instância/retry de webhook. Sem este guard, a mesma
+      // mensagem (mesmo key.id) era reinserida por algum dos message.create abaixo
+      // → duplicata na tela de Conversas. Mesma proteção que o Cloud API já tinha
+      // (wamsg). SET NX é atômico (vence reentregas quase simultâneas); o fallback
+      // em banco cobre Redis indisponível (reentregas em reconexão chegam depois,
+      // então o findFirst por externalId pega). Só recebidas (fromMe já retornou).
+      if (messageId) {
+        try {
+          const fresh = await redis.set(`evomsg:${messageId}`, '1', 'EX', 86400, 'NX')
+          if (fresh === null) return { ok: true } // já processado
+        } catch {
+          const dup = await prisma.message.findFirst({
+            where: { externalId: messageId, fromMe: false },
+            select: { id: true },
+          })
+          if (dup) return { ok: true }
+        }
+      }
+
       const text = message.conversation ||
                    message.extendedTextMessage?.text ||
                    message.buttonsResponseMessage?.selectedButtonId ||
@@ -629,19 +750,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       if (message.imageMessage) {
         mediaType = 'image'
-        mediaUrl = message.imageMessage.url || ''
         mediaCaption = message.imageMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'image', message.imageMessage.mimetype || '', app)
       } else if (message.videoMessage) {
         mediaType = 'video'
-        mediaUrl = message.videoMessage.url || ''
         mediaCaption = message.videoMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'video', message.videoMessage.mimetype || '', app)
       } else if (message.audioMessage) {
         mediaType = 'audio'
-        mediaUrl = message.audioMessage.url || ''
-        // Transcribe audio to text
+        // Baixa UMA vez: salva o arquivo tocável E transcreve do mesmo buffer.
         try {
-          const audioBuf = await downloadAudioFromEvolution(key)
+          const audioBuf = await downloadAudioFromEvolution(key, inboundInstance)
           if (audioBuf) {
+            mediaUrl = await saveMediaBuffer(audioBuf, message.audioMessage.mimetype || '', 'audio', app)
             const transcription = await transcribeAudio(audioBuf)
             if (transcription) {
               mediaCaption = transcription
@@ -649,22 +770,27 @@ export async function whatsappRoutes(app: FastifyInstance) {
             }
           }
         } catch (transcribeErr: any) {
-          app.log.warn(`[Audio] Transcription error: ${transcribeErr.message}`)
+          app.log.warn(`[Audio] error: ${transcribeErr.message}`)
         }
       } else if (message.documentMessage) {
         mediaType = 'document'
-        mediaUrl = message.documentMessage.url || ''
         mediaName = message.documentMessage.fileName || ''
         mediaCaption = message.documentMessage.caption || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'document', message.documentMessage.mimetype || '', app)
       } else if (message.stickerMessage) {
         mediaType = 'sticker'
-        mediaUrl = message.stickerMessage.url || ''
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'sticker', message.stickerMessage.mimetype || '', app)
       }
 
       const msgText = text || mediaCaption
 
-      // Save media messages to Message table even if no text (for atendimento view)
-      if (mediaType !== 'text' && phone) {
+      // Salva mídia SEM texto (imagem/áudio sem legenda/transcrição) aqui, pois
+      // o fluxo abaixo só persiste quando há `msgText` (retorna em !msgText).
+      // Mídia COM texto (ex.: áudio transcrito, imagem com legenda) NÃO entra
+      // aqui: é persistida uma única vez pelo create downstream (atendimento ou
+      // engine do chatbot), que já grava mediaType/mediaUrl/mediaName — evita a
+      // duplicação (este bloco + o create de baixo gravavam a mesma mensagem).
+      if (mediaType !== 'text' && !msgText && phone) {
         const existingLead = await prisma.lead.findFirst({
           where: { whatsapp: phone },
           orderBy: { createdAt: 'desc' }
@@ -701,18 +827,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // Log mensagem recebida (se lead existe)
       const existingLeadForLog = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
 
-      // Buscar foto de perfil do contato (assíncrono, não bloqueia).
-      // Usa a instância que recebeu a mensagem — em multi-instância, cada
-      // conexão tem sua própria store de contatos.
-      if (existingLeadForLog && !existingLeadForLog.profilePicUrl) {
-        evoFetch(`/chat/fetchProfilePictureUrl/${inboundInstance}`, 'POST', { number: phone })
-          .then((result: any) => {
-            const picUrl = result?.profilePictureUrl || result?.picture || result?.url || null
-            if (picUrl) {
-              prisma.lead.update({ where: { id: existingLeadForLog.id }, data: { profilePicUrl: picUrl } }).catch(() => {})
-            }
-          })
-          .catch(() => {})
+      // Foto de perfil do contato (assíncrono, não bloqueia): baixa e hospeda
+      // localmente. O helper se auto-limita pelo TTL e migra URLs antigas
+      // (pps.whatsapp.net, que expiram) para o avatar local estável.
+      if (existingLeadForLog) {
+        cacheProfilePicture(existingLeadForLog.id, existingLeadForLog.profilePicUrl, phone, inboundInstance, app)
+      } else if (phone) {
+        // Contato NOVO: o lead será criado adiante por este inbound (chatbot ou
+        // atendimento). Resolve em background e já baixa a foto na 1ª mensagem.
+        setTimeout(() => {
+          prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+            .then((l) => { if (l) cacheProfilePicture(l.id, l.profilePicUrl, phone, inboundInstance, app) })
+            .catch(() => {})
+        }, 4000)
       }
 
       if (existingLeadForLog) {
@@ -859,7 +986,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       // Processar mensagem do diagnóstico (via chatbot flow com Evolution provider)
       const evoSendFn = async (p: string, t: string) => {
-        const result = await sendWhatsAppMessage(p, t)
+        // Responde pela instância que recebeu a mensagem (multi-instância).
+        const result = await sendWhatsAppMessage(p, t, inboundInstance)
         return { messageId: result?.key?.id || null }
       }
       // Chatbot determinístico (scripted): roda a jornada do form vinculado.
@@ -892,23 +1020,18 @@ export async function whatsappRoutes(app: FastifyInstance) {
     }
   })
 
-  // GET /api/whatsapp/profile-pic/:phone — Busca foto de perfil do contato via Evolution API
+  // GET /api/whatsapp/profile-pic/:phone — Busca/atualiza a foto do contato e a
+  // hospeda localmente (URL estável). Força refresh removendo o avatar atual.
   app.get('/api/whatsapp/profile-pic/:phone', { preHandler: authMiddleware }, async (req, reply) => {
     try {
       const { phone } = req.params as any
       const number = String(phone).replace(/\D/g, '')
-      const result = await evoFetch(`/chat/fetchProfilePictureUrl/${evoInstance()}`, 'POST', {
-        number
-      })
-      const picUrl = result?.profilePictureUrl || result?.picture || result?.url || null
-      if (picUrl) {
-        // Salvar no lead
-        await prisma.lead.updateMany({
-          where: { whatsapp: { contains: number.slice(-8) } },
-          data: { profilePicUrl: picUrl }
-        })
-      }
-      return { profilePicUrl: picUrl }
+      const lead = await prisma.lead.findFirst({ where: { whatsapp: { contains: number.slice(-8) } }, orderBy: { createdAt: 'desc' } })
+      if (!lead) return { profilePicUrl: null }
+      // Força re-busca: passa currentUrl=null para ignorar o throttle.
+      await cacheProfilePicture(lead.id, null, lead.whatsapp || number, evoInstance(), app)
+      const updated = await prisma.lead.findUnique({ where: { id: lead.id }, select: { profilePicUrl: true } })
+      return { profilePicUrl: updated?.profilePicUrl ?? null }
     } catch (err: any) {
       return { profilePicUrl: null }
     }

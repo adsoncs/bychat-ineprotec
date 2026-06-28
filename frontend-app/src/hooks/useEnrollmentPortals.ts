@@ -725,6 +725,75 @@ export function useResendRegistrationLink() {
   })
 }
 
+// Cria ou re-vincula o Lead de uma inscrição órfã (leadId nulo).
+export function useEnsureRegistrationLead(portalId: number | null | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: true; leadId: number | null; action: 'already' | 'linked' | 'created' | 'skipped' }>(
+        `/admin/enrollment-registrations/${id}/ensure-lead`,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal-registrations', portalId] })
+      void qc.invalidateQueries({ queryKey: ['registration-full'] })
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
+// ── CRUD de inscrição (admin) ──────────────────────────────────
+
+export interface RegistrationUpsertInput {
+  status?: RegistrationStatus
+  paymentStatus?: string | null
+  paymentAmount?: number | null
+  formData?: Record<string, unknown>
+}
+
+// Cria uma inscrição manualmente no portal (gera candidateCode + cria/vincula Lead).
+export function useCreateEnrollmentRegistration(portalId: number | null | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: RegistrationUpsertInput & { createLead?: boolean }) =>
+      api.post<{ ok: true; registration: EnrollmentRegistration }>(
+        `/admin/enrollment-registrations`,
+        { portalId, ...input },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal-registrations', portalId] })
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
+
+// Edita uma inscrição (status, pagamento, dados do candidato no formData).
+export function useUpdateEnrollmentRegistration(portalId: number | null | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...input }: RegistrationUpsertInput & { id: number }) =>
+      api.put<{ ok: true; registration: EnrollmentRegistration }>(
+        `/admin/enrollment-registrations/${id}`,
+        input,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal-registrations', portalId] })
+      void qc.invalidateQueries({ queryKey: ['registration-full'] })
+    },
+  })
+}
+
+// Exclui uma inscrição (cascade remove documentos/pagamentos).
+export function useDeleteEnrollmentRegistration(portalId: number | null | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ ok: true }>(`/admin/enrollment-registrations/${id}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['portal-registrations', portalId] })
+    },
+  })
+}
+
 // ── Check de disponibilidade de slug ───────────────────────────
 
 export interface CheckSlugResult {

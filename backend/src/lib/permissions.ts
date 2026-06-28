@@ -6,8 +6,7 @@ import jwt from 'jsonwebtoken'
 import { prisma } from './prisma.js'
 import { type JwtPayload } from './auth.js'
 import { getModuleForRoute, MODULE_REGISTRY } from './moduleRegistry.js'
-
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me'
+import { JWT_SECRET } from './secrets.js'
 
 type Action = 'view' | 'create' | 'edit' | 'delete'
 
@@ -117,6 +116,35 @@ function methodToAction(method: string): Action {
     case 'DELETE': return 'delete'
     default: return 'view'
   }
+}
+
+// Rotas cuja ação derivada do método HTTP não reflete o impacto real.
+// Gerenciar as TAGS de um lead (adicionar/remover, inclusive em massa) é
+// EDITAR o lead — não criar nem EXCLUIR o lead. Sem este override, a rota
+// resolve para o módulo 'leads' (prefixo /api/leads casa antes de /api/tags)
+// e remover tag (DELETE) exigiria canDelete em 'leads', a mesma permissão
+// que apaga o lead inteiro (DELETE /api/leads/:id). Ver routes/tags.ts.
+const ACTION_OVERRIDES: { test: RegExp; action: Action }[] = [
+  { test: /^\/api\/leads\/\d+\/tags(\/\d+)?$/, action: 'edit' },
+  { test: /^\/api\/leads\/bulk\/tags$/, action: 'edit' },
+  // ── Helpdesk: AGENTE COLABORADOR (light agent, F25) ──
+  // Quem tem só "Ver" no Helpdesk (canView, sem canEdit) é colaborador: pode
+  // COMENTAR (notas internas) e SEGUIR o chamado, sem editá-lo. Estas duas
+  // sub-rotas resolvem para 'view' (mais específicas vêm ANTES da regra ampla,
+  // pois `.find` pega o 1º match). O handler de /comments ainda exige canEdit
+  // para resposta PÚBLICA (colaborador só posta interna).
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/comments$/, action: 'view' },
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/follow$/, action: 'view' },
+  // Demais ações sobre um chamado existente (claim/assign/links/merge/spam/ai/…)
+  // são EDIÇÃO. POST /tickets (criar) e DELETE /tickets/:id mantêm o default;
+  // /tickets/bulk é edição.
+  { test: /^\/api\/helpdesk\/tickets\/\d+\/.+/, action: 'edit' },
+  { test: /^\/api\/helpdesk\/tickets\/bulk$/, action: 'edit' },
+]
+
+function resolveAction(method: string, pathOnly: string): Action {
+  const ov = ACTION_OVERRIDES.find(o => o.test.test(pathOnly))
+  return ov ? ov.action : methodToAction(method)
 }
 
 function checkAction(perms: ModulePerms, action: Action): boolean {
@@ -255,6 +283,17 @@ const GOOGLE_SELF_CONNECT_PATHS = new Set<string>([
 ])
 const GOOGLE_SELF_CONNECT_MODULES = ['google', 'scheduling']
 
+// Leitura das DEFINIÇÕES de campos personalizados (GET) é usada pelo operador
+// para ver/preencher os campos no lead. Resolve para o módulo administrativo
+// 'settings' (prefixo /api/custom-fields), mas quem só trabalha leads não deve
+// precisar de acesso a Configurações. Liberada a quem tem 'Ver' em Leads.
+// Criar/editar/excluir definições (POST/PUT/DELETE) continua em 'settings'.
+const CUSTOM_FIELDS_READ_PATHS = new Set<string>([
+  '/api/custom-fields',
+  '/api/custom-fields/all',
+])
+const CUSTOM_FIELDS_READ_MODULES = ['leads']
+
 // Tenta resolver o user a partir do Bearer token DIRETAMENTE no hook global,
 // sem depender do `authMiddleware` da rota (que é preHandler de ROTA — roda
 // DEPOIS deste preHandler global e portanto deixaria `req.user` indefinido).
@@ -340,11 +379,16 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
   try {
     const perms = await resolvePermissions(user.userId, user.role)
     const modPerms = perms[mod.id]
-    const act = methodToAction(req.method)
+    const act = resolveAction(req.method, pathOnly)
 
     // Self-service de conexão Google: basta ter acesso a um módulo que usa Google
     // (Agenda ou Google). Conecta/desconecta só a conta do próprio operador.
     if (GOOGLE_SELF_CONNECT_PATHS.has(pathOnly) && GOOGLE_SELF_CONNECT_MODULES.some(m => perms[m]?.canView)) {
+      return
+    }
+
+    // Leitura de campos personalizados: basta 'Ver' em Leads (não exige Configurações).
+    if (req.method === 'GET' && CUSTOM_FIELDS_READ_PATHS.has(pathOnly) && CUSTOM_FIELDS_READ_MODULES.some(m => perms[m]?.canView)) {
       return
     }
 

@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
 import { getMetaAppId, getMetaAppSecret, getMetaIgConfigId, META_GRAPH_URL } from '../lib/meta.js'
 import {
   IG_BUSINESS_SCOPES,
@@ -174,6 +176,104 @@ async function fb(path: string, token: string, init?: { method?: string; body?: 
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message ?? `Graph error ${res.status}`)
   return data
+}
+
+// Envio reusável de DM (Instagram/Messenger) — usado pelo atendimento (Conversas).
+// Dentro da janela de 24h usa messaging_type RESPONSE; fora dela, MESSAGE_TAG +
+// HUMAN_AGENT (resposta de atendente humano, permite até 7 dias). Sem conexão ou
+// erro da Meta → devolve { messageId:null, error }.
+export async function sendInstagramDM(
+  recipientId: string,
+  text: string,
+  opts?: { withinWindow?: boolean; attachment?: { type: string; url: string } },
+): Promise<{ messageId: string | null; error: string | null }> {
+  const conn = await loadConnection()
+  if (!conn) return { messageId: null, error: 'Instagram não conectado' }
+  const within = opts?.withinWindow !== false
+  // Mídia: a Meta baixa a URL pública (precisa ser absoluta e acessível).
+  const message = opts?.attachment
+    ? { attachment: { type: opts.attachment.type, payload: { url: opts.attachment.url, is_reusable: false } } }
+    : { text }
+  const body: any = { recipient: { id: recipientId }, message }
+  if (within) body.messaging_type = 'RESPONSE'
+  else { body.messaging_type = 'MESSAGE_TAG'; body.tag = 'HUMAN_AGENT' }
+  try {
+    const sent = await fb(`/${conn.pageId}/messages`, conn.pageAccessToken, { method: 'POST', body })
+    return { messageId: sent.message_id ?? null, error: null }
+  } catch (err: any) {
+    return { messageId: null, error: err?.message || 'falha no envio do Instagram' }
+  }
+}
+
+// Busca o perfil REAL do remetente (IG: name/username; Messenger: first/last name)
+// via Graph, usando o token da Página. Fallback { null } se falhar (privacidade,
+// rate limit, perfil indisponível) → o chamador mantém o "Instagram #id".
+export async function fetchSenderProfile(
+  senderId: string,
+  channel: 'instagram' | 'messenger',
+): Promise<{ name: string | null; username: string | null; profilePic: string | null }> {
+  const empty = { name: null, username: null, profilePic: null }
+  try {
+    const conn = await loadConnection()
+    if (!conn) return empty
+    if (channel === 'messenger') {
+      const r = await fb(`/${senderId}?fields=first_name,last_name,profile_pic`, conn.pageAccessToken)
+      const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || null
+      return { name, username: null, profilePic: r.profile_pic ?? null }
+    }
+    const r = await fb(`/${senderId}?fields=name,username,profile_pic`, conn.pageAccessToken)
+    return { name: r.name ?? null, username: r.username ?? null, profilePic: r.profile_pic ?? null }
+  } catch {
+    return empty
+  }
+}
+
+// ─── Mídia + foto de perfil (baixar da CDN da Meta e hospedar local) ───
+const IG_MEDIA_DIR = join(process.cwd(), '..', 'uploads', 'instagram-media')
+const IG_AVATAR_DIR = join(process.cwd(), '..', 'uploads', 'avatars')
+
+function igExt(mime: string, mediaType: string): string {
+  const m = (mime || '').split(';')[0].trim().toLowerCase()
+  const map: Record<string, string> = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+    'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/3gpp': '3gp',
+    'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/ogg': 'ogg', 'audio/amr': 'amr',
+    'application/pdf': 'pdf',
+  }
+  if (map[m]) return map[m]
+  const fb = mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'mp3' : 'bin'
+  return (m.split('/')[1] || '').replace(/[^a-z0-9]/g, '') || fb
+}
+
+// Baixa a mídia recebida (URL da CDN da Meta, que expira) e hospeda local.
+async function saveIgMediaFromUrl(url: string, mediaType: string, app: FastifyInstance): Promise<string | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const mime = res.headers.get('content-type') || ''
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(IG_MEDIA_DIR, { recursive: true })
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${igExt(mime, mediaType)}`
+    await writeFile(join(IG_MEDIA_DIR, fileName), buf)
+    return `/uploads/instagram-media/${fileName}`
+  } catch (e: any) {
+    app.log.warn(`[ig-media] ${mediaType}: ${e?.message || e}`)
+    return null
+  }
+}
+
+// Baixa a foto de perfil (URL assinada que expira) e salva como avatar local do lead.
+async function cacheIgAvatar(leadId: number, url: string, app: FastifyInstance): Promise<void> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return
+    const buf = Buffer.from(await res.arrayBuffer())
+    await mkdir(IG_AVATAR_DIR, { recursive: true })
+    await writeFile(join(IG_AVATAR_DIR, `${leadId}.jpg`), buf)
+    await prisma.lead.update({ where: { id: leadId }, data: { profilePicUrl: `/uploads/avatars/${leadId}.jpg?v=${Date.now()}` } })
+  } catch (e: any) {
+    app.log.warn(`[ig-avatar] lead ${leadId}: ${e?.message || e}`)
+  }
 }
 
 /**
@@ -754,37 +854,65 @@ export async function instagramRoutes(app: FastifyInstance) {
         const isEcho = evt.message?.is_echo
         if (!senderId || isEcho) continue
 
-        const uid = `instagram:${senderId}`
+        // Distingue o canal: object 'page' = Messenger (Facebook), 'instagram' = IG Direct.
+        // Ambos chegam pelo mesmo webhook e respondem pelo mesmo /me/messages (token da Página).
+        const channel = body.object === 'page' ? 'messenger' : 'instagram'
+        const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
+
+        const uid = `${channel}:${senderId}`
         let lead = await prisma.lead.findFirst({ where: { uid } })
         if (!lead) {
+          // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
+          const prof = await fetchSenderProfile(senderId, channel)
+          const formData: Record<string, any> = channel === 'messenger'
+            ? { messengerSenderId: senderId }
+            : { instagramSenderId: senderId }
+          if (prof.username) formData.instagramUsername = prof.username
+          if (prof.profilePic) formData.profilePicUrl = prof.profilePic
           lead = await prisma.lead.create({
             data: {
               uid,
-              nome: `Instagram #${senderId}`,
+              nome: prof.name || `${canalNome} #${senderId}`,
               empresa: '',
               whatsapp: '',
               email: '',
               status: 'NOVO',
-              source: 'instagram',
-              originType: 'instagram',
+              source: channel,
+              originType: channel,
               scores: {},
               analysis: {},
-              formData: { instagramSenderId: senderId },
+              formData,
             },
           })
           broadcastRealtimeEvent({
             type: 'lead:created',
             payload: { id: lead.id, nome: lead.nome, status: lead.status },
           })
+          // Foto de perfil → avatar local (a URL da Meta expira).
+          if (prof.profilePic) cacheIgAvatar(lead.id, prof.profilePic, app).catch(() => {})
         }
 
+        // Mídia: a DM pode trazer attachments (image/video/audio/file/share/story).
+        // Baixamos o 1º e hospedamos local; o texto vira caption/body.
+        const att = (evt.message?.attachments || [])[0]
+        let inMediaType = 'text'
+        let inMediaUrl: string | null = null
+        let inBody = text || ''
+        if (att) {
+          const t = att.type
+          inMediaType = (t === 'image' || t === 'video' || t === 'audio') ? t : 'file'
+          const src = att.payload?.url
+          if (src) inMediaUrl = await saveIgMediaFromUrl(src, inMediaType, app)
+          if (!inBody && !inMediaUrl) inBody = '[mídia não suportada]'
+        }
         const created = await prisma.message.create({
           data: {
             leadId: lead.id,
             fromMe: false,
-            body: text ?? '[mídia]',
-            mediaType: text ? 'text' : 'image',
-            provider: 'instagram',
+            body: inBody,
+            mediaType: inMediaType,
+            mediaUrl: inMediaUrl,
+            provider: channel,
             senderName: lead.nome,
             externalId: evt.message?.mid ?? null,
             timestamp: new Date(evt.timestamp ?? Date.now()),
@@ -793,9 +921,18 @@ export async function instagramRoutes(app: FastifyInstance) {
 
         broadcastRealtimeEvent({
           type: 'message:received',
-          payload: { leadId: lead.id, messageId: created.id, channel: 'instagram' },
+          payload: { leadId: lead.id, messageId: created.id, channel },
           scope: { leadId: lead.id },
         })
+
+        // Estado de conversa (paridade com o inbound de WhatsApp): marca não-lida
+        // + lastMessageAt e abre/reabre a conversa → aparece no inbox de Conversas.
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() },
+        })
+        const { ensureConversationOpen } = await import('../services/leadConversation.js')
+        ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
       }
     }
 

@@ -1,5 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/apiClient'
+import { api, ApiError } from '@/lib/apiClient'
+
+/**
+ * Detecta o 409 do guard de inscrições no portal de matrículas (delete individual
+ * ou em lote). Retorna a contagem de inscrições que ficariam órfãs, ou null se o
+ * erro for outro. Use para escalar a confirmação para o modo "apagar mesmo assim"
+ * (que reenvia o delete com `force`).
+ */
+export function getRegistrationConflict(e: unknown): { count: number; leadIds?: number[] | undefined } | null {
+  if (e instanceof ApiError && e.status === 409) {
+    const p = e.payload as { error?: string; registrationCount?: number; leadIds?: number[] } | null
+    if (p && (p.error === 'lead_has_registrations' || p.error === 'leads_have_registrations')) {
+      return { count: p.registrationCount ?? 0, leadIds: p.leadIds }
+    }
+  }
+  return null
+}
 
 export interface LeadTag {
   tag: { id: number; name: string; color: string }
@@ -12,6 +28,7 @@ export interface AiScoreReason {
   risks: string[]
   confidence: number
   summary: string
+  resumoRespostas?: string
   provider: string
   model: string
   costUsd: number
@@ -54,6 +71,8 @@ export interface LeadDetail extends LeadListItem {
   formData: Record<string, unknown> | null
   analysis: unknown
   annotation: string | null
+  // Agendamento vigente do lead (módulo de Agendamento) — sincroniza automático.
+  agendamento?: { startAt: string; endAt: string; status: string; timezone: string } | null
   metaFormId: string | null
   customFields: Record<string, unknown> | null
   updatedAt: string
@@ -206,7 +225,7 @@ export function useLeadSources() {
 }
 
 export interface ManualLeadInput {
-  empresa: string
+  empresa?: string | undefined
   nome?: string | undefined
   whatsapp: string
   email?: string | undefined
@@ -272,7 +291,13 @@ export function useCreateLeadNote() {
 export function useDeleteLead() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => api.delete(`/bychat/leads/${id}`),
+    // Aceita id puro (uso legado) ou { id, force } — force ignora o guard de
+    // inscrições no portal de matrículas (deixa-as órfãs).
+    mutationFn: (input: number | { id: number; force?: boolean }) => {
+      const id = typeof input === 'number' ? input : input.id
+      const force = typeof input === 'number' ? false : !!input.force
+      return api.delete(`/bychat/leads/${id}${force ? '?force=true' : ''}`)
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
   })
 }
@@ -289,8 +314,11 @@ export function useBulkUpdateLeadsStatus() {
 export function useBulkDeleteLeads() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (leadIds: number[]) =>
-      api.delete<{ ok: true; deleted: number }>('/bychat/leads/bulk', { body: { leadIds } }),
+    mutationFn: (input: number[] | { leadIds: number[]; force?: boolean }) => {
+      const leadIds = Array.isArray(input) ? input : input.leadIds
+      const force = Array.isArray(input) ? false : !!input.force
+      return api.delete<{ ok: true; deleted: number }>(`/bychat/leads/bulk${force ? '?force=true' : ''}`, { body: { leadIds } })
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
   })
 }

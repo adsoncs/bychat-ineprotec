@@ -40,7 +40,8 @@ export interface AiScoreReason {
   positives: string[]          // sinais a favor
   risks: string[]              // sinais contra
   confidence: number           // 0-1 (confiança da IA na análise)
-  summary: string              // resumo curto
+  summary: string              // resumo curto (rationale da nota)
+  resumoRespostas: string      // resumo em linguagem natural das RESPOSTAS dos campos personalizados (card "Resumo do Lead")
   provider: string
   model: string
   inputTokens: number
@@ -150,10 +151,17 @@ Regras:
 - 70-100 (hot): alta chance / forte fit e intenção / decisor engajado.
 - Penalize falta de dados, canais frios e sinais de "lead ruim" do contexto.
 - Premie aderência ao cliente ideal (ICP), urgência, orçamento e dados ricos vindos do enriquecimento.
+- As respostas aos CAMPOS PERSONALIZADOS são sinais PRIMÁRIOS de qualificação (foram definidas pelo cliente): pondere-as fortemente, tanto a favor quanto contra.
 - Seja realista: a maioria dos leads é warm/cold. Não infle notas.
 
+Gere TAMBÉM "resumoRespostas": um resumo em português, de 2 a 4 frases, em linguagem comercial natural (fluida, não em tópicos), do que ESTE lead respondeu nos CAMPOS PERSONALIZADOS — interpretado no contexto do NEGÓCIO e do FUNIL/ETAPA. Regras do resumoRespostas:
+- Baseie-se SOMENTE nas respostas realmente fornecidas. NÃO invente, NÃO suponha e NÃO cite campos sem resposta.
+- Destaque o que ajuda o time comercial a definir a ABORDAGEM (perfil, necessidade, urgência, porte, fit com a oferta).
+- Não repita a nota nem fale de "score"; foque no conteúdo das respostas.
+- Se NÃO houver nenhuma resposta de campo personalizado, retorne "" (string vazia).
+
 Responda SOMENTE com JSON válido neste formato exato:
-{"score": <int 0-100>, "probability": <float 0-1>, "confidence": <float 0-1>, "positives": ["..."], "risks": ["..."], "summary": "<=240 chars>"}`
+{"score": <int 0-100>, "probability": <float 0-1>, "confidence": <float 0-1>, "positives": ["..."], "risks": ["..."], "summary": "<=240 chars>", "resumoRespostas": "<texto natural ou string vazia>"}`
 
 async function buildSystemPrompt(): Promise<string> {
   const parts: string[] = [SYSTEM_BASE]
@@ -190,6 +198,52 @@ async function buildCalibrationExamples(): Promise<string> {
   ].join('\n')
 }
 
+// ── Camada de campos personalizados (pesquisa + refinamento) ──────────────────
+// Lê TODO o catálogo do módulo "Campos Personalizados" (CustomField ativos) e
+// EXTRAI a resposta do lead para cada um — pesquisando em lead.customFields e,
+// como rede de segurança, no formData (chave direta ou prefixo cf_). Refina os
+// valores de select/multiselect traduzindo o `value` armazenado para o `label`
+// legível (ex.: "300_499" → "De 300 a 499 ha"), para a IA ler a resposta real.
+async function buildCustomFieldsBlock(lead: { customFields: any; formData: any }): Promise<string> {
+  const defs = await prisma.customField
+    .findMany({
+      where: { active: true },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: { key: true, label: true, type: true, options: true, group: true },
+    })
+    .catch(() => [] as any[])
+  if (!defs.length) return 'CAMPOS PERSONALIZADOS: nenhum campo cadastrado neste tenant.'
+
+  const cf = lead.customFields && typeof lead.customFields === 'object' ? (lead.customFields as Record<string, any>) : {}
+  const fd = lead.formData && typeof lead.formData === 'object' ? (lead.formData as Record<string, any>) : {}
+
+  const labelize = (def: any, raw: any): string => {
+    const opts: Array<{ label: string; value: any }> = Array.isArray(def.options) ? def.options : []
+    const one = (v: any) => {
+      const hit = opts.find((o) => String(o.value) === String(v))
+      return hit ? hit.label : String(v)
+    }
+    return Array.isArray(raw) ? raw.map(one).join(', ') : one(raw)
+  }
+  const isEmpty = (v: any) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+
+  const lines: string[] = []
+  let answered = 0
+  for (const def of defs) {
+    // pesquisa a resposta: customFields[key] → formData[key] → formData[cf_key]
+    let raw = cf[def.key]
+    if (isEmpty(raw)) raw = fd[def.key]
+    if (isEmpty(raw)) raw = fd[`cf_${def.key}`]
+    if (isEmpty(raw)) continue
+    answered++
+    const grp = def.group ? ` [${def.group}]` : ''
+    lines.push(`- ${def.label}${grp}: ${labelize(def, raw).slice(0, 200)}`)
+  }
+  const header = `CAMPOS PERSONALIZADOS (respostas do lead — ${answered}/${defs.length} preenchidos):`
+  if (!answered) return `${header}\n- (nenhum campo personalizado preenchido por este lead)`
+  return [header, ...lines].join('\n')
+}
+
 async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | null> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
@@ -197,12 +251,28 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
       id: true, nome: true, empresa: true, segmento: true, cidade: true,
       email: true, whatsapp: true, source: true, sourceId: true,
       completed: true, qualifiedAt: true, qualificationSource: true,
-      lgpdConsent: true, scores: true, formData: true,
+      lgpdConsent: true, scores: true, formData: true, customFields: true,
       enrichmentScore: true, enrichmentStatus: true,
-      priorityScore: true, createdAt: true,
+      priorityScore: true, createdAt: true, funnelId: true,
+      funnel: { select: { name: true } },
     },
   })
   if (!lead) return null
+
+  // Contexto do funil/etapa: nome do funil + etapa atual (última movimentação).
+  let funilCtx = lead.funnel?.name ? `Funil: ${lead.funnel.name}` : 'Funil: –'
+  if (lead.funnelId) {
+    const mov = await prisma.leadStageMovement.findFirst({
+      where: { leadId, toFunnelId: lead.funnelId, toStageKey: { not: null } },
+      orderBy: { movedAt: 'desc' }, select: { toStageKey: true },
+    }).catch(() => null)
+    if (mov?.toStageKey) {
+      const st = await prisma.stage.findFirst({
+        where: { funnelId: lead.funnelId, key: mov.toStageKey }, select: { name: true },
+      }).catch(() => null)
+      if (st?.name) funilCtx += ` · Etapa atual: ${st.name}`
+    }
+  }
 
   const filled = ['nome', 'empresa', 'email', 'whatsapp', 'cidade', 'segmento']
     .filter((k) => (lead as any)[k]).length
@@ -227,6 +297,8 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     try { return JSON.stringify(lead.formData ?? {}).slice(0, 1500) } catch { return '{}' }
   })()
 
+  const customFieldsBlock = await buildCustomFieldsBlock(lead)
+
   return [
     `FASE DA ANÁLISE: ${phase}`,
     `LEAD #${lead.id}`,
@@ -235,6 +307,7 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     `- Segmento: ${lead.segmento ?? '–'}`,
     `- Cidade: ${lead.cidade ?? '–'}`,
     `- Canal de origem: ${lead.source ?? '–'}${lead.sourceId ? ` (${lead.sourceId})` : ''}`,
+    `- ${funilCtx}`,
     `- Qualificado: ${lead.qualifiedAt ? `sim (${lead.qualificationSource ?? '?'})` : 'não'}`,
     `- Consentimento LGPD: ${lead.lgpdConsent ? 'sim' : 'não'}`,
     `- Fluxo/diagnóstico completo: ${lead.completed ? 'sim' : 'não'}`,
@@ -243,6 +316,9 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     `- Priority score (urgência operacional): ${lead.priorityScore ?? '–'}`,
     `- Enrichment score (0-100): ${lead.enrichmentScore ?? '–'} (status ${lead.enrichmentStatus ?? '–'})`,
     `- Dossiê de enriquecimento: ${dossier}`,
+    '',
+    customFieldsBlock,
+    '',
     `- Dados do formulário/origem (JSON): ${fd}`,
   ].join('\n')
 }
@@ -323,6 +399,7 @@ export async function scoreLead(
     risks: Array.isArray(parsed.risks) ? parsed.risks.slice(0, 6).map(String) : [],
     confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
     summary: String(parsed.summary ?? '').slice(0, 240),
+    resumoRespostas: String(parsed.resumoRespostas ?? '').slice(0, 1000),
     provider: res.provider,
     model: res.model,
     inputTokens: res.inputTokens,

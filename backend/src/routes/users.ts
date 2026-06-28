@@ -2,8 +2,9 @@ import { FastifyInstance } from 'fastify'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
-import { signToken, authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
+import { signToken, authMiddleware, adminOnly, adminStrict, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
 import { resolvePermissions, invalidatePermCache, getActiveModuleIds } from '../lib/permissions.js'
@@ -119,6 +120,16 @@ export async function usersRoutes(app: FastifyInstance) {
     await resetEmailRateLimit(email)
     await onLoginSuccess(ip, user.email, ua)
 
+    // Audit: login bem-sucedido (ator = o próprio usuário).
+    void logUserAudit({
+      action: 'auth.login',
+      actorId: user.id,
+      actorName: user.name || user.email,
+      targetUserId: user.id,
+      targetType: 'auth',
+      ipAddress: ip,
+    })
+
     const token = signToken({ userId: user.id, email: user.email, name: user.name, role: user.role })
     const refresh = await issueRefreshToken({ userId: user.id, userAgent: ua, ip })
     setRefreshCookie(req, reply, refresh.raw, refresh.expiresAt)
@@ -187,6 +198,14 @@ export async function usersRoutes(app: FastifyInstance) {
       where: { id: user.userId },
       data: { workStatus: 'offline', workStatusUpdatedAt: new Date() },
     }).catch(() => {})
+
+    void logUserAudit({
+      action: 'auth.logout',
+      targetUserId: user.userId,
+      targetType: 'auth',
+      ...auditActor(req),
+    })
+
     return { ok: true }
   })
 
@@ -285,7 +304,7 @@ export async function usersRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/admin/users — Criar usuário (admin only) ──
-  app.post('/api/admin/users', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/users', { preHandler: adminStrict }, async (req, reply) => {
     const { email, name, password, role } = req.body as any
     if (!email || !name || !password) {
       return reply.code(400).send({ error: 'Email, nome e senha são obrigatórios' })
@@ -315,21 +334,21 @@ export async function usersRoutes(app: FastifyInstance) {
     })
 
     // Audit: user created
-    prisma.userAudit.create({
-      data: {
-        userId: user.id,
-        action: 'created',
-        actorId: requester.userId,
-        actorName: requester.name || requester.email,
-        changes: { role: user.role, email: user.email, name: user.name },
-      }
-    }).catch(() => {})
+    const cAct = auditActor(req)
+    void logUserAudit({
+      action: 'user.created',
+      targetUserId: user.id,
+      targetType: 'user',
+      targetLabel: `${user.name} (${user.email})`,
+      changes: { role: user.role, email: user.email, name: user.name },
+      ...cAct,
+    })
 
     return { id: user.id, email: user.email, name: user.name, role: user.role, active: user.active, createdAt: user.createdAt }
   })
 
   // ── PUT /api/admin/users/:id — Editar usuário ──
-  app.put('/api/admin/users/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/users/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const { email, name, role, active, password, capacity, notifyWhatsapp } = req.body as any
 
@@ -383,22 +402,21 @@ export async function usersRoutes(app: FastifyInstance) {
     if (capacity !== undefined && updated.capacity !== user.capacity) changes.capacity = { from: user.capacity, to: updated.capacity }
 
     if (Object.keys(changes).length > 0) {
-      prisma.userAudit.create({
-        data: {
-          userId: Number(id),
-          action: 'edited',
-          actorId: requester.userId,
-          actorName: requester.name || requester.email,
-          changes,
-        }
-      }).catch(() => {})
+      void logUserAudit({
+        action: 'user.edited',
+        targetUserId: Number(id),
+        targetType: 'user',
+        targetLabel: `${updated.name} (${updated.email})`,
+        changes,
+        ...auditActor(req),
+      })
     }
 
     return { id: updated.id, email: updated.email, name: updated.name, role: updated.role, active: updated.active }
   })
 
   // ── DELETE /api/admin/users/:id — Remover usuário (move para lixeira) ──
-  app.delete('/api/admin/users/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/users/:id', { preHandler: adminStrict }, async (req, reply) => {
     const { id } = req.params as any
     const requester = (req as any).user as JwtPayload
 
@@ -426,6 +444,19 @@ export async function usersRoutes(app: FastifyInstance) {
     }
 
     await prisma.user.delete({ where: { id: Number(id) } })
+
+    // Audit: targetUserId NULL de propósito — o cascade (FK userId) apagaria a
+    // própria entrada se apontasse para o usuário recém-excluído. Fica no
+    // histórico do ATOR, com o alvo descrito em targetLabel.
+    void logUserAudit({
+      action: 'user.deleted',
+      targetUserId: null,
+      targetType: 'user',
+      targetLabel: `${target.name} (${target.email})`,
+      changes: { role: target.role, email: target.email },
+      ...auditActor(req),
+    })
+
     return { ok: true }
   })
 
@@ -435,21 +466,29 @@ export async function usersRoutes(app: FastifyInstance) {
     const user = await prisma.user.findUnique({ where: { id: Number(id) } })
     if (!user) return reply.code(404).send({ error: 'Usuário não encontrado' })
 
+    // Mostra TUDO relacionado ao usuário: o que ELE fez (actorId) e o que
+    // fizeram COM ele (userId). Assim o histórico vira trilho de auditoria.
     const audits = await prisma.userAudit.findMany({
-      where: { userId: Number(id) },
+      where: { OR: [{ userId: Number(id) }, { actorId: Number(id) }] },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 100,
       select: {
         id: true,
         action: true,
         actorName: true,
         actorId: true,
+        userId: true,
+        targetType: true,
+        targetLabel: true,
         changes: true,
+        ipAddress: true,
         createdAt: true,
       }
     })
 
-    return { data: audits }
+    // viewerIsActor: a entrada representa algo que ESTE usuário fez (vs. sofreu).
+    const data = audits.map((a) => ({ ...a, viewerIsActor: a.actorId === Number(id) }))
+    return { data }
   })
 
   // ── POST /api/admin/forgot-password — Solicitar redefinição de senha ──
@@ -525,6 +564,14 @@ export async function usersRoutes(app: FastifyInstance) {
       prisma.passwordReset.update({ where: { id: reset.id }, data: { used: true } })
     ])
 
+    void logUserAudit({
+      action: 'auth.password_reset',
+      actorId: reset.userId,
+      targetUserId: reset.userId,
+      targetType: 'auth',
+      ipAddress: req.ip,
+    })
+
     return { ok: true }
   })
 
@@ -572,6 +619,15 @@ export async function usersRoutes(app: FastifyInstance) {
     // Reforma F4: notifica frontend de TODOS os usuários conectados (mudança
     // em ModulePermission afeta defaults por role). Sem scope = global.
     broadcastRealtimeEvent({ type: 'permissions:invalidated', payload: { reason: 'role_permissions_changed' } })
+
+    void logUserAudit({
+      action: 'permission.role_changed',
+      targetType: 'module_permission',
+      targetLabel: `${permissions.length} permissão(ões) por perfil`,
+      changes: { roles: [...new Set(permissions.map((p) => p.role))], modules: [...new Set(permissions.map((p) => p.moduleId))] },
+      ...auditActor(req),
+    })
+
     return { ok: true, updated: permissions.length }
   })
 
@@ -593,6 +649,11 @@ export async function usersRoutes(app: FastifyInstance) {
     if (!Array.isArray(overrides)) return reply.code(400).send({ error: 'overrides deve ser um array' })
 
     const uid = Number(userId)
+    // ADMIN não pode conceder overrides para si mesmo (auto-escalonamento de privilégio).
+    // Apenas SUPERADMIN pode editar as próprias permissões de módulo.
+    if (user.role !== 'SUPERADMIN' && uid === user.userId) {
+      return reply.code(403).send({ error: 'Você não pode alterar suas próprias permissões de módulo' })
+    }
     for (const o of overrides) {
       // Se todos null, deletar override (herdar do role)
       if (o.canView === null && o.canCreate === null && o.canEdit === null && o.canDelete === null) {
@@ -612,6 +673,16 @@ export async function usersRoutes(app: FastifyInstance) {
       payload: { reason: 'user_override_changed' },
       scope: { userId: uid },
     })
+
+    void logUserAudit({
+      action: 'permission.user_override_changed',
+      targetUserId: uid,
+      targetType: 'module_permission',
+      targetLabel: `Overrides de permissão (${overrides.length} módulo(s))`,
+      changes: { modules: overrides.map((o) => o.moduleId) },
+      ...auditActor(req),
+    })
+
     return { ok: true }
   })
 }

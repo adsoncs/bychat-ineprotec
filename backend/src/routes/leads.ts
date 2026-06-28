@@ -10,6 +10,7 @@ import { onLeadStageChanged } from '../services/metaCapi.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { markLeadWon, markLeadLost, reopenLead } from '../services/leadOutcome.js'
 import { moveToTrash, snapshotLead, snapshotLeads } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { queues } from '../lib/queues.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { validateLeadAcquiresSlot } from '../services/educationalSlots.js'
@@ -29,6 +30,18 @@ export async function leadsRoutes(app: FastifyInstance) {
     const ok = await canUserAccessLead(user.userId, user.role as AccessRole, leadId)
     if (!ok) { reply.code(403).send({ error: 'Sem permissão sobre este lead' }); return false }
     return true
+  }
+
+  // Filtra uma lista de IDs ao escopo de acesso do usuário (own/team/all).
+  // Operações em massa só agem sobre leads que o usuário realmente pode acessar.
+  async function filterAccessibleLeadIds(user: JwtPayload, ids: number[]): Promise<number[]> {
+    if (ids.length === 0) return []
+    const scope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
+    const rows = await prisma.lead.findMany({
+      where: { AND: [{ id: { in: ids } }, scope] },
+      select: { id: true },
+    })
+    return rows.map(r => r.id)
   }
 
   // Auto-seed Settings Fase 24 (dedup.mode.* por canal de captura)
@@ -213,9 +226,20 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (!fd) return reply.code(400).send({ error: 'formData obrigatório' })
 
     // Verificar se lead existe e não foi completado (impede reescrita de dados)
-    const existing = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, completed: true } })
+    const existing = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, completed: true, whatsapp: true } })
     if (!existing) return reply.code(404).send({ error: 'Lead não encontrado' })
     if (existing.completed) return reply.code(409).send({ error: 'Diagnóstico já finalizado' })
+
+    // Binding anti-IDOR: este endpoint é público e o :id é sequencial. Sem prova de
+    // posse, qualquer um sobrescreveria o lead de outra pessoa por enumeração.
+    // O fluxo legítimo continua com o MESMO whatsapp informado na criação — exigimos
+    // que o whatsapp do corpo bata com o do lead (comparação só por dígitos).
+    const onlyDigits = (s: any) => String(s || '').replace(/\D/g, '')
+    const existingWa = onlyDigits(existing.whatsapp)
+    const incomingWa = onlyDigits(fd.whatsapp)
+    if (existingWa && incomingWa !== existingWa) {
+      return reply.code(403).send({ error: 'Não autorizado a alterar este registro' })
+    }
 
     const data: any = {
       formData:  fd,
@@ -286,6 +310,12 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (Object.keys(scopeWhere).length > 0) whereAnd.push(scopeWhere)
     if (q.status) where.status = q.status
     if (q.segmento) where.segmento = q.segmento
+    // Filtro por funil (pipeline). Sem isto o filtro da tela de Leads era ignorado
+    // e apareciam leads de outros funis.
+    if (q.funnelId) {
+      const fid = parseInt(String(q.funnelId))
+      if (Number.isInteger(fid)) where.funnelId = fid
+    }
     // Origem (source): aceita ?source=meta_lead_ads (legacy single) OU ?sources=meta_lead_ads,whatsapp (multi)
     if (q.sources) {
       const arr = String(q.sources).split(',').map((s) => s.trim()).filter(Boolean)
@@ -460,7 +490,15 @@ export async function leadsRoutes(app: FastifyInstance) {
       }
     })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
-    return lead
+    // Agendamento vigente do lead (módulo de Agendamento). Remarcar marca o booking
+    // antigo como 'rescheduled' e cria um novo → excluímos cancelados/no_show/rescheduled
+    // p/ sempre pegar o horário atual (sincroniza automaticamente).
+    const agendamento = await prisma.booking.findFirst({
+      where: { leadId: lead.id, status: { notIn: ['cancelled', 'no_show', 'rescheduled'] } },
+      orderBy: { startAt: 'desc' },
+      select: { startAt: true, endAt: true, status: true, timezone: true },
+    }).catch(() => null)
+    return { ...lead, agendamento }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──
@@ -622,10 +660,11 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── POST /api/bychat/leads/bulk/won ─── Classificar em massa como Ganho ──
   app.post('/api/bychat/leads/bulk/won', { preHandler: authMiddleware }, async (req, reply) => {
     const body = (req.body || {}) as { ids?: number[]; value?: number | null; note?: string | null }
-    const ids = (body.ids || []).filter((n) => Number.isInteger(n))
-    if (ids.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
-    if (ids.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
+    const reqIds = (body.ids || []).filter((n) => Number.isInteger(n))
+    if (reqIds.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
+    if (reqIds.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
     const user = (req as any).user as JwtPayload
+    const ids = await filterAccessibleLeadIds(user, reqIds)
     let processed = 0, failed = 0
     for (const id of ids) {
       try {
@@ -647,10 +686,11 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── POST /api/bychat/leads/bulk/lost ─── Classificar em massa como Perdido ──
   app.post('/api/bychat/leads/bulk/lost', { preHandler: authMiddleware }, async (req, reply) => {
     const body = (req.body || {}) as { ids?: number[]; reasonId?: number | null; note?: string | null }
-    const ids = (body.ids || []).filter((n) => Number.isInteger(n))
-    if (ids.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
-    if (ids.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
+    const reqIds = (body.ids || []).filter((n) => Number.isInteger(n))
+    if (reqIds.length === 0) return reply.code(400).send({ error: 'ids obrigatórios' })
+    if (reqIds.length > 500) return reply.code(400).send({ error: 'Máximo 500 leads por chamada' })
     const user = (req as any).user as JwtPayload
+    const ids = await filterAccessibleLeadIds(user, reqIds)
     let processed = 0, failed = 0
     for (const id of ids) {
       try {
@@ -968,8 +1008,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id)).filter((n) => Number.isFinite(n))
+    // Escopo: só qualifica leads acessíveis ao usuário.
+    const qbScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, qbScope] },
       select: { id: true, qualifiedAt: true, status: true },
     })
 
@@ -1011,6 +1053,7 @@ export async function leadsRoutes(app: FastifyInstance) {
   // Usado quando o operador percebe que classificou errado (ex: era spam).
   app.post('/api/bychat/leads/:id/unqualify', { preHandler: authMiddleware }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
+    if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
     const lead = await prisma.lead.findUnique({ where: { id }, select: { id: true, qualifiedAt: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1206,6 +1249,21 @@ export async function leadsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     if (!await assertLeadAccess(req, reply, parseInt(id))) return
     const user = (req as any).user as JwtPayload
+
+    // Guard: apagar um lead com inscrições no portal de matrículas as deixa órfãs
+    // (onDelete:SetNull). Bloqueia salvo confirmação explícita (?force=true).
+    const force = (req.query as any)?.force === 'true' || (req.query as any)?.force === '1' || (req.body as any)?.force === true
+    if (!force) {
+      const regCount = await prisma.enrollmentRegistration.count({ where: { leadId: parseInt(id) } })
+      if (regCount > 0) {
+        return reply.code(409).send({
+          error: 'lead_has_registrations',
+          message: `Este lead tem ${regCount} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las (ficam órfãs no módulo de Matrículas). Confirme para prosseguir mesmo assim.`,
+          registrationCount: regCount,
+        })
+      }
+    }
+
     try {
       const snapshot = await snapshotLead(parseInt(id))
       if (!snapshot) return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1221,6 +1279,13 @@ export async function leadsRoutes(app: FastifyInstance) {
 
       await prisma.lead.delete({ where: { id: parseInt(id) } })
       console.log(`[Trash] Lead #${id} moved to trash by ${user.email} (${snapshot.empresa})`)
+      void logUserAudit({
+        action: 'lead.deleted',
+        targetType: 'lead',
+        targetLabel: `${snapshot.empresa || ''} — ${snapshot.nome || snapshot.whatsapp || `#${id}`}`.trim(),
+        changes: { leadId: parseInt(id), forced: force },
+        ...auditActor(req),
+      })
       return { ok: true }
     } catch {
       return reply.code(404).send({ error: 'Lead não encontrado' })
@@ -1334,8 +1399,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: só envia ao kanban leads acessíveis ao usuário.
+    const skScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, skScope] },
       select: { id: true, empresa: true, status: true, funnelId: true }
     })
 
@@ -1369,8 +1436,8 @@ export async function leadsRoutes(app: FastifyInstance) {
     const body = req.body as any
     const user = (req as any).user as JwtPayload
 
-    if (!body.empresa || !body.whatsapp) {
-      return reply.code(400).send({ error: 'Empresa e WhatsApp são obrigatórios' })
+    if (!body.nome || !body.whatsapp || !body.email) {
+      return reply.code(400).send({ error: 'Nome, WhatsApp e e-mail são obrigatórios' })
     }
 
     // Dedup: verificar se já existe
@@ -1389,7 +1456,7 @@ export async function leadsRoutes(app: FastifyInstance) {
     const lead = await prisma.lead.create({
       data: {
         uid:       await generateUid(),
-        empresa:   body.empresa,
+        empresa:   body.empresa || '',
         nome:      body.nome || '',
         whatsapp:  body.whatsapp,
         email:     body.email || '',
@@ -1456,8 +1523,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: só altera status de leads acessíveis ao usuário.
+    const bsScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, bsScope] },
       select: { id: true, empresa: true, status: true }
     })
 
@@ -1505,6 +1574,26 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+
+    // Guard: leads com inscrições no portal de matrículas ficariam órfãos (onDelete:SetNull).
+    const force = (req.query as any)?.force === 'true' || (req.body as any)?.force === true
+    if (!force) {
+      const withRegs = await prisma.enrollmentRegistration.groupBy({
+        by: ['leadId'],
+        where: { leadId: { in: ids } },
+        _count: { _all: true },
+      })
+      if (withRegs.length > 0) {
+        const regCount = withRegs.reduce((a, g) => a + g._count._all, 0)
+        return reply.code(409).send({
+          error: 'leads_have_registrations',
+          message: `${withRegs.length} lead(s) selecionado(s) têm inscrições no portal de matrículas (${regCount} no total). Apagá-los vai desvinculá-las. Confirme para prosseguir mesmo assim.`,
+          leadIds: withRegs.map((g) => g.leadId),
+          registrationCount: regCount,
+        })
+      }
+    }
+
     const snapshots = await snapshotLeads(ids)
 
     // Mover cada lead para lixeira antes de deletar
@@ -1523,6 +1612,14 @@ export async function leadsRoutes(app: FastifyInstance) {
 
     console.log(`[Trash] Bulk delete: ${snapshots.length} leads moved to trash by ${user.email} — IDs: ${ids.join(',')}`)
 
+    void logUserAudit({
+      action: 'lead.bulk_deleted',
+      targetType: 'lead',
+      targetLabel: `${snapshots.length} leads`,
+      changes: { leadIds: ids, forced: force },
+      ...auditActor(req),
+    })
+
     return { ok: true, deleted: snapshots.length }
   })
 
@@ -1535,14 +1632,18 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
 
     const ids = leadIds.map((id: any) => parseInt(id))
+    // Escopo: AGENT/operador só exporta leads que pode acessar (não IDs arbitrários).
+    const exportUser = (req as any).user as JwtPayload
+    const exportScope = await buildLeadAccessWhere(exportUser.userId, exportUser.role as AccessRole)
     const leads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, exportScope] },
       orderBy: { createdAt: 'desc' }
     })
 
-    // Buscar tags dos leads
+    // Buscar tags apenas dos leads efetivamente acessíveis
+    const accessibleIds = leads.map(l => l.id)
     const leadTags = await prisma.leadTag.findMany({
-      where: { leadId: { in: ids } },
+      where: { leadId: { in: accessibleIds } },
       include: { tag: { select: { name: true } } }
     })
     const tagsByLead: Record<number, string[]> = {}
@@ -1570,7 +1671,11 @@ export async function leadsRoutes(app: FastifyInstance) {
 
   // ── GET /api/bychat/leads/export/csv ─── Export ──
   app.get('/api/bychat/leads/export/csv', { preHandler: authMiddleware }, async (req, reply) => {
+    // Escopo: AGENT/operador exporta apenas leads acessíveis (não a base inteira).
+    const csvUser = (req as any).user as JwtPayload
+    const csvScope = await buildLeadAccessWhere(csvUser.userId, csvUser.role as AccessRole)
     const leads = await prisma.lead.findMany({
+      where: csvScope,
       orderBy: { createdAt: 'desc' },
       take: 5000
     })
@@ -1649,6 +1754,12 @@ export async function leadsRoutes(app: FastifyInstance) {
     }
     if (targetIds.includes(masterId)) {
       return reply.code(400).send({ error: 'Não é possível mesclar um lead consigo mesmo' })
+    }
+
+    // Escopo: só mescla leads que o usuário pode acessar (master + todos os alvos).
+    if (!await assertLeadAccess(req, reply, masterId)) return
+    for (const tid of targetIds) {
+      if (!await assertLeadAccess(req, reply, tid)) return
     }
 
     try {

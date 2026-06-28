@@ -1,0 +1,67 @@
+// Botão "Ligar via WhatsApp" — inicia uma chamada de voz de saída (WebRTC).
+// Reutilizável: basta o telefone do cliente (o backend resolve a conexão Cloud API).
+// Sem opt-in do cliente, o backend responde no_permission e oferecemos enviar o pedido.
+import { useState } from 'preact/hooks'
+import { startOutbound, requestCallPermission } from '@/lib/waCallManager'
+import { useWaCall } from '@/stores/waCall'
+import { WhatsappIcon } from '@/components/WhatsappSend'
+import { env } from '@/lib/env'
+import { cn } from '@/lib/cn'
+
+interface WaCallButtonProps {
+  phone: string
+  leadId?: number | null
+  cloudApiConnectionId?: number | null
+  class?: string
+  label?: string
+}
+
+export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null, class: className, label }: WaCallButtonProps) {
+  const [busy, setBusy] = useState(false)
+  const inCall = useWaCall((s) => s.call !== null)
+
+  // Oculto até a Calling API ser habilitada (Meta + backend) — ver env.waCalling.
+  if (!env.waCalling) return null
+
+  async function onClick() {
+    if (busy || inCall || !phone) return
+    setBusy(true)
+    try {
+      const res = await startOutbound(phone, cloudApiConnectionId, leadId)
+      if (!res.ok && res.error === 'permission_denied') {
+        // O widget já mostra o estado de microfone bloqueado + "Tentar novamente".
+        return
+      }
+      if (!res.ok && res.error === 'no_permission') {
+        const ask = window.confirm(
+          'O cliente ainda não autorizou chamadas pelo WhatsApp.\n\nEnviar um pedido de permissão agora?'
+        )
+        if (ask) {
+          const p = await requestCallPermission(phone, cloudApiConnectionId)
+          window.alert(p.ok ? 'Pedido de permissão enviado.' : `Falha ao enviar: ${p.error || 'erro'}`)
+        }
+      } else if (!res.ok) {
+        window.alert(`Não foi possível ligar: ${res.error || 'erro'}`)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy || inCall}
+      title="Ligar via WhatsApp"
+      class={cn(
+        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors shadow-sm h-9 px-3 text-xs',
+        'bg-[#25D366] hover:bg-[#1fb855] text-white disabled:opacity-50 disabled:cursor-not-allowed',
+        className
+      )}
+    >
+      <WhatsappIcon size={14} />
+      {label ?? 'Ligar'}
+    </button>
+  )
+}

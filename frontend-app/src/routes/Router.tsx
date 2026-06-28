@@ -35,6 +35,15 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/ActivitiesPage').then((m) => ({ default: m.ActivitiesPage })),
   ),
   tags: lazy(() => import('./pages/TagsPage').then((m) => ({ default: m.TagsPage }))),
+  helpdesk: lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskPage }))),
+  'helpdesk-sla': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskSlaPage }))),
+  'helpdesk-automation': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskAutomationPage }))),
+  'helpdesk-kb': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskKbPage }))),
+  'helpdesk-csat': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskCsatPage }))),
+  'helpdesk-orgs': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskOrgsPage }))),
+  'helpdesk-reports': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskReportsPage }))),
+  'helpdesk-channels': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskChannelsPage }))),
+  'helpdesk-import': lazy(() => import('./pages/HelpdeskPage').then((m) => ({ default: m.HelpdeskImportPage }))),
   forms: lazy(() => import('./pages/FormsPage').then((m) => ({ default: m.FormsPage }))),
   chatbots: lazy(() =>
     import('./pages/ChatbotsPage').then((m) => ({ default: m.ChatbotsPage })),
@@ -47,6 +56,7 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/ConversationsPage').then((m) => ({ default: m.ConversationsPage })),
   ),
   'meta-ads-report': lazy(() => import('./pages/MetaAdsReportPage').then((m) => ({ default: m.MetaAdsReportPage }))),
+  'funnel-report': lazy(() => import('./pages/FunnelReportPage').then((m) => ({ default: m.FunnelReportPage }))),
   conversions: lazy(() => import('./pages/ConversionsPage').then((m) => ({ default: m.ConversionsPage }))),
   tracking: lazy(() =>
     import('./pages/TrackingPage').then((m) => ({ default: m.TrackingPage })),
@@ -170,6 +180,102 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   'edu-courses': lazy(() =>
     import('./pages/educational/EducationalCoursesPage').then((m) => ({ default: m.EducationalCoursesPage })),
+  ),
+  'aca-pessoas': lazy(() =>
+    import('./pages/AcademicoPessoasPage').then((m) => ({ default: m.AcademicoPessoasPage })),
+  ),
+  'aca-assinatura': lazy(() =>
+    import('./pages/AcademicoAssinaturaPage').then((m) => ({ default: m.AcademicoAssinaturaPage })),
+  ),
+  'aca-alunos': lazy(() =>
+    import('./pages/AcademicoAlunosPage').then((m) => ({ default: m.AcademicoAlunosPage })),
+  ),
+  'aca-estrutura': lazy(() =>
+    import('./pages/AcademicoEstruturaPage').then((m) => ({ default: m.AcademicoEstruturaPage })),
+  ),
+  'aca-curriculo': lazy(() =>
+    import('./pages/AcademicoCurriculoPage').then((m) => ({ default: m.AcademicoCurriculoPage })),
+  ),
+  'aca-vestibular': lazy(() =>
+    import('./pages/AcademicoVestibularPage').then((m) => ({ default: m.AcademicoVestibularPage })),
+  ),
+  'aca-avaliacao-inst': lazy(() =>
+    import('./pages/AcademicoAvaliacaoInstPage').then((m) => ({ default: m.AcademicoAvaliacaoInstPage })),
+  ),
+  'aca-matriculas': lazy(() =>
+    import('./pages/AcademicoMatriculasPage').then((m) => ({ default: m.AcademicoMatriculasPage })),
+  ),
+  'aca-movimentacoes': lazy(() =>
+    import('./pages/AcademicoMovimentacoesPage').then((m) => ({ default: m.AcademicoMovimentacoesPage })),
+  ),
+  'aca-diario': lazy(() =>
+    import('./pages/AcademicoDiarioPage').then((m) => ({ default: m.AcademicoDiarioPage })),
+  ),
+  'aca-docente': lazy(() =>
+    import('./pages/AcademicoDocentePage').then((m) => ({ default: m.AcademicoDocentePage })),
+  ),
+  'aca-alocacao': lazy(() =>
+    import('./pages/AcademicoAlocacaoPage').then((m) => ({ default: m.AcademicoAlocacaoPage })),
+  ),
+  'aca-cadastros': lazy(() =>
+    import('./pages/AcademicoCadastrosPage').then((m) => ({ default: m.AcademicoCadastrosPage })),
+  ),
+  'aca-ged': lazy(() =>
+    import('./pages/AcademicoGedPage').then((m) => ({ default: m.AcademicoGedPage })),
+  ),
+  'aca-tcc': lazy(() =>
+    import('./pages/AcademicoTccPage').then((m) => ({ default: m.AcademicoTccPage })),
+  ),
+  'aca-diploma': lazy(() =>
+    import('./pages/AcademicoDiplomaPage').then((m) => ({ default: m.AcademicoDiplomaPage })),
+  ),
+  'aca-acesso': lazy(() =>
+    import('./pages/AcademicoAcessoPage').then((m) => ({ default: m.AcademicoAcessoPage })),
+  ),
+  'aca-ead': lazy(() =>
+    import('./pages/AcademicoEadPage').then((m) => ({ default: m.AcademicoEadPage })),
+  ),
+  'aca-conselho': lazy(() =>
+    import('./pages/AcademicoConselhoPage').then((m) => ({ default: m.AcademicoConselhoPage })),
+  ),
+  'aca-calendario': lazy(() =>
+    import('./pages/AcademicoCalendarioPage').then((m) => ({ default: m.AcademicoCalendarioPage })),
+  ),
+  'aca-secretaria': lazy(() =>
+    import('./pages/AcademicoSecretariaPage').then((m) => ({ default: m.AcademicoSecretariaPage })),
+  ),
+  'aca-portais-plus': lazy(() =>
+    import('./pages/AcademicoPortaisPlusPage').then((m) => ({ default: m.AcademicoPortaisPlusPage })),
+  ),
+  'aca-requerimentos': lazy(() =>
+    import('./pages/AcademicoRequerimentosPage').then((m) => ({ default: m.AcademicoRequerimentosPage })),
+  ),
+  'aca-egressos': lazy(() =>
+    import('./pages/AcademicoEgressosPage').then((m) => ({ default: m.AcademicoEgressosPage })),
+  ),
+  'aca-estagio': lazy(() =>
+    import('./pages/AcademicoEstagioPage').then((m) => ({ default: m.AcademicoEstagioPage })),
+  ),
+  'aca-censo': lazy(() =>
+    import('./pages/AcademicoCensoPage').then((m) => ({ default: m.AcademicoCensoPage })),
+  ),
+  'aca-sistec': lazy(() =>
+    import('./pages/AcademicoSistecPage').then((m) => ({ default: m.AcademicoSistecPage })),
+  ),
+  'aca-comunicacao': lazy(() =>
+    import('./pages/AcademicoComunicacaoPage').then((m) => ({ default: m.AcademicoComunicacaoPage })),
+  ),
+  'aca-bi': lazy(() =>
+    import('./pages/AcademicoBiPage').then((m) => ({ default: m.AcademicoBiPage })),
+  ),
+  'aca-financeiro': lazy(() =>
+    import('./pages/AcademicoFinanceiroPage').then((m) => ({ default: m.AcademicoFinanceiroPage })),
+  ),
+  'aca-fin-banco': lazy(() =>
+    import('./pages/AcademicoFinBancoPage').then((m) => ({ default: m.AcademicoFinBancoPage })),
+  ),
+  'aca-cobranca-fiscal': lazy(() =>
+    import('./pages/AcademicoCobrancaFiscalPage').then((m) => ({ default: m.AcademicoCobrancaFiscalPage })),
   ),
   'edu-offerings': lazy(() =>
     import('./pages/educational/EducationalOfferingsPage').then((m) => ({ default: m.EducationalOfferingsPage })),
@@ -395,7 +501,7 @@ export function Router() {
           </Route>
           <Route path="/forms/:id">
             {(params: { id: string }) => (
-              <ModuleGate moduleId="forms"><FormEditor params={params} /></ModuleGate>
+              <ModuleGate moduleId="captacao"><FormEditor params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/enrollment-portals/:portalId/registrations/:regId">

@@ -131,6 +131,12 @@ export async function dbConnectorsRoutes(app: FastifyInstance) {
       if (!c) return reply.code(404).send({ ok: false, error: 'Conector não encontrado' })
       password = decryptPassword(c.passwordEnc)
     }
+    // SSRF: bloqueia testar conexão contra host interno/metadata.
+    const { assertHostIsPublic } = await import('../lib/urlSafety.js')
+    const hostCheck = await assertHostIsPublic(body.host)
+    if (!hostCheck.ok) {
+      return reply.code(400).send({ ok: false, error: `Host bloqueado por segurança: ${hostCheck.reason}` })
+    }
     const adapter = getAdapter(body.dbType as DbType)
     const result = await adapter.testConnection({
       dbType: body.dbType, host: body.host, port: parseInt(body.port, 10),

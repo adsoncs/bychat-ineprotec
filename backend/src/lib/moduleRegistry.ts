@@ -12,6 +12,7 @@ export interface ModuleDefinition {
   actions: ('view' | 'create' | 'edit' | 'delete')[]
   core?: boolean              // true = não pode ser desativado (módulos essenciais)
   defaultEnabled?: boolean    // true = vem ligado por padrão (default: true para core, false para os demais)
+  dependsOn?: string[]        // ids de módulos exigidos: ligar este liga as dependências; não dá pra desligar uma dependência com dependentes ativos
 }
 
 export const MODULE_REGISTRY: ModuleDefinition[] = [
@@ -183,6 +184,200 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,
   },
+  // ── ERP Acadêmico (sub-módulos, guarda-chuva "educacional") ──
+  // O ERP foi quebrado em 8 sub-módulos toggláveis. As dependências são de DADOS
+  // (FKs obrigatórias) e formam uma cadeia: educacional → estrutura → matrículas →
+  // {financeiro, pedagógico, secretaria, comunicação, portais, relatórios}.
+  // Ligar um filho liga os pais (cascata em setModuleEnabled); não dá pra desligar
+  // um pai com filhos ativos (bloqueio em /modules/:id/toggle).
+  {
+    id: 'aca_estrutura', name: 'Estrutura Acadêmica', icon: '🏛', category: 'erp_academico',
+    description: 'Disciplinas, matriz curricular, turmas, períodos letivos e planos de pagamento. Base do ERP — vincula cursos/ofertas do módulo Educacional.',
+    pages: ['acaEstrutura'],
+    routePrefixes: [
+      '/api/admin/aca/disciplinas', '/api/admin/aca/matrizes', '/api/admin/aca/turmas',
+      '/api/admin/aca/periodos', '/api/admin/aca/ofertas', '/api/admin/aca/planos-pagamento',
+      '/api/admin/aca/componentes', '/api/admin/aca/pre-requisitos', '/api/admin/aca/curriculo',
+    ],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
+    id: 'aca_alocacao', name: 'Alocação de Recursos', icon: '🏫', category: 'erp_academico',
+    description: 'Ambientes físicos (salas/laboratórios) e tipos, equipamentos e tipos, e reservas de espaço com detecção de conflito de horário.',
+    pages: ['acaAlocacao'],
+    routePrefixes: ['/api/admin/aca/alocacao'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_estrutura'],
+  },
+  {
+    id: 'aca_matriculas', name: 'Alunos & Matrículas', icon: '🎓', category: 'erp_academico',
+    description: 'Alunos (sobre o CRM), inscrições e matrícula com ciclo de vida (máquina de estados). Núcleo de cadastro do aluno.',
+    pages: ['acaAlunos', 'acaMatriculas'],
+    routePrefixes: ['/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas', '/api/admin/aca/pessoas'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_estrutura'],
+  },
+  {
+    id: 'aca_avaliacao_institucional', name: 'Avaliação Institucional (CPA)', icon: '📊', category: 'erp_academico',
+    description: 'Avaliação institucional / CPA: questionários por dimensões, perguntas (escala/NPS/texto/sim-não), aplicação por link público e dashboard de resultados (médias, NPS, participação).',
+    pages: ['acaAvaliacaoInst'],
+    routePrefixes: ['/api/admin/aca/avaliacao-inst'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
+    id: 'aca_vestibular', name: 'Processo Seletivo', icon: '📝', category: 'erp_academico',
+    description: 'Camada admin do processo seletivo: componentes de nota (digitação), classificação com critério de desempate, convocação por chamadas e ensalamento. Opera sobre os candidatos do módulo Educacional.',
+    pages: ['acaVestibular'],
+    routePrefixes: ['/api/admin/aca/vestibular'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
+    id: 'aca_acesso', name: 'Controle de Acesso', icon: '🚪', category: 'erp_academico',
+    description: 'Controle de acesso físico (catraca/QR): pontos de acesso, credenciais por aluno, decisão de liberação (credencial válida + bloqueio) e registro de acessos. A catraca é o ponto de integração.',
+    pages: ['acaAcesso'],
+    routePrefixes: ['/api/admin/aca/acesso'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_movimentacoes', name: 'Movimentações Acadêmicas', icon: '🔁', category: 'erp_academico',
+    description: 'Trancamento, afastamento, transferência (interna/externa), remanejamento, reclassificação, cancelamento e reingresso — com registro auditável e processo de "atualiza situações" em lote (alunos sem rematrícula → evadidos).',
+    pages: ['acaMovimentacoes'],
+    routePrefixes: ['/api/admin/aca/movimentacoes'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_financeiro', name: 'Financeiro Acadêmico', icon: '💳', category: 'erp_academico',
+    description: 'Mensalidades/contratos (Asaas), central financeira, encargos (juros/multa/desconto), renegociação, bloqueio acadêmico, recibos e controle de NFS-e.',
+    pages: ['acaFinanceiro'],
+    routePrefixes: ['/api/admin/aca/financeiro', '/api/admin/aca/parcelas'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_financeiro_bancario', name: 'Financeiro Bancário', icon: '🏦', category: 'erp_academico',
+    description: 'Back-office financeiro: plano de contas, contas bancárias, indexadores, feriados, cobranças recorrentes/avulsas e remessa/retorno CNAB (boleto registrado).',
+    pages: ['acaFinBanco'],
+    routePrefixes: ['/api/admin/aca/fin-banco'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_financeiro'],
+  },
+  {
+    id: 'aca_cobranca_fiscal', name: 'Cobrança Judicial & Fiscal', icon: '⚖️', category: 'erp_academico',
+    description: 'Dívida ativa (CDA) e cobrança judicial, integração contábil (regras + lançamentos) e geração de lote de NFS-e.',
+    pages: ['acaCobrancaFiscal'],
+    routePrefixes: ['/api/admin/aca/cobranca-fiscal'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_financeiro_bancario'],
+  },
+  {
+    id: 'aca_pedagogico', name: 'Núcleo Pedagógico', icon: '📖', category: 'erp_academico',
+    description: 'Diário de classe, frequência, avaliações/notas, conselho de classe e fechamento, calendário acadêmico, quadro de horários e plano de ensino & materiais.',
+    pages: ['acaDiario', 'acaConselho', 'acaCalendario'],
+    routePrefixes: [
+      '/api/admin/aca/diarios', '/api/admin/aca/aulas', '/api/admin/aca/avaliacoes',
+      '/api/admin/aca/resultados', '/api/admin/aca/conselhos', '/api/admin/aca/eventos',
+      '/api/admin/aca/horarios', '/api/admin/aca/materiais', '/api/admin/aca/config',
+    ],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_ead', name: 'EAD / LMS', icon: '🖥', category: 'erp_academico',
+    description: 'Ponte EAD com o LMS próprio (a construir): turmas EAD, sincronização de matrículas, recebimento de médias e registro de acesso. O LMS é o ponto de integração (modo simulado para validar sem ele).',
+    pages: ['acaEad'],
+    routePrefixes: ['/api/admin/aca/ead'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_pedagogico'],
+  },
+  {
+    id: 'aca_docente', name: 'Docente / RH Acadêmico', icon: '👨‍🏫', category: 'erp_academico',
+    description: 'Cadastro de docentes (titulação/regime/valor-hora), tipos de atividade com fator, atividades docentes mensais com cálculo de valores e aceite/disponibilidade de disciplinas.',
+    pages: ['acaDocente'],
+    routePrefixes: ['/api/admin/aca/docente'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_pedagogico'],
+  },
+  {
+    id: 'aca_secretaria', name: 'Secretaria & Documentos', icon: '📁', category: 'erp_academico',
+    description: 'Histórico escolar, declarações, atas, certificados/egressos, requerimentos (secretaria virtual) e estágio & atividades complementares.',
+    pages: ['acaSecretaria', 'acaRequerimentos', 'acaEstagio', 'acaEgressos'],
+    routePrefixes: [
+      '/api/admin/aca/documentos', '/api/admin/aca/requerimentos', '/api/admin/aca/requerimento-tipos',
+      '/api/admin/aca/requerimento-categorias',
+      '/api/admin/aca/egressos', '/api/admin/aca/estagio', '/api/admin/aca/atividades', '/api/admin/aca/tcc',
+    ],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_cadastros', name: 'Cadastros Auxiliares', icon: '🗂', category: 'erp_academico',
+    description: 'Listas de apoio acadêmicas: áreas de conhecimento, formações, atendimentos especiais (acessibilidade) e tipos de documento.',
+    pages: ['acaCadastros'],
+    routePrefixes: ['/api/admin/aca/cadastros'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['educacional'],
+  },
+  {
+    id: 'aca_diploma', name: 'Diploma Digital (MEC)', icon: '🎓', category: 'erp_academico',
+    description: 'Diploma digital no padrão MEC: geração do XML, assinatura ICP-Brasil (ponto de integração), registro, anulação e validação pública por código.',
+    pages: ['acaDiploma'],
+    routePrefixes: ['/api/admin/aca/diploma'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
+  },
+  {
+    id: 'aca_ged', name: 'GED (Documentos do Aluno)', icon: '🗄', category: 'erp_academico',
+    description: 'Gestão eletrônica de documentos do aluno (GED): anexar por link, classificar por tipo e conferir (recebido/conferido/pendente).',
+    pages: ['acaGed'],
+    routePrefixes: ['/api/admin/aca/ged'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
+  },
+  {
+    id: 'aca_assinatura', name: 'Assinatura de Contratos', icon: '✍️', category: 'erp_academico',
+    description: 'Assinatura eletrônica de contratos do aluno via Autentique (envelope + signatários, links de assinatura, webhook de status). Modo simulado para testes sem credencial.',
+    pages: ['acaAssinatura'],
+    routePrefixes: ['/api/admin/aca/assinatura'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_secretaria'],
+  },
+  {
+    id: 'aca_comunicacao', name: 'Comunicação Acadêmica', icon: '📨', category: 'erp_academico',
+    description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando WhatsApp/e-mail do ByChat.',
+    pages: ['acaComunicacao'],
+    routePrefixes: ['/api/admin/aca/comunicacao'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_portais', name: 'Portais Aluno/Professor', icon: '🔑', category: 'erp_academico',
+    description: 'Portais de autoatendimento via magic-link (SSR): aluno (boletim, financeiro, documentos) e professor (diário, notas, materiais).',
+    pages: ['acaPortais'],
+    routePrefixes: ['/api/admin/aca/portal'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
+  {
+    id: 'aca_portais_plus', name: 'Centrais (Responsável/Ex-aluno)', icon: '🧑‍🤝‍🧑', category: 'erp_academico',
+    description: 'Portais magic-link adicionais por perfil: Central do Responsável (acompanha boletim/financeiro do dependente) e Central do Ex-aluno (histórico + 2ª via de documentos).',
+    pages: ['acaPortaisPlus'],
+    routePrefixes: ['/api/admin/aca/portal-plus'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_portais'],
+  },
+  {
+    id: 'aca_relatorios', name: 'Indicadores & Censo', icon: '📈', category: 'erp_academico',
+    description: 'BI acadêmico/financeiro (KPIs) e exportação Censo/SISTEC. Somente leitura — agrega os dados dos demais módulos.',
+    pages: ['acaBi', 'acaSistec'],
+    routePrefixes: ['/api/admin/aca/bi', '/api/admin/aca/sistec', '/api/admin/aca/censo'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false, dependsOn: ['aca_matriculas'],
+  },
   {
     id: 'settings', name: 'Configurações', icon: '⚙', category: 'config',
     description: 'Configurações gerais do sistema, aparência e campos personalizados.',
@@ -257,6 +452,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'helpdesk', name: 'Helpdesk / Chamados', icon: '🎫', category: 'support',
+    description: 'Central de chamados/tickets de suporte com protocolo, prioridade, tipos, atribuição por setor, thread público/interno e timeline. Base para SLA, automações, base de conhecimento e portal do cliente (módulo em construção).',
+    pages: ['helpdesk'],
+    routePrefixes: ['/api/helpdesk', '/api/admin/helpdesk'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
+  {
     id: 'voip', name: 'VoIP', icon: '📞', category: 'integracoes',
     description: 'Telefonia integrada (FaleMaisVoip): click-to-call pelo ramal do operador, registro de ligações como atividade e sincronização de gravações.',
     pages: ['voip'],
@@ -277,4 +480,34 @@ export function getModuleForPage(page: string): ModuleDefinition | undefined {
 
 export function getAllModuleIds(): string[] {
   return MODULE_REGISTRY.map(m => m.id)
+}
+
+// Dependências TRANSITIVAS de um módulo (os módulos que ele exige para funcionar).
+// Ex.: aca_financeiro → [aca_matriculas, aca_estrutura, educacional].
+export function getModuleDependencies(moduleId: string): string[] {
+  const seen = new Set<string>()
+  const visit = (id: string) => {
+    const def = MODULE_REGISTRY.find(m => m.id === id)
+    for (const dep of def?.dependsOn ?? []) {
+      if (!seen.has(dep)) { seen.add(dep); visit(dep) }
+    }
+  }
+  visit(moduleId)
+  return [...seen]
+}
+
+// Dependentes TRANSITIVOS de um módulo (os módulos que dependem dele, direta ou
+// indiretamente). Ex.: aca_matriculas → [aca_financeiro, aca_pedagogico, ...].
+export function getModuleDependents(moduleId: string): string[] {
+  const seen = new Set<string>()
+  const stack = [moduleId]
+  while (stack.length) {
+    const cur = stack.pop()!
+    for (const m of MODULE_REGISTRY) {
+      if ((m.dependsOn ?? []).includes(cur) && !seen.has(m.id)) {
+        seen.add(m.id); stack.push(m.id)
+      }
+    }
+  }
+  return [...seen]
 }

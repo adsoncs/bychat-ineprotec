@@ -2,9 +2,10 @@
 // Landing Pages — CRUD admin + serving público de páginas renderizadas
 
 import { FastifyInstance } from 'fastify'
-import { existsSync, mkdirSync, createWriteStream, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync } from 'fs'
+import { writeFile } from 'fs/promises'
 import { extname, join } from 'path'
-import { pipeline } from 'stream/promises'
+import { bufferMultipart, validateUploadContent, UploadValidationError, UploadTooLargeError } from '../lib/uploadSafety.js'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { prisma } from '../lib/prisma.js'
@@ -106,6 +107,11 @@ export async function pagesRoutes(app: FastifyInstance) {
 
     if (!body.title) return reply.code(400).send({ error: 'Título obrigatório' })
 
+    // customHead injeta <script src> na LP pública → só SUPERADMIN pode definir.
+    if (body.customHead && user?.role !== 'SUPERADMIN') {
+      return reply.code(403).send({ error: 'Apenas SUPERADMIN pode definir código no <head> da página.' })
+    }
+
     // Gerar slug a partir do título
     let slug = body.slug || body.title
       .toLowerCase()
@@ -147,6 +153,13 @@ export async function pagesRoutes(app: FastifyInstance) {
 
     const page = await prisma.landingPage.findUnique({ where: { id: parseInt(id) } })
     if (!page) return reply.code(404).send({ error: 'Página não encontrada' })
+
+    // Alterar o código do <head> (injeta <script>) só por SUPERADMIN. Reenviar o
+    // valor inalterado é permitido para não travar saves de quem não é SUPERADMIN.
+    const editor = (req as any).user
+    if (body.customHead !== undefined && body.customHead !== page.customHead && editor?.role !== 'SUPERADMIN') {
+      return reply.code(403).send({ error: 'Apenas SUPERADMIN pode alterar o código do <head> da página.' })
+    }
 
     const data: any = {}
     if (body.title !== undefined) data.title = body.title
@@ -190,13 +203,24 @@ export async function pagesRoutes(app: FastifyInstance) {
     const page = await prisma.landingPage.findUnique({ where: { id: pageId }, select: { id: true } })
     if (!page) return reply.code(404).send({ error: 'Página não encontrada' })
 
-    const data = await req.file()
+    const data = await req.file({ limits: { fileSize: 8 * 1024 * 1024 } })
     if (!data) return reply.code(400).send({ error: 'Nenhum arquivo enviado' })
 
     const ext = extname(data.filename).toLowerCase()
     const allowed = ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif', '.ico', '.avif']
     if (!allowed.includes(ext)) {
       return reply.code(400).send({ error: 'Formato não suportado. Use: PNG, JPG, SVG, WebP, GIF, ICO ou AVIF' })
+    }
+
+    // Valida magic bytes e sanitiza SVG antes de gravar (A8/M6).
+    let buf: Buffer
+    try {
+      const raw = await bufferMultipart(data.file, 8 * 1024 * 1024)
+      buf = validateUploadContent(raw, ext.slice(1), { allowSvg: ext === '.svg' })
+    } catch (err: any) {
+      if (err instanceof UploadTooLargeError) return reply.code(413).send({ error: 'Arquivo muito grande (máx 8MB)' })
+      if (err instanceof UploadValidationError) return reply.code(400).send({ error: err.message })
+      return reply.code(500).send({ error: 'Falha ao processar arquivo' })
     }
 
     const slot = String((data.fields?.slot as any)?.value || (req.query as any)?.slot || 'asset')
@@ -208,7 +232,7 @@ export async function pagesRoutes(app: FastifyInstance) {
 
     const fileName = `${slot}_${Date.now().toString(36)}${ext}`
     const filePath = join(pageDir, fileName)
-    await pipeline(data.file, createWriteStream(filePath))
+    await writeFile(filePath, buf)
 
     const url = `/uploads/pages/${pageId}/${fileName}`
     return { ok: true, url }

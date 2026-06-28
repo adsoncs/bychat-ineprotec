@@ -4,7 +4,7 @@
 // Side effects específicos (ex.: seed do educacional) ficam registrados em SIDE_EFFECTS abaixo.
 
 import { prisma } from './prisma.js'
-import { MODULE_REGISTRY, ModuleDefinition } from './moduleRegistry.js'
+import { MODULE_REGISTRY, ModuleDefinition, getModuleDependencies } from './moduleRegistry.js'
 import { invalidatePermCache, invalidateModulesCache } from './permissions.js'
 
 const SETTING_PREFIX = 'module.'
@@ -76,6 +76,17 @@ export async function setModuleEnabled(moduleId: string, enabled: boolean): Prom
   const def = getModuleDefinition(moduleId)
   if (!def) throw new Error(`Módulo desconhecido: ${moduleId}`)
   if (def.core) throw new Error(`Módulo "${def.name}" é essencial e não pode ser desativado`)
+
+  // Cascata: ligar um módulo liga antes as dependências que estiverem desligadas
+  // (ex.: ligar aca_financeiro liga aca_matriculas → aca_estrutura → educacional).
+  // A guarda de não-desligar-com-dependentes fica no endpoint /modules/:id/toggle.
+  if (enabled) {
+    for (const dep of getModuleDependencies(moduleId)) {
+      const depDef = getModuleDefinition(dep)
+      if (!depDef || depDef.core) continue
+      if (!(await isModuleEnabled(dep))) await setModuleEnabled(dep, true)
+    }
+  }
 
   // Reforma F6: fonte primária agora é bychat_modules.active. Setting legado
   // continua sendo escrito para retrocompatibilidade (algumas telas/services

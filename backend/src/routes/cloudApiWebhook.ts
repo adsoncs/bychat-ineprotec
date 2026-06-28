@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
 import { getMetaAppSecret } from '../lib/meta.js'
 import { validateWebhookSignature, markAsRead, downloadMedia, decryptToken, normalizePhone } from '../services/cloudApi.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -12,8 +13,10 @@ import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/orig
 import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
+import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
+import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -72,6 +75,15 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
           app.log.warn('[CloudAPI] Invalid webhook signature')
           return reply.code(401).send('Invalid signature')
         }
+      } else {
+        // Sem app secret configurado não há como validar a assinatura. Por padrão
+        // aceitamos (legado) com alerta; com CLOUD_API_WEBHOOK_STRICT=1 rejeitamos
+        // (fail-closed) para impedir injeção de eventos forjados.
+        if (process.env.CLOUD_API_WEBHOOK_STRICT === '1') {
+          app.log.warn('[CloudAPI][SECURITY] sem app secret + STRICT — rejeitando webhook não verificável')
+          return reply.code(401).send('Webhook signature required')
+        }
+        app.log.warn('[CloudAPI][SECURITY] app secret ausente — webhook aceito SEM verificação de assinatura. Configure META_APP_SECRET.')
       }
 
       const body = req.body as any
@@ -99,6 +111,23 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
           if (change.field === 'message_template_quality_update') {
             await handleTemplateQualityWebhook(wabaId, value).catch(err =>
               app.log.error(`[CloudAPI] template quality update error: ${err.message}`))
+            continue
+          }
+
+          // ── Chamadas de voz (WhatsApp Business Calling API) ──
+          // Requer o campo `calls` habilitado no Webhook do App Meta.
+          if (change.field === 'calls') {
+            const callPhoneNumberId = value.metadata?.phone_number_id || ''
+            const callConn = await prisma.cloudApiConnection.findFirst({
+              where: { active: true, phoneNumberId: callPhoneNumberId },
+              select: { id: true, phoneNumberId: true, ownerUserId: true },
+            })
+            if (!callConn) {
+              app.log.warn(`[CloudAPI][calls] No connection for phoneNumberId ${callPhoneNumberId}`)
+              continue
+            }
+            await handleCallsWebhook(value, callConn, app).catch(err =>
+              app.log.error(`[CloudAPI][calls] handler error: ${err.message}`))
             continue
           }
 
@@ -167,6 +196,16 @@ async function processIncomingMessage(
   // Marcar como lida automaticamente
   if (msgId) {
     markAsRead(phoneNumberId, token, msgId).catch(() => {})
+  }
+
+  // Idempotência/anti-replay: a Meta reenvia o mesmo evento em falha de ACK.
+  // SET NX no wamid garante que cada mensagem é processada uma única vez (evita
+  // mensagem duplicada + re-disparo de fluxos de chatbot/IA).
+  if (msgId) {
+    try {
+      const fresh = await redis.set(`wamsg:${msgId}`, '1', 'EX', 86400, 'NX')
+      if (fresh === null) return // já processado
+    } catch { /* redis indisponível — segue (a coluna externalId ainda evita parte) */ }
   }
 
   // Extrair conteudo baseado no tipo
@@ -287,15 +326,20 @@ async function processIncomingMessage(
     // sem o nono dígito (5562991138484 → 556291138484). Tenta exato e cai para
     // os últimos 8 dígitos, igual ao webhook Evolution (whatsapp.ts:481,879) —
     // evita criar lead duplicado para um contato que já existe.
-    let lead = await prisma.lead.findFirst({
-      where: { whatsapp: phone },
-      orderBy: { createdAt: 'desc' }
-    })
-    if (!lead && phone.length >= 8) {
-      lead = await prisma.lead.findFirst({
-        where: { whatsapp: { contains: phone.slice(-8) } },
-        orderBy: { createdAt: 'desc' }
-      })
+    // Identidade canônica unificada (lib/phone.ts + contactIdentity): casa por
+    // phoneKey EXATO, colapsando todas as variações (com/sem 55, com/sem 9º dígito).
+    // Substitui o antigo "whatsapp contains últimos-8" (frágil e propenso a duplicar).
+    const resolved = await resolveLeadForContact({ phone })
+    let lead = resolved.lead
+      ? await prisma.lead.findUnique({ where: { id: resolved.lead.id } })
+      : null
+    if (lead) {
+      // Backfill preguiçoso: garante phoneKey em leads legados que casaram.
+      await reconcileLeadIdentity(
+        lead.id,
+        { whatsapp: lead.whatsapp, waLid: lead.waLid, phoneKey: lead.phoneKey },
+        { phone },
+      )
     }
 
     if (!lead) {

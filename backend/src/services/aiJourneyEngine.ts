@@ -20,6 +20,8 @@ import { applyAnswerToLead } from './scriptedChatbotFlow.js'
 import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+import { pickOperatorForTeam } from './teamRouting.js'
+import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 
 const MAX_TOOL_ITERS = 6
 const HISTORY_LIMIT = 24
@@ -100,6 +102,15 @@ const TOOLS = [
     },
   },
   {
+    name: 'rotear_setor',
+    description: 'Encaminha o lead, nos bastidores, para o SETOR/equipe responsável assim que você identificar o que ele procura. Chame UMA única vez, logo que a intenção ficar clara. Use exatamente uma das chaves listadas em "Setores disponíveis". É silencioso — não anuncie ao lead que houve encaminhamento.',
+    input_schema: {
+      type: 'object',
+      properties: { setor: { type: 'string', description: 'Chave do setor (value da opção), exatamente como em "Setores disponíveis".' } },
+      required: ['setor'],
+    },
+  },
+  {
     name: 'avaliar_qualificacao',
     description: 'Avalia (de forma determinística, no servidor) se o lead está qualificado com base nas respostas já salvas. Chame depois de coletar os campos qualificadores. Retorna se está qualificado e a instrução do que fazer.',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -147,15 +158,31 @@ function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): 
       return `- chave \`${f.key}\`: ${label}${opts}${tags ? ` (${tags})` : ''}`
     }).join('\n')
 
+  // Setores de triagem: opções do menu (campo select) que carregam um `route`. Quando
+  // existem, a IA encaminha o lead à equipe certa via a ferramenta rotear_setor.
+  const routeField = fields.find((f) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+  const setores = routeField
+    ? routeField.options.filter((o: any) => o?.route).map((o: any) => `- \`${o.value}\`: ${stripTags(o.label)}`).join('\n')
+    : ''
+
+  // Nomes-placeholder (lead criado sem nome real, ex.: canal web sem perfil) NÃO
+  // contam como nome conhecido — senão a IA cumprimenta "Olá, Lead LP".
+  const PLACEHOLDER_NAMES = new Set(['lead lp', 'lead', 'webchat'])
+  const realNome = lead?.nome && !PLACEHOLDER_NAMES.has(String(lead.nome).trim().toLowerCase()) ? lead.nome : ''
+  // whatsapp sintético do canal web (webchat:<uid>) não é um telefone real.
+  const realWhats = lead?.whatsapp && !String(lead.whatsapp).startsWith('webchat:') ? lead.whatsapp : ''
   const known = [
-    lead?.nome ? `nome: ${lead.nome}` : '',
-    lead?.whatsapp ? `whatsapp: ${lead.whatsapp}` : '',
+    realNome ? `nome: ${realNome}` : '',
+    realWhats ? `whatsapp: ${realWhats}` : '',
     lead?.email ? `email: ${lead.email}` : '',
   ].filter(Boolean).join(' · ')
   const already = Object.keys(state.answers || {})
   const hasSched = fields.some((f) => f?.type === 'scheduling')
 
-  const nm = lead?.nome || state.answers?.nome || ''
+  const nm = realNome || state.answers?.nome || ''
+  // Saudação configurada do chatbot: a IA conduz a abertura, mas DEVE abrir com
+  // esta mensagem (no tom da marca). Só vale para a 1ª mensagem da conversa.
+  const greeting = (chatbot?.greetingMessage && String(chatbot.greetingMessage).trim()) || ''
   const schedIntro = (chatbot?.schedulingIntro && String(chatbot.schedulingIntro).trim())
     ? String(chatbot.schedulingIntro).replace(/\{\{\s*nome\s*\}\}/gi, nm || '{nome do lead}').replace(/\{\{\s*reuniao\s*\}\}/gi, 'reunião').trim()
     : ''
@@ -169,10 +196,13 @@ function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): 
   return [
     base,
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
+    setores ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
+    `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: nome, e-mail, WhatsApp e cidade. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.`,
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
+    greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     `\n## Como agir
-- Cumprimente e comece a coletar os dados que faltam, um por vez, de forma natural.
+- Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
 - Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
 - Se qualificado${hasSched ? ' e houver agendamento: chame **listar_horarios**, ofereça os horários ao lead, e ao ele escolher chame **agendar** com o startAt exato. Só diga que está agendado depois de agendar retornar ok=true.' : ': agradeça e finalize com **encerrar**.'}
@@ -186,6 +216,30 @@ function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): 
 - Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).
 - Para ofertas com poucas opções fechadas (ex.: escolher um horário ou uma opção de select), TERMINE a mensagem com o marcador: [[OPTIONS: opção 1 | opção 2 | opção 3]] (máx. 10). O texto antes do marcador é a mensagem; as opções viram botões.`,
   ].filter(Boolean).join('\n')
+}
+
+// Dados de contato que devem estar salvos no CRM antes de encaminhar o lead a um
+// humano. Genérico: olha os campos do form com mapTo de contato e checa o valor
+// real no lead (ignora placeholders do canal web). Retorna os que faltam.
+const CONTACT_MAPTOS = ['nome', 'whatsapp', 'email', 'cidade'] as const
+const CONTACT_LABEL: Record<string, string> = { nome: 'nome', whatsapp: 'WhatsApp', email: 'e-mail', cidade: 'cidade' }
+async function missingContactData(leadId: number, form: any): Promise<string[]> {
+  const fields: any[] = form?.fields || []
+  const wanted = fields.filter((f) => CONTACT_MAPTOS.includes(f?.mapTo))
+  if (!wanted.length) return []
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, email: true, whatsapp: true, cidade: true } })
+  const PLACEHOLDER = new Set(['lead lp', 'lead', 'webchat'])
+  const has = (mapTo: string): boolean => {
+    if (mapTo === 'nome') return !!(lead?.nome && !PLACEHOLDER.has(String(lead.nome).trim().toLowerCase()))
+    if (mapTo === 'whatsapp') return !!(lead?.whatsapp && !String(lead.whatsapp).startsWith('webchat:'))
+    if (mapTo === 'email') return !!(lead?.email && String(lead.email).trim())
+    if (mapTo === 'cidade') return !!(lead?.cidade && String(lead.cidade).trim())
+    return true
+  }
+  const seen = new Set<string>()
+  return wanted
+    .filter((f) => !has(f.mapTo) && !seen.has(f.mapTo) && seen.add(f.mapTo))
+    .map((f) => CONTACT_LABEL[f.mapTo] || f.mapTo)
 }
 
 // ── Executor das ferramentas (chamadas pela IA → funções determinísticas reais) ──
@@ -209,6 +263,37 @@ async function executeTool(
         salvos.push(c.chave)
       }
       return JSON.stringify({ ok: true, salvos })
+    }
+
+    if (name === 'rotear_setor') {
+      // Trava: só encaminha ao setor (atendimento humano) depois de coletar e
+      // salvar os dados de contato do lead no CRM.
+      const missing = await missingContactData(leadId, form)
+      if (missing.length) {
+        return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
+          instrucao: `Antes de encaminhar o lead para o atendimento humano, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Faça isso de forma natural, uma pergunta por vez. Só depois chame rotear_setor novamente.` })
+      }
+      // Reusa o roteamento por opção de menu do form (option.route): move funil/etapa
+      // e (re)atribui a equipe/operador. Lê o menu de triagem (campo select cujas
+      // opções têm `route`) dinamicamente — genérico, não hardcoded por tenant.
+      const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+      if (!routeField) return JSON.stringify({ ok: false, erro: 'Sem roteamento por setor configurado.' })
+      const value = mapSelectValue(routeField, String(input?.setor || ''))
+      const opt = routeField.options.find((o: any) => String(o.value) === String(value))
+      if (!opt?.route) return JSON.stringify({ ok: false, erro: 'Setor não reconhecido.', instrucao: 'Continue a conversa normalmente e tente identificar melhor o que o lead procura.' })
+      // Persiste a escolha p/ a qualificação determinística usar o value da opção.
+      state.answers[routeField.key] = opt.value
+      await applyAnswerToLead(leadId, routeField, state.answers).catch(() => {})
+      const route = opt.route
+      if (route.funnelId != null && route.stageKey) {
+        await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false }).catch(() => {})
+      }
+      if (route.teamId != null) {
+        const userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+        await prisma.lead.update({ where: { id: leadId }, data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() } }).catch(() => {})
+      }
+      logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: encaminhado para ${stripTags(opt.label) || route.stageKey}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead', metadata: { teamId: route.teamId, funnelId: route.funnelId, stageKey: route.stageKey } })
+      return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado ao setor certo nos bastidores. NÃO mencione "setor" nem "encaminhamento" — apenas siga ajudando o lead com naturalidade.' })
     }
 
     if (name === 'avaliar_qualificacao') {
@@ -274,6 +359,12 @@ async function executeTool(
     }
 
     if (name === 'transferir_humano') {
+      // Mesma trava: captura os dados de contato antes de passar para o humano.
+      const missing = await missingContactData(leadId, form)
+      if (missing.length) {
+        return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
+          instrucao: `Antes de transferir para um atendente, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Uma pergunta por vez. Só depois chame transferir_humano novamente.` })
+      }
       state.phase = 'done'
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
@@ -296,9 +387,11 @@ async function getSetting(key: string): Promise<string | null> {
 }
 
 async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY ausente')
-  const model = (await getSetting('ai.journey_model')) || 'claude-sonnet-4-6'
+  // Chave/modelo via Settings (Configurações > APIs) → fallback env. NÃO ler
+  // process.env direto: o admin configura as chaves pela UI (bychat_settings).
+  const apiKey = await getAnthropicKey()
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada')
+  const model = (await getSetting('ai.journey_model')) || await getAnthropicModel()
   const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
@@ -319,9 +412,9 @@ async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTur
 }
 
 async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY ausente')
-  const model = (await getSetting('ai.journey_model_openai')) || 'gpt-4o'
+  const apiKey = await getOpenAiKey()
+  if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
+  const model = (await getSetting('ai.journey_model_openai')) || await getOpenAiModel()
   // Converte mensagens (formato Anthropic interno) → formato OpenAI.
   const oaMsgs: any[] = [{ role: 'system', content: system }]
   for (const m of messages) {
@@ -362,7 +455,7 @@ async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> 
 function safeJson(s: any): any { try { return JSON.parse(s || '{}') } catch { return {} } }
 
 async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
-  const primary = (await getSetting('ai.primary_provider')) || 'anthropic'
+  const primary = await getPrimaryProvider()
   try {
     return primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
   } catch (e) {

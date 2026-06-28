@@ -3,6 +3,7 @@ initObservability()
 
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
 import staticFiles from '@fastify/static'
 import multipart from '@fastify/multipart'
 import { join, dirname } from 'path'
@@ -66,6 +67,7 @@ import { cloudApiSetupRoutes } from './routes/cloudApiSetup.js'
 import { broadcastRoutes } from './routes/broadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
 import { metaAdsReportRoutes } from './routes/metaAdsReport.js'
+import { funnelReportRoutes } from './routes/funnelReport.js'
 import { trackableLinksRoutes } from './routes/trackableLinks.js'
 import { pixelRoutes } from './routes/pixel.js'
 import { educationalRoutes } from './routes/educational.js'
@@ -93,6 +95,7 @@ import { googleAdsRoutes } from './routes/googleAds.js'
 import { googleAdsReportRoutes } from './routes/googleAdsReport.js'
 import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
+import { waCallsRoutes } from './routes/waCalls.js'
 import { schedulingRoutes } from './routes/scheduling.js'
 import { schedulingPublicRoutes } from './routes/schedulingPublic.js'
 import { legalRoutes } from './routes/legal.js'
@@ -111,6 +114,12 @@ import { integrationsGoogleRoutes } from './routes/integrationsGoogle.js'
 import { lossReasonsRoutes } from './routes/lossReasons.js'
 import { lookerStudioRoutes } from './routes/lookerStudio.js'
 import { enrichmentRoutes } from './routes/enrichment.js'
+import { helpdeskRoutes } from './routes/helpdesk.js'
+import { helpdeskKbRoutes } from './routes/helpdeskKb.js'
+import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
+import { startSlaScheduler } from './services/helpdeskSla.js'
+import { startAutomationScheduler } from './services/helpdeskAutomation.js'
+import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
 import { startTrashPurgeScheduler } from './services/trash.js'
 import { startEscalationScheduler } from './services/routing/escalation.js'
 import { startTransferExpireScheduler } from './services/routing/transferExpire.js'
@@ -149,8 +158,28 @@ await app.register(cors, {
   credentials: true,
 })
 
+// ── HELMET (headers de segurança — defesa em profundidade, F5) ──────────────
+// O nginx já injeta os headers para as respostas proxied; o helmet garante a
+// mesma proteção caso o backend seja acessado direto (bypass do proxy).
+// CSP fica DESLIGADA aqui: o documento HTML é coberto pela CSP do nginx e o
+// /uploads tem CSP própria por rota (setHeaders) — evita header duplicado e
+// interseção restritiva. Os valores abaixo espelham o nginx para que, quando
+// duplicados atrás do proxy, sejam idênticos (inofensivos).
+await app.register(helmet, {
+  global: true,
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,                                  // não quebra SDKs externos (FB/Google)
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },   // popups de OAuth
+  crossOriginResourcePolicy: false,                                  // mantém comportamento atual (sem CORP)
+  hsts: { maxAge: 63072000, includeSubDomains: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'sameorigin' },
+})
+
 // ── MULTIPART (file uploads) ─────────────────
-// CVE-2024: limites rigorosos para mitigar DoS do @fastify/multipart v7 (antes de upgrade p/ v10)
+// @fastify/multipart 8.3.1 (corrige GHSA-27c6-mcxv-x3fh / DoS; compatível com
+// fastify v4). Limites globais rigorosos como defesa em profundidade — rotas
+// específicas elevam o fileSize via req.file({ limits }) quando necessário.
 await app.register(multipart, {
   limits: {
     fileSize: 10 * 1024 * 1024,  // 10 MB por arquivo
@@ -220,10 +249,23 @@ await app.register(staticFiles, {
 })
 
 // ── STATIC FILES (uploads) ──────────────────
+// Defesa contra XSS armazenado (A8): arquivos de usuário servidos do domínio
+// principal. nosniff impede MIME confusion; a CSP `default-src 'none'; sandbox`
+// neutraliza qualquer script embutido (ex.: SVG/HTML) mesmo se o arquivo for
+// aberto como documento de topo; para tipos que o browser renderiza como
+// documento (svg/html/xml) força download em navegação direta — sem afetar o
+// uso legítimo via <img>/CSS, que ignora Content-Disposition.
 await app.register(staticFiles, {
   root: join(__dirname, '../../uploads'),
   prefix: '/uploads/',
-  decorateReply: false
+  decorateReply: false,
+  setHeaders: (res: any, filePath: string) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    if (/\.(svgz?|html?|xht|xhtml|xml)$/i.test(filePath)) {
+      res.setHeader('Content-Disposition', 'attachment')
+    }
+  },
 })
 
 // ── STATIC FILES (frontend-app — SPA novo, Fase 0+) ───────
@@ -250,7 +292,7 @@ await app.register(staticFiles, {
 
 // ── RAW BODY CAPTURE (Cloud API webhook signature validation) ──
 app.addHook('preParsing', async (req, _reply, payload) => {
-  if (req.url === '/api/cloud-api/webhook' && req.method === 'POST') {
+  if ((req.url === '/api/cloud-api/webhook' || req.url.startsWith('/api/meta/webhook')) && req.method === 'POST') {
     const chunks: Buffer[] = []
     for await (const chunk of payload as any) {
       chunks.push(chunk as Buffer)
@@ -413,9 +455,15 @@ app.addHook('onRequest', async (req, reply) => {
   }
 
   // 3. Analyze request for malicious patterns
-  const analysis = await analyzeRequest(ip, req.url, ua)
-  if (analysis.blocked) {
-    return reply.code(403).send({ error: 'Requisição bloqueada por motivos de segurança.' })
+  // Portais acadêmicos públicos (/api/public/aca/*) carregam um token HMAC longo
+  // em base64url na query — o analisador de padrões dá falso-positivo (e poderia
+  // banir o IP do próprio aluno). Já têm auth própria (token assinado); isenta
+  // SÓ da análise de padrões (IP-block e rate-limit acima continuam valendo).
+  if (!req.url.startsWith('/api/public/aca/')) {
+    const analysis = await analyzeRequest(ip, req.url, ua)
+    if (analysis.blocked) {
+      return reply.code(403).send({ error: 'Requisição bloqueada por motivos de segurança.' })
+    }
   }
 })
 
@@ -472,6 +520,7 @@ await app.register(userDashboardsRoutes)
 await app.register(installationsRoutes)
 await app.register(securityRoutes)
 await app.register(metaAdsReportRoutes)
+await app.register(funnelReportRoutes)
 await app.register(trackableLinksRoutes)
 await app.register(pixelRoutes)
 await app.register(educationalRoutes)
@@ -498,6 +547,7 @@ await app.register(googleAdsRoutes)
 await app.register(googleAdsReportRoutes)
 await app.register(utmsRoutes)
 await app.register(voipRoutes)
+await app.register(waCallsRoutes)
 await app.register(schedulingRoutes)
 await app.register(schedulingPublicRoutes)
 await app.register(legalRoutes)
@@ -516,6 +566,22 @@ await app.register(lossReasonsRoutes)
 await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
+await app.register(helpdeskRoutes)
+await app.register(helpdeskKbRoutes)
+await app.register(helpdeskPortalRoutes)
+
+// ── Overlay do tenant (módulos próprios: ex. ERP ineprotec, Venda360) ──
+// Carrega src/overlay/index.ts SE existir; no-op nos tenants sem overlay. Mantém
+// este server.ts IDÊNTICO em todos os tenants (núcleo compartilhado, Modelo A).
+try {
+  const overlayPath = './overlay/index.js' // via variável: tsc não resolve (no-op sem overlay)
+  const overlay: any = await import(overlayPath)
+  if (typeof overlay.registerOverlay === 'function') await overlay.registerOverlay(app)
+} catch (e: any) {
+  if (e?.code !== 'ERR_MODULE_NOT_FOUND' && !/Cannot find module/i.test(e?.message || '')) {
+    console.warn('[overlay] falha ao registrar overlay do tenant:', e?.message)
+  }
+}
 
 // Health check
 app.get('/api/health', async () => ({
@@ -1084,6 +1150,9 @@ try {
   startEscalationScheduler()
   startTransferExpireScheduler()
   startShiftHandoverScheduler()
+  startSlaScheduler()
+  startAutomationScheduler()
+  startHelpdeskRoutingScheduler()
   import('./services/cloudApiTemplates.js')
     .then(m => m.startCloudApiTemplateScheduler())
     .catch(err => console.warn('[cloudApiTemplates] init falhou:', err?.message || err))

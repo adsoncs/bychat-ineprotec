@@ -18,6 +18,7 @@ import {
   useLeads,
   useCreateManualLead,
   useDeleteLead,
+  getRegistrationConflict,
   useLeadNotes,
   useCreateLeadNote,
   useLead,
@@ -131,6 +132,7 @@ export function LeadsPage() {
   const [answersLeadId, setAnswersLeadId] = useState<number | null>(null)
   const [whatsappLead, setWhatsappLead] = useState<{ id: number; whatsapp: string | null } | null>(null)
   const [confirmDeleteLead, setConfirmDeleteLead] = useState<{ id: number; label: string } | null>(null)
+  const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [transferLead, setTransferLead] = useState<{ id: number; label: string } | null>(null)
   const [moveToKanbanLead, setMoveToKanbanLead] = useState<number | null>(null)
 
@@ -470,15 +472,21 @@ export function LeadsPage() {
       {confirmDeleteLead !== null && (
         <ConfirmDialog
           open
-          onOpenChange={(o) => { if (!o) setConfirmDeleteLead(null) }}
+          onOpenChange={(o) => { if (!o) { setConfirmDeleteLead(null); setForceDeleteReg(null) } }}
           title={`Excluir lead "${confirmDeleteLead.label}"`}
-          description="O lead vai para a lixeira e pode ser restaurado."
+          description={forceDeleteReg !== null
+            ? `⚠️ Este lead tem ${forceDeleteReg} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las — elas ficam órfãs no módulo de Matrículas (sem lead). Confirme para apagar mesmo assim.`
+            : 'O lead vai para a lixeira e pode ser restaurado.'}
           destructive
-          confirmLabel="Excluir"
+          confirmLabel={forceDeleteReg !== null ? 'Apagar mesmo assim' : 'Excluir'}
           loading={delMut.isPending}
-          onConfirm={() => delMut.mutate(confirmDeleteLead.id, {
-            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDeleteLead(null) },
-            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          onConfirm={() => delMut.mutate({ id: confirmDeleteLead.id, force: forceDeleteReg !== null }, {
+            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDeleteLead(null); setForceDeleteReg(null) },
+            onError: (e: unknown) => {
+              const c = getRegistrationConflict(e)
+              if (c && forceDeleteReg === null) setForceDeleteReg(c.count)
+              else toast((e as Error).message, 'danger')
+            },
           })}
         />
       )}
@@ -777,18 +785,25 @@ function BulkStatusModal({ leadIds, onClose, onDone }: { leadIds: number[]; onCl
 
 function BulkDeleteDialog({ leadIds, onClose, onDone }: { leadIds: number[]; onClose: () => void; onDone: () => void }) {
   const mutation = useBulkDeleteLeads()
+  const [forceReg, setForceReg] = useState<{ leads: number; regs: number } | null>(null)
   return (
     <ConfirmDialog
       open
       onOpenChange={(o) => { if (!o) onClose() }}
       title={`Excluir ${leadIds.length} leads`}
-      description="Os leads vão para a lixeira e podem ser restaurados pelo painel de Lixeira."
+      description={forceReg
+        ? `⚠️ ${forceReg.leads} dos leads selecionados têm inscrições no portal de matrículas (${forceReg.regs} no total). Apagá-los vai desvinculá-las — ficam órfãs no módulo de Matrículas. Confirme para apagar mesmo assim.`
+        : 'Os leads vão para a lixeira e podem ser restaurados pelo painel de Lixeira.'}
       destructive
-      confirmLabel="Excluir"
+      confirmLabel={forceReg ? 'Apagar mesmo assim' : 'Excluir'}
       loading={mutation.isPending}
-      onConfirm={() => mutation.mutate(leadIds, {
+      onConfirm={() => mutation.mutate({ leadIds, force: forceReg !== null }, {
         onSuccess: (r) => { toast(`${r.deleted} leads movidos para a lixeira`, 'success'); onDone() },
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        onError: (e: unknown) => {
+          const c = getRegistrationConflict(e)
+          if (c && !forceReg) setForceReg({ leads: c.leadIds?.length ?? 0, regs: c.count })
+          else toast((e as Error).message, 'danger')
+        },
       })}
     />
   )
@@ -1618,15 +1633,15 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
   const create = useCreateManualLead()
 
   function handleSubmit() {
-    if (!empresa.trim() || !whatsapp.trim()) {
-      toast('Empresa e WhatsApp obrigatórios', 'danger')
+    if (!nome.trim() || !whatsapp.trim() || !email.trim()) {
+      toast('Nome, WhatsApp e e-mail são obrigatórios', 'danger')
       return
     }
     const payload: ManualLeadInput = {
-      empresa: empresa.trim(),
+      nome: nome.trim(),
       whatsapp: whatsapp.trim(),
-      nome: nome || undefined,
-      email: email || undefined,
+      email: email.trim(),
+      empresa: empresa.trim() || undefined,
       segmento: segmento || undefined,
       cidade: cidade || undefined,
       funnelId: funnelId ? Number(funnelId) : undefined,
@@ -1654,10 +1669,10 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
       }
     >
       <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
-        <Input label="Empresa *" value={empresa} onInput={(e) => setEmpresa((e.target as HTMLInputElement).value)} />
-        <Input label="Nome" value={nome} onInput={(e) => setNome((e.target as HTMLInputElement).value)} />
+        <Input label="Nome *" value={nome} onInput={(e) => setNome((e.target as HTMLInputElement).value)} />
         <Input label="WhatsApp *" value={whatsapp} onInput={(e) => setWhatsapp((e.target as HTMLInputElement).value)} placeholder="5511999999999" />
-        <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
+        <Input label="E-mail *" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
+        <Input label="Empresa" value={empresa} onInput={(e) => setEmpresa((e.target as HTMLInputElement).value)} />
         <Input label="Segmento" value={segmento} onInput={(e) => setSegmento((e.target as HTMLInputElement).value)} />
         <Input label="Cidade" value={cidade} onInput={(e) => setCidade((e.target as HTMLInputElement).value)} />
         <Select label="Funil" value={funnelId} onChange={(e) => setFunnelId((e.target as HTMLSelectElement).value)}>
@@ -1675,6 +1690,7 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
   const { data: lead, isLoading } = useLead(id)
   const [tab, setTab] = useState<DetailTab>('overview')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const delMut = useDeleteLead()
@@ -1829,15 +1845,21 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
       {confirmDelete && (
         <ConfirmDialog
           open
-          onOpenChange={(o) => { if (!o) setConfirmDelete(false) }}
+          onOpenChange={(o) => { if (!o) { setConfirmDelete(false); setForceDeleteReg(null) } }}
           title={`Excluir lead "${lead?.empresa ?? id}"`}
-          description="O lead vai para a lixeira e pode ser restaurado."
+          description={forceDeleteReg !== null
+            ? `⚠️ Este lead tem ${forceDeleteReg} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las — elas ficam órfãs no módulo de Matrículas (sem lead). Confirme para apagar mesmo assim.`
+            : 'O lead vai para a lixeira e pode ser restaurado.'}
           destructive
-          confirmLabel="Excluir"
+          confirmLabel={forceDeleteReg !== null ? 'Apagar mesmo assim' : 'Excluir'}
           loading={delMut.isPending}
-          onConfirm={() => delMut.mutate(id, {
-            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDelete(false); onClose() },
-            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          onConfirm={() => delMut.mutate({ id, force: forceDeleteReg !== null }, {
+            onSuccess: () => { toast('Lead movido para a lixeira', 'success'); setConfirmDelete(false); setForceDeleteReg(null); onClose() },
+            onError: (e: unknown) => {
+              const c = getRegistrationConflict(e)
+              if (c && forceDeleteReg === null) setForceDeleteReg(c.count)
+              else toast((e as Error).message, 'danger')
+            },
           })}
         />
       )}
@@ -1876,8 +1898,13 @@ function OverviewTab({
         <Field label="E-mail" value={lead.email} />
         <Field label="Origem" value={leadSourceLabel(lead.source)} />
         <Field label="Criado em" value={formatDateTime(lead.createdAt)} />
+        {lead.agendamento && (
+          <Field label="Agendamento" value={formatDateTime(lead.agendamento.startAt)} />
+        )}
         <Field label="Funil" value={funnel?.name ?? '—'} />
       </div>
+
+      <AiSummaryPanel lead={lead} />
 
       <AiScorePanel lead={lead} />
 
@@ -2567,6 +2594,51 @@ function AiScoreBadge({ score, label }: { score: number | null; label: string | 
   )
 }
 
+// Card "Resumo do Lead (IA)" — resumo em linguagem natural das RESPOSTAS dos
+// campos personalizados (no contexto do negócio/funil). Vem ACIMA do score e é
+// gerado na MESMA chamada de IA (campo aiScoreReason.resumoRespostas) — custo zero.
+function AiSummaryPanel({ lead }: { lead: { id: number; aiScoreReason: AiScoreReason | null; aiScoredAt: string | null } }) {
+  const rescore = useRescoreLeadAi()
+  const resumo = lead.aiScoreReason?.resumoRespostas?.trim()
+
+  function handleRefresh() {
+    rescore.mutate(lead.id, {
+      onSuccess: () => toast('Resumo atualizado', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <div class="rounded-lg border border-border bg-surface p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
+          <Sparkles size={15} class="text-accent" /> Resumo do Lead (IA)
+        </div>
+        <Button size="sm" variant="secondary" onClick={handleRefresh} disabled={rescore.isPending}>
+          <RefreshCw size={12} class={rescore.isPending ? 'animate-spin' : ''} />
+          {rescore.isPending ? 'Gerando…' : 'Atualizar'}
+        </Button>
+      </div>
+
+      {resumo ? (
+        <>
+          <p class="mt-3 text-sm leading-relaxed text-fg">{resumo}</p>
+          {lead.aiScoredAt && (
+            <div class="mt-2 text-[0.6875rem] text-fg-subtle">
+              Síntese das respostas dos campos personalizados · {formatDateTime(lead.aiScoredAt)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div class="mt-3 text-sm text-fg-muted">
+          Sem resumo ainda. Ele é gerado junto com o Lead Score quando o lead tem respostas de
+          campos personalizados. Use <strong>Atualizar</strong> ou aguarde a análise automática.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Card do Lead Score preditivo por IA no detalhe do lead (Fase 3).
 function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; aiScoreLabel: string | null; aiScoreReason: AiScoreReason | null; aiScoredAt: string | null } }) {
   const rescore = useRescoreLeadAi()
@@ -2679,6 +2751,10 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
   }
 
   function save() {
+    if (!form.nome?.trim() || !form.whatsapp?.trim() || !form.email?.trim()) {
+      toast('Nome, WhatsApp e e-mail são obrigatórios', 'danger')
+      return
+    }
     update.mutate({ id, ...form }, {
       onSuccess: () => { toast('Lead atualizado', 'success'); onClose() },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -2689,7 +2765,7 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title={`Editar lead${lead?.empresa ? ` — ${lead.empresa}` : ''}`}
+      title={`Editar lead${lead?.nome ? ` — ${lead.nome}` : ''}`}
       size="lg"
       footer={
         <>
@@ -2703,10 +2779,10 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
       {isLoading && <Skeleton class="h-32 w-full" />}
       {lead && (
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          <Input label="Nome *" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
+          <Input label="WhatsApp *" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
+          <Input label="E-mail *" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
           <Input label="Empresa" value={form.empresa ?? ''} onInput={(e) => set('empresa', (e.target as HTMLInputElement).value)} />
-          <Input label="Nome" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
-          <Input label="WhatsApp" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
-          <Input label="E-mail" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
           <Input label="Segmento" value={form.segmento ?? ''} onInput={(e) => set('segmento', (e.target as HTMLInputElement).value)} />
           <Input label="Cidade" value={form.cidade ?? ''} onInput={(e) => set('cidade', (e.target as HTMLInputElement).value)} />
         </div>

@@ -4,6 +4,7 @@ import {
   useDeleteLead,
   useQualifyLead,
   useResendLeadReport,
+  getRegistrationConflict,
 } from '@/hooks/useLeads'
 import { useEnrollmentLinkByLead } from '@/hooks/useEnrollmentPortals'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -21,15 +22,17 @@ import {
 } from '@/routes/pages/LeadsPage'
 import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadAuditTab } from '@/components/LeadAuditTab'
+import { LeadJourneyTab } from '@/components/LeadJourneyTab'
 import { toast } from '@/lib/toast'
 
 export const LEAD_DETAIL_SECTIONS = [
   { id: 'overview',   label: 'Visão geral' },
   { id: 'activities', label: 'Atividades' },
   { id: 'cadences',   label: 'Cadências' },
+  { id: 'jornada',    label: 'Jornada IA' },
   { id: 'intel',      label: 'Inteligência' },
   { id: 'tracking',   label: 'Tracking' },
-  { id: 'audit',      label: 'Auditoria IA' },
+  { id: 'audit',      label: 'Auditoria de Conversas' },
   { id: 'timeline',   label: 'Timeline' },
   { id: 'fields',     label: 'Campos Personalizados' },
 ] as const
@@ -62,6 +65,7 @@ export function LeadDetailContent({ id, section }: Props) {
     <div class="space-y-4">
       {section === 'overview'   && <LeadOverviewTab lead={lead} />}
       {section === 'tracking'   && <LeadTrackingTab lead={lead} />}
+      {section === 'jornada'    && <LeadJourneyTab leadId={lead.id} />}
       {section === 'intel'      && <LeadIntelTab leadId={lead.id} />}
       {section === 'audit'      && <LeadAuditTab leadId={lead.id} />}
       {section === 'activities' && <LeadActivitiesTab leadId={lead.id} />}
@@ -81,6 +85,7 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
   onLeadDuplicated?: (newId: number) => void
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [duplicateOpen, setDuplicateOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -125,19 +130,26 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
     <>
       <ConfirmDialog
         open={confirmDelete}
-        onOpenChange={(o) => { if (!o) setConfirmDelete(false) }}
+        onOpenChange={(o) => { if (!o) { setConfirmDelete(false); setForceDeleteReg(null) } }}
         title={`Excluir lead "${lead?.empresa ?? id}"`}
-        description="O lead vai para a lixeira e pode ser restaurado."
+        description={forceDeleteReg !== null
+          ? `⚠️ Este lead tem ${forceDeleteReg} inscrição(ões) no portal de matrículas. Apagá-lo vai desvinculá-las — elas ficam órfãs no módulo de Matrículas (sem lead). Confirme para apagar mesmo assim.`
+          : 'O lead vai para a lixeira e pode ser restaurado.'}
         destructive
-        confirmLabel="Excluir"
+        confirmLabel={forceDeleteReg !== null ? 'Apagar mesmo assim' : 'Excluir'}
         loading={delMut.isPending}
-        onConfirm={() => delMut.mutate(id, {
+        onConfirm={() => delMut.mutate({ id, force: forceDeleteReg !== null }, {
           onSuccess: () => {
             toast('Lead movido para a lixeira', 'success')
             setConfirmDelete(false)
+            setForceDeleteReg(null)
             opts.onLeadDeleted?.()
           },
-          onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          onError: (e: unknown) => {
+            const c = getRegistrationConflict(e)
+            if (c && forceDeleteReg === null) setForceDeleteReg(c.count)
+            else toast((e as Error).message, 'danger')
+          },
         })}
       />
 

@@ -195,22 +195,43 @@ export async function metaRoutes(app: FastifyInstance) {
     const token = q['hub.verify_token']
     const challenge = q['hub.challenge']
 
-    // Buscar verify token configurado
+    // Buscar verify token configurado — SEM fallback para literal previsível.
+    // Se nenhum verify token estiver configurado, a verificação falha (fail-closed).
     const integration = await prisma.metaIntegration.findFirst({ where: { active: true } })
-    const verifyToken = integration?.webhookSecret || process.env.META_VERIFY_TOKEN || 'beyondhub-meta-verify'
+    const verifyToken = integration?.webhookSecret || process.env.META_VERIFY_TOKEN || ''
 
-    if (mode === 'subscribe' && token === verifyToken) {
+    if (mode === 'subscribe' && verifyToken && typeof token === 'string' && token === verifyToken) {
       app.log.info('[Meta] Webhook verified successfully')
       return reply.code(200).send(challenge)
     }
 
-    app.log.warn(`[Meta] Webhook verification failed: mode=${mode}, token=${token}`)
+    // Nunca logar o valor do token recebido (poderia vazar um token válido mal digitado).
+    app.log.warn(`[Meta] Webhook verification failed: mode=${mode}, hasToken=${!!token}, configured=${!!verifyToken}`)
     return reply.code(403).send('Verification failed')
   })
 
   // POST /api/meta/webhook — Receber eventos de lead do Meta
   app.post('/api/meta/webhook', async (req, reply) => {
     try {
+      // ── Validação de assinatura X-Hub-Signature-256 ───────────────────
+      // rawBody é capturado no preParsing do server.ts para esta rota. Sem isso,
+      // qualquer um forja leadgen_id e injeta leads falsos.
+      const rawBody = (req as any).rawBody as Buffer | undefined
+      const signature = req.headers['x-hub-signature-256'] as string | undefined
+      const appSecret = await getMetaAppSecret()
+      if (appSecret) {
+        const { validateWebhookSignature } = await import('../services/cloudApi.js')
+        if (!rawBody || !signature || !validateWebhookSignature(rawBody, signature, appSecret)) {
+          app.log.warn('[Meta] Webhook signature inválida — rejeitando')
+          return reply.code(401).send('Invalid signature')
+        }
+      } else if (process.env.META_WEBHOOK_STRICT === '1') {
+        app.log.warn('[Meta][SECURITY] sem app secret + STRICT — rejeitando webhook')
+        return reply.code(401).send('Signature required')
+      } else {
+        app.log.warn('[Meta][SECURITY] app secret ausente — webhook aceito SEM verificação. Configure META_APP_SECRET.')
+      }
+
       const body = req.body as any
 
       // Responde 200 imediatamente (Meta exige < 10s)
@@ -229,6 +250,12 @@ export async function metaRoutes(app: FastifyInstance) {
               const metaFormId = String(value.form_id || value.leadgen_id || '')
 
               if (metaLeadId) {
+                // Idempotência/anti-replay: o Meta reenvia o evento em falha de ACK.
+                // SET NX no leadgen_id evita re-buscar/re-inserir o mesmo lead.
+                const { redis } = await import('../lib/redis.js')
+                let fresh: string | null = '1'
+                try { fresh = await redis.set(`metalead:${metaLeadId}`, '1', 'EX', 86400, 'NX') } catch { /* segue */ }
+                if (fresh === null) continue
                 processMetaLead(metaLeadId, metaFormId, pageId, app).catch(err => {
                   app.log.error(`[Meta] Lead processing failed: ${err.message}`)
                 })
@@ -1328,6 +1355,17 @@ async function createLeadFromMeta(
       mapped[leadField] = value
     }
   }
+
+  // Meta é fonte externa não confiável: o usuário pode digitar lixo no form e
+  // estourar o limite da coluna, fazendo o INSERT falhar e o poller retentar o
+  // mesmo lead pra sempre (incidente vantari: phone com 33 chars > VarChar(30)).
+  // Saneia o telefone (mantém + e dígitos, E.164) e trunca os campos núcleo.
+  if (mapped.whatsapp) mapped.whatsapp = mapped.whatsapp.replace(/[^\d+]/g, '').slice(0, 30)
+  if (mapped.nome) mapped.nome = mapped.nome.slice(0, 191)
+  if (mapped.empresa) mapped.empresa = mapped.empresa.slice(0, 191)
+  if (mapped.email) mapped.email = mapped.email.slice(0, 191)
+  if (mapped.segmento) mapped.segmento = mapped.segmento.slice(0, 100)
+  if (mapped.cidade) mapped.cidade = mapped.cidade.slice(0, 100)
 
   const cd = meta.campaignData || {}
 

@@ -10,6 +10,7 @@ import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
 import { toast } from '@/lib/toast'
 import { useFunnels, useStages } from '@/hooks/useFunnels'
 import { useAgents } from '@/hooks/useRouting'
+import { useTeams } from '@/hooks/useTeams'
 import {
   useMeetingTypes, useSaveMeetingType, useDeleteMeetingType, useGoogleConnectedOperators,
   LOCATION_LABELS, type MeetingType, type MeetingTypeInput,
@@ -157,13 +158,16 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
   const { data: funnelsData } = useFunnels()
   const { data: stagesData } = useStages(form.funnelId ?? null)
   const { data: agentsData } = useAgents()
+  const { data: teamsData } = useTeams()
   const { data: googleOpsData } = useGoogleConnectedOperators()
   const set = (patch: Partial<MeetingTypeInput>) => onChange({ ...form, ...patch })
-  // Aviso de sincronização: o dono precisa ter o Google Calendar conectado, senão
-  // os agendamentos não vão pro Google nem bloqueiam pela agenda dele.
+  // Modo de atribuição: 'team_routing' distribui pela equipe via Roteamento de Leads.
+  const isTeamRouting = form.assignmentMode === 'team_routing'
+  // Aviso de sincronização (só no modo dono fixo): o dono precisa ter o Google Calendar
+  // conectado, senão os agendamentos não vão pro Google nem bloqueiam pela agenda dele.
   const connectedOps = googleOpsData?.connectedUserIds ?? []
-  const ownerMissingGoogle = form.ownerUserId != null && googleOpsData != null && !connectedOps.includes(form.ownerUserId)
-  const ownerUnset = form.ownerUserId == null
+  const ownerMissingGoogle = !isTeamRouting && form.ownerUserId != null && googleOpsData != null && !connectedOps.includes(form.ownerUserId)
+  const ownerUnset = !isTeamRouting && form.ownerUserId == null
   const numInput = (v: string): number | null => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null }
 
   return (
@@ -221,12 +225,33 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
             {(form.locationType === 'in_person' || form.locationType === 'custom') && (
               <Input label={form.locationType === 'in_person' ? 'Endereço' : 'Link'} value={form.locationDetail ?? ''} onInput={(e) => set({ locationDetail: (e.target as HTMLInputElement).value })} />
             )}
-            <Select label="Dono (operador)" value={form.ownerUserId == null ? '' : String(form.ownerUserId)} onChange={(e) => set({ ownerUserId: numInput((e.target as HTMLSelectElement).value) })}>
-              <option value="">— selecione —</option>
-              {(agentsData?.agents ?? []).filter((a) => a.active).map((a) => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
+            {/* Modo de atribuição: dono fixo ou orquestração pela equipe */}
+            <Select label="Atribuição" value={isTeamRouting ? 'team_routing' : 'fixed'} onChange={(e) => set({ assignmentMode: (e.target as HTMLSelectElement).value })}>
+              <option value="fixed">Operador fixo</option>
+              <option value="team_routing">Orquestrar pela Equipe</option>
             </Select>
+            {isTeamRouting ? (
+              <Select label="Equipe" value={form.teamId == null ? '' : String(form.teamId)} onChange={(e) => set({ teamId: numInput((e.target as HTMLSelectElement).value) })}>
+                <option value="">— selecione —</option>
+                {(teamsData?.teams ?? []).filter((t) => t.active).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </Select>
+            ) : (
+              <Select label="Dono (operador)" value={form.ownerUserId == null ? '' : String(form.ownerUserId)} onChange={(e) => set({ ownerUserId: numInput((e.target as HTMLSelectElement).value) })}>
+                <option value="">— selecione —</option>
+                {(agentsData?.agents ?? []).filter((a) => a.active).map((a) => <option key={a.id} value={a.id}>{a.name || a.email}</option>)}
+              </Select>
+            )}
           </div>
-          {(ownerMissingGoogle || ownerUnset) && (
+          {isTeamRouting ? (
+            <div class="mt-2 flex items-start gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-info">
+              <span aria-hidden>ℹ️</span>
+              <span>
+                {form.teamId == null
+                  ? 'Selecione a equipe que vai orquestrar os agendamentos. Os leads serão distribuídos automaticamente pelas regras de Roteamento de Leads da equipe.'
+                  : 'Ao agendar, o lead é distribuído automaticamente entre os operadores desta equipe pelas regras de Roteamento de Leads. A disponibilidade de horários usa a agenda própria deste tipo de reunião (configure em "Disponibilidade").'}
+              </span>
+            </div>
+          ) : (ownerMissingGoogle || ownerUnset) && (
             <div class="mt-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
               <span aria-hidden>⚠️</span>
               <span>

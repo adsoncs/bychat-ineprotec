@@ -92,6 +92,15 @@ function WidgetBody({
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
+/** Minutos → texto legível (ex.: 90 → "1h30", 45 → "45min", 2880 → "2d"). */
+function fmtMins(v: unknown): string {
+  const m = Number(v ?? 0)
+  if (!v || Number.isNaN(m) || m <= 0) return '—'
+  if (m < 60) return `${Math.round(m)}min`
+  if (m < 1440) { const h = Math.floor(m / 60), mm = Math.round(m % 60); return mm ? `${h}h${mm}` : `${h}h` }
+  const dd = Math.floor(m / 1440), hh = Math.round((m % 1440) / 60); return hh ? `${dd}d${hh}h` : `${dd}d`
+}
+
 function pillarLabel(k: string): string {
   const map: Record<string, string> = {
     geral: 'Geral', mkt: 'Marketing', vendas: 'Vendas', vnd: 'Vendas',
@@ -263,6 +272,14 @@ function KpiBody({ metric, data }: { metric: string; data: unknown }) {
       val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
       sub = `${num(d.paid)} de ${num(d.total)} pagas`
       break
+    case 'helpdesk_volume':
+      val = num(d.created)
+      sub = `${num(d.solved)} resolvidos · ${num(d.backlog)} em aberto`
+      break
+    case 'helpdesk_csat':
+      val = <>{num(d.avg)}<em class="text-base text-fg-muted ml-1">/5</em></>
+      sub = `${num(d.responded)} de ${num(d.sent)} respondidas`
+      break
     default:
       val = num(d.value ?? d.total ?? 0)
   }
@@ -340,6 +357,25 @@ function StatGridBody({ metric, data }: { metric: string; data: unknown }) {
         { label: 'Conversão', value: num(d.value), color: '#34a853', suffix: '%' },
         { label: 'Pagas', value: num(d.paid), color: '#1a73e8' },
         { label: 'Total', value: num(d.total), color: '#9334e6' },
+      ]
+      case 'helpdesk_volume': return [
+        { label: 'Criados', value: num(d.created), color: '#1a73e8' },
+        { label: 'Resolvidos', value: num(d.solved), color: '#34a853' },
+        { label: 'Em aberto', value: num(d.backlog), color: '#f9ab00' },
+        { label: 'Reaberturas', value: num(d.reopened), color: '#ea4335' },
+      ]
+      case 'helpdesk_sla': return [
+        { label: '1ª resposta', value: num(d.frPct), color: '#34a853', suffix: '%' },
+        { label: 'Resolução', value: num(d.resPct), color: '#1a73e8', suffix: '%' },
+      ]
+      case 'helpdesk_times': return [
+        { label: 'TMA (1ª resp.)', value: fmtMins(d.avgFirstResponseMins), color: '#9334e6' },
+        { label: 'TMR (resolução)', value: fmtMins(d.avgResolutionMins), color: '#1a73e8' },
+      ]
+      case 'helpdesk_csat': return [
+        { label: 'Nota', value: num(d.avg), color: '#f9ab00', suffix: '/5' },
+        { label: 'Respostas', value: num(d.responded), color: '#34a853' },
+        { label: 'Enviadas', value: num(d.sent), color: '#1a73e8' },
       ]
       default: return [{ label: 'Valor', value: num(d.value ?? d.total ?? 0), color: '#1a73e8' }]
     }
@@ -507,6 +543,25 @@ function LineAreaBody({
   const d = data as { data?: DataPoint[] }
   const items = d.data ?? []
   if (items.length === 0) return <NoData />
+
+  // helpdesk_trend: 2 séries (criados + resolvidos)
+  if (widget.metric === 'helpdesk_trend' && (items[0] as any)?.created !== undefined) {
+    const all = items.flatMap((it) => [Number((it as any).created ?? 0), Number((it as any).solved ?? 0)])
+    const max = Math.max(...all, 1)
+    return (
+      <div>
+        <Sparkline2 items={items.map((it) => ({
+          label: it.label ?? '',
+          a: Number((it as any).created ?? 0),
+          b: Number((it as any).solved ?? 0),
+        }))} max={max} chartType={chartType} colorA="#1a73e8" colorB="#34a853" />
+        <div class="flex justify-center gap-3 mt-2 text-[10px] text-fg-muted">
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#1a73e8]" /> Criados</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#34a853]" /> Resolvidos</span>
+        </div>
+      </div>
+    )
+  }
 
   // messages_volume: 2 séries (sent + received)
   if (widget.metric === 'messages_volume' && items[0]?.sent !== undefined) {
@@ -1254,6 +1309,7 @@ function GaugeBody({ metric, data }: { metric: string; data: unknown }) {
     case 'leads_conversion': value = Number(d.value ?? 0); label = '%'; break
     case 'leads_total': value = Number(d.value ?? 0); maxVal = Math.max(value * 1.5, 100); label = 'leads'; break
     case 'registrations_conversion_rate': value = Number(d.value ?? 0); label = '% conversão'; break
+    case 'helpdesk_sla': value = Number(d.resPct ?? d.value ?? 0); maxVal = 100; label = '% SLA resolução'; break
     default: value = Number(d.value ?? d.total ?? 0); maxVal = Math.max(value * 1.5, 100)
   }
   const pct = Math.min((value / maxVal) * 100, 100)
@@ -1650,6 +1706,37 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
                 </tr>
               )
             })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  if (metric === 'helpdesk_by_agent') {
+    return (
+      <div class="overflow-x-auto -mx-2">
+        <table class="w-full text-xs">
+          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+            <tr>
+              <th class="text-left p-1.5 font-medium">Agente</th>
+              <th class="text-right p-1.5 font-medium">Atribuídos</th>
+              <th class="text-right p-1.5 font-medium">Resolvidos</th>
+              <th class="text-right p-1.5 font-medium">TMR</th>
+              <th class="text-right p-1.5 font-medium">Reaberturas</th>
+              <th class="text-right p-1.5 font-medium">CSAT</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            {items.slice(0, 15).map((a, i) => (
+              <tr key={(a.agentUserId as number) ?? i} class="hover:bg-surface-2">
+                <td class="p-1.5 font-medium text-fg truncate max-w-[12rem]">{(a.name as string) ?? '—'}</td>
+                <td class="p-1.5 text-right tabular-nums">{Number(a.assigned ?? 0)}</td>
+                <td class="p-1.5 text-right tabular-nums">{Number(a.solved ?? 0)}</td>
+                <td class="p-1.5 text-right tabular-nums text-fg-muted">{fmtMins(a.avgResolutionMins)}</td>
+                <td class="p-1.5 text-right tabular-nums text-fg-muted">{Number(a.reopened ?? 0)}</td>
+                <td class="p-1.5 text-right tabular-nums">{a.csatAvg != null ? `${a.csatAvg}/5` : '—'}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

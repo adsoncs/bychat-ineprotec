@@ -38,12 +38,17 @@ import {
   HelpCircle,
   Cloud,
   Smartphone,
+  MessageCircle,
+  ChevronDown,
+  Check,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTickets,
   useTicketMessages,
   useSendMessage,
+  useSenderChannels,
+  type SenderChannel,
   useMarkAsRead,
   useClaimTicket,
   useReleaseTicket,
@@ -610,14 +615,29 @@ export function ConversationsPage() {
   )
 }
 
+function InstagramLogo({ size = 9 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0">
+      <rect width="20" height="20" x="2" y="2" rx="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  )
+}
+
 function ChannelTag({ channel, compact = false }: {
-  channel: { provider: 'evolution' | 'cloud_api'; label: string; number: string | null; name: string | null } | null
+  channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string; number: string | null; name: string | null } | null
   compact?: boolean
 }) {
   if (!channel) return null
-  const isCloud = channel.provider === 'cloud_api'
-  const Icon = isCloud ? Cloud : Smartphone
-  const cls = isCloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success'
+  const map: Record<string, { Icon: any; cls: string; text: string }> = {
+    cloud_api: { Icon: Cloud, cls: 'bg-info/15 text-info', text: 'Cloud' },
+    instagram: { Icon: InstagramLogo, cls: 'bg-[#E1306C]/15 text-[#E1306C]', text: 'Instagram' },
+    messenger: { Icon: MessageCircle, cls: 'bg-[#0084FF]/15 text-[#0084FF]', text: 'Messenger' },
+    evolution: { Icon: Smartphone, cls: 'bg-success/15 text-success', text: 'Evolution' },
+  }
+  const { Icon, cls, text } = map[channel.provider] || map.evolution
   const num = channel.number || channel.name
   return (
     <span
@@ -625,7 +645,7 @@ function ChannelTag({ channel, compact = false }: {
       title={`Canal: ${channel.label}${num ? ' · ' + num : ''}`}
     >
       <Icon size={9} />
-      {isCloud ? 'Cloud' : 'Evolution'}{!compact && num ? ` · ${num}` : ''}
+      {text}{!compact && num ? ` · ${num}` : ''}
     </span>
   )
 }
@@ -772,6 +792,12 @@ function ChatPanel({
   const lead = infoData?.lead
   const currentUserId = useUserStore((s) => s.user?.id)
   const send = useSendMessage(leadId)
+  // Canais de envio (multi-canal: Evolution + Cloud API). O operador escolhe por
+  // qual número responder; pré-seleciona o canal de ENTRADA do lead. Sem isso o
+  // backend resolvia sozinho e caía sempre na Cloud API.
+  const { data: senderChannels } = useSenderChannels(leadId)
+  const channels = senderChannels?.channels ?? []
+  const [channelId, setChannelId] = useState<string | null>(null)
   const upload = useUploadChatMedia()
   const markRead = useMarkAsRead()
   const closeConv = useCloseConversation()
@@ -791,6 +817,9 @@ function ChatPanel({
   const [chatSearch, setChatSearch] = useState<string | null>(null)
   const [quotedMsg, setQuotedMsg] = useState<ChatMessage | null>(null)
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  // Menu de troca de número de envio (mantém visível só o número padrão/atual;
+  // os demais ficam neste dropdown — evita o rodapé poluído com muitos números).
+  const [numMenuOpen, setNumMenuOpen] = useState(false)
   // Modal de promoção pós-Assumir: aberto após claim quando o lead ainda não
   // está qualificado (qualifiedAt == null) — convida o operador a colocar
   // o contato em um funil/etapa. Se já é lead qualificado, modal não aparece.
@@ -813,7 +842,16 @@ function ChatPanel({
   useEffect(() => {
     setChatSearch(null)
     setQuotedMsg(null)
+    setChannelId(null)
+    setNumMenuOpen(false)
   }, [leadId])
+
+  // Pré-seleciona o canal sugerido (de entrada do lead) quando os canais chegam.
+  useEffect(() => {
+    if (channelId) return
+    const suggested = senderChannels?.suggestedChannelId
+    if (suggested && channels.some((c) => c.id === suggested)) setChannelId(suggested)
+  }, [senderChannels])
 
   // Marcar como lida ao abrir, ao chegar mensagem nova com a aba focada, e ao
   // voltar foco para a aba com ticket já aberto. Cobre cenários:
@@ -857,6 +895,7 @@ function ChatPanel({
           body: body || undefined,
           isInternal: isInternalNote || undefined,
           quotedMsgId: quotedId,
+          channelId: !isInternalNote && channelId ? channelId : undefined,
           ...(mediaPayload ?? {}),
         },
         {
@@ -931,6 +970,7 @@ function ChatPanel({
             mediaType: 'audio',
             mediaUrl: resp.url,
             mediaName: resp.filename,
+            channelId: channelId ?? undefined,
           },
           {
             onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -1340,6 +1380,85 @@ function ChatPanel({
             </div>
           )}
           <div class="p-3">
+            {!isInternalNote && channels.length >= 2 && (() => {
+              // Mantém VISÍVEL apenas o número selecionado (padrão = canal de entrada
+              // do lead). Os demais ficam no menu "Trocar" — assim o rodapé não fica
+              // poluído quando há muitos números.
+              const selected = channels.find((c) => c.id === channelId) ?? null
+              const suggestedId = senderChannels?.suggestedChannelId ?? null
+              const chanLabel = (c: SenderChannel) => `${c.provider === 'cloud_api' ? 'Cloud API' : 'Evolution'}${(c.number || c.label) ? ` · ${c.number || c.label}` : ''}`
+              const SelIcon = selected?.provider === 'cloud_api' ? Cloud : Smartphone
+              const selCloud = selected?.provider === 'cloud_api'
+              return (
+                <div class="mb-2 flex flex-wrap items-center gap-1.5">
+                  <span class="text-[0.625rem] font-medium text-fg-subtle">Enviar por:</span>
+                  {selected && (
+                    <span
+                      class={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold',
+                        selCloud ? 'border-info/40 bg-info/15 text-info' : 'border-success/40 bg-success/15 text-success',
+                      )}
+                      title={`Número atual: ${chanLabel(selected)}`}
+                    >
+                      <SelIcon size={11} />
+                      {chanLabel(selected)}
+                      {selected.id === suggestedId && (
+                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-[0.5625rem] font-medium uppercase tracking-wide">padrão</span>
+                      )}
+                    </span>
+                  )}
+                  <div class="relative">
+                    <button
+                      type="button"
+                      onClick={() => setNumMenuOpen((v) => !v)}
+                      class="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] font-medium text-fg-muted hover:bg-surface-2 hover:text-fg transition-colors"
+                      aria-expanded={numMenuOpen}
+                      aria-haspopup="listbox"
+                      title="Trocar número de envio"
+                    >
+                      <ChevronDown size={11} />
+                      {selected ? 'Trocar' : 'Escolher número'}
+                    </button>
+                    {numMenuOpen && (
+                      <>
+                        <div class="fixed inset-0 z-30" onClick={() => setNumMenuOpen(false)} />
+                        <div
+                          role="listbox"
+                          class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
+                        >
+                          <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+                          {channels.map((c) => {
+                            const active = c.id === channelId
+                            const isCloud = c.provider === 'cloud_api'
+                            const Icon = isCloud ? Cloud : Smartphone
+                            return (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                key={c.id}
+                                onClick={() => { setChannelId(c.id); setNumMenuOpen(false) }}
+                                class={cn(
+                                  'w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
+                                  active ? 'text-fg font-semibold' : 'text-fg-muted',
+                                )}
+                              >
+                                <Icon size={12} class={isCloud ? 'text-info' : 'text-success'} />
+                                <span class="flex-1 truncate">{chanLabel(c)}</span>
+                                {c.id === suggestedId && (
+                                  <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">padrão</span>
+                                )}
+                                {active && <Check size={12} class="text-accent shrink-0" />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
             {recording ? (
               <AudioRecorder onComplete={handleAudio} onCancel={() => setRecording(false)} />
             ) : (

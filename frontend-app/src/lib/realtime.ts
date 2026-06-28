@@ -143,6 +143,11 @@ function queryKeysForEvent(ev: ServerEvent): readonly unknown[][] {
     case 'realtime:hello':
     case 'pong':
     case 'chat:typing':
+    case 'wa_call:incoming':
+    case 'wa_call:answer':
+    case 'wa_call:ended':
+    case 'wa_call:status':
+    case 'wa_call:permission':
       // Eventos ephemeral consumidos por listeners diretos (onServerEvent).
       return []
     default:

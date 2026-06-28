@@ -224,6 +224,76 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
       ])
     }
 
+    case 'aca_estrutura': {
+      const [disciplinas, turmas, matrizes] = await Promise.all([
+        safeCount((prisma as any).acaDisciplina?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaTurma?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaMatriz?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'disciplinas', count: disciplinas },
+        { label: 'turmas', count: turmas },
+        { label: 'matrizes curriculares', count: matrizes },
+      ])
+    }
+
+    case 'aca_matriculas': {
+      const [alunos, matriculas] = await Promise.all([
+        safeCount((prisma as any).aluno?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaMatricula?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'alunos', count: alunos },
+        { label: 'matrículas', count: matriculas },
+      ])
+    }
+
+    case 'aca_financeiro': {
+      const [parcelas, acordos, nfse] = await Promise.all([
+        safeCount((prisma as any).acaParcela?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaAcordo?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaNotaFiscal?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'parcelas', count: parcelas },
+        { label: 'acordos/renegociações', count: acordos },
+        { label: 'notas fiscais', count: nfse },
+      ])
+    }
+
+    case 'aca_pedagogico': {
+      const [diarios, resultados] = await Promise.all([
+        safeCount((prisma as any).acaDiario?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaResultado?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'diários de classe', count: diarios },
+        { label: 'resultados/fechamentos', count: resultados },
+      ])
+    }
+
+    case 'aca_secretaria': {
+      const [documentos, requerimentos, estagios] = await Promise.all([
+        safeCount((prisma as any).acaDocumento?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaRequerimento?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).acaEstagio?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'documentos emitidos', count: documentos },
+        { label: 'requerimentos', count: requerimentos },
+        { label: 'estágios', count: estagios },
+      ])
+    }
+
+    case 'aca_comunicacao': {
+      const [recent] = await Promise.all([
+        safeCount((prisma as any).acaComunicacao?.count?.({ where: { createdAt: { gte: SINCE_30D() } } }) ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'comunicações nos últimos 30 dias', count: recent },
+      ])
+    }
+
     default:
       return { total: 0, items: [] }
   }

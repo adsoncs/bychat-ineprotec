@@ -18,13 +18,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   canais: 'Canais',
   integracoes: 'Integrações',
   educacional: 'Educacional',
+  erp_academico: 'ERP Acadêmico',
   config: 'Configuração',
   admin: 'Administração',
 }
 
 const CATEGORY_ORDER = [
   'overview', 'crm', 'canais', 'captacao', 'marketing', 'automacao',
-  'vendas', 'educacional', 'integracoes', 'config', 'admin',
+  'vendas', 'educacional', 'erp_academico', 'integracoes', 'config', 'admin',
 ]
 
 function normalize(s: string): string {
