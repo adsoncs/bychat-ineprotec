@@ -155,9 +155,16 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     // pela equipe). Mesmo que o lead já tenha outro responsável, ao agendar ele vai
     // para quem atende os agendamentos. No modo equipe, também vincula a equipe (mantém
     // o lead na fila dela quando ninguém está elegível no momento).
-    const dupData: { assignedUserId?: number; assignedAt?: Date; teamId?: number } = {}
+    const dupData: { assignedUserId?: number; assignedAt?: Date; teamId?: number; email?: string; whatsapp?: string; nome?: string } = {}
     if (effectiveOperatorId) { dupData.assignedUserId = effectiveOperatorId; dupData.assignedAt = new Date() }
     if (mt.assignmentMode === 'team_routing' && effectiveTeamId) dupData.teamId = effectiveTeamId
+    // Backfill de contato: o agendamento sempre traz e-mail/telefone. Preenche o que estiver
+    // faltando no lead (sem sobrescrever o que já existe), pra o e-mail aparecer no card e os
+    // e-mails de convite/confirmação serem enviados (eles leem lead.email).
+    const cur = await prisma.lead.findUnique({ where: { id: lid }, select: { email: true, whatsapp: true, nome: true } }).catch(() => null)
+    if (email && !(cur?.email || '').trim()) dupData.email = email
+    if (whatsapp && !(cur?.whatsapp || '').trim()) dupData.whatsapp = whatsapp
+    if (input.name && !(cur?.nome || '').trim()) dupData.nome = String(input.name).trim()
     if (Object.keys(dupData).length) await prisma.lead.update({ where: { id: lid }, data: dupData }).catch(() => {})
   } else {
     const lead = await prisma.lead.create({

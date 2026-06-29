@@ -50,7 +50,20 @@ export async function settingsRoutes(app: FastifyInstance) {
     for (const [key, value] of Object.entries(updates)) {
       // Não sobrescrever um segredo existente com a máscara reenviada pelo painel.
       if (isSecretKey(key) && isMaskedValue(value)) continue
-      await prisma.setting.updateMany({ where: { key }, data: { value } })
+      // upsert (não updateMany): cria a Setting se ela ainda não existir no tenant.
+      // Antes, salvar uma chave/token novo (sem linha pré-existente) era um no-op
+      // silencioso — a API key salva no painel "sumia". Agora persiste sempre.
+      await prisma.setting.upsert({
+        where: { key },
+        update: { value },
+        create: {
+          key,
+          value,
+          label: key,
+          grp: key.includes('.') ? key.split('.')[0] : 'general',
+          fieldType: isSecretKey(key) ? 'password' : 'text',
+        },
+      })
     }
     // Invalida cache de modos de dedup quando relevantes mudam (Fase 24)
     if (Object.keys(updates).some(k => k.startsWith('dedup.mode.'))) {

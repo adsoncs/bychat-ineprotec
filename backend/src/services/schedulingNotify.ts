@@ -206,9 +206,13 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
     } catch (e: any) { console.warn('[scheduling] e-mail falhou:', e?.message) }
   }
 
-  // Operador/dono da agenda (só na confirmação) — WhatsApp + e-mail, ambos editáveis.
-  if (kind === 'confirmation' && mt.ownerUserId) {
-    const op = await prisma.user.findUnique({ where: { id: mt.ownerUserId }, select: { email: true, name: true, notifyWhatsapp: true } })
+  // Operador (só na confirmação) — WhatsApp + e-mail, ambos editáveis.
+  // Vai para o OPERADOR DO AGENDAMENTO (booking.operatorUserId — respeita o roteamento
+  // por equipe), com fallback ao dono do tipo de reunião. Antes ia sempre p/ o dono do
+  // tipo (mt.ownerUserId), avisando o agente errado quando o lead era roteado p/ outro.
+  const responsibleUserId = booking.operatorUserId ?? mt.ownerUserId
+  if (kind === 'confirmation' && responsibleUserId) {
+    const op = await prisma.user.findUnique({ where: { id: responsibleUserId }, select: { email: true, name: true, notifyWhatsapp: true } })
     // WhatsApp ao operador (se ele tiver número de avisos configurado).
     if (op?.notifyWhatsapp) {
       const waOpVars = { operador: op.name || '', nome: name, telefone: phone || '', emailLead: toEmail || '', reuniao: mt.name, quando: when, link: locLine }
