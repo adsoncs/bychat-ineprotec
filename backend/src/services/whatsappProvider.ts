@@ -295,16 +295,67 @@ export async function getProviderForLeadOwner(lead: { id: number; whatsapp: stri
 }
 
 /**
- * Retorna o provider WhatsApp pra o **remetente** (operador logado) enviar
- * uma mensagem ao lead. Diferente de getProviderForLead (que decide pelo
- * histórico do lead), aqui priorizamos a INSTÂNCIA DEDICADA do operador:
+ * Resolve o canal dedicado (instância Evolution OU conexão Cloud) de um usuário,
+ * já como provider pronto. Retorna null se o usuário não é dono de nenhum canal
+ * ativo. Usado por getProviderForSender (dono do lead e remetente).
+ */
+async function resolveDedicatedProviderForUser(
+  userId: number,
+): Promise<{ provider: WhatsAppProvider; instanceName: string | null; cloudApiConnectionId: number | null } | null> {
+  const ownInstance = await prisma.whatsAppInstance.findFirst({
+    where: { ownerUserId: userId, active: true },
+    orderBy: { id: 'asc' },
+    select: { instanceName: true },
+  })
+  if (ownInstance) {
+    return { provider: createEvolutionProviderFor(ownInstance.instanceName), instanceName: ownInstance.instanceName, cloudApiConnectionId: null }
+  }
+  const ownCloud = await prisma.cloudApiConnection.findFirst({
+    where: { ownerUserId: userId, active: true },
+    orderBy: { id: 'asc' },
+    select: { id: true, phoneNumberId: true, systemUserToken: true },
+  })
+  if (ownCloud) {
+    return { provider: new CloudApiProvider(ownCloud.phoneNumberId, ownCloud.systemUserToken), instanceName: null, cloudApiConnectionId: ownCloud.id }
+  }
+  return null
+}
+
+/** channelId ("evolution:x" | "cloud:1") do canal dedicado de um usuário, ou null. */
+async function dedicatedChannelIdForUser(userId: number): Promise<string | null> {
+  const ownInstance = await prisma.whatsAppInstance.findFirst({
+    where: { ownerUserId: userId, active: true },
+    orderBy: { id: 'asc' },
+    select: { instanceName: true },
+  })
+  if (ownInstance) return evoChannelId(ownInstance.instanceName)
+  const ownCloud = await prisma.cloudApiConnection.findFirst({
+    where: { ownerUserId: userId, active: true },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  })
+  if (ownCloud) return cloudChannelId(ownCloud.id)
+  return null
+}
+
+/**
+ * Retorna o provider WhatsApp para enviar uma mensagem ao lead. O número que
+ * "possui" a conversa é o do DONO do lead (assignedUserId): os leads de um agente
+ * falam SEMPRE pelo número dele, não importa quem clique em enviar — assim as
+ * respostas voltam para a linha do dono e ele não perde a conversa. Ordem:
  *
- *   1. Lead tem histórico Cloud API? Responde pela Cloud API (canal de origem).
- *   2. AGENT tem instância dedicada (ownerUserId)? Usa a primeira ativa dele.
- *   3. AGENT sem instância dedicada? Erro — não pode usar a do colega/admin.
- *   4. Admin (SUPERADMIN/ADMIN/MANAGER) sem instância dedicada? Cai pra
- *      getProviderForLead (escolhe pela origem das mensagens do lead) ou
- *      provider padrão.
+ *   1. DONO do lead (assignedUserId) tem canal dedicado (instância Evolution ou
+ *      conexão Cloud)? → SEMPRE usa ele. (Flavia é dona → sai pelo terram_n2,
+ *      mesmo que o Adson/Luiz responda e mesmo que o lead tenha entrado por
+ *      outro número.)
+ *   2. Lead sem dono / dono sem número → canal dedicado do REMETENTE (quem está
+ *      atendendo fala pela própria linha).
+ *   3. Ninguém com número dedicado → espelha o canal de ENTRADA do lead
+ *      (responde pelo mesmo número pelo qual ele falou por último).
+ *   4. AGENT sem nada → erro. Admin sem nada → provider padrão.
+ *
+ * O endpoint ainda valida via canSendVia (owner-only para AGENT; admin passa),
+ * então um AGENT não envia pela instância dedicada de outro agente.
  *
  * Retorna { provider, instanceName } pra que callers possam logar/validar.
  */
@@ -312,12 +363,22 @@ export async function getProviderForSender(
   lead: { id: number; whatsapp: string },
   sender: { userId: number; role: string },
 ): Promise<{ provider: WhatsAppProvider; instanceName: string | null; cloudApiConnectionId?: number | null }> {
-  // 1. Canal de ENTRADA do lead manda: a resposta sai pelo MESMO canal/número
-  //    pela qual o lead falou por último — seja Cloud API ou Evolution. Olha a
-  //    ÚLTIMA mensagem do lead (priorizando a última RECEBIDA, fromMe=false), e
-  //    NÃO a mera existência de uma mensagem Cloud no histórico. (A regra antiga
-  //    — "se existe qualquer msg cloud_api, responde pela Cloud" — privilegiava
-  //    a Cloud API para sempre, mesmo depois da conversa migrar para a Evolution.)
+  // 1. DONO do lead com número dedicado → identidade da conversa. Tem prioridade
+  //    sobre o remetente e sobre o espelhamento do canal de entrada.
+  const leadRow = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true } })
+  if (leadRow?.assignedUserId) {
+    const ownerCh = await resolveDedicatedProviderForUser(leadRow.assignedUserId)
+    if (ownerCh) return ownerCh
+  }
+
+  // 2. Lead sem dono (ou dono sem número) → canal dedicado do REMETENTE.
+  const senderCh = await resolveDedicatedProviderForUser(sender.userId)
+  if (senderCh) return senderCh
+
+  // 3. Ninguém com número dedicado → espelha o canal de ENTRADA do lead: a
+  //    resposta sai pelo MESMO canal/número pela qual o lead falou por último
+  //    (Cloud API ou Evolution). Olha a ÚLTIMA mensagem RECEBIDA (fromMe=false),
+  //    e NÃO a mera existência de uma msg Cloud no histórico.
   const lastInbound = await prisma.message.findFirst({
     where: { leadId: lead.id, fromMe: false, isInternal: false },
     orderBy: { timestamp: 'desc' },
@@ -344,7 +405,7 @@ export async function getProviderForSender(
     }
   } else if (channelMsg?.provider === 'evolution' && channelMsg.evolutionInstance) {
     // Responde pela MESMA instância Evolution pela qual o lead falou (espelha o
-    // número de entrada, mesmo que não seja a instância dedicada do operador).
+    // número de entrada). Só chega aqui quem NÃO tem número dedicado.
     const inst = await prisma.whatsAppInstance.findFirst({
       where: { instanceName: channelMsg.evolutionInstance, active: true },
       select: { instanceName: true },
@@ -356,39 +417,8 @@ export async function getProviderForSender(
       cloudApiConnectionId: null,
     }
   }
-  // Sem histórico de canal identificável → segue para o canal do remetente.
 
-  // 2. Sender com instância Evolution dedicada → usa a dele
-  const ownInstance = await prisma.whatsAppInstance.findFirst({
-    where: { ownerUserId: sender.userId, active: true },
-    orderBy: { id: 'asc' },
-    select: { instanceName: true },
-  })
-  if (ownInstance) {
-    return {
-      provider: createEvolutionProviderFor(ownInstance.instanceName),
-      instanceName: ownInstance.instanceName,
-    }
-  }
-
-  // 2b. Sender com conexão Cloud API dedicada → usa a dele. (Paridade com 2:
-  //     antes só instâncias Evolution contavam como "canal do dono", então um
-  //     agente dono APENAS de conexão Cloud caía no fallback global e podia sair
-  //     pelo número errado — bug do Rafael Beyond, LD-DMWF9V.)
-  const ownCloud = await prisma.cloudApiConnection.findFirst({
-    where: { ownerUserId: sender.userId, active: true },
-    orderBy: { id: 'asc' },
-    select: { id: true, phoneNumberId: true, systemUserToken: true },
-  })
-  if (ownCloud) {
-    return {
-      provider: new CloudApiProvider(ownCloud.phoneNumberId, ownCloud.systemUserToken),
-      instanceName: null,
-      cloudApiConnectionId: ownCloud.id,
-    }
-  }
-
-  // 3. AGENT sem canal dedicado → bloqueia explicitamente
+  // 3. AGENT sem canal dedicado e sem histórico de canal → bloqueia explicitamente
   if (sender.role === 'AGENT') {
     throw new Error(
       'Você não tem um número de WhatsApp vinculado. Peça ao administrador para configurar uma instância ou conexão.',
@@ -473,9 +503,26 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
   ]
 }
 
-/** Resolve o canal SUGERIDO pela origem do lead (último número que falou com ele). */
-export async function suggestChannelForLead(leadId: number): Promise<string | null> {
-  // Sugere o canal de ENTRADA do lead: a última mensagem RECEBIDA (fromMe=false)
+/** Resolve o canal SUGERIDO de envio (espelha getProviderForSender, para o
+ *  seletor do modal já abrir no número certo): (1) canal dedicado do DONO do
+ *  lead; (2) canal dedicado do remetente; (3) canal de ENTRADA do lead. */
+export async function suggestChannelForLead(
+  leadId: number,
+  sender?: { userId: number; role: string },
+): Promise<string | null> {
+  // 1. Número dedicado do DONO do lead tem prioridade (a conversa "pertence" a
+  //    esse número, independente de quem está enviando).
+  const leadRow = await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true } })
+  if (leadRow?.assignedUserId) {
+    const ownerCh = await dedicatedChannelIdForUser(leadRow.assignedUserId)
+    if (ownerCh) return ownerCh
+  }
+  // 2. Senão, número dedicado do remetente.
+  if (sender) {
+    const senderCh = await dedicatedChannelIdForUser(sender.userId)
+    if (senderCh) return senderCh
+  }
+  // 3. Sugere o canal de ENTRADA do lead: a última mensagem RECEBIDA (fromMe=false)
   // define por onde ele falou por último. Só cai para a última mensagem qualquer
   // quando não há nenhuma recebida (ex.: primeiro contato 100% outbound). Usar a
   // última msg "qualquer" sozinha criava um ciclo: uma resposta enviada pela Cloud

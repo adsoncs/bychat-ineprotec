@@ -375,7 +375,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       ? await getCloudWindowState(leadId)
       : null
 
-    const suggestedChannelId = leadId ? await suggestChannelForLead(leadId) : null
+    const suggestedChannelId = leadId ? await suggestChannelForLead(leadId, { userId: user.userId, role: user.role }) : null
 
     return {
       channels: channels.map(c => ({
