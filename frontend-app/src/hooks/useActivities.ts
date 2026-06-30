@@ -44,6 +44,8 @@ export interface ActivityInput {
   attachmentUrl?: string | null | undefined
   attachmentName?: string | null | undefined
   attachmentType?: string | null | undefined
+  /** Avisar o lead (convite Google Calendar + WhatsApp) — só p/ meeting/call. Default false. */
+  notifyLead?: boolean | undefined
 }
 
 export interface ActivitiesListResponse {

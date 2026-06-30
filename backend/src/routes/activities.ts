@@ -71,7 +71,9 @@ export async function activitiesRoutes(app: FastifyInstance) {
           attachmentUrl: body.attachmentUrl || null,
           attachmentName: body.attachmentName || null,
           attachmentType: body.attachmentType || null,
-          metadata: { ...(body.metadata || {}), bodyHtml: bodyHtml || undefined },
+          // notifyLead: opt-in do operador para avisar o lead (convite Google + WhatsApp).
+          // Default OFF — só notifica se vier true explícito do painel.
+          metadata: { ...(body.metadata || {}), bodyHtml: bodyHtml || undefined, notifyLead: body.notifyLead === true ? true : undefined },
         }
       })
 

@@ -602,6 +602,9 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
     return d.toISOString().slice(0, 16)
   })
   const [reminderAt, setReminderAt] = useState('')
+  // Avisar o lead (convite Google + WhatsApp). Default OFF — evita que registrar
+  // um no-show como reunião dispare convite/WhatsApp ao cliente sem querer.
+  const [notifyLead, setNotifyLead] = useState(false)
 
   const [templateId, setTemplateId] = useState<number | ''>('')
   const [messageSubject, setMessageSubject] = useState('')
@@ -646,6 +649,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
       templateId: templateId === '' ? null : Number(templateId),
       recipientPhone: recipientPhone.trim() || null,
       recipientEmail: recipientEmail.trim() || null,
+      notifyLead: (type === 'meeting' || type === 'call') ? notifyLead : undefined,
     }
 
     let createdActivity: Activity
@@ -792,6 +796,20 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
               hint="Notifica antes da execução"
             />
           </div>
+          {(type === 'meeting' || type === 'call') && (
+            <label class="flex items-start gap-2 rounded-lg border border-border bg-surface p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                class="mt-0.5"
+                checked={notifyLead}
+                onChange={(e) => setNotifyLead((e.target as HTMLInputElement).checked)}
+              />
+              <span class="text-xs text-fg-muted leading-snug">
+                <span class="font-medium text-fg">Avisar o lead</span> — envia convite no Google Calendar e WhatsApp com o link do Meet.
+                Deixe <strong>desmarcado</strong> para apenas registrar (ex.: marcar um no-show) sem notificar o cliente.
+              </span>
+            </label>
+          )}
         </div>
       )}
 

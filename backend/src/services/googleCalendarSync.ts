@@ -94,6 +94,13 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
     let targetIntegrations = matched
     const extraAttendees: string[] = []
     const meta0 = (activity.metadata as any) || {}
+    // Aviso ao LEAD (convite no Google + WhatsApp) é OPT-IN por atividade: só
+    // dispara se o operador marcou "avisar o lead" (metadata.notifyLead) ao criar.
+    // Bookings (lead pediu via /agendar/chatbot) sempre convidam o lead. Sem isso,
+    // registrar um no-show como atividade de reunião disparava convite/WhatsApp ao
+    // cliente sem ninguém pedir.
+    const leadOptIn = meta0.notifyLead === true
+    const inviteLead = !!meta0.bookingId || leadOptIn
     if (meta0.bookingId) {
       const setting = await prisma.setting.findUnique({ where: { key: 'scheduling.central_calendar_email' } }).catch(() => null)
       const centralEmail = setting ? String(setting.value).replace(/"/g, '').trim().toLowerCase() : ''
@@ -131,7 +138,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           description,
           start,
           end,
-          attendees: integration.notifyLead ? attendees : [],
+          attendees: (integration.notifyLead && inviteLead) ? attendees : [],
           addMeetLink: integration.autoMeetLink,
           extendedPrivate: { bychatSource: 'activity', bychatActivityId: String(activityId) },
         })
@@ -173,7 +180,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
 
         // Para agendamentos (bookings) a confirmação por WhatsApp é feita por notifyBooking
         // (template HSM) — não disparar aqui pra não duplicar nem cair em texto livre.
-        if (integration.notifyLead && result.meetLink && lead?.whatsapp && !meta0.bookingId) {
+        if (integration.notifyLead && leadOptIn && result.meetLink && lead?.whatsapp && !meta0.bookingId) {
           try {
             // Notificação pelo número do dono do lead (não pelo default da env)
             // pra preservar identidade do operador no histórico do contato.
