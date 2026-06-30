@@ -2369,6 +2369,8 @@ model InboundWebhookHit {
 model DbConnector {
   id              Int       @id @default(autoincrement())
   name            String    @db.VarChar(120)
+  // Nome do CANAL exibido em funis/relatórios (editável). Se vazio, cai no `name`.
+  channelLabel    String?   @db.VarChar(120)
   description     String?   @db.VarChar(255)
   dbType          String    @db.VarChar(20) // 'mysql' | 'postgres'
   host            String    @db.VarChar(255)

@@ -12,7 +12,7 @@ import {
 import { runConnector } from '../services/dbConnectors/runner.js'
 
 const PUBLIC_FIELDS = {
-  id: true, name: true, description: true,
+  id: true, name: true, channelLabel: true, description: true,
   dbType: true, host: true, port: true, dbName: true, dbUser: true, useTLS: true,
   query: true, mapping: true,
   deltaStrategy: true, deltaColumn: true, lastSyncCursor: true,
@@ -29,10 +29,12 @@ export async function dbConnectorsRoutes(app: FastifyInstance) {
   // funis/relatórios. Acessível a qualquer usuário autenticado (não expõe
   // host/usuário/senha como o LIST admin).
   app.get('/api/db-connectors/names', { preHandler: authMiddleware }, async () => {
-    const items = await prisma.dbConnector.findMany({
-      select: { id: true, name: true },
+    const rows = await prisma.dbConnector.findMany({
+      select: { id: true, name: true, channelLabel: true },
       orderBy: { id: 'asc' },
     })
+    // Nome exibido = rótulo do canal (se definido) senão o nome técnico.
+    const items = rows.map(r => ({ id: r.id, name: r.channelLabel || r.name }))
     return { items }
   })
 
@@ -72,6 +74,7 @@ export async function dbConnectorsRoutes(app: FastifyInstance) {
     const created = await prisma.dbConnector.create({
       data: {
         name: body.name,
+        channelLabel: body.channelLabel || null,
         description: body.description || null,
         dbType: body.dbType,
         host: body.host,
@@ -111,7 +114,7 @@ export async function dbConnectorsRoutes(app: FastifyInstance) {
     }
 
     const data: any = {}
-    const editable = ['name','description','dbType','host','dbName','dbUser','useTLS','caCert','query','mapping','deltaStrategy','deltaColumn','intervalMinutes','active','defaultTeamId','defaultFunnelId','defaultStageKey','lastSyncCursor']
+    const editable = ['name','channelLabel','description','dbType','host','dbName','dbUser','useTLS','caCert','query','mapping','deltaStrategy','deltaColumn','intervalMinutes','active','defaultTeamId','defaultFunnelId','defaultStageKey','lastSyncCursor']
     for (const k of editable) if (body[k] !== undefined) data[k] = body[k]
     if (body.port !== undefined) data.port = parseInt(body.port, 10)
     if (body.intervalMinutes !== undefined) data.intervalMinutes = parseInt(body.intervalMinutes, 10)

@@ -173,6 +173,7 @@ function ConnectorEditModal({ connector, onClose }: { connector: DbConnector | n
   const isEdit = !!connector
   const [form, setForm] = useState<DbConnectorInput>(() => connector ? {
     name: connector.name,
+    channelLabel: connector.channelLabel,
     description: connector.description,
     dbType: connector.dbType,
     host: connector.host,
@@ -282,6 +283,13 @@ function ConnectorEditModal({ connector, onClose }: { connector: DbConnector | n
               <span>Usar TLS/SSL</span>
             </label>
           </div>
+          <Input
+            label="Nome do canal (exibido em funis e relatórios)"
+            value={form.channelLabel ?? ''}
+            onInput={(e: any) => setForm({ ...form, channelLabel: e.target.value })}
+            placeholder={form.name || 'Ex.: Site Terram, Landing Page WhatsApp…'}
+            hint="Como esta origem aparece nos funis, relatórios e cards de lead. Se em branco, usa o nome do conector."
+          />
           <Button variant="ghost" size="sm" onClick={handleTest} disabled={test.isPending}>
             {test.isPending ? <Loader2 size={14} class="animate-spin mr-1" /> : null}
             Testar conexão

@@ -8,6 +8,7 @@ export type RunStatus = 'running' | 'ok' | 'error' | 'partial'
 export interface DbConnector {
   id: number
   name: string
+  channelLabel: string | null
   description: string | null
   dbType: DbType
   host: string
@@ -35,6 +36,7 @@ export interface DbConnector {
 
 export interface DbConnectorInput {
   name: string
+  channelLabel?: string | null
   description?: string | null
   dbType: DbType
   host: string

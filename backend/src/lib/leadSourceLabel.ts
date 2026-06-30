@@ -47,9 +47,9 @@ export async function buildSourceLabeler(
   if (ids.length > 0) {
     const conns = await prisma.dbConnector.findMany({
       where: { id: { in: ids } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, channelLabel: true },
     })
-    for (const c of conns) names.set(c.id, c.name)
+    for (const c of conns) names.set(c.id, c.channelLabel || c.name)
   }
   return (source: string | null | undefined): string => {
     if (!source) return 'Direto'
