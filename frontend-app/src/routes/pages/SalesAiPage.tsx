@@ -31,6 +31,7 @@ const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' 
 
 const ORIGIN_LABELS: Record<string, string> = {
   trackable_link: 'Link Rastreável',
+  db_connector: 'Banco de Dados',
   meta_ctwa: 'Meta Ads (CTWA)',
   google_ads: 'Google Ads',
   meta_lead_ads: 'Meta Lead Ads',

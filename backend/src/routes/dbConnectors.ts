@@ -24,6 +24,18 @@ const PUBLIC_FIELDS = {
 
 export async function dbConnectorsRoutes(app: FastifyInstance) {
 
+  // ── NAMES (leve, sem segredos) ─────────────────────────
+  // Mapa id→nome dos conectores para resolver o "canal" (db_connector:<id>) em
+  // funis/relatórios. Acessível a qualquer usuário autenticado (não expõe
+  // host/usuário/senha como o LIST admin).
+  app.get('/api/db-connectors/names', { preHandler: authMiddleware }, async () => {
+    const items = await prisma.dbConnector.findMany({
+      select: { id: true, name: true },
+      orderBy: { id: 'asc' },
+    })
+    return { items }
+  })
+
   // ── LIST ──────────────────────────────────────────────
   app.get('/api/admin/db-connectors', { preHandler: authMiddleware }, async () => {
     const items = await prisma.dbConnector.findMany({

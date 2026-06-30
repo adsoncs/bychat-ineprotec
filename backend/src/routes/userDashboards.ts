@@ -246,27 +246,11 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           where: leadWhere,
           _count: { source: true },
         })
-        // Mantém em sincronia com frontend-app/src/lib/leadSourceLabels.ts
-        const srcNames: Record<string, string> = {
-          direto: 'Direto',
-          whatsapp: 'WhatsApp',
-          instagram: 'Instagram Direct',
-          telegram: 'Telegram',
-          web_chat: 'Chat do Site',
-          web_form: 'Formulário Web',
-          form: 'Formulário',
-          meta_lead_ads: 'Meta Ads',
-          enrollment_portal: 'Portal de Matrícula',
-          enrollment_portal_interest: 'Portal de Matrícula (Interesse)',
-          portal_chat: 'Chat do Portal',
-          landing_page: 'Landing Page',
-          scheduling: 'Agendamento',
-          manual: 'Manual',
-          api: 'API',
-          chatbot: 'Chatbot',
-        }
+        // Resolve rótulos amigáveis (inclui db_connector:<id> → nome do conector).
+        const { buildSourceLabeler } = await import('../lib/leadSourceLabel.js')
+        const labelOf = await buildSourceLabeler(counts.map(c => c.source))
         const data = counts.map(c => ({
-          label: srcNames[c.source || 'direto'] || c.source || 'Direto',
+          label: labelOf(c.source),
           value: c._count.source,
           key: c.source || 'direto',
         })).sort((a, b) => b.value - a.value)

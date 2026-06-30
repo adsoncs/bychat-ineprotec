@@ -6,6 +6,7 @@ import {
 } from 'lucide-preact'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
+import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useFunnelConversionReport } from '@/hooks/useFunnelConversion'
 import { Page } from '@/components/ui/Page'
@@ -243,7 +244,7 @@ export function FunnelConversionPage() {
                   const pct = (s.count / max) * 100
                   return (
                     <div key={s.source} class="flex items-center gap-2 text-xs">
-                      <span class="text-fg w-32 truncate" title={s.source}>{s.source}</span>
+                      <span class="text-fg w-32 truncate" title={s.source}>{leadSourceLabel(s.source)}</span>
                       <div class="flex-1 h-3 bg-surface-3 rounded overflow-hidden">
                         <div class="h-full bg-info/60" style={{ width: `${pct}%` }} />
                       </div>

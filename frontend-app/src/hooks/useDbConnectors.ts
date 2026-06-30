@@ -80,6 +80,16 @@ export function useDbConnectors() {
   })
 }
 
+/** Lista leve id→nome (sem segredos) p/ resolver o canal db_connector:<id> em
+ *  funis/relatórios. Usada pelo AppShell para alimentar leadSourceLabel. */
+export function useDbConnectorNames() {
+  return useQuery<{ items: { id: number; name: string }[] }>({
+    queryKey: ['db-connector-names'],
+    queryFn: () => api.get('/db-connectors/names'),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useDbConnector(id: number | null) {
   return useQuery<{ item: DbConnector }>({
     queryKey: ['db-connectors', id],

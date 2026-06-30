@@ -26,9 +26,23 @@ export const LEAD_SOURCE_LABELS: Record<string, string> = {
   api: 'API',
   chatbot: 'Chatbot',
   direto: 'Direto',
+  db_connector: 'Banco de Dados',
 }
+
+// Registro id→nome dos Conectores de Banco de Dados. O `source` de um lead
+// importado por conector é `db_connector:<id>` (id variável), então o nome
+// amigável ("canal") só pode ser resolvido com este mapa. É populado uma vez
+// pelo AppShell via useDbConnectorNames(); fica vazio até lá (fallback abaixo).
+let dbConnectorNames: Record<number, string> = {}
+export function setDbConnectorNames(map: Record<number, string>): void {
+  dbConnectorNames = map
+}
+
+const DB_CONNECTOR_RE = /^db_connector:(\d+)$/
 
 export function leadSourceLabel(value: string | null | undefined): string {
   if (!value) return 'Direto'
+  const m = DB_CONNECTOR_RE.exec(value)
+  if (m) return dbConnectorNames[Number(m[1])] ?? 'Banco de Dados'
   return LEAD_SOURCE_LABELS[value] ?? value
 }

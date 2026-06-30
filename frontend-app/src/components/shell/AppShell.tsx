@@ -1,5 +1,7 @@
 import type { ComponentChildren } from 'preact'
-import { useState, useEffect } from 'preact/hooks'
+import { useState, useEffect, useMemo } from 'preact/hooks'
+import { useDbConnectorNames } from '@/hooks/useDbConnectors'
+import { setDbConnectorNames } from '@/lib/leadSourceLabels'
 import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useT } from '@/i18n'
 import { Sidebar } from './Sidebar'
@@ -18,6 +20,17 @@ export function AppShell({ children }: AppShellProps) {
   const layout = useShellLayout()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const t = useT()
+
+  // Alimenta o mapa id→nome dos Conectores de BD para que leadSourceLabel()
+  // mostre o nome amigável do canal (em vez de "db_connector:1") em funis,
+  // relatórios, Leads, Kanban e Conversas. useMemo roda no render, antes dos
+  // filhos, então o rótulo já sai resolvido quando os dados chegam.
+  const { data: dbConnNames } = useDbConnectorNames()
+  useMemo(() => {
+    if (dbConnNames?.items) {
+      setDbConnectorNames(Object.fromEntries(dbConnNames.items.map((c) => [c.id, c.name])))
+    }
+  }, [dbConnNames])
 
   // Cmd+K / Ctrl+K abre a palette globalmente
   useEffect(() => {
