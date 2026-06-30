@@ -108,7 +108,19 @@ export function useCreateActivity() {
 export function useUpdateActivity() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: number; status?: ActivityStatus; title?: string; description?: string | null; scheduledAt?: string }) =>
+    mutationFn: ({ id, ...input }: {
+      id: number
+      status?: ActivityStatus
+      type?: ActivityType
+      title?: string
+      description?: string | null
+      scheduledAt?: string
+      reminderAt?: string | null
+      messageBody?: string | null
+      messageSubject?: string | null
+      recipientPhone?: string | null
+      recipientEmail?: string | null
+    }) =>
       api.put<{ ok: true; activity: Activity }>(`/activities/${id}`, input),
     onSuccess: () => invalidateActivityQueries(qc),
   })

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Calendar, AlertCircle, ListChecks, Check, X as XIcon, Trash2, Plus,
-  Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle,
+  Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle, Pencil,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -82,6 +82,7 @@ export function ActivitiesPage() {
   const [searchInput, setSearchInput] = useState('')
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Activity | null>(null)
+  const [editing, setEditing] = useState<Activity | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -280,12 +281,13 @@ export function ActivitiesPage() {
         )}
         {!isLoading && filteredActivities.length > 0 && (
           <ul class="divide-y divide-border">
-            {filteredActivities.map((a) => <ActivityRow key={a.id} activity={a} onDelete={() => setDeleting(a)} />)}
+            {filteredActivities.map((a) => <ActivityRow key={a.id} activity={a} onEdit={() => setEditing(a)} onDelete={() => setDeleting(a)} />)}
           </ul>
         )}
       </Card>
 
       {creating && <CreateActivityModal onClose={() => setCreating(false)} />}
+      {editing && <EditActivityModal activity={editing} onClose={() => setEditing(null)} />}
       {deleting && <DeleteActivityDialog activity={deleting} onClose={() => setDeleting(null)} />}
 
       <HowItWorksModal
@@ -337,7 +339,7 @@ function isOverdue(activity: Activity): boolean {
   return new Date(activity.scheduledAt).getTime() < Date.now()
 }
 
-function ActivityRow({ activity, onDelete }: { activity: Activity; onDelete: () => void }) {
+function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => void }) {
   const update = useUpdateActivity()
   const exec = useExecuteActivity()
   const isPending = activity.status === 'pending' || activity.status === 'overdue'
@@ -413,6 +415,7 @@ function ActivityRow({ activity, onDelete }: { activity: Activity; onDelete: () 
           onExecute={handleExecute}
           onComplete={() => changeStatus('completed')}
           onCancel={() => changeStatus('cancelled')}
+          onEdit={onEdit}
           onDelete={onDelete}
         />
       </div>
@@ -440,7 +443,7 @@ function ActivityRow({ activity, onDelete }: { activity: Activity; onDelete: () 
 }
 
 function ActivityRowMenu({
-  canExecute, isPending, executing, onExecute, onComplete, onCancel, onDelete,
+  canExecute, isPending, executing, onExecute, onComplete, onCancel, onEdit, onDelete,
 }: {
   canExecute: boolean
   isPending: boolean
@@ -448,6 +451,7 @@ function ActivityRowMenu({
   onExecute: () => void
   onComplete: () => void
   onCancel: () => void
+  onEdit: () => void
   onDelete: () => void
 }) {
   // Radix Portal renderiza o menu no <body>, escapando qualquer overflow:hidden
@@ -485,6 +489,9 @@ function ActivityRowMenu({
                 Cancelar
               </ActivityMenuItem>
               <DropdownMenu.Separator class="my-1 h-px bg-border" />
+              <ActivityMenuItem icon={<Pencil size={12} />} tone="info" onSelect={onEdit}>
+                Editar
+              </ActivityMenuItem>
               <ActivityMenuItem icon={<Trash2 size={12} />} tone="danger" onSelect={onDelete}>
                 Excluir
               </ActivityMenuItem>
@@ -495,6 +502,9 @@ function ActivityRowMenu({
                 <Lock size={12} /> Atividade finalizada
               </div>
               <DropdownMenu.Separator class="my-1 h-px bg-border" />
+              <ActivityMenuItem icon={<Pencil size={12} />} tone="info" onSelect={onEdit}>
+                Editar
+              </ActivityMenuItem>
               <ActivityMenuItem icon={<Trash2 size={12} />} tone="danger" onSelect={onDelete}>
                 Excluir
               </ActivityMenuItem>
@@ -901,6 +911,95 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
+  )
+}
+
+// Converte um ISO (UTC) para o valor do <input type="datetime-local"> no fuso local.
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function EditActivityModal({ activity, onClose }: { activity: Activity; onClose: () => void }) {
+  const [type, setType] = useState<ActivityType>(activity.type)
+  const [title, setTitle] = useState(activity.title)
+  const [description, setDescription] = useState(activity.description ?? '')
+  const [scheduledAt, setScheduledAt] = useState(() => toLocalInput(activity.scheduledAt))
+  const [reminderAt, setReminderAt] = useState(() => (activity.reminderAt ? toLocalInput(activity.reminderAt) : ''))
+  const [messageSubject, setMessageSubject] = useState(activity.messageSubject ?? '')
+  const [messageBody, setMessageBody] = useState(activity.messageBody ?? '')
+  const [recipientPhone, setRecipientPhone] = useState(activity.recipientPhone ?? '')
+  const [recipientEmail, setRecipientEmail] = useState(activity.recipientEmail ?? '')
+  const update = useUpdateActivity()
+
+  const showMessage = type === 'whatsapp' || type === 'email' || type === 'sms'
+  const syncsGoogle = (type === 'meeting' || type === 'call') && !!(activity.metadata as Record<string, unknown> | null)?.googleCalendarEventId
+
+  async function handleSave() {
+    if (!title.trim()) { toast('Título é obrigatório', 'danger'); return }
+    if (!scheduledAt) { toast('Data/hora é obrigatória', 'danger'); return }
+    try {
+      await update.mutateAsync({
+        id: activity.id,
+        type,
+        title: title.trim(),
+        description: description.trim() || null,
+        scheduledAt: new Date(scheduledAt).toISOString(),
+        reminderAt: reminderAt ? new Date(reminderAt).toISOString() : null,
+        messageSubject: showMessage ? (messageSubject.trim() || null) : undefined,
+        messageBody: showMessage ? (messageBody.trim() || null) : undefined,
+        recipientPhone: showMessage ? (recipientPhone.trim() || null) : undefined,
+        recipientEmail: showMessage ? (recipientEmail.trim() || null) : undefined,
+      })
+      toast('Atividade atualizada', 'success')
+      onClose()
+    } catch (e: unknown) {
+      toast((e as Error).message, 'danger')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Editar atividade"
+      description={activity.lead ? `Lead: ${activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}` : undefined}
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={update.isPending}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={update.isPending}>
+            {update.isPending ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </>
+      }
+    >
+      <div class="space-y-3">
+        <Select label="Tipo" value={type} onChange={(e) => setType((e.target as HTMLSelectElement).value as ActivityType)}>
+          {(Object.keys(TYPE_META) as ActivityType[]).map((k) => <option key={k} value={k}>{TYPE_META[k].label}</option>)}
+        </Select>
+        <Input label="Título *" value={title} onInput={(e) => setTitle((e.target as HTMLInputElement).value)} />
+        <Textarea label="Descrição (opcional)" value={description} onInput={(e) => setDescription((e.target as HTMLTextAreaElement).value)} rows={2} />
+        <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          <Input label="Quando *" type="datetime-local" value={scheduledAt} onInput={(e) => setScheduledAt((e.target as HTMLInputElement).value)} />
+          <Input label="Lembrete (opcional)" type="datetime-local" value={reminderAt} onInput={(e) => setReminderAt((e.target as HTMLInputElement).value)} />
+        </div>
+        {showMessage && (
+          <>
+            {type === 'email' && <Input label="Assunto" value={messageSubject} onInput={(e) => setMessageSubject((e.target as HTMLInputElement).value)} />}
+            <Textarea label="Mensagem" value={messageBody} onInput={(e) => setMessageBody((e.target as HTMLTextAreaElement).value)} rows={4} />
+            <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+              <Input label="Telefone" value={recipientPhone} onInput={(e) => setRecipientPhone((e.target as HTMLInputElement).value)} />
+              <Input label="E-mail" value={recipientEmail} onInput={(e) => setRecipientEmail((e.target as HTMLInputElement).value)} />
+            </div>
+          </>
+        )}
+        {syncsGoogle && (
+          <p class="text-[0.6875rem] text-fg-subtle">Alterar o título ou o horário também atualiza o evento no Google Calendar (não reenvia convite ao lead).</p>
+        )}
+      </div>
+    </Modal>
   )
 }
 

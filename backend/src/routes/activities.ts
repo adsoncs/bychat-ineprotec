@@ -255,6 +255,13 @@ export async function activitiesRoutes(app: FastifyInstance) {
         data,
       })
 
+      // Se a atividade já tem evento no Google e o título/horário mudaram,
+      // atualiza o evento (sem reenviar convite ao lead).
+      const metaExisting = (existing.metadata as any) || {}
+      if (metaExisting.googleCalendarEventId && (data.title !== undefined || data.scheduledAt !== undefined)) {
+        import('../services/googleCalendarSync.js').then(m => m.updateActivityInCalendar(parseInt(id))).catch(() => {})
+      }
+
       // Log se completou ou cancelou
       if (data.status && data.status !== existing.status) {
         logEvent({

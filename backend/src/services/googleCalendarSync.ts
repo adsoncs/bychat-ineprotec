@@ -222,6 +222,43 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
 }
 
 // Remoção: usa o connectionId persistido em metadata (caminho de quem criou)
+/** Atualiza o evento Google JÁ criado desta activity (título/horário), quando
+ *  ela é editada. No-op se não há evento sincronizado. NÃO altera convidados —
+ *  não reenvia convite ao lead (o opt-in de notificação vale só na criação). */
+export async function updateActivityInCalendar(activityId: number): Promise<void> {
+  try {
+    const activity = await prisma.activity.findUnique({
+      where: { id: activityId },
+      select: { id: true, title: true, scheduledAt: true, leadId: true, metadata: true },
+    })
+    if (!activity) return
+    const meta = (activity.metadata as any) || {}
+    const eventId = meta.googleCalendarEventId as string | undefined
+    const connectionId = meta.googleCalendarConnectionId as number | undefined
+    if (!eventId || !connectionId) return
+
+    const integ = await prisma.googleCalendarIntegration.findFirst({
+      where: { connectionId },
+      select: { calendarId: true },
+    })
+    if (!integ) return
+
+    const lead = activity.leadId
+      ? await prisma.lead.findUnique({ where: { id: activity.leadId }, select: { nome: true } })
+      : null
+
+    const start = activity.scheduledAt
+    const end = new Date(start.getTime() + 30 * 60_000)
+    await updateCalendarEvent(connectionId, integ.calendarId, eventId, {
+      summary: `${activity.title} — ${lead?.nome || 'Lead'}`,
+      start,
+      end,
+    })
+  } catch (err) {
+    console.warn('[Calendar] updateActivityInCalendar falhou:', err)
+  }
+}
+
 export async function unsyncActivityFromCalendar(activityId: number): Promise<void> {
   try {
     const activity = await prisma.activity.findUnique({
