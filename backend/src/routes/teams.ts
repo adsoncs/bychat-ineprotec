@@ -544,8 +544,11 @@ export async function teamsRoutes(app: FastifyInstance) {
     for (const id of cadenceStepsByUser.keys()) allUserIds.add(id)
     if (userFilter) allUserIds.add(userFilter)
 
+    // Operadores = quem ATENDE leads. Inclui ADMIN/MANAGER (muitos tenants rodam
+    // com os atendentes como ADMIN, ex.: terram → Luiz/Flavia), não só role AGENT.
+    // Exclui SUPERADMIN (conta da agência) das métricas de equipe do cliente.
     const users = allUserIds.size === 0 ? [] : await prisma.user.findMany({
-      where: { id: { in: Array.from(allUserIds) }, role: 'AGENT' },
+      where: { id: { in: Array.from(allUserIds) }, role: { in: ['AGENT', 'MANAGER', 'ADMIN'] } },
       select: { id: true, name: true, email: true, active: true, capacity: true, workStatus: true },
     })
     const userMap = new Map(users.map((u) => [u.id, u]))
@@ -654,7 +657,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       }
 
       const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
-      if (!target || target.role !== 'AGENT') {
+      if (!target || !['AGENT', 'MANAGER', 'ADMIN'].includes(target.role)) {
         return reply.code(404).send({ error: 'Operador não encontrado' })
       }
 
@@ -779,7 +782,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         _count: { _all: true },
       }),
       prisma.user.findMany({
-        where: { active: true, role: 'AGENT' },
+        where: { active: true, role: { in: ['AGENT', 'MANAGER', 'ADMIN'] } },
         select: { id: true, name: true, email: true, capacity: true, workStatus: true, lastSeenAt: true },
       }),
     ])
