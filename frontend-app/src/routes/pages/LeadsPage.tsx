@@ -55,6 +55,7 @@ import {
   ActivityRow,
   DeleteActivityDialog,
   CreateActivityModal,
+  EditActivityModal,
   ACTIVITY_TYPE_META,
   isActivityOverdue,
 } from '@/routes/pages/ActivitiesPage'
@@ -2269,6 +2270,7 @@ function ActivitiesTab({ leadId }: { leadId: number }) {
   const { data, isLoading } = useLeadActivities(leadId)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Activity | null>(null)
+  const [editing, setEditing] = useState<Activity | null>(null)
   const [typeFilter, setTypeFilter] = useState<ActivityType | ''>('')
   const [statusFilter, setStatusFilter] = useState<LeadActivityStatusFilter>('all')
 
@@ -2397,7 +2399,7 @@ function ActivitiesTab({ leadId }: { leadId: number }) {
       {!isLoading && filtered.length > 0 && (
         <ul class="divide-y divide-border rounded-md border border-border overflow-hidden">
           {filtered.map((a) => (
-            <ActivityRow key={a.id} activity={a} onDelete={() => setDeleting(a)} />
+            <ActivityRow key={a.id} activity={a} onEdit={() => setEditing(a)} onDelete={() => setDeleting(a)} />
           ))}
         </ul>
       )}
@@ -2405,6 +2407,7 @@ function ActivitiesTab({ leadId }: { leadId: number }) {
       {creating && preselectedLead && (
         <CreateActivityModal preselectedLead={preselectedLead} onClose={() => setCreating(false)} />
       )}
+      {editing && <EditActivityModal activity={editing} onClose={() => setEditing(null)} />}
       {deleting && <DeleteActivityDialog activity={deleting} onClose={() => setDeleting(null)} />}
     </div>
   )

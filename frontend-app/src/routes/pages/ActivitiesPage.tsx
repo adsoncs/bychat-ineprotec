@@ -332,7 +332,7 @@ export function ActivitiesPage() {
   )
 }
 
-export { CreateActivityModal, ActivityRow, DeleteActivityDialog, TYPE_META as ACTIVITY_TYPE_META, isOverdue as isActivityOverdue }
+export { CreateActivityModal, EditActivityModal, ActivityRow, DeleteActivityDialog, TYPE_META as ACTIVITY_TYPE_META, isOverdue as isActivityOverdue }
 
 function isOverdue(activity: Activity): boolean {
   if (activity.status !== 'pending') return false
