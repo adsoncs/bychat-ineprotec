@@ -21,6 +21,7 @@ export interface Activity {
   recipientEmail: string | null
   messageBody: string | null
   messageSubject: string | null
+  direction: string | null
   templateId: number | null
   attachmentUrl: string | null
   attachmentName: string | null

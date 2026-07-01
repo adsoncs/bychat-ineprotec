@@ -109,6 +109,9 @@ import { funnelConversionRoutes } from './routes/funnelConversion.js'
 import { ga4Routes } from './routes/ga4.js'
 import { startGA4Sync } from './services/ga4Sync.js'
 import { gmailRoutes } from './routes/gmail.js'
+import { gmailWebhookRoutes } from './routes/gmailWebhook.js'
+import { startGmailWatchRenew } from './services/gmailWatchRenew.js'
+import { startGmailInboundPoll } from './services/gmailInboundPoll.js'
 import { googleTasksRoutes } from './routes/googleTasks.js'
 import { integrationsGoogleRoutes } from './routes/integrationsGoogle.js'
 import { lossReasonsRoutes } from './routes/lossReasons.js'
@@ -560,6 +563,7 @@ await app.register(aiJourneyRoutes)
 await app.register(funnelConversionRoutes)
 await app.register(ga4Routes)
 await app.register(gmailRoutes)
+await app.register(gmailWebhookRoutes)
 await app.register(googleTasksRoutes)
 await app.register(integrationsGoogleRoutes)
 await app.register(lossReasonsRoutes)
@@ -1184,6 +1188,8 @@ try {
   startWebhookDispatcher()
   startGoogleSheetsSync()
   startGA4Sync()
+  startGmailWatchRenew()   // no-op sem tópico Pub/Sub (push desligado)
+  startGmailInboundPoll()  // Plano B: recebimento por polling (não depende de Pub/Sub)
   // Garante chaves do Contexto do Negócio (alimenta o Lead Score por IA)
   import('./services/businessContext.js')
     .then(m => m.seedBusinessContextSettings())

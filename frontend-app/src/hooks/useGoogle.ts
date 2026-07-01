@@ -93,6 +93,10 @@ export interface GmailConfig {
   totalSent: number
   totalFailed: number
   active: boolean
+  syncReplies?: boolean
+  totalReceived?: number
+  lastSyncAt?: string | null
+  watchExpiration?: string | null
   createdAt: string
 }
 
@@ -546,6 +550,55 @@ export function useSendGmail() {
   return useMutation({
     mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string; replyTo?: string }) =>
       api.post<{ success: true; messageId: string }>('/admin/google/gmail/send', input),
+  })
+}
+
+/** Envia e-mail ao cliente a partir do lead (grava Activity + thread). Aceita anexos. */
+export function useSendLeadEmail(leadId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string; replyToActivityId?: number; files?: File[] }) => {
+      if (input.files && input.files.length > 0) {
+        const fd = new FormData()
+        fd.append('to', input.to)
+        fd.append('subject', input.subject)
+        fd.append('body', input.body)
+        if (input.bodyHtml) fd.append('bodyHtml', input.bodyHtml)
+        if (input.replyToActivityId != null) fd.append('replyToActivityId', String(input.replyToActivityId))
+        for (const f of input.files) fd.append('files', f, f.name)
+        return api.post<{ ok: true; activityId: number; gmailThreadId: string; attachments: number }>(`/leads/${leadId}/email`, fd)
+      }
+      const { files, ...json } = input
+      return api.post<{ ok: true; activityId: number; gmailThreadId: string }>(`/leads/${leadId}/email`, json)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lead-activities', leadId] })
+      qc.invalidateQueries({ queryKey: ['activities'] })
+      qc.invalidateQueries({ queryKey: ['lead-attachments', leadId] })
+    },
+  })
+}
+
+/** Ativa/desativa o recebimento de respostas (Gmail watch) e sync manual. */
+export function useGmailWatch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (configId: number) => api.post(`/admin/google/gmail/config/${configId}/watch`, {}),
+    onSuccess: () => inv(qc, KEY_GMAIL_CONFIGS),
+  })
+}
+export function useGmailUnwatch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (configId: number) => api.post(`/admin/google/gmail/config/${configId}/unwatch`, {}),
+    onSuccess: () => inv(qc, KEY_GMAIL_CONFIGS),
+  })
+}
+export function useGmailSyncNow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (configId: number) => api.post<{ ok: true; ingested: number }>(`/admin/google/gmail/config/${configId}/sync`, {}),
+    onSuccess: () => inv(qc, KEY_GMAIL_CONFIGS),
   })
 }
 

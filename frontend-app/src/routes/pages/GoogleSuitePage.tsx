@@ -20,7 +20,7 @@ import {
   useDriveLeadFolder, useDriveFiles, useUploadToDrive,
   useTasksConfigs, useCreateTasksConfig, useUpdateTasksConfig, useDeleteTasksConfig,
   useGmailConfigs, useCreateGmailConfig, useUpdateGmailConfig, useDeleteGmailConfig,
-  useGmailProfile, useSendGmail,
+  useGmailProfile, useSendGmail, useGmailWatch, useGmailUnwatch, useGmailSyncNow,
   useGa4Configs, useCreateGa4Config, useDeleteGa4Config, useTestGa4Config,
   GOOGLE_ACTIVITY_TYPES,
   type GoogleSheetIntegration, type GoogleCalendarIntegration,
@@ -1882,7 +1882,9 @@ function GmailTab() {
                   </div>
                   <div class="text-xs text-fg-muted mt-0.5">
                     {c.totalSent} enviado(s) · {c.totalFailed} falha(s)
+                    {c.syncReplies && <> · {c.totalReceived ?? 0} resposta(s) recebida(s)</>}
                   </div>
+                  <div class="mt-1"><GmailReceiveControls config={c} /></div>
                 </div>
                 <div class="flex gap-1">
                   <Button variant="secondary" size="sm" onClick={() => update.mutate({ id: c.id, active: !c.active }, {
@@ -1927,6 +1929,38 @@ function GmailTab() {
         </Card>
       )}
     </>
+  )
+}
+
+function GmailReceiveControls({ config }: { config: GmailConfig }) {
+  const watch = useGmailWatch()
+  const unwatch = useGmailUnwatch()
+  const sync = useGmailSyncNow()
+  const busy = watch.isPending || unwatch.isPending || sync.isPending
+
+  if (config.syncReplies) {
+    return (
+      <div class="flex items-center gap-2 flex-wrap text-[0.6875rem]">
+        <span class="inline-flex items-center gap-1 text-success font-medium"><Check size={11} /> Recebendo respostas</span>
+        {config.lastSyncAt && <span class="text-fg-subtle">últ. sync {new Date(config.lastSyncAt).toLocaleString('pt-BR')}</span>}
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => sync.mutate(config.id, {
+          onSuccess: (r: any) => toast(`Sincronizado (${r?.ingested ?? 0} nova(s))`, 'success'),
+          onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        })}>Sincronizar agora</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => unwatch.mutate(config.id, {
+          onSuccess: () => toast('Recebimento desativado', 'success'),
+          onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        })}>Desativar</Button>
+      </div>
+    )
+  }
+  return (
+    <Button variant="secondary" size="sm" disabled={busy} onClick={() => watch.mutate(config.id, {
+      onSuccess: () => toast('Recebimento ativado — respostas dos clientes serão registradas nas atividades', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })}>
+      <Mail size={12} /> Ativar recebimento de respostas
+    </Button>
   )
 }
 

@@ -5,13 +5,16 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown,
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon,
 } from 'lucide-preact'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
 import { useUserStore } from '@/stores/user'
 import { Card } from '@/components/ui/Card'
+import { Modal } from '@/components/ui/Modal'
+import { Input, Textarea } from '@/components/ui/Input'
+import { useSendLeadEmail } from '@/hooks/useGoogle'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
@@ -243,6 +246,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
+        <SendEmailButton leadId={id} email={lead.email} />
+
+
         <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
@@ -252,6 +258,131 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         </div>
       </div>
     </Card>
+  )
+}
+
+const MAX_EMAIL_ATTACH_TOTAL = 18 * 1024 * 1024 // 18MB (teto seguro p/ o Gmail)
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function SendEmailButton({ leadId, email }: { leadId: number; email: string | null | undefined }) {
+  const [open, setOpen] = useState(false)
+  const [to, setTo] = useState(email || '')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const send = useSendLeadEmail(leadId)
+
+  const totalBytes = files.reduce((s, f) => s + f.size, 0)
+
+  function openModal() {
+    setTo(email || '')
+    setSubject('')
+    setBody('')
+    setFiles([])
+    setOpen(true)
+  }
+
+  function addFiles(list: FileList | null) {
+    if (!list || list.length === 0) return
+    const incoming = Array.from(list)
+    setFiles((prev) => {
+      // dedup por nome+tamanho
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`))
+      const merged = [...prev]
+      for (const f of incoming) {
+        if (f.size > 15 * 1024 * 1024) { toast(`"${f.name}" excede 15MB e foi ignorado`, 'danger'); continue }
+        if (!seen.has(`${f.name}:${f.size}`)) merged.push(f)
+      }
+      if (merged.reduce((s, f) => s + f.size, 0) > MAX_EMAIL_ATTACH_TOTAL) {
+        toast('Os anexos somam mais de 18MB — remova algum arquivo', 'danger')
+        return prev
+      }
+      return merged
+    })
+  }
+
+  function removeFile(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  async function handleSend() {
+    if (!to.trim() || !subject.trim() || !body.trim()) { toast('Preencha destinatário, assunto e mensagem', 'danger'); return }
+    if (totalBytes > MAX_EMAIL_ATTACH_TOTAL) { toast('Os anexos somam mais de 18MB', 'danger'); return }
+    try {
+      const r = await send.mutateAsync({ to: to.trim(), subject: subject.trim(), body: body.trim(), files: files.length ? files : undefined })
+      const n = (r as any)?.attachments || 0
+      toast(n > 0 ? `E-mail enviado com ${n} anexo(s) e registrado nas atividades` : 'E-mail enviado e registrado nas atividades', 'success')
+      setOpen(false)
+    } catch (e: unknown) {
+      toast((e as Error).message, 'danger')
+    }
+  }
+
+  return (
+    <>
+      <Button variant="secondary" size="sm" onClick={openModal} disabled={!email} title={email ? 'Enviar e-mail' : 'Lead sem e-mail'}>
+        <Mail size={12} /> Enviar e-mail
+      </Button>
+      {open && (
+        <Modal
+          open
+          onOpenChange={(o) => { if (!o) setOpen(false) }}
+          title="Enviar e-mail"
+          description="Enviado pela caixa da empresa (Gmail). A resposta do cliente é registrada nas atividades."
+          size="lg"
+          footer={
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setOpen(false)} disabled={send.isPending}>Cancelar</Button>
+              <Button variant="primary" size="sm" onClick={handleSend} disabled={send.isPending}>
+                {send.isPending ? 'Enviando…' : 'Enviar'}
+              </Button>
+            </>
+          }
+        >
+          <div class="space-y-3">
+            <Input label="Para" value={to} onInput={(e) => setTo((e.target as HTMLInputElement).value)} placeholder="cliente@email.com" />
+            <Input label="Assunto" value={subject} onInput={(e) => setSubject((e.target as HTMLInputElement).value)} />
+            <Textarea label="Mensagem" value={body} onInput={(e) => setBody((e.target as HTMLTextAreaElement).value)} rows={8} />
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-medium text-fg-muted">Anexos</label>
+                <label class="inline-flex items-center gap-1 text-xs text-primary cursor-pointer hover:underline">
+                  <Paperclip size={12} /> Adicionar arquivos
+                  <input
+                    type="file"
+                    multiple
+                    class="hidden"
+                    onChange={(e) => { const el = e.target as HTMLInputElement; addFiles(el.files); el.value = '' }}
+                  />
+                </label>
+              </div>
+              {files.length > 0 && (
+                <ul class="space-y-1">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}:${f.size}:${i}`} class="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-subtle px-2 py-1 text-xs">
+                      <span class="flex items-center gap-1.5 min-w-0">
+                        <Paperclip size={12} class="text-fg-subtle shrink-0" />
+                        <span class="truncate">{f.name}</span>
+                        <span class="text-fg-subtle shrink-0">({fmtBytes(f.size)})</span>
+                      </span>
+                      <button type="button" class="text-fg-subtle hover:text-danger shrink-0" onClick={() => removeFile(i)} title="Remover">
+                        <XIcon size={13} />
+                      </button>
+                    </li>
+                  ))}
+                  <li class="text-right text-[0.6875rem] text-fg-subtle">Total: {fmtBytes(totalBytes)} / 18 MB</li>
+                </ul>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   )
 }
 

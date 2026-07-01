@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Calendar, AlertCircle, ListChecks, Check, X as XIcon, Trash2, Plus,
   Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle, Pencil,
+  ArrowDownLeft, ArrowUpRight, ChevronDown,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -339,6 +340,71 @@ function isOverdue(activity: Activity): boolean {
   return new Date(activity.scheduledAt).getTime() < Date.now()
 }
 
+// Converte o corpo do e-mail para texto legível. Inbound já é texto puro;
+// outbound antigo pode conter HTML — removemos tags/entidades defensivamente.
+function emailBodyText(raw: string): string {
+  const norm = raw.replace(/\r\n?/g, '\n')
+  if (/<[a-z][\s\S]*?>/i.test(norm)) {
+    return norm
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|h[1-6])>/gi, '\n\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  return norm.trim()
+}
+
+// Sanfona do e-mail: fechada mostra só o cabeçalho (chip + assunto);
+// ao clicar, expande e revela o corpo. Evita poluir a timeline com textos longos.
+function ActivityEmailBody({ activity }: { activity: Activity }) {
+  const [open, setOpen] = useState(false)
+  const raw = activity.messageBody ?? ''
+  if (activity.type !== 'email' || (!raw.trim() && !activity.messageSubject)) return null
+  const text = emailBodyText(raw)
+  const inbound = activity.direction === 'inbound'
+  const subject = activity.messageSubject || '(sem assunto)'
+  return (
+    <div class="pl-12 mt-2">
+      <div class="rounded-md border border-border bg-surface-2 text-xs overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-3 transition-colors"
+        >
+          <span class={cn(
+            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.625rem] font-semibold shrink-0',
+            inbound ? 'bg-info/15 text-info' : 'bg-success/15 text-success',
+          )}>
+            {inbound ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
+            {inbound ? 'Recebido' : 'Enviado'}
+          </span>
+          <span class="font-medium text-fg truncate flex-1 min-w-0">{subject}</span>
+          <ChevronDown size={14} class={cn('text-fg-subtle shrink-0 transition-transform', open && 'rotate-180')} />
+        </button>
+        {open && (
+          <div class="px-3 pb-3 pt-1 border-t border-border">
+            {activity.recipientEmail && (
+              <div class="text-fg-subtle mb-1.5 truncate">
+                {inbound ? 'de/para' : 'para'} {activity.recipientEmail}
+              </div>
+            )}
+            {text
+              ? <div class="whitespace-pre-wrap break-words text-fg-muted leading-relaxed">{text}</div>
+              : <div class="text-fg-subtle italic">(sem conteúdo)</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdit: () => void; onDelete: () => void }) {
   const update = useUpdateActivity()
   const exec = useExecuteActivity()
@@ -433,6 +499,9 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
           </div>
         )
       })()}
+
+      {/* Corpo do e-mail (enviado ou recebido) */}
+      <ActivityEmailBody activity={activity} />
 
       {/* Anexos da atividade (prints, documentos enviados etc.) */}
       <div class="pl-12">

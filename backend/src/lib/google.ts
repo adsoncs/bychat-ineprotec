@@ -31,6 +31,9 @@ const SCOPES_CALENDAR = [
 
 const SCOPES_GMAIL = [
   'https://www.googleapis.com/auth/gmail.send',
+  // Leitura para registrar as RESPOSTAS dos clientes (somente nas threads que o
+  // sistema enviou). Adicionar este escopo exige reconsentimento da conta.
+  'https://www.googleapis.com/auth/gmail.readonly',
 ]
 
 const SCOPES_TASKS = [
@@ -412,56 +415,191 @@ export async function gmailSendEmail(connectionId: number, opts: {
   bodyHtml?: string
   from?: string
   replyTo?: string
+  /** threadId do Gmail — quando respondendo, mantém a mensagem na mesma thread. */
+  threadId?: string
+  /** Message-ID RFC822 da mensagem sendo respondida (para In-Reply-To/References). */
+  inReplyTo?: string
+  /** Anexos já em memória (base64 do conteúdo binário). */
+  attachments?: Array<{ filename: string; mimeType: string; contentBase64: string }>
 }) {
   const auth = await getAuthenticatedClient(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
 
   const boundary = `boundary_${Date.now()}`
   const isHtml = !!opts.bodyHtml
+  const attachments = opts.attachments || []
+  const hasAtt = attachments.length > 0
 
-  const headers = [
+  // Codeword RFC 2047 para o nome do arquivo (suporta acentos em nomes pt-BR).
+  const encWord = (s: string) => `=?UTF-8?B?${Buffer.from(s).toString('base64')}?=`
+
+  const baseHeaders = [
     `To: ${opts.to}`,
     opts.from ? `From: ${opts.from}` : '',
     opts.replyTo ? `Reply-To: ${opts.replyTo}` : '',
-    `Subject: =?UTF-8?B?${Buffer.from(opts.subject).toString('base64')}?=`,
+    opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : '',
+    opts.inReplyTo ? `References: ${opts.inReplyTo}` : '',
+    `Subject: ${encWord(opts.subject)}`,
     `MIME-Version: 1.0`,
-    isHtml ? `Content-Type: multipart/alternative; boundary="${boundary}"` : `Content-Type: text/plain; charset=UTF-8`,
-  ].filter(Boolean).join('\r\n')
+  ].filter(Boolean)
+
+  // Bloco do corpo como conteúdo MIME (carrega seu próprio Content-Type).
+  const bodyBlock = isHtml
+    ? [
+        `Content-Type: multipart/alternative; boundary="alt_${boundary}"`,
+        '',
+        `--alt_${boundary}`,
+        'Content-Type: text/plain; charset=UTF-8',
+        '',
+        opts.body,
+        `--alt_${boundary}`,
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        opts.bodyHtml,
+        `--alt_${boundary}--`,
+      ].join('\r\n')
+    : ['Content-Type: text/plain; charset=UTF-8', '', opts.body].join('\r\n')
 
   let rawEmail: string
-  if (isHtml) {
-    rawEmail = [
-      headers,
+  if (hasAtt) {
+    // multipart/mixed: 1ª parte = corpo, demais = anexos (base64, linhas de 76).
+    const parts: string[] = [
+      [...baseHeaders, `Content-Type: multipart/mixed; boundary="${boundary}"`].join('\r\n'),
       '',
       `--${boundary}`,
-      'Content-Type: text/plain; charset=UTF-8',
-      '',
-      opts.body,
-      `--${boundary}`,
-      'Content-Type: text/html; charset=UTF-8',
-      '',
-      opts.bodyHtml,
-      `--${boundary}--`,
-    ].join('\r\n')
+      bodyBlock,
+    ]
+    for (const att of attachments) {
+      const b64 = att.contentBase64.replace(/[\r\n]/g, '').replace(/(.{76})/g, '$1\r\n')
+      const name = encWord(att.filename || 'arquivo')
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${att.mimeType || 'application/octet-stream'}; name="${name}"`,
+        `Content-Disposition: attachment; filename="${name}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        b64,
+      )
+    }
+    parts.push(`--${boundary}--`)
+    rawEmail = parts.join('\r\n')
+  } else if (isHtml) {
+    rawEmail = [baseHeaders.join('\r\n'), bodyBlock].join('\r\n')
   } else {
-    rawEmail = [headers, '', opts.body].join('\r\n')
+    rawEmail = [...baseHeaders, 'Content-Type: text/plain; charset=UTF-8', '', opts.body].join('\r\n')
   }
 
   const encoded = Buffer.from(rawEmail).toString('base64url')
 
   const res = await gmail.users.messages.send({
     userId: 'me',
-    requestBody: { raw: encoded },
+    requestBody: { raw: encoded, threadId: opts.threadId || undefined },
   })
 
-  return { messageId: res.data.id!, threadId: res.data.threadId || '' }
+  // Captura o Message-ID RFC822 real (Gmail gera o seu) — usado para In-Reply-To
+  // em respostas futuras dentro da thread.
+  let rfc822MessageId = ''
+  try {
+    const meta = await gmail.users.messages.get({
+      userId: 'me', id: res.data.id!, format: 'metadata', metadataHeaders: ['Message-ID'],
+    })
+    rfc822MessageId = meta.data.payload?.headers?.find(h => h.name?.toLowerCase() === 'message-id')?.value || ''
+  } catch { /* não crítico */ }
+
+  return { messageId: res.data.id!, threadId: res.data.threadId || '', rfc822MessageId }
 }
 
 export async function gmailGetProfile(connectionId: number) {
   const auth = await getAuthenticatedClient(connectionId)
   const gmail = google.gmail({ version: 'v1', auth })
   const res = await gmail.users.getProfile({ userId: 'me' })
-  return { email: res.data.emailAddress || '', messagesTotal: res.data.messagesTotal || 0 }
+  return { email: res.data.emailAddress || '', messagesTotal: res.data.messagesTotal || 0, historyId: res.data.historyId || '' }
+}
+
+// ── Gmail recebimento (watch + history) ────────────────────
+
+/** Registra push notifications (Gmail → Pub/Sub) para a caixa. topicName no
+ *  formato projects/<PROJECT>/topics/<TOPIC>. Retorna historyId base + expiração. */
+export async function gmailWatch(connectionId: number, topicName: string) {
+  const auth = await getAuthenticatedClient(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.watch({
+    userId: 'me',
+    requestBody: { topicName, labelIds: ['INBOX'], labelFilterBehavior: 'INCLUDE' },
+  })
+  return { historyId: res.data.historyId || '', expiration: res.data.expiration ? new Date(Number(res.data.expiration)) : null }
+}
+
+export async function gmailStopWatch(connectionId: number) {
+  const auth = await getAuthenticatedClient(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  await gmail.users.stop({ userId: 'me' })
+}
+
+/** Lista IDs de mensagens ADICIONADAS desde startHistoryId. Lança {code:404} se
+ *  o cursor expirou (chamador deve re-sincronizar via getProfile.historyId). */
+export async function gmailHistoryMessageIds(connectionId: number, startHistoryId: string): Promise<{ messageIds: string[]; newHistoryId: string }> {
+  const auth = await getAuthenticatedClient(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const ids = new Set<string>()
+  let pageToken: string | undefined
+  let newHistoryId = startHistoryId
+  do {
+    const res = await gmail.users.history.list({
+      userId: 'me', startHistoryId, historyTypes: ['messageAdded'], labelId: 'INBOX', pageToken,
+    })
+    if (res.data.historyId) newHistoryId = res.data.historyId
+    for (const h of res.data.history || []) {
+      for (const m of h.messagesAdded || []) {
+        if (m.message?.id) ids.add(m.message.id)
+      }
+    }
+    pageToken = res.data.nextPageToken || undefined
+  } while (pageToken)
+  return { messageIds: [...ids], newHistoryId }
+}
+
+/** Busca uma mensagem e extrai cabeçalhos + corpo texto. */
+export async function gmailGetParsedMessage(connectionId: number, messageId: string) {
+  const auth = await getAuthenticatedClient(connectionId)
+  const gmail = google.gmail({ version: 'v1', auth })
+  const res = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'full' })
+  const payload = res.data.payload
+  const headers = payload?.headers || []
+  const h = (name: string) => headers.find(x => x.name?.toLowerCase() === name.toLowerCase())?.value || ''
+
+  // Extrai text/plain (fallback text/html) caminhando nas partes.
+  function extractText(part: any): string {
+    if (!part) return ''
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64url').toString('utf8')
+    }
+    if (part.parts) {
+      for (const p of part.parts) {
+        const t = extractText(p)
+        if (t) return t
+      }
+    }
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64url').toString('utf8').replace(/<[^>]+>/g, ' ')
+    }
+    return ''
+  }
+  const body = extractText(payload).trim()
+
+  return {
+    id: res.data.id || messageId,
+    threadId: res.data.threadId || '',
+    from: h('From'),
+    to: h('To'),
+    subject: h('Subject'),
+    date: h('Date'),
+    messageIdHeader: h('Message-ID'),
+    inReplyTo: h('In-Reply-To'),
+    labelIds: res.data.labelIds || [],
+    snippet: res.data.snippet || '',
+    body,
+  }
 }
 
 // ── Google Tasks helpers ────────────────────────────────

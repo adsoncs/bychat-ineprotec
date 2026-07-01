@@ -1104,6 +1104,12 @@ model Activity {
   metadata Json?   @db.Json // dados extras
   result   String? @db.Text // resultado da execucao
 
+  // E-mail (Gmail): direção e correlação de thread, para registrar a conversa
+  // de e-mail (enviados + respostas) como Atividades. direction null = legado/saída.
+  direction      String? @db.VarChar(10)  // 'inbound' | 'outbound'
+  gmailThreadId  String? @db.VarChar(255) // threadId do Gmail (correlaciona resposta ao enviado)
+  gmailMessageId String? @db.VarChar(255) // id da mensagem no Gmail (dedup)
+
   // Anexos múltiplos por atividade (prints, documentos etc.) — modelo LeadAttachment.
   // Diferente dos campos legados acima (attachmentUrl/Name/Type) que comportam só
   // 1 arquivo via URL externa.
@@ -1118,6 +1124,8 @@ model Activity {
   @@index([userId])
   @@index([type])
   @@index([scheduledAt])
+  @@index([gmailThreadId])
+  @@index([gmailMessageId])
   @@map("bychat_activities")
 }
 
@@ -2590,6 +2598,14 @@ model GmailConfig {
   active       Boolean  @default(true)
   totalSent    Int      @default(0)
   totalFailed  Int      @default(0)
+  // Recebimento de respostas dos clientes (canal de e-mail do cliente):
+  // quando ligado, esta caixa é a usada para ENVIAR e-mails de cliente e o
+  // sistema registra (via Gmail watch + Pub/Sub) as respostas como Atividades.
+  syncReplies     Boolean   @default(false)
+  lastHistoryId   String?   @db.VarChar(40)  // cursor do Gmail History API
+  watchExpiration DateTime?                  // expira ~7 dias; renovado por cron
+  lastSyncAt      DateTime?
+  totalReceived   Int       @default(0)
   createdBy    Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
