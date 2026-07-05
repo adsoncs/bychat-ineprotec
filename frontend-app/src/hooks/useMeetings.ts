@@ -8,6 +8,9 @@ export interface PlaybookAssessment {
   direcionamento: string[]
 }
 
+export interface ScorecardItem { criterio: string; nota: number; comentario: string }
+export interface MeetingClip { start: number; end: number; titulo: string }
+
 export interface MeetingAnalysis {
   resumo: string
   topicos: string[]
@@ -16,6 +19,8 @@ export interface MeetingAnalysis {
   proximosPassos: string[]
   sentimento: 'positivo' | 'neutro' | 'negativo'
   playbook?: PlaybookAssessment | null
+  scorecard?: ScorecardItem[] | null
+  clips?: MeetingClip[] | null
 }
 
 export interface MeetingRecording {
@@ -32,6 +37,7 @@ export interface MeetingRecording {
   errorReason: string | null
   recordingUrl: string | null
   audioUrl: string | null
+  videoUrl: string | null
   transcriptText: string | null
   transcriptPolished: string | null
   segmentCount: number
@@ -95,6 +101,8 @@ export interface MeetingsSettings {
   joinAnnouncement: string
   joinAheadMinutes: number
   saveAudio: boolean
+  saveVideo: boolean
+  scorecardCriteria: string
   redactPii: boolean
   attachToLead: boolean
   webhookUrl: string
@@ -121,6 +129,43 @@ export function useUpdateMeetingsSettings() {
   return useMutation({
     mutationFn: (body: Partial<MeetingsSettings>) => api.put<{ ok: true }>('/admin/meetings/settings', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-settings'] }),
+  })
+}
+
+// ── (#1) Relatório multi-reunião ───────────────────────────────
+export interface MeetingsReport {
+  meetingCount: number
+  periodo: { from: string | null; to: string | null }
+  aderenciaMedia: number | null
+  resumo: string
+  objecoesComuns: string[]
+  temas: string[]
+  recomendacoes: string[]
+}
+
+export function useGenerateMeetingsReport() {
+  return useMutation({
+    mutationFn: (body: { from?: string; to?: string; leadId?: number; userId?: number }) =>
+      api.post<{ report: MeetingsReport }>('/admin/meetings/report', body),
+  })
+}
+
+// ── (#4) Busca global ──────────────────────────────────────────
+export interface MeetingSearchResult {
+  id: number
+  leadId: number | null
+  platform: string
+  nativeMeetingId: string
+  createdAt: string
+  snippet: string
+}
+
+export function useMeetingSearch(q: string) {
+  return useQuery({
+    queryKey: ['meeting-search', q],
+    queryFn: () => api.get<{ results: MeetingSearchResult[] }>(`/admin/meetings/search?q=${encodeURIComponent(q)}`),
+    enabled: q.trim().length >= 2,
+    staleTime: 15_000,
   })
 }
 

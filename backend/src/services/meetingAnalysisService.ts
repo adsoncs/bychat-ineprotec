@@ -20,6 +20,18 @@ export interface PlaybookAssessment {
   direcionamento: string[] // coaching concreto p/ a próxima reunião
 }
 
+export interface ScorecardItem {
+  criterio: string
+  nota: number // 0-10
+  comentario: string
+}
+
+export interface MeetingClip {
+  start: number // segundos
+  end: number
+  titulo: string
+}
+
 export interface MeetingAnalysis {
   resumo: string
   topicos: string[]
@@ -28,7 +40,14 @@ export interface MeetingAnalysis {
   proximosPassos: string[]
   sentimento: 'positivo' | 'neutro' | 'negativo'
   playbook?: PlaybookAssessment | null // só quando o playbook está ativo
+  scorecard?: ScorecardItem[] | null    // (#2) rubrica de avaliação por critério
+  clips?: MeetingClip[] | null          // (#3) momentos-chave (timestamps)
 }
+
+const DEFAULT_SCORECARD_CRITERIA = [
+  'Abertura e rapport', 'Diagnóstico / descoberta', 'Apresentação de valor',
+  'Tratamento de objeções', 'Próximo passo / fechamento',
+]
 
 const MAX_TRANSCRIPT_CHARS = 14_000
 
@@ -36,7 +55,7 @@ const LANG_NAMES: Record<string, string> = {
   pt: 'português do Brasil', en: 'English', es: 'español', fr: 'français', it: 'italiano', de: 'Deutsch',
 }
 
-function buildSystem(opts: { playbookText?: string; language?: string; extra?: string }): string {
+function buildSystem(opts: { playbookText?: string; language?: string; extra?: string; scorecardCriteria?: string[] }): string {
   const { playbookText, extra } = opts
   const lang = LANG_NAMES[opts.language || 'pt'] || opts.language || 'português do Brasil'
   const pbField = playbookText
@@ -48,6 +67,17 @@ function buildSystem(opts: { playbookText?: string; language?: string; extra?: s
     "direcionamento": ["orientação concreta de coaching para a próxima reunião"]
   }`
     : ''
+  // (#2) Scorecard: nota 0-10 por critério (do gestor ou padrão). Só quando há
+  // playbook OU critérios definidos.
+  const criteria = (opts.scorecardCriteria && opts.scorecardCriteria.length) ? opts.scorecardCriteria : DEFAULT_SCORECARD_CRITERIA
+  const wantScorecard = !!playbookText || !!(opts.scorecardCriteria && opts.scorecardCriteria.length)
+  const scField = wantScorecard
+    ? `,
+  "scorecard": [${criteria.map(c => `{ "criterio": ${JSON.stringify(c)}, "nota": <0-10>, "comentario": "avaliação objetiva do critério" }`).join(', ')}]`
+    : ''
+  // (#3) Clips: 2 a 5 momentos-chave com timestamps (em segundos) para revisão/treino.
+  const clipsField = `,
+  "clips": [{ "start": <segundos>, "end": <segundos>, "titulo": "momento-chave (ex.: objeção de preço, decisão, compromisso)" }]`
   let base = `Você é um analista de reuniões comerciais/atendimento sênior. Recebe a
 transcrição de uma reunião (com marcas de tempo e falantes) e devolve uma análise
 OBJETIVA. Escreva TODO o conteúdo do JSON em ${lang}. Responda SOMENTE com um JSON válido, sem markdown,
@@ -58,9 +88,9 @@ no formato exato:
   "acaoItems": ["tarefas/compromissos concretos que surgiram, com responsável quando houver"],
   "objecoes": ["objeções, dúvidas ou preocupações levantadas pelo cliente"],
   "proximosPassos": ["o que deve acontecer a seguir"],
-  "sentimento": "positivo | neutro | negativo"${pbField}
+  "sentimento": "positivo | neutro | negativo"${pbField}${scField}${clipsField}
 }
-Use listas vazias quando não houver itens. Não invente informações que não estão na transcrição.`
+Use listas vazias quando não houver itens. No "scorecard", avalie CADA critério listado (nota 0-10). No "clips", selecione de 2 a 5 momentos-chave com os timestamps em SEGUNDOS. Não invente informações que não estão na transcrição.`
   if (extra && extra.trim()) base += `\n\nInstruções adicionais do gestor (priorize estas orientações na análise): ${extra.trim()}`
   if (!playbookText) return base
   return base + `
@@ -85,7 +115,7 @@ async function callAnthropic(system: string, user: string, key: string, model: s
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1500,
+      max_tokens: 2500,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
     }),
@@ -106,7 +136,7 @@ async function callOpenAi(system: string, user: string, key: string, model: stri
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
-      max_tokens: 1500,
+      max_tokens: 2500,
       temperature: 0.2,
     }),
   })
@@ -131,6 +161,20 @@ function parseJson(raw: string): MeetingAnalysis | null {
       pontosMelhoria: arr(o.playbook.pontosMelhoria),
       direcionamento: arr(o.playbook.direcionamento),
     } : null
+    const scorecard = Array.isArray(o.scorecard)
+      ? o.scorecard.map((x: any) => ({
+          criterio: String(x?.criterio || '').trim(),
+          nota: Math.max(0, Math.min(10, Math.round(Number(x?.nota) || 0))),
+          comentario: String(x?.comentario || '').trim(),
+        })).filter((x: any) => x.criterio)
+      : null
+    const clips = Array.isArray(o.clips)
+      ? o.clips.map((x: any) => ({
+          start: Math.max(0, Math.round(Number(x?.start) || 0)),
+          end: Math.max(0, Math.round(Number(x?.end) || 0)),
+          titulo: String(x?.titulo || '').trim(),
+        })).filter((x: any) => x.titulo)
+      : null
     return {
       resumo: String(o.resumo || '').trim(),
       topicos: arr(o.topicos),
@@ -139,6 +183,8 @@ function parseJson(raw: string): MeetingAnalysis | null {
       proximosPassos: arr(o.proximosPassos),
       sentimento: (['positivo', 'neutro', 'negativo'].includes(sent) ? sent : 'neutro') as MeetingAnalysis['sentimento'],
       playbook: pb,
+      scorecard: scorecard && scorecard.length ? scorecard : null,
+      clips: clips && clips.length ? clips : null,
     }
   } catch {
     return null
@@ -187,7 +233,8 @@ export async function analyzeMeetingRecording(recId: number): Promise<MeetingAna
   const transcript = rec.transcriptText.slice(0, MAX_TRANSCRIPT_CHARS)
   const pb = await getSalesPlaybook()
   const ms = await getMeetingsSettings()
-  const system = buildSystem({ playbookText: pb.enabled ? pb.text : undefined, language: ms.language, extra: ms.analysisExtra })
+  const criteria = ms.scorecardCriteria.split('\n').map(c => c.trim()).filter(Boolean)
+  const system = buildSystem({ playbookText: pb.enabled ? pb.text : undefined, language: ms.language, extra: ms.analysisExtra, scorecardCriteria: criteria })
   const analysis = await runLlm(`Transcrição da reunião:\n\n${transcript}`, system)
   if (!analysis) return null
 

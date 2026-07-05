@@ -106,6 +106,7 @@ export async function dispatchMeetingBot(input: DispatchBotInput): Promise<Dispa
       bot_name: botName,
       language: input.language || settings.language || 'pt',
       transcribe_enabled: true,
+      video: settings.saveVideo === true, // (#3) captura vídeo quando "gravar vídeo" ativo
     }),
   })
   if (!res.ok) {
@@ -184,6 +185,32 @@ export async function fetchMeetingAudio(nativeId: string): Promise<{ buffer: Buf
     const ab = await dlRes.arrayBuffer()
     const nameExt = String(audio.filename || audio.name || '').split('.').pop() || ''
     const ext = /^[a-z0-9]{2,4}$/i.test(nameExt) ? nameExt.toLowerCase() : 'wav'
+    return { buffer: Buffer.from(ab), ext }
+  } catch { return null }
+}
+
+/** Baixa o VÍDEO da reunião do Vexa (best-effort). Retorna null se indisponível. */
+export async function fetchMeetingVideo(nativeId: string): Promise<{ buffer: Buffer; ext: string } | null> {
+  try {
+    const listRes = await vexaFetch('/recordings')
+    if (!listRes.ok) return null
+    const list: any = await listRes.json()
+    const recs: any[] = Array.isArray(list) ? list : (list.recordings || list.results || list.data || [])
+    const match = recs.find(r => [r.native_meeting_id, r.nativeMeetingId, r.meeting_id].includes(nativeId)) || recs[recs.length - 1]
+    const recId = match?.id ?? match?.recording_id
+    if (!recId) return null
+    const detRes = await vexaFetch(`/recordings/${recId}`)
+    if (!detRes.ok) return null
+    const det: any = await detRes.json()
+    const media: any[] = det.media || det.media_files || det.files || det.artifacts || []
+    const video = media.find(m => /video|mp4|webm|mkv|mov/i.test(String(m.type || m.mime || m.kind || m.filename || m.name || '')))
+    const mediaId = video?.id ?? video?.media_file_id
+    if (!mediaId) return null
+    const dlRes = await vexaFetch(`/recordings/${recId}/media/${mediaId}/download`)
+    if (!dlRes.ok) return null
+    const ab = await dlRes.arrayBuffer()
+    const nameExt = String(video.filename || video.name || '').split('.').pop() || ''
+    const ext = /^[a-z0-9]{2,4}$/i.test(nameExt) ? nameExt.toLowerCase() : 'mp4'
     return { buffer: Buffer.from(ab), ext }
   } catch { return null }
 }

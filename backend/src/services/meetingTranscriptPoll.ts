@@ -8,7 +8,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
 import {
-  listMeetingBots, getMeetingTranscript, postMeetingChat, fetchMeetingAudio, type MeetingPlatform, type TranscriptSegment,
+  listMeetingBots, getMeetingTranscript, postMeetingChat, fetchMeetingAudio, fetchMeetingVideo, type MeetingPlatform, type TranscriptSegment,
 } from '../lib/vexaClient.js'
 import { analyzePendingMeetings, polishPendingMeetings } from './meetingAnalysisService.js'
 import { deliverPendingMeetings } from './meetingDelivery.js'
@@ -50,12 +50,12 @@ async function persistTranscriptFile(recId: number, text: string): Promise<{ pat
   }
 }
 
-async function persistAudioFile(recId: number, buffer: Buffer, ext: string): Promise<{ path: string; url: string } | null> {
+async function persistMediaFile(recId: number, buffer: Buffer, ext: string, kind: 'audio' | 'video'): Promise<{ path: string; url: string } | null> {
   try {
     if (!buffer || buffer.length === 0) return null
     const dir = join(process.cwd(), '..', 'uploads', 'meeting-recordings')
     await fs.mkdir(dir, { recursive: true })
-    const fileName = `audio-${recId}-${Date.now()}.${ext}`
+    const fileName = `${kind}-${recId}-${Date.now()}.${ext}`
     await fs.writeFile(join(dir, fileName), buffer)
     const storagePath = `meeting-recordings/${fileName}`
     return { path: storagePath, url: fileUrl(storagePath) }
@@ -121,15 +121,16 @@ export async function pollMeetingTranscripts(): Promise<{ updated: number; compl
       const teveReuniao = rec.status === 'active' || segments.length > 0
       if (teveReuniao) {
         const file = await persistTranscriptFile(rec.id, text)
-        // (9) Guardar o áudio da reunião, se ativo (best-effort).
-        let audioPath = rec.audioPath
-        let audioUrl = rec.audioUrl
+        // (9) Guardar áudio / (#3) vídeo da reunião, se ativos (best-effort).
+        let audioPath = rec.audioPath, audioUrl = rec.audioUrl
+        let videoPath = rec.videoPath, videoUrl = rec.videoUrl
         if (ms.saveAudio && !rec.audioPath) {
           const a = await fetchMeetingAudio(rec.nativeMeetingId)
-          if (a) {
-            const saved = await persistAudioFile(rec.id, a.buffer, a.ext)
-            if (saved) { audioPath = saved.path; audioUrl = saved.url }
-          }
+          if (a) { const s = await persistMediaFile(rec.id, a.buffer, a.ext, 'audio'); if (s) { audioPath = s.path; audioUrl = s.url } }
+        }
+        if (ms.saveVideo && !rec.videoPath) {
+          const v = await fetchMeetingVideo(rec.nativeMeetingId)
+          if (v) { const s = await persistMediaFile(rec.id, v.buffer, v.ext, 'video'); if (s) { videoPath = s.path; videoUrl = s.url } }
         }
         await prisma.meetingRecording.update({
           where: { id: rec.id },
@@ -140,7 +141,7 @@ export async function pollMeetingTranscripts(): Promise<{ updated: number; compl
             segmentCount: segments.length,
             recordingPath: file?.path ?? rec.recordingPath,
             recordingUrl: file?.url ?? rec.recordingUrl,
-            audioPath, audioUrl,
+            audioPath, audioUrl, videoPath, videoUrl,
             endedAt: new Date(),
             transcribedAt: text ? new Date() : rec.transcribedAt,
           },

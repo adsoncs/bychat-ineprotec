@@ -53,6 +53,8 @@ export interface MeetingsSettings {
   joinAnnouncement: string
   joinAheadMinutes: number     // (8) janela: minutos antes de o bot entrar
   saveAudio: boolean           // (9) guardar o áudio da reunião
+  saveVideo: boolean           // gravar VÍDEO da reunião
+  scorecardCriteria: string    // critérios do scorecard (um por linha; vazio = padrão)
   redactPii: boolean           // (6) mascarar dados sensíveis no resumo
   attachToLead: boolean        // (5) anexar resumo como atividade no lead
   webhookUrl: string           // (7) webhook "reunião analisada"
@@ -85,6 +87,8 @@ export async function getMeetingsSettings(): Promise<MeetingsSettings> {
     joinAnnouncement: s('meetings.join_announcement'),
     joinAheadMinutes: Math.max(0, Math.min(30, n('meetings.join_ahead_minutes', 3))),
     saveAudio: b('meetings.save_audio'),
+    saveVideo: b('meetings.save_video'),
+    scorecardCriteria: s('meetings.scorecard_criteria'),
     redactPii: b('meetings.redact_pii'),
     attachToLead: b('meetings.attach_to_lead'),
     webhookUrl: s('meetings.webhook_url'),

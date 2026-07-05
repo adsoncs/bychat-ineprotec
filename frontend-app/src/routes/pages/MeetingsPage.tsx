@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare } from 'lucide-preact'
+import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors } from 'lucide-preact'
 import {
   useMeetingRecordings, useStopMeetingBot, type MeetingRecording,
   useMeetingSeats, useUpdateMeetingSeat, type MeetingSeat,
   usePlaybook, useUpdatePlaybook,
   useMeetingsSettings, useUpdateMeetingsSettings, type MeetingsSettings,
+  useGenerateMeetingsReport, useMeetingSearch,
 } from '@/hooks/useMeetings'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -39,6 +40,11 @@ function sentimentoMeta(s: string): { label: string; tone: Tone } {
   if (s === 'positivo') return { label: 'Positivo', tone: 'success' }
   if (s === 'negativo') return { label: 'Negativo', tone: 'danger' }
   return { label: 'Neutro', tone: 'neutral' }
+}
+
+function fmtSec(sec: number): string {
+  const s = Math.max(0, Math.floor(sec || 0))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
 function AnalysisList({ title, items }: { title: string; items: string[] }) {
@@ -131,6 +137,27 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
                   <AnalysisList title="Direcionamento para a próxima" items={a.playbook.direcionamento} />
                 </div>
               ) : null}
+
+              {a.scorecard && a.scorecard.length ? (
+                <div class="rounded-lg border border-border bg-surface p-3 space-y-1.5">
+                  <div class="flex items-center gap-2"><ClipboardCheck size={14} class="text-info" /><span class="text-sm font-semibold text-fg">Scorecard</span></div>
+                  {a.scorecard.map((s, i) => (
+                    <div key={i} class="flex items-start gap-2">
+                      <span class={cn('text-xs font-semibold px-1.5 py-0.5 rounded shrink-0', s.nota >= 7 ? 'bg-success-soft text-success' : s.nota >= 4 ? 'bg-warning-soft text-warning' : 'bg-danger-soft text-danger')}>{s.nota}/10</span>
+                      <div class="min-w-0 text-sm"><span class="text-fg font-medium">{s.criterio}</span>{s.comentario ? <span class="text-fg-muted"> — {s.comentario}</span> : null}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {a.clips && a.clips.length ? (
+                <div class="rounded-lg border border-border bg-surface p-3 space-y-1">
+                  <div class="flex items-center gap-2 mb-1"><Scissors size={14} class="text-info" /><span class="text-sm font-semibold text-fg">Momentos-chave</span></div>
+                  {a.clips.map((c, i) => (
+                    <div key={i} class="text-sm text-fg-muted"><span class="text-info font-mono text-xs">{fmtSec(c.start)}</span> · {c.titulo}</div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : rec.status === 'completed' ? (
             <div class="text-xs text-fg-subtle">Análise por IA em processamento…</div>
@@ -167,6 +194,17 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
                     baixar áudio <ExternalLink size={11} />
                   </a>
                 ) : null}
+                {rec.videoUrl ? (
+                  <a
+                    class="ml-2 inline-flex items-center gap-0.5 text-info hover:underline"
+                    href={rec.videoUrl}
+                    target="_blank"
+                    rel="noopener"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Video size={11} /> vídeo
+                  </a>
+                ) : null}
               </button>
               {showTranscript ? (
                 <div class="mt-2">
@@ -192,21 +230,92 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
 }
 
 function RecordingsTab() {
+  const [q, setQ] = useState('')
+  const search = useMeetingSearch(q)
   const { data, isLoading } = useMeetingRecordings()
   const recordings = data?.recordings || []
-  if (isLoading) {
-    return <div class="space-y-3"><Skeleton class="h-20 w-full" /><Skeleton class="h-20 w-full" /></div>
-  }
-  if (recordings.length === 0) {
-    return (
-      <EmptyState
-        icon={Mic}
-        title="Nenhuma reunião gravada ainda"
-        description="Quando um bot de transcrição entrar numa reunião, ela aparece aqui com a transcrição e a análise por IA. Ative a gravação em Configurações › LGPD/Legal e a licença do usuário na aba Bots por usuário."
-      />
-    )
-  }
-  return <div class="space-y-3">{recordings.map((rec) => <RecordingCard key={rec.id} rec={rec} />)}</div>
+  const searching = q.trim().length >= 2
+
+  return (
+    <div class="space-y-3">
+      <div class="relative">
+        <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+        <input
+          value={q}
+          onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+          placeholder="Buscar nas transcrições de todas as reuniões…"
+          class="w-full pl-9 pr-3 py-2 rounded-md bg-surface border border-border text-sm text-fg"
+        />
+      </div>
+
+      {searching ? (
+        search.isLoading ? (
+          <Skeleton class="h-24 w-full" />
+        ) : (search.data?.results.length ? (
+          <div class="space-y-2">
+            {search.data.results.map((r) => (
+              <Card key={r.id}>
+                <div class="text-xs text-fg-subtle">{PLATFORM_LABEL[r.platform] || r.platform} · {formatDateTime(r.createdAt)}{r.leadId ? ` · Lead #${r.leadId}` : ''}</div>
+                <div class="text-sm text-fg-muted mt-1">{r.snippet}</div>
+              </Card>
+            ))}
+          </div>
+        ) : <p class="text-sm text-fg-subtle py-6 text-center">Nenhum resultado para "{q}".</p>)
+      ) : isLoading ? (
+        <div class="space-y-3"><Skeleton class="h-20 w-full" /><Skeleton class="h-20 w-full" /></div>
+      ) : recordings.length === 0 ? (
+        <EmptyState
+          icon={Mic}
+          title="Nenhuma reunião gravada ainda"
+          description="Quando um bot de transcrição entrar numa reunião, ela aparece aqui com a transcrição e a análise por IA. Ative a gravação em Configurações › LGPD/Legal e a licença do usuário na aba Bots por usuário."
+        />
+      ) : (
+        recordings.map((rec) => <RecordingCard key={rec.id} rec={rec} />)
+      )}
+    </div>
+  )
+}
+
+// (#1) Relatório multi-reunião.
+function ReportsTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const gen = useGenerateMeetingsReport()
+  const report = gen.data?.report
+  return (
+    <div class="space-y-4">
+      <Card>
+        <div class="flex items-center gap-2 mb-2"><BarChart3 size={18} class="text-info" /><div class="text-sm font-semibold text-fg">Relatório multi-reunião</div></div>
+        <p class="text-xs text-fg-muted mb-3">Agrega as reuniões analisadas de um período: objeções recorrentes, temas, aderência média ao playbook e recomendações para o time.</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+          <Input label="De" type="date" value={from} onInput={(e) => setFrom((e.target as HTMLInputElement).value)} />
+          <Input label="Até" type="date" value={to} onInput={(e) => setTo((e.target as HTMLInputElement).value)} />
+          <Button variant="primary" onClick={() => gen.mutate({ from: from || undefined, to: to ? `${to}T23:59:59` : undefined })} disabled={gen.isPending}>
+            {gen.isPending ? 'Gerando…' : 'Gerar relatório'}
+          </Button>
+        </div>
+      </Card>
+      {gen.isPending ? <Skeleton class="h-40 w-full" /> : report ? (
+        <Card>
+          <div class="flex items-center gap-2 flex-wrap mb-2">
+            <span class="text-sm font-semibold text-fg">Panorama do período</span>
+            <Badge tone="neutral">{report.meetingCount} reuniões</Badge>
+            {report.aderenciaMedia != null ? <Badge tone={report.aderenciaMedia >= 70 ? 'success' : report.aderenciaMedia >= 40 ? 'warning' : 'danger'}>Aderência média {report.aderenciaMedia}/100</Badge> : null}
+          </div>
+          {report.resumo ? <p class="text-sm text-fg-muted mb-3">{report.resumo}</p> : null}
+          {report.meetingCount === 0 ? (
+            <p class="text-sm text-fg-subtle">Nenhuma reunião analisada no período selecionado.</p>
+          ) : (
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <AnalysisList title="Objeções recorrentes" items={report.objecoesComuns} />
+              <AnalysisList title="Temas / padrões" items={report.temas} />
+              <AnalysisList title="Recomendações para o time" items={report.recomendacoes} />
+            </div>
+          )}
+        </Card>
+      ) : null}
+    </div>
+  )
 }
 
 // Aba de licenças (seats) — ativar/desativar o bot POR USUÁRIO. Unidade de cobrança.
@@ -349,6 +458,16 @@ function MeetingsSettingsCard() {
           />
         ) : null}
 
+        {f.analysisEnabled ? (
+          <Textarea
+            label="Critérios do scorecard (um por linha, opcional)"
+            rows={3}
+            value={f.scorecardCriteria}
+            placeholder={'Abertura e rapport\nDiagnóstico / descoberta\nApresentação de valor\nTratamento de objeções\nPróximo passo / fechamento'}
+            onInput={(e) => set('scorecardCriteria', (e.target as HTMLTextAreaElement).value)}
+          />
+        ) : null}
+
         <Textarea
           label="Anúncio de entrada do bot (opcional)"
           rows={2}
@@ -409,6 +528,10 @@ function MeetingsSettingsCard() {
           <label class="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={f.saveAudio} onChange={(e) => set('saveAudio', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
             <span class="text-sm text-fg">Guardar o áudio da reunião</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={f.saveVideo} onChange={(e) => set('saveVideo', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
+            <span class="text-sm text-fg">Gravar o vídeo da reunião (habilita clipes)</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={f.alertLowAdherence} onChange={(e) => set('alertLowAdherence', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
@@ -498,12 +621,13 @@ function ConfigTab() {
   )
 }
 
-type MeetingsTab = 'recordings' | 'seats' | 'config'
+type MeetingsTab = 'recordings' | 'reports' | 'seats' | 'config'
 
 export function MeetingsPage() {
   const [tab, setTab] = useState<MeetingsTab>('recordings')
   const tabs: { id: MeetingsTab; label: string; icon: any }[] = [
     { id: 'recordings', label: 'Gravações', icon: ListVideo },
+    { id: 'reports', label: 'Relatórios', icon: BarChart3 },
     { id: 'seats', label: 'Bots por usuário', icon: Users },
     { id: 'config', label: 'Configurações', icon: Settings },
   ]
@@ -530,7 +654,7 @@ export function MeetingsPage() {
           )
         })}
       </div>
-      {tab === 'recordings' ? <RecordingsTab /> : tab === 'seats' ? <SeatsTab /> : <ConfigTab />}
+      {tab === 'recordings' ? <RecordingsTab /> : tab === 'reports' ? <ReportsTab /> : tab === 'seats' ? <SeatsTab /> : <ConfigTab />}
     </Page>
   )
 }

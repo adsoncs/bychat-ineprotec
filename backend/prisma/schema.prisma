@@ -3432,6 +3432,8 @@ model MeetingRecording {
   recordingPath      String? @db.VarChar(255) // caminho relativo do .txt dentro de uploads/
   audioUrl           String? @db.Text // áudio da reunião (quando "guardar áudio" ativo)
   audioPath          String? @db.VarChar(255)
+  videoUrl           String? @db.Text // vídeo da reunião (quando "gravar vídeo" ativo)
+  videoPath          String? @db.VarChar(255)
   transcriptText     String? @db.Text // transcrição consolidada (fiel à fala)
   transcriptPolished String? @db.Text // versão revisada pela IA (modo "corrigida")
   transcriptSegments Json?   @db.Json // segmentos {start,end,speaker,text}

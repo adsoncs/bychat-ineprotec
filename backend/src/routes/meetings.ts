@@ -10,6 +10,7 @@ import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { shouldRecordMeeting, getSalesPlaybook, getMeetingsSettings, invalidateMeetingsConfigCache } from '../lib/meetingsConfig.js'
 import { isUserBotEnabled, getUserBot, setUserBot, countActiveSeats } from '../lib/meetingBotSeat.js'
+import { generateMeetingsReport } from '../services/meetingReports.js'
 import {
   dispatchMeetingBot, stopMeetingBot, nativeMeetingIdFromUrl,
   type MeetingPlatform,
@@ -270,6 +271,8 @@ export async function meetingsRoutes(app: FastifyInstance) {
     await setStr('meetings.analysis_extra', b.analysisExtra, 4000, 'textarea')
     if (b.joinAheadMinutes !== undefined) await up('meetings.join_ahead_minutes', String(Math.max(0, Math.min(30, parseInt(String(b.joinAheadMinutes), 10) || 3))), 'number')
     await setBool('meetings.save_audio', b.saveAudio)
+    await setBool('meetings.save_video', b.saveVideo)
+    await setStr('meetings.scorecard_criteria', b.scorecardCriteria, 2000, 'textarea')
     await setBool('meetings.redact_pii', b.redactPii)
     await setBool('meetings.attach_to_lead', b.attachToLead)
     await setStr('meetings.webhook_url', b.webhookUrl, 500)
@@ -286,5 +289,38 @@ export async function meetingsRoutes(app: FastifyInstance) {
       ...auditActor(req),
     })
     return { ok: true }
+  })
+
+  // ── (#1) Relatório multi-reunião ────────────────────────────────────────
+  app.post('/api/admin/meetings/report', { preHandler: adminOnly }, async (req) => {
+    const b = (req.body as any) || {}
+    const from = b.from ? new Date(b.from) : undefined
+    const to = b.to ? new Date(b.to) : undefined
+    const report = await generateMeetingsReport({
+      from: from && !isNaN(from.getTime()) ? from : undefined,
+      to: to && !isNaN(to.getTime()) ? to : undefined,
+      leadId: b.leadId ? Number(b.leadId) : undefined,
+      userId: b.userId ? Number(b.userId) : undefined,
+    })
+    return { report }
+  })
+
+  // ── (#4) Busca global em transcrições/resumos ───────────────────────────
+  app.get('/api/admin/meetings/search', { preHandler: authMiddleware }, async (req) => {
+    const q = String((req.query as any)?.q || '').trim()
+    if (q.length < 2) return { results: [] }
+    const rows = await prisma.meetingRecording.findMany({
+      where: { transcriptText: { contains: q } },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, leadId: true, platform: true, nativeMeetingId: true, createdAt: true, transcriptText: true, analysis: true },
+    })
+    const results = rows.map(r => {
+      const t = r.transcriptText || ''
+      const idx = t.toLowerCase().indexOf(q.toLowerCase())
+      const snippet = idx >= 0 ? ('…' + t.slice(Math.max(0, idx - 60), idx + 100).trim() + '…') : ((r.analysis as any)?.resumo || '').slice(0, 160)
+      return { id: r.id, leadId: r.leadId, platform: r.platform, nativeMeetingId: r.nativeMeetingId, createdAt: r.createdAt, snippet }
+    })
+    return { results }
   })
 }
