@@ -62,6 +62,7 @@ import {
   Upload,
   LifeBuoy,
   Repeat,
+  Mic,
 } from 'lucide-preact'
 import type { JSX as JSXNs } from 'preact'
 
@@ -157,6 +158,7 @@ const ICONS: Record<IconName, unknown> = {
   Upload,
   LifeBuoy,
   Repeat,
+  Mic,
 }
 
 interface SidebarIconProps {

@@ -2,6 +2,7 @@
 // (WhatsApp + e-mail), links públicos de remarcar/cancelar, e cron de lembretes.
 import { prisma } from '../lib/prisma.js'
 import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
+import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
 import { getBranding } from '../lib/branding.js'
 import { getRenderedTemplate } from './messageTemplates.js'
 
@@ -57,7 +58,11 @@ async function sendBookingConfirmationToLead(
     if (openWindow) {
       // Sem pedido de confirmação (auto-cancel removido; cancelar/remarcar = manual):
       // mensagem limpa de "agendado" com o link da reunião.
-      const body = `✅ *Reunião agendada!*\n📅 ${when}` + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '')
+      // F0.3: reforça o aviso de gravação (quando ligada) para transparência/consentimento.
+      const recNotice = await getMeetingRecordingNotice()
+      const body = `✅ *Reunião agendada!*\n📅 ${when}`
+        + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '')
+        + (recNotice ? `\n\nℹ️ ${recNotice}` : '')
       await provider.sendText(phone, body)
       return
     }

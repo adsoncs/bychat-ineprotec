@@ -3404,6 +3404,84 @@ model VoipCall {
   @@map("bychat_voip_calls")
 }
 
+// Gravação/transcrição de reunião online (módulo Reuniões — F1). O bot Vexa
+// (self-hosted) entra na reunião, grava e transcreve LOCALMENTE; aqui guardamos
+// o ciclo de vida do bot + a transcrição consolidada, ligados ao lead/atividade.
+// Ver docs/meetings/F0_CONSENTIMENTO_LGPD.md.
+model MeetingRecording {
+  id Int @id @default(autoincrement())
+
+  leadId     Int? // lead a que a reunião se refere
+  activityId Int? // Activity type "meeting" na timeline do lead
+  bookingId  Int? // Booking de origem (agendamento), se houver
+  userId     Int? // operador que disparou o bot
+  userName   String? @db.VarChar(191)
+
+  platform        String @default("google_meet") @db.VarChar(20) // google_meet | teams | zoom
+  nativeMeetingId String @db.VarChar(191) // código nativo (ex.: xxx-xxxx-xxx no Meet)
+  meetingUrl      String @db.Text
+  language        String @default("pt") @db.VarChar(10)
+
+  // requested | joining | active | completed | failed | stopped
+  status         String  @default("requested") @db.VarChar(20)
+  botId          Int? // id do bot no Vexa
+  botContainerId String? @db.VarChar(191)
+  errorReason    String? @db.VarChar(500)
+
+  recordingUrl       String? @db.Text // .txt da transcrição servido via /uploads
+  recordingPath      String? @db.VarChar(255) // caminho relativo do .txt dentro de uploads/
+  audioUrl           String? @db.Text // áudio da reunião (quando "guardar áudio" ativo)
+  audioPath          String? @db.VarChar(255)
+  transcriptText     String? @db.Text // transcrição consolidada (fiel à fala)
+  transcriptPolished String? @db.Text // versão revisada pela IA (modo "corrigida")
+  transcriptSegments Json?   @db.Json // segmentos {start,end,speaker,text}
+  segmentCount       Int     @default(0)
+
+  notifiedAt DateTime? // quando o resumo foi enviado (email/WhatsApp)
+
+  analysis   Json?     @db.Json // análise IA (F3): resumo, topicos, acaoItems, objecoes, proximosPassos, sentimento
+  analyzedAt DateTime? // quando a análise IA foi gerada
+
+  startedAt     DateTime? // bot admitido / reunião iniciada
+  endedAt       DateTime? // bot saiu / reunião encerrada
+  transcribedAt DateTime? // transcrição consolidada gravada
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([activityId])
+  @@index([bookingId])
+  @@index([status])
+  @@index([nativeMeetingId])
+  @@index([createdAt])
+  @@map("bychat_meeting_recordings")
+}
+
+// Licença do bot de reunião POR USUÁRIO (seat) — é a UNIDADE DE COBRANÇA do
+// módulo. O bot só é disparado (manual ou autônomo) para reuniões cujo dono
+// tenha uma licença ATIVA. Ativar/desativar é por toggle no painel; a partir da
+// ativação o bot passa a operar sozinho nas reuniões do usuário (autoJoin).
+model UserMeetingBot {
+  id     Int     @id @default(autoincrement())
+  userId Int     @unique // um seat por usuário
+  enabled Boolean @default(false) // licença ativa (cobrança)
+  autoJoin Boolean @default(true) // entra sozinho nas reuniões do usuário
+
+  language String  @default("pt") @db.VarChar(10)
+  botName  String? @db.VarChar(100) // nome exibido do bot (default "ByChat Transcritor")
+  config   Json?   @db.Json // configs extras futuras
+
+  activatedAt       DateTime? // quando a licença foi ativada
+  activatedByUserId Int? // admin que ativou
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled])
+  @@map("bychat_user_meeting_bots")
+}
+
 // Auditoria de cada webhook recebido (Pagar.me/Asaas). Persistido ANTES do
 // processamento — se o handler falhar, ainda temos o payload pra debug.
 model PaymentWebhookHit {

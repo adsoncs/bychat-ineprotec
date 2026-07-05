@@ -136,6 +136,32 @@ export function useDeleteDsarLead() {
   })
 }
 
+// ── Reuniões (gravação/transcrição) — opt-in LGPD ──────────────
+export interface MeetingsRecordingConfig {
+  enabled: boolean
+  noticeText: string
+  retentionDays: number
+  legalAcceptedBy: string | null
+  legalAcceptedAt: string | null
+}
+
+export function useMeetingsRecordingConfig() {
+  return useQuery({
+    queryKey: ['meetings-recording-config'],
+    queryFn: () => api.get<MeetingsRecordingConfig>('/admin/legal/meetings-recording'),
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateMeetingsRecordingConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (updates: Partial<MeetingsRecordingConfig> & { legalAccepted?: boolean }) =>
+      api.put<{ ok: true }>('/admin/legal/meetings-recording', updates),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meetings-recording-config'] }),
+  })
+}
+
 export interface AppearanceConfig {
   appearance: Record<string, string>
   defaults: Record<string, string>

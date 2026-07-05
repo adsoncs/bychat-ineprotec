@@ -73,7 +73,9 @@ export async function activitiesRoutes(app: FastifyInstance) {
           attachmentType: body.attachmentType || null,
           // notifyLead: opt-in do operador para avisar o lead (convite Google + WhatsApp).
           // Default OFF — só notifica se vier true explícito do painel.
-          metadata: { ...(body.metadata || {}), bodyHtml: bodyHtml || undefined, notifyLead: body.notifyLead === true ? true : undefined },
+          // recordMeeting: opt-OUT de gravação por reunião (F0.5). Grava false só na
+          // recusa explícita; ausência = segue a policy do tenant (shouldRecordMeeting).
+          metadata: { ...(body.metadata || {}), bodyHtml: bodyHtml || undefined, notifyLead: body.notifyLead === true ? true : undefined, recordMeeting: body.recordMeeting === false ? false : undefined },
         }
       })
 

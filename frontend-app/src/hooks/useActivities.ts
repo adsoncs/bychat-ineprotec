@@ -47,6 +47,9 @@ export interface ActivityInput {
   attachmentType?: string | null | undefined
   /** Avisar o lead (convite Google Calendar + WhatsApp) — só p/ meeting/call. Default false. */
   notifyLead?: boolean | undefined
+  /** Gravar/transcrever esta reunião — opt-OUT por reunião (F0.5). Só p/ meeting.
+   *  Envie false para NÃO gravar; ausência = segue a policy do tenant. */
+  recordMeeting?: boolean | undefined
 }
 
 export interface ActivitiesListResponse {

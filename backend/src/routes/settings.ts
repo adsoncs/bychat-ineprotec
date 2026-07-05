@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { adminOnly, adminStrict, superadminOnly, type JwtPayload } from '../lib/auth.js'
 import { isPrimaryInstall } from '../lib/install.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { MEETINGS_NOTICE_DEFAULT, invalidateMeetingsConfigCache } from '../lib/meetingsConfig.js'
 
 // ── Mascaramento de segredos ────────────────────────────────────────────
 // Configurações cujo nome indica credencial (api key, token, secret, senha)
@@ -490,6 +491,93 @@ export async function settingsRoutes(app: FastifyInstance) {
     const { clearPhoneIdentityCache } = await import('../lib/phoneIdentity.js')
     clearPhoneIdentityCache()
 
+    return { ok: true }
+  })
+
+  // ── Reuniões (Transcrição) — opt-in de GRAVAÇÃO com aceite LGPD ──────────
+  // Portão de consentimento (F0.2). A gravação/transcrição de reuniões trata
+  // dado pessoal de TODOS os participantes (inclusive o lead), então só liga
+  // por ação explícita do admin, que declara assumir a responsabilidade de
+  // controlador pela base legal. Guardamos quem aceitou e quando (auditoria).
+  // O texto-padrão MEETINGS_NOTICE_DEFAULT vem de lib/meetingsConfig (fonte única).
+
+  // Rota sob /api/admin/legal/* (não /api/admin/meetings/*) de propósito: é
+  // config LEGAL sempre acessível ao admin, e NÃO deve ser barrada pelo gate do
+  // módulo 'meetings' (que nasce inativo). Os prefixos /api/admin/meetings ficam
+  // reservados às rotas da feature (F1: disparo de bot, transcrições).
+  app.get('/api/admin/legal/meetings-recording', { preHandler: adminOnly }, async () => {
+    const rows = await prisma.setting.findMany({
+      where: { key: { startsWith: 'meetings.recording.' } },
+    })
+    const byKey = new Map(rows.map(r => [r.key, r.value]))
+    const u = (raw: any): string => {
+      if (raw === null || raw === undefined) return ''
+      if (typeof raw === 'string') return raw.replace(/^"|"$/g, '').trim()
+      return String(raw)
+    }
+    const retentionRaw = parseInt(u(byKey.get('meetings.recording.retention_days')), 10)
+    return {
+      enabled: u(byKey.get('meetings.recording.enabled')).toLowerCase() === 'true',
+      noticeText: u(byKey.get('meetings.recording.notice_text')) || MEETINGS_NOTICE_DEFAULT,
+      retentionDays: Number.isFinite(retentionRaw) && retentionRaw > 0 ? retentionRaw : 90,
+      legalAcceptedBy: u(byKey.get('meetings.recording.legal_accepted_by')) || null,
+      legalAcceptedAt: u(byKey.get('meetings.recording.legal_accepted_at')) || null,
+    }
+  })
+
+  app.put('/api/admin/legal/meetings-recording', { preHandler: adminOnly }, async (req, reply) => {
+    const body = (req.body as any) || {}
+    const enabled = !!body.enabled
+    const noticeText = typeof body.noticeText === 'string' && body.noticeText.trim()
+      ? body.noticeText.trim().substring(0, 2000)
+      : MEETINGS_NOTICE_DEFAULT
+    let retentionDays = parseInt(String(body.retentionDays), 10)
+    if (!Number.isFinite(retentionDays) || retentionDays < 1) retentionDays = 90
+    if (retentionDays > 3650) retentionDays = 3650
+
+    // Estado atual (para detectar a transição desligado→ligado)
+    const prev = await prisma.setting.findUnique({ where: { key: 'meetings.recording.enabled' } })
+    const wasEnabled = typeof prev?.value === 'string'
+      ? prev.value.replace(/^"|"$/g, '').trim().toLowerCase() === 'true'
+      : false
+
+    // Portão legal: LIGAR a gravação exige aceite explícito de responsabilidade.
+    if (enabled && !wasEnabled && body.legalAccepted !== true) {
+      return reply.code(400).send({
+        error: 'Para ativar a gravação de reuniões é necessário aceitar a responsabilidade de controlador pela base legal (LGPD).',
+        code: 'LEGAL_ACCEPTANCE_REQUIRED',
+      })
+    }
+
+    async function upsertSetting(key: string, value: any, label: string, fieldType: string) {
+      await prisma.setting.upsert({
+        where: { key },
+        create: { key, label, grp: 'meetings', fieldType, value: value as any },
+        update: { value: value as any },
+      })
+    }
+
+    await upsertSetting('meetings.recording.enabled', enabled ? 'true' : 'false', 'Reuniões — Gravação ativa', 'boolean')
+    await upsertSetting('meetings.recording.notice_text', noticeText, 'Reuniões — Aviso de gravação (convite)', 'textarea')
+    await upsertSetting('meetings.recording.retention_days', String(retentionDays), 'Reuniões — Retenção (dias)', 'number')
+
+    // Registra o aceite no momento em que a gravação é LIGADA.
+    if (enabled && !wasEnabled) {
+      const actor = auditActor(req)
+      await upsertSetting('meetings.recording.legal_accepted_by', actor.actorName || 'desconhecido', 'Reuniões — Aceite legal por', 'text')
+      await upsertSetting('meetings.recording.legal_accepted_at', new Date().toISOString(), 'Reuniões — Aceite legal em', 'text')
+    }
+
+    void logUserAudit({
+      action: enabled && !wasEnabled ? 'meetings.recording.enabled'
+        : (!enabled && wasEnabled ? 'meetings.recording.disabled' : 'meetings.recording.updated'),
+      targetType: 'setting',
+      targetLabel: 'Gravação de reuniões (LGPD)',
+      changes: { enabled, retentionDays },
+      ...auditActor(req),
+    })
+
+    invalidateMeetingsConfigCache()
     return { ok: true }
   })
 

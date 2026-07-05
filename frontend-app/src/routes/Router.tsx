@@ -160,6 +160,9 @@ const migratedPages: Record<string, ComponentType> = {
   voip: lazy(() =>
     import('./pages/VoipPage').then((m) => ({ default: m.VoipPage })),
   ),
+  meetings: lazy(() =>
+    import('./pages/MeetingsPage').then((m) => ({ default: m.MeetingsPage })),
+  ),
   scheduling: lazy(() =>
     import('./pages/SchedulingPage').then((m) => ({ default: m.SchedulingPage })),
   ),

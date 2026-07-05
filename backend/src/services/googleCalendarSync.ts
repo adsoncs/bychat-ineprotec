@@ -5,6 +5,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '../lib/google.js'
+import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
 
 type CachedCalInt = {
   id: number
@@ -116,6 +117,10 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
       }
     }
 
+    // Aviso de gravação (F0.3): quando a gravação de reuniões está ligada, o
+    // convite precisa dar transparência/consentimento aos participantes.
+    const recordingNotice = await getMeetingRecordingNotice()
+
     for (const integration of targetIntegrations) {
       const startTime = Date.now()
       try {
@@ -130,6 +135,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           activity.description || '',
           lead ? `\nLead: ${lead.nome || ''} ${lead.empresa ? '(' + lead.empresa + ')' : ''}` : '',
           lead?.whatsapp ? `WhatsApp: ${lead.whatsapp}` : '',
+          recordingNotice ? `\n⚠️ ${recordingNotice}` : '',
           `\nCriado via ByChat Beyond`,
         ].filter(Boolean).join('\n')
 

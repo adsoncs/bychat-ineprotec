@@ -74,6 +74,7 @@ export type IconName =
   | 'Database'
   | 'Upload'
   | 'LifeBuoy'
+  | 'Mic'
 
 export interface SidebarItem {
   id: string
@@ -120,6 +121,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'kanban', label: 'Kanban', href: '/app/kanban', icon: 'KanbanSquare', permission: 'kanban' },
         { id: 'activities', label: 'Atividades', href: '/app/activities', icon: 'ListChecks', permission: 'activities' },
         { id: 'scheduling', label: 'Agenda', href: '/app/scheduling', icon: 'CalendarRange', permission: 'scheduling' },
+        { id: 'meetings', label: 'Reuniões', href: '/app/meetings', icon: 'Mic', permission: 'meetings' },
       ],
     },
     {

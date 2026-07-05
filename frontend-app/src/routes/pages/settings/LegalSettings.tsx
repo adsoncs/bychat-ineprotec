@@ -4,7 +4,7 @@
 // Os campos *_html são opcionais: vazios = usa o texto-modelo embutido.
 
 import { useEffect, useState } from 'preact/hooks'
-import { Scale, ExternalLink, Inbox, AlertTriangle } from 'lucide-preact'
+import { Scale, ExternalLink, Inbox, AlertTriangle, Mic, ShieldCheck } from 'lucide-preact'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -13,6 +13,7 @@ import { toast } from '@/lib/toast'
 import {
   useLegalSettings, useUpdateLegalSettings, type LegalConfig,
   useDsarRequests, useUpdateDsar, useDeleteDsarLead, type DsarRequest,
+  useMeetingsRecordingConfig, useUpdateMeetingsRecordingConfig,
 } from '@/hooks/useSettings'
 
 const DSAR_TYPE_LABEL: Record<string, string> = {
@@ -112,6 +113,142 @@ function DsarInbox() {
           })}
         </div>
       )}
+    </Card>
+  )
+}
+
+// Card do opt-in de GRAVAÇÃO de reuniões (módulo Reuniões/Transcrição — F0.2).
+// Portão de consentimento LGPD: ligar exige aceite explícito de responsabilidade.
+function MeetingsRecordingCard() {
+  const { data, isLoading } = useMeetingsRecordingConfig()
+  const update = useUpdateMeetingsRecordingConfig()
+  const [enabled, setEnabled] = useState(false)
+  const [noticeText, setNoticeText] = useState('')
+  const [retentionDays, setRetentionDays] = useState(90)
+  const [accept, setAccept] = useState(false)
+
+  useEffect(() => {
+    if (data) {
+      setEnabled(data.enabled)
+      setNoticeText(data.noticeText)
+      setRetentionDays(data.retentionDays)
+      setAccept(false)
+    }
+  }, [data])
+
+  if (isLoading) return <Card><Skeleton class="h-48 w-full" /></Card>
+
+  const turningOn = enabled && !data?.enabled
+  const dirty = !!data && (
+    enabled !== data.enabled ||
+    noticeText !== data.noticeText ||
+    retentionDays !== data.retentionDays
+  )
+  const blocked = turningOn && !accept
+
+  function handleSave() {
+    if (blocked) {
+      toast('Marque o aceite de responsabilidade para ativar a gravação.', 'danger')
+      return
+    }
+    update.mutate(
+      { enabled, noticeText, retentionDays, legalAccepted: accept },
+      {
+        onSuccess: () => toast('Configuração de gravação de reuniões salva', 'success'),
+        onError: (e: unknown) => toast((e as Error).message || 'Erro ao salvar', 'danger'),
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <div class="flex items-start gap-3 mb-4">
+        <Mic size={18} class="text-info shrink-0 mt-0.5" />
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <div class="text-sm font-semibold text-fg">Gravação e transcrição de reuniões</div>
+            <span class={`text-xs px-2 py-0.5 rounded-full ${data?.enabled ? 'bg-success-soft text-success' : 'bg-surface-2 text-fg-muted'}`}>
+              {data?.enabled ? 'ATIVA' : 'DESATIVADA'}
+            </span>
+          </div>
+          <p class="text-xs text-fg-muted mt-0.5">
+            O bot entra em reuniões (Meet/Teams/Zoom), grava e transcreve <strong>localmente no servidor</strong>{' '}
+            (o áudio não é enviado a terceiros) e anexa ao lead. Gravar trata dado pessoal de <strong>todos</strong> os
+            participantes — só ative com base legal e consentimento adequados.
+          </p>
+          {data?.enabled && data.legalAcceptedBy ? (
+            <p class="text-xs text-fg-subtle mt-1">
+              Responsabilidade aceita por <strong>{data.legalAcceptedBy}</strong>
+              {data.legalAcceptedAt ? <> em {new Date(data.legalAcceptedAt).toLocaleString('pt-BR')}</> : null}.
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <label class="flex items-center gap-2 cursor-pointer select-none mb-3">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled((e.target as HTMLInputElement).checked)}
+          class="h-4 w-4"
+        />
+        <span class="text-sm text-fg">Ativar gravação de reuniões neste tenant</span>
+      </label>
+
+      {turningOn ? (
+        <label class="flex items-start gap-2 cursor-pointer select-none mb-3 rounded-lg border border-warning/40 bg-warning-soft p-3">
+          <input
+            type="checkbox"
+            checked={accept}
+            onChange={(e) => setAccept((e.target as HTMLInputElement).checked)}
+            class="h-4 w-4 mt-0.5"
+          />
+          <span class="text-xs text-fg inline-flex flex-col gap-0.5">
+            <span class="inline-flex items-center gap-1 font-semibold"><ShieldCheck size={13} /> Aceite de responsabilidade (LGPD)</span>
+            Declaro que, como controlador, assumo a responsabilidade pela base legal e pelo
+            consentimento informado dos participantes antes de gravar/transcrever reuniões.
+          </span>
+        </label>
+      ) : null}
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+        <div class="md:col-span-2">
+          <Textarea
+            label="Aviso de gravação (usado no convite/agendamento)"
+            rows={3}
+            value={noticeText}
+            onInput={(e) => setNoticeText((e.target as HTMLTextAreaElement).value)}
+          />
+        </div>
+        <Input
+          label="Retenção (dias)"
+          type="number"
+          min={1}
+          value={String(retentionDays)}
+          hint="Após esse prazo, gravação e transcrição são apagadas."
+          onInput={(e) => setRetentionDays(parseInt((e.target as HTMLInputElement).value, 10) || 90)}
+        />
+      </div>
+
+      {dirty ? (
+        <div class="flex justify-end gap-2 mt-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (!data) return
+              setEnabled(data.enabled); setNoticeText(data.noticeText)
+              setRetentionDays(data.retentionDays); setAccept(false)
+            }}
+            disabled={update.isPending}
+          >
+            Descartar
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleSave} disabled={update.isPending || blocked}>
+            {update.isPending ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </div>
+      ) : null}
     </Card>
   )
 }
@@ -236,6 +373,8 @@ export function LegalSettings() {
           </Button>
         </div>
       )}
+
+      <MeetingsRecordingCard />
 
       <DsarInbox />
     </div>

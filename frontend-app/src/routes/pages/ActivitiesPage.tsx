@@ -684,6 +684,10 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
   // Avisar o lead (convite Google + WhatsApp). Default OFF — evita que registrar
   // um no-show como reunião dispare convite/WhatsApp ao cliente sem querer.
   const [notifyLead, setNotifyLead] = useState(false)
+  // Gravar/transcrever esta reunião — opt-OUT (F0.5). Default marcado; desmarcar
+  // registra a recusa (metadata.recordMeeting=false). Só tem efeito se a gravação
+  // estiver ativada em Configurações › LGPD/Legal.
+  const [recordMeeting, setRecordMeeting] = useState(true)
 
   const [templateId, setTemplateId] = useState<number | ''>('')
   const [messageSubject, setMessageSubject] = useState('')
@@ -729,6 +733,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
       recipientPhone: recipientPhone.trim() || null,
       recipientEmail: recipientEmail.trim() || null,
       notifyLead: (type === 'meeting' || type === 'call') ? notifyLead : undefined,
+      recordMeeting: type === 'meeting' ? recordMeeting : undefined,
     }
 
     let createdActivity: Activity
@@ -886,6 +891,20 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
               <span class="text-xs text-fg-muted leading-snug">
                 <span class="font-medium text-fg">Avisar o lead</span> — envia convite no Google Calendar e WhatsApp com o link do Meet.
                 Deixe <strong>desmarcado</strong> para apenas registrar (ex.: marcar um no-show) sem notificar o cliente.
+              </span>
+            </label>
+          )}
+          {type === 'meeting' && (
+            <label class="flex items-start gap-2 rounded-lg border border-border bg-surface p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                class="mt-0.5"
+                checked={recordMeeting}
+                onChange={(e) => setRecordMeeting((e.target as HTMLInputElement).checked)}
+              />
+              <span class="text-xs text-fg-muted leading-snug">
+                <span class="font-medium text-fg">Gravar e transcrever esta reunião</span> — só tem efeito se a gravação estiver
+                ativada em Configurações › LGPD/Legal. Deixe <strong>desmarcado</strong> para não gravar esta reunião específica.
               </span>
             </label>
           )}

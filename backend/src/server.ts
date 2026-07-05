@@ -95,6 +95,7 @@ import { googleAdsRoutes } from './routes/googleAds.js'
 import { googleAdsReportRoutes } from './routes/googleAdsReport.js'
 import { utmsRoutes } from './routes/utms.js'
 import { voipRoutes } from './routes/voip.js'
+import { meetingsRoutes } from './routes/meetings.js'
 import { waCallsRoutes } from './routes/waCalls.js'
 import { schedulingRoutes } from './routes/scheduling.js'
 import { schedulingPublicRoutes } from './routes/schedulingPublic.js'
@@ -124,6 +125,9 @@ import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
 import { startTrashPurgeScheduler } from './services/trash.js'
+import { startMeetingRetentionPurge } from './services/meetingRetentionPurge.js'
+import { startMeetingTranscriptPoll } from './services/meetingTranscriptPoll.js'
+import { startMeetingAutoDispatch } from './services/meetingAutoDispatch.js'
 import { startEscalationScheduler } from './services/routing/escalation.js'
 import { startTransferExpireScheduler } from './services/routing/transferExpire.js'
 import { startShiftHandoverScheduler } from './services/routing/shiftHandover.js'
@@ -550,6 +554,7 @@ await app.register(googleAdsRoutes)
 await app.register(googleAdsReportRoutes)
 await app.register(utmsRoutes)
 await app.register(voipRoutes)
+await app.register(meetingsRoutes)
 await app.register(waCallsRoutes)
 await app.register(schedulingRoutes)
 await app.register(schedulingPublicRoutes)
@@ -1150,6 +1155,9 @@ try {
     .catch(err => console.error('[voipRecordingSync] init falhou:', err))
   startEvolutionMonitor()
   startTrashPurgeScheduler()
+  startMeetingRetentionPurge()   // F0.6 — expurgo de gravações de reunião por retenção (LGPD)
+  startMeetingTranscriptPoll()   // F1.3 — poller de status/transcrição das reuniões
+  startMeetingAutoDispatch()     // auto-disparo do bot p/ usuários com licença ativa
   startCapiRetryScheduler()
   startEscalationScheduler()
   startTransferExpireScheduler()
