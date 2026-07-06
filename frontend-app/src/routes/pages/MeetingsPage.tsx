@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors } from 'lucide-preact'
+import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck } from 'lucide-preact'
 import {
   useMeetingRecordings, useStopMeetingBot, type MeetingRecording,
   useMeetingSeats, useUpdateMeetingSeat, type MeetingSeat,
   usePlaybook, useUpdatePlaybook,
   useMeetingsSettings, useUpdateMeetingsSettings, type MeetingsSettings,
-  useGenerateMeetingsReport, useMeetingSearch,
+  useGenerateMeetingsReport, useMeetingSearch, useUploadPresencialMeeting,
+  useMeetingLeadSearch, type MeetingLeadResult,
 } from '@/hooks/useMeetings'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -14,6 +15,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Textarea, Select } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
+import { AudioRecorder } from '@/components/AudioRecorder'
 import { formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -25,6 +28,7 @@ function statusMeta(status: string): { label: string; tone: Tone } {
     case 'completed': return { label: 'Concluída', tone: 'success' }
     case 'active': return { label: 'Ao vivo', tone: 'info' }
     case 'joining': return { label: 'Entrando', tone: 'info' }
+    case 'transcribing': return { label: 'Transcrevendo', tone: 'info' }
     case 'requested': return { label: 'Solicitada', tone: 'warning' }
     case 'failed': return { label: 'Falhou', tone: 'danger' }
     case 'stopped': return { label: 'Encerrada', tone: 'neutral' }
@@ -33,7 +37,7 @@ function statusMeta(status: string): { label: string; tone: Tone } {
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
-  google_meet: 'Google Meet', teams: 'Microsoft Teams', zoom: 'Zoom',
+  google_meet: 'Google Meet', teams: 'Microsoft Teams', zoom: 'Zoom', presencial: 'Presencial',
 }
 
 function sentimentoMeta(s: string): { label: string; tone: Tone } {
@@ -77,8 +81,9 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <Badge tone={st.tone}>{st.label}</Badge>
-            <span class="text-sm font-medium text-fg">{PLATFORM_LABEL[rec.platform] || rec.platform}</span>
-            <span class="text-xs text-fg-subtle">· {rec.nativeMeetingId}</span>
+            <span class="text-sm font-medium text-fg">{rec.title || PLATFORM_LABEL[rec.platform] || rec.platform}</span>
+            <span class="text-xs text-fg-subtle">· {PLATFORM_LABEL[rec.platform] || rec.platform}</span>
+            {rec.platform !== 'presencial' ? <span class="text-xs text-fg-subtle">· {rec.nativeMeetingId}</span> : null}
             {rec.leadId ? <span class="text-xs text-fg-subtle">· Lead #{rec.leadId}</span> : null}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
@@ -229,8 +234,187 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
   )
 }
 
+// MODO PRESENCIAL: grava o áudio da sala física (mic do celular/navegador) ou
+// envia um arquivo, com portão de consentimento (LGPD). Sem bot — o áudio vai
+// direto ao whisper CPU soberano.
+function PresencialMeetingModal({ onClose }: { onClose: () => void }) {
+  const upload = useUploadPresencialMeeting()
+  const { data: settings } = useMeetingsSettings()
+  const [consent, setConsent] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [recording, setRecording] = useState(false)
+  const [title, setTitle] = useState('')
+  const [language, setLanguage] = useState('pt')
+  const [leadQuery, setLeadQuery] = useState('')
+  const [selectedLead, setSelectedLead] = useState<MeetingLeadResult | null>(null)
+  const leadSearch = useMeetingLeadSearch(selectedLead ? '' : leadQuery)
+  const leadResults = leadSearch.data?.leads || []
+
+  const canSend = !!file && consent && !upload.isPending
+
+  function handleSend() {
+    if (!file) { toast('Grave ou envie um áudio primeiro', 'warning'); return }
+    if (!consent) { toast('Confirme o consentimento dos presentes', 'warning'); return }
+    upload.mutate(
+      { file, title, language, leadId: selectedLead?.id ?? null },
+      {
+        onSuccess: (r) => {
+          if (r.recorded) { toast('Áudio enviado — transcrevendo em segundo plano…', 'success'); onClose() }
+          else toast(r.reason || 'Não foi possível registrar a gravação', 'danger')
+        },
+        onError: (e) => toast((e as Error).message, 'danger'),
+      },
+    )
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Nova reunião presencial"
+      description="Grave o áudio da reunião física ou envie um arquivo. A transcrição é feita localmente (soberana) e a análise por IA é anexada ao lead."
+      size="lg"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={handleSend} disabled={!canSend}>
+            <Upload size={14} /> {upload.isPending ? 'Enviando…' : 'Enviar para transcrição'}
+          </Button>
+        </>
+      }
+    >
+      <div class="space-y-4">
+        {/* Nome da reunião */}
+        <div>
+          <label class="text-xs font-semibold text-fg mb-1 block">Nome da reunião</label>
+          <Input
+            placeholder="Ex.: Visita comercial — Cliente X"
+            value={title}
+            onInput={(e) => setTitle((e.target as HTMLInputElement).value)}
+          />
+        </div>
+
+        {/* Portão de consentimento (LGPD presencial) */}
+        <div class="rounded-md border border-warning/40 bg-warning/10 p-3">
+          <div class="flex items-center gap-2 text-sm font-semibold text-fg mb-1">
+            <ShieldCheck size={15} class="text-warning" /> Consentimento (LGPD)
+          </div>
+          <p class="text-xs text-fg-muted mb-2">
+            {settings?.notifyToOwner !== undefined /* settings carregado */
+              ? 'Informe verbalmente os presentes de que a reunião será gravada e transcrita. Não há bot que se anuncie no presencial — a responsabilidade de informar é sua.'
+              : 'Carregando…'}
+          </p>
+          <label class="flex items-start gap-2 text-sm text-fg cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent((e.target as HTMLInputElement).checked)}
+              class="mt-0.5"
+            />
+            <span>Confirmo que <strong>informei os presentes</strong> e obtive consentimento para gravar e transcrever esta reunião.</span>
+          </label>
+        </div>
+
+        {/* Captura: gravar agora OU enviar arquivo */}
+        <div>
+          <div class="text-xs font-semibold text-fg mb-2">Áudio da reunião</div>
+          {recording ? (
+            <AudioRecorder
+              onComplete={(f) => { setFile(f); setRecording(false) }}
+              onCancel={() => setRecording(false)}
+            />
+          ) : file ? (
+            <div class="flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-2">
+              <Mic size={15} class="text-success" />
+              <span class="flex-1 text-sm text-fg truncate">{file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</span>
+              <Button variant="ghost" size="sm" onClick={() => setFile(null)}>Trocar</Button>
+            </div>
+          ) : (
+            <div class="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setRecording(true)}>
+                <Radio size={14} /> Gravar agora
+              </Button>
+              <label class="inline-flex">
+                <input
+                  type="file"
+                  accept="audio/*"
+                  class="hidden"
+                  onChange={(e) => {
+                    const f = (e.target as HTMLInputElement).files?.[0]
+                    if (f) setFile(f)
+                  }}
+                />
+                <span class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-surface text-sm text-fg cursor-pointer hover:bg-surface-3">
+                  <Upload size={14} /> Enviar arquivo
+                </span>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Opções */}
+        <div>
+          <label class="text-xs font-semibold text-fg mb-1 block">Idioma</label>
+          <Select value={language} onChange={(e) => setLanguage((e.target as HTMLSelectElement).value)}>
+            <option value="pt">Português</option>
+            <option value="en">Inglês</option>
+            <option value="es">Espanhol</option>
+          </Select>
+        </div>
+
+        {/* Vincular a um lead — busca por nome, e-mail ou WhatsApp */}
+        <div>
+          <label class="text-xs font-semibold text-fg mb-1 block">Vincular a um lead (opcional)</label>
+          {selectedLead ? (
+            <div class="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
+              <Users size={15} class="text-info shrink-0" />
+              <div class="min-w-0 flex-1">
+                <div class="text-sm text-fg truncate">{selectedLead.nome || `Lead #${selectedLead.id}`}{selectedLead.empresa ? ` · ${selectedLead.empresa}` : ''}</div>
+                <div class="text-xs text-fg-subtle truncate">{selectedLead.whatsapp || selectedLead.email || `#${selectedLead.id}`}</div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setSelectedLead(null); setLeadQuery('') }}>Trocar</Button>
+            </div>
+          ) : (
+            <div class="relative">
+              <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+              <input
+                value={leadQuery}
+                onInput={(e) => setLeadQuery((e.target as HTMLInputElement).value)}
+                placeholder="Buscar por nome, e-mail ou WhatsApp…"
+                class="w-full pl-9 pr-3 py-2 rounded-md bg-surface border border-border text-sm text-fg"
+              />
+              {leadQuery.trim().length >= 2 && (
+                <div class="absolute z-10 mt-1 w-full rounded-md border border-border bg-surface shadow-lg max-h-56 overflow-y-auto">
+                  {leadSearch.isLoading ? (
+                    <div class="px-3 py-2 text-sm text-fg-subtle">Buscando…</div>
+                  ) : leadResults.length === 0 ? (
+                    <div class="px-3 py-2 text-sm text-fg-subtle">Nenhum lead encontrado.</div>
+                  ) : (
+                    leadResults.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        class="w-full text-left px-3 py-2 hover:bg-surface-3 border-b border-border last:border-b-0"
+                        onClick={() => { setSelectedLead(l); setLeadQuery('') }}
+                      >
+                        <div class="text-sm text-fg truncate">{l.nome || `Lead #${l.id}`}{l.empresa ? ` · ${l.empresa}` : ''}</div>
+                        <div class="text-xs text-fg-subtle truncate">{[l.whatsapp, l.email].filter(Boolean).join(' · ') || `#${l.id}`}</div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function RecordingsTab() {
   const [q, setQ] = useState('')
+  const [presencialOpen, setPresencialOpen] = useState(false)
   const search = useMeetingSearch(q)
   const { data, isLoading } = useMeetingRecordings()
   const recordings = data?.recordings || []
@@ -238,14 +422,22 @@ function RecordingsTab() {
 
   return (
     <div class="space-y-3">
-      <div class="relative">
-        <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
-        <input
-          value={q}
-          onInput={(e) => setQ((e.target as HTMLInputElement).value)}
-          placeholder="Buscar nas transcrições de todas as reuniões…"
-          class="w-full pl-9 pr-3 py-2 rounded-md bg-surface border border-border text-sm text-fg"
-        />
+      {presencialOpen && <PresencialMeetingModal onClose={() => setPresencialOpen(false)} />}
+      <div class="flex items-center gap-2">
+        <div class="relative flex-1 min-w-0">
+          <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          <input
+            value={q}
+            onInput={(e) => setQ((e.target as HTMLInputElement).value)}
+            placeholder="Buscar nas transcrições…"
+            class="w-full pl-9 pr-3 py-2 rounded-md bg-surface border border-border text-sm text-fg"
+          />
+        </div>
+        <Button variant="primary" size="sm" class="shrink-0" onClick={() => setPresencialOpen(true)}>
+          <Radio size={14} class="shrink-0" />
+          <span class="hidden sm:inline">Reunião presencial</span>
+          <span class="sm:hidden">Presencial</span>
+        </Button>
       </div>
 
       {searching ? (
@@ -534,6 +726,10 @@ function MeetingsSettingsCard() {
             <span class="text-sm text-fg">Gravar o vídeo da reunião (habilita clipes)</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={f.presencialEnabled} onChange={(e) => set('presencialEnabled', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
+            <span class="text-sm text-fg">Permitir reunião <strong>presencial</strong> (gravar o áudio da sala / upload, sem bot)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={f.alertLowAdherence} onChange={(e) => set('alertLowAdherence', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
             <span class="text-sm text-fg">Alertar o gestor por baixa aderência ao playbook</span>
           </label>
@@ -636,7 +832,7 @@ export function MeetingsPage() {
       title="Reuniões"
       description="Transcrição e análise por IA das suas reuniões online (Google Meet, Teams, Zoom) — capturadas e transcritas localmente, ligadas ao lead."
     >
-      <div class="flex items-center gap-1 border-b border-border mb-4">
+      <div class="grid grid-cols-4 sm:flex sm:items-center gap-1 border-b border-border mb-4">
         {tabs.map((t) => {
           const Icon = t.icon
           return (
@@ -645,11 +841,11 @@ export function MeetingsPage() {
               type="button"
               onClick={() => setTab(t.id)}
               class={cn(
-                'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                'flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-2 px-1 sm:px-4 py-2 text-[11px] sm:text-sm font-medium leading-tight text-center border-b-2 -mb-px transition-colors',
                 tab === t.id ? 'border-primary text-primary' : 'border-transparent text-fg-muted hover:text-fg',
               )}
             >
-              <Icon size={15} /> {t.label}
+              <Icon size={16} class="shrink-0" /> <span>{t.label}</span>
             </button>
           )
         })}

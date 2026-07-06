@@ -12,6 +12,7 @@ import {
 } from '../lib/vexaClient.js'
 import { analyzePendingMeetings, polishPendingMeetings } from './meetingAnalysisService.js'
 import { deliverPendingMeetings } from './meetingDelivery.js'
+import { transcribePendingUploads } from './meetingUploadTranscribe.js'
 import { getMeetingsSettings } from '../lib/meetingsConfig.js'
 
 const IN_FLIGHT = ['requested', 'joining', 'active']
@@ -176,6 +177,8 @@ export function startMeetingTranscriptPoll(): void {
     _running = true
     try {
       await pollMeetingTranscripts()
+      // Presencial: reprocessa uploads travados em "transcribing" (ex.: restart no meio).
+      await transcribePendingUploads().catch(() => {})
       // Revisão da transcrição (modo corrigida), análise IA e entrega — idempotentes.
       await polishPendingMeetings().catch(() => {})
       await analyzePendingMeetings().catch(() => {})

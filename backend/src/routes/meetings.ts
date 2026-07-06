@@ -5,18 +5,33 @@
 // de consentimento: shouldRecordMeeting() (tenant ligado + opt-out por reunião).
 
 import { FastifyInstance } from 'fastify'
+import { promises as fs } from 'node:fs'
+import { join, extname } from 'node:path'
+import crypto from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { shouldRecordMeeting, getSalesPlaybook, getMeetingsSettings, invalidateMeetingsConfigCache } from '../lib/meetingsConfig.js'
 import { isUserBotEnabled, getUserBot, setUserBot, countActiveSeats } from '../lib/meetingBotSeat.js'
 import { generateMeetingsReport } from '../services/meetingReports.js'
+import { transcribeUploadRecording } from '../services/meetingUploadTranscribe.js'
 import {
   dispatchMeetingBot, stopMeetingBot, nativeMeetingIdFromUrl,
   type MeetingPlatform,
 } from '../lib/vexaClient.js'
 
 const PLATFORMS: MeetingPlatform[] = ['google_meet', 'teams', 'zoom']
+const MAX_AUDIO_BYTES = 200 * 1024 * 1024 // 200MB (~3h de webm/opus)
+
+function meetingFileUrl(storagePath: string): string {
+  const base = process.env.APP_URL || `http://localhost:${process.env.PORT || 3005}`
+  return `${base}/uploads/${storagePath}`
+}
+
+function sanitizeAudioExt(name: string): string {
+  const raw = (extname(name).slice(1) || 'webm').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)
+  return raw || 'webm'
+}
 
 export async function meetingsRoutes(app: FastifyInstance) {
   // POST /api/admin/meetings/dispatch — coloca o bot na reunião e registra a gravação.
@@ -107,6 +122,109 @@ export async function meetingsRoutes(app: FastifyInstance) {
     })
 
     return reply.send({ recorded: true, recording: rec })
+  })
+
+  // POST /api/admin/meetings/upload — MODO PRESENCIAL: recebe o áudio da reunião
+  // física (gravado no navegador/celular ou upload de arquivo), SEM bot Vexa.
+  // multipart/form-data: field "file" (áudio, obrigatório) + fields opcionais
+  // leadId, activityId, language, consent (obrigatório="true"). Salva o áudio,
+  // cria a gravação em "transcribing" e dispara a transcrição soberana (whisper
+  // CPU) — ao concluir vira "completed" e o pipeline (análise/entrega) assume.
+  app.post('/api/admin/meetings/upload', { preHandler: authMiddleware }, async (req, reply) => {
+    const actor = auditActor(req)
+
+    // Gate de módulo/presencial ligado no tenant.
+    const ms = await getMeetingsSettings()
+    if (!ms.presencialEnabled) {
+      return reply.send({ recorded: false, reason: 'Reunião presencial desativada nas Configurações do módulo.' })
+    }
+
+    // Gate de COBRANÇA (seat): quem envia precisa de licença ativa.
+    if (!(await isUserBotEnabled(actor.actorId))) {
+      return reply.send({ recorded: false, reason: 'Você não tem licença de Reuniões ativa. Ative em Reuniões › Bots por usuário.' })
+    }
+
+    const file = await (req as any).file?.({ limits: { fileSize: MAX_AUDIO_BYTES } })
+    if (!file) return reply.code(400).send({ error: 'Nenhum áudio enviado' })
+
+    // Grava o áudio em uploads/meeting-recordings/ (mesma pasta do modo online → retenção F0.6 cobre).
+    const ext = sanitizeAudioExt(file.filename || '')
+    const uploadsDir = join(process.cwd(), '..', 'uploads', 'meeting-recordings')
+    await fs.mkdir(uploadsDir, { recursive: true })
+    const savedName = `presencial-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`
+    const filePath = join(uploadsDir, savedName)
+
+    const chunks: Buffer[] = []
+    let total = 0
+    for await (const c of file.file) {
+      total += c.length
+      if (total > MAX_AUDIO_BYTES) return reply.code(413).send({ error: 'Áudio muito grande (máx 200MB)' })
+      chunks.push(c)
+    }
+    if (total === 0) return reply.code(400).send({ error: 'Áudio vazio' })
+    await fs.writeFile(filePath, Buffer.concat(chunks))
+
+    // Fields (disponíveis após drenar o stream do arquivo).
+    const fields = file.fields || {}
+    const fv = (k: string): string => String(fields?.[k]?.value ?? '').trim()
+    // PORTÃO DE CONSENTIMENTO (F0-presencial): sem confirmação, não grava.
+    const consent = fv('consent').toLowerCase()
+    if (!(consent === 'true' || consent === '1' || consent === 'sim')) {
+      await fs.unlink(filePath).catch(() => {})
+      return reply.code(400).send({ error: 'Consentimento obrigatório para gravar a reunião presencial', code: 'CONSENT_REQUIRED' })
+    }
+
+    let leadId: number | null = fv('leadId') ? Number(fv('leadId')) : null
+    let activityId: number | null = fv('activityId') ? Number(fv('activityId')) : null
+    const language = fv('language') || ms.language || 'pt'
+    const title = fv('title').slice(0, 200) || null
+
+    // Se veio activityId e não veio leadId, resolve o lead a partir da atividade.
+    if (activityId && !leadId) {
+      const a = await prisma.activity.findUnique({ where: { id: activityId }, select: { leadId: true } })
+      leadId = a?.leadId ?? null
+    }
+
+    const storagePath = `meeting-recordings/${savedName}`
+    const rec = await prisma.meetingRecording.create({
+      data: {
+        title, leadId, activityId, userId: actor.actorId, userName: actor.actorName,
+        platform: 'presencial', source: 'presencial',
+        nativeMeetingId: `presencial-${crypto.randomUUID()}`,
+        meetingUrl: '', language,
+        status: 'transcribing',
+        audioPath: storagePath, audioUrl: meetingFileUrl(storagePath),
+        consentAt: new Date(), consentBy: actor.actorId,
+      },
+    })
+
+    void logUserAudit({
+      action: 'meetings.presencial.uploaded',
+      targetType: 'setting',
+      targetLabel: `Reunião presencial #${rec.id}`,
+      changes: { recordingId: rec.id, leadId, activityId, bytes: total },
+      ...actor,
+    })
+
+    // Transcrição soberana em background (não bloqueia a resposta). A rede de
+    // segurança do poller reprocessa se o servidor cair no meio.
+    void transcribeUploadRecording(rec.id).catch((e) => console.warn('[MeetingUpload] disparo #' + rec.id + ' falhou:', e?.message))
+
+    return reply.send({ recorded: true, recording: rec })
+  })
+
+  // GET /api/admin/meetings/lead-search?q= — busca leads por nome/e-mail/WhatsApp/empresa
+  // para vincular a uma reunião presencial (o operador nem sempre sabe o ID do lead).
+  app.get('/api/admin/meetings/lead-search', { preHandler: authMiddleware }, async (req) => {
+    const q = String((req.query as any)?.q || '').trim()
+    if (q.length < 2) return { leads: [] }
+    const leads = await prisma.lead.findMany({
+      where: { OR: [{ nome: { contains: q } }, { email: { contains: q } }, { whatsapp: { contains: q } }, { empresa: { contains: q } }] },
+      select: { id: true, nome: true, email: true, whatsapp: true, empresa: true },
+      take: 8,
+      orderBy: { updatedAt: 'desc' },
+    })
+    return { leads }
   })
 
   // GET /api/admin/meetings/recordings?leadId= — lista gravações (mais recentes primeiro).
@@ -279,6 +397,9 @@ export async function meetingsRoutes(app: FastifyInstance) {
     await setBool('meetings.alert_low_adherence', b.alertLowAdherence)
     if (b.alertThreshold !== undefined) await up('meetings.alert_threshold', String(Math.max(0, Math.min(100, parseInt(String(b.alertThreshold), 10) || 50))), 'number')
     await setStr('meetings.alert_email', b.alertEmail)
+
+    // Modo reunião presencial (upload de áudio, sem bot).
+    await setBool('meetings.presencial.enabled', b.presencialEnabled)
 
     invalidateMeetingsConfigCache()
     void logUserAudit({

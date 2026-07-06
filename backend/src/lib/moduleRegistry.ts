@@ -470,7 +470,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'meetings', name: 'Reuniões (Transcrição)', icon: '🎙', category: 'crm',
-    description: 'Bot que entra em reuniões online (Google Meet, Teams, Zoom), grava e transcreve localmente (soberano, sem enviar áudio a terceiros) e anexa a transcrição + análise por IA ao lead. A GRAVAÇÃO exige opt-in explícito com aceite de responsabilidade (LGPD) — ver Configurações › LGPD/Legal.',
+    description: 'Transcreve e analisa reuniões ONLINE (bot em Google Meet/Teams/Zoom) e PRESENCIAIS (grava o áudio da sala no celular/navegador ou por upload, sem bot). Tudo transcrito localmente (soberano, sem enviar áudio a terceiros) + análise por IA anexada ao lead. A GRAVAÇÃO exige opt-in/consentimento explícito (LGPD) — ver Configurações › LGPD/Legal.',
     pages: ['meetings'],
     routePrefixes: ['/api/admin/meetings', '/api/meetings'],
     actions: ['view', 'create', 'edit', 'delete'],

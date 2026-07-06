@@ -3411,18 +3411,23 @@ model VoipCall {
 model MeetingRecording {
   id Int @id @default(autoincrement())
 
+  title      String? @db.VarChar(200) // título/nome da reunião (principalmente presencial)
   leadId     Int? // lead a que a reunião se refere
   activityId Int? // Activity type "meeting" na timeline do lead
   bookingId  Int? // Booking de origem (agendamento), se houver
   userId     Int? // operador que disparou o bot
   userName   String? @db.VarChar(191)
 
-  platform        String @default("google_meet") @db.VarChar(20) // google_meet | teams | zoom
-  nativeMeetingId String @db.VarChar(191) // código nativo (ex.: xxx-xxxx-xxx no Meet)
+  platform        String @default("google_meet") @db.VarChar(20) // google_meet | teams | zoom | presencial
+  nativeMeetingId String @db.VarChar(191) // código nativo (ex.: xxx-xxxx-xxx no Meet); presencial-<uuid> no presencial
   meetingUrl      String @db.Text
   language        String @default("pt") @db.VarChar(10)
 
-  // requested | joining | active | completed | failed | stopped
+  // Origem da gravação: online (bot Vexa entra na sala) | presencial (upload de áudio da sala física).
+  source String @default("online") @db.VarChar(20)
+
+  // requested | joining | active | transcribing | completed | failed | stopped
+  // (presencial usa "transcribing" — invisível ao poller do Vexa — até virar "completed")
   status         String  @default("requested") @db.VarChar(20)
   botId          Int? // id do bot no Vexa
   botContainerId String? @db.VarChar(191)
@@ -3440,6 +3445,10 @@ model MeetingRecording {
   segmentCount       Int     @default(0)
 
   notifiedAt DateTime? // quando o resumo foi enviado (email/WhatsApp)
+
+  // Presencial (F0-presencial): consentimento registrado pelo operador antes de gravar.
+  consentAt DateTime? // quando o operador confirmou que informou/obteve consentimento dos presentes
+  consentBy Int? // usuário que confirmou o consentimento
 
   analysis   Json?     @db.Json // análise IA (F3): resumo, topicos, acaoItems, objecoes, proximosPassos, sentimento
   analyzedAt DateTime? // quando a análise IA foi gerada

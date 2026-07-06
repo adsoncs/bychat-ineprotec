@@ -25,10 +25,12 @@ export interface MeetingAnalysis {
 
 export interface MeetingRecording {
   id: number
+  title?: string | null
   leadId: number | null
   activityId: number | null
   bookingId: number | null
   userName: string | null
+  source?: string // online | presencial
   platform: string
   nativeMeetingId: string
   meetingUrl: string
@@ -114,6 +116,7 @@ export interface MeetingsSettings {
   notifyToOwner: boolean
   notifyWhatsappEnabled: boolean
   notifyWhatsappTo: string
+  presencialEnabled: boolean
 }
 
 export function useMeetingsSettings() {
@@ -189,6 +192,44 @@ export function useUpdatePlaybook() {
     mutationFn: (body: { enabled: boolean; text: string }) =>
       api.put<{ ok: true }>('/admin/meetings/playbook', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-playbook'] }),
+  })
+}
+
+// ── Busca de lead p/ vincular à reunião presencial (nome/e-mail/WhatsApp) ──
+export interface MeetingLeadResult {
+  id: number
+  nome: string | null
+  email: string | null
+  whatsapp: string | null
+  empresa: string | null
+}
+
+export function useMeetingLeadSearch(q: string) {
+  return useQuery({
+    queryKey: ['meeting-lead-search', q],
+    queryFn: () => api.get<{ leads: MeetingLeadResult[] }>(`/admin/meetings/lead-search?q=${encodeURIComponent(q)}`),
+    enabled: q.trim().length >= 2,
+    staleTime: 15_000,
+  })
+}
+
+/** MODO PRESENCIAL: envia o áudio da reunião física (gravado no navegador ou
+ *  arquivo) para transcrição soberana, sem bot. `consent` é sempre "true" aqui —
+ *  a UI só chama isto após o usuário confirmar o consentimento dos presentes. */
+export function useUploadPresencialMeeting() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ file, title, leadId, activityId, language }: { file: File; title?: string; leadId?: number | null; activityId?: number | null; language?: string }) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('consent', 'true')
+      if (title && title.trim()) fd.append('title', title.trim())
+      if (leadId) fd.append('leadId', String(leadId))
+      if (activityId) fd.append('activityId', String(activityId))
+      if (language) fd.append('language', language)
+      return api.post<{ recorded: boolean; reason?: string; recording?: MeetingRecording }>('/admin/meetings/upload', fd)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-recordings'] }),
   })
 }
 
