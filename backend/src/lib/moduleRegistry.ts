@@ -476,6 +476,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,
   },
+  {
+    id: 'catalog', name: 'Catálogo de Produtos', icon: '📦', category: 'crm',
+    description: 'Catálogo de produtos da loja (cadastro manual + importação por planilha). É a fonte da verdade que o chatbot de IA consulta para responder sobre produtos, preços e estoque sem inventar.',
+    pages: ['catalog'],
+    routePrefixes: ['/api/admin/catalog'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
 ]
 
 export function getModuleForRoute(path: string): ModuleDefinition | undefined {

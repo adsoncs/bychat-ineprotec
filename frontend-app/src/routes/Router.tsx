@@ -163,6 +163,9 @@ const migratedPages: Record<string, ComponentType> = {
   meetings: lazy(() =>
     import('./pages/MeetingsPage').then((m) => ({ default: m.MeetingsPage })),
   ),
+  catalog: lazy(() =>
+    import('./pages/CatalogPage').then((m) => ({ default: m.CatalogPage })),
+  ),
   scheduling: lazy(() =>
     import('./pages/SchedulingPage').then((m) => ({ default: m.SchedulingPage })),
   ),

@@ -143,10 +143,22 @@ const TOOLS = [
     description: 'Transfere a conversa para um atendente humano (lead pediu, caso complexo, ou fora do escopo). A IA para de responder.',
     input_schema: { type: 'object', properties: { motivo: { type: 'string' } }, required: [] },
   },
+  {
+    name: 'consultar_catalogo',
+    description: 'Consulta o CATÁLOGO REAL de produtos da loja. Use SEMPRE que o lead perguntar sobre produtos, modelos, preços, estoque ou disponibilidade. Retorna apenas produtos que EXISTEM no catálogo (nome, categoria, preço, estoque). Você deve responder somente com o que esta ferramenta devolver — NUNCA invente produtos, modelos, preços ou especificações.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        busca: { type: 'string', description: 'Termo do que o lead procura (ex.: "iPhone 15", "capa", "fone bluetooth"). Opcional.' },
+        categoria: { type: 'string', description: 'Filtrar por categoria exata (ex.: "Celulares"). Opcional.' },
+      },
+      required: [],
+    },
+  },
 ]
 
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
-function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): string {
+function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string): string {
   const fields: any[] = form?.fields || []
   const collect = fields
     .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
@@ -208,6 +220,12 @@ function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState): 
 - Se qualificado${hasSched ? ' e houver agendamento: chame **listar_horarios**, ofereça os horários ao lead, e ao ele escolher chame **agendar** com o startAt exato. Só diga que está agendado depois de agendar retornar ok=true.' : ': agradeça e finalize com **encerrar**.'}
 - Se desqualificado: agradeça cordialmente, NÃO ofereça agendamento, e chame **encerrar**.
 - Se o lead pedir um humano ou fugir do escopo, chame **transferir_humano**.`,
+    catalogSummary ? `\n## Catálogo de produtos (FONTE DA VERDADE)
+A loja trabalha com estas categorias: ${catalogSummary}.
+- SEMPRE que o lead perguntar sobre produtos, modelos, preços, estoque ou disponibilidade, chame a ferramenta **consultar_catalogo** e responda SOMENTE com os produtos que ela retornar.
+- REGRA ABSOLUTA: você só pode citar o nome/modelo/marca/preço de um produto se ele tiver vindo de **consultar_catalogo** NESTA conversa. NUNCA mencione um produto ou modelo específico que não veio da ferramenta — nem como resposta, nem como sugestão ou alternativa. Nada de "temos o modelo X" se X não veio da ferramenta.
+- Se o item pedido não existe: diga com sinceridade que não temos AQUELE item. Para oferecer alternativas, chame **consultar_catalogo** de novo (ex.: pela categoria) e ofereça só o que ela retornar. Se não houver nada, diga que no momento não temos e ofereça falar com um vendedor — SEM citar modelos.
+- Não despeje o catálogo inteiro sem o lead pedir.` : '',
     schedIntro ? `\n## Ao iniciar o agendamento\nQuando começar a etapa de agendamento (logo antes de chamar listar_horarios / oferecer os horários), ABRA com uma mensagem de boas-vindas ao agendamento no espírito desta — personalize com o nome do lead, mantenha objetiva e profissional, não copie ao pé da letra:\n"${schedIntro}"` : '',
     `\n## Regras
 - O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
@@ -240,6 +258,16 @@ async function missingContactData(leadId: number, form: any): Promise<string[]> 
   return wanted
     .filter((f) => !has(f.mapTo) && !seen.has(f.mapTo) && seen.add(f.mapTo))
     .map((f) => CONTACT_LABEL[f.mapTo] || f.mapTo)
+}
+
+// Resumo do catálogo (categorias + contagem) para o system prompt. Vazio quando
+// não há produtos cadastrados — aí a seção de catálogo nem aparece.
+async function getCatalogSummary(): Promise<string> {
+  try {
+    const rows = await prisma.product.groupBy({ by: ['categoria'], where: { active: true }, _count: { _all: true } })
+    if (!rows.length) return ''
+    return rows.map((r) => `${r.categoria} (${r._count._all})`).sort().join(', ')
+  } catch { return '' }
 }
 
 // ── Executor das ferramentas (chamadas pela IA → funções determinísticas reais) ──
@@ -368,6 +396,27 @@ async function executeTool(
       state.phase = 'done'
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
+    }
+
+    if (name === 'consultar_catalogo') {
+      const busca = String(input?.busca || '').trim()
+      const categoria = String(input?.categoria || '').trim()
+      const where: any = { active: true }
+      if (categoria) where.categoria = { contains: categoria }
+      if (busca) where.OR = [{ nome: { contains: busca } }, { descricao: { contains: busca } }, { marca: { contains: busca } }, { categoria: { contains: busca } }]
+      const rows = await prisma.product.findMany({ where, orderBy: [{ disponivel: 'desc' }, { nome: 'asc' }], take: 15 })
+      const produtos = rows.map((p) => ({
+        nome: p.nome, categoria: p.categoria, marca: p.marca || undefined,
+        preco: p.preco != null ? Number(p.preco) : undefined,
+        disponivel: p.disponivel, estoque: p.estoque ?? undefined,
+        descricao: p.descricao || undefined,
+      }))
+      return JSON.stringify({
+        ok: true, total: produtos.length, produtos,
+        instrucao: produtos.length
+          ? 'Ofereça SOMENTE estes produtos. Cite nome, preço e disponibilidade EXATOS. Não invente nada além do que está aqui.'
+          : 'Nenhum produto encontrado. Diga que não temos ESSE item. NÃO sugira nenhum modelo específico que não tenha vindo desta ferramenta. Para oferecer alternativa, chame consultar_catalogo de novo pela categoria; se ainda assim vazio, ofereça falar com um vendedor — sem citar modelos.',
+      })
     }
 
     return JSON.stringify({ ok: false, erro: 'ferramenta desconhecida' })
@@ -595,7 +644,8 @@ async function _process(
     messages.push({ role: 'user', content: text })
   }
 
-  const system = buildSystemPrompt(chatbot, form, lead, state)
+  const catalogSummary = await getCatalogSummary()
+  const system = buildSystemPrompt(chatbot, form, lead, state, catalogSummary)
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
   // Tudo com teto de tempo: nenhuma chamada (LLM ou ferramenta) pode pendurar o turno

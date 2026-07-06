@@ -3484,6 +3484,32 @@ model UserMeetingBot {
   @@map("bychat_user_meeting_bots")
 }
 
+// Catálogo de produtos (loja) — fonte da verdade para o chatbot de IA. A IA
+// consulta este catálogo via ferramenta (consultar_catalogo) em vez de receber a
+// lista no prompt, o que impede a invenção de produtos/preços.
+model Product {
+  id Int @id @default(autoincrement())
+
+  categoria  String  @db.VarChar(100) // ex.: "Celulares", "Capas", "Fones"
+  nome       String  @db.VarChar(191) // modelo/nome do produto
+  descricao  String? @db.Text // especificações / detalhes
+  preco      Decimal? @db.Decimal(10, 2)
+  estoque    Int? // quantidade; null = não controla estoque
+  disponivel Boolean @default(true)
+  sku        String? @db.VarChar(60)
+  marca      String? @db.VarChar(100)
+  imageUrl   String? @db.Text
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoria])
+  @@index([nome])
+  @@index([active])
+  @@map("bychat_products")
+}
+
 // Auditoria de cada webhook recebido (Pagar.me/Asaas). Persistido ANTES do
 // processamento — se o handler falhar, ainda temos o payload pra debug.
 model PaymentWebhookHit {
