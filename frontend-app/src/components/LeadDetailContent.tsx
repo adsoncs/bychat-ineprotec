@@ -23,10 +23,13 @@ import {
 import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadAuditTab } from '@/components/LeadAuditTab'
 import { LeadJourneyTab } from '@/components/LeadJourneyTab'
+import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
 import { toast } from '@/lib/toast'
 
+// `module` opcional: a seção só aparece quando o módulo está ativo (gating no TOC).
 export const LEAD_DETAIL_SECTIONS = [
   { id: 'overview',   label: 'Visão geral' },
+  { id: 'negociacao', label: 'Negociação', module: 'negotiations' },
   { id: 'activities', label: 'Atividades' },
   { id: 'cadences',   label: 'Cadências' },
   { id: 'jornada',    label: 'Jornada IA' },
@@ -64,6 +67,7 @@ export function LeadDetailContent({ id, section }: Props) {
   return (
     <div class="space-y-4">
       {section === 'overview'   && <LeadOverviewTab lead={lead} />}
+      {section === 'negociacao' && <LeadNegotiationTab leadId={lead.id} />}
       {section === 'tracking'   && <LeadTrackingTab lead={lead} />}
       {section === 'jornada'    && <LeadJourneyTab leadId={lead.id} />}
       {section === 'intel'      && <LeadIntelTab leadId={lead.id} />}

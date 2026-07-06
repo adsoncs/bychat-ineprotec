@@ -26,6 +26,7 @@ import {
   type LeadDetailSectionId,
 } from '@/components/LeadDetailContent'
 import { LeadDetailToc } from '@/components/LeadDetailToc'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import { LeadOutcomeControls, OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
 import { WaCallButton } from '@/components/voip/WaCallButton'
@@ -50,6 +51,10 @@ export function LeadDetailPage({ params }: Props) {
   const section: LeadDetailSectionId = isValidSection(params.section)
     ? params.section
     : DEFAULT_SECTION
+
+  // Seções com `module` só aparecem quando o módulo está ativo (ex.: Negociação).
+  const negActive = useModuleAccess('negotiations') === 'allowed'
+  const tocSections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
 
   const actions = useLeadActions(id, lead, {
     onLeadDeleted: () => navigate('/leads'),
@@ -89,7 +94,7 @@ export function LeadDetailPage({ params }: Props) {
       <div class="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-6 items-start">
         <aside class="hidden lg:block">
           <LeadDetailToc
-            items={LEAD_DETAIL_SECTIONS.map((s) => ({ id: s.id, label: s.label }))}
+            items={tocSections.map((s) => ({ id: s.id, label: s.label }))}
             leadId={id}
             active={section}
           />
@@ -114,13 +119,15 @@ export function LeadDetailPage({ params }: Props) {
 
 function SectionPicker({ section, leadId }: { section: LeadDetailSectionId; leadId: number }) {
   const [, navigate] = useLocation()
+  const negActive = useModuleAccess('negotiations') === 'allowed'
+  const sections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
   return (
     <select
       class="lg:hidden h-8 px-2 rounded-md border border-border bg-surface text-xs text-fg"
       value={section}
       onChange={(e) => navigate(`/leads/${leadId}/${(e.target as HTMLSelectElement).value}`)}
     >
-      {LEAD_DETAIL_SECTIONS.map((s) => (
+      {sections.map((s) => (
         <option key={s.id} value={s.id}>{s.label}</option>
       ))}
     </select>

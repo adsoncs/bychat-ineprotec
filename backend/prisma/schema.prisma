@@ -3484,6 +3484,81 @@ model UserMeetingBot {
   @@map("bychat_user_meeting_bots")
 }
 
+// Negociação/proposta de um lead (pipeline: um lead pode ter várias). Reusa
+// LossReason (motivo de perda) e Lead.outcome ao fechar.
+model Negotiation {
+  id     Int    @id @default(autoincrement())
+  leadId Int
+  titulo String @db.VarChar(191)
+  // rascunho | enviada | em_negociacao | aceita | recusada | expirada
+  status String @default("rascunho") @db.VarChar(20)
+
+  valorTabela   Decimal? @db.Decimal(12, 2) // soma dos itens (bruto)
+  descontoTipo  String?  @db.VarChar(10) // valor | percent
+  descontoValor Decimal? @db.Decimal(12, 2)
+  frete         Decimal? @db.Decimal(12, 2)
+  valorFinal    Decimal? @db.Decimal(12, 2) // calculado
+  moeda         String   @default("BRL") @db.VarChar(3)
+
+  pagamentoForma    String?  @db.VarChar(20) // pix | cartao | boleto | dinheiro
+  parcelas          Int?
+  entrada           Decimal? @db.Decimal(12, 2)
+  condicaoPagamento String?  @db.Text
+
+  probabilidade      Int? // 0-100
+  validadeAte        DateTime? // proposta expira
+  fechamentoPrevisto DateTime?
+  responsavelUserId  Int?
+  observacoes        String?   @db.Text
+
+  // resultado ao fechar
+  resultado    String?   @db.VarChar(10) // won | lost
+  lostReasonId Int?
+  fechadaEm    DateTime?
+  fechadaPor   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       NegotiationItem[]
+  attachments NegotiationAttachment[]
+
+  @@index([leadId])
+  @@index([status])
+  @@map("bychat_negotiations")
+}
+
+model NegotiationItem {
+  id            Int      @id @default(autoincrement())
+  negotiationId Int
+  productId     Int? // link ao Catálogo (null = item livre)
+  nome          String   @db.VarChar(191)
+  quantidade    Int      @default(1)
+  precoUnit     Decimal  @db.Decimal(12, 2)
+  descontoItem  Decimal? @db.Decimal(12, 2)
+  subtotal      Decimal  @db.Decimal(12, 2)
+
+  negotiation Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+
+  @@index([negotiationId])
+  @@map("bychat_negotiation_items")
+}
+
+model NegotiationAttachment {
+  id            Int      @id @default(autoincrement())
+  negotiationId Int
+  fileName      String   @db.VarChar(255)
+  storagePath   String   @db.VarChar(255) // relativo a /uploads
+  mimeType      String?  @db.VarChar(100)
+  fileSize      Int?
+  createdAt     DateTime @default(now())
+
+  negotiation Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+
+  @@index([negotiationId])
+  @@map("bychat_negotiation_attachments")
+}
+
 // Catálogo de produtos (loja) — fonte da verdade para o chatbot de IA. A IA
 // consulta este catálogo via ferramenta (consultar_catalogo) em vez de receber a
 // lista no prompt, o que impede a invenção de produtos/preços.

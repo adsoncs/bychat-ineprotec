@@ -484,6 +484,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,
   },
+  {
+    id: 'negotiations', name: 'Negociação', icon: '🤝', category: 'crm',
+    description: 'Negociações/propostas por lead (pipeline): itens do catálogo, valores, descontos, condição de pagamento, anexos da proposta e fechamento ganho/perdido. Aparece como uma seção no detalhe do lead.',
+    pages: [],
+    routePrefixes: ['/api/admin/negotiations'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
 ]
 
 export function getModuleForRoute(path: string): ModuleDefinition | undefined {
