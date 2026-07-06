@@ -53,7 +53,7 @@ export function LeadDetailPage({ params }: Props) {
     : DEFAULT_SECTION
 
   // Seções com `module` só aparecem quando o módulo está ativo (ex.: Negociação).
-  const negActive = useModuleAccess('negotiations') === 'allowed'
+  const negActive = useModuleAccess('negotiations').status === 'allowed'
   const tocSections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
 
   const actions = useLeadActions(id, lead, {
@@ -119,7 +119,7 @@ export function LeadDetailPage({ params }: Props) {
 
 function SectionPicker({ section, leadId }: { section: LeadDetailSectionId; leadId: number }) {
   const [, navigate] = useLocation()
-  const negActive = useModuleAccess('negotiations') === 'allowed'
+  const negActive = useModuleAccess('negotiations').status === 'allowed'
   const sections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
   return (
     <select

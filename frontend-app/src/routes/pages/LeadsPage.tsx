@@ -76,6 +76,8 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { LeadsColumnsModal } from '@/components/LeadsColumnsModal'
 import { LeadCadencesTab } from '@/components/LeadCadencesTab'
+import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { useLeadsColumnsStore, LEAD_COLUMN_LABELS, type LeadColumnKey } from '@/stores/leadsColumns'
 import { formatDateTime } from '@/lib/format'
@@ -1685,11 +1687,12 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-type DetailTab = 'overview' | 'activities' | 'timeline' | 'fields' | 'tracking' | 'intel' | 'cadences'
+type DetailTab = 'overview' | 'negociacao' | 'activities' | 'timeline' | 'fields' | 'tracking' | 'intel' | 'cadences'
 
 export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: lead, isLoading } = useLead(id)
   const [tab, setTab] = useState<DetailTab>('overview')
+  const negActive = useModuleAccess('negotiations').status === 'allowed'
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [mergeOpen, setMergeOpen] = useState(false)
@@ -1810,6 +1813,7 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
         <nav class="flex gap-1 mb-4 border-b border-border">
           {[
             { id: 'overview' as DetailTab, label: 'Visão geral' },
+            ...(negActive ? [{ id: 'negociacao' as DetailTab, label: 'Negociação' }] : []),
             { id: 'tracking' as DetailTab, label: 'Tracking' },
             { id: 'intel' as DetailTab, label: 'Inteligência' },
             { id: 'activities' as DetailTab, label: 'Atividades' },
@@ -1835,6 +1839,7 @@ export function LeadDetailModal({ id, onClose }: { id: number; onClose: () => vo
         {lead && tab === 'overview' && (
           <OverviewTab lead={lead} />
         )}
+        {lead && tab === 'negociacao' && <LeadNegotiationTab leadId={lead.id} />}
         {lead && tab === 'tracking' && <TrackingTab lead={lead} />}
         {lead && tab === 'intel' && <IntelTab leadId={lead.id} />}
         {lead && tab === 'activities' && <ActivitiesTab leadId={lead.id} />}
