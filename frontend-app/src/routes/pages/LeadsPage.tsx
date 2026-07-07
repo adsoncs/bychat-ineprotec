@@ -6,7 +6,7 @@ import {
   Plus, Users, Filter as FilterIcon, X as XIcon, Columns3, Trash2, ArrowRight,
   Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap, Send,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
-  Sparkles, RefreshCw, UserPlus, ArrowRightLeft,
+  Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon,
 } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
@@ -84,6 +84,7 @@ import { formatDateTime } from '@/lib/format'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { toast } from '@/lib/toast'
+import { LeadExportModal } from '@/components/LeadExportModal'
 import { cn } from '@/lib/cn'
 
 const DEFAULT_PAGE_SIZE = 50
@@ -131,6 +132,7 @@ export function LeadsPage() {
   const [bulkWonOpen, setBulkWonOpen] = useState(false)
   const [bulkLostOpen, setBulkLostOpen] = useState(false)
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
+  const [bulkExportOpen, setBulkExportOpen] = useState(false)
   const [editLeadId, setEditLeadId] = useState<number | null>(null)
   const [answersLeadId, setAnswersLeadId] = useState<number | null>(null)
   const [whatsappLead, setWhatsappLead] = useState<{ id: number; whatsapp: string | null } | null>(null)
@@ -380,6 +382,15 @@ export function LeadsPage() {
           onMarkWon={() => setBulkWonOpen(true)}
           onMarkLost={() => setBulkLostOpen(true)}
           onAssignAgent={() => setBulkAssignOpen(true)}
+          onExport={() => setBulkExportOpen(true)}
+        />
+      )}
+
+      {bulkExportOpen && (
+        <LeadExportModal
+          leadIds={Array.from(selected)}
+          open={bulkExportOpen}
+          onClose={() => setBulkExportOpen(false)}
         />
       )}
 
@@ -532,7 +543,7 @@ export function LeadsPage() {
 }
 
 function BulkActionsBar({
-  count, onClear, onChangeStatus, onDelete, onTag, onSendToKanban, onMarkWon, onMarkLost, onAssignAgent,
+  count, onClear, onChangeStatus, onDelete, onTag, onSendToKanban, onMarkWon, onMarkLost, onAssignAgent, onExport,
 }: {
   count: number
   onClear: () => void
@@ -543,6 +554,7 @@ function BulkActionsBar({
   onMarkWon: () => void
   onMarkLost: () => void
   onAssignAgent: () => void
+  onExport: () => void
 }) {
   return (
     <div
@@ -578,6 +590,9 @@ function BulkActionsBar({
       </Button>
       <Button variant="ghost" size="sm" onClick={onTag}>
         <TagIcon size={14} /> Tags
+      </Button>
+      <Button variant="ghost" size="sm" onClick={onExport}>
+        <DownloadIcon size={14} /> Exportar
       </Button>
       <Button variant="danger" size="sm" onClick={onDelete}>
         <Trash2 size={14} /> Excluir

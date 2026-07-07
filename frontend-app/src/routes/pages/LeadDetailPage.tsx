@@ -5,7 +5,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown, Paperclip, X as XIcon,
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon,
 } from 'lucide-preact'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
@@ -31,6 +31,7 @@ import { LeadOutcomeControls, OutcomeBadge } from '@/components/LeadOutcomeContr
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
 import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
+import { LeadExportModal } from '@/components/LeadExportModal'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
@@ -144,6 +145,7 @@ interface HeaderProps {
 }
 
 function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
+  const [exportOpen, setExportOpen] = useState(false)
   if (isLoading || !lead) {
     return <Skeleton class="h-32 w-full" />
   }
@@ -260,10 +262,18 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
 
+        <Button variant="secondary" size="sm" onClick={() => setExportOpen(true)} title="Exportar todos os dados deste lead">
+          <DownloadIcon size={14} /> Exportar
+        </Button>
+
         <div class="ml-auto">
           <ActionsMenu actions={actions} />
         </div>
       </div>
+
+      {exportOpen && (
+        <LeadExportModal leadIds={[id]} open={exportOpen} onClose={() => setExportOpen(false)} />
+      )}
     </Card>
   )
 }

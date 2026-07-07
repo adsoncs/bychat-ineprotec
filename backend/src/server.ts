@@ -75,6 +75,7 @@ import { modulesRoutes } from './routes/modules.js'
 import { salesRoutes } from './routes/sales.js'
 import { conversionsRoutes } from './routes/conversions.js'
 import { reportsRoutes } from './routes/reports.js'
+import { leadExportRoutes } from './routes/leadExport.js'
 import { startSaleDetectionScheduler } from './services/saleDetection.js'
 import { workflowRoutes } from './routes/workflows.js'
 import { queueRoutes } from './routes/queues.js'
@@ -541,6 +542,7 @@ await app.register(broadcastRoutes)
 await app.register(cloudApiWebhookRoutes)
 await app.register(conversionsRoutes)
 await app.register(reportsRoutes)
+await app.register(leadExportRoutes)
 await app.register(workflowRoutes)
 await app.register(queueRoutes)
 await app.register(trashRoutes)
