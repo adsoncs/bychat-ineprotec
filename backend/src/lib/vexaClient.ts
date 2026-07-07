@@ -19,6 +19,7 @@ export type MeetingPlatform = 'google_meet' | 'teams' | 'zoom'
 export interface VexaConfig {
   apiUrl: string
   apiKey: string
+  authenticated: boolean   // bot entra LOGADO numa conta Google (evita reCAPTCHA/sala de espera)
 }
 
 function unwrap(raw: unknown): string {
@@ -34,12 +35,13 @@ const TTL = 60_000
 export async function getVexaConfig(): Promise<VexaConfig> {
   if (_cfg && Date.now() - _cfgAt < TTL) return _cfg
   const rows = await prisma.setting.findMany({
-    where: { key: { in: ['meetings.vexa.api_url', 'meetings.vexa.api_key'] } },
+    where: { key: { in: ['meetings.vexa.api_url', 'meetings.vexa.api_key', 'meetings.vexa.authenticated'] } },
   })
   const byKey = new Map(rows.map(r => [r.key, r.value]))
   const apiUrl = (unwrap(byKey.get('meetings.vexa.api_url')) || process.env.VEXA_API_URL || 'http://localhost:8056').replace(/\/+$/, '')
   const apiKey = unwrap(byKey.get('meetings.vexa.api_key')) || process.env.VEXA_API_KEY || ''
-  _cfg = { apiUrl, apiKey }
+  const authenticated = unwrap(byKey.get('meetings.vexa.authenticated')).toLowerCase() === 'true'
+  _cfg = { apiUrl, apiKey, authenticated }
   _cfgAt = Date.now()
   return _cfg
 }
@@ -58,6 +60,19 @@ async function vexaFetch(path: string, init: RequestInit = {}): Promise<Response
     ...(init.headers as Record<string, string> | undefined),
   }
   return fetch(`${apiUrl}${path}`, { ...init, headers })
+}
+
+/** Força a UI do Google Meet em inglês (hl=en). O bot Vexa procura os botões do
+ *  lobby por texto em INGLÊS ("Join now"/"Ask to join"); se a conta logada estiver
+ *  em português ("Participar agora") o join falha por timeout. */
+function withEnglishUi(url: string): string {
+  try {
+    const u = new URL(url)
+    u.searchParams.set('hl', 'en')
+    return u.toString()
+  } catch {
+    return url + (url.includes('?') ? '&' : '?') + 'hl=en'
+  }
 }
 
 /** Extrai o código nativo da reunião (xxx-xxxx-xxx no Meet) de uma URL. */
@@ -80,6 +95,7 @@ export interface DispatchBotInput {
   platform?: MeetingPlatform
   language?: string
   botName?: string
+  authenticated?: boolean   // força login (override do meetings.vexa.authenticated)
 }
 
 export interface DispatchBotResult {
@@ -96,17 +112,29 @@ export async function dispatchMeetingBot(input: DispatchBotInput): Promise<Dispa
   const nativeId = nativeMeetingIdFromUrl(input.meetUrl, platform)
   // Nome/idioma do bot: override explícito → configuração do tenant → padrão.
   const settings = await getMeetingsSettings()
+  const cfg = await getVexaConfig()
   const botName = input.botName || settings.botName || 'ByChat Transcritor'
+  // Modo autenticado: bot entra LOGADO (evita reCAPTCHA/sala de espera). Só quando
+  // a sessão da conta já foi semeada no MinIO (users/{id}/browser-userdata).
+  const authenticated = input.authenticated ?? cfg.authenticated
   const res = await vexaFetch('/bots', {
     method: 'POST',
     body: JSON.stringify({
       platform,
       native_meeting_id: nativeId,
-      meeting_url: input.meetUrl,
+      // Meet em inglês só quando autenticado (o fluxo autenticado busca botões por
+      // texto em inglês); no anônimo o Vexa já usa seletores locale-agnósticos.
+      meeting_url: authenticated && platform === 'google_meet' ? withEnglishUi(input.meetUrl) : input.meetUrl,
       bot_name: botName,
       language: input.language || settings.language || 'pt',
       transcribe_enabled: true,
       video: settings.saveVideo === true, // (#3) captura vídeo quando "gravar vídeo" ativo
+      ...(authenticated ? { authenticated: true } : {}),
+      // Encerramento automático: o bot sai NA HORA se o host encerra a reunião ou
+      // remove o bot (detecção do Vexa). Se todos apenas SAÍREM sem encerrar, ele
+      // espera este tempo sozinho antes de finalizar (default do Vexa é 15min —
+      // reduzido p/ 2min para consolidar transcrição/gravação mais rápido).
+      automatic_leave: { max_time_left_alone: 120_000 },
     }),
   })
   if (!res.ok) {
