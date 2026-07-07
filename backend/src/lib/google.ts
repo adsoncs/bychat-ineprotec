@@ -263,10 +263,17 @@ export async function listCalendarEvents(connectionId: number, calendarId: strin
       const allDay = !!e.start?.date
       const start = e.start?.dateTime || (e.start?.date ? `${e.start.date}T00:00:00` : null)
       const end = e.end?.dateTime || (e.end?.date ? `${e.end.date}T00:00:00` : null)
+      // Link do Google Meet do evento: campo direto (hangoutLink) ou o entryPoint
+      // de vídeo do conferenceData (eventos criados via createRequest).
+      const meetLink =
+        e.hangoutLink ||
+        (e.conferenceData?.entryPoints || []).find(p => p.entryPointType === 'video')?.uri ||
+        ''
       return {
         eventId: e.id || '',
         summary: e.summary || '(sem título)',
         start, end, allDay,
+        meetLink,
         htmlLink: e.htmlLink || '',
         transparency: e.transparency || 'opaque', // 'transparent' = livre (não ocupa)
         bychatSource: (e.extendedProperties?.private as any)?.bychatSource || null,

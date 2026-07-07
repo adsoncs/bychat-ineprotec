@@ -400,6 +400,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
 
     // Modo reunião presencial (upload de áudio, sem bot).
     await setBool('meetings.presencial.enabled', b.presencialEnabled)
+    await setBool('meetings.presencial.diarize', b.presencialDiarize)
 
     invalidateMeetingsConfigCache()
     void logUserAudit({

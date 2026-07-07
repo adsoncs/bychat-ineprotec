@@ -130,6 +130,7 @@ import { startTrashPurgeScheduler } from './services/trash.js'
 import { startMeetingRetentionPurge } from './services/meetingRetentionPurge.js'
 import { startMeetingTranscriptPoll } from './services/meetingTranscriptPoll.js'
 import { startMeetingAutoDispatch } from './services/meetingAutoDispatch.js'
+import { startMeetingCalendarWatch } from './services/meetingCalendarWatch.js'
 import { startEscalationScheduler } from './services/routing/escalation.js'
 import { startTransferExpireScheduler } from './services/routing/transferExpire.js'
 import { startShiftHandoverScheduler } from './services/routing/shiftHandover.js'
@@ -1162,6 +1163,7 @@ try {
   startMeetingRetentionPurge()   // F0.6 — expurgo de gravações de reunião por retenção (LGPD)
   startMeetingTranscriptPoll()   // F1.3 — poller de status/transcrição das reuniões
   startMeetingAutoDispatch()     // auto-disparo do bot p/ usuários com licença ativa
+  startMeetingCalendarWatch()    // vigia a agenda Google própria do agente (além do CRM)
   startCapiRetryScheduler()
   startEscalationScheduler()
   startTransferExpireScheduler()

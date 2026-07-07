@@ -6,12 +6,17 @@
 // existente (polish → análise IA → entrega → anexo no lead) assume automaticamente.
 //
 // Soberania: o áudio NUNCA sai do servidor (mesma filosofia do modo online).
-// Diarização (quem falou) fica para a fase P4 (pyannote); aqui a transcrição é
-// corrida, com falante genérico "Participante".
+//
+// P4 — Diarização ("quem falou"): scripts/diarize.py (resemblyzer + clustering
+// aglomerativo, pesos embutidos no pacote, SEM API/modelo gated). Best-effort: a
+// cada trecho transcrito atribui-se o falante ("Falante 1/2/…") cuja janela tem
+// maior sobreposição temporal; se falhar ou detectar 1 só falante, cai no rótulo
+// genérico "Participante". Governado por meetings.presencial.diarize (default on).
 
 import { promises as fs } from 'node:fs'
 import { join, basename } from 'node:path'
 import { prisma } from '../lib/prisma.js'
+import { getMeetingsSettings } from '../lib/meetingsConfig.js'
 
 // Endpoint OpenAI-compatível do whisper CPU (transcription-service do Vexa).
 // Alcançável a partir do host do bychat em :8083. Configurável por env/Setting.
@@ -98,6 +103,54 @@ async function transcribeViaLocalScript(absPath: string): Promise<{ text: string
   }
 }
 
+// ── P4 · Diarização soberana ("quem falou") ────────────────────────────────
+interface DiarWindow { start: number; end: number | null; speaker: string }
+
+// Roda scripts/diarize.py (resemblyzer + clustering). Retorna as janelas de fala
+// ou null (falha / 1 só falante → mantém rótulo genérico). Best-effort, nunca
+// derruba a transcrição.
+async function diarizeAudio(absPath: string, maxSpeakers = 8): Promise<DiarWindow[] | null> {
+  try {
+    const { execFileSync } = await import('node:child_process')
+    const scriptPath = join(process.cwd(), 'scripts', 'diarize.py')
+    const out = execFileSync('python3', [scriptPath, absPath, '--max-speakers', String(maxSpeakers)], {
+      timeout: 15 * 60_000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const parsed = JSON.parse(String(out).trim())
+    if (parsed?.error || !Array.isArray(parsed?.segments) || (parsed.num_speakers ?? 0) < 2) return null
+    const windows = (parsed.segments as any[])
+      .filter(w => typeof w?.start === 'number' && typeof w?.speaker === 'string')
+      .map(w => ({ start: w.start as number, end: (typeof w.end === 'number' ? w.end : null), speaker: w.speaker as string }))
+    return windows.length ? windows : null
+  } catch (e: any) {
+    console.warn('[MeetingUpload] diarização falhou:', e?.message)
+    return null
+  }
+}
+
+// Atribui a cada trecho transcrito (whisper) o falante cuja janela de diarização
+// tem MAIOR sobreposição temporal. Mutação in-place em segments[].speaker.
+function assignSpeakers(
+  segments: { start: number | null; end: number | null; speaker: string | null; text: string }[],
+  windows: DiarWindow[],
+): number {
+  let assigned = 0
+  for (const seg of segments) {
+    if (seg.start === null) continue
+    const segStart = seg.start
+    const segEnd = seg.end ?? seg.start + 2 // janela mínima quando o whisper não deu fim
+    let best: string | null = null
+    let bestOverlap = 0
+    for (const w of windows) {
+      const wEnd = w.end ?? Number.MAX_SAFE_INTEGER
+      const overlap = Math.min(segEnd, wEnd) - Math.max(segStart, w.start)
+      if (overlap > bestOverlap) { bestOverlap = overlap; best = w.speaker }
+    }
+    if (best) { seg.speaker = best; assigned++ }
+  }
+  return assigned
+}
+
 function absFromStoragePath(storagePath: string): string {
   // storagePath é relativo a uploads/ (ex.: "meeting-recordings/audio-...webm").
   return join(process.cwd(), '..', 'uploads', storagePath)
@@ -131,6 +184,28 @@ export async function transcribeUploadRecording(recId: number): Promise<void> {
     })
     console.log(`[MeetingUpload] #${recId} failed — transcrição vazia`)
     return
+  }
+
+  // P4 — diarização best-effort: só quando há ≥2 trechos com tempo real (o
+  // fallback local devolve 1 trecho sem tempo → pula, mantém "Participante").
+  const hasTimes = result.segments.length >= 2 && result.segments.some(s => s.start !== null && s.end !== null)
+  if (hasTimes) {
+    try {
+      const ms = await getMeetingsSettings()
+      if (ms.presencialDiarize) {
+        const windows = await diarizeAudio(absPath)
+        if (windows) {
+          const n = assignSpeakers(result.segments, windows)
+          if (n > 0) {
+            result.text = consolidate(result.segments) // reconsolida "[mm:ss] Falante N: …"
+            const speakers = new Set(result.segments.map(s => s.speaker).filter(Boolean)).size
+            console.log(`[MeetingUpload] #${recId} diarizado — ${speakers} falante(s), ${n} trecho(s) rotulado(s)`)
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[MeetingUpload] #${recId} diarização ignorada:`, e?.message)
+    }
   }
 
   await prisma.meetingRecording.update({

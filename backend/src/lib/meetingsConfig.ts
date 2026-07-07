@@ -67,6 +67,7 @@ export interface MeetingsSettings {
   notifyWhatsappEnabled: boolean
   notifyWhatsappTo: string
   presencialEnabled: boolean    // modo reunião presencial (upload de áudio, sem bot)
+  presencialDiarize: boolean    // P4 — diarização ("quem falou") no modo presencial
 }
 
 let _ms: MeetingsSettings | null = null
@@ -103,6 +104,8 @@ export async function getMeetingsSettings(): Promise<MeetingsSettings> {
     notifyWhatsappTo: s('meetings.notify.whatsapp_to'),
     // Presencial ligado por padrão (o gate real é o módulo estar ativo + seat + consentimento).
     presencialEnabled: g.has('meetings.presencial.enabled') ? b('meetings.presencial.enabled') : true,
+    // Diarização ligada por padrão; degrada com elegância se o script/deps faltarem.
+    presencialDiarize: g.has('meetings.presencial.diarize') ? b('meetings.presencial.diarize') : true,
   }
   _msAt = Date.now()
   return _ms

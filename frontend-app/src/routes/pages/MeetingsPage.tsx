@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck } from 'lucide-preact'
+import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck, LogIn } from 'lucide-preact'
 import {
   useMeetingRecordings, useStopMeetingBot, type MeetingRecording,
   useMeetingSeats, useUpdateMeetingSeat, type MeetingSeat,
   usePlaybook, useUpdatePlaybook,
   useMeetingsSettings, useUpdateMeetingsSettings, type MeetingsSettings,
   useGenerateMeetingsReport, useMeetingSearch, useUploadPresencialMeeting,
-  useMeetingLeadSearch, type MeetingLeadResult,
+  useMeetingLeadSearch, type MeetingLeadResult, useDispatchMeetingBot,
 } from '@/hooks/useMeetings'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -412,9 +412,60 @@ function PresencialMeetingModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// "Bot entrar agora": cola o link de um Meet fora da agenda e o bot entra na hora.
+function JoinNowModal({ onClose }: { onClose: () => void }) {
+  const dispatch = useDispatchMeetingBot()
+  const [url, setUrl] = useState('')
+  const valid = /meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i.test(url) || /[a-z]{3}-[a-z]{4}-[a-z]{3}/i.test(url)
+
+  const submit = async () => {
+    if (!valid) { toast('Cole um link válido do Google Meet.', 'danger'); return }
+    try {
+      const r = await dispatch.mutateAsync({ meetUrl: url.trim() })
+      if (r.recorded) {
+        toast('Bot a caminho da reunião. Ele entra em instantes.', 'success')
+        onClose()
+      } else {
+        toast(r.reason || 'Não foi possível entrar (verifique gravação e licença).', 'danger')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Falha ao disparar o bot.', 'danger')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Bot entrar agora"
+      description="Para uma reunião que não está na agenda (você criou o link e entrou), cole o link do Google Meet e o bot entra na sala para gravar e transcrever."
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={submit} disabled={!valid || dispatch.isPending}>
+            <LogIn size={14} /> {dispatch.isPending ? 'Enviando…' : 'Colocar o bot na reunião'}
+          </Button>
+        </>
+      }
+    >
+      <div class="space-y-2">
+        <Input
+          value={url}
+          onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+          placeholder="https://meet.google.com/abc-defg-hij"
+        />
+        <p class="text-xs text-fg-subtle">
+          A gravação respeita o consentimento (Config › LGPD/Legal) e a sua licença de bot.
+        </p>
+      </div>
+    </Modal>
+  )
+}
+
 function RecordingsTab() {
   const [q, setQ] = useState('')
   const [presencialOpen, setPresencialOpen] = useState(false)
+  const [joinNowOpen, setJoinNowOpen] = useState(false)
   const search = useMeetingSearch(q)
   const { data, isLoading } = useMeetingRecordings()
   const recordings = data?.recordings || []
@@ -423,6 +474,7 @@ function RecordingsTab() {
   return (
     <div class="space-y-3">
       {presencialOpen && <PresencialMeetingModal onClose={() => setPresencialOpen(false)} />}
+      {joinNowOpen && <JoinNowModal onClose={() => setJoinNowOpen(false)} />}
       <div class="flex items-center gap-2">
         <div class="relative flex-1 min-w-0">
           <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
@@ -433,6 +485,11 @@ function RecordingsTab() {
             class="w-full pl-9 pr-3 py-2 rounded-md bg-surface border border-border text-sm text-fg"
           />
         </div>
+        <Button variant="secondary" size="sm" class="shrink-0" onClick={() => setJoinNowOpen(true)}>
+          <LogIn size={14} class="shrink-0" />
+          <span class="hidden sm:inline">Bot entrar agora</span>
+          <span class="sm:hidden">Entrar</span>
+        </Button>
         <Button variant="primary" size="sm" class="shrink-0" onClick={() => setPresencialOpen(true)}>
           <Radio size={14} class="shrink-0" />
           <span class="hidden sm:inline">Reunião presencial</span>
@@ -729,6 +786,12 @@ function MeetingsSettingsCard() {
             <input type="checkbox" checked={f.presencialEnabled} onChange={(e) => set('presencialEnabled', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
             <span class="text-sm text-fg">Permitir reunião <strong>presencial</strong> (gravar o áudio da sala / upload, sem bot)</span>
           </label>
+          {f.presencialEnabled ? (
+            <label class="flex items-center gap-2 cursor-pointer select-none pl-6">
+              <input type="checkbox" checked={f.presencialDiarize} onChange={(e) => set('presencialDiarize', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
+              <span class="text-sm text-fg">Identificar <strong>quem falou</strong> (diarização: Falante 1, 2, …) na reunião presencial</span>
+            </label>
+          ) : null}
           <label class="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={f.alertLowAdherence} onChange={(e) => set('alertLowAdherence', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
             <span class="text-sm text-fg">Alertar o gestor por baixa aderência ao playbook</span>

@@ -10,7 +10,7 @@
 import { prisma } from '../lib/prisma.js'
 import { shouldRecordMeeting, getMeetingsSettings } from '../lib/meetingsConfig.js'
 import { getUserBot } from '../lib/meetingBotSeat.js'
-import { dispatchMeetingBot } from '../lib/vexaClient.js'
+import { dispatchMeetingBot, nativeMeetingIdFromUrl } from '../lib/vexaClient.js'
 
 export interface DueMeeting {
   activityId: number
@@ -45,7 +45,18 @@ export async function findDueMeetings(nowMs: number = Date.now()): Promise<DueMe
     if (!(await shouldRecordMeeting(meta))) continue   // tenant off ou opt-out
     const bot = await getUserBot(a.userId)
     if (!bot.enabled || !bot.autoJoin) continue        // sem licença ativa / autoJoin off
-    const existing = await prisma.meetingRecording.findFirst({ where: { activityId: a.id }, select: { id: true } })
+    // Dedup por atividade OU por código nativo recente — o segundo evita bot
+    // duplicado quando a MESMA reunião também é pega pelo Vigia da Agenda Google.
+    const nativeId = nativeMeetingIdFromUrl(meetUrl, 'google_meet')
+    const existing = await prisma.meetingRecording.findFirst({
+      where: {
+        OR: [
+          { activityId: a.id },
+          { nativeMeetingId: nativeId, status: { not: 'failed' }, createdAt: { gte: new Date(nowMs - 8 * 60 * 60 * 1000) } },
+        ],
+      },
+      select: { id: true },
+    })
     if (existing) continue                             // dedup
     due.push({ activityId: a.id, userId: a.userId, leadId: a.leadId ?? null, meetUrl, language: bot.language })
   }

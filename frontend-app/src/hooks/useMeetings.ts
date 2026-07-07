@@ -117,6 +117,7 @@ export interface MeetingsSettings {
   notifyWhatsappEnabled: boolean
   notifyWhatsappTo: string
   presencialEnabled: boolean
+  presencialDiarize: boolean
 }
 
 export function useMeetingsSettings() {
@@ -229,6 +230,21 @@ export function useUploadPresencialMeeting() {
       if (language) fd.append('language', language)
       return api.post<{ recorded: boolean; reason?: string; recording?: MeetingRecording }>('/admin/meetings/upload', fd)
     },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-recordings'] }),
+  })
+}
+
+/** "Bot entrar agora" — cola o link de um Meet (reunião fora da agenda) e coloca
+ *  o bot na sala na hora. O dono/gravação é o próprio usuário logado (a licença
+ *  dele precisa estar ativa). */
+export function useDispatchMeetingBot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ meetUrl, language }: { meetUrl: string; language?: string }) =>
+      api.post<{ recorded: boolean; reason?: string; recording?: MeetingRecording }>(
+        '/admin/meetings/dispatch',
+        { meetUrl, ...(language ? { language } : {}) },
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-recordings'] }),
   })
 }
