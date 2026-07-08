@@ -130,11 +130,14 @@ export async function dispatchMeetingBot(input: DispatchBotInput): Promise<Dispa
       transcribe_enabled: true,
       video: settings.saveVideo === true, // (#3) captura vídeo quando "gravar vídeo" ativo
       ...(authenticated ? { authenticated: true } : {}),
-      // Encerramento automático: o bot sai NA HORA se o host encerra a reunião ou
-      // remove o bot (detecção do Vexa). Se todos apenas SAÍREM sem encerrar, ele
-      // espera este tempo sozinho antes de finalizar (default do Vexa é 15min —
-      // reduzido p/ 2min para consolidar transcrição/gravação mais rápido).
-      automatic_leave: { max_time_left_alone: 120_000 },
+      // Timeouts de permanência/encerramento:
+      // - no_one_joined_timeout: quanto o bot ESPERA por alguém após entrar. O bot
+      //   entra ~3min ANTES do horário; o default do Vexa (2min) o fazia sair
+      //   ANTES dos participantes chegarem (incidente reunião do Benedito). 10min
+      //   cobre entrada antecipada + início atrasado.
+      // - max_time_left_alone: depois que TODOS saem (pós-fala), finaliza em 2min.
+      // Encerramento pelo host / remoção do bot continua imediato (detecção Vexa).
+      automatic_leave: { no_one_joined_timeout: 600_000, max_time_left_alone: 120_000 },
     }),
   })
   if (!res.ok) {
