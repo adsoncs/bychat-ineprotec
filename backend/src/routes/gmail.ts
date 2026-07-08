@@ -253,6 +253,9 @@ export async function gmailRoutes(app: FastifyInstance) {
       })
       return reply.code(201).send({ ok: true, ...r })
     } catch (err: any) {
+      if (err?.code === 'GOOGLE_REAUTH_REQUIRED') {
+        return reply.code(409).send({ error: err.message, reauthRequired: true, account: err.account })
+      }
       return reply.code(500).send({ error: err.message })
     }
   })

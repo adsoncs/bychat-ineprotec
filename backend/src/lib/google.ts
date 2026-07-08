@@ -163,6 +163,20 @@ export async function getAuthenticatedClient(connectionId: number) {
           })
           client.setCredentials(credentials)
           return credentials.access_token || safeDecrypt(conn.accessToken)
+        } catch (e: any) {
+          // invalid_grant = refresh token expirado/revogado (ex.: consentimento OAuth
+          // em modo "Testing" expira em 7 dias, ou acesso revogado). Não é erro de
+          // servidor — só reconectando a conta se resolve. Devolve mensagem acionável.
+          const gErr = e?.response?.data?.error || e?.message
+          if (gErr === 'invalid_grant') {
+            const err: any = new Error(
+              `A conexão Google de ${conn.email} expirou ou foi revogada. Reconecte a conta em Configurações › Integrações › Google para voltar a enviar e-mails e usar a agenda.`,
+            )
+            err.code = 'GOOGLE_REAUTH_REQUIRED'
+            err.account = conn.email
+            throw err
+          }
+          throw e
         } finally {
           refreshMutexes.delete(connectionId)
         }
