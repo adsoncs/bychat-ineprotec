@@ -40,7 +40,7 @@ export function GoogleAdsReportPage() {
     dateFrom: daysAgo(30),
     dateTo: daysAgo(1),
   })
-  const [view, setView] = useState<'campaigns' | 'adGroups' | 'ads'>('campaigns')
+  const [view, setView] = useState<'campaigns' | 'adGroups' | 'ads' | 'keywords'>('campaigns')
 
   const { data: configs } = useGoogleAdsConfig()
   const dashboardQ = useGoogleAdsReportDashboard(filters)
@@ -102,8 +102,10 @@ export function GoogleAdsReportPage() {
     if (!dashboardQ.data) return []
     if (view === 'campaigns') return dashboardQ.data.campaigns
     if (view === 'adGroups') return dashboardQ.data.adGroups
-    return dashboardQ.data.ads
+    if (view === 'ads') return dashboardQ.data.ads
+    return []
   }, [dashboardQ.data, view])
+  const keywords = dashboardQ.data?.keywords ?? []
 
   return (
     <Page
@@ -264,7 +266,7 @@ export function GoogleAdsReportPage() {
 
       {/* Breakdown selector */}
       <div class="flex items-center gap-1 mt-4 border-b border-border">
-        {(['campaigns', 'adGroups', 'ads'] as const).map((v) => (
+        {(['campaigns', 'adGroups', 'keywords', 'ads'] as const).map((v) => (
           <button
             key={v}
             type="button"
@@ -273,8 +275,8 @@ export function GoogleAdsReportPage() {
               view === v ? 'border-accent text-fg' : 'border-transparent text-fg-muted hover:text-fg'
             }`}
           >
-            {v === 'campaigns' ? 'Campanhas' : v === 'adGroups' ? 'Grupos de anúncios' : 'Anúncios'}
-            <span class="ml-1 text-fg-subtle">({dashboardQ.data ? (v === 'campaigns' ? dashboardQ.data.campaigns.length : v === 'adGroups' ? dashboardQ.data.adGroups.length : dashboardQ.data.ads.length) : 0})</span>
+            {v === 'campaigns' ? 'Campanhas' : v === 'adGroups' ? 'Grupos de anúncios' : v === 'keywords' ? 'Palavras-chave' : 'Anúncios'}
+            <span class="ml-1 text-fg-subtle">({dashboardQ.data ? (v === 'campaigns' ? dashboardQ.data.campaigns.length : v === 'adGroups' ? dashboardQ.data.adGroups.length : v === 'keywords' ? dashboardQ.data.keywords.length : dashboardQ.data.ads.length) : 0})</span>
           </button>
         ))}
       </div>
@@ -282,22 +284,59 @@ export function GoogleAdsReportPage() {
       <Card class="p-0 overflow-hidden mt-3">
         {dashboardQ.isLoading ? (
           <Skeleton class="h-48 w-full" />
-        ) : breakdown.length === 0 ? (
+        ) : (view === 'keywords' ? keywords.length === 0 : breakdown.length === 0) ? (
           <EmptyState
             icon={<Percent size={20} />}
             title="Sem dados no período"
-            description="Sincronize com a API do Google Ads (botão acima) ou ajuste o período do filtro."
+            description={view === 'keywords'
+              ? 'Nenhum lead com palavra-chave no período. Configure o ValueTrack no Google Ads e/ou sincronize (o enriquecimento por gclid resolve as keywords automaticamente).'
+              : 'Sincronize com a API do Google Ads (botão acima) ou ajuste o período do filtro.'}
           />
+        ) : view === 'keywords' ? (
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead class="text-fg-muted bg-surface-2">
+                <tr>
+                  <th class="text-left px-3 py-2">Palavra-chave</th>
+                  <th class="text-left px-3 py-2">Campanha</th>
+                  <th class="text-right px-3 py-2">Cliques</th>
+                  <th class="text-right px-3 py-2">Investido</th>
+                  <th class="text-right px-3 py-2">Leads</th>
+                  <th class="text-right px-3 py-2">Vendas</th>
+                  <th class="text-right px-3 py-2">Receita</th>
+                  <th class="text-right px-3 py-2">ROAS</th>
+                  <th class="text-right px-3 py-2">CPL</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border">
+                {keywords.map((r, i) => (
+                  <tr key={`${r.keyword}-${i}`} class="hover:bg-surface-2">
+                    <td class="px-3 py-2 text-fg font-medium truncate max-w-[18rem]" title={r.keyword}>{r.keyword}</td>
+                    <td class="px-3 py-2 text-fg-muted truncate max-w-[14rem]" title={r.campaignName || ''}>{r.campaignName || '—'}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.clicks)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.spend)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg">{intf.format(r.leads)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.sales)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.revenue)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums">
+                      <span class={r.roas >= 1 ? 'text-success' : 'text-fg-muted'}>{r.spend > 0 ? `${r.roas.toFixed(2)}x` : '—'}</span>
+                    </td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{r.cpl > 0 ? brl.format(r.cpl) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div class="overflow-x-auto">
             <table class="w-full text-xs">
               <thead class="text-fg-muted bg-surface-2">
                 <tr>
                   <th class="text-left px-3 py-2">Nome</th>
-                  <th class="text-right px-3 py-2">Impressões</th>
                   <th class="text-right px-3 py-2">Cliques</th>
-                  <th class="text-right px-3 py-2">Conversões</th>
                   <th class="text-right px-3 py-2">Investido</th>
+                  <th class="text-right px-3 py-2">Leads</th>
+                  <th class="text-right px-3 py-2">Vendas</th>
                   <th class="text-right px-3 py-2">Receita</th>
                   <th class="text-right px-3 py-2">ROAS</th>
                 </tr>
@@ -309,17 +348,17 @@ export function GoogleAdsReportPage() {
                     : view === 'adGroups'
                       ? `${r.adGroupName || r.adGroupId} · ${r.campaignName}`
                       : `${r.adName || r.adId} · ${r.adGroupName || r.adGroupId}`
-                  const roas = r.spend > 0 ? r.conversionValue / r.spend : 0
+                  const roas = r.roas ?? 0
                   return (
                     <tr key={r.key} class="hover:bg-surface-2">
                       <td class="px-3 py-2 text-fg truncate max-w-[24rem]" title={label}>{label}</td>
-                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.impressions)}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.clicks)}</td>
-                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{r.conversions.toFixed(1)}</td>
                       <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.spend)}</td>
-                      <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.conversionValue)}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg">{intf.format(r.leads ?? 0)}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{intf.format(r.sales ?? 0)}</td>
+                      <td class="px-3 py-2 text-right tabular-nums text-fg">{brl.format(r.revenue ?? 0)}</td>
                       <td class="px-3 py-2 text-right tabular-nums">
-                        <span class={roas >= 1 ? 'text-success' : 'text-fg-muted'}>{roas.toFixed(2)}x</span>
+                        <span class={roas >= 1 ? 'text-success' : 'text-fg-muted'}>{r.spend > 0 ? `${roas.toFixed(2)}x` : '—'}</span>
                       </td>
                     </tr>
                   )

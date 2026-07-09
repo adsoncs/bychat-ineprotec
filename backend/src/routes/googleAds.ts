@@ -6,9 +6,9 @@ import { getAuthenticatedClient } from '../lib/google.js'
 // Google Ads API version (gerenciado em um lugar pra atualizações futuras).
 // Google sunsetta versões a cada ~12 meses; quando subir, validar que todos os
 // campos GAQL ainda existem (`conversion_action.value_settings.*`, etc).
-// v16 (fev/2024) → 404 sunset em 2026. v20 vigente em 2026-05.
-const GOOGLE_ADS_API_VERSION = 'v20'
-const GOOGLE_ADS_API_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`
+// Versão centralizada em lib/googleAdsApi (override por env GOOGLE_ADS_API_VERSION).
+// O Google bloqueia versões antigas (v20 bloqueada em 2026-07 com UNSUPPORTED_VERSION).
+import { GOOGLE_ADS_API_VERSION, GOOGLE_ADS_API_BASE } from '../lib/googleAdsApi.js'
 
 // ── Developer Token global ───────────────────────────────────
 // O token é da APLICAÇÃO (Beyond), não do cliente. Vive em Setting global,

@@ -8,7 +8,7 @@
 import { prisma } from '../lib/prisma.js'
 import { getAuthenticatedClient } from '../lib/google.js'
 
-const GOOGLE_ADS_API_BASE = 'https://googleads.googleapis.com/v20'
+import { GOOGLE_ADS_API_BASE } from '../lib/googleAdsApi.js'
 
 async function getDeveloperToken(): Promise<string | null> {
   const row = await prisma.setting.findUnique({ where: { key: 'google.ads.developer_token' }, select: { value: true } }).catch(() => null)
@@ -31,9 +31,10 @@ function microsToReais(micros: number | string | null | undefined): number {
   return Number(micros) / 1_000_000
 }
 
-function costKey(level: string, customerId: string, campaignId: string, adGroupId: string | null, adId: string | null, date: string): string {
+function costKey(level: string, customerId: string, campaignId: string, adGroupId: string | null, adId: string | null, date: string, criterionId?: string | null): string {
   if (level === 'campaign') return `campaign:${customerId}:${campaignId}:${date}`
   if (level === 'ad_group') return `ad_group:${customerId}:${campaignId}:${adGroupId}:${date}`
+  if (level === 'keyword') return `keyword:${customerId}:${campaignId}:${adGroupId}:${criterionId}:${date}`
   return `ad:${customerId}:${campaignId}:${adGroupId}:${adId}:${date}`
 }
 
@@ -84,7 +85,7 @@ async function callSearchStream(
 }
 
 interface SyncResult {
-  level: 'campaign' | 'ad_group' | 'ad'
+  level: 'campaign' | 'ad_group' | 'ad' | 'keyword'
   rowsUpserted: number
   rowsFromApi: number
   errors: string[]
@@ -156,10 +157,25 @@ const QUERIES = {
     WHERE segments.date BETWEEN '${from}' AND '${to}'
       AND ad_group_ad.status != 'REMOVED'
   `,
+  keyword: (from: string, to: string) => `
+    SELECT
+      campaign.id,
+      campaign.name,
+      ad_group.id,
+      ad_group.name,
+      ad_group_criterion.criterion_id,
+      ad_group_criterion.keyword.text,
+      ad_group_criterion.keyword.match_type,
+      segments.date,
+      ${METRIC_FIELDS}
+    FROM keyword_view
+    WHERE segments.date BETWEEN '${from}' AND '${to}'
+      AND ad_group_criterion.status != 'REMOVED'
+  `,
 }
 
 async function upsertRow(
-  level: 'campaign' | 'ad_group' | 'ad',
+  level: 'campaign' | 'ad_group' | 'ad' | 'keyword',
   customerId: string,
   campaignId: string,
   campaignName: string,
@@ -169,8 +185,10 @@ async function upsertRow(
   adName: string | null,
   date: string,
   metrics: any,
+  criterionId: string | null = null,
+  keyword: string | null = null,
 ) {
-  const key = costKey(level, customerId, campaignId, adGroupId, adId, date)
+  const key = costKey(level, customerId, campaignId, adGroupId, adId, date, criterionId)
   const spend = microsToReais(metrics?.costMicros)
   const cpc = microsToReais(metrics?.averageCpc)
   const cpm = microsToReais(metrics?.averageCpm)
@@ -184,6 +202,8 @@ async function upsertRow(
     adGroupName,
     adId,
     adName,
+    criterionId,
+    keyword,
     date: new Date(date),
     spend,
     impressions: typeof metrics?.impressions === 'number' || typeof metrics?.impressions === 'string' ? Number(metrics.impressions) : null,
@@ -229,7 +249,7 @@ export async function syncGoogleAdsInsights(
   console.log(`[gAdsSync] starting customer=${customerId} from=${from} to=${to} loginCid=${loginCustomerId || '(none)'}`)
   const results: SyncResult[] = []
 
-  for (const level of ['campaign', 'ad_group', 'ad'] as const) {
+  for (const level of ['campaign', 'ad_group', 'ad', 'keyword'] as const) {
     const r: SyncResult = { level, rowsUpserted: 0, rowsFromApi: 0, errors: [] }
     try {
       const rows = await callSearchStream(customerId, accessToken, developerToken, loginCustomerId, QUERIES[level](from, to))
@@ -239,23 +259,27 @@ export async function syncGoogleAdsInsights(
           const campaign = row.campaign || {}
           const adGroup = row.adGroup || {}
           const adGroupAd = row.adGroupAd?.ad || {}
+          const agc = row.adGroupCriterion || {}
           const segments = row.segments || {}
           const metrics = row.metrics || {}
           const campaignId = String(campaign.id || '')
           if (!campaignId) continue
           const date = String(segments.date || '')
           if (!date) continue
+          const withAdGroup = level !== 'campaign'
           await upsertRow(
             level,
             customerId,
             campaignId,
             campaign.name || '',
-            level !== 'campaign' ? String(adGroup.id || '') : null,
-            level !== 'campaign' ? (adGroup.name || null) : null,
+            withAdGroup ? String(adGroup.id || '') : null,
+            withAdGroup ? (adGroup.name || null) : null,
             level === 'ad' ? String(adGroupAd.id || '') : null,
             level === 'ad' ? (adGroupAd.name || null) : null,
             date,
             metrics,
+            level === 'keyword' ? String(agc.criterionId || '') : null,
+            level === 'keyword' ? (agc.keyword?.text || null) : null,
           )
           r.rowsUpserted++
         } catch (e: any) {

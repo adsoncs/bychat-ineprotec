@@ -95,6 +95,17 @@ export interface LeadDetail extends LeadListItem {
   fbclid?: string | null
   gclid?: string | null
   ctwaClid?: string | null
+  // Google Ads (ValueTrack + enriquecimento por gclid)
+  googleCampaignId?: string | null
+  googleCampaignName?: string | null
+  googleAdGroupId?: string | null
+  googleAdGroupName?: string | null
+  googleAdId?: string | null
+  googleKeyword?: string | null
+  googleMatchType?: string | null
+  googleNetwork?: string | null
+  googleDevice?: string | null
+  googleEnrichedAt?: string | null
   // Intelligence / LGPD
   lgpdConsent?: boolean
   lgpdConsentAt?: string | null

@@ -772,6 +772,21 @@ model Lead {
   utmId             String? @db.VarChar(191) // utm_id da campanha (ID Meta/Google p/ cruzar com a API)
   trackingVisitorId String? @db.VarChar(64) // Vincula com visitor de tracking
 
+  // Google Ads — atribuição por lead (ValueTrack na URL + enriquecimento por gclid via click_view).
+  // Espelha o padrão Meta (campaignId/adsetId/adId), mas em colunas próprias p/ não
+  // colidir com a semântica Meta dos campos acima. IDs vêm do ValueTrack; os NOMES
+  // (Name) e a keyword vêm do enriquecimento server-side (googleAdsClickEnrich).
+  googleCampaignId   String?   @db.VarChar(191)
+  googleCampaignName String?   @db.VarChar(191)
+  googleAdGroupId    String?   @db.VarChar(191) // ≈ adset da Meta (grupo de anúncios)
+  googleAdGroupName  String?   @db.VarChar(191)
+  googleAdId         String?   @db.VarChar(191) // {creative}
+  googleKeyword      String?   @db.VarChar(255) // palavra-chave que acionou o anúncio ({keyword} / click_view)
+  googleMatchType    String?   @db.VarChar(30)  // exact | phrase | broad
+  googleNetwork      String?   @db.VarChar(30)  // search | display | youtube | ...
+  googleDevice       String?   @db.VarChar(30)  // mobile | desktop | tablet
+  googleEnrichedAt   DateTime? // quando o enriquecimento por gclid resolveu os nomes/keyword
+
   // Rastreamento inteligente (Fase 7)
   originType       String?   @db.VarChar(50) // trackable_link, meta_ctwa, google_ads, meta_lead_ads, organic, web_form, manual
   gclid            String?   @db.VarChar(191) // Google Click ID
@@ -914,6 +929,7 @@ model Lead {
   @@index([duplicateStatus])
   @@index([possibleDuplicateOfId])
   @@index([aiScore])
+  @@index([googleCampaignId])
   @@map("bychat_leads")
 }
 
@@ -2688,7 +2704,7 @@ model GoogleAdsCampaignCost {
   //   "ad_group:CID:CAMP:AG:YYYY-MM-DD"
   //   "ad:CID:CAMP:AG:AD:YYYY-MM-DD"
   costKey          String   @unique @db.VarChar(255)
-  level            String   @default("campaign") @db.VarChar(10) // campaign | ad_group | ad
+  level            String   @default("campaign") @db.VarChar(10) // campaign | ad_group | ad | keyword
   customerId       String   @db.VarChar(30)  // Google Ads customer ID (xxx-xxx-xxxx ou só dígitos)
   campaignId       String   @db.VarChar(191)
   campaignName     String   @db.VarChar(191)
@@ -2696,6 +2712,8 @@ model GoogleAdsCampaignCost {
   adGroupName      String?  @db.VarChar(191)
   adId             String?  @db.VarChar(191)
   adName           String?  @db.VarChar(191)
+  criterionId      String?  @db.VarChar(191) // id do critério (level=keyword)
+  keyword          String?  @db.VarChar(255) // texto da palavra-chave (level=keyword) — casa com Lead.googleKeyword
   date             DateTime @db.Date
   spend            Decimal  @db.Decimal(12, 2)
   impressions      Int?

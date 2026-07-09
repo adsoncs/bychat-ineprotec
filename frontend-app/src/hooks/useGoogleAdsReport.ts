@@ -36,6 +36,31 @@ export interface GoogleAdsBreakdownRow {
   conversions: number
   conversionValue: number
   days: number
+  // Atribuição do CRM (leads Google que caíram nesta campanha/grupo)
+  leads?: number
+  sales?: number
+  revenue?: number
+  won?: number
+  lost?: number
+  roas?: number
+  roi?: number
+  cpl?: number
+}
+
+export interface GoogleAdsKeywordRow {
+  keyword: string
+  campaignName?: string | null
+  spend: number
+  clicks: number
+  impressions: number
+  leads: number
+  sales: number
+  revenue: number
+  won: number
+  lost: number
+  roas: number
+  roi: number
+  cpl: number
 }
 
 export interface GoogleAdsDailyPoint {
@@ -52,6 +77,7 @@ export interface GoogleAdsDashboardResponse {
   campaigns: GoogleAdsBreakdownRow[]
   adGroups: GoogleAdsBreakdownRow[]
   ads: GoogleAdsBreakdownRow[]
+  keywords: GoogleAdsKeywordRow[]
   daily: GoogleAdsDailyPoint[]
 }
 

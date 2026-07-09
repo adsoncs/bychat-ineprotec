@@ -63,6 +63,11 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
       orderBy: { date: 'asc' },
     })
 
+    const keywordRows = await prisma.googleAdsCampaignCost.findMany({
+      where: { ...baseWhere, level: 'keyword' },
+      orderBy: { date: 'asc' },
+    })
+
     // Agregação por nível
     function aggregateByKey<T extends { campaignId: string; campaignName: string; adGroupId?: string | null; adGroupName?: string | null; adId?: string | null; adName?: string | null }>(
       rows: any[],
@@ -113,33 +118,95 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
       adId: r.adId,
       adName: r.adName,
     }))
+    // Custo por palavra-chave (agregado por texto da keyword).
+    const keywordsCost = aggregateByKey(keywordRows, r => (r.keyword || '').toLowerCase(), r => ({
+      keyword: r.keyword,
+      campaignName: r.campaignName,
+    }))
 
-    // Leads com gclid no período → revenue (saleValue) e count
-    const leadWhere: any = {
-      gclid: { not: null },
-      createdAt: { gte: from, lte: to },
-    }
-    const leadsAgg = await prisma.lead.aggregate({
+    // ── ATRIBUIÇÃO DE LEADS DO CRM (Google) — o que identifica os leads por campanha ──
+    // Espelha o Meta: cruza pelos campos google* do lead (preenchidos por ValueTrack +
+    // enriquecimento por gclid), somando vendas/receita via saleDetected/saleValue.
+    const leadWhere: any = { originType: 'google_ads', createdAt: { gte: from, lte: to } }
+    if (q.campaignId) leadWhere.googleCampaignId = q.campaignId
+    const leads = await prisma.lead.findMany({
       where: leadWhere,
-      _count: { _all: true },
-      _sum: { saleValue: true },
+      select: {
+        googleCampaignId: true, googleCampaignName: true,
+        googleAdGroupId: true, googleAdGroupName: true,
+        googleKeyword: true, saleDetected: true, saleValue: true, outcome: true,
+      },
     })
-    const salesAgg = await prisma.lead.aggregate({
-      where: { ...leadWhere, saleDetected: true },
-      _count: { _all: true },
-      _sum: { saleValue: true },
-    })
+
+    const cLead = new Map<string, any>()
+    const agLead = new Map<string, any>()
+    const kwLead = new Map<string, any>()
+    const bump = (map: Map<string, any>, key: string, lead: any, labels: any) => {
+      let a = map.get(key)
+      if (!a) { a = { ...labels, leads: 0, sales: 0, revenue: 0, won: 0, lost: 0 }; map.set(key, a) }
+      a.leads++
+      if (lead.saleDetected) { a.sales++; a.revenue += num(lead.saleValue) }
+      if (lead.outcome === 'won') a.won++
+      if (lead.outcome === 'lost') a.lost++
+    }
+    for (const l of leads) {
+      if (l.googleCampaignId) bump(cLead, l.googleCampaignId, l, { campaignId: l.googleCampaignId, campaignName: l.googleCampaignName })
+      if (l.googleCampaignId && l.googleAdGroupId) bump(agLead, `${l.googleCampaignId}::${l.googleAdGroupId}`, l, { campaignId: l.googleCampaignId, campaignName: l.googleCampaignName, adGroupId: l.googleAdGroupId, adGroupName: l.googleAdGroupName })
+      if (l.googleKeyword) bump(kwLead, l.googleKeyword.toLowerCase(), l, { keyword: l.googleKeyword, campaignName: l.googleCampaignName })
+    }
+
+    // Funde a atribuição de leads nas linhas de custo (e cria linhas p/ campanhas/grupos
+    // que têm leads mas ainda sem custo sincronizado — nenhum lead fica de fora).
+    const finalize = (row: any) => {
+      row.roas = row.spend > 0 ? row.revenue / row.spend : 0
+      row.roi = row.spend > 0 ? (row.revenue - row.spend) / row.spend : 0
+      row.cpl = row.leads > 0 && row.spend > 0 ? row.spend / row.leads : 0
+    }
+    const mergeLeads = (rows: any[], map: Map<string, any>, keyOf: (r: any) => string, labelOf: (a: any) => any) => {
+      const seen = new Set<string>()
+      for (const r of rows) {
+        const a = map.get(keyOf(r))
+        r.leads = a?.leads || 0; r.sales = a?.sales || 0; r.revenue = a?.revenue || 0
+        r.won = a?.won || 0; r.lost = a?.lost || 0
+        finalize(r)
+        seen.add(keyOf(r))
+      }
+      for (const [k, a] of map) {
+        if (seen.has(k)) continue
+        rows.push({ ...labelOf(a), spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0, days: 0, leads: a.leads, sales: a.sales, revenue: a.revenue, won: a.won, lost: a.lost, roas: 0, roi: 0, cpl: 0 })
+      }
+    }
+    mergeLeads(campaigns, cLead, r => r.campaignId, a => ({ campaignId: a.campaignId, campaignName: a.campaignName }))
+    mergeLeads(adGroups, agLead, r => `${r.campaignId}::${r.adGroupId}`, a => ({ campaignId: a.campaignId, campaignName: a.campaignName, adGroupId: a.adGroupId, adGroupName: a.adGroupName }))
+    // Anúncios não têm atribuição por lead (o lead não guarda o adId do Google) → zera.
+    for (const r of ads) { r.leads = 0; r.sales = 0; r.revenue = 0; r.won = 0; r.lost = 0; finalize(r) }
+
+    // Palavras-chave: junta custo (keyword_view) + leads (Lead.googleKeyword).
+    const kwMap = new Map<string, any>()
+    for (const kc of keywordsCost) {
+      const k = (kc.keyword || '').toLowerCase()
+      if (!k) continue
+      kwMap.set(k, { keyword: kc.keyword, campaignName: kc.campaignName, spend: kc.spend, clicks: kc.clicks, impressions: kc.impressions, leads: 0, sales: 0, revenue: 0, won: 0, lost: 0 })
+    }
+    for (const [k, a] of kwLead) {
+      const e = kwMap.get(k) || { keyword: a.keyword, campaignName: a.campaignName, spend: 0, clicks: 0, impressions: 0, leads: 0, sales: 0, revenue: 0, won: 0, lost: 0 }
+      e.leads = a.leads; e.sales = a.sales; e.revenue = a.revenue; e.won = a.won; e.lost = a.lost
+      if (!e.keyword) e.keyword = a.keyword
+      kwMap.set(k, e)
+    }
+    const keywords = Array.from(kwMap.values()).map(e => { finalize(e); return e })
+      .sort((a, b) => b.revenue - a.revenue || b.leads - a.leads || b.spend - a.spend)
 
     const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0)
     const totalClicks = campaigns.reduce((s, c) => s + c.clicks, 0)
     const totalImpressions = campaigns.reduce((s, c) => s + c.impressions, 0)
     const totalConversions = campaigns.reduce((s, c) => s + c.conversions, 0)
-    const totalLeads = leadsAgg._count._all || 0
-    const totalSales = salesAgg._count._all || 0
-    const totalRevenue = num(salesAgg._sum.saleValue)
+    const totalLeads = leads.length
+    const totalSales = leads.filter(l => l.saleDetected).length
+    const totalRevenue = leads.reduce((s, l) => (l.saleDetected ? s + num(l.saleValue) : s), 0)
     const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0
     const roi = totalSpend > 0 ? (totalRevenue - totalSpend) / totalSpend : 0
-    const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0
+    const cpl = totalLeads > 0 && totalSpend > 0 ? totalSpend / totalLeads : 0
     const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0
 
     // Daily breakdown (todas as linhas campaign)
@@ -170,9 +237,10 @@ export async function googleAdsReportRoutes(app: FastifyInstance) {
         cpl,
         cpc,
       },
-      campaigns: campaigns.sort((a, b) => b.spend - a.spend),
-      adGroups: adGroups.sort((a, b) => b.spend - a.spend),
+      campaigns: campaigns.sort((a, b) => b.revenue - a.revenue || b.spend - a.spend),
+      adGroups: adGroups.sort((a, b) => b.revenue - a.revenue || b.spend - a.spend),
       ads: ads.sort((a, b) => b.spend - a.spend),
+      keywords,
       daily,
     }
   })

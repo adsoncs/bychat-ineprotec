@@ -2207,10 +2207,11 @@ function DuplicatesHint({ leadId }: { leadId: number }) {
 export { TrackingTab as LeadDetailTrackingTab }
 function TrackingTab({ lead }: { lead: NonNullable<ReturnType<typeof useLead>['data']> }) {
   const hasMeta = !!(lead.campaignId ?? lead.campaignName ?? lead.adsetName ?? lead.adName)
+  const hasGoogle = !!(lead.googleCampaignId ?? lead.googleCampaignName ?? lead.googleAdGroupName ?? lead.googleKeyword)
   const hasUtm = !!(lead.utmSource ?? lead.utmMedium ?? lead.utmCampaign)
   const hasClickIds = !!(lead.fbclid ?? lead.gclid ?? lead.ctwaClid)
 
-  if (!hasMeta && !hasUtm && !hasClickIds && !lead.metaPageId && !lead.trackingVisitorId && !lead.trackableLinkId) {
+  if (!hasMeta && !hasGoogle && !hasUtm && !hasClickIds && !lead.metaPageId && !lead.trackingVisitorId && !lead.trackableLinkId) {
     return <EmptyState title="Sem dados de tracking" description="Este lead não tem informações de campanha, UTM ou tracking ID." />
   }
 
@@ -2225,6 +2226,19 @@ function TrackingTab({ lead }: { lead: NonNullable<ReturnType<typeof useLead>['d
             <Field label="Campanha" value={lead.campaignName ?? lead.campaignId} />
             <Field label="Adset" value={lead.adsetName ?? lead.adsetId} />
             <Field label="Anúncio" value={lead.adName ?? lead.adId} />
+          </div>
+        </Card>
+      )}
+      {hasGoogle && (
+        <Card>
+          <CardHeader><CardTitle>Google Ads</CardTitle></CardHeader>
+          <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 text-xs">
+            <Field label="Campanha" value={lead.googleCampaignName ?? lead.googleCampaignId} />
+            <Field label="Grupo de anúncios" value={lead.googleAdGroupName ?? lead.googleAdGroupId} />
+            <Field label="Palavra-chave" value={lead.googleKeyword} />
+            <Field label="Correspondência" value={lead.googleMatchType} />
+            <Field label="Rede" value={lead.googleNetwork} />
+            <Field label="Dispositivo" value={lead.googleDevice} />
           </div>
         </Card>
       )}

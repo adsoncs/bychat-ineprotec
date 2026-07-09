@@ -17,7 +17,7 @@ import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import { getAuthenticatedClient } from '../lib/google.js'
 
-const GOOGLE_ADS_API_BASE = 'https://googleads.googleapis.com/v20'
+import { GOOGLE_ADS_API_BASE } from '../lib/googleAdsApi.js'
 
 // Triggers suportados — manter alinhado com SUPPORTED_TRIGGERS em routes/googleAds.ts
 export const GOOGLE_ADS_TRIGGERS = [
@@ -84,7 +84,7 @@ export async function dispatchConversion(trigger: GoogleAdsTrigger, leadId: numb
     const value = computeValue(
       mapping.valueSource,
       mapping.fixedValue,
-      typeof hintValue === 'number' ? hintValue : lead.saleValue,
+      typeof hintValue === 'number' ? hintValue : (lead.saleValue != null ? Number(lead.saleValue) : null),
     )
 
     try {

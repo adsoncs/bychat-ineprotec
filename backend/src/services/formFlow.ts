@@ -35,14 +35,23 @@ export async function buildCustomFieldValues(fields: any[], data: any): Promise<
 
 // ── Tracking (UTMs / click-ids) ───────────────────────────────────────────────
 // Parâmetros de campanha com coluna dedicada no lead → nome do parâmetro na URL.
-type TrackKey = 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'utmTerm' | 'utmId' | 'fbclid' | 'gclid'
+type TrackKey =
+  | 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'utmTerm' | 'utmId' | 'fbclid' | 'gclid'
+  // Google Ads ValueTrack (o cliente configura o tracking template com estes params na URL final).
+  | 'googleCampaignId' | 'googleAdGroupId' | 'googleAdId' | 'googleKeyword' | 'googleMatchType' | 'googleNetwork' | 'googleDevice'
 const TRACK_PARAM: Record<TrackKey, string> = {
   utmSource: 'utm_source', utmMedium: 'utm_medium', utmCampaign: 'utm_campaign',
   utmContent: 'utm_content', utmTerm: 'utm_term', utmId: 'utm_id', fbclid: 'fbclid', gclid: 'gclid',
+  googleCampaignId: 'gad_campaignid', googleAdGroupId: 'gad_adgroupid', googleAdId: 'gad_creative',
+  googleKeyword: 'gad_keyword', googleMatchType: 'gad_matchtype', googleNetwork: 'gad_network', googleDevice: 'gad_device',
 }
 const TRACK_KEYS = Object.keys(TRACK_PARAM) as TrackKey[]
 // Limite de cada coluna (VarChar) — trunca por segurança.
-const TRACK_MAXLEN: Partial<Record<TrackKey, number>> = { utmSource: 100, utmMedium: 100, fbclid: 255 }
+const TRACK_MAXLEN: Partial<Record<TrackKey, number>> = {
+  utmSource: 100, utmMedium: 100, fbclid: 255,
+  googleCampaignId: 191, googleAdGroupId: 191, googleAdId: 191,
+  googleKeyword: 255, googleMatchType: 30, googleNetwork: 30, googleDevice: 30,
+}
 
 // Rede de segurança: quando o formulário não recebe todos os parâmetros na própria
 // URL (mas o visitante foi rastreado), herda da URL de entrada gravada no tracking.
@@ -164,11 +173,29 @@ export async function createLeadFromForm(
       ...(trk.gclid ? { gclid: String(trk.gclid).slice(0, 191) } : {}),
       ...(trk.fbclid ? { fbclid: trk.fbclid } : {}),
       ...(body.ctwaClid ? { ctwaClid: String(body.ctwaClid).slice(0, 191) } : {}),
+      // Google Ads ValueTrack (IDs + keyword da URL). Os NOMES vêm depois no
+      // enriquecimento por gclid. googleKeyword cai p/ utm_term quando o template
+      // usa só utm_term={keyword}.
+      ...(trk.googleCampaignId ? { googleCampaignId: trk.googleCampaignId } : {}),
+      ...(trk.googleAdGroupId ? { googleAdGroupId: trk.googleAdGroupId } : {}),
+      ...(trk.googleAdId ? { googleAdId: trk.googleAdId } : {}),
+      ...((trk.googleKeyword || (originType === 'google_ads' && trk.utmTerm)) ? { googleKeyword: String(trk.googleKeyword || trk.utmTerm).slice(0, 255) } : {}),
+      ...(trk.googleMatchType ? { googleMatchType: trk.googleMatchType } : {}),
+      ...(trk.googleNetwork ? { googleNetwork: trk.googleNetwork } : {}),
+      ...(trk.googleDevice ? { googleDevice: trk.googleDevice } : {}),
       customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
       qualifiedAt: new Date(), qualificationSource: ctx?.qualificationSource ?? 'form',
     },
   })
   const leadId = newLead.id
+
+  // Google Ads: enriquece campanha/grupo/keyword a partir do gclid (imediato; o
+  // sweep periódico é a rede de segurança). Fire-and-forget para não atrasar a resposta.
+  if (originType === 'google_ads' && trk.gclid) {
+    import('./googleAdsClickEnrich.js')
+      .then(m => m.enrichLeadFromGclid(leadId))
+      .catch(() => {})
+  }
 
   logEvent({
     leadId, type: EVENT_TYPES.LEAD_CREATED, category: 'lifecycle',
