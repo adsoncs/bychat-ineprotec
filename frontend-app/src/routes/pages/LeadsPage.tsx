@@ -25,6 +25,7 @@ import {
   useLeadHistory,
   useUpdateLeadStatus,
   useUpdateLeadContact,
+  useUpdateLeadCustomFields,
   useBulkUpdateLeadsStatus,
   useBulkDeleteLeads,
   useDuplicateLead,
@@ -2765,11 +2766,58 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
 // EditLeadModal — campos básicos de contato
 // ───────────────────────────────────────────────
 
+// Opções de um campo select personalizado podem vir como [{label,value}] ou ["a","b"].
+function normalizeCfOptions(raw: unknown): Array<{ label: string; value: string }> {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((o: any) => typeof o === 'string'
+      ? { label: o, value: o }
+      : { label: String(o?.label ?? o?.value ?? ''), value: String(o?.value ?? o?.label ?? '') })
+    .filter((o) => o.value !== '')
+}
+
+// Input de um campo personalizado no editar-lead, respeitando o tipo do campo.
+function CustomFieldEditInput({ field, value, onChange }: { field: any; value: string; onChange: (v: string) => void }) {
+  const t = String(field.type || 'text')
+  if (t === 'select' || t === 'multiselect') {
+    const opts = normalizeCfOptions(field.options)
+    return (
+      <Select label={field.label} value={value} onChange={(e) => onChange((e.target as HTMLSelectElement).value)}>
+        <option value="">—</option>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </Select>
+    )
+  }
+  if (t === 'textarea') {
+    return <Textarea label={field.label} value={value} rows={2} onInput={(e) => onChange((e.target as HTMLTextAreaElement).value)} />
+  }
+  if (t === 'checkbox') {
+    return (
+      <label class="flex items-center gap-2 text-sm text-fg sm:mt-6">
+        <input type="checkbox" checked={value === 'true'} onChange={(e) => onChange((e.target as HTMLInputElement).checked ? 'true' : 'false')} />
+        {field.label}
+      </label>
+    )
+  }
+  const inputType = t === 'number' || t === 'currency' ? 'number' : t === 'date' ? 'date' : t === 'email' ? 'email' : t === 'url' ? 'url' : 'text'
+  return <Input label={field.label} type={inputType} value={value} onInput={(e) => onChange((e.target as HTMLInputElement).value)} />
+}
+
 export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: lead, isLoading } = useLead(id)
+  const { data: cfData } = useCustomFields()
   const update = useUpdateLeadContact()
+  const updateCf = useUpdateLeadCustomFields()
   const [form, setForm] = useState<LeadContactInput>({})
+  const [cf, setCf] = useState<Record<string, string>>({})
   const [initialized, setInitialized] = useState(false)
+
+  // Campos personalizados editáveis manualmente: os marcados como visíveis na
+  // LISTA de leads ou no CARD do Kanban (showInList/showInKanban). Assim, todo
+  // campo que o usuário escolheu exibir pode também ser preenchido à mão aqui.
+  const editableCustom = (cfData?.fields ?? []).filter(
+    (f) => f.active && (f.showInList !== false || f.showInKanban === true),
+  )
 
   if (lead && !initialized) {
     setForm({
@@ -2780,12 +2828,24 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
       segmento: lead.segmento ?? '',
       cidade: lead.cidade ?? '',
     })
+    const cfv = (lead.customFields ?? {}) as Record<string, unknown>
+    const initCf: Record<string, string> = {}
+    for (const f of editableCustom) {
+      const v = cfv[f.key]
+      initCf[f.key] = v === null || v === undefined ? '' : String(v)
+    }
+    setCf(initCf)
     setInitialized(true)
   }
 
   function set<K extends keyof LeadContactInput>(key: K, v: LeadContactInput[K]) {
     setForm((f) => ({ ...f, [key]: v }))
   }
+  function setCustom(key: string, v: string) {
+    setCf((c) => ({ ...c, [key]: v }))
+  }
+
+  function finish() { toast('Lead atualizado', 'success'); onClose() }
 
   function save() {
     if (!form.nome?.trim() || !form.whatsapp?.trim() || !form.email?.trim()) {
@@ -2793,10 +2853,22 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
       return
     }
     update.mutate({ id, ...form }, {
-      onSuccess: () => { toast('Lead atualizado', 'success'); onClose() },
+      onSuccess: () => {
+        // Persiste os campos personalizados editáveis (merge no backend; vazio limpa).
+        if (editableCustom.length > 0) {
+          const payload: Record<string, unknown> = {}
+          for (const f of editableCustom) payload[f.key] = cf[f.key] ?? ''
+          updateCf.mutate({ id, fields: payload }, {
+            onSuccess: finish,
+            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          })
+        } else { finish() }
+      },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
+
+  const saving = update.isPending || updateCf.isPending
 
   return (
     <Modal
@@ -2807,21 +2879,34 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={save} disabled={update.isPending || isLoading}>
-            {update.isPending ? 'Salvando…' : 'Salvar'}
+          <Button variant="primary" size="sm" onClick={save} disabled={saving || isLoading}>
+            {saving ? 'Salvando…' : 'Salvar'}
           </Button>
         </>
       }
     >
       {isLoading && <Skeleton class="h-32 w-full" />}
       {lead && (
-        <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
-          <Input label="Nome *" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
-          <Input label="WhatsApp *" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
-          <Input label="E-mail *" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
-          <Input label="Empresa" value={form.empresa ?? ''} onInput={(e) => set('empresa', (e.target as HTMLInputElement).value)} />
-          <Input label="Segmento" value={form.segmento ?? ''} onInput={(e) => set('segmento', (e.target as HTMLInputElement).value)} />
-          <Input label="Cidade" value={form.cidade ?? ''} onInput={(e) => set('cidade', (e.target as HTMLInputElement).value)} />
+        <div class="space-y-4">
+          <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+            <Input label="Nome *" value={form.nome ?? ''} onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
+            <Input label="WhatsApp *" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
+            <Input label="E-mail *" type="email" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
+            <Input label="Empresa" value={form.empresa ?? ''} onInput={(e) => set('empresa', (e.target as HTMLInputElement).value)} />
+            <Input label="Segmento" value={form.segmento ?? ''} onInput={(e) => set('segmento', (e.target as HTMLInputElement).value)} />
+            <Input label="Cidade" value={form.cidade ?? ''} onInput={(e) => set('cidade', (e.target as HTMLInputElement).value)} />
+          </div>
+
+          {editableCustom.length > 0 && (
+            <div>
+              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">Campos personalizados</div>
+              <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                {editableCustom.map((f) => (
+                  <CustomFieldEditInput key={f.id} field={f} value={cf[f.key] ?? ''} onChange={(v) => setCustom(f.key, v)} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Modal>
