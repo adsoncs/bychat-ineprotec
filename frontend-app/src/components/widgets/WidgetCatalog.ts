@@ -35,6 +35,7 @@ export const WIDGET_CATEGORIES: WidgetCategory[] = [
   { id: 'tracking', label: 'Tracking' },
   { id: 'mensagens', label: 'Mensagens' },
   { id: 'sistema', label: 'Sistema' },
+  { id: 'negociacoes', label: 'Negociações', requiresPermission: 'negotiations', domainBadge: 'Vendas' },
   { id: 'matriculas', label: 'Matrículas', requiresPermission: 'educacional', domainBadge: 'Educacional' },
   { id: 'helpdesk', label: 'Helpdesk', requiresPermission: 'helpdesk', domainBadge: 'Suporte' },
 ]
@@ -54,6 +55,10 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   { category: 'leads', metric: 'leads_maturidade', title: 'Maturidade', description: 'Distribuição de maturidade dos leads', icon: '🧩', defaultSize: 'md', defaultType: 'donut', availableTypes: ['pie', 'donut', 'polar', 'bar', 'hbar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_by_tag', title: 'Leads por Tag', description: 'Distribuição de leads por tag', icon: '🏷', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'pie', 'donut', 'polar', 'hbar_list'] },
   { category: 'leads', metric: 'leads_recent', title: 'Últimos Leads', description: 'Tabela com os leads mais recentes', icon: '📋', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
+  { category: 'leads', metric: 'leads_won', title: 'Negócios Ganhos', description: 'Leads marcados como ganhos no período (com Δ% vs período anterior)', icon: '🏆', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'leads', metric: 'leads_won_revenue', title: 'Receita Ganha', description: 'Soma do valor de venda dos negócios ganhos no período', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'leads', metric: 'leads_lost', title: 'Negócios Perdidos', description: 'Leads marcados como perdidos no período + maior objeção', icon: '📉', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'leads', metric: 'leads_conversion_rate', title: 'Taxa de Conversão (fechamento)', description: 'Ganhos sobre negócios encerrados (ganhos + perdidos) no período', icon: '🎯', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
   { category: 'leads', metric: 'leads_loss_reasons', title: 'Objeções (Leads perdidos)', description: 'Distribuição dos motivos de perda no período', icon: '❌', defaultSize: 'md', defaultType: 'donut', availableTypes: ['donut', 'pie', 'bar', 'hbar', 'polar', 'hbar_list', 'table'] },
   { category: 'leads', metric: 'leads_lost_revenue_by_reason', title: 'Receita perdida por objeção', description: 'Soma de saleValue dos leads perdidos agrupado por objeção', icon: '💸', defaultSize: 'md', defaultType: 'hbar', availableTypes: ['hbar', 'bar', 'hbar_list', 'table'] },
   { category: 'leads', metric: 'leads_submissions', title: 'Inscrições', description: 'Total de submissões (forms, meta, portal, API, make) — cada uma é um evento de aquisição', icon: '📥', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'stat_grid'] },
@@ -96,6 +101,11 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   { category: 'helpdesk', metric: 'helpdesk_by_priority', title: 'Chamados por Prioridade', description: 'Distribuição por prioridade', icon: '🚨', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'donut', 'pie', 'polar', 'hbar_list'] },
   { category: 'helpdesk', metric: 'helpdesk_by_channel', title: 'Chamados por Canal', description: 'E-mail, WhatsApp, web, etc', icon: '📨', defaultSize: 'md', defaultType: 'bar', availableTypes: ['bar', 'hbar', 'donut', 'pie', 'polar', 'hbar_list'] },
   { category: 'helpdesk', metric: 'helpdesk_by_agent', title: 'Desempenho por Agente', description: 'Atribuídos, resolvidos, TMR e CSAT', icon: '👤', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
+
+  // ── Negociações (módulo Negociação) ──
+  { category: 'negociacoes', metric: 'negotiations_open', title: 'Em Negociação', description: 'Valor total e quantidade das negociações em aberto agora', icon: '🤝', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_won_revenue', title: 'Fechado em Negociações', description: 'Soma do total das negociações ganhas no período (com Δ% vs anterior)', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_win_rate', title: 'Aproveitamento de Negociações', description: 'Ganhas sobre negociações fechadas (ganhas + perdidas) no período', icon: '🎯', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
 ]
 
 export const FUNNEL_AWARE_METRICS = [

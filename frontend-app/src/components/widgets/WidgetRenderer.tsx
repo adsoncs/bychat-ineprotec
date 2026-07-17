@@ -60,7 +60,7 @@ function WidgetBody({
   const normalizedData = normalizeWidgetData(widget, data)
 
   switch (widget.type) {
-    case 'kpi': return <KpiBody metric={widget.metric} data={normalizedData} />
+    case 'kpi': return <KpiBody metric={widget.metric} data={normalizedData} config={widget.config} />
     case 'bar': return <BarChartBody data={normalizedData} chartType="bar" widget={widget} />
     case 'hbar': return <BarChartBody data={normalizedData} chartType="hbar" widget={widget} />
     case 'line': return <LineAreaBody data={normalizedData} chartType="line" widget={widget} />
@@ -182,7 +182,29 @@ function normalizeWidgetData(widget: Widget, data: unknown): unknown {
 // KPI
 // ───────────────────────────────────────────────
 
-function KpiBody({ metric, data }: { metric: string; data: unknown }) {
+/**
+ * Variação % vs período anterior. `invert` inverte a semântica de cor
+ * (ex.: perdidos subindo é ruim → vermelho).
+ */
+function DeltaBadge({ curr, prev, invert = false }: { curr: number; prev: unknown; invert?: boolean }) {
+  const p = Number(prev)
+  if (prev === null || prev === undefined || !Number.isFinite(p)) return null
+  if (p === 0 && curr === 0) return <span class="text-fg-subtle">sem movimento nos 2 períodos</span>
+  if (p === 0) {
+    return <span class={invert ? 'text-danger' : 'text-success'}>▲ anterior era 0</span>
+  }
+  const pct = Math.round(((curr - p) / p) * 100)
+  if (pct === 0) return <span class="text-fg-subtle">= período anterior</span>
+  const up = pct > 0
+  const good = invert ? !up : up
+  return (
+    <span class={good ? 'text-success' : 'text-danger'}>
+      {up ? '▲' : '▼'} {Math.abs(pct)}% vs anterior
+    </span>
+  )
+}
+
+function KpiBody({ metric, data, config }: { metric: string; data: unknown; config?: Record<string, unknown> | undefined }) {
   if (data === null || typeof data !== 'object') return null
   const d = data as Record<string, unknown>
   const num = (v: unknown) => Number(v ?? 0)
@@ -191,7 +213,36 @@ function KpiBody({ metric, data }: { metric: string; data: unknown }) {
   let sub: preact.ComponentChildren = ''
 
   switch (metric) {
-    case 'leads_total': val = num(d.value); sub = 'leads cadastrados'; break
+    case 'leads_total':
+      val = num(d.value)
+      sub = d.prev !== undefined
+        ? <DeltaBadge curr={num(d.value)} prev={d.prev} />
+        : 'leads cadastrados'
+      break
+    case 'leads_won':
+      val = num(d.value)
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : 'ganhos no período'
+      break
+    case 'leads_won_revenue':
+      val = brl.format(num(d.value))
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : `${num(d.count)} negócios ganhos`
+      break
+    case 'leads_lost':
+      val = num(d.value)
+      sub = (
+        <>
+          {d.prev !== undefined && <DeltaBadge curr={num(d.value)} prev={d.prev} invert />}
+          {d.topReason ? <span class="block truncate" title={String(d.topReason)}>maior objeção: {String(d.topReason)}</span> : null}
+          {d.prev === undefined && !d.topReason ? 'perdidos no período' : null}
+        </>
+      )
+      break
+    case 'leads_conversion_rate':
+      val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
+      sub = num(d.closed) > 0
+        ? `${num(d.won)} ganhos de ${num(d.closed)} encerrados`
+        : 'nenhum negócio encerrado no período'
+      break
     case 'leads_new':
       val = num(d.today)
       sub = `${num(d.week)} esta semana`
@@ -215,16 +266,30 @@ function KpiBody({ metric, data }: { metric: string; data: unknown }) {
       sub = num(d.value) > 0 ? 'aguardando revisão humana' : 'nenhum pendente'
       break
     case 'leads_avg_score':
-      val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">/100</em></>
-      sub = 'score médio geral'
+      // Deixa explícito quantos leads sustentam a média — sem isso o card engana.
+      if (d.count !== undefined && num(d.count) === 0) {
+        val = <span class="text-fg-muted">—</span>
+        sub = 'nenhum lead com score IA no período'
+      } else {
+        val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">/100</em></>
+        sub = d.count !== undefined
+          ? `média de ${num(d.count)} lead${num(d.count) === 1 ? '' : 's'} com score IA`
+          : 'score médio geral'
+      }
       break
     case 'leads_conversion':
       val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
       sub = `${num(d.count)} leads analisados`
       break
     case 'activities_summary':
-      val = num(d.pending)
-      sub = `${num(d.overdue)} atrasadas · ${num(d.completed)} concluídas`
+      // config.highlight='overdue' → o card destaca as atrasadas (bloco "Atenção").
+      if (config?.highlight === 'overdue') {
+        val = <span class={num(d.overdue) > 0 ? 'text-danger' : undefined}>{num(d.overdue)}</span>
+        sub = `${num(d.pending)} pendentes no total`
+      } else {
+        val = num(d.pending)
+        sub = `${num(d.overdue)} atrasadas · ${num(d.completed)} concluídas`
+      }
       break
     case 'tracking_visitors':
       val = num(d.total)
@@ -258,19 +323,35 @@ function KpiBody({ metric, data }: { metric: string; data: unknown }) {
       break
     case 'registrations_total':
       val = num(d.value)
-      sub = 'inscrições no período'
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : 'inscrições no período'
       break
     case 'registrations_paid':
       val = num(d.paid)
-      sub = `${num(d.total)} inscrições totais`
+      sub = d.prev !== undefined
+        ? <><DeltaBadge curr={num(d.paid)} prev={d.prev} /> · {num(d.total)} inscrições</>
+        : `${num(d.total)} inscrições totais`
       break
     case 'registrations_revenue':
       val = brl.format(num(d.value))
-      sub = 'receita total'
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : 'receita total'
       break
     case 'registrations_conversion_rate':
       val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
       sub = `${num(d.paid)} de ${num(d.total)} pagas`
+      break
+    case 'negotiations_open':
+      val = brl.format(num(d.value))
+      sub = `${num(d.count)} negociaç${num(d.count) === 1 ? 'ão' : 'ões'} em aberto`
+      break
+    case 'negotiations_won_revenue':
+      val = brl.format(num(d.value))
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : `${num(d.count)} negociações ganhas`
+      break
+    case 'negotiations_win_rate':
+      val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
+      sub = num(d.closed) > 0
+        ? `${num(d.won)} ganhas de ${num(d.closed)} fechadas`
+        : 'nenhuma negociação fechada no período'
       break
     case 'helpdesk_volume':
       val = num(d.created)

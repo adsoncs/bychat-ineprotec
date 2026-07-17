@@ -8,6 +8,19 @@ const HD_STATUS_LABEL: Record<string, string> = { new: 'Novo', open: 'Aberto', p
 const HD_PRIORITY_LABEL: Record<string, string> = { low: 'Baixa', normal: 'Normal', high: 'Alta', urgent: 'Urgente' }
 const HD_CHANNEL_LABEL: Record<string, string> = { email: 'E-mail', web: 'Web', whatsapp: 'WhatsApp', chat: 'Chat', api: 'API', phone: 'Telefone', manual: 'Manual' }
 
+/**
+ * Período anterior de mesma duração (pra comparação "vs período anterior"
+ * nos KPIs da Visão Geral). Retorna null se o widget não recebeu dateFrom+dateTo.
+ */
+function previousRange(cfg: any): { gte: Date; lte: Date } | null {
+  if (!cfg?.dateFrom || !cfg?.dateTo) return null
+  const from = new Date(cfg.dateFrom + 'T00:00:00.000Z')
+  const to = new Date(cfg.dateTo + 'T23:59:59.999Z')
+  const span = to.getTime() - from.getTime()
+  if (!Number.isFinite(span) || span <= 0) return null
+  return { gte: new Date(from.getTime() - span - 1), lte: new Date(from.getTime() - 1) }
+}
+
 export async function userDashboardsRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/user-dashboards?type=dashboard ──
@@ -110,7 +123,123 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     switch (metric) {
       case 'leads_total': {
         const total = await prisma.lead.count({ where: leadWhere })
-        return { value: total }
+        // Com filtro de data, devolve também o período anterior pra UI mostrar Δ%.
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value: total }
+        const prev = await prisma.lead.count({ where: { ...leadWhere, createdAt: prevRange } })
+        return { value: total, prev }
+      }
+
+      case 'leads_won': {
+        // Negócios ganhos no período (usa outcomeAt, não createdAt).
+        const where: any = { ...leadWhere, outcome: 'won' }
+        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        const value = await prisma.lead.count({ where })
+        const prevRange = previousRange(cfg)
+        const prev = prevRange ? await prisma.lead.count({ where: { ...where, outcomeAt: prevRange } }) : undefined
+        return prev === undefined ? { value } : { value, prev }
+      }
+
+      case 'leads_won_revenue': {
+        // Soma de saleValue dos negócios ganhos no período.
+        const where: any = { ...leadWhere, outcome: 'won' }
+        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        const agg = await prisma.lead.aggregate({ where, _sum: { saleValue: true }, _count: { _all: true } })
+        const value = agg._sum.saleValue ? Number(agg._sum.saleValue) : 0
+        const count = agg._count._all
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value, count }
+        const p = await prisma.lead.aggregate({ where: { ...where, outcomeAt: prevRange }, _sum: { saleValue: true } })
+        const prev = p._sum.saleValue ? Number(p._sum.saleValue) : 0
+        return { value, count, prev }
+      }
+
+      case 'leads_lost': {
+        // Negócios perdidos no período + maior objeção (contexto acionável no card).
+        const where: any = { ...leadWhere, outcome: 'lost' }
+        if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
+        const value = await prisma.lead.count({ where })
+        const prevRange = previousRange(cfg)
+        const prev = prevRange ? await prisma.lead.count({ where: { ...where, outcomeAt: prevRange } }) : undefined
+        let topReason: string | null = null
+        if (value > 0) {
+          const grouped = await prisma.lead.groupBy({
+            by: ['lostReasonId'],
+            where: { ...where, lostReasonId: { not: null } },
+            _count: { _all: true },
+            orderBy: { _count: { lostReasonId: 'desc' } },
+            take: 1,
+          })
+          const topId = grouped[0]?.lostReasonId
+          if (topId != null) {
+            const reason = await prisma.lossReason.findUnique({ where: { id: topId }, select: { name: true } })
+            topReason = reason?.name ?? null
+          }
+        }
+        return { value, topReason, ...(prev !== undefined ? { prev } : {}) }
+      }
+
+      case 'leads_conversion_rate': {
+        // % de ganhos sobre negócios encerrados (won+lost) no período.
+        const base: any = { ...leadWhere }
+        if (hasDate) delete base.createdAt
+        const rangeWhere = hasDate ? { outcomeAt: dateFilter } : {}
+        const [won, lost] = await Promise.all([
+          prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'won' } }),
+          prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'lost' } }),
+        ])
+        const closed = won + lost
+        const value = closed ? Math.round((won / closed) * 100) : 0
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value, won, closed }
+        const [pw, pl] = await Promise.all([
+          prisma.lead.count({ where: { ...base, outcome: 'won', outcomeAt: prevRange } }),
+          prisma.lead.count({ where: { ...base, outcome: 'lost', outcomeAt: prevRange } }),
+        ])
+        const prevClosed = pw + pl
+        return { value, won, closed, ...(prevClosed > 0 ? { prev: Math.round((pw / prevClosed) * 100) } : {}) }
+      }
+
+      // ── Negociações (módulo Negociação) ──────────────────────────
+      case 'negotiations_open': {
+        // Estoque atual: negociações em aberto (sem resultado) e quanto há na mesa.
+        const agg = await prisma.negotiation.aggregate({
+          where: { resultado: null },
+          _sum: { valorFinal: true }, _count: { _all: true },
+        })
+        return { value: agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0, count: agg._count._all }
+      }
+
+      case 'negotiations_won_revenue': {
+        // Total fechado (ganho) em negociações no período (usa fechadaEm).
+        const where: any = { resultado: 'won' }
+        if (hasDate) where.fechadaEm = dateFilter
+        const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })
+        const value = agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0
+        const count = agg._count._all
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value, count }
+        const p = await prisma.negotiation.aggregate({ where: { resultado: 'won', fechadaEm: prevRange }, _sum: { valorFinal: true } })
+        return { value, count, prev: p._sum.valorFinal ? Number(p._sum.valorFinal) : 0 }
+      }
+
+      case 'negotiations_win_rate': {
+        // % de negociações ganhas sobre as fechadas (ganhas + perdidas) no período.
+        const range = hasDate ? { fechadaEm: dateFilter } : {}
+        const [won, lost] = await Promise.all([
+          prisma.negotiation.count({ where: { resultado: 'won', ...range } }),
+          prisma.negotiation.count({ where: { resultado: 'lost', ...range } }),
+        ])
+        const closed = won + lost
+        const value = closed ? Math.round((won / closed) * 100) : 0
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value, won, closed }
+        const [pw, pl] = await Promise.all([
+          prisma.negotiation.count({ where: { resultado: 'won', fechadaEm: prevRange } }),
+          prisma.negotiation.count({ where: { resultado: 'lost', fechadaEm: prevRange } }),
+        ])
+        const prevClosed = pw + pl
+        return { value, won, closed, ...(prevClosed > 0 ? { prev: Math.round((pw / prevClosed) * 100) } : {}) }
       }
 
       case 'leads_new': {
@@ -171,7 +300,8 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         })
         const vals = scores.map(l => (l.scores as any)?.geral || 0).filter(v => v > 0)
         const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
-        return { value: avg }
+        // count = quantos leads têm score IA — sem isso o card engana (média de 3 leads parece geral).
+        return { value: avg, count: vals.length, total: scores.length }
       }
 
       case 'leads_conversion': {
@@ -453,9 +583,13 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'tracking_visitors': {
-        const total = await prisma.trackingVisitor.count()
-        const sessions = await prisma.trackingSession.count()
-        const pageviews = await prisma.trackingEvent.count({ where: { type: 'pageview' } })
+        // Respeita o período do painel (antes eram totais desde sempre, incoerente
+        // com os demais KPIs). Sem filtro de data mantém o comportamento antigo.
+        const [total, sessions, pageviews] = await Promise.all([
+          prisma.trackingVisitor.count(hasDate ? { where: { lastSeenAt: dateFilter } } : undefined),
+          prisma.trackingSession.count(hasDate ? { where: { startedAt: dateFilter } } : undefined),
+          prisma.trackingEvent.count({ where: { type: 'pageview', ...(hasDate ? { timestamp: dateFilter } : {}) } }),
+        ])
         return { total, sessions, pageviews }
       }
 
@@ -563,7 +697,10 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         const regWhere: any = {}
         if (hasDate) regWhere.createdAt = dateFilter
         const total = await prisma.enrollmentRegistration.count({ where: regWhere })
-        return { value: total }
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value: total }
+        const prev = await prisma.enrollmentRegistration.count({ where: { createdAt: prevRange } })
+        return { value: total, prev }
       }
 
       case 'registrations_paid': {
@@ -573,7 +710,10 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         const totalWhere: any = {}
         if (hasDate) totalWhere.createdAt = dateFilter
         const total = await prisma.enrollmentRegistration.count({ where: totalWhere })
-        return { value: paid, paid, total }
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value: paid, paid, total }
+        const prev = await prisma.enrollmentRegistration.count({ where: { paymentStatus: 'paid', createdAt: prevRange } })
+        return { value: paid, paid, total, prev }
       }
 
       case 'registrations_revenue': {
@@ -584,7 +724,13 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           _sum: { paymentAmount: true },
         })
         const value = Number(agg._sum.paymentAmount || 0)
-        return { value, format: 'currency' }
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return { value, format: 'currency' }
+        const p = await prisma.enrollmentRegistration.aggregate({
+          where: { paymentStatus: 'paid', createdAt: prevRange },
+          _sum: { paymentAmount: true },
+        })
+        return { value, format: 'currency', prev: Number(p._sum.paymentAmount || 0) }
       }
 
       case 'registrations_conversion_rate': {

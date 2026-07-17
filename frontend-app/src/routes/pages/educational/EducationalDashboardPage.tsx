@@ -5,6 +5,9 @@ import {
   ClipboardList, Award, School, BarChart3, Lightbulb, ListTodo, HelpCircle,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
+import { WidgetRenderer } from '@/components/widgets/WidgetRenderer'
+import type { Widget } from '@/hooks/useWidgets'
+import { cn } from '@/lib/cn'
 import {
   useEducationalStatus, useCampuses, useEntryModes, useEducationalStats,
 } from '@/hooks/useEducational'
@@ -44,6 +47,30 @@ const STATUS_COLORS: Record<string, string> = {
   reprovado: '#5f6368',
 }
 
+type RangePreset = '7d' | '30d' | '90d'
+
+function presetRange(preset: RangePreset): { dateFrom: string; dateTo: string } {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
+  const fmt = (d: Date) => d.toISOString().split('T')[0] ?? ''
+  return { dateFrom: fmt(new Date(today.getTime() - days * 86400_000)), dateTo: fmt(today) }
+}
+
+const EW = (w: Omit<Widget, 'id'> & { id?: string }): Widget => ({ id: w.id ?? w.metric, ...w } as Widget)
+
+// Desempenho de captação/matrículas do período, com Δ% vs período anterior —
+// espelha o padrão da Visão Geral (CRM), mas só com dados do Educacional.
+const PERIOD_KPIS: Widget[] = [
+  EW({ metric: 'registrations_total',           type: 'kpi', title: 'Inscrições',         size: 'sm' }),
+  EW({ metric: 'registrations_paid',            type: 'kpi', title: 'Matrículas pagas',   size: 'sm' }),
+  EW({ metric: 'registrations_revenue',         type: 'kpi', title: 'Receita do período', size: 'sm' }),
+  EW({ metric: 'registrations_conversion_rate', type: 'kpi', title: 'Taxa de conversão',  size: 'sm' }),
+]
+
+const CHART_REGS_BY_DAY    = EW({ metric: 'registrations_by_day',    type: 'line',  title: 'Inscrições por dia',     size: 'lg', config: { groupBy: 'day' } })
+const CHART_REGS_BY_PORTAL = EW({ metric: 'registrations_by_portal', type: 'donut', title: 'Inscrições por portal',  size: 'md' })
+
 export function EducationalDashboardPage() {
   const { data, isLoading } = useEducationalStatus()
   const { data: campusesData } = useCampuses()
@@ -54,6 +81,9 @@ export function EducationalDashboardPage() {
   const [, navigate] = useLocation()
   const [creatingFunnel, setCreatingFunnel] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [preset, setPreset] = useState<RangePreset>('30d')
+  const range = presetRange(preset)
+  const periodFilters = { dateFrom: range.dateFrom, dateTo: range.dateTo }
   const counts = data?.counts
   const campusCount = campusesData?.campuses.length ?? 0
   const entryModesCount = entryModesData?.modes.length ?? 0
@@ -122,7 +152,45 @@ export function EducationalDashboardPage() {
         </div>
       </Card>
 
-      {/* KPI cards */}
+      {/* Desempenho do período — inscrições/matrículas com Δ% vs período anterior */}
+      <section aria-label="Desempenho do período">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <h2 class="text-sm font-semibold text-fg">Desempenho do período</h2>
+            <p class="text-[11px] text-fg-subtle">Cada card compara com o período anterior de mesma duração (▲/▼).</p>
+          </div>
+          <div class="flex items-center gap-1 p-0.5 rounded-md bg-surface-3">
+            {(['7d', '30d', '90d'] as RangePreset[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPreset(p)}
+                class={cn(
+                  'h-7 px-3 rounded text-xs font-medium transition-colors',
+                  preset === p ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+                )}
+              >
+                {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div class="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-3">
+          {PERIOD_KPIS.map((w) => (
+            <WidgetRenderer key={w.id} widget={w} filters={periodFilters} />
+          ))}
+        </div>
+        <div class="grid gap-3 grid-cols-1 lg:grid-cols-3">
+          <div class="lg:col-span-2">
+            <WidgetRenderer widget={CHART_REGS_BY_DAY} filters={periodFilters} />
+          </div>
+          <div>
+            <WidgetRenderer widget={CHART_REGS_BY_PORTAL} filters={periodFilters} />
+          </div>
+        </div>
+      </section>
+
+      {/* KPI cards — estrutura acadêmica (não muda com o período) */}
       <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Cursos ativos" value={stats?.totalCourses ?? 0} loading={statsLoading} tone="accent" />
         <KpiCard label="Ofertas ativas" value={stats?.totalOfferings ?? 0} loading={statsLoading} tone="violet" />

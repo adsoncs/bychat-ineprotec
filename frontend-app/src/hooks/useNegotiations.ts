@@ -91,6 +91,14 @@ export function useCloseNegotiation(leadId: number) {
   })
 }
 
+export function useReopenNegotiation(leadId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<{ negotiation: Negotiation }>(`/admin/negotiations/${id}/reopen`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['negotiations', leadId] }); qc.invalidateQueries({ queryKey: ['negotiation'] }); qc.invalidateQueries({ queryKey: ['lead'] }) },
+  })
+}
+
 export function useUploadNegotiationAttachment(leadId: number) {
   const qc = useQueryClient()
   return useMutation({

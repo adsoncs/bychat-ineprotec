@@ -150,15 +150,43 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         valorFinal: num(b.valorFinal) ?? (n.valorFinal != null ? Number(n.valorFinal) : null),
       },
     })
-    // Reflete no lead (Fase 23: outcome won/lost + motivo de perda).
+    // Reflete no lead (Fase 23: outcome won/lost + motivo de perda). Ganha
+    // também grava saleValue = total da negociação → entra na "Receita ganha"
+    // da Visão Geral/Relatórios sem precisar de mais nada.
+    const finalValue = updated.valorFinal != null ? Number(updated.valorFinal) : null
     await prisma.lead.update({
       where: { id: n.leadId },
       data: {
         outcome: resultado, outcomeAt: new Date(), outcomeBy: actor.actorId,
         lostReasonId: resultado === 'lost' && b.lostReasonId ? Number(b.lostReasonId) : undefined,
+        saleValue: resultado === 'won' && finalValue != null ? finalValue : undefined,
       },
     }).catch(() => {})
     void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal }, ...actor })
+    return { negotiation: updated }
+  })
+
+  // Reabrir uma negociação fechada (voltou a negociar / fechou sem querer).
+  // Desfaz o outcome do lead apenas se ele veio desta negociação.
+  app.post('/api/admin/negotiations/:id/reopen', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const n = await prisma.negotiation.findUnique({ where: { id } })
+    if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
+    if (!n.resultado) return reply.code(400).send({ error: 'Negociação já está aberta' })
+    const actor = auditActor(req)
+    const prevResultado = n.resultado
+    const updated = await prisma.negotiation.update({
+      where: { id },
+      data: { resultado: null, lostReasonId: null, fechadaEm: null, fechadaPor: null, status: 'em_negociacao' },
+    })
+    const lead = await prisma.lead.findUnique({ where: { id: n.leadId }, select: { outcome: true } })
+    if (lead?.outcome === prevResultado) {
+      await prisma.lead.update({
+        where: { id: n.leadId },
+        data: { outcome: null, outcomeAt: null, outcomeBy: null, lostReasonId: null },
+      }).catch(() => {})
+    }
+    void logUserAudit({ action: 'negotiation.reopened', targetType: 'lead', targetLabel: `Negociação ${n.titulo} reaberta`, changes: { prevResultado }, ...actor })
     return { negotiation: updated }
   })
 
