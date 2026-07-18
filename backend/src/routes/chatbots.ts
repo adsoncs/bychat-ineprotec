@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { adminOnly, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotChatbot } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { startPreview, messagePreview } from '../services/chatbotPreview.js'
 
 export async function chatbotsRoutes(app: FastifyInstance) {
 
@@ -405,7 +406,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     if (!chatbot || !chatbot.active) return reply.code(404).send('// chatbot not found')
 
     const baseUrl = process.env.APP_URL || `https://${req.hostname}`
-    const greeting = (chatbot.greetingMessage || 'Olá! Como posso ajudar?').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
+    const greeting = (chatbot.greetingMessage || '').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
     const botName = (chatbot.name || 'Assistente').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
 
     const script = `(function(){
@@ -426,6 +427,8 @@ export async function chatbotsRoutes(app: FastifyInstance) {
       var baseUrl='${baseUrl}';
       var greeting=\`${greeting}\`;
       var botName=\`${botName}\`;
+      var chatbotId='${id}';
+      var isPreview=self.hasAttribute('preview');
 
       this.shadowRoot.innerHTML=\`
 <style>
@@ -585,6 +588,25 @@ export async function chatbotsRoutes(app: FastifyInstance) {
 
       function startChat(){
         showTyping(true);
+        if(isPreview){
+          fetch(baseUrl+'/api/chatbots/'+chatbotId+'/preview/start',{
+            method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+          })
+          .then(function(r){return r.json()})
+          .then(function(data){
+            showTyping(false);
+            self._sessionId=data.sessionId;
+            (data.messages||[]).forEach(function(m){addMsg(m,'bot')});
+            if(!(data.messages&&data.messages.length)&&greeting)addMsg(greeting,'bot');
+            sendBtn.disabled=!input.value.trim();
+          })
+          .catch(function(){
+            showTyping(false);
+            if(greeting)addMsg(greeting,'bot');
+            sendBtn.disabled=!input.value.trim();
+          });
+          return;
+        }
         fetch(baseUrl+'/api/bychat/chat/start',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -594,16 +616,14 @@ export async function chatbotsRoutes(app: FastifyInstance) {
         .then(function(data){
           showTyping(false);
           self._leadId=data.leadId;
-          if(data.messages&&data.messages.length>0){
-            data.messages.forEach(function(m){addMsg(m.content,'bot')});
-          }else{
-            addMsg(greeting,'bot');
-          }
+          // Sempre usa a mensagem de saudação configurada no próprio chatbot.
+          // Se não houver saudação configurada, não exibe nada.
+          if(greeting)addMsg(greeting,'bot');
           sendBtn.disabled=!input.value.trim();
         })
         .catch(function(){
           showTyping(false);
-          addMsg(greeting,'bot');
+          if(greeting)addMsg(greeting,'bot');
           sendBtn.disabled=!input.value.trim();
         });
       }
@@ -618,19 +638,21 @@ export async function chatbotsRoutes(app: FastifyInstance) {
         addMsg(text,'user');
         showTyping(true);
 
-        fetch(baseUrl+'/api/bychat/chat/message',{
+        var url=isPreview?(baseUrl+'/api/chatbots/'+chatbotId+'/preview/message'):(baseUrl+'/api/bychat/chat/message');
+        var body=isPreview?JSON.stringify({sessionId:self._sessionId,message:text}):JSON.stringify({leadId:self._leadId,message:text});
+        fetch(url,{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({leadId:self._leadId,message:text})
+          body:body
         })
         .then(function(r){return r.json()})
         .then(function(data){
           showTyping(false);
           self._sending=false;
           if(data.messages){
-            data.messages.forEach(function(m){addMsg(m.content,'bot')});
+            data.messages.forEach(function(m){addMsg(isPreview?m:m.content,'bot')});
           }else if(data.error){
-            addMsg('Desculpe, ocorreu um erro. Tente novamente.','bot');
+            addMsg(isPreview?data.error:'Desculpe, ocorreu um erro. Tente novamente.','bot');
           }
           sendBtn.disabled=!input.value.trim();
           input.focus();
@@ -692,7 +714,7 @@ p{font-size:14px;color:#5f6368;line-height:1.5}
     <div class="hint">Apenas um preview. Use o snippet de embed para colocar em sua própria página.</div>
   </div>
   <script src="${baseUrl}/api/chatbots/embed/${chatbotId}.js" defer></script>
-  <beyond-chatbot chatbot-id="${chatbotId}"></beyond-chatbot>
+  <beyond-chatbot chatbot-id="${chatbotId}" preview></beyond-chatbot>
 </body>
 </html>`
 
@@ -700,6 +722,23 @@ p{font-size:14px;color:#5f6368;line-height:1.5}
       .header('Content-Type', 'text/html; charset=utf-8')
       .header('Cache-Control', 'no-store')
       .send(html)
+  })
+
+  // ── Preview interativo: roda o motor REAL do chatbot em memória (sem lead/booking) ──
+  app.post('/api/chatbots/:id/preview/start', async (req, reply) => {
+    const chatbotId = Number((req.params as any).id)
+    if (isNaN(chatbotId)) return reply.code(400).send({ error: 'id inválido' })
+    const r = await startPreview(chatbotId)
+    if ('error' in r) return reply.code(404).send(r)
+    return reply.header('Access-Control-Allow-Origin', '*').send(r)
+  })
+
+  app.post('/api/chatbots/:id/preview/message', async (req, reply) => {
+    const { sessionId, message } = (req.body || {}) as { sessionId?: string; message?: string }
+    if (!sessionId || !message) return reply.code(400).send({ error: 'sessionId e message são obrigatórios' })
+    const r = await messagePreview(sessionId, message)
+    if ('error' in r) return reply.code(404).send(r)
+    return reply.header('Access-Control-Allow-Origin', '*').send(r)
   })
 
   // GET /api/chatbots/:id/embed-code — Snippet de embed (auth required)

@@ -39,7 +39,7 @@ const MAX_SLOTS = 10
 // Mensagens interativas do runner. Editáveis por chatbot em Chatbot.scriptedMessages
 // (override por chave); estes são os defaults usados quando a chave não foi ajustada.
 // Variáveis disponíveis por chave estão indicadas nos comentários.
-const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
+export const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
   invalidSelect: 'Não entendi. 🙂 Por favor, responda com o *número* da opção.',
   invalidAnswer: '{{erro}}. Vamos tentar de novo:', // {{erro}}
   noMeetingType: 'Perfeito! Em breve entraremos em contato para agendar. 😊',
@@ -54,7 +54,7 @@ const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
 }
 
 // Resolve a mensagem de uma chave: override do chatbot → default; interpola variáveis.
-function msg(chatbot: any, key: keyof typeof DEFAULT_SCRIPTED_MESSAGES | string, vars: Record<string, any> = {}): string {
+export function msg(chatbot: any, key: keyof typeof DEFAULT_SCRIPTED_MESSAGES | string, vars: Record<string, any> = {}): string {
   const overrides = (chatbot?.scriptedMessages as Record<string, string> | null) || {}
   const tpl = (overrides[key] && String(overrides[key]).trim()) || DEFAULT_SCRIPTED_MESSAGES[key] || ''
   return interpolate(tpl, vars)
@@ -73,7 +73,7 @@ interface ScriptState {
 // duas mensagens em rajada pulem/repitam passos (single-process tsx).
 const locks = new Map<string, Promise<void>>()
 
-function stripTags(s: string | null | undefined): string {
+export function stripTags(s: string | null | undefined): string {
   return String(s ?? '')
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#0?39;/g, "'").replace(/&quot;/g, '"')
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
@@ -85,7 +85,7 @@ function fieldKeyByMap(fields: any[], mapTo: string): string | null {
 }
 
 // Texto da pergunta de um campo (label limpo + dica de placeholder/opções).
-function questionText(field: any): string {
+export function questionText(field: any): string {
   const label = stripTags(field.label) || field.key
   if (field.type === 'select' && Array.isArray(field.options) && field.options.length) {
     const opts = field.options.map((o: any, i: number) => `${i + 1}) ${stripTags(o.label)}`).join('\n')

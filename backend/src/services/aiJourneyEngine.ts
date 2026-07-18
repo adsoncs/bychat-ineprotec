@@ -38,7 +38,7 @@ async function fetchWithTimeout(url: string, opts: any, ms: number): Promise<Res
 }
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-interface AiState {
+export interface AiState {
   leadId: number | null
   phase: 'active' | 'done' | 'disqualified'
   answers: Record<string, any>
@@ -56,7 +56,7 @@ function stripTags(s: string | null | undefined): string {
 // Mapeia o que a IA salvou num campo de seleção para o VALUE da opção (a qualificação
 // usa o value, não o label). Casa por value exato ou por label (case/acento-insensível,
 // contém em qualquer direção). Sem match → mantém como veio.
-function mapSelectValue(field: any, valor: string): string {
+export function mapSelectValue(field: any, valor: string): string {
   if (field?.type !== 'select' || !Array.isArray(field.options) || !field.options.length) return valor
   const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
   const byVal = field.options.find((o: any) => String(o.value) === String(valor))
@@ -71,7 +71,7 @@ function mapSelectValue(field: any, valor: string): string {
 }
 
 // Extrai botões do marcador [[OPTIONS: a | b | c]] no fim do texto da IA.
-function extractOptions(raw: string): { text: string; options: string[] } {
+export function extractOptions(raw: string): { text: string; options: string[] } {
   const m = /\[\[\s*OPTIONS:(.+?)\]\]/is.exec(raw || '')
   if (!m) return { text: (raw || '').trim(), options: [] }
   const options = m[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, 10)
@@ -158,7 +158,7 @@ const TOOLS = [
 ]
 
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
-function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string): string {
+export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string): string {
   const fields: any[] = form?.fields || []
   const collect = fields
     .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
@@ -262,7 +262,7 @@ async function missingContactData(leadId: number, form: any): Promise<string[]> 
 
 // Resumo do catálogo (categorias + contagem) para o system prompt. Vazio quando
 // não há produtos cadastrados — aí a seção de catálogo nem aparece.
-async function getCatalogSummary(): Promise<string> {
+export async function getCatalogSummary(): Promise<string> {
   try {
     const rows = await prisma.product.groupBy({ by: ['categoria'], where: { active: true }, _count: { _all: true } })
     if (!rows.length) return ''
@@ -427,7 +427,7 @@ async function executeTool(
 }
 
 // ── Chamadas ao LLM com tool use (Anthropic primário; OpenAI fallback) ──
-type LlmMsg = { role: 'user' | 'assistant'; content: any }
+export type LlmMsg = { role: 'user' | 'assistant'; content: any }
 type LlmTurn = { kind: 'text'; text: string } | { kind: 'tools'; calls: Array<{ id: string; name: string; input: any }>; assistant: any }
 
 async function getSetting(key: string): Promise<string | null> {
@@ -503,7 +503,7 @@ async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> 
 
 function safeJson(s: any): any { try { return JSON.parse(s || '{}') } catch { return {} } }
 
-async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+export async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
   const primary = await getPrimaryProvider()
   try {
     return primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
