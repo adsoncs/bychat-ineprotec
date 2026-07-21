@@ -22,6 +22,23 @@ import { getKommoConfig, kommoFetch, kommoPaginate, type KommoConfig } from '../
 import { generateUid, phoneDigits } from './dedup.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 
+// ─────────────────────────────────────────────────────────────
+// Origem (canal) do lead a partir do `source_id` da Kommo.
+//
+// A conta da Kommo não expõe a entidade Sources (pertence a outros apps
+// instalados), então o nome do canal não vem pela API — só o id numérico.
+// De-para levantado junto ao cliente (ineprotec): estes 3 ids são o
+// formulário do site; TODO o resto (inclusive o import em massa de 19/04)
+// é WhatsApp. `Lead.source` recebe a chave canônica ('web_form'/'whatsapp')
+// para casar com o taxonômico nativo (leadSourceLabel) e entrar em
+// filtros/relatórios como qualquer lead. A proveniência Kommo continua em
+// formData.source='kommo' e qualificationSource='kommo_import'.
+const KOMMO_FORM_SOURCE_IDS = new Set(['23057764', '23058034', '23063755'])
+
+export function kommoSourceToChannel(sourceId: unknown): string {
+  return KOMMO_FORM_SOURCE_IDS.has(String(sourceId)) ? 'web_form' : 'whatsapp'
+}
+
 /**
  * Garante um User do bychat para um usuário da Kommo (idempotente por email).
  * Criado como AGENT ativo, mas SEM login: passwordHash aleatório que ninguém
@@ -353,7 +370,7 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
             status: stageKey,
             funnelId: funnelId ?? undefined,
             teamId: defaultTeamId ?? undefined,
-            source: 'kommo_import',
+            source: kommoSourceToChannel(l.source_id),
             sourceId: String(l.id),
             customFields: Object.keys(cf).length > 0 ? (cf as any) : undefined,
             createdAt: unix(l.created_at) ?? undefined,

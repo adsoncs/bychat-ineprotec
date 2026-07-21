@@ -27,6 +27,7 @@ export const LEAD_SOURCE_LABELS: Record<string, string> = {
   chatbot: 'Chatbot',
   direto: 'Direto',
   db_connector: 'Banco de Dados',
+  kommo_import: 'Kommo',
 }
 
 // Registro id→nome dos Conectores de Banco de Dados. O `source` de um lead

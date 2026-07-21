@@ -1583,7 +1583,7 @@ function LeadCell({ col, lead }: { col: LeadColumnKey; lead: LeadListItem }) {
       return (
         <td class="px-4 py-2">
           <div class="inline-flex items-center gap-1.5 flex-wrap">
-            {lead.status ? <LeadStatusBadge status={lead.status} /> : <span class="text-fg-subtle">—</span>}
+            {lead.status ? <LeadStatusBadge status={lead.status} label={lead.statusLabel} /> : <span class="text-fg-subtle">—</span>}
             {lead.outcome && <OutcomeBadge outcome={lead.outcome} />}
           </div>
         </td>

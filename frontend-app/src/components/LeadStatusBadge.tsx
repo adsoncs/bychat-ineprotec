@@ -106,10 +106,14 @@ export function leadStatusClass(status: string | null | undefined): string {
 
 interface Props {
   status: string
+  // Rótulo humano da etapa (Stage.name). Quando presente, é o texto exibido —
+  // a cor continua derivada da `status` (chave técnica, ex.: "kommo_143").
+  // Sem label, cai no comportamento antigo (mostra a própria `status`).
+  label?: string | null
   class?: string
 }
 
-export function LeadStatusBadge({ status, class: className }: Props) {
+export function LeadStatusBadge({ status, label, class: className }: Props) {
   return (
     <span
       class={cn(
@@ -118,7 +122,7 @@ export function LeadStatusBadge({ status, class: className }: Props) {
         className,
       )}
     >
-      {status}
+      {label || status}
     </span>
   )
 }

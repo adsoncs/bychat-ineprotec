@@ -366,7 +366,7 @@ function DuplicateLeadRow({
         )}
       </td>
       <td class="px-3 py-2">
-        {lead.status && <LeadStatusBadge status={lead.status} />}
+        {lead.status && <LeadStatusBadge status={lead.status} label={lead.statusLabel} />}
       </td>
       <td class="px-3 py-2 text-[0.6875rem] text-fg-subtle whitespace-nowrap">
         {formatDateTime(lead.createdAt)}

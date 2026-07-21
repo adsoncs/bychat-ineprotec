@@ -23,6 +23,7 @@ const STATIC_SOURCE_LABELS: Record<string, string> = {
   api: 'API',
   chatbot: 'Chatbot',
   db_connector: 'Banco de Dados',
+  kommo_import: 'Kommo',
 }
 
 const DB_CONNECTOR_RE = /^db_connector:(\d+)$/

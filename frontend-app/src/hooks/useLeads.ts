@@ -50,6 +50,9 @@ export interface LeadListItem {
   aiScoreReason: AiScoreReason | null
   aiScoredAt: string | null
   status: string | null
+  // Rótulo humano da etapa (Stage.name) resolvido no backend por (funnelId, status).
+  // Sempre preferir statusLabel na UI; status é a chave técnica (ex.: "kommo_143").
+  statusLabel?: string | null
   source: string | null
   funnelId: number | null
   createdAt: string

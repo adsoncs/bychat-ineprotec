@@ -473,7 +473,27 @@ export async function leadsRoutes(app: FastifyInstance) {
       })
     }
 
-    return { leads: filtered, total, limit, offset }
+    // Resolve o nome real da etapa (Stage.name) a partir do par (funnelId, status).
+    // O Lead.status guarda a CHAVE técnica (ex.: "kommo_143" em leads importados da
+    // Kommo); a UI precisa do rótulo humano. A resolução é por funil porque a mesma
+    // chave (142/143 = ganho/perdido padrão da Kommo) tem nomes diferentes por funil.
+    const stagePairs = filtered.filter(l => l.funnelId && l.status)
+    let stageLabelMap = new Map<string, string>()
+    if (stagePairs.length > 0) {
+      const funnelIds = [...new Set(stagePairs.map(l => l.funnelId!))]
+      const statusKeys = [...new Set(stagePairs.map(l => l.status!))]
+      const stages = await prisma.stage.findMany({
+        where: { funnelId: { in: funnelIds }, key: { in: statusKeys } },
+        select: { funnelId: true, key: true, name: true },
+      })
+      stageLabelMap = new Map(stages.map(s => [`${s.funnelId}::${s.key}`, s.name]))
+    }
+    const enriched = filtered.map(l => ({
+      ...l,
+      statusLabel: (l.funnelId && l.status ? stageLabelMap.get(`${l.funnelId}::${l.status}`) : null) ?? l.status,
+    }))
+
+    return { leads: enriched, total, limit, offset }
   })
 
   // ── GET /api/bychat/leads/:id ─── Detalhe ──
@@ -498,7 +518,17 @@ export async function leadsRoutes(app: FastifyInstance) {
       orderBy: { startAt: 'desc' },
       select: { startAt: true, endAt: true, status: true, timezone: true },
     }).catch(() => null)
-    return { ...lead, agendamento }
+    // Rótulo humano da etapa (Stage.name) resolvido por (funnelId, status) — ver
+    // comentário no GET /leads. Leads da Kommo guardam a chave "kommo_<id>" em status.
+    let statusLabel: string | null = lead.status
+    if (lead.funnelId && lead.status) {
+      const stage = await prisma.stage.findFirst({
+        where: { funnelId: lead.funnelId, key: lead.status },
+        select: { name: true },
+      }).catch(() => null)
+      if (stage) statusLabel = stage.name
+    }
+    return { ...lead, agendamento, statusLabel }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──
