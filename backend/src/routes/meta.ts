@@ -334,6 +334,14 @@ export async function metaRoutes(app: FastifyInstance) {
   // Repassa code/state/error para a janela que abriu o popup e fecha.
   app.get('/api/meta/oauth/callback', async (req, reply) => {
     const { code, state, error, error_description } = req.query as any
+    // COOP: esta página é o POPUP do OAuth. O helmet global aplica
+    // 'same-origin-allow-popups', que ISOLA o popup do seu opener depois do
+    // round-trip cross-origin pelo facebook.com → window.opener vira null e o
+    // postMessage abaixo não chega na janela do app (sintoma: "Login cancelado",
+    // as contas nunca aparecem). Forçamos 'unsafe-none' SÓ neste callback para
+    // preservar window.opener. (helmet aplica no onRequest, então o override
+    // no handler vence.)
+    reply.header('Cross-Origin-Opener-Policy', 'unsafe-none')
     const payload = JSON.stringify({
       type: 'meta-oauth',
       code: typeof code === 'string' ? code : null,
