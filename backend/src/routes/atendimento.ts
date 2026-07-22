@@ -853,7 +853,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
 
       // Coerência: se atribuir a um operador, ele deve ser membro da equipe (a menos que sem equipe).
-      if (newUserId && newTeamId) {
+      // ADMIN/SUPERADMIN têm poder de override: podem atribuir qualquer operador,
+      // mesmo que ele não pertença à equipe atual do lead. Isso destrava o caso comum
+      // de leads manuais (que herdam a equipe default, ex: "Recepção", com poucos
+      // membros) — sem esse bypass, o admin só conseguiria atribuir aos membros dessa
+      // equipe e recebia "Operador destino não pertence à equipe selecionada".
+      if (newUserId && newTeamId && !isAdminRole(user.role)) {
         const isMember = await prisma.teamMember.findUnique({
           where: { teamId_userId: { teamId: newTeamId, userId: newUserId } },
           select: { id: true },
