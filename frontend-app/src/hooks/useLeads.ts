@@ -247,6 +247,8 @@ export interface ManualLeadInput {
   cidade?: string | undefined
   funnelId?: number | undefined
   status?: string | undefined
+  teamId?: number | undefined
+  assignedUserId?: number | undefined
 }
 
 export function useCreateManualLead() {

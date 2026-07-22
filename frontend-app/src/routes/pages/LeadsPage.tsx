@@ -10,6 +10,7 @@ import {
 } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
+import { useTeams, useTeamMembers } from '@/hooks/useTeams'
 import { TransferLeadModal } from '@/components/routing/TransferLeadModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { OutcomeBadge } from '@/components/LeadOutcomeControls'
@@ -1648,8 +1649,23 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
   const [segmento, setSegmento] = useState('')
   const [cidade, setCidade] = useState('')
   const [funnelId, setFunnelId] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [assignedUserId, setAssignedUserId] = useState('')
   const { data: funnels } = useFunnels()
+  const { data: teamsData } = useTeams()
+  const { data: agentsData } = useAgents()
+  const { data: teamMembersData } = useTeamMembers(teamId ? Number(teamId) : null)
   const create = useCreateManualLead()
+
+  // Responsável: se uma equipe foi escolhida, lista só os membros dela (mantém
+  // coerência equipe↔responsável). Sem equipe, lista todos os agentes ativos.
+  const responsibleOptions = teamId
+    ? (teamMembersData?.members ?? [])
+        .filter((m) => m.user.active)
+        .map((m) => ({ id: m.user.id, name: m.user.name || m.user.email }))
+    : (agentsData?.agents ?? [])
+        .filter((a) => a.active && a.role !== 'VIEWER')
+        .map((a) => ({ id: a.id, name: a.name || a.email }))
 
   function handleSubmit() {
     if (!nome.trim() || !whatsapp.trim() || !email.trim()) {
@@ -1664,6 +1680,8 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
       segmento: segmento || undefined,
       cidade: cidade || undefined,
       funnelId: funnelId ? Number(funnelId) : undefined,
+      teamId: teamId ? Number(teamId) : undefined,
+      assignedUserId: assignedUserId ? Number(assignedUserId) : undefined,
     }
     create.mutate(payload, {
       onSuccess: () => { toast('Lead criado', 'success'); onClose() },
@@ -1697,6 +1715,23 @@ function CreateLeadModal({ onClose }: { onClose: () => void }) {
         <Select label="Funil" value={funnelId} onChange={(e) => setFunnelId((e.target as HTMLSelectElement).value)}>
           <option value="">Padrão</option>
           {funnels?.funnels.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </Select>
+        <Select
+          label="Equipe"
+          value={teamId}
+          onChange={(e) => {
+            setTeamId((e.target as HTMLSelectElement).value)
+            setAssignedUserId('') // troca de equipe reseta o responsável
+          }}
+        >
+          <option value="">Padrão (fila do setor)</option>
+          {(teamsData?.teams ?? []).filter((t) => t.active).map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </Select>
+        <Select label="Responsável" value={assignedUserId} onChange={(e) => setAssignedUserId((e.target as HTMLSelectElement).value)}>
+          <option value="">Sem responsável</option>
+          {responsibleOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
         </Select>
       </div>
     </Modal>
