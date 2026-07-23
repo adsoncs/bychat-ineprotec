@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useState, useEffect, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { ArrowRight, GraduationCap, HelpCircle } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { WidgetRenderer } from '@/components/widgets/WidgetRenderer'
 import { useCan, useIsModuleActive } from '@/hooks/usePermissions'
+import { useFunnels } from '@/hooks/useFunnels'
 import type { Widget } from '@/hooks/useWidgets'
 import { cn } from '@/lib/cn'
 
@@ -45,7 +46,7 @@ const CHART_LOSS_REASONS = W({ metric: 'leads_loss_reasons', type: 'donut', titl
 const NEGOTIATION_KPIS: Widget[] = [
   W({ metric: 'negotiations_open',        type: 'kpi', title: 'Em negociação',              size: 'sm' }),
   W({ metric: 'negotiations_won_revenue', type: 'kpi', title: 'Fechado em negociações',     size: 'sm' }),
-  W({ metric: 'negotiations_win_rate',    type: 'kpi', title: 'Aproveitamento',             size: 'sm' }),
+  W({ metric: 'negotiations_avg_ticket',  type: 'kpi', title: 'Ticket médio',               size: 'sm' }),
 ]
 
 // Estoque de pendências — sempre "agora", não muda com o seletor de período.
@@ -63,6 +64,27 @@ export function OverviewPage() {
   const canSeeNegotiations = useIsModuleActive('negotiations') === true
   const range = presetRange(preset)
   const filters = { dateFrom: range.dateFrom, dateTo: range.dateTo }
+
+  // Pipeline: escopado a UM funil (mistura de funis confunde). Padrão = funil
+  // isDefault (senão o 1º); a escolha do usuário persiste em localStorage.
+  const { data: funnelsData } = useFunnels()
+  const funnels = useMemo(() => (funnelsData?.funnels ?? []).filter((f) => f.active), [funnelsData])
+  const [pipelineFunnelId, setPipelineFunnelId] = useState<number | null>(null)
+  useEffect(() => {
+    if (pipelineFunnelId != null || funnels.length === 0) return
+    const stored = Number(localStorage.getItem('overview.pipelineFunnelId') || '')
+    if (stored && funnels.some((f) => f.id === stored)) { setPipelineFunnelId(stored); return }
+    const def = funnels.find((f) => f.isDefault) ?? funnels[0]
+    if (def) setPipelineFunnelId(def.id)
+  }, [funnels, pipelineFunnelId])
+  function changePipelineFunnel(id: number) {
+    setPipelineFunnelId(id)
+    try { localStorage.setItem('overview.pipelineFunnelId', String(id)) } catch { /* ignore */ }
+  }
+  const pipelineWidget: Widget = {
+    ...CHART_PIPELINE,
+    config: { ...(CHART_PIPELINE.config ?? {}), ...(pipelineFunnelId ? { funnelId: pipelineFunnelId } : {}) },
+  }
 
   return (
     <Page
@@ -128,7 +150,22 @@ export function OverviewPage() {
       {/* Pipeline + motivos de perda */}
       <section aria-label="Pipeline e perdas" class="grid gap-3 grid-cols-1 lg:grid-cols-3">
         <div class="lg:col-span-2">
-          <WidgetRenderer widget={CHART_PIPELINE} filters={filters} />
+          <WidgetRenderer
+            widget={pipelineWidget}
+            filters={filters}
+            actions={funnels.length > 1 ? (
+              <select
+                class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg cursor-pointer focus:outline-none focus:border-accent max-w-[160px] shrink-0"
+                value={pipelineFunnelId ? String(pipelineFunnelId) : ''}
+                onChange={(e) => changePipelineFunnel(Number((e.target as HTMLSelectElement).value))}
+                title="Funil exibido no pipeline"
+              >
+                {funnels.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}{f.isDefault ? ' (padrão)' : ''}</option>
+                ))}
+              </select>
+            ) : undefined}
+          />
         </div>
         <div>
           <WidgetRenderer widget={CHART_LOSS_REASONS} filters={filters} />

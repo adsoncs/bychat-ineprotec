@@ -105,7 +105,7 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   // ── Negociações (módulo Negociação) ──
   { category: 'negociacoes', metric: 'negotiations_open', title: 'Em Negociação', description: 'Valor total e quantidade das negociações em aberto agora', icon: '🤝', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
   { category: 'negociacoes', metric: 'negotiations_won_revenue', title: 'Fechado em Negociações', description: 'Soma do total das negociações ganhas no período (com Δ% vs anterior)', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
-  { category: 'negociacoes', metric: 'negotiations_win_rate', title: 'Aproveitamento de Negociações', description: 'Ganhas sobre negociações fechadas (ganhas + perdidas) no período', icon: '🎯', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi', 'gauge'] },
+  { category: 'negociacoes', metric: 'negotiations_avg_ticket', title: 'Ticket Médio', description: 'Valor médio por negociação ganha no período (receita ganha ÷ nº de ganhas)', icon: '🎫', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
 ]
 
 export const FUNNEL_AWARE_METRICS = [

@@ -11,6 +11,7 @@ export interface AdminUser {
   name: string | null
   role: UserRole
   active: boolean
+  isAgent: boolean
   lastLoginAt: string | null
   lastSeenAt: string | null
   createdAt: string

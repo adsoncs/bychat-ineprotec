@@ -242,6 +242,17 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         return { value, won, closed, ...(prevClosed > 0 ? { prev: Math.round((pw / prevClosed) * 100) } : {}) }
       }
 
+      case 'negotiations_avg_ticket': {
+        // Ticket médio das negociações ganhas no período (receita ganha ÷ nº ganhas).
+        // Honesto: não depende de perdas registradas, ao contrário do antigo win_rate.
+        const where: any = { resultado: 'won' }
+        if (hasDate) where.fechadaEm = dateFilter
+        const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })
+        const count = agg._count._all
+        const sum = agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0
+        return { value: count ? Math.round(sum / count) : 0, count }
+      }
+
       case 'leads_new': {
         const today = new Date(); today.setHours(0, 0, 0, 0)
         const todayCount = await prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: today } } })

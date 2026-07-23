@@ -92,7 +92,9 @@ export function TeamPerformancePage() {
   const { data: teamsData } = useTeams()
   const teams = (teamsData?.teams ?? []).filter((t) => t.active)
   const { data: usersData } = useUsers()
-  const users = (usersData?.users ?? []).filter((u) => u.active && u.role === 'AGENT')
+  // Operadores = mesma regra do backend (Roteamento de Leads > Agentes):
+  // role AGENT OU qualquer perfil com o toggle isAgent ligado.
+  const users = (usersData?.users ?? []).filter((u) => u.active && (u.role === 'AGENT' || u.isAgent))
   const { data: funnelsData } = useFunnels()
   const funnels = funnelsData?.funnels ?? []
 
@@ -232,14 +234,14 @@ export function TeamPerformancePage() {
         <KpiCard
           label="Receita gerada"
           value={formatBRL(totals?.revenue ?? 0)}
-          hint={totals && totals.salesCount > 0 ? `${totals.salesCount} vendas` : 'Sem vendas detectadas'}
+          hint={totals && totals.salesCount > 0 ? `${totals.salesCount} vendas` : 'Sem vendas no período'}
           icon={<DollarSign size={16} />}
           loading={isLoading}
         />
         <KpiCard
           label="Ticket médio"
           value={formatBRL(totals?.avgTicket ?? 0)}
-          hint="Receita ÷ vendas detectadas"
+          hint="Receita ÷ vendas ganhas"
           icon={<TrendingUp size={16} />}
           loading={isLoading}
         />
@@ -434,7 +436,7 @@ export function TeamPerformancePage() {
                   <th class="text-right px-3 py-2 font-semibold" title="Leads atendidos no período">Atend.</th>
                   <th class="text-right px-3 py-2 font-semibold" title="Ganhos / Perdidos">Won/Lost</th>
                   <th class="text-right px-3 py-2 font-semibold" title="Taxa de conversão">Win%</th>
-                  <th class="text-right px-3 py-2 font-semibold" title="Receita gerada (DetectedSale)">Receita</th>
+                  <th class="text-right px-3 py-2 font-semibold" title="Receita gerada (leads ganhos · lead.saleValue)">Receita</th>
                   <th class="text-right px-3 py-2 font-semibold" title="Ticket médio">Ticket</th>
                   <th class="text-right px-3 py-2 font-semibold" title="Mensagens enviadas">Msgs</th>
                   <th class="text-right px-3 py-2 font-semibold" title="Atividades concluídas / criadas / em atraso">Atividades</th>

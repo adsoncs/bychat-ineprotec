@@ -353,6 +353,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         conversationClosedAt: true,
         outcome: true,
         outcomeAt: true,
+        saleValue: true,
         priorityScore: true,
         qualificationSource: true,
       },
@@ -363,12 +364,7 @@ export async function teamsRoutes(app: FastifyInstance) {
     for (const l of leads) if (l.assignedUserId) leadIdToOperator.set(l.id, l.assignedUserId)
 
     // ── Coleta paralela de dados auxiliares ────────────────────────────
-    const [sales, firstReplies, activities, messagesByOp, stageMovements, cadenceManualSteps] = await Promise.all([
-      // Vendas detectadas/confirmadas dos leads atendidos no período.
-      leadIds.length === 0 ? Promise.resolve([]) : prisma.detectedSale.findMany({
-        where: { leadId: { in: leadIds }, status: { in: ['detected', 'confirmed'] } },
-        select: { leadId: true, value: true, status: true, detectedAt: true },
-      }),
+    const [firstReplies, activities, messagesByOp, stageMovements, cadenceManualSteps] = await Promise.all([
       // Primeira mensagem do operador após assignedAt (tempo de primeira resposta).
       leadIds.length === 0 ? Promise.resolve([]) : prisma.message.findMany({
         where: {
@@ -479,17 +475,6 @@ export async function teamsRoutes(app: FastifyInstance) {
       activityByUser.set(a.userId, acc)
     }
 
-    // Receita por operador (soma de DetectedSale.value).
-    const revenueByUser = new Map<number, { revenue: number; salesCount: number }>()
-    for (const s of sales) {
-      const op = leadIdToOperator.get(s.leadId)
-      if (!op) continue
-      const acc = revenueByUser.get(op) ?? { revenue: 0, salesCount: 0 }
-      acc.revenue += Number(s.value ?? 0)
-      acc.salesCount++
-      revenueByUser.set(op, acc)
-    }
-
     // Agrega lead-level por operador.
     const byUser = new Map<number, {
       total: number
@@ -500,6 +485,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       tmaMs: number; tmaN: number
       frtMs: number; frtN: number
       priorityScoreSum: number; priorityScoreN: number
+      revenue: number; salesCount: number
     }>()
     for (const l of leads) {
       if (!l.assignedUserId) continue
@@ -507,9 +493,16 @@ export async function teamsRoutes(app: FastifyInstance) {
         total: 0, resolved: 0, won: 0, lost: 0,
         tmeMs: 0, tmeN: 0, tmaMs: 0, tmaN: 0, frtMs: 0, frtN: 0,
         priorityScoreSum: 0, priorityScoreN: 0,
+        revenue: 0, salesCount: 0,
       }
       acc.total++
-      if (l.outcome === 'won') { acc.resolved++; acc.won++ }
+      if (l.outcome === 'won') {
+        acc.resolved++; acc.won++
+        // Receita = valor da venda do lead ganho (lead.saleValue), mesma fonte da
+        // Visão Geral. DetectedSale foi abandonado (tabela vazia nos tenants).
+        const sv = l.saleValue ? Number(l.saleValue) : 0
+        if (sv > 0) { acc.revenue += sv; acc.salesCount++ }
+      }
       else if (l.outcome === 'lost') { acc.resolved++; acc.lost++ }
       // TME
       if (l.assignedAt && l.createdAt) {
@@ -544,11 +537,11 @@ export async function teamsRoutes(app: FastifyInstance) {
     for (const id of cadenceStepsByUser.keys()) allUserIds.add(id)
     if (userFilter) allUserIds.add(userFilter)
 
-    // Operadores = quem ATENDE leads. Inclui ADMIN/MANAGER (muitos tenants rodam
-    // com os atendentes como ADMIN, ex.: terram → Luiz/Flavia), não só role AGENT.
-    // Exclui SUPERADMIN (conta da agência) das métricas de equipe do cliente.
+    // Operadores = quem ATENDE leads, conforme "Roteamento de Leads > Agentes":
+    // role AGENT (sempre) OU qualquer perfil marcado com o toggle isAgent=true
+    // (ex.: um ADMIN habilitado como agente). ADMIN/MANAGER SEM o toggle não conta.
     const users = allUserIds.size === 0 ? [] : await prisma.user.findMany({
-      where: { id: { in: Array.from(allUserIds) }, role: { in: ['AGENT', 'MANAGER', 'ADMIN'] } },
+      where: { id: { in: Array.from(allUserIds) }, OR: [{ role: 'AGENT' }, { isAgent: true }] },
       select: { id: true, name: true, email: true, active: true, capacity: true, workStatus: true },
     })
     const userMap = new Map(users.map((u) => [u.id, u]))
@@ -557,7 +550,6 @@ export async function teamsRoutes(app: FastifyInstance) {
       const u = userMap.get(userId)
       const s = byUser.get(userId)
       const act = activityByUser.get(userId)
-      const rev = revenueByUser.get(userId)
       const total = s?.total ?? 0
       const won = s?.won ?? 0
       const resolved = s?.resolved ?? 0
@@ -578,9 +570,9 @@ export async function teamsRoutes(app: FastifyInstance) {
         avgHandlingTimeMs: s && s.tmaN > 0 ? Math.round(s.tmaMs / s.tmaN) : null,
         avgFirstResponseMs: s && s.frtN > 0 ? Math.round(s.frtMs / s.frtN) : null,
         avgPriorityScore: s && s.priorityScoreN > 0 ? Math.round((s.priorityScoreSum / s.priorityScoreN) * 10) / 10 : null,
-        revenue: rev?.revenue ?? 0,
-        salesCount: rev?.salesCount ?? 0,
-        avgTicket: rev && rev.salesCount > 0 ? Math.round((rev.revenue / rev.salesCount) * 100) / 100 : 0,
+        revenue: s?.revenue ?? 0,
+        salesCount: s?.salesCount ?? 0,
+        avgTicket: s && s.salesCount > 0 ? Math.round((s.revenue / s.salesCount) * 100) / 100 : 0,
         messagesSent: messagesByOpMap.get(userId) ?? 0,
         activitiesCreated: act?.created ?? 0,
         activitiesCompleted: act?.completed ?? 0,
@@ -656,8 +648,8 @@ export async function teamsRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'from/to inválidos' })
       }
 
-      const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
-      if (!target || !['AGENT', 'MANAGER', 'ADMIN'].includes(target.role)) {
+      const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, isAgent: true } })
+      if (!target || (target.role !== 'AGENT' && !target.isAgent)) {
         return reply.code(404).send({ error: 'Operador não encontrado' })
       }
 
@@ -682,15 +674,11 @@ export async function teamsRoutes(app: FastifyInstance) {
           where: { ...where, qualificationSource: { not: null } },
           _count: { _all: true },
         }),
-        // Receita por dia no período (DetectedSale.detectedAt)
-        prisma.detectedSale.findMany({
-          where: {
-            detectedAt: { gte: from, lte: to },
-            status: { in: ['detected', 'confirmed'] },
-            lead: { assignedUserId: userId, assignedAt: { gte: from, lte: to } },
-          },
-          select: { value: true, detectedAt: true },
-          orderBy: { detectedAt: 'asc' },
+        // Receita por dia: leads ganhos (lead.saleValue) do operador no período.
+        prisma.lead.findMany({
+          where: { ...where, outcome: 'won', saleValue: { gt: 0 } },
+          select: { saleValue: true, outcomeAt: true, assignedAt: true },
+          orderBy: { outcomeAt: 'asc' },
         }),
         // Resolve nomes dos motivos de perda (top 5).
         prisma.lossReason.findMany({
@@ -724,11 +712,13 @@ export async function teamsRoutes(app: FastifyInstance) {
         count: r._count._all,
       })).sort((a, b) => b.count - a.count)
 
-      // Receita: agrupa por dia.
+      // Receita: agrupa por dia (dia do ganho; cai no assignedAt se sem outcomeAt).
       const revenueByDay = new Map<string, number>()
       for (const s of salesTimeline) {
-        const key = s.detectedAt.toISOString().slice(0, 10) // YYYY-MM-DD
-        revenueByDay.set(key, (revenueByDay.get(key) ?? 0) + Number(s.value ?? 0))
+        const day = s.outcomeAt ?? s.assignedAt
+        if (!day) continue
+        const key = day.toISOString().slice(0, 10) // YYYY-MM-DD
+        revenueByDay.set(key, (revenueByDay.get(key) ?? 0) + (s.saleValue ? Number(s.saleValue) : 0))
       }
       const revenueTimeline = Array.from(revenueByDay.entries())
         .map(([date, value]) => ({ date, value }))
@@ -782,7 +772,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         _count: { _all: true },
       }),
       prisma.user.findMany({
-        where: { active: true, role: { in: ['AGENT', 'MANAGER', 'ADMIN'] } },
+        where: { active: true, OR: [{ role: 'AGENT' }, { isAgent: true }] },
         select: { id: true, name: true, email: true, capacity: true, workStatus: true, lastSeenAt: true },
       }),
     ])

@@ -347,11 +347,11 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       val = brl.format(num(d.value))
       sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : `${num(d.count)} negociações ganhas`
       break
-    case 'negotiations_win_rate':
-      val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
-      sub = num(d.closed) > 0
-        ? `${num(d.won)} ganhas de ${num(d.closed)} fechadas`
-        : 'nenhuma negociação fechada no período'
+    case 'negotiations_avg_ticket':
+      val = brl.format(num(d.value))
+      sub = num(d.count) > 0
+        ? `média de ${num(d.count)} negociaç${num(d.count) === 1 ? 'ão ganha' : 'ões ganhas'}`
+        : 'nenhuma negociação ganha no período'
       break
     case 'helpdesk_volume':
       val = num(d.created)
