@@ -3,6 +3,7 @@ import { execSync, exec } from 'child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync, rmSync } from 'fs'
 import { resolve } from 'path'
 import { superadminOnly } from '../lib/auth.js'
+import { isPrimaryInstall } from '../lib/install.js'
 
 // ── Helpers ──────────────────────────────
 
@@ -369,6 +370,18 @@ async function provision(data: ProvisionRequest, logFn: (msg: string) => void): 
 // ── Routes ───────────────────────────────
 
 export async function installationsRoutes(app: FastifyInstance) {
+
+  // Gestão de instalações é EXCLUSIVA da instalação principal (bychat-beyond).
+  // Numa filha (terram, vantari, …) nem registramos as rotas — elas respondem
+  // 404, como se não existissem. Sem isso, um superadmin de tenant filho (ou um
+  // token vazado) conseguiria provisionar/parar/APAGAR instalações de OUTROS
+  // clientes, já que este arquivo roda o installer via execSync.
+  // Esconder as abas no frontend (SettingsPage `primaryOnly`) é só cosmético;
+  // o portão real é este.
+  if (!isPrimaryInstall()) {
+    app.log.info('[installations] instalação filha — rotas de gestão não registradas')
+    return
+  }
 
   // GET /api/admin/installations — Listar todas
   app.get('/api/admin/installations', { preHandler: superadminOnly }, async () => {

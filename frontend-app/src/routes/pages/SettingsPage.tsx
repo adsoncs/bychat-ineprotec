@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks'
+import { lazy, Suspense } from 'preact/compat'
 import { useLocation } from 'wouter-preact'
 import { usePrimaryInstall } from '@/hooks/usePrimaryInstall'
 import {
@@ -27,10 +28,25 @@ import { SystemEmailsSettings } from './settings/SystemEmailsSettings'
 import { IntelligenceSettings } from './settings/IntelligenceSettings'
 import { LegalSettings } from './settings/LegalSettings'
 import { CompanySettings } from './settings/CompanySettings'
-import { RoadmapPage } from './RoadmapPage'
-import { InstallationsPage } from './InstallationsPage'
 import { TrashPage } from './TrashPage'
 import { PaymentsPage } from './PaymentsPage'
+
+// Instalações e Planejamento existem SÓ na instalação principal (bychat-beyond).
+// `VITE_PRIMARY_INSTALL=1` vive apenas no frontend-app/.env do beyond — nos
+// tenants a constante vira `false` literal em build-time e o Rollup elimina os
+// `import()` abaixo como código morto: os chunks nem chegam a ser gerados.
+//
+// Isso importa porque o gate de runtime (`isPrimary`) é só visual — os assets
+// de /app/assets/* são públicos, então com import estático o roadmap interno da
+// Beyond ficava baixável sem login no subdomínio de cada cliente.
+const PRIMARY_BUILD = import.meta.env.VITE_PRIMARY_INSTALL === '1'
+
+const RoadmapPage = PRIMARY_BUILD
+  ? lazy(() => import('./RoadmapPage').then((m) => ({ default: m.RoadmapPage })))
+  : null
+const InstallationsPage = PRIMARY_BUILD
+  ? lazy(() => import('./InstallationsPage').then((m) => ({ default: m.InstallationsPage })))
+  : null
 
 export type Tab =
   | 'appearance' | 'fields' | 'teams' | 'security'
@@ -88,14 +104,14 @@ export function SettingsPage() {
   // mesmo se a URL pedir (defesa em profundidade).
   const PRIMARY_ONLY_TABS = new Set<Tab>(['installations', 'roadmap'])
   const visibleTabs = useMemo(
-    () => tabs.filter((t) => !t.primaryOnly || isPrimary),
+    () => tabs.filter((t) => !t.primaryOnly || (PRIMARY_BUILD && isPrimary)),
     [isPrimary],
   )
 
   // Se URL pedir aba primary-only numa instalação filha, redireciona pra Aparência.
   useEffect(() => {
     if (primaryLoading) return
-    if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) setTab('appearance')
+    if ((!isPrimary || !PRIMARY_BUILD) && PRIMARY_ONLY_TABS.has(tab)) setTab('appearance')
   }, [primaryLoading, isPrimary, tab])
 
   // Bookmarks antigos: ?tab=teams|loss-reasons|fields|business-hours → /cadastros/*
@@ -169,8 +185,12 @@ export function SettingsPage() {
           {tab === 'intelligence' && <IntelligenceSettings />}
           {tab === 'legal' && <LegalSettings />}
           {tab === 'company' && <CompanySettings />}
-          {tab === 'roadmap' && isPrimary && <RoadmapPage />}
-          {tab === 'installations' && isPrimary && <InstallationsPage />}
+          {tab === 'roadmap' && isPrimary && RoadmapPage && (
+            <Suspense fallback={null}><RoadmapPage /></Suspense>
+          )}
+          {tab === 'installations' && isPrimary && InstallationsPage && (
+            <Suspense fallback={null}><InstallationsPage /></Suspense>
+          )}
           {tab === 'trash' && <TrashPage />}
           {tab === 'payments' && <PaymentsPage />}
         </div>
