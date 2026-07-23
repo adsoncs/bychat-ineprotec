@@ -5,12 +5,15 @@
 import { prisma } from '../src/lib/prisma.js'
 import { cleanupPlus } from './demoAcaSeedPlus.js'
 import { cleanupFull } from './demoAcaSeedFull.js'
+import { cleanupVolume } from './demoAcaSeedVolume.js'
 
 const TURMA_TAG = 'DEMO — '
 
 async function main() {
-  // remove primeiro a carga complementar (telas restantes) e a dos módulos novos
-  // (F5–F22 + F16/F17/F19), que referenciam matrículas/alunos demo ainda existentes.
+  // remove primeiro as camadas complementares (volume das listas + telas restantes)
+  // e a dos módulos novos (F5–F22 + F16/F17/F19), que referenciam
+  // matrículas/alunos demo ainda existentes neste ponto.
+  await cleanupVolume().catch((e) => console.warn('cleanupVolume:', e?.message))
   await cleanupFull().catch((e) => console.warn('cleanupFull:', e?.message))
   await cleanupPlus().catch((e) => console.warn('cleanupPlus:', e?.message))
   // turmas demo
