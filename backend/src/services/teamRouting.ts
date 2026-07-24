@@ -208,9 +208,18 @@ interface CandidateMember {
   lastAssignedAt: Date | null
 }
 
-async function getEligibleMembers(teamId: number, requireAgent: boolean): Promise<CandidateMember[]> {
-  // Membros ativos da equipe que estão `available`. Exclui locked, inactive,
-  // away, busy e offline.
+// Presença aceita no passe estrito (comportamento histórico) e no passe de
+// fallback. `offline` fica de fora dos dois: quem deslogou não está no turno.
+const STRICT_STATUSES = ['available']
+const FALLBACK_STATUSES = ['available', 'away', 'busy']
+
+async function getEligibleMembers(
+  teamId: number,
+  requireAgent: boolean,
+  statuses: string[] = STRICT_STATUSES,
+): Promise<CandidateMember[]> {
+  // Membros ativos da equipe cujo workStatus está em `statuses`. Exclui locked,
+  // inactive e (sempre) offline.
   // Quando requireAgent=true (Setting routing.v2.enabled):
   //   - exige role IN (AGENT, MANAGER, ADMIN, SUPERADMIN) — exclui VIEWER
   //     (Reforma F1: substituiu o filtro isAgent=true legado)
@@ -221,7 +230,7 @@ async function getEligibleMembers(teamId: number, requireAgent: boolean): Promis
   const userFilter: Record<string, unknown> = {
     active: true,
     lockedAt: null,
-    workStatus: 'available',
+    workStatus: { in: statuses },
   }
   if (requireAgent) {
     userFilter.role = { in: ['AGENT', 'MANAGER', 'ADMIN', 'SUPERADMIN'] }
@@ -291,7 +300,7 @@ async function getEligibleMembers(teamId: number, requireAgent: boolean): Promis
 export async function pickOperatorForTeam(teamId: number): Promise<number | null> {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
-    select: { id: true, active: true, routingMode: true, workingHoursEnabled: true },
+    select: { id: true, name: true, active: true, routingMode: true, workingHoursEnabled: true },
   })
   if (!team || !team.active) return null
   const mode = (team.routingMode || 'manual') as RoutingMode
@@ -301,10 +310,38 @@ export async function pickOperatorForTeam(teamId: number): Promise<number | null
   // Team com horário habilitado fora do horário → fila do setor (null).
   // Caller pode redirecionar pro plantonista via routing.out_of_hours_team_id.
   if (requireAgent && team.workingHoursEnabled) {
-    if (!(await isTeamOpen(teamId))) return null
+    if (!(await isTeamOpen(teamId))) {
+      console.warn(`[routing] setor ${teamId} (${team.name}) fechado por horário — lead sem responsável`)
+      return null
+    }
   }
-  const members = await getEligibleMembers(teamId, requireAgent)
-  if (members.length === 0) return null
+  // Passe 1: só quem está "Disponível" (comportamento histórico).
+  let members = await getEligibleMembers(teamId, requireAgent)
+  // Passe 2 (fallback suave): ninguém disponível → aceita "Ausente"/"Em pausa".
+  // Mesma filosofia do soft-limit de capacity logo abaixo: entregar a um
+  // operador ausente é melhor que deixar o lead órfão numa fila que ninguém
+  // olha. Setor em modo `manual` nunca chega aqui (early-return acima), então
+  // quem quer fila de claim explícito continua tendo fila.
+  // Motivador: setor com 1 membro que marcou "Ausente" parava o roteamento
+  // inteiro sem nenhum rastro (severiano, Matrículas, 23/07/2026).
+  let softFallback = false
+  if (members.length === 0) {
+    members = await getEligibleMembers(teamId, requireAgent, FALLBACK_STATUSES)
+    softFallback = members.length > 0
+  }
+  if (members.length === 0) {
+    console.warn(
+      `[routing] setor ${teamId} (${team.name}) sem operador elegível ` +
+      `(modo=${mode}, v2=${requireAgent}) — lead cai na fila sem responsável`,
+    )
+    return null
+  }
+  if (softFallback) {
+    console.warn(
+      `[routing] setor ${teamId} (${team.name}): nenhum operador "Disponível", ` +
+      `usando fallback para ausente/em pausa`,
+    )
+  }
 
   // Capacity é soft-limit: preferimos quem ainda tem folga, mas se todos
   // estouraram ainda distribuímos — entregar a um operador sobrecarregado é
@@ -354,7 +391,10 @@ export async function pickOperatorBySkill(teamId: number, skill: string): Promis
   if (team.workingHoursEnabled && !(await isTeamOpen(teamId))) return null
 
   // Carrega membros elegíveis (já filtra agente/working hours/vacation/profile).
-  const members = await getEligibleMembers(teamId, true)
+  // Mesmo fallback suave do pickOperatorForTeam: ninguém "Disponível" → aceita
+  // ausente/em pausa antes de devolver null.
+  let members = await getEligibleMembers(teamId, true)
+  if (members.length === 0) members = await getEligibleMembers(teamId, true, FALLBACK_STATUSES)
   if (members.length === 0) return null
 
   // Filtra pelos que têm a skill.
