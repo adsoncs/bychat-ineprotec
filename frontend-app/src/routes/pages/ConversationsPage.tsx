@@ -78,6 +78,8 @@ import {
 } from '@/hooks/useLeads'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
+import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
+import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
@@ -814,6 +816,11 @@ function ChatPanel({
   const [isInternalNote, setIsInternalNote] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null)
+  // Anexo já hospedado (vindo de um template com anexo) — enviado sem re-upload.
+  const [pendingTplAttachment, setPendingTplAttachment] = useState<{ mediaType: string; mediaUrl: string; mediaName: string } | null>(null)
+  // Autocomplete de atalhos "/": índice destacado + dispensa por Escape.
+  const [slashIndex, setSlashIndex] = useState(0)
+  const [slashDismissed, setSlashDismissed] = useState(false)
   const [chatSearch, setChatSearch] = useState<string | null>(null)
   const [quotedMsg, setQuotedMsg] = useState<ChatMessage | null>(null)
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
@@ -844,6 +851,8 @@ function ChatPanel({
     setQuotedMsg(null)
     setChannelId(null)
     setNumMenuOpen(false)
+    setPendingTplAttachment(null)
+    setSlashDismissed(false)
   }, [leadId])
 
   // Pré-seleciona o canal sugerido (de entrada do lead) quando os canais chegam.
@@ -884,9 +893,42 @@ function ChatPanel({
     el.scrollTop = el.scrollHeight
   }, [messageCount, showInfo])
 
+  // ── Atalhos "/": templates de WhatsApp com atalho salvo ──
+  const tplQ = useTemplates({ channel: 'whatsapp' })
+  const shortcutTemplates = (tplQ.data?.templates ?? []).filter((t) => t.shortcut && t.active)
+  const slashQuery = (!isInternalNote && draft.startsWith('/') && !/\s/.test(draft)) ? draft.slice(1).toLowerCase() : null
+  const slashMatches = (slashQuery !== null && !slashDismissed)
+    ? shortcutTemplates.filter((t) => (t.shortcut || '').startsWith(slashQuery)).slice(0, 6)
+    : []
+  const slashOpen = slashMatches.length > 0
+
+  useEffect(() => { setSlashIndex(0) }, [slashQuery])
+  useEffect(() => { if (slashQuery === null) setSlashDismissed(false) }, [slashQuery])
+
+  // Escolhe um atalho: resolve as variáveis (preview) e insere no compositor para
+  // o operador revisar; anexo do template fica em espera para enviar sem re-upload.
+  async function selectShortcut(tpl: MessageTemplateItem) {
+    setSlashDismissed(true)
+    let resolved = tpl.body
+    try {
+      const r = await api.post<{ body: string }>(`/templates/${tpl.id}/preview`, { leadId })
+      if (r?.body) resolved = r.body
+    } catch { /* usa o body cru se o preview falhar */ }
+    setDraft(resolved)
+    if (tpl.attachmentUrl) {
+      const nm = (tpl.attachmentName || tpl.attachmentUrl).toLowerCase()
+      const mt = /\.(png|jpe?g|webp|gif)$/.test(nm) ? 'image'
+        : /\.(mp4|mov|3gp|webm)$/.test(nm) ? 'video'
+        : /\.(mp3|ogg|opus|m4a|wav|aac)$/.test(nm) ? 'audio'
+        : 'document'
+      setPendingTplAttachment({ mediaType: mt, mediaUrl: tpl.attachmentUrl, mediaName: tpl.attachmentName || 'arquivo' })
+    }
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
   function handleSend() {
     const body = draft.trim()
-    if (!body && !pendingFile) return
+    if (!body && !pendingFile && !pendingTplAttachment) return
     // Citação só faz sentido em msg não interna; backend resolve externalId pra Evolution.
     const quotedId = !isInternalNote && quotedMsg ? quotedMsg.id : undefined
     const sendText = (mediaPayload?: { mediaType: string; mediaUrl: string; mediaName: string }) => {
@@ -904,13 +946,17 @@ function ChatPanel({
             setIsInternalNote(false)
             setPendingFile(null)
             setPendingPreviewUrl(null)
+            setPendingTplAttachment(null)
             setQuotedMsg(null)
           },
           onError: (e: unknown) => toast((e as Error).message, 'danger'),
         },
       )
     }
-    if (pendingFile) {
+    if (pendingTplAttachment) {
+      // Anexo de template já hospedado → envia direto (sem novo upload).
+      sendText(pendingTplAttachment)
+    } else if (pendingFile) {
       const file = pendingFile
       upload.mutate(file, {
         onSuccess: (resp) => sendText({
@@ -1379,6 +1425,28 @@ function ChatPanel({
               </div>
             </div>
           )}
+          {pendingTplAttachment && (
+            <div class="px-3 pt-2">
+              <div class="flex items-center gap-2 p-2 rounded-md bg-surface-3 border border-border">
+                <div class="size-10 rounded bg-surface-2 grid place-items-center text-fg-muted shrink-0">
+                  <FileText size={18} />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs text-fg truncate">{pendingTplAttachment.mediaName}</div>
+                  <div class="text-[0.625rem] text-fg-subtle">Anexo do modelo</div>
+                </div>
+                <button
+                  type="button"
+                  class="size-7 shrink-0 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-2"
+                  onClick={() => setPendingTplAttachment(null)}
+                  aria-label="Remover anexo"
+                  title="Remover anexo"
+                >
+                  <XIcon size={14} />
+                </button>
+              </div>
+            </div>
+          )}
           <div class="p-3">
             {!isInternalNote && channels.length >= 2 && (() => {
               // Mantém VISÍVEL apenas o número selecionado (padrão = canal de entrada
@@ -1462,7 +1530,30 @@ function ChatPanel({
             {recording ? (
               <AudioRecorder onComplete={handleAudio} onCancel={() => setRecording(false)} />
             ) : (
-              <div class="flex items-end gap-2">
+              <div class="relative flex items-end gap-2">
+                {slashOpen && (
+                  <div role="listbox" class="absolute left-0 right-0 bottom-full mb-1 z-40 max-h-60 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
+                    <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Atalhos — Enter para inserir</div>
+                    {slashMatches.map((t, i) => (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={i === slashIndex}
+                        key={t.id}
+                        onMouseEnter={() => setSlashIndex(i)}
+                        onClick={() => void selectShortcut(t)}
+                        class={cn(
+                          'w-full flex items-center gap-2 px-3 py-1.5 text-left',
+                          i === slashIndex ? 'bg-surface-3 text-fg' : 'text-fg-muted hover:bg-surface-3',
+                        )}
+                      >
+                        <span class="font-semibold text-accent shrink-0">/{t.shortcut}</span>
+                        <span class="flex-1 min-w-0 truncate">{t.name}</span>
+                        {t.attachmentUrl && <Paperclip size={12} class="shrink-0 text-fg-subtle" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1493,6 +1584,13 @@ function ChatPanel({
                   value={draft}
                   onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
                   onKeyDown={(e) => {
+                    if (slashOpen) {
+                      const n = slashMatches.length
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex((i) => (i + 1) % n); return }
+                      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex((i) => (i - 1 + n) % n); return }
+                      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); void selectShortcut(slashMatches[Math.min(slashIndex, n - 1)]); return }
+                      if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       handleSend()
@@ -1517,7 +1615,7 @@ function ChatPanel({
                 >
                   <StickyNote size={16} />
                 </button>
-                {draft.trim() || pendingFile ? (
+                {draft.trim() || pendingFile || pendingTplAttachment ? (
                   <Button
                     variant="primary"
                     size="md"

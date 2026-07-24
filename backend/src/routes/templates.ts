@@ -27,6 +27,12 @@ export function replaceVariables(text: string, vars: Record<string, string>): st
   return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] || `{{${key}}}`)
 }
 
+// Normaliza o atalho: sem a "/" inicial, minúsculo, só [a-z0-9_-]. Vazio → null.
+export function normalizeShortcut(raw: any): string | null {
+  const s = String(raw ?? '').trim().replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_-]/g, '')
+  return s ? s.slice(0, 40) : null
+}
+
 // Montar variaveis a partir de um lead
 export function buildLeadVars(lead: any, operatorName?: string): Record<string, string> {
   const sc = (lead.scores || {}) as any
@@ -92,6 +98,7 @@ export async function templatesRoutes(app: FastifyInstance) {
         bodyHtml: body.bodyHtml || null,
         attachmentUrl: body.attachmentUrl || null,
         attachmentName: body.attachmentName || null,
+        shortcut: normalizeShortcut(body.shortcut),
         variables: body.variables || undefined,
       }
     })
@@ -111,6 +118,7 @@ export async function templatesRoutes(app: FastifyInstance) {
     if (body.bodyHtml !== undefined) data.bodyHtml = body.bodyHtml
     if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
     if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
+    if (body.shortcut !== undefined) data.shortcut = normalizeShortcut(body.shortcut)
     if (body.variables !== undefined) data.variables = body.variables
     if (body.active !== undefined) data.active = body.active
 

@@ -1179,6 +1179,9 @@ model MessageTemplate {
   // Chave ESTÁVEL para referência por código (ex.: agendamento_confirmado_wa). Não
   // muda quando o usuário renomeia o `name`. Null para templates criados à mão.
   key            String?  @db.VarChar(80)
+  // Atalho do Conversas: digitar "/" + shortcut no compositor sugere/insere este
+  // template (ex.: shortcut "doc" → "/doc"). Sem "/". Opcional e único por uso.
+  shortcut       String?  @db.VarChar(40)
   channel        String   @db.VarChar(30) // whatsapp, email, sms
   category       String   @default("general") @db.VarChar(50) // general, proposal, follow_up, onboarding, report, reminder
   subject        String?  @db.VarChar(191) // assunto (email)
@@ -1198,6 +1201,7 @@ model MessageTemplate {
   @@index([category])
   @@index([active])
   @@index([key])
+  @@index([shortcut])
   @@map("bychat_message_templates")
 }
 

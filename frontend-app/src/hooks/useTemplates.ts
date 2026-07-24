@@ -5,11 +5,14 @@ export interface MessageTemplateItem {
   id: number
   name: string
   key: string | null
+  shortcut: string | null
   channel: string
   category: string | null
   subject: string | null
   body: string
   bodyHtml: string | null
+  attachmentUrl: string | null
+  attachmentName: string | null
   active: boolean
   usageCount: number
   createdAt: string
@@ -23,6 +26,9 @@ export interface TemplateInput {
   subject?: string | null | undefined
   body: string
   bodyHtml?: string | null | undefined
+  shortcut?: string | null | undefined
+  attachmentUrl?: string | null | undefined
+  attachmentName?: string | null | undefined
   active?: boolean | undefined
 }
 

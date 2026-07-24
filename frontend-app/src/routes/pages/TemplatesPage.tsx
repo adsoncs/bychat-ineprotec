@@ -276,6 +276,8 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const [subject, setSubject] = useState(template?.subject ?? '')
   const [body, setBody] = useState(template?.body ?? '')
   const [bodyHtml, setBodyHtml] = useState(decodeHtmlIfEscaped(template?.bodyHtml ?? ''))
+  // Atalho do Conversas: normaliza p/ minúsculo, sem "/", só [a-z0-9_-].
+  const [shortcut, setShortcut] = useState(template?.shortcut ?? '')
   const create = useCreateTemplate()
   const update = useUpdateTemplate()
   const { data: variables } = useTemplateVariables()
@@ -299,6 +301,7 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       subject: channel === 'email' && subject.trim() ? subject.trim() : null,
       body: finalBody,
       bodyHtml: channel === 'email' && cleanHtml.trim() ? cleanHtml.trim() : null,
+      shortcut: shortcut.trim() || null,
     }
     const onSuccess = () => { toast(isEdit ? 'Modelo atualizado' : 'Modelo criado', 'success'); onClose() }
     const onError = (e: unknown) => toast((e as Error).message, 'danger')
@@ -335,6 +338,13 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
         <Select label="Categoria" value={category ?? 'general'} onChange={(e) => setCategory((e.target as HTMLSelectElement).value)}>
           {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c] ?? c}</option>)}
         </Select>
+        <Input
+          label="Atalho no chat"
+          value={shortcut}
+          placeholder="Ex: doc → digite /doc"
+          hint="No Conversas, digite / para ver os atalhos."
+          onInput={(e) => setShortcut((e.target as HTMLInputElement).value.replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+        />
       </div>
 
       {channel === 'email' ? (
