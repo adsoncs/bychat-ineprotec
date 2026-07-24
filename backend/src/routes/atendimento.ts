@@ -160,8 +160,27 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           andClauses.push({ tags: { some: { tagId: { in: tagIdArr } } } })
         }
       }
+      // Filtro por FUNIL: id específico OU "none" (contatos sem funil).
+      const fq = (query.funnelId ?? '').toString()
+      if (fq === 'none' || fq === 'null') {
+        where.funnelId = null
+      } else if (fq) {
+        const fid = parseInt(fq)
+        if (Number.isFinite(fid)) where.funnelId = fid
+      }
+      // Filtro por NÚMERO DE ENVIO: conversas que têm ao menos uma mensagem ENVIADA
+      // (fromMe) por este canal. Id no formato "evolution:<instância>" | "cloud:<id>".
+      const sc = (query.senderChannel ?? '').toString()
+      if (sc.startsWith('evolution:')) {
+        andClauses.push({ messages: { some: { fromMe: true, evolutionInstance: sc.slice('evolution:'.length) } } })
+      } else if (sc.startsWith('cloud:')) {
+        const cid = parseInt(sc.slice('cloud:'.length))
+        if (Number.isFinite(cid)) andClauses.push({ messages: { some: { fromMe: true, cloudApiConnectionId: cid } } })
+      }
+      // Merge (append) preservando as cláusulas de bucket já em where.AND (antes o
+      // where.AND era SOBRESCRITO por search/tags, perdendo o filtro de snooze).
       if (andClauses.length > 0) {
-        where.AND = andClauses
+        where.AND = [...(where.AND ?? []), ...andClauses]
       }
 
       const [tickets, total] = await Promise.all([
@@ -188,6 +207,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             assignedUser: { select: { id: true, name: true, email: true } },
             teamId: true,
             team: { select: { id: true, name: true, color: true, slug: true } },
+            funnelId: true,
             tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
             qualifiedAt: true,
             qualificationSource: true,

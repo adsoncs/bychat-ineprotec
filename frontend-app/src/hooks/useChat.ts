@@ -62,6 +62,10 @@ export interface TicketsFilters {
   scope?: Scope | undefined
   status?: 'waiting' | 'attending' | undefined
   search?: string | undefined
+  // Filtro por número de envio (id do canal: "evolution:<inst>" | "cloud:<id>").
+  senderChannel?: string | undefined
+  // Filtro por funil: id do funil OU "none" (contatos sem funil).
+  funnelId?: string | undefined
   limit?: number | undefined
   offset?: number | undefined
 }
@@ -72,10 +76,23 @@ function buildQuery(f: TicketsFilters): string {
   if (f.scope) p.set('scope', f.scope)
   if (f.status) p.set('status', f.status)
   if (f.search) p.set('search', f.search)
+  if (f.senderChannel) p.set('senderChannel', f.senderChannel)
+  if (f.funnelId) p.set('funnelId', f.funnelId)
   if (f.limit !== undefined) p.set('limit', String(f.limit))
   if (f.offset !== undefined) p.set('offset', String(f.offset))
   const qs = p.toString()
   return qs ? `?${qs}` : ''
+}
+
+// Lista dos números de envio (Evolution + Cloud) para o filtro de Conversas —
+// diferente de useSenderChannels, que é por-lead e desabilita sem leadId.
+export function useSenderNumbers(enabled = true) {
+  return useQuery({
+    queryKey: ['sender-channels', 'all'],
+    queryFn: () => api.get<SenderChannelsResponse>('/whatsapp/sender-channels'),
+    enabled,
+    staleTime: 60_000,
+  })
 }
 
 export function useTickets(filters: TicketsFilters = {}) {

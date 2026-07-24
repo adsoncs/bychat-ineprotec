@@ -59,6 +59,7 @@ import {
   useTicketInfo,
   useTypingState,
   useUploadChatMedia,
+  useSenderNumbers,
   inferMediaType,
   type Bucket,
   type Scope,
@@ -78,6 +79,7 @@ import {
 } from '@/hooks/useLeads'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
+import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
@@ -238,6 +240,11 @@ export function ConversationsPage() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
   const [scope, setScope] = useState<Scope>('mine')
   const [search, setSearch] = useState('')
+  // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
+  const [senderChannel, setSenderChannel] = useState('')
+  const [funnelFilter, setFunnelFilter] = useState('')
+  const numbersQ = useSenderNumbers()
+  const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
   const [showInfo, setShowInfo] = useState(false)
   const [notifEnabled, setNotifEnabled] = useState<boolean>(loadNotifEnabled())
@@ -245,7 +252,12 @@ export function ConversationsPage() {
   const [promoteSingle, setPromoteSingle] = useState<{ id: number; name?: string | null | undefined } | null>(null)
   const [promoteBulkOpen, setPromoteBulkOpen] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
-  const ticketsQ = useTickets({ bucket, scope, search: search || undefined })
+  const ticketsQ = useTickets({
+    bucket, scope,
+    search: search || undefined,
+    senderChannel: senderChannel || undefined,
+    funnelId: funnelFilter || undefined,
+  })
 
   // Auto-seleciona lead via ?leadId=X (vindo do kebab "WhatsApp" / "Abrir conversa"
   // em LeadsPage / LeadDetailPage). Passa por todos os buckets/scopes pra achar o
@@ -397,6 +409,31 @@ export function ConversationsPage() {
               >
                 {notifEnabled ? <Bell size={16} /> : <BellOff size={16} />}
               </button>
+            </div>
+            <div class="flex gap-2">
+              <div class="flex-1 min-w-0">
+                <Select
+                  value={senderChannel}
+                  onChange={(e) => setSenderChannel((e.target as HTMLSelectElement).value)}
+                  aria-label="Filtrar por número de envio"
+                >
+                  <option value="">Todos os números</option>
+                  {(numbersQ.data?.channels ?? [])
+                    .filter((c) => c.provider === 'evolution' || c.provider === 'cloud_api')
+                    .map((c) => <option key={c.id} value={c.id}>{c.number || c.label}</option>)}
+                </Select>
+              </div>
+              <div class="flex-1 min-w-0">
+                <Select
+                  value={funnelFilter}
+                  onChange={(e) => setFunnelFilter((e.target as HTMLSelectElement).value)}
+                  aria-label="Filtrar por funil"
+                >
+                  <option value="">Todos os funis</option>
+                  <option value="none">Sem funil</option>
+                  {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+                </Select>
+              </div>
             </div>
             <nav class="flex gap-1 p-0.5 rounded-md bg-surface-3" aria-label="Escopo">
               {scopeMeta.map((s) => {
