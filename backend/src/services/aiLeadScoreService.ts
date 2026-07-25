@@ -334,9 +334,12 @@ export async function scoreLead(
 
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, aiScore: true, aiScoredAt: true, aiScoreReason: true, lgpdConsent: true, qualifiedAt: true, completed: true },
+    select: { id: true, aiScore: true, aiScoredAt: true, aiScoreReason: true, lgpdConsent: true, qualifiedAt: true, completed: true, isGroup: true },
   })
   if (!lead) return null
+  // Grupo de WhatsApp não é pessoa: pontuar "intenção de compra" de um grupo não
+  // significa nada e gastaria IA por mensagem de dezenas de participantes.
+  if (lead.isGroup) return null
 
   // Salvaguarda de custo: só pontua leads com algum sinal de intenção real.
   if (!opts.force && phase !== 'manual') {

@@ -35,6 +35,8 @@ export interface Ticket {
   team: { id: number; name: string; color: string | null; slug: string | null } | null
   qualifiedAt: string | null
   qualificationSource: string | null
+  /** Conversa de GRUPO de WhatsApp (Evolution) — não é um contato individual. */
+  isGroup?: boolean
   /** Canal/número de origem da conversa (última mensagem) */
   channel: { provider: 'evolution' | 'cloud_api'; label: string; number: string | null; name: string | null } | null
 }
@@ -48,6 +50,8 @@ export interface TicketsCounters {
   teamQueue: number
   waiting: number
   attending: number
+  /** Conversas de grupo no escopo — 0 significa "este tenant não usa grupos". */
+  groups?: number
 }
 
 export interface TicketsListResponse {
@@ -66,6 +70,8 @@ export interface TicketsFilters {
   senderChannel?: string | undefined
   // Filtro por funil: id do funil OU "none" (contatos sem funil).
   funnelId?: string | undefined
+  // Tipo de conversa: 'contacts' | 'groups' (vazio = os dois, misturados).
+  kind?: string | undefined
   limit?: number | undefined
   offset?: number | undefined
 }
@@ -78,6 +84,7 @@ function buildQuery(f: TicketsFilters): string {
   if (f.search) p.set('search', f.search)
   if (f.senderChannel) p.set('senderChannel', f.senderChannel)
   if (f.funnelId) p.set('funnelId', f.funnelId)
+  if (f.kind) p.set('kind', f.kind)
   if (f.limit !== undefined) p.set('limit', String(f.limit))
   if (f.offset !== undefined) p.set('offset', String(f.offset))
   const qs = p.toString()
@@ -298,6 +305,8 @@ export interface TicketLeadInfo {
   nome: string | null
   empresa: string | null
   whatsapp: string | null
+  /** Conversa de GRUPO de WhatsApp — sem telefone, sem chatbot, sem score. */
+  isGroup?: boolean
   email: string | null
   segmento: string | null
   cidade: string | null

@@ -14,6 +14,9 @@ export interface WhatsAppInstance {
   ownerUserId: number | null
   funnelId: number | null
   stageKey: string | null
+  // Receber grupos de WhatsApp nesta conexão (só Evolution; a Cloud API oficial
+  // não expõe os grupos reais do número).
+  receiveGroups: boolean
   createdAt: string
   updatedAt: string
   status: 'connected' | 'disconnected' | 'error' | 'unknown'
@@ -53,6 +56,7 @@ export interface InstanceUpdateInput {
   funnelId?: number | null | undefined
   stageKey?: string | null | undefined
   active?: boolean | undefined
+  receiveGroups?: boolean | undefined
 }
 
 export function useUpdateInstance() {

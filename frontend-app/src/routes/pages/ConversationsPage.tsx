@@ -41,6 +41,7 @@ import {
   MessageCircle,
   ChevronDown,
   Check,
+  Users,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -243,6 +244,8 @@ export function ConversationsPage() {
   // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
   const [senderChannel, setSenderChannel] = useState('')
   const [funnelFilter, setFunnelFilter] = useState('')
+  // Tipo de conversa: '' = contatos e grupos juntos, 'contacts', 'groups'.
+  const [kindFilter, setKindFilter] = useState('')
   const numbersQ = useSenderNumbers()
   const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
@@ -257,6 +260,7 @@ export function ConversationsPage() {
     search: search || undefined,
     senderChannel: senderChannel || undefined,
     funnelId: funnelFilter || undefined,
+    kind: kindFilter || undefined,
   })
 
   // Auto-seleciona lead via ?leadId=X (vindo do kebab "WhatsApp" / "Abrir conversa"
@@ -410,7 +414,7 @@ export function ConversationsPage() {
                 {notifEnabled ? <Bell size={16} /> : <BellOff size={16} />}
               </button>
             </div>
-            <div class="flex gap-2">
+            <div class="flex gap-2 flex-wrap">
               <div class="flex-1 min-w-0">
                 <Select
                   value={senderChannel}
@@ -434,6 +438,22 @@ export function ConversationsPage() {
                   {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
                 </Select>
               </div>
+              {/* Tipo de conversa: só aparece se esta instalação recebe grupos
+                  (toggle da conexão OFF por padrão) — filtro inútil não polui a
+                  caixa de quem só atende contato individual. */}
+              {(counters?.groups ?? 0) > 0 && (
+                <div class="flex-1 min-w-0 basis-full">
+                  <Select
+                    value={kindFilter}
+                    onChange={(e) => setKindFilter((e.target as HTMLSelectElement).value)}
+                    aria-label="Filtrar contatos ou grupos"
+                  >
+                    <option value="">Contatos e grupos</option>
+                    <option value="contacts">Só contatos</option>
+                    <option value="groups">Só grupos ({counters?.groups})</option>
+                  </Select>
+                </div>
+              )}
             </div>
             <nav class="flex gap-1 p-0.5 rounded-md bg-surface-3" aria-label="Escopo">
               {scopeMeta.map((s) => {
@@ -555,16 +575,17 @@ export function ConversationsPage() {
             )}
             {!ticketsQ.isLoading && ticketsQ.data && ticketsQ.data.tickets.length > 0 && (
               <ul>
+                {/* Grupo não vira lead: fica fora da promoção individual e da seleção em massa. */}
                 {ticketsQ.data.tickets.map((t) => (
                   <TicketRow
                     key={t.id}
                     ticket={t}
                     active={selected === t.id}
                     onClick={() => setSelected(t.id)}
-                    selectable={selectionEnabled && !t.qualifiedAt}
+                    selectable={selectionEnabled && !t.qualifiedAt && !t.isGroup}
                     selected={selectedIds.has(t.id)}
                     onToggleSelect={() => toggleSelect(t.id)}
-                    onPromote={!t.qualifiedAt ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
+                    onPromote={!t.qualifiedAt && !t.isGroup ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
                   />
                 ))}
               </ul>
@@ -740,6 +761,8 @@ function TicketRow({
           <div class="size-9 rounded-full bg-surface-3 grid place-items-center text-fg-muted text-xs font-semibold shrink-0 overflow-hidden">
             {ticket.profilePicUrl
               ? <img src={ticket.profilePicUrl} alt="" class="w-full h-full object-cover" />
+              : ticket.isGroup
+              ? <Users size={16} />
               : initials}
           </div>
           <div class="flex-1 min-w-0">
@@ -757,7 +780,16 @@ function TicketRow({
             </div>
             <div class="flex items-center flex-wrap gap-1 mt-0.5">
               <ChannelTag channel={ticket.channel} compact />
-              {isQualified ? (
+              {ticket.isGroup ? (
+                // Grupo não é lead nem "conversa" a qualificar: badge próprio,
+                // sem os rótulos Lead/Conversa que valem para contato individual.
+                <span
+                  class="inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-accent/10 text-accent"
+                  title="Grupo de WhatsApp — o chatbot não responde aqui"
+                >
+                  <Users size={9} /> Grupo
+                </span>
+              ) : isQualified ? (
                 <span
                   class="inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-success/10 text-success"
                   title="Lead qualificado"
@@ -1068,6 +1100,9 @@ function ChatPanel({
   // `ticket` (useTickets filtrado por bucket). Após claim, o lead muda de bucket
   // e some de `ticketsList`, mas `lead` continua atualizado — sem isso, o botão
   // "Assumir" reaparece porque ticket vira undefined.
+  // Grupo de WhatsApp: muda o cabeçalho (nome do grupo, sem telefone) e tira o
+  // que só vale para pessoa. `lead` cobre o caso do ticket fora do bucket atual.
+  const isGroupChat = (lead?.isGroup ?? ticket?.isGroup) === true
   const convOpenedAt = lead?.conversationOpenedAt ?? ticket?.conversationOpenedAt ?? null
   const convClosedAt = lead?.conversationClosedAt ?? ticket?.conversationClosedAt ?? null
   const isResolved = !!convClosedAt
@@ -1114,6 +1149,8 @@ function ChatPanel({
         <div class="size-9 rounded-full bg-surface-3 grid place-items-center text-fg-muted text-sm font-semibold shrink-0 overflow-hidden">
           {lead?.profilePicUrl
             ? <img src={lead.profilePicUrl} alt="" class="w-full h-full object-cover" />
+            : isGroupChat
+            ? <Users size={16} />
             : (ticket?.nome ?? ticket?.empresa ?? '?')[0]?.toUpperCase()}
         </div>
         <div class="flex-1 min-w-0">
@@ -1129,7 +1166,15 @@ function ChatPanel({
             </div>
           )}
           <div class="flex items-center gap-2 mt-0.5 text-xs text-fg-muted flex-wrap">
-            {ticket?.whatsapp && <span class="inline-flex items-center gap-1"><Phone size={10} />{ticket.whatsapp}</span>}
+            {/* Grupo: o "telefone" é o id do JID, não serve para ninguém — troca
+                pelo selo de grupo, que também avisa que o bot não atua aqui. */}
+            {isGroupChat ? (
+              <span class="inline-flex items-center gap-1 text-accent" title="Grupo de WhatsApp — o chatbot não responde aqui">
+                <Users size={10} /> Grupo
+              </span>
+            ) : ticket?.whatsapp ? (
+              <span class="inline-flex items-center gap-1"><Phone size={10} />{ticket.whatsapp}</span>
+            ) : null}
             {ticket?.channel && <ChannelTag channel={ticket.channel} />}
             {ticket?.empresa && <span class="text-fg-subtle">| {ticket.empresa}</span>}
             {lead?.team && (

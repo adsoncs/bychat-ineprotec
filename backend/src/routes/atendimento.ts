@@ -160,6 +160,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           andClauses.push({ tags: { some: { tagId: { in: tagIdArr } } } })
         }
       }
+      // Filtro por TIPO de conversa: contato individual x grupo de WhatsApp.
+      // Vazio = os dois juntos (grupos ficam misturados na caixa, com badge).
+      const kind = (query.kind ?? '').toString()
+      if (kind === 'groups') where.isGroup = true
+      else if (kind === 'contacts') where.isGroup = false
+
       // Filtro por FUNIL: id específico OU "none" (contatos sem funil).
       const fq = (query.funnelId ?? '').toString()
       if (fq === 'none' || fq === 'null') {
@@ -208,6 +214,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             teamId: true,
             team: { select: { id: true, name: true, color: true, slug: true } },
             funnelId: true,
+            isGroup: true,
             tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
             qualifiedAt: true,
             qualificationSource: true,
@@ -309,6 +316,11 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         prisma.lead.count({ where: { ...counterScope, AND: [waitingBucketFilter] } }),
       ])
 
+      // Existe alguma conversa de grupo no escopo? A UI usa isso para só mostrar
+      // o filtro "Contatos / Grupos" em quem realmente recebe grupos — sem isso,
+      // todo mundo veria um filtro inútil (o toggle é OFF por padrão).
+      const groupsCount = await prisma.lead.count({ where: { ...counterScope, isGroup: true } })
+
       return {
         tickets: result,
         total,
@@ -321,6 +333,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           inbox: inboxCount,
           raw: rawCount,
           snoozed: snoozedCount,
+          groups: groupsCount,
         },
         myTeamIds,
         isAdmin: effectiveScope === 'all',
@@ -526,6 +539,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             }
           }
 
+          // Grupo pela Cloud API é IMPOSSÍVEL, não é limitação nossa: a Groups
+          // API do Meta só opera grupos criados por ela mesma (grupo existente
+          // não pode ser adotado), exige selo verde e limita a 8 participantes.
+          // Melhor barrar com motivo do que deixar o Meta devolver erro opaco.
+          if ((lead as any).isGroup && provider.providerName === 'cloud_api') {
+            return reply.code(400).send({
+              error: 'O WhatsApp Oficial (Cloud API) não envia mensagens para grupos. Use uma conexão Evolution para falar neste grupo.',
+              code: 'GROUP_NOT_SUPPORTED_CLOUD_API',
+            })
+          }
+
           // Janela de 24h (Cloud API): fora da janela, só template HSM aprovado.
           if (provider.providerName === 'cloud_api' && mType !== 'template') {
             const win = await wp.getCloudWindowState(parseInt(leadId))
@@ -538,7 +562,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           }
 
           let result: any
-          const destinatario: string = (lead as any).waLid || lead.whatsapp
+          // Grupo: o destino é o JID "<id>@g.us" (não há telefone). toEvoNumber()
+          // preserva JID completo, então o envio segue o mesmo caminho.
+          const destinatario: string = (lead as any).groupJid || (lead as any).waLid || lead.whatsapp
 
           if (mType === 'template') {
             if (provider.providerName !== 'cloud_api') {
@@ -1191,6 +1217,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           nome: true,
           empresa: true,
           whatsapp: true,
+          isGroup: true,
           email: true,
           segmento: true,
           cidade: true,

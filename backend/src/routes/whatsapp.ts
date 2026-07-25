@@ -16,6 +16,7 @@ import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbot
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/teamRouting.js'
+import { instanceAcceptsGroups, resolveGroupLead, groupSenderName } from '../services/whatsappGroups.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 
 // ─── Evolution API helpers ────────────────────────────────
@@ -650,6 +651,15 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // JID @lid a persistir no lead quando aplicável. Usado pra associar msgs futuras do mesmo LID.
       let waLidToPersist: string | null = null
 
+      // ── Mensagem de GRUPO ──
+      // Historicamente descartada aqui. Agora depende do toggle `receiveGroups`
+      // da conexão: OFF (default) mantém o descarte; ON segue para o fluxo de
+      // grupo mais abaixo, que NUNCA chama chatbot nem enriquecimento.
+      const isGroupMsg = remoteJid.endsWith('@g.us')
+      if (isGroupMsg && !(await instanceAcceptsGroups(inboundInstance))) {
+        return { ok: true }
+      }
+
       if (remoteJid.endsWith('@lid')) {
         // LID (@lid) é um identificador de PRIVACIDADE do WhatsApp — NÃO é telefone.
         // Tenta obter o número real via Evolution; o match CRM (waLid/phoneKey/nome)
@@ -670,7 +680,11 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // Acha o lead deste contato por waLid → phoneKey → nome e ADOTA o telefone
       // já cadastrado nele, fazendo todos os lookups abaixo convergirem para o
       // MESMO lead. Reconcilia (backfill phoneKey, grava waLid recém-descoberto).
-      {
+      //
+      // NÃO roda para grupo: o "telefone" ali são os dígitos do JID e o pushName
+      // é o do PARTICIPANTE, então o match por nome acharia (e reconciliaria) o
+      // lead pessoal de quem falou. Grupo dedupa por groupJid, mais abaixo.
+      if (!isGroupMsg) {
         const ident = await resolveLeadForContact({ phone, waLid: waLidToPersist, pushName: data.pushName })
         if (ident.lead) {
           if (ident.lead.whatsapp && !isLikelyLid(ident.lead.whatsapp)) phone = ident.lead.whatsapp
@@ -687,18 +701,15 @@ export async function whatsappRoutes(app: FastifyInstance) {
         }
       }
 
-      // Ignora mensagens de grupo
-      if (remoteJid.endsWith('@g.us')) return { ok: true }
-
       // Mensagens enviadas por nós — salvar externalId + ack inicial
       if (key.fromMe) {
-        if (messageId && phone) {
+        if (messageId && (phone || isGroupMsg)) {
           try {
             // Find the most recent sent message to this lead without externalId
-            const lead = await prisma.lead.findFirst({
-              where: { whatsapp: phone },
-              orderBy: { createdAt: 'desc' }
-            })
+            // (no grupo, o lead é achado pelo JID — não há telefone).
+            const lead = isGroupMsg
+              ? await prisma.lead.findFirst({ where: { groupJid: remoteJid }, orderBy: { createdAt: 'asc' } })
+              : await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
             if (lead) {
               const recentMsg = await prisma.message.findFirst({
                 where: { leadId: lead.id, fromMe: true, externalId: null },
@@ -783,6 +794,56 @@ export async function whatsappRoutes(app: FastifyInstance) {
       }
 
       const msgText = text || mediaCaption
+
+      // ── Inbound de GRUPO ──
+      // Caminho próprio e curto: grava a mensagem na conversa do grupo e para
+      // aqui. NÃO segue para chatbot (responder no grupo é spam para todos os
+      // participantes), detecção de origem ou enriquecimento — nada disso faz
+      // sentido para um grupo, que não é uma pessoa. Aceita mídia sem legenda,
+      // por isso vem depois da extração acima.
+      if (isGroupMsg) {
+        if (!msgText && mediaType === 'text') return { ok: true }
+        const participantJid: string = key.participant || data.participant || ''
+        const groupLead = await resolveGroupLead({ groupJid: remoteJid, instanceName: inboundInstance })
+        const createdGroupMsg = await prisma.message.create({
+          data: {
+            leadId: groupLead.id,
+            fromMe: false,
+            body: msgText || `[${mediaType}]`,
+            mediaType,
+            mediaUrl: mediaUrl || null,
+            mediaName: mediaName || null,
+            // Quem falou dentro do grupo — sem isso a conversa fica ilegível.
+            senderName: groupSenderName(data.pushName, participantJid),
+            externalId: messageId || null,
+            provider: 'evolution',
+            evolutionInstance: inboundInstance,
+            timestamp: new Date(),
+          },
+        })
+        await prisma.lead.update({
+          where: { id: groupLead.id },
+          data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() },
+        })
+        broadcastRealtimeEvent({
+          type: 'message:received',
+          payload: { leadId: groupLead.id, messageId: createdGroupMsg.id, mediaType, channel: 'whatsapp_group' },
+          scope: { leadId: groupLead.id },
+        })
+        logEvent({
+          leadId: groupLead.id,
+          type: EVENT_TYPES.MESSAGE_RECEIVED,
+          category: 'communication',
+          title: 'Mensagem recebida em grupo de WhatsApp',
+          channel: 'whatsapp',
+          source: 'webhook',
+          actorType: 'lead',
+          description: (msgText || `[${mediaType}]`).substring(0, 200),
+          metadata: { mediaType, messageId, groupJid: remoteJid, participant: participantJid || null },
+        })
+        app.log.info(`[Webhook] Grupo "${groupLead.nome}" (${remoteJid}) via ${inboundInstance}: ${(msgText || mediaType).substring(0, 80)}`)
+        return { ok: true }
+      }
 
       // Salva mídia SEM texto (imagem/áudio sem legenda/transcrição) aqui, pois
       // o fluxo abaixo só persiste quando há `msgText` (retorna em !msgText).

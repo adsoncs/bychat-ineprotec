@@ -691,6 +691,12 @@ model WhatsAppInstance {
   funnelId      Int?
   funnel        Funnel?  @relation(fields: [funnelId], references: [id], onDelete: SetNull)
   stageKey      String?  @db.VarChar(80)
+  // Receber mensagens de GRUPOS de WhatsApp nesta conexão. OFF (default) = o
+  // webhook descarta toda msg de grupo, como sempre fez. Ligar traz os grupos
+  // do número para as Conversas; o chatbot NUNCA responde em grupo (seria spam
+  // para todos os participantes). Só Evolution — a Cloud API oficial não expõe
+  // os grupos reais do número.
+  receiveGroups Boolean  @default(false)
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -804,6 +810,15 @@ model Lead {
   // JID @lid observado quando WhatsApp entrega LID (Linked ID) em vez do número real.
   // Permite associar mensagens recebidas ao lead certo mesmo sem conseguir resolver pro phone.
   waLid String? @db.VarChar(100)
+
+  // ── Conversa de GRUPO de WhatsApp (só Evolution) ──
+  // Grupo NÃO é pessoa: fica fora do chatbot, do enriquecimento e do score de IA,
+  // e não entra no resolvedor de identidade por telefone/nome (contactIdentity).
+  // Só existe quando a conexão está com `receiveGroups` ligado.
+  isGroup  Boolean @default(false)
+  // JID do grupo ("<id>@g.us"): identidade do grupo (não há telefone) e destino
+  // de envio. É a chave de dedup do inbound de grupo.
+  groupJid String? @db.VarChar(64)
 
   // Enriquecimento / LGPD
   lgpdConsent       Boolean   @default(false) // autoriza enriquecimento de dados públicos
@@ -920,6 +935,8 @@ model Lead {
   @@index([teamId])
   @@index([waLid])
   @@index([phoneKey])
+  @@index([groupJid])
+  @@index([isGroup])
   @@index([qualifiedAt])
   @@index([firstResponseAt])
   @@index([conversationOpenedAt, conversationClosedAt])

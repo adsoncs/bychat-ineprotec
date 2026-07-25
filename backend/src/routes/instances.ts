@@ -166,10 +166,12 @@ export async function instancesRoutes(app: FastifyInstance) {
   // PUT /api/admin/instances/:id — Update instance (admin-only).
   app.put('/api/admin/instances/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const { name, chatbotId, defaultTeamId, ownerUserId, active, funnelId, stageKey } = req.body as any
+    const { name, chatbotId, defaultTeamId, ownerUserId, active, funnelId, stageKey, receiveGroups } = req.body as any
     const data: any = {}
     if (name !== undefined) data.name = name
     if (chatbotId !== undefined) data.chatbotId = chatbotId || null
+    // Grupos de WhatsApp nesta conexão (só Evolution). Ver services/whatsappGroups.ts.
+    if (receiveGroups !== undefined) data.receiveGroups = !!receiveGroups
 
     // Funil dos leads do chatbot (validar funil + etapa). Vazio = não promove.
     if (funnelId !== undefined || stageKey !== undefined) {

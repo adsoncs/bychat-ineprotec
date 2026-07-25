@@ -574,6 +574,8 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
   const [defaultTeamId, setDefaultTeamId] = useState(instance.defaultTeamId != null ? String(instance.defaultTeamId) : '')
   const [ownerUserId, setOwnerUserId] = useState(instance.ownerUserId != null ? String(instance.ownerUserId) : '')
   const [active, setActive] = useState(instance.active)
+  // Grupos de WhatsApp nesta conexão. OFF = comportamento histórico (descarta no webhook).
+  const [receiveGroups, setReceiveGroups] = useState(instance.receiveGroups ?? false)
   const update = useUpdateInstance()
   const { data: chatbots } = useChatbots()
   const { data: teams } = useTeams()
@@ -605,6 +607,7 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       funnelId: chatbotId && funnelId ? Number(funnelId) : null,
       stageKey: chatbotId && funnelId && stageKey ? stageKey : null,
       active,
+      receiveGroups,
     }, {
       onSuccess: () => { toast('Instância atualizada', 'success'); onClose() },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -683,6 +686,27 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
           <input type="checkbox" checked={active} onChange={(e) => setActive((e.target as HTMLInputElement).checked)} />
           Instância ativa (recebe mensagens)
         </label>
+
+        <div>
+          <label class="flex items-center gap-2 text-sm text-fg-muted">
+            <input
+              type="checkbox"
+              checked={receiveGroups}
+              onChange={(e) => setReceiveGroups((e.target as HTMLInputElement).checked)}
+            />
+            Receber mensagens de grupos
+          </label>
+          <p class="text-xs text-fg-muted mt-1">
+            {receiveGroups
+              ? 'Os grupos deste número aparecem nas Conversas, com o nome de quem falou em cada mensagem. O chatbot nunca responde em grupo.'
+              : 'Desligado: mensagens de grupo são descartadas e não aparecem nas Conversas.'}
+          </p>
+          {receiveGroups && chatbotId && (
+            <p class="text-xs text-warning mt-1">
+              Esta conexão tem chatbot vinculado — ele continua atendendo as conversas individuais e é ignorado nos grupos.
+            </p>
+          )}
+        </div>
       </div>
     </Modal>
   )

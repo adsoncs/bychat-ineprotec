@@ -291,8 +291,11 @@ export function startAiJourneyListener(): void {
       try {
         const lead = await prisma.lead.findUnique({
           where: { id: leadId },
-          select: { funnel: { select: { aiStageEnabled: true } } },
+          select: { isGroup: true, funnel: { select: { aiStageEnabled: true } } },
         })
+        // Conversa de grupo não entra na Jornada IA: não há um lead a qualificar
+        // e cada mensagem de participante dispararia análise (custo sem retorno).
+        if (lead?.isGroup) return
         if (!lead?.funnel?.aiStageEnabled) return
         await queues.aiJourney.add('analyze', { leadId }, { attempts: 2, backoff: { type: 'exponential', delay: 30_000 } })
       } catch (err: any) {
