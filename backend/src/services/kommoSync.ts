@@ -19,7 +19,8 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { getKommoConfig, kommoFetch, kommoPaginate, type KommoConfig } from '../lib/kommoClient.js'
-import { generateUid, phoneDigits } from './dedup.js'
+import { generateUid } from './dedup.js'
+import { displayPhone } from '../lib/phone.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 
 // ─────────────────────────────────────────────────────────────
@@ -284,7 +285,7 @@ export async function importContactsPage(page: number, since?: number, cfg?: Kom
       else if (m && m.meta?.key) cf[m.meta.key] = val
     }
     await setMapping('contact', c.id, 0, {
-      name: c.name || '', phone: phone ? phoneDigits(phone) : '', email,
+      name: c.name || '', phone: phone ? displayPhone(phone) : '', email,
       firstName: c.first_name || '', lastName: c.last_name || '', cf,
     })
   }
