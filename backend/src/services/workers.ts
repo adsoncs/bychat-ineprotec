@@ -1,8 +1,9 @@
 // src/services/workers.ts
 // BullMQ workers para as filas de execução
 
-import { Worker } from 'bullmq'
+import { Worker, UnrecoverableError } from 'bullmq'
 import { prisma } from '../lib/prisma.js'
+import { toWaNumber } from '../lib/phone.js'
 import { redisConnection } from '../lib/queues.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { bullmqJobsTotal, bullmqJobDuration, captureException } from '../lib/observability.js'
@@ -69,6 +70,18 @@ function createWhatsAppWorker() {
     const lead = await prisma.lead.findUnique({ where: { id: leadId } })
     if (!lead || !lead.whatsapp) throw new Error(`Lead ${leadId} sem WhatsApp`)
 
+    // Número canônico com DDI para as APIs de WhatsApp. Sem isto o disparo saía
+    // com o valor cru do CRM — canais como o Lead Ads entregam "18988059971",
+    // sem o 55 — e a Evolution respondia `exists:false`. Quando o valor nem é um
+    // telefone discável (sem DDD, LID, dois números colados sem divisão clara),
+    // falha AQUI com mensagem útil em vez de queimar 3 tentativas na API.
+    const to = toWaNumber(lead.whatsapp)
+    if (!to) {
+      const err = `Lead ${leadId} com WhatsApp inválido ("${lead.whatsapp}") — número não discável, corrija o cadastro`
+      await updateStepExecution(stepExecutionId, 'failed', null, err)
+      throw new UnrecoverableError(err)
+    }
+
     const cfg = await getWhatsAppConfig()
     if (!cfg.url || !cfg.key) throw new Error('WhatsApp não configurado')
 
@@ -89,7 +102,7 @@ function createWhatsAppWorker() {
       queueName: 'wf-whatsapp',
       jobId: job.id ? String(job.id) : null,
       leadId,
-      recipient: lead.whatsapp,
+      recipient: to,
       bodyPreview: message,
       attempts: job.attemptsMade + 1,
       maxAttempts: job.opts?.attempts ?? null,
@@ -99,7 +112,7 @@ function createWhatsAppWorker() {
       const resp = await fetch(`${cfg.url}/message/sendText/${inst}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: cfg.key },
-        body: JSON.stringify({ number: lead.whatsapp, text: message })
+        body: JSON.stringify({ number: to, text: message })
       })
 
       if (!resp.ok) {
