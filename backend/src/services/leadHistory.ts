@@ -92,6 +92,11 @@ export const EVENT_TYPES = {
   // Anotações
   ANNOTATION_SAVED:        'annotation_saved',
 
+  // Takeover humano: operador respondeu → chatbot pausado nesta conversa
+  // (definitivo, até devolverem pelo botão nas Conversas).
+  BOT_PAUSED_HUMAN:        'bot_paused_human',
+  BOT_RESUMED:             'bot_resumed',
+
   // Workflow / Automação
   SALE_DETECTED:           'sale_detected',
   ACTIVITY_COMPLETED:      'activity_completed',

@@ -42,6 +42,7 @@ import {
   ChevronDown,
   Check,
   Users,
+  BotOff,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -58,6 +59,7 @@ import {
   useSnoozeTicket,
   useUnsnoozeTicket,
   useTicketInfo,
+  useResumeBot,
   useTypingState,
   useUploadChatMedia,
   useSenderNumbers,
@@ -1110,6 +1112,10 @@ function ChatPanel({
   const isAssigned = lead?.assignedUserId != null
   const snoozedUntil = lead?.snoozedUntil ?? ticket?.snoozedUntil ?? null
   const isSnoozed = snoozedUntil ? new Date(snoozedUntil).getTime() > Date.now() : false
+  // Takeover humano: o chatbot para de responder assim que um operador escreve
+  // ao lead, e só volta por este botão.
+  const botPaused = lead?.botPaused ?? null
+  const resumeBot = useResumeBot(leadId)
   const assignedToMe =
     lead?.assignedUserId != null
     && currentUserId != null
@@ -1367,6 +1373,26 @@ function ChatPanel({
             })}
           >
             <AlarmClockOff size={11} /> Acordar
+          </button>
+        </div>
+      )}
+
+      {botPaused && (
+        <div class="px-3 py-2 border-b border-border bg-info/10 text-info flex items-center gap-2 text-xs">
+          <BotOff size={12} class="shrink-0" />
+          <span class="flex-1">
+            Chatbot pausado nesta conversa{botPaused.byName ? ` — ${botPaused.byName} assumiu o atendimento` : ' — atendimento assumido por um humano'}.
+          </span>
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded border border-current hover:bg-info/20 inline-flex items-center gap-1"
+            disabled={resumeBot.isPending}
+            onClick={() => resumeBot.mutate(undefined, {
+              onSuccess: () => toast('Conversa devolvida ao chatbot', 'success'),
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            })}
+          >
+            <PlayCircle size={11} /> Devolver ao bot
           </button>
         </div>
       )}

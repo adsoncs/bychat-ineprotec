@@ -620,6 +620,20 @@ async function _process(
 
   const leadId = state.leadId!
 
+  // Takeover humano: um operador já respondeu a este lead pelo painel. A mensagem
+  // do cliente continua sendo gravada (aparece nas Conversas), mas a IA NÃO
+  // responde — em definitivo, até devolverem a conversa ao bot. Ver botTakeover.ts.
+  {
+    const { readBotPause } = await import('./botTakeover.js')
+    const fresh = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+    const paused = readBotPause(fresh?.formData)
+    if (paused) {
+      await saveIncoming(leadId, text)
+      app.log.info(`[aiJourney] lead ${leadId}: bot pausado (humano assumiu em ${paused.at}) — sem resposta automática`)
+      return
+    }
+  }
+
   // Conversa encerrada → não reabre o roteiro (pós-atendimento humano).
   if (lead?.completed || state.phase === 'done' || state.phase === 'disqualified') {
     await saveIncoming(leadId, text)

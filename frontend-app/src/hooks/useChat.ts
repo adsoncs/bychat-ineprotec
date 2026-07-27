@@ -192,6 +192,20 @@ export function useSendMessage(leadId: number | null) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
       void qc.invalidateQueries({ queryKey: ['tickets'] })
+      // Responder ao lead pausa o chatbot nesta conversa (takeover humano) —
+      // recarrega o info para o aviso aparecer sem precisar de refresh.
+      void qc.invalidateQueries({ queryKey: ['ticket-info', leadId] })
+    },
+  })
+}
+
+/** Devolve a conversa ao chatbot depois de um takeover humano. */
+export function useResumeBot(leadId: number | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post<{ ok: true; resumed: boolean }>(`/atendimento/tickets/${leadId}/resume-bot`, {}),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['ticket-info', leadId] })
     },
   })
 }
@@ -333,6 +347,9 @@ export interface TicketLeadInfo {
   conversationOpenedAt: string | null
   conversationClosedAt: string | null
   snoozedUntil: string | null
+  /** Takeover humano: setado quando um operador respondeu → o chatbot está pausado
+   *  nesta conversa até alguém devolvê-la ao bot. null = bot ativo. */
+  botPaused: { at: string; byUserId?: number | null; byName?: string | null } | null
   tags: { tag: { id: number; name: string; color: string | null } }[]
 }
 

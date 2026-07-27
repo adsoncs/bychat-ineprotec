@@ -325,6 +325,16 @@ async function getAttendantName(chatbotId: number | null): Promise<string> {
 // Quando retorna false, o webhook trata como "sem chatbot" → atendimento humano.
 export async function chatbotTriggerAllows(chatbotId: number | null | undefined, phone: string, msgText: string): Promise<boolean> {
   if (!chatbotId) return false
+  // Takeover humano: se um operador já respondeu a este lead pelo painel, o bot
+  // NUNCA responde (pausa definitiva até devolverem pelas Conversas). Precede
+  // o filtro de palavra-chave. Ver services/botTakeover.ts.
+  const paused = await prisma.lead.findFirst({
+    where: { whatsapp: phone }, orderBy: { createdAt: 'desc' }, select: { formData: true },
+  }).catch(() => null)
+  if (paused) {
+    const { readBotPause } = await import('./botTakeover.js')
+    if (readBotPause(paused.formData)) return false
+  }
   const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { triggerMode: true, triggerKeywords: true } }).catch(() => null)
   if (!cb || cb.triggerMode !== 'keyword') return true
   const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)

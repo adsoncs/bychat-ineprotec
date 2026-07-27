@@ -659,6 +659,15 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         data: { lastMessageAt: new Date() }
       })
 
+      // Takeover humano: o operador falou com o lead → o chatbot para de responder
+      // nesta conversa até alguém devolvê-la ao bot. Nota interna não conta (não
+      // chega ao lead). Ver services/botTakeover.ts.
+      let pausedBot = false
+      if (!isInternal) {
+        const { pauseBotForHuman } = await import('../services/botTakeover.js')
+        pausedBot = await pauseBotForHuman(parseInt(leadId), { userId: user.userId, userName: user.name })
+      }
+
       logEvent({
         leadId: parseInt(leadId),
         type: isInternal ? EVENT_TYPES.MESSAGE_INTERNAL : EVENT_TYPES.MESSAGE_SENT,
@@ -809,6 +818,23 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       await openConversation(lid, { byUserId: user.userId, byUserName: user.name || user.email, reason: 'manual' })
       await prisma.lead.update({ where: { id: lid }, data: { completed: false } })
       return { ok: true }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ── POST /api/atendimento/tickets/:leadId/resume-bot — Devolver ao chatbot ──
+  // O bot é pausado automaticamente quando um operador responde ao lead
+  // (services/botTakeover.ts). Esta rota é o caminho de volta.
+  app.post('/api/atendimento/tickets/:leadId/resume-bot', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const { leadId } = req.params as any
+      const lid = parseInt(leadId)
+      if (!await assertTicketAccess(req, reply, lid)) return
+      const user = (req as any).user as { userId: number; name?: string; email?: string }
+      const { resumeBot } = await import('../services/botTakeover.js')
+      const resumed = await resumeBot(lid, { userId: user.userId, userName: user.name || user.email })
+      return { ok: true, resumed }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
@@ -1244,13 +1270,18 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           conversationOpenedAt: true,
           conversationClosedAt: true,
           snoozedUntil: true,
+          formData: true,
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } }
         }
       })
       if (!lead) {
         return reply.code(404).send({ error: 'Lead nao encontrado' })
       }
-      return { lead }
+      // Estado do takeover humano para a UI (badge + botão "devolver ao bot").
+      // `formData` sai do payload: serve só para derivar o marcador.
+      const { readBotPause } = await import('../services/botTakeover.js')
+      const { formData, ...rest } = lead as any
+      return { lead: { ...rest, botPaused: readBotPause(formData) } }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
