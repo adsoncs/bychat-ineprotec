@@ -70,6 +70,8 @@ export interface KanbanLead {
   createdAt: string
   updatedAt: string
   annotation: string | null
+  // Campos personalizados — o card exibe os marcados showInKanban.
+  customFields?: Record<string, unknown> | null
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
   tags?: { tag: { id: number; name: string; color: string } }[]

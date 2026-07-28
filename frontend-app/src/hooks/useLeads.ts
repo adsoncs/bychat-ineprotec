@@ -59,6 +59,8 @@ export interface LeadListItem {
   qualifiedAt: string | null
   qualificationSource: string | null
   funnel?: { id: number; name: string } | null
+  // Campos personalizados — a lista renderiza como coluna os marcados showInList.
+  customFields?: Record<string, unknown> | null
   tags?: LeadTag[]
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null

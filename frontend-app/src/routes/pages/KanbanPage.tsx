@@ -55,6 +55,7 @@ import { useUserStore } from '@/stores/user'
 import { SavedFiltersBar } from '@/components/leads/SavedFiltersBar'
 import { KanbanFiltersPanel } from '@/components/leads/KanbanFiltersPanel'
 import { useDuplicateLead, useSendLeadsToKanban } from '@/hooks/useLeads'
+import { useCustomFields } from '@/hooks/useCustomFields'
 import { useFunnel } from '@/hooks/useFunnels'
 import { useAuth } from '@/hooks/useAuth'
 import { Page } from '@/components/ui/Page'
@@ -799,6 +800,25 @@ function DraggableCard({
   )
 }
 
+/** Campos personalizados marcados "mostrar no Kanban" que o lead tem preenchidos.
+ * Máximo de 3 linhas — o card é denso e precisa continuar legível. */
+function useKanbanCardFields(lead: KanbanLead): Array<{ key: string; label: string; value: string }> {
+  const { data } = useCustomFields()
+  return useMemo(() => {
+    const values = (lead.customFields ?? {}) as Record<string, unknown>
+    const out: Array<{ key: string; label: string; value: string }> = []
+    for (const f of data?.fields ?? []) {
+      if (!f.active || !f.showInKanban) continue
+      const v = values[f.key]
+      if (v === null || v === undefined || v === '') continue
+      const text = Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)
+      out.push({ key: f.key, label: f.label, value: text })
+      if (out.length === 3) break
+    }
+    return out
+  }, [data?.fields, lead.customFields])
+}
+
 function isStale(updatedAt: string): boolean {
   const ts = new Date(updatedAt).getTime()
   if (!Number.isFinite(ts)) return false
@@ -864,6 +884,7 @@ function LeadCard({
 }) {
   const stale = isStale(lead.updatedAt)
   const score = typeof lead.scores?.geral === 'number' ? lead.scores.geral : null
+  const kanbanFields = useKanbanCardFields(lead)
   const showActions = onView ?? onActivity ?? onDuplicate ?? onMove ?? onMarkWon ?? onMarkLost
   const outcomeBorder = lead.outcome === 'won'
     ? 'border-l-2 border-l-success'
@@ -955,6 +976,16 @@ function LeadCard({
                   +{lead.tags.length - 3}
                 </span>
               )}
+            </div>
+          )}
+          {kanbanFields.length > 0 && (
+            <div class="mt-2 space-y-0.5">
+              {kanbanFields.map((f) => (
+                <div key={f.key} class="flex items-baseline gap-1.5 text-[0.6875rem] leading-snug">
+                  <span class="text-fg-subtle shrink-0">{f.label}:</span>
+                  <span class="text-fg-muted truncate" title={f.value}>{f.value}</span>
+                </div>
+              ))}
             </div>
           )}
           {lead.annotation && (

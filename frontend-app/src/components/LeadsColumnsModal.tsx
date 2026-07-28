@@ -19,9 +19,10 @@ import { Button } from '@/components/ui/Button'
 import {
   useLeadsColumnsStore,
   ALL_LEAD_COLUMNS,
-  LEAD_COLUMN_LABELS,
+  leadColumnLabel,
   type LeadColumnKey,
 } from '@/stores/leadsColumns'
+import { useCustomFields } from '@/hooks/useCustomFields'
 
 interface LeadsColumnsModalProps {
   open: boolean
@@ -35,7 +36,14 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
   const reset = useLeadsColumnsStore((s) => s.reset)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
-  const inactive = ALL_LEAD_COLUMNS.filter((c) => !visible.includes(c))
+  // Campos personalizados marcados "mostrar na lista" entram como colunas
+  // `cf:<key>` — assim o operador escolhe exibi-los como qualquer coluna nativa.
+  const { data: cfData } = useCustomFields()
+  const cfFields = (cfData?.fields ?? []).filter((f) => f.active && f.showInList)
+  const cfLabels = Object.fromEntries((cfData?.fields ?? []).map((f) => [f.key, f.label]))
+  const allColumns: LeadColumnKey[] = [...ALL_LEAD_COLUMNS, ...cfFields.map((f) => `cf:${f.key}` as const)]
+
+  const inactive = allColumns.filter((c) => !visible.includes(c))
 
   function handleDragEnd(e: DragEndEvent) {
     const { active, over } = e
@@ -70,7 +78,7 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
             <SortableContext items={visible} strategy={verticalListSortingStrategy}>
               <ul class="space-y-1">
                 {visible.map((col) => (
-                  <SortableColumn key={col} col={col} onToggle={() => toggle(col)} />
+                  <SortableColumn key={col} col={col} label={leadColumnLabel(col, cfLabels)} onToggle={() => toggle(col)} />
                 ))}
               </ul>
             </SortableContext>
@@ -92,7 +100,7 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
                   class="flex items-center gap-2 px-3 h-9 rounded-md text-sm text-fg-muted hover:bg-surface-3"
                 >
                   <span class="size-4" />
-                  <span class="flex-1">{LEAD_COLUMN_LABELS[col]}</span>
+                  <span class="flex-1">{leadColumnLabel(col, cfLabels)}</span>
                   <button
                     type="button"
                     class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg"
@@ -111,7 +119,7 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
   )
 }
 
-function SortableColumn({ col, onToggle }: { col: LeadColumnKey; onToggle: () => void }) {
+function SortableColumn({ col, label, onToggle }: { col: LeadColumnKey; label: string; onToggle: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: col })
 
   const style = {
@@ -135,7 +143,7 @@ function SortableColumn({ col, onToggle }: { col: LeadColumnKey; onToggle: () =>
       >
         <GripVertical size={12} />
       </button>
-      <span class="flex-1">{LEAD_COLUMN_LABELS[col]}</span>
+      <span class="flex-1">{label}</span>
       <button
         type="button"
         class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg"

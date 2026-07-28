@@ -131,6 +131,8 @@ export async function kanbanRoutes(app: FastifyInstance) {
       prisma.stage.findMany({ where: stageWhere, orderBy: { position: 'asc' } }),
       prisma.lead.findMany({ where: leadWhere, orderBy: { createdAt: 'desc' },
         select: { id: true, empresa: true, nome: true, whatsapp: true, email: true, scores: true, status: true, source: true, metaFormId: true, completed: true, createdAt: true, updatedAt: true, annotation: true, outcome: true, outcomeAt: true,
+          // O card exibe os campos personalizados marcados showInKanban.
+          customFields: true,
           assignedUserId: true, assignedAt: true, teamId: true,
           assignedUser: { select: { id: true, name: true } },
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } } }

@@ -81,7 +81,7 @@ import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
 import { useModuleAccess } from '@/hooks/usePermissions'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
-import { useLeadsColumnsStore, LEAD_COLUMN_LABELS, type LeadColumnKey } from '@/stores/leadsColumns'
+import { useLeadsColumnsStore, leadColumnLabel, isCustomColumn, customColumnKey, type LeadColumnKey } from '@/stores/leadsColumns'
 import { formatDateTime } from '@/lib/format'
 import { LeadStatusBadge } from '@/components/LeadStatusBadge'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
@@ -116,6 +116,15 @@ export function LeadsPage() {
   })
   const [creating, setCreating] = useState(false)
   const [, navigate] = useLocation()
+
+  // Campos personalizados marcados "mostrar na lista" viram coluna automaticamente
+  // na primeira vez que este operador os vê (depois é escolha dele, em Colunas).
+  const { data: cfAll } = useCustomFields()
+  const syncCustomColumns = useLeadsColumnsStore((s) => s.syncCustomColumns)
+  useEffect(() => {
+    const keys = (cfAll?.fields ?? []).filter((f) => f.active && f.showInList).map((f) => f.key)
+    if (keys.length > 0) syncCustomColumns(keys)
+  }, [cfAll?.fields, syncCustomColumns])
 
   // Abre o detalhe do lead na página dedicada `/app/leads/:id`.
   // O modal antigo continua sendo usado por Kanban e widgets do dashboard
@@ -1395,6 +1404,9 @@ function LeadsTable({
   onAction: (action: LeadRowAction, lead: LeadListItem) => void
 }) {
   const visible = useLeadsColumnsStore((s) => s.visible)
+  // Rótulos dos campos personalizados exibidos como coluna (`cf:<key>`).
+  const { data: cfData } = useCustomFields()
+  const cfLabels = Object.fromEntries((cfData?.fields ?? []).map((f) => [f.key, f.label]))
   const allSelected = rows.length > 0 && rows.every((l) => selected.has(l.id))
   const someSelected = rows.some((l) => selected.has(l.id)) && !allSelected
   return (
@@ -1416,7 +1428,7 @@ function LeadsTable({
               if (!sortKey) {
                 return (
                   <th key={col} class="text-left px-4 py-2 font-medium">
-                    {LEAD_COLUMN_LABELS[col]}
+                    {leadColumnLabel(col, cfLabels)}
                   </th>
                 )
               }
@@ -1429,7 +1441,7 @@ function LeadsTable({
                   onClick={() => onSort(sortKey)}
                   aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  {LEAD_COLUMN_LABELS[col]}{arrow}
+                  {leadColumnLabel(col, cfLabels)}{arrow}
                 </th>
               )
             })}
@@ -1637,8 +1649,26 @@ function LeadCell({ col, lead }: { col: LeadColumnKey; lead: LeadListItem }) {
         </td>
       )
     default:
+      // Campo personalizado (`cf:<key>`): valor cru do lead, formatado no mínimo
+      // necessário — listas viram "a, b" e objetos caem para JSON.
+      if (isCustomColumn(col)) {
+        return (
+          <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-[14rem]" title={customCellText(lead, col)}>
+            {customCellText(lead, col)}
+          </td>
+        )
+      }
       return <td class="px-4 py-2 text-fg-subtle">—</td>
   }
+}
+
+/** Texto exibido para uma coluna de campo personalizado. */
+function customCellText(lead: LeadListItem, col: LeadColumnKey): string {
+  const v = (lead.customFields ?? {})[customColumnKey(col)]
+  if (v === null || v === undefined || v === '') return '—'
+  if (Array.isArray(v)) return v.join(', ')
+  if (typeof v === 'object') { try { return JSON.stringify(v) } catch { return '—' } }
+  return String(v)
 }
 
 function CreateLeadModal({ onClose }: { onClose: () => void }) {

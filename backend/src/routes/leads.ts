@@ -447,6 +447,9 @@ export async function leadsRoutes(app: FastifyInstance) {
           aiScore: true, aiScoreLabel: true, aiScoreReason: true,
           maturidade: true, status: true, lastStep: true, completed: true,
           source: true, funnelId: true, createdAt: true, annotation: true,
+          // Campos personalizados: a lista renderiza como coluna os marcados
+          // showInList (ver stores/leadsColumns.ts no frontend).
+          customFields: true,
           qualifiedAt: true, qualificationSource: true,
           outcome: true, outcomeAt: true, lostReasonId: true,
           // F6: responsável pelo lead (round-robin/regras/claim).
