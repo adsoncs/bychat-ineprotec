@@ -62,7 +62,7 @@ async function ensureUserForKommo(u: any): Promise<number> {
 // Mapping helpers (KommoMapping)
 // ─────────────────────────────────────────────────────────────
 
-type EntityType = 'lead' | 'contact' | 'pipeline' | 'status' | 'tag' | 'note' | 'task' | 'custom_field' | 'user' | 'chat_template'
+type EntityType = 'lead' | 'contact' | 'pipeline' | 'status' | 'tag' | 'note' | 'task' | 'custom_field' | 'user' | 'chat_template' | 'catalog' | 'catalog_element'
 
 async function setMapping(entityType: EntityType, kommoId: string | number, localId: number, meta?: any): Promise<void> {
   const kid = String(kommoId)
@@ -110,12 +110,51 @@ function mapFieldType(kommoType: string): string {
   }
 }
 
-/** Extrai um valor simples de um custom_fields_values[].values da Kommo. */
-function extractCfValue(values: any[]): any {
+/** Dicionário de elementos de catálogo (id Kommo → meta) usado para resolver
+ * campos `chained_list`. Ver `importCatalogs`. */
+type CatalogDict = Map<string, { localId: number; meta: any }>
+
+/**
+ * Extrai um valor simples de um custom_fields_values[].values da Kommo.
+ *
+ * Campos do tipo `chained_list` (na conta ineprotec: "Curso de Interesse 1/2/3")
+ * NÃO trazem `value` — trazem `{catalog_id, catalog_element_id}`, uma referência
+ * ao catálogo de Produtos. Sem resolver o id contra o catálogo, o valor se perdia
+ * silenciosamente (o filtro por `v.value` descartava tudo). `catalogs` é o
+ * dicionário de elementos importado por `importCatalogs`; sem ele, guardamos ao
+ * menos `#<id>` para não perder a informação.
+ */
+function extractCfValue(values: any[], catalogs?: CatalogDict): any {
   if (!Array.isArray(values) || values.length === 0) return null
-  const vals = values.map((v) => v?.value).filter((v) => v !== undefined && v !== null && v !== '')
-  if (vals.length === 0) return null
-  return vals.length === 1 ? vals[0] : vals
+  const out: any[] = []
+  for (const v of values) {
+    if (v == null) continue
+    if (v.catalog_element_id != null) {
+      const el = catalogs?.get(String(v.catalog_element_id))
+      out.push(el?.meta?.name ?? `#${v.catalog_element_id}`)
+      continue
+    }
+    const raw = v?.value
+    if (raw === undefined || raw === null || raw === '') continue
+    out.push(typeof raw === 'object' ? JSON.stringify(raw) : raw)
+  }
+  if (out.length === 0) return null
+  return out.length === 1 ? out[0] : out
+}
+
+/** Primeiro `catalog_element_id` referenciado pelos custom fields de um lead.
+ * Quando há mais de um (Curso 1/2/3), vence o campo de menor nome — "Curso de
+ * Interesse 1" < "2" < "3" —, que é o curso principal do lead. */
+function primaryCatalogElementId(customFieldsValues: any[]): number | null {
+  const refs: Array<{ name: string; id: number }> = []
+  for (const fv of customFieldsValues ?? []) {
+    for (const v of fv?.values ?? []) {
+      if (v?.catalog_element_id != null) refs.push({ name: String(fv.field_name || ''), id: Number(v.catalog_element_id) })
+    }
+  }
+  if (refs.length === 0) return null
+  refs.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  return refs[0].id
 }
 
 const unix = (sec?: number | null): Date | null => (sec ? new Date(sec * 1000) : null)
@@ -157,12 +196,135 @@ export async function importTemplates(cfg?: KommoConfig): Promise<{ templates: n
 }
 
 // ─────────────────────────────────────────────────────────────
+// Catálogos (listas de produtos/serviços da Kommo)
+// ─────────────────────────────────────────────────────────────
+
+/** Atributos úteis de um elemento de catálogo (preço, grupo, escola).
+ * Os campos são livres por conta; identificamos por `field_code` e, na falta
+ * dele (ESCOLA não tem code), pelo nome do campo. */
+function catalogElementAttrs(el: any): { price: number | null; group: string | null; escola: string | null } {
+  let price: number | null = null
+  let group: string | null = null
+  let escola: string | null = null
+  for (const fv of el?.custom_fields_values ?? []) {
+    const code = String(fv?.field_code || '').toUpperCase()
+    const name = String(fv?.field_name || '').toUpperCase()
+    const val = extractCfValue(fv?.values)
+    if (val == null) continue
+    const first = Array.isArray(val) ? val[0] : val
+    if (price == null && (code === 'PRICE' || code === 'WHOLESALE_PRICE' || fv?.field_type === 'price')) {
+      const n = Number(String(first).replace(/[^\d.,-]/g, '').replace(',', '.'))
+      if (Number.isFinite(n)) price = n
+    } else if (!group && (code === 'GROUP' || fv?.field_type === 'category')) {
+      group = String(first).substring(0, 191)
+    } else if (!escola && name.includes('ESCOLA')) {
+      escola = String(first).substring(0, 191)
+    }
+  }
+  return { price, group, escola }
+}
+
+/**
+ * Importa os catálogos da Kommo e seus elementos para o KommoMapping. Os
+ * elementos não viram entidade local (localId=0) — servem de dicionário para
+ * traduzir os campos `chained_list` dos leads (ex: "Curso de Interesse") de
+ * `catalog_element_id` para o nome do produto, mais preço/grupo/escola.
+ */
+export async function importCatalogs(cfg?: KommoConfig): Promise<{ catalogs: number; elements: number }> {
+  const config = cfg ?? (await getKommoConfig(true))
+  let catalogs = 0, elements = 0
+  const data = await kommoFetch('/catalogs?limit=250', config)
+  const list: any[] = data?._embedded?.catalogs ?? []
+  for (const cat of list) {
+    await setMapping('catalog', cat.id, 0, { name: cat.name, type: cat.type })
+    catalogs++
+    for await (const batch of kommoPaginate(`catalogs/${cat.id}/elements`, '', config, 'elements')) {
+      for (const el of batch) {
+        const attrs = catalogElementAttrs(el)
+        await setMapping('catalog_element', el.id, 0, {
+          name: String(el.name || `#${el.id}`).substring(0, 191),
+          catalogId: cat.id,
+          catalogName: cat.name,
+          catalogType: cat.type, // 'products' vira Product local; 'regular' é só dicionário
+          ...attrs,
+        })
+        elements++
+      }
+    }
+  }
+  return { catalogs, elements }
+}
+
+/**
+ * Espelha os elementos do catálogo de produtos da Kommo no catálogo local
+ * (Product), que é a fonte dos itens de uma Negociação. Idempotente por
+ * `sku = kommo-<elementId>`: reimportar atualiza nome/preço em vez de duplicar.
+ *
+ * Só o catálogo de tipo `products` vira Product — os demais (listas auxiliares)
+ * continuam servindo apenas de dicionário para os campos `chained_list`.
+ */
+export async function syncCatalogProducts(): Promise<{ created: number; updated: number }> {
+  const rows = await prisma.kommoMapping.findMany({ where: { entityType: 'catalog_element' }, select: { kommoId: true, meta: true } })
+  let created = 0, updated = 0
+  for (const r of rows) {
+    const m = r.meta as any
+    if (!m?.name || m?.catalogType === 'regular') continue
+    const sku = `kommo-${r.kommoId}`
+    const data = {
+      categoria: String(m.group || m.catalogName || 'Cursos').substring(0, 100),
+      nome: String(m.name).substring(0, 191),
+      preco: m.price != null ? m.price : null,
+      marca: m.escola ? String(m.escola).substring(0, 100) : null,
+      active: true,
+      disponivel: true,
+    }
+    const existing = await prisma.product.findFirst({ where: { sku }, select: { id: true } })
+    if (existing) {
+      await prisma.product.update({ where: { id: existing.id }, data })
+      updated++
+    } else {
+      await prisma.product.create({ data: { ...data, sku } })
+      created++
+    }
+  }
+  return { created, updated }
+}
+
+/**
+ * CustomFields que não existem na Kommo — são derivados pelo import e precisam
+ * existir para aparecer na aba "Campos" do lead. Os três de curso vêm do
+ * elemento de catálogo do "Curso de Interesse 1": o campo da Kommo guarda só o
+ * nome do curso, e valor/escola/grupo é o que permite segmentar a base.
+ * Idempotente — chamado pelo importMetadata e pelo backfill.
+ */
+export async function ensureKommoAuxFields(): Promise<void> {
+  for (const [key, label, type] of [
+    ['kommo_responsavel', 'Responsável (Kommo)', 'text'],
+    ['kommo_pipeline', 'Funil de origem (Kommo)', 'text'],
+    ['kommo_curso_valor', 'Valor do curso (Kommo)', 'number'],
+    ['kommo_curso_escola', 'Escola certificadora (Kommo)', 'text'],
+    ['kommo_curso_grupo', 'Grupo do curso (Kommo)', 'text'],
+  ] as const) {
+    await prisma.customField.upsert({
+      where: { key },
+      create: { key, label, type, group: 'kommo', active: true, showInList: false, showInKanban: false, showInForm: false },
+      update: {},
+    })
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // FASE 1 — Metadados (pipelines/stages, custom fields, tags, users)
 // ─────────────────────────────────────────────────────────────
 
-export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: number; stages: number; customFields: number; tags: number; users: number; templates: number }> {
+export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: number; stages: number; customFields: number; tags: number; users: number; templates: number; catalogs: number; catalogElements: number }> {
   const config = cfg ?? (await getKommoConfig(true))
   let funnels = 0, stages = 0, customFields = 0, tags = 0, users = 0
+
+  // ── Catálogos primeiro: os leads referenciam elementos por id ──
+  const cat = await importCatalogs(config)
+  // Cursos → catálogo local, para virarem item de Negociação.
+  await syncCatalogProducts()
 
   // ── Pipelines → Funnels ; statuses → Stages ──
   const pipeMap = await loadMappingDict('pipeline')
@@ -220,14 +382,8 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
     }
   }
 
-  // ── Custom fields auxiliares (dono e id Kommo) ──
-  for (const [key, label] of [['kommo_responsavel', 'Responsável (Kommo)'], ['kommo_pipeline', 'Funil de origem (Kommo)']] as const) {
-    await prisma.customField.upsert({
-      where: { key },
-      create: { key, label, type: 'text', group: 'kommo', active: true, showInList: false, showInKanban: false, showInForm: false },
-      update: {},
-    })
-  }
+  // ── Custom fields auxiliares (dono, funil e atributos do curso escolhido) ──
+  await ensureKommoAuxFields()
 
   // ── Tags ──
   const tagMap = await loadMappingDict('tag')
@@ -257,7 +413,7 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
   // ── Templates de mensagem (chat) → MessageTemplate ──
   const { templates } = await importTemplates(config)
 
-  return { funnels, stages, customFields, tags, users, templates }
+  return { funnels, stages, customFields, tags, users, templates, catalogs: cat.catalogs, catalogElements: cat.elements }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -267,7 +423,7 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
 
 export async function importContactsPage(page: number, since?: number, cfg?: KommoConfig): Promise<{ processed: number; hasNext: boolean }> {
   const config = cfg ?? (await getKommoConfig(true))
-  const cfMap = await loadMappingDict('custom_field')
+  const [cfMap, catalogMap] = await Promise.all([loadMappingDict('custom_field'), loadMappingDict('catalog_element')])
   // index field_id → {key, special, code}
   const cfById = cfMap
   const query = since ? `filter[updated_at][from]=${since}` : ''
@@ -278,7 +434,7 @@ export async function importContactsPage(page: number, since?: number, cfg?: Kom
     const cf: Record<string, any> = {}
     for (const fv of c.custom_fields_values ?? []) {
       const m = cfById.get(String(fv.field_id))
-      const val = extractCfValue(fv.values)
+      const val = extractCfValue(fv.values, catalogMap)
       if (val == null) continue
       if (fv.field_code === 'PHONE' || m?.meta?.code === 'PHONE') { if (!phone) phone = String(Array.isArray(val) ? val[0] : val) }
       else if (fv.field_code === 'EMAIL' || m?.meta?.code === 'EMAIL') { if (!email) email = String(Array.isArray(val) ? val[0] : val) }
@@ -298,9 +454,10 @@ export async function importContactsPage(page: number, since?: number, cfg?: Kom
 
 export async function importLeadsPage(page: number, defaultTeamId: number | null, since?: number, cfg?: KommoConfig): Promise<{ processed: number; created: number; updated: number; hasNext: boolean }> {
   const config = cfg ?? (await getKommoConfig(true))
-  const [cfMap, statusMap, pipeMap, userMap, contactMap, tagMap, leadMap] = await Promise.all([
+  const [cfMap, statusMap, pipeMap, userMap, contactMap, tagMap, leadMap, catalogMap] = await Promise.all([
     loadMappingDict('custom_field'), loadMappingDict('status'), loadMappingDict('pipeline'),
     loadMappingDict('user'), loadMappingDict('contact'), loadMappingDict('tag'), loadMappingDict('lead'),
+    loadMappingDict('catalog_element'),
   ])
 
   const query = since ? `filter[updated_at][from]=${since}` : ''
@@ -327,9 +484,15 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       for (const fv of l.custom_fields_values ?? []) {
         const m = cfMap.get(String(fv.field_id))
         if (!m || !m.meta?.key) continue
-        const val = extractCfValue(fv.values)
+        const val = extractCfValue(fv.values, catalogMap)
         if (val != null) cf[m.meta.key] = val
       }
+      // atributos do curso principal (elemento de catálogo do "Curso de Interesse 1")
+      const elId = primaryCatalogElementId(l.custom_fields_values ?? [])
+      const el = elId != null ? catalogMap.get(String(elId))?.meta : null
+      if (el?.price != null) cf['kommo_curso_valor'] = el.price
+      if (el?.escola) cf['kommo_curso_escola'] = el.escola
+      if (el?.group) cf['kommo_curso_grupo'] = el.group
       // custom fields herdados do contato (CPF/RG/etc)
       if (contact?.cf) for (const [k, v] of Object.entries(contact.cf)) if (cf[k] == null) cf[k] = v
       // dono + pipeline origem

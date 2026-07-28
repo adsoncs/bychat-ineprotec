@@ -38,6 +38,7 @@ const COUNT_LABELS: Array<[string, string]> = [
   ['tag', 'Tags'],
   ['custom_field', 'Campos'],
   ['pipeline', 'Funis'],
+  ['catalog_element', 'Catálogo'],
 ]
 
 function msg(e: unknown): string {
