@@ -11,14 +11,33 @@ import { useFunnels } from '@/hooks/useFunnels'
 import type { Widget } from '@/hooks/useWidgets'
 import { cn } from '@/lib/cn'
 
-type RangePreset = '7d' | '30d' | '90d'
+type RangePreset = '7d' | '30d' | '90d' | 'custom'
 
-function presetRange(preset: RangePreset): { dateFrom: string; dateTo: string } {
+const fmtDate = (d: Date) => d.toISOString().split('T')[0] ?? ''
+const hoje = () => {
+  const n = new Date()
+  return fmtDate(new Date(n.getFullYear(), n.getMonth(), n.getDate()))
+}
+
+/**
+ * Período do painel. Em 'custom', vale o intervalo escolhido pelo operador —
+ * datas invertidas são corrigidas em vez de rejeitadas, e um intervalo ainda
+ * incompleto cai no padrão de 30 dias para a tela nunca ficar sem dados.
+ */
+function presetRange(preset: RangePreset, custom?: { from: string; to: string }): { dateFrom: string; dateTo: string } {
+  if (preset === 'custom') {
+    const { from, to } = custom ?? { from: '', to: '' }
+    if (from && to) return from <= to ? { dateFrom: from, dateTo: to } : { dateFrom: to, dateTo: from }
+    preset = '30d'
+  }
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-  const fmt = (d: Date) => d.toISOString().split('T')[0] ?? ''
-  return { dateFrom: fmt(new Date(today.getTime() - days * 86400_000)), dateTo: fmt(today) }
+  return { dateFrom: fmtDate(new Date(today.getTime() - days * 86400_000)), dateTo: fmtDate(today) }
+}
+
+const PRESET_LABELS: Record<RangePreset, string> = {
+  '7d': '7 dias', '30d': '30 dias', '90d': '90 dias', custom: 'Personalizado',
 }
 
 const W = (w: Omit<Widget, 'id'> & { id?: string }): Widget => ({ id: w.id ?? w.metric, ...w } as Widget)
@@ -57,12 +76,29 @@ const ATTENTION: Widget[] = [
 
 export function OverviewPage() {
   const [, navigate] = useLocation()
-  const [preset, setPreset] = useState<RangePreset>('30d')
+  // Período: presets + intervalo livre. A escolha persiste, como a do funil —
+  // quem trabalha um mês fechado não quer reconfigurar a cada visita.
+  const [preset, setPreset] = useState<RangePreset>(() => {
+    const p = localStorage.getItem('overview.preset')
+    return p === '7d' || p === '30d' || p === '90d' || p === 'custom' ? p : '30d'
+  })
+  const [customFrom, setCustomFrom] = useState(() => localStorage.getItem('overview.customFrom') ?? '')
+  const [customTo, setCustomTo] = useState(() => localStorage.getItem('overview.customTo') ?? '')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const canSeeEducational = useCan('educacional', 'view') && useIsModuleActive('educacional') === true
   const canSeeNegotiations = useIsModuleActive('negotiations') === true
-  const range = presetRange(preset)
+  const range = presetRange(preset, { from: customFrom, to: customTo })
   const filters = { dateFrom: range.dateFrom, dateTo: range.dateTo }
+
+  function changePreset(p: RangePreset) {
+    setPreset(p)
+    try { localStorage.setItem('overview.preset', p) } catch { /* ignore */ }
+  }
+  function changeCustom(campo: 'from' | 'to', valor: string) {
+    if (campo === 'from') setCustomFrom(valor); else setCustomTo(valor)
+    try { localStorage.setItem(campo === 'from' ? 'overview.customFrom' : 'overview.customTo', valor) } catch { /* ignore */ }
+  }
+  const customIncompleto = preset === 'custom' && !(customFrom && customTo)
 
   // Pipeline: escopado a UM funil (mistura de funis confunde). Padrão = funil
   // isDefault (senão o 1º); a escolha do usuário persiste em localStorage.
@@ -110,11 +146,11 @@ export function OverviewPage() {
             <HelpCircle size={14} /> Como funciona?
           </Button>
           <div class="flex items-center gap-1 p-0.5 rounded-md bg-surface-3">
-            {(['7d', '30d', '90d'] as RangePreset[]).map((p) => (
+            {(['7d', '30d', '90d', 'custom'] as RangePreset[]).map((p) => (
               <button
                 key={p}
                 type="button"
-                onClick={() => setPreset(p)}
+                onClick={() => changePreset(p)}
                 class={cn(
                   'h-7 px-3 rounded text-xs font-medium transition-colors',
                   preset === p
@@ -122,14 +158,44 @@ export function OverviewPage() {
                     : 'text-fg-muted hover:text-fg',
                 )}
               >
-                {p === '7d' ? '7 dias' : p === '30d' ? '30 dias' : '90 dias'}
+                {PRESET_LABELS[p]}
               </button>
             ))}
           </div>
+          {preset === 'custom' && (
+            <div class="flex items-center gap-1.5">
+              <input
+                type="date"
+                class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
+                value={customFrom}
+                max={customTo || hoje()}
+                onInput={(e) => changeCustom('from', (e.target as HTMLInputElement).value)}
+                aria-label="Data inicial"
+              />
+              <span class="text-xs text-fg-subtle">até</span>
+              <input
+                type="date"
+                class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
+                value={customTo}
+                min={customFrom || undefined}
+                max={hoje()}
+                onInput={(e) => changeCustom('to', (e.target as HTMLInputElement).value)}
+                aria-label="Data final"
+              />
+            </div>
+          )}
         </div>
       }
     >
       {/* KPIs principais — funil de negócio com Δ% vs período anterior */}
+      {/* Intervalo ainda pela metade: a tela segue mostrando os últimos 30 dias
+          em vez de esvaziar enquanto a segunda data não é escolhida. */}
+      {customIncompleto && (
+        <p class="text-[11px] text-fg-subtle -mt-1">
+          Escolha as duas datas para aplicar o período personalizado — exibindo os últimos 30 dias.
+        </p>
+      )}
+
       {/* 5 KPIs em 5 colunas: com a grade de 6 sobrava uma coluna vazia à direita. */}
       <section aria-label="Indicadores principais" class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         {KPIS.map((w) => (
