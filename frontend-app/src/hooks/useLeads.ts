@@ -51,6 +51,7 @@ export interface LeadListItem {
   aiScoredAt: string | null
   status: string | null
   // Rótulo humano da etapa (Stage.name) resolvido no backend por (funnelId, status).
+  // Sempre preferir statusLabel na UI; status é a chave técnica (ex.: "kommo_143").
   statusLabel?: string | null
   source: string | null
   funnelId: number | null
@@ -58,6 +59,8 @@ export interface LeadListItem {
   qualifiedAt: string | null
   qualificationSource: string | null
   funnel?: { id: number; name: string } | null
+  // Campos personalizados — a lista renderiza como coluna os marcados showInList.
+  customFields?: Record<string, unknown> | null
   tags?: LeadTag[]
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
