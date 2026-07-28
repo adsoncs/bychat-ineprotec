@@ -688,6 +688,199 @@ export async function importTasksPage(page: number, since?: number, cfg?: KommoC
 }
 
 // ─────────────────────────────────────────────────────────────
+// FASE 4 — Timeline (/events) → LeadEvent + LeadStageMovement
+//
+// A Kommo guarda ~768 mil eventos com retenção desde a origem da conta. Nem
+// tudo vira história útil: `entity_linked`, `name_field_changed` e
+// `custom_field_value_changed` somam ~395 mil e são ruído estrutural (vínculo
+// de contato, renomeação, campo alterado) que encheria a timeline sem contar
+// nada ao operador. Importamos o conjunto curado abaixo (~223 mil) e as
+// mensagens de chat (~76 mil).
+//
+// Mensagem de chat entra SEM TEXTO: a API v4 devolve só `{id, origin, talk_id}`
+// no evento — o conteúdo mora na API amojo, acessível apenas ao app dono do
+// canal. Registra-se que houve contato, quando e em que direção.
+//
+// Idempotência: LeadEvent não tem chave natural para 300 mil linhas, então o
+// controle é por marca d'água (`kommo.events_synced_until`). Um full posterior
+// não reimporta o que já veio.
+// ─────────────────────────────────────────────────────────────
+
+interface EventMap { type: string; category: 'lifecycle' | 'communication' | 'operator' | 'system' | 'integration'; title: string; actorType: 'lead' | 'operator' | 'system' | 'ai' | 'integration' }
+
+const KOMMO_EVENT_MAP: Record<string, EventMap> = {
+  lead_added:                  { type: EVENT_TYPES.LEAD_CREATED,      category: 'lifecycle',     title: 'Lead criado na Kommo',        actorType: 'integration' },
+  lead_status_changed:         { type: EVENT_TYPES.STATUS_CHANGED,    category: 'lifecycle',     title: 'Etapa alterada',              actorType: 'operator' },
+  entity_responsible_changed:  { type: EVENT_TYPES.OPERATOR_ASSIGNED, category: 'operator',      title: 'Responsável alterado',        actorType: 'operator' },
+  entity_tag_added:            { type: EVENT_TYPES.TAG_ADDED,         category: 'operator',      title: 'Tag adicionada',              actorType: 'operator' },
+  entity_tag_deleted:          { type: EVENT_TYPES.TAG_REMOVED,       category: 'operator',      title: 'Tag removida',                actorType: 'operator' },
+  sale_field_changed:          { type: EVENT_TYPES.SALE_DETECTED,     category: 'lifecycle',     title: 'Valor da venda alterado',     actorType: 'operator' },
+  incoming_chat_message:       { type: EVENT_TYPES.MESSAGE_RECEIVED,  category: 'communication', title: 'Mensagem recebida',           actorType: 'lead' },
+  outgoing_chat_message:       { type: EVENT_TYPES.MESSAGE_SENT,      category: 'communication', title: 'Mensagem enviada',            actorType: 'operator' },
+}
+
+export const KOMMO_EVENT_TYPES = Object.keys(KOMMO_EVENT_MAP)
+
+/** Query string com um filter[type][] por tipo curado. */
+function eventTypeFilter(): string {
+  return KOMMO_EVENT_TYPES.map((t) => `filter[type][]=${encodeURIComponent(t)}`).join('&')
+}
+
+/** Rótulo humano de uma etapa (Stage.name) por (funnelId, key). */
+async function loadStageNames(): Promise<Map<string, string>> {
+  const rows = await prisma.stage.findMany({ select: { funnelId: true, key: true, name: true } })
+  return new Map(rows.map((s) => [`${s.funnelId}::${s.key}`, s.name]))
+}
+
+/**
+ * Importa uma página de eventos.
+ *
+ * `since` (unix) → só eventos a partir dessa data; é a marca d'água no sync
+ * incremental. `until` (unix) → só eventos até essa data, usado pela carga
+ * histórica para retomar de onde parou: a Kommo pagina do mais recente para o
+ * mais antigo, então retomar é pedir "tudo anterior ao mais antigo que já
+ * importei" e voltar à página 1.
+ */
+export async function importEventsPage(
+  page: number,
+  since?: number,
+  cfg?: KommoConfig,
+  until?: number,
+): Promise<{ processed: number; created: number; movements: number; hasNext: boolean; newestAt: number; oldestAt: number }> {
+  const config = cfg ?? (await getKommoConfig(true))
+  const [leadMap, userMap, statusMap, pipeMap, stageNames] = await Promise.all([
+    loadMappingDict('lead'), loadMappingDict('user'), loadMappingDict('status'), loadMappingDict('pipeline'), loadStageNames(),
+  ])
+
+  const filt = eventTypeFilter()
+  // A Kommo rejeita `created_at[to]` sozinho (400 "Invalid params passed to
+  // filter") — o range precisa dos dois lados. Quando só há `until`, ancoramos
+  // o início em 1 (época), que a API aceita.
+  let dateQ = ''
+  if (since && until) dateQ = `&filter[created_at][from]=${since}&filter[created_at][to]=${until}`
+  else if (until) dateQ = `&filter[created_at][from]=1&filter[created_at][to]=${until}`
+  else if (since) dateQ = `&filter[created_at][from]=${since}`
+  const data = await kommoFetch(`/events?limit=250&page=${page}&${filt}${dateQ}`, config)
+  const items: any[] = data?._embedded?.events ?? []
+  if (items.length === 0) return { processed: 0, created: 0, movements: 0, hasNext: false, newestAt: 0, oldestAt: 0 }
+
+  const events: any[] = []
+  const movements: any[] = []
+  let newestAt = 0
+  let oldestAt = Number.MAX_SAFE_INTEGER
+
+  for (const e of items) {
+    if (e.entity_type !== 'lead') continue
+    const map = KOMMO_EVENT_MAP[e.type]
+    if (!map) continue
+    const lead = leadMap.get(String(e.entity_id))
+    if (!lead) continue
+    const createdAt = new Date((e.created_at ?? 0) * 1000)
+    if (e.created_at > newestAt) newestAt = e.created_at
+    if (e.created_at > 0 && e.created_at < oldestAt) oldestAt = e.created_at
+
+    const actor = e.created_by ? userMap.get(String(e.created_by)) : null
+    const before = Array.isArray(e.value_before) ? e.value_before[0] : null
+    const after = Array.isArray(e.value_after) ? e.value_after[0] : null
+
+    let oldValue: string | null = null
+    let newValue: string | null = null
+
+    if (e.type === 'lead_status_changed') {
+      // A etapa vem como id; o rótulo humano sai de Stage por (funnelId, key) —
+      // a mesma chave (142/143) tem nome diferente em cada funil.
+      const fromId = before?.lead_status?.id, toId = after?.lead_status?.id
+      const fromPipe = before?.lead_status?.pipeline_id, toPipe = after?.lead_status?.pipeline_id
+      const fromFunnel = fromPipe ? pipeMap.get(String(fromPipe))?.localId ?? null : null
+      const toFunnel = toPipe ? pipeMap.get(String(toPipe))?.localId ?? null : null
+      const fromKey = fromId ? `kommo_${fromId}` : null
+      const toKey = toId ? `kommo_${toId}` : null
+      oldValue = fromKey ? stageNames.get(`${fromFunnel}::${fromKey}`) ?? fromKey : null
+      newValue = toKey ? stageNames.get(`${toFunnel}::${toKey}`) ?? toKey : null
+      if (toKey) {
+        movements.push({
+          leadId: lead.localId,
+          fromFunnelId: fromFunnel, toFunnelId: toFunnel,
+          fromStageKey: fromKey, toStageKey: toKey,
+          movedAt: createdAt,
+          movedByUserId: actor && actor.localId > 0 ? actor.localId : null,
+          source: 'kommo',
+          createdAt,
+        })
+      }
+    } else if (e.type === 'entity_responsible_changed') {
+      const from = before?.responsible_user?.id, to = after?.responsible_user?.id
+      oldValue = from ? userMap.get(String(from))?.meta?.name ?? String(from) : null
+      newValue = to ? userMap.get(String(to))?.meta?.name ?? String(to) : null
+    } else if (e.type === 'entity_tag_added' || e.type === 'entity_tag_deleted') {
+      newValue = after?.tag?.name ?? before?.tag?.name ?? null
+    } else if (e.type === 'sale_field_changed') {
+      oldValue = before?.sale_field_value?.sale != null ? String(before.sale_field_value.sale) : null
+      newValue = after?.sale_field_value?.sale != null ? String(after.sale_field_value.sale) : null
+    }
+
+    events.push({
+      leadId: lead.localId,
+      type: map.type,
+      category: map.category,
+      channel: e.type.endsWith('_chat_message') ? 'whatsapp' : null,
+      source: 'kommo',
+      userId: actor && actor.localId > 0 ? actor.localId : null,
+      // Mensagem recebida é do lead: creditar "Kommo" como autor confundiria a
+      // leitura da timeline. Sem operador identificado, o autor fica em branco.
+      userName: actor?.meta?.name
+        ? String(actor.meta.name).substring(0, 100)
+        : (map.actorType === 'lead' ? null : 'Kommo'),
+      actorType: map.actorType,
+      title: map.title.substring(0, 191),
+      oldValue: oldValue ? String(oldValue).substring(0, 500) : null,
+      newValue: newValue ? String(newValue).substring(0, 500) : null,
+      metadata: { kommoEventId: e.id, kommoType: e.type, ...(after?.message?.origin ? { origin: after.message.origin } : {}) },
+      createdAt,
+    })
+  }
+
+  if (events.length > 0) await prisma.leadEvent.createMany({ data: events })
+  if (movements.length > 0) await prisma.leadStageMovement.createMany({ data: movements })
+
+  return {
+    processed: items.length, created: events.length, movements: movements.length,
+    hasNext: Boolean(data?._links?.next), newestAt,
+    oldestAt: oldestAt === Number.MAX_SAFE_INTEGER ? 0 : oldestAt,
+  }
+}
+
+/** Ponto mais antigo já trazido pela carga histórica (para retomada). */
+export async function getBackfillOldest(): Promise<number | null> {
+  const row = await prisma.setting.findUnique({ where: { key: 'kommo.events_backfill_oldest' } })
+  const n = row?.value ? parseInt(String(row.value).replace(/"/g, ''), 10) : NaN
+  return Number.isFinite(n) ? n : null
+}
+
+export async function setBackfillOldest(unixSec: number): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key: 'kommo.events_backfill_oldest' },
+    create: { key: 'kommo.events_backfill_oldest', value: String(unixSec), label: 'Carga histórica da timeline chegou até (unix)', grp: 'kommo', fieldType: 'text' },
+    update: { value: String(unixSec) },
+  })
+}
+
+/** Marca d'água da timeline (unix do evento mais recente já importado). */
+export async function getEventsWatermark(): Promise<number | null> {
+  const row = await prisma.setting.findUnique({ where: { key: 'kommo.events_synced_until' } })
+  const n = row?.value ? parseInt(String(row.value).replace(/"/g, ''), 10) : NaN
+  return Number.isFinite(n) ? n : null
+}
+
+export async function setEventsWatermark(unixSec: number): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key: 'kommo.events_synced_until' },
+    create: { key: 'kommo.events_synced_until', value: String(unixSec), label: 'Timeline Kommo importada até (unix)', grp: 'kommo', fieldType: 'text' },
+    update: { value: String(unixSec) },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
 // Estado / status do sync (Settings)
 // ─────────────────────────────────────────────────────────────
 

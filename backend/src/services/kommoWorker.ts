@@ -4,7 +4,8 @@
 // encadeadas com self-continuation por página (cada job faz 1 página e enfileira
 // a próxima), o que mantém os jobs curtos e resilientes mesmo com +15k registros.
 //
-// Cadeia: metadata → contacts(1..n) → leads(1..n) → notes(1..n) → tasks(1..n) → done
+// Cadeia: metadata → contacts(1..n) → leads(1..n) → notes(1..n) → tasks(1..n)
+//         → events(1..n) → done
 //
 // concurrency=1: só 1 página em voo por vez (preserva ordem das fases e evita
 // corrida no KommoMapping). O disparo (manual/cron) começa sempre em 'metadata'.
@@ -15,7 +16,7 @@ import { getKommoConfig, isKommoConfigured, KommoAuthError } from '../lib/kommoC
 import { resolveDefaultTeamId } from './teamRouting.js'
 import * as K from './kommoSync.js'
 
-type Phase = 'metadata' | 'contacts' | 'leads' | 'notes' | 'tasks'
+type Phase = 'metadata' | 'contacts' | 'leads' | 'notes' | 'tasks' | 'events'
 interface JobData { phase: Phase; page?: number; mode?: 'full' | 'incremental'; since?: number; startedAt?: number }
 
 async function enqueue(data: JobData): Promise<void> {
@@ -81,8 +82,25 @@ export function startKommoWorker(): Worker {
           const page = d.page || 1
           const r = await K.importTasksPage(page, since, cfg)
           await K.setSyncState({ phase: 'tasks', page, processed: r.processed, created: r.created, running: true, ...base })
+          await enqueue(r.hasNext ? { phase: 'tasks', page: page + 1, ...base } : { phase: 'events', page: 1, ...base })
+          return r
+        }
+
+        if (d.phase === 'events') {
+          // Timeline: vale o MAIOR entre o `since` do ciclo e a marca d'água.
+          // Usar só o `since` duplicaria tudo que está entre last_sync_at e a
+          // marca (a carga histórica avança a marca por fora do ciclo); usar só
+          // a marca faria um full reimportar as ~300 mil linhas já trazidas.
+          const page = d.page || 1
+          const watermark = (await K.getEventsWatermark()) ?? 0
+          const eventsSince = Math.max(since ?? 0, watermark) || undefined
+          const r = await K.importEventsPage(page, eventsSince, cfg)
+          await K.setSyncState({ phase: 'events', page, processed: r.processed, created: r.created, movements: r.movements, running: true, ...base })
+          // A marca d'água avança pelo evento mais recente visto (a Kommo devolve
+          // do mais novo para o mais antigo, então a 1ª página já traz o topo).
+          if (r.newestAt > 0 && ((await K.getEventsWatermark()) ?? 0) < r.newestAt) await K.setEventsWatermark(r.newestAt)
           if (r.hasNext) {
-            await enqueue({ phase: 'tasks', page: page + 1, ...base })
+            await enqueue({ phase: 'events', page: page + 1, ...base })
           } else {
             await K.setLastSyncAt(startedAt)
             await K.setSyncState({ phase: 'done', running: false, finishedAt: Math.floor(Date.now() / 1000), startedAt, mode: d.mode })
