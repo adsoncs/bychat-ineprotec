@@ -114,6 +114,54 @@ function mapFieldType(kommoType: string): string {
  * campos `chained_list`. Ver `importCatalogs`. */
 type CatalogDict = Map<string, { localId: number; meta: any }>
 
+// ─────────────────────────────────────────────────────────────
+// Tracking: campos `tracking_data` da Kommo → colunas nativas do Lead
+//
+// Os UTMs sempre foram importados, mas só como custom field opaco
+// (`customFields.kommo_1110434`). A atribuição do bychat — relatórios de
+// origem, enriquecimento por gclid, conversões do Google Ads — lê as COLUNAS
+// (`Lead.utmSource`, `Lead.gclid`), então o dado existia e mesmo assim não
+// aparecia em lugar nenhum.
+//
+// O de-para é pelo `field_code` da Kommo (UTM_SOURCE, GCLID…), não pelo id nem
+// pelo nome: o code é padronizado pela própria Kommo e sobrevive à troca de
+// conta, ao contrário de `kommo_1110434`.
+// ─────────────────────────────────────────────────────────────
+
+const TRACKING_BY_CODE: Record<string, { field: string; max: number }> = {
+  UTM_SOURCE:   { field: 'utmSource',   max: 100 },
+  UTM_MEDIUM:   { field: 'utmMedium',   max: 100 },
+  UTM_CAMPAIGN: { field: 'utmCampaign', max: 191 },
+  UTM_CONTENT:  { field: 'utmContent',  max: 191 },
+  UTM_TERM:     { field: 'utmTerm',     max: 191 },
+  GCLID:        { field: 'gclid',       max: 191 },
+  FBCLID:       { field: 'fbclid',      max: 255 },
+}
+
+/** Colunas de tracking que o import pode preencher (usado também pelo backfill). */
+export const TRACKING_FIELDS = Object.values(TRACKING_BY_CODE).map((t) => t.field)
+
+/**
+ * Extrai as colunas de tracking de um lead da Kommo. `cfMap` é o dicionário de
+ * custom fields (field_id → meta com `code`).
+ */
+export function extractTrackingColumns(
+  customFieldsValues: any[],
+  cfMap: Map<string, { localId: number; meta: any }>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const fv of customFieldsValues ?? []) {
+    const code = String(fv?.field_code || cfMap.get(String(fv.field_id))?.meta?.code || '').toUpperCase()
+    const target = TRACKING_BY_CODE[code]
+    if (!target) continue
+    const val = extractCfValue(fv.values)
+    if (val == null) continue
+    const s = String(Array.isArray(val) ? val[0] : val).trim()
+    if (s) out[target.field] = s.substring(0, target.max)
+  }
+  return out
+}
+
 /**
  * Extrai um valor simples de um custom_fields_values[].values da Kommo.
  *
@@ -495,6 +543,8 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       if (el?.group) cf['kommo_curso_grupo'] = el.group
       // custom fields herdados do contato (CPF/RG/etc)
       if (contact?.cf) for (const [k, v] of Object.entries(contact.cf)) if (cf[k] == null) cf[k] = v
+      // tracking (UTM/gclid/fbclid) → colunas nativas, além do custom field
+      const tracking = extractTrackingColumns(l.custom_fields_values ?? [], cfMap)
       // dono + pipeline origem
       const ownerEntry = userMap.get(String(l.responsible_user_id))
       const ownerLocalId = ownerEntry && ownerEntry.localId > 0 ? ownerEntry.localId : null
@@ -509,12 +559,23 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       const existing = leadMap.get(String(l.id))
       if (existing) {
         // UPDATE idempotente — atualiza etapa, dono e mescla custom fields
-        const cur = await prisma.lead.findUnique({ where: { id: existing.localId }, select: { customFields: true } })
+        const cur = await prisma.lead.findUnique({
+          where: { id: existing.localId },
+          select: { customFields: true, utmSource: true, utmMedium: true, utmCampaign: true, utmContent: true, utmTerm: true, gclid: true, fbclid: true, originType: true },
+        })
         const mergedCF = { ...((cur?.customFields as any) || {}), ...cf }
+        // Tracking só preenche coluna VAZIA: um lead que já foi atribuído pelo
+        // tracking nativo do bychat não pode ser sobrescrito pelo dado da Kommo.
+        const trackingPatch: Record<string, string> = {}
+        for (const [field, value] of Object.entries(tracking)) {
+          if (!(cur as any)?.[field]) trackingPatch[field] = value
+        }
+        if (trackingPatch.gclid && !cur?.originType) trackingPatch.originType = 'google_ads'
         await prisma.lead.update({
           where: { id: existing.localId },
           data: {
             status: stageKey, funnelId: funnelId ?? undefined, customFields: mergedCF as any, empresa, nome: nome || undefined,
+            ...trackingPatch,
             ...(ownerLocalId ? { assignedUserId: ownerLocalId, assignedAt: unix(l.created_at) ?? new Date() } : {}),
           },
         })
@@ -536,6 +597,9 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
             teamId: defaultTeamId ?? undefined,
             source: kommoSourceToChannel(l.source_id),
             sourceId: String(l.id),
+            // UTM/gclid nas colunas nativas — é o que a atribuição lê.
+            ...tracking,
+            ...(tracking.gclid ? { originType: 'google_ads' } : {}),
             customFields: Object.keys(cf).length > 0 ? (cf as any) : undefined,
             createdAt: unix(l.created_at) ?? undefined,
             // Leads vindos de um CRM são leads reais → já entram qualificados,
