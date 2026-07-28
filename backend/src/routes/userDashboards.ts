@@ -21,6 +21,34 @@ function previousRange(cfg: any): { gte: Date; lte: Date } | null {
   return { gte: new Date(from.getTime() - span - 1), lte: new Date(from.getTime() - 1) }
 }
 
+/**
+ * Soma/contagem de negociações de um funil. O funil pertence ao LEAD e
+ * `Negotiation` guarda só `leadId` (sem relação declarada), então o recorte sai
+ * de um JOIN — mais barato que carregar os ids do funil para um `IN` com
+ * dezenas de milhares de leads.
+ *
+ * `open: true` → negociações em aberto (sem resultado), ignorando período:
+ * é estoque de agora, não fluxo do período.
+ */
+async function negAggregateByFunnel(
+  funnelId: number,
+  opts: { open?: boolean; resultado?: 'won' | 'lost'; from?: Date; to?: Date },
+): Promise<{ sum: number; count: number }> {
+  const rows: any[] = opts.open
+    ? await prisma.$queryRaw`
+        SELECT COALESCE(SUM(n.valorFinal), 0) AS sum, COUNT(*) AS count
+        FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
+        WHERE n.resultado IS NULL AND l.funnelId = ${funnelId}`
+    : await prisma.$queryRaw`
+        SELECT COALESCE(SUM(n.valorFinal), 0) AS sum, COUNT(*) AS count
+        FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
+        WHERE n.resultado = ${opts.resultado ?? 'won'} AND l.funnelId = ${funnelId}
+          AND (${opts.from ?? null} IS NULL OR n.fechadaEm >= ${opts.from ?? null})
+          AND (${opts.to ?? null} IS NULL OR n.fechadaEm <= ${opts.to ?? null})`
+  const r = rows[0] ?? {}
+  return { sum: Number(r.sum ?? 0), count: Number(r.count ?? 0) }
+}
+
 export async function userDashboardsRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/user-dashboards?type=dashboard ──
@@ -119,6 +147,9 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     const leadWhere: any = {}
     if (hasDate) leadWhere.createdAt = dateFilter
     if (cfg.funnelId) leadWhere.funnelId = Number(cfg.funnelId)
+    // Recorte por funil dos KPIs de negociação (a seção tem seletor próprio na
+    // Visão Geral). Number inválido/0 = todos os funis.
+    const negFunnelId = Number(cfg.funnelId) > 0 ? Number(cfg.funnelId) : null
 
     switch (metric) {
       case 'leads_total': {
@@ -201,8 +232,15 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       // ── Negociações (módulo Negociação) ──────────────────────────
+      // O funil é do LEAD, não da negociação — e Negotiation não declara relação
+      // com Lead (só leadId escalar), então o recorte por funil sai de um JOIN
+      // em SQL. Sem funil escolhido, seguem os agregados do Prisma.
       case 'negotiations_open': {
         // Estoque atual: negociações em aberto (sem resultado) e quanto há na mesa.
+        if (negFunnelId) {
+          const r = await negAggregateByFunnel(negFunnelId, { open: true })
+          return { value: r.sum, count: r.count }
+        }
         const agg = await prisma.negotiation.aggregate({
           where: { resultado: null },
           _sum: { valorFinal: true }, _count: { _all: true },
@@ -212,12 +250,18 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
 
       case 'negotiations_won_revenue': {
         // Total fechado (ganho) em negociações no período (usa fechadaEm).
+        const prevRange = previousRange(cfg)
+        if (negFunnelId) {
+          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte })
+          if (!prevRange) return { value: r.sum, count: r.count }
+          const p = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: prevRange.gte, to: prevRange.lte })
+          return { value: r.sum, count: r.count, prev: p.sum }
+        }
         const where: any = { resultado: 'won' }
         if (hasDate) where.fechadaEm = dateFilter
         const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })
         const value = agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0
         const count = agg._count._all
-        const prevRange = previousRange(cfg)
         if (!prevRange) return { value, count }
         const p = await prisma.negotiation.aggregate({ where: { resultado: 'won', fechadaEm: prevRange }, _sum: { valorFinal: true } })
         return { value, count, prev: p._sum.valorFinal ? Number(p._sum.valorFinal) : 0 }
@@ -225,6 +269,22 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
 
       case 'negotiations_win_rate': {
         // % de negociações ganhas sobre as fechadas (ganhas + perdidas) no período.
+        const prevRange = previousRange(cfg)
+        if (negFunnelId) {
+          const [w, l] = await Promise.all([
+            negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte }),
+            negAggregateByFunnel(negFunnelId, { resultado: 'lost', from: dateFilter.gte, to: dateFilter.lte }),
+          ])
+          const closed = w.count + l.count
+          const value = closed ? Math.round((w.count / closed) * 100) : 0
+          if (!prevRange) return { value, won: w.count, closed }
+          const [pw, pl] = await Promise.all([
+            negAggregateByFunnel(negFunnelId, { resultado: 'won', from: prevRange.gte, to: prevRange.lte }),
+            negAggregateByFunnel(negFunnelId, { resultado: 'lost', from: prevRange.gte, to: prevRange.lte }),
+          ])
+          const prevClosed = pw.count + pl.count
+          return { value, won: w.count, closed, ...(prevClosed > 0 ? { prev: Math.round((pw.count / prevClosed) * 100) } : {}) }
+        }
         const range = hasDate ? { fechadaEm: dateFilter } : {}
         const [won, lost] = await Promise.all([
           prisma.negotiation.count({ where: { resultado: 'won', ...range } }),
@@ -232,7 +292,6 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         ])
         const closed = won + lost
         const value = closed ? Math.round((won / closed) * 100) : 0
-        const prevRange = previousRange(cfg)
         if (!prevRange) return { value, won, closed }
         const [pw, pl] = await Promise.all([
           prisma.negotiation.count({ where: { resultado: 'won', fechadaEm: prevRange } }),
@@ -245,6 +304,10 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'negotiations_avg_ticket': {
         // Ticket médio das negociações ganhas no período (receita ganha ÷ nº ganhas).
         // Honesto: não depende de perdas registradas, ao contrário do antigo win_rate.
+        if (negFunnelId) {
+          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte })
+          return { value: r.count ? Math.round(r.sum / r.count) : 0, count: r.count }
+        }
         const where: any = { resultado: 'won' }
         if (hasDate) where.fechadaEm = dateFilter
         const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })

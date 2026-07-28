@@ -86,6 +86,21 @@ export function OverviewPage() {
     config: { ...(CHART_PIPELINE.config ?? {}), ...(pipelineFunnelId ? { funnelId: pipelineFunnelId } : {}) },
   }
 
+  // Negociações: recorte por funil da seção inteira (os 3 KPIs juntos). Aqui
+  // "todos os funis" é opção válida — ao contrário do pipeline, somar funis não
+  // distorce um valor em reais. A escolha persiste como a do pipeline.
+  const [negFunnelId, setNegFunnelId] = useState<number | null>(() => {
+    const stored = Number(localStorage.getItem('overview.negotiationsFunnelId') || '')
+    return stored > 0 ? stored : null
+  })
+  function changeNegFunnel(id: number) {
+    const next = id > 0 ? id : null
+    setNegFunnelId(next)
+    try { localStorage.setItem('overview.negotiationsFunnelId', next ? String(next) : '') } catch { /* ignore */ }
+  }
+  const negotiationFilters = { ...filters, ...(negFunnelId ? { funnelId: negFunnelId } : {}) }
+  const negFunnelName = negFunnelId ? funnels.find((f) => f.id === negFunnelId)?.name ?? null : null
+
   return (
     <Page
       title="Visão Geral"
@@ -135,13 +150,29 @@ export function OverviewPage() {
       {/* Negociações — só com o módulo ativo */}
       {canSeeNegotiations && (
         <section aria-label="Negociações">
-          <div class="mb-2">
-            <h2 class="text-sm font-semibold text-fg">Negociações</h2>
-            <p class="text-[11px] text-fg-subtle">"Em negociação" é o valor na mesa agora; os demais seguem o período selecionado.</p>
+          <div class="mb-2 flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h2 class="text-sm font-semibold text-fg">Negociações</h2>
+              <p class="text-[11px] text-fg-subtle">
+                "Em negociação" é o valor na mesa agora; os demais seguem o período selecionado.
+                {negFunnelName ? <> Exibindo apenas <strong class="text-fg-muted">{negFunnelName}</strong>.</> : null}
+              </p>
+            </div>
+            <select
+              class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg cursor-pointer focus:outline-none focus:border-accent max-w-[200px] shrink-0"
+              value={negFunnelId ? String(negFunnelId) : ''}
+              onChange={(e) => changeNegFunnel(Number((e.target as HTMLSelectElement).value))}
+              title="Funil dos indicadores de negociação"
+            >
+              <option value="">Todos os funis</option>
+              {funnels.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
           </div>
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
             {NEGOTIATION_KPIS.map((w) => (
-              <WidgetRenderer key={w.id} widget={w} filters={filters} />
+              <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
             ))}
           </div>
         </section>
