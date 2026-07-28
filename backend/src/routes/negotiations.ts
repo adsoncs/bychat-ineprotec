@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { buildNegotiationSuggestion } from '../services/negotiationSuggestion.js'
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -65,6 +66,16 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       ? await prisma.lossReason.findUnique({ where: { id: n.lostReasonId } }).catch(() => null)
       : null
     return { negotiation: { ...n, lostReason, attachments: n.attachments.map((a) => ({ ...a, url: fileUrl(a.storagePath) })) } }
+  })
+
+  // Rascunho sugerido a partir do que o lead já traz da Kommo (curso + valor de
+  // tabela, forma de pagamento, parcelamento, desconto). Não persiste nada — a
+  // UI usa para pré-preencher o formulário de nova negociação.
+  app.get('/api/admin/negotiations/suggestion/:leadId', { preHandler: authMiddleware }, async (req) => {
+    const leadId = Number((req.params as any).leadId)
+    if (!leadId) return { suggestion: null }
+    const suggestion = await buildNegotiationSuggestion(leadId).catch(() => null)
+    return { suggestion }
   })
 
   // Criar.

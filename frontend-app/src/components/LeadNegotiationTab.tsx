@@ -3,7 +3,7 @@ import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, Rota
 import {
   useNegotiations, useNegotiation, useSaveNegotiation, useDeleteNegotiation,
   useCloseNegotiation, useReopenNegotiation, useUploadNegotiationAttachment, useDeleteNegotiationAttachment,
-  useCatalogPick, type Negotiation, type NegItem,
+  useCatalogPick, useNegotiationSuggestion, type Negotiation, type NegItem,
 } from '@/hooks/useNegotiations'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
 import { Card } from '@/components/ui/Card'
@@ -93,8 +93,31 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
   const [dirty, setDirty] = useState(false)
   const [loaded, setLoaded] = useState(isNew)
   const [lostReasonId, setLostReasonId] = useState('')
+  // Proposta nova: o backend sugere curso + valor de tabela e as condições que o
+  // lead já trouxe do CRM antigo. Só preenche enquanto o operador não digitou nada.
+  const { data: sugData } = useNegotiationSuggestion(isNew ? leadId : null)
+  const [prefilled, setPrefilled] = useState(false)
 
   function patch(p: Partial<Form>) { setF((cur) => ({ ...cur, ...p })); setDirty(true) }
+
+  useEffect(() => {
+    const s = sugData?.suggestion
+    if (!isNew || !s || prefilled || dirty) return
+    setF((cur) => ({
+      ...cur,
+      titulo: s.titulo || cur.titulo,
+      rows: s.items.map((i) => ({
+        productId: i.productId, nome: i.nome, quantidade: i.quantidade,
+        precoUnit: i.precoUnit, descontoItem: i.descontoItem,
+      })),
+      pagamentoForma: s.pagamentoForma || cur.pagamentoForma,
+      parcelas: s.parcelas != null ? String(s.parcelas) : cur.parcelas,
+      descontoTipo: s.descontoTipo ?? cur.descontoTipo,
+      descontoValor: s.descontoValor != null ? String(s.descontoValor) : cur.descontoValor,
+      condicao: s.condicaoPagamento || cur.condicao,
+    }))
+    setPrefilled(true)
+  }, [sugData?.suggestion, isNew, prefilled, dirty])
 
   useEffect(() => {
     if (!n || loaded) return
@@ -171,6 +194,16 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
           </Badge>
         ) : null}
       </div>
+
+      {/* Rascunho pré-preenchido com o que o lead trouxe do CRM de origem */}
+      {isNew && prefilled ? (
+        <Card class="!p-3 bg-accent/5 border-accent/30">
+          <div class="text-sm text-fg-muted">
+            Rascunho preenchido com os dados de <strong class="text-fg">{sugData?.suggestion?.origem === 'kommo' ? 'Kommo' : 'origem'}</strong> deste
+            lead (curso, valor de tabela e condições). Revise antes de salvar.
+          </div>
+        </Card>
+      ) : null}
 
       {/* Negociação fechada: banner com resultado + reabrir */}
       {closed ? (

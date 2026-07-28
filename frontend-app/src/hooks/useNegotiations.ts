@@ -66,6 +66,29 @@ export function useNegotiation(id: number | null) {
   })
 }
 
+/** Rascunho sugerido pelo backend a partir dos dados comerciais que o lead já
+ * trouxe da Kommo (curso + valor de tabela, pagamento, parcelas, desconto).
+ * Só é consultado ao criar uma negociação nova. */
+export interface NegotiationSuggestion {
+  titulo: string
+  items: Array<{ productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number }>
+  pagamentoForma: string | null
+  parcelas: number | null
+  descontoTipo: 'valor' | 'percent' | null
+  descontoValor: number | null
+  condicaoPagamento: string | null
+  origem: string | null
+}
+
+export function useNegotiationSuggestion(leadId: number | null) {
+  return useQuery({
+    queryKey: ['negotiation-suggestion', leadId],
+    queryFn: () => api.get<{ suggestion: NegotiationSuggestion | null }>(`/admin/negotiations/suggestion/${leadId}`),
+    enabled: !!leadId,
+    staleTime: 60_000,
+  })
+}
+
 export function useSaveNegotiation(leadId: number) {
   const qc = useQueryClient()
   return useMutation({
