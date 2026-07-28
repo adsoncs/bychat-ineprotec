@@ -29,6 +29,30 @@ const MAX_PAGES = (() => {
   return a ? parseInt(a.split('=')[1], 10) : 0
 })()
 
+/**
+ * Remove eventos repetidos pelo id da Kommo.
+ *
+ * Paginar por offset durante ~1h numa conta viva desloca a janela: eventos
+ * novos entram no topo e empurram itens para a página seguinte, que então
+ * aparecem duas vezes (~0,06% na carga do ineprotec). A reancoragem periódica
+ * reduz, não elimina — a limpeza fecha a conta.
+ *
+ * Deleta por id explícito: o self-join em JSON_EXTRACT sem índice varre
+ * 234k × 234k e trava a tabela.
+ */
+async function removerDuplicatas(): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ ids: string }>>`
+    SELECT GROUP_CONCAT(id ORDER BY id) AS ids
+    FROM bychat_lead_events
+    WHERE source = 'kommo'
+    GROUP BY JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.kommoEventId'))
+    HAVING COUNT(*) > 1`
+  const excedentes = rows.flatMap((r) => String(r.ids).split(',').slice(1).map(Number)).filter(Number.isFinite)
+  if (excedentes.length === 0) return 0
+  const res = await prisma.leadEvent.deleteMany({ where: { id: { in: excedentes } } })
+  return res.count
+}
+
 async function main() {
   const cfg = await getKommoConfig(true)
   if (!cfg.subdomain || !cfg.token) throw new Error('Kommo não configurado')
@@ -82,6 +106,9 @@ async function main() {
   // A marca d'água guarda o evento mais NOVO visto: a Kommo pagina do mais
   // recente para o mais antigo, então o topo é a página 1.
   if (maiorTs > 0) await setEventsWatermark(maiorTs)
+
+  const dups = await removerDuplicatas()
+  if (dups > 0) console.log(`duplicatas removidas: ${dups}`)
 
   const depois = await prisma.leadEvent.count()
   const depoisMov = await prisma.leadStageMovement.count()
