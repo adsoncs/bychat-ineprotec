@@ -33,7 +33,6 @@ const KPIS: Widget[] = [
   W({ metric: 'leads_won_revenue',     type: 'kpi', title: 'Receita ganha',      size: 'sm' }),
   W({ metric: 'leads_lost',            type: 'kpi', title: 'Negócios perdidos',  size: 'sm' }),
   W({ metric: 'leads_conversion_rate', type: 'kpi', title: 'Taxa de conversão',  size: 'sm' }),
-  W({ metric: 'tracking_visitors',     type: 'kpi', title: 'Visitantes no site', size: 'sm' }),
 ]
 
 const CHART_LEADS_BY_DAY = W({ metric: 'leads_by_date',   type: 'line',  title: 'Leads por dia',    size: 'lg', config: { groupBy: 'day' } })
@@ -131,7 +130,8 @@ export function OverviewPage() {
       }
     >
       {/* KPIs principais — funil de negócio com Δ% vs período anterior */}
-      <section aria-label="Indicadores principais" class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      {/* 5 KPIs em 5 colunas: com a grade de 6 sobrava uma coluna vazia à direita. */}
+      <section aria-label="Indicadores principais" class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         {KPIS.map((w) => (
           <WidgetRenderer key={w.id} widget={w} filters={filters} />
         ))}
