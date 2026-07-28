@@ -73,8 +73,13 @@ export function useCreateBroadcastCampaign() {
 export function useUpdateBroadcastCampaign() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: number; name?: string; variableMapping?: any; scheduledAt?: string | null }) =>
-      api.put<{ campaign: BroadcastCampaign }>(`/admin/broadcast/campaigns/${id}`, input),
+    // cloudApiConnectionId/templateId/audienceType só são aceitos pelo backend
+    // enquanto a campanha for rascunho (ver PUT em routes/broadcast.ts).
+    mutationFn: ({ id, ...input }: {
+      id: number; name?: string; variableMapping?: any; scheduledAt?: string | null
+      cloudApiConnectionId?: number; templateId?: number; audienceType?: 'leads' | 'import'
+    }) =>
+      api.put<{ campaign: BroadcastCampaign; recipientsReset?: boolean }>(`/admin/broadcast/campaigns/${id}`, input),
     onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['broadcast-campaigns'] }); qc.invalidateQueries({ queryKey: ['broadcast-campaign', v.id] }) },
   })
 }
@@ -88,9 +93,13 @@ export function useDeleteBroadcastCampaign() {
 }
 
 export function useSetAudienceLeads() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, leadIds }: { id: number; leadIds: number[] }) =>
       api.post<{ ok: true; created: number; skipped: number }>(`/admin/broadcast/campaigns/${id}/audience/leads`, { leadIds }),
+    // o detalhe carrega métricas/custo derivados dos destinatários — refazer a
+    // audiência muda esses números (relevante ao reeditar um rascunho)
+    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['broadcast-campaign', v.id] }); qc.invalidateQueries({ queryKey: ['broadcast-campaigns'] }) },
   })
 }
 
@@ -104,9 +113,11 @@ export function useParseSheet() {
 }
 
 export function useImportCommit() {
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, phoneColumn, nameColumn }: { id: number; phoneColumn: string; nameColumn?: string | undefined }) =>
       api.post<{ ok: true; created: number; skipped: number }>(`/admin/broadcast/campaigns/${id}/audience/import-commit`, { phoneColumn, nameColumn }),
+    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ['broadcast-campaign', v.id] }); qc.invalidateQueries({ queryKey: ['broadcast-campaigns'] }) },
   })
 }
 

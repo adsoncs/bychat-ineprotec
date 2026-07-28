@@ -82,8 +82,37 @@ export async function broadcastRoutes(app: FastifyInstance) {
     if (b.name !== undefined) data.name = b.name
     if (b.variableMapping !== undefined) data.variableMapping = b.variableMapping
     if (b.scheduledAt !== undefined) data.scheduledAt = b.scheduledAt ? new Date(b.scheduledAt) : null
+
+    // Número de envio e template só mudam enquanto for RASCUNHO: numa campanha
+    // agendada os destinatários já estão resolvidos com as variáveis do template
+    // atual, e trocá-lo por baixo deixaria a fila inconsistente.
+    let templateChanged = false
+    if (campaign.status === 'draft') {
+      if (b.cloudApiConnectionId !== undefined) data.cloudApiConnectionId = Number(b.cloudApiConnectionId)
+      if (b.audienceType !== undefined) data.audienceType = b.audienceType === 'import' ? 'import' : 'leads'
+      if (b.templateId !== undefined && Number(b.templateId) !== campaign.templateId) {
+        const tpl = await prisma.cloudApiTemplate.findUnique({ where: { id: Number(b.templateId) } })
+        if (!tpl) return reply.code(404).send({ error: 'Template não encontrado' })
+        if (tpl.status !== 'APPROVED') return reply.code(400).send({ error: 'Só templates APROVADOS podem ser usados em disparo' })
+        data.templateId = tpl.id
+        data.templateName = tpl.name
+        data.templateLanguage = tpl.language
+        data.templateCategory = tpl.category
+        templateChanged = true
+      }
+    }
+
+    // Trocar de template invalida o mapeamento de variáveis e os destinatários
+    // já resolvidos — a audiência precisa ser reprocessada no wizard.
+    if (templateChanged) {
+      data.variableMapping = b.variableMapping ?? {}
+      await prisma.broadcastRecipient.deleteMany({ where: { campaignId: campaign.id } })
+      data.totalRecipients = 0
+      data.skippedCount = 0
+    }
+
     const updated = await prisma.broadcastCampaign.update({ where: { id: campaign.id }, data })
-    return { campaign: updated }
+    return { campaign: updated, recipientsReset: templateChanged }
   })
 
   // DELETE /campaigns/:id

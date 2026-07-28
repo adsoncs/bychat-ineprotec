@@ -51,7 +51,6 @@ export interface LeadListItem {
   aiScoredAt: string | null
   status: string | null
   // Rótulo humano da etapa (Stage.name) resolvido no backend por (funnelId, status).
-  // Sempre preferir statusLabel na UI; status é a chave técnica (ex.: "kommo_143").
   statusLabel?: string | null
   source: string | null
   funnelId: number | null
@@ -59,8 +58,6 @@ export interface LeadListItem {
   qualifiedAt: string | null
   qualificationSource: string | null
   funnel?: { id: number; name: string } | null
-  // Campos personalizados — a lista renderiza como coluna os marcados showInList.
-  customFields?: Record<string, unknown> | null
   tags?: LeadTag[]
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
@@ -217,6 +214,19 @@ export function useLeads(filters: LeadsListFilters = {}) {
     queryFn: () => api.get<LeadsListResponse>(`/bychat/leads${buildQuery(filters)}`),
     staleTime: 15_000,
   })
+}
+
+/**
+ * Busca de uma vez os leads que casam com o filtro, para seleção em massa
+ * (Disparo em Massa › audiência). A lista da tela é paginada; aqui o `cap`
+ * define o teto de segurança — quem chama deve avisar o usuário quando
+ * `total` for maior que o que voltou.
+ */
+export async function fetchLeadsForSelection(
+  filters: LeadsListFilters = {},
+  cap = 5000,
+): Promise<LeadsListResponse> {
+  return api.get<LeadsListResponse>(`/bychat/leads${buildQuery({ ...filters, limit: cap, offset: 0 })}`)
 }
 
 export function useLead(id: number | null) {
