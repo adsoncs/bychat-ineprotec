@@ -21,12 +21,17 @@ import type { AcaVinculoSituacao } from '@prisma/client'
  */
 const TRANSICOES: Record<AcaVinculoSituacao, AcaVinculoSituacao[]> = {
   PRE_MATRICULADO: ['ATIVO', 'CANCELADO'],
-  ATIVO:           ['TRANCADO', 'CANCELADO', 'TRANSFERIDO', 'EVADIDO', 'FORMADO'],
+  ATIVO:           ['INTEGRALIZANDO', 'TRANCADO', 'CANCELADO', 'TRANSFERIDO', 'TRANSFERIDO_INTERNO', 'EVADIDO', 'FORMADO'],
+  // Quem está integralizando já cumpriu os componentes: pode formar quando
+  // entregar o estágio/TCC, voltar a ATIVO se tiver de cursar algo, ou evadir —
+  // abandonar na etapa do estágio é frequente e precisa poder ser registrado.
+  INTEGRALIZANDO:  ['FORMADO', 'ATIVO', 'EVADIDO', 'CANCELADO', 'TRANCADO'],
   TRANCADO:        ['ATIVO', 'CANCELADO', 'EVADIDO'],
   EVADIDO:         ['ATIVO'], // reingresso
   FORMADO:         ['DIPLOMADO'],
   DIPLOMADO:       [],
   TRANSFERIDO:     [],
+  TRANSFERIDO_INTERNO: [],
   CANCELADO:       [],
   FALECIDO:        [],
 }

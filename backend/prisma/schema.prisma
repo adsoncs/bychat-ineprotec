@@ -2885,6 +2885,16 @@ model Course {
   duracaoMaxPeriodos Int?
   /// Área do conhecimento (classificação Cine Brasil) — exigida no Censo.
   areaCine     String?           @db.VarChar(120)
+  // ── Educação profissional técnica (SISTEC / CNCT) ──
+  /// Um dos 13 eixos tecnológicos do CNCT. O SISTEC exige o eixo para cadastrar
+  /// o curso, e é por ele que a lista de cursos do catálogo é filtrada.
+  eixoTecnologico String?         @db.VarChar(80)
+  /// Código do curso no Catálogo Nacional de Cursos Técnicos; nulo em curso
+  /// experimental (que o SISTEC também aceita, por outro caminho).
+  codigoCnct   String?           @db.VarChar(20)
+  /// O SISTEC pergunta isto no cadastro: o curso de habilitação confere
+  /// certificado de qualificação profissional em etapas intermediárias?
+  certificacaoIntermediaria Boolean @default(false)
   active       Boolean           @default(true)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -5110,9 +5120,18 @@ enum AcaMatriculaStatus {
 enum AcaVinculoSituacao {
   PRE_MATRICULADO
   ATIVO
+  /// Cumpriu todos os componentes curriculares e falta apenas estágio, TCC ou
+  /// atividades complementares. No SISTEC é "Integralizar em Fase Escolar" — sem
+  /// esta situação o aluno fica indevidamente como "em curso" ou é evadido por
+  /// engano, e ele é justamente o caso mais comum da escola técnica.
+  INTEGRALIZANDO
   TRANCADO
   EVADIDO
+  /// Saiu para outra instituição/unidade.
   TRANSFERIDO
+  /// Mudou de curso DENTRO da mesma unidade. O SISTEC distingue as duas
+  /// transferências e a estatística da unidade muda conforme o caso.
+  TRANSFERIDO_INTERNO
   CANCELADO
   FORMADO
   DIPLOMADO

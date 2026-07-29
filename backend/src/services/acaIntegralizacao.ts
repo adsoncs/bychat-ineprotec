@@ -66,6 +66,14 @@ export interface Integralizacao {
   disponiveis: number
   /** Verdadeiro quando não falta nada — é o que a esteira de diplomação exige. */
   concluido: boolean
+  /**
+   * Cumpriu as disciplinas e falta APENAS estágio, TCC ou atividade
+   * complementar. É o "Integralizar em Fase Escolar" do SISTEC, e o estado em
+   * que a escola técnica tem mais aluno pendurado.
+   */
+  integralizandoEmFaseEscolar: boolean
+  /** O que falta nesse caso — texto para a secretaria cobrar. */
+  pendenciasDeFase: string[] 
 
   /**
    * Regime seriado: disciplinas reprovadas que o aluno arrasta de períodos
@@ -103,6 +111,7 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
     semMatriz: !vinculo.matrizId,
     chTotalMatriz: 0, chCumprida: 0, chEmCurso: 0, percentual: 0,
     componentes: [], baldes: [], disponiveis: 0, concluido: false,
+    integralizandoEmFaseEscolar: false, pendenciasDeFase: [],
     dependencias: 0, nomesDependencias: [], limiteDependencias: null,
     podeProgredir: true, motivoProgressao: null,
   }
@@ -262,6 +271,18 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
   const chCumprida = componentes.filter((c) => c.status === 'CUMPRIDO' || c.status === 'APROVEITADO').reduce((s, c) => s + c.cargaHoraria, 0)
   const chEmCurso = componentes.filter((c) => c.status === 'EM_CURSO').reduce((s, c) => s + c.cargaHoraria, 0)
 
+  // "Integralizar em fase escolar": tudo que é aula está cumprido e o que resta
+  // é só estágio, TCC ou atividade complementar. A distinção importa porque o
+  // SISTEC tem status próprio para isso, e porque a cobrança é outra — não é
+  // matricular em disciplina, é cobrar entrega.
+  const TIPOS_DE_FASE = new Set<AcaComponenteTipo>(['ESTAGIO', 'TCC', 'ATIVIDADE_COMPLEMENTAR'] as AcaComponenteTipo[])
+  const cumprido = (c: ComponenteIntegralizacao) => c.status === 'CUMPRIDO' || c.status === 'APROVEITADO'
+  const pendentes = componentes.filter((c) => !cumprido(c))
+  const emFaseEscolar = chTotalMatriz > 0
+    && pendentes.length > 0
+    && pendentes.every((c) => TIPOS_DE_FASE.has(c.tipo))
+  const pendenciasFase = emFaseEscolar ? pendentes.map((c) => c.nome) : []
+
   // Dependência é a disciplina que o aluno CURSOU e não passou — não a que
   // nunca cursou. Confundir as duas faria todo calouro estourar o limite.
   const reprovados = componentes.filter((c) => c.status === 'REPROVADO')
@@ -279,6 +300,8 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
     componentes, baldes,
     disponiveis: componentes.filter((c) => c.status === 'PENDENTE').length,
     concluido: chTotalMatriz > 0 && componentes.every((c) => c.status === 'CUMPRIDO' || c.status === 'APROVEITADO'),
+    integralizandoEmFaseEscolar: emFaseEscolar,
+    pendenciasDeFase: pendenciasFase,
     dependencias: reprovados.length,
     nomesDependencias: reprovados.map((c) => c.nome),
     limiteDependencias: limite,
