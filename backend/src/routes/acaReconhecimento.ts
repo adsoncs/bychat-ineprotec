@@ -6,7 +6,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import {
-  abrirProcesso, avaliarComponente, resumoProcesso, decidirProcesso, assegurarPpcpVigente,
+  abrirProcesso, avaliarComponente, resumoProcesso, decidirProcesso, assegurarPpcpVigente, comVigencia,
 } from '../services/acaReconhecimento.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 
@@ -26,15 +26,8 @@ export async function acaReconhecimentoRoutes(app: FastifyInstance) {
       orderBy: { id: 'desc' },
       include: { _count: { select: { processos: true } } },
     })
-    const agora = Date.now()
-    return {
-      ppcps: lista.map((p) => ({
-        ...p,
-        // O painel precisa distinguir "autorizado" de "autorizado e válido".
-        vigente: p.status === 'AUTORIZADO' && (!p.vigenciaAte || p.vigenciaAte.getTime() >= agora),
-        vencido: !!p.vigenciaAte && p.vigenciaAte.getTime() < agora,
-      })),
-    }
+    // Mesma regra do detalhe — vem do serviço para não divergir.
+    return { ppcps: lista.map(comVigencia) }
   })
 
   app.post('/api/admin/aca/ppcp', { preHandler: authMiddleware }, async (req, reply) => {

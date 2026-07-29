@@ -24,6 +24,19 @@ export class PpcpInvalidoError extends Error {
 }
 
 /**
+ * Marca o PPCP com `vigente`/`vencido`.
+ *
+ * A regra vive aqui porque as telas de lista e de detalhe dependem dela para
+ * habilitar a avaliação — tê-la só na listagem fazia o detalhe tratar projeto
+ * válido como inválido.
+ */
+export function comVigencia<T extends { status: string; vigenciaAte: Date | null }>(ppcp: T) {
+  const agora = Date.now()
+  const vencido = !!ppcp.vigenciaAte && ppcp.vigenciaAte.getTime() < agora
+  return { ...ppcp, vencido, vigente: ppcp.status === 'AUTORIZADO' && !vencido }
+}
+
+/**
  * Confere se o PPCP pode amparar um processo agora.
  *
  * Vigência expirada é tão impeditiva quanto ausência de autorização: a
@@ -240,7 +253,7 @@ export async function resumoProcesso(processoId: number): Promise<ResumoProcesso
   const reconhecidas = avaliacoes.filter((a) => a.resultado === 'RECONHECIDO')
   return {
     processo,
-    ppcp: processo.ppcp,
+    ppcp: comVigencia(processo.ppcp),
     reconhecidos: reconhecidas.length,
     naoReconhecidos: avaliacoes.length - reconhecidas.length,
     cargaHorariaReconhecida: reconhecidas.reduce((s, a) => s + a.cargaHoraria, 0),

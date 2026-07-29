@@ -82,6 +82,7 @@ export type IconName =
   | 'TrendingDown'
   | 'ShieldAlert'
   | 'Repeat'
+  | 'ScrollText'
 
 export interface SidebarItem {
   id: string
@@ -335,6 +336,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
         { id: 'aca-diploma', label: 'Diploma Digital', href: '/app/aca/diploma', icon: 'ShieldCheck', permission: 'aca_diploma' },
         { id: 'aca-qualificacoes', label: 'Qualificação profissional', href: '/app/aca/qualificacoes', icon: 'Award', permission: 'aca_secretaria' },
+        { id: 'aca-reconhecimento', label: 'Reconhecimento de saberes', href: '/app/aca/reconhecimento', icon: 'ScrollText', permission: 'aca_secretaria' },
         { id: 'aca-portais-plus', label: 'Centrais (Resp./Ex-aluno)', href: '/app/aca/portais', icon: 'Key', permission: 'aca_portais_plus' },
         { id: 'aca-comunicacao', label: 'Comunicação', href: '/app/aca/comunicacao', icon: 'MessageSquare', permission: 'aca_comunicacao' },
       ],

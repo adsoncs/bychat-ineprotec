@@ -238,6 +238,9 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-qualificacoes': lazy(() =>
     import('./pages/AcademicoQualificacoesPage').then((m) => ({ default: m.AcademicoQualificacoesPage })),
   ),
+  'aca-reconhecimento': lazy(() =>
+    import('./pages/AcademicoReconhecimentoPage').then((m) => ({ default: m.AcademicoReconhecimentoPage })),
+  ),
   'aca-provas': lazy(() =>
     import('./pages/AcademicoProvasPage').then((m) => ({ default: m.AcademicoProvasPage })),
   ),
@@ -427,6 +430,9 @@ const AcaProvaDetail = lazy(() =>
 )
 const AcaCorrecao = lazy(() =>
   import('./pages/AcademicoCorrecaoPage').then((m) => ({ default: m.AcademicoCorrecaoPage })),
+)
+const AcaReconhecimentoDetail = lazy(() =>
+  import('./pages/AcademicoReconhecimentoDetailPage').then((m) => ({ default: m.AcademicoReconhecimentoDetailPage })),
 )
 
 const FunnelDetail = lazy(() =>
@@ -630,6 +636,11 @@ export function Router() {
           <Route path="/aca/provas/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><AcaProvaDetail params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/reconhecimento/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaReconhecimentoDetail params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/funnels/:id">
