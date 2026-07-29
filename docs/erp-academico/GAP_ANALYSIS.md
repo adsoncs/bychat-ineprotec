@@ -159,22 +159,28 @@ fechado". Três gaps estavam parciais e um não tinha começado. Corrigidos em s
   alterações de nota e de resultado, que não gravavam nada (0112).
 - **G6** — login por CPF/RA + senha, link de acesso por WhatsApp, informe de pagamentos
   para o IR e agenda `.ics` (0113).
-- **G8** — a prova online funciona, mas a correção de dissertativa é nota única + parecer.
-  **Não é rubrica** (critérios com peso próprio, pontuados em separado), como o RF-203 pede.
-- **G10** — a mecânica de hash existe e só calcula para arquivo local em `/uploads`. O GED
-  guarda **links externos**, então nenhum documento tem hash. Para link externo, o hash não
-  sai como está — exige baixar e armazenar o arquivo.
+- **G8** — rubrica de correção (0114): critérios com teto próprio, nota = soma normalizada,
+  pontos por critério gravados na resposta. Recusa nota direta em questão com rubrica.
+- **G10** — hash de documento externo com guarda de SSRF + **custódia própria** (baixa o
+  arquivo para /uploads/acervo). O acervo guardava só links: link quebra e o documento
+  obrigatório some sem ninguém perceber.
+
+Fechados na sequência seguinte:
+
+- Acordo de dívida **ganhou tela** (era JSON num portal sem JavaScript — ninguém chegava).
+- Central do Responsável ganhou negociação, informe de IR e quitação; informe de IR também
+  no admin (só o portal emitia).
+- Grade da matriz reordenável por arrastar, em RASCUNHO.
+- Push no portal (0115): VAPID, assinatura por endpoint, desativação em 404/410.
 
 Pendências conhecidas:
 
-- **Rubrica de redação (G8)** — correção por critérios ponderados.
-- **Hash do acervo (G10)** — depende de trazer o arquivo para o servidor.
-- **Notificações push no portal (G6)** — exige VAPID + handler no service worker.
-- **Editor de matriz com arrastar-e-soltar** — a matriz é editável, mas por formulário.
 - **Replicação para os outros 8 tenants** — todo o ERP acadêmico existe apenas em
   `bychat-ineprotec`. O motor é genérico; a configuração (esquemas, matrizes, calendário)
   é por instituição e não deve ser replicada. Só faz sentido em tenant que seja instituição
-  de ensino.
+  de ensino. **É decisão de negócio, não pendência técnica.**
+- Push e negociação online vêm **desligados** por padrão: exigem que a instituição gere as
+  chaves VAPID e habilite a política de acordo. Isso é intencional.
 
 ## Notas de risco
 
