@@ -75,7 +75,7 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
   const [avaliacoes, mats, aulas] = await Promise.all([
     prisma.acaAvaliacao.findMany({ where: { diarioId } }),
     matriculadosDaTurma(turmaId),
-    prisma.acaAula.findMany({ where: { diarioId }, select: { id: true, quantidadeAulas: true } }),
+    prisma.acaAula.findMany({ where: { diarioId }, select: { id: true, quantidadeAulas: true, data: true } }),
   ])
   const avalIds = avaliacoes.map((a) => a.id)
   const aulaIds = aulas.map((a) => a.id)
@@ -86,10 +86,50 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
   const pesoTotal = avaliacoes.reduce((s, a) => s + a.peso, 0)
   const totalAulas = aulas.reduce((s, a) => s + a.quantidadeAulas, 0)
   const qtdByAula = new Map(aulas.map((a) => [a.id, a.quantidadeAulas]))
+  const dataByAula = new Map(aulas.map((a) => [a.id, a.data]))
+
+  // Regime de exercícios domiciliares (Dec-Lei 1.044/69, Lei 6.202/75): a falta
+  // continua registrada no diário — quem desconsidera as aulas do período é o
+  // CÁLCULO. Sem isso, o aluno amparado por lei reprovaria por frequência.
+  const alunoIdPorMatricula = new Map<number, number>()
+  for (const m of await prisma.acaMatricula.findMany({ where: { turmaId }, select: { id: true, alunoId: true } })) {
+    alunoIdPorMatricula.set(m.id, m.alunoId)
+  }
+  const regimes = await prisma.acaRegimeEspecial.findMany({
+    where: { status: 'DEFERIDO', alunoId: { in: [...new Set(alunoIdPorMatricula.values())] } },
+    select: { alunoId: true, dataInicio: true, dataFim: true },
+  })
+  const regimesPorAluno = new Map<number, Array<{ ini: number; fim: number }>>()
+  for (const r of regimes) {
+    const lista = regimesPorAluno.get(r.alunoId) ?? []
+    lista.push({ ini: r.dataInicio.getTime(), fim: r.dataFim.getTime() })
+    regimesPorAluno.set(r.alunoId, lista)
+  }
+  const emRegime = (matriculaId: number, aulaId: number): boolean => {
+    const alunoId = alunoIdPorMatricula.get(matriculaId)
+    const lista = alunoId != null ? regimesPorAluno.get(alunoId) : undefined
+    if (!lista || lista.length === 0) return false
+    const d = dataByAula.get(aulaId)
+    if (!d) return false
+    const t = d.getTime()
+    return lista.some((r) => t >= r.ini && t <= r.fim)
+  }
   const notaMap: Record<number, Record<number, number | null>> = {}
   for (const n of notas) (notaMap[n.matriculaId] ??= {})[n.avaliacaoId] = n.valor
   const faltasByMat = new Map<number, number>()
-  for (const f of freqs) if (!f.presente) faltasByMat.set(f.matriculaId, (faltasByMat.get(f.matriculaId) || 0) + (qtdByAula.get(f.aulaId) || 1))
+  /// Aulas que não entram no denominador do aluno por estarem em regime especial.
+  const abonadasByMat = new Map<number, number>()
+  for (const f of freqs) {
+    const qtd = qtdByAula.get(f.aulaId) || 1
+    // Só a AUSÊNCIA amparada sai do denominador. Tirar também as presenças do
+    // período encolheria a base e faria a frequência PIORAR — o amparo legal
+    // não pode prejudicar quem ele protege.
+    if (!f.presente && emRegime(f.matriculaId, f.aulaId)) {
+      abonadasByMat.set(f.matriculaId, (abonadasByMat.get(f.matriculaId) || 0) + qtd)
+      continue
+    }
+    if (!f.presente) faltasByMat.set(f.matriculaId, (faltasByMat.get(f.matriculaId) || 0) + qtd)
+  }
   // A fórmula do esquema só entra quando TODOS os componentes obrigatórios têm
   // avaliação vinculada — senão o cálculo seria feito com nota faltando.
   const porSigla = new Map<string, number>()
@@ -100,7 +140,9 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
   return mats.map((m) => {
     const row = notaMap[m.id] || {}
     const faltas = faltasByMat.get(m.id) || 0
-    const freqPct = totalAulas > 0 ? Math.round(((totalAulas - faltas) / totalAulas) * 100) : 100
+    const abonadas = abonadasByMat.get(m.id) || 0
+    const base = Math.max(0, totalAulas - abonadas)
+    const freqPct = base > 0 ? Math.round(((base - faltas) / base) * 100) : 100
 
     if (usaFormula && esquema) {
       const notas: Record<string, number | null> = {}
@@ -112,6 +154,7 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
       return {
         matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome,
         media: r.media, completo: r.faltamNotas.length === 0, faltas, freqPct,
+        aulasEmRegimeEspecial: abonadas,
         situacaoEsquema: r.situacao, explicacao: r.explicacao,
       }
     }
@@ -120,7 +163,7 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
     for (const a of avaliacoes) { const val = row[a.id]; if (val != null) { soma += val * a.peso; somaPeso += a.peso } }
     const media = somaPeso > 0 ? Math.round((soma / somaPeso) * 10) / 10 : null
     const completo = somaPeso === pesoTotal && pesoTotal > 0
-    return { matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome, media, completo, faltas, freqPct }
+    return { matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome, media, completo, faltas, freqPct, aulasEmRegimeEspecial: abonadas }
   })
 }
 

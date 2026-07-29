@@ -5247,6 +5247,7 @@ model Aluno {
   matriculas     AcaMatricula[]
   ocorrencias    AcaOcorrencia[]
   vinculos       AcaVinculo[]
+  regimesEspeciais AcaRegimeEspecial[]
 
   @@index([cpf])
   @@index([ra])
@@ -5475,6 +5476,42 @@ model AcaEsquemaComponente {
   @@unique([esquemaId, sigla])
   @@index([esquemaId])
   @@map("bychat_aca_esquema_componentes")
+}
+
+/// Regime de exercícios domiciliares / tratamento excepcional.
+///
+/// No ensino superior NÃO existe abono de faltas — salvo os casos legais:
+/// Decreto-Lei 1.044/69 (afecções, traumatismos) e Lei 6.202/75 (gestante).
+/// A lei não manda apagar a falta: manda dar tratamento especial ao período,
+/// com exercícios domiciliares. Por isso o registro de frequência permanece
+/// intacto e é o CÁLCULO que desconsidera as aulas do intervalo deferido —
+/// assim o diário continua contando a história real (RN-602 do Documento
+/// Mestre).
+model AcaRegimeEspecial {
+  id           Int      @id @default(autoincrement())
+  alunoId      Int
+  vinculoId    Int?
+  /// GESTANTE (Lei 6.202/75) | SAUDE (Dec-Lei 1.044/69) | MILITAR | OUTRO
+  tipo         String   @db.VarChar(20)
+  dataInicio   DateTime
+  dataFim      DateTime
+  /// SOLICITADO | DEFERIDO | INDEFERIDO | ENCERRADO — só DEFERIDO afeta o cálculo.
+  status       String   @default("SOLICITADO") @db.VarChar(20)
+  amparoLegal  String?  @db.VarChar(120)
+  atestadoUrl  String?  @db.Text
+  observacao   String?  @db.Text
+  /// Atividades domiciliares combinadas — a contrapartida que a lei prevê.
+  planoAtividades String? @db.Text
+  deferidoPor  Int?
+  deferidoEm   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  aluno        Aluno    @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  @@index([alunoId, status])
+  @@index([dataInicio, dataFim])
+  @@map("bychat_aca_regimes_especiais")
 }
 
 model AcaResponsavel {
