@@ -1,12 +1,14 @@
 # ERP Acadêmico ByChat — Guia de Treinamento
 
-Documento de treinamento e referência operacional. Cobre as **45 telas do menu
+Documento de treinamento e referência operacional. Cobre as **47 telas do menu
 ERP** (mais 9 telas de detalhe e formulário abertas a partir delas): o que cada
 uma resolve, a ordem em que devem ser usadas e as regras que o sistema aplica
 sozinho.
 
-Levantado sobre o sistema em produção em 29/07/2026: 109 modelos de dados, 308
-endpoints administrativos e 12 migrações de banco na última rodada.
+Levantado sobre o sistema em produção em 29/07/2026. Inclui a extensão para
+**educação profissional técnica** (conformidade SISTEC, certificação
+intermediária, avaliação por competências e reconhecimento de saberes) — ver
+`EDUCACAO_PROFISSIONAL.md` para a base normativa.
 
 > **Como ler este guia.** Se você está implantando, siga a ordem da seção
 > "Implantação: a ordem que funciona". Se está treinando uma pessoa por função,
@@ -425,6 +427,124 @@ perguntas (escala, NPS, texto, sim/não), link anônimo e dashboard de resultado
 
 ---
 
+## Educação profissional técnica
+
+Esta parte só aparece para quem opera curso **técnico**. A regra de negócio é
+diferente da graduação, e a base normativa está levantada em
+`docs/erp-academico/EDUCACAO_PROFISSIONAL.md`.
+
+### O que muda em relação à graduação
+
+**No SISTEC não existe reprovação para curso técnico.** Esse status só vale para
+FIC e superior. O aluno técnico que não atinge desempenho continua *em curso* e é
+contado como **retido** nos indicadores. O sistema não exporta reprovação nesses
+cursos de propósito.
+
+**"Integralizar em Fase Escolar" é situação própria** — o aluno cumpriu as
+disciplinas e falta só estágio, TCC ou atividade complementar. É o estado mais
+comum da escola técnica, e deixá-lo como "em curso" informa situação errada ao
+MEC.
+
+**O prazo é dia 25 do mês seguinte** ao fato (Portaria 31/2022). Registrar
+depois não só atrasa: cai no mês errado e distorce os indicadores da unidade.
+
+### Qualificação profissional (`ERP · Secretaria → Qualificação profissional`)
+
+Duas abas, porque é a mesma rotina de quem fecha o mês.
+
+**Certificados a emitir.** Res. CNE/CP 1/2021, art. 49, §2º: ao concluir etapa ou
+módulo com terminalidade, **"será conferido"** certificado de qualificação
+profissional, com título e carga horária explicitados. Não é faculdade da escola
+— é direito do aluno.
+
+A fila aparece sozinha quando um módulo fecha, e **inclui quem trancou ou
+evadiu**: o direito não desaparece com a saída, e é esse aluno que mais precisa
+do documento para o mercado. Dá para emitir em lote — fim de módulo gera uma
+turma inteira de certificados.
+
+**Conformidade SISTEC.** O prazo do mês em destaque, os alunos que a
+integralização já classificou como em fase escolar mas cujo vínculo continua
+ativo, e as pendências que travam o envio: aluno sem CPF e curso técnico sem eixo
+tecnológico. Aplicar a situação é ato da secretaria, por isso a tela lista e
+espera confirmação.
+
+### Módulos com terminalidade (na tela da matriz)
+
+Dentro da matriz, agrupe os componentes em módulos e declare o **título de
+qualificação** que cada um confere. Módulo sem título organiza a grade mas não
+gera certificado.
+
+Vale o mesmo cuidado dos componentes: só é editável em **rascunho**. E o aviso de
+"componente sem módulo" importa — ele não conta para certificado nenhum.
+
+### Avaliação por competências (`Diário → aba Competências`)
+
+**Este é o ponto que mais confunde quem vem da graduação: a média não decide.**
+
+Na educação profissional a unidade curricular desenvolve **capacidades**
+(técnicas, sociais, organizativas, metodológicas), e o aluno demonstra domínio
+delas contra **critérios de avaliação**. Os critérios se dividem em:
+
+- **Críticos** — sem atendê-los o aluno **não está apto**, ainda que todo o resto
+  esteja bom. É o crítico que caracteriza a competência.
+- **Desejáveis** — qualificam o desempenho, não reprovam sozinhos.
+
+Um aluno pode atender 3 de 4 critérios (75%) e **não estar apto**, porque falhou
+num crítico. Nenhuma média expressaria isso.
+
+O registro é por **lista de verificação**, com três estados: atende, em
+desenvolvimento, não atende. Duas visões:
+
+- **Por aluno** — formato da lista do SENAI, com a evidência a observar visível.
+  É como se avalia alguém numa bancada.
+- **Turma inteira** — grade com os critérios em coluna, para marcar a turma depois
+  de uma atividade coletiva.
+
+**Não atendeu não é o fim:** o docente retoma a capacidade na situação de
+aprendizagem seguinte e marca de novo. A tentativa anterior fica registrada — é o
+que mostra a evolução do aluno.
+
+O nível (A/B/C/D) segue a tabela do SENAI e **expressa** o desempenho; quem
+decide é o critério crítico. Para o esquema usar esse modelo, ligue "avaliação por
+competência" no esquema de avaliação. Se o componente não tiver capacidades
+cadastradas, o fechamento avisa em vez de reprovar a turma.
+
+> As capacidades são **trabalho pedagógico da escola**, não configuração: alguém
+> precisa escrevê-las e classificar cada critério. O editor fica no componente da
+> matriz, e há um botão de copiar de outro componente — disciplina equivalente em
+> outra matriz costuma servir com ajuste.
+
+### Reconhecimento de saberes (`ERP · Secretaria → Reconhecimento de saberes`)
+
+Certificação profissional de quem **já sabe fazer**. LDB art. 41: o conhecimento
+adquirido "inclusive no trabalho" pode ser avaliado, reconhecido e certificado.
+
+**A tela começa pelo projeto, não pelo candidato** — e essa ordem é da norma. O
+art. 47, §2º exige que o processo seja **precedido de autorização** do sistema de
+ensino, com um **PPCP** (Projeto Pedagógico de Certificação Profissional). A
+escola não pode aplicar uma prova e dispensar o aluno.
+
+O fluxo:
+
+1. **Criar o PPCP** a partir do curso, descrevendo a metodologia. Nasce em
+   rascunho.
+2. **Autorizar**, informando o ato e o órgão que autorizaram, e a vigência. Sem
+   esse registro não há como demonstrar a autorização depois.
+3. **Abrir o processo** com o **itinerário profissional declarado** — experiência
+   de trabalho e formação não formal. É o que a banca lê antes de decidir o que
+   avaliar.
+4. **Avaliar componente por componente**, informando o **instrumento aplicado**
+   (prova prática, portfólio, entrevista, demonstração em situação real).
+   Reconhecer sem registrar como se avaliou não sustenta auditoria.
+5. **Decidir**: deferir mantém o que foi reconhecido; indeferir ou cancelar
+   **remove** os aproveitamentos — não pode sobrar dispensa de processo negado.
+
+Reconhecer um componente gera aproveitamento na hora, e a integralização passa a
+contá-lo como cumprido. Se a autorização vencer, o sistema recusa novas
+avaliações mesmo em processo já aberto.
+
+---
+
 ## Segurança e auditoria
 
 **Verificação em duas etapas** (`Configurações → Segurança`) — TOTP por
@@ -454,6 +574,8 @@ mudança de política de acordo e uso de código de recuperação.
 4. Regime especial: registrar, analisar, deferir — e o efeito na frequência.
 5. Movimentações: trancar, transferir, reingressar.
 6. Acervo: classificar, conferir integridade, eliminar com termo.
+7. **Escola técnica**: Qualificação profissional (fila de certificados + prazo do
+   SISTEC) e Reconhecimento de saberes (PPCP antes do candidato).
 
 ### Coordenação de curso (meio dia)
 
@@ -463,6 +585,8 @@ mudança de política de acordo e uso de código de recuperação.
 4. Painel de gestão → Coordenação: disciplinas com reprovação alta.
 5. Se o curso for EAD: conferir que o esquema tem "a frequência reprova"
    desligado — senão o aluno reprova por chamada que não existe.
+6. **Escola técnica**: módulos com terminalidade na matriz e capacidades por
+   componente — sem elas a avaliação por competência não tem o que apurar.
 6. Risco de evasão: ler os fatores e agir sobre o principal.
 
 ### Financeiro (meio dia)
@@ -479,6 +603,8 @@ mudança de política de acordo e uso de código de recuperação.
 2. Diário: registrar aula, chamada, avaliação e notas.
 3. Conceito e segunda chamada, quando o regimento usa.
 4. Plano de ensino e materiais.
+5. **Escola técnica**: aba Competências — lista de verificação, crítico versus
+   desejável, e a reapresentação quando o aluno não atende.
 
 ### Direção (1 hora)
 
@@ -529,6 +655,16 @@ Cada um tem o ponto de integração pronto e funciona em modo simulado até a
 credencial existir: assinatura ICP-Brasil do diploma, webservice de NFS-e da
 prefeitura, catraca do controle de acesso, LMS próprio para o EAD, e o layout
 posicional do Censo.
+
+### Se a instituição é escola técnica
+
+6. **Completar o cadastro do curso**: grau `tecnico`, eixo tecnológico, código do
+   CNCT e perfil profissional de conclusão. Sem eles o certificado e o histórico
+   saem incompletos, e o SISTEC recusa o cadastro.
+7. **Escrever as capacidades e critérios** dos componentes. É trabalho pedagógico,
+   não configuração — e é o que a avaliação por competências consome.
+8. **Criar e autorizar o PPCP** antes de prometer reconhecimento de saberes a
+   candidato nenhum.
 
 ### O teste que ainda falta
 
