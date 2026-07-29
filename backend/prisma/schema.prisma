@@ -5503,6 +5503,29 @@ model AcaEsquemaComponente {
 /// intacto e é o CÁLCULO que desconsidera as aulas do intervalo deferido —
 /// assim o diário continua contando a história real (RN-602 do Documento
 /// Mestre).
+/// Assinatura de notificação push do portal (G6 / RF-701).
+///
+/// Uma por navegador/aparelho: o mesmo aluno tem o celular e o computador do
+/// laboratório. O endpoint é a identidade da assinatura para o navegador — por
+/// isso ele é a chave única, não o aluno.
+model AcaPushInscricao {
+  id         Int      @id @default(autoincrement())
+  alunoId    Int
+  endpoint   String   @db.VarChar(500)
+  p256dh     String   @db.VarChar(255)
+  auth       String   @db.VarChar(255)
+  userAgent  String?  @db.VarChar(255)
+  ativa      Boolean  @default(true)
+  /// Última falha do serviço de push; assinatura morta é desativada, não apagada.
+  ultimoErro String?  @db.VarChar(255)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([endpoint])
+  @@index([alunoId, ativa])
+  @@map("bychat_aca_push_inscricoes")
+}
+
 model AcaRegimeEspecial {
   id           Int      @id @default(autoincrement())
   alunoId      Int

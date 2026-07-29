@@ -272,7 +272,53 @@ export async function acaPortalRoutes(app: FastifyInstance) {
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           <a href="/api/public/aca/aluno/agenda.ics?t=${tk}"><button class="sec" type="button">Assinar calendário (.ics)</button></a>
           <a href="/portal/aca/senha?t=${tk}"><button class="sec" type="button">Criar/trocar senha</button></a>
+          <button class="sec" type="button" id="btn-push">Ativar notificações</button>
         </div>
+        <p class="sub" id="push-msg" style="font-size:12px;margin-top:6px"></p>
+        <script>
+        // Assinatura de push: só roda se o navegador suportar e a instituição
+        // tiver configurado as chaves. Falha aqui não pode quebrar a página.
+        (function () {
+          var btn = document.getElementById('btn-push')
+          var msg = document.getElementById('push-msg')
+          var tk = ${JSON.stringify(tokOf(req))}
+          if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            btn.disabled = true; msg.textContent = 'Este navegador não suporta notificações.'
+            return
+          }
+          function b64(base64) {
+            var pad = '='.repeat((4 - base64.length % 4) % 4)
+            var raw = atob((base64 + pad).replace(/-/g, '+').replace(/_/g, '/'))
+            return Uint8Array.from(raw, function (c) { return c.charCodeAt(0) })
+          }
+          btn.addEventListener('click', function () {
+            btn.disabled = true; msg.textContent = 'Pedindo permissão…'
+            fetch('/api/public/aca/push/chave?t=' + encodeURIComponent(tk))
+              .then(function (r) { if (!r.ok) throw new Error('indisponivel'); return r.json() })
+              .then(function (cfg) {
+                return navigator.serviceWorker.register('/portal/aca/sw.js', { scope: '/portal/aca/' })
+                  .then(function (reg) { return navigator.serviceWorker.ready.then(function () { return reg }) })
+                  .then(function (reg) {
+                    return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(cfg.publicKey) })
+                  })
+              })
+              .then(function (sub) {
+                var j = sub.toJSON()
+                return fetch('/api/public/aca/push/inscrever?t=' + encodeURIComponent(tk), {
+                  method: 'POST', headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }),
+                })
+              })
+              .then(function () { msg.textContent = 'Notificações ativadas neste aparelho.' })
+              .catch(function (e) {
+                btn.disabled = false
+                msg.textContent = e && e.message === 'indisponivel'
+                  ? 'A instituição ainda não ativou as notificações.'
+                  : 'Não foi possível ativar. Verifique a permissão do navegador.'
+              })
+          })
+        })()
+        </script>
         <p class="sub" style="font-size:13px;margin-top:8px">Com uma senha você entra pelo endereço do portal usando CPF ou RA, sem depender de achar este link.</p>
       </div>
       ${materiaisHtml}

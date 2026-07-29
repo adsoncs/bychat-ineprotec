@@ -73,7 +73,7 @@ button{font:inherit;padding:10px 18px;border-radius:10px;border:1px solid #d1d5d
     const sw = `// Service worker do portal acadêmico.
 // Página autenticada NUNCA é cacheada: o portal expõe notas, faltas e dívida,
 // e o aparelho costuma ser compartilhado. Guardamos apenas a casca.
-const CACHE = 'aca-portal-v1'
+const CACHE = 'aca-portal-v2'
 const CASCA = ['/portal/aca/offline', '/portal/aca/icon.svg', '/portal/aca/manifest.webmanifest']
 
 self.addEventListener('install', (e) => {
@@ -105,6 +105,34 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.startsWith('/portal/aca/')) {
     e.respondWith(fetch(req).catch(() => caches.match('/portal/aca/offline')))
   }
+})
+
+// Notificação push. O payload chega cifrado e é decifrado aqui pelo próprio
+// navegador — o serviço de push do fabricante não lê o conteúdo.
+self.addEventListener('push', (e) => {
+  let d = { titulo: 'Aviso da secretaria', corpo: '', url: '/portal/aca/login' }
+  try { if (e.data) d = Object.assign(d, e.data.json()) } catch (_) { /* payload malformado vira aviso genérico */ }
+  e.waitUntil(self.registration.showNotification(d.titulo, {
+    body: d.corpo,
+    icon: '/portal/aca/icon.svg',
+    badge: '/portal/aca/icon.svg',
+    data: { url: d.url },
+    // Sem tag fixa: dois avisos diferentes não devem se sobrescrever.
+  }))
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const alvo = (e.notification.data && e.notification.data.url) || '/portal/aca/login'
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((lista) => {
+      // Reaproveita uma aba do portal já aberta em vez de empilhar janelas.
+      for (const c of lista) {
+        if (c.url.includes('/portal/aca/') && 'focus' in c) return c.focus()
+      }
+      return self.clients.openWindow(alvo)
+    }),
+  )
 })
 `
     return reply
