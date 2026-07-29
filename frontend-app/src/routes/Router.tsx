@@ -212,6 +212,32 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-esquemas': lazy(() =>
     import('./pages/AcademicoEsquemasPage').then((m) => ({ default: m.AcademicoEsquemasPage })),
   ),
+  // Fases 3-5 — regime especial, acervo/ENADE, evasão, produção docente,
+  // painel por persona, importação e prova online.
+  'aca-regime-especial': lazy(() =>
+    import('./pages/AcademicoRegimeEspecialPage').then((m) => ({ default: m.AcademicoRegimeEspecialPage })),
+  ),
+  'aca-acervo': lazy(() =>
+    import('./pages/AcademicoAcervoPage').then((m) => ({ default: m.AcademicoAcervoPage })),
+  ),
+  'aca-enade': lazy(() =>
+    import('./pages/AcademicoEnadePage').then((m) => ({ default: m.AcademicoEnadePage })),
+  ),
+  'aca-evasao': lazy(() =>
+    import('./pages/AcademicoEvasaoPage').then((m) => ({ default: m.AcademicoEvasaoPage })),
+  ),
+  'aca-producao-docente': lazy(() =>
+    import('./pages/AcademicoProducaoDocentePage').then((m) => ({ default: m.AcademicoProducaoDocentePage })),
+  ),
+  'aca-gestao': lazy(() =>
+    import('./pages/AcademicoGestaoPage').then((m) => ({ default: m.AcademicoGestaoPage })),
+  ),
+  'aca-importacao': lazy(() =>
+    import('./pages/AcademicoImportacaoPage').then((m) => ({ default: m.AcademicoImportacaoPage })),
+  ),
+  'aca-provas': lazy(() =>
+    import('./pages/AcademicoProvasPage').then((m) => ({ default: m.AcademicoProvasPage })),
+  ),
   'aca-equivalencias': lazy(() =>
     import('./pages/AcademicoEquivalenciasPage').then((m) => ({ default: m.AcademicoEquivalenciasPage })),
   ),
@@ -387,6 +413,17 @@ const AcaIntegralizacao = lazy(() =>
 )
 const AcaEsquemaForm = lazy(() =>
   import('./pages/AcademicoEsquemaFormPage').then((m) => ({ default: m.AcademicoEsquemaFormPage })),
+)
+
+// Fases 3-5 — formulário do regime, detalhe da prova e fila de correção.
+const AcaRegimeForm = lazy(() =>
+  import('./pages/AcademicoRegimeEspecialFormPage').then((m) => ({ default: m.AcademicoRegimeEspecialFormPage })),
+)
+const AcaProvaDetail = lazy(() =>
+  import('./pages/AcademicoProvaDetailPage').then((m) => ({ default: m.AcademicoProvaDetailPage })),
+)
+const AcaCorrecao = lazy(() =>
+  import('./pages/AcademicoCorrecaoPage').then((m) => ({ default: m.AcademicoCorrecaoPage })),
 )
 
 const FunnelDetail = lazy(() =>
@@ -573,6 +610,23 @@ export function Router() {
           <Route path="/aca/vinculos/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><AcaVinculoDetail params={params} /></ModuleGate>
+            )}
+          </Route>
+          {/* Fases 3-5. /aca/provas/correcao vem ANTES de /aca/provas/:id,
+              senão "correcao" seria lido como id da prova. */}
+          <Route path="/aca/regime-especial/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaRegimeForm params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/provas/correcao">
+            {() => (
+              <ModuleGate moduleId="educacional"><AcaCorrecao /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/provas/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaProvaDetail params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/funnels/:id">

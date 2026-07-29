@@ -75,6 +75,13 @@ export type IconName =
   | 'Upload'
   | 'LifeBuoy'
   | 'Mic'
+  | 'Download'
+  | 'PenLine'
+  | 'Archive'
+  | 'HeartPulse'
+  | 'TrendingDown'
+  | 'ShieldAlert'
+  | 'Repeat'
 
 export interface SidebarItem {
   id: string
@@ -283,6 +290,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-estrutura', label: 'Estrutura Acadêmica', href: '/app/aca/estrutura', icon: 'Layers', permission: 'aca_estrutura' },
         { id: 'aca-curriculo', label: 'Currículo', href: '/app/aca/curriculo', icon: 'GitFork', permission: 'aca_estrutura' },
         { id: 'aca-cadastros', label: 'Cadastros auxiliares', href: '/app/aca/cadastros', icon: 'Boxes', permission: 'aca_cadastros' },
+        { id: 'aca-importacao', label: 'Importação de dados', href: '/app/aca/importacao', icon: 'Upload', permission: 'aca_cadastros' },
       ],
       initiallyCollapsed: true,
     },
@@ -304,9 +312,11 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-calendario', label: 'Calendário', href: '/app/aca/calendario', icon: 'CalendarRange', permission: 'aca_pedagogico' },
         { id: 'aca-acesso', label: 'Controle de Acesso', href: '/app/aca/acesso', icon: 'Key', permission: 'aca_acesso' },
         { id: 'aca-docente', label: 'Docentes / RH', href: '/app/aca/docente', icon: 'School', permission: 'aca_docente' },
+        { id: 'aca-producao-docente', label: 'Produção docente', href: '/app/aca/producao-docente', icon: 'Clock', permission: 'aca_docente' },
         { id: 'aca-ead', label: 'EAD / LMS', href: '/app/aca/ead', icon: 'Cloud', permission: 'aca_ead' },
         { id: 'aca-alocacao', label: 'Alocação de Recursos', href: '/app/aca/alocacao', icon: 'MapPin', permission: 'aca_alocacao' },
         { id: 'aca-vestibular', label: 'Vestibular (classificação)', href: '/app/aca/vestibular', icon: 'ClipboardList', permission: 'aca_vestibular' },
+        { id: 'aca-provas', label: 'Prova online', href: '/app/aca/provas', icon: 'PenLine', permission: 'aca_vestibular' },
       ],
       initiallyCollapsed: true,
     },
@@ -319,6 +329,8 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-estagio', label: 'Estágio & Atividades', href: '/app/aca/estagio', icon: 'Briefcase', permission: 'aca_secretaria' },
         { id: 'aca-tcc', label: 'TCC', href: '/app/aca/tcc', icon: 'BookOpen', permission: 'aca_secretaria' },
         { id: 'aca-ged', label: 'GED (Documentos)', href: '/app/aca/ged', icon: 'FileCheck2', permission: 'aca_ged' },
+        { id: 'aca-acervo', label: 'Acervo acadêmico', href: '/app/aca/acervo', icon: 'Archive', permission: 'aca_ged' },
+        { id: 'aca-regime-especial', label: 'Regime especial', href: '/app/aca/regime-especial', icon: 'HeartPulse', permission: 'aca_secretaria' },
         { id: 'aca-assinatura', label: 'Assinatura de Contratos', href: '/app/aca/assinatura', icon: 'FileSignature', permission: 'aca_assinatura' },
         { id: 'aca-egressos', label: 'Egressos', href: '/app/aca/egressos', icon: 'Award', permission: 'aca_secretaria' },
         { id: 'aca-diploma', label: 'Diploma Digital', href: '/app/aca/diploma', icon: 'ShieldCheck', permission: 'aca_diploma' },
@@ -342,6 +354,9 @@ export const sidebarSchema: SidebarSchema = {
       label: 'ERP · Relatórios',
       items: [
         { id: 'aca-bi', label: 'Indicadores (BI)', href: '/app/aca/bi', icon: 'BarChart3', permission: 'aca_relatorios' },
+        { id: 'aca-gestao', label: 'Painel de gestão', href: '/app/aca/gestao', icon: 'LayoutDashboard', permission: 'aca_relatorios' },
+        { id: 'aca-evasao', label: 'Risco de evasão', href: '/app/aca/evasao', icon: 'TrendingDown', permission: 'aca_relatorios' },
+        { id: 'aca-enade', label: 'Regularidade ENADE', href: '/app/aca/enade', icon: 'ShieldAlert', permission: 'aca_relatorios' },
         { id: 'aca-avaliacao-inst', label: 'Avaliação Institucional (CPA)', href: '/app/aca/avaliacao-inst', icon: 'BarChart3', permission: 'aca_avaliacao_institucional' },
         { id: 'aca-sistec', label: 'Censo / SISTEC', href: '/app/aca/sistec', icon: 'Database', permission: 'aca_relatorios' },
         { id: 'aca-censo', label: 'Censo INEP / ENADE', href: '/app/aca/censo', icon: 'FileSpreadsheet', permission: 'aca_relatorios' },
