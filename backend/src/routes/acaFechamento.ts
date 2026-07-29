@@ -7,7 +7,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
-import { resolverEsquema } from '../services/acaAvaliacao.js'
+import { resolverEsquema, calcular as calcularPeloEsquema, type EsquemaCompleto } from '../services/acaAvaliacao.js'
 
 const CFG_KEYS = ['aca.media_aprovacao', 'aca.frequencia_minima', 'aca.recuperacao_habilitada', 'aca.recuperacao_min', 'aca.media_aprovacao_recuperacao'] as const
 const CFG_DEFAULTS: Record<string, any> = {
@@ -64,8 +64,14 @@ async function matriculadosDaTurma(turmaId: number) {
   })
 }
 
-/** Calcula média ponderada e frequência% de cada matrícula de um diário. */
-async function calcular(diarioId: number, turmaId: number) {
+/**
+ * Calcula média e frequência% de cada matrícula de um diário.
+ *
+ * Quando existe esquema para a disciplina E as avaliações estão vinculadas aos
+ * componentes (siglaEsquema), a média sai da FÓRMULA do regimento. Sem isso,
+ * cai na média ponderada pelos pesos das avaliações — o comportamento antigo.
+ */
+async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaCompleto | null) {
   const [avaliacoes, mats, aulas] = await Promise.all([
     prisma.acaAvaliacao.findMany({ where: { diarioId } }),
     matriculadosDaTurma(turmaId),
@@ -84,14 +90,36 @@ async function calcular(diarioId: number, turmaId: number) {
   for (const n of notas) (notaMap[n.matriculaId] ??= {})[n.avaliacaoId] = n.valor
   const faltasByMat = new Map<number, number>()
   for (const f of freqs) if (!f.presente) faltasByMat.set(f.matriculaId, (faltasByMat.get(f.matriculaId) || 0) + (qtdByAula.get(f.aulaId) || 1))
+  // A fórmula do esquema só entra quando TODOS os componentes obrigatórios têm
+  // avaliação vinculada — senão o cálculo seria feito com nota faltando.
+  const porSigla = new Map<string, number>()
+  for (const a of avaliacoes) if (a.siglaEsquema) porSigla.set(a.siglaEsquema, a.id)
+  const usaFormula = !!esquema
+    && esquema.componentes.filter((c) => c.obrigatorio).every((c) => porSigla.has(c.sigla))
+
   return mats.map((m) => {
     const row = notaMap[m.id] || {}
+    const faltas = faltasByMat.get(m.id) || 0
+    const freqPct = totalAulas > 0 ? Math.round(((totalAulas - faltas) / totalAulas) * 100) : 100
+
+    if (usaFormula && esquema) {
+      const notas: Record<string, number | null> = {}
+      for (const c of esquema.componentes) {
+        const avalId = porSigla.get(c.sigla)
+        notas[c.sigla] = avalId != null ? (row[avalId] ?? null) : null
+      }
+      const r = calcularPeloEsquema(esquema, notas, freqPct)
+      return {
+        matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome,
+        media: r.media, completo: r.faltamNotas.length === 0, faltas, freqPct,
+        situacaoEsquema: r.situacao, explicacao: r.explicacao,
+      }
+    }
+
     let somaPeso = 0, soma = 0
     for (const a of avaliacoes) { const val = row[a.id]; if (val != null) { soma += val * a.peso; somaPeso += a.peso } }
     const media = somaPeso > 0 ? Math.round((soma / somaPeso) * 10) / 10 : null
     const completo = somaPeso === pesoTotal && pesoTotal > 0
-    const faltas = faltasByMat.get(m.id) || 0
-    const freqPct = totalAulas > 0 ? Math.round(((totalAulas - faltas) / totalAulas) * 100) : 100
     return { matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome, media, completo, faltas, freqPct }
   })
 }
@@ -121,8 +149,9 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
     const diarioId = Number((req.params as any).id)
     const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true, disciplinaId: true } })
     if (!diario) return reply.code(404).send({ error: 'Diário não encontrado' })
+    const esquema = await resolverEsquema({ disciplinaId: diario.disciplinaId }).catch(() => null)
     const [regrasGlobais, linhas, resultados, disciplina] = await Promise.all([
-      getRegras(), calcular(diarioId, diario.turmaId),
+      getRegras(), calcular(diarioId, diario.turmaId, esquema),
       prisma.acaResultado.findMany({ where: { diarioId } }),
       prisma.acaDisciplina.findUnique({ where: { id: diario.disciplinaId }, select: { nome: true } }),
     ])
@@ -132,7 +161,14 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
       const fechado = resByMat.get(l.matriculaId)
       return {
         ...l,
-        situacao: fechado ? fechado.situacao : decidir(l.media, l.freqPct, regras),
+        // O esquema já devolve a situação com a explicação; decidir() é o fallback.
+        situacao: fechado ? fechado.situacao : ((l as any).situacaoEsquema ?? decidir(l.media, l.freqPct, regras)),
+        // A explicação descreve o cálculo ATUAL. Se o diário já foi fechado, a
+        // situação exibida é o snapshot gravado — misturar as duas mostraria
+        // "aprovado" ao lado de "média abaixo da mínima".
+        explicacao: fechado ? null : ((l as any).explicacao ?? null),
+        /** Sinaliza que o snapshot foi calculado com regra diferente da vigente. */
+        divergenteDoSnapshot: !!fechado && !!(l as any).situacaoEsquema && fechado.situacao !== (l as any).situacaoEsquema,
         observacao: fechado?.observacao ?? null,
         fechadoEm: fechado?.fechadoEm ?? null,
       }
@@ -145,13 +181,14 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
     const diarioId = Number((req.params as any).id)
     const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true, disciplinaId: true } })
     if (!diario) return reply.code(404).send({ error: 'Diário não encontrado' })
-    const [regrasGlobais, linhas] = await Promise.all([getRegras(), calcular(diarioId, diario.turmaId)])
+    const esquema = await resolverEsquema({ disciplinaId: diario.disciplinaId }).catch(() => null)
+    const [regrasGlobais, linhas] = await Promise.all([getRegras(), calcular(diarioId, diario.turmaId, esquema)])
     // Esquema da disciplina manda; sem esquema, seguem as regras globais.
     const regras = await regrasDaDisciplina(diario.disciplinaId, regrasGlobais)
     const agora = new Date()
     let gravados = 0
     for (const l of linhas) {
-      const situacao = decidir(l.media, l.freqPct, regras)
+      const situacao = (l as any).situacaoEsquema ?? decidir(l.media, l.freqPct, regras)
       await prisma.acaResultado.upsert({
         where: { diarioId_matriculaId: { diarioId, matriculaId: l.matriculaId } },
         update: { mediaFinal: l.media, frequenciaPct: l.freqPct, situacao, fechadoEm: agora },

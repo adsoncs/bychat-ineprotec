@@ -7,7 +7,13 @@ export interface PeriodoRef { id: number; codigo: string }
 export interface MatrizRef { id: number; courseId: number; versao: string }
 export interface Periodo { id: number; codigo: string; descricao: string; anoLetivo: number | null; dataInicio: string | null; dataFim: string | null; ativo: boolean; _count?: { turmas: number } }
 export interface Disciplina { id: number; courseId: number; nome: string; codigo: string | null; cargaHoraria: number; ementa: string | null; ativo: boolean }
-export interface ComponenteFull { id: number; fase: number; obrigatoria: boolean; disciplinaId: number; disciplina: { nome: string; cargaHoraria: number; codigo: string | null } }
+export interface ComponenteFull {
+  id: number; fase: number; obrigatoria: boolean; disciplinaId: number
+  // Fase 1 (G4): classificação e carga horária próprias do componente.
+  tipo?: string; chTotal?: number | null; chTeorica?: number | null; chPratica?: number | null
+  chExtensao?: number | null; grupoEletiva?: string | null; ordem?: number | null
+  disciplina: { nome: string; cargaHoraria: number; codigo: string | null }
+}
 export interface Matriz {
   id: number; courseId: number; versao: string; vigenteDe: string | null; ativo: boolean
   // Fase 1 (G4): ciclo de vida e totais de CH declarados no PPC.
@@ -46,6 +52,9 @@ export function useCatalogoMut() {
     createMatriz: useMutation({ mutationFn: (b: any) => api.post('/admin/aca/matrizes', b), onSuccess: () => inval('aca-matrizes', 'aca-refs') }),
     addComponente: useMutation({ mutationFn: ({ matrizId, ...b }: any) => api.post(`/admin/aca/matrizes/${matrizId}/componentes`, b), onSuccess: () => inval('aca-matrizes') }),
     delComponente: useMutation({ mutationFn: ({ matrizId, compId }: any) => api.delete(`/admin/aca/matrizes/${matrizId}/componentes/${compId}`), onSuccess: () => inval('aca-matrizes') }),
+    // Fase 1/2: tipo, CH própria e grupo de eletivas — o que o motor de
+    // integralização consome. Só passa com a matriz em RASCUNHO.
+    updateComponente: useMutation({ mutationFn: ({ matrizId, compId, ...b }: any) => api.put(`/admin/aca/matrizes/${matrizId}/componentes/${compId}`, b), onSuccess: () => inval('aca-matrizes') }),
     createTurma: useMutation({ mutationFn: (b: any) => api.post('/admin/aca/turmas', b), onSuccess: () => inval('aca-turmas') }),
     updateTurma: useMutation({ mutationFn: ({ id, ...b }: any) => api.patch(`/admin/aca/turmas/${id}`, b), onSuccess: () => inval('aca-turmas') }),
     delTurma: useMutation({ mutationFn: (id: number) => api.delete(`/admin/aca/turmas/${id}`), onSuccess: () => inval('aca-turmas') }),

@@ -4,10 +4,10 @@ import { ChevronLeft, CheckCircle2, XCircle, Copy, Lock, PlayCircle, PauseCircle
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useMatrizes } from '@/hooks/useAcaCatalogo'
+import { useMatrizes, useCatalogoMut, type ComponenteFull } from '@/hooks/useAcaCatalogo'
 import { useMatrizValidacao, useAtivarMatriz, useMudarStatusMatriz, useClonarMatriz } from '@/hooks/useAcaFundacao'
 import { toast } from '@/lib/toast'
 
@@ -19,6 +19,16 @@ const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> 
 }
 const STATUS_LABEL: Record<string, string> = {
   RASCUNHO: 'Rascunho', ATIVA: 'Ativa', SUSPENSA: 'Suspensa', EXTINTA: 'Extinta',
+}
+
+// Tipo do componente decide contra qual balde de CH ele conta na integralização.
+const TIPO_LABEL: Record<string, string> = {
+  OBRIGATORIA: 'Obrigatória', ELETIVA: 'Eletiva', OPTATIVA: 'Optativa',
+  ESTAGIO: 'Estágio', TCC: 'TCC', ATIVIDADE_COMPLEMENTAR: 'Ativ. complementar', EXTENSAO: 'Extensão',
+}
+const TIPO_TONE: Record<string, 'info' | 'neutral' | 'success' | 'warning'> = {
+  OBRIGATORIA: 'info', ELETIVA: 'neutral', OPTATIVA: 'neutral',
+  ESTAGIO: 'warning', TCC: 'warning', ATIVIDADE_COMPLEMENTAR: 'success', EXTENSAO: 'success',
 }
 
 export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }) {
@@ -199,15 +209,22 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
               </div>
               <ul class="divide-y divide-border">
                 {comps.map((c) => (
-                  <li key={c.id} class="px-4 py-2 flex items-center justify-between gap-3 text-sm">
-                    <span class="text-fg truncate">
-                      {c.disciplina?.codigo ? <span class="text-fg-subtle font-mono text-xs mr-2">{c.disciplina.codigo}</span> : null}
-                      {c.disciplina?.nome ?? `Componente #${c.id}`}
-                    </span>
-                    <span class="flex items-center gap-2 shrink-0">
-                      <Badge tone={c.obrigatoria ? 'info' : 'neutral'}>{c.obrigatoria ? 'Obrigatória' : 'Eletiva'}</Badge>
-                      <span class="text-xs text-fg-muted tabular-nums">{c.disciplina?.cargaHoraria ?? 0}h</span>
-                    </span>
+                  <li key={c.id} class="px-4 py-2">
+                    <div class="flex items-center justify-between gap-3 text-sm">
+                      <span class="text-fg truncate">
+                        {c.disciplina?.codigo ? <span class="text-fg-subtle font-mono text-xs mr-2">{c.disciplina.codigo}</span> : null}
+                        {c.disciplina?.nome ?? `Componente #${c.id}`}
+                      </span>
+                      <span class="flex items-center gap-2 shrink-0">
+                        <Badge tone={TIPO_TONE[c.tipo ?? (c.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA')] ?? 'neutral'}>
+                          {TIPO_LABEL[c.tipo ?? (c.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA')] ?? c.tipo}
+                        </Badge>
+                        {c.grupoEletiva && <span class="text-[11px] text-fg-subtle">grupo {c.grupoEletiva}</span>}
+                        <span class="text-xs text-fg-muted tabular-nums">{c.chTotal ?? c.disciplina?.cargaHoraria ?? 0}h</span>
+                      </span>
+                    </div>
+                    {/* Edição só existe em RASCUNHO — depois disso a matriz é imutável. */}
+                    {status === 'RASCUNHO' && <EditorComponente matrizId={id} comp={c} />}
                   </li>
                 ))}
               </ul>
@@ -216,5 +233,69 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
         })}
       </div>
     </Page>
+  )
+}
+
+
+/**
+ * Edição do componente enquanto a matriz é rascunho: tipo, carga horária
+ * própria e grupo de eletivas — os campos que o motor de integralização usa
+ * para saber contra qual exigência do PPC cada disciplina conta.
+ */
+function EditorComponente({ matrizId, comp }: { matrizId: number; comp: ComponenteFull }) {
+  const [aberto, setAberto] = useState(false)
+  const { updateComponente } = useCatalogoMut()
+  const [f, setF] = useState({
+    tipo: comp.tipo ?? (comp.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA'),
+    fase: String(comp.fase ?? 1),
+    chTotal: comp.chTotal != null ? String(comp.chTotal) : '',
+    chExtensao: comp.chExtensao != null ? String(comp.chExtensao) : '',
+    grupoEletiva: comp.grupoEletiva ?? '',
+  })
+
+  function salvar() {
+    updateComponente.mutate(
+      {
+        matrizId, compId: comp.id,
+        tipo: f.tipo,
+        fase: Number(f.fase) || 1,
+        chTotal: f.chTotal === '' ? null : Number(f.chTotal),
+        chExtensao: f.chExtensao === '' ? null : Number(f.chExtensao),
+        grupoEletiva: f.grupoEletiva.trim() || null,
+        obrigatoria: f.tipo === 'OBRIGATORIA',
+      },
+      {
+        onSuccess: () => { toast('Componente atualizado', 'success'); setAberto(false) },
+        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      },
+    )
+  }
+
+  if (!aberto) {
+    return (
+      <button type="button" class="text-[11px] text-accent hover:underline mt-1" onClick={() => setAberto(true)}>
+        Editar classificação
+      </button>
+    )
+  }
+
+  return (
+    <div class="mt-2 grid grid-cols-2 md:grid-cols-6 gap-2 items-end bg-surface-2/40 rounded-md p-2">
+      <div class="col-span-2">
+        <Select label="Tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: (e.target as HTMLSelectElement).value })}>
+          {Object.entries(TIPO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+      </div>
+      <Input label="Período" inputMode="numeric" value={f.fase} onInput={(e) => setF({ ...f, fase: (e.target as HTMLInputElement).value })} />
+      <Input label="CH total" placeholder="catálogo" inputMode="numeric" value={f.chTotal} onInput={(e) => setF({ ...f, chTotal: (e.target as HTMLInputElement).value })} />
+      <Input label="CH extensão" inputMode="numeric" value={f.chExtensao} onInput={(e) => setF({ ...f, chExtensao: (e.target as HTMLInputElement).value })} />
+      <Input label="Grupo eletiva" value={f.grupoEletiva} onInput={(e) => setF({ ...f, grupoEletiva: (e.target as HTMLInputElement).value })} />
+      <div class="col-span-2 md:col-span-6 flex gap-2">
+        <Button size="sm" variant="primary" onClick={salvar} disabled={updateComponente.isPending}>
+          {updateComponente.isPending ? 'Salvando…' : 'Salvar'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setAberto(false)}>Cancelar</Button>
+      </div>
+    </div>
   )
 }

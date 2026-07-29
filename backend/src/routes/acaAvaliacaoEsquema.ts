@@ -159,6 +159,65 @@ export async function acaAvaliacaoEsquemaRoutes(app: FastifyInstance) {
   })
 
   /**
+   * Monta as avaliações do diário a partir do esquema da disciplina.
+   *
+   * É o passo que faz a fórmula do regimento valer no cálculo: sem a sigla em
+   * cada avaliação, o fechamento não sabe qual nota é N1 e qual é N2, e cai na
+   * média ponderada genérica.
+   */
+  app.post('/api/admin/aca/diarios/:id/aplicar-esquema', { preHandler: authMiddleware }, async (req, reply) => {
+    const diarioId = num((req.params as any).id)
+    if (!diarioId) return reply.code(400).send({ error: 'id inválido' })
+    const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { id: true, disciplinaId: true } })
+    if (!diario) return reply.code(404).send({ error: 'Diário não encontrado' })
+
+    const esquema = await resolverEsquema({ disciplinaId: diario.disciplinaId })
+    if (!esquema) return reply.code(404).send({ error: 'Nenhum esquema de avaliação vale para esta disciplina' })
+    if (esquema.componentes.length === 0) return reply.code(400).send({ error: 'O esquema não tem componentes de nota' })
+
+    const existentes = await prisma.acaAvaliacao.findMany({ where: { diarioId }, select: { id: true, siglaEsquema: true, nome: true } })
+    const comNota = await prisma.acaNota.findMany({
+      where: { avaliacaoId: { in: existentes.map((e) => e.id) } },
+      select: { avaliacaoId: true },
+      distinct: ['avaliacaoId'],
+    })
+    const temNota = new Set(comNota.map((n) => n.avaliacaoId))
+
+    // Avaliação que já tem nota lançada não é tocada — apagá-la destruiria
+    // registro acadêmico. O que dá para fazer é vincular a sigla quando o nome
+    // bate, e criar só o que falta.
+    let criadas = 0, vinculadas = 0
+    const preservadas: string[] = []
+    for (const [i, comp] of esquema.componentes.entries()) {
+      const jaTem = existentes.find((e) => e.siglaEsquema === comp.sigla)
+      if (jaTem) continue
+      // Casa com a avaliação que já existe pela sigla OU pelo nome do
+      // componente — sem isso, "Prova 1" (com notas lançadas) e o componente
+      // "Prova 1" virariam duas avaliações no mesmo diário.
+      const alvo = (s: string) => s.trim().toUpperCase()
+      const porNome = existentes.find(
+        (e) => !e.siglaEsquema && (alvo(e.nome) === alvo(comp.sigla) || alvo(e.nome) === alvo(comp.nome)),
+      )
+      if (porNome) {
+        await prisma.acaAvaliacao.update({ where: { id: porNome.id }, data: { siglaEsquema: comp.sigla } })
+        vinculadas++
+        continue
+      }
+      await prisma.acaAvaliacao.create({
+        data: {
+          diarioId, nome: comp.nome.substring(0, 120), siglaEsquema: comp.sigla,
+          peso: Math.max(1, Math.round(comp.peso)), valorMaximo: esquema.notaMaxima, ordem: i,
+        },
+      })
+      criadas++
+    }
+    for (const e of existentes) {
+      if (!e.siglaEsquema && temNota.has(e.id)) preservadas.push(e.nome)
+    }
+    return { ok: true, esquema: { id: esquema.id, nome: esquema.nome }, criadas, vinculadas, preservadas }
+  })
+
+  /**
    * Simulador (T-801): dado um conjunto de notas, mostra média, situação e o
    * porquê. É o que permite conferir o regimento antes de valer para o aluno.
    */

@@ -294,6 +294,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-matrizes', label: 'Matrizes curriculares', href: '/app/aca/matrizes', icon: 'Layers', permission: 'aca_matriculas' },
         { id: 'aca-vinculos', label: 'Vínculos acadêmicos', href: '/app/aca/vinculos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-esquemas', label: 'Esquemas de avaliação', href: '/app/aca/esquemas', icon: 'Gavel', permission: 'aca_pedagogico' },
+        { id: 'aca-equivalencias', label: 'Equivalências', href: '/app/aca/equivalencias', icon: 'GitFork', permission: 'aca_pedagogico' },
         { id: 'aca-pessoas', label: 'Pessoas', href: '/app/aca/pessoas', icon: 'Users', permission: 'aca_matriculas' },
         { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'aca_matriculas' },

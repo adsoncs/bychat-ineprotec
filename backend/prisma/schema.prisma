@@ -5139,6 +5139,11 @@ enum AcaAtoEscopo {
 
 /// Onde o esquema de avaliação se aplica. A resolução é em cascata, do mais
 /// específico para o mais geral: DISCIPLINA → MATRIZ → CURSO → INSTITUCIONAL.
+enum AcaEquivalenciaLado {
+  ORIGEM
+  DESTINO
+}
+
 enum AcaEsquemaEscopo {
   INSTITUCIONAL
   CURSO
@@ -5701,6 +5706,40 @@ enum AcaDependenciaTipo {
 
 // Equivalência entre componentes (disciplinas) — usada na validação de grade e
 // como base para aproveitamento. FKs scalar (componentes de matriz).
+/// Equivalência N:1 e 1:N (RF-502). A tabela AcaEquivalencia continua para os
+/// pares simples 1:1 já cadastrados; casos compostos ("Cálculo A + Cálculo B
+/// equivalem a Cálculo Único") precisam de grupo, porque a dispensa só vale se
+/// TODOS os componentes de origem estiverem cumpridos.
+model AcaEquivalenciaGrupo {
+  id          Int      @id @default(autoincrement())
+  nome        String   @db.VarChar(191)
+  observacao  String?  @db.Text
+  /// Vale nos dois sentidos (origem⇄destino).
+  bidirecional Boolean @default(false)
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  itens       AcaEquivalenciaItem[]
+
+  @@index([ativo])
+  @@map("bychat_aca_equivalencia_grupos")
+}
+
+model AcaEquivalenciaItem {
+  id           Int      @id @default(autoincrement())
+  grupoId      Int
+  componenteId Int
+  /// ORIGEM = o que o aluno cursou; DESTINO = o que fica dispensado.
+  lado         AcaEquivalenciaLado
+
+  grupo        AcaEquivalenciaGrupo @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, componenteId, lado])
+  @@index([componenteId])
+  @@map("bychat_aca_equivalencia_itens")
+}
+
 model AcaEquivalencia {
   id                      Int      @id @default(autoincrement())
   componenteId            Int      // componente da matriz (alvo)
@@ -6585,6 +6624,10 @@ model AcaAvaliacao {
   id          Int      @id @default(autoincrement())
   diarioId    Int
   nome        String   @db.VarChar(120)
+  /// Sigla do componente no esquema de avaliação (N1, N2, TRAB…). Preenchida
+  /// quando o diário é montado a partir do esquema — é o que permite a fórmula
+  /// do regimento ser aplicada no fechamento. Nula = avaliação avulsa (legado).
+  siglaEsquema String? @db.VarChar(12)
   peso        Int      @default(1)
   valorMaximo Float    @default(10)
   data        DateTime?
