@@ -5836,6 +5836,112 @@ model AcaMatriz {
 /// "SERÁ conferido certificado de qualificação profissional" com o título e a
 /// carga horária. Não é faculdade da escola — é direito do aluno, mesmo que ele
 /// abandone o curso depois.
+enum AcaPpcpStatus {
+  RASCUNHO
+  AUTORIZADO
+  SUSPENSO
+  ENCERRADO
+}
+
+/// Projeto Pedagógico de Certificação Profissional (PPCP).
+///
+/// Res. CNE/CP 1/2021, art. 47, §2º: o processo formal de reconhecimento de
+/// saberes "deve ser precedido de autorização pelo respectivo sistema de
+/// ensino", tendo como referência o perfil profissional de conclusão e o PPC.
+///
+/// É a trava que costuma ser ignorada: a escola NÃO pode aplicar uma prova e
+/// dispensar o aluno. Sem PPCP autorizado e vigente, o processo não roda — e é o
+/// registro do PPCP que sustenta o ato numa fiscalização.
+model AcaPpcp {
+  id            Int      @id @default(autoincrement())
+  courseId      Int
+  nome          String   @db.VarChar(191)
+  /// Metodologia adotada (o §3º permite a própria da instituição, se autorizada).
+  metodologia   String?  @db.Text
+  status        AcaPpcpStatus @default(RASCUNHO)
+  /// Ato do sistema de ensino que autorizou o projeto.
+  atoAutorizacao String? @db.VarChar(191)
+  orgaoAutorizador String? @db.VarChar(191)
+  autorizadoEm  DateTime?
+  /// Fim da vigência da autorização; nulo = sem prazo declarado.
+  vigenciaAte   DateTime?
+  observacao    String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  processos     AcaCertificacaoProcesso[]
+
+  @@index([courseId, status])
+  @@map("bychat_aca_ppcp")
+}
+
+enum AcaCertificacaoStatus {
+  ABERTO
+  EM_AVALIACAO
+  DEFERIDO
+  INDEFERIDO
+  CANCELADO
+}
+
+/// Processo de reconhecimento de saberes de um candidato.
+///
+/// O §1º do art. 47 manda avaliar "o itinerário profissional e social do
+/// estudante, que inclui estudos não formais e experiência no trabalho (saber
+/// informal)" — por isso o itinerário declarado é campo do processo, não anexo
+/// solto: é o que a banca lê antes de decidir o que avaliar.
+model AcaCertificacaoProcesso {
+  id            Int      @id @default(autoincrement())
+  ppcpId        Int
+  alunoId       Int
+  /// Matrícula usada para lançar os aproveitamentos deferidos.
+  matriculaId   Int?
+  protocolo     String   @db.VarChar(40)
+  status        AcaCertificacaoStatus @default(ABERTO)
+  /// Experiência profissional e formação não formal declaradas pelo candidato.
+  itinerario    String?  @db.Text
+  /// Composição da banca avaliadora.
+  banca         String?  @db.Text
+  parecerFinal  String?  @db.Text
+  decididoPor   Int?
+  decididoEm    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ppcp          AcaPpcp  @relation(fields: [ppcpId], references: [id])
+  avaliacoes    AcaCertificacaoAvaliacao[]
+
+  @@unique([protocolo])
+  @@index([alunoId, status])
+  @@map("bychat_aca_certificacao_processos")
+}
+
+enum AcaCertificacaoResultado {
+  RECONHECIDO
+  NAO_RECONHECIDO
+}
+
+/// Avaliação de um componente dentro do processo de reconhecimento.
+model AcaCertificacaoAvaliacao {
+  id            Int      @id @default(autoincrement())
+  processoId    Int
+  componenteId  Int
+  /// Instrumento aplicado (prova prática, entrevista técnica, análise de
+  /// portfólio…). Reconhecer sem dizer COMO se avaliou não sustenta auditoria.
+  instrumento   String   @db.VarChar(191)
+  resultado     AcaCertificacaoResultado
+  parecer       String?  @db.Text
+  avaliadoEm    DateTime @default(now())
+  avaliadorNome String?  @db.VarChar(191)
+  /// Aproveitamento gerado quando reconhecido — evita lançar duas vezes.
+  aproveitamentoId Int?
+
+  processo      AcaCertificacaoProcesso @relation(fields: [processoId], references: [id], onDelete: Cascade)
+
+  @@unique([processoId, componenteId])
+  @@index([processoId])
+  @@map("bychat_aca_certificacao_avaliacoes")
+}
+
 model AcaMatrizModulo {
   id         Int      @id @default(autoincrement())
   matrizId   Int
