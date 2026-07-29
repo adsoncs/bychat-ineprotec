@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { SortableList } from '@/components/ui/SortableList'
 import { useMatrizes, useCatalogoMut, type ComponenteFull } from '@/hooks/useAcaCatalogo'
 import { useMatrizValidacao, useAtivarMatriz, useMudarStatusMatriz, useClonarMatriz } from '@/hooks/useAcaFundacao'
 import { toast } from '@/lib/toast'
@@ -57,6 +58,20 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
   const status = matriz.status ?? 'RASCUNHO'
   const problemas = validacao.data?.problemas ?? []
   const valida = validacao.data?.ok === true
+
+  const catalogo = useCatalogoMut()
+
+  /**
+   * Persiste a nova ordem da fase. Grava componente a componente porque a
+   * ordem é campo do próprio componente — não existe endpoint de lote, e criar
+   * um só para isto seria mais superfície para o mesmo efeito.
+   */
+  const reordenar = (novos: ComponenteFull[]) => {
+    novos.forEach((c, i) => {
+      if (c.ordem === i) return
+      catalogo.updateComponente.mutate({ matrizId: id, compId: c.id, ordem: i })
+    })
+  }
 
   // Componentes agrupados por fase — é como o coordenador lê a grade.
   const porFase = new Map<number, typeof matriz.componentes>()
@@ -207,27 +222,25 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
                 <h2 class="text-sm font-semibold text-fg">{fase}º período</h2>
                 <span class="text-[11px] text-fg-subtle">{comps.length} componentes · {ch}h</span>
               </div>
-              <ul class="divide-y divide-border">
-                {comps.map((c) => (
-                  <li key={c.id} class="px-4 py-2">
-                    <div class="flex items-center justify-between gap-3 text-sm">
-                      <span class="text-fg truncate">
-                        {c.disciplina?.codigo ? <span class="text-fg-subtle font-mono text-xs mr-2">{c.disciplina.codigo}</span> : null}
-                        {c.disciplina?.nome ?? `Componente #${c.id}`}
-                      </span>
-                      <span class="flex items-center gap-2 shrink-0">
-                        <Badge tone={TIPO_TONE[c.tipo ?? (c.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA')] ?? 'neutral'}>
-                          {TIPO_LABEL[c.tipo ?? (c.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA')] ?? c.tipo}
-                        </Badge>
-                        {c.grupoEletiva && <span class="text-[11px] text-fg-subtle">grupo {c.grupoEletiva}</span>}
-                        <span class="text-xs text-fg-muted tabular-nums">{c.chTotal ?? c.disciplina?.cargaHoraria ?? 0}h</span>
-                      </span>
-                    </div>
-                    {/* Edição só existe em RASCUNHO — depois disso a matriz é imutável. */}
-                    {status === 'RASCUNHO' && <EditorComponente matrizId={id} comp={c} />}
-                  </li>
-                ))}
-              </ul>
+              {/* Arrastar só faz sentido em RASCUNHO: matriz ativa é imutável,
+                  e uma lista que se move mas não salva engana quem edita. */}
+              {status === 'RASCUNHO' ? (
+                <div class="p-2">
+                  <SortableList
+                    items={comps}
+                    onReorder={reordenar}
+                    renderItem={(c) => <LinhaComponente c={c} matrizId={id} editavel />}
+                  />
+                </div>
+              ) : (
+                <ul class="divide-y divide-border">
+                  {comps.map((c) => (
+                    <li key={c.id} class="px-4 py-2">
+                      <LinhaComponente c={c} matrizId={id} editavel={false} />
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Card>
           )
         })}
@@ -296,6 +309,28 @@ function EditorComponente({ matrizId, comp }: { matrizId: number; comp: Componen
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setAberto(false)}>Cancelar</Button>
       </div>
+    </div>
+  )
+}
+
+
+/** Uma linha da grade — usada dentro do arrastável e da lista estática. */
+function LinhaComponente({ c, matrizId, editavel }: { c: ComponenteFull; matrizId: number; editavel: boolean }) {
+  const tipo = c.tipo ?? (c.obrigatoria ? 'OBRIGATORIA' : 'ELETIVA')
+  return (
+    <div class="w-full">
+      <div class="flex items-center justify-between gap-3 text-sm">
+        <span class="text-fg truncate">
+          {c.disciplina?.codigo ? <span class="text-fg-subtle font-mono text-xs mr-2">{c.disciplina.codigo}</span> : null}
+          {c.disciplina?.nome ?? `Componente #${c.id}`}
+        </span>
+        <span class="flex items-center gap-2 shrink-0">
+          <Badge tone={TIPO_TONE[tipo] ?? 'neutral'}>{TIPO_LABEL[tipo] ?? tipo}</Badge>
+          {c.grupoEletiva && <span class="text-[11px] text-fg-subtle">grupo {c.grupoEletiva}</span>}
+          <span class="text-xs text-fg-muted tabular-nums">{c.chTotal ?? c.disciplina?.cargaHoraria ?? 0}h</span>
+        </span>
+      </div>
+      {editavel && <EditorComponente matrizId={matrizId} comp={c} />}
     </div>
   )
 }
