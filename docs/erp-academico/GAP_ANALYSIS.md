@@ -146,13 +146,35 @@ Fases 1 a 5 implementadas em `bychat-ineprotec` (backend + telas dedicadas, sem 
 | 4 | G10 acervo/temporalidade, G12 trava ENADE, diploma sobre a hierarquia | concluída — 0109 |
 | 5 | G8 prova online, G13 evasão, G14 BI por persona, G15 produção docente, G17 importadores | concluída — 0110 |
 
+### Revisão gap a gap (29/07, após auditoria do próprio trabalho)
+
+Uma conferência campo a campo mostrou que "fase entregue" não era o mesmo que "gap
+fechado". Três gaps estavam parciais e um não tinha começado. Corrigidos em seguida:
+
+- **G1** — `mapaConceitos`, `segundaChamadaHabilitada` e `limiteDependencias` estavam no
+  schema, a rota gravava, a tela oferecia e o motor IGNORAVA os três. Fechado (0111):
+  escala conceitual traduz a média na apresentação, segunda chamada é recusada quando o
+  regimento não prevê, e a integralização devolve `podeProgredir`.
+- **G16** — 2FA por TOTP (implementação própria com `node:crypto`) + trilha de campo nas
+  alterações de nota e de resultado, que não gravavam nada (0112).
+- **G6** — login por CPF/RA + senha, link de acesso por WhatsApp, informe de pagamentos
+  para o IR e agenda `.ics` (0113).
+- **G8** — a prova online funciona, mas a correção de dissertativa é nota única + parecer.
+  **Não é rubrica** (critérios com peso próprio, pontuados em separado), como o RF-203 pede.
+- **G10** — a mecânica de hash existe e só calcula para arquivo local em `/uploads`. O GED
+  guarda **links externos**, então nenhum documento tem hash. Para link externo, o hash não
+  sai como está — exige baixar e armazenar o arquivo.
+
 Pendências conhecidas:
 
-- **G16 (2FA + auditoria a nível de campo)** — único item do plano ainda não iniciado.
+- **Rubrica de redação (G8)** — correção por critérios ponderados.
+- **Hash do acervo (G10)** — depende de trazer o arquivo para o servidor.
+- **Notificações push no portal (G6)** — exige VAPID + handler no service worker.
 - **Editor de matriz com arrastar-e-soltar** — a matriz é editável, mas por formulário.
 - **Replicação para os outros 8 tenants** — todo o ERP acadêmico existe apenas em
   `bychat-ineprotec`. O motor é genérico; a configuração (esquemas, matrizes, calendário)
-  é por instituição e não deve ser replicada.
+  é por instituição e não deve ser replicada. Só faz sentido em tenant que seja instituição
+  de ensino.
 
 ## Notas de risco
 
