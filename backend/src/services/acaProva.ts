@@ -122,7 +122,13 @@ export async function entregar(token: string, porTempo = false) {
   })
 }
 
-/** Correção de dissertativa, com parecer — a rubrica que o documento pede. */
+/**
+ * Correção de dissertativa: nota única + parecer em texto.
+ *
+ * NÃO é a rubrica que o documento pede (RF-203) — rubrica seria um conjunto de
+ * critérios com peso próprio, cada um pontuado em separado, somando a nota. Aqui
+ * o corretor atribui uma nota só e justifica por escrito.
+ */
 export async function corrigirDissertativa(params: {
   aplicacaoId: number
   questaoId: number
