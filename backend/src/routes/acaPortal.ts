@@ -28,6 +28,9 @@ export function baseUrl(req: any): string {
   return `${proto.split(',')[0]}://${req.headers.host}`
 }
 export const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<link rel="manifest" href="/portal/aca/manifest.webmanifest"><meta name="theme-color" content="#111827">
+<link rel="apple-touch-icon" href="/portal/aca/icon.svg"><meta name="apple-mobile-web-app-capable" content="yes">
+<script>if('serviceWorker' in navigator)addEventListener('load',function(){navigator.serviceWorker.register('/portal/aca/sw.js',{scope:'/portal/aca/'}).catch(function(){})})</script>
 <style>
 :root{color-scheme:light}*{box-sizing:border-box}
 body{font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:760px;margin:28px auto;padding:0 16px;color:#1f2937;background:#f7f8fa}
