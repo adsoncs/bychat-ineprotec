@@ -290,6 +290,9 @@ export const sidebarSchema: SidebarSchema = {
       id: 'erp-academico',
       label: 'ERP · Acadêmico',
       items: [
+        { id: 'aca-instituicao', label: 'Instituição', href: '/app/aca/instituicao', icon: 'Building2', permission: 'aca_matriculas' },
+        { id: 'aca-matrizes', label: 'Matrizes curriculares', href: '/app/aca/matrizes', icon: 'Layers', permission: 'aca_matriculas' },
+        { id: 'aca-vinculos', label: 'Vínculos acadêmicos', href: '/app/aca/vinculos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-pessoas', label: 'Pessoas', href: '/app/aca/pessoas', icon: 'Users', permission: 'aca_matriculas' },
         { id: 'aca-alunos', label: 'Alunos', href: '/app/aca/alunos', icon: 'GraduationCap', permission: 'aca_matriculas' },
         { id: 'aca-matriculas', label: 'Matrículas', href: '/app/aca/matriculas', icon: 'ClipboardList', permission: 'aca_matriculas' },

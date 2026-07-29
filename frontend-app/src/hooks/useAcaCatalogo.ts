@@ -8,7 +8,16 @@ export interface MatrizRef { id: number; courseId: number; versao: string }
 export interface Periodo { id: number; codigo: string; descricao: string; anoLetivo: number | null; dataInicio: string | null; dataFim: string | null; ativo: boolean; _count?: { turmas: number } }
 export interface Disciplina { id: number; courseId: number; nome: string; codigo: string | null; cargaHoraria: number; ementa: string | null; ativo: boolean }
 export interface ComponenteFull { id: number; fase: number; obrigatoria: boolean; disciplinaId: number; disciplina: { nome: string; cargaHoraria: number; codigo: string | null } }
-export interface Matriz { id: number; courseId: number; versao: string; vigenteDe: string | null; ativo: boolean; _count?: { componentes: number }; componentes: ComponenteFull[] }
+export interface Matriz {
+  id: number; courseId: number; versao: string; vigenteDe: string | null; ativo: boolean
+  // Fase 1 (G4): ciclo de vida e totais de CH declarados no PPC.
+  nome?: string | null
+  status?: 'RASCUNHO' | 'ATIVA' | 'SUSPENSA' | 'EXTINTA'
+  publicadaEm?: string | null
+  chObrigatoria?: number | null; chEletiva?: number | null; chOptativa?: number | null
+  chEstagio?: number | null; chTcc?: number | null; chComplementar?: number | null; chExtensao?: number | null
+  _count?: { componentes: number }; componentes: ComponenteFull[]
+}
 export interface Turma { id: number; nome: string; courseOfferingId: number | null; periodoLetivoId: number; matrizId: number | null; faseAtual: number | null; turno: string | null; capacidade: number | null; ativo: boolean; matriculaAberta?: boolean; periodoLetivo: { codigo: string }; _count?: { matriculas: number } }
 
 export function useAcaRefs() {

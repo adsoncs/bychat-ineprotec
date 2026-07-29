@@ -199,6 +199,16 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-estrutura': lazy(() =>
     import('./pages/AcademicoEstruturaPage').then((m) => ({ default: m.AcademicoEstruturaPage })),
   ),
+  // Fase 1 — fundação acadêmica (hierarquia, matriz com ciclo de vida, vínculo)
+  'aca-instituicao': lazy(() =>
+    import('./pages/AcademicoInstituicaoPage').then((m) => ({ default: m.AcademicoInstituicaoPage })),
+  ),
+  'aca-matrizes': lazy(() =>
+    import('./pages/AcademicoMatrizesPage').then((m) => ({ default: m.AcademicoMatrizesPage })),
+  ),
+  'aca-vinculos': lazy(() =>
+    import('./pages/AcademicoVinculosPage').then((m) => ({ default: m.AcademicoVinculosPage })),
+  ),
   'aca-curriculo': lazy(() =>
     import('./pages/AcademicoCurriculoPage').then((m) => ({ default: m.AcademicoCurriculoPage })),
   ),
@@ -353,6 +363,20 @@ const SelectionProcessDetail = lazy(() =>
   ),
 )
 
+// Fase 1 do ERP — formulários e detalhes em tela dedicada (sem modal).
+const AcaInstituicaoForm = lazy(() =>
+  import('./pages/AcademicoInstituicaoFormPage').then((m) => ({ default: m.AcademicoInstituicaoFormPage })),
+)
+const AcaMatrizDetail = lazy(() =>
+  import('./pages/AcademicoMatrizDetailPage').then((m) => ({ default: m.AcademicoMatrizDetailPage })),
+)
+const AcaVinculoDetail = lazy(() =>
+  import('./pages/AcademicoVinculoDetailPage').then((m) => ({ default: m.AcademicoVinculoDetailPage })),
+)
+const AcaVinculoMover = lazy(() =>
+  import('./pages/AcademicoVinculoMoverPage').then((m) => ({ default: m.AcademicoVinculoMoverPage })),
+)
+
 const FunnelDetail = lazy(() =>
   import('./pages/FunnelDetailPage').then((m) => ({ default: m.FunnelDetailPage })),
 )
@@ -498,6 +522,35 @@ export function Router() {
           <Route path="/educational/selection-processes/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><SelectionProcessDetail params={params} /></ModuleGate>
+            )}
+          </Route>
+          {/* ERP Fase 1 — cadastro/edição e movimentação em tela dedicada.
+              As rotas mais específicas vêm antes para não cair no detalhe. */}
+          <Route path="/aca/instituicao/ato/:tipo/:entidadeId">
+            {(params: { tipo: string; entidadeId: string }) => (
+              <ModuleGate moduleId="educacional">
+                <AcaInstituicaoForm params={{ tipo: 'ato', id: params.tipo, entidadeId: params.entidadeId }} />
+              </ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/instituicao/:tipo/:id">
+            {(params: { tipo: string; id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaInstituicaoForm params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/matrizes/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaMatrizDetail params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/vinculos/:id/mover">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaVinculoMover params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/vinculos/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaVinculoDetail params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/funnels/:id">
