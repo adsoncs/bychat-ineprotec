@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import {
   novoToken, estadoAplicacao, questoesParaCandidato,
-  iniciar, salvarResposta, entregar, corrigirDissertativa,
+  iniciar, salvarResposta, entregar, corrigirDissertativa, lerRubrica,
 } from '../services/acaProva.js'
 import { auditActor } from '../services/userAudit.js'
 
@@ -46,6 +46,11 @@ export async function acaProvaRoutes(app: FastifyInstance) {
         alternativas: tipo === 'OBJETIVA' ? b.alternativas : undefined,
         gabarito: tipo === 'OBJETIVA' ? String(b.gabarito) : null,
         peso: Number(b.peso) || 1, dificuldade: b.dificuldade ?? null,
+        // Rubrica só faz sentido em dissertativa; gravar em objetiva seria
+        // deixar no banco uma régua que nunca vai ser usada.
+        rubricaJson: tipo !== 'OBJETIVA' && Array.isArray(b.rubrica) && b.rubrica.length > 0
+          ? (lerRubrica(b.rubrica) as any)
+          : undefined,
       },
     })
     return reply.code(201).send({ questao })
@@ -137,6 +142,8 @@ export async function acaProvaRoutes(app: FastifyInstance) {
             aplicacaoId: ap.id, candidato: ap.candidatoNome, provaId: ap.provaId, prova: ap.prova.titulo,
             questaoId: i.questaoId, enunciado: i.questao.enunciado,
             resposta: r?.resposta ?? null, notaManual: r?.notaManual ?? null,
+            rubrica: lerRubrica(i.questao.rubricaJson),
+            rubricaNotas: (r?.rubricaNotasJson as Record<string, number> | null) ?? null,
           }
         })
         .filter((x) => x.notaManual == null),
@@ -147,12 +154,17 @@ export async function acaProvaRoutes(app: FastifyInstance) {
   app.post('/api/admin/aca/provas/correcao', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
     const aplicacaoId = num(b.aplicacaoId), questaoId = num(b.questaoId)
-    const nota = Number(b.nota)
     if (!aplicacaoId || !questaoId) return reply.code(400).send({ error: 'aplicacaoId e questaoId são obrigatórios' })
-    if (!Number.isFinite(nota) || nota < 0 || nota > 10) return reply.code(400).send({ error: 'Nota deve estar entre 0 e 10' })
+    // A validação da faixa fica no serviço: com rubrica, quem manda é o teto de
+    // cada critério, não o 0–10 da nota final.
     const actor = auditActor(req)
     try {
-      await corrigirDissertativa({ aplicacaoId, questaoId, nota, parecer: b.parecer ?? null, corretorId: actor.actorId ?? null })
+      await corrigirDissertativa({
+        aplicacaoId, questaoId,
+        ...(b.nota !== undefined ? { nota: Number(b.nota) } : {}),
+        ...(b.rubrica ? { rubrica: b.rubrica as Record<string, number> } : {}),
+        parecer: b.parecer ?? null, corretorId: actor.actorId ?? null,
+      })
       const ap = await prisma.acaProvaAplicacao.findUnique({ where: { id: aplicacaoId } })
       return { aplicacao: ap }
     } catch (e: any) {

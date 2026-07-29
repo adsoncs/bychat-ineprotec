@@ -42,6 +42,8 @@ export function AcademicoProvasPage() {
   const [nq, setNq] = useState({ area: '', enunciado: '', tipo: 'OBJETIVA', peso: '1' })
   const [alts, setAlts] = useState([{ id: 'a', texto: '' }, { id: 'b', texto: '' }])
   const [gabarito, setGabarito] = useState('a')
+  // Rubrica da dissertativa: critérios com teto próprio. Vazia = nota direta.
+  const [rubrica, setRubrica] = useState<Array<{ id: string; criterio: string; pontosMax: string }>>([])
 
   const criarProva = () => {
     mut.criarProva.mutate(
@@ -70,12 +72,17 @@ export function AcademicoProvasPage() {
     if (nq.tipo === 'OBJETIVA') {
       corpo.alternativas = alts.filter((a) => a.texto.trim())
       corpo.gabarito = gabarito
+    } else {
+      const validos = rubrica.filter((r) => r.criterio.trim() && Number(r.pontosMax) > 0)
+      if (validos.length > 0) {
+        corpo.rubrica = validos.map((r) => ({ id: r.id, criterio: r.criterio.trim(), pontosMax: Number(r.pontosMax) }))
+      }
     }
     mut.criarQuestao.mutate(corpo, {
       onSuccess: () => {
         toast('Questão adicionada ao banco.', 'success')
         setNq({ area: nq.area, enunciado: '', tipo: nq.tipo, peso: '1' })
-        setAlts([{ id: 'a', texto: '' }, { id: 'b', texto: '' }]); setGabarito('a')
+        setAlts([{ id: 'a', texto: '' }, { id: 'b', texto: '' }]); setGabarito('a'); setRubrica([])
         setAba('questoes')
       },
       onError: (e: any) => toast(e?.message ?? 'Não foi possível salvar a questão.', 'danger'),
@@ -236,6 +243,15 @@ export function AcademicoProvasPage() {
                   <span class="text-[11px] text-fg-subtle">peso {q.peso}</span>
                 </div>
                 <div class="text-sm text-fg">{q.enunciado}</div>
+                {(q.rubricaJson?.length ?? 0) > 0 && (
+                  <div class="mt-1.5 flex flex-wrap gap-1">
+                    {q.rubricaJson!.map((c) => (
+                      <span key={c.id} class="text-[11px] rounded bg-surface-3 px-1.5 py-0.5 text-fg-muted">
+                        {c.criterio} · {c.pontosMax}pt
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {q.alternativas && (
                   <div class="mt-1.5 space-y-0.5">
                     {q.alternativas.map((a) => (
@@ -299,6 +315,54 @@ export function AcademicoProvasPage() {
                     onClick={() => setAlts((p) => [...p, { id: LETRAS[p.length]!, texto: '' }])}
                   >+ alternativa</button>
                 )}
+              </div>
+            )}
+
+            {nq.tipo === 'DISSERTATIVA' && (
+              <div class="space-y-2 rounded-lg border border-border p-3">
+                <div class="text-sm text-fg-muted">
+                  Rubrica de correção <span class="text-fg-subtle text-xs">— opcional</span>
+                  <span class="block text-[11px] text-fg-subtle">
+                    Com critérios, o corretor pontua cada um e a nota sai da soma. Sem eles, a correção é uma
+                    nota única — o que funciona para questão curta, mas não para redação.
+                  </span>
+                </div>
+                {rubrica.map((r, i) => (
+                  <div key={r.id} class="flex items-center gap-2">
+                    <div class="flex-1">
+                      <Input
+                        value={r.criterio} placeholder="Ex.: Domínio da norma culta"
+                        onInput={(e) => {
+                          const v = (e.target as HTMLInputElement).value
+                          setRubrica((p) => p.map((x, j) => (j === i ? { ...x, criterio: v } : x)))
+                        }}
+                      />
+                    </div>
+                    <div class="w-24">
+                      <Input
+                        type="number" min="0.5" step="0.5" value={r.pontosMax} placeholder="pontos"
+                        onInput={(e) => {
+                          const v = (e.target as HTMLInputElement).value
+                          setRubrica((p) => p.map((x, j) => (j === i ? { ...x, pontosMax: v } : x)))
+                        }}
+                      />
+                    </div>
+                    <button class="text-xs text-fg-subtle hover:text-danger px-1" onClick={() => setRubrica((p) => p.filter((_, j) => j !== i))}>
+                      remover
+                    </button>
+                  </div>
+                ))}
+                <div class="flex items-center justify-between">
+                  <button
+                    class="text-xs text-accent hover:underline"
+                    onClick={() => setRubrica((p) => [...p, { id: `c${p.length + 1}`, criterio: '', pontosMax: '4' }])}
+                  >+ critério</button>
+                  {rubrica.length > 0 && (
+                    <span class="text-[11px] text-fg-subtle">
+                      Total: {rubrica.reduce((s, r) => s + (Number(r.pontosMax) || 0), 0)} ponto(s) — convertido para 0–10 na nota.
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 

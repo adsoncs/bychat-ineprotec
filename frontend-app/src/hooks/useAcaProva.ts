@@ -16,6 +16,7 @@ export interface Questao {
   gabarito: string | null
   peso: number
   dificuldade: string | null
+  rubricaJson?: CriterioRubrica[] | null
   ativa: boolean
 }
 
@@ -47,6 +48,13 @@ export interface Aplicacao {
   _count?: { respostas: number }
 }
 
+export interface CriterioRubrica {
+  id: string
+  criterio: string
+  descricao?: string | null
+  pontosMax: number
+}
+
 export interface ItemCorrecao {
   aplicacaoId: number
   candidato: string
@@ -56,6 +64,9 @@ export interface ItemCorrecao {
   enunciado: string
   resposta: string | null
   notaManual: number | null
+  /** Vazia quando a questão é corrigida por nota direta. */
+  rubrica: CriterioRubrica[]
+  rubricaNotas: Record<string, number> | null
 }
 
 export const APLICACAO_STATUS: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -122,7 +133,7 @@ export function useProvaMut() {
       onSuccess: inval,
     }),
     corrigir: useMutation({
-      mutationFn: (b: { aplicacaoId: number; questaoId: number; nota: number; parecer?: string }) =>
+      mutationFn: (b: { aplicacaoId: number; questaoId: number; nota?: number; rubrica?: Record<string, number>; parecer?: string }) =>
         api.post<{ aplicacao: Aplicacao }>('/admin/aca/provas/correcao', b),
       onSuccess: inval,
     }),

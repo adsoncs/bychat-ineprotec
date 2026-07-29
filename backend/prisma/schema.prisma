@@ -5588,6 +5588,11 @@ model AcaQuestao {
   /// Letra da alternativa correta.
   gabarito    String?  @db.VarChar(4)
   peso        Float    @default(1)
+  /// Rubrica da dissertativa (RF-203): [{ id, criterio, descricao, pontosMax }].
+  /// Nota única esconde o julgamento; com critérios pontuados em separado, o
+  /// candidato que pede revisão vê ONDE perdeu, e dois corretores diferentes
+  /// tendem à mesma nota.
+  rubricaJson Json?    @db.Json
   dificuldade String?  @db.VarChar(10) // FACIL | MEDIA | DIFICIL
   ativa       Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -5674,6 +5679,9 @@ model AcaProvaResposta {
   correta      Boolean?
   /// Nota da correção manual (dissertativa) e o parecer do corretor.
   notaManual   Float?
+  /// Pontos por critério da rubrica: { "<idCriterio>": pontos }. A nota manual
+  /// passa a ser a SOMA disto quando a questão tem rubrica.
+  rubricaNotasJson Json? @db.Json
   parecer      String?  @db.Text
   corrigidaPor Int?
   corrigidaEm  DateTime?

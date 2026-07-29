@@ -122,24 +122,93 @@ export async function entregar(token: string, porTempo = false) {
   })
 }
 
+export interface CriterioRubrica {
+  id: string
+  criterio: string
+  descricao?: string | null
+  pontosMax: number
+}
+
+/** Lê a rubrica da questão com segurança — é Json livre no banco. */
+export function lerRubrica(bruto: unknown): CriterioRubrica[] {
+  if (!Array.isArray(bruto)) return []
+  const out: CriterioRubrica[] = []
+  for (const [i, c] of bruto.entries()) {
+    if (!c || typeof c !== 'object') continue
+    const o = c as Record<string, unknown>
+    const pontosMax = Number(o.pontosMax)
+    const criterio = String(o.criterio ?? '').trim()
+    if (!criterio || !Number.isFinite(pontosMax) || pontosMax <= 0) continue
+    out.push({
+      id: String(o.id ?? `c${i + 1}`),
+      criterio,
+      descricao: o.descricao == null ? null : String(o.descricao),
+      pontosMax,
+    })
+  }
+  return out
+}
+
 /**
- * Correção de dissertativa: nota única + parecer em texto.
+ * Correção de dissertativa (RF-203).
  *
- * NÃO é a rubrica que o documento pede (RF-203) — rubrica seria um conjunto de
- * critérios com peso próprio, cada um pontuado em separado, somando a nota. Aqui
- * o corretor atribui uma nota só e justifica por escrito.
+ * Com rubrica, o corretor pontua CADA critério e a nota é a soma normalizada
+ * para 0–10. Nota única esconde o julgamento: o candidato que pede revisão não
+ * sabe onde perdeu, e dois corretores chegam a números diferentes pelo mesmo
+ * texto. Sem rubrica cadastrada, segue valendo a nota direta — nem toda questão
+ * dissertativa precisa de critérios.
  */
 export async function corrigirDissertativa(params: {
   aplicacaoId: number
   questaoId: number
-  nota: number
+  nota?: number
+  /** Pontos por critério: { "<idCriterio>": pontos }. */
+  rubrica?: Record<string, number> | null
   parecer?: string | null
   corretorId?: number | null
 }) {
+  const questao = await prisma.acaQuestao.findUnique({
+    where: { id: params.questaoId },
+    select: { rubricaJson: true },
+  })
+  const criterios = lerRubrica(questao?.rubricaJson)
+
+  let nota: number
+  let rubricaNotas: Record<string, number> | null = null
+
+  if (criterios.length > 0) {
+    if (!params.rubrica) throw new Error('Esta questão é corrigida por rubrica — pontue cada critério.')
+    const pontos: Record<string, number> = {}
+    let soma = 0, totalMax = 0
+    for (const c of criterios) {
+      const v = Number(params.rubrica[c.id])
+      if (!Number.isFinite(v) || v < 0) throw new Error(`Pontuação inválida no critério "${c.criterio}".`)
+      // Deixar passar acima do teto seria dar ao corretor uma nota que a
+      // rubrica não prevê — a régua deixaria de valer.
+      if (v > c.pontosMax) throw new Error(`"${c.criterio}" vale no máximo ${c.pontosMax} ponto(s).`)
+      pontos[c.id] = v
+      soma += v
+      totalMax += c.pontosMax
+    }
+    rubricaNotas = pontos
+    nota = totalMax > 0 ? Number(((soma / totalMax) * 10).toFixed(2)) : 0
+  } else {
+    const n = Number(params.nota)
+    if (!Number.isFinite(n) || n < 0 || n > 10) throw new Error('Nota deve estar entre 0 e 10.')
+    nota = n
+  }
+
+  const dados = {
+    notaManual: nota,
+    rubricaNotasJson: rubricaNotas as any,
+    parecer: params.parecer ?? null,
+    corrigidaPor: params.corretorId ?? null,
+    corrigidaEm: new Date(),
+  }
   const resp = await prisma.acaProvaResposta.upsert({
     where: { aplicacaoId_questaoId: { aplicacaoId: params.aplicacaoId, questaoId: params.questaoId } },
-    create: { aplicacaoId: params.aplicacaoId, questaoId: params.questaoId, notaManual: params.nota, parecer: params.parecer ?? null, corrigidaPor: params.corretorId ?? null, corrigidaEm: new Date() },
-    update: { notaManual: params.nota, parecer: params.parecer ?? null, corrigidaPor: params.corretorId ?? null, corrigidaEm: new Date() },
+    create: { aplicacaoId: params.aplicacaoId, questaoId: params.questaoId, ...dados },
+    update: dados,
   })
   await recalcularNota(params.aplicacaoId)
   return resp

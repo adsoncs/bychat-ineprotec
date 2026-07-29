@@ -21,19 +21,40 @@ export function AcademicoCorrecaoPage() {
   const mut = useProvaMut()
   const [nota, setNota] = useState('')
   const [parecer, setParecer] = useState('')
+  /** Pontos por critério quando a questão é corrigida por rubrica. */
+  const [pontos, setPontos] = useState<Record<string, string>>({})
 
   const itens = fila.data?.fila ?? []
   const atual = itens[0]
+  const criterios = atual?.rubrica ?? []
+  const usaRubrica = criterios.length > 0
+
+  const somaRubrica = criterios.reduce((s, c) => s + (Number(pontos[c.id] ?? '') || 0), 0)
+  const maxRubrica = criterios.reduce((s, c) => s + c.pontosMax, 0)
+  const notaPrevista = maxRubrica > 0 ? Number(((somaRubrica / maxRubrica) * 10).toFixed(2)) : 0
+  const rubricaCompleta = criterios.every((c) => {
+    const v = Number(pontos[c.id] ?? '')
+    return (pontos[c.id] ?? '') !== '' && Number.isFinite(v) && v >= 0 && v <= c.pontosMax
+  })
 
   const corrigir = () => {
     if (!atual) return
-    const n = Number(nota.replace(',', '.'))
-    if (!Number.isFinite(n) || n < 0 || n > 10) { toast('A nota precisa estar entre 0 e 10.', 'danger'); return }
+    let corpo: { aplicacaoId: number; questaoId: number; nota?: number; rubrica?: Record<string, number>; parecer?: string }
+    if (usaRubrica) {
+      if (!rubricaCompleta) { toast('Pontue todos os critérios dentro do máximo de cada um.', 'danger'); return }
+      const r: Record<string, number> = {}
+      for (const c of criterios) r[c.id] = Number(pontos[c.id])
+      corpo = { aplicacaoId: atual.aplicacaoId, questaoId: atual.questaoId, rubrica: r }
+    } else {
+      const n = Number(nota.replace(',', '.'))
+      if (!Number.isFinite(n) || n < 0 || n > 10) { toast('A nota precisa estar entre 0 e 10.', 'danger'); return }
+      corpo = { aplicacaoId: atual.aplicacaoId, questaoId: atual.questaoId, nota: n }
+    }
     mut.corrigir.mutate(
-      { aplicacaoId: atual.aplicacaoId, questaoId: atual.questaoId, nota: n, ...(parecer ? { parecer } : {}) },
+      { ...corpo, ...(parecer ? { parecer } : {}) },
       {
         onSuccess: (r) => {
-          setNota(''); setParecer('')
+          setNota(''); setParecer(''); setPontos({})
           toast(
             r.aplicacao?.notaFinal != null
               ? `Corrigida — nota final ${r.aplicacao.notaFinal}.`
@@ -92,17 +113,57 @@ export function AcademicoCorrecaoPage() {
           <div class="space-y-4">
             <Card class="space-y-3 h-fit">
               <h2 class="text-sm font-semibold text-fg flex items-center gap-2"><PenLine size={15} /> Avaliar</h2>
-              <Input
-                label="Nota (0 a 10)" type="number" step="0.1" min="0" max="10" value={nota}
-                onInput={(e) => setNota((e.target as HTMLInputElement).value)}
-              />
+              {usaRubrica ? (
+                <div class="space-y-2">
+                  <p class="text-xs text-fg-muted">
+                    Esta questão é corrigida por critérios. Pontue cada um: a nota sai da soma, e é isso que
+                    o candidato vê se pedir revisão.
+                  </p>
+                  {criterios.map((c) => {
+                    const v = pontos[c.id] ?? ''
+                    const num = Number(v)
+                    const invalido = v !== '' && (!Number.isFinite(num) || num < 0 || num > c.pontosMax)
+                    return (
+                      <div key={c.id} class="flex items-start gap-2">
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm text-fg">{c.criterio}</div>
+                          {c.descricao && <div class="text-[11px] text-fg-subtle">{c.descricao}</div>}
+                        </div>
+                        <div class="w-20 shrink-0">
+                          <Input
+                            type="number" step="0.5" min="0" max={c.pontosMax} value={v}
+                            {...(invalido ? { error: `máx ${c.pontosMax}` } : {})}
+                            onInput={(e) => {
+                              const val = (e.target as HTMLInputElement).value
+                              setPontos((p) => ({ ...p, [c.id]: val }))
+                            }}
+                          />
+                        </div>
+                        <span class="text-xs text-fg-subtle w-10 pt-2">/ {c.pontosMax}</span>
+                      </div>
+                    )
+                  })}
+                  <div class="flex items-center justify-between border-t border-border pt-2 text-sm">
+                    <span class="text-fg-muted">{somaRubrica} de {maxRubrica} ponto(s)</span>
+                    <span class="text-fg font-semibold">nota {notaPrevista}</span>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  label="Nota (0 a 10)" type="number" step="0.1" min="0" max="10" value={nota}
+                  onInput={(e) => setNota((e.target as HTMLInputElement).value)}
+                />
+              )}
               <Textarea
                 label="Parecer" rows={4} value={parecer}
                 placeholder="O que sustentou a nota…"
                 hint="Fica registrado com a correção — é o que responde a um recurso do candidato."
                 onInput={(e) => setParecer((e.target as HTMLTextAreaElement).value)}
               />
-              <Button class="w-full" onClick={corrigir} disabled={!nota.trim() || mut.corrigir.isPending}>
+              <Button
+                class="w-full" onClick={corrigir}
+                disabled={(usaRubrica ? !rubricaCompleta : !nota.trim()) || mut.corrigir.isPending}
+              >
                 <CheckCircle2 size={16} /> Salvar e ir para a próxima
               </Button>
             </Card>
