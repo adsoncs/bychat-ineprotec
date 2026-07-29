@@ -69,6 +69,43 @@ export async function cleanupFases() {
     await prisma.acaDiploma.deleteMany({ where: { matriculaId: { in: mats.map((m) => m.id) } } }).catch(() => {})
   }
 
+  // ── Educação profissional (fases T1–T4) ──
+  const ppcps = await prisma.acaPpcp.findMany({ where: { nome: { startsWith: TAG_MANTENEDORA } }, select: { id: true } })
+  for (const pp of ppcps) {
+    const procs = await prisma.acaCertificacaoProcesso.findMany({ where: { ppcpId: pp.id }, select: { id: true } })
+    for (const pr of procs) await prisma.acaCertificacaoAvaliacao.deleteMany({ where: { processoId: pr.id } }).catch(() => {})
+    await prisma.acaCertificacaoProcesso.deleteMany({ where: { ppcpId: pp.id } }).catch(() => {})
+    await prisma.acaPpcp.delete({ where: { id: pp.id } }).catch(() => {})
+  }
+  // Aproveitamentos gerados pelo reconhecimento desta carga.
+  await prisma.acaAproveitamento.deleteMany({ where: { parecer: { contains: '[DEMO-FASES]' } } }).catch(() => {})
+
+  // Capacidades/critérios/aferições dos componentes da matriz do piloto.
+  const compsDemo = await prisma.acaComponente.findMany({ select: { id: true } })
+  for (const c of compsDemo) {
+    const caps = await prisma.acaCapacidade.findMany({ where: { componenteId: c.id }, select: { id: true } })
+    for (const cap of caps) {
+      const krits = await prisma.acaCriterio.findMany({ where: { capacidadeId: cap.id }, select: { id: true } })
+      for (const k of krits) await prisma.acaAfericao.deleteMany({ where: { criterioId: k.id } }).catch(() => {})
+      await prisma.acaCriterio.deleteMany({ where: { capacidadeId: cap.id } }).catch(() => {})
+    }
+    await prisma.acaCapacidade.deleteMany({ where: { componenteId: c.id } }).catch(() => {})
+  }
+  // Módulos e o vínculo dos componentes a eles.
+  const modulos = await prisma.acaMatrizModulo.findMany({ select: { id: true } })
+  if (modulos.length) {
+    await prisma.acaComponente.updateMany({ where: { moduloId: { in: modulos.map((m) => m.id) } }, data: { moduloId: null } }).catch(() => {})
+    await prisma.acaMatrizModulo.deleteMany({ where: { id: { in: modulos.map((m) => m.id) } } }).catch(() => {})
+  }
+  // Identidade técnica do curso e certificados de qualificação.
+  await prisma.acaDocumento.deleteMany({ where: { tipo: 'CERTIFICADO_QUALIFICACAO' } }).catch(() => {})
+  await prisma.course.updateMany({
+    where: { eixoTecnologico: { not: null } },
+    data: { eixoTecnologico: null, codigoCnct: null, certificacaoIntermediaria: false, perfilConclusao: null },
+  }).catch(() => {})
+  // Situação INTEGRALIZANDO aplicada por esta carga volta a ATIVO.
+  await prisma.acaVinculo.updateMany({ where: { situacao: 'INTEGRALIZANDO' }, data: { situacao: 'ATIVO' } }).catch(() => {})
+
   await prisma.acaEliminacaoTermo.deleteMany({ where: { comissao: { startsWith: TAG_MANTENEDORA } } }).catch(() => {})
   await prisma.acaEsquemaAvaliacao.deleteMany({ where: { nome: { startsWith: TAG_MANTENEDORA } } }).catch(() => {})
 
@@ -339,6 +376,251 @@ async function main() {
       }).catch(() => {})
     }
     log(`Produção docente: lançamentos na competência ${competencia}`)
+  }
+
+  // ═══════════ Educação profissional técnica (fases T1–T4) ═══════════
+  //
+  // Sem esta parte, as telas de módulos, competências, qualificação e
+  // reconhecimento aparecem vazias numa apresentação — foi o que a reanálise
+  // encontrou: o seed foi escrito antes dessas fases existirem.
+
+  const cursoPiloto = await prisma.course.findFirst({ where: { id: curso?.id ?? 1 }, select: { id: true, nome: true } })
+  if (cursoPiloto) {
+    await prisma.course.update({
+      where: { id: cursoPiloto.id },
+      data: {
+        grau: 'tecnico',
+        eixoTecnologico: 'Infraestrutura',
+        codigoCnct: '132',
+        certificacaoIntermediaria: true,
+        perfilConclusao: 'Executa levantamentos topográficos e cadastrais, opera instrumentos de medição, '
+          + 'processa dados e elabora plantas e memoriais sob supervisão de profissional habilitado.',
+      },
+    })
+    log(`Curso técnico: eixo Infraestrutura, CNCT 132, perfil de conclusão e certificação intermediária`)
+  }
+
+  // ── T2: módulos com terminalidade ──
+  const matrizPiloto = await prisma.acaMatriz.findFirst({
+    where: { courseId: cursoPiloto?.id ?? 1 },
+    include: { componentes: { orderBy: [{ fase: 'asc' }, { ordem: 'asc' }], select: { id: true, fase: true } } },
+  })
+  if (matrizPiloto && matrizPiloto.componentes.length >= 4) {
+    const mod1 = await prisma.acaMatrizModulo.create({
+      data: {
+        matrizId: matrizPiloto.id, numero: 1, nome: 'Fundamentos de Agrimensura',
+        tituloQualificacao: 'Auxiliar de Agrimensura', codigoCbo: '3123-05', cargaHoraria: 400,
+        descricao: 'Etapa com terminalidade: quem conclui recebe certificado de qualificação.',
+      },
+    })
+    const mod2 = await prisma.acaMatrizModulo.create({
+      data: {
+        matrizId: matrizPiloto.id, numero: 2, nome: 'Topografia e Georreferenciamento',
+        tituloQualificacao: 'Auxiliar Técnico em Topografia', codigoCbo: '3123-05', cargaHoraria: 400,
+      },
+    })
+    const mod3 = await prisma.acaMatrizModulo.create({
+      data: { matrizId: matrizPiloto.id, numero: 3, nome: 'Projetos e Legislação' },
+    })
+    // Distribui os componentes: metade no módulo 1, o resto entre 2 e 3.
+    const comps = matrizPiloto.componentes
+    const corte1 = Math.ceil(comps.length / 3)
+    const corte2 = corte1 * 2
+    for (const [i, c] of comps.entries()) {
+      const moduloId = i < corte1 ? mod1.id : i < corte2 ? mod2.id : mod3.id
+      await prisma.acaComponente.update({ where: { id: c.id }, data: { moduloId } })
+    }
+    log(`Módulos: 3 (2 com terminalidade) · ${comps.length} componentes distribuídos`)
+
+    // ── T3: capacidades e critérios em 2 componentes ──
+    // Só nos primeiros: rubrica é trabalho pedagógico, e a demonstração precisa
+    // mostrar tanto o componente modelado quanto o que ainda não foi.
+    const RUBRICA = [
+      {
+        tipo: 'TECNICA' as const,
+        descricao: 'Operar instrumentos de medição em levantamento planimétrico',
+        criterios: [
+          { descricao: 'Nivela e centra o equipamento sobre o ponto', evidencia: 'Bolha centrada e prumo sobre o marco', peso: 'CRITICO' as const },
+          { descricao: 'Registra a caderneta sem erro de leitura', evidencia: 'Caderneta conferida pelo docente', peso: 'CRITICO' as const },
+          { descricao: 'Conclui a medição no tempo previsto', peso: 'DESEJAVEL' as const },
+        ],
+      },
+      {
+        tipo: 'SOCIAL' as const,
+        descricao: 'Trabalhar em equipe durante o levantamento de campo',
+        criterios: [
+          { descricao: 'Comunica leituras e comandos de forma clara', evidencia: 'Equipe executa sem repetição de medida', peso: 'CRITICO' as const },
+          { descricao: 'Colabora na organização dos equipamentos', peso: 'DESEJAVEL' as const },
+        ],
+      },
+      {
+        tipo: 'ORGANIZATIVA' as const,
+        descricao: 'Organizar o material e a documentação do serviço',
+        criterios: [
+          { descricao: 'Confere e devolve o equipamento em condição de uso', evidencia: 'Checklist de devolução assinado', peso: 'DESEJAVEL' as const },
+        ],
+      },
+    ]
+    const compsComRubrica = comps.slice(0, 2)
+    let totalCriterios = 0
+    const criteriosCriados: Array<{ id: number; peso: string }> = []
+    for (const c of compsComRubrica) {
+      for (const [i, cap] of RUBRICA.entries()) {
+        const nova = await prisma.acaCapacidade.create({
+          data: { componenteId: c.id, tipo: cap.tipo, descricao: cap.descricao, ordem: i },
+        })
+        for (const [j, k] of cap.criterios.entries()) {
+          const criado = await prisma.acaCriterio.create({
+            data: {
+              capacidadeId: nova.id, descricao: k.descricao,
+              evidencia: 'evidencia' in k ? (k as any).evidencia : null,
+              peso: k.peso, ordem: j,
+            },
+          })
+          if (c.id === compsComRubrica[0]!.id) criteriosCriados.push({ id: criado.id, peso: k.peso })
+          totalCriterios++
+        }
+      }
+    }
+    log(`Capacidades: ${RUBRICA.length} por componente em 2 componentes · ${totalCriterios} critérios`)
+
+    // Aferições: 3 alunos em estados diferentes — apto, em desenvolvimento e
+    // sem nada. Painel com todos iguais não mostra para que a régua serve.
+    const matriculasDemo = await prisma.acaMatricula.findMany({
+      where: { alunoId: { in: alunos.slice(0, 3).map((a) => a.id) }, status: 'MATRICULADO' },
+      select: { id: true },
+      take: 3,
+    })
+    if (matriculasDemo.length >= 2 && criteriosCriados.length > 0) {
+      // 1º aluno: atende tudo → apto, nível A.
+      for (const k of criteriosCriados) {
+        await prisma.acaAfericao.create({
+          data: { criterioId: k.id, matriculaId: matriculasDemo[0]!.id, resultado: 'ATENDE', observacao: 'Demonstrou em campo.' },
+        })
+      }
+      // 2º aluno: falha um CRÍTICO e atende o resto → 75% dos critérios e NÃO apto.
+      const criticos = criteriosCriados.filter((k) => k.peso === 'CRITICO')
+      for (const k of criteriosCriados) {
+        const falha = criticos.length > 0 && k.id === criticos[0]!.id
+        await prisma.acaAfericao.create({
+          data: {
+            criterioId: k.id, matriculaId: matriculasDemo[1]!.id,
+            resultado: falha ? 'NAO_ATENDE' : 'ATENDE',
+            observacao: falha ? 'Não centrou o equipamento sobre o marco — retomar na próxima situação.' : null,
+          },
+        })
+      }
+      log('Aferições: 1 aluno apto (nível A) e 1 com crítico pendente (mostra que média não decide)')
+    }
+
+    // ── T1: um aluno em "Integralizar em Fase Escolar" ──
+    // O piloto não tem componente de estágio, então a situação é aplicada
+    // diretamente para a tela de conformidade ter o que mostrar.
+    const vinculoFase = await prisma.acaVinculo.findFirst({ where: { situacao: 'ATIVO' }, select: { id: true } })
+    if (vinculoFase) {
+      await prisma.acaVinculo.update({ where: { id: vinculoFase.id }, data: { situacao: 'INTEGRALIZANDO' } })
+      await prisma.acaVinculoMovimentacao.create({
+        data: {
+          vinculoId: vinculoFase.id, de: 'ATIVO', para: 'INTEGRALIZANDO',
+          motivo: 'Componentes curriculares cumpridos; pendente estágio supervisionado (demonstração).',
+        },
+      }).catch(() => {})
+      log('Situação "Integralizar em Fase Escolar" aplicada a 1 vínculo (status do SISTEC)')
+    }
+
+    // ── T4: PPCP autorizado + processo de reconhecimento deferido ──
+    const ppcp = await prisma.acaPpcp.create({
+      data: {
+        courseId: cursoPiloto?.id ?? 1,
+        nome: `${TAG_MANTENEDORA}Certificação de saberes — Agrimensura`,
+        metodologia: 'Análise de portfólio profissional, prova prática em campo e entrevista técnica com banca.',
+        status: 'AUTORIZADO',
+        atoAutorizacao: 'Parecer CEE nº 128/2025',
+        orgaoAutorizador: 'Conselho Estadual de Educação',
+        autorizadoEm: diasAtras(300),
+        vigenciaAte: diasFrente(700),
+      },
+    })
+    const alunoRec = alunos[3] ?? alunos[0]!
+    const matRec = await prisma.acaMatricula.findFirst({ where: { alunoId: alunoRec.id }, select: { id: true } })
+    if (matRec) {
+      const proc = await prisma.acaCertificacaoProcesso.create({
+        data: {
+          ppcpId: ppcp.id, alunoId: alunoRec.id, matriculaId: matRec.id,
+          protocolo: `CP-${new Date().getFullYear()}-9001`,
+          status: 'DEFERIDO',
+          itinerario: 'Sete anos como auxiliar em empresa de topografia; curso livre de AutoCAD (120h) sem certificação formal; '
+            + 'atuação em levantamentos para regularização fundiária.',
+          banca: 'Prof. Antônio Vieira (coordenação), Profa. Helena Marques (docente), Eng. Marcos Lima (mercado)',
+          parecerFinal: 'Reconhecidas 2 unidades curriculares conforme PPCP autorizado.',
+          decididoEm: diasAtras(20),
+        },
+      })
+      let reconhecidos = 0
+      for (const [i, c] of comps.slice(0, 2).entries()) {
+        const compDet = await prisma.acaComponente.findUnique({
+          where: { id: c.id }, select: { chTotal: true, disciplina: { select: { cargaHoraria: true } } },
+        })
+        const ch = compDet?.chTotal ?? compDet?.disciplina?.cargaHoraria ?? 0
+        const aprov = await prisma.acaAproveitamento.create({
+          data: {
+            matriculaId: matRec.id, alunoId: alunoRec.id, componenteId: c.id,
+            origem: 'SUFICIENCIA', cargaHorariaAproveitada: ch, status: 'DEFERIDO',
+            parecer: `[DEMO-FASES] Reconhecimento de saberes — processo ${proc.protocolo}.`,
+            decididoEm: diasAtras(20),
+          },
+        })
+        await prisma.acaCertificacaoAvaliacao.create({
+          data: {
+            processoId: proc.id, componenteId: c.id,
+            instrumento: i === 0 ? 'Demonstração em situação real de trabalho' : 'Análise de portfólio + entrevista técnica',
+            resultado: 'RECONHECIDO',
+            parecer: 'Demonstrou domínio das capacidades da unidade curricular.',
+            avaliadorNome: 'Banca de certificação',
+            aproveitamentoId: aprov.id,
+          },
+        })
+        reconhecidos++
+      }
+      log(`Reconhecimento de saberes: PPCP autorizado + processo ${proc.protocolo} deferido (${reconhecidos} unidades)`)
+    }
+
+    // ── T2 na prática: alunos com o módulo 1 CONCLUÍDO ──
+    //
+    // Sem isto a fila de "certificados a emitir" fica vazia — e ela é o que a
+    // escola técnica vende. Dois alunos completam o módulo 1 por aproveitamento:
+    // um já com certificado emitido (aparece no histórico) e um na fila.
+    const compsMod1 = comps.filter((_, i) => i < corte1)
+    const candidatos = [alunos[4], alunos[5]].filter(Boolean).slice(0, 2)
+    let naFila = 0
+    for (const [idx, al] of candidatos.entries()) {
+      const mat = await prisma.acaMatricula.findFirst({ where: { alunoId: al!.id }, select: { id: true } })
+      const vinc = await prisma.acaVinculo.findFirst({ where: { alunoId: al!.id }, select: { id: true } })
+      if (!mat || !vinc) continue
+      for (const c of compsMod1) {
+        const det = await prisma.acaComponente.findUnique({
+          where: { id: c.id }, select: { chTotal: true, disciplina: { select: { cargaHoraria: true } } },
+        })
+        await prisma.acaAproveitamento.create({
+          data: {
+            matriculaId: mat.id, alunoId: al!.id, componenteId: c.id,
+            origem: 'INTERNO', status: 'DEFERIDO',
+            cargaHorariaAproveitada: det?.chTotal ?? det?.disciplina?.cargaHoraria ?? 0,
+            parecer: '[DEMO-FASES] Módulo concluído — carga de demonstração.',
+            decididoEm: diasAtras(40),
+          },
+        }).catch(() => {})
+      }
+      // O primeiro já recebeu o certificado; o segundo fica na fila, para a tela
+      // mostrar os dois estados.
+      if (idx === 0) {
+        const { emitirCertificadoQualificacao } = await import('../src/services/acaQualificacao.js')
+        await emitirCertificadoQualificacao(vinc.id, mod1.id, null).catch((e) => log(`  certificado não emitido: ${e?.message}`))
+      } else {
+        naFila++
+      }
+    }
+    log(`Qualificação: ${candidatos.length} aluno(s) com o módulo 1 concluído — 1 certificado emitido, ${naFila} na fila`)
   }
 
   console.log('\nPronto. Para remover tudo: npx tsx scripts/demoAcaTeardown.ts')
