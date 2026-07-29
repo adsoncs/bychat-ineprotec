@@ -209,6 +209,9 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-vinculos': lazy(() =>
     import('./pages/AcademicoVinculosPage').then((m) => ({ default: m.AcademicoVinculosPage })),
   ),
+  'aca-esquemas': lazy(() =>
+    import('./pages/AcademicoEsquemasPage').then((m) => ({ default: m.AcademicoEsquemasPage })),
+  ),
   'aca-curriculo': lazy(() =>
     import('./pages/AcademicoCurriculoPage').then((m) => ({ default: m.AcademicoCurriculoPage })),
   ),
@@ -379,6 +382,9 @@ const AcaVinculoMover = lazy(() =>
 const AcaIntegralizacao = lazy(() =>
   import('./pages/AcademicoIntegralizacaoPage').then((m) => ({ default: m.AcademicoIntegralizacaoPage })),
 )
+const AcaEsquemaForm = lazy(() =>
+  import('./pages/AcademicoEsquemaFormPage').then((m) => ({ default: m.AcademicoEsquemaFormPage })),
+)
 
 const FunnelDetail = lazy(() =>
   import('./pages/FunnelDetailPage').then((m) => ({ default: m.FunnelDetailPage })),
@@ -539,6 +545,11 @@ export function Router() {
           <Route path="/aca/instituicao/:tipo/:id">
             {(params: { tipo: string; id: string }) => (
               <ModuleGate moduleId="educacional"><AcaInstituicaoForm params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/esquemas/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaEsquemaForm params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/aca/matrizes/:id">

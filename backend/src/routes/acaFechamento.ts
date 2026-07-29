@@ -7,6 +7,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { resolverEsquema } from '../services/acaAvaliacao.js'
 
 const CFG_KEYS = ['aca.media_aprovacao', 'aca.frequencia_minima', 'aca.recuperacao_habilitada', 'aca.recuperacao_min', 'aca.media_aprovacao_recuperacao'] as const
 const CFG_DEFAULTS: Record<string, any> = {
@@ -35,6 +36,24 @@ function decidir(media: number | null, freqPct: number, r: Regras): string {
   if (media >= r.mediaAprovacao) return 'APROVADO'
   if (r.recuperacaoHabilitada && media >= r.recuperacaoMin) return 'RECUPERACAO'
   return 'REPROVADO_NOTA'
+}
+
+/**
+ * Regras que valem para uma disciplina: o esquema de avaliação da Fase 2 tem
+ * precedência sobre os Settings globais. Sem esquema cadastrado, nada muda —
+ * é o que permite ligar o motor novo sem reconfigurar quem já opera.
+ */
+async function regrasDaDisciplina(disciplinaId: number | null | undefined, fallback: Regras): Promise<Regras> {
+  if (!disciplinaId) return fallback
+  const esquema = await resolverEsquema({ disciplinaId }).catch(() => null)
+  if (!esquema) return fallback
+  return {
+    mediaAprovacao: esquema.mediaAprovacao,
+    frequenciaMinima: esquema.frequenciaMinima,
+    recuperacaoHabilitada: esquema.exameHabilitado,
+    recuperacaoMin: esquema.exameMinimo ?? fallback.recuperacaoMin,
+    mediaAprovacaoRecuperacao: esquema.mediaFinalAprovacao ?? esquema.mediaAprovacao,
+  }
 }
 
 async function matriculadosDaTurma(turmaId: number) {
@@ -102,11 +121,12 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
     const diarioId = Number((req.params as any).id)
     const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true, disciplinaId: true } })
     if (!diario) return reply.code(404).send({ error: 'Diário não encontrado' })
-    const [regras, linhas, resultados, disciplina] = await Promise.all([
+    const [regrasGlobais, linhas, resultados, disciplina] = await Promise.all([
       getRegras(), calcular(diarioId, diario.turmaId),
       prisma.acaResultado.findMany({ where: { diarioId } }),
       prisma.acaDisciplina.findUnique({ where: { id: diario.disciplinaId }, select: { nome: true } }),
     ])
+    const regras = await regrasDaDisciplina(diario.disciplinaId, regrasGlobais)
     const resByMat = new Map(resultados.map((r) => [r.matriculaId, r]))
     const out = linhas.map((l) => {
       const fechado = resByMat.get(l.matriculaId)
@@ -123,9 +143,11 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
   // ── POST /diarios/:id/fechar — grava o resultado (snapshot) por aluno ──
   app.post('/api/admin/aca/diarios/:id/fechar', { preHandler: authMiddleware }, async (req, reply) => {
     const diarioId = Number((req.params as any).id)
-    const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true } })
+    const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true, disciplinaId: true } })
     if (!diario) return reply.code(404).send({ error: 'Diário não encontrado' })
-    const [regras, linhas] = await Promise.all([getRegras(), calcular(diarioId, diario.turmaId)])
+    const [regrasGlobais, linhas] = await Promise.all([getRegras(), calcular(diarioId, diario.turmaId)])
+    // Esquema da disciplina manda; sem esquema, seguem as regras globais.
+    const regras = await regrasDaDisciplina(diario.disciplinaId, regrasGlobais)
     const agora = new Date()
     let gravados = 0
     for (const l of linhas) {

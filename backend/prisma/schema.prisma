@@ -5136,6 +5136,27 @@ enum AcaAtoEscopo {
   IES
   CURSO
 }
+
+/// Onde o esquema de avaliação se aplica. A resolução é em cascata, do mais
+/// específico para o mais geral: DISCIPLINA → MATRIZ → CURSO → INSTITUCIONAL.
+enum AcaEsquemaEscopo {
+  INSTITUCIONAL
+  CURSO
+  MATRIZ
+  DISCIPLINA
+}
+
+enum AcaEscalaNota {
+  NUMERICA_0_10
+  NUMERICA_0_100
+  CONCEITO
+}
+
+enum AcaArredondamento {
+  MATEMATICO // 7,45 → 7,5 (padrão)
+  CIMA
+  BAIXO
+}
 enum AcaParcelaTipo {
   MATRICULA
   MENSALIDADE
@@ -5375,6 +5396,80 @@ model AcaVinculoMovimentacao {
   @@index([vinculoId, dataEfeito])
   @@index([para])
   @@map("bychat_aca_vinculo_movimentacoes")
+}
+
+/// Esquema de avaliação — o regimento da IES traduzido em regras executáveis.
+///
+/// Antes da Fase 2 a apuração usava 5 parâmetros GLOBAIS em Setting
+/// (aca.media_aprovacao etc.), o que obrigava a customizar código a cada
+/// cliente novo. Agora cada curso/matriz/disciplina pode ter seu esquema, com
+/// herança em cascata (M08/RF-801).
+model AcaEsquemaAvaliacao {
+  id          Int      @id @default(autoincrement())
+  escopo      AcaEsquemaEscopo @default(INSTITUCIONAL)
+  /// id do Course, AcaMatriz ou AcaDisciplina conforme o escopo; null no institucional.
+  escopoId    Int?
+  nome        String   @db.VarChar(191)
+  descricao   String?  @db.Text
+
+  escala      AcaEscalaNota @default(NUMERICA_0_10)
+  notaMinima  Float    @default(0)
+  notaMaxima  Float    @default(10)
+  casasDecimais Int    @default(1)
+  arredondamento AcaArredondamento @default(MATEMATICO)
+  /// Mapa conceito→número quando escala=CONCEITO. Ex: {"A":10,"B":8,"C":6,"D":4,"E":0}
+  mapaConceitos Json?  @db.Json
+
+  /// Expressão da média parcial usando as siglas dos componentes.
+  /// Ex.: "(N1*4 + N2*6)/10". Vazio = média ponderada pelos pesos.
+  formulaMedia String? @db.VarChar(500)
+
+  mediaAprovacao Float @default(6)
+  /// Nota mínima em QUALQUER componente para não reprovar direto (eliminatória).
+  notaEliminatoria Float?
+
+  exameHabilitado Boolean @default(false)
+  /// Faixa que manda para exame: [exameMinimo, mediaAprovacao).
+  exameMinimo     Float?
+  /// Ex.: "(MP + EX)/2" — MP = média parcial, EX = nota do exame.
+  formulaFinal    String? @db.VarChar(500)
+  mediaFinalAprovacao Float?
+
+  segundaChamadaHabilitada Boolean @default(false)
+
+  /// Piso legal no ensino superior é 75% — o sistema não deixa configurar menos.
+  frequenciaMinima Int @default(75)
+  /// Regime seriado: máximo de dependências para progredir de período.
+  limiteDependencias Int?
+
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  componentes AcaEsquemaComponente[]
+
+  @@unique([escopo, escopoId])
+  @@index([ativo])
+  @@map("bychat_aca_esquemas_avaliacao")
+}
+
+/// Componente de nota do esquema (N1, N2, Trabalho…). A sigla é o que a
+/// fórmula referencia.
+model AcaEsquemaComponente {
+  id         Int      @id @default(autoincrement())
+  esquemaId  Int
+  sigla      String   @db.VarChar(12) // N1, N2, TRAB — usado na fórmula
+  nome       String   @db.VarChar(100)
+  peso       Float    @default(1)
+  ordem      Int      @default(0)
+  /// Componente obrigatório: sem nota lançada, a média não fecha.
+  obrigatorio Boolean @default(true)
+
+  esquema    AcaEsquemaAvaliacao @relation(fields: [esquemaId], references: [id], onDelete: Cascade)
+
+  @@unique([esquemaId, sigla])
+  @@index([esquemaId])
+  @@map("bychat_aca_esquema_componentes")
 }
 
 model AcaResponsavel {
