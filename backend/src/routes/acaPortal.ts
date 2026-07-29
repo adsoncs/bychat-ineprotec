@@ -11,7 +11,7 @@ import { authMiddleware } from '../lib/auth.js'
 import { criarCobrancaAsaas } from '../services/acaFinanceiro.js'
 import { mintPortalToken as mintToken, verifyPortalToken as verifyToken } from '../lib/acaPortalToken.js'
 import { statusBloqueio } from '../services/acaBloqueio.js'
-import { emitirDocumentoAluno, type DocTipo } from '../services/acaDocumentos.js'
+import { emitirDocumentoAluno, emitirQuitacaoAnual, emitirCarteirinha, type DocTipo } from '../services/acaDocumentos.js'
 import { proximoProtocolo } from './acaRequerimento.js'
 import { contratoAtivoDoAluno, dadosContrato, registrarAceite } from '../services/acaContrato.js'
 import { ofertasAbertas, previewTermoRematricula, efetivarRematricula } from '../services/acaRematricula.js'
@@ -170,12 +170,22 @@ export async function acaPortalRoutes(app: FastifyInstance) {
         return `<tr><td>${pc.nroParcela}ª ${esc(pc.tipo)}</td><td>${new Date(pc.dataVencimento).toLocaleDateString('pt-BR')}</td><td class="r">${money(pc.valorBrutoCentavos)}</td><td class="r">${sit}</td><td class="r">${acao}</td></tr>`
       }).join('')}</tbody></table>`
 
+    // A lei fala do exercício ANTERIOR; oferecemos os três últimos por praxe.
+    const anoAtual = new Date().getFullYear()
+    const anosQuitacao = [anoAtual - 1, anoAtual - 2, anoAtual - 3]
     const docsLista = docs.length === 0 ? '<p class="sub">Nenhum documento emitido ainda.</p>' : `<ul>${docs.map((d) => `<li><a href="/api/public/aca/aluno/doc?t=${tk}&id=${d.id}" target="_blank">${esc(d.titulo)}</a> <span class="badge">${esc(d.numero)}</span></li>`).join('')}</ul>`
     const emitirForm = `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <form method="post" action="/api/public/aca/aluno/emitir-documento?t=${tk}" style="margin:0"><input type="hidden" name="tipo" value="DECLARACAO_MATRICULA"><button class="sec" type="submit">Atestado de matrícula</button></form>
       <form method="post" action="/api/public/aca/aluno/emitir-documento?t=${tk}" style="margin:0"><input type="hidden" name="tipo" value="DECLARACAO_FREQUENCIA"><button class="sec" type="submit">Atestado de frequência</button></form>
       <form method="post" action="/api/public/aca/aluno/emitir-documento?t=${tk}" style="margin:0"><input type="hidden" name="tipo" value="HISTORICO"><button class="sec" type="submit">Histórico escolar</button></form>
-    </div>`
+      <form method="post" action="/api/public/aca/aluno/emitir-documento?t=${tk}" style="margin:0"><input type="hidden" name="tipo" value="CARTEIRINHA"><button class="sec" type="submit">Carteirinha</button></form>
+      <form method="post" action="/api/public/aca/aluno/emitir-documento?t=${tk}" style="margin:0;display:flex;gap:6px;align-items:center">
+        <input type="hidden" name="tipo" value="QUITACAO_ANUAL">
+        <select name="ano" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font:inherit">${anosQuitacao.map((a) => `<option value="${a}">${a}</option>`).join('')}</select>
+        <button class="sec" type="submit">Quitação anual</button>
+      </form>
+    </div>
+    <p class="sub" style="margin:-4px 0 10px;font-size:13px">A declaração de quitação (Lei 12.007/09) só é emitida se todas as parcelas do ano estiverem pagas.</p>`
     const docsHtml = `${emitirForm}${docsLista}`
 
     // Horários (O2.6) — grade da turma
@@ -270,9 +280,15 @@ export async function acaPortalRoutes(app: FastifyInstance) {
     const tok = tokOf(req); const p = verifyToken(tok, 'aca-aluno')
     if (!p) return reply.code(403).send({ error: 'token inválido' })
     const tipo = String((req.body as any)?.tipo || '')
-    if (!['DECLARACAO_MATRICULA', 'DECLARACAO_FREQUENCIA', 'HISTORICO'].includes(tipo)) return reply.code(400).send({ error: 'tipo não permitido' })
+    if (!['DECLARACAO_MATRICULA', 'DECLARACAO_FREQUENCIA', 'HISTORICO', 'QUITACAO_ANUAL', 'CARTEIRINHA'].includes(tipo)) return reply.code(400).send({ error: 'tipo não permitido' })
     try {
-      const doc = await emitirDocumentoAluno(tipo as DocTipo, p.id, null)
+      // Autoatendimento: o aluno tira a própria quitação e a carteirinha sem
+      // abrir requerimento — é o ponto do portal.
+      const doc = tipo === 'QUITACAO_ANUAL'
+        ? await emitirQuitacaoAnual(p.id, Number((req.body as any)?.ano) || new Date().getFullYear() - 1, null)
+        : tipo === 'CARTEIRINHA'
+          ? await emitirCarteirinha(p.id, null)
+          : await emitirDocumentoAluno(tipo as DocTipo, p.id, null)
       return reply.redirect(`/api/public/aca/aluno/doc?t=${encodeURIComponent(tok)}&id=${doc.id}`, 303)
     } catch (e: any) {
       return pageErr(reply, 400, 'Não foi possível emitir', e?.message || '')

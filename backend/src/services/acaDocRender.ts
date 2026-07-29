@@ -2,7 +2,7 @@
 // Renderização compartilhada dos PDFs de documentos (admin + portal do aluno).
 
 import { prisma } from '../lib/prisma.js'
-import { pdfHistorico, pdfDeclaracao, pdfAta, pdfRecibo, pdfCertificado, type DocHeader } from './acaPdf.js'
+import { pdfHistorico, pdfDeclaracao, pdfAta, pdfRecibo, pdfCertificado, pdfQuitacaoAnual, pdfCarteirinha, type DocHeader } from './acaPdf.js'
 
 export async function getDocHeader(): Promise<DocHeader> {
   const rows = await prisma.setting.findMany({ where: { key: { in: ['legal.company_name', 'legal.cnpj', 'business.company_name'] } } })
@@ -35,5 +35,7 @@ export async function renderDocumentoPdf(doc: { numero: string; tipo: string; da
   if (doc.tipo === 'ATA_RESULTADOS') return pdfAta(h, doc.numero, quando, data.turma, data.linhas, data.ata)
   if (doc.tipo === 'RECIBO') return pdfRecibo(h, doc.numero, quando, data)
   if (doc.tipo === 'CERTIFICADO') return pdfCertificado(h, doc.numero, quando, data)
+  if (doc.tipo === 'QUITACAO_ANUAL') return pdfQuitacaoAnual(h, doc.numero, quando, data)
+  if (doc.tipo === 'CARTEIRINHA') return pdfCarteirinha(h, doc.numero, quando, data)
   return null
 }

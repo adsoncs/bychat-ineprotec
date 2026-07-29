@@ -90,6 +90,85 @@ export function pdfDeclaracao(h: DocHeader, numero: string, dataExtenso: string,
   })
 }
 
+/**
+ * Declaração de quitação anual (Lei 12.007/09). A lei exige discriminar os
+ * meses quitados, então a tabela de parcelas faz parte do documento — não é
+ * enfeite.
+ */
+export function pdfQuitacaoAnual(
+  h: DocHeader, numero: string, dataExtenso: string,
+  d: { aluno: AlunoInfo; curso: string; ano: number; totalCentavos: number; parcelas: Array<{ tipo: string; vencimento: string | Date; pagoEm: string | Date | null; valorCentavos: number }> },
+) {
+  const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const dia = (v: string | Date | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—')
+  return build((doc) => {
+    cabecalho(doc, h, 'DECLARAÇÃO DE QUITAÇÃO ANUAL DE DÉBITO', numero)
+    const corpo = `Declaramos, para os fins do disposto na Lei nº 12.007, de 29 de julho de 2009, que ${d.aluno.nome}`
+      + `${d.aluno.cpf ? ` (CPF ${d.aluno.cpf})` : ''}${d.aluno.ra ? `, RA ${d.aluno.ra}` : ''}, aluno(a) do curso ${d.curso},`
+      + ` encontra-se QUITADO(A) quanto às obrigações financeiras vencidas no exercício de ${d.ano}, conforme discriminado abaixo.`
+    doc.fontSize(11).font('Helvetica').text(corpo, { align: 'justify', lineGap: 4 })
+    doc.moveDown(1)
+
+    const y0 = doc.y
+    doc.fontSize(9).font('Helvetica-Bold')
+    doc.text('Referência', 50, y0).text('Vencimento', 230, y0).text('Pagamento', 330, y0).text('Valor', 430, y0, { width: 115, align: 'right' })
+    doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).strokeColor('#ccc').stroke().strokeColor('#000')
+    doc.moveDown(0.4)
+    doc.font('Helvetica').fontSize(9.5)
+    for (const p of d.parcelas) {
+      const y = doc.y
+      doc.text(String(p.tipo), 50, y)
+        .text(dia(p.vencimento), 230, y)
+        .text(dia(p.pagoEm), 330, y)
+        .text(money(p.valorCentavos), 430, y, { width: 115, align: 'right' })
+      doc.moveDown(0.2)
+    }
+    doc.moveTo(50, doc.y + 3).lineTo(545, doc.y + 3).strokeColor('#ccc').stroke().strokeColor('#000')
+    doc.moveDown(0.5)
+    doc.font('Helvetica-Bold').fontSize(10).text(`Total quitado em ${d.ano}: ${money(d.totalCentavos)}`, 50, doc.y, { width: 495, align: 'right' })
+    rodape(doc, dataExtenso, numero)
+  })
+}
+
+/** Carteirinha do estudante em cartão, com código de verificação. */
+export function pdfCarteirinha(
+  h: DocHeader, numero: string, _dataExtenso: string,
+  d: { aluno: AlunoInfo & { nascimento?: string | Date | null }; curso: string; turma: string; periodo: string | null; validade: string | Date },
+) {
+  return new Promise<Buffer>((resolve, reject) => {
+    // Cartão em paisagem, próximo ao tamanho de crachá.
+    const doc = new PDFDocument({ size: [242, 153], margin: 0 })
+    const chunks: Buffer[] = []
+    doc.on('data', (c) => chunks.push(c as Buffer))
+    doc.on('end', () => resolve(Buffer.concat(chunks)))
+    doc.on('error', reject)
+    try {
+      doc.rect(0, 0, 242, 24).fill('#111827')
+      doc.fillColor('#fff').fontSize(8.5).font('Helvetica-Bold')
+        .text((h.instituicao || 'Instituição').toUpperCase().substring(0, 38), 8, 8, { width: 226 })
+      doc.fillColor('#111827')
+
+      doc.fontSize(6).font('Helvetica').fillColor('#6b7280').text('ESTUDANTE', 8, 32)
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#111827').text(String(d.aluno.nome).substring(0, 34), 8, 40, { width: 226 })
+
+      let y = 58
+      const linha = (rot: string, val: string) => {
+        doc.fontSize(6).font('Helvetica').fillColor('#6b7280').text(rot, 8, y)
+        doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827').text(val.substring(0, 40), 8, y + 7, { width: 226 })
+        y += 20
+      }
+      linha('CURSO', d.curso || '—')
+      linha('RA / TURMA', `${d.aluno.ra || '—'}  ·  ${d.turma || '—'}`)
+
+      doc.fontSize(6).font('Helvetica').fillColor('#6b7280')
+        .text(`Validade: ${new Date(d.validade).toLocaleDateString('pt-BR')}${d.periodo ? `  ·  ${d.periodo}` : ''}`, 8, 126)
+        .text(`Verificação: ${numero}`, 8, 136)
+      doc.fillColor('#111827')
+      doc.end()
+    } catch (e) { reject(e as Error) }
+  })
+}
+
 /** Contrato para assinatura eletrônica: corpo + blocos de assinatura por parte. */
 export function pdfContrato(h: DocHeader, titulo: string, dataExtenso: string, corpo: string, partes: Array<{ nome: string; papel: string; documento?: string | null }>) {
   return build((doc) => {

@@ -80,6 +80,100 @@ async function cursoETurmaAtual(alunoId: number) {
 }
 
 export type DocTipo = 'HISTORICO' | 'DECLARACAO_MATRICULA' | 'DECLARACAO_FREQUENCIA' | 'ATA_RESULTADOS'
+  | 'QUITACAO_ANUAL' | 'CARTEIRINHA'
+
+/**
+ * Declaração de quitação anual de débito (Lei 12.007/09).
+ *
+ * A lei obriga a instituição a entregar, até maio do ano seguinte, declaração
+ * de quitação referente ao ano anterior — e ela só vale quando TODAS as
+ * parcelas do período estão pagas. Não é opcional nem sob demanda: é obrigação
+ * anual, e a ausência disso era uma lacuna real (nenhuma ocorrência no código).
+ *
+ * A declaração discrimina os meses quitados, como a lei exige.
+ */
+export async function emitirQuitacaoAnual(alunoId: number, ano: number, userId: number | null = null) {
+  const aluno = await prisma.aluno.findUnique({
+    where: { id: alunoId },
+    select: { ra: true, cpf: true, lead: { select: { nome: true } } },
+  })
+  if (!aluno) throw new Error('Aluno não encontrado')
+
+  const inicio = new Date(ano, 0, 1)
+  const fim = new Date(ano, 11, 31, 23, 59, 59)
+
+  const contratos = await prisma.acaContrato.findMany({ where: { matricula: { alunoId } }, select: { id: true } })
+  if (contratos.length === 0) throw new Error('Aluno sem contrato — não há o que declarar')
+
+  const parcelas = await prisma.acaParcela.findMany({
+    where: { contratoId: { in: contratos.map((c) => c.id) }, dataVencimento: { gte: inicio, lte: fim } },
+    orderBy: { dataVencimento: 'asc' },
+    select: { tipo: true, dataVencimento: true, valorBrutoCentavos: true, valorPagoCentavos: true, situacao: true, pagoEm: true },
+  })
+  if (parcelas.length === 0) throw new Error(`Nenhuma parcela com vencimento em ${ano}`)
+
+  // "Quitação" pressupõe TODAS as parcelas do ano pagas — emitir com pendência
+  // seria declarar algo falso em documento oficial.
+  const emAberto = parcelas.filter((p) => p.situacao !== 'PAGA' && p.situacao !== 'CANCELADA')
+  if (emAberto.length > 0) {
+    throw new Error(`Há ${emAberto.length} parcela(s) não quitada(s) em ${ano} — a declaração de quitação não pode ser emitida`)
+  }
+
+  const pagas = parcelas.filter((p) => p.situacao === 'PAGA')
+  const totalCentavos = pagas.reduce((s, p) => s + (p.valorPagoCentavos || p.valorBrutoCentavos), 0)
+  const { curso } = await cursoETurmaAtual(alunoId)
+
+  const dados = {
+    aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf },
+    curso, ano,
+    totalCentavos,
+    parcelas: pagas.map((p) => ({
+      tipo: p.tipo,
+      vencimento: p.dataVencimento,
+      pagoEm: p.pagoEm,
+      valorCentavos: p.valorPagoCentavos || p.valorBrutoCentavos,
+    })),
+  }
+  const numero = await proximoNumero()
+  return prisma.acaDocumento.create({
+    data: {
+      numero, tipo: 'QUITACAO_ANUAL', alunoId,
+      titulo: `Declaração de Quitação ${ano} — ${aluno.lead.nome}`,
+      dadosJson: dados as any, emitidoPorUserId: userId,
+    },
+  })
+}
+
+/**
+ * Carteirinha digital do estudante (RF-706). O número do documento já serve de
+ * código de verificação — a validação pública existente confere autenticidade.
+ */
+export async function emitirCarteirinha(alunoId: number, userId: number | null = null) {
+  const aluno = await prisma.aluno.findUnique({
+    where: { id: alunoId },
+    select: { ra: true, cpf: true, dataNascimento: true, fotoUrl: true, lead: { select: { nome: true } } },
+  })
+  if (!aluno) throw new Error('Aluno não encontrado')
+  const { curso, turma } = await cursoETurmaAtual(alunoId)
+  if (curso === '—') throw new Error('Aluno sem matrícula ativa — carteirinha exige vínculo vigente')
+
+  // Validade até o fim do período letivo corrente; sem período, fim do ano.
+  const periodo = await prisma.acaPeriodoLetivo.findFirst({ where: { ativo: true }, orderBy: { id: 'desc' }, select: { dataFim: true, codigo: true } })
+  const validade = periodo?.dataFim ?? new Date(new Date().getFullYear(), 11, 31)
+
+  const dados = {
+    aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf, nascimento: aluno.dataNascimento, fotoUrl: aluno.fotoUrl },
+    curso, turma, periodo: periodo?.codigo ?? null, validade,
+  }
+  const numero = await proximoNumero()
+  return prisma.acaDocumento.create({
+    data: {
+      numero, tipo: 'CARTEIRINHA', alunoId,
+      titulo: `Carteirinha — ${aluno.lead.nome}`,
+      dadosJson: dados as any, emitidoPorUserId: userId,
+    },
+  })
+}
 
 /** Emite o certificado de conclusão (a partir de uma matrícula CONCLUÍDA). */
 export async function emitirCertificado(matriculaId: number, userId: number | null = null) {

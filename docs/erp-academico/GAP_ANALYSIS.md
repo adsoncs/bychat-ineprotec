@@ -65,7 +65,19 @@ validade e alertas. Base obrigatória para Censo, e-MEC e diploma digital.
 Falta login CPF/RA + senha, 2FA, magic link WhatsApp, notificações, declaração de IR,
 carteirinha digital com QR, .ics do calendário.
 
-**G7. Portal do responsável financeiro inexistente (RN-704 / RF-705)** — benchmark Lyceum.
+**~~G7. Portal do responsável financeiro inexistente~~ — CORREÇÃO (29/07)**
+O levantamento inicial errou: o portal existe em `/portal/aca/responsavel`
+(`acaPortalPlus.ts`), com parcelas do aluno e geração de 2ª via. O que falta
+nele é **acordo/renegociação** e a **declaração de quitação anual**, não o
+portal em si.
+
+**G7b. Declaração de quitação anual e informe para IR (T-907)**
+Obrigação legal anual (Lei 12.007/09) — nenhuma ocorrência no código. Os tipos
+de documento emitíveis hoje são só `HISTORICO`, `DECLARACAO_MATRICULA`,
+`DECLARACAO_FREQUENCIA` e `ATA_RESULTADOS`.
+
+**G7c. Carteirinha digital com QR (RF-706)** — ausente, embora o sistema já
+tenha numeração e validação pública de documentos para reaproveitar.
 
 **G8. Prova online e banco de questões (M02 / RF-203)** — o vestibular classifica e ensala,
 mas não aplica prova nem corrige redação com rubrica.

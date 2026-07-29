@@ -8,7 +8,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { renderDocumentoPdf } from '../services/acaDocRender.js'
-import { montarHistorico, emitirDocumentoAluno, emitirAtaTurma, emitirCertificado, type DocTipo } from '../services/acaDocumentos.js'
+import { montarHistorico, emitirDocumentoAluno, emitirAtaTurma, emitirCertificado, emitirQuitacaoAnual, emitirCarteirinha, type DocTipo } from '../services/acaDocumentos.js'
 
 export async function acaSecretariaRoutes(app: FastifyInstance) {
   // ── GET /alunos/:id/historico — prévia do histórico (dados) ──
@@ -36,6 +36,13 @@ export async function acaSecretariaRoutes(app: FastifyInstance) {
     const userId = (req as any).user?.userId ?? null
     try {
       if (tipo === 'ATA_RESULTADOS') return reply.code(201).send({ documento: await emitirAtaTurma(Number(b.turmaId), userId) })
+      // Quitação anual (Lei 12.007/09) precisa do ano de referência; carteirinha
+      // exige matrícula vigente. Ambas validam no serviço e erram com motivo.
+      if (tipo === 'QUITACAO_ANUAL') {
+        const ano = Number(b.ano) || new Date().getFullYear() - 1
+        return reply.code(201).send({ documento: await emitirQuitacaoAnual(Number(b.alunoId), ano, userId) })
+      }
+      if (tipo === 'CARTEIRINHA') return reply.code(201).send({ documento: await emitirCarteirinha(Number(b.alunoId), userId) })
       const doc = await emitirDocumentoAluno(tipo as DocTipo, Number(b.alunoId), userId)
       return reply.code(201).send({ documento: doc })
     } catch (e: any) {
