@@ -2803,6 +2803,15 @@ model EducationalUnit {
   nome      String   @db.VarChar(191)
   codigo    String?  @unique @db.VarChar(50)
   descricao String?  @db.Text
+  // ── Fase 1 (G5): a unidade passa a pendurar na IES ──
+  /// IES a que esta unidade pertence. Anulável para não quebrar instalações que
+  /// ainda não cadastraram a hierarquia.
+  iesId     Int?
+  /// campus | polo_ead | unidade_administrativa — o Censo distingue.
+  tipoUnidade String? @db.VarChar(40)
+  /// Código de endereço no e-MEC (o local de oferta declarado no regulatório).
+  codigoEmecEndereco String? @db.VarChar(20)
+  enderecoJson Json?  @db.Json
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2857,6 +2866,18 @@ model Course {
   descricao    String?           @db.Text
   duracaoMeses Int?
   cargaHoraria Int?
+  // ── Fase 1 (G5): identidade regulatória do curso ──
+  codigoEmec   String?           @db.VarChar(20)
+  /// bacharelado | licenciatura | tecnologo | pos_lato | pos_stricto | tecnico | livre
+  grau         String?           @db.VarChar(30)
+  /// presencial | ead | hibrido
+  modalidade   String?           @db.VarChar(20)
+  /// seriado_semestral | seriado_anual | credito | modular
+  regimeAcademico String?        @db.VarChar(30)
+  duracaoMinPeriodos Int?
+  duracaoMaxPeriodos Int?
+  /// Área do conhecimento (classificação Cine Brasil) — exigida no Censo.
+  areaCine     String?           @db.VarChar(120)
   active       Boolean           @default(true)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -5076,6 +5097,45 @@ enum AcaMatriculaStatus {
   EVADIDO
   CANCELADO
 }
+
+/// Situação do vínculo aluno↔curso. As transições válidas são whitelist em
+/// services/acaVinculo.ts — qualquer outra é rejeitada.
+enum AcaVinculoSituacao {
+  PRE_MATRICULADO
+  ATIVO
+  TRANCADO
+  EVADIDO
+  TRANSFERIDO
+  CANCELADO
+  FORMADO
+  DIPLOMADO
+  FALECIDO
+}
+
+/// Matriz é imutável depois de ter aluno vinculado: alteração vira nova versão.
+enum AcaMatrizStatus {
+  RASCUNHO
+  ATIVA
+  SUSPENSA // não recebe ingressantes, mas segue válida para quem já está nela
+  EXTINTA
+}
+
+/// Tipo do componente na matriz — define contra qual "balde" de carga horária
+/// ele conta na integralização.
+enum AcaComponenteTipo {
+  OBRIGATORIA
+  ELETIVA
+  OPTATIVA
+  ESTAGIO
+  TCC
+  ATIVIDADE_COMPLEMENTAR
+  EXTENSAO
+}
+
+enum AcaAtoEscopo {
+  IES
+  CURSO
+}
 enum AcaParcelaTipo {
   MATRICULA
   MENSALIDADE
@@ -5160,10 +5220,161 @@ model Aluno {
   responsaveis   AcaResponsavel[]
   matriculas     AcaMatricula[]
   ocorrencias    AcaOcorrencia[]
+  vinculos       AcaVinculo[]
 
   @@index([cpf])
   @@index([ra])
   @@map("bychat_aca_alunos")
+}
+
+// ═════════════════════════════════════════════
+// FASE 1 — FUNDAÇÃO ACADÊMICA
+//
+// Três lacunas estruturais do Documento Mestre, tratadas juntas porque se
+// sustentam: hierarquia institucional (G5), ciclo de vida da matriz (G4) e
+// vínculo acadêmico (G3). São mudanças de modelagem — quanto mais tarde, mais
+// caro, porque histórico e integralização penduram aqui.
+//
+// Tudo aditivo: nada existente muda de forma, os vínculos novos entram como
+// colunas anuláveis e o backfill preenche.
+// ═════════════════════════════════════════════
+
+/// Pessoa jurídica que mantém uma ou mais IES.
+model AcaMantenedora {
+  id             Int      @id @default(autoincrement())
+  razaoSocial    String   @db.VarChar(191)
+  nomeFantasia   String?  @db.VarChar(191)
+  cnpj           String?  @db.VarChar(20)
+  // Representante legal — exigido nos atos e contratos.
+  repNome        String?  @db.VarChar(191)
+  repCpf         String?  @db.VarChar(20)
+  repCargo       String?  @db.VarChar(80)
+  enderecoJson   Json?    @db.Json
+  telefone       String?  @db.VarChar(30)
+  email          String?  @db.VarChar(191)
+  logoUrl        String?  @db.Text
+  ativo          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  ies            AcaIes[]
+
+  @@index([cnpj])
+  @@map("bychat_aca_mantenedoras")
+}
+
+/// IES (mantida) — é ela que tem código e-MEC e responde pelo regulatório.
+model AcaIes {
+  id                 Int      @id @default(autoincrement())
+  mantenedoraId      Int
+  nome               String   @db.VarChar(191)
+  sigla              String?  @db.VarChar(30)
+  codigoEmec         String?  @db.VarChar(20)
+  // privada_com_fins | privada_sem_fins | publica_federal | publica_estadual | publica_municipal
+  categoriaAdmin     String?  @db.VarChar(40)
+  // faculdade | centro_universitario | universidade | if_cefet
+  organizacaoAcad    String?  @db.VarChar(40)
+  enderecoJson       Json?    @db.Json
+  // Dirigente e Procurador/Recenseador Institucional (PI/RI) — o Censo exige.
+  dirigenteNome      String?  @db.VarChar(191)
+  dirigenteCpf       String?  @db.VarChar(20)
+  dirigenteEmail     String?  @db.VarChar(191)
+  piNome             String?  @db.VarChar(191)
+  piCpf              String?  @db.VarChar(20)
+  piEmail            String?  @db.VarChar(191)
+  ativo              Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  mantenedora        AcaMantenedora @relation(fields: [mantenedoraId], references: [id])
+
+  @@index([mantenedoraId])
+  @@index([codigoEmec])
+  @@map("bychat_aca_ies")
+}
+
+/// Ato autorizativo de IES (credenciamento) ou de curso (autorização,
+/// reconhecimento, renovação). Vence — e o vencimento precisa alertar antes.
+model AcaAtoAutorizativo {
+  id           Int      @id @default(autoincrement())
+  escopo       AcaAtoEscopo
+  /// id da IES quando escopo=IES; id do Course quando escopo=CURSO
+  entidadeId   Int
+  tipo         String   @db.VarChar(40) // credenciamento | recredenciamento | autorizacao | reconhecimento | renovacao
+  numero       String?  @db.VarChar(40)
+  dataPublicacao DateTime?
+  dataDou      DateTime?
+  validadeAte  DateTime?
+  observacao   String?  @db.Text
+  arquivoUrl   String?  @db.Text
+  ativo        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([escopo, entidadeId])
+  @@index([validadeAte])
+  @@map("bychat_aca_atos_autorizativos")
+}
+
+/// Vínculo do aluno com um CURSO/MATRIZ — o registro acadêmico (RA) de fato.
+///
+/// É diferente de AcaMatricula, que liga aluno↔turma (matrícula em disciplina/
+/// oferta). O histórico, a integralização e os requisitos de formatura são
+/// calculados contra a MATRIZ deste vínculo, não contra o curso genérico.
+model AcaVinculo {
+  id             Int      @id @default(autoincrement())
+  alunoId        Int
+  courseId       Int
+  matrizId       Int?
+  unidadeId      Int?     // campus ou polo — o regulatório exige o local de oferta
+  ra             String?  @db.VarChar(30)
+  situacao       AcaVinculoSituacao @default(PRE_MATRICULADO)
+  // vestibular | enem | transferencia_externa | portador_diploma | reingresso | seletivo_continuo
+  formaIngresso  String?  @db.VarChar(40)
+  turno          AcaTurno?
+  periodoAtual   Int?
+  dataIngresso   DateTime?
+  dataConclusao  DateTime?
+  /// Situação sensível (falecimento) suspende cobrança e comunicação automática.
+  sensivel       Boolean  @default(false)
+  observacao     String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  aluno          Aluno    @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+  movimentacoes  AcaVinculoMovimentacao[]
+  matriculas     AcaMatricula[]
+
+  @@unique([alunoId, courseId, matrizId])
+  @@index([situacao])
+  @@index([courseId])
+  @@index([ra])
+  @@map("bychat_aca_vinculos")
+}
+
+/// Toda mudança de situação do vínculo passa por aqui — nunca por edição de
+/// campo. Reversão só por contra-movimentação (RN-403), por isso há `estornoDeId`.
+model AcaVinculoMovimentacao {
+  id           Int      @id @default(autoincrement())
+  vinculoId    Int
+  de           AcaVinculoSituacao?
+  para         AcaVinculoSituacao
+  motivo       String?  @db.VarChar(191)
+  observacao   String?  @db.Text
+  dataEfeito   DateTime @default(now())
+  documentoUrl String?  @db.Text
+  userId       Int?
+  userName     String?  @db.VarChar(100)
+  /// Preenchido quando esta movimentação estorna outra.
+  estornoDeId  Int?
+  metadata     Json?    @db.Json
+  createdAt    DateTime @default(now())
+
+  vinculo      AcaVinculo @relation(fields: [vinculoId], references: [id], onDelete: Cascade)
+
+  @@index([vinculoId, dataEfeito])
+  @@index([para])
+  @@map("bychat_aca_vinculo_movimentacoes")
 }
 
 model AcaResponsavel {
@@ -5218,9 +5429,28 @@ model AcaMatriz {
   versao    String   @db.VarChar(40)
   vigenteDe DateTime?
   ativo     Boolean  @default(true)
+  // ── Fase 1 (G4): ciclo de vida ──
+  nome      String?  @db.VarChar(191)
+  /// RASCUNHO permite editar componentes; a partir de ATIVA a matriz é imutável
+  /// (alteração vira nova versão — RN-003). Validação em services/acaMatriz.ts.
+  status    AcaMatrizStatus @default(RASCUNHO)
+  /// Totais de CH exigidos pelo PPC, por balde — a ativação confere os
+  /// componentes contra estes números.
+  chObrigatoria Int?
+  chEletiva     Int?
+  chOptativa    Int?
+  chEstagio     Int?
+  chTcc         Int?
+  chComplementar Int?
+  chExtensao    Int?
+  publicadaEm   DateTime?
+  publicadaPor  Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt @default(now())
 
   componentes AcaComponente[]
   @@index([courseId])
+  @@index([status])
   @@map("bychat_aca_matrizes")
 }
 
@@ -5230,6 +5460,19 @@ model AcaComponente {
   disciplinaId Int
   fase         Int      @default(1)
   obrigatoria  Boolean  @default(true)
+  // ── Fase 1 (G4) ──
+  /// Contra qual balde de CH este componente conta na integralização.
+  /// `obrigatoria` continua existindo para compatibilidade; `tipo` é a fonte nova.
+  tipo         AcaComponenteTipo @default(OBRIGATORIA)
+  /// CH do componente NESTA matriz — pode divergir do catálogo da disciplina.
+  chTotal      Int?
+  chTeorica    Int?
+  chPratica    Int?
+  chExtensao   Int?     // curricularização da extensão (Res. CNE/CES 7/2018)
+  /// Agrupador de eletivas: "cumprir 240h do grupo Gestão".
+  grupoEletiva String?  @db.VarChar(60)
+  /// Ordem sugerida dentro da fase (para o editor visual).
+  ordem        Int?
 
   matriz       AcaMatriz     @relation(fields: [matrizId], references: [id], onDelete: Cascade)
   disciplina   AcaDisciplina @relation(fields: [disciplinaId], references: [id])
@@ -5276,6 +5519,9 @@ model AcaMatricula {
   id                Int      @id @default(autoincrement())
   alunoId           Int
   turmaId           Int
+  /// Vínculo aluno↔curso a que esta matrícula pertence (Fase 1/G3). Anulável
+  /// enquanto o backfill não roda; passa a ser obrigatório na criação.
+  vinculoId         Int?
   courseOfferingId  Int?
   status            AcaMatriculaStatus @default(INSCRITO)
   origem            String?  @db.VarChar(40)
@@ -5289,11 +5535,13 @@ model AcaMatricula {
 
   aluno             Aluno    @relation(fields: [alunoId], references: [id])
   turma             AcaTurma @relation(fields: [turmaId], references: [id])
+  vinculo           AcaVinculo? @relation(fields: [vinculoId], references: [id], onDelete: SetNull)
   contrato          AcaContrato?
   eventos           AcaMatriculaEvento[]
 
   @@unique([alunoId, turmaId])
   @@index([status])
+  @@index([vinculoId])
   @@map("bychat_aca_matriculas")
 }
 
