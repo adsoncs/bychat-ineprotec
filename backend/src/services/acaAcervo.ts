@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto'
 import { readFile, stat, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { uploadsPath } from '../lib/uploadsDir.js'
 import { prisma } from '../lib/prisma.js'
 
 /**
@@ -93,7 +94,7 @@ const LIMITE_BYTES = 50 * 1024 * 1024
 async function hashLocal(url: string): Promise<{ hash: string; bytes: number } | null> {
   const m = /\/uploads\/(.+)$/.exec(url)
   if (!m) return null
-  const caminho = join(process.cwd(), 'uploads', m[1]!)
+  const caminho = uploadsPath(m[1]!)
   try {
     const [buf, info] = await Promise.all([readFile(caminho), stat(caminho)])
     return { hash: createHash('sha256').update(buf).digest('hex'), bytes: info.size }
@@ -202,7 +203,7 @@ export async function trazerParaCustodia(arquivoId: number): Promise<{ url: stri
   const baixado = await baixarExterno(arq.url)
   if (!baixado) throw new Error('Não foi possível baixar o documento deste endereço')
 
-  const dir = join(process.cwd(), 'uploads', 'acervo')
+  const dir = uploadsPath('acervo')
   await mkdir(dir, { recursive: true })
   // Nome derivado do hash: mesmo conteúdo não duplica, e o nome não carrega
   // dado do aluno para dentro do sistema de arquivos.
