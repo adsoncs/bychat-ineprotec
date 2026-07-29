@@ -134,9 +134,31 @@ hierarquia da Fase 1.
 G8 prova online + G13 score de evasão + G14 BI por persona + G15 produção docente +
 G16 segurança + G17 importadores.
 
+## Situação em 29/07/2026
+
+Fases 1 a 5 implementadas em `bychat-ineprotec` (backend + telas dedicadas, sem modal).
+
+| Fase | Escopo | Situação |
+|------|--------|----------|
+| 1 | G3 vínculo, G4 matriz versionada, G5 hierarquia | concluída — migration 0104 |
+| 2 | G1 esquema de avaliação, G2 integralização, G9 equivalências | concluída — 0105, 0106 |
+| 3 | G6 portal PWA, G7 responsável, G11 regime domiciliar, acordo de dívida | concluída — 0107, 0108 |
+| 4 | G10 acervo/temporalidade, G12 trava ENADE, diploma sobre a hierarquia | concluída — 0109 |
+| 5 | G8 prova online, G13 evasão, G14 BI por persona, G15 produção docente, G17 importadores | concluída — 0110 |
+
+Pendências conhecidas:
+
+- **G16 (2FA + auditoria a nível de campo)** — único item do plano ainda não iniciado.
+- **Editor de matriz com arrastar-e-soltar** — a matriz é editável, mas por formulário.
+- **Replicação para os outros 8 tenants** — todo o ERP acadêmico existe apenas em
+  `bychat-ineprotec`. O motor é genérico; a configuração (esquemas, matrizes, calendário)
+  é por instituição e não deve ser replicada.
+
 ## Notas de risco
 
 - Fases 1 e 2 são pré-requisito real das demais: integralização depende do vínculo e da
   matriz versionada; Censo e diploma dependem da hierarquia institucional.
 - O financeiro (M09) e a comunicação (M13) já estão acima da régua do mercado — não
   precisam de trabalho estrutural nesta rodada.
+- O acervo tem 10 documentos classificados e **nenhum com hash**. Sem hash não há como
+  provar integridade numa fiscalização — vale gerar antes de o volume crescer.
