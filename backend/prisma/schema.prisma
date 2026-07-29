@@ -5217,6 +5217,14 @@ model Aluno {
   leadId         Int      @unique
   ra             String?  @unique @db.VarChar(30)
   cpf            String?  @db.VarChar(20)
+  /// Acesso ao portal por CPF/RA + senha (G6 / RF-701). Nulo = o aluno ainda
+  /// só entra pelo link enviado no WhatsApp, que continua valendo.
+  portalSenhaHash      String?   @db.VarChar(255)
+  portalSenhaDefinidaEm DateTime?
+  portalUltimoLoginEm  DateTime?
+  /// Tentativas seguidas de senha errada; trava temporária ao estourar.
+  portalTentativas     Int       @default(0)
+  portalBloqueadoAte   DateTime?
   dataNascimento DateTime?
   sexo           String?  @db.VarChar(12)
   nomeSocial     String?  @db.VarChar(191)

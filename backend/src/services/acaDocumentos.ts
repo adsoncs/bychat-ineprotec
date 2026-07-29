@@ -80,7 +80,7 @@ async function cursoETurmaAtual(alunoId: number) {
 }
 
 export type DocTipo = 'HISTORICO' | 'DECLARACAO_MATRICULA' | 'DECLARACAO_FREQUENCIA' | 'ATA_RESULTADOS'
-  | 'QUITACAO_ANUAL' | 'CARTEIRINHA'
+  | 'QUITACAO_ANUAL' | 'CARTEIRINHA' | 'INFORME_IR'
 
 /**
  * Declaração de quitação anual de débito (Lei 12.007/09).
@@ -139,6 +139,62 @@ export async function emitirQuitacaoAnual(alunoId: number, ano: number, userId: 
     data: {
       numero, tipo: 'QUITACAO_ANUAL', alunoId,
       titulo: `Declaração de Quitação ${ano} — ${aluno.lead.nome}`,
+      dadosJson: dados as any, emitidoPorUserId: userId,
+    },
+  })
+}
+
+/**
+ * Informe de pagamentos para o Imposto de Renda (T-907).
+ *
+ * NÃO se confunde com a declaração de quitação anual: a quitação atesta que
+ * nada ficou em aberto e só pode ser emitida se tudo foi pago; o informe
+ * declara QUANTO foi efetivamente pago no ano-calendário, para o aluno (ou
+ * quem paga por ele) deduzir despesa de instrução. Aluno inadimplente também
+ * tem direito ao informe — pelo que pagou.
+ *
+ * O critério é a data do PAGAMENTO, não a do vencimento: o IR é por regime de
+ * caixa, e uma mensalidade de dezembro paga em janeiro pertence ao ano
+ * seguinte.
+ */
+export async function emitirInformeIR(alunoId: number, ano: number, userId: number | null = null) {
+  const aluno = await prisma.aluno.findUnique({
+    where: { id: alunoId },
+    select: { ra: true, cpf: true, lead: { select: { nome: true } } },
+  })
+  if (!aluno) throw new Error('Aluno não encontrado')
+
+  const contratos = await prisma.acaContrato.findMany({ where: { matricula: { alunoId } }, select: { id: true } })
+  if (contratos.length === 0) throw new Error('Aluno sem contrato — não há pagamentos a informar')
+
+  const inicio = new Date(ano, 0, 1)
+  const fim = new Date(ano, 11, 31, 23, 59, 59)
+  const pagas = await prisma.acaParcela.findMany({
+    where: { contratoId: { in: contratos.map((c) => c.id) }, situacao: 'PAGA', pagoEm: { gte: inicio, lte: fim } },
+    orderBy: { pagoEm: 'asc' },
+    select: { tipo: true, nroParcela: true, dataVencimento: true, pagoEm: true, valorPagoCentavos: true, valorBrutoCentavos: true },
+  })
+  if (pagas.length === 0) throw new Error(`Nenhum pagamento registrado em ${ano}`)
+
+  const totalCentavos = pagas.reduce((s, p) => s + (p.valorPagoCentavos || p.valorBrutoCentavos), 0)
+  const { curso } = await cursoETurmaAtual(alunoId)
+
+  const dados = {
+    aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf },
+    curso, ano, totalCentavos,
+    pagamentos: pagas.map((p) => ({
+      tipo: p.tipo,
+      nroParcela: p.nroParcela,
+      vencimento: p.dataVencimento,
+      pagoEm: p.pagoEm,
+      valorCentavos: p.valorPagoCentavos || p.valorBrutoCentavos,
+    })),
+  }
+  const numero = await proximoNumero()
+  return prisma.acaDocumento.create({
+    data: {
+      numero, tipo: 'INFORME_IR', alunoId,
+      titulo: `Informe de Pagamentos ${ano} (IR) — ${aluno.lead.nome}`,
       dadosJson: dados as any, emitidoPorUserId: userId,
     },
   })

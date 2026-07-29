@@ -130,6 +130,50 @@ export function pdfQuitacaoAnual(
   })
 }
 
+/**
+ * Informe de pagamentos do ano-calendário, para dedução de instrução no IR.
+ * Traz CNPJ do prestador e CPF do aluno porque é isso que a declaração pede.
+ */
+export function pdfInformeIR(
+  h: DocHeader, numero: string, dataExtenso: string,
+  d: { aluno: AlunoInfo; curso: string; ano: number; totalCentavos: number; pagamentos: Array<{ tipo: string; nroParcela: number | null; vencimento: string | Date; pagoEm: string | Date | null; valorCentavos: number }> },
+) {
+  const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const dia = (v: string | Date | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—')
+  return build((doc) => {
+    cabecalho(doc, h, `INFORME DE PAGAMENTOS — ANO-CALENDÁRIO ${d.ano}`, numero)
+    const corpo = `Informamos que ${d.aluno.nome}${d.aluno.cpf ? ` (CPF ${d.aluno.cpf})` : ''}`
+      + `${d.aluno.ra ? `, RA ${d.aluno.ra}` : ''}, aluno(a) do curso ${d.curso}, efetuou os pagamentos abaixo`
+      + ` no ano-calendário de ${d.ano}, para fins de comprovação de despesas com instrução na Declaração de`
+      + ` Ajuste Anual do Imposto sobre a Renda.`
+    doc.fontSize(11).font('Helvetica').text(corpo, { align: 'justify', lineGap: 4 })
+    doc.moveDown(1)
+
+    const y0 = doc.y
+    doc.fontSize(9).font('Helvetica-Bold')
+    doc.text('Referência', 50, y0).text('Vencimento', 240, y0).text('Pago em', 340, y0).text('Valor', 430, y0, { width: 115, align: 'right' })
+    doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).strokeColor('#ccc').stroke().strokeColor('#000')
+    doc.moveDown(0.4)
+    doc.font('Helvetica').fontSize(9.5)
+    for (const p of d.pagamentos) {
+      const y = doc.y
+      doc.text(`${p.nroParcela ? `${p.nroParcela}ª ` : ''}${String(p.tipo)}`, 50, y)
+        .text(dia(p.vencimento), 240, y)
+        .text(dia(p.pagoEm), 340, y)
+        .text(money(p.valorCentavos), 430, y, { width: 115, align: 'right' })
+      doc.moveDown(0.2)
+    }
+    doc.moveTo(50, doc.y + 3).lineTo(545, doc.y + 3).strokeColor('#ccc').stroke().strokeColor('#000')
+    doc.moveDown(0.5)
+    doc.font('Helvetica-Bold').fontSize(10).text(`Total pago em ${d.ano}: ${money(d.totalCentavos)}`, 50, doc.y, { width: 495, align: 'right' })
+    doc.moveDown(1)
+    doc.font('Helvetica').fontSize(8.5).fillColor('#555')
+      .text('Os valores acima consideram a data do efetivo pagamento (regime de caixa), conforme a legislação do imposto de renda.', { align: 'justify' })
+      .fillColor('#000')
+    rodape(doc, dataExtenso, numero)
+  })
+}
+
 /** Carteirinha do estudante em cartão, com código de verificação. */
 export function pdfCarteirinha(
   h: DocHeader, numero: string, _dataExtenso: string,
