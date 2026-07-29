@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, Repeat, Undo2, MessageCircle } from 'lucide-preact'
+import { ChevronLeft, Repeat, Undo2, MessageCircle, ListChecks } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -61,6 +61,9 @@ export function AcademicoVinculoDetailPage({ params }: { params: { id: string } 
           <button type="button" class="flex items-center gap-1 text-sm text-fg-muted hover:text-fg" onClick={() => navigate('/aca/vinculos')}>
             <ChevronLeft size={15} /> Voltar
           </button>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/aca/vinculos/${v.id}/integralizacao`)}>
+            <ListChecks size={14} /> Integralização
+          </Button>
           <Button variant="primary" size="sm" onClick={() => navigate(`/aca/vinculos/${v.id}/mover`)}>
             <Repeat size={14} /> Movimentar situação
           </Button>

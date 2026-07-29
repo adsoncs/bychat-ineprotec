@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import * as Vinculo from '../services/acaVinculo.js'
 import * as Matriz from '../services/acaMatriz.js'
+import * as Integralizacao from '../services/acaIntegralizacao.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 const num = (v: unknown): number | null => {
@@ -290,6 +291,28 @@ export async function acaFundacaoRoutes(app: FastifyInstance) {
       const invalida = e?.name === 'TransicaoInvalidaError'
       return reply.code(invalida ? 409 : 400).send({ error: e?.message, transicaoInvalida: invalida })
     }
+  })
+
+  /**
+   * Integralização do vínculo — "o que falta para se formar". Mesma engine que
+   * alimenta o plano de estudos, a apuração de formandos e a trava da colação,
+   * para que aluno e secretaria nunca vejam números diferentes.
+   */
+  app.get('/api/admin/aca/vinculos/:id/integralizacao', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = num((req.params as any).id)
+    if (!id) return reply.code(400).send({ error: 'id inválido' })
+    try {
+      return await Integralizacao.calcular(id)
+    } catch (e: any) {
+      return reply.code(404).send({ error: e?.message || 'Vínculo não encontrado' })
+    }
+  })
+
+  /** Prováveis formandos: quem já integralizou tudo e ainda não consta formado. */
+  app.get('/api/admin/aca/formandos', { preHandler: authMiddleware }, async (req) => {
+    const courseId = num((req.query as any)?.courseId)
+    const formandos = await Integralizacao.provaveisFormandos(courseId ?? undefined)
+    return { formandos, total: formandos.length }
   })
 
   app.post('/api/admin/aca/vinculos/movimentacoes/:movId/estornar', { preHandler: authMiddleware }, async (req, reply) => {

@@ -235,6 +235,83 @@ export function useEstornarMovimentacao() {
   })
 }
 
+// ── Integralização ──
+
+export type StatusComponente = 'CUMPRIDO' | 'APROVEITADO' | 'EM_CURSO' | 'REPROVADO' | 'PENDENTE' | 'BLOQUEADO'
+
+export interface ComponenteIntegralizacao {
+  componenteId: number
+  disciplinaId: number
+  nome: string
+  codigo: string | null
+  fase: number
+  tipo: string
+  cargaHoraria: number
+  status: StatusComponente
+  bloqueadoPor?: string[]
+  media?: number | null
+}
+
+export interface BaldeCH {
+  tipo: string
+  exigido: number | null
+  cumprido: number
+  emCurso: number
+  pendente: number
+  percentual: number | null
+}
+
+export interface Integralizacao {
+  vinculoId: number
+  matrizId: number | null
+  situacao: string
+  semMatriz: boolean
+  chTotalMatriz: number
+  chCumprida: number
+  chEmCurso: number
+  percentual: number
+  componentes: ComponenteIntegralizacao[]
+  baldes: BaldeCH[]
+  disponiveis: number
+  concluido: boolean
+}
+
+export function useIntegralizacao(vinculoId: number | null) {
+  return useQuery({
+    queryKey: ['aca', 'integralizacao', vinculoId],
+    queryFn: () => api.get<Integralizacao>(`/admin/aca/vinculos/${vinculoId}/integralizacao`),
+    enabled: !!vinculoId,
+  })
+}
+
+export const STATUS_COMP_LABEL: Record<StatusComponente, string> = {
+  CUMPRIDO: 'Cumprido',
+  APROVEITADO: 'Aproveitado',
+  EM_CURSO: 'Cursando',
+  REPROVADO: 'Reprovado',
+  PENDENTE: 'Pendente',
+  BLOQUEADO: 'Bloqueado',
+}
+
+export const STATUS_COMP_TONE: Record<StatusComponente, 'success' | 'info' | 'warning' | 'danger' | 'neutral'> = {
+  CUMPRIDO: 'success',
+  APROVEITADO: 'success',
+  EM_CURSO: 'info',
+  REPROVADO: 'danger',
+  PENDENTE: 'neutral',
+  BLOQUEADO: 'warning',
+}
+
+export const TIPO_COMP_LABEL: Record<string, string> = {
+  OBRIGATORIA: 'Obrigatória',
+  ELETIVA: 'Eletiva',
+  OPTATIVA: 'Optativa',
+  ESTAGIO: 'Estágio',
+  TCC: 'TCC',
+  ATIVIDADE_COMPLEMENTAR: 'Atividades complementares',
+  EXTENSAO: 'Extensão',
+}
+
 /** Rótulos e tom das situações — usados na listagem e no prontuário. */
 export const SITUACAO_LABEL: Record<VinculoSituacao, string> = {
   PRE_MATRICULADO: 'Pré-matriculado',

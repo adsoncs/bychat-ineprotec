@@ -376,6 +376,9 @@ const AcaVinculoDetail = lazy(() =>
 const AcaVinculoMover = lazy(() =>
   import('./pages/AcademicoVinculoMoverPage').then((m) => ({ default: m.AcademicoVinculoMoverPage })),
 )
+const AcaIntegralizacao = lazy(() =>
+  import('./pages/AcademicoIntegralizacaoPage').then((m) => ({ default: m.AcademicoIntegralizacaoPage })),
+)
 
 const FunnelDetail = lazy(() =>
   import('./pages/FunnelDetailPage').then((m) => ({ default: m.FunnelDetailPage })),
@@ -541,6 +544,11 @@ export function Router() {
           <Route path="/aca/matrizes/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><AcaMatrizDetail params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/vinculos/:id/integralizacao">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaIntegralizacao params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/aca/vinculos/:id/mover">

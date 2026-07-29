@@ -6,8 +6,10 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { garantirEditavel } from '../services/acaMatriz.js'
 
 const TURNOS = ['MATUTINO', 'VESPERTINO', 'NOTURNO', 'INTEGRAL', 'EAD']
+const TIPOS_COMPONENTE = ['OBRIGATORIA', 'ELETIVA', 'OPTATIVA', 'ESTAGIO', 'TCC', 'ATIVIDADE_COMPLEMENTAR', 'EXTENSAO']
 
 export async function acaCatalogoRoutes(app: FastifyInstance) {
   // ── Referências p/ selects da UI ──
@@ -105,16 +107,52 @@ export async function acaCatalogoRoutes(app: FastifyInstance) {
     const matriz = await prisma.acaMatriz.create({ data: { courseId: Number(b.courseId), versao: String(b.versao).slice(0, 40), vigenteDe: b.vigenteDe ? new Date(b.vigenteDe) : null } })
     return reply.code(201).send({ matriz })
   })
+  // Componentes só podem ser mexidos com a matriz em RASCUNHO (Fase 1/RN-003).
+  // A checagem fica aqui também — se ficasse só na tela nova, a tela antiga
+  // seria uma porta dos fundos para alterar matriz com aluno vinculado.
   app.post('/api/admin/aca/matrizes/:id/componentes', { preHandler: authMiddleware }, async (req, reply) => {
     const matrizId = Number((req.params as any).id); const b = (req.body as any) || {}
     if (!b.disciplinaId) return reply.code(400).send({ error: 'disciplinaId obrigatório' })
+    try { await garantirEditavel(matrizId) } catch (e: any) { return reply.code(409).send({ error: e?.message }) }
+    const tipo = String(b.tipo || '').toUpperCase()
     try {
-      const componente = await prisma.acaComponente.create({ data: { matrizId, disciplinaId: Number(b.disciplinaId), fase: Number(b.fase) || 1, obrigatoria: b.obrigatoria !== false } })
+      const componente = await prisma.acaComponente.create({
+        data: {
+          matrizId, disciplinaId: Number(b.disciplinaId), fase: Number(b.fase) || 1,
+          obrigatoria: b.obrigatoria !== false,
+          // `tipo` é a fonte nova; sem ele, deriva do booleano antigo.
+          tipo: (TIPOS_COMPONENTE.includes(tipo) ? tipo : (b.obrigatoria !== false ? 'OBRIGATORIA' : 'ELETIVA')) as any,
+          chTotal: b.chTotal != null ? Number(b.chTotal) : null,
+          chTeorica: b.chTeorica != null ? Number(b.chTeorica) : null,
+          chPratica: b.chPratica != null ? Number(b.chPratica) : null,
+          chExtensao: b.chExtensao != null ? Number(b.chExtensao) : null,
+          grupoEletiva: b.grupoEletiva || null,
+          ordem: b.ordem != null ? Number(b.ordem) : null,
+        },
+      })
       return reply.code(201).send({ componente })
     } catch { return reply.code(409).send({ error: 'Disciplina já está nesta matriz' }) }
   })
-  app.delete('/api/admin/aca/matrizes/:id/componentes/:compId', { preHandler: authMiddleware }, async (req) => {
+  app.put('/api/admin/aca/matrizes/:id/componentes/:compId', { preHandler: authMiddleware }, async (req, reply) => {
+    const matrizId = Number((req.params as any).id)
     const compId = Number((req.params as any).compId)
+    const b = (req.body as any) || {}
+    try { await garantirEditavel(matrizId) } catch (e: any) { return reply.code(409).send({ error: e?.message }) }
+    const data: any = {}
+    if (b.fase !== undefined) data.fase = Number(b.fase) || 1
+    if (b.obrigatoria !== undefined) data.obrigatoria = !!b.obrigatoria
+    if (b.tipo !== undefined && TIPOS_COMPONENTE.includes(String(b.tipo).toUpperCase())) data.tipo = String(b.tipo).toUpperCase()
+    for (const c of ['chTotal', 'chTeorica', 'chPratica', 'chExtensao', 'ordem'] as const) {
+      if (b[c] !== undefined) data[c] = b[c] === null || b[c] === '' ? null : Number(b[c])
+    }
+    if (b.grupoEletiva !== undefined) data.grupoEletiva = b.grupoEletiva || null
+    const componente = await prisma.acaComponente.update({ where: { id: compId }, data })
+    return { componente }
+  })
+  app.delete('/api/admin/aca/matrizes/:id/componentes/:compId', { preHandler: authMiddleware }, async (req, reply) => {
+    const matrizId = Number((req.params as any).id)
+    const compId = Number((req.params as any).compId)
+    try { await garantirEditavel(matrizId) } catch (e: any) { return reply.code(409).send({ error: e?.message }) }
     await prisma.acaComponente.deleteMany({ where: { id: compId } })
     return { ok: true }
   })
