@@ -187,8 +187,12 @@ export async function acaPortalRoutes(app: FastifyInstance) {
         <select name="ano" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font:inherit">${anosQuitacao.map((a) => `<option value="${a}">${a}</option>`).join('')}</select>
         <button class="sec" type="submit">Quitação anual</button>
       </form>
+      <form method="post" action="/api/public/aca/aluno/informe-ir?t=${tk}" style="margin:0;display:flex;gap:6px;align-items:center">
+        <select name="ano" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font:inherit">${anosQuitacao.map((a) => `<option value="${a}">${a}</option>`).join('')}</select>
+        <button class="sec" type="submit">Informe para IR</button>
+      </form>
     </div>
-    <p class="sub" style="margin:-4px 0 10px;font-size:13px">A declaração de quitação (Lei 12.007/09) só é emitida se todas as parcelas do ano estiverem pagas.</p>`
+    <p class="sub" style="margin:-4px 0 10px;font-size:13px">A declaração de quitação (Lei 12.007/09) só é emitida se todas as parcelas do ano estiverem pagas. O informe para o Imposto de Renda lista o que foi efetivamente pago no ano — vale mesmo com parcelas em aberto.</p>`
     const docsHtml = `${emitirForm}${docsLista}`
 
     // Horários (O2.6) — grade da turma
@@ -260,6 +264,13 @@ export async function acaPortalRoutes(app: FastifyInstance) {
       ${contratoHtml}
       <div class="card"><h2 style="margin-top:0">Financeiro</h2>${finHtml}</div>
       <div class="card"><h2 style="margin-top:0">Documentos</h2>${docsHtml}</div>
+      <div class="card"><h2 style="margin-top:0">Sua conta</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <a href="/api/public/aca/aluno/agenda.ics?t=${tk}"><button class="sec" type="button">Assinar calendário (.ics)</button></a>
+          <a href="/portal/aca/senha?t=${tk}"><button class="sec" type="button">Criar/trocar senha</button></a>
+        </div>
+        <p class="sub" style="font-size:13px;margin-top:8px">Com uma senha você entra pelo endereço do portal usando CPF ou RA, sem depender de achar este link.</p>
+      </div>
       ${materiaisHtml}
       ${horasHtml}
       <div class="card"><h2 style="margin-top:0">Solicitações à secretaria</h2>${reqForm}${reqLista}</div>
