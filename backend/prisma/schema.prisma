@@ -5561,6 +5561,114 @@ model AcaEnadeRegularidade {
   @@map("bychat_aca_enade_regularidade")
 }
 
+/// Banco de questões do processo seletivo (M02/T-203).
+model AcaQuestao {
+  id          Int      @id @default(autoincrement())
+  area        String   @db.VarChar(60) // Português, Matemática, Conhecimentos gerais…
+  enunciado   String   @db.Text
+  /// OBJETIVA (múltipla escolha) | DISSERTATIVA (correção manual/redação)
+  tipo        String   @default("OBJETIVA") @db.VarChar(14)
+  /// [{ id: "a", texto: "…" }] — só para objetivas.
+  alternativas Json?   @db.Json
+  /// Letra da alternativa correta.
+  gabarito    String?  @db.VarChar(4)
+  peso        Float    @default(1)
+  dificuldade String?  @db.VarChar(10) // FACIL | MEDIA | DIFICIL
+  ativa       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  itens       AcaProvaItem[]
+
+  @@index([area, ativa])
+  @@map("bychat_aca_questoes")
+}
+
+/// Prova montada para um processo seletivo.
+model AcaProva {
+  id            Int      @id @default(autoincrement())
+  processoId    Int?
+  titulo        String   @db.VarChar(191)
+  instrucoes    String?  @db.Text
+  /// Janela de aplicação; fora dela a prova não abre.
+  inicioEm      DateTime?
+  fimEm         DateTime?
+  /// Tempo de prova em minutos, contado a partir do início do candidato.
+  duracaoMinutos Int     @default(120)
+  notaMaxima    Float    @default(100)
+  publicada     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  itens         AcaProvaItem[]
+  aplicacoes    AcaProvaAplicacao[]
+
+  @@index([processoId])
+  @@map("bychat_aca_provas")
+}
+
+model AcaProvaItem {
+  id        Int      @id @default(autoincrement())
+  provaId   Int
+  questaoId Int
+  ordem     Int      @default(0)
+  peso      Float    @default(1)
+
+  prova     AcaProva   @relation(fields: [provaId], references: [id], onDelete: Cascade)
+  questao   AcaQuestao @relation(fields: [questaoId], references: [id])
+
+  @@unique([provaId, questaoId])
+  @@map("bychat_aca_prova_itens")
+}
+
+/// Uma tentativa de um candidato. `iniciadaEm` é o relógio: a duração é
+/// contada dela, não do horário da janela, para quem entra atrasado não ganhar
+/// tempo extra nem perder tudo.
+model AcaProvaAplicacao {
+  id           Int      @id @default(autoincrement())
+  provaId      Int
+  inscricaoId  Int?
+  candidatoNome String  @db.VarChar(191)
+  candidatoCpf String?  @db.VarChar(20)
+  /// Token de acesso do candidato (link único).
+  token        String   @unique @db.VarChar(64)
+  iniciadaEm   DateTime?
+  entregueEm   DateTime?
+  /// EM_ABERTO | EM_ANDAMENTO | ENTREGUE | CORRIGIDA | EXPIRADA
+  status       String   @default("EM_ABERTO") @db.VarChar(14)
+  notaObjetiva Float?
+  notaDissertativa Float?
+  notaFinal    Float?
+  observacao   String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  prova        AcaProva @relation(fields: [provaId], references: [id], onDelete: Cascade)
+  respostas    AcaProvaResposta[]
+
+  @@index([provaId, status])
+  @@map("bychat_aca_prova_aplicacoes")
+}
+
+model AcaProvaResposta {
+  id           Int      @id @default(autoincrement())
+  aplicacaoId  Int
+  questaoId    Int
+  /// Letra escolhida (objetiva) ou texto (dissertativa).
+  resposta     String?  @db.Text
+  correta      Boolean?
+  /// Nota da correção manual (dissertativa) e o parecer do corretor.
+  notaManual   Float?
+  parecer      String?  @db.Text
+  corrigidaPor Int?
+  corrigidaEm  DateTime?
+
+  aplicacao    AcaProvaAplicacao @relation(fields: [aplicacaoId], references: [id], onDelete: Cascade)
+
+  @@unique([aplicacaoId, questaoId])
+  @@map("bychat_aca_prova_respostas")
+}
+
 model AcaResponsavel {
   id         Int      @id @default(autoincrement())
   alunoId    Int

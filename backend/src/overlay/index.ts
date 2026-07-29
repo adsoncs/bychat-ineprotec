@@ -23,6 +23,7 @@ import { acaPortalPwaRoutes } from '../routes/acaPortalPwa.js'
 import { acaRegulatorioRoutes } from '../routes/acaRegulatorio.js'
 import { acaInteligenciaRoutes } from '../routes/acaInteligencia.js'
 import { acaImportacaoRoutes } from '../routes/acaImportacao.js'
+import { acaProvaRoutes } from '../routes/acaProva.js'
 import { acaFinanceiroRoutes } from '../routes/acaFinanceiro.js'
 import { acaFinBancoRoutes } from '../routes/acaFinBanco.js'
 import { acaCobrancaFiscalRoutes } from '../routes/acaCobrancaFiscal.js'
@@ -75,6 +76,7 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaRegulatorioRoutes)
   await app.register(acaInteligenciaRoutes)
   await app.register(acaImportacaoRoutes)
+  await app.register(acaProvaRoutes)
   await app.register(acaFinanceiroRoutes)
   await app.register(acaFinBancoRoutes)
   await app.register(acaCobrancaFiscalRoutes)
