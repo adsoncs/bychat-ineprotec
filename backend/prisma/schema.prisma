@@ -5248,6 +5248,7 @@ model Aluno {
   ocorrencias    AcaOcorrencia[]
   vinculos       AcaVinculo[]
   regimesEspeciais AcaRegimeEspecial[]
+  enadeRegularidade AcaEnadeRegularidade[]
 
   @@index([cpf])
   @@index([ra])
@@ -5512,6 +5513,52 @@ model AcaRegimeEspecial {
   @@index([alunoId, status])
   @@index([dataInicio, dataFim])
   @@map("bychat_aca_regimes_especiais")
+}
+
+/// Termo de eliminação de documentos (Port. 315/2018 + Dec. 9.235/2017).
+/// A eliminação de acervo não é um delete: exige listagem, comissão e termo
+/// guardado — é o documento que prova que o descarte foi regular.
+model AcaEliminacaoTermo {
+  id           Int      @id @default(autoincrement())
+  numero       String   @db.VarChar(40)
+  dataTermo    DateTime @default(now())
+  comissao     String   @db.Text
+  responsavel  String?  @db.VarChar(191)
+  observacao   String?  @db.Text
+  /// Snapshot do que foi eliminado — os arquivos somem, a lista permanece.
+  itensJson    Json?    @db.Json
+  qtdItens     Int      @default(0)
+  criadoPor    Int?
+  createdAt    DateTime @default(now())
+
+  @@unique([numero])
+  @@map("bychat_aca_eliminacao_termos")
+}
+
+/// Regularidade do aluno no ENADE. Irregular não cola grau (RN-1104); a
+/// dispensa existe, mas precisa estar documentada — por isso o motivo e o
+/// documento são exigidos para liberar.
+model AcaEnadeRegularidade {
+  id           Int      @id @default(autoincrement())
+  alunoId      Int
+  vinculoId    Int?
+  ano          Int
+  /// INGRESSANTE | CONCLUINTE — conforme o edital do ciclo.
+  condicao     String   @db.VarChar(14)
+  /// PENDENTE | INSCRITO | PARTICIPOU | DISPENSADO | IRREGULAR
+  situacao     String   @default("PENDENTE") @db.VarChar(14)
+  dispensaMotivo String? @db.Text
+  documentoUrl String?  @db.Text
+  observacao   String?  @db.Text
+  registradoPor Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  aluno        Aluno    @relation(fields: [alunoId], references: [id], onDelete: Cascade)
+
+  @@unique([alunoId, ano, condicao])
+  @@index([situacao])
+  @@map("bychat_aca_enade_regularidade")
 }
 
 model AcaResponsavel {
@@ -6343,6 +6390,21 @@ model AcaGedArquivo {
   url        String   @db.Text
   status     String   @db.VarChar(12) @default("RECEBIDO") // RECEBIDO | CONFERIDO | PENDENTE
   observacao String?  @db.Text
+  // ── Fase 4 (G10): acervo acadêmico digital (Port. MEC 315/2018) ──
+  /// Código do plano de classificação documental (ex.: "125.1 — Histórico").
+  classificacao   String?  @db.VarChar(60)
+  /// PERMANENTE (guarda eterna) | TEMPORARIO (elimina após o prazo).
+  temporalidade   String   @default("PERMANENTE") @db.VarChar(12)
+  prazoGuardaAnos Int?
+  /// Data a partir da qual o documento temporário pode ser eliminado.
+  guardaAte       DateTime?
+  /// Integridade: sem hash não há como provar que o arquivo não mudou.
+  hashSha256      String?  @db.VarChar(64)
+  tamanhoBytes    Int?
+  mimeType        String?  @db.VarChar(100)
+  /// Eliminação é controlada: só ocorre por termo, com comissão registrada.
+  eliminadoEm     DateTime?
+  eliminacaoTermoId Int?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   @@index([alunoId])

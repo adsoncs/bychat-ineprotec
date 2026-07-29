@@ -41,7 +41,10 @@ export async function acaDiplomaRoutes(app: FastifyInstance) {
   const wrap = (fn: () => Promise<any>) => async (_req: any, reply: any) => { try { return await fn() } catch (e: any) { return reply.code(400).send({ error: e?.message || 'erro' }) } }
 
   app.post('/api/admin/aca/diploma/diplomas', { preHandler: authMiddleware }, async (req, reply) =>
-    wrap(async () => ({ diploma: await criarDiploma(Number((req.body as any)?.matriculaId)) }))(req, reply))
+    wrap(async () => {
+      const b = (req.body as any) || {}
+      return { diploma: await criarDiploma(Number(b.matriculaId), { ignorarEnade: !!b.ignorarEnade, justificativaEnade: b.justificativaEnade }) }
+    })(req, reply))
   app.post('/api/admin/aca/diploma/diplomas/:id/xml', { preHandler: authMiddleware }, async (req, reply) =>
     wrap(async () => ({ diploma: await gerarXmlDiploma(Number((req.params as any).id)) }))(req, reply))
   app.post('/api/admin/aca/diploma/diplomas/:id/assinar', { preHandler: authMiddleware }, async (req, reply) =>

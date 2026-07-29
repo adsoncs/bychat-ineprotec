@@ -16,14 +16,39 @@ export async function diplomaConfig() {
 }
 
 /** Cria (ou retorna) o diploma de uma matrícula CONCLUÍDA. */
-export async function criarDiploma(matriculaId: number) {
+export async function criarDiploma(matriculaId: number, opcoes?: { ignorarEnade?: boolean; justificativaEnade?: string }) {
   const mat = await prisma.acaMatricula.findUnique({ where: { id: matriculaId }, select: { status: true, alunoId: true, dataConclusao: true } })
   if (!mat) throw new Error('Matrícula não encontrada')
   if (mat.status !== 'CONCLUIDO') throw new Error('A matrícula precisa estar CONCLUÍDA para gerar o diploma')
+
+  // Trava do ENADE (RN-1104): componente curricular obrigatório — irregular não
+  // cola grau. O override existe porque há casos legítimos (dispensa oficial
+  // ainda não lançada), mas exige justificativa, que fica no registro.
+  const { verificarRegularidade } = await import('./acaEnade.js')
+  const enade = await verificarRegularidade(mat.alunoId)
+  if (!enade.regular) {
+    if (!opcoes?.ignorarEnade) {
+      const err: any = new Error(`Colação bloqueada pelo ENADE. ${enade.motivo}`)
+      err.enade = enade
+      err.podeForcar = true
+      throw err
+    }
+    if (!opcoes.justificativaEnade?.trim()) {
+      throw new Error('Para emitir o diploma com pendência de ENADE é obrigatório justificar.')
+    }
+  }
   const existente = await prisma.acaDiploma.findUnique({ where: { matriculaId } })
   if (existente) return existente
   const hist = await montarHistorico(mat.alunoId)
-  return prisma.acaDiploma.create({ data: { matriculaId, alunoId: mat.alunoId, cargaHoraria: hist?.chTotal ?? 0, dataColacao: mat.dataConclusao, status: 'RASCUNHO' } })
+  return prisma.acaDiploma.create({
+    data: {
+      matriculaId, alunoId: mat.alunoId, cargaHoraria: hist?.chTotal ?? 0,
+      dataColacao: mat.dataConclusao, status: 'RASCUNHO',
+      // A justificativa do override fica no próprio diploma — é o que a
+      // auditoria vai procurar depois.
+      ...(opcoes?.ignorarEnade ? { motivoAnulacao: null, assinaturaInfo: `ENADE com pendência — liberado por: ${opcoes.justificativaEnade}` } : {}),
+    },
+  })
 }
 
 /** Gera o XML do diplomado (padrão MEC, base) e o código de validação público. */
