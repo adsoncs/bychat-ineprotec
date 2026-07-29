@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { signToken, authMiddleware, adminOnly, adminStrict, type JwtPayload } from '../lib/auth.js'
+import { verificarTotp, consumirCodigoRecuperacao } from '../services/twoFactor.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail } from '../services/notify.js'
@@ -103,6 +104,41 @@ export async function usersRoutes(app: FastifyInstance) {
       await onLoginFail(ip, email, ua)
       await minDelay(startTime, 500)
       return reply.code(401).send({ error: attempts >= 10 ? 'Conta bloqueada por excesso de tentativas. Contate o administrador.' : 'Email ou senha incorretos' })
+    }
+
+    // Segundo fator: a senha certa não basta para quem ativou 2FA.
+    //
+    // A verificação vem DEPOIS da senha de propósito — pedir o código antes
+    // revelaria quais contas existem e quais têm 2FA para quem só está testando
+    // e-mails. E a falha aqui conta como tentativa, senão o código de 6 dígitos
+    // ficaria aberto a força bruta com a senha já conhecida.
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      const codigo = String((req.body as any)?.codigo2fa || '').trim()
+      if (!codigo) {
+        await minDelay(startTime, 500)
+        return reply.code(401).send({ error: 'Informe o código do aplicativo autenticador.', require2fa: true })
+      }
+      const okTotp = verificarTotp(user.twoFactorSecret, codigo)
+      const okBackup = okTotp ? false : await consumirCodigoRecuperacao(user.id, codigo)
+      if (!okTotp && !okBackup) {
+        await prisma.user.update({ where: { id: user.id }, data: { loginAttempts: (user.loginAttempts || 0) + 1 } })
+        await onLoginFail(ip, email, ua)
+        await logSecurityEvent({
+          ip, type: 'login_2fa_failed', severity: 'warning', email, userAgent: ua,
+          path: '/api/admin/login', details: `Código de segundo fator inválido para ${email}`,
+        })
+        await minDelay(startTime, 500)
+        return reply.code(401).send({ error: 'Código inválido.', require2fa: true })
+      }
+      if (okBackup) {
+        // Código de recuperação usado é sinal de celular perdido/trocado — quem
+        // administra precisa ver isso na trilha, não descobrir depois.
+        void logUserAudit({
+          action: 'auth.2fa.backup_used', actorId: user.id, actorName: user.name || user.email,
+          targetUserId: user.id, targetType: 'auth',
+          targetLabel: 'Login com código de recuperação', ipAddress: ip,
+        })
+      }
     }
 
     // Reset attempts on success + marca operador como disponível.

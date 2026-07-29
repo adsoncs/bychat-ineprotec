@@ -6,6 +6,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { resolverEsquema, lerMapaConceitos, valorDoConceito } from '../services/acaAvaliacao.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 /**
  * Esquema de avaliação que rege o diário. O diário conhece a disciplina e a
@@ -124,6 +125,7 @@ export async function acaNotaRoutes(app: FastifyInstance) {
     }>
     let salvos = 0
     const recusados: string[] = []
+    const auditoriaDeNota: Array<{ matriculaId: number; changes: Record<string, unknown> }> = []
 
     for (const r of registros) {
       // Conceito só é aceito quando existe mapa — senão a conversão seria um
@@ -154,11 +156,39 @@ export async function acaNotaRoutes(app: FastifyInstance) {
         origemObs: r.origemObs ?? null,
         origemEm: origem === 'SEGUNDA_CHAMADA' ? new Date() : null,
       }
-      await prisma.acaNota.upsert({
-        where: { avaliacaoId_matriculaId: { avaliacaoId, matriculaId: Number(r.matriculaId) } },
-        update: dados, create: { avaliacaoId, matriculaId: Number(r.matriculaId), ...dados },
+      const matriculaId = Number(r.matriculaId)
+      const antes = await prisma.acaNota.findUnique({
+        where: { avaliacaoId_matriculaId: { avaliacaoId, matriculaId } },
+        select: { valor: true },
       })
+      await prisma.acaNota.upsert({
+        where: { avaliacaoId_matriculaId: { avaliacaoId, matriculaId } },
+        update: dados, create: { avaliacaoId, matriculaId, ...dados },
+      })
+      // Alteração de nota já lançada é o evento que mais precisa de trilha num
+      // ERP acadêmico (RN-1401): fica o valor anterior, o novo, quem mudou e de
+      // onde. Lançamento inicial não polui a trilha — só a MUDANÇA.
+      if (antes && antes.valor !== valor) {
+        auditoriaDeNota.push({
+          matriculaId,
+          changes: {
+            valor: { from: antes.valor, to: valor },
+            ...(origem !== 'NORMAL' ? { origem: { from: 'NORMAL', to: origem } } : {}),
+          },
+        })
+      }
       salvos++
+    }
+
+    if (auditoriaDeNota.length > 0) {
+      const actor = auditActor(req)
+      for (const item of auditoriaDeNota) {
+        void logUserAudit({
+          action: 'aca.nota.alterada', targetType: 'aca_nota', targetUserId: null,
+          targetLabel: `Avaliação ${avaliacaoId} · matrícula ${item.matriculaId}`,
+          changes: item.changes, ...actor,
+        })
+      }
     }
     return { ok: true, salvos, ...(recusados.length > 0 ? { recusados } : {}) }
   })

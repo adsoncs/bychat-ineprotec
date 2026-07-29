@@ -21,6 +21,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
+import { TwoFactorSection } from './TwoFactorSection'
 
 const SEV_COLOR: Record<string, string> = {
   low: 'text-success',
@@ -70,6 +71,7 @@ function formatDateTime(s: string): string {
 export function SecuritySettings() {
   return (
     <div class="space-y-6">
+      <TwoFactorSection />
       <KpiSection />
       <TopIpsAndManualBlock />
       <ActiveBlocksSection />

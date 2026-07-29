@@ -8,6 +8,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { resolverEsquema, calcular as calcularPeloEsquema, type EsquemaCompleto } from '../services/acaAvaliacao.js'
+import { logUserAudit, auditActor, diffFields } from '../services/userAudit.js'
 
 const CFG_KEYS = ['aca.media_aprovacao', 'aca.frequencia_minima', 'aca.recuperacao_habilitada', 'aca.recuperacao_min', 'aca.media_aprovacao_recuperacao'] as const
 const CFG_DEFAULTS: Record<string, any> = {
@@ -248,7 +249,28 @@ export async function acaFechamentoRoutes(app: FastifyInstance) {
     const data: any = {}
     if ('situacao' in b) data.situacao = String(b.situacao).slice(0, 30)
     if ('observacao' in b) data.observacao = b.observacao ? String(b.observacao).slice(0, 2000) : null
+
+    // Mudar a situação de um resultado é transformar reprovado em aprovado (ou
+    // o contrário) na vida de alguém. RN-1401: fica registrado o valor de
+    // antes, o de depois, quem mudou e de qual IP.
+    const antes = await prisma.acaResultado.findUnique({
+      where: { id }, select: { situacao: true, observacao: true, matriculaId: true, diarioId: true },
+    })
     const resultado = await prisma.acaResultado.update({ where: { id }, data })
+    if (antes) {
+      const mudancas = diffFields(
+        antes as any, resultado as any,
+        ['situacao', 'observacao'].filter((c) => c in b) as any[],
+      )
+      if (Object.keys(mudancas).length > 0) {
+        const actor = auditActor(req)
+        void logUserAudit({
+          action: 'aca.resultado.alterado', targetType: 'aca_resultado', targetUserId: null,
+          targetLabel: `Resultado #${id} (matrícula ${antes.matriculaId}, diário ${antes.diarioId})`,
+          changes: mudancas, ...actor,
+        })
+      }
+    }
     return { resultado }
   })
 

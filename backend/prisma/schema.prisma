@@ -34,6 +34,13 @@ model User {
   loginAttempts Int       @default(0)
   lastLoginAt   DateTime?
   lastSeenAt    DateTime?
+  /// Segundo fator (TOTP). O segredo só vale depois de o usuário provar que
+  /// conseguiu ler o QR — por isso `twoFactorEnabled` é separado do segredo.
+  twoFactorSecret       String?   @db.VarChar(64)
+  twoFactorEnabled      Boolean   @default(false)
+  twoFactorConfirmedAt  DateTime?
+  /// Hashes SHA-256 dos códigos de recuperação, em JSON. Uso único cada.
+  twoFactorBackupCodes  String?   @db.Text
   // Status de trabalho do operador. Usado pelo round-robin (exclui não-disponíveis)
   // e pela presença em listagens. Valores: available | away | busy | offline.
   workStatus           String    @default("offline") @db.VarChar(20)
