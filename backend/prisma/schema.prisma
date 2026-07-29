@@ -6777,6 +6777,18 @@ model AcaAcordo {
   valorParcelaCentavos  Int
   status                String   @db.VarChar(12) @default("ATIVO") // ATIVO|QUITADO|CANCELADO
   observacao            String?  @db.Text
+  // ── Fase 3: acordo fechado pelo próprio devedor no portal ──
+  /// SECRETARIA | PORTAL_ALUNO | PORTAL_RESPONSAVEL — quem fechou.
+  origem                String   @default("SECRETARIA") @db.VarChar(24)
+  /// Desconto concedido sobre multa/juros dentro da política (nunca sobre o principal).
+  descontoEncargosCentavos Int   @default(0)
+  /// Evidências do aceite eletrônico do termo — é o que sustenta o acordo
+  /// depois, já que ninguém assina papel no autoatendimento.
+  aceiteEm              DateTime?
+  aceiteNome            String?  @db.VarChar(191)
+  aceiteDocumento       String?  @db.VarChar(30)
+  aceiteIp              String?  @db.VarChar(45)
+  aceiteUserAgent       String?  @db.Text
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
