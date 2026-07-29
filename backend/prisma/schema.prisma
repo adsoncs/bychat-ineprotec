@@ -5459,7 +5459,14 @@ model AcaEsquemaAvaliacao {
 
   segundaChamadaHabilitada Boolean @default(false)
 
-  /// Piso legal no ensino superior é 75% — o sistema não deixa configurar menos.
+  /// Se a frequência reprova. A LDB (Lei 9.394/96, art. 47, §3º) obriga a
+  /// frequência "salvo nos programas de educação a distância" — em EAD o
+  /// controle é por atividades no ambiente virtual e pela presença nas
+  /// avaliações presenciais, não por chamada. Desligado, o cálculo ignora a
+  /// frequência e o piso de 75% deixa de ser imposto.
+  frequenciaObrigatoria Boolean @default(true)
+  /// Piso de 75% do ensino superior PRESENCIAL: com frequência obrigatória, o
+  /// sistema não aceita menos que isso.
   frequenciaMinima Int @default(75)
   /// Regime seriado: máximo de dependências para progredir de período.
   limiteDependencias Int?

@@ -59,10 +59,17 @@ export async function acaAvaliacaoEsquemaRoutes(app: FastifyInstance) {
       if (b[c] !== undefined) dados[c] = !!b[c]
     }
     if (b.mapaConceitos !== undefined) dados.mapaConceitos = b.mapaConceitos ?? undefined
+    if (b.frequenciaObrigatoria !== undefined) dados.frequenciaObrigatoria = !!b.frequenciaObrigatoria
     if (b.frequenciaMinima !== undefined) {
-      // Piso legal do ensino superior: a IES pode exigir mais, nunca menos.
       const f = Math.trunc(Number(b.frequenciaMinima))
-      dados.frequenciaMinima = Number.isFinite(f) ? Math.max(FREQUENCIA_MINIMA_LEGAL, f) : FREQUENCIA_MINIMA_LEGAL
+      const bruto = Number.isFinite(f) ? f : FREQUENCIA_MINIMA_LEGAL
+      // O piso de 75% vale para o presencial. Em EAD a LDB dispensa a
+      // frequência (art. 47, §3º), então elevar o valor à força obrigaria a IES
+      // a reprovar por chamada num curso onde a chamada não existe.
+      const exigeFrequencia = b.frequenciaObrigatoria !== undefined
+        ? !!b.frequenciaObrigatoria
+        : true
+      dados.frequenciaMinima = exigeFrequencia ? Math.max(FREQUENCIA_MINIMA_LEGAL, bruto) : Math.max(0, Math.min(100, bruto))
     }
     return dados
   }

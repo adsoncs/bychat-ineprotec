@@ -16,7 +16,7 @@ const CFG_DEFAULTS: Record<string, any> = {
   'aca.recuperacao_min': 4, 'aca.media_aprovacao_recuperacao': 6,
 }
 
-interface Regras { mediaAprovacao: number; frequenciaMinima: number; recuperacaoHabilitada: boolean; recuperacaoMin: number; mediaAprovacaoRecuperacao: number }
+interface Regras { mediaAprovacao: number; frequenciaMinima: number; frequenciaObrigatoria: boolean; recuperacaoHabilitada: boolean; recuperacaoMin: number; mediaAprovacaoRecuperacao: number }
 
 async function getRegras(): Promise<Regras> {
   const rows = await prisma.setting.findMany({ where: { key: { in: CFG_KEYS as unknown as string[] } } })
@@ -24,6 +24,8 @@ async function getRegras(): Promise<Regras> {
   return {
     mediaAprovacao: Number(v('aca.media_aprovacao')),
     frequenciaMinima: Number(v('aca.frequencia_minima')),
+    // Sem esquema cadastrado o comportamento é o histórico: presencial.
+    frequenciaObrigatoria: true,
     recuperacaoHabilitada: !!v('aca.recuperacao_habilitada'),
     recuperacaoMin: Number(v('aca.recuperacao_min')),
     mediaAprovacaoRecuperacao: Number(v('aca.media_aprovacao_recuperacao')),
@@ -32,7 +34,8 @@ async function getRegras(): Promise<Regras> {
 
 /** Decide a situação a partir de média, frequência e regras. */
 function decidir(media: number | null, freqPct: number, r: Regras): string {
-  if (freqPct < r.frequenciaMinima) return 'REPROVADO_FREQUENCIA'
+  // Em EAD a frequência não reprova (LDB art. 47, §3º).
+  if (r.frequenciaObrigatoria && freqPct < r.frequenciaMinima) return 'REPROVADO_FREQUENCIA'
   if (media == null) return 'EM_ANDAMENTO'
   if (media >= r.mediaAprovacao) return 'APROVADO'
   if (r.recuperacaoHabilitada && media >= r.recuperacaoMin) return 'RECUPERACAO'
@@ -51,6 +54,7 @@ async function regrasDaDisciplina(disciplinaId: number | null | undefined, fallb
   return {
     mediaAprovacao: esquema.mediaAprovacao,
     frequenciaMinima: esquema.frequenciaMinima,
+    frequenciaObrigatoria: esquema.frequenciaObrigatoria,
     recuperacaoHabilitada: esquema.exameHabilitado,
     recuperacaoMin: esquema.exameMinimo ?? fallback.recuperacaoMin,
     mediaAprovacaoRecuperacao: esquema.mediaFinalAprovacao ?? esquema.mediaAprovacao,

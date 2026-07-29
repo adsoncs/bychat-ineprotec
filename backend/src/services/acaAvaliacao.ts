@@ -251,7 +251,10 @@ export function calcular(
   frequenciaPct: number,
   notaExame?: number | null,
 ): ResultadoCalculo {
-  const reprovadoFreq = frequenciaPct < esquema.frequenciaMinima
+  // Em EAD a frequência não reprova (LDB art. 47, §3º) — o número continua
+  // sendo apurado e exibido, porque ele diz algo sobre engajamento, mas não
+  // decide aprovação.
+  const reprovadoFreq = esquema.frequenciaObrigatoria && frequenciaPct < esquema.frequenciaMinima
 
   // Escala conceitual: o número continua sendo a verdade do cálculo, o conceito
   // é como o resultado aparece para aluno e professor.
@@ -360,5 +363,12 @@ export function calcular(
   return comConceito({ media, mediaFinal: media, situacao: 'REPROVADO_NOTA', explicacao: `Média ${media} < ${esquema.mediaAprovacao}.`, faltamNotas: [] })
 }
 
-/** Piso legal do ensino superior — a IES pode exigir mais, nunca menos. */
+/**
+ * Piso do ensino superior PRESENCIAL — a IES pode exigir mais, nunca menos.
+ *
+ * Não se aplica a EAD: a LDB (Lei 9.394/96, art. 47, §3º) obriga a frequência
+ * "salvo nos programas de educação a distância". Em EAD o controle é por
+ * atividades no ambiente virtual e presença nas avaliações presenciais — quem
+ * define isso é `frequenciaObrigatoria` no esquema.
+ */
 export const FREQUENCIA_MINIMA_LEGAL = 75

@@ -38,7 +38,7 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
     formulaMedia: '', exameHabilitado: false, exameMinimo: '3',
     formulaFinal: '(MP + EX)/2', mediaFinalAprovacao: '5',
     casasDecimais: '1', arredondamento: 'MATEMATICO', limiteDependencias: '',
-    escala: 'NUMERICA_0_10', segundaChamadaHabilitada: false,
+    escala: 'NUMERICA_0_10', segundaChamadaHabilitada: false, frequenciaObrigatoria: true,
   })
   // Mapa conceito→piso. Editado como lista para o operador poder renomear os
   // conceitos do regimento dele (alguns usam MB/B/R/I em vez de A–E).
@@ -67,6 +67,7 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
       formulaFinal: e.formulaFinal ?? '', mediaFinalAprovacao: e.mediaFinalAprovacao != null ? String(e.mediaFinalAprovacao) : '',
       casasDecimais: String(e.casasDecimais), arredondamento: e.arredondamento, limiteDependencias: e.limiteDependencias != null ? String(e.limiteDependencias) : '',
       escala: e.escala ?? 'NUMERICA_0_10', segundaChamadaHabilitada: !!e.segundaChamadaHabilitada,
+      frequenciaObrigatoria: e.frequenciaObrigatoria !== false,
     })
     const mapa = e.mapaConceitos as Record<string, number> | null | undefined
     if (mapa && Object.keys(mapa).length > 0) {
@@ -99,6 +100,7 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
       limiteDependencias: f.limiteDependencias === '' ? null : Number(f.limiteDependencias),
       escala: f.escala,
       segundaChamadaHabilitada: f.segundaChamadaHabilitada,
+      frequenciaObrigatoria: f.frequenciaObrigatoria,
       // Só envia o mapa quando a escala é conceitual — mandar sempre deixaria
       // lixo num esquema numérico e confundiria quem for lê-lo depois.
       mapaConceitos: f.escala === 'CONCEITO'
@@ -254,15 +256,33 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
               <Input label="Média para aprovar" inputMode="decimal" value={f.mediaAprovacao} onInput={(e) => setF({ ...f, mediaAprovacao: (e.target as HTMLInputElement).value })} />
               <Input label="Nota mínima eliminatória" placeholder="opcional" inputMode="decimal" value={f.notaEliminatoria} onInput={(e) => setF({ ...f, notaEliminatoria: (e.target as HTMLInputElement).value })} />
               <Input
-                label={`Frequência mínima (%) — piso legal ${FREQ_MINIMA_LEGAL}`}
+                label={f.frequenciaObrigatoria ? `Frequência mínima (%) — piso ${FREQ_MINIMA_LEGAL}` : 'Frequência de referência (%)'}
                 inputMode="numeric"
                 value={f.frequenciaMinima}
+                disabled={!f.frequenciaObrigatoria}
                 onInput={(e) => setF({ ...f, frequenciaMinima: (e.target as HTMLInputElement).value })}
               />
             </div>
-            {Number(f.frequenciaMinima) < FREQ_MINIMA_LEGAL && (
-              <p class="text-[11px] text-warning">
-                O ensino superior exige no mínimo {FREQ_MINIMA_LEGAL}%. Valor menor será elevado ao salvar.
+
+            <label class="flex items-center gap-2 text-sm text-fg cursor-pointer select-none">
+              <input
+                type="checkbox" checked={f.frequenciaObrigatoria}
+                onChange={(e) => setF({ ...f, frequenciaObrigatoria: (e.target as HTMLInputElement).checked })}
+              />
+              A frequência reprova (curso presencial)
+            </label>
+            {f.frequenciaObrigatoria ? (
+              Number(f.frequenciaMinima) < FREQ_MINIMA_LEGAL && (
+                <p class="text-[11px] text-warning -mt-1">
+                  O ensino superior presencial exige no mínimo {FREQ_MINIMA_LEGAL}%. Valor menor será elevado ao salvar.
+                </p>
+              )
+            ) : (
+              <p class="text-[11px] text-fg-subtle -mt-1">
+                Desligado para <strong class="text-fg">EAD</strong>: a LDB (art. 47, §3º) obriga a frequência
+                “salvo nos programas de educação a distância”. A frequência continua sendo apurada e aparece no
+                boletim, mas não reprova — em EAD o controle é por atividades no ambiente virtual e pela presença
+                nas avaliações presenciais.
               </p>
             )}
 

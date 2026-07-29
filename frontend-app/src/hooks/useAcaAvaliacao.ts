@@ -33,6 +33,8 @@ export interface Esquema {
   formulaFinal?: string | null
   mediaFinalAprovacao?: number | null
   segundaChamadaHabilitada: boolean
+  /// Falso em EAD: a LDB dispensa a frequência (art. 47, §3º).
+  frequenciaObrigatoria: boolean
   frequenciaMinima: number
   limiteDependencias?: number | null
   ativo: boolean

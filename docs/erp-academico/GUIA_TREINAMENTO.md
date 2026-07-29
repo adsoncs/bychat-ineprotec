@@ -25,11 +25,15 @@ registro só**. Não existe "cadastro do lead" e "cadastro do aluno" para
 conciliar depois. Isso é o oposto do que acontece quando se usa um CRM e um ERP
 acadêmico separados.
 
-**O que é obrigação legal, o sistema não deixa burlar.** Frequência mínima de
-75% não é configurável para menos. Declaração de quitação não sai com parcela em
-aberto. Aluno sem registro de ENADE é tratado como irregular. Eliminar documento
-do acervo exige termo com comissão. Essas travas existem porque o custo de
-errar nelas não é operacional — é jurídico.
+**O que é obrigação legal, o sistema não deixa burlar.** No presencial, a
+frequência mínima de 75% não é configurável para menos. Declaração de quitação
+não sai com parcela em aberto. Aluno sem registro de ENADE é tratado como
+irregular. Eliminar documento do acervo exige termo com comissão. Essas travas
+existem porque o custo de errar nelas não é operacional — é jurídico.
+
+**E o que a lei dispensa, o sistema não impõe.** Em EAD a frequência **não
+reprova**: a LDB (art. 47, §3º) obriga a frequência "salvo nos programas de
+educação a distância". Veja "Frequência: presencial e EAD" abaixo.
 
 **Nada é apagado; tudo é movimentado.** Trancamento, transferência e evasão são
 movimentações registradas, não edição de status. Nota alterada guarda o valor
@@ -109,8 +113,39 @@ Antes desta tela, cada cliente novo virava customização de código.
 | Nota mínima eliminatória | Abaixo dela reprova direto, independente da média |
 | Exame final | Faixa que manda para exame + fórmula própria da nota final |
 | Segunda chamada | Se o regimento admite reposição de avaliação perdida |
-| Frequência mínima | Piso legal 75% — o sistema não aceita menos |
+| A frequência reprova | Ligado no presencial; **desligado em EAD** |
+| Frequência mínima | Piso 75% quando reprova — o sistema não aceita menos |
 | Limite de dependências | Regime seriado: quantas reprovações o aluno carrega |
+
+#### Frequência: presencial e EAD
+
+Esta é a diferença que mais gera confusão na implantação, e a lei trata as duas
+modalidades de forma distinta.
+
+**Presencial** — LDB, art. 47, §3º: a frequência é obrigatória. O mínimo de 75%
+é a régua consolidada nos regimentos, e o sistema **não deixa configurar menos**:
+se você digitar 50, ele grava 75.
+
+**EAD** — o mesmo artigo diz "**salvo nos programas de educação a distância**".
+Não existe chamada para exigir. O controle legal em EAD se dá pelo cumprimento
+das atividades no ambiente virtual e pela **presença nas avaliações
+presenciais**, que continuam obrigatórias.
+
+Por isso o esquema tem o interruptor **"A frequência reprova"**:
+
+| | Ligado (presencial) | Desligado (EAD) |
+|---|---|---|
+| Piso de 75% | imposto | não se aplica |
+| Frequência é apurada | sim | **sim** |
+| Frequência aparece no boletim | sim | sim |
+| Frequência reprova | sim | **não** |
+
+Em EAD a frequência continua sendo calculada e exibida — ela diz algo sobre
+engajamento e alimenta o score de evasão — mas não decide aprovação.
+
+> **Curso híbrido:** `Course.modalidade` aceita presencial, EAD e híbrido. Para
+> híbrido, decida pelo que o regimento do curso determina para a carga
+> presencial e configure o esquema no escopo do curso, não no institucional.
 
 **Herança em cascata:** `DISCIPLINA → MATRIZ → CURSO → INSTITUCIONAL`. Você
 cadastra a regra geral no nível institucional e abre exceção só onde precisa.
@@ -426,7 +461,9 @@ mudança de política de acordo e uso de código de recuperação.
 2. Vínculos → integralização: o que falta para cada aluno.
 3. Diário e Conselho: acompanhamento e fechamento.
 4. Painel de gestão → Coordenação: disciplinas com reprovação alta.
-5. Risco de evasão: ler os fatores e agir sobre o principal.
+5. Se o curso for EAD: conferir que o esquema tem "a frequência reprova"
+   desligado — senão o aluno reprova por chamada que não existe.
+6. Risco de evasão: ler os fatores e agir sobre o principal.
 
 ### Financeiro (meio dia)
 
@@ -479,7 +516,8 @@ JWT_SECRET=x npx tsx scripts/demoAcaTeardown.ts
 
 1. **Cadastrar o regimento real** no esquema de avaliação. Hoje o sistema usa os
    parâmetros globais; o motor novo só entra quando existir esquema cadastrado.
-   Use o simulador antes de salvar.
+   Use o simulador antes de salvar. **Se houver curso EAD, crie um esquema no
+   escopo desse curso com "a frequência reprova" desligado.**
 2. **Definir a política de acordo** e decidir se abre negociação no portal.
 3. **Gerar as chaves de push** se quiser notificações no portal.
 4. **Trazer o acervo para custódia própria** — os documentos existem como link.
