@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, CheckCircle2, XCircle, Copy, Lock, PlayCircle, PauseCircle } from 'lucide-preact'
+import { ChevronLeft, CheckCircle2, XCircle, Copy, Lock, PlayCircle, PauseCircle, Plus, Trash2 } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -8,6 +8,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { SortableList } from '@/components/ui/SortableList'
+import { useModulosMatriz, useQualificacaoMut } from '@/hooks/useAcaQualificacao'
 import { useMatrizes, useCatalogoMut, type ComponenteFull } from '@/hooks/useAcaCatalogo'
 import { useMatrizValidacao, useAtivarMatriz, useMudarStatusMatriz, useClonarMatriz } from '@/hooks/useAcaFundacao'
 import { toast } from '@/lib/toast'
@@ -60,6 +61,30 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
   const valida = validacao.data?.ok === true
 
   const catalogo = useCatalogoMut()
+  const modulos = useModulosMatriz(id)
+  const qual = useQualificacaoMut()
+  const [novoModulo, setNovoModulo] = useState(false)
+  const [fm, setFm] = useState({ nome: '', tituloQualificacao: '', numero: '', cargaHoraria: '', codigoCbo: '' })
+
+  const salvarModulo = () => {
+    qual.criarModulo.mutate(
+      {
+        matrizId: id, nome: fm.nome,
+        tituloQualificacao: fm.tituloQualificacao || null,
+        ...(fm.numero ? { numero: Number(fm.numero) } : {}),
+        ...(fm.cargaHoraria ? { cargaHoraria: Number(fm.cargaHoraria) } : {}),
+        ...(fm.codigoCbo ? { codigoCbo: fm.codigoCbo } : {}),
+      },
+      {
+        onSuccess: () => {
+          toast(fm.tituloQualificacao ? 'Módulo criado — concluí-lo gerará certificado.' : 'Módulo criado.', 'success')
+          setFm({ nome: '', tituloQualificacao: '', numero: '', cargaHoraria: '', codigoCbo: '' })
+          setNovoModulo(false)
+        },
+        onError: (e: any) => toast(e?.message ?? 'Falha ao criar módulo.', 'danger'),
+      },
+    )
+  }
 
   /**
    * Persiste a nova ordem da fase. Grava componente a componente porque a
@@ -208,6 +233,96 @@ export function AcademicoMatrizDetailPage({ params }: { params: { id: string } }
           </div>
         </Card>
       )}
+
+      {/* Módulos com terminalidade (educação profissional).
+          Só aparece quando a matriz já tem módulos ou está em rascunho — curso de
+          graduação não precisa ver esta seção. */}
+      {(modulos.data?.modulos.length ?? 0) > 0 || status === 'RASCUNHO' ? (
+        <Card class="!p-0 overflow-hidden mb-3">
+          <div class="px-4 py-2.5 bg-surface-2/50 flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-sm font-semibold text-fg">Módulos / etapas</h2>
+              <p class="text-[11px] text-fg-subtle">
+                Etapa com terminalidade gera certificado de qualificação ao ser concluída (Res. CNE/CP 1/2021, art. 49, §2º).
+              </p>
+            </div>
+            {status === 'RASCUNHO' && (
+              <Button size="sm" variant="secondary" onClick={() => setNovoModulo((v) => !v)}>
+                <Plus size={14} /> Módulo
+              </Button>
+            )}
+          </div>
+
+          {novoModulo && status === 'RASCUNHO' && (
+            <div class="px-4 py-3 border-b border-border space-y-2 bg-surface-2/30">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input
+                  label="Nome do módulo" value={fm.nome} placeholder="Ex.: Fundamentos de Agrimensura"
+                  onInput={(e) => setFm({ ...fm, nome: (e.target as HTMLInputElement).value })}
+                />
+                <Input
+                  label="Título da qualificação" value={fm.tituloQualificacao}
+                  placeholder="Deixe vazio se não certifica"
+                  hint="Preenchido = concluir o módulo gera certificado."
+                  onInput={(e) => setFm({ ...fm, tituloQualificacao: (e.target as HTMLInputElement).value })}
+                />
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <Input label="Nº" inputMode="numeric" value={fm.numero} onInput={(e) => setFm({ ...fm, numero: (e.target as HTMLInputElement).value })} />
+                <Input label="Carga horária" inputMode="numeric" value={fm.cargaHoraria} placeholder="soma dos componentes" onInput={(e) => setFm({ ...fm, cargaHoraria: (e.target as HTMLInputElement).value })} />
+                <Input label="CBO" value={fm.codigoCbo} placeholder="opcional" onInput={(e) => setFm({ ...fm, codigoCbo: (e.target as HTMLInputElement).value })} />
+              </div>
+              <div class="flex gap-2">
+                <Button size="sm" onClick={salvarModulo} disabled={!fm.nome.trim() || qual.criarModulo.isPending}>Salvar módulo</Button>
+                <Button size="sm" variant="ghost" onClick={() => setNovoModulo(false)}>Cancelar</Button>
+              </div>
+            </div>
+          )}
+
+          {(modulos.data?.modulos.length ?? 0) === 0 ? (
+            <p class="px-4 py-4 text-sm text-fg-subtle">
+              Nenhum módulo. Curso técnico organizado em etapas precisa deles para emitir certificado intermediário.
+            </p>
+          ) : (
+            <ul class="divide-y divide-border">
+              {(modulos.data?.modulos ?? []).map((m) => (
+                <li key={m.id} class="px-4 py-2.5 flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-sm text-fg">{m.numero}. {m.nome}</span>
+                      {m.tituloQualificacao
+                        ? <Badge tone="success">certifica: {m.tituloQualificacao}</Badge>
+                        : <Badge tone="neutral">sem terminalidade</Badge>}
+                    </div>
+                    <div class="text-[11px] text-fg-subtle mt-0.5">
+                      {m._count?.componentes ?? 0} componente(s)
+                      {m.cargaHoraria ? ` · ${m.cargaHoraria}h` : ''}
+                      {m.codigoCbo ? ` · CBO ${m.codigoCbo}` : ''}
+                    </div>
+                  </div>
+                  {status === 'RASCUNHO' && (
+                    <Button
+                      size="sm" variant="ghost"
+                      onClick={() => qual.excluirModulo.mutate(m.id, {
+                        onSuccess: () => toast('Módulo removido. Os componentes ficaram sem módulo.', 'success'),
+                        onError: (e: any) => toast(e?.message ?? 'Falha ao remover.', 'danger'),
+                      })}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {(modulos.data?.componentesSemModulo ?? 0) > 0 && (modulos.data?.modulos.length ?? 0) > 0 && (
+            <p class="px-4 py-2 text-[11px] text-warning border-t border-border">
+              {modulos.data!.componentesSemModulo} componente(s) sem módulo — eles não contam para nenhum certificado
+              de qualificação. Use o seletor de módulo em cada componente.
+            </p>
+          )}
+        </Card>
+      ) : null}
 
       {/* Grade por fase */}
       <div class="space-y-3">

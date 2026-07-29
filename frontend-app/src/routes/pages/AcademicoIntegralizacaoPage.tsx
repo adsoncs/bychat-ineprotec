@@ -1,8 +1,11 @@
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, GraduationCap, Lock, CheckCircle2 } from 'lucide-preact'
+import { ChevronLeft, GraduationCap, Lock, CheckCircle2, Award } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { toast } from '@/lib/toast'
+import { useModulosDoVinculo, useQualificacaoMut } from '@/hooks/useAcaQualificacao'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
   useIntegralizacao, useVinculo,
@@ -18,6 +21,8 @@ export function AcademicoIntegralizacaoPage({ params }: { params: { id: string }
   const id = Number(params.id)
   const vinculo = useVinculo(id)
   const { data, isLoading } = useIntegralizacao(id)
+  const mods = useModulosDoVinculo(id)
+  const qual = useQualificacaoMut()
 
   if (isLoading || vinculo.isLoading) return <Skeleton class="h-64 w-full" />
   if (!data) {
@@ -57,6 +62,49 @@ export function AcademicoIntegralizacaoPage({ params }: { params: { id: string }
       description={`${nome} · o que falta para se formar`}
       actions={<Voltar onClick={() => navigate(`/aca/vinculos/${id}`)} />}
     >
+      {/* Módulos com terminalidade: o aluno pode já ter direito a certificado
+          antes de terminar o curso. */}
+      {(mods.data?.modulos.length ?? 0) > 0 && (
+        <Card class="!p-0 overflow-hidden">
+          <div class="px-4 py-2.5 bg-surface-2/50">
+            <h2 class="text-sm font-semibold text-fg">Módulos e qualificações</h2>
+          </div>
+          <ul class="divide-y divide-border">
+            {(mods.data?.modulos ?? []).map((m) => (
+              <li key={m.moduloId} class="px-4 py-2.5 flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-sm text-fg">{m.numero}. {m.nome}</span>
+                    {m.concluido
+                      ? <Badge tone="success">concluído</Badge>
+                      : <Badge tone="neutral">{m.cumpridos}/{m.componentes}</Badge>}
+                    {m.temTerminalidade && <Badge tone="info">{m.tituloQualificacao}</Badge>}
+                  </div>
+                  {m.pendentes.length > 0 && (
+                    <div class="text-[11px] text-fg-subtle mt-0.5">Falta: {m.pendentes.join(', ')}</div>
+                  )}
+                  {m.certificadoNumero && (
+                    <div class="text-[11px] text-success mt-0.5">Certificado {m.certificadoNumero} emitido</div>
+                  )}
+                </div>
+                {m.temTerminalidade && m.concluido && !m.certificadoId && (
+                  <Button
+                    size="sm"
+                    onClick={() => qual.emitir.mutate({ vinculoId: id, moduloId: m.moduloId }, {
+                      onSuccess: (r) => toast(`Certificado ${r.documento.numero} emitido.`, 'success'),
+                      onError: (e: any) => toast(e?.message ?? 'Falha ao emitir.', 'danger'),
+                    })}
+                    disabled={qual.emitir.isPending}
+                  >
+                    <Award size={14} /> Emitir certificado
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {!data.podeProgredir && (
         <Card class="!p-3 border-danger/40 bg-danger/5">
           <div class="flex items-start gap-2 text-sm">
