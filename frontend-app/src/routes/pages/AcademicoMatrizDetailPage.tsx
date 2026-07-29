@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { SortableList } from '@/components/ui/SortableList'
 import { useModulosMatriz, useQualificacaoMut } from '@/hooks/useAcaQualificacao'
+import { EditorCapacidades } from '@/components/aca/EditorCapacidades'
 import { useMatrizes, useCatalogoMut, type ComponenteFull } from '@/hooks/useAcaCatalogo'
 import { useMatrizValidacao, useAtivarMatriz, useMudarStatusMatriz, useClonarMatriz } from '@/hooks/useAcaFundacao'
 import { toast } from '@/lib/toast'
@@ -445,7 +446,12 @@ function LinhaComponente({ c, matrizId, editavel }: { c: ComponenteFull; matrizI
           <span class="text-xs text-fg-muted tabular-nums">{c.chTotal ?? c.disciplina?.cargaHoraria ?? 0}h</span>
         </span>
       </div>
-      {editavel && <EditorComponente matrizId={matrizId} comp={c} />}
+      <div class="flex flex-wrap items-center gap-1">
+        {editavel && <EditorComponente matrizId={matrizId} comp={c} />}
+        {/* Capacidades: visíveis também em matriz ativa, só não editáveis —
+            o docente precisa consultar o que a rubrica exige. */}
+        <EditorCapacidades componenteId={c.id} editavel={editavel} />
+      </div>
     </div>
   )
 }

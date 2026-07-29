@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { ListaVerificacaoPanel } from '@/components/aca/ListaVerificacaoPanel'
 import { useTurmas } from '@/hooks/useAcaCatalogo'
 import { useTurmaDiarios, useDiario, useChamada, useDiarioMut, type FreqRow } from '@/hooks/useAcaDiario'
 import { useNotas, useNotaMut, type LinhaNota } from '@/hooks/useAcaNota'
@@ -179,7 +180,7 @@ function DiarioView({ diarioId, onBack }: { diarioId: number; onBack: () => void
   const data = useDiario(diarioId)
   const mut = useDiarioMut()
   const [aulaId, setAulaId] = useState<number | null>(null)
-  const [mode, setMode] = useState<'aulas' | 'notas' | 'fechamento' | 'plano'>('aulas')
+  const [mode, setMode] = useState<'aulas' | 'notas' | 'competencia' | 'fechamento' | 'plano'>('aulas')
   const [data_, setData_] = useState(''); const [conteudo, setConteudo] = useState(''); const [qtd, setQtd] = useState('2')
 
   if (aulaId !== null) return <ChamadaView aulaId={aulaId} onBack={() => setAulaId(null)} />
@@ -198,10 +199,12 @@ function DiarioView({ diarioId, onBack }: { diarioId: number; onBack: () => void
       <div class="flex gap-1 border-b border-border">
         <button class={`text-sm px-3 py-2 -mb-px border-b-2 ${mode === 'aulas' ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setMode('aulas')}>Aulas & Frequência</button>
         <button class={`text-sm px-3 py-2 -mb-px border-b-2 ${mode === 'notas' ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setMode('notas')}>Avaliações & Notas</button>
+        <button class={`text-sm px-3 py-2 -mb-px border-b-2 ${mode === 'competencia' ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setMode('competencia')}>Competências</button>
         <button class={`text-sm px-3 py-2 -mb-px border-b-2 ${mode === 'fechamento' ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setMode('fechamento')}>Fechamento</button>
         <button class={`text-sm px-3 py-2 -mb-px border-b-2 ${mode === 'plano' ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setMode('plano')}>Plano & Materiais</button>
       </div>
       {mode === 'notas' && <NotasPanel diarioId={diarioId} />}
+      {mode === 'competencia' && <ListaVerificacaoPanel diarioId={diarioId} />}
       {mode === 'fechamento' && <FechamentoPanel diarioId={diarioId} />}
       {mode === 'plano' && <PlanoPanel diarioId={diarioId} />}
       {mode === 'aulas' && (!d ? <Skeleton class="h-40 w-full mt-3" /> : (
