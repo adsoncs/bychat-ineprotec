@@ -186,6 +186,47 @@ export function arredondar(valor: number, casas: number, regra: string): number 
   return Math.round(valor * f) / f
 }
 
+// ─────────────────────────────────────────────────────────────
+// Escala de conceitos (A–E)
+//
+// Internamente a nota é sempre número — é o que a fórmula, a média e o
+// histórico precisam. O conceito é a forma de EXPRESSAR essa nota quando o
+// regimento adota escala conceitual. O `mapaConceitos` guarda o piso de cada
+// conceito ({"A":9,"B":7,"C":6,"D":4,"E":0}), então converter é achar o maior
+// piso que a nota alcança.
+// ─────────────────────────────────────────────────────────────
+
+export type MapaConceitos = Record<string, number>
+
+/** Lê o mapa do esquema com segurança — é Json livre no banco. */
+export function lerMapaConceitos(bruto: unknown): MapaConceitos | null {
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return null
+  const mapa: MapaConceitos = {}
+  for (const [k, v] of Object.entries(bruto as Record<string, unknown>)) {
+    const n = Number(v)
+    if (k.trim() && Number.isFinite(n)) mapa[k.trim().toUpperCase()] = n
+  }
+  return Object.keys(mapa).length > 0 ? mapa : null
+}
+
+/**
+ * Conceito correspondente a uma nota: o de maior piso que a nota alcança.
+ * Nota abaixo de todos os pisos devolve o conceito mais baixo do mapa — não
+ * `null`, porque um boletim sem conceito nenhum não diz nada ao aluno.
+ */
+export function conceitoDe(mapa: MapaConceitos, valor: number): string | null {
+  const pares = Object.entries(mapa).sort((a, b) => b[1] - a[1])
+  if (pares.length === 0) return null
+  for (const [conceito, piso] of pares) if (valor >= piso) return conceito
+  return pares[pares.length - 1]![0]
+}
+
+/** Valor numérico de um conceito lançado pelo professor. */
+export function valorDoConceito(mapa: MapaConceitos, conceito: string): number | null {
+  const v = mapa[String(conceito).trim().toUpperCase()]
+  return v === undefined ? null : v
+}
+
 export interface ResultadoCalculo {
   media: number | null
   mediaFinal: number | null
@@ -193,6 +234,11 @@ export interface ResultadoCalculo {
   /** Por que deu isso — a secretaria precisa explicar ao aluno. */
   explicacao: string
   faltamNotas: string[]
+  /** Preenchido só quando o esquema adota escala CONCEITO. */
+  conceito?: string | null
+  conceitoFinal?: string | null
+  /** Componentes obrigatórios sem nota que ainda cabem em segunda chamada. */
+  cabeSegundaChamada?: string[]
 }
 
 /**
@@ -207,20 +253,42 @@ export function calcular(
 ): ResultadoCalculo {
   const reprovadoFreq = frequenciaPct < esquema.frequenciaMinima
 
+  // Escala conceitual: o número continua sendo a verdade do cálculo, o conceito
+  // é como o resultado aparece para aluno e professor.
+  const mapa = esquema.escala === 'CONCEITO' ? lerMapaConceitos(esquema.mapaConceitos) : null
+  /** Anexa o conceito ao resultado e reescreve a explicação na linguagem do regimento. */
+  const comConceito = (r: ResultadoCalculo): ResultadoCalculo => {
+    if (!mapa) return r
+    const conceito = r.media == null ? null : conceitoDe(mapa, r.media)
+    const conceitoFinal = r.mediaFinal == null ? null : conceitoDe(mapa, r.mediaFinal)
+    const alvo = conceitoDe(mapa, esquema.mediaAprovacao)
+    let explicacao = r.explicacao
+    if (r.situacao === 'APROVADO' && conceitoFinal) explicacao = `Conceito ${conceitoFinal} (mínimo ${alvo ?? esquema.mediaAprovacao}).`
+    else if (r.situacao === 'REPROVADO_NOTA' && conceitoFinal) explicacao = `Conceito ${conceitoFinal} abaixo do mínimo ${alvo ?? esquema.mediaAprovacao}.`
+    return { ...r, conceito, conceitoFinal, explicacao }
+  }
+
   // Componentes obrigatórios sem nota impedem o fechamento.
   const faltamNotas = esquema.componentes
     .filter((c) => c.obrigatorio && (notas[c.sigla] === null || notas[c.sigla] === undefined))
     .map((c) => c.sigla)
 
   if (faltamNotas.length > 0) {
-    return {
+    // Com segunda chamada no regimento, nota em falta não é necessariamente
+    // abandono: pode ser avaliação a repor. Quem lê a tela precisa saber que há
+    // esse caminho antes de fechar a turma com o aluno reprovado.
+    const cabe2a = esquema.segundaChamadaHabilitada ? faltamNotas : []
+    return comConceito({
       media: null, mediaFinal: null,
       situacao: reprovadoFreq ? 'REPROVADO_FREQUENCIA' : 'EM_ANDAMENTO',
       explicacao: reprovadoFreq
         ? `Frequência ${frequenciaPct}% abaixo do mínimo de ${esquema.frequenciaMinima}%.`
-        : `Aguardando lançamento de: ${faltamNotas.join(', ')}.`,
+        : cabe2a.length > 0
+          ? `Aguardando lançamento de: ${faltamNotas.join(', ')} — cabe segunda chamada.`
+          : `Aguardando lançamento de: ${faltamNotas.join(', ')}.`,
       faltamNotas,
-    }
+      ...(cabe2a.length > 0 ? { cabeSegundaChamada: cabe2a } : {}),
+    })
   }
 
   // Média parcial: fórmula quando houver, senão ponderada pelos pesos.
@@ -242,12 +310,12 @@ export function calcular(
   if (esquema.notaEliminatoria != null) {
     const abaixo = esquema.componentes.filter((c) => Number(notas[c.sigla] ?? 0) < esquema.notaEliminatoria!)
     if (abaixo.length > 0) {
-      return {
+      return comConceito({
         media, mediaFinal: media,
         situacao: reprovadoFreq ? 'REPROVADO_NOTA_FREQUENCIA' : 'REPROVADO_NOTA',
         explicacao: `Nota abaixo da mínima eliminatória (${esquema.notaEliminatoria}) em: ${abaixo.map((c) => c.sigla).join(', ')}.`,
         faltamNotas: [],
-      }
+      })
     }
   }
 
@@ -259,7 +327,7 @@ export function calcular(
     const mediaFinal = arredondar(finalCalc, esquema.casasDecimais, esquema.arredondamento)
     const piso = esquema.mediaFinalAprovacao ?? esquema.mediaAprovacao
     const aprovado = mediaFinal >= piso
-    return {
+    return comConceito({
       media, mediaFinal,
       situacao: reprovadoFreq
         ? (aprovado ? 'REPROVADO_FREQUENCIA' : 'REPROVADO_NOTA_FREQUENCIA')
@@ -268,7 +336,7 @@ export function calcular(
         ? `Frequência ${frequenciaPct}% abaixo do mínimo de ${esquema.frequenciaMinima}%.`
         : `Média final ${mediaFinal} ${aprovado ? '≥' : '<'} ${piso} (após exame).`,
       faltamNotas: [],
-    }
+    })
   }
 
   const aprovadoDireto = media >= esquema.mediaAprovacao
@@ -276,20 +344,20 @@ export function calcular(
     && esquema.exameMinimo != null && media >= esquema.exameMinimo
 
   if (reprovadoFreq) {
-    return {
+    return comConceito({
       media, mediaFinal: media,
       situacao: aprovadoDireto ? 'REPROVADO_FREQUENCIA' : 'REPROVADO_NOTA_FREQUENCIA',
       explicacao: `Frequência ${frequenciaPct}% abaixo do mínimo de ${esquema.frequenciaMinima}%.`,
       faltamNotas: [],
-    }
+    })
   }
   if (aprovadoDireto) {
-    return { media, mediaFinal: media, situacao: 'APROVADO', explicacao: `Média ${media} ≥ ${esquema.mediaAprovacao}.`, faltamNotas: [] }
+    return comConceito({ media, mediaFinal: media, situacao: 'APROVADO', explicacao: `Média ${media} ≥ ${esquema.mediaAprovacao}.`, faltamNotas: [] })
   }
   if (vaiParaExame) {
-    return { media, mediaFinal: null, situacao: 'EXAME', explicacao: `Média ${media} na faixa de exame (${esquema.exameMinimo} a ${esquema.mediaAprovacao}).`, faltamNotas: [] }
+    return comConceito({ media, mediaFinal: null, situacao: 'EXAME', explicacao: `Média ${media} na faixa de exame (${esquema.exameMinimo} a ${esquema.mediaAprovacao}).`, faltamNotas: [] })
   }
-  return { media, mediaFinal: media, situacao: 'REPROVADO_NOTA', explicacao: `Média ${media} < ${esquema.mediaAprovacao}.`, faltamNotas: [] }
+  return comConceito({ media, mediaFinal: media, situacao: 'REPROVADO_NOTA', explicacao: `Média ${media} < ${esquema.mediaAprovacao}.`, faltamNotas: [] })
 }
 
 /** Piso legal do ensino superior — a IES pode exigir mais, nunca menos. */

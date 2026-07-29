@@ -5,6 +5,36 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { resolverEsquema, lerMapaConceitos, valorDoConceito } from '../services/acaAvaliacao.js'
+
+/**
+ * Esquema de avaliação que rege o diário. O diário conhece a disciplina e a
+ * turma; a turma conhece a matriz e a oferta — é essa cadeia que a herança
+ * DISCIPLINA→MATRIZ→CURSO→INSTITUCIONAL precisa para resolver.
+ */
+async function esquemaDoDiario(diarioId: number) {
+  const diario = await prisma.acaDiario.findUnique({
+    where: { id: diarioId },
+    select: { disciplinaId: true, turmaId: true },
+  })
+  if (!diario) return null
+  const turma = diario.turmaId
+    ? await prisma.acaTurma.findUnique({
+        where: { id: diario.turmaId },
+        select: { matrizId: true, courseOfferingId: true },
+      })
+    : null
+  // AcaTurma guarda courseOfferingId escalar, sem @relation — o curso vem numa
+  // segunda consulta.
+  const oferta = turma?.courseOfferingId
+    ? await prisma.courseOffering.findUnique({ where: { id: turma.courseOfferingId }, select: { courseId: true } })
+    : null
+  return resolverEsquema({
+    disciplinaId: diario.disciplinaId,
+    matrizId: turma?.matrizId ?? null,
+    courseId: oferta?.courseId ?? null,
+  })
+}
 
 async function matriculadosDaTurma(turmaId: number) {
   return prisma.acaMatricula.findMany({
@@ -73,21 +103,63 @@ export async function acaNotaRoutes(app: FastifyInstance) {
   })
 
   // ── POST /avaliacoes/:id/notas — lança notas (bulk; valor null limpa) ──
+  //
+  // Aceita a nota como número OU como conceito (A–E) quando o regimento da
+  // disciplina adota escala conceitual — o professor lança o que o regimento
+  // usa, e o banco continua guardando número, que é o que a fórmula precisa.
   app.post('/api/admin/aca/avaliacoes/:id/notas', { preHandler: authMiddleware }, async (req, reply) => {
     const avaliacaoId = Number((req.params as any).id)
-    const aval = await prisma.acaAvaliacao.findUnique({ where: { id: avaliacaoId }, select: { valorMaximo: true } })
+    const aval = await prisma.acaAvaliacao.findUnique({
+      where: { id: avaliacaoId },
+      select: { valorMaximo: true, diarioId: true },
+    })
     if (!aval) return reply.code(404).send({ error: 'Avaliação não encontrada' })
-    const registros = ((req.body as any)?.registros || []) as Array<{ matriculaId: number; valor: number | null }>
+
+    const esquema = await esquemaDoDiario(aval.diarioId)
+    const mapa = esquema?.escala === 'CONCEITO' ? lerMapaConceitos(esquema.mapaConceitos) : null
+
+    const registros = ((req.body as any)?.registros || []) as Array<{
+      matriculaId: number; valor?: number | null; conceito?: string | null
+      origem?: string; origemObs?: string | null
+    }>
     let salvos = 0
+    const recusados: string[] = []
+
     for (const r of registros) {
-      let valor: number | null = r.valor === null || r.valor === undefined || (r.valor as any) === '' ? null : Number(r.valor)
-      if (valor != null) { if (Number.isNaN(valor)) continue; valor = Math.max(0, Math.min(valor, aval.valorMaximo)) }
+      // Conceito só é aceito quando existe mapa — senão a conversão seria um
+      // palpite, e palpite não entra em histórico escolar.
+      let valor: number | null
+      if (r.conceito != null && String(r.conceito).trim() !== '') {
+        if (!mapa) { recusados.push(`matrícula ${r.matriculaId}: conceito recebido, mas o esquema não usa escala conceitual`); continue }
+        const v = valorDoConceito(mapa, String(r.conceito))
+        if (v == null) { recusados.push(`matrícula ${r.matriculaId}: conceito "${r.conceito}" não existe no esquema`); continue }
+        valor = v
+      } else {
+        valor = r.valor === null || r.valor === undefined || (r.valor as any) === '' ? null : Number(r.valor)
+        if (valor != null) { if (Number.isNaN(valor)) continue; valor = Math.max(0, Math.min(valor, aval.valorMaximo)) }
+      }
+
+      const origem = String(r.origem || 'NORMAL').toUpperCase()
+      if (origem !== 'NORMAL' && origem !== 'SEGUNDA_CHAMADA') {
+        recusados.push(`matrícula ${r.matriculaId}: origem "${origem}" inválida`); continue
+      }
+      // Marcar como segunda chamada sem o regimento prever é o que transformava
+      // o campo em decoração. Ou o esquema habilita, ou a nota não passa.
+      if (origem === 'SEGUNDA_CHAMADA' && !esquema?.segundaChamadaHabilitada) {
+        recusados.push(`matrícula ${r.matriculaId}: o esquema de avaliação não prevê segunda chamada`); continue
+      }
+
+      const dados = {
+        valor, origem,
+        origemObs: r.origemObs ?? null,
+        origemEm: origem === 'SEGUNDA_CHAMADA' ? new Date() : null,
+      }
       await prisma.acaNota.upsert({
         where: { avaliacaoId_matriculaId: { avaliacaoId, matriculaId: Number(r.matriculaId) } },
-        update: { valor }, create: { avaliacaoId, matriculaId: Number(r.matriculaId), valor },
+        update: dados, create: { avaliacaoId, matriculaId: Number(r.matriculaId), ...dados },
       })
       salvos++
     }
-    return { ok: true, salvos }
+    return { ok: true, salvos, ...(recusados.length > 0 ? { recusados } : {}) }
   })
 }

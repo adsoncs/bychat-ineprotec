@@ -21,6 +21,8 @@ export interface Esquema {
   nome: string
   descricao?: string | null
   escala: string
+  /// Mapa conceito→nota mínima, usado quando escala = CONCEITO.
+  mapaConceitos?: Record<string, number> | null
   casasDecimais: number
   arredondamento: 'MATEMATICO' | 'CIMA' | 'BAIXO'
   formulaMedia?: string | null
@@ -43,6 +45,11 @@ export interface ResultadoSimulacao {
   situacao: string
   explicacao: string
   faltamNotas: string[]
+  /** Preenchidos só quando o esquema adota escala conceitual. */
+  conceito?: string | null
+  conceitoFinal?: string | null
+  /** Componentes sem nota que ainda cabem em segunda chamada. */
+  cabeSegundaChamada?: string[]
 }
 
 export function useEsquemas() {

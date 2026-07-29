@@ -15,6 +15,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import type { AcaComponenteTipo } from '@prisma/client'
+import { resolverEsquema } from './acaAvaliacao.js'
 
 /** Situação de um componente na jornada do aluno. */
 export type StatusComponente =
@@ -65,6 +66,18 @@ export interface Integralizacao {
   disponiveis: number
   /** Verdadeiro quando não falta nada — é o que a esteira de diplomação exige. */
   concluido: boolean
+
+  /**
+   * Regime seriado: disciplinas reprovadas que o aluno arrasta de períodos
+   * anteriores. Em regime de crédito o número existe, mas não trava nada.
+   */
+  dependencias: number
+  nomesDependencias: string[]
+  /** Teto do regimento (esquema de avaliação); null = sem limite declarado. */
+  limiteDependencias: number | null
+  /** Falso quando o aluno excede o teto — a matrícula no período seguinte para. */
+  podeProgredir: boolean
+  motivoProgressao: string | null
 }
 
 /**
@@ -81,7 +94,7 @@ const SITUACOES_REPROVADO = new Set(['REPROVADO_NOTA', 'REPROVADO_FREQUENCIA', '
 export async function calcular(vinculoId: number): Promise<Integralizacao> {
   const vinculo = await prisma.acaVinculo.findUnique({
     where: { id: vinculoId },
-    select: { id: true, matrizId: true, alunoId: true, situacao: true },
+    select: { id: true, matrizId: true, alunoId: true, situacao: true, courseId: true },
   })
   if (!vinculo) throw new Error(`Vínculo ${vinculoId} não encontrado`)
 
@@ -90,7 +103,10 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
     semMatriz: !vinculo.matrizId,
     chTotalMatriz: 0, chCumprida: 0, chEmCurso: 0, percentual: 0,
     componentes: [], baldes: [], disponiveis: 0, concluido: false,
+    dependencias: 0, nomesDependencias: [], limiteDependencias: null,
+    podeProgredir: true, motivoProgressao: null,
   }
+  const cursoDoVinculo = vinculo.courseId
   if (!vinculo.matrizId) return base
 
   // AcaResultado guarda só `matriculaId` escalar (sem relação declarada), então
@@ -246,6 +262,16 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
   const chCumprida = componentes.filter((c) => c.status === 'CUMPRIDO' || c.status === 'APROVEITADO').reduce((s, c) => s + c.cargaHoraria, 0)
   const chEmCurso = componentes.filter((c) => c.status === 'EM_CURSO').reduce((s, c) => s + c.cargaHoraria, 0)
 
+  // Dependência é a disciplina que o aluno CURSOU e não passou — não a que
+  // nunca cursou. Confundir as duas faria todo calouro estourar o limite.
+  const reprovados = componentes.filter((c) => c.status === 'REPROVADO')
+  const esquema = await resolverEsquema({
+    matrizId: vinculo.matrizId,
+    ...(cursoDoVinculo ? { courseId: cursoDoVinculo } : {}),
+  })
+  const limite = esquema?.limiteDependencias ?? null
+  const excede = limite != null && reprovados.length > limite
+
   return {
     vinculoId, matrizId: vinculo.matrizId, situacao: vinculo.situacao, semMatriz: false,
     chTotalMatriz, chCumprida, chEmCurso,
@@ -253,6 +279,13 @@ export async function calcular(vinculoId: number): Promise<Integralizacao> {
     componentes, baldes,
     disponiveis: componentes.filter((c) => c.status === 'PENDENTE').length,
     concluido: chTotalMatriz > 0 && componentes.every((c) => c.status === 'CUMPRIDO' || c.status === 'APROVEITADO'),
+    dependencias: reprovados.length,
+    nomesDependencias: reprovados.map((c) => c.nome),
+    limiteDependencias: limite,
+    podeProgredir: !excede,
+    motivoProgressao: excede
+      ? `${reprovados.length} dependência(s) — o regimento admite no máximo ${limite} para progredir de período.`
+      : null,
   }
 }
 

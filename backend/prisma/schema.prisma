@@ -6852,6 +6852,13 @@ model AcaNota {
   avaliacaoId  Int
   matriculaId  Int
   valor        Float?
+  /// NORMAL | SEGUNDA_CHAMADA. A nota de segunda chamada substitui a avaliação
+  /// perdida, mas o histórico precisa saber que ela veio por esse caminho — é o
+  /// que sustenta a decisão se o aluno questionar a média depois.
+  origem       String   @default("NORMAL") @db.VarChar(20)
+  /// Protocolo do requerimento ou justificativa que autorizou a segunda chamada.
+  origemObs    String?  @db.Text
+  origemEm     DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

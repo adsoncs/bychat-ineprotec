@@ -57,6 +57,27 @@ export function AcademicoIntegralizacaoPage({ params }: { params: { id: string }
       description={`${nome} · o que falta para se formar`}
       actions={<Voltar onClick={() => navigate(`/aca/vinculos/${id}`)} />}
     >
+      {!data.podeProgredir && (
+        <Card class="!p-3 border-danger/40 bg-danger/5">
+          <div class="flex items-start gap-2 text-sm">
+            <Lock size={16} class="text-danger shrink-0 mt-0.5" />
+            <span class="text-fg">
+              <strong>Progressão bloqueada.</strong> {data.motivoProgressao}
+              {data.nomesDependencias.length > 0 && (
+                <span class="block text-fg-muted text-xs mt-0.5">
+                  Dependências: {data.nomesDependencias.join(', ')}.
+                </span>
+              )}
+            </span>
+          </div>
+        </Card>
+      )}
+      {data.podeProgredir && data.dependencias > 0 && data.limiteDependencias != null && (
+        <Card class="!p-3 border-warning/40 bg-warning/5 text-sm text-fg-muted">
+          {data.dependencias} de {data.limiteDependencias} dependência(s) permitidas —
+          mais uma reprovação trava a matrícula no período seguinte.
+        </Card>
+      )}
       {data.concluido && (
         <Card class="!p-3 border-success/40 bg-success/5">
           <div class="flex items-center gap-2 text-sm">

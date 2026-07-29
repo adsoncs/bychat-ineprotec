@@ -274,6 +274,12 @@ export interface Integralizacao {
   baldes: BaldeCH[]
   disponiveis: number
   concluido: boolean
+  /** Reprovações arrastadas de períodos anteriores (regime seriado). */
+  dependencias: number
+  nomesDependencias: string[]
+  limiteDependencias: number | null
+  podeProgredir: boolean
+  motivoProgressao: string | null
 }
 
 export function useIntegralizacao(vinculoId: number | null) {

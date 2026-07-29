@@ -38,7 +38,14 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
     formulaMedia: '', exameHabilitado: false, exameMinimo: '3',
     formulaFinal: '(MP + EX)/2', mediaFinalAprovacao: '5',
     casasDecimais: '1', arredondamento: 'MATEMATICO', limiteDependencias: '',
+    escala: 'NUMERICA_0_10', segundaChamadaHabilitada: false,
   })
+  // Mapa conceito→piso. Editado como lista para o operador poder renomear os
+  // conceitos do regimento dele (alguns usam MB/B/R/I em vez de A–E).
+  const [conceitos, setConceitos] = useState<Array<{ conceito: string; piso: string }>>([
+    { conceito: 'A', piso: '9' }, { conceito: 'B', piso: '7' },
+    { conceito: 'C', piso: '6' }, { conceito: 'D', piso: '4' }, { conceito: 'E', piso: '0' },
+  ])
   const [componentes, setComponentes] = useState<EsquemaComponente[]>([
     { sigla: 'N1', nome: 'Prova 1', peso: 1 },
     { sigla: 'N2', nome: 'Prova 2', peso: 1 },
@@ -59,7 +66,14 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
       exameHabilitado: e.exameHabilitado, exameMinimo: e.exameMinimo != null ? String(e.exameMinimo) : '',
       formulaFinal: e.formulaFinal ?? '', mediaFinalAprovacao: e.mediaFinalAprovacao != null ? String(e.mediaFinalAprovacao) : '',
       casasDecimais: String(e.casasDecimais), arredondamento: e.arredondamento, limiteDependencias: e.limiteDependencias != null ? String(e.limiteDependencias) : '',
+      escala: e.escala ?? 'NUMERICA_0_10', segundaChamadaHabilitada: !!e.segundaChamadaHabilitada,
     })
+    const mapa = e.mapaConceitos as Record<string, number> | null | undefined
+    if (mapa && Object.keys(mapa).length > 0) {
+      setConceitos(Object.entries(mapa)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .map(([conceito, piso]) => ({ conceito, piso: String(piso) })))
+    }
     setComponentes(e.componentes.map((c) => ({
       sigla: c.sigla, nome: c.nome, peso: c.peso,
       ...(typeof c.obrigatorio === 'boolean' ? { obrigatorio: c.obrigatorio } : {}),
@@ -83,6 +97,15 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
       casasDecimais: Number(f.casasDecimais) || 1,
       arredondamento: f.arredondamento,
       limiteDependencias: f.limiteDependencias === '' ? null : Number(f.limiteDependencias),
+      escala: f.escala,
+      segundaChamadaHabilitada: f.segundaChamadaHabilitada,
+      // Só envia o mapa quando a escala é conceitual — mandar sempre deixaria
+      // lixo num esquema numérico e confundiria quem for lê-lo depois.
+      mapaConceitos: f.escala === 'CONCEITO'
+        ? Object.fromEntries(conceitos
+            .filter((c) => c.conceito.trim() !== '' && c.piso !== '')
+            .map((c) => [c.conceito.trim().toUpperCase(), Number(c.piso)]))
+        : null,
       componentes: componentes.map((c, i) => ({ ...c, ordem: i })),
     }
   }
@@ -262,8 +285,72 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
                 <option value="CIMA">Sempre para cima</option>
                 <option value="BAIXO">Sempre para baixo</option>
               </Select>
-              <Input label="Limite de dependências" placeholder="opcional" inputMode="numeric" value={f.limiteDependencias} onInput={(e) => setF({ ...f, limiteDependencias: (e.target as HTMLInputElement).value })} />
+              <Input
+                label="Limite de dependências" placeholder="sem limite" inputMode="numeric"
+                hint="Regime seriado: máximo de reprovações que o aluno carrega para o período seguinte."
+                value={f.limiteDependencias} onInput={(e) => setF({ ...f, limiteDependencias: (e.target as HTMLInputElement).value })}
+              />
             </div>
+
+            <label class="flex items-center gap-2 text-sm text-fg cursor-pointer select-none">
+              <input type="checkbox" checked={f.segundaChamadaHabilitada} onChange={(e) => setF({ ...f, segundaChamadaHabilitada: (e.target as HTMLInputElement).checked })} />
+              Admite segunda chamada
+            </label>
+            <p class="text-[11px] text-fg-subtle -mt-1">
+              Com isto ligado, a nota reposta é lançada marcada como segunda chamada e fica registrada
+              como tal. Desligado, o sistema recusa o lançamento — é o que impede uma reposição informal
+              virar nota comum no histórico.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Select label="Escala das notas" value={f.escala} onChange={(e) => setF({ ...f, escala: (e.target as HTMLSelectElement).value })}>
+                <option value="NUMERICA_0_10">Numérica 0 a 10</option>
+                <option value="NUMERICA_0_100">Numérica 0 a 100</option>
+                <option value="CONCEITO">Conceito (A, B, C…)</option>
+              </Select>
+            </div>
+            {f.escala === 'CONCEITO' && (
+              <div class="space-y-2 rounded-lg border border-border p-3">
+                <div class="text-sm text-fg-muted">
+                  Conceitos e nota mínima de cada um
+                  <span class="block text-[11px] text-fg-subtle">
+                    O cálculo continua numérico; o conceito é como o resultado aparece. Uma média cai no
+                    conceito de maior piso que ela alcança.
+                  </span>
+                </div>
+                {conceitos.map((c, i) => (
+                  <div key={i} class="flex items-center gap-2">
+                    <div class="w-24">
+                      <Input
+                        value={c.conceito} placeholder="A"
+                        onInput={(e) => {
+                          const v = (e.target as HTMLInputElement).value
+                          setConceitos((p) => p.map((x, j) => (j === i ? { ...x, conceito: v } : x)))
+                        }}
+                      />
+                    </div>
+                    <span class="text-xs text-fg-subtle">a partir de</span>
+                    <div class="w-24">
+                      <Input
+                        value={c.piso} inputMode="decimal"
+                        onInput={(e) => {
+                          const v = (e.target as HTMLInputElement).value
+                          setConceitos((p) => p.map((x, j) => (j === i ? { ...x, piso: v } : x)))
+                        }}
+                      />
+                    </div>
+                    {conceitos.length > 2 && (
+                      <button class="text-xs text-fg-subtle hover:text-danger px-1" onClick={() => setConceitos((p) => p.filter((_, j) => j !== i))}>
+                        remover
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button class="text-xs text-accent hover:underline" onClick={() => setConceitos((p) => [...p, { conceito: '', piso: '' }])}>
+                  + conceito
+                </button>
+              </div>
+            )}
           </Card>
         </div>
 
@@ -305,11 +392,19 @@ export function AcademicoEsquemaFormPage({ params }: { params: { id: string } })
                   {SITUACAO_SIM_LABEL[resultado.situacao] ?? resultado.situacao}
                 </Badge>
                 {resultado.media != null && <span class="text-sm text-fg tabular-nums">média {resultado.media}</span>}
+                {resultado.conceitoFinal && (
+                  <Badge tone="info">conceito {resultado.conceitoFinal}</Badge>
+                )}
               </div>
               {resultado.mediaFinal != null && resultado.mediaFinal !== resultado.media && (
                 <div class="text-xs text-fg-muted">média final: {resultado.mediaFinal}</div>
               )}
               <div class="text-xs text-fg-muted">{resultado.explicacao}</div>
+              {(resultado.cabeSegundaChamada?.length ?? 0) > 0 && (
+                <div class="text-xs text-warning">
+                  Cabe segunda chamada em: {resultado.cabeSegundaChamada!.join(', ')}.
+                </div>
+              )}
             </div>
           )}
         </Card>
