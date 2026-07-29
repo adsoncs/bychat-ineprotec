@@ -10,7 +10,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { criarCobrancaAsaas } from '../services/acaFinanceiro.js'
 import { mintPortalToken as mintToken, verifyPortalToken as verifyToken } from '../lib/acaPortalToken.js'
-import { emitirDocumentoAluno, montarHistorico, type DocTipo } from '../services/acaDocumentos.js'
+import { emitirDocumentoAluno, montarHistorico, emitirInformeIR, emitirQuitacaoAnual, type DocTipo } from '../services/acaDocumentos.js'
 import { proximosEventosDoAluno } from './acaCalendario.js'
 import { HEAD, esc, money, sitBadge, baseUrl, boletimAluno, financeiroAluno } from './acaPortal.js'
 
@@ -193,7 +193,22 @@ export async function acaPortalPlusRoutes(app: FastifyInstance) {
       <p class="sub">Acompanhando <b>${esc(aluno.lead.nome)}</b> (RA ${esc(aluno.ra || '—')})${resp.parentesco ? ` · ${esc(resp.parentesco)}` : ''}</p>
       ${eventosHtml}
       <div class="card"><h2 style="margin-top:0">Boletim do(a) aluno(a)</h2>${boletimHtml}</div>
-      <div class="card"><h2 style="margin-top:0">Financeiro</h2>${finHtml}</div>
+      <div class="card"><h2 style="margin-top:0">Financeiro</h2>${finHtml}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">
+          <a href="/portal/aca/acordo?t=${tk}"><button class="sec" type="button">Negociar dívida</button></a>
+          <form method="post" action="/api/public/aca/responsavel/doc-financeiro?t=${tk}" style="margin:0;display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="tipo" value="INFORME_IR">
+            <select name="ano" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font:inherit">${[1, 2, 3].map((n) => new Date().getFullYear() - n).map((a) => `<option value="${a}">${a}</option>`).join('')}</select>
+            <button class="sec" type="submit">Informe para IR</button>
+          </form>
+          <form method="post" action="/api/public/aca/responsavel/doc-financeiro?t=${tk}" style="margin:0;display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="tipo" value="QUITACAO_ANUAL">
+            <select name="ano" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:8px;font:inherit">${[1, 2, 3].map((n) => new Date().getFullYear() - n).map((a) => `<option value="${a}">${a}</option>`).join('')}</select>
+            <button class="sec" type="submit">Quitação anual</button>
+          </form>
+        </div>
+        <p class="sub" style="font-size:12px;margin-top:8px">Quem paga a mensalidade é quem declara a despesa de instrução no imposto de renda — por isso os dois documentos ficam aqui.</p>
+      </div>
       <footer>Acesso seguro por link temporário.</footer></body></html>`)
   })
 
@@ -235,6 +250,35 @@ export async function acaPortalPlusRoutes(app: FastifyInstance) {
       <div class="card"><h2 style="margin-top:0">Histórico escolar</h2>${histHtml}</div>
       <div class="card"><h2 style="margin-top:0">Documentos</h2>${emitir}${docsLista}</div>
       <footer>Acesso seguro por link temporário.</footer></body></html>`)
+  })
+
+  /**
+   * Documentos financeiros pedidos pelo responsável.
+   *
+   * Só os dois que dizem respeito a quem paga: informe para o IR e quitação
+   * anual. Histórico e boletim continuam sendo do aluno — o responsável
+   * acompanha, não é titular do registro acadêmico.
+   */
+  app.post('/api/public/aca/responsavel/doc-financeiro', async (req, reply) => {
+    const tok = tokOf(req)
+    const p = verifyToken(tok, 'aca-responsavel')
+    if (!p) return reply.code(403).send({ error: 'token inválido' })
+    const resp = await prisma.acaResponsavel.findUnique({ where: { id: p.id }, select: { alunoId: true } })
+    if (!resp) return pageErr(reply, 404, 'Responsável não encontrado')
+
+    const b = (req.body as any) || {}
+    const tipo = String(b.tipo || '')
+    const ano = Number(b.ano) || new Date().getFullYear() - 1
+    if (!['INFORME_IR', 'QUITACAO_ANUAL'].includes(tipo)) return reply.code(400).send({ error: 'tipo não permitido' })
+
+    try {
+      const doc = tipo === 'INFORME_IR'
+        ? await emitirInformeIR(resp.alunoId, ano, null)
+        : await emitirQuitacaoAnual(resp.alunoId, ano, null)
+      return reply.redirect(`/api/public/aca/portal-plus/doc?t=${encodeURIComponent(tok)}&id=${doc.id}`, 303)
+    } catch (e: any) {
+      return pageErr(reply, 400, 'Não foi possível emitir', e?.message || '')
+    }
   })
 
   app.post('/api/public/aca/exaluno/emitir-documento', async (req, reply) => {

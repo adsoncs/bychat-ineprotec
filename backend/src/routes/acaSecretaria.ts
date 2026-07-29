@@ -8,7 +8,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { renderDocumentoPdf } from '../services/acaDocRender.js'
-import { montarHistorico, emitirDocumentoAluno, emitirAtaTurma, emitirCertificado, emitirQuitacaoAnual, emitirCarteirinha, type DocTipo } from '../services/acaDocumentos.js'
+import { montarHistorico, emitirDocumentoAluno, emitirAtaTurma, emitirCertificado, emitirQuitacaoAnual, emitirCarteirinha, type DocTipo, emitirInformeIR } from '../services/acaDocumentos.js'
 
 export async function acaSecretariaRoutes(app: FastifyInstance) {
   // ── GET /alunos/:id/historico — prévia do histórico (dados) ──
@@ -41,6 +41,12 @@ export async function acaSecretariaRoutes(app: FastifyInstance) {
       if (tipo === 'QUITACAO_ANUAL') {
         const ano = Number(b.ano) || new Date().getFullYear() - 1
         return reply.code(201).send({ documento: await emitirQuitacaoAnual(Number(b.alunoId), ano, userId) })
+      }
+      // Informe para o IR: a secretaria também emite. Se só o portal
+      // emitisse, o aluno que liga pedindo ficaria sem resposta.
+      if (tipo === 'INFORME_IR') {
+        const ano = Number(b.ano) || new Date().getFullYear() - 1
+        return reply.code(201).send({ documento: await emitirInformeIR(Number(b.alunoId), ano, userId) })
       }
       if (tipo === 'CARTEIRINHA') return reply.code(201).send({ documento: await emitirCarteirinha(Number(b.alunoId), userId) })
       const doc = await emitirDocumentoAluno(tipo as DocTipo, Number(b.alunoId), userId)

@@ -264,6 +264,10 @@ export async function acaPortalRoutes(app: FastifyInstance) {
       ${contratoHtml}
       <div class="card"><h2 style="margin-top:0">Financeiro</h2>${finHtml}</div>
       <div class="card"><h2 style="margin-top:0">Documentos</h2>${docsHtml}</div>
+      <div class="card"><h2 style="margin-top:0">Negociar dívida</h2>
+        <p class="sub" style="font-size:13px">Parcelas em atraso podem ser renegociadas aqui mesmo, dentro das condições que a instituição definiu.</p>
+        <a href="/portal/aca/acordo?t=${tk}"><button class="sec" type="button">Ver condições</button></a>
+      </div>
       <div class="card"><h2 style="margin-top:0">Sua conta</h2>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           <a href="/api/public/aca/aluno/agenda.ics?t=${tk}"><button class="sec" type="button">Assinar calendário (.ics)</button></a>
