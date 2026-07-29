@@ -21,6 +21,9 @@ export interface PanoramaAcervo {
   permanentes: number
   eliminados: number
   vencidos: number
+  /** Documentos que moram fora do servidor — não estão sob custódia da IES. */
+  externos: number
+  emCustodia: number
 }
 
 export interface ArquivoElegivel {
@@ -77,6 +80,10 @@ export function useAcervoMut() {
   return {
     classificar: useMutation({
       mutationFn: (b: { arquivoIds?: number[] }) => api.post<{ classificados: number; erros: string[] }>('/admin/aca/acervo/classificar', b),
+      onSuccess: inval,
+    }),
+    custodia: useMutation({
+      mutationFn: (b: { arquivoIds?: number[] }) => api.post<{ trazidos: number; erros: string[] }>('/admin/aca/acervo/custodia', b),
       onSuccess: inval,
     }),
     eliminar: useMutation({

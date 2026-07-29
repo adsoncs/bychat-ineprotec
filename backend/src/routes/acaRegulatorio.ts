@@ -8,7 +8,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import {
   classificarArquivo, classificarPorTipo, verificarIntegridade,
-  elegiveisEliminacao, eliminar, TEMPORALIDADE_PADRAO,
+  elegiveisEliminacao, eliminar, trazerParaCustodia, TEMPORALIDADE_PADRAO,
 } from '../services/acaAcervo.js'
 import { verificarRegularidade, registrar as registrarEnade, painelRegularidade } from '../services/acaEnade.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -31,18 +31,21 @@ export async function acaRegulatorioRoutes(app: FastifyInstance) {
 
   /** Panorama: quanto do acervo está classificado, com hash, e o que vence. */
   app.get('/api/admin/aca/acervo/panorama', { preHandler: authMiddleware }, async () => {
-    const [total, classificados, comHash, permanentes, eliminados, vencidos] = await Promise.all([
+    const [total, classificados, comHash, permanentes, eliminados, vencidos, externos] = await Promise.all([
       prisma.acaGedArquivo.count(),
       prisma.acaGedArquivo.count({ where: { classificacao: { not: null } } }),
       prisma.acaGedArquivo.count({ where: { hashSha256: { not: null } } }),
       prisma.acaGedArquivo.count({ where: { temporalidade: 'PERMANENTE' } }),
       prisma.acaGedArquivo.count({ where: { eliminadoEm: { not: null } } }),
       prisma.acaGedArquivo.count({ where: { temporalidade: 'TEMPORARIO', guardaAte: { not: null, lte: new Date() }, eliminadoEm: null } }),
+      // Documento que mora fora daqui não está sob custódia da instituição.
+      prisma.acaGedArquivo.count({ where: { eliminadoEm: null, NOT: { url: { contains: '/uploads/' } } } }),
     ])
     return {
       total, classificados, semClassificacao: total - classificados,
       comHash, semHash: total - comHash,
       permanentes, eliminados, vencidos,
+      externos, emCustodia: total - externos,
     }
   })
 
@@ -61,6 +64,37 @@ export async function acaRegulatorioRoutes(app: FastifyInstance) {
       try { await classificarArquivo(id, b.override); ok++ } catch (e: any) { erros.push(`#${id}: ${e?.message}`) }
     }
     return reply.send({ classificados: ok, erros })
+  })
+
+  /**
+   * Traz documentos externos para custódia própria. Em lote, porque acervo
+   * legado chega inteiro em links e migrar um a um não é trabalho de gente.
+   */
+  app.post('/api/admin/aca/acervo/custodia', { preHandler: authMiddleware }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const ids: number[] = Array.isArray(b.arquivoIds) ? b.arquivoIds.map(Number).filter(Boolean) : []
+    const alvo = ids.length > 0
+      ? ids
+      : (await prisma.acaGedArquivo.findMany({
+          where: { eliminadoEm: null, NOT: { url: { contains: '/uploads/' } } },
+          select: { id: true }, take: 100,
+        })).map((a) => a.id)
+    if (alvo.length === 0) return { trazidos: 0, mensagem: 'Nenhum documento externo a trazer.' }
+
+    let ok = 0
+    const erros: string[] = []
+    for (const id of alvo) {
+      try { await trazerParaCustodia(id); ok++ } catch (e: any) { erros.push(`#${id}: ${e?.message}`) }
+    }
+    const actor = auditActor(req)
+    if (ok > 0) {
+      void logUserAudit({
+        action: 'aca.acervo.custodia', targetType: 'acervo', targetUserId: null,
+        targetLabel: `${ok} documento(s) trazido(s) para custódia própria`,
+        changes: { solicitados: alvo.length, trazidos: ok }, ...actor,
+      })
+    }
+    return reply.send({ trazidos: ok, erros })
   })
 
   app.get('/api/admin/aca/acervo/:id/integridade', { preHandler: authMiddleware }, async (req, reply) => {

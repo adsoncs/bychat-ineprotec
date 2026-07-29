@@ -10,7 +10,7 @@
 // regular.
 
 import { createHash } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
 
@@ -86,8 +86,11 @@ function guardaAte(prazoAnos: number | null, base = new Date()): Date | null {
   return d
 }
 
-/** SHA-256 do arquivo local, quando ele estiver em /uploads. */
-async function hashDoArquivo(url: string): Promise<{ hash: string; bytes: number } | null> {
+/** Teto de download: acervo é documento, não vídeo. */
+const LIMITE_BYTES = 50 * 1024 * 1024
+
+/** SHA-256 de arquivo sob nossa custódia (/uploads). */
+async function hashLocal(url: string): Promise<{ hash: string; bytes: number } | null> {
   const m = /\/uploads\/(.+)$/.exec(url)
   if (!m) return null
   const caminho = join(process.cwd(), 'uploads', m[1]!)
@@ -97,6 +100,64 @@ async function hashDoArquivo(url: string): Promise<{ hash: string; bytes: number
   } catch {
     return null
   }
+}
+
+/**
+ * Baixa um documento externo e devolve conteúdo + hash.
+ *
+ * O acervo do tenant guarda LINK, não arquivo — por isso nenhum documento tinha
+ * hash: a função antiga só lia `/uploads`. Buscar a URL resolve, mas é o
+ * servidor abrindo endereço que veio de cadastro: passa pelo mesmo guarda de
+ * SSRF usado nos conectores, senão o campo "URL do documento" vira caminho para
+ * a rede interna e o serviço de metadados da nuvem.
+ */
+async function baixarExterno(url: string): Promise<{ hash: string; bytes: number; buf: Buffer; contentType: string | null } | null> {
+  let alvo: URL
+  try { alvo = new URL(url) } catch { return null }
+  if (alvo.protocol !== 'http:' && alvo.protocol !== 'https:') return null
+
+  const { assertUrlIsPublic } = await import('../lib/urlSafety.js')
+  const check = await assertUrlIsPublic(url)
+  if (!check.ok) throw new Error(`Endereço bloqueado por segurança: ${check.reason}`)
+
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 20_000)
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, redirect: 'follow' })
+    if (!res.ok) return null
+    const declarado = Number(res.headers.get('content-length') || 0)
+    if (declarado > LIMITE_BYTES) throw new Error(`Documento maior que o limite de ${Math.round(LIMITE_BYTES / 1024 / 1024)} MB`)
+    const buf = Buffer.from(await res.arrayBuffer())
+    // Content-length é declaração do servidor remoto; o tamanho real é o que
+    // chegou. Conferir os dois evita download sem teto por cabeçalho mentiroso.
+    if (buf.length > LIMITE_BYTES) throw new Error('Documento excede o limite de tamanho')
+    return {
+      hash: createHash('sha256').update(buf).digest('hex'),
+      bytes: buf.length,
+      buf,
+      contentType: res.headers.get('content-type'),
+    }
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw new Error('Tempo esgotado ao baixar o documento')
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Hash de integridade do documento, esteja ele em custódia própria ou externo.
+ *
+ * Vale registrar o limite: hash de link externo prova que o conteúdo daquele
+ * endereço não mudou desde o registro — não impede o link de sair do ar. Quem
+ * quer acervo no sentido da Portaria 315 precisa da custódia (ver
+ * `trazerParaCustodia`).
+ */
+export async function hashDoArquivo(url: string): Promise<{ hash: string; bytes: number } | null> {
+  const local = await hashLocal(url)
+  if (local) return local
+  const externo = await baixarExterno(url).catch(() => null)
+  return externo ? { hash: externo.hash, bytes: externo.bytes } : null
 }
 
 /**
@@ -122,6 +183,55 @@ export async function classificarArquivo(arquivoId: number, override?: { classif
       ...(integridade ? { hashSha256: integridade.hash, tamanhoBytes: integridade.bytes } : {}),
     },
   })
+}
+
+/**
+ * Traz o documento para custódia própria: baixa o arquivo externo, grava em
+ * /uploads/acervo e passa a apontar para a cópia local.
+ *
+ * É a diferença entre ter o acervo e ter uma lista de links. Link externo
+ * quebra, o servidor de terceiro sai do ar, a pasta compartilhada é
+ * reorganizada — e o documento que a instituição é obrigada a guardar some sem
+ * ninguém perceber. A URL original fica registrada na origem.
+ */
+export async function trazerParaCustodia(arquivoId: number): Promise<{ url: string; hash: string; bytes: number }> {
+  const arq = await prisma.acaGedArquivo.findUnique({ where: { id: arquivoId } })
+  if (!arq) throw new Error('Arquivo não encontrado')
+  if (/\/uploads\//.test(arq.url)) throw new Error('Este documento já está sob custódia própria')
+
+  const baixado = await baixarExterno(arq.url)
+  if (!baixado) throw new Error('Não foi possível baixar o documento deste endereço')
+
+  const dir = join(process.cwd(), 'uploads', 'acervo')
+  await mkdir(dir, { recursive: true })
+  // Nome derivado do hash: mesmo conteúdo não duplica, e o nome não carrega
+  // dado do aluno para dentro do sistema de arquivos.
+  const ext = extensaoDe(arq.url, baixado.contentType)
+  const nome = `${baixado.hash.slice(0, 32)}${ext}`
+  await writeFile(join(dir, nome), baixado.buf)
+
+  const url = `/uploads/acervo/${nome}`
+  await prisma.acaGedArquivo.update({
+    where: { id: arquivoId },
+    data: {
+      url,
+      hashSha256: baixado.hash,
+      tamanhoBytes: baixado.bytes,
+      observacao: [arq.observacao, `Origem: ${arq.url}`].filter(Boolean).join(' · ').slice(0, 1000),
+    },
+  })
+  return { url, hash: baixado.hash, bytes: baixado.bytes }
+}
+
+/** Extensão a partir da URL ou do content-type — sem inventar quando não dá. */
+function extensaoDe(url: string, contentType: string | null): string {
+  const daUrl = /\.([a-zA-Z0-9]{2,5})(?:\?|#|$)/.exec(url)?.[1]
+  if (daUrl) return `.${daUrl.toLowerCase()}`
+  const mapa: Record<string, string> = {
+    'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png',
+    'image/webp': '.webp', 'text/plain': '.txt',
+  }
+  return mapa[(contentType ?? '').split(';')[0]!.trim()] ?? ''
 }
 
 /** Confere se o arquivo ainda corresponde ao hash registrado. */

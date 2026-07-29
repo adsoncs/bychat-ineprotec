@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Archive, ShieldCheck, Tags, Trash2, FileCheck2, AlertTriangle, Fingerprint } from 'lucide-preact'
+import { Archive, ShieldCheck, Tags, Trash2, FileCheck2, AlertTriangle, Fingerprint, Download } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -51,6 +51,18 @@ export function AcademicoAcervoPage() {
 
   const p = panorama.data
   const alternar = (id: number) => setSelecao((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  const trazerParaCustodia = () => {
+    mut.custodia.mutate({}, {
+      onSuccess: (r) => toast(
+        r.trazidos > 0
+          ? `${r.trazidos} documento(s) agora sob custódia própria.${r.erros.length > 0 ? ` ${r.erros.length} falharam.` : ''}`
+          : 'Nenhum documento externo pôde ser trazido.',
+        r.trazidos > 0 ? 'success' : 'danger',
+      ),
+      onError: (e: any) => toast(e?.message ?? 'Falha ao trazer os documentos.', 'danger'),
+    })
+  }
 
   const classificar = () => {
     mut.classificar.mutate({}, {
@@ -120,9 +132,9 @@ export function AcademicoAcervoPage() {
                 hint="Sem prazo de guarda definido."
               />
               <Kpi
-                icon={<Fingerprint size={14} />} label="Sem hash" value={p.semHash}
-                tone={p.semHash > 0 ? 'text-warning' : 'text-fg'}
-                hint="Sem hash não há como provar que o arquivo não foi alterado."
+                icon={<Fingerprint size={14} />} label="Fora de custódia" value={p.externos}
+                tone={p.externos > 0 ? 'text-danger' : 'text-fg'}
+                hint="Guardados como link em servidor de terceiro."
               />
               <Kpi
                 icon={<AlertTriangle size={14} />} label="Prazo vencido" value={p.vencidos}
@@ -136,6 +148,20 @@ export function AcademicoAcervoPage() {
               <Kpi icon={<Fingerprint size={14} />} label="Com hash" value={p.comHash} />
               <Kpi icon={<Trash2 size={14} />} label="Eliminados" value={p.eliminados} hint="Registro preservado no termo." />
             </div>
+            {p.externos > 0 && (
+              <Card class="!p-4 border-danger/40 bg-danger/5 text-sm text-fg-muted space-y-2">
+                <div>
+                  <strong class="text-fg">{p.externos}</strong> documento(s) existem só como link para outro
+                  servidor. Isso não é acervo: link quebra, o serviço de terceiro sai do ar, a pasta é
+                  reorganizada — e o documento que a instituição é obrigada a guardar some sem ninguém
+                  perceber. Trazer para custódia baixa o arquivo, calcula o hash e passa a apontar para a
+                  cópia local, mantendo o endereço de origem registrado.
+                </div>
+                <Button onClick={trazerParaCustodia} disabled={mut.custodia.isPending}>
+                  <Download size={16} /> Trazer para custódia própria
+                </Button>
+              </Card>
+            )}
             {p.semClassificacao > 0 && (
               <Card class="!p-4 border-warning/40 bg-warning/5 text-sm text-fg-muted">
                 Há <strong class="text-fg">{p.semClassificacao}</strong> documento(s) sem classificação. Sem ela, o
