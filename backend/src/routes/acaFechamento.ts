@@ -9,6 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { resolverEsquema, calcular as calcularPeloEsquema, type EsquemaCompleto } from '../services/acaAvaliacao.js'
 import { logUserAudit, auditActor, diffFields } from '../services/userAudit.js'
+import { apurar as apurarCompetencia } from '../services/acaCompetencia.js'
 
 const CFG_KEYS = ['aca.media_aprovacao', 'aca.frequencia_minima', 'aca.recuperacao_habilitada', 'aca.recuperacao_min', 'aca.media_aprovacao_recuperacao'] as const
 const CFG_DEFAULTS: Record<string, any> = {
@@ -29,6 +30,48 @@ async function getRegras(): Promise<Regras> {
     recuperacaoHabilitada: !!v('aca.recuperacao_habilitada'),
     recuperacaoMin: Number(v('aca.recuperacao_min')),
     mediaAprovacaoRecuperacao: Number(v('aca.media_aprovacao_recuperacao')),
+  }
+}
+
+/**
+ * Situação por competência: quem manda é o atendimento aos critérios CRÍTICOS.
+ *
+ * Devolve null quando o componente não tem capacidades cadastradas — aí o
+ * fechamento cai na regra de nota, que é o comportamento de sempre. Sem esse
+ * cuidado, ligar a avaliação por competência num curso ainda não modelado
+ * reprovaria a turma inteira por ausência de dado.
+ */
+async function decidirPorCompetencia(
+  disciplinaId: number | null | undefined,
+  matrizId: number | null | undefined,
+  matriculaId: number,
+  freqPct: number,
+  r: Regras,
+): Promise<{ situacao: string; explicacao: string; nivel: string | null; nota: number | null } | null> {
+  if (!disciplinaId || !matrizId) return null
+  const componente = await prisma.acaComponente.findFirst({
+    where: { matrizId, disciplinaId }, select: { id: true },
+  })
+  if (!componente) return null
+  const ap = await apurarCompetencia(componente.id, matriculaId)
+  if (ap.criticosTotal === 0) return null
+
+  const reprovadoFreq = r.frequenciaObrigatoria && freqPct < r.frequenciaMinima
+  if (ap.semAfericao > 0 && !ap.apto) {
+    return {
+      situacao: reprovadoFreq ? 'REPROVADO_FREQUENCIA' : 'EM_ANDAMENTO',
+      explicacao: ap.explicacao, nivel: ap.nivel, nota: ap.notaEquivalente,
+    }
+  }
+  const situacao = ap.apto
+    ? (reprovadoFreq ? 'REPROVADO_FREQUENCIA' : 'APROVADO')
+    : (reprovadoFreq ? 'REPROVADO_NOTA_FREQUENCIA' : 'REPROVADO_NOTA')
+  return {
+    situacao,
+    explicacao: reprovadoFreq
+      ? `Frequência ${freqPct}% abaixo do mínimo de ${r.frequenciaMinima}%. ${ap.explicacao}`
+      : ap.explicacao,
+    nivel: ap.nivel, nota: ap.notaEquivalente,
   }
 }
 
@@ -142,12 +185,26 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
   const usaFormula = !!esquema
     && esquema.componentes.filter((c) => c.obrigatorio).every((c) => porSigla.has(c.sigla))
 
-  return mats.map((m) => {
+  // Quando o esquema é por competência, a apuração é assíncrona (lê a lista de
+  // verificação) — resolvemos depois do map.
+  const porCompetencia: Array<{ matriculaId: number; ra: string | null; nome: string; faltas: number; freqPct: number; abonadas: number }> = []
+
+  const linhas = mats.map((m) => {
     const row = notaMap[m.id] || {}
     const faltas = faltasByMat.get(m.id) || 0
     const abonadas = abonadasByMat.get(m.id) || 0
     const base = Math.max(0, totalAulas - abonadas)
     const freqPct = base > 0 ? Math.round(((base - faltas) / base) * 100) : 100
+
+    // Avaliação por competência tem precedência sobre a fórmula: a nota deixa de
+    // ser o critério de decisão e passa a expressar o desempenho.
+    if (esquema?.avaliacaoPorCompetencia) {
+      porCompetencia.push({ matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome, faltas, freqPct, abonadas })
+      return {
+        matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome,
+        media: null, completo: false, faltas, freqPct, aulasEmRegimeEspecial: abonadas,
+      }
+    }
 
     if (usaFormula && esquema) {
       const notas: Record<string, number | null> = {}
@@ -170,6 +227,40 @@ async function calcular(diarioId: number, turmaId: number, esquema?: EsquemaComp
     const completo = somaPeso === pesoTotal && pesoTotal > 0
     return { matriculaId: m.id, ra: m.aluno.ra, nome: m.aluno.lead.nome, media, completo, faltas, freqPct, aulasEmRegimeEspecial: abonadas }
   })
+
+  if (porCompetencia.length > 0) {
+    const disciplinaId = (await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { disciplinaId: true } }))?.disciplinaId
+    const matrizId = (await prisma.acaTurma.findUnique({ where: { id: turmaId }, select: { matrizId: true } }))?.matrizId
+    const regras = await getRegras()
+    const efetivas: Regras = esquema
+      ? {
+          mediaAprovacao: esquema.mediaAprovacao, frequenciaMinima: esquema.frequenciaMinima,
+          frequenciaObrigatoria: esquema.frequenciaObrigatoria,
+          recuperacaoHabilitada: esquema.exameHabilitado,
+          recuperacaoMin: esquema.exameMinimo ?? regras.recuperacaoMin,
+          mediaAprovacaoRecuperacao: esquema.mediaFinalAprovacao ?? esquema.mediaAprovacao,
+        }
+      : regras
+    for (const pc of porCompetencia) {
+      const r = await decidirPorCompetencia(disciplinaId, matrizId, pc.matriculaId, pc.freqPct, efetivas)
+      const linha = linhas.find((l) => l.matriculaId === pc.matriculaId)
+      if (!linha) continue
+      if (!r) {
+        // Componente sem capacidades: avisa em vez de fingir que apurou.
+        ;(linha as any).situacaoEsquema = 'EM_ANDAMENTO'
+        ;(linha as any).explicacao = 'Avaliação por competência ligada, mas o componente não tem capacidades cadastradas.'
+        continue
+      }
+      ;(linha as any).media = r.nota
+      ;(linha as any).completo = r.situacao !== 'EM_ANDAMENTO'
+      ;(linha as any).situacaoEsquema = r.situacao
+      ;(linha as any).explicacao = r.explicacao
+      ;(linha as any).nivelCompetencia = r.nivel
+      ;(linha as any).porCompetencia = true
+    }
+  }
+
+  return linhas
 }
 
 export async function acaFechamentoRoutes(app: FastifyInstance) {

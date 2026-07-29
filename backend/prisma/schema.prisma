@@ -5481,6 +5481,11 @@ model AcaEsquemaAvaliacao {
   mediaFinalAprovacao Float?
 
   segundaChamadaHabilitada Boolean @default(false)
+  /// Educação profissional: a aptidão é decidida pelo atendimento aos critérios
+  /// CRÍTICOS das capacidades, não pela média das notas. Ligado, o fechamento
+  /// consulta a lista de verificação; a nota (se houver) passa a ser expressão do
+  /// desempenho, não o critério de decisão.
+  avaliacaoPorCompetencia Boolean @default(false)
 
   /// Se a frequência reprova. A LDB (Lei 9.394/96, art. 47, §3º) obriga a
   /// frequência "salvo nos programas de educação a distância" — em EAD o
@@ -5856,6 +5861,92 @@ model AcaMatrizModulo {
   @@map("bychat_aca_matriz_modulos")
 }
 
+/// Tipo de capacidade na Metodologia SENAI de Educação Profissional.
+enum AcaCapacidadeTipo {
+  TECNICA
+  SOCIAL
+  ORGANIZATIVA
+  METODOLOGICA
+}
+
+/// Peso do critério na decisão de aptidão.
+enum AcaCriterioPeso {
+  /// Sem atender, o aluno NÃO está apto — independentemente do resto.
+  CRITICO
+  /// Contribui para a qualidade do desempenho, mas não reprova sozinho.
+  DESEJAVEL
+}
+
+/// Capacidade/competência que o componente desenvolve.
+///
+/// Na educação profissional a unidade curricular não "vale nota": ela
+/// desenvolve capacidades, e o aluno demonstra domínio delas. O que decide a
+/// aptidão é o atendimento aos critérios CRÍTICOS — não a média. Um aluno pode
+/// somar pontos suficientes e não estar apto, porque falhou num crítico.
+model AcaCapacidade {
+  id           Int      @id @default(autoincrement())
+  componenteId Int
+  tipo         AcaCapacidadeTipo @default(TECNICA)
+  descricao    String   @db.Text
+  ordem        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  componente   AcaComponente @relation(fields: [componenteId], references: [id], onDelete: Cascade)
+  criterios    AcaCriterio[]
+
+  @@index([componenteId])
+  @@map("bychat_aca_capacidades")
+}
+
+/// Critério de avaliação de uma capacidade, com a evidência a observar.
+model AcaCriterio {
+  id            Int      @id @default(autoincrement())
+  capacidadeId  Int
+  descricao     String   @db.Text
+  /// O que o docente deve observar para dizer que foi atendido.
+  evidencia     String?  @db.Text
+  peso          AcaCriterioPeso @default(DESEJAVEL)
+  ordem         Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  capacidade    AcaCapacidade @relation(fields: [capacidadeId], references: [id], onDelete: Cascade)
+  afericoes     AcaAfericao[]
+
+  @@index([capacidadeId])
+  @@map("bychat_aca_criterios")
+}
+
+/// Como o critério foi atendido — a lista de verificação do docente.
+enum AcaAfericaoResultado {
+  ATENDE
+  EM_DESENVOLVIMENTO
+  NAO_ATENDE
+}
+
+/// Registro do desempenho do aluno num critério.
+///
+/// Reapresentação é da natureza do modelo: quando o aluno não atende um critério
+/// crítico, o docente retoma a capacidade — por isso guardamos a tentativa e
+/// mantemos o histórico em vez de sobrescrever silenciosamente.
+model AcaAfericao {
+  id           Int      @id @default(autoincrement())
+  criterioId   Int
+  matriculaId  Int
+  resultado    AcaAfericaoResultado
+  /// Evidência observada em concreto (o que o aluno fez).
+  observacao   String?  @db.Text
+  tentativa    Int      @default(1)
+  afericaoEm   DateTime @default(now())
+  docenteUserId Int?
+
+  criterio     AcaCriterio @relation(fields: [criterioId], references: [id], onDelete: Cascade)
+
+  @@unique([criterioId, matriculaId, tentativa])
+  @@index([matriculaId])
+  @@map("bychat_aca_afericoes")
+}
+
 model AcaComponente {
   id           Int      @id @default(autoincrement())
   matrizId     Int
@@ -5882,6 +5973,7 @@ model AcaComponente {
   matriz       AcaMatriz     @relation(fields: [matrizId], references: [id], onDelete: Cascade)
   disciplina   AcaDisciplina @relation(fields: [disciplinaId], references: [id])
   modulo       AcaMatrizModulo? @relation(fields: [moduloId], references: [id], onDelete: SetNull)
+  capacidades  AcaCapacidade[]
   preRequisitos AcaPreRequisito[] @relation("AcaComponenteAlvo")
 
   @@unique([matrizId, disciplinaId])
