@@ -44,14 +44,45 @@ function rodape(doc: PDFKit.PDFDocument, dataExtenso: string, numero: string) {
 interface AlunoInfo { nome: string; ra: string | null; cpf: string | null }
 interface HistPeriodo { periodo: string; turma: string; disciplinas: Array<{ nome: string; cargaHoraria: number; media: number | null; freqPct: number | null; situacao: string }> }
 
-export function pdfHistorico(h: DocHeader, numero: string, dataExtenso: string, aluno: AlunoInfo, curso: string, periodos: HistPeriodo[], chTotal: number) {
+export function pdfHistorico(
+  h: DocHeader, numero: string, dataExtenso: string, aluno: AlunoInfo, curso: string,
+  periodos: HistPeriodo[], chTotal: number,
+  /** Educação profissional: exigidos no histórico pelo art. 49, §4º. */
+  extra?: {
+    perfilConclusao?: string | null
+    eixoTecnologico?: string | null
+    qualificacoes?: Array<{ numero: string; titulo: string | null; modulo: string | null; cargaHoraria: number | null; emitidoEm: string | Date }>
+  },
+) {
   return build((doc) => {
     cabecalho(doc, h, 'HISTÓRICO ESCOLAR', numero)
     doc.fontSize(10).font('Helvetica-Bold').text('Aluno: ', { continued: true }).font('Helvetica').text(aluno.nome)
     doc.font('Helvetica-Bold').text('RA: ', { continued: true }).font('Helvetica').text(aluno.ra || '—', { continued: true })
     doc.font('Helvetica-Bold').text('     CPF: ', { continued: true }).font('Helvetica').text(aluno.cpf || '—')
     doc.font('Helvetica-Bold').text('Curso: ', { continued: true }).font('Helvetica').text(curso)
+    if (extra?.eixoTecnologico) {
+      doc.font('Helvetica-Bold').text('Eixo tecnológico: ', { continued: true }).font('Helvetica').text(extra.eixoTecnologico)
+    }
+    if (extra?.perfilConclusao) {
+      doc.moveDown(0.35)
+      doc.font('Helvetica-Bold').fontSize(9.5).text('Perfil profissional de conclusão')
+      doc.font('Helvetica').fontSize(9).fillColor('#374151')
+        .text(extra.perfilConclusao, { align: 'justify', lineGap: 1.5 }).fillColor('#000')
+      doc.fontSize(10)
+    }
     doc.moveDown(0.6)
+
+    if ((extra?.qualificacoes?.length ?? 0) > 0) {
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a4d8f').text('Qualificações profissionais certificadas').fillColor('#000')
+      doc.font('Helvetica').fontSize(9)
+      for (const q of extra!.qualificacoes!) {
+        const quando = new Date(q.emitidoEm).toLocaleDateString('pt-BR')
+        doc.text(`• ${q.titulo ?? '—'}${q.modulo ? ` (${q.modulo})` : ''}`
+          + `${q.cargaHoraria ? ` — ${q.cargaHoraria}h` : ''} — certificado ${q.numero}, ${quando}`)
+      }
+      doc.moveDown(0.6)
+      doc.fontSize(10)
+    }
 
     for (const p of periodos) {
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a4d8f').text(`${p.periodo} — ${p.turma}`).fillColor('#000')
@@ -171,6 +202,99 @@ export function pdfInformeIR(
       .text('Os valores acima consideram a data do efetivo pagamento (regime de caixa), conforme a legislação do imposto de renda.', { align: 'justify' })
       .fillColor('#000')
     rodape(doc, dataExtenso, numero)
+  })
+}
+
+/**
+ * Certificado de qualificação profissional técnica (Res. CNE/CP 1/2021, art. 49
+ * §2º). Em paisagem, como o certificado de conclusão — é documento que o aluno
+ * leva ao empregador, não um comprovante de secretaria.
+ *
+ * O título e a carga horária são obrigatórios no corpo do documento: é o que a
+ * norma manda explicitar.
+ */
+export function pdfCertificadoQualificacao(
+  h: DocHeader, numero: string, dataExtenso: string,
+  d: {
+    aluno: AlunoInfo
+    curso: string
+    eixoTecnologico?: string | null
+    perfilConclusao?: string | null
+    modulo: { numero: number; nome: string; titulo: string; codigoCbo?: string | null; cargaHoraria: number }
+    baseLegal?: string
+  },
+) {
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 46 })
+    const chunks: Buffer[] = []
+    doc.on('data', (c) => chunks.push(c as Buffer))
+    doc.on('end', () => resolve(Buffer.concat(chunks)))
+    doc.on('error', reject)
+
+    const L = doc.page.width - 92
+
+    // Moldura
+    doc.lineWidth(2.2).strokeColor('#1d4ed8')
+      .rect(28, 28, doc.page.width - 56, doc.page.height - 56).stroke()
+    doc.lineWidth(0.6).strokeColor('#9db4e8')
+      .rect(36, 36, doc.page.width - 72, doc.page.height - 72).stroke()
+
+    doc.fillColor('#111827').font('Helvetica-Bold').fontSize(13)
+      .text(h.instituicao.toUpperCase(), 46, 58, { width: L, align: 'center' })
+    if (h.cnpj) {
+      doc.font('Helvetica').fontSize(8.5).fillColor('#6b7280')
+        .text(`CNPJ ${h.cnpj}`, 46, doc.y + 1, { width: L, align: 'center' })
+    }
+
+    doc.moveDown(1.1)
+    doc.font('Helvetica-Bold').fontSize(21).fillColor('#0f1729')
+      .text('CERTIFICADO DE QUALIFICAÇÃO PROFISSIONAL', 46, doc.y, { width: L, align: 'center' })
+
+    doc.moveDown(1.2)
+    doc.font('Helvetica').fontSize(11.5).fillColor('#1f2937')
+    const corpo = `Certificamos que ${d.aluno.nome}`
+      + `${d.aluno.cpf ? `, CPF ${d.aluno.cpf}` : ''}${d.aluno.ra ? `, RA ${d.aluno.ra}` : ''}, `
+      + `concluiu com aproveitamento o módulo ${d.modulo.numero} — ${d.modulo.nome} — do curso ${d.curso}, `
+      + `etapa com terminalidade que caracteriza qualificação profissional técnica, `
+      + `fazendo jus ao título abaixo.`
+    doc.text(corpo, 46, doc.y, { width: L, align: 'center', lineGap: 3 })
+
+    doc.moveDown(1.3)
+    doc.font('Helvetica-Bold').fontSize(18).fillColor('#1d4ed8')
+      .text(d.modulo.titulo.toUpperCase(), 46, doc.y, { width: L, align: 'center' })
+
+    doc.moveDown(0.7)
+    doc.font('Helvetica').fontSize(10.5).fillColor('#374151')
+    const linha = [
+      `Carga horária: ${d.modulo.cargaHoraria}h`,
+      d.eixoTecnologico ? `Eixo tecnológico: ${d.eixoTecnologico}` : null,
+      d.modulo.codigoCbo ? `CBO ${d.modulo.codigoCbo}` : null,
+    ].filter(Boolean).join('   ·   ')
+    doc.text(linha, 46, doc.y, { width: L, align: 'center' })
+
+    if (d.perfilConclusao) {
+      doc.moveDown(0.9)
+      doc.font('Helvetica-Oblique').fontSize(8.8).fillColor('#4b5563')
+        .text(d.perfilConclusao, 46 + L * 0.08, doc.y, { width: L * 0.84, align: 'center', lineGap: 1.5 })
+    }
+
+    // Rodapé: data, base legal e assinatura
+    const yBase = doc.page.height - 118
+    doc.font('Helvetica').fontSize(9.5).fillColor('#374151')
+      .text(dataExtenso, 46, yBase, { width: L, align: 'center' })
+
+    doc.moveTo(doc.page.width / 2 - 115, yBase + 44).lineTo(doc.page.width / 2 + 115, yBase + 44)
+      .strokeColor('#9ca3af').lineWidth(0.8).stroke()
+    doc.fontSize(9).fillColor('#4b5563')
+      .text('Direção / Secretaria Acadêmica', 46, yBase + 49, { width: L, align: 'center' })
+
+    doc.fontSize(7.8).fillColor('#6b7280')
+      .text(
+        `Documento nº ${numero}${d.baseLegal ? `   ·   ${d.baseLegal}` : ''}`,
+        46, doc.page.height - 56, { width: L, align: 'center' },
+      )
+
+    doc.end()
   })
 }
 

@@ -2895,6 +2895,10 @@ model Course {
   /// O SISTEC pergunta isto no cadastro: o curso de habilitação confere
   /// certificado de qualificação profissional em etapas intermediárias?
   certificacaoIntermediaria Boolean @default(false)
+  /// Perfil profissional de conclusão — o que o egresso está apto a fazer.
+  /// Res. CNE/CP 1/2021, art. 49, §4º: o histórico que acompanha certificados e
+  /// diplomas DEVE explicitá-lo. Sem isso o documento sai incompleto.
+  perfilConclusao String?         @db.Text
   active       Boolean           @default(true)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -5807,6 +5811,7 @@ model AcaMatriz {
   chTcc         Int?
   chComplementar Int?
   chExtensao    Int?
+  modulos       AcaMatrizModulo[]
   publicadaEm   DateTime?
   publicadaPor  Int?
   createdAt     DateTime @default(now())
@@ -5816,6 +5821,39 @@ model AcaMatriz {
   @@index([courseId])
   @@index([status])
   @@map("bychat_aca_matrizes")
+}
+
+/// Módulo (etapa) da matriz, com ou sem terminalidade.
+///
+/// Res. CNE/CP 1/2021, art. 15, II: a qualificação profissional técnica é
+/// "etapa com terminalidade de curso técnico". E o art. 49, §2º é imperativo:
+/// ao concluir a etapa com terminalidade que caracterize efetiva qualificação,
+/// "SERÁ conferido certificado de qualificação profissional" com o título e a
+/// carga horária. Não é faculdade da escola — é direito do aluno, mesmo que ele
+/// abandone o curso depois.
+model AcaMatrizModulo {
+  id         Int      @id @default(autoincrement())
+  matrizId   Int
+  /// Ordem do módulo no itinerário (1, 2, 3…).
+  numero     Int
+  nome       String   @db.VarChar(191)
+  /// Título da qualificação conferida ao concluir. NULO = módulo sem
+  /// terminalidade: organiza a grade mas não gera certificado.
+  tituloQualificacao String? @db.VarChar(191)
+  /// Ocupação correspondente na CBO, quando o CNCT indicar.
+  codigoCbo  String?  @db.VarChar(20)
+  /// CH declarada da etapa; quando nula, soma-se a dos componentes.
+  cargaHoraria Int?
+  descricao  String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  matriz     AcaMatriz @relation(fields: [matrizId], references: [id], onDelete: Cascade)
+  componentes AcaComponente[]
+
+  @@unique([matrizId, numero])
+  @@index([matrizId])
+  @@map("bychat_aca_matriz_modulos")
 }
 
 model AcaComponente {
@@ -5837,9 +5875,13 @@ model AcaComponente {
   grupoEletiva String?  @db.VarChar(60)
   /// Ordem sugerida dentro da fase (para o editor visual).
   ordem        Int?
+  /// Módulo/etapa a que o componente pertence (educação profissional). Nulo em
+  /// curso que não é organizado por módulos.
+  moduloId     Int?
 
   matriz       AcaMatriz     @relation(fields: [matrizId], references: [id], onDelete: Cascade)
   disciplina   AcaDisciplina @relation(fields: [disciplinaId], references: [id])
+  modulo       AcaMatrizModulo? @relation(fields: [moduloId], references: [id], onDelete: SetNull)
   preRequisitos AcaPreRequisito[] @relation("AcaComponenteAlvo")
 
   @@unique([matrizId, disciplinaId])

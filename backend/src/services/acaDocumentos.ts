@@ -21,11 +21,36 @@ export async function montarHistorico(alunoId: number) {
     orderBy: { dataMatricula: 'asc' },
   })
   let curso = '—'
+  // Res. CNE/CP 1/2021, art. 49, §4º: o histórico que acompanha certificados e
+  // diplomas DEVE explicitar o perfil profissional de conclusão. Sem isso o
+  // documento sai incompleto para a educação profissional.
+  let perfilConclusao: string | null = null
+  let eixoTecnologico: string | null = null
   const offId = matriculas.find((m) => m.turma.courseOfferingId)?.turma.courseOfferingId
   if (offId) {
     const off = await prisma.courseOffering.findUnique({ where: { id: offId }, select: { courseId: true } })
-    if (off) { const c = await prisma.course.findUnique({ where: { id: off.courseId }, select: { nome: true } }); if (c) curso = c.nome }
+    if (off) {
+      const c = await prisma.course.findUnique({
+        where: { id: off.courseId },
+        select: { nome: true, perfilConclusao: true, eixoTecnologico: true },
+      })
+      if (c) { curso = c.nome; perfilConclusao = c.perfilConclusao; eixoTecnologico = c.eixoTecnologico }
+    }
   }
+
+  // Qualificações intermediárias já certificadas entram no histórico: são parte
+  // do itinerário do aluno, não documento solto.
+  const qualificacoes = (await prisma.acaDocumento.findMany({
+    where: { alunoId, tipo: 'CERTIFICADO_QUALIFICACAO' },
+    orderBy: { emitidoEm: 'asc' },
+    select: { numero: true, emitidoEm: true, dadosJson: true },
+  })).map((d) => {
+    const m = (d.dadosJson as any)?.modulo ?? {}
+    return {
+      numero: d.numero, emitidoEm: d.emitidoEm,
+      titulo: m.titulo ?? null, modulo: m.nome ?? null, cargaHoraria: m.cargaHoraria ?? null,
+    }
+  })
   const periodos: any[] = []
   let chTotal = 0
   for (const m of matriculas) {
@@ -61,7 +86,14 @@ export async function montarHistorico(alunoId: number) {
     })
     periodos.push({ periodo: 'Aproveitamento', turma: 'Aproveitamento de estudos', disciplinas })
   }
-  return { aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf }, curso, periodos, chTotal }
+  return {
+    aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf },
+    curso, periodos, chTotal,
+    // Educação profissional (art. 49, §4º): campos nulos em curso de graduação,
+    // onde não se aplicam.
+    perfilConclusao, eixoTecnologico,
+    ...(qualificacoes.length > 0 ? { qualificacoes } : {}),
+  }
 }
 
 export async function frequenciaGlobal(alunoId: number): Promise<number | null> {
@@ -80,7 +112,7 @@ async function cursoETurmaAtual(alunoId: number) {
 }
 
 export type DocTipo = 'HISTORICO' | 'DECLARACAO_MATRICULA' | 'DECLARACAO_FREQUENCIA' | 'ATA_RESULTADOS'
-  | 'QUITACAO_ANUAL' | 'CARTEIRINHA' | 'INFORME_IR'
+  | 'QUITACAO_ANUAL' | 'CARTEIRINHA' | 'INFORME_IR' | 'CERTIFICADO_QUALIFICACAO'
 
 /**
  * Declaração de quitação anual de débito (Lei 12.007/09).

@@ -2,7 +2,7 @@
 // Renderização compartilhada dos PDFs de documentos (admin + portal do aluno).
 
 import { prisma } from '../lib/prisma.js'
-import { pdfHistorico, pdfDeclaracao, pdfAta, pdfRecibo, pdfCertificado, pdfQuitacaoAnual, pdfCarteirinha, pdfInformeIR, type DocHeader } from './acaPdf.js'
+import { pdfHistorico, pdfDeclaracao, pdfAta, pdfRecibo, pdfCertificado, pdfQuitacaoAnual, pdfCarteirinha, pdfInformeIR, pdfCertificadoQualificacao, type DocHeader } from './acaPdf.js'
 
 export async function getDocHeader(): Promise<DocHeader> {
   const rows = await prisma.setting.findMany({ where: { key: { in: ['legal.company_name', 'legal.cnpj', 'business.company_name'] } } })
@@ -22,7 +22,13 @@ export async function renderDocumentoPdf(doc: { numero: string; tipo: string; da
   const h = await getDocHeader()
   const data = (doc.dadosJson as any) || {}
   const quando = dataExtenso(new Date(doc.emitidoEm))
-  if (doc.tipo === 'HISTORICO') return pdfHistorico(h, doc.numero, quando, data.aluno, data.curso, data.periodos, data.chTotal)
+  if (doc.tipo === 'HISTORICO') {
+    return pdfHistorico(h, doc.numero, quando, data.aluno, data.curso, data.periodos, data.chTotal, {
+      perfilConclusao: data.perfilConclusao ?? null,
+      eixoTecnologico: data.eixoTecnologico ?? null,
+      qualificacoes: data.qualificacoes ?? [],
+    })
+  }
   if (doc.tipo === 'DECLARACAO_MATRICULA') {
     const corpo = `Declaramos para os devidos fins que ${data.aluno?.nome} (RA ${data.aluno?.ra || '—'}, CPF ${data.aluno?.cpf || '—'}) encontra-se regularmente matriculado(a) no curso ${data.curso}, turma ${data.turma}, nesta instituição de ensino.`
     return pdfDeclaracao(h, doc.numero, quando, 'DECLARAÇÃO DE MATRÍCULA', corpo)
@@ -38,5 +44,6 @@ export async function renderDocumentoPdf(doc: { numero: string; tipo: string; da
   if (doc.tipo === 'QUITACAO_ANUAL') return pdfQuitacaoAnual(h, doc.numero, quando, data)
   if (doc.tipo === 'CARTEIRINHA') return pdfCarteirinha(h, doc.numero, quando, data)
   if (doc.tipo === 'INFORME_IR') return pdfInformeIR(h, doc.numero, quando, data)
+  if (doc.tipo === 'CERTIFICADO_QUALIFICACAO') return pdfCertificadoQualificacao(h, doc.numero, quando, data)
   return null
 }
