@@ -178,6 +178,78 @@ Regional decide. Então o histórico pode continuar tendo número; o que muda é
 
 ---
 
+## 3b. Formas de ingresso e a especialização (lato sensu)
+
+A INEPROTEC oferta **técnico, pós e especialização** — três réguas diferentes.
+
+### Especialização entra no Censo da Educação Superior
+
+Res. CNE/CES nº 1/2018, **art. 6º**: "Os cursos de especialização **serão
+registrados no Censo da Educação Superior** e no Cadastro de Instituições e
+Cursos do Sistema e-MEC". Logo, as formas de ingresso do Censo se aplicam à pós —
+não só à graduação.
+
+### As 10 formas de ingresso do Censo (manual 2023, módulo Aluno)
+
+| Forma | Quando |
+|---|---|
+| Vestibular | provas em processo único sobre o ensino médio |
+| Enem | nota do exame |
+| Avaliação seriada | avaliado em etapas ao longo do ensino médio |
+| **Seleção simplificada** | processos distintos dos três acima, para **vagas novas**. "Pode ocorrer por meio de **provas, entrevistas, análise de currículo, histórico escolar ou de diploma de nível superior**, entre outros" |
+| Transferência ex-officio | servidor público federal removido (aceitação obrigatória); **refugiados** também |
+| Convênio PEC-G | acordo internacional; quem muda de curso **mantém** PEC-G |
+| Decisão judicial | vínculo por ordem judicial |
+| Egresso de BI/LI | só universidade federal com curso interdisciplinar |
+| Vagas de programas especiais | — |
+| Vagas remanescentes | vagas de anos anteriores nunca ocupadas ou liberadas; aluno que **já ingressou antes** e faz novo ingresso |
+
+**"Seleção simplificada" é o guarda-chuva de pós, especialização e técnico sem
+prova.** Entrevista, análise de currículo, histórico ou diploma — tudo cai ali. A
+lista do Censo é menor do que parece: o que varia é o **critério de
+classificação**, não a forma declarada.
+
+Duas correções de premissa:
+
+- **Transferência interna NÃO é forma de ingresso.** É *situação de vínculo* no
+  curso de origem + campo **"Curso origem"** no curso de destino, para acompanhar
+  a trajetória. Temos a situação (`TRANSFERIDO_INTERNO`); **não temos o campo de
+  curso de origem**, que o Censo exige.
+- **"Portador de diploma" não existe como forma própria** — é seleção
+  simplificada por análise de diploma de nível superior.
+
+### O que a especialização exige e é fácil deixar passar
+
+Res. CNE/CES 1/2018:
+
+- **Art. 7º, I** — matriz com **carga mínima de 360 horas**.
+- **Art. 8º** — o certificado deve vir **acompanhado do histórico escolar**, e nele
+  devem constar **obrigatória e explicitamente**:
+  - I — **ato legal de credenciamento da instituição**;
+  - II — identificação do curso, **período de realização, duração total** e carga
+    horária de **cada** atividade acadêmica;
+  - III — **elenco do corpo docente que efetivamente ministrou o curso, com a
+    respectiva titulação**.
+- **Art. 8º, §1º** — os certificados devem ser **registrados** pela instituição que
+  efetivamente ministrou; **§2º** — em convênio, registrados por **ambas**, com
+  referência ao instrumento celebrado.
+- **Art. 9º** — corpo docente com no mínimo **30% de portadores de título stricto
+  sensu**.
+- **Art. 10** — quem não concluiu dissertação/tese pode receber certificado de
+  especialização, se previsto.
+
+O item III do art. 8º é o mais esquecido: o histórico da especialização precisa
+listar **quem deu aula e com que titulação**. Nosso histórico não tem isso.
+
+### Técnico
+
+O SISTEC **não pede forma de ingresso** no cadastro do curso (pede eixo, tipo de
+oferta — concomitante/subsequente — e certificação intermediária). Para o técnico,
+a forma de ingresso é necessidade interna da escola: ordem de inscrição, análise
+de histórico, sorteio ou entrevista, sem prova.
+
+---
+
 ## 4. Onde o nosso ERP não atende
 
 | # | Exigência | Situação hoje |
@@ -195,6 +267,13 @@ Regional decide. Então o histórico pode continuar tendo número; o que muda é
 | 11 | Curso com "oferece certificação intermediária" | ausente |
 | 12 | Alerta do prazo dia 25 | ausente |
 | 13 | Ciclo de matrícula (agrupa por período, não turma) | exportação é por turma |
+| 14 | Forma de ingresso com regra | `AcaVinculo.formaIngresso` é **texto livre**, só exibido; valores sugeridos no schema (`portador_diploma`, `reingresso`, `seletivo_continuo`) **não existem** no Censo |
+| 15 | Classificação sem prova | o seletivo classifica **sempre** por média ponderada de notas; ENEM, análise de currículo, histórico, ordem de inscrição e sorteio não existem |
+| 16 | Curso de origem na transferência | ausente — exigido pelo Censo no curso de destino |
+| 17 | Histórico da especialização com corpo docente e titulação (art. 8º, III) | ausente |
+| 18 | Ato de credenciamento no histórico da especialização (art. 8º, I) | temos `AcaAtoAutorizativo`, mas o histórico não o imprime |
+| 19 | Validação de 360h (art. 7º) e de 30% stricto sensu (art. 9º) | ausentes |
+| 20 | Registro do certificado em convênio pelas duas instituições (art. 8º, §2º) | ausente |
 
 Observação sobre o item 2: o SISTEC não aceitar "reprovado" para técnico não é
 detalhe de integração — significa que o **modelo de progressão do técnico é
