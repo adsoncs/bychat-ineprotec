@@ -39,21 +39,36 @@ export function ehStrictoSensu(titulacao?: string | null): boolean {
   return TITULOS_STRICTO.some((s) => t.includes(s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')))
 }
 
+/** Graus que são de nível médio ou livre — nunca lato sensu, por definição. */
+const GRAUS_NAO_SUPERIORES = ['tecnico', 'especializacao_tecnica', 'livre', 'qualificacao', 'fic']
+
 /**
- * Reconhece o curso como lato sensu. Sem enum dedicado, usa os sinais que
- * existem: o nível de ensino e o grau. Retorna false quando não há evidência —
- * exibir exigência de especialização num curso técnico seria pior que omitir.
+ * Reconhece o curso como pós-graduação lato sensu. Sem enum dedicado, usa os
+ * sinais que existem: o grau e o nível de ensino.
+ *
+ * A armadilha é "especialização TÉCNICA": ela existe e NÃO é lato sensu — é
+ * educação profissional técnica de nível médio (Res. CNE/CP 1/2021, art. 15,
+ * III), respondendo ao SISTEC, não ao Censo da Educação Superior. Casar só a
+ * palavra "especialização" faria o ERP exigir 360h e 30% de stricto sensu de um
+ * curso de nível médio, que não está sujeito a nenhum dos dois.
+ *
+ * Retorna false quando não há evidência — exibir exigência de especialização num
+ * curso técnico seria pior que omitir.
  */
 export function ehLatoSensu(curso: {
   grau?: string | null
   level?: { nome?: string | null; codigo?: string | null } | null
 }): boolean {
-  const alvo = [curso.grau, curso.level?.nome, curso.level?.codigo]
-    .filter(Boolean)
-    .join(' ')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+  const semAcento = (v: string) => v.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+  // O grau é declaração explícita e vence a heurística de texto.
+  const grau = (curso.grau ?? '').trim().toLowerCase()
+  if (GRAUS_NAO_SUPERIORES.includes(grau)) return false
+  if (grau === 'pos_lato') return true
+
+  const alvo = semAcento([curso.grau, curso.level?.nome, curso.level?.codigo].filter(Boolean).join(' '))
+  // "Especialização Técnica" e afins: nível médio, fora do escopo desta norma.
+  if (/TECNIC/.test(alvo)) return false
   return /ESPECIALIZACAO|LATO.?SENSU|POS.?GRADUACAO|MBA/.test(alvo)
 }
 
