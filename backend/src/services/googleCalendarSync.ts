@@ -52,9 +52,8 @@ export function invalidateCalendarCache() {
 
 // Escolhe integrações relevantes para esta activity. A agenda da EMPRESA (COMPANY)
 // é a principal — recebe TODOS os agendamentos (visão central). A do OPERADOR dono
-// é a secundária/backup. Quando o operador tem conta conectada, grava nas DUAS;
-// senão, só na empresa. Sem empresa cadastrada, cai no comportamento antigo
-// (só operador). O loop em syncActivityToCalendar já grava em todas as retornadas.
+// entra só como fallback, quando a empresa não cobre o tipo da atividade.
+// O loop em syncActivityToCalendar grava em todas as retornadas.
 function chooseIntegrationsForUser(all: CachedCalInt[], userId: number | null): CachedCalInt[] {
   const company = all.filter(i => i.connectionKind === 'COMPANY')
   if (userId) {
@@ -89,12 +88,23 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
       select: { id: true, nome: true, empresa: true, email: true, whatsapp: true },
     })
 
-    // Agendamentos (bookings): por configuração, a reunião é criada na agenda CENTRAL
-    // (ex.: contato@agenciabeyond.com.br) com o operador dono como convidado — em vez de
-    // cair só no calendário do dono. Setting: scheduling.central_calendar_email.
-    let targetIntegrations = matched
-    const extraAttendees: string[] = []
+    // UM agendamento = UM evento. A agenda da EMPRESA é a oficial: quando ela cobre o
+    // tipo da atividade, o evento nasce só nela e o operador dono entra como CONVIDADO
+    // (o convite já faz o evento aparecer na agenda pessoal dele, com o mesmo Meet).
+    // Antes gravávamos na empresa E na agenda do operador → dois eventos com links de
+    // Meet diferentes: um com o cliente (empresa) e outro só com o operador.
+    // Setting scheduling.central_calendar_email refina qual agenda central usar em bookings.
+    const companyMatched = matched.filter(i => i.connectionKind === 'COMPANY')
+    let targetIntegrations = companyMatched.length > 0 ? companyMatched : matched
     const meta0 = (activity.metadata as any) || {}
+
+    // E-mail do operador dono da atividade — convidado sempre que o evento é criado
+    // numa agenda que não é a dele (empresa/central).
+    let ownerEmail = ''
+    if (activity.userId) {
+      const owner = await prisma.user.findUnique({ where: { id: activity.userId }, select: { email: true } })
+      ownerEmail = (owner?.email || '').trim().toLowerCase()
+    }
     // Aviso ao LEAD (convite no Google + WhatsApp) é OPT-IN por atividade: só
     // dispara se o operador marcou "avisar o lead" (metadata.notifyLead) ao criar.
     // Bookings (lead pediu via /agendar/chatbot) sempre convidam o lead. Sem isso,
@@ -107,13 +117,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
       const centralEmail = setting ? String(setting.value).replace(/"/g, '').trim().toLowerCase() : ''
       if (centralEmail) {
         const central = integrations.find((i) => i.calendarId.toLowerCase() === centralEmail && i.activityTypes.includes(activity.type))
-        if (central) {
-          targetIntegrations = [central]
-          if (activity.userId) {
-            const owner = await prisma.user.findUnique({ where: { id: activity.userId }, select: { email: true } })
-            if (owner?.email) extraAttendees.push(owner.email)
-          }
-        }
+        if (central) targetIntegrations = [central]
       }
     }
 
@@ -127,9 +131,16 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
         const start = activity.scheduledAt
         const end = new Date(start.getTime() + 30 * 60_000)
 
+        // Convidados: o LEAD só entra com opt-in (notifyLead) ou em booking; o
+        // operador dono entra SEMPRE que o evento não está na agenda dele — sem isso
+        // a reunião era criada na empresa sem quem a marcou.
         const attendees: string[] = []
-        if (lead?.email) attendees.push(lead.email)
-        for (const a of extraAttendees) if (!attendees.includes(a)) attendees.push(a)
+        if (integration.notifyLead && inviteLead && lead?.email) attendees.push(lead.email)
+        const isOwnCalendar = integration.connectionKind === 'OPERATOR'
+          && integration.connectionUserId === activity.userId
+        if (ownerEmail && !isOwnCalendar && integration.calendarId.toLowerCase() !== ownerEmail) {
+          attendees.push(ownerEmail)
+        }
 
         const description = [
           activity.description || '',
@@ -144,7 +155,7 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           description,
           start,
           end,
-          attendees: (integration.notifyLead && inviteLead) ? attendees : [],
+          attendees,
           addMeetLink: integration.autoMeetLink,
           extendedPrivate: { bychatSource: 'activity', bychatActivityId: String(activityId) },
         })
