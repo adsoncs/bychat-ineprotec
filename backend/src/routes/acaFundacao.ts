@@ -14,6 +14,10 @@ import * as Vinculo from '../services/acaVinculo.js'
 import * as Matriz from '../services/acaMatriz.js'
 import * as Integralizacao from '../services/acaIntegralizacao.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import {
+  FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, validarForma, avisosDeIngresso,
+  rotuloForma, rotuloCriterio,
+} from '../services/acaFormaIngresso.js'
 
 const num = (v: unknown): number | null => {
   const n = Number(v)
@@ -247,7 +251,26 @@ export async function acaFundacaoRoutes(app: FastifyInstance) {
       },
     })
     if (!vinculo) return reply.code(404).send({ error: 'Vínculo não encontrado' })
-    return { vinculo, proximasSituacoes: Vinculo.proximasSituacoes(vinculo.situacao) }
+    // Curso de origem só é lido aqui (relação não declarada de propósito: o
+    // Course vive no módulo educacional e não queremos acoplar os schemas).
+    const cursoOrigem = vinculo.cursoOrigemId
+      ? await prisma.course.findUnique({ where: { id: vinculo.cursoOrigemId }, select: { id: true, nome: true } })
+      : null
+    return {
+      vinculo,
+      proximasSituacoes: Vinculo.proximasSituacoes(vinculo.situacao),
+      cursoOrigem,
+      ingresso: {
+        formaRotulo: rotuloForma(vinculo.formaIngresso),
+        criterioRotulo: rotuloCriterio(vinculo.criterioClassificacao),
+        avisos: avisosDeIngresso({
+          formaIngresso: vinculo.formaIngresso,
+          criterioClassificacao: vinculo.criterioClassificacao,
+          cursoOrigemId: vinculo.cursoOrigemId,
+          amparoUrl: vinculo.amparoUrl,
+        }),
+      },
+    }
   })
 
   app.post('/api/admin/aca/vinculos', { preHandler: authMiddleware }, async (req, reply) => {
@@ -260,12 +283,78 @@ export async function acaFundacaoRoutes(app: FastifyInstance) {
         alunoId, courseId,
         matrizId: num(b.matrizId), unidadeId: num(b.unidadeId),
         ra: b.ra ?? null, formaIngresso: b.formaIngresso ?? null, turno: b.turno ?? null,
+        criterioClassificacao: b.criterioClassificacao ?? null,
+        entryModeId: num(b.entryModeId), cursoOrigemId: num(b.cursoOrigemId),
+        amparoUrl: b.amparoUrl ?? null,
         dataIngresso: b.dataIngresso ? new Date(b.dataIngresso) : null,
         userId: actor.actorId ?? null, userName: actor.actorName ?? null,
       })
       return { vinculo }
     } catch (e: any) {
       return reply.code(400).send({ error: e?.message || 'Falha ao criar vínculo' })
+    }
+  })
+
+  /**
+   * Catálogo das formas de ingresso do Censo e dos critérios de classificação.
+   * A tela consome daqui em vez de repetir a lista — a lista é normativa e não
+   * pode divergir entre backend e frontend.
+   */
+  app.get('/api/admin/aca/formas-ingresso', { preHandler: authMiddleware }, async () => ({
+    formas: FORMAS_INGRESSO,
+    criterios: CRITERIOS_CLASSIFICACAO,
+  }))
+
+  /**
+   * Corrige os dados de ingresso de um vínculo existente. Não toca em `situacao`
+   * — essa só muda por movimentação (RN-006).
+   */
+  app.patch('/api/admin/aca/vinculos/:id/ingresso', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = num((req.params as any).id)
+    const b = (req.body as any) || {}
+    if (!id) return reply.code(400).send({ error: 'id inválido' })
+    const atual = await prisma.acaVinculo.findUnique({
+      where: { id },
+      select: { formaIngresso: true, criterioClassificacao: true, cursoOrigemId: true, courseId: true },
+    })
+    if (!atual) return reply.code(404).send({ error: 'Vínculo não encontrado' })
+
+    const data: any = {}
+    if (b.formaIngresso !== undefined) {
+      try {
+        data.formaIngresso = b.formaIngresso ? validarForma(b.formaIngresso) : null
+      } catch (e: any) {
+        return reply.code(400).send({ error: e?.message })
+      }
+    }
+    if (b.criterioClassificacao !== undefined) data.criterioClassificacao = b.criterioClassificacao || null
+    if (b.amparoUrl !== undefined) data.amparoUrl = b.amparoUrl || null
+    if (b.cursoOrigemId !== undefined) {
+      const origem = num(b.cursoOrigemId)
+      // Curso de origem igual ao de destino não descreve transferência nenhuma.
+      if (origem && origem === atual.courseId) {
+        return reply.code(400).send({ error: 'O curso de origem não pode ser o mesmo curso do vínculo.' })
+      }
+      data.cursoOrigemId = origem
+    }
+    if (!Object.keys(data).length) return reply.code(400).send({ error: 'Nada a alterar.' })
+
+    const vinculo = await prisma.acaVinculo.update({ where: { id }, data })
+    const actor = auditActor(req)
+    // Forma de ingresso vai para o Censo — alteração precisa de trilha.
+    void logUserAudit({
+      action: 'aca.vinculo.ingresso', targetType: 'aca_vinculo', targetUserId: null,
+      targetLabel: `Vínculo #${id} · ingresso`,
+      changes: { de: atual, para: data }, ...actor,
+    })
+    return {
+      vinculo,
+      avisos: avisosDeIngresso({
+        formaIngresso: vinculo.formaIngresso,
+        criterioClassificacao: vinculo.criterioClassificacao,
+        cursoOrigemId: vinculo.cursoOrigemId,
+        amparoUrl: vinculo.amparoUrl,
+      }),
     }
   })
 

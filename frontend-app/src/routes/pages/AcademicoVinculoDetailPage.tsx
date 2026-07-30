@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, Repeat, Undo2, MessageCircle, ListChecks } from 'lucide-preact'
+import { ChevronLeft, Repeat, Undo2, MessageCircle, ListChecks, Landmark, AlertTriangle } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -86,7 +86,42 @@ export function AcademicoVinculoDetailPage({ params }: { params: { id: string } 
           <Campo rotulo="CPF" valor={v.aluno?.cpf ?? '—'} />
           <Campo rotulo="Curso" valor={`#${v.courseId}`} />
           <Campo rotulo="Matriz" valor={v.matrizId ? `#${v.matrizId}` : 'não vinculada'} />
-          <Campo rotulo="Forma de ingresso" valor={v.formaIngresso ?? '—'} />
+          {/* Forma de ingresso é dado do Censo: mostra o rótulo oficial, não o
+              código cru, e leva para a tela onde a conformidade é resolvida. */}
+          <div>
+            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Forma de ingresso</div>
+            <div class="text-sm text-fg mt-0.5">{data.ingresso?.formaRotulo ?? '—'}</div>
+            {v.criterioClassificacao && (
+              <div class="text-[0.6875rem] text-fg-muted mt-0.5">
+                Classificação: {data.ingresso?.criterioRotulo}
+              </div>
+            )}
+            {data.cursoOrigem && (
+              <div class="text-[0.6875rem] text-fg-muted mt-0.5">
+                Origem: {data.cursoOrigem.nome}
+              </div>
+            )}
+            <button
+              type="button"
+              class="text-[0.6875rem] text-accent hover:underline mt-1 inline-flex items-center gap-1"
+              onClick={() => navigate(`/aca/vinculos/${v.id}/ingresso`)}
+            >
+              <Landmark size={11} /> {v.formaIngresso ? 'Editar dados de ingresso' : 'Informar forma de ingresso'}
+            </button>
+          </div>
+          {(data.ingresso?.avisos.length ?? 0) > 0 && (
+            <div class="rounded-md border border-warning/40 bg-warning/5 p-2">
+              <div class="text-[0.6875rem] font-semibold text-fg flex items-center gap-1.5">
+                <AlertTriangle size={11} class="text-warning" />
+                Conformidade do ingresso
+              </div>
+              <ul class="mt-1 space-y-1">
+                {data.ingresso!.avisos.map((a) => (
+                  <li key={a} class="text-[0.625rem] text-fg-muted leading-relaxed">· {a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <Campo rotulo="Ingresso" valor={v.dataIngresso ? new Date(v.dataIngresso).toLocaleDateString('pt-BR') : '—'} />
           {v.dataConclusao && <Campo rotulo="Conclusão" valor={new Date(v.dataConclusao).toLocaleDateString('pt-BR')} />}
           {v.aluno?.lead?.whatsapp && (

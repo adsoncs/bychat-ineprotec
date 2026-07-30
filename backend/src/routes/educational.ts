@@ -18,6 +18,7 @@ import {
 import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity, type TrashEntityType } from '../services/trash.js'
 import { getOfferingSlotCounts } from '../services/educationalSlots.js'
+import { FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, acharForma, acharCriterio } from '../services/acaFormaIngresso.js'
 
 // Conta dependências de uma entidade educacional. Retorna lista de
 // { label, count } com count > 0. Vazia = pode deletar.
@@ -757,12 +758,22 @@ export async function educationalRoutes(app: FastifyInstance) {
         _count: { select: { selectionProcesses: true } },
       },
     })
-    return { modes }
+    // Catálogo do Censo vai junto: a tela precisa dele para os selects e para
+    // apontar quais modos ainda não declararam a forma oficial.
+    return {
+      modes,
+      catalogoCenso: { formas: FORMAS_INGRESSO, criterios: CRITERIOS_CLASSIFICACAO },
+      semFormaDeclarada: modes.filter((m) => !m.censoForma).map((m) => ({ id: m.id, name: m.name })),
+    }
   })
 
   // CRUD do EntryMode em si — permite criar Mestrado, Vestibular EaD, etc.
   // Validações: code é slug-like e único; evaluationType vem de allow-list.
   const ALLOWED_EVAL_TYPES = ['none', 'docs', 'enem', 'exam_online', 'exam_presencial']
+  // Forma do Censo e critério vêm de lista fechada (acaFormaIngresso). Valor
+  // fora da lista virava dado que o INEP recusa na importação — grava nulo.
+  const _censoForma = (v: unknown): string | null => (acharForma(v as string)?.codigo ?? null)
+  const _criterio = (v: unknown): string | null => (acharCriterio(v as string)?.codigo ?? null)
 
   function _parseFormExtras(input: any): { ok: true; value: any } | { ok: false; error: string } {
     if (input === undefined) return { ok: true, value: undefined }
@@ -799,6 +810,8 @@ export async function educationalRoutes(app: FastifyInstance) {
           description: body?.description || null,
           evaluationType,
           requiresClassification: !!body?.requiresClassification,
+          censoForma: _censoForma(body?.censoForma),
+          criterioClassificacao: _criterio(body?.criterioClassificacao),
           defaultFormExtras: extras.value === undefined ? null : extras.value,
           ordem: body?.ordem != null ? parseInt(body.ordem) : 0,
           active: body?.active !== false,
@@ -832,6 +845,8 @@ export async function educationalRoutes(app: FastifyInstance) {
       data.evaluationType = body.evaluationType
     }
     if (body.requiresClassification !== undefined) data.requiresClassification = !!body.requiresClassification
+    if (body.censoForma !== undefined) data.censoForma = _censoForma(body.censoForma)
+    if (body.criterioClassificacao !== undefined) data.criterioClassificacao = _criterio(body.criterioClassificacao)
     if (body.defaultFormExtras !== undefined) {
       const extras = _parseFormExtras(body.defaultFormExtras)
       if (!extras.ok) return reply.code(400).send({ error: extras.error })

@@ -414,6 +414,9 @@ const AcaVinculoDetail = lazy(() =>
 const AcaVinculoMover = lazy(() =>
   import('./pages/AcademicoVinculoMoverPage').then((m) => ({ default: m.AcademicoVinculoMoverPage })),
 )
+const AcaVinculoIngresso = lazy(() =>
+  import('./pages/AcademicoVinculoIngressoPage').then((m) => ({ default: m.AcademicoVinculoIngressoPage })),
+)
 const AcaIntegralizacao = lazy(() =>
   import('./pages/AcademicoIntegralizacaoPage').then((m) => ({ default: m.AcademicoIntegralizacaoPage })),
 )
@@ -609,6 +612,11 @@ export function Router() {
           <Route path="/aca/vinculos/:id/integralizacao">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><AcaIntegralizacao params={params} /></ModuleGate>
+            )}
+          </Route>
+          <Route path="/aca/vinculos/:id/ingresso">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="educacional"><AcaVinculoIngresso params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/aca/vinculos/:id/mover">

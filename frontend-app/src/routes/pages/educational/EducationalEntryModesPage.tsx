@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3 } from 'lucide-preact'
+import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3, Landmark, AlertTriangle } from 'lucide-preact'
 import {
   useEntryModes,
   useCreateEntryMode,
@@ -9,6 +9,8 @@ import {
   type EntryMode,
   type EntryModeInput,
   type EvaluationType,
+  type FormaIngressoCatalogo,
+  type CriterioCatalogo,
 } from '@/hooks/useEducational'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -44,6 +46,15 @@ export function EducationalEntryModesPage() {
   const [search, setSearch] = useState('')
 
   const modes = useMemo(() => data?.modes ?? [], [data])
+  const catalogo = data?.catalogoCenso
+  // Modos sem forma declarada geram vínculo com forma deduzida — e a dedução
+  // pode não bater com o que a instituição informa ao INEP.
+  const semForma = useMemo(
+    () => modes.filter((m) => m.active !== false && !m.censoForma),
+    [modes],
+  )
+  const rotuloDaForma = (codigo: string | null) =>
+    (codigo ? catalogo?.formas.find((f) => f.codigo === codigo)?.rotulo ?? codigo : null)
 
   const totals = useMemo(() => ({
     active: modes.filter((m) => m.active !== false).length,
@@ -92,6 +103,27 @@ export function EducationalEntryModesPage() {
         ]}
       />
 
+      {semForma.length > 0 && (
+        <Card class="border-warning/40 bg-warning/5">
+          <div class="flex items-start gap-2.5">
+            <AlertTriangle size={15} class="text-warning mt-0.5 shrink-0" />
+            <div class="text-xs text-fg-muted leading-relaxed">
+              <span class="font-semibold text-fg">
+                {semForma.length} modo(s) sem forma de ingresso declarada no Censo
+              </span>
+              {' — '}
+              {semForma.map((m) => m.name).join(', ')}.
+              <div class="mt-1">
+                O Censo da Educação Superior aceita 10 formas, e cursos de especialização também
+                são registrados nele (Res. CNE/CES 1/2018, art. 6º). Sem a declaração, o vínculo
+                do aluno recebe uma forma deduzida, que pode divergir do que a instituição
+                informa ao INEP.
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {isLoading && (
         <div class="grid gap-2 grid-cols-1 lg:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-24 w-full" />)}
@@ -134,6 +166,7 @@ export function EducationalEntryModesPage() {
               onReorder={handleReorder}
               renderItem={(m) => <EntryModeCard
                 mode={m}
+                formaRotulo={rotuloDaForma(m.censoForma)}
                 onEditDocs={() => setEditingDocsOfId(m.id)}
                 onEdit={() => setEditing(m)}
                 onDelete={() => setDeleting(m)}
@@ -157,6 +190,7 @@ export function EducationalEntryModesPage() {
 
       {(creating || editing) && (
         <EntryModeFormModal
+          {...(catalogo ? { catalogo } : {})}
           mode={editing}
           onClose={() => { setCreating(false); setEditing(null) }}
         />
@@ -197,9 +231,10 @@ export function EducationalEntryModesPage() {
 }
 
 function EntryModeCard({
-  mode, onEditDocs, onEdit, onDelete,
+  mode, onEditDocs, onEdit, onDelete, formaRotulo,
 }: {
   mode: EntryMode
+  formaRotulo?: string | null
   onEditDocs: () => void
   onEdit: () => void
   onDelete: () => void
@@ -236,6 +271,17 @@ function EntryModeCard({
           </div>
           <div class="text-xs text-fg-subtle mt-0.5">
             {evalLabel} · ordem {m.ordem}
+          </div>
+          <div class="mt-1">
+            {formaRotulo ? (
+              <span class="text-[0.625rem] font-medium px-2 py-0.5 rounded-full bg-success/15 text-success inline-flex items-center gap-1">
+                <Landmark size={10} /> Censo: {formaRotulo}
+              </span>
+            ) : (
+              <span class="text-[0.625rem] font-medium px-2 py-0.5 rounded-full bg-warning/15 text-warning inline-flex items-center gap-1">
+                <AlertTriangle size={10} /> Sem forma no Censo
+              </span>
+            )}
           </div>
           {m.description && (
             <div class="text-xs text-fg-muted truncate mt-0.5">{m.description}</div>
@@ -290,7 +336,11 @@ function EntryModeCard({
   )
 }
 
-function EntryModeFormModal({ mode, onClose }: { mode: EntryMode | null; onClose: () => void }) {
+function EntryModeFormModal({ mode, onClose, catalogo }: {
+  mode: EntryMode | null
+  onClose: () => void
+  catalogo?: { formas: FormaIngressoCatalogo[]; criterios: CriterioCatalogo[] }
+}) {
   const isEdit = !!mode
   const [code, setCode] = useState(mode?.code ?? '')
   const [codeTouched, setCodeTouched] = useState(!!mode?.code)
@@ -299,6 +349,8 @@ function EntryModeFormModal({ mode, onClose }: { mode: EntryMode | null; onClose
   const [description, setDescription] = useState(mode?.description ?? '')
   const [evaluationType, setEvaluationType] = useState<EvaluationType>(mode?.evaluationType ?? 'docs')
   const [requiresClassification, setRequiresClassification] = useState(mode?.requiresClassification ?? false)
+  const [censoForma, setCensoForma] = useState(mode?.censoForma ?? '')
+  const [criterio, setCriterio] = useState(mode?.criterioClassificacao ?? '')
   const [ordem, setOrdem] = useState(String(mode?.ordem ?? 0))
   const [active, setActive] = useState(mode?.active ?? true)
   const [extrasJson, setExtrasJson] = useState(
@@ -354,6 +406,8 @@ function EntryModeFormModal({ mode, onClose }: { mode: EntryMode | null; onClose
       description: description.trim() || null,
       evaluationType,
       requiresClassification,
+      censoForma: censoForma || null,
+      criterioClassificacao: criterio || null,
       defaultFormExtras: parsedExtras,
       ordem: parseInt(ordem) || 0,
       active,
@@ -370,6 +424,14 @@ function EntryModeFormModal({ mode, onClose }: { mode: EntryMode | null; onClose
       })
     }
   }
+
+  const formaSel = catalogo?.formas.find((f) => f.codigo === censoForma)
+  const criterioSel = catalogo?.criterios.find((c) => c.codigo === criterio)
+  // Quando a forma sugere critérios, mostra só os coerentes — evita gravar
+  // combinação que o painel depois marcaria como incoerente.
+  const criteriosVisiveis = formaSel?.criteriosSugeridos.length
+    ? (catalogo?.criterios ?? []).filter((c) => formaSel.criteriosSugeridos.includes(c.codigo))
+    : (catalogo?.criterios ?? [])
 
   return (
     <Modal
@@ -450,6 +512,71 @@ function EntryModeFormModal({ mode, onClose }: { mode: EntryMode | null; onClose
           />
           Classifica candidatos
         </label>
+
+        {/* Conformidade: o Censo aceita 10 formas de ingresso, e vários modos
+            comerciais podem declarar a mesma (SELECAO_SIMPLIFICADA cobre pós,
+            especialização e técnico sem prova). Res. CNE/CES 1/2018, art. 6º
+            coloca especialização no Censo da Educação Superior. */}
+        <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
+          <div class="flex items-center gap-2 text-xs font-semibold text-fg">
+            <Landmark size={13} class="text-accent" />
+            Conformidade — Censo da Educação Superior
+          </div>
+
+          <Select
+            label="Forma de ingresso declarada no Censo"
+            value={censoForma}
+            onChange={(e) => {
+              const v = (e.target as HTMLSelectElement).value
+              setCensoForma(v)
+              // Critério incoerente com a forma nova só confundiria: limpa.
+              const f = catalogo?.formas.find((x) => x.codigo === v)
+              if (f?.criteriosSugeridos.length && criterio && !f.criteriosSugeridos.includes(criterio)) setCriterio('')
+            }}
+          >
+            <option value="">— não declarada (modo interno) —</option>
+            {(catalogo?.formas ?? []).map((f) => (
+              <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>
+            ))}
+          </Select>
+          {formaSel && (
+            <p class="text-[0.6875rem] text-fg-muted leading-relaxed">{formaSel.descricao}</p>
+          )}
+          {formaSel?.restricao && (
+            <p class="text-[0.6875rem] text-warning flex items-start gap-1.5">
+              <AlertTriangle size={11} class="mt-0.5 shrink-0" />{formaSel.restricao}
+            </p>
+          )}
+          {!censoForma && (
+            <p class="text-[0.6875rem] text-warning flex items-start gap-1.5">
+              <AlertTriangle size={11} class="mt-0.5 shrink-0" />
+              Sem forma declarada, o vínculo criado por este modo não terá dado válido para o
+              Censo — o sistema tentará deduzir a forma, e a dedução pode estar errada.
+            </p>
+          )}
+
+          <Select
+            label="Critério de classificação"
+            value={criterio}
+            onChange={(e) => setCriterio((e.target as HTMLSelectElement).value)}
+          >
+            <option value="">— não definido —</option>
+            {criteriosVisiveis.map((c) => (
+              <option key={c.codigo} value={c.codigo}>{c.rotulo}</option>
+            ))}
+          </Select>
+          {criterioSel && (
+            <p class="text-[0.6875rem] text-fg-muted leading-relaxed">{criterioSel.descricao}</p>
+          )}
+          {criterioSel && criterioSel.avaliacaoEsperada !== evaluationType && (
+            <p class="text-[0.6875rem] text-warning flex items-start gap-1.5">
+              <AlertTriangle size={11} class="mt-0.5 shrink-0" />
+              Este critério normalmente usa avaliação
+              {' '}"{EVALUATION_TYPES.find((t) => t.value === criterioSel.avaliacaoEsperada)?.label}"
+              , e o modo está em "{EVALUATION_TYPES.find((t) => t.value === evaluationType)?.label}".
+            </p>
+          )}
+        </div>
 
         <div>
           <label class="block text-xs font-medium text-fg-muted mb-1">

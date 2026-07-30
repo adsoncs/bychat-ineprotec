@@ -3002,6 +3002,18 @@ model EntryMode {
 
   requiresClassification Boolean @default(false) // calcula nota/posição?
 
+  /// A qual das 10 formas de ingresso do Censo da Educação Superior este modo
+  /// corresponde. É N:1 de propósito: a escola cria quantos modos comerciais
+  /// quiser ("Análise curricular — Pós", "Ingresso por diploma"), e todos podem
+  /// declarar SELECAO_SIMPLIFICADA no Censo. Sem este campo o modo é interno e
+  /// não pode alimentar vínculo de curso superior/pós.
+  /// Res. CNE/CES 1/2018, art. 6º: especialização É registrada no Censo.
+  censoForma            String? @db.VarChar(30)
+  /// COMO o candidato é classificado. Independe do evaluationType: um modo
+  /// pode avaliar por documento (evaluationType=docs) e classificar por média
+  /// do histórico ou por ordem de inscrição. Ver services/acaFormaIngresso.ts.
+  criterioClassificacao String? @db.VarChar(30)
+
   // Campos extras que aparecem no form do portal quando esse modo é selecionado.
   // Formato: [{ name, label, type, required, ... }]
   defaultFormExtras Json?
@@ -5395,8 +5407,23 @@ model AcaVinculo {
   unidadeId      Int?     // campus ou polo — o regulatório exige o local de oferta
   ra             String?  @db.VarChar(30)
   situacao       AcaVinculoSituacao @default(PRE_MATRICULADO)
-  // vestibular | enem | transferencia_externa | portador_diploma | reingresso | seletivo_continuo
+  /// Código canônico de uma das 10 formas do Censo — NÃO é texto livre.
+  /// Lista fechada e validação em services/acaFormaIngresso.ts.
+  /// Atenção: "transferência interna" NÃO é forma de ingresso; é situação do
+  /// vínculo de origem + cursoOrigemId aqui no vínculo de destino.
   formaIngresso  String?  @db.VarChar(40)
+  /// Modo de ingresso (comercial) que originou o vínculo, quando veio de um
+  /// processo seletivo. Guarda a rastreabilidade que formaIngresso perde ao
+  /// agregar vários modos numa única forma do Censo.
+  entryModeId    Int?
+  /// Curso de origem na transferência interna — o Censo exige informá-lo no
+  /// curso de DESTINO. Também usado em reingresso e mudança de curso.
+  cursoOrigemId  Int?
+  /// Critério efetivamente aplicado na classificação deste ingresso.
+  criterioClassificacao String? @db.VarChar(30)
+  /// Documento que ampara o ingresso quando a forma não decorre de disputa por
+  /// vaga: ofício de remoção (ex-officio) ou decisão judicial.
+  amparoUrl      String?  @db.Text
   turno          AcaTurno?
   periodoAtual   Int?
   dataIngresso   DateTime?

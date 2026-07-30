@@ -11,6 +11,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import type { AcaVinculoSituacao } from '@prisma/client'
+import { validarForma, avisosDeIngresso, formaDoModo, criterioDoModo } from './acaFormaIngresso.js'
 
 /**
  * Transições permitidas (§19.1 do Documento Mestre). Qualquer par fora desta
@@ -167,11 +168,43 @@ export async function criar(dados: {
   unidadeId?: number | null
   ra?: string | null
   formaIngresso?: string | null
+  criterioClassificacao?: string | null
+  entryModeId?: number | null
+  cursoOrigemId?: number | null
+  amparoUrl?: string | null
   turno?: any
   dataIngresso?: Date | null
   userId?: number | null
   userName?: string | null
 }) {
+  // Forma de ingresso é dado do Censo: valida contra a lista oficial e recusa os
+  // valores que parecem certos e não existem lá (transferência interna, portador
+  // de diploma, reingresso). Ver services/acaFormaIngresso.ts.
+  const forma = dados.formaIngresso ? validarForma(dados.formaIngresso) : null
+
+  // Quando o vínculo nasce de um processo seletivo e a forma não foi informada,
+  // deriva do modo de ingresso — é o que evita 10 vínculos com forma nula, como
+  // estavam todos antes desta mudança.
+  let formaFinal: string | null = forma
+  let criterioFinal = dados.criterioClassificacao ?? null
+  if (dados.entryModeId) {
+    const modo = await prisma.entryMode.findUnique({
+      where: { id: dados.entryModeId },
+      select: { code: true, censoForma: true, criterioClassificacao: true, evaluationType: true, requiresClassification: true },
+    })
+    if (modo) {
+      if (!formaFinal) formaFinal = formaDoModo(modo).forma
+      if (!criterioFinal) criterioFinal = criterioDoModo(modo)
+    }
+  }
+
+  const avisos = avisosDeIngresso({
+    formaIngresso: formaFinal,
+    criterioClassificacao: criterioFinal,
+    cursoOrigemId: dados.cursoOrigemId ?? null,
+    amparoUrl: dados.amparoUrl ?? null,
+  })
+
   return prisma.$transaction(async (tx) => {
     const vinculo = await tx.acaVinculo.create({
       data: {
@@ -180,7 +213,11 @@ export async function criar(dados: {
         matrizId: dados.matrizId ?? null,
         unidadeId: dados.unidadeId ?? null,
         ra: dados.ra ?? null,
-        formaIngresso: dados.formaIngresso ?? null,
+        formaIngresso: formaFinal,
+        criterioClassificacao: criterioFinal,
+        entryModeId: dados.entryModeId ?? null,
+        cursoOrigemId: dados.cursoOrigemId ?? null,
+        amparoUrl: dados.amparoUrl ?? null,
         turno: dados.turno ?? null,
         dataIngresso: dados.dataIngresso ?? new Date(),
         situacao: 'PRE_MATRICULADO',
@@ -195,6 +232,9 @@ export async function criar(dados: {
         userName: dados.userName?.substring(0, 100) ?? null,
       },
     })
-    return vinculo
+    // Avisos acompanham o vínculo em vez de bloquear: incoerência de dado
+    // regulatório é corrigível pela secretaria, e travar a matrícula por isso
+    // deixaria o aluno sem vínculo por um campo de conformidade.
+    return Object.assign(vinculo, { avisos })
   })
 }

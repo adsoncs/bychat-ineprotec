@@ -74,7 +74,12 @@ export interface Vinculo {
   unidadeId?: number | null
   ra?: string | null
   situacao: VinculoSituacao
+  /** Código canônico de uma das 10 formas do Censo — lista fechada no backend. */
   formaIngresso?: string | null
+  criterioClassificacao?: string | null
+  entryModeId?: number | null
+  cursoOrigemId?: number | null
+  amparoUrl?: string | null
   turno?: string | null
   periodoAtual?: number | null
   dataIngresso?: string | null
@@ -212,7 +217,12 @@ export function useVinculos(filtros: { situacao?: string; courseId?: number; lim
 export function useVinculo(id: number | null) {
   return useQuery({
     queryKey: [...K.vinculos, id],
-    queryFn: () => api.get<{ vinculo: Vinculo; proximasSituacoes: VinculoSituacao[] }>(`/admin/aca/vinculos/${id}`),
+    queryFn: () => api.get<{
+      vinculo: Vinculo
+      proximasSituacoes: VinculoSituacao[]
+      cursoOrigem: { id: number; nome: string } | null
+      ingresso: { formaRotulo: string; criterioRotulo: string; avisos: string[] }
+    }>(`/admin/aca/vinculos/${id}`),
     enabled: !!id,
   })
 }
@@ -341,4 +351,51 @@ export const SITUACAO_TONE: Record<VinculoSituacao, 'success' | 'info' | 'warnin
   FORMADO: 'success',
   DIPLOMADO: 'success',
   FALECIDO: 'neutral',
+}
+
+// ── Formas de ingresso do Censo (G-ingresso) ──────────────────────
+//
+// A lista é normativa: vem do backend (services/acaFormaIngresso.ts) para não
+// divergir entre as duas pontas.
+
+export interface FormaIngressoDef {
+  codigo: string
+  rotulo: string
+  descricao: string
+  criteriosSugeridos: string[]
+  exigeCursoOrigem?: boolean
+  exigeAmparo?: boolean
+  restricao?: string
+}
+
+export interface CriterioClassificacaoDef {
+  codigo: string
+  rotulo: string
+  descricao: string
+  classifica: boolean
+  avaliacaoEsperada: string
+}
+
+export function useFormasIngresso() {
+  return useQuery({
+    queryKey: ['aca', 'formas-ingresso'],
+    queryFn: () => api.get<{ formas: FormaIngressoDef[]; criterios: CriterioClassificacaoDef[] }>(
+      '/admin/aca/formas-ingresso',
+    ),
+    staleTime: 30 * 60_000, // lista normativa, não muda em runtime
+  })
+}
+
+export function useSalvarIngresso() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: {
+      id: number
+      formaIngresso?: string | null
+      criterioClassificacao?: string | null
+      cursoOrigemId?: number | null
+      amparoUrl?: string | null
+    }) => api.patch<{ vinculo: Vinculo; avisos: string[] }>(`/admin/aca/vinculos/${id}/ingresso`, body),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: K.vinculos }) },
+  })
 }

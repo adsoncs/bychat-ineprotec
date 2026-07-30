@@ -475,6 +475,9 @@ export interface EntryMode {
   description: string | null
   evaluationType: EvaluationType
   requiresClassification: boolean
+  /** Forma de ingresso do Censo que este modo declara. Null = não declarada. */
+  censoForma: string | null
+  criterioClassificacao: string | null
   defaultFormExtras: unknown
   ordem: number
   active: boolean
@@ -484,11 +487,32 @@ export interface EntryMode {
   _count?: { selectionProcesses: number }
 }
 
+/** Catálogo normativo servido pelo backend — não duplicar a lista aqui. */
+export interface FormaIngressoCatalogo {
+  codigo: string
+  rotulo: string
+  descricao: string
+  criteriosSugeridos: string[]
+  exigeCursoOrigem?: boolean
+  exigeAmparo?: boolean
+  restricao?: string
+}
+
+export interface CriterioCatalogo {
+  codigo: string
+  rotulo: string
+  descricao: string
+  classifica: boolean
+  avaliacaoEsperada: EvaluationType
+}
+
 export interface EntryModeInput {
   code: string
   name: string
   icon?: string | null | undefined
   description?: string | null | undefined
+  censoForma?: string | null | undefined
+  criterioClassificacao?: string | null | undefined
   evaluationType: EvaluationType
   requiresClassification?: boolean | undefined
   defaultFormExtras?: unknown
@@ -500,7 +524,11 @@ export function useEntryModes(includeInactive = true) {
   return useQuery({
     queryKey: ['edu', 'entry-modes', includeInactive ? 'all' : 'active'],
     queryFn: () =>
-      api.get<{ modes: EntryMode[] }>(
+      api.get<{
+        modes: EntryMode[]
+        catalogoCenso: { formas: FormaIngressoCatalogo[]; criterios: CriterioCatalogo[] }
+        semFormaDeclarada: { id: number; name: string }[]
+      }>(
         `/admin/educacional/entry-modes${includeInactive ? '?includeInactive=1' : ''}`,
       ),
     staleTime: 60_000,
