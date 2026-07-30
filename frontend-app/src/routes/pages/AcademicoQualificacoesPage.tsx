@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { Award, FileCheck2, AlertTriangle, CalendarClock, Check, ExternalLink } from 'lucide-preact'
+import { Award, FileCheck2, AlertTriangle, CalendarClock, Check, ExternalLink, GraduationCap, Users } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { toast } from '@/lib/toast'
 import {
   useQualificacoesAEmitir, useQualificacaoMut,
-  useConformidadeSistec, useSistecMut,
+  useConformidadeSistec, useSistecMut, useConformidadeLatoSensu,
 } from '@/hooks/useAcaQualificacao'
 
 // Certificação intermediária + conformidade com o SISTEC.
@@ -22,6 +22,7 @@ import {
 const ABAS = [
   { id: 'qualificacoes', label: 'Certificados a emitir' },
   { id: 'sistec', label: 'Conformidade SISTEC' },
+  { id: 'lato', label: 'Pós lato sensu' },
 ] as const
 
 type Aba = (typeof ABAS)[number]['id']
@@ -34,6 +35,7 @@ export function AcademicoQualificacoesPage() {
   const mut = useQualificacaoMut()
   const conf = useConformidadeSistec()
   const sistec = useSistecMut()
+  const lato = useConformidadeLatoSensu()
 
   const [selecao, setSelecao] = useState<string[]>([])
   const [selSistec, setSelSistec] = useState<number[]>([])
@@ -111,6 +113,11 @@ export function AcademicoQualificacoesPage() {
             {t.label}
             {t.id === 'qualificacoes' && (fila.data?.total ?? 0) > 0 && (
               <span class="ml-1.5 text-[10px] rounded-full bg-accent/15 text-accent px-1.5 py-0.5">{fila.data?.total}</span>
+            )}
+            {t.id === 'lato' && (lato.data?.resumo?.comImpedimento ?? 0) > 0 && (
+              <span class="ml-1.5 text-[10px] rounded-full bg-danger/15 text-danger px-1.5 py-0.5">
+                {lato.data?.resumo?.comImpedimento}
+              </span>
             )}
             {t.id === 'sistec' && (conf.data?.integralizandoEmFaseEscolar.aAjustar.length ?? 0) > 0 && (
               <span class="ml-1.5 text-[10px] rounded-full bg-warning/15 text-warning px-1.5 py-0.5">
@@ -276,6 +283,128 @@ export function AcademicoQualificacoesPage() {
           </div>
         )
       )}
+
+      {aba === 'lato' && (
+        lato.isLoading ? <Skeleton class="h-48 w-full" /> : (
+          <div class="space-y-3">
+            <Card class="!p-4">
+              <div class="flex items-start gap-2.5">
+                <GraduationCap size={16} class="text-accent mt-0.5 shrink-0" />
+                <div class="text-xs text-fg-muted leading-relaxed">
+                  <span class="font-semibold text-fg">O que a norma exige da especialização</span>
+                  <ul class="mt-1.5 space-y-1">
+                    <li>· <strong class="text-fg">Art. 7º, I</strong> — carga mínima de 360 horas.</li>
+                    <li>
+                      · <strong class="text-fg">Art. 8º</strong> — o certificado deve vir acompanhado do
+                      histórico, e nele devem constar o ato de credenciamento da instituição, o período de
+                      realização e o <strong class="text-fg">corpo docente que efetivamente ministrou o curso,
+                      com titulação</strong>. Este último é o mais esquecido.
+                    </li>
+                    <li>· <strong class="text-fg">Art. 9º</strong> — pelo menos 30% do corpo docente com título stricto sensu.</li>
+                  </ul>
+                  <p class="mt-1.5 text-[11px] text-fg-subtle">
+                    Res. CNE/CES nº 1/2018. Cursos de especialização são registrados no Censo da Educação
+                    Superior (art. 6º) — a régua não é só de graduação.
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            {lato.data?.resumo?.semCursoLatoSensu ? (
+              <EmptyState
+                icon={<GraduationCap size={24} />}
+                title="Nenhum curso de especialização cadastrado"
+                description="Cadastre o curso com nível Especialização ou Pós-graduação para que a conformidade seja apurada. Sem curso, não há o que verificar."
+              />
+            ) : (
+              (lato.data?.cursos ?? []).map((c) => {
+                const impedimentos = c.pendencias.filter((p) => p.gravidade === 'impedimento')
+                return (
+                  <Card key={c.courseId} class={`!p-4 ${impedimentos.length ? 'border-danger/40' : 'border-success/30'}`}>
+                    <div class="flex items-start justify-between gap-3 flex-wrap">
+                      <div>
+                        <div class="text-sm font-semibold text-fg">{c.curso}</div>
+                        <div class="text-xs text-fg-muted mt-0.5">
+                          {c.cargaHoraria ? `${c.cargaHoraria}h` : 'carga horária não informada'}
+                          {' · '}
+                          {c.docentes.total} docente(s), {c.docentes.percentual}% stricto sensu
+                        </div>
+                      </div>
+                      <Badge tone={impedimentos.length ? 'danger' : c.pendencias.length ? 'warning' : 'success'}>
+                        {impedimentos.length
+                          ? `${impedimentos.length} impedimento(s)`
+                          : c.pendencias.length ? `${c.pendencias.length} atenção` : 'conforme'}
+                      </Badge>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                      <Indicador
+                        rotulo="Carga horária"
+                        valor={c.cargaHoraria ? `${c.cargaHoraria}h` : '—'}
+                        ok={c.chMinimaAtendida}
+                        detalhe="mínimo 360h"
+                      />
+                      <Indicador
+                        rotulo="Stricto sensu"
+                        valor={`${c.docentes.percentual}%`}
+                        ok={c.docentes.atende}
+                        detalhe={`${c.docentes.strictoSensu} de ${c.docentes.total} · mínimo 30%`}
+                      />
+                      <Indicador
+                        rotulo="Credenciamento"
+                        valor={c.atoCredenciamento?.numero ?? c.atoCredenciamento?.tipo ?? '—'}
+                        ok={!!c.atoCredenciamento?.ehCredenciamento}
+                        detalhe={c.atoCredenciamento?.ehCredenciamento ? 'ato de credenciamento' : 'nenhum ato de credenciamento'}
+                      />
+                    </div>
+
+                    {c.pendencias.length > 0 && (
+                      <ul class="mt-3 space-y-1.5">
+                        {c.pendencias.map((p) => (
+                          <li key={p.artigo + p.descricao} class="text-xs text-fg-muted leading-relaxed flex items-start gap-2">
+                            <AlertTriangle
+                              size={12}
+                              class={`mt-0.5 shrink-0 ${p.gravidade === 'impedimento' ? 'text-danger' : 'text-warning'}`}
+                            />
+                            <span><strong class="text-fg">{p.artigo}</strong> — {p.descricao}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <button
+                      type="button"
+                      class="text-[11px] text-accent hover:underline mt-3 inline-flex items-center gap-1"
+                      onClick={() => navigate('/aca/docente')}
+                    >
+                      <Users size={11} /> Cadastro de docentes e titulação
+                    </button>
+                  </Card>
+                )
+              })
+            )}
+          </div>
+        )
+      )}
     </Page>
+  )
+}
+
+/** Indicador de conformidade: valor + se atende, com o limite da norma. */
+function Indicador({ rotulo, valor, ok, detalhe }: {
+  rotulo: string
+  valor: string
+  ok: boolean
+  detalhe: string
+}) {
+  return (
+    <div class={`rounded-md border p-2.5 ${ok ? 'border-success/30 bg-success/5' : 'border-danger/30 bg-danger/5'}`}>
+      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{rotulo}</div>
+      <div class="flex items-center gap-1.5 mt-0.5">
+        {ok ? <Check size={13} class="text-success" /> : <AlertTriangle size={13} class="text-danger" />}
+        <span class="text-sm font-semibold text-fg truncate">{valor}</span>
+      </div>
+      <div class="text-[0.625rem] text-fg-subtle mt-0.5">{detalhe}</div>
+    </div>
   )
 }

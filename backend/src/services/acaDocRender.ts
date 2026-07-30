@@ -27,6 +27,12 @@ export async function renderDocumentoPdf(doc: { numero: string; tipo: string; da
       perfilConclusao: data.perfilConclusao ?? null,
       eixoTecnologico: data.eixoTecnologico ?? null,
       qualificacoes: data.qualificacoes ?? [],
+      // Lato sensu — vem do snapshot, então histórico antigo (emitido antes
+      // desta mudança) continua renderizando sem os blocos, como foi emitido.
+      latoSensu: !!data.latoSensu,
+      credenciamento: data.credenciamento ?? null,
+      corpoDocente: data.corpoDocente ?? [],
+      periodoRealizacao: data.periodoRealizacao ?? null,
     })
   }
   if (doc.tipo === 'DECLARACAO_MATRICULA') {

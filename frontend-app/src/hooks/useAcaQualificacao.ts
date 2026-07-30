@@ -147,3 +147,43 @@ export function useSistecMut() {
     }),
   }
 }
+
+// ── Conformidade lato sensu (Res. CNE/CES 1/2018) ─────────────────
+//
+// Vive aqui, junto da conformidade SISTEC, porque é a mesma pergunta da
+// secretaria feita para outro nível de ensino: posso certificar este aluno?
+
+export interface PendenciaLatoSensu {
+  artigo: string
+  descricao: string
+  gravidade: 'impedimento' | 'atencao'
+}
+
+export interface CursoLatoSensu {
+  courseId: number
+  curso: string
+  ehLatoSensu: boolean
+  cargaHoraria: number | null
+  chMinimaAtendida: boolean
+  docentes: { total: number; strictoSensu: number; percentual: number; atende: boolean }
+  atoCredenciamento: {
+    tipo: string
+    numero: string | null
+    dataPublicacao: string | null
+    dataDou: string | null
+    validadeAte: string | null
+    ehCredenciamento: boolean
+  } | null
+  pendencias: PendenciaLatoSensu[]
+}
+
+export function useConformidadeLatoSensu() {
+  return useQuery({
+    queryKey: ['aca', 'lato-sensu', 'conformidade'],
+    queryFn: () => api.get<{
+      cursos: CursoLatoSensu[]
+      resumo?: { total: number; comImpedimento: number; comAtencao: number; semCursoLatoSensu: boolean }
+    }>('/admin/aca/lato-sensu/conformidade'),
+    staleTime: 60_000,
+  })
+}

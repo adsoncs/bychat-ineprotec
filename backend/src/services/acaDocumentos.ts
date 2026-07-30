@@ -4,6 +4,7 @@
 // (self-service · O2.1). Retorna o AcaDocumento criado.
 
 import { prisma } from '../lib/prisma.js'
+import { ehLatoSensu, atoCredenciamento, corpoDocenteEfetivo } from './acaLatoSensu.js'
 
 export async function proximoNumero(): Promise<string> {
   const ano = new Date().getFullYear()
@@ -26,15 +27,27 @@ export async function montarHistorico(alunoId: number) {
   // documento sai incompleto para a educação profissional.
   let perfilConclusao: string | null = null
   let eixoTecnologico: string | null = null
+  let courseId: number | null = null
+  // Res. CNE/CES 1/2018, art. 8º: o histórico do lato sensu tem exigências
+  // próprias (ato de credenciamento, período de realização, corpo docente com
+  // titulação). Só as monta quando o curso é de especialização.
+  let latoSensu = false
   const offId = matriculas.find((m) => m.turma.courseOfferingId)?.turma.courseOfferingId
   if (offId) {
     const off = await prisma.courseOffering.findUnique({ where: { id: offId }, select: { courseId: true } })
     if (off) {
       const c = await prisma.course.findUnique({
         where: { id: off.courseId },
-        select: { nome: true, perfilConclusao: true, eixoTecnologico: true },
+        select: {
+          id: true, nome: true, perfilConclusao: true, eixoTecnologico: true,
+          grau: true, level: { select: { nome: true, codigo: true } },
+        },
       })
-      if (c) { curso = c.nome; perfilConclusao = c.perfilConclusao; eixoTecnologico = c.eixoTecnologico }
+      if (c) {
+        curso = c.nome; perfilConclusao = c.perfilConclusao; eixoTecnologico = c.eixoTecnologico
+        courseId = c.id
+        latoSensu = ehLatoSensu(c)
+      }
     }
   }
 
@@ -86,13 +99,49 @@ export async function montarHistorico(alunoId: number) {
     })
     periodos.push({ periodo: 'Aproveitamento', turma: 'Aproveitamento de estudos', disciplinas })
   }
+  // ── Exigências do lato sensu (Res. CNE/CES 1/2018, art. 8º) ──
+  //
+  // Sem estes três blocos o certificado de especialização sai irregular, e é o
+  // erro mais comum: instituição imprime o histórico da graduação e entrega.
+  let credenciamento = null
+  let corpoDocente: Awaited<ReturnType<typeof corpoDocenteEfetivo>> = []
+  let periodoRealizacao: { inicio: string | null; fim: string | null } | null = null
+  if (latoSensu) {
+    credenciamento = await atoCredenciamento()          // art. 8º, I
+    corpoDocente = await corpoDocenteEfetivo(alunoId)   // art. 8º, III
+    // art. 8º, II — período de realização, extraído das aulas efetivamente
+    // lançadas; é o que descreve a duração real, não a prevista no cadastro.
+    const turmaIds = matriculas.map((m) => m.turmaId)
+    if (turmaIds.length) {
+      const dias = await prisma.acaDiario.findMany({ where: { turmaId: { in: turmaIds } }, select: { id: true } })
+      if (dias.length) {
+        const agg = await prisma.acaAula.aggregate({
+          where: { diarioId: { in: dias.map((d) => d.id) } },
+          _min: { data: true }, _max: { data: true },
+        })
+        if (agg._min.data || agg._max.data) {
+          periodoRealizacao = {
+            inicio: agg._min.data ? agg._min.data.toISOString() : null,
+            fim: agg._max.data ? agg._max.data.toISOString() : null,
+          }
+        }
+      }
+    }
+  }
+
   return {
     aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf },
-    curso, periodos, chTotal,
+    curso, courseId, periodos, chTotal,
     // Educação profissional (art. 49, §4º): campos nulos em curso de graduação,
     // onde não se aplicam.
     perfilConclusao, eixoTecnologico,
     ...(qualificacoes.length > 0 ? { qualificacoes } : {}),
+    // Lato sensu: campos ausentes em curso técnico ou de graduação, onde a
+    // Res. CNE/CES 1/2018 não se aplica.
+    latoSensu,
+    ...(credenciamento ? { credenciamento } : {}),
+    ...(corpoDocente.length > 0 ? { corpoDocente } : {}),
+    ...(periodoRealizacao ? { periodoRealizacao } : {}),
   }
 }
 

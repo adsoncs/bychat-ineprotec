@@ -18,6 +18,7 @@ import {
   FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, validarForma, avisosDeIngresso,
   rotuloForma, rotuloCriterio,
 } from '../services/acaFormaIngresso.js'
+import { conformidadeLatoSensu, ehLatoSensu } from '../services/acaLatoSensu.js'
 
 const num = (v: unknown): number | null => {
   const n = Number(v)
@@ -292,6 +293,40 @@ export async function acaFundacaoRoutes(app: FastifyInstance) {
       return { vinculo }
     } catch (e: any) {
       return reply.code(400).send({ error: e?.message || 'Falha ao criar vínculo' })
+    }
+  })
+
+  /**
+   * Conformidade dos cursos de pós-graduação lato sensu (Res. CNE/CES 1/2018).
+   *
+   * Sem `courseId`, varre todos os cursos e devolve só os de especialização —
+   * é o painel que a secretaria olha antes de emitir certificado.
+   */
+  app.get('/api/admin/aca/lato-sensu/conformidade', { preHandler: authMiddleware }, async (req) => {
+    const courseId = num((req.query as any)?.courseId)
+    if (courseId) {
+      const r = await conformidadeLatoSensu(courseId)
+      return { cursos: r ? [r] : [] }
+    }
+    const cursos = await prisma.course.findMany({
+      where: { active: true },
+      select: { id: true, grau: true, level: { select: { nome: true, codigo: true } } },
+    })
+    // Filtra antes de apurar: apurar curso técnico só para descartar depois
+    // seria uma varredura de diários por nada.
+    const latoIds = cursos.filter((c) => ehLatoSensu(c)).map((c) => c.id)
+    const resultados = await Promise.all(latoIds.map((id) => conformidadeLatoSensu(id)))
+    const lista = resultados.filter((r): r is NonNullable<typeof r> => !!r)
+    return {
+      cursos: lista,
+      resumo: {
+        total: lista.length,
+        comImpedimento: lista.filter((c) => c.pendencias.some((p) => p.gravidade === 'impedimento')).length,
+        comAtencao: lista.filter((c) => c.pendencias.some((p) => p.gravidade === 'atencao')).length,
+        // Nenhum curso lato sensu cadastrado não é conformidade — é ausência de
+        // dado. A tela precisa distinguir os dois casos.
+        semCursoLatoSensu: lista.length === 0,
+      },
     }
   })
 

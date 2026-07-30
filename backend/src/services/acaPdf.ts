@@ -52,6 +52,11 @@ export function pdfHistorico(
     perfilConclusao?: string | null
     eixoTecnologico?: string | null
     qualificacoes?: Array<{ numero: string; titulo: string | null; modulo: string | null; cargaHoraria: number | null; emitidoEm: string | Date }>
+    /** Lato sensu (Res. CNE/CES 1/2018, art. 8º) — ver acaLatoSensu.ts. */
+    latoSensu?: boolean
+    credenciamento?: { tipo: string; numero: string | null; dataPublicacao: string | Date | null; dataDou: string | Date | null; ehCredenciamento: boolean } | null
+    corpoDocente?: Array<{ nome: string; titulacao: string | null; disciplinas: string[] }>
+    periodoRealizacao?: { inicio: string | null; fim: string | null } | null
   },
 ) {
   return build((doc) => {
@@ -62,6 +67,28 @@ export function pdfHistorico(
     doc.font('Helvetica-Bold').text('Curso: ', { continued: true }).font('Helvetica').text(curso)
     if (extra?.eixoTecnologico) {
       doc.font('Helvetica-Bold').text('Eixo tecnológico: ', { continued: true }).font('Helvetica').text(extra.eixoTecnologico)
+    }
+    // Art. 8º, I e II: o histórico do lato sensu DEVE trazer o ato legal de
+    // credenciamento e o período de realização do curso.
+    if (extra?.latoSensu && extra.credenciamento) {
+      const c = extra.credenciamento
+      const quando = c.dataPublicacao ? new Date(c.dataPublicacao).toLocaleDateString('pt-BR') : null
+      // O tipo vem do cadastro em caixa livre ("credenciamento") e o número já
+      // costuma vir completo ("Portaria MEC nº 1.234". Sem tratar, o documento
+      // sai "credenciamento nº Portaria MEC nº 1.234".
+      const tipo = c.tipo.charAt(0).toUpperCase() + c.tipo.slice(1)
+      const num = c.numero
+        ? (/n[ºo°.]|\d\s*\/|portaria|parecer|resolu/i.test(c.numero) ? ` — ${c.numero}` : ` nº ${c.numero}`)
+        : ''
+      doc.font('Helvetica-Bold').text('Ato de credenciamento: ', { continued: true }).font('Helvetica')
+        .text(`${tipo}${num}${quando ? `, de ${quando}` : ''}`
+          + `${c.dataDou ? ` (DOU ${new Date(c.dataDou).toLocaleDateString('pt-BR')})` : ''}`)
+    }
+    if (extra?.latoSensu && extra.periodoRealizacao) {
+      const pr = extra.periodoRealizacao
+      const ini = pr.inicio ? new Date(pr.inicio).toLocaleDateString('pt-BR') : '—'
+      const fim = pr.fim ? new Date(pr.fim).toLocaleDateString('pt-BR') : '—'
+      doc.font('Helvetica-Bold').text('Período de realização: ', { continued: true }).font('Helvetica').text(`${ini} a ${fim}`)
     }
     if (extra?.perfilConclusao) {
       doc.moveDown(0.35)
@@ -109,6 +136,28 @@ export function pdfHistorico(
       doc.moveDown(0.5)
     }
     doc.fontSize(9).font('Helvetica-Bold').text(`Carga horária total cursada: ${chTotal}h`)
+
+    // Art. 8º, III: elenco do corpo docente que EFETIVAMENTE ministrou o curso,
+    // com a respectiva titulação. É a exigência mais esquecida do lato sensu.
+    if (extra?.latoSensu && (extra.corpoDocente?.length ?? 0) > 0) {
+      doc.moveDown(0.8)
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a4d8f').text('Corpo docente').fillColor('#000')
+      doc.moveDown(0.2)
+      const yc = doc.y
+      doc.fontSize(8).font('Helvetica-Bold')
+      doc.text('Docente', 55, yc, { width: 190 })
+      doc.text('Titulação', 245, yc, { width: 90 })
+      doc.text('Disciplinas ministradas', 335, yc, { width: 210 })
+      doc.moveDown(0.2)
+      doc.font('Helvetica').fontSize(8)
+      for (const d of extra.corpoDocente!) {
+        const y = doc.y
+        doc.text(d.nome, 55, y, { width: 190 })
+        doc.text(d.titulacao ?? '—', 245, y, { width: 90 })
+        doc.text(d.disciplinas.join('; ') || '—', 335, y, { width: 210 })
+        doc.moveDown(0.3)
+      }
+    }
     rodape(doc, dataExtenso, numero)
   })
 }

@@ -267,13 +267,24 @@ de histórico, sorteio ou entrevista, sem prova.
 | 11 | Curso com "oferece certificação intermediária" | ausente |
 | 12 | Alerta do prazo dia 25 | ausente |
 | 13 | Ciclo de matrícula (agrupa por período, não turma) | exportação é por turma |
-| 14 | Forma de ingresso com regra | `AcaVinculo.formaIngresso` é **texto livre**, só exibido; valores sugeridos no schema (`portador_diploma`, `reingresso`, `seletivo_continuo`) **não existem** no Censo |
-| 15 | Classificação sem prova | o seletivo classifica **sempre** por média ponderada de notas; ENEM, análise de currículo, histórico, ordem de inscrição e sorteio não existem |
-| 16 | Curso de origem na transferência | ausente — exigido pelo Censo no curso de destino |
-| 17 | Histórico da especialização com corpo docente e titulação (art. 8º, III) | ausente |
-| 18 | Ato de credenciamento no histórico da especialização (art. 8º, I) | temos `AcaAtoAutorizativo`, mas o histórico não o imprime |
-| 19 | Validação de 360h (art. 7º) e de 30% stricto sensu (art. 9º) | ausentes |
-| 20 | Registro do certificado em convênio pelas duas instituições (art. 8º, §2º) | ausente |
+| 14 | Registro do certificado em convênio pelas duas instituições (art. 8º, §2º) | ausente |
+
+### Resolvido em 29/07/2026
+
+| # | O que faltava | Onde ficou |
+|---|---|---|
+| ~~14~~ | Forma de ingresso era **texto livre**, com valores que não existem no Censo | `acaFormaIngresso.ts` — 10 formas fechadas, `validarForma()` recusa explicando |
+| ~~15~~ | Classificação sem prova | 10 critérios (`ORDEM_INSCRICAO`, `ANALISE_CURRICULO`, `ANALISE_DIPLOMA`, `MEDIA_HISTORICO`, `ENTREVISTA`, `SORTEIO`…) |
+| ~~16~~ | Curso de origem na transferência | `AcaVinculo.cursoOrigemId` + tela `/aca/vinculos/:id/ingresso` |
+| ~~17~~ | Corpo docente com titulação no histórico (art. 8º, III) | `corpoDocenteEfetivo()` — sai dos **diários cursados**, não do cadastro |
+| ~~18~~ | Ato de credenciamento no histórico (art. 8º, I) | `atoCredenciamento()`, impresso no PDF |
+| ~~19~~ | 360h (art. 7º) e 30% stricto sensu (art. 9º) | `conformidadeLatoSensu()` + aba "Pós lato sensu" |
+
+Correção de premissa no levantamento original: eu havia registrado que o motor de
+seleção sem prova não existia. Existia — `EntryMode.evaluationType` já cobria
+`none`/`docs`/`enem`/`exam_online`/`exam_presencial`, e o gateway já decidia por
+cada um. As tabelas estavam **vazias** (0 modos, 0 tipos de documento), o que
+parecia ausência de recurso. `scripts/seedIngresso.ts` preenche.
 
 Observação sobre o item 2: o SISTEC não aceitar "reprovado" para técnico não é
 detalhe de integração — significa que o **modelo de progressão do técnico é
