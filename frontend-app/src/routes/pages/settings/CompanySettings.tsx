@@ -39,6 +39,7 @@ function ListEditor(props: {
   onChange: (v: string[]) => void
   onPickGroup?: () => void
   groupNames?: Record<string, string>
+  groupsLoading?: boolean
 }) {
   const { values, onChange } = props
   const rows = values.length === 0 ? [''] : values
@@ -67,12 +68,18 @@ function ListEditor(props: {
         {rows.map((v, i) => (
           <div key={i} class="flex items-center gap-2">
             {isGroupJid(v) ? (
-              <div class="flex-1 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2 min-w-0">
+              // Grupo aparece pelo NOME — o JID (`120363...@g.us`) não diz nada a
+              // quem configura; fica só no title, para suporte.
+              <div
+                class="flex-1 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-2 min-w-0"
+                title={v}
+              >
                 <Users size={15} class="text-fg-muted shrink-0" />
                 <span class="text-sm text-fg truncate">
-                  {props.groupNames?.[v] || 'Grupo do WhatsApp'}
+                  {props.groupNames?.[v]
+                    ?? (props.groupsLoading ? 'Carregando nome do grupo…' : 'Grupo do WhatsApp')}
                 </span>
-                <span class="text-[0.6875rem] text-fg-subtle truncate">{v}</span>
+                <span class="text-[0.6875rem] text-fg-subtle shrink-0">grupo</span>
               </div>
             ) : (
               <Input
@@ -178,7 +185,7 @@ export function CompanySettings() {
   // busca se já houver grupo entre os destinos (ou com o seletor aberto — mesma
   // query key, então o cache é reaproveitado).
   const hasGroupTarget = draft.notifyWhatsapps.some(isGroupJid)
-  const { data: groupsData } = useWhatsAppGroups(hasGroupTarget)
+  const { data: groupsData, isFetching: groupsLoading } = useWhatsAppGroups(hasGroupTarget)
   const groupNames: Record<string, string> = {}
   for (const g of groupsData?.groups ?? []) groupNames[g.id] = g.subject
 
@@ -269,6 +276,7 @@ export function CompanySettings() {
             onChange={(v) => set('notifyWhatsapps', v)}
             onPickGroup={() => setGroupPicker(true)}
             groupNames={groupNames}
+            groupsLoading={groupsLoading}
           />
 
           <label class="flex items-start gap-2 cursor-pointer">
