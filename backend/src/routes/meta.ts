@@ -7,7 +7,7 @@ import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp, getOperator, EVENT_TYPES } from '../services/leadHistory.js'
 import { notifyNewLead } from '../services/notify.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
-import { getMetaAppId, getMetaAppSecret, getMetaConfigId, metaFetch, META_GRAPH_URL } from '../lib/meta.js'
+import { getMetaAppId, getMetaAppSecret, getMetaConfigId, metaFetch, metaFetchAll, META_GRAPH_URL } from '../lib/meta.js'
 import { queues } from '../lib/queues.js'
 import { pickOperatorForTeam, resolveRoutingFromContext } from '../services/teamRouting.js'
 
@@ -480,8 +480,8 @@ export async function metaRoutes(app: FastifyInstance) {
       // Sincronizar formularios (preservando contadores historicos)
       let formCount = 0
       try {
-        const formsData = await metaFetch(`/${page.id}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions`, finalPageToken)
-        for (const f of (formsData.data || [])) {
+        const formsData = await metaFetchAll(`/${page.id}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`, finalPageToken)
+        for (const f of formsData) {
           // Contar leads reais a partir da tabela Lead (fonte da verdade);
           // metaLeadLog pode estar truncado em imports/snapshots e divergir.
           const realCount = await prisma.lead.count({
@@ -760,13 +760,12 @@ export async function metaRoutes(app: FastifyInstance) {
       const integration = await prisma.metaIntegration.findUnique({ where: { id: parseInt(id) } })
       if (!integration) return reply.code(404).send({ error: 'Integracao nao encontrada' })
 
-      // Buscar forms da pagina via Graph API
-      const data = await metaFetch(
-        `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions`,
+      // Buscar forms da pagina via Graph API (paginado: o Graph corta em 25)
+      const forms = await metaFetchAll(
+        `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`,
         integration.pageAccessToken
       )
 
-      const forms = data.data || []
       const synced = []
 
       // Load custom fields for auto-mapping

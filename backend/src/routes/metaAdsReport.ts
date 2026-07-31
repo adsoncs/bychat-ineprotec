@@ -1027,8 +1027,14 @@ export async function metaAdsReportRoutes(app: FastifyInstance) {
     // Detecta erro Meta API 500 com error_subcode=99 ("query muito grande")
     function isMetaApiTooLargeError(err: unknown): boolean {
       const msg = err instanceof Error ? err.message : String(err)
-      // Forma típica: 'Meta API 500: {"error":{"code":1,...,"error_subcode":99}}'
-      return /Meta API 500/.test(msg) && /error_subcode["\s:]+99/.test(msg)
+      if (!/Meta API 500/.test(msg)) return false
+      // Duas formas para a MESMA condição:
+      //   1. '{"error":{"code":1,...,"error_subcode":99}}'
+      //   2. '{"error":{"code":1,"message":"Please reduce the amount of data
+      //      you're asking for, then retry your request"}}'  — sem subcode.
+      // Só a forma 1 era reconhecida, então a 2 propagava e matava o sync da
+      // conta inteira em vez de cair no fallback bucketed (severiano, 2026-07-29).
+      return /error_subcode["\s:]+99/.test(msg) || /reduce the amount of data/i.test(msg)
     }
 
     // Helper: pagina insights da Meta API para um ad account em um nível.

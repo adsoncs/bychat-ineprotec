@@ -69,3 +69,27 @@ export async function metaFetch(path: string, token: string, method = 'GET', bod
   }
   return resp.json() as any
 }
+
+/**
+ * Igual ao metaFetch, mas segue paging.next até esgotar a coleção.
+ *
+ * O Graph pagina em 25 itens por padrão. Quem chamava metaFetch direto em
+ * edges como /leadgen_forms enxergava só os 25 primeiros e achava que tinha
+ * a lista inteira — página com 62 formulários sincronizava 25.
+ */
+export async function metaFetchAll(path: string, token: string, maxPages = 50): Promise<any[]> {
+  const out: any[] = []
+  let next: string | null = path
+  for (let i = 0; next && i < maxPages; i++) {
+    const resp: any = await metaFetch(next, token)
+    out.push(...(resp.data || []))
+    const nextUrl: string | undefined = resp.paging?.next
+    // paging.next já vem com access_token embutido; recorta para path relativo
+    // e deixa o metaFetch reanexar o token.
+    next = nextUrl
+      ? nextUrl.replace(/^https?:\/\/graph\.facebook\.com\/v[\d.]+/, '').replace(/([?&])access_token=[^&]*&?/, '$1').replace(/[?&]$/, '')
+      : null
+  }
+  return out
+}
+
