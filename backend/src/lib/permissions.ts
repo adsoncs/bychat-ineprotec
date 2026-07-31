@@ -140,6 +140,12 @@ const ACTION_OVERRIDES: { test: RegExp; action: Action }[] = [
   // /tickets/bulk é edição.
   { test: /^\/api\/helpdesk\/tickets\/\d+\/.+/, action: 'edit' },
   { test: /^\/api\/helpdesk\/tickets\/bulk$/, action: 'edit' },
+  // ── Supervisão ──
+  // Todo POST do painel age sobre conversa que JÁ existe (encerrar, reabrir,
+  // transferir, adormecer, devolver ao bot). É edição, não criação — o módulo
+  // nem declara a ação 'create', então sem este override o gate barraria a
+  // gestão inteira pedindo canCreate.
+  { test: /^\/api\/supervision\/conversations\/.+/, action: 'edit' },
 ]
 
 function resolveAction(method: string, pathOnly: string): Action {

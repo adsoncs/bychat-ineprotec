@@ -33,6 +33,17 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
+    id: 'supervision', name: 'Supervisão', icon: '🎧', category: 'crm',
+    description: 'Painel gerencial do Conversas: baldes, KPIs, quem conduz (bot ou humano), canal, funil e ações sobre as conversas.',
+    pages: ['supervision'],
+    routePrefixes: ['/api/supervision'],
+    actions: ['view', 'edit'],
+    // Vive colado no Conversas (core): nasce ligado junto com ele. O recorte de
+    // quem entra é por papel — VIEWER não recebe canView no preset padrão e o
+    // backend ainda exige SUPERADMIN/ADMIN/MANAGER.
+    core: true, defaultEnabled: true,
+  },
+  {
     id: 'leads', name: 'Leads', icon: '👥', category: 'crm',
     description: 'Cadastro e gestão de leads/contatos com histórico, campos personalizados e segmentação.',
     pages: ['leads'],

@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Headphones,
   MessageSquare,
   Sparkles,
   Users,
@@ -101,6 +102,7 @@ import { cn } from '@/lib/cn'
 // deixar de fora os ~1700 ícones não usados.
 const ICONS: Record<IconName, unknown> = {
   LayoutDashboard,
+  Headphones,
   MessageSquare,
   Sparkles,
   Users,

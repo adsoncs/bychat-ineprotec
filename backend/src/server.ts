@@ -27,6 +27,7 @@ import { chatbotsRoutes } from './routes/chatbots.js'
 import { instancesRoutes } from './routes/instances.js'
 import { funnelsRoutes } from './routes/funnels.js'
 import { atendimentoRoutes } from './routes/atendimento.js'
+import { supervisionRoutes } from './routes/supervision.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
 import { kommoIntegrationRoutes } from './routes/kommoIntegration.js'
@@ -499,6 +500,7 @@ await app.register(chatbotsRoutes)
 await app.register(instancesRoutes)
 await app.register(funnelsRoutes)
 await app.register(atendimentoRoutes)
+await app.register(supervisionRoutes)
 await app.register(transferRequestsRoutes)
 await app.register(leadsImportRoutes)
 await app.register(teamsRoutes)

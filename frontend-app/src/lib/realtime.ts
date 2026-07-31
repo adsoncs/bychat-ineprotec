@@ -104,16 +104,17 @@ function queryKeysForEvent(ev: ServerEvent): readonly unknown[][] {
     case 'lead:created':
     case 'lead:updated':
     case 'lead:deleted':
-      return [['leads'], ['kanban'], ['dashboard']]
+      return [['leads'], ['kanban'], ['dashboard'], ['supervision']]
     case 'lead:stage_changed':
-      return [['leads'], ['kanban'], ['lead-history', ev.payload?.id]]
+      return [['leads'], ['kanban'], ['lead-history', ev.payload?.id], ['supervision']]
     case 'message:received':
     case 'message:sent':
-      return [['ticket-messages', ev.payload?.leadId], ['tickets']]
+      // ['supervision']: o painel gerencial lê os mesmos tickets, agregados.
+      return [['ticket-messages', ev.payload?.leadId], ['tickets'], ['supervision']]
     case 'ticket:opened':
     case 'ticket:closed':
     case 'ticket:claimed':
-      return [['tickets'], ['ticket-messages', ev.payload?.leadId]]
+      return [['tickets'], ['ticket-messages', ev.payload?.leadId], ['supervision']]
     case 'meta:lead_received':
       return [['meta-status'], ['leads'], ['dashboard']]
     case 'lead:enrichment_started':
