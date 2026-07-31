@@ -74,6 +74,29 @@ export function useCompanySettings() {
   })
 }
 
+/** Grupo do WhatsApp do número conectado (destino possível dos avisos internos). */
+export interface WhatsAppGroup {
+  id: string
+  subject: string
+  size: number
+  /** true = só admins publicam; o aviso só sai se o número conectado for admin. */
+  announce: boolean
+}
+
+/**
+ * Grupos do número conectado. Só busca quando o seletor abre (`enabled`) — a
+ * chamada vai à Evolution e leva alguns segundos em contas com muitos grupos.
+ */
+export function useWhatsAppGroups(enabled: boolean) {
+  return useQuery({
+    queryKey: ['company-whatsapp-groups'],
+    queryFn: () => api.get<{ groups: WhatsAppGroup[] }>('/admin/company/whatsapp-groups'),
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
+
 export function useUpdateCompanySettings() {
   const qc = useQueryClient()
   return useMutation({

@@ -58,6 +58,17 @@ export function isLikelyLid(raw: string | null | undefined): boolean {
 }
 
 /**
+ * É o JID de um grupo do WhatsApp (`120363...@g.us`)?
+ *
+ * Grupo não é telefone: não passa por phoneKey/toWaNumber (que destroem o
+ * sufixo) e só a Evolution entrega nele — a Cloud API oficial não envia a
+ * grupos. Usado nos destinos de aviso interno (Empresa › Notificações).
+ */
+export function isGroupJid(raw: string | null | undefined): boolean {
+  return /^\d{5,}@g\.us$/i.test((raw || '').trim())
+}
+
+/**
  * Chave canônica de telefone para MATCH. Devolve `null` quando o valor não é um
  * telefone identificável (LID, lixo, curto demais) — o caller NUNCA deve tratar
  * `null` como número.

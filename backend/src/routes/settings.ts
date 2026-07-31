@@ -6,6 +6,7 @@ import { adminOnly, adminStrict, superadminOnly, type JwtPayload } from '../lib/
 import { isPrimaryInstall } from '../lib/install.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { MEETINGS_NOTICE_DEFAULT, invalidateMeetingsConfigCache } from '../lib/meetingsConfig.js'
+import { isGroupJid } from '../lib/phone.js'
 
 // ── Mascaramento de segredos ────────────────────────────────────────────
 // Configurações cujo nome indica credencial (api key, token, secret, senha)
@@ -732,6 +733,19 @@ export async function settingsRoutes(app: FastifyInstance) {
     }
   })
 
+  // Grupos do WhatsApp do número conectado — alimenta o seletor de destino dos
+  // avisos internos (escolher pelo nome em vez de colar o JID). Só Evolution:
+  // a Cloud API oficial não envia a grupos.
+  app.get('/api/admin/company/whatsapp-groups', { preHandler: adminOnly }, async (_req, reply) => {
+    try {
+      const { createEvolutionProvider } = await import('../services/whatsappProvider.js')
+      const groups = await createEvolutionProvider().listGroups()
+      return { groups }
+    } catch (err: any) {
+      return reply.code(502).send({ error: err?.message || 'Não foi possível listar os grupos do WhatsApp' })
+    }
+  })
+
   app.put('/api/admin/company', { preHandler: adminOnly }, async (req, reply) => {
     const b = (req.body as any) || {}
     const companyName = String(b.companyName ?? '').trim().slice(0, 200)
@@ -740,8 +754,14 @@ export async function settingsRoutes(app: FastifyInstance) {
     const cleanEmails = Array.isArray(b.notifyEmails)
       ? Array.from(new Set(b.notifyEmails.map((v: any) => String(v).trim()).filter(Boolean))) as string[]
       : []
+    // Destino pode ser número (só dígitos) OU grupo do WhatsApp (JID `...@g.us`,
+    // escolhido pelo seletor). A higienização antiga tirava tudo que não fosse
+    // dígito e transformava o JID do grupo num número inválido.
     const cleanWhatsapps = Array.isArray(b.notifyWhatsapps)
-      ? Array.from(new Set(b.notifyWhatsapps.map((v: any) => String(v).replace(/[^\d+]/g, '').trim()).filter(Boolean))) as string[]
+      ? Array.from(new Set(b.notifyWhatsapps.map((v: any) => {
+          const s = String(v).trim()
+          return isGroupJid(s) ? s : s.replace(/[^\d+]/g, '')
+        }).filter(Boolean))) as string[]
       : []
     const ccAgents = b.ccAgents === undefined ? true : !!b.ccAgents
 

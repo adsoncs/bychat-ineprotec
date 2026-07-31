@@ -124,6 +124,27 @@ export class EvolutionProvider implements WhatsAppProvider {
     // Evolution API nao suporta mensagens interativas oficiais
     throw new Error('Evolution API nao suporta mensagens interativas oficiais')
   }
+
+  /**
+   * Grupos de que o número conectado participa. Usado para escolher o destino
+   * dos avisos internos pelo NOME em vez de colar o JID (`...@g.us`).
+   *
+   * `announce: true` = só admins publicam; nesse caso o aviso só sai se o
+   * número conectado for admin do grupo — a UI sinaliza isso.
+   */
+  async listGroups(): Promise<Array<{ id: string; subject: string; size: number; announce: boolean }>> {
+    const data = await this.evoFetch(`/group/fetchAllGroups/${this.instanceName}?getParticipants=false`)
+    const arr = Array.isArray(data) ? data : (data?.data ?? [])
+    return arr
+      .filter((g: any) => typeof g?.id === 'string' && g.id.endsWith('@g.us'))
+      .map((g: any) => ({
+        id: g.id,
+        subject: String(g.subject || '(sem nome)'),
+        size: Number(g.size) || 0,
+        announce: !!g.announce,
+      }))
+      .sort((a: any, b: any) => a.subject.localeCompare(b.subject, 'pt-BR'))
+  }
 }
 
 // ─── Cloud API Provider ─────────────────────────────────
