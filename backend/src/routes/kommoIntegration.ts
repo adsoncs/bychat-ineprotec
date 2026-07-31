@@ -17,6 +17,12 @@ import {
   kommoTestConnection,
   KommoAuthError,
 } from '../lib/kommoClient.js'
+import {
+  listKommoBots,
+  getImportedBots,
+  planFromSource,
+  importSalesbot,
+} from '../services/kommoSalesbot.js'
 import { triggerKommoSync } from '../services/kommoWorker.js'
 import { getSyncState, getLastSyncAt } from '../services/kommoSync.js'
 import { queues } from '../lib/queues.js'
@@ -142,4 +148,81 @@ export async function kommoIntegrationRoutes(app: FastifyInstance) {
       counts: Object.fromEntries((counts as any[]).map((m) => [m.entityType, m._count._all])),
     }
   })
+
+  // ── GET bots — Salesbots da conta + o que já foi importado ──
+  // A API pública da Kommo só devolve metadados do bot (id/nome/ativo); o roteiro
+  // vem do "Ver código-fonte" do painel, colado no POST /bots/import.
+  app.get('/api/admin/kommo/bots', { preHandler: [authMiddleware, adminOnly] }, async (_req, reply) => {
+    const cfg = await getKommoConfig()
+    if (!cfg.subdomain || !cfg.token) {
+      return reply.code(400).send({ error: 'Configure subdomínio e token da Kommo antes de listar os bots' })
+    }
+    try {
+      const [bots, imported] = await Promise.all([listKommoBots(cfg), getImportedBots()])
+      const chatbotIds = [...imported.values()].map((v) => v.chatbotId)
+      const chatbots = chatbotIds.length
+        ? await prisma.chatbot.findMany({ where: { id: { in: chatbotIds } }, select: { id: true, name: true, active: true, formId: true } })
+        : []
+      const byId = new Map(chatbots.map((c) => [c.id, c]))
+      return {
+        bots: bots.map((b) => {
+          const imp = imported.get(String(b.id))
+          const chatbot = imp ? byId.get(imp.chatbotId) ?? null : null
+          return {
+            ...b,
+            imported: Boolean(chatbot),
+            chatbot,
+            importedAt: (imp?.meta as any)?.importedAt ?? null,
+            unsupported: (imp?.meta as any)?.unsupported ?? null,
+          }
+        }),
+      }
+    } catch (err: any) {
+      if (err instanceof KommoAuthError) return reply.code(401).send({ error: err.message })
+      return reply.code(502).send({ error: `Falha ao listar bots na Kommo: ${err?.message ?? err}` })
+    }
+  })
+
+  // ── POST bots/preview — converte o código-fonte SEM gravar (revisão) ──
+  app.post<{ Body: { source?: string } }>(
+    '/api/admin/kommo/bots/preview',
+    { preHandler: [authMiddleware, adminOnly] },
+    async (req, reply) => {
+      const source = String(req.body?.source ?? '').trim()
+      if (!source) return reply.code(400).send({ error: 'Cole o código-fonte do bot (JSON)' })
+      try {
+        return { plan: await planFromSource(source) }
+      } catch (err: any) {
+        return reply.code(400).send({ error: err?.message ?? 'Não foi possível ler o código-fonte' })
+      }
+    },
+  )
+
+  // ── POST bots/import — cria Form + Chatbot (inativo) a partir do código-fonte ──
+  app.post<{
+    Body: { kommoBotId?: number; name?: string; source?: string; channel?: string; funnelId?: number | null; stageKey?: string | null; defaultTeamId?: number | null }
+  }>(
+    '/api/admin/kommo/bots/import',
+    { preHandler: [authMiddleware, adminOnly] },
+    async (req, reply) => {
+      const { kommoBotId, name, source, channel, funnelId, stageKey, defaultTeamId } = req.body || {}
+      if (!kommoBotId || !Number.isFinite(Number(kommoBotId))) return reply.code(400).send({ error: 'Bot da Kommo não informado' })
+      if (!name?.trim()) return reply.code(400).send({ error: 'Nome do chatbot é obrigatório' })
+      if (!source?.trim()) return reply.code(400).send({ error: 'Cole o código-fonte do bot (JSON)' })
+      try {
+        const result = await importSalesbot({
+          kommoBotId: Number(kommoBotId),
+          name: name.trim(),
+          source: source.trim(),
+          channel,
+          funnelId: funnelId ?? null,
+          stageKey: stageKey ?? null,
+          defaultTeamId: defaultTeamId ?? null,
+        })
+        return { ok: true, ...result }
+      } catch (err: any) {
+        return reply.code(400).send({ error: err?.message ?? 'Falha ao importar o bot' })
+      }
+    },
+  )
 }

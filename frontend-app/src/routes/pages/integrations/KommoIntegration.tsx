@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { toast } from '@/lib/toast'
+import { KommoBotsCard } from './KommoBotsCard'
 
 interface KommoConfig {
   subdomain: string | null
@@ -250,6 +251,9 @@ export function KommoIntegration() {
           <div class="mt-2 text-[11px] text-fg-muted">Fila: {status.queue.active} ativo(s), {status.queue.waiting} aguardando.</div>
         )}
       </Card>
+
+      {/* ── Chatbots (Salesbot) ── */}
+      <KommoBotsCard subdomain={subdomain.trim()} hasToken={hasToken} />
     </div>
   )
 }

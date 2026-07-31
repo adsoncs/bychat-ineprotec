@@ -443,6 +443,25 @@ export async function applyAnswerToLead(leadId: number, field: any, answers: Rec
 // (mesma lógica de pickOperatorForTeam usada na criação do lead). `confirmText`,
 // se presente, é enviado como confirmação ({{opcao}} = rótulo escolhido). É um
 // no-op quando a opção não tem `route` — não afeta forms/chatbots existentes.
+// Entre operadores candidatos, escolhe o que tem menos lead aberto atribuído
+// (empate → o primeiro da lista). Serve ao rodízio por pessoa vindo da Kommo.
+async function pickLeastBusyUser(userIds: number[]): Promise<number | null> {
+  const ids = userIds.filter((n) => Number.isFinite(n))
+  if (ids.length === 0) return null
+  if (ids.length === 1) return ids[0]!
+  try {
+    const counts = await prisma.lead.groupBy({
+      by: ['assignedUserId'],
+      where: { assignedUserId: { in: ids } },
+      _count: { assignedUserId: true },
+    })
+    const byUser = new Map(counts.map((c) => [c.assignedUserId as number, c._count.assignedUserId ?? 0]))
+    return ids.reduce((best, id) => ((byUser.get(id) ?? 0) < (byUser.get(best) ?? 0) ? id : best), ids[0]!)
+  } catch {
+    return ids[0]!
+  }
+}
+
 async function applyOptionRoute(
   leadId: number,
   field: any,
@@ -459,17 +478,30 @@ async function applyOptionRoute(
     if (route.funnelId != null && route.stageKey) {
       await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false })
     }
-    if (route.teamId != null) {
-      const userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+    // Destino do atendimento: equipe (rodízio pelo pickOperatorForTeam) OU uma
+    // lista explícita de operadores — `userIds` existe porque o Salesbot da Kommo
+    // distribui por USUÁRIO (round-robin entre pessoas), não por setor. Com vários,
+    // escolhemos quem tem menos lead aberto atribuído; com um, é atribuição direta.
+    if (route.teamId != null || (Array.isArray(route.userIds) && route.userIds.length > 0)) {
+      let userId: number | null = null
+      if (route.teamId != null) {
+        userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+      } else {
+        userId = await pickLeastBusyUser(route.userIds as number[])
+      }
       await prisma.lead.update({
         where: { id: leadId },
-        data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() },
+        data: {
+          ...(route.teamId != null ? { teamId: route.teamId } : {}),
+          assignedUserId: userId,
+          assignedAt: userId ? new Date() : null,
+        },
       }).catch(() => {})
       logEvent({
         leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle',
         title: `Menu do chatbot: encaminhado para ${stripTags(opt.label) || route.stageKey}`,
         channel: 'whatsapp', source: 'chatbot', actorType: 'lead',
-        metadata: { teamId: route.teamId, userId, funnelId: route.funnelId, stageKey: route.stageKey },
+        metadata: { teamId: route.teamId ?? null, userId, funnelId: route.funnelId, stageKey: route.stageKey },
       })
     }
     if (route.confirmText) await send(leadId, interpolate(String(route.confirmText), { opcao: stripTags(opt.label) }))
