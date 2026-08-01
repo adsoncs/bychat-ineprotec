@@ -592,10 +592,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
 
       // Se falhou o envio (e não é nota interna), retorna erro sem salvar.
+      // A mensagem já vem traduzida dos providers (lib/whatsappErrors) e diz o
+      // que houve e o que fazer — o nome do canal só entra quando NÃO é WhatsApp,
+      // para não gerar frases como "Falha ao enviar via WhatsApp: o número não
+      // tem WhatsApp".
       if (!isInternal && sendError) {
-        const canalLabel = sentProvider === 'instagram' ? 'Instagram' : sentProvider === 'messenger' ? 'Messenger' : 'WhatsApp'
+        const canalLabel = sentProvider === 'instagram' ? 'Instagram' : sentProvider === 'messenger' ? 'Messenger' : null
         return reply.code(502).send({
-          error: `Falha ao enviar via ${canalLabel}: ${sendError}`,
+          error: canalLabel ? `${canalLabel}: ${sendError}` : sendError,
           detail: sendError,
         })
       }

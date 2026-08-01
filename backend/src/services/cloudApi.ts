@@ -69,7 +69,11 @@ export async function cloudApiFetch(
   const resp = await fetch(`${GRAPH_URL}${path}`, opts)
   if (!resp.ok) {
     const err = await resp.text()
-    throw new Error(`Cloud API ${resp.status}: ${err}`)
+    // Códigos da Meta (131047, 131026, 190…) viram frase de operador; o texto
+    // original fica no log, que é onde o suporte precisa dele.
+    console.warn(`[cloudApi] ${resp.status} em ${path}: ${err.slice(0, 500)}`)
+    const { humanizeWhatsAppError } = await import('../lib/whatsappErrors.js')
+    throw new Error(humanizeWhatsAppError(err, resp.status))
   }
   return resp.json()
 }

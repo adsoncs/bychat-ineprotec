@@ -2,6 +2,7 @@
 // Abstração de provider WhatsApp: Evolution API vs Cloud API Oficial
 
 import { prisma } from '../lib/prisma.js'
+import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import {
   sendTextMessage,
   sendMediaMessage,
@@ -79,8 +80,8 @@ export class EvolutionProvider implements WhatsAppProvider {
     try { parsed = JSON.parse(text) } catch { parsed = text }
 
     if (!res.ok) {
-      const errMsg = parsed?.response?.message?.[0] || parsed?.error || `Evolution API HTTP ${res.status}`
-      throw new Error(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg))
+      // Erro cru da Evolution vira frase de operador (lib/whatsappErrors).
+      throw new Error(humanizeWhatsAppError(parsed, res.status))
     }
 
     return parsed
