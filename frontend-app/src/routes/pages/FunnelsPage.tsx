@@ -1,10 +1,11 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { GitFork, Plus, Pencil, Trash2, ListTree, Users, MessageSquare, HelpCircle } from 'lucide-preact'
+import { GitFork, Plus, Pencil, Trash2, ListTree, Users, MessageSquare, HelpCircle, Star } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useFunnels,
   useDeleteFunnel,
+  useSetDefaultFunnel,
   type FunnelListItem,
 } from '@/hooks/useFunnels'
 import { Page } from '@/components/ui/Page'
@@ -22,6 +23,7 @@ export function FunnelsPage() {
   const [editing, setEditing] = useState<FunnelListItem | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<FunnelListItem | null>(null)
+  const [promoting, setPromoting] = useState<FunnelListItem | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
   return (
@@ -60,6 +62,7 @@ export function FunnelsPage() {
               onManage={() => navigate(`/funnels/${f.id}`)}
               onEdit={() => setEditing(f)}
               onDelete={() => setDeleting(f)}
+              onSetDefault={() => setPromoting(f)}
             />
           ))}
         </div>
@@ -73,6 +76,13 @@ export function FunnelsPage() {
         />
       )}
       {deleting && <DeleteFunnelDialog funnel={deleting} onClose={() => setDeleting(null)} />}
+      {promoting && (
+        <SetDefaultFunnelDialog
+          funnel={promoting}
+          current={data?.funnels.find((f) => f.isDefault) ?? null}
+          onClose={() => setPromoting(null)}
+        />
+      )}
 
       <HowItWorksModal
         open={showHowItWorks}
@@ -116,12 +126,13 @@ export function FunnelsPage() {
 }
 
 function FunnelCard({
-  funnel, onManage, onEdit, onDelete,
+  funnel, onManage, onEdit, onDelete, onSetDefault,
 }: {
   funnel: FunnelListItem
   onManage: () => void
   onEdit: () => void
   onDelete: () => void
+  onSetDefault: () => void
 }) {
   return (
     <Card class="group flex flex-col gap-4">
@@ -158,6 +169,17 @@ function FunnelCard({
         <Button variant="secondary" size="sm" onClick={onEdit} aria-label="Editar funil" title="Editar funil">
           <Pencil size={12} />
         </Button>
+        {!funnel.isDefault && funnel.active && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onSetDefault}
+            aria-label="Tornar funil padrão"
+            title="Tornar este o funil padrão"
+          >
+            <Star size={12} />
+          </Button>
+        )}
         {!funnel.isDefault && (
           <Button variant="secondary" size="sm" onClick={onDelete} aria-label="Excluir funil" title="Excluir funil">
             <Trash2 size={12} />
@@ -165,6 +187,40 @@ function FunnelCard({
         )}
       </div>
     </Card>
+  )
+}
+
+/**
+ * Confirmação da troca de padrão.
+ *
+ * Vale confirmar porque o efeito é invisível na hora e aparece depois: muda o
+ * destino de leads que chegam sem funil (webhook, criação manual, importação,
+ * portais). Quem já está num funil não se move — o texto diz isso para ninguém
+ * esperar uma migração em massa.
+ */
+function SetDefaultFunnelDialog({ funnel, current, onClose }: {
+  funnel: FunnelListItem
+  current: FunnelListItem | null
+  onClose: () => void
+}) {
+  const setDefault = useSetDefaultFunnel()
+  return (
+    <ConfirmDialog
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title={`Tornar "${funnel.name}" o funil padrão`}
+      description={
+        (current ? `Hoje o padrão é "${current.name}". ` : '')
+        + 'Leads que entrarem sem funil definido (webhook, criação manual, importação e portais) passam a cair neste. '
+        + 'Os leads que já existem continuam onde estão.'
+      }
+      confirmLabel="Tornar padrão"
+      loading={setDefault.isPending}
+      onConfirm={() => setDefault.mutate(funnel.id, {
+        onSuccess: () => { toast(`"${funnel.name}" agora é o funil padrão`, 'success'); onClose() },
+        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      })}
+    />
   )
 }
 

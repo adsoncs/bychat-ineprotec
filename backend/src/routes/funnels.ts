@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotFunnel } from '../services/trash.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 export async function funnelsRoutes(app: FastifyInstance) {
 
@@ -73,6 +74,45 @@ export async function funnelsRoutes(app: FastifyInstance) {
     }
 
     return funnel
+  })
+
+  // PATCH /api/admin/funnels/:id/default — Elege o funil padrão
+  //
+  // O padrão é o destino de todo lead que chega sem funil definido: webhook de
+  // entrada (inboundWebhooks), criação manual/importação (leads), portais e o
+  // fallback do Kanban. Trocar aqui muda para onde essas entradas vão daqui em
+  // diante — leads JÁ existentes não se movem.
+  //
+  // isDefault é único por convenção (não há constraint no banco): a troca
+  // desmarca os demais na mesma transação, então nunca fica sem padrão nem com
+  // dois. Funil inativo não pode ser padrão — as entradas cairiam num funil que
+  // some das listagens.
+  app.patch('/api/admin/funnels/:id/default', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const idNum = Number(id)
+    if (!Number.isFinite(idNum)) return reply.code(400).send({ error: 'ID inválido' })
+
+    const funnel = await prisma.funnel.findUnique({ where: { id: idNum }, select: { id: true, name: true, active: true, isDefault: true } })
+    if (!funnel) return reply.code(404).send({ error: 'Funil não encontrado' })
+    if (!funnel.active) return reply.code(400).send({ error: 'Funil inativo não pode ser o padrão. Reative-o antes.' })
+    if (funnel.isDefault) return { ok: true, funnel, changed: false }
+
+    const previous = await prisma.funnel.findFirst({ where: { isDefault: true }, select: { id: true, name: true } })
+
+    await prisma.$transaction([
+      prisma.funnel.updateMany({ where: { isDefault: true, NOT: { id: idNum } }, data: { isDefault: false } }),
+      prisma.funnel.update({ where: { id: idNum }, data: { isDefault: true } }),
+    ])
+
+    void logUserAudit({
+      action: 'funnel.default_changed',
+      targetType: 'funnel',
+      targetLabel: funnel.name,
+      changes: { from: previous ? { id: previous.id, name: previous.name } : null, to: { id: funnel.id, name: funnel.name } },
+      ...auditActor(req),
+    })
+
+    return { ok: true, funnel: { ...funnel, isDefault: true }, previous, changed: true }
   })
 
   // PUT /api/admin/funnels/:id — Update funnel

@@ -95,6 +95,26 @@ export function useDeleteFunnel() {
   })
 }
 
+/**
+ * Elege o funil padrão — destino de todo lead que entra sem funil definido
+ * (webhook, criação manual, importação, portais) e fallback do Kanban.
+ * Invalida também ['kanban'] e ['leads'], que exibem/derivam do padrão.
+ */
+export function useSetDefaultFunnel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.patch<{ ok: true; changed: boolean; previous: { id: number; name: string } | null }>(
+        `/admin/funnels/${id}/default`,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['funnels'] })
+      void qc.invalidateQueries({ queryKey: ['funnel'] })
+      void qc.invalidateQueries({ queryKey: ['kanban'] })
+    },
+  })
+}
+
 // ─── Stages ────────────────────────────────────────────────
 
 export function useCreateStage(funnelId: number) {
