@@ -12,6 +12,7 @@ import { generateUid } from './dedup.js'
 import { saveLeadOrigin, type OriginData } from './originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from './teamRouting.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
+import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
 
 // Protocolo de opções clicáveis: injetado no system prompt só quando o canal é
 // Cloud API (botões nativos). O modelo termina a mensagem com [[OPTIONS: a | b | c]]
@@ -142,7 +143,8 @@ Retorne exatamente este formato:
 // ─── AI Helpers ─────────────────────────────────────────
 
 async function callAnthropicChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -153,7 +155,7 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: await getAnthropicModel(),
       max_tokens: 800,
       system: systemPrompt,
       messages
@@ -166,7 +168,8 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
 }
 
 async function callOpenAIChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getOpenAiKey()
   if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -176,7 +179,7 @@ async function callOpenAIChat(systemPrompt: string, messages: Array<{role: strin
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: await getOpenAiModel(),
       max_tokens: 800,
       messages: [
         { role: 'system', content: systemPrompt },

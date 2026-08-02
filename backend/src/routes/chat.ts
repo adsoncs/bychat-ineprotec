@@ -10,6 +10,7 @@ import { generateUid } from '../services/dedup.js'
 import { onChatbotComplete } from '../services/scoring.js'
 import { getBranding } from '../lib/branding.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
+import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
 
 // ─── Test Sessions (in-memory, no DB) ─────────────────────
 
@@ -130,7 +131,8 @@ Retorne exatamente este formato:
 // ─── AI Call Functions (same redundancy as analyze.ts) ─────
 
 async function callAnthropicChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -141,7 +143,7 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: await getAnthropicModel(),
       max_tokens: 800,
       system: systemPrompt,
       messages
@@ -154,7 +156,8 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
 }
 
 async function callOpenAIChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getOpenAiKey()
   if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -164,7 +167,7 @@ async function callOpenAIChat(systemPrompt: string, messages: Array<{role: strin
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: await getOpenAiModel(),
       max_tokens: 800,
       messages: [
         { role: 'system', content: systemPrompt },

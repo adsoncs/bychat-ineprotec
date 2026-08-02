@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { getBranding } from '../lib/branding.js'
 import { logEvent, EVENT_TYPES, getOperator } from './leadHistory.js'
 import { z } from 'zod'
+import { getAnthropicKey, getOpenAiKey } from '../lib/aiKeys.js'
 
 const DEFAULT_PROMPT = `Você é um analista de vendas especializado. Analise a conversa de WhatsApp abaixo entre um atendente e um cliente/lead.
 
@@ -114,7 +115,8 @@ function validateSaleResult(raw: any): SaleResult {
 
 async function callAI(systemPrompt: string, conversation: string): Promise<SaleResult> {
   // Try Anthropic first
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const anthropicKey = await getAnthropicKey()
   if (anthropicKey) {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -131,10 +133,14 @@ async function callAI(systemPrompt: string, conversation: string): Promise<SaleR
       const txt = data.content?.[0]?.text || '{}'
       return validateSaleResult(JSON.parse(txt.replace(/```json|```/g, '').trim()))
     }
+    // Falha da API era engolida e o log dizia só "nenhum provedor disponível" —
+    // mensagem que manda procurar configuração quando o problema é crédito
+    // acabado, chave revogada ou rate limit. Sem o motivo, ninguém investiga.
+    console.warn(`[SaleDetection] Anthropic respondeu ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`)
   }
 
   // Fallback to OpenAI
-  const openaiKey = process.env.OPENAI_API_KEY
+  const openaiKey = await getOpenAiKey()
   if (openaiKey) {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -153,10 +159,11 @@ async function callAI(systemPrompt: string, conversation: string): Promise<SaleR
       const txt = data.choices?.[0]?.message?.content || '{}'
       return validateSaleResult(JSON.parse(txt.replace(/```json|```/g, '').trim()))
     }
+    console.warn(`[SaleDetection] OpenAI respondeu ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`)
   }
 
   // Fallback: detecção por heurísticas quando IA não está disponível
-  console.warn('[SaleDetection] Nenhum provedor de IA disponível, usando detecção por heurísticas')
+  console.warn('[SaleDetection] IA indisponível (veja o motivo acima) — usando detecção por heurísticas')
   return detectSaleByHeuristics(conversation)
 }
 

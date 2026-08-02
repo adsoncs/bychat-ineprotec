@@ -3,6 +3,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
 
 // ─── Tipos ────────────────────────────────────
 
@@ -195,7 +196,8 @@ export async function getScoringConfig(chatbotId?: number | null): Promise<Scori
 // ─── Análise IA genérica ──────────────────────
 
 async function callAI(systemPrompt: string, userPrompt: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getAnthropicKey()
   if (apiKey) {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -205,7 +207,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: await getAnthropicModel(),
         max_tokens: 1200,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
@@ -216,7 +218,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
     return data.content?.[0]?.text || ''
   }
 
-  const openaiKey = process.env.OPENAI_API_KEY
+  const openaiKey = await getOpenAiKey()
   if (!openaiKey) throw new Error('Nenhuma API key configurada')
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',

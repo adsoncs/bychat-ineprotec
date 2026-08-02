@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../lib/auth.js'
 import { getBranding } from '../lib/branding.js'
+import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
 
 const INV_LABELS = [
   'Sem orçamento definido','Até R$1.000/mês','R$1.000–2.500/mês',
@@ -19,7 +20,8 @@ function buildSystemPrompt(brandName: string): string {
 }
 
 async function callAnthropic(prompt: string, systemPrompt: string): Promise<any> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -30,7 +32,7 @@ async function callAnthropic(prompt: string, systemPrompt: string): Promise<any>
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: await getAnthropicModel(),
       max_tokens: 1200,
       system: systemPrompt,
       messages: [{ role: 'user', content: prompt }]
@@ -45,7 +47,8 @@ async function callAnthropic(prompt: string, systemPrompt: string): Promise<any>
 }
 
 async function callOpenAI(prompt: string, systemPrompt: string): Promise<any> {
-  const apiKey = process.env.OPENAI_API_KEY
+  // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
+  const apiKey = await getOpenAiKey()
   if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -55,7 +58,7 @@ async function callOpenAI(prompt: string, systemPrompt: string): Promise<any> {
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: await getOpenAiModel(),
       max_tokens: 1200,
       messages: [
         { role: 'system', content: systemPrompt },
