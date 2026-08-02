@@ -10,6 +10,7 @@ import { generateUid, flagDuplicate } from '../services/dedup.js'
 import { getMetaAppId, getMetaAppSecret, getMetaConfigId, metaFetch, metaFetchAll, META_GRAPH_URL } from '../lib/meta.js'
 import { queues } from '../lib/queues.js'
 import { pickOperatorForTeam, resolveRoutingFromContext } from '../services/teamRouting.js'
+import { classificarPorFormularioMeta, areaParaCustomFields } from '../services/leadArea.js'
 
 const META_POLL_INTERVAL = parseInt(process.env.META_POLL_INTERVAL || '300000') // 5 min default
 
@@ -1375,6 +1376,12 @@ async function createLeadFromMeta(
   if (mapped.cidade) mapped.cidade = mapped.cidade.slice(0, 100)
 
   const cd = meta.campaignData || {}
+
+  // Área de interesse a partir das respostas do formulário (nível/tipo/curso).
+  // Sem evidência não inventa nada — o lead fica sem `area_*` e a UI mostra
+  // "não identificado" em vez de rotear para o departamento errado.
+  const area = areaParaCustomFields(classificarPorFormularioMeta(fields, cd.campaign_name))
+  Object.assign(customFieldValues, area)
 
   // Determinar funil e etapa (usar funil configurado ou funil padrao do sistema)
   let funnelId = form.funnelId || undefined

@@ -9,6 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { buildNegotiationSuggestion } from '../services/negotiationSuggestion.js'
+import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -165,14 +166,50 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     // também grava saleValue = total da negociação → entra na "Receita ganha"
     // da Visão Geral/Relatórios sem precisar de mais nada.
     const finalValue = updated.valorFinal != null ? Number(updated.valorFinal) : null
-    await prisma.lead.update({
+    const leadClosed = await prisma.lead.update({
       where: { id: n.leadId },
       data: {
         outcome: resultado, outcomeAt: new Date(), outcomeBy: actor.actorId,
         lostReasonId: resultado === 'lost' && b.lostReasonId ? Number(b.lostReasonId) : undefined,
         saleValue: resultado === 'won' && finalValue != null ? finalValue : undefined,
       },
-    }).catch(() => {})
+    }).then(() => true).catch(() => false)
+
+    // Timeline do lead: fechar por aqui grava outcome/outcomeAt igual aos botões
+    // Ganho/Perdido, mas antes não deixava rastro no histórico — o desfecho ficava
+    // só na auditoria e na aba Negociação. Registra o evento no mesmo formato que
+    // markLeadWon/markLeadLost para a Timeline mostrar quando e por quem.
+    if (leadClosed) {
+      let reasonName: string | undefined
+      if (resultado === 'lost' && updated.lostReasonId) {
+        const r = await prisma.lossReason.findUnique({
+          where: { id: updated.lostReasonId },
+          select: { name: true },
+        }).catch(() => null)
+        reasonName = r?.name ?? undefined
+      }
+      const via = `negociação "${n.titulo}"`
+      logEvent({
+        leadId: n.leadId,
+        type: resultado === 'won' ? EVENT_TYPES.LEAD_WON : EVENT_TYPES.LEAD_LOST,
+        category: 'lifecycle',
+        title: resultado === 'won'
+          ? (finalValue != null ? `Ganho na ${via} — R$ ${finalValue.toFixed(2)}` : `Ganho na ${via}`)
+          : (reasonName ? `Perdido na ${via} — ${reasonName}` : `Perdido na ${via}`),
+        source: 'panel',
+        actorType: actor.actorId ? 'operator' : 'system',
+        userId: actor.actorId ?? undefined,
+        userName: actor.actorName ?? undefined,
+        metadata: {
+          negotiationId: id,
+          valorFinal: finalValue,
+          lostReasonId: updated.lostReasonId ?? null,
+          reasonName: reasonName ?? null,
+          viaNegotiation: true,
+        },
+        ipAddress: actor.ipAddress ?? undefined,
+      })
+    }
     void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal }, ...actor })
     return { negotiation: updated }
   })
@@ -192,10 +229,26 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     })
     const lead = await prisma.lead.findUnique({ where: { id: n.leadId }, select: { outcome: true } })
     if (lead?.outcome === prevResultado) {
-      await prisma.lead.update({
+      const cleared = await prisma.lead.update({
         where: { id: n.leadId },
         data: { outcome: null, outcomeAt: null, outcomeBy: null, lostReasonId: null },
-      }).catch(() => {})
+      }).then(() => true).catch(() => false)
+      // Contrapartida do evento gravado no /close: sem isto a Timeline mostraria
+      // um Ganho/Perdido que não vale mais (a data de encerramento foi apagada).
+      if (cleared) {
+        logEvent({
+          leadId: n.leadId,
+          type: EVENT_TYPES.LEAD_OUTCOME_CLEARED,
+          category: 'lifecycle',
+          title: `Desfecho desfeito — negociação "${n.titulo}" reaberta`,
+          source: 'panel',
+          actorType: actor.actorId ? 'operator' : 'system',
+          userId: actor.actorId ?? undefined,
+          userName: actor.actorName ?? undefined,
+          metadata: { negotiationId: id, previousOutcome: prevResultado, viaNegotiation: true },
+          ipAddress: actor.ipAddress ?? undefined,
+        })
+      }
     }
     void logUserAudit({ action: 'negotiation.reopened', targetType: 'lead', targetLabel: `Negociação ${n.titulo} reaberta`, changes: { prevResultado }, ...actor })
     return { negotiation: updated }

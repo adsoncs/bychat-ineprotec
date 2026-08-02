@@ -10,9 +10,11 @@ import { join, extname } from 'node:path'
 import crypto from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { extensionOrJwtAuth, generateExtensionToken } from '../lib/meetingExtensionAuth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { shouldRecordMeeting, getSalesPlaybook, getMeetingsSettings, invalidateMeetingsConfigCache } from '../lib/meetingsConfig.js'
 import { isUserBotEnabled, getUserBot, setUserBot, countActiveSeats } from '../lib/meetingBotSeat.js'
+import { resolvePermissions } from '../lib/permissions.js'
 import { generateMeetingsReport } from '../services/meetingReports.js'
 import { transcribeUploadRecording } from '../services/meetingUploadTranscribe.js'
 import {
@@ -130,7 +132,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
   // leadId, activityId, language, consent (obrigatório="true"). Salva o áudio,
   // cria a gravação em "transcribing" e dispara a transcrição soberana (whisper
   // CPU) — ao concluir vira "completed" e o pipeline (análise/entrega) assume.
-  app.post('/api/admin/meetings/upload', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/admin/meetings/upload', { preHandler: extensionOrJwtAuth }, async (req, reply) => {
     const actor = auditActor(req)
 
     // Gate de módulo/presencial ligado no tenant.
@@ -178,6 +180,8 @@ export async function meetingsRoutes(app: FastifyInstance) {
     let activityId: number | null = fv('activityId') ? Number(fv('activityId')) : null
     const language = fv('language') || ms.language || 'pt'
     const title = fv('title').slice(0, 200) || null
+    // Origem: 'extension' (captura local via extensão Chrome) ou 'presencial' (upload/gravação avulsa).
+    const source = fv('source') === 'extension' ? 'extension' : 'presencial'
 
     // Se veio activityId e não veio leadId, resolve o lead a partir da atividade.
     if (activityId && !leadId) {
@@ -189,8 +193,8 @@ export async function meetingsRoutes(app: FastifyInstance) {
     const rec = await prisma.meetingRecording.create({
       data: {
         title, leadId, activityId, userId: actor.actorId, userName: actor.actorName,
-        platform: 'presencial', source: 'presencial',
-        nativeMeetingId: `presencial-${crypto.randomUUID()}`,
+        platform: 'presencial', source,
+        nativeMeetingId: `${source}-${crypto.randomUUID()}`,
         meetingUrl: '', language,
         status: 'transcribing',
         audioPath: storagePath, audioUrl: meetingFileUrl(storagePath),
@@ -227,12 +231,69 @@ export async function meetingsRoutes(app: FastifyInstance) {
     return { leads }
   })
 
+  // ── Extensão Chrome de captura local (paridade Read.ai) ───────────────────
+  // GET /api/admin/meetings/extension/config — a extensão consulta o estado (seat,
+  // presencial ligado, texto de consentimento). Aceita o token da extensão OU JWT.
+  app.get('/api/admin/meetings/extension/config', { preHandler: extensionOrJwtAuth }, async (req) => {
+    const actor = auditActor(req)
+    const ms = await getMeetingsSettings()
+    const { getMeetingRecordingNotice } = await import('../lib/meetingsConfig.js')
+    return {
+      ok: true,
+      user: { id: actor.actorId, name: actor.actorName },
+      presencialEnabled: ms.presencialEnabled,
+      seatEnabled: await isUserBotEnabled(actor.actorId),
+      language: ms.language,
+      consentNotice: await getMeetingRecordingNotice(),
+    }
+  })
+
+  // POST /api/admin/meetings/extension/token — gera um token novo (mostrado 1x) p/
+  // o usuário logado colar na extensão. Body: { label? }.
+  app.post('/api/admin/meetings/extension/token', { preHandler: authMiddleware }, async (req, reply) => {
+    const actor = auditActor(req)
+    if (actor.actorId == null) return reply.code(401).send({ error: 'Usuário não identificado' })
+    const label = String((req.body as any)?.label || '').trim() || 'Extensão Chrome'
+    const token = await generateExtensionToken(actor.actorId, label)
+    void logUserAudit({ action: 'meetings.extension.token.created', targetType: 'setting', targetLabel: label, ...actor })
+    return reply.send({ token, label })
+  })
+
+  // GET /api/admin/meetings/extension/token — lista os tokens do usuário (mascarados).
+  app.get('/api/admin/meetings/extension/token', { preHandler: authMiddleware }, async (req) => {
+    const actor = auditActor(req)
+    if (actor.actorId == null) return { tokens: [] }
+    const rows = await prisma.meetingExtensionToken.findMany({
+      where: { userId: actor.actorId, revokedAt: null },
+      select: { id: true, label: true, lastUsedAt: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    return { tokens: rows }
+  })
+
+  // DELETE /api/admin/meetings/extension/token/:id — revoga um token do usuário.
+  app.delete('/api/admin/meetings/extension/token/:id', { preHandler: authMiddleware }, async (req, reply) => {
+    const actor = auditActor(req)
+    if (actor.actorId == null) return reply.code(401).send({ error: 'Usuário não identificado' })
+    const id = Number((req.params as any)?.id)
+    const row = await prisma.meetingExtensionToken.findFirst({ where: { id, userId: actor.actorId } })
+    if (!row) return reply.code(404).send({ error: 'Token não encontrado' })
+    await prisma.meetingExtensionToken.update({ where: { id }, data: { revokedAt: new Date() } })
+    void logUserAudit({ action: 'meetings.extension.token.revoked', targetType: 'setting', targetLabel: row.label || String(id), ...actor })
+    return reply.send({ ok: true })
+  })
+
   // GET /api/admin/meetings/recordings?leadId= — lista gravações (mais recentes primeiro).
   app.get('/api/admin/meetings/recordings', { preHandler: authMiddleware }, async (req) => {
     const q = (req.query as any) || {}
     const where: any = {}
     if (q.leadId) where.leadId = Number(q.leadId)
     if (q.status) where.status = String(q.status)
+    // Escopo: quem tem scope 'own' (ex.: AGENT) vê só as PRÓPRIAS gravações — as
+    // reuniões da sua agenda/leads (userId = ele). MANAGER/ADMIN/SUPERADMIN veem todas.
+    const u = (req as any).user || {}
+    const perms = await resolvePermissions(u.userId, u.role || '')
+    if ((perms['meetings']?.scope || 'own') === 'own') where.userId = u.userId
     const rows = await prisma.meetingRecording.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -246,6 +307,11 @@ export async function meetingsRoutes(app: FastifyInstance) {
     const id = Number((req.params as any).id)
     const rec = await prisma.meetingRecording.findUnique({ where: { id } })
     if (!rec) return reply.code(404).send({ error: 'Gravação não encontrada' })
+    const u = (req as any).user || {}
+    const perms = await resolvePermissions(u.userId, u.role || '')
+    if ((perms['meetings']?.scope || 'own') === 'own' && rec.userId !== u.userId) {
+      return reply.code(403).send({ error: 'Sem acesso a esta gravação' })
+    }
     return { recording: rec }
   })
 

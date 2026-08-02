@@ -4,10 +4,12 @@
 // vanilla `animate`/`inView` do Motion (sem dependência de React).
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { animate, inView } from 'motion'
+import { useLocation } from 'wouter-preact'
 import {
   Workflow, TrendingUp, TrendingDown, Minus, Wallet, Users, Target,
-  CalendarCheck, Handshake, Trophy, DollarSign, RefreshCw,
+  CalendarCheck, Handshake, Trophy, DollarSign, RefreshCw, Settings2, AlertTriangle,
 } from 'lucide-preact'
+import { useAuth } from '@/hooks/useAuth'
 import { useFunnelReport, type Kpi, type FunnelStage, type BreakdownRow, type DailyRow } from '@/hooks/useFunnelReport'
 
 // ── formatação pt-BR ─────────────────────────────────────────────
@@ -62,17 +64,38 @@ function DeltaBadge({ d }: { d: number | null }) {
 const KPI_ICONS: Record<string, typeof Wallet> = { investimento: Wallet, mql: Users, sql: Target, ra: CalendarCheck, rr: Handshake, fechamento: Trophy, faturamento: DollarSign }
 
 function KpiCard({ k, label, kpiKey }: { k: Kpi; label: string; kpiKey: string }) {
-  const v = useCountUp(k.value, [k.value])
+  // value null = KPI sem definição. Mostra "—" e o motivo, nunca 0: zero afirma
+  // que não houve resultado, e o que existe é ausência de medição.
+  const semDefinicao = k.value === null
+  const v = useCountUp(k.value ?? 0, [k.value])
   const Icon = KPI_ICONS[kpiKey] ?? Target
   return (
-    <div data-reveal class="group relative overflow-hidden rounded-xl border border-border bg-surface-2/60 p-4 transition-colors hover:border-accent/50">
+    <div
+      data-reveal
+      class={`group relative overflow-hidden rounded-xl border p-4 transition-colors ${semDefinicao ? 'border-warning/40 bg-warning/5' : 'border-border bg-surface-2/60 hover:border-accent/50'}`}
+      title={k.origem ?? undefined}
+    >
       <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <div class="flex items-center justify-between">
         <span class="text-[0.6875rem] font-medium uppercase tracking-wider text-fg-subtle">{label}</span>
-        <Icon size={14} class="text-accent/70" />
+        <Icon size={14} class={semDefinicao ? 'text-warning/70' : 'text-accent/70'} />
       </div>
-      <div class="mt-2 font-mono text-2xl font-bold tabular-nums text-fg">{k.format === 'money' ? fmtMoney(v) : fmtInt(v)}</div>
-      <div class="mt-1"><DeltaBadge d={k.deltaPct} /></div>
+      {semDefinicao ? (
+        <>
+          <div class="mt-2 font-mono text-2xl font-bold text-fg-subtle">—</div>
+          <div class="mt-1 text-[0.625rem] leading-snug text-warning">não configurado</div>
+        </>
+      ) : (
+        <>
+          <div class="mt-2 font-mono text-2xl font-bold tabular-nums text-fg">{k.format === 'money' ? fmtMoney(v) : fmtInt(v)}</div>
+          <div class="mt-1 flex items-center gap-2">
+            <DeltaBadge d={k.deltaPct} />
+          </div>
+          {k.origem && (
+            <div class="mt-1 truncate text-[0.625rem] text-fg-subtle" title={k.origem}>{k.origem}</div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -123,6 +146,9 @@ function heat(v: number, max: number, rgb: string): string {
 const COL_RGB: Record<string, string> = { investimento: '37,99,235', cmql: '245,158,11', mql: '139,92,246', sql: '34,197,94', ra: '6,182,212', rr: '234,179,8', fechamento: '236,72,153', leads: '249,115,22' }
 
 export function FunnelReportPage() {
+  const [, navigate] = useLocation()
+  const { user } = useAuth()
+  const ehSuperadmin = user?.role === 'SUPERADMIN'
   const [from, setFrom] = useState(isoAgo(29))
   const [to, setTo] = useState(today())
   const [funnelId, setFunnelId] = useState<number | undefined>(undefined)
@@ -169,6 +195,18 @@ export function FunnelReportPage() {
           <button type="button" onClick={() => refetch()} class="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-fg-muted transition-colors hover:border-accent/50 hover:text-fg" title="Atualizar" aria-label="Atualizar">
             <RefreshCw size={15} class={isFetching ? 'animate-spin' : ''} />
           </button>
+          {/* Só superadmin: define o que a instalação chama de MQL, SQL, RA, RR. */}
+          {ehSuperadmin && (
+            <button
+              type="button"
+              onClick={() => navigate('/funnel-report/config')}
+              class="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-fg-muted transition-colors hover:border-accent/50 hover:text-fg"
+              title="Configurar o que define cada KPI"
+              aria-label="Configurar"
+            >
+              <Settings2 size={15} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -184,6 +222,36 @@ export function FunnelReportPage() {
 
       {data && (
         <div ref={revealRef} class="mt-6 space-y-8">
+          {/* Como o relatório foi apurado. Sem isto o número é opaco: quem lê não
+              sabe se "RR = 0" é ausência de reunião ou ausência de configuração. */}
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-[0.6875rem] text-fg-muted">
+            <span>
+              Leads: <strong class="text-fg">{data.apuracao.escopo === 'pago' ? 'só campanha paga' : 'todos (inclui orgânicos)'}</strong>
+            </span>
+            <span>
+              Contagem: <strong class="text-fg">{data.apuracao.contagem === 'passou' ? 'quem alcançou a etapa' : 'situação atual'}</strong>
+            </span>
+            {data.apuracao.taxasAcimaDe100?.length > 0 && (
+              <span class="flex items-center gap-1.5 text-warning" title="A etapa seguinte tem mais leads que a anterior — as fontes configuradas medem grupos independentes, não subconjuntos.">
+                <AlertTriangle size={12} />
+                taxa acima de 100% em {data.apuracao.taxasAcimaDe100.map((t) => t.etapa).join(', ')} — as fontes
+                configuradas não formam um funil encaixado
+              </span>
+            )}
+            {data.apuracao.naoConfigurados.length > 0 && (
+              <span class="flex items-center gap-1.5 text-warning">
+                <AlertTriangle size={12} />
+                {data.apuracao.naoConfigurados.length} KPI(s) sem definição:{' '}
+                {data.apuracao.naoConfigurados.map((n) => n.label.split(' — ')[0]).join(', ')}
+                {ehSuperadmin && (
+                  <button type="button" class="underline hover:text-fg" onClick={() => navigate('/funnel-report/config')}>
+                    configurar
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+
           {/* KPIs */}
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
             {kpiOrder.map(({ key, label }) => <KpiCard key={key} kpiKey={key as string} label={label} k={data.kpis[key]} />)}
@@ -233,26 +301,34 @@ export function FunnelReportPage() {
 }
 
 // ── Funil em cascata ─────────────────────────────────────────────
-function FunnelCascade({ stages, extra }: { stages: FunnelStage[]; extra: { cpm: number; cpl: number; roas: number } }) {
-  const max = Math.max(1, ...stages.map((s) => s.value))
+function FunnelCascade({ stages, extra }: { stages: FunnelStage[]; extra: { cpm: number; cpl: number | null; roas: number | null } }) {
+  // Etapa não configurada não entra no cálculo da barra: um null virando 0
+  // faria a maior etapa parecer menor do que é.
+  const max = Math.max(1, ...stages.map((s) => s.value ?? 0))
   return (
     <div class="overflow-hidden rounded-xl border border-border bg-surface-2/40">
       {stages.map((s, i) => {
-        const pct = Math.max(2, (s.value / max) * 100)
+        const semDefinicao = s.value === null
+        const pct = semDefinicao ? 0 : Math.max(2, ((s.value ?? 0) / max) * 100)
         return (
           <div key={s.key} class={`grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center ${i > 0 ? 'border-t border-border/60' : ''}`}>
             <div class="min-w-0">
               <div class="flex items-baseline justify-between gap-3">
-                <span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle">{s.label}</span>
-                <span class="font-mono text-lg font-bold tabular-nums text-fg">{fmtInt(s.value)}</span>
+                <span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle" title={s.origem ?? undefined}>
+                  {s.label}
+                  {s.origem && <span class="ml-2 normal-case tracking-normal text-fg-subtle/70">· {s.origem}</span>}
+                </span>
+                <span class={`font-mono text-lg font-bold tabular-nums ${semDefinicao ? 'text-fg-subtle' : 'text-fg'}`}>
+                  {semDefinicao ? '—' : fmtInt(s.value ?? 0)}
+                </span>
               </div>
               <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-3">
                 <div class="h-full rounded-full bg-gradient-to-r from-accent to-info transition-[width] duration-700" style={{ width: `${pct}%` }} />
               </div>
             </div>
             <div class="flex items-center gap-4 sm:pl-6">
-              {s.rate && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.rate.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-info">{s.rate.value.toFixed(2)}%</div></div>}
-              {s.cost && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.cost.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-warning">{fmtMoney(s.cost.value)}</div></div>}
+              {s.rate && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.rate.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-info">{s.rate.value === null ? '—' : `${s.rate.value.toFixed(2)}%`}</div></div>}
+              {s.cost && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.cost.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-warning">{s.cost.value === null ? '—' : fmtMoney(s.cost.value)}</div></div>}
               <DeltaBadge d={s.deltaPct} />
             </div>
           </div>
@@ -260,8 +336,10 @@ function FunnelCascade({ stages, extra }: { stages: FunnelStage[]; extra: { cpm:
       })}
       <div class="flex flex-wrap gap-x-8 gap-y-2 border-t border-border bg-surface-3/30 px-4 py-3 text-sm">
         <span class="text-fg-muted">CPM <span class="ml-1 font-mono font-semibold text-fg">{fmtMoney(extra.cpm)}</span></span>
-        <span class="text-fg-muted">CPL <span class="ml-1 font-mono font-semibold text-fg">{fmtMoney(extra.cpl)}</span></span>
-        <span class="text-fg-muted">ROAS <span class="ml-1 font-mono font-semibold text-fg">{extra.roas.toFixed(2)}x</span></span>
+        <span class="text-fg-muted">CPL <span class="ml-1 font-mono font-semibold text-fg">{extra.cpl === null ? '—' : fmtMoney(extra.cpl)}</span></span>
+        {/* ROAS depende do faturamento: sem fonte configurada, não há como
+            calcular retorno — e 0,00x pareceria campanha sem retorno. */}
+        <span class="text-fg-muted">ROAS <span class="ml-1 font-mono font-semibold text-fg">{extra.roas === null ? '—' : `${extra.roas.toFixed(2)}x`}</span></span>
       </div>
     </div>
   )

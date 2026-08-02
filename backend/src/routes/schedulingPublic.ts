@@ -14,6 +14,21 @@ function esc(s: string): string {
 
 const getActiveType = getActiveMeetingType
 
+// Funil do formulário que hospeda o agendamento (campo `scheduling` do embed).
+// Retorna null quando não há formId, o form não tem funil, está inativo, ou o funil
+// dele não tem a etapa de destino da reunião — nesses casos vale o funil do tipo.
+async function resolveFormFunnel(rawFormId: unknown, stageKey: string | null): Promise<number | null> {
+  const formId = Number(rawFormId)
+  if (!Number.isInteger(formId) || formId <= 0) return null
+  const form = await prisma.form.findUnique({ where: { id: formId }, select: { funnelId: true, active: true } }).catch(() => null)
+  if (!form?.active || !form.funnelId) return null
+  if (stageKey) {
+    const stage = await prisma.stage.findFirst({ where: { funnelId: form.funnelId, key: stageKey, active: true }, select: { id: true } }).catch(() => null)
+    if (!stage) return null
+  }
+  return form.funnelId
+}
+
 export async function schedulingPublicRoutes(app: FastifyInstance) {
   // ── Página pública (SSR shell + JS) ──
   app.get('/agendar/:slug', async (req, reply) => {
@@ -56,11 +71,33 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     const mt = await getActiveType((req.params as any).slug)
     if (!mt) return reply.code(404).send({ error: 'Não encontrado' })
     const b = (req.body as any) || {}
+    // Agendamento embutido num formulário: o funil de ORIGEM é o do formulário, não o do
+    // tipo de reunião. Sem isso um mesmo tipo compartilhado por vários formulários arrasta
+    // todos os leads pro funil dele (foi o que jogou lead da agência no funil do SaaS).
+    // Só o `formId` vem do cliente; o funil é sempre resolvido no banco.
+    const funnelOverride = await resolveFormFunnel(b.formId, mt.stageKey)
     const result = await createBooking(mt, {
       name: b.name, email: b.email, phone: b.phone, startAt: b.startAt, answers: b.answers,
-      timezone: b.timezone, visitorId: b.visitorId, utm: b.utm,
+      timezone: b.timezone, visitorId: b.visitorId, utm: b.utm, funnelOverride,
     })
     if (!result.ok) return reply.code(400).send({ error: result.error })
+
+    // Agendou = converteu. Registra a submissão do formulário aqui, no servidor,
+    // em vez de depender do envio final no navegador (que só roda depois da tela
+    // de consentimento e se perdia quando a pessoa fechava a aba após agendar).
+    const formId = Number(b.formId)
+    if (Number.isInteger(formId) && formId > 0 && result.booking) {
+      const booking = await prisma.booking.findUnique({ where: { id: result.booking.id }, select: { leadId: true } })
+      if (booking?.leadId) {
+        const { recordFormConversionFromBooking } = await import('../services/formFlow.js')
+        await recordFormConversionFromBooking(formId, booking.leadId, {
+          visitorId: b.visitorId ?? null,
+          utmSource: b.utm?.source ?? null,
+          utmMedium: b.utm?.medium ?? null,
+          utmCampaign: b.utm?.campaign ?? null,
+        })
+      }
+    }
     return result
   })
 
@@ -291,7 +328,8 @@ ${embed ? '' : '<p class="muted" style="text-align:center;margin-top:12px;font-s
     if(!name){er.textContent='Informe seu nome';return;}
     if(!email&&!phone){er.textContent='Informe e-mail ou telefone';return;}
     var go=document.getElementById('go');go.disabled=true;go.textContent='Agendando…';
-    fetch(API+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,email:email,phone:phone,startAt:chosen,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:vid,utm:utm})})
+    var fq=(location.search.match(/[?&]f=(\\d+)/)||[])[1]||null;
+    fetch(API+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,email:email,phone:phone,startAt:chosen,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:vid,utm:utm,formId:fq})})
       .then(function(r){return r.json()}).then(function(res){
         if(res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar agendamento';loadSlots();return;}
         var dt=new Date(res.booking.startAt);

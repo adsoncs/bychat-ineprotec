@@ -119,24 +119,44 @@ export async function formsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Salvar submission
-      const submission = await prisma.formSubmission.create({
-        data: {
-          formId: form.id,
-          data,
-          pageSlug: body.pageSlug || null,
-          visitorId: body.bt_vid || null,
-          ip,
-          userAgent: (req.headers['user-agent'] || '').slice(0, 500),
-          referrer: body.referrer || req.headers.referer || null,
-          utmSource: body.utmSource || null,
-          utmMedium: body.utmMedium || null,
-          utmCampaign: body.utmCampaign || null,
-        }
-      })
+      // Salvar submission.
+      // Quando o lead JÁ converteu ao agendar (recordFormConversionFromBooking
+      // grava a submissão no servidor, no /book), reaproveita aquela linha em vez
+      // de criar uma segunda — senão o mesmo lead contaria duas conversões.
+      const alreadyId = (body.leadId && verifyProgressToken(form.id, Number(body.leadId), body.token))
+        ? (await prisma.formSubmission.findFirst({ where: { formId: form.id, leadId: Number(body.leadId) }, select: { id: true } }))?.id ?? null
+        : null
 
-      // Incrementar contador
-      prisma.form.update({ where: { id: form.id }, data: { submissions: { increment: 1 } } }).catch(() => {})
+      const submission = alreadyId
+        ? await prisma.formSubmission.update({
+            where: { id: alreadyId },
+            data: {
+              data,
+              pageSlug: body.pageSlug || null,
+              ip,
+              userAgent: (req.headers['user-agent'] || '').slice(0, 500),
+              referrer: body.referrer || req.headers.referer || null,
+            },
+          })
+        : await prisma.formSubmission.create({
+            data: {
+              formId: form.id,
+              data,
+              pageSlug: body.pageSlug || null,
+              visitorId: body.bt_vid || null,
+              ip,
+              userAgent: (req.headers['user-agent'] || '').slice(0, 500),
+              referrer: body.referrer || req.headers.referer || null,
+              utmSource: body.utmSource || null,
+              utmMedium: body.utmMedium || null,
+              utmCampaign: body.utmCampaign || null,
+            }
+          })
+
+      // Incrementar contador — só quando a submissão é nova.
+      if (!alreadyId) {
+        prisma.form.update({ where: { id: form.id }, data: { submissions: { increment: 1 } } }).catch(() => {})
+      }
 
       // Incrementar submissions na LP se veio de uma
       if (body.pageSlug) {
@@ -323,6 +343,19 @@ export async function formsRoutes(app: FastifyInstance) {
 
         const created = await createLeadFromForm(form, fields, data, body, ip, null)
         if (!created) return reply.send({ ok: true }) // ainda sem nome/email/whatsapp
+
+        // Prova do consentimento no MOMENTO em que o lead nasce. O aceite passou a
+        // ser pedido antes da coleta, e o envio final pode nunca acontecer (quem
+        // agenda e fecha a aba já conta como conversão) — gravar só lá deixaria a
+        // conversão registrada sem a prova correspondente.
+        if (body.lgpdConsent === true) {
+          await logTitularConsent({
+            req, leadId: created.leadId, visitorId: body.bt_vid || null, action: 'form_start',
+            source: body.pageSlug ? `form:${body.pageSlug}` : `form:${form.id}`,
+            url: body.referrer || (req.headers.referer as string) || null,
+            categories: { form: true },
+          }).catch(() => {})
+        }
         return reply.send({ ok: true, leadId: created.leadId, token: progressToken(form.id, created.leadId) })
       }
 
@@ -909,7 +942,8 @@ function generateEmbedScript(
     const id = `bf-${f.key}`
     if (f.type === 'scheduling') {
       // No embed clássico (inline simples) o agendamento vira um link pro booking.
-      return f.meetingSlug ? `<div class="bf-field"><a href="${baseUrl}/agendar/${esc(f.meetingSlug)}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:${v.buttonPadding};background:${v.primary};color:${v.buttonText};border-radius:${v.buttonRadius};text-decoration:none;font-weight:${v.buttonFontWeight}">${esc(f.label || 'Agendar reunião')}</a></div>` : ''
+      // ?f=<formId>: a página de agendamento usa o funil DESTE formulário (ver resolveFormFunnel).
+      return f.meetingSlug ? `<div class="bf-field"><a href="${baseUrl}/agendar/${esc(f.meetingSlug)}?f=${formId}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:${v.buttonPadding};background:${v.primary};color:${v.buttonText};border-radius:${v.buttonRadius};text-decoration:none;font-weight:${v.buttonFontWeight}">${esc(f.label || 'Agendar reunião')}</a></div>` : ''
     }
     if (f.type === 'statement') {
       return `<div class="bf-statement" style="text-align:${f.align === 'left' || f.align === 'right' ? f.align : 'center'}">${f.icon?`<div class="bf-st-ico">${esc(f.icon)}</div>`:''}${f.imageUrl?`<img class="bf-st-img" src="${esc(f.imageUrl)}" alt="">`:''}${f.label?`<div class="bf-st-h">${sanitizeBlockHtml(f.label)}</div>`:''}${f.helpText?`<div class="bf-st-p">${sanitizeBlockHtml(f.helpText)}</div>`:''}${f.html?`<div class="bf-st-html">${sanitizeBlockHtml(f.html)}</div>`:''}</div>`
@@ -1174,7 +1208,7 @@ render();
 function capture(){var o={};try{var sp=new URL(location.href).searchParams;['utm_source','utm_medium','utm_campaign','utm_content','utm_term','utm_id'].forEach(function(k){if(sp.get(k))o[k]=sp.get(k);});if(sp.get('gclid'))o.gclid=sp.get('gclid');if(sp.get('fbclid'))o.fbclid=sp.get('fbclid');var c=sp.get('ctwa_clid')||sp.get('ctwaClid');if(c)o.ctwaClid=c;}catch(ex){}try{if(window.BT&&BT.getVisitorId)o.bt_vid=BT.getVisitorId();}catch(ex){}o.referrer=document.referrer||'';return o;}
 function esc(s){return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setBar(p){if(bar)bar.style.width=p+'%';}
-function render(){if(idx<0){renderWelcome();return;}if(idx>=FIELDS.length)return;renderStep(FIELDS[idx]);}
+function render(){if(idx<0){renderWelcome();return;}if(idx>=FIELDS.length)return;var f=FIELDS[idx];/* LGPD: aceite ANTES de coletar qualquer dado. statement e' so' apresentacao, entao a tela de consentimento entra logo depois dele e antes da primeira pergunta. */if(!consentGiven&&f.type!=='statement'){renderConsent();return;}renderStep(f);}
 function media(f){return (f.icon?'<div class="bf-ico">'+esc(f.icon)+'</div>':'')+(f.imageUrl?'<img class="bf-img" src="'+esc(f.imageUrl)+'" alt="">':'');}
 function renderWelcome(){setBar(0);var h='<div class="screen" style="text-align:center">'+media({icon:CFG.welcomeIcon,imageUrl:CFG.welcomeImageUrl})+'<div class="q">'+esc(CFG.welcomeTitle||TITLE)+'</div>';if(CFG.welcomeText)h+='<div class="help">'+esc(CFG.welcomeText)+'</div>';h+='<div class="actions"><button class="btn" id="go">'+esc(CFG.startButtonText)+'</button></div></div>';root.innerHTML=h;document.getElementById('go').onclick=function(){idx=0;render();};}
 function renderStep(f){var n=FIELDS.length;if(CFG.showProgress)setBar(Math.round((idx/n)*100));var last=(idx===n-1);
@@ -1189,16 +1223,16 @@ root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();if(f
 function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
 function maybeProgress(f){if(!JOURNEY.partialCapture)return;var p=Promise.resolve();if(!leadId&&JOURNEY.nameKey&&JOURNEY.phoneKey&&answers[JOURNEY.nameKey]&&answers[JOURNEY.phoneKey]){p=postProgress('start');}if(f&&f.isQualifier){p.then(function(){if(leadId)postProgress('qualify');});}}
 function resolveQual(ans){var lastPos=null;for(var i=0;i<FIELDS.length;i++){var f=FIELDS[i];if(!f.isQualifier)continue;var a=ans[f.key];if(a===undefined||a===null||a==='')continue;var pv=f.positiveValues||[];var isPos=pv.length?pv.indexOf(a)>=0:!!a;if(!isPos){var neg=f.qualifyNegative||JOURNEY.qualNegative;if(neg&&(neg.stageKey||neg.finish))return neg;}else{var pos=f.qualifyPositive||JOURNEY.qualPositive;if(pos&&(pos.stageKey||pos.finish))lastPos=pos;}}return lastPos;}
-function postProgress(phase){var payload={phase:phase,data:answers,leadId:leadId,token:ltoken};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}return fetch(API+'/api/forms/progress/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res&&res.leadId){leadId=res.leadId;ltoken=res.token;}}).catch(function(){});}
+function postProgress(phase){var payload={phase:phase,data:answers,leadId:leadId,token:ltoken,lgpdConsent:consentGiven};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}return fetch(API+'/api/forms/progress/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res&&res.leadId){leadId=res.leadId;ltoken=res.token;}}).catch(function(){});}
 function renderSchedule(f,last){var slug=f.meetingSlug;if(!slug){var hm='<div class="screen"><div class="help">Agendamento não configurado.</div><div class="actions"><button class="btn" id="next">'+(last?esc(CFG.submitText):esc(CFG.navButtonText))+'</button></div></div>';root.innerHTML=hm;document.getElementById('next').onclick=function(){if(last)submit();else{idx++;render();}};return;}
 var h='<div class="screen"><div class="q">'+(f.label?esc(f.label):'Escolha um horário')+'</div><div id="sched"><div class="help">Carregando horários…</div></div>';if(idx>0)h+='<div class="actions"><button class="btn-ghost" id="back">Voltar</button></div>';h+='</div>';root.innerHTML=h;var bb=document.getElementById('back');if(bb)bb.onclick=function(){idx--;render();};var box=document.getElementById('sched');
 fetch(API+'/api/public/scheduling/'+encodeURIComponent(slug)+'/slots').then(function(r){return r.json();}).then(function(d){var days=((d&&d.days)||[]).filter(function(x){return x.slots&&x.slots.length;});if(!days.length){box.innerHTML='<div class="help">Nenhum horário disponível no momento.</div>';return;}var WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];var hh='<div class="bf-days">';days.slice(0,14).forEach(function(day){var dd=day.date.slice(8,10)+'/'+day.date.slice(5,7);hh+='<div class="bf-day"><div class="bf-dh">'+WD[day.weekday]+' '+dd+'</div>';day.slots.forEach(function(sl){hh+='<button class="bf-slot" data-s="'+esc(sl.startAt)+'" data-l="'+esc(sl.label)+'">'+esc(sl.label)+'</button>';});hh+='</div>';});hh+='</div>';box.innerHTML=hh;Array.prototype.forEach.call(box.querySelectorAll('.bf-slot'),function(btn){btn.onclick=function(){pickSlot(f,last,btn.getAttribute('data-s'),btn.getAttribute('data-l'));};});}).catch(function(){box.innerHTML='<div class="help">Erro ao carregar horários.</div>';});}
 function pickSlot(f,last,startAt,labelTxt){var email=(JOURNEY.emailKey&&answers[JOURNEY.emailKey])||'';var h='<div class="screen"><div class="q">Confirmar agendamento</div><div class="help">'+esc(labelTxt)+'</div>';if(!email)h+='<input id="bk-email" class="inp" type="email" placeholder="Seu e-mail (para enviar o convite)">';h+='<div class="err" id="bk-err"></div><div class="actions"><button class="btn-ghost" id="bk-back">Voltar</button><button class="btn" id="bk-go">Confirmar</button></div></div>';root.innerHTML=h;document.getElementById('bk-back').onclick=function(){renderSchedule(f,last);};
 document.getElementById('bk-go').onclick=function(){var ie=document.getElementById('bk-email');var em=email||(ie?ie.value.trim():'');var er=document.getElementById('bk-err');var ph=(JOURNEY.phoneKey&&answers[JOURNEY.phoneKey])||'';if(!em&&!ph){er.textContent='Informe seu e-mail';return;}if(em&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(em)){er.textContent='E-mail inválido';return;}if(em&&JOURNEY.emailKey)answers[JOURNEY.emailKey]=em;var go=document.getElementById('bk-go');go.disabled=true;go.textContent='Agendando…';var nm=(JOURNEY.nameKey&&answers[JOURNEY.nameKey])||'Lead';var utm={};if(TRACK.utm_source)utm.source=TRACK.utm_source;if(TRACK.utm_medium)utm.medium=TRACK.utm_medium;if(TRACK.utm_campaign)utm.campaign=TRACK.utm_campaign;if(TRACK.utm_content)utm.content=TRACK.utm_content;if(TRACK.utm_term)utm.term=TRACK.utm_term;
-fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
+fetch(API+'/api/public/scheduling/'+encodeURIComponent(f.meetingSlug)+'/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:nm,email:em,phone:ph,startAt:startAt,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,visitorId:TRACK.bt_vid||null,utm:utm,formId:FID})}).then(function(r){return r.json();}).then(function(res){if(res&&res.error){er.textContent=res.error;go.disabled=false;go.textContent='Confirmar';return;}answers[f.key]=startAt;if(last){submit();}else{idx++;render();}}).catch(function(){er.textContent='Erro ao agendar.';go.disabled=false;go.textContent='Confirmar';});};}
 function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';if(f.required&&!v)return 'Campo obrigatório';if(v&&f.type==='email'&&!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(v))return 'E-mail inválido';if(v&&f.type==='phone'&&v.replace(/\\D/g,'').length<8)return 'Telefone inválido';return '';}
-function submit(){if(!consentGiven){renderConsent();return;}doSubmit();}
-function renderConsent(){var h='<div class="screen"><div class="q">Quase lá!</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions"><button class="btn-ghost" id="back">Voltar</button><button class="btn" id="next">'+esc(CFG.submitText)+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');document.getElementById('back').onclick=function(){render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para enviar.';return;}consentGiven=true;doSubmit();};}
+function submit(){/* consentimento e' pedido no inicio (ver render); isto e' so' salvaguarda para formularios sem nenhum campo de coleta */if(!consentGiven){renderConsent();return;}doSubmit();}
+function renderConsent(){var h='<div class="screen"><div class="q">Antes de começar</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions">';if(idx>0)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(CFG.navButtonText||'Continuar')+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');var bk=document.getElementById('back');if(bk)bk.onclick=function(){idx--;render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para continuar.';return;}consentGiven=true;render();};}
 function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}
 fetch(API+'/api/forms/submit/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res.ok){fireConv();if(res.redirect){location.href=res.redirect;return;}renderSuccess(res.successHtml);}else{root.innerHTML='<div class="screen"><div class="q">Ops…</div><div class="help">'+esc(res.error||'Erro ao enviar')+'</div></div>';}}).catch(function(){root.innerHTML='<div class="screen"><div class="q">Erro de conexão</div></div>';});}
 function fireConv(){try{if(window.fbq)fbq('track',CFG.metaEventName,{},{eventID:EVID});}catch(ex){}try{if(window.gtag&&GADS.id){var st=GADS.id+(GADS.label?('/'+GADS.label):'');gtag('event','conversion',{send_to:st});}}catch(ex){}try{if(window.BT){var idd={};if(answers.email)idd.email=answers.email;var ph=answers.whatsapp||answers.telefone||answers.phone;if(ph)idd.phone=ph;if(answers.nome||answers.name)idd.name=answers.nome||answers.name;if(BT.identify&&Object.keys(idd).length)BT.identify(idd);if(BT.track)BT.track('form_conversion',{formId:FID});}}catch(ex){}}

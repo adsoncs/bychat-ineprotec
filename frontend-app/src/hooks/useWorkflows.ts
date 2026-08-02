@@ -11,6 +11,12 @@ export interface WorkflowTriggerConfig {
   chatbotId?: number | undefined
   /** Fase 23.1: filtro de objeção em lead.lost (lista de LossReason.id). */
   reasonIds?: number[] | undefined
+  /**
+   * Formulário de origem do lead (meeting.scheduled). Aceita um id ou uma
+   * LISTA — um workflow só cobre vários formulários, em vez de exigir um
+   * duplicado por formulário (e esquecer os novos).
+   */
+  formId?: number | number[] | undefined
 }
 
 export interface Workflow {

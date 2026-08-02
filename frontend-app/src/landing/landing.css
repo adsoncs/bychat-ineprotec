@@ -89,6 +89,32 @@
   }
 }
 
+/* ── Profundidade e textura (evita o "flat genérico de IA") ─────────────── */
+
+/* Card com sombra refinada e realce sutil no hover — usado nas seções novas. */
+.lp-card {
+  box-shadow:
+    0 1px 2px rgba(11, 23, 38, 0.04),
+    0 8px 24px -12px rgba(11, 23, 38, 0.12);
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+.lp-card:hover {
+  box-shadow:
+    0 1px 2px rgba(11, 23, 38, 0.05),
+    0 18px 40px -16px rgba(26, 115, 232, 0.22);
+  border-color: var(--color-line-strong);
+}
+
+/* Textura de grade leve para fundos de seção (substitui o gradiente liso). */
+.lp-grid-bg {
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 60% at 50% 0%, #000 35%, transparent 78%);
+  mask-image: radial-gradient(ellipse 75% 60% at 50% 0%, #000 35%, transparent 78%);
+}
+
 @keyframes moduleEnter {
   from {
     opacity: 0;

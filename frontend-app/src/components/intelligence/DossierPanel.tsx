@@ -2,12 +2,15 @@ import {
   Building2, Mail, Phone, MapPin, Globe, Briefcase, FileBadge, Users,
   Briefcase as BriefcaseIcon, Camera, Users as UsersAlt, AtSign, Video, Code,
   MessageCircle, Copy, MessageSquareQuote, Send, Sparkles, AlertTriangle,
-  Settings, RefreshCw, Loader2,
+  Settings, RefreshCw, Loader2, Search, Check, X, ExternalLink,
 } from 'lucide-preact'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { toast } from '@/lib/toast'
-import { useGenerateApproach, type DossierResponse } from '@/hooks/useIntelligence'
+import {
+  useGenerateApproach, useConfirmCandidate, useDismissCandidate,
+  type DossierResponse, type DossierCandidate,
+} from '@/hooks/useIntelligence'
 
 const SOCIAL_ICONS: Record<string, typeof Globe> = {
   linkedin: BriefcaseIcon,
@@ -381,7 +384,82 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
           </div>
         </Card>
       )}
+
+      {/* Possíveis perfis a verificar — descobertas por NOME (sem âncora de
+          identidade). NÃO são tratados como verdade: o agente confirma ou descarta.
+          É isto que evita "achou qualquer homônimo e colou como real". */}
+      {(data.candidates?.length ?? 0) > 0 && (
+        <CandidatesSection leadId={data.lead.id} candidates={data.candidates} />
+      )}
     </div>
+  )
+}
+
+function CandidatesSection({ leadId, candidates }: { leadId: number; candidates: DossierCandidate[] }) {
+  const confirm = useConfirmCandidate()
+  const dismiss = useDismissCandidate()
+  const busy = confirm.isPending || dismiss.isPending
+
+  return (
+    <Card class="p-3 border-warning/40 bg-warning/5">
+      <div class="text-xs uppercase tracking-wider text-warning font-semibold mb-1 flex items-center gap-1">
+        <Search size={11} /> Possíveis perfis — confirme se é a pessoa ({candidates.length})
+      </div>
+      <p class="text-[0.6875rem] text-fg-muted mb-2 leading-relaxed">
+        Encontrados por <strong>nome</strong> em buscadores. Como nome não identifica alguém com certeza,
+        eles <strong>não entram</strong> no dossiê nem no score. Verifique e confirme só os corretos.
+      </p>
+      <div class="space-y-2">
+        {candidates.map((c) => {
+          const Icon = SOCIAL_ICONS[c.platform] ?? Globe
+          const label = SOCIAL_LABELS[c.platform] ?? c.platform
+          return (
+            <div key={c.id} class="rounded-md border border-border bg-surface p-2">
+              <div class="flex items-start gap-2">
+                {c.image ? (
+                  <img src={c.image} alt="" class="size-9 rounded object-cover border border-border shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                ) : (
+                  <div class="size-9 rounded bg-surface-3 grid place-items-center shrink-0">
+                    <Icon size={14} class="text-fg-muted" />
+                  </div>
+                )}
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-medium text-fg">{label}</span>
+                    <Badge tone="warning">{Math.round(c.confidence * 100)}% · verificar</Badge>
+                  </div>
+                  {c.title && <div class="text-[0.6875rem] text-fg-muted truncate">{c.title}</div>}
+                  <a href={c.url} target="_blank" rel="noopener"
+                    class="text-[0.6875rem] text-accent hover:underline flex items-center gap-1 truncate">
+                    <ExternalLink size={9} class="shrink-0" /> <span class="truncate">{c.url.replace(/^https?:\/\//, '')}</span>
+                  </a>
+                  {c.reason && <div class="text-[0.625rem] text-fg-subtle mt-0.5">{c.reason}</div>}
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 mt-2">
+                <button type="button" disabled={busy}
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium bg-success text-white hover:bg-success/90 disabled:opacity-40"
+                  onClick={() => confirm.mutate({ leadId, factId: c.id }, {
+                    onSuccess: () => toast('Perfil confirmado', 'success'),
+                    onError: () => toast('Falha ao confirmar', 'danger'),
+                  })}>
+                  <Check size={10} /> É a pessoa
+                </button>
+                <button type="button" disabled={busy}
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border border-border bg-surface-2 text-fg-muted hover:text-danger hover:bg-surface-3 disabled:opacity-40"
+                  onClick={() => dismiss.mutate({ leadId, factId: c.id }, {
+                    onSuccess: () => toast('Descartado', 'info'),
+                    onError: () => toast('Falha ao descartar', 'danger'),
+                  })}>
+                  <X size={10} /> Não é
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 

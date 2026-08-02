@@ -1,10 +1,10 @@
-import { Activity, AlertTriangle, ShieldCheck, RefreshCw, Database, ServerCrash, Clock } from 'lucide-preact'
+import { Activity, AlertTriangle, ShieldCheck, RefreshCw, Database, ServerCrash, Clock, Search } from 'lucide-preact'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { useAdminEnrichmentStats, useRerunStale } from '@/hooks/useIntelligence'
+import { useAdminEnrichmentStats, useRerunStale, useSocialSearchSetting, useSetSocialSearch } from '@/hooks/useIntelligence'
 import { toast } from '@/lib/toast'
 
 export function OperatorPanel() {
@@ -64,6 +64,8 @@ export function OperatorPanel() {
         <KpiCard label="Erros (24h)" value={runsLast24h.totalErrors} icon={<ServerCrash size={16} />} />
         <KpiCard label="Providers ativos" value={providers.length} icon={<Database size={16} />} />
       </section>
+
+      <SocialSearchToggle />
 
 
       {/* Auditoria LGPD */}
@@ -195,5 +197,41 @@ export function OperatorPanel() {
         </Card>
       )}
     </div>
+  )
+}
+
+function SocialSearchToggle() {
+  const { data } = useSocialSearchSetting()
+  const setIt = useSetSocialSearch()
+  const enabled = data?.enabled ?? false
+  return (
+    <Card class="p-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-1 flex items-center gap-1">
+            <Search size={11} /> Busca social por nome
+          </div>
+          <p class="text-[0.6875rem] text-fg-muted leading-relaxed">
+            Procura LinkedIn/Instagram/etc pelo <strong>nome</strong> do lead. Como nome não identifica
+            alguém com certeza, os achados entram como <strong>"candidatos a verificar"</strong> (fora do
+            dossiê/score) para o agente confirmar. <strong>Desligado</strong> = sem descoberta social por
+            nome (zero risco de perfil errado). O enriquecimento ancorado (CNPJ, telefone, e-mail) continua normal.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          disabled={setIt.isPending}
+          onClick={() => setIt.mutate(!enabled, {
+            onSuccess: (r) => toast(r.enabled ? 'Busca social ligada' : 'Busca social desligada', 'success'),
+            onError: () => toast('Falha ao salvar', 'danger'),
+          })}
+          class={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${enabled ? 'bg-accent' : 'bg-surface-3'}`}
+        >
+          <span class={`inline-block size-4 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+        </button>
+      </div>
+    </Card>
   )
 }

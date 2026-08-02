@@ -327,3 +327,55 @@ export function matchSelectChoice(field: any, raw: string): { value: string; lab
   if (byLabel) return { value: byLabel.value, label: byLabel.label }
   return null
 }
+
+/**
+ * Registra a conversão do formulário quando o lead AGENDA.
+ *
+ * No formulário conversacional o envio final (que grava a FormSubmission e
+ * incrementa o contador) só roda depois da tela de consentimento — que vem
+ * DEPOIS do agendamento. Quem marcava a reunião e fechava a aba nessa tela
+ * gerava reunião real e conversão zero: o form "Tráfego Pago para Instituições"
+ * tinha 1 lead com reunião agendada e 0 conversões.
+ *
+ * A reserva é o resultado que importa, e ela acontece no servidor — então é
+ * aqui que a conversão é registrada, sem depender do navegador continuar vivo.
+ *
+ * Idempotente: se o envio final acontecer depois (ou já tiver acontecido), a
+ * submissão existente é reaproveitada e o contador não é incrementado de novo.
+ */
+export async function recordFormConversionFromBooking(
+  formId: number,
+  leadId: number,
+  extra?: { visitorId?: string | null; utmSource?: string | null; utmMedium?: string | null; utmCampaign?: string | null },
+): Promise<{ created: boolean; submissionId: number | null }> {
+  try {
+    const existing = await prisma.formSubmission.findFirst({
+      where: { formId, leadId },
+      select: { id: true },
+    })
+    if (existing) return { created: false, submissionId: existing.id }
+
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+    const data = (lead?.formData as any) || {}
+
+    const submission = await prisma.formSubmission.create({
+      data: {
+        formId,
+        leadId,
+        data,
+        visitorId: extra?.visitorId ?? null,
+        utmSource: extra?.utmSource ?? null,
+        utmMedium: extra?.utmMedium ?? null,
+        utmCampaign: extra?.utmCampaign ?? null,
+      },
+      select: { id: true },
+    })
+    await prisma.form.update({ where: { id: formId }, data: { submissions: { increment: 1 } } }).catch(() => {})
+    // Marca o lead como concluído: ele fez o que o formulário pedia.
+    await prisma.lead.update({ where: { id: leadId }, data: { completed: true } }).catch(() => {})
+    return { created: true, submissionId: submission.id }
+  } catch (err: any) {
+    console.warn('[formFlow] conversão por agendamento falhou:', err?.message)
+    return { created: false, submissionId: null }
+  }
+}

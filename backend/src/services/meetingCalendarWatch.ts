@@ -5,9 +5,12 @@
 // prestes a começar — mesmo que o compromisso não exista como Activity do CRM
 // (ex.: convite de cliente, evento criado direto no Google Calendar).
 //
-// Escopo deliberado: só conexões OPERATOR (a conta pessoal do agente). Conexões
-// COMPANY são ignoradas de propósito — elas espelham TODAS as reuniões de leads
-// do CRM e fariam o bot entrar em reunião de qualquer um, furando o gate de seat.
+// Escopo: conexões OPERATOR (conta pessoal do agente) SEMPRE. Conexões COMPANY
+// (ex.: contato@agenciabeyond.com.br) são OPT-IN via Setting
+// meetings.company_calendar_watch — quando ligado, o bot também cobre a agenda da
+// conta da empresa (reuniões atribuídas ao seat meetings.company_calendar_owner_user_id,
+// ou ao 1º seat ativo). Cuidado: a agenda COMPANY espelha as reuniões de leads do
+// CRM; a dedup por nativeMeetingId evita duplicar com o autoDispatch do CRM.
 //
 // Portões idênticos ao auto-disparo do CRM: consentimento do tenant
 // (shouldRecordMeeting) + licença (seat). Dedup por nativeMeetingId para NÃO
@@ -34,6 +37,20 @@ export interface DueCalendarMeeting {
   calendarEmail: string
 }
 
+/** Cobertura opt-in da agenda da conta da empresa (conexões COMPANY). */
+async function getCompanyWatch(): Promise<{ enabled: boolean; ownerUserId: number | null }> {
+  const rows = await prisma.setting.findMany({
+    where: { key: { in: ['meetings.company_calendar_watch', 'meetings.company_calendar_owner_user_id'] } },
+  })
+  const g = new Map(rows.map(r => [r.key, String(r.value).replace(/^"|"$/g, '').trim()]))
+  const ownerRaw = g.get('meetings.company_calendar_owner_user_id')
+  const ownerId = ownerRaw ? parseInt(ownerRaw, 10) : NaN
+  return {
+    enabled: (g.get('meetings.company_calendar_watch') || '').toLowerCase() === 'true',
+    ownerUserId: Number.isFinite(ownerId) ? ownerId : null,
+  }
+}
+
 /** Reuniões da agenda Google dos agentes com seat ativo, elegíveis AGORA. */
 export async function findDueCalendarMeetings(nowMs: number = Date.now()): Promise<DueCalendarMeeting[]> {
   // Gate do tenant (consentimento). Sem opt-out por evento aqui (não há metadata).
@@ -51,18 +68,25 @@ export async function findDueCalendarMeetings(nowMs: number = Date.now()): Promi
   if (seats.length === 0) return []
   const seatUserIds = seats.map(s => s.userId)
 
-  // Conexões OPERATOR desses usuários + suas integrações de calendar ativas.
+  // Cobertura extra da agenda da conta da empresa (COMPANY), opt-in por Setting.
+  const cw = await getCompanyWatch()
+  const companyOwnerId = cw.ownerUserId ?? seats[0].userId
+
+  // Conexões OPERATOR (sempre) + COMPANY (se ligado) com integrações de calendar ativas.
+  const orConds: any[] = [{ kind: 'OPERATOR', userId: { in: seatUserIds } }]
+  if (cw.enabled) orConds.push({ kind: 'COMPANY' })
   const conns = await prisma.googleConnection.findMany({
-    where: { kind: 'OPERATOR', active: true, userId: { in: seatUserIds } },
-    select: { id: true, email: true, userId: true, calendarIntegrations: { where: { active: true }, select: { calendarId: true } } },
+    where: { active: true, OR: orConds },
+    select: { id: true, email: true, userId: true, kind: true, calendarIntegrations: { where: { active: true }, select: { calendarId: true } } },
   })
 
   const due: DueCalendarMeeting[] = []
   const seenNative = new Set<string>()
 
   for (const conn of conns) {
-    if (conn.userId == null) continue
-    const seat = seats.find(s => s.userId === conn.userId)
+    // COMPANY não tem userId → atribui ao seat dono (config ou 1º seat ativo).
+    const ownerUserId = conn.userId ?? companyOwnerId
+    const seat = seats.find(s => s.userId === ownerUserId)
     const language = seat?.language || 'pt'
     // Se não houver integração de calendar configurada, cai no calendário primário.
     const calendarIds = conn.calendarIntegrations.length
@@ -90,7 +114,7 @@ export async function findDueCalendarMeetings(nowMs: number = Date.now()): Promi
         seenNative.add(nativeId)
 
         due.push({
-          userId: conn.userId,
+          userId: ownerUserId,
           meetUrl: ev.meetLink,
           nativeId,
           title: ev.summary || 'Reunião',

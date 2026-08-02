@@ -15,6 +15,7 @@ import type { ComponentChildren } from 'preact'
 import { useLocation } from 'wouter-preact'
 import { Lock, Package, Loader2, Home } from 'lucide-preact'
 import { useModuleAccess, type PermAction } from '@/hooks/usePermissions'
+import { useAuth } from '@/hooks/useAuth'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 
@@ -81,6 +82,50 @@ function ModuleDeniedScreen({ moduleId, action }: { moduleId: string; action: Pe
         <p class="text-sm text-fg-muted">
           Seu perfil não tem autorização para {action === 'view' ? 'visualizar' : action} o módulo{' '}
           <span class="font-mono text-fg">{moduleId}</span>. Se precisa de acesso, peça ao administrador.
+        </p>
+        <Button variant="primary" size="sm" onClick={() => navigate('/dashboard')}>
+          <Home size={14} /> Voltar ao Dashboard
+        </Button>
+      </div>
+    </Page>
+  )
+}
+
+/**
+ * Restringe a tela a SUPERADMIN. Existe ao lado do ModuleGate porque algumas
+ * telas não pertencem a um módulo — são configurações que mudam o significado do
+ * dado para todos os usuários (ex.: o que a instalação chama de MQL no Relatório
+ * de Funil). O backend também barra; isto evita que a UI tente o fetch e mostre
+ * erro genérico de 403.
+ */
+export function SuperadminOnly({ children }: { children: ComponentChildren }) {
+  const { user } = useAuth()
+  const [, navigate] = useLocation()
+
+  // Enquanto o usuário não carregou, não decide — negar aqui faria a tela
+  // piscar "acesso restrito" a cada refresh para o próprio superadmin.
+  if (!user) {
+    return (
+      <Page title="Carregando…">
+        <div class="flex items-center justify-center py-20 text-fg-muted">
+          <Loader2 size={20} class="animate-spin" />
+        </div>
+      </Page>
+    )
+  }
+
+  if (user.role === 'SUPERADMIN') return <>{children}</>
+
+  return (
+    <Page title="Acesso restrito">
+      <div class="mx-auto max-w-md flex flex-col items-center text-center gap-3 py-16">
+        <div class="size-14 rounded-full bg-danger/10 text-danger grid place-items-center">
+          <Lock size={24} />
+        </div>
+        <h2 class="text-base font-semibold text-fg">Somente superadmin</h2>
+        <p class="text-sm text-fg-muted">
+          Esta configuração altera como os indicadores são calculados para todos os usuários, por
+          isso é restrita ao superadmin.
         </p>
         <Button variant="primary" size="sm" onClick={() => navigate('/dashboard')}>
           <Home size={14} /> Voltar ao Dashboard

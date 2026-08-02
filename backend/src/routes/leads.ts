@@ -531,7 +531,16 @@ export async function leadsRoutes(app: FastifyInstance) {
       }).catch(() => null)
       if (stage) statusLabel = stage.name
     }
-    return { ...lead, agendamento, statusLabel }
+    // Quem encerrou o negócio: outcomeBy é escalar (sem relação no schema), então
+    // o nome sai de uma consulta extra — só quando há desfecho.
+    let outcomeByUser: { id: number; name: string | null } | null = null
+    if (lead.outcome && lead.outcomeBy) {
+      outcomeByUser = await prisma.user.findUnique({
+        where: { id: lead.outcomeBy },
+        select: { id: true, name: true },
+      }).catch(() => null)
+    }
+    return { ...lead, agendamento, statusLabel, outcomeByUser }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──

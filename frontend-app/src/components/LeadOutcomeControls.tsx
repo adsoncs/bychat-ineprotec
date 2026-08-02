@@ -16,6 +16,8 @@ interface Props {
   leadId: number
   outcome: 'won' | 'lost' | null | undefined
   outcomeAt?: string | null | undefined
+  /** Quem classificou o desfecho (GET /leads/:id) */
+  outcomeByUser?: { id: number; name: string | null } | null | undefined
   outcomeNote?: string | null | undefined
   lostReason?: { id: number; name: string; color: string | null } | null | undefined
   size?: 'sm' | 'md'
@@ -23,17 +25,34 @@ interface Props {
   compact?: boolean
 }
 
+/** "16/07/2026 às 19:20" — data em que o negócio foi encerrado (Lead.outcomeAt). */
+function fmtOutcomeMoment(iso: string): string | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+}
+
 export function LeadOutcomeControls({
-  leadId, outcome, outcomeNote, lostReason, size = 'sm',
+  leadId, outcome, outcomeAt, outcomeByUser, outcomeNote, lostReason, size = 'sm',
 }: Props) {
   const [wonOpen, setWonOpen] = useState(false)
   const [lostOpen, setLostOpen] = useState(false)
   const reopen = useReopenLead()
 
   if (outcome === 'won' || outcome === 'lost') {
+    const closedAt = outcomeAt ? fmtOutcomeMoment(outcomeAt) : null
+    const closedBy = outcomeByUser?.name?.trim() || null
     return (
       <div class="inline-flex items-center gap-2">
         <OutcomeBadge outcome={outcome} lostReason={lostReason} note={outcomeNote} />
+        {closedAt && (
+          <span
+            class="text-[0.6875rem] text-fg-subtle whitespace-nowrap"
+            title={`Data em que o negócio foi encerrado — é ela que define o período nos relatórios${closedBy ? ` · classificado por ${closedBy}` : ''}`}
+          >
+            em {closedAt}{closedBy ? <> · por {closedBy}</> : null}
+          </span>
+        )}
         <Button
           variant="ghost"
           size={size}

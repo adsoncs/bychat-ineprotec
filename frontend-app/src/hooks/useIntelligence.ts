@@ -223,6 +223,32 @@ export function useDisputeFact() {
   })
 }
 
+// Confirma um candidato (descoberta por nome) como verdadeiro → vira fato no dossiê.
+export function useConfirmCandidate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ leadId, factId }: { leadId: number; factId: number }) =>
+      api.post<{ ok: true; status: string }>(`/bychat/leads/${leadId}/enrichment/${factId}/confirm`, {}),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: ['intel-lead', vars.leadId] })
+      void qc.invalidateQueries({ queryKey: ['intel-dossier', vars.leadId] })
+    },
+  })
+}
+
+// Descarta um candidato (não é a pessoa).
+export function useDismissCandidate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ leadId, factId, reason }: { leadId: number; factId: number; reason?: string }) =>
+      api.post<{ ok: true; status: string }>(`/bychat/leads/${leadId}/enrichment/${factId}/dismiss`, { reason }),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: ['intel-lead', vars.leadId] })
+      void qc.invalidateQueries({ queryKey: ['intel-dossier', vars.leadId] })
+    },
+  })
+}
+
 export interface DossierIdentity {
   name?: string
   photo_url?: string
@@ -264,6 +290,17 @@ export interface DossierContact {
   addresses: string[]
 }
 
+export interface DossierCandidate {
+  id: number
+  platform: string
+  url: string
+  confidence: number
+  reason?: string
+  query?: string
+  title?: string
+  image?: string
+}
+
 export interface DossierResponse {
   lead: {
     id: number
@@ -279,6 +316,7 @@ export interface DossierResponse {
   }
   identity: DossierIdentity
   socials: DossierSocial[]
+  candidates: DossierCandidate[]
   company: DossierCompany
   contact: DossierContact
   iceBreakers: string[]
@@ -372,6 +410,23 @@ export function useAdminEnrichmentStats(enabled = true) {
     queryFn: () => api.get<AdminEnrichmentStats>('/bychat/enrichment/admin/stats'),
     enabled,
     staleTime: 30_000,
+  })
+}
+
+// Toggle da busca social por nome (gera "candidatos a verificar"). Default OFF.
+export function useSocialSearchSetting() {
+  return useQuery({
+    queryKey: ['intel-social-search'],
+    queryFn: () => api.get<{ enabled: boolean }>('/bychat/enrichment/admin/social-search'),
+    staleTime: 30_000,
+  })
+}
+
+export function useSetSocialSearch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.put<{ ok: true; enabled: boolean }>('/bychat/enrichment/admin/social-search', { enabled }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['intel-social-search'] }),
   })
 }
 

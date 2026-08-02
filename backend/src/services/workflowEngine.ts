@@ -10,6 +10,23 @@ import { logEvent, EVENT_TYPES } from './leadHistory.js'
 
 // ─── Trigger Matching ───────────────────────────────────
 
+/**
+ * Compara um valor do evento com o esperado no filtro do gatilho.
+ *
+ * Array = "qualquer um destes". É o que permite um workflow só cobrir vários
+ * formulários/funis/chatbots — antes cada valor exigia um workflow duplicado, e
+ * bastava criar um formulário novo para o aviso silenciosamente parar de sair.
+ * Escalar continua funcionando igual (comparação por string, tolerante a
+ * number x "number" vindo do JSON).
+ */
+function valueMatches(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    if (expected.length === 0) return true // lista vazia = sem filtro
+    return expected.some((e) => String(e) === String(actual))
+  }
+  return String(actual) === String(expected)
+}
+
 function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
   if (!triggerConfig) return true // sem filtro = aceita tudo
 
@@ -23,27 +40,27 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
 
     // Para stage_changed: verificar newValue
     if (key === 'stageKey' || key === 'newValue') {
-      if (event.payload?.newValue !== expected) return false
+      if (!valueMatches(event.payload?.newValue, expected)) return false
       continue
     }
 
     if (key === 'oldValue') {
-      if (event.payload?.oldValue !== expected) return false
+      if (!valueMatches(event.payload?.oldValue, expected)) return false
       continue
     }
 
     if (key === 'channel') {
-      if (event.payload?.channel !== expected) return false
+      if (!valueMatches(event.payload?.channel, expected)) return false
       continue
     }
 
     if (key === 'funnelId') {
-      if (event.funnelId !== expected && event.payload?.metadata?.funnelId !== expected) return false
+      if (!valueMatches(event.funnelId, expected) && !valueMatches(event.payload?.metadata?.funnelId, expected)) return false
       continue
     }
 
     if (key === 'chatbotId') {
-      if (event.chatbotId !== expected && event.payload?.metadata?.chatbotId !== expected) return false
+      if (!valueMatches(event.chatbotId, expected) && !valueMatches(event.payload?.metadata?.chatbotId, expected)) return false
       continue
     }
 
@@ -60,7 +77,8 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
       continue
     }
 
-    if (String(actual) !== String(expected)) return false
+    // Demais chaves (formId, etc.): escalar ou lista.
+    if (!valueMatches(actual, expected)) return false
   }
 
   return true

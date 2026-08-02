@@ -5,13 +5,25 @@
 // por campanha/adset. Junta CampaignCost (custo de Ads) + Lead (funil) por data
 // e por campanha/adset. Reaproveita o padrão do metaAdsReport.
 //
-// Mapeamento de etapas (terram, funis PET/PASTO): MQL=QUALIFICACAO,
-// SQL=QUALIFICADO, RA=RR=REUNIAO, Fechamento=FECHADO, Perdido=PERDIDO.
+// O que define MQL, SQL, RA, RR, Fechamento e Faturamento vem da CONFIGURAÇÃO
+// (services/funnelReportConfig.ts), por funil. Antes era hardcoded com as chaves
+// de um cliente só — e medido contra os funis reais, a chave QUALIFICADO não
+// existia em nenhum deles, o que fazia SQL ser 0 em 100% dos casos e MQL em 4 de
+// 5 funis. KPI sem configuração agora devolve `null` (a tela mostra "—"), porque
+// zero afirma sobre o negócio e null afirma sobre a configuração.
+//
 // O filtro `funnelId` troca o funil (padrão: primeiro funil ativo).
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { authMiddleware } from '../lib/auth.js'
+import { authMiddleware, superadminOnly } from '../lib/auth.js'
+import {
+  PAPEIS, PAPEL_LABEL, FONTES, lerConfig, salvarConfig, configDoFunil, sugerirConfig,
+  ehTipoDeValor, type FunnelReportConfig, type Papel,
+} from '../services/funnelReportConfig.js'
+import {
+  resolverTodos, montarLeadWhere, type ContextoResolucao, type ResultadoPapel,
+} from '../services/funnelReportResolver.js'
 
 function parseBrazilDate(dateStr: string, kind: 'start' | 'end'): Date {
   const suffix = kind === 'start' ? 'T00:00:00-03:00' : 'T23:59:59.999-03:00'
@@ -35,35 +47,18 @@ function deltaPct(value: number, prev: number): number | null {
 }
 function round2(n: number): number { return Math.round(n * 100) / 100 }
 
-// Chaves de etapa por "papel" no funil. Resolve contra as etapas REAIS do funil
-// selecionado; se a chave não existir, o KPI fica 0 (degrada com elegância).
-const STAGE_ROLE: Record<string, string[]> = {
-  mql: ['QUALIFICACAO'],
-  sql: ['QUALIFICADO'],
-  ra: ['REUNIAO'],
-  rr: ['REUNIAO'], // por definição do cliente: a própria Reunião conta como realizada
-  fechamento: ['FECHADO'],
-}
-const LOST_KEYS = ['PERDIDO']
-
 interface StageInfo { key: string; position: number }
 
-/** Conta leads que ALCANÇARAM uma etapa (posição do status atual >= posição da
- *  etapa), excluindo os perdidos da contagem progressiva. */
-function reachedCount(leads: { status: string | null }[], targetPos: number, posByKey: Map<string, number>): number {
-  let n = 0
-  for (const l of leads) {
-    if (!l.status || LOST_KEYS.includes(l.status)) continue
-    const p = posByKey.get(l.status)
-    if (p !== undefined && p >= targetPos) n++
-  }
-  return n
-}
-function rolePos(role: string, posByKey: Map<string, number>): number | null {
-  for (const k of STAGE_ROLE[role] ?? []) {
-    if (posByKey.has(k)) return posByKey.get(k)!
-  }
-  return null
+/** Etapas terminais de perda — usadas apenas para a coluna "perdido" das quebras.
+ *  NÃO excluem mais o lead das etapas anteriores: excluí-los apagava 105 leads de
+ *  todas as etapas que eles de fato alcançaram e inflava as taxas. */
+const LOST_KEYS = ['PERDIDO', 'DESQUALIFICADO', 'DESQUALIFICADO_FORMS']
+
+/** Valor de um papel para a view: contagem, soma ou null (não configurado). */
+const valorDoPapel = (r: ResultadoPapel | undefined): number | null => {
+  if (!r) return null
+  if (r.valor !== null) return r.valor
+  return r.leads ? r.leads.size : null
 }
 
 export async function funnelReportRoutes(app: FastifyInstance) {
@@ -88,13 +83,17 @@ export async function funnelReportRoutes(app: FastifyInstance) {
     const prevTo = new Date(from.getTime() - 1)
     const prevFrom = new Date(prevTo.getTime() - spanMs)
 
+    // Configuração define os papéis; o escopo define quem entra no universo.
+    const config = await lerConfig()
+    const cfgFunil = configDoFunil(config, funnelId)
+    const baseWhere = montarLeadWhere(funnelId, config.escopo)
+
     // ── Helpers de agregação por janela ──────────────────────────
     async function aggregate(winFrom: Date, winTo: Date) {
-      // Espelha o filtro do Relatório Meta Ads: só leads ATRIBUÍDOS a campanha
-      // (campaignId not null) entram — assim Leads/MQL/SQL e as quebras batem
-      // exatamente com aquele relatório. Leads orgânicos (sem campanha) ficam de fora.
-      const leadWhere: any = { createdAt: { gte: winFrom, lte: winTo }, campaignId: { not: null } }
-      if (funnelId) leadWhere.funnelId = funnelId
+      // O topo do funil é por coorte de ENTRADA; as etapas seguintes são por
+      // evento no período (ver funnelReportResolver.ts). Com escopo 'pago' o
+      // universo bate com o Relatório Meta Ads; com 'todos', inclui orgânicos.
+      const leadWhere: any = { ...baseWhere, createdAt: { gte: winFrom, lte: winTo } }
       // CampaignCost.date é @db.Date (UTC midnight); limites em UTC p/ não perder o 1º dia.
       const cFrom = new Date(toBrazilDay(winFrom) + 'T00:00:00.000Z')
       const cTo = new Date(toBrazilDay(winTo) + 'T23:59:59.999Z')
@@ -111,45 +110,87 @@ export async function funnelReportRoutes(app: FastifyInstance) {
       const investimento = campaignCosts.reduce((s, c) => s + Number(c.spend), 0)
       const impressoes = campaignCosts.reduce((s, c) => s + (c.impressions ?? 0), 0)
       const cliques = campaignCosts.reduce((s, c) => s + (c.clicks ?? 0), 0)
-      const count = (role: string) => {
-        const p = rolePos(role, posByKey); return p === null ? 0 : reachedCount(leads, p, posByKey)
+      const ctx: ContextoResolucao = {
+        janela: { from: winFrom, to: winTo },
+        leadWhere: baseWhere,
+        posByKey,
+        contagem: config.contagem,
+        diaDe: toBrazilDay,
       }
-      const mql = count('mql'), sql = count('sql'), ra = count('ra'), rr = count('rr'), fechamento = count('fechamento')
-      // Faturamento = receita das vendas detectadas (mesma regra do Relatório Meta Ads).
-      const faturamento = leads.filter((l) => l.saleDetected).reduce((s, l) => s + Number(l.saleValue ?? 0), 0)
-      return { leads, campaignCosts, investimento, impressoes, cliques, leadsCount: leads.length, mql, sql, ra, rr, fechamento, faturamento }
+      const papeis = await resolverTodos(cfgFunil, PAPEIS, ctx)
+      return {
+        leads, campaignCosts, investimento, impressoes, cliques, leadsCount: leads.length,
+        papeis,
+        mql: valorDoPapel(papeis.mql), sql: valorDoPapel(papeis.sql),
+        ra: valorDoPapel(papeis.ra), rr: valorDoPapel(papeis.rr),
+        fechamento: valorDoPapel(papeis.fechamento), faturamento: valorDoPapel(papeis.faturamento),
+      }
     }
 
     const cur = await aggregate(from, to)
     const prev = await aggregate(prevFrom, prevTo)
 
-    const kpi = (cV: number, pV: number, format: 'money' | 'int') => ({ value: cV, prev: pV, deltaPct: deltaPct(cV, pV), format })
+    // `value: null` = papel sem configuração. A tela mostra "—" e um aviso para
+    // configurar, em vez de afirmar que o resultado foi zero.
+    const kpi = (cV: number | null, pV: number | null, format: 'money' | 'int', papel?: Papel) => ({
+      value: cV, prev: pV,
+      deltaPct: cV === null || pV === null ? null : deltaPct(cV, pV),
+      format,
+      ...(papel ? { origem: cur.papeis[papel]?.origem ?? null, configurado: cur.papeis[papel]?.tipo != null } : {}),
+    })
+    const arred = (v: number | null) => (v === null ? null : round2(v))
     const kpis = {
       investimento: kpi(round2(cur.investimento), round2(prev.investimento), 'money'),
-      mql: kpi(cur.mql, prev.mql, 'int'),
-      sql: kpi(cur.sql, prev.sql, 'int'),
-      ra: kpi(cur.ra, prev.ra, 'int'),
-      rr: kpi(cur.rr, prev.rr, 'int'),
-      fechamento: kpi(cur.fechamento, prev.fechamento, 'int'),
-      faturamento: kpi(round2(cur.faturamento), round2(prev.faturamento), 'money'),
+      mql: kpi(cur.mql, prev.mql, 'int', 'mql'),
+      sql: kpi(cur.sql, prev.sql, 'int', 'sql'),
+      ra: kpi(cur.ra, prev.ra, 'int', 'ra'),
+      rr: kpi(cur.rr, prev.rr, 'int', 'rr'),
+      fechamento: kpi(cur.fechamento, prev.fechamento, 'int', 'fechamento'),
+      faturamento: kpi(arred(cur.faturamento), arred(prev.faturamento), 'money', 'faturamento'),
     }
 
     // ── Funil em cascata (volume + taxa entre etapas + custo por etapa) ──
-    const safeRate = (a: number, b: number) => (b > 0 ? round2((a / b) * 100) : 0)
-    const safeCost = (spend: number, n: number) => (n > 0 ? round2(spend / n) : 0)
+    // Taxa e custo devolvem null quando qualquer ponta não está configurada:
+    // dividir por um KPI inexistente produziria 0% com cara de resultado ruim.
+    //
+    // Denominador zero com numerador positivo também é null, não 0%: houve 2
+    // fechamentos e 0 reuniões concluídas — dizer "0% de fechamento" negaria os
+    // fechamentos que existem. Só 0/0 é legitimamente 0%.
+    const safeRate = (a: number | null, b: number | null) => {
+      if (a === null || b === null) return null
+      if (b > 0) return round2((a / b) * 100)
+      return a > 0 ? null : 0
+    }
+    const safeCost = (spend: number, n: number | null) =>
+      (n === null ? null : n > 0 ? round2(spend / n) : 0)
+    // Base da taxa de fechamento: reunião realizada quando ela é medida e houve
+    // alguma; senão, reunião agendada. Sem esse cuidado, um RR configurado mas
+    // zerado zeraria a taxa de fechamento de quem fechou.
+    const baseFechamento = cur.rr !== null && cur.rr > 0 ? cur.rr : cur.ra
     const funnel = [
       { key: 'impressao', label: 'Impressão', value: cur.impressoes, prev: prev.impressoes, deltaPct: deltaPct(cur.impressoes, prev.impressoes) },
       { key: 'cliques', label: 'Cliques', value: cur.cliques, prev: prev.cliques, deltaPct: deltaPct(cur.cliques, prev.cliques), rate: { label: 'CTR', value: safeRate(cur.cliques, cur.impressoes), unit: '%' }, cost: { label: 'CPC', value: safeCost(cur.investimento, cur.cliques), unit: 'money' } },
       { key: 'leads', label: 'Leads', value: cur.leadsCount, prev: prev.leadsCount, deltaPct: deltaPct(cur.leadsCount, prev.leadsCount), rate: { label: 'Taxa de Cadastro', value: safeRate(cur.leadsCount, cur.cliques), unit: '%' }, cost: { label: 'Custo por Lead', value: safeCost(cur.investimento, cur.leadsCount), unit: 'money' } },
-      { key: 'mql', label: 'MQL', value: cur.mql, prev: prev.mql, deltaPct: deltaPct(cur.mql, prev.mql), rate: { label: 'Taxa MQL', value: safeRate(cur.mql, cur.leadsCount), unit: '%' }, cost: { label: 'CMQL', value: safeCost(cur.investimento, cur.mql), unit: 'money' } },
-      { key: 'sql', label: 'SQL', value: cur.sql, prev: prev.sql, deltaPct: deltaPct(cur.sql, prev.sql), rate: { label: 'Taxa SQL', value: safeRate(cur.sql, cur.mql), unit: '%' }, cost: { label: 'Custo por SQL', value: safeCost(cur.investimento, cur.sql), unit: 'money' } },
-      { key: 'ra', label: 'RA', value: cur.ra, prev: prev.ra, deltaPct: deltaPct(cur.ra, prev.ra), rate: { label: 'Taxa Reunião', value: safeRate(cur.ra, cur.sql), unit: '%' }, cost: { label: 'Custo por RA', value: safeCost(cur.investimento, cur.ra), unit: 'money' } },
-      { key: 'fechamento', label: 'Fechamento', value: cur.fechamento, prev: prev.fechamento, deltaPct: deltaPct(cur.fechamento, prev.fechamento), rate: { label: 'Tx Fechamento', value: safeRate(cur.fechamento, cur.ra), unit: '%' }, cost: { label: 'Custo por Fechamento', value: safeCost(cur.investimento, cur.fechamento), unit: 'money' } },
+      { key: 'mql', label: 'MQL', value: cur.mql, prev: prev.mql, deltaPct: kpis.mql.deltaPct, origem: cur.papeis.mql?.origem ?? null, rate: { label: 'Taxa MQL', value: safeRate(cur.mql, cur.leadsCount), unit: '%' }, cost: { label: 'CMQL', value: safeCost(cur.investimento, cur.mql), unit: 'money' } },
+      { key: 'sql', label: 'SQL', value: cur.sql, prev: prev.sql, deltaPct: kpis.sql.deltaPct, origem: cur.papeis.sql?.origem ?? null, rate: { label: 'Taxa SQL', value: safeRate(cur.sql, cur.mql), unit: '%' }, cost: { label: 'Custo por SQL', value: safeCost(cur.investimento, cur.sql), unit: 'money' } },
+      { key: 'ra', label: 'RA', value: cur.ra, prev: prev.ra, deltaPct: kpis.ra.deltaPct, origem: cur.papeis.ra?.origem ?? null, rate: { label: 'Taxa Reunião', value: safeRate(cur.ra, cur.sql), unit: '%' }, cost: { label: 'Custo por RA', value: safeCost(cur.investimento, cur.ra), unit: 'money' } },
+      // RR entra na cascata: com fonte de agenda, é o comparecimento real e o
+      // gargalo mais informativo do funil (antes era cópia de RA e ficava fora).
+      { key: 'rr', label: 'RR', value: cur.rr, prev: prev.rr, deltaPct: kpis.rr.deltaPct, origem: cur.papeis.rr?.origem ?? null, rate: { label: 'Comparecimento', value: safeRate(cur.rr, cur.ra), unit: '%' }, cost: { label: 'Custo por RR', value: safeCost(cur.investimento, cur.rr), unit: 'money' } },
+      { key: 'fechamento', label: 'Fechamento', value: cur.fechamento, prev: prev.fechamento, deltaPct: kpis.fechamento.deltaPct, origem: cur.papeis.fechamento?.origem ?? null, rate: { label: 'Tx Fechamento', value: safeRate(cur.fechamento, baseFechamento), unit: '%' }, cost: { label: 'Custo por Fechamento', value: safeCost(cur.investimento, cur.fechamento), unit: 'money' } },
     ]
+    // Com fontes independentes, uma etapa pode ter MAIS leads que a anterior (ex.:
+    // RA por agenda = 19 contra SQL por etapa = 10, dando "190%"). Não é erro de
+    // cálculo, é a configuração não descrevendo um funil encaixado — e quem lê
+    // precisa saber disso antes de concluir que a taxa está errada.
+    const taxasAcimaDe100 = funnel
+      .filter((f) => f.rate && f.rate.value !== null && f.rate.value > 100)
+      .map((f) => ({ etapa: f.label, taxa: f.rate!.label, valor: f.rate!.value }))
+
     const extraMetrics = {
       cpm: cur.impressoes > 0 ? round2((cur.investimento / cur.impressoes) * 1000) : 0,
       cpl: safeCost(cur.investimento, cur.leadsCount),
-      roas: cur.investimento > 0 ? round2(cur.faturamento / cur.investimento) : 0,
+      roas: cur.faturamento !== null && cur.investimento > 0 ? round2(cur.faturamento / cur.investimento) : null,
     }
 
     // ── Série diária (sparklines + heatmap por dia) ──────────────
@@ -162,17 +203,15 @@ export async function funnelReportRoutes(app: FastifyInstance) {
     for (let t = from.getTime(); t <= to.getTime(); t += 86400000) ensureDay(toBrazilDay(new Date(t)))
     // c.date é @db.Date (UTC midnight) = dia-calendário do gasto → agrupar por dia UTC.
     for (const c of cur.campaignCosts) ensureDay(c.date.toISOString().slice(0, 10)).investimento += Number(c.spend)
-    const posMql = rolePos('mql', posByKey), posSql = rolePos('sql', posByKey), posRa = rolePos('ra', posByKey), posFec = rolePos('fechamento', posByKey)
-    for (const l of cur.leads) {
-      const d = ensureDay(toBrazilDay(l.createdAt))
-      const p = l.status && !LOST_KEYS.includes(l.status) ? posByKey.get(l.status) : undefined
-      if (p !== undefined) {
-        if (posMql !== null && p >= posMql) d.mql++
-        if (posSql !== null && p >= posSql) d.sql++
-        if (posRa !== null && p >= posRa) { d.ra++; d.rr++ }
-        if (posFec !== null && p >= posFec) d.fechamento++
+    // A série vem do resolvedor, já agrupada pelo dia do EVENTO (fechamento cai no
+    // dia em que fechou, não no dia em que o lead entrou).
+    for (const papel of PAPEIS) {
+      const serie = cur.papeis[papel]?.porDia
+      if (!serie) continue
+      for (const [dia, n] of serie) {
+        const d = ensureDay(dia)
+        ;(d as any)[papel] = ((d as any)[papel] ?? 0) + n
       }
-      if (l.saleDetected) d.faturamento += Number(l.saleValue ?? 0)
     }
     for (const d of dayMap.values()) d.cmql = d.mql > 0 ? round2(d.investimento / d.mql) : 0
     const daily = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -187,6 +226,15 @@ export async function funnelReportRoutes(app: FastifyInstance) {
     const byWeekday = [1, 2, 3, 4, 5, 6, 0].map((i) => { const w = wdMap.get(i)!; return { ...w, investimento: round2(w.investimento), cmql: w.mql > 0 ? round2(w.investimento / w.mql) : 0 } })
 
     // ── Quebras por campanha e adset ─────────────────────────────
+    // Cada papel resolvido é um conjunto de leadIds; a quebra apenas verifica a
+    // que campanha/adset cada lead do conjunto pertence. Assim campanha e KPI
+    // usam a MESMA definição — antes a quebra reimplementava a contagem por
+    // posição de etapa e podia divergir do topo do relatório.
+    const conjuntos: Partial<Record<Papel, Set<number>>> = {}
+    for (const papel of PAPEIS) {
+      const leads = cur.papeis[papel]?.leads
+      if (leads) conjuntos[papel] = leads
+    }
     function breakdown(dimId: 'campaignId' | 'adsetId', dimName: 'campaignName' | 'adsetName', costLevel: 'campaign' | 'adset') {
       const rows = new Map<string, any>()
       const get = (id: string, name: string) => {
@@ -198,12 +246,8 @@ export async function funnelReportRoutes(app: FastifyInstance) {
         const r = get(String(id), (l as any)[dimName] || (id === '0' ? 'SEM_CAMPANHA' : ''))
         r.leads++
         if (l.status && LOST_KEYS.includes(l.status)) r.perdido++
-        const p = l.status && !LOST_KEYS.includes(l.status) ? posByKey.get(l.status) : undefined
-        if (p !== undefined) {
-          if (posMql !== null && p >= posMql) r.mql++
-          if (posSql !== null && p >= posSql) r.sql++
-          if (posRa !== null && p >= posRa) { r.ra++; r.rr++ }
-          if (posFec !== null && p >= posFec) r.fechamento++
+        for (const papel of ['mql', 'sql', 'ra', 'rr', 'fechamento'] as const) {
+          if (conjuntos[papel]?.has(l.id)) r[papel]++
         }
       }
       return { rows, get }
@@ -225,6 +269,11 @@ export async function funnelReportRoutes(app: FastifyInstance) {
     const campaigns = finalize(campBd.rows)
     const adsets = finalize(adsetBd.rows)
 
+    // Papéis sem configuração: a tela precisa distinguir "não houve" de "não
+    // medido" e oferecer o caminho para resolver.
+    const naoConfigurados = PAPEIS.filter((papel) => cur.papeis[papel]?.tipo == null)
+      .map((papel) => ({ papel, label: PAPEL_LABEL[papel] }))
+
     return {
       funnels: funnelList,
       funnelId,
@@ -236,6 +285,82 @@ export async function funnelReportRoutes(app: FastifyInstance) {
       byWeekday,
       campaigns,
       adsets,
+      // Como o relatório foi apurado — o usuário precisa saber para interpretar.
+      apuracao: {
+        escopo: config.escopo,
+        contagem: config.contagem,
+        naoConfigurados,
+        taxasAcimaDe100,
+        origens: Object.fromEntries(PAPEIS.map((p) => [p, cur.papeis[p]?.origem ?? null])),
+      },
     }
+  })
+
+  // ── Configuração (somente superadmin) ────────────────────────────
+  //
+  // Fica atrás de `superadminOnly` porque muda o significado de todo KPI do
+  // relatório: quem configura define o que a agência chama de MQL.
+
+  app.get('/api/admin/funnel-report/config', { preHandler: superadminOnly }, async () => {
+    const [config, funnels, tags, customFields, forms] = await Promise.all([
+      lerConfig(),
+      prisma.funnel.findMany({
+        where: { active: true },
+        select: { id: true, name: true, isDefault: true, stages: { select: { key: true, name: true, position: true }, orderBy: { position: 'asc' } } },
+        orderBy: [{ isDefault: 'desc' }, { id: 'asc' }],
+      }),
+      prisma.tag.findMany({ where: { active: true }, select: { id: true, name: true, color: true }, orderBy: { position: 'asc' } }),
+      prisma.customField.findMany({ where: { active: true }, select: { key: true, label: true, type: true, options: true }, orderBy: { position: 'asc' } }),
+      prisma.form.findMany({ select: { id: true, name: true, fields: true } }),
+    ])
+
+    // Campos qualificadores existentes, com os valores considerados positivos.
+    // É o que permite escolher "resposta positiva na qualificação" sabendo
+    // exatamente qual resposta conta.
+    const qualificadores: Array<{ key: string; label: string; positiveValues: string[]; forms: string[] }> = []
+    const porChave = new Map<string, { key: string; label: string; positiveValues: Set<string>; forms: Set<string> }>()
+    for (const f of forms) {
+      const campos: any[] = Array.isArray(f.fields) ? (f.fields as any[]) : []
+      for (const c of campos) {
+        if (!c?.isQualifier || !c.key) continue
+        let reg = porChave.get(c.key)
+        if (!reg) { reg = { key: c.key, label: c.label || c.key, positiveValues: new Set(), forms: new Set() }; porChave.set(c.key, reg) }
+        for (const v of (Array.isArray(c.positiveValues) ? c.positiveValues : [])) reg.positiveValues.add(String(v))
+        reg.forms.add(f.name)
+      }
+    }
+    for (const r of porChave.values()) {
+      qualificadores.push({ key: r.key, label: r.label, positiveValues: [...r.positiveValues], forms: [...r.forms] })
+    }
+
+    return {
+      config,
+      fontes: FONTES,
+      papeis: PAPEIS.map((p) => ({ key: p, label: PAPEL_LABEL[p] })),
+      funnels,
+      // Sugestão por funil, derivada das etapas REAIS. Não é aplicada sozinha:
+      // sugestão auto-aplicada viraria o mesmo hardcode de antes, só mais
+      // difícil de enxergar.
+      sugestoes: Object.fromEntries(funnels.map((f) => [String(f.id), sugerirConfig(f.stages)])),
+      catalogos: {
+        tags,
+        customFields,
+        qualificadores,
+        bookingStatuses: ['scheduled', 'confirmed', 'completed', 'cancelled', 'no_show', 'rescheduled'],
+        negotiationStatuses: ['rascunho', 'enviada', 'em_negociacao', 'aceita', 'recusada', 'expirada'],
+        scoreLabels: ['hot', 'warm', 'cold'],
+      },
+    }
+  })
+
+  app.put('/api/admin/funnel-report/config', { preHandler: superadminOnly }, async (req, reply) => {
+    const b = (req.body ?? {}) as Partial<FunnelReportConfig>
+    if (!b || typeof b !== 'object') return reply.code(400).send({ error: 'corpo inválido' })
+    const salvo = await salvarConfig({
+      porFunil: b.porFunil ?? {},
+      escopo: b.escopo === 'pago' ? 'pago' : 'todos',
+      contagem: b.contagem === 'atual' ? 'atual' : 'passou',
+    })
+    return { ok: true, config: salvo }
   })
 }

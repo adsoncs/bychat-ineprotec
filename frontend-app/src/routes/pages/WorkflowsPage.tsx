@@ -23,6 +23,7 @@ import { useFunnels, useFunnel } from '@/hooks/useFunnels'
 import { useTags } from '@/hooks/useTags'
 import { useChatbots } from '@/hooks/useChatbots'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
+import { useForms } from '@/hooks/useForms'
 import { useModules } from '@/hooks/useModules'
 import { filterAvailableTriggers, triggerLabel, CATEGORY_LABELS, type TriggerEvent } from '@/lib/triggerEvents'
 import { toast } from '@/lib/toast'
@@ -572,6 +573,18 @@ function TriggerFiltersEditor({
     )
   }
 
+  if (triggerEvent === 'meeting.scheduled') {
+    // Aceita id único (config antiga) ou lista — o motor compara os dois.
+    const raw = value.formId
+    const ids = raw === undefined ? [] : Array.isArray(raw) ? raw.map(Number) : [Number(raw)]
+    return (
+      <MeetingFormsTriggerEditor
+        value={ids}
+        onChange={(next) => onChange({ ...value, formId: next.length > 0 ? next : undefined })}
+      />
+    )
+  }
+
   if (triggerEvent === 'lead.lost') {
     return (
       <LossReasonsTriggerEditor
@@ -643,6 +656,75 @@ function LossReasonsTriggerEditor({
               >
                 <span class="size-2 rounded-full" style={{ background: on ? 'rgba(255,255,255,0.7)' : (r.color || '#94a3b8') }} />
                 {r.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Filtro por formulário de origem no gatilho de agendamento.
+ *
+ * Multi-seleção de propósito: com um formulário por workflow, cada formulário
+ * novo nascia sem aviso e ninguém percebia — o agendamento acontecia e a equipe
+ * não era avisada. Sem seleção = qualquer formulário.
+ */
+function MeetingFormsTriggerEditor({
+  value, onChange,
+}: {
+  value: number[]
+  onChange: (ids: number[]) => void
+}) {
+  const { data, isLoading } = useForms()
+  const items = data?.forms ?? []
+  const selected = new Set(value)
+
+  function toggle(id: number) {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange(Array.from(next))
+  }
+
+  return (
+    <div>
+      <div class="flex items-center justify-between mb-1.5">
+        <label class="text-xs font-medium text-fg">Filtrar por formulário de origem (opcional)</label>
+        <a
+          href="/app/forms"
+          target="_blank"
+          rel="noreferrer"
+          class="text-[0.6875rem] text-accent hover:underline"
+          title="Abrir formulários"
+        >
+          Gerenciar formulários
+        </a>
+      </div>
+      <p class="text-[0.6875rem] text-fg-subtle mb-2">
+        Sem seleção = avisa em qualquer agendamento. Com seleção = só quando o lead veio de um dos formulários marcados.
+      </p>
+      {isLoading ? (
+        <div class="text-xs text-fg-subtle">Carregando…</div>
+      ) : items.length === 0 ? (
+        <div class="text-xs text-fg-subtle">Nenhum formulário cadastrado.</div>
+      ) : (
+        <div class="flex flex-wrap gap-1.5">
+          {items.map((f) => {
+            const on = selected.has(f.id)
+            return (
+              <button
+                key={f.id}
+                type="button"
+                class={cn(
+                  'inline-flex items-center gap-1 px-2 h-7 rounded-md border text-xs transition-colors',
+                  on ? 'border-transparent bg-accent text-fg-on-brand' : 'border-border bg-surface-2 text-fg-muted hover:bg-surface-3',
+                )}
+                onClick={() => toggle(f.id)}
+              >
+                {f.name}
               </button>
             )
           })}

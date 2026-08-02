@@ -284,11 +284,20 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     // p/ permitir filtrar notificações por formulário no agendamento.
     const leadForm = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
     const originFormId = (leadForm?.formData as any)?._formId ?? null
+    // Nome do formulário junto do id: é o que permite um aviso único dizer de
+    // onde veio ({{origem}} no template) em vez de um workflow por formulário.
+    const originFormName = originFormId
+      ? (await prisma.form.findUnique({ where: { id: Number(originFormId) }, select: { name: true } }).catch(() => null))?.name ?? null
+      : null
     eventBus.emitDomain({
       type: 'meeting.scheduled',
       leadId,
       ...(mt.funnelId ? { funnelId: mt.funnelId } : {}),
-      payload: { bookingId: booking.id, meetingTypeId: mt.id, startAt: booking.startAt.toISOString(), formId: originFormId, metadata: { formId: originFormId } },
+      payload: {
+        bookingId: booking.id, meetingTypeId: mt.id, startAt: booking.startAt.toISOString(),
+        formId: originFormId,
+        metadata: { formId: originFormId, formName: originFormName, meetingTypeName: mt.name },
+      },
     } as any)
   }
 

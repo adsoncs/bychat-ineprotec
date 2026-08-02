@@ -1,14 +1,27 @@
 import { useState } from 'preact/hooks'
 import {
+  Award,
+  BarChart3,
+  BookOpen,
   Bot,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   ClipboardList,
   CreditCard,
+  FileText,
   GraduationCap,
+  KeyRound,
+  Landmark,
   LineChart,
   Megaphone,
+  PhoneCall,
+  Repeat,
+  Send,
+  ShieldCheck,
+  Sparkles,
   Users,
+  Wallet,
 } from 'lucide-preact'
 import { CONTACT } from '../landing.copy'
 
@@ -34,6 +47,7 @@ const NAV = [
   { label: 'Captação', href: '#captacao' },
   { label: 'Matrículas', href: '#matriculas' },
   { label: 'Processos seletivos', href: '#processos' },
+  { label: 'Gestão acadêmica', href: '#erp' },
   { label: 'Pagamentos', href: '#pagamentos' },
   { label: 'Perguntas', href: '#faq' },
 ] as const
@@ -142,8 +156,20 @@ const AUDIENCE = [
 
 const FAQ = [
   {
-    q: 'O portal de matrículas substitui meu sistema acadêmico?',
-    a: 'Ele cuida da jornada de captação e inscrição — do anúncio à matrícula paga. A integração com o sistema acadêmico é feita por API/webhooks conforme a sua operação.',
+    q: 'O ByChat substitui meu sistema acadêmico?',
+    a: 'Sim. Além da captação e das matrículas, o ByChat inclui um ERP acadêmico nativo completo: pedagógico (diário, frequência, notas, conselho), financeiro (mensalidades, boleto/PIX, boleto registrado CNAB, renegociação, dívida ativa), secretaria (histórico, declarações, certificados, requerimentos), diploma digital no padrão MEC, portais de aluno/professor/responsável e conformidade (Censo INEP, SISTEC, ENADE, CPA). Tudo num sistema só.',
+  },
+  {
+    q: 'O sistema emite diploma digital e atende o MEC?',
+    a: 'Sim. Emite o diploma digital no padrão MEC (com XML, registro e validação pública por código) e gera as exportações para Censo INEP, SISTEC e ENADE, além da Avaliação Institucional (CPA).',
+  },
+  {
+    q: 'Como funciona a parte financeira das mensalidades?',
+    a: 'Contratos e parcelas gerados na matrícula, cobrança por boleto/PIX (Asaas) ou boleto bancário registrado (CNAB), com central financeira, juros/multa, desconto por pontualidade, renegociação, bloqueio por inadimplência, recibos, dívida ativa (CDA) e controle de NFS-e.',
+  },
+  {
+    q: 'Alunos e professores têm acesso próprio?',
+    a: 'Sim. Há portais de autoatendimento por link seguro (sem senha) para aluno (boletim, financeiro com 2ª via, documentos, (re)matrícula), professor (diário, notas, materiais), responsável, ex-aluno e coordenador.',
   },
   {
     q: 'Dá para ter mais de um processo seletivo ao mesmo tempo?',
@@ -226,14 +252,14 @@ function Hero() {
           Solução exclusiva para instituições de ensino
         </span>
         <h1 class="mt-5 text-4xl font-extrabold leading-tight tracking-tight text-ink sm:text-5xl">
-          Capte, matricule e fidelize alunos{' '}
-          <span class="text-brand">no WhatsApp com IA</span>
+          Da captação ao diploma:{' '}
+          <span class="text-brand">a instituição inteira numa plataforma</span>
         </h1>
         <p class="mx-auto mt-5 max-w-2xl text-lg text-fg-muted">
-          Portal de matrículas, processos seletivos, modos de ingresso e
-          checkout transparente (PIX, boleto e cartão) — do anúncio à
-          matrícula paga, numa plataforma só. Um diferencial que nenhum
-          concorrente entrega.
+          Portal de matrículas e checkout transparente (PIX, boleto e cartão)
+          para captar — e um ERP acadêmico nativo completo para gerir: pedagógico,
+          financeiro, secretaria, diploma digital MEC e portais do aluno. Do
+          anúncio à diplomação, sem trocar de sistema.
         </p>
         <div class="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
           <a
@@ -304,7 +330,7 @@ function Pillars() {
               <div
                 key={p.title}
                 id={anchor}
-                class="scroll-mt-24 rounded-card border border-line bg-surface p-6 shadow-sm"
+                class="lp-card scroll-mt-24 rounded-card border border-line bg-surface p-6"
               >
                 <span class="grid size-11 place-items-center rounded-xl bg-brand-soft text-brand">
                   <Icon class="size-5" />
@@ -353,6 +379,132 @@ function HowItWorks() {
               <p class="mt-2 text-sm text-fg-muted">{s.text}</p>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+const ERP_AREAS = [
+  { icon: GraduationCap, title: 'Estrutura & Matrículas', text: 'Cursos, matriz curricular, turmas e períodos letivos, com o aluno num ciclo de vida completo: da inscrição à conclusão.' },
+  { icon: BookOpen, title: 'Núcleo Pedagógico', text: 'Diário de classe, frequência, avaliações e notas, conselho de classe, calendário, quadro de horários e plano de ensino.' },
+  { icon: Wallet, title: 'Financeiro Acadêmico', text: 'Mensalidades e contratos (Asaas: boleto/PIX), central financeira, juros/multa, renegociação, bloqueio por inadimplência e recibos.' },
+  { icon: Landmark, title: 'Financeiro Bancário & Fiscal', text: 'Boleto bancário registrado (CNAB), remessa/retorno, plano de contas, cobranças recorrentes, dívida ativa (CDA) e NFS-e.' },
+  { icon: FileText, title: 'Secretaria & Documentos', text: 'Histórico escolar, declarações, atas, certificados e requerimentos (secretaria virtual) — todos com numeração oficial.' },
+  { icon: Award, title: 'Diploma Digital (MEC)', text: 'Diploma digital no padrão MEC: geração do XML, registro e validação pública por código.' },
+  { icon: KeyRound, title: 'Portais de autoatendimento', text: 'Aluno, professor, responsável, ex-aluno e coordenador — boletim, financeiro, documentos e (re)matrícula por link seguro, sem senha.' },
+  { icon: ClipboardList, title: 'Processo Seletivo', text: 'Vestibular completo: componentes de nota, classificação com desempate, convocação por chamadas e ensalamento.' },
+  { icon: Repeat, title: 'Movimentações acadêmicas', text: 'Trancamento, transferência, aproveitamento de estudos, dependência e reingresso — com registro auditável.' },
+  { icon: Users, title: 'Docente / RH acadêmico', text: 'Cadastro de docentes (titulação, regime, valor-hora), atividades com cálculo de valores e aceite de disciplinas.' },
+  { icon: BarChart3, title: 'Avaliação Institucional (CPA)', text: 'Questionários por dimensões, NPS, aplicação por link público e dashboard de resultados e participação.' },
+  { icon: ShieldCheck, title: 'Conformidade MEC', text: 'Censo INEP, SISTEC e ENADE — exportações e validações de consistência prontas para os órgãos reguladores.' },
+] as const
+
+function AcademicoErp() {
+  return (
+    <section id="erp" class="border-y border-line bg-ink py-16 text-surface sm:py-24">
+      <div class="mx-auto max-w-6xl px-5">
+        <div class="mx-auto max-w-2xl text-center">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-surface/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-surface">
+            <GraduationCap class="size-3.5" />
+            ERP acadêmico nativo
+          </span>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Muito além da captação: gerimos a instituição inteira
+          </h2>
+          <p class="mt-4 text-lg text-surface/70">
+            Um ERP acadêmico 100% nativo e integrado — pedagógico, financeiro,
+            secretaria e conformidade MEC no mesmo sistema que capta o aluno.
+            Sem exportar planilha, sem juntar fornecedores.
+          </p>
+        </div>
+        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {ERP_AREAS.map((a) => {
+            const Icon = a.icon
+            return (
+              <div key={a.title} class="rounded-card border border-surface/10 bg-surface/5 p-6">
+                <span class="grid size-11 place-items-center rounded-xl bg-brand/20 text-brand">
+                  <Icon class="size-6" />
+                </span>
+                <h3 class="mt-4 font-bold">{a.title}</h3>
+                <p class="mt-1.5 text-sm text-surface/65">{a.text}</p>
+              </div>
+            )
+          })}
+        </div>
+        <div class="mx-auto mt-10 flex max-w-3xl items-start gap-3 rounded-2xl border border-surface/10 bg-surface/5 p-5">
+          <ShieldCheck class="mt-0.5 size-5 shrink-0 text-brand" />
+          <p class="text-sm text-surface/75">
+            Ainda inclui comunicação (régua de cobrança e avisos de notas por
+            WhatsApp/e-mail), GED de documentos do aluno, controle de acesso por
+            catraca, ponte com EAD/LMS e alocação de salas — com os dados na sua
+            infraestrutura (soberania) e conformidade com a LGPD.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+const NEW_FEATURES_EDU = [
+  {
+    icon: Sparkles,
+    title: 'Jornada de matrícula 100% IA',
+    text: 'A IA conversa com o candidato, tira dúvidas do curso, qualifica e até agenda a visita ou a entrevista — conduzindo a inscrição de ponta a ponta no WhatsApp.',
+  },
+  {
+    icon: PhoneCall,
+    title: 'Ligações por voz no WhatsApp',
+    text: 'A equipe de captação liga por voz para o candidato direto do painel (WhatsApp Calling), sem trocar de aparelho e com todo o histórico à mão.',
+  },
+  {
+    icon: Send,
+    title: 'Disparos para o vestibular',
+    text: 'Campanhas em massa com template oficial para avisar sobre inscrições abertas, provas e rematrícula — com agendamento, opt-out e relatório de entrega.',
+  },
+  {
+    icon: CalendarClock,
+    title: 'Agendamento de visitas',
+    text: 'Candidatos marcam visita ao campus ou entrevista por um link integrado à agenda, com sincronização bidirecional do Google Calendar e lembretes automáticos.',
+  },
+] as const
+
+function NewFeaturesEdu() {
+  return (
+    <section class="relative overflow-hidden py-16 sm:py-24">
+      <div class="lp-grid-bg pointer-events-none absolute inset-0 opacity-50" aria-hidden="true" />
+      <div class="relative mx-auto max-w-6xl px-5">
+        <div class="max-w-2xl">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-xs font-bold uppercase tracking-wide text-brand">
+            <Sparkles class="size-3.5" />
+            Novidades
+          </span>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            Novos recursos para captar e matricular mais
+          </h2>
+          <p class="mt-4 text-lg text-fg-muted">
+            A mesma plataforma, agora com IA conduzindo a conversa e o WhatsApp
+            usado por inteiro — da primeira dúvida ao aluno matriculado.
+          </p>
+        </div>
+        <div class="mt-12 grid gap-6 sm:grid-cols-2">
+          {NEW_FEATURES_EDU.map((f) => {
+            const Icon = f.icon
+            return (
+              <div
+                key={f.title}
+                class="lp-card flex gap-4 rounded-card border border-line bg-surface p-6"
+              >
+                <span class="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
+                  <Icon class="size-6" />
+                </span>
+                <div>
+                  <h3 class="text-lg font-bold text-ink">{f.title}</h3>
+                  <p class="mt-1.5 text-sm text-fg-muted">{f.text}</p>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     </section>
@@ -546,7 +698,9 @@ export function EducationalLandingPage() {
         <Hero />
         <Stats />
         <Pillars />
+        <AcademicoErp />
         <HowItWorks />
+        <NewFeaturesEdu />
         <Audience />
         <Faq />
         <FinalCta />

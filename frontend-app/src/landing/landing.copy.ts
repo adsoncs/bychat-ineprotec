@@ -298,6 +298,14 @@ export const FAQ: ReadonlyArray<{ q: string; a: string }> = [
     a: 'Sim, com diferencial: portal de matrículas, processos seletivos e checkout transparente (PIX, boleto e cartão) — algo que nenhum concorrente oferece.',
   },
   {
+    q: 'O ByChat grava e transcreve reuniões?',
+    a: 'Sim. Um bot entra em Google Meet, Teams ou Zoom, grava e transcreve; a IA gera resumo, próximos passos, objeções e até uma nota de aderência ao seu playbook comercial. Também funciona para reuniões presenciais (por gravação ou upload de áudio), e a transcrição roda no seu próprio servidor.',
+  },
+  {
+    q: 'Tem central de chamados (helpdesk)?',
+    a: 'Sim, nativa. Uma central de suporte completa com chamados, SLA, base de conhecimento, portal do cliente e pesquisa de satisfação — sem precisar contratar Zendesk ou outro sistema à parte.',
+  },
+  {
     q: 'Como contrato?',
     a: 'Agende uma demonstração ou fale no WhatsApp. Montamos um plano sob medida para a sua operação.',
   },
@@ -336,6 +344,7 @@ export const MODULE_MAP: ReadonlyArray<ModuleGroup> = [
       { name: 'Performance da Equipe', desc: '15+ KPIs por operador, carga de trabalho em tempo real e drill-down com objeções e receita.' },
       { name: 'Conversas', desc: 'Inbox unificada (WhatsApp, Instagram, Telegram, E-mail) com filas, claim automático e roteamento por equipe.' },
       { name: 'Inteligência', desc: 'IA que faz score preditivo, enriquece dados e recomenda a próxima ação para cada lead.' },
+      { name: 'Reuniões com IA', desc: 'Bot que entra em Meet/Teams/Zoom, grava, transcreve e analisa a reunião — resumo, próximos passos, objeções e coaching de vendas. Também no modo presencial.' },
     ],
   },
   {
@@ -348,7 +357,9 @@ export const MODULE_MAP: ReadonlyArray<ModuleGroup> = [
       { name: 'Lead Score IA', desc: 'Pontuação preditiva por IA (quente/morno/frio) com base no contexto do seu negócio, raciocínio explicável e calibração contínua pelos resultados reais.' },
       { name: 'Duplicados', desc: 'Tratamento de leads duplicados com sinalização automática — sem merge cego.' },
       { name: 'Kanban', desc: 'Funil visual com drag & drop dos leads por etapa.' },
-      { name: 'Atividades', desc: 'Tarefas, ligações, reuniões e follow-ups vinculados ao lead, com agenda e notificações.' },
+      { name: 'Atividades', desc: 'Tarefas, ligações, reuniões, e-mail (Gmail integrado) e follow-ups vinculados ao lead, com agenda e notificações.' },
+      { name: 'Negociações', desc: 'Pipeline de propostas dentro do lead: itens do catálogo, desconto e valor final, forma de pagamento, anexos e fechamento (ganho/perdido) que atualiza o funil.' },
+      { name: 'Exportação de dados', desc: 'Exporte tudo de um lead ou de vários — dados, campos, score, negociações, atividades, timeline, conversas e mais — em Excel, CSV, PDF ou HTML.' },
     ],
   },
   {
@@ -375,6 +386,23 @@ export const MODULE_MAP: ReadonlyArray<ModuleGroup> = [
       { name: 'Fluxos', desc: 'Automações por evento (e-mail, mensagem, webhook) com builder visual e ramificações.' },
       { name: 'Cadências', desc: 'Cadências outbound (WhatsApp/E-mail/SMS) com classificação de respostas por IA, opt-out e métricas.' },
       { name: 'Filas & Monitor', desc: 'Monitor operacional de envios, vendas e jobs com rastreio persistente.' },
+      { name: 'Catálogo de produtos', desc: 'Produtos/serviços (com importação por planilha) que alimentam as negociações e a IA — que passa a responder só com o que existe no catálogo, sem inventar.' },
+    ],
+  },
+  {
+    id: 'suporte',
+    label: 'Suporte / Helpdesk',
+    icon: 'Headphones',
+    tagline: 'Uma central de chamados nativa, sem contratar outro sistema.',
+    items: [
+      { name: 'Chamados (Tickets)', desc: 'Central de atendimento com protocolo, prioridade, status, atribuição, seguidores, tags e histórico — em visão Lista ou Kanban.' },
+      { name: 'SLA & Escalonamento', desc: 'Políticas de SLA de 1ª resposta e resolução, com horário comercial, pausa por status e alertas de risco e violação.' },
+      { name: 'Omnichannel', desc: 'Abertura de chamado por e-mail, WhatsApp, formulário e API — a resposta pública volta pelo mesmo canal do cliente.' },
+      { name: 'Base de Conhecimento', desc: 'Central de ajuda pública com busca, categorias e artigos — com sugestão automática de artigos ao abrir o chamado (deflection).' },
+      { name: 'Portal do Cliente', desc: 'Área do cliente por link mágico para abrir e acompanhar chamados, sem senha.' },
+      { name: 'CSAT & Qualidade', desc: 'Pesquisa de satisfação ao resolver e avaliação de qualidade (QA) do atendimento por IA.' },
+      { name: 'Automações & Macros', desc: 'Gatilhos, automações por tempo e macros de resposta — inclusive sugeridas por IA.' },
+      { name: 'Organizações B2B', desc: 'Agrupamento de solicitantes por empresa (por domínio de e-mail), com SLA e visão por organização.' },
     ],
   },
   {
@@ -450,6 +478,108 @@ export const MODULE_MAP: ReadonlyArray<ModuleGroup> = [
     ],
   },
 ] as const
+
+/**
+ * Recursos nativos do WhatsApp — features novas (Calling, interativos, Flows).
+ * Conteúdo aditivo: não substitui nenhuma seção existente.
+ */
+export const NATIVE_WA = {
+  eyebrow: 'Novo · Nativo do WhatsApp',
+  title: 'O WhatsApp inteiro dentro da plataforma',
+  subtitle:
+    'Vá além do texto: ligações de voz, botões, listas e formulários nativos do WhatsApp — tudo conduzido pelo seu time e pela IA, sem o cliente sair da conversa.',
+  features: [
+    {
+      icon: 'Phone',
+      title: 'Ligações por voz (VoIP)',
+      text: 'Receba e faça chamadas de voz do WhatsApp Business direto no painel, via WebRTC — atendimento por voz sem desviar para o celular.',
+      tag: 'WhatsApp Calling',
+    },
+    {
+      icon: 'MousePointerClick',
+      title: 'Botões e listas interativos',
+      text: 'Respostas rápidas, menus e listas nativas nos chatbots. O cliente toca em vez de digitar — mais conversão, menos atrito.',
+      tag: 'Cloud API',
+    },
+    {
+      icon: 'ListChecks',
+      title: 'WhatsApp Flows',
+      text: 'Formulários nativos dentro do WhatsApp para captar dados estruturados sem tirar o cliente da conversa.',
+      tag: 'Formulários nativos',
+    },
+  ],
+} as const
+
+/**
+ * Jornada 100% IA — a IA conduz a conversa e usa ferramentas determinísticas.
+ */
+export const AI_JOURNEY = {
+  eyebrow: 'Novo · Jornada 100% IA',
+  title: 'A IA conduz do “oi” ao horário agendado',
+  subtitle:
+    'No modo Jornada IA, a inteligência artificial assume a conversa inteira — interpreta a resposta livre do cliente e aciona ferramentas determinísticas para executar cada passo, com repasse para um humano quando faz sentido.',
+  steps: [
+    { title: 'Conversa e qualifica', text: 'Entende a intenção em linguagem natural e qualifica o lead conforme as regras do seu negócio.' },
+    { title: 'Salva e organiza', text: 'Registra dados, move o lead de etapa no funil e atualiza o CRM sem digitação manual.' },
+    { title: 'Oferece horários', text: 'Consulta a disponibilidade real da agenda e propõe os melhores horários ao cliente.' },
+    { title: 'Agenda e confirma', text: 'Cria o agendamento, dispara a confirmação e mantém o histórico — tudo dentro do WhatsApp.' },
+  ],
+  footnote: 'Handoff humano a qualquer momento. A IA nunca fica presa: quando precisa, passa para a sua equipe com todo o contexto.',
+} as const
+
+/**
+ * Alcance & agenda — disparos em massa (HSM) e módulo de agendamentos.
+ */
+export const ENGAGE = {
+  eyebrow: 'Novo · Alcance & agenda',
+  title: 'Fale com muitos e organize a agenda de todos',
+  broadcast: {
+    title: 'Disparos em massa',
+    text: 'Campanhas com template oficial (HSM) para a sua base e listas importadas — com wizard guiado, agendamento, opt-out, deduplicação e painel de custo e entrega por campanha.',
+    bullets: ['Templates HSM aprovados na Meta', 'Audiência por leads ou import (XLSX)', 'Opt-out e deduplicação automáticos', 'Métricas de entrega e custo por campanha'],
+  },
+  scheduling: {
+    title: 'Agendamentos',
+    text: 'Um módulo de agenda no estilo Calendly, com disponibilidade por operador, sincronização bidirecional com o Google Calendar e link de agendamento embutível em formulários e landing pages.',
+    bullets: ['Disponibilidade por operador e equipe', 'Sincronização bidirecional com Google Calendar', 'Embed em formulários e landing pages', 'Lembretes e confirmações automáticas'],
+  },
+} as const
+
+/**
+ * Reuniões com IA — bot de transcrição + análise (online e presencial).
+ */
+export const MEETINGS = {
+  eyebrow: 'Novo · Reuniões com IA',
+  title: 'Toda reunião vira CRM, resumo e coaching de vendas',
+  subtitle:
+    'Um bot entra na sua reunião online — ou você grava a presencial — e a IA transforma a conversa em resumo, próximos passos, objeções e nota de aderência ao seu playbook. Os dados ficam 100% no seu servidor.',
+  features: [
+    { icon: 'Video', title: 'Entra e transcreve', text: 'O bot participa de Google Meet, Teams ou Zoom, grava e transcreve automaticamente — com identificação de quem falou.' },
+    { icon: 'Sparkles', title: 'Analisa com IA', text: 'Resumo, itens de ação, objeções, sentimento e próximos passos — anexados ao lead sem digitar nada.' },
+    { icon: 'Target', title: 'Coaching de vendas', text: 'Avalia a conduta do time à luz do seu playbook: nota de aderência, pontos fortes, o que melhorar e scorecards por critério.' },
+    { icon: 'Mic', title: 'Também presencial', text: 'Sem reunião online? Grave pelo navegador/celular ou envie o áudio — a mesma análise vale para o encontro presencial.' },
+  ],
+  footnote:
+    'Soberania total: a transcrição roda no seu próprio servidor (nada é enviado a serviços de terceiros). Licença de bot ativável por usuário.',
+} as const
+
+/**
+ * Central de Chamados (Helpdesk) nativa.
+ */
+export const HELPDESK = {
+  eyebrow: 'Novo · Central de Chamados',
+  title: 'Suporte de nível Zendesk, nativo e sem outra mensalidade',
+  subtitle:
+    'Um helpdesk completo dentro da mesma plataforma: chamados com SLA, base de conhecimento, portal do cliente e pesquisa de satisfação — tudo conectado ao CRM e aos canais que você já usa.',
+  bullets: [
+    'Chamados com protocolo, prioridade, atribuição e visão Lista ou Kanban',
+    'SLA de 1ª resposta e resolução, com horário comercial e alertas',
+    'Abertura por e-mail, WhatsApp, formulário e API (omnichannel)',
+    'Base de conhecimento pública com sugestão de artigos (deflection)',
+    'Portal do cliente por link mágico e pesquisa de satisfação (CSAT)',
+    'Automações, macros e avaliação de qualidade por IA',
+  ],
+} as const
 
 export const FINAL_CTA = {
   title: 'Pronto para vender mais com menos esforço?',

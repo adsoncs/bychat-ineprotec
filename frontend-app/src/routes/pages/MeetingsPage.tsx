@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck, LogIn } from 'lucide-preact'
+import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck, LogIn, Puzzle, Copy, Trash2 } from 'lucide-preact'
 import {
   useMeetingRecordings, useStopMeetingBot, type MeetingRecording,
   useMeetingSeats, useUpdateMeetingSeat, type MeetingSeat,
@@ -7,6 +7,7 @@ import {
   useMeetingsSettings, useUpdateMeetingsSettings, type MeetingsSettings,
   useGenerateMeetingsReport, useMeetingSearch, useUploadPresencialMeeting,
   useMeetingLeadSearch, type MeetingLeadResult, useDispatchMeetingBot,
+  useExtensionTokens, useCreateExtensionToken, useRevokeExtensionToken,
 } from '@/hooks/useMeetings'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -871,10 +872,65 @@ function PlaybookConfigTab() {
   )
 }
 
+// Extensão Chrome de captura local (paridade Read.ai) — geração/revogação de token.
+function ExtensionCard() {
+  const { data } = useExtensionTokens()
+  const create = useCreateExtensionToken()
+  const revoke = useRevokeExtensionToken()
+  const [fresh, setFresh] = useState<string | null>(null)
+  const tokens = data?.tokens || []
+
+  const gen = async () => {
+    try { const r = await create.mutateAsync('Extensão Chrome'); setFresh(r.token) }
+    catch (e: any) { toast(e?.message || 'Falha ao gerar token', 'danger') }
+  }
+  const copy = (t: string) => { navigator.clipboard?.writeText(t); toast('Token copiado', 'success') }
+
+  return (
+    <Card>
+      <div class="flex items-center gap-2 mb-1">
+        <Puzzle size={16} class="text-fg-muted" />
+        <h3 class="font-semibold text-fg">Extensão Chrome · captura local</h3>
+      </div>
+      <p class="text-sm text-fg-muted mb-3">
+        Grava a reunião pelo <strong>seu navegador</strong> (sem bot na sala, sem admissão) e envia
+        para transcrição soberana. Ideal para reuniões em que você já está presente.
+        Instale a extensão (pasta <code>extension/</code>), gere um token abaixo e cole nela.
+      </p>
+
+      {fresh && (
+        <div class="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 mb-3">
+          <div class="text-xs text-fg-muted mb-1">Token gerado — copie agora (não é exibido de novo):</div>
+          <div class="flex items-center gap-2">
+            <code class="text-xs break-all flex-1 text-fg">{fresh}</code>
+            <Button size="sm" variant="ghost" onClick={() => copy(fresh)}><Copy size={13} /></Button>
+          </div>
+        </div>
+      )}
+
+      <Button size="sm" variant="primary" onClick={gen} disabled={create.isPending}>
+        {create.isPending ? 'Gerando…' : 'Gerar token'}
+      </Button>
+
+      {tokens.length > 0 && (
+        <div class="mt-3 space-y-1">
+          {tokens.map((t) => (
+            <div key={t.id} class="flex items-center justify-between text-xs bg-surface border border-border rounded-md px-3 py-2">
+              <span class="text-fg-muted">{t.label || 'Token'} · {t.lastUsedAt ? `usado ${formatDateTime(t.lastUsedAt)}` : 'nunca usado'}</span>
+              <button class="text-danger hover:opacity-80" onClick={() => revoke.mutate(t.id)} title="Revogar"><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function ConfigTab() {
   return (
     <div class="space-y-4">
       <MeetingsSettingsCard />
+      <ExtensionCard />
       <PlaybookConfigTab />
     </div>
   )

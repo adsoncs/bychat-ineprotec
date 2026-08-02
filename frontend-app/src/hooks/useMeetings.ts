@@ -249,6 +249,33 @@ export function useDispatchMeetingBot() {
   })
 }
 
+// ── Extensão Chrome (captura local, paridade Read.ai) ──────────
+export interface ExtensionToken { id: number; label: string | null; lastUsedAt: string | null; createdAt: string }
+
+export function useExtensionTokens() {
+  return useQuery({
+    queryKey: ['meeting-ext-tokens'],
+    queryFn: () => api.get<{ tokens: ExtensionToken[] }>('/admin/meetings/extension/token'),
+    staleTime: 15_000,
+  })
+}
+
+export function useCreateExtensionToken() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (label?: string) => api.post<{ token: string; label: string }>('/admin/meetings/extension/token', { label }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-ext-tokens'] }),
+  })
+}
+
+export function useRevokeExtensionToken() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.delete<{ ok: true }>(`/admin/meetings/extension/token/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-ext-tokens'] }),
+  })
+}
+
 /** Encerra o bot de uma reunião em andamento. */
 export function useStopMeetingBot() {
   const qc = useQueryClient()

@@ -2,14 +2,19 @@ import { CONTACT, FOOTER, HERO, NAV_LINKS, whatsappHref } from './landing.copy'
 import { DashboardMock } from './components/DashboardMock'
 import {
   AISection,
+  AiJourney,
   BRDifferentials,
   Cases,
+  Engage,
   Faq,
   FinalCta,
+  Helpdesk,
   HowItWorks,
   ImpactStats,
   Integrations,
+  Meetings,
   ModuleExplorer,
+  NativeWhatsApp,
   Pillars,
   Segments,
   SocialProof,
@@ -35,7 +40,12 @@ export function LandingPage() {
         <ImpactStats />
         <Pillars />
         <ModuleExplorer />
+        <NativeWhatsApp />
         <AISection />
+        <AiJourney />
+        <Meetings />
+        <Engage />
+        <Helpdesk />
         <HowItWorks />
         <Segments />
         <Integrations />

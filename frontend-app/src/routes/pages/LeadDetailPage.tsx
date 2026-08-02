@@ -247,6 +247,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           leadId={id}
           outcome={lead.outcome}
           outcomeAt={lead.outcomeAt}
+          outcomeByUser={lead.outcomeByUser ?? null}
           outcomeNote={lead.outcomeNote}
           lostReason={lead.lostReason ?? null}
         />

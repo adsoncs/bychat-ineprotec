@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Bot,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   Database,
@@ -10,31 +11,46 @@ import {
   GraduationCap,
   Headphones,
   LineChart,
+  ListChecks,
   Megaphone,
   MessageSquare,
+  Mic,
+  MousePointerClick,
+  PhoneCall,
   Plug,
+  Send,
   ShieldCheck,
   Sparkles,
+  Target,
+  Ticket,
   TrendingUp,
   Users,
+  Video,
   Workflow,
   Zap,
 } from 'lucide-preact'
 import {
   AI,
+  AI_JOURNEY,
   BR_DIFF,
   CASES,
+  ENGAGE,
   FAQ,
   FINAL_CTA,
+  HELPDESK,
   IMPACT_STATS,
   INTEGRATIONS,
+  MEETINGS,
   MODULE_MAP,
+  NATIVE_WA,
   PILLARS,
   SEGMENTS,
   SOCIAL_PROOF,
   STEPS,
   whatsappHref,
 } from './landing.copy'
+
+const MEETING_ICONS: Record<string, typeof Video> = { Video, Sparkles, Target, Mic }
 
 function Section(props: {
   id?: string
@@ -190,6 +206,7 @@ const MODULE_ICONS: Record<string, typeof Gauge> = {
   Plug,
   Database,
   ShieldCheck,
+  Headphones,
 }
 
 export function ModuleExplorer() {
@@ -502,6 +519,310 @@ export function Faq() {
               <p class="mt-3 text-fg-muted">{f.a}</p>
             </details>
           ))}
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+export function NativeWhatsApp() {
+  return (
+    <Section id="whatsapp" class="relative overflow-hidden">
+      <div class="lp-grid-bg pointer-events-none absolute inset-0 opacity-[0.5]" aria-hidden="true" />
+      <div class="relative">
+        <div class="mx-auto max-w-2xl text-center">
+          <Eyebrow>{NATIVE_WA.eyebrow}</Eyebrow>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            {NATIVE_WA.title}
+          </h2>
+          <p class="mt-4 text-lg text-fg-muted">{NATIVE_WA.subtitle}</p>
+        </div>
+
+        <div class="mt-12 grid gap-5 lg:grid-cols-3">
+          {/* Card grande: Ligações por voz — com mini-UI de chamada */}
+          <div class="lp-card flex flex-col justify-between rounded-2xl border border-line bg-surface p-7 lg:row-span-2">
+            <div>
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-cta/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-cta">
+                {NATIVE_WA.features[0]!.tag}
+              </span>
+              <h3 class="mt-4 text-xl font-extrabold text-ink">
+                {NATIVE_WA.features[0]!.title}
+              </h3>
+              <p class="mt-2 text-fg-muted">{NATIVE_WA.features[0]!.text}</p>
+            </div>
+            {/* mini-UI: chamada de voz em andamento */}
+            <div class="mt-7 rounded-2xl border border-line bg-surface-2 p-5">
+              <div class="flex items-center gap-3">
+                <span class="grid size-11 place-items-center rounded-full bg-brand text-base font-bold text-brand-fg">
+                  MA
+                </span>
+                <div class="min-w-0">
+                  <div class="truncate font-bold text-ink">Maria — Lead quente</div>
+                  <div class="flex items-center gap-1.5 text-sm text-cta">
+                    <span class="size-1.5 animate-pulse rounded-full bg-cta" />
+                    Chamada de voz · 02:14
+                  </div>
+                </div>
+              </div>
+              <div class="mt-5 flex items-center justify-center gap-3">
+                <span class="grid size-11 place-items-center rounded-full border border-line bg-surface text-fg-muted">
+                  <Mic class="size-5" />
+                </span>
+                <span class="grid size-14 place-items-center rounded-full bg-cta text-cta-fg shadow-lg shadow-cta/30">
+                  <PhoneCall class="size-6" />
+                </span>
+                <span class="grid size-11 place-items-center rounded-full border border-line bg-surface text-fg-muted">
+                  <Headphones class="size-5" />
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: botões/listas interativos — com mini-UI de bolha + botões */}
+          <div class="lp-card rounded-2xl border border-line bg-surface p-7 lg:col-span-2">
+            <div class="grid gap-6 sm:grid-cols-2 sm:items-center">
+              <div>
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-brand">
+                  <MousePointerClick class="size-3.5" />
+                  {NATIVE_WA.features[1]!.tag}
+                </span>
+                <h3 class="mt-4 text-xl font-extrabold text-ink">
+                  {NATIVE_WA.features[1]!.title}
+                </h3>
+                <p class="mt-2 text-fg-muted">{NATIVE_WA.features[1]!.text}</p>
+              </div>
+              <div class="rounded-2xl border border-line bg-surface-2 p-4">
+                <div class="max-w-[14rem] rounded-2xl rounded-tl-sm bg-surface px-4 py-2.5 text-sm text-fg shadow-sm">
+                  Como podemos te ajudar hoje?
+                </div>
+                <div class="mt-3 space-y-2">
+                  {['Quero uma demonstração', 'Falar com vendas', 'Ver planos'].map((b) => (
+                    <div
+                      key={b}
+                      class="flex items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand-soft px-3 py-2 text-sm font-semibold text-brand"
+                    >
+                      {b}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card: WhatsApp Flows — com mini-UI de formulário */}
+          <div class="lp-card rounded-2xl border border-line bg-surface p-7 lg:col-span-2">
+            <div class="grid gap-6 sm:grid-cols-2 sm:items-center">
+              <div>
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-brand">
+                  <ListChecks class="size-3.5" />
+                  {NATIVE_WA.features[2]!.tag}
+                </span>
+                <h3 class="mt-4 text-xl font-extrabold text-ink">
+                  {NATIVE_WA.features[2]!.title}
+                </h3>
+                <p class="mt-2 text-fg-muted">{NATIVE_WA.features[2]!.text}</p>
+              </div>
+              <div class="rounded-2xl border border-line bg-surface-2 p-4">
+                <div class="space-y-3">
+                  <div>
+                    <div class="text-[11px] font-semibold text-fg-subtle">Nome completo</div>
+                    <div class="mt-1 h-8 rounded-lg border border-line bg-surface" />
+                  </div>
+                  <div>
+                    <div class="text-[11px] font-semibold text-fg-subtle">Melhor horário</div>
+                    <div class="mt-1 flex gap-2">
+                      <span class="flex h-8 flex-1 items-center rounded-lg border border-brand bg-brand-soft px-2 text-xs font-semibold text-brand">Manhã</span>
+                      <span class="flex h-8 flex-1 items-center rounded-lg border border-line bg-surface px-2 text-xs text-fg-subtle">Tarde</span>
+                    </div>
+                  </div>
+                  <div class="flex h-9 items-center justify-center rounded-lg bg-brand text-sm font-semibold text-brand-fg">
+                    Enviar
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+export function AiJourney() {
+  return (
+    <Section class="bg-ink text-surface">
+      <div class="mx-auto max-w-2xl text-center">
+        <span class="inline-flex items-center gap-2 rounded-full bg-surface/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-surface">
+          <Sparkles class="size-3.5" />
+          {AI_JOURNEY.eyebrow}
+        </span>
+        <h2 class="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+          {AI_JOURNEY.title}
+        </h2>
+        <p class="mt-4 text-lg text-surface/70">{AI_JOURNEY.subtitle}</p>
+      </div>
+
+      <ol class="mt-14 grid gap-y-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-x-6">
+        {AI_JOURNEY.steps.map((s, i) => (
+          <li key={s.title} class="relative lg:pr-6">
+            {/* conector horizontal entre passos (lg) */}
+            {i < AI_JOURNEY.steps.length - 1 ? (
+              <span
+                class="absolute left-12 right-0 top-5 hidden h-px bg-surface/15 lg:block"
+                aria-hidden="true"
+              />
+            ) : null}
+            <div class="flex items-center gap-3 lg:block">
+              <span class="relative z-10 grid size-10 shrink-0 place-items-center rounded-full bg-brand text-sm font-extrabold text-brand-fg">
+                {i + 1}
+              </span>
+              <h3 class="font-bold lg:mt-4">{s.title}</h3>
+            </div>
+            <p class="mt-2 text-sm text-surface/65 lg:pr-2">{s.text}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div class="mx-auto mt-12 flex max-w-3xl items-start gap-3 rounded-2xl border border-surface/10 bg-surface/5 p-5">
+        <Bot class="mt-0.5 size-5 shrink-0 text-brand" />
+        <p class="text-sm text-surface/75">{AI_JOURNEY.footnote}</p>
+      </div>
+    </Section>
+  )
+}
+
+export function Engage() {
+  const cards = [
+    { d: ENGAGE.broadcast, Icon: Send, accent: 'brand' as const },
+    { d: ENGAGE.scheduling, Icon: CalendarClock, accent: 'cta' as const },
+  ]
+  return (
+    <Section class="bg-surface-2">
+      <div class="mx-auto max-w-2xl text-center">
+        <Eyebrow>{ENGAGE.eyebrow}</Eyebrow>
+        <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+          {ENGAGE.title}
+        </h2>
+      </div>
+      <div class="mt-12 grid gap-6 lg:grid-cols-2">
+        {cards.map(({ d, Icon, accent }) => (
+          <div key={d.title} class="lp-card flex flex-col rounded-2xl border border-line bg-surface p-8">
+            <div class="flex items-center gap-4">
+              <span
+                class={`grid size-12 shrink-0 place-items-center rounded-xl ${
+                  accent === 'brand' ? 'bg-brand-soft text-brand' : 'bg-cta/10 text-cta'
+                }`}
+              >
+                <Icon class="size-6" />
+              </span>
+              <h3 class="text-xl font-extrabold text-ink">{d.title}</h3>
+            </div>
+            <p class="mt-4 text-fg-muted">{d.text}</p>
+            <ul class="mt-6 grid gap-3 border-t border-line pt-6">
+              {d.bullets.map((b) => (
+                <li key={b} class="flex items-start gap-2.5 text-sm text-fg">
+                  <CheckCircle2
+                    class={`mt-0.5 size-5 shrink-0 ${accent === 'brand' ? 'text-brand' : 'text-cta'}`}
+                  />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Section>
+  )
+}
+
+export function Meetings() {
+  return (
+    <Section class="relative overflow-hidden">
+      <div class="lp-grid-bg pointer-events-none absolute inset-0 opacity-[0.5]" aria-hidden="true" />
+      <div class="relative">
+        <div class="mx-auto max-w-2xl text-center">
+          <Eyebrow>{MEETINGS.eyebrow}</Eyebrow>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            {MEETINGS.title}
+          </h2>
+          <p class="mt-4 text-lg text-fg-muted">{MEETINGS.subtitle}</p>
+        </div>
+        <div class="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {MEETINGS.features.map((f) => {
+            const Icon = MEETING_ICONS[f.icon] ?? Sparkles
+            return (
+              <div key={f.title} class="lp-card rounded-2xl border border-line bg-surface p-6">
+                <span class="grid size-11 place-items-center rounded-xl bg-brand-soft text-brand">
+                  <Icon class="size-6" />
+                </span>
+                <h3 class="mt-4 font-extrabold text-ink">{f.title}</h3>
+                <p class="mt-1.5 text-sm text-fg-muted">{f.text}</p>
+              </div>
+            )
+          })}
+        </div>
+        <div class="mx-auto mt-10 flex max-w-3xl items-start gap-3 rounded-2xl border border-cta/20 bg-cta/5 p-5">
+          <ShieldCheck class="mt-0.5 size-5 shrink-0 text-cta" />
+          <p class="text-sm text-fg">{MEETINGS.footnote}</p>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+export function Helpdesk() {
+  return (
+    <Section class="bg-surface-2">
+      <div class="grid items-center gap-10 lg:grid-cols-2">
+        <div>
+          <Eyebrow>{HELPDESK.eyebrow}</Eyebrow>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            {HELPDESK.title}
+          </h2>
+          <p class="mt-4 text-lg text-fg-muted">{HELPDESK.subtitle}</p>
+          <ul class="mt-7 grid gap-3">
+            {HELPDESK.bullets.map((b) => (
+              <li key={b} class="flex items-start gap-2.5 text-fg">
+                <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-cta" />
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {/* mini-UI: chamado com SLA */}
+        <div class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
+          <div class="flex items-center justify-between border-b border-line pb-4">
+            <div class="flex items-center gap-3">
+              <span class="grid size-10 place-items-center rounded-xl bg-brand-soft text-brand">
+                <Ticket class="size-5" />
+              </span>
+              <div>
+                <div class="text-sm font-bold text-ink">Chamado #1042</div>
+                <div class="text-xs text-fg-subtle">Cliente · Financeiro</div>
+              </div>
+            </div>
+            <span class="rounded-full bg-cta/10 px-2.5 py-1 text-[11px] font-bold text-cta">
+              SLA no prazo
+            </span>
+          </div>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-fg-subtle">Prioridade</span><span class="font-semibold text-ink">Alta</span></div>
+            <div class="flex justify-between"><span class="text-fg-subtle">Responsável</span><span class="font-semibold text-ink">Equipe Suporte</span></div>
+            <div class="flex justify-between"><span class="text-fg-subtle">1ª resposta</span><span class="font-semibold text-cta">em 12 min</span></div>
+            <div class="flex justify-between"><span class="text-fg-subtle">Canal</span><span class="font-semibold text-ink">WhatsApp</span></div>
+          </div>
+          <div class="mt-4 flex gap-2 border-t border-line pt-4">
+            {['Novo', 'Em andamento', 'Resolvido'].map((s, i) => (
+              <span
+                key={s}
+                class={`flex-1 rounded-lg px-2 py-1.5 text-center text-[11px] font-semibold ${
+                  i === 1 ? 'bg-brand text-brand-fg' : 'bg-surface-2 text-fg-subtle'
+                }`}
+              >
+                {s}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
     </Section>
