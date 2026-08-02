@@ -3,6 +3,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { isAdminRole, isTeamLeader } from '../lib/teamAccess.js'
 
@@ -157,7 +158,15 @@ export async function teamsRoutes(app: FastifyInstance) {
   // Leads e chatbots vinculados ficam com teamId NULL (ON DELETE SET NULL).
   app.delete('/api/admin/teams/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
+    const user = (req as any).user as JwtPayload
     try {
+      const snapshot = await snapshotEntity('team', parseInt(id))
+      if (snapshot) {
+        await moveToTrash({
+          entityType: 'team', entityId: parseInt(id), entityLabel: (snapshot as any).name,
+          snapshot, deletedBy: user?.userId, deletedByName: user?.name || user?.email,
+        })
+      }
       await prisma.team.delete({ where: { id: parseInt(id) } })
       return { ok: true }
     } catch (err: any) {

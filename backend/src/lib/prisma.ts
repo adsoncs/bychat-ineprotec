@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { phoneKey } from './phone.js'
+import { decryptSettingValue, encryptSettingValue, isSecretSettingKey } from './secretSettings.js'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
@@ -46,7 +47,61 @@ function applyPhoneKey(data: any): void {
   }
 }
 
+// ─── Segredos das Configurações, cifrados em repouso ───
+// Chave de API/secret/token gravados em `Setting` ficavam legíveis na tabela.
+// Cifrar aqui (e não em cada call site) porque são dezenas de pontos lendo
+// Setting no backend — um esquecido devolveria o segredo em claro sem aviso.
+// Ver lib/secretSettings.ts. Valor legado em claro continua sendo lido normal,
+// então a migração dos registros existentes pode acontecer depois.
+/** Cifra `container.value` quando `key` for de segredo. `key` vem do próprio
+ *  data (create/update) ou do `where` (caso do upsert, cujo update não a traz). */
+function encryptSettingValueIn(key: unknown, container: any): void {
+  if (!container || typeof container !== 'object' || !('value' in container)) return
+  const k = typeof key === 'object' && key ? (key as any).set : key
+  if (!isSecretSettingKey(k)) return
+  const v = container.value
+  const isSet = v && typeof v === 'object' && 'set' in v
+  if (isSet) v.set = encryptSettingValue(v.set)
+  else container.value = encryptSettingValue(v)
+}
+
+function encryptSettingData(data: any): void {
+  if (data && typeof data === 'object') encryptSettingValueIn(data.key, data)
+}
+
+function decryptSettingRow(row: any): any {
+  if (!row || typeof row !== 'object') return row
+  if (isSecretSettingKey(row.key) && 'value' in row) row.value = decryptSettingValue(row.value)
+  return row
+}
+
 prisma.$use(async (params, next) => {
+  if (params.model === 'Setting') {
+    const a = params.action
+    if (a === 'create') encryptSettingData(params.args?.data)
+    // No update a key vive no `where` (o data costuma trazer só o value).
+    else if (a === 'update') {
+      encryptSettingData(params.args?.data)
+      encryptSettingValueIn(params.args?.where?.key, params.args?.data)
+    }
+    else if (a === 'upsert') {
+      encryptSettingData(params.args?.create)
+      // O `update` do upsert não traz a key — ela está no where.
+      encryptSettingValueIn(params.args?.where?.key, params.args?.update)
+    } else if (a === 'createMany') {
+      const d = params.args?.data
+      if (Array.isArray(d)) d.forEach(encryptSettingData)
+      else encryptSettingData(d)
+    } else if (a === 'updateMany') {
+      // updateMany não sabe a key de cada linha: só cifra quando o where a fixa.
+      encryptSettingValueIn(params.args?.where?.key, params.args?.data)
+    }
+
+    const result = await next(params)
+    if (Array.isArray(result)) return result.map(decryptSettingRow)
+    return decryptSettingRow(result)
+  }
+
   if (params.model === 'Lead') {
     const a = params.action
     if (a === 'create' || a === 'update') {

@@ -923,6 +923,11 @@ model Lead {
   transferRequests         LeadTransferRequest[]
   aluno                    Aluno?                // Módulo Acadêmico (1:1) — Pessoa = Contato
 
+  bookings       Booking[]
+
+  // Busca por telefone é o caminho quente do produto (todo webhook de WhatsApp
+  // resolve o lead por aqui) e fazia full scan.
+  @@index([whatsapp])
   @@index([status])
   @@index([createdAt])
   @@index([segmento])
@@ -4539,6 +4544,8 @@ model Booking {
   token          String @unique @db.VarChar(64) // links públicos remarcar/cancelar
   meetingTypeId  Int
   leadId         Int?
+  // Sem FK, apagar o lead deixava a reserva apontando p/ id inexistente.
+  lead           Lead?  @relation(fields: [leadId], references: [id], onDelete: SetNull)
   operatorUserId Int?
 
   startAt  DateTime

@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware } from '../lib/auth.js'
 
 export async function customFieldsRoutes(app: FastifyInstance) {
@@ -108,6 +109,17 @@ export async function customFieldsRoutes(app: FastifyInstance) {
   // ── DELETE /api/custom-fields/:id ─── Excluir campo ──
   app.delete('/api/custom-fields/:id', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
+    const user = (req as any).user
+    // Campo personalizado apagado levava junto o que estava gravado nos leads,
+    // sem chance de voltar atrás. Snapshot antes (restaurável por 90 dias).
+    const snapshot = await snapshotEntity('custom_field', parseInt(id))
+    if (snapshot) {
+      await moveToTrash({
+        entityType: 'custom_field', entityId: parseInt(id),
+        entityLabel: (snapshot as any).label || (snapshot as any).key,
+        snapshot, deletedBy: user?.userId, deletedByName: user?.name || user?.email,
+      })
+    }
     await prisma.customField.delete({ where: { id: parseInt(id) } })
     return { ok: true }
   })

@@ -4,6 +4,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 
 interface PersonaInput {
@@ -167,7 +168,15 @@ export async function personasRoutes(app: FastifyInstance) {
 
   app.delete('/api/admin/personas/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
+    const user = (req as any).user as JwtPayload
     try {
+      const snapshot = await snapshotEntity('persona', parseInt(id))
+      if (snapshot) {
+        await moveToTrash({
+          entityType: 'persona', entityId: parseInt(id), entityLabel: (snapshot as any).name,
+          snapshot, deletedBy: user?.userId, deletedByName: user?.name || user?.email,
+        })
+      }
       await prisma.persona.delete({ where: { id: parseInt(id) } })
       return { ok: true }
     } catch (e: any) {

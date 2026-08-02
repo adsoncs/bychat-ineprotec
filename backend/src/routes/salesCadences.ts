@@ -9,6 +9,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { getCadenceMetrics } from '../services/cadenceMetrics.js'
 import { generateCadence, type GenerateCadenceInput, type GeneratedCadence } from '../services/aiCadenceGenerator.js'
@@ -408,6 +409,14 @@ export async function salesCadencesRoutes(app: FastifyInstance) {
       const id = Number(req.params.id)
       if (!Number.isFinite(id)) return reply.code(400).send({ error: 'id inválido' })
       try {
+        const user = (req as any).user as JwtPayload
+        const snapshot = await snapshotEntity('cadence', id)
+        if (snapshot) {
+          await moveToTrash({
+            entityType: 'cadence', entityId: id, entityLabel: (snapshot as any).name,
+            snapshot, deletedBy: user?.userId, deletedByName: user?.name || user?.email,
+          })
+        }
         await prisma.salesCadence.delete({ where: { id } })
         return reply.code(204).send()
       } catch {

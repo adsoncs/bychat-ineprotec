@@ -45,6 +45,23 @@ async function requireAdmin(req: any, reply: any): Promise<any | null> {
   }
 }
 
+/**
+ * Aprovação/rejeição de matrícula: só ADMIN e SUPERADMIN.
+ *
+ * O guard acima aceita MANAGER porque é o mesmo usado para LER as filas de
+ * avaliação, o que é legítimo. Mas aprovar documento, validar nota do ENEM e
+ * corrigir redação decide a entrada de um aluno na instituição.
+ */
+async function requireAdminWrite(req: any, reply: any): Promise<any | null> {
+  const user = await requireAdmin(req, reply)
+  if (!user) return null
+  if (user.role !== 'SUPERADMIN' && user.role !== 'ADMIN') {
+    reply.code(403).send({ error: 'Acesso restrito a administradores' })
+    return null
+  }
+  return user
+}
+
 // ───────────────────────────────────────────────────────────
 // Helper: monta o payload de variáveis usado pelos templates
 // ───────────────────────────────────────────────────────────
@@ -197,7 +214,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   // - scores presentes: override manual das notas
   // - passed presente: força veredito (ignora cutoff automático)
   app.post('/api/admin/enem-imports/:id/validate', async (req, reply) => {
-    const user = await requireAdmin(req, reply); if (!user) return
+    const user = await requireAdminWrite(req, reply); if (!user) return
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const toNum = (v: any) => v == null || v === '' ? null : (isFinite(Number(v)) ? Number(v) : null)
@@ -248,7 +265,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
 
   // POST /api/admin/enem-imports/:id/reject — atalho com motivo obrigatório
   app.post('/api/admin/enem-imports/:id/reject', async (req, reply) => {
-    const user = await requireAdmin(req, reply); if (!user) return
+    const user = await requireAdminWrite(req, reply); if (!user) return
     const { id } = req.params as any
     const body = (req.body as any) || {}
     if (!body.reason || !String(body.reason).trim()) {
@@ -352,7 +369,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   // Body: { scheduledAt?, location?, room?, seatNumber?, score?, maxScore?, examNote?,
   //         attendanceStatus?, verdict? ('approved'|'rejected'|'pending'), verdictReason? }
   app.post('/api/admin/registrations/:id/presencial-exam', async (req, reply) => {
-    const user = await requireAdmin(req, reply); if (!user) return
+    const user = await requireAdminWrite(req, reply); if (!user) return
     const { id } = req.params as any
     const regId = parseInt(id)
     const body = (req.body as any) || {}
@@ -554,7 +571,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   // POST /api/admin/essay-submissions/:id/review
   // Body: { status: 'approved'|'rejected', humanScore?, humanNote? }
   app.post('/api/admin/essay-submissions/:id/review', async (req, reply) => {
-    const user = await requireAdmin(req, reply); if (!user) return
+    const user = await requireAdminWrite(req, reply); if (!user) return
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const newStatus = body.status === 'approved' ? 'approved' : body.status === 'rejected' ? 'rejected' : null

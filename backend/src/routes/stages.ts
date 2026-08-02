@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { adminOnly } from '../lib/auth.js'
 
 export async function stagesRoutes(app: FastifyInstance) {
@@ -87,6 +88,11 @@ export async function stagesRoutes(app: FastifyInstance) {
     const count = await prisma.lead.count({ where: { status: stage.key, funnelId: stage.funnelId } })
     if (count > 0) return reply.code(400).send({ error: `Não é possível excluir: ${count} lead(s) estão nesta etapa.` })
 
+    const user = (req as any).user
+    await moveToTrash({
+      entityType: 'stage', entityId: Number(id), entityLabel: stage.name || stage.key,
+      snapshot: stage, deletedBy: user?.userId, deletedByName: user?.name || user?.email,
+    })
     await prisma.stage.delete({ where: { id: Number(id) } })
     return { ok: true }
   })

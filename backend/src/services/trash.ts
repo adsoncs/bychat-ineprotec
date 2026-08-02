@@ -23,6 +23,14 @@ export type TrashEntityType =
   | 'edu_offering'
   | 'edu_selection_process'
   | 'edu_entry_mode'
+  // Cadastros estruturais: apagados direto no banco até 2026-08. Campo
+  // personalizado é o mais sensível — some junto o dado gravado nos leads.
+  | 'custom_field'
+  | 'team'
+  | 'cadence'
+  | 'product'
+  | 'persona'
+  | 'stage'
 
 interface TrashOptions {
   entityType: TrashEntityType
@@ -114,6 +122,18 @@ export async function snapshotEntity(type: TrashEntityType, id: number) {
       return prisma.workflow.findUnique({ where: { id }, include: { steps: true } })
     case 'user':
       return prisma.user.findUnique({ where: { id } })
+    case 'custom_field':
+      return prisma.customField.findUnique({ where: { id } })
+    case 'team':
+      return prisma.team.findUnique({ where: { id }, include: { members: true } })
+    case 'cadence':
+      return prisma.salesCadence.findUnique({ where: { id }, include: { steps: true } })
+    case 'product':
+      return prisma.product.findUnique({ where: { id } })
+    case 'persona':
+      return prisma.persona.findUnique({ where: { id } })
+    case 'stage':
+      return prisma.stage.findUnique({ where: { id } })
     case 'edu_level':
       return prisma.educationalLevel.findUnique({ where: { id } })
     case 'edu_modality':
@@ -265,6 +285,31 @@ async function restoreSimpleEntity(type: TrashEntityType, snapshot: any) {
     case 'user': {
       return prisma.user.create({ data })
     }
+    case 'custom_field':
+      return prisma.customField.create({ data })
+    case 'team': {
+      const { members, ...teamData } = data
+      const team = await prisma.team.create({ data: teamData })
+      for (const m of (Array.isArray(members) ? members : [])) {
+        await prisma.teamMember.create({ data: { teamId: team.id, userId: m.userId, isLeader: !!m.isLeader } }).catch(() => {})
+      }
+      return team
+    }
+    case 'cadence': {
+      const { steps, ...cadData } = data
+      const cad = await prisma.salesCadence.create({ data: cadData })
+      for (const st of (Array.isArray(steps) ? steps : [])) {
+        const { id: _drop, cadenceId: _c, ...stepData } = st
+        await prisma.cadenceStep.create({ data: { ...stepData, cadenceId: cad.id } }).catch(() => {})
+      }
+      return cad
+    }
+    case 'product':
+      return prisma.product.create({ data })
+    case 'persona':
+      return prisma.persona.create({ data })
+    case 'stage':
+      return prisma.stage.create({ data })
     case 'edu_level':
       return prisma.educationalLevel.create({ data })
     case 'edu_modality':
