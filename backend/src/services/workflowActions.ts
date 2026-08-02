@@ -689,6 +689,32 @@ export async function dispatchAction(
       break
     }
 
+    case 'resume_bot': {
+      // Devolve a conversa ao chatbot antes de uma retomada automática. Sem isto, o
+      // fluxo cutuca um lead que o bot está proibido de atender (a pausa por takeover
+      // é definitiva): a pessoa responde e ninguém do outro lado responde.
+      const minutes = Number((config as any).skipIfRecentOperatorMin ?? 24 * 60)
+      const since = new Date(Date.now() - minutes * 60000)
+      const recentOutbound = await prisma.message.findFirst({
+        where: { leadId, fromMe: true, isInternal: false, createdAt: { gt: since } },
+        select: { id: true },
+      })
+      if (recentOutbound) {
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { status: 'skipped', result: { reason: 'atendimento humano recente' }, completedAt: new Date() },
+        })
+        return
+      }
+      const { resumeBot } = await import('./botTakeover.js')
+      const resumed = await resumeBot(leadId, { userId: null, userName: 'Fluxo automático' })
+      await prisma.workflowStepExecution.update({
+        where: { id: stepExec.id },
+        data: { status: 'completed', result: { resumed }, completedAt: new Date() },
+      })
+      return
+    }
+
     case 'notify_operator': {
       // Aviso de NOVO LEAD à equipe (não vai ao lead). Envia direto (síncrono), sem
       // governança/opt-out. Destinos GERAIS configuráveis em Configurações › Empresa ›

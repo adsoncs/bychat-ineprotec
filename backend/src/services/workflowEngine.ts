@@ -178,7 +178,21 @@ export async function executeNextStep(executionId: number, stepId: number): Prom
       }
 
       case 'wait': {
-        const durationMs = calculateDelayMs(config.duration, config.unit)
+        let durationMs = calculateDelayMs(config.duration, config.unit)
+        // `businessHoursOnly` no step: a retomada cai no próximo horário de
+        // atendimento em vez de disparar de madrugada (o delay é aritmética pura,
+        // então um "esperar 2 dias" marcado às 23h vencia às 23h).
+        if (config.businessHoursOnly) {
+          const { getBusinessHoursConfig, nextBusinessTime } = await import('./businessHours.js')
+          const bh = await getBusinessHoursConfig()
+          // `enabled: true` de propósito: quem marcou "só em horário comercial" NESTE
+          // passo já decidiu. O toggle global governa a auto-resposta fora do
+          // expediente — deixar ele mandar aqui faria o passo virar letra morta em
+          // todo tenant que não usa aquele recurso (a agenda padrão, seg-sex 9-18,
+          // continua valendo como base).
+          const target = nextBusinessTime({ ...bh, enabled: true }, new Date(Date.now() + durationMs))
+          durationMs = Math.max(0, target.getTime() - Date.now())
+        }
         // Criar step execution para tracking
         const stepExec = await prisma.workflowStepExecution.create({
           data: {

@@ -102,3 +102,52 @@ export async function resumeBot(
   })
   return true
 }
+
+/**
+ * Devolve a conversa ao bot sozinho quando o atendimento humano esfriou.
+ *
+ * Sem isto, a pausa é eterna: basta um operador responder uma vez para o lead
+ * sair do alcance do chatbot para sempre — inclusive para agendar. Numa operação
+ * que quer o agendamento 100% pelo bot, é o que faz o volume represar.
+ *
+ * Critério (conservador de propósito): só retoma se NINGUÉM do lado da empresa
+ * escreveu há mais de `hours` horas. Durante a pausa o bot não envia nada, então
+ * qualquer mensagem `fromMe` posterior ao carimbo é humana — se houver uma
+ * recente, o operador ainda está na conversa e o bot não entra por cima.
+ *
+ * Ligado por tenant em `chatbot.takeover_auto_resume_hours` (ausente/0 = nunca).
+ */
+export async function autoResumeIfStale(leadId: number): Promise<boolean> {
+  const raw = await prisma.setting.findUnique({ where: { key: 'chatbot.takeover_auto_resume_hours' } }).catch(() => null)
+  const hours = Number(String(raw?.value ?? '').replace(/"/g, '')) || 0
+  if (hours <= 0) return false
+
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+  const mark = readBotPause(lead?.formData)
+  if (!mark) return false
+
+  const pausedAt = new Date(mark.at)
+  if (isNaN(pausedAt.getTime())) return false
+  const lastOut = await prisma.message.findFirst({
+    where: { leadId, fromMe: true, isInternal: false },
+    orderBy: { id: 'desc' },
+    select: { createdAt: true },
+  }).catch(() => null)
+  const ref = lastOut && lastOut.createdAt > pausedAt ? lastOut.createdAt : pausedAt
+  if (Date.now() - ref.getTime() < hours * 3600000) return false
+
+  const base: any = { ...((lead?.formData || {}) as object) }
+  delete base._botPaused
+  await prisma.lead.update({ where: { id: leadId }, data: { formData: base } }).catch(() => {})
+
+  logEvent({
+    leadId,
+    type: EVENT_TYPES.BOT_RESUMED,
+    category: 'system',
+    title: 'Chatbot reativado automaticamente',
+    source: 'system',
+    actorType: 'system',
+    description: `Sem resposta da equipe há mais de ${hours}h (humano assumiu em ${mark.at}); o chatbot voltou a responder nesta conversa.`,
+  })
+  return true
+}

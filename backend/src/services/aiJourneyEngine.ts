@@ -38,9 +38,12 @@ async function fetchWithTimeout(url: string, opts: any, ms: number): Promise<Res
 }
 const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-export interface AiState {
+export // phase 'handoff' = o bot anunciou que um humano assume, mas a jornada NÃO morreu:
+// se o lead continuar escrevendo e nenhum operador tiver entrado de fato (o que
+// marcaria `_botPaused`), o bot segue atendendo em vez de deixar a pessoa no vácuo.
+interface AiState {
   leadId: number | null
-  phase: 'active' | 'done' | 'disqualified'
+  phase: 'active' | 'done' | 'disqualified' | 'handoff'
   answers: Record<string, any>
   bookingId?: number | null
 }
@@ -359,6 +362,25 @@ async function executeTool(
         if (out.length >= 12) break
       }
       if (!out.length) return JSON.stringify({ ok: false, erro: 'Sem horários disponíveis no momento.' })
+
+      // Marca que a pessoa CHEGOU a ver horários: é o sinal de intenção mais forte
+      // da jornada e o público exato de uma recuperação ("viu horários e não marcou").
+        const at = new Date().toISOString()
+        prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
+          .then((l) => prisma.lead.update({
+            where: { id: leadId },
+            data: { formData: { ...((l?.formData || {}) as object), _slotsOfferedAt: at } },
+          }))
+          .catch(() => {})
+        logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: 'Jornada IA: horários de visita oferecidos', channel: 'whatsapp', source: 'chatbot', actorType: 'system' })
+        import('../lib/eventBus.js').then(({ eventBus }) => eventBus.emitDomain({
+          type: 'lead.slots_offered',
+          leadId,
+          chatbotId: ctx.chatbot?.id,
+          funnelId: promoteFunnelId ?? form.funnelId ?? undefined,
+          payload: { meetingSlug: slug, offered: out.length },
+          timestamp: new Date(),
+        })).catch(() => {})
       return JSON.stringify({ ok: true, horarios: out })
     }
 
@@ -393,7 +415,13 @@ async function executeTool(
         return JSON.stringify({ ok: false, erro: 'Dados de contato incompletos',
           instrucao: `Antes de transferir para um atendente, peça e salve estes dados (chame salvar_dados): ${missing.join(', ')}. Uma pergunta por vez. Só depois chame transferir_humano novamente.` })
       }
-      state.phase = 'done'
+      // Já avisou antes e o lead continuou falando: não repete o aviso nem trata como
+      // nova transferência — o operador entra quando entrar (aí `_botPaused` cala o bot).
+      if (state.phase === 'handoff') {
+        return JSON.stringify({ ok: true, ja_transferido: true,
+          instrucao: 'Você já avisou que alguém do time vai continuar. NÃO repita o aviso e não diga que vai transferir de novo: siga atendendo a pessoa normalmente enquanto o time não entra.' })
+      }
+      state.phase = 'handoff'
       logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_COMPLETED, category: 'lifecycle', title: `Jornada IA: transferido p/ humano${input?.motivo ? ' — ' + String(input.motivo).slice(0, 80) : ''}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
       return JSON.stringify({ ok: true, instrucao: 'Avise que vai chamar um atendente e finalize.' })
     }
@@ -428,7 +456,11 @@ async function executeTool(
 
 // ── Chamadas ao LLM com tool use (Anthropic primário; OpenAI fallback) ──
 export type LlmMsg = { role: 'user' | 'assistant'; content: any }
-type LlmTurn = { kind: 'text'; text: string } | { kind: 'tools'; calls: Array<{ id: string; name: string; input: any }>; assistant: any }
+// `text` no turno de ferramentas = o que o modelo escreveu JUNTO da chamada
+// (saudação, acolhimento). Antes era descartado, e o lead recebia só a mensagem
+// seguinte — que começava no meio do assunto, porque o modelo já considerava a
+// abertura como dita. Ver o envio nos loops abaixo.
+type LlmTurn = { kind: 'text'; text: string } | { kind: 'tools'; calls: Array<{ id: string; name: string; input: any }>; assistant: any; text: string }
 
 async function getSetting(key: string): Promise<string | null> {
   const s = await prisma.setting.findUnique({ where: { key } }).catch(() => null)
@@ -455,8 +487,8 @@ async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTur
   const data = await res.json() as any
   const content = data.content || []
   const calls = content.filter((b: any) => b.type === 'tool_use').map((b: any) => ({ id: b.id, name: b.name, input: b.input }))
-  if (calls.length) return { kind: 'tools', calls, assistant: content }
   const text = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim()
+  if (calls.length) return { kind: 'tools', calls, assistant: content, text }
   return { kind: 'text', text }
 }
 
@@ -496,7 +528,7 @@ async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> 
       ...(msg.content ? [{ type: 'text', text: msg.content }] : []),
       ...calls.map((c: any) => ({ type: 'tool_use', id: c.id, name: c.name, input: c.input })),
     ]
-    return { kind: 'tools', calls, assistant }
+    return { kind: 'tools', calls, assistant, text: (msg.content || '').trim() }
   }
   return { kind: 'text', text: (msg.content || '').trim() }
 }
@@ -624,8 +656,12 @@ async function _process(
   // do cliente continua sendo gravada (aparece nas Conversas), mas a IA NÃO
   // responde — em definitivo, até devolverem a conversa ao bot. Ver botTakeover.ts.
   {
-    const { readBotPause } = await import('./botTakeover.js')
-    const fresh = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
+    const { readBotPause, autoResumeIfStale } = await import('./botTakeover.js')
+    // Antes de calar o bot, checa se o atendimento humano esfriou (config por tenant):
+    // se ninguém da equipe respondeu há horas, a conversa volta ao bot em vez de morrer.
+    const resumed = await autoResumeIfStale(leadId).catch(() => false)
+    if (resumed) app.log.info(`[aiJourney] lead ${leadId}: atendimento humano esfriou — bot reassumiu`)
+    const fresh = resumed ? null : await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }).catch(() => null)
     const paused = readBotPause(fresh?.formData)
     if (paused) {
       await saveIncoming(leadId, text)
@@ -679,6 +715,14 @@ async function _process(
       else failed = true
       break
     }
+    // Texto escrito JUNTO da chamada de ferramenta: entrega ao lead antes de executar
+    // as ferramentas. Sem isso o modelo "acha" que já cumprimentou (o bloco está no
+    // histórico que ele recebe de volta) e a mensagem seguinte começa no meio do assunto.
+    if (turn.text.trim()) {
+      const { text: pre, options: preOpts } = extractOptions(turn.text)
+      if (pre) { await send(leadId, pre, preOpts).catch(() => {}); replied = true }
+    }
+
     // tool_use: executa as ferramentas pedidas (cada uma com timeout) e devolve os resultados.
     messages.push({ role: 'assistant', content: turn.assistant })
     const results: any[] = []

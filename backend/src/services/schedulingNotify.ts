@@ -5,6 +5,7 @@ import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
 import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
 import { getBranding } from '../lib/branding.js'
 import { getRenderedTemplate } from './messageTemplates.js'
+import { buildBodyParams, renderTemplateText } from '../lib/waTemplateParams.js'
 
 function publicBase(): string { return (process.env.APP_URL || 'https://localhost').replace(/\/$/, '') }
 export function cancelLink(token: string): string { return `${publicBase()}/agendar/cancelar/${token}` }
@@ -13,6 +14,16 @@ export function rescheduleLink(token: string): string { return `${publicBase()}/
 function fmtDateTime(d: Date, tz: string): string {
   try { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, dateStyle: 'full', timeStyle: 'short' }).format(d) }
   catch { return d.toISOString() }
+}
+// Formatos curtos para os HSM ("12/08/2026" e "14h30"), como nos exemplos aprovados
+// na Meta — o dateStyle:'full' do fmtDateTime fica longo demais dentro do template.
+function fmtDateOnly(d: Date, tz: string): string {
+  try { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(d) }
+  catch { return d.toISOString().slice(0, 10) }
+}
+function fmtTimeOnly(d: Date, tz: string): string {
+  try { return new Intl.DateTimeFormat('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(d).replace(':', 'h') }
+  catch { return d.toISOString().slice(11, 16).replace(':', 'h') }
 }
 function esc(s: string): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
@@ -31,9 +42,49 @@ async function sendWa(leadId: number | null, phone: string, text: string): Promi
   } catch (e: any) { console.warn('[scheduling] WhatsApp falhou:', e?.message) }
 }
 
-// Nome do template HSM (Cloud API) de confirmação de agendamento. Aprovado na Meta,
-// pode ser enviado a número frio (fora da janela 24h) sem risco de banir a sessão.
-const CONFIRM_TEMPLATE = 'confirmacao_agendamento_reuniao'
+// Nomes dos templates HSM (Cloud API) usados pelo agendamento. São o único jeito de
+// falar com quem está FORA da janela de 24h — que é a regra, não a exceção: lembrete
+// de véspera e confirmação de lead de formulário caem quase sempre nessa situação.
+// Configuráveis por tenant (Configurações) porque cada escola/empresa aprova os seus
+// com nomes próprios na Meta; os defaults preservam o comportamento antigo.
+const TEMPLATE_KEYS = {
+  confirmation: { setting: 'scheduling.confirm_template', fallback: 'confirmacao_agendamento_reuniao' },
+  reminder24h: { setting: 'scheduling.reminder_24h_template', fallback: '' },
+  reminder1h: { setting: 'scheduling.reminder_1h_template', fallback: '' },
+} as const
+
+async function templateNameFor(kind: keyof typeof TEMPLATE_KEYS): Promise<string> {
+  const { setting, fallback } = TEMPLATE_KEYS[kind]
+  const row = await prisma.setting.findUnique({ where: { key: setting } }).catch(() => null)
+  const v = row ? String(row.value).replace(/^"|"$/g, '').trim() : ''
+  return v || fallback
+}
+
+/** Envia um HSM ao lead. Retorna false se o template não existir/não estiver aprovado. */
+async function sendHsm(
+  conn: { phoneNumberId: string; systemUserToken: string; wabaId: string | null; id: number },
+  templateName: string, phone: string, values: Record<string, string>, leadId: number | null,
+): Promise<boolean> {
+  if (!templateName) return false
+  const tpl = await prisma.cloudApiTemplate.findFirst({
+    where: { name: templateName, ...(conn.wabaId ? { wabaId: conn.wabaId } : {}) },
+    select: { status: true, language: true, components: true },
+  })
+  if (!tpl || tpl.status !== 'APPROVED') {
+    console.warn(`[scheduling] template ${templateName} não aprovado (${tpl?.status ?? 'inexistente'}) — WhatsApp não enviado`)
+    return false
+  }
+  const wp = await import('./whatsappProvider.js')
+  const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
+  const params = buildBodyParams(tpl.components, values)
+  await provider.sendTemplate(phone, templateName, tpl.language || 'pt_BR', params.length ? [{ type: 'body', parameters: params }] : [])
+  if (leadId) {
+    await prisma.message.create({
+      data: { leadId, body: renderTemplateText(tpl.components, values), fromMe: true, senderName: 'Agendamento', ack: 1, provider: 'cloud_api', cloudApiConnectionId: conn.id },
+    }).catch(() => {})
+  }
+  return true
+}
 
 // Envia a confirmação de agendamento ao lead pelo WhatsApp e marca confirmRequestedAt
 // (escopo do auto-cancelamento + detecção do clique "Confirmar reunião").
@@ -42,14 +93,14 @@ const CONFIRM_TEMPLATE = 'confirmacao_agendamento_reuniao'
 //     SEM depender da aprovação do template HSM.
 //   • Lead FRIO (fora da janela, ex.: lead de formulário): template HSM aprovado.
 async function sendBookingConfirmationToLead(
-  bookingId: number, leadId: number | null, mt: { name: string; locationDetail: string | null }, name: string, when: string, meetLink: string | null, phone: string,
+  bookingId: number, leadId: number | null, mt: { name: string; locationType?: string | null; locationDetail: string | null }, name: string, when: string, meetLink: string | null, phone: string,
+  vars: Record<string, string>,
 ): Promise<void> {
   try {
     const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (!conn) { console.warn('[scheduling] sem conexão Cloud API — confirmação WhatsApp não enviada'); return }
-    const wp = await import('./whatsappProvider.js')
-    const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
     const linkText = meetLink || mt.locationDetail || ''
+    const presencial = String(mt.locationType || '') === 'in_person'
 
     const openWindow = leadId
       ? await prisma.message.findFirst({ where: { leadId, provider: 'cloud_api', fromMe: false, createdAt: { gt: new Date(Date.now() - 24 * 3600000) } }, select: { id: true } })
@@ -59,34 +110,22 @@ async function sendBookingConfirmationToLead(
       // Sem pedido de confirmação (auto-cancel removido; cancelar/remarcar = manual):
       // mensagem limpa de "agendado" com o link da reunião.
       // F0.3: reforça o aviso de gravação (quando ligada) para transparência/consentimento.
+      const wp = await import('./whatsappProvider.js')
+      const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
       const recNotice = await getMeetingRecordingNotice()
-      const body = `✅ *Reunião agendada!*\n📅 ${when}`
-        + (linkText ? `\n\n📍 Link da reunião: ${linkText}` : '')
-        + (recNotice ? `\n\nℹ️ ${recNotice}` : '')
+      // Encontro presencial não tem "link": chamar o endereço da escola de link da
+      // reunião confunde a família logo no momento mais importante da conversa.
+      const body = `✅ *${presencial ? 'Visita agendada' : 'Reunião agendada'}!*\n📅 ${when}`
+        + (linkText ? `\n\n📍 ${presencial ? 'Endereço' : 'Link da reunião'}: ${linkText}` : '')
+        + (recNotice && !presencial ? `\n\nℹ️ ${recNotice}` : '')
       await provider.sendText(phone, body)
       return
     }
 
-    // Lead frio → template HSM (quando aprovado). {{4}} nunca pode ir vazio (Meta rejeita).
-    const tpl = await prisma.cloudApiTemplate.findFirst({
-      where: { name: CONFIRM_TEMPLATE, ...(conn.wabaId ? { wabaId: conn.wabaId } : {}) },
-      select: { status: true, language: true },
-    })
-    if (!tpl || tpl.status !== 'APPROVED') {
-      console.warn(`[scheduling] template ${CONFIRM_TEMPLATE} não aprovado (${tpl?.status ?? 'inexistente'}) — confirmação WhatsApp adiada (e-mail enviado)`)
-      return
-    }
-    const components = [{
-      type: 'body',
-      parameters: [
-        { type: 'text', text: name?.trim() || 'tudo bem' },
-        { type: 'text', text: mt.name },
-        { type: 'text', text: when },
-        { type: 'text', text: linkText || 'a combinar com nossa equipe' },
-      ],
-    }]
-    await provider.sendTemplate(phone, CONFIRM_TEMPLATE, tpl.language || 'pt_BR', components)
-    await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
+    // Lead frio (fora da janela de 24h) → só passa HSM aprovado.
+    const templateName = await templateNameFor('confirmation')
+    const sent = await sendHsm(conn, templateName, phone, { ...vars, reuniao: mt.name, quando: when, link: linkText || 'a combinar com nossa equipe' }, leadId)
+    if (sent) await prisma.booking.update({ where: { id: bookingId }, data: { confirmRequestedAt: new Date() } }).catch(() => {})
   } catch (e: any) { console.warn('[scheduling] confirmação ao lead falhou:', e?.message) }
 }
 
@@ -146,13 +185,13 @@ async function resolveMeetLink(booking: { meetLink: string | null; activityId: n
 }
 
 // kind: 'confirmation' (na reserva) | 'reminder' (antes da reunião)
-export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'reminder'): Promise<void> {
+export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'reminder', which?: '24h' | '1h'): Promise<void> {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } })
   if (!booking || booking.status === 'cancelled') return
   const mt = await prisma.meetingType.findUnique({ where: { id: booking.meetingTypeId } })
   if (!mt) return
   const lead = booking.leadId
-    ? await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { id: true, whatsapp: true, email: true, nome: true } })
+    ? await prisma.lead.findUnique({ where: { id: booking.leadId }, select: { id: true, whatsapp: true, email: true, nome: true, customFields: true } })
     : null
 
   const meetLink = await resolveMeetLink(booking)
@@ -170,20 +209,40 @@ export async function notifyBooking(bookingId: number, kind: 'confirmation' | 'r
     : `{{saudacao}}\n\n✅ *Reunião confirmada: {{reuniao}}*\n📅 {{quando}}{{link}}`
   const wa = await getRenderedTemplate(`agendamento_${kindKey}_wa`, 'whatsapp', waVars, { body: waDefault })
 
+  // Variáveis dos HSM de agendamento. `aluno` sai do 1º filho cadastrado (convenção
+  // filho_1_nome) — os templates de escola citam a criança pelo nome.
+  const cf = ((lead as any)?.customFields || {}) as Record<string, unknown>
+  const hsmVars: Record<string, string> = {
+    nome: name || 'tudo bem',
+    data_visita: fmtDateOnly(booking.startAt, booking.timezone),
+    hora_visita: fmtTimeOnly(booking.startAt, booking.timezone),
+    aluno: String(cf.filho_1_nome || cf.aluno_nome || '').trim() || 'seu filho(a)',
+  }
+
   const phone = lead?.whatsapp || booking.inviteePhone || ''
   if (phone) {
+    const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
     if (kind === 'confirmation') {
-      // Confirmação ao lead. COM Cloud API → interativo (janela aberta) ou HSM (frio),
-      // com link + botão "Confirmar reunião". SEM Cloud API → texto livre via Evolution.
-      const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, select: { id: true } })
+      // Confirmação ao lead. COM Cloud API → texto (janela aberta) ou HSM (frio).
+      // SEM Cloud API → texto livre via Evolution.
       if (cloudConn) {
-        await sendBookingConfirmationToLead(booking.id, lead?.id ?? null, mt, name, when, meetLink, phone)
+        await sendBookingConfirmationToLead(booking.id, lead?.id ?? null, mt, name, when, meetLink, phone, hsmVars)
       } else if (wa.body.trim()) {
         await sendWa(lead?.id ?? null, phone, wa.body)
       }
-    } else if (wa.body.trim()) {
-      // Lembrete → texto livre (canal resolvido por janela/origem do lead).
-      await sendWa(lead?.id ?? null, phone, wa.body)
+    } else {
+      // Lembrete. O caso normal é a janela de 24h estar FECHADA (véspera de uma visita
+      // marcada dias antes): ali a Cloud API recusa texto livre e só HSM entrega. Com a
+      // janela aberta, o texto livre é melhor — não gasta template nem soa robótico.
+      const openWindow = lead?.id
+        ? await prisma.message.findFirst({ where: { leadId: lead.id, provider: 'cloud_api', fromMe: false, createdAt: { gt: new Date(Date.now() - 24 * 3600000) } }, select: { id: true } })
+        : null
+      let sent = false
+      if (cloudConn && !openWindow) {
+        const templateName = await templateNameFor(which === '1h' ? 'reminder1h' : 'reminder24h')
+        sent = await sendHsm(cloudConn, templateName, phone, { ...hsmVars, reuniao: mt.name, quando: when }, lead?.id ?? null)
+      }
+      if (!sent && wa.body.trim()) await sendWa(lead?.id ?? null, phone, wa.body)
     }
   }
 
@@ -280,7 +339,7 @@ async function reminderTick(): Promise<void> {
     else if (diffMin <= 25 * 60 && diffMin > 70 && !meta.reminded24h) flag = 'reminded24h'
     if (!flag) continue
     try {
-      await notifyBooking(bookingId, 'reminder')
+      await notifyBooking(bookingId, 'reminder', flag === 'reminded1h' ? '1h' : '24h')
       await prisma.activity.update({ where: { id: a.id }, data: { metadata: { ...meta, [flag]: true } } })
     } catch { /* tenta no próximo tick */ }
   }

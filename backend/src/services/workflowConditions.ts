@@ -23,6 +23,17 @@ export async function evaluateCondition(config: ConditionConfig, leadId: number)
   })
   if (!lead) return false
 
+  // Agendamento: base de qualquer automação de recuperação ("ofereci horários e a
+  // pessoa não marcou"). Reserva cancelada não conta como agendada — o lead volta
+  // a ser alvo de recuperação, que é o comportamento desejado.
+  if (config.type === 'has_booking' || config.type === 'not_has_booking') {
+    const booking = await prisma.booking.findFirst({
+      where: { leadId: lead.id, status: { not: 'cancelled' } },
+      select: { id: true },
+    })
+    return config.type === 'has_booking' ? !!booking : !booking
+  }
+
   // Tag conditions
   if (config.type === 'has_tag') {
     return lead.tags.some((lt: any) => lt.tag.name === config.tagName)

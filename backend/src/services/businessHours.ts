@@ -100,6 +100,49 @@ export function isWithinBusinessHours(config: BusinessHoursConfig, now: Date = n
   return false
 }
 
+/**
+ * Empurra um instante para o próximo horário de atendimento.
+ *
+ * Automação sem isto manda mensagem às 3h da manhã: um "esperar 2 dias" agendado
+ * às 23h vence às 23h. Para o cliente, chegar fora de hora é intrusivo e ainda
+ * queima a reputação do número.
+ *
+ * Devolve a data original quando já cai dentro do expediente (ou quando o
+ * horário comercial está desligado). Varre no máximo 14 dias — se a agenda
+ * estiver toda vazia, devolve a data original em vez de entrar em laço.
+ */
+export function nextBusinessTime(config: BusinessHoursConfig, when: Date): Date {
+  if (!config.enabled) return when
+  if (isWithinBusinessHours(config, when)) return when
+
+  const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: config.timezone, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' })
+
+  let cursor = new Date(when)
+  for (let i = 0; i < 14 * 24 * 4; i++) { // passos de 15min por até 14 dias
+    const parts = fmt.formatToParts(cursor)
+    const wk = weekdayMap[parts.find((p) => p.type === 'weekday')?.value || 'Sun'] ?? 0
+    const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0')
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0')
+    const slots = config.schedule[String(wk)]
+    if (slots && slots.length) {
+      const nowMin = hour * 60 + minute
+      // Primeiro slot que ainda vai começar (ou já está correndo) neste dia.
+      for (const slot of slots) {
+        const [sH, sM] = slot.start.split(':').map(Number)
+        const [eH, eM] = slot.end.split(':').map(Number)
+        const startMin = sH * 60 + (sM || 0)
+        const endMin = eH * 60 + (eM || 0)
+        if (nowMin >= startMin && nowMin < endMin) return cursor
+        if (nowMin < startMin) return new Date(cursor.getTime() + (startMin - nowMin) * 60000)
+      }
+    }
+    // Nada mais hoje: pula para o começo do dia seguinte e continua a busca.
+    cursor = new Date(cursor.getTime() + (24 * 60 - (hour * 60 + minute)) * 60000)
+  }
+  return when
+}
+
 // Throttle: evita reenviar a mesma mensagem várias vezes ao mesmo número.
 // Usa LeadEvent (type='auto_reply_business_hours') como registro.
 export async function shouldSendAutoReply(leadId: number, throttleHours: number): Promise<boolean> {
