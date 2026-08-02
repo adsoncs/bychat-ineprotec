@@ -100,6 +100,62 @@ export function isWithinBusinessHours(config: BusinessHoursConfig, now: Date = n
   return false
 }
 
+const DIA_NOME = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
+const DIA_CURTO = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
+
+function hhmm(s: string): string {
+  const [h, m] = String(s).split(':')
+  return (m && m !== '00') ? `${Number(h)}h${m}` : `${Number(h)}h`
+}
+
+/**
+ * Horário de atendimento em texto corrido ("segunda a sexta, das 9h às 18h") a
+ * partir do que está em Cadastros › Atendimento.
+ *
+ * Existe para o chatbot ter UMA fonte de verdade sobre quando a equipe responde.
+ * Sem isto, perguntado "vocês respondem ainda hoje?", o modelo inventa uma
+ * resposta plausível — e o cliente recebe uma promessa que ninguém fez.
+ *
+ * Devolve null quando não há nenhum dia configurado (aí o bot não deve afirmar
+ * horário nenhum, em vez de cair num padrão que pode não ser o da empresa).
+ */
+/**
+ * Horário de atendimento SÓ se a empresa tiver cadastrado de fato.
+ *
+ * `getBusinessHoursConfig` cai num padrão (seg-sex 9h-18h) quando não há nada
+ * salvo — útil para a tela não abrir vazia, perigoso para o chatbot: ele
+ * afirmaria ao cliente um horário que ninguém configurou. Aqui, sem registro,
+ * a resposta é null e o bot fica proibido de citar horário.
+ */
+export async function getConfiguredBusinessHours(): Promise<string | null> {
+  const setting = await prisma.setting.findUnique({ where: { key: 'business_hours' } }).catch(() => null)
+  if (!setting || !setting.value || typeof setting.value !== 'object') return null
+  const config = { ...DEFAULT_CONFIG, ...(setting.value as any) }
+  return formatBusinessHours(config)
+}
+
+export function formatBusinessHours(config: BusinessHoursConfig): string | null {
+  const dias: Array<{ wk: number; txt: string }> = []
+  for (let wk = 0; wk < 7; wk++) {
+    const slots = config.schedule[String(wk)]
+    if (!slots || !slots.length) continue
+    dias.push({ wk, txt: slots.map((s) => `das ${hhmm(s.start)} às ${hhmm(s.end)}`).join(' e ') })
+  }
+  if (!dias.length) return null
+
+  // Agrupa dias seguidos com o mesmo horário: "segunda a sexta, das 9h às 18h".
+  const partes: string[] = []
+  let i = 0
+  while (i < dias.length) {
+    let j = i
+    while (j + 1 < dias.length && dias[j + 1].wk === dias[j].wk + 1 && dias[j + 1].txt === dias[i].txt) j++
+    if (j > i) partes.push(`de ${DIA_CURTO[dias[i].wk]} a ${DIA_CURTO[dias[j].wk]}, ${dias[i].txt}`)
+    else partes.push(`${DIA_NOME[dias[i].wk]}, ${dias[i].txt}`)
+    i = j + 1
+  }
+  return partes.join('; ')
+}
+
 /**
  * Empurra um instante para o próximo horário de atendimento.
  *

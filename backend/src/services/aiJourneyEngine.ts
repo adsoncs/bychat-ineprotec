@@ -161,7 +161,7 @@ const TOOLS = [
 ]
 
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
-export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string): string {
+export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null): string {
   const fields: any[] = form?.fields || []
   const collect = fields
     .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
@@ -230,6 +230,16 @@ A loja trabalha com estas categorias: ${catalogSummary}.
 - Se o item pedido não existe: diga com sinceridade que não temos AQUELE item. Para oferecer alternativas, chame **consultar_catalogo** de novo (ex.: pela categoria) e ofereça só o que ela retornar. Se não houver nada, diga que no momento não temos e ofereça falar com um vendedor — SEM citar modelos.
 - Não despeje o catálogo inteiro sem o lead pedir.` : '',
     schedIntro ? `\n## Ao iniciar o agendamento\nQuando começar a etapa de agendamento (logo antes de chamar listar_horarios / oferecer os horários), ABRA com uma mensagem de boas-vindas ao agendamento no espírito desta — personalize com o nome do lead, mantenha objetiva e profissional, não copie ao pé da letra:\n"${schedIntro}"` : '',
+    // Horário de atendimento humano (Cadastros › Atendimento) — FONTE DA VERDADE.
+    // Sem isto o modelo especula ("pode ser que respondam ainda hoje") e a empresa
+    // fica com uma promessa que não fez. Data/hora de agora vão junto para ele saber
+    // se está dentro ou fora do expediente sem ter de adivinhar.
+    businessHours ? `\n## Horário de atendimento da equipe (FONTE DA VERDADE)
+O atendimento humano funciona: **${businessHours}**. Agora são ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} (horário de Brasília).
+- Quando perguntarem quando alguém responde, se ainda dá tempo hoje, ou qual o horário de atendimento, responda SOMENTE com base nesse horário. NUNCA especule ("pode ser que...", "talvez ainda hoje", "bem cedinho amanhã") nem prometa prazo de retorno que não esteja escrito aqui.
+- Se a conversa está acontecendo FORA desse horário, diga com naturalidade que a equipe retorna no próximo período de atendimento e qual é ele (ex.: "o time atende a partir das 8h de amanhã").
+- Este horário é o do atendimento humano. Não confunda com os horários de visita, que vêm de listar_horarios.` : `\n## Horário de atendimento da equipe
+O horário de atendimento humano NÃO está cadastrado no sistema. Portanto: NUNCA afirme horário de funcionamento nem prometa prazo de retorno ("respondem ainda hoje", "amanhã cedo"). Diga apenas que a equipe vai retornar assim que possível.`,
     `\n## Regras
 - O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
 - NUNCA invente horários: use só os que listar_horarios devolveu.
@@ -695,7 +705,10 @@ async function _process(
   }
 
   const catalogSummary = await getCatalogSummary()
-  const system = buildSystemPrompt(chatbot, form, lead, state, catalogSummary)
+  // Horário de atendimento humano (Cadastros › Atendimento) — o bot precisa dele
+  // para responder "quando vocês respondem?" com o que a empresa cadastrou.
+  const bhText = await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null)
+  const system = buildSystemPrompt(chatbot, form, lead, state, catalogSummary, bhText)
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
   // Tudo com teto de tempo: nenhuma chamada (LLM ou ferramenta) pode pendurar o turno
