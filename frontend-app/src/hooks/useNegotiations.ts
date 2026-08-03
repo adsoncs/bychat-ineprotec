@@ -210,7 +210,8 @@ export interface NegotiationsOverviewParams {
   /** open | won | lost */
   resultado?: string
   funnelId?: number | null
-  responsavelUserId?: number | null
+  /** id do responsável, 'none' (sem dono) ou vazio. Filtra pelo dono do LEAD. */
+  responsavelUserId?: number | string | null
   /** unico | recorrente — só propostas que têm aquele componente */
   cobranca?: string
   dateFrom?: string

@@ -154,7 +154,9 @@ export function NegotiationsPage() {
   const [search, setSearch] = useState('')
   const [resultado, setResultado] = useState('')
   const [funnelId, setFunnelId] = useState<number | null>(null)
-  const [responsavelUserId, setResponsavelUserId] = useState<number | null>(null)
+  // '' = todos · 'none' = leads sem dono · id = um responsável.
+  // O responsável é sempre o do LEAD (o backend resolve; ver routes/negotiations).
+  const [responsavel, setResponsavel] = useState('')
   const [cobranca, setCobranca] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -173,7 +175,7 @@ export function NegotiationsPage() {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300)
     return () => clearTimeout(t)
   }, [searchInput])
-  useEffect(() => { setPage(1) }, [search, resultado, funnelId, responsavelUserId, cobranca, dateFrom, dateTo, orderBy])
+  useEffect(() => { setPage(1) }, [search, resultado, funnelId, responsavel, cobranca, dateFrom, dateTo, orderBy])
 
   function changeView(v: View) {
     setView(v)
@@ -188,7 +190,7 @@ export function NegotiationsPage() {
     q: search || undefined,
     resultado: resultado || undefined,
     funnelId: funnelId ?? undefined,
-    responsavelUserId: responsavelUserId ?? undefined,
+    responsavelUserId: responsavel || undefined,
     cobranca: cobranca || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -242,7 +244,7 @@ export function NegotiationsPage() {
       .catch(() => toast('Falha ao exportar', 'danger'))
   }
 
-  const filtroAtivo = !!(search || resultado || funnelId || responsavelUserId || cobranca || dateFrom || dateTo)
+  const filtroAtivo = !!(search || resultado || funnelId || responsavel || cobranca || dateFrom || dateTo)
 
   return (
     <Page
@@ -334,8 +336,9 @@ export function NegotiationsPage() {
             <option value="">Todos os funis</option>
             {(funnels.data?.funnels ?? []).filter((f) => f.active).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </Select>
-          <Select value={responsavelUserId ? String(responsavelUserId) : ''} onChange={(e) => setResponsavelUserId(Number((e.target as HTMLSelectElement).value) || null)} class="w-52">
+          <Select value={responsavel} onChange={(e) => setResponsavel((e.target as HTMLSelectElement).value)} class="w-52">
             <option value="">Todos os responsáveis</option>
+            <option value="none">Sem responsável</option>
             {(users.data?.users ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </Select>
           <div class="flex items-center gap-1">
@@ -356,7 +359,7 @@ export function NegotiationsPage() {
           {filtroAtivo ? (
             <Button variant="ghost" size="sm" onClick={() => {
               setSearchInput(''); setSearch(''); setResultado(''); setFunnelId(null)
-              setResponsavelUserId(null); setCobranca(''); setDateFrom(''); setDateTo('')
+              setResponsavel(''); setCobranca(''); setDateFrom(''); setDateTo('')
             }}>Limpar filtros</Button>
           ) : null}
         </div>

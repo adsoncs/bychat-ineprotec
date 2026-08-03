@@ -143,17 +143,23 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const to = q.dateTo ? new Date(String(q.dateTo) + 'T23:59:59.999Z') : null
     const statusList = String(q.status || '').split(',').map((s) => s.trim()).filter((s) => STATUSES.includes(s))
     const resultado = q.resultado === 'won' || q.resultado === 'lost' ? q.resultado : q.resultado === 'open' ? 'open' : null
+    // Responsável é sempre o do LEAD (fonte da verdade): reatribuir o lead troca
+    // o dono em todos os painéis sem precisar sincronizar tabela por tabela.
+    // 'none' = leads sem responsável.
+    const semResponsavel = String(q.responsavelUserId || '') === 'none'
     const responsavelUserId = Number(q.responsavelUserId) > 0 ? Number(q.responsavelUserId) : null
     const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : null
     const cobranca = q.cobranca === 'recorrente' || q.cobranca === 'unico' ? q.cobranca : null
     const search = String(q.q || '').trim()
     const orderBy = String(q.orderBy || 'recent')
 
-    // Ids de lead quando o filtro é do lado do lead (funil ou busca por nome).
+    // Ids de lead quando o filtro é do lado do lead (funil, responsável ou busca).
     let leadIdFilter: number[] | null = null
-    if (funnelId || search) {
+    if (funnelId || search || responsavelUserId || semResponsavel) {
       const leadWhere: any = {}
       if (funnelId) leadWhere.funnelId = funnelId
+      if (responsavelUserId) leadWhere.assignedUserId = responsavelUserId
+      if (semResponsavel) leadWhere.assignedUserId = null
       if (search) leadWhere.OR = [{ nome: { contains: search } }, { email: { contains: search } }, { whatsapp: { contains: search } }]
       const leads = await prisma.lead.findMany({ where: leadWhere, select: { id: true }, take: 5000 })
       leadIdFilter = leads.map((l) => l.id)
@@ -163,12 +169,14 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (statusList.length) where.status = { in: statusList }
     if (resultado === 'open') where.resultado = null
     else if (resultado) where.resultado = resultado
-    if (responsavelUserId) where.responsavelUserId = responsavelUserId
+
     if (cobranca === 'recorrente') where.valorRecorrente = { gt: 0 }
     if (cobranca === 'unico') where.valorUnico = { gt: 0 }
     if (leadIdFilter) where.leadId = { in: leadIdFilter.length ? leadIdFilter : [-1] }
-    // Busca também casa com o título da proposta, não só com o lead.
-    if (search && leadIdFilter) {
+    // Busca também casa com o título da proposta, não só com o lead — mas só
+    // quando o recorte de lead veio da própria busca (senão o OR furaria o
+    // filtro de funil/responsável).
+    if (search && leadIdFilter && !funnelId && !responsavelUserId && !semResponsavel) {
       delete where.leadId
       where.OR = [{ leadId: { in: leadIdFilter.length ? leadIdFilter : [-1] } }, { titulo: { contains: search } }]
     }
@@ -190,19 +198,21 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (q.format === 'csv') {
       const todas = await prisma.negotiation.findMany({ where, orderBy: order, take: 5000 })
       const ids = Array.from(new Set(todas.map((n) => n.leadId)))
-      const uids = Array.from(new Set(todas.map((n) => n.responsavelUserId).filter((v): v is number => !!v)))
-      const [ls, us] = await Promise.all([
-        ids.length ? prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } }) : [],
-        uids.length ? prisma.user.findMany({ where: { id: { in: uids } }, select: { id: true, name: true } }) : [],
-      ])
+      const ls = ids.length ? await prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true, assignedUserId: true } }) : []
       const lname = new Map(ls.map((l) => [l.id, l.nome]))
+      const ldono = new Map(ls.map((l) => [l.id, l.assignedUserId]))
+      const uids = Array.from(new Set([
+        ...todas.map((n) => n.responsavelUserId),
+        ...ls.map((l) => l.assignedUserId),
+      ].filter((v): v is number => !!v)))
+      const us = uids.length ? await prisma.user.findMany({ where: { id: { in: uids } }, select: { id: true, name: true } }) : []
       const uname = new Map(us.map((u) => [u.id, u.name]))
       const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
       const head = ['Lead', 'Proposta', 'Status', 'Resultado', 'Pagamento único', 'Mensalidade', 'Total 1º ciclo', 'Responsável', 'Criada em', 'Fechada em']
       const linhas = todas.map((n) => [
         lname.get(n.leadId) ?? `Lead #${n.leadId}`, n.titulo, n.status, n.resultado ?? 'em aberto',
         n.valorUnico ?? 0, n.valorRecorrente ?? 0, n.valorFinal ?? 0,
-        n.responsavelUserId ? uname.get(n.responsavelUserId) ?? '' : '',
+        (() => { const id = ldono.get(n.leadId) ?? n.responsavelUserId; return id ? uname.get(id) ?? '' : '' })(),
         n.createdAt.toISOString().slice(0, 10), n.fechadaEm ? n.fechadaEm.toISOString().slice(0, 10) : '',
       ].map(esc).join(';'))
       // BOM + ';' para o Excel em pt-BR abrir sem passar pelo assistente de importação.
@@ -226,15 +236,24 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       }),
     ])
 
-    // Nome do lead e do responsável só dos registros da página.
+    // Nome do lead e do responsável só dos registros da página. O responsável
+    // exibido é o do LEAD; o da negociação só entra se o lead estiver sem dono
+    // (proposta órfã continua mostrando quem cuida dela).
     const leadIds = Array.from(new Set(rows.map((r) => r.leadId)))
-    const userIds = Array.from(new Set(rows.map((r) => r.responsavelUserId).filter((v): v is number => !!v)))
-    const [leads, users] = await Promise.all([
-      leadIds.length ? prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, email: true, whatsapp: true, funnelId: true, status: true } }) : [],
-      userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
-    ])
+    const leads = leadIds.length
+      ? await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, email: true, whatsapp: true, funnelId: true, status: true, assignedUserId: true } })
+      : []
     const leadById = new Map(leads.map((l) => [l.id, l]))
+    const userIds = Array.from(new Set([
+      ...rows.map((r) => r.responsavelUserId),
+      ...leads.map((l) => l.assignedUserId),
+    ].filter((v): v is number => !!v)))
+    const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     const userById = new Map(users.map((u) => [u.id, u]))
+    const donoDe = (n: { leadId: number; responsavelUserId: number | null }) => {
+      const id = leadById.get(n.leadId)?.assignedUserId ?? n.responsavelUserId
+      return id ? userById.get(id)?.name ?? null : null
+    }
 
     // KPIs do recorte ATUAL (mesmo `where`), menos o filtro de resultado: os
     // cards mostram aberto x ganho x perdido lado a lado, então filtrar por
@@ -254,7 +273,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       negotiations: rows.map((n) => ({
         ...n,
         lead: leadById.get(n.leadId) ?? null,
-        responsavelNome: n.responsavelUserId ? userById.get(n.responsavelUserId)?.name ?? null : null,
+        responsavelNome: donoDe(n),
       })),
       total, page, limit,
       byStatus: agrupado.map((g) => ({
@@ -300,6 +319,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
   app.post('/api/admin/negotiations', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
     if (!b.leadId) return reply.code(400).send({ error: 'leadId é obrigatório' })
+    const leadDono = await prisma.lead.findUnique({ where: { id: Number(b.leadId) }, select: { assignedUserId: true } })
     const items = normItems(b.items)
     const descontoTipo = b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)
     const descontoValor = num(b.descontoValor)
@@ -322,7 +342,10 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         probabilidade: b.probabilidade != null ? Math.max(0, Math.min(100, Math.round(num(b.probabilidade) ?? 0))) : null,
         validadeAte: b.validadeAte ? new Date(b.validadeAte) : null,
         fechamentoPrevisto: b.fechamentoPrevisto ? new Date(b.fechamentoPrevisto) : null,
-        responsavelUserId: b.responsavelUserId ? Number(b.responsavelUserId) : actor.actorId,
+        // O responsável é o dono do LEAD, não quem abriu a proposta: gestor que
+        // monta a proposta pelo vendedor não vira dono do negócio, e os painéis
+        // mostrariam o nome errado em todo lugar.
+        responsavelUserId: b.responsavelUserId ? Number(b.responsavelUserId) : (leadDono?.assignedUserId ?? null),
         observacoes: b.observacoes ? String(b.observacoes).slice(0, 5000) : null,
         items: { create: items },
       },

@@ -114,6 +114,32 @@ prisma.$use(async (params, next) => {
       if (Array.isArray(d)) d.forEach(applyPhoneKey)
       else applyPhoneKey(d)
     }
+
+    // ─── Dono do lead manda no dono da negociação ───
+    // O lead troca de responsável por uma dúzia de caminhos (painel, fila do
+    // atendimento, chatbot, roteamento, workflow, transferência, virada de
+    // turno). Instrumentar cada um deixaria a proposta com o nome antigo em
+    // algum deles — e o painel de Negociações mostraria o vendedor errado.
+    // Aqui é o único ponto por onde todos passam.
+    //
+    // Só negociações EM ABERTO: proposta fechada guarda quem estava com ela no
+    // fechamento (é o registro da venda, não o estado atual da carteira).
+    if ((a === 'update' || a === 'updateMany') && params.args?.data && 'assignedUserId' in params.args.data) {
+      const raw = params.args.data.assignedUserId
+      const novoDono = raw && typeof raw === 'object' && 'set' in raw ? raw.set : raw
+      const whereId = params.args?.where?.id
+      const ids: number[] = typeof whereId === 'number'
+        ? [whereId]
+        : (await prisma.lead.findMany({ where: params.args?.where ?? {}, select: { id: true } })).map((l) => l.id)
+      const result = await next(params)
+      if (ids.length) {
+        await prisma.negotiation.updateMany({
+          where: { leadId: { in: ids }, resultado: null },
+          data: { responsavelUserId: novoDono ?? null },
+        }).catch(() => { /* propagação é best-effort: não derruba a atribuição do lead */ })
+      }
+      return result
+    }
   }
   return next(params)
 })
