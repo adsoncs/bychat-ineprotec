@@ -235,7 +235,13 @@ export function useUploadChatMedia() {
   })
 }
 
-export function inferMediaType(mime: string): string {
+export function inferMediaType(mime: string, fileName?: string): string {
+  // .webp é figurinha e .gif é GIF: os dois são "imagem" pelo MIME, mas o
+  // WhatsApp trata cada um de um jeito (rota própria de sticker, gifPlayback no
+  // vídeo). Classificar como imagem fazia a figurinha chegar como arquivo.
+  const ext = (fileName?.split('.').pop() || '').toLowerCase()
+  if (mime === 'image/webp' || ext === 'webp') return 'sticker'
+  if (mime === 'image/gif' || ext === 'gif') return 'gif'
   if (mime.startsWith('image/')) return 'image'
   if (mime.startsWith('audio/')) return 'audio'
   if (mime.startsWith('video/')) return 'video'

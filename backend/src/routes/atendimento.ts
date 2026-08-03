@@ -493,7 +493,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           let attachment: { type: string; url: string } | undefined
           if (mType !== 'text') {
             if (!mediaUrl) return reply.code(400).send({ error: 'Mídia sem arquivo para enviar.' })
-            const igType = mType === 'image' ? 'image' : mType === 'video' ? 'video' : mType === 'audio' ? 'audio' : 'file'
+            // Instagram não tem tipo próprio para figurinha nem GIF: a figurinha
+            // (.webp) vai como imagem e o GIF (.mp4) como vídeo — que é o mais
+            // próximo do que o destinatário espera ver.
+            const igType = mType === 'image' || mType === 'sticker' ? 'image'
+              : mType === 'video' || mType === 'gif' ? 'video'
+                : mType === 'audio' ? 'audio' : 'file'
             const base = (process.env.APP_URL || '').replace(/\/$/, '')
             attachment = { type: igType, url: /^https?:\/\//.test(mediaUrl) ? mediaUrl : `${base}${mediaUrl}` }
           }

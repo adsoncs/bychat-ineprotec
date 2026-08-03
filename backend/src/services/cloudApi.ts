@@ -100,13 +100,15 @@ export async function sendMediaMessage(
   phoneNumberId: string,
   token: string,
   to: string,
-  mediaType: 'image' | 'video' | 'audio' | 'document',
+  mediaType: 'image' | 'video' | 'audio' | 'document' | 'sticker',
   media: { link?: string; id?: string; caption?: string; filename?: string }
 ): Promise<{ messageId: string | null }> {
   const mediaObj: any = {}
   if (media.link) mediaObj.link = media.link
   if (media.id) mediaObj.id = media.id
-  if (media.caption) mediaObj.caption = media.caption
+  // Figurinha não aceita legenda na Cloud API — mandar `caption` faz a Meta
+  // rejeitar a mensagem inteira.
+  if (media.caption && mediaType !== 'sticker') mediaObj.caption = media.caption
   if (media.filename && mediaType === 'document') mediaObj.filename = media.filename
 
   const result = await cloudApiFetch(`/${phoneNumberId}/messages`, token, 'POST', {

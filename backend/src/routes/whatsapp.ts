@@ -237,7 +237,11 @@ function evoExtFromMime(mime: string, fallback: string): string {
 // Persiste um buffer de mídia já decifrado e devolve a URL pública local.
 async function saveMediaBuffer(buf: Buffer, mime: string, mediaType: string, app: FastifyInstance): Promise<string> {
   try {
-    const fb = mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : mediaType === 'audio' ? 'ogg' : mediaType === 'sticker' ? 'webp' : 'bin'
+    // 'gif' compartilha o container do vídeo: o WhatsApp entrega MP4 sem áudio.
+    const fb = mediaType === 'image' ? 'jpg'
+      : mediaType === 'video' || mediaType === 'gif' ? 'mp4'
+        : mediaType === 'audio' ? 'ogg'
+          : mediaType === 'sticker' ? 'webp' : 'bin'
     const ext = evoExtFromMime(mime, fb)
     await mkdir(EVO_MEDIA_DIR, { recursive: true })
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`
@@ -771,7 +775,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // — que é o termômetro de risco do módulo — e aplica opt-out quando o
       // texto é um pedido de saída ("PARE", "SAIR"). Best-effort: nunca segura
       // o processamento normal da mensagem.
-      if (phone && !isGroupMsg) {
+      // `endsWith('@g.us')` em vez da variável de grupo: nem toda instalação
+      // tem o suporte a grupos, e a checagem pelo JID vale em todas.
+      if (phone && !remoteJid.endsWith('@g.us')) {
         import('../services/smartBroadcast/replies.js')
           .then((m) => m.registerReply(phone, text))
           .catch(() => {})
@@ -788,9 +794,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
         mediaCaption = message.imageMessage.caption || ''
         mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'image', message.imageMessage.mimetype || '', app)
       } else if (message.videoMessage) {
-        mediaType = 'video'
+        // GIF no WhatsApp não é GIF: o app converte para MP4 sem áudio e marca
+        // `gifPlayback`. Sem essa distinção o GIF chega como vídeo comum e a
+        // conversa mostra um player parado, esperando play — que é o oposto de
+        // um GIF. Guardamos o tipo 'gif' para a UI tocar em loop, sem controles.
+        mediaType = message.videoMessage.gifPlayback ? 'gif' : 'video'
         mediaCaption = message.videoMessage.caption || ''
-        mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'video', message.videoMessage.mimetype || '', app)
+        mediaUrl = await saveEvolutionMedia(key, inboundInstance, mediaType, message.videoMessage.mimetype || '', app)
       } else if (message.audioMessage) {
         mediaType = 'audio'
         // Baixa UMA vez: salva o arquivo tocável E transcreve do mesmo buffer.

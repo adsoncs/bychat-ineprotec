@@ -98,12 +98,30 @@ export class EvolutionProvider implements WhatsAppProvider {
   }
 
   async sendMedia(phone: string, mediaUrl: string, mediaType: string, caption?: string, fileName?: string): Promise<WhatsAppSendResult> {
+    // Figurinha tem rota própria na Evolution. Mandá-la por /sendMedia com
+    // mediatype 'sticker' é rejeitado (só image/video/document/audio são
+    // aceitos) e a mensagem chegava como arquivo, não como figurinha.
+    if (mediaType === 'sticker') return this.sendSticker(phone, mediaUrl)
+
+    // GIF é MP4 sem áudio: vai como vídeo, com `gifPlayback` para o WhatsApp
+    // tocar em loop no lugar de exibir um player.
+    const isGif = mediaType === 'gif'
     const result = await this.evoFetch(`/message/sendMedia/${this.instanceName}`, 'POST', {
       number: toEvoNumber(phone),
-      mediatype: mediaType === 'document' ? 'document' : mediaType,
+      mediatype: isGif ? 'video' : mediaType === 'document' ? 'document' : mediaType,
       media: mediaUrl,
       fileName: fileName || undefined,
       caption: caption || undefined,
+      ...(isGif ? { gifPlayback: true } : {}),
+    })
+    return { messageId: result?.key?.id || null, provider: 'evolution' }
+  }
+
+  /** Figurinha (.webp) — rota dedicada da Evolution. */
+  async sendSticker(phone: string, stickerUrl: string): Promise<WhatsAppSendResult> {
+    const result = await this.evoFetch(`/message/sendSticker/${this.instanceName}`, 'POST', {
+      number: toEvoNumber(phone),
+      sticker: stickerUrl,
     })
     return { messageId: result?.key?.id || null, provider: 'evolution' }
   }
@@ -204,7 +222,10 @@ export class CloudApiProvider implements WhatsAppProvider {
   }
 
   async sendMedia(phone: string, mediaUrl: string, mediaType: string, caption?: string, fileName?: string): Promise<WhatsAppSendResult> {
-    const type = (['image', 'video', 'audio', 'document'].includes(mediaType) ? mediaType : 'document') as 'image' | 'video' | 'audio' | 'document'
+    // 'gif' vira vídeo: a Cloud API não tem tipo próprio para GIF e o arquivo
+    // já é um MP4. 'sticker' tem tipo próprio e vai direto.
+    const normalized = mediaType === 'gif' ? 'video' : mediaType
+    const type = (['image', 'video', 'audio', 'document', 'sticker'].includes(normalized) ? normalized : 'document') as 'image' | 'video' | 'audio' | 'document' | 'sticker'
     const result = await sendMediaMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), type, {
       link: mediaUrl,
       caption,

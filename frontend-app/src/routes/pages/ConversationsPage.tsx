@@ -1031,7 +1031,7 @@ function ChatPanel({
       const file = pendingFile
       upload.mutate(file, {
         onSuccess: (resp) => sendText({
-          mediaType: inferMediaType(resp.mimetype || file.type || ''),
+          mediaType: inferMediaType(resp.mimetype || file.type || '', resp.filename || file.name),
           mediaUrl: resp.url,
           mediaName: resp.filename,
         }),
@@ -1783,6 +1783,40 @@ function MediaContent({
       <a href={url} target="_blank" rel="noreferrer" class="mb-1 block">
         <img src={url} alt={name ?? 'Imagem'} class="max-w-full rounded" />
       </a>
+    )
+  }
+  // Figurinha: é imagem (.webp), mas não se comporta como foto — no WhatsApp
+  // aparece pequena e sem moldura. Sem este caso ela caía no anexo genérico e o
+  // operador via um link "Anexo" no lugar do desenho.
+  if (type === 'sticker') {
+    return (
+      <img
+        src={url}
+        alt={name ?? 'Figurinha'}
+        loading="lazy"
+        class="mb-1 block h-32 w-32 object-contain"
+      />
+    )
+  }
+  // GIF: o WhatsApp entrega MP4 sem áudio. Renderizar com <video controls>
+  // mostraria um player parado — um GIF tem que rodar sozinho, em loop e mudo.
+  if (type === 'gif') {
+    return (
+      <div class="relative mb-1 w-fit">
+        <video
+          src={url}
+          autoPlay
+          loop
+          muted
+          playsInline
+          preload="metadata"
+          class="max-w-full rounded"
+          style={{ maxHeight: '18rem' }}
+        />
+        <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.625rem] font-semibold text-white">
+          GIF
+        </span>
+      </div>
     )
   }
   if (type === 'audio') {
