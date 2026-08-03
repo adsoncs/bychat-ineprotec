@@ -2,9 +2,26 @@ import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 
 // ── CONFIG ──────────────────────────────────────
-const LOGIN_FAIL_LIMIT = 5       // falhas para bloquear
-const LOGIN_FAIL_WINDOW = 10     // minutos
-const LOGIN_BLOCK_DURATION = 1440  // minutos de bloqueio automático (24h — era 30min)
+// Bloqueio de IP por falha de login.
+//
+// O contador NÃO é por IP puro. Escola, escritório e clínica saem todos por um
+// único IP (NAT): contando por IP, uma pessoa que esqueceu a senha derruba os
+// colegas por 24h — foi o que aconteceu no Colégio Severiano em 03/08/2026,
+// quando 5 erros da mesma usuária tiraram o prédio inteiro do ar.
+//
+// O que distingue "alguém esqueceu a senha" de "alguém está atacando" não é o
+// número de falhas, é a VARIEDADE: um invasor varre vários e-mails, um usuário
+// legítimo erra sempre o mesmo. Por isso o IP só é bloqueado quando há muitos
+// e-mails distintos falhando, ou um volume de falhas alto demais para ser gente.
+//
+// Quem erra a própria senha continua protegido pelo que já existia e é mais
+// preciso: rate limit por e-mail (checkEmailRateLimit) e auto-lock da conta em
+// 10 tentativas (routes/users.ts) — ambos atingem a CONTA, não a rede.
+const LOGIN_FAIL_WINDOW = 10        // minutos (janela de observação)
+const LOGIN_FAIL_LIMIT = 5          // falhas do MESMO e-mail no MESMO IP → só registra alerta
+const LOGIN_DISTINCT_EMAILS = 4     // e-mails distintos falhando no mesmo IP → enumeração
+const LOGIN_TOTAL_FAIL_LIMIT = 25   // falhas totais no mesmo IP → volume não-humano
+const LOGIN_BLOCK_DURATION = 1440   // minutos de bloqueio automático (24h)
 
 const RATE_LIMIT_WINDOW = 60     // segundos (TTL do Redis)
 const RATE_LIMIT_API = 500       // requests/min para APIs gerais
@@ -223,26 +240,62 @@ export async function onLoginFail(ip: string, email?: string, userAgent?: string
     details: `Tentativa de login falhada para ${email || 'email não informado'}`
   })
 
-  const key = `${LOGIN_FAIL_KEY}${ip}`
-  const count = await redis.incr(key)
-  if (count === 1) {
-    await redis.expire(key, LOGIN_FAIL_WINDOW * 60)
-  }
+  const who = (email || 'sem-email').toLowerCase().trim()
+  const ttl = LOGIN_FAIL_WINDOW * 60
 
-  if (count >= LOGIN_FAIL_LIMIT) {
+  // Três contadores na janela: falhas deste par (ip,email), total de falhas do
+  // IP e quantos e-mails distintos falharam nele.
+  const pairKey = `${LOGIN_FAIL_KEY}${ip}:${who}`
+  const totalKey = `${LOGIN_FAIL_KEY}total:${ip}`
+  const emailsKey = `${LOGIN_FAIL_KEY}emails:${ip}`
+
+  const pairCount = await redis.incr(pairKey)
+  if (pairCount === 1) await redis.expire(pairKey, ttl)
+
+  const totalCount = await redis.incr(totalKey)
+  if (totalCount === 1) await redis.expire(totalKey, ttl)
+
+  await redis.sadd(emailsKey, who)
+  await redis.expire(emailsKey, ttl)
+  const distinctEmails = await redis.scard(emailsKey)
+
+  // ── Ataque: vários e-mails diferentes ou volume alto no mesmo IP ──
+  const isEnumeration = distinctEmails >= LOGIN_DISTINCT_EMAILS
+  const isFlood = totalCount >= LOGIN_TOTAL_FAIL_LIMIT
+  if (isEnumeration || isFlood) {
+    const motivo = isEnumeration
+      ? `${distinctEmails} e-mails diferentes tentados`
+      : `${totalCount} falhas no mesmo IP`
     await blockIp(ip, 'brute_force', LOGIN_BLOCK_DURATION,
-      `Bloqueio automático: ${count} tentativas de login falhadas em ${LOGIN_FAIL_WINDOW}min`)
+      `Bloqueio automático: ${motivo} em ${LOGIN_FAIL_WINDOW}min`)
     await logSecurityEvent({
       ip, type: 'brute_force', severity: 'critical',
       email, userAgent, path: '/api/admin/login',
-      details: `IP bloqueado automaticamente por ${LOGIN_BLOCK_DURATION}min após ${count} falhas`
+      details: `IP bloqueado por ${LOGIN_BLOCK_DURATION}min — ${motivo}`
     })
-    await redis.del(key)
+    await redis.del(pairKey, totalKey, emailsKey)
+    return
+  }
+
+  // ── Mesma conta errando muito: registra, mas NÃO bloqueia o IP ──
+  // A conta já é protegida por rate limit de e-mail e auto-lock em 10 tentativas.
+  // Bloquear o IP aqui puniria toda a rede pelo esquecimento de uma pessoa.
+  if (pairCount === LOGIN_FAIL_LIMIT) {
+    await logSecurityEvent({
+      ip, type: 'login_fail_repeated', severity: 'medium',
+      email, userAgent, path: '/api/admin/login',
+      details: `${pairCount} falhas seguidas de ${who} neste IP — provável senha esquecida (IP não bloqueado)`
+    })
   }
 }
 
 export async function onLoginSuccess(ip: string, email: string, userAgent?: string) {
-  await redis.del(`${LOGIN_FAIL_KEY}${ip}`)
+  const who = (email || '').toLowerCase().trim()
+  // Zera o contador DESTE usuário e o remove do conjunto de e-mails que
+  // falharam. O total do IP não é zerado: quem acertou a própria senha não
+  // deve limpar o rastro de um ataque que esteja em curso na mesma rede.
+  await redis.del(`${LOGIN_FAIL_KEY}${ip}:${who}`)
+  await redis.srem(`${LOGIN_FAIL_KEY}emails:${ip}`, who)
   await logSecurityEvent({
     ip, type: 'login_success', severity: 'low',
     email, userAgent, path: '/api/admin/login',

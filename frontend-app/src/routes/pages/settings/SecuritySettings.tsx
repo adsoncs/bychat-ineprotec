@@ -34,6 +34,9 @@ const SEV_LABEL: Record<string, string> = {
 }
 const TYPE_LABEL: Record<string, string> = {
   login_fail: 'Login Falhado',
+  login_fail_repeated: 'Senha esquecida?',
+  login_email_rate_limited: 'Limite por e-mail',
+  user_auto_locked: 'Conta travada',
   login_success: 'Login OK',
   brute_force: 'Força Bruta',
   rate_limit: 'Rate Limit',
