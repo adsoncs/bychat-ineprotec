@@ -29,8 +29,8 @@ const money = (v: unknown) => { const n = typeof v === 'number' ? v : parseFloat
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : 0 }
 
 // `cobranca` decide de que lado da conta a linha cai: mensalidade entra no MRR,
-// pagamento único entra no valor de implantação/projeto. `parcelas` só vale para
-// o único (implantação em 6x) e `recorrenciaMeses` só para o recorrente.
+// pagamento único entra no valor cobrado de uma vez. `parcelas` só vale para o
+// único (um valor alto dividido em 6x) e `recorrenciaMeses` só para o recorrente.
 /** "R$ 8.000,00 + R$ 890,00/mês" quando há mensalidade; só o total quando não há.
  * Um contrato de recorrência exibido como número único parece venda avulsa. */
 function negValueLabel(n: { valorFinal?: unknown; valorUnico?: unknown; valorRecorrente?: unknown } | null | undefined): string {
@@ -202,7 +202,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
   )
 }
 
-/** Como o item é cobrado: uma vez (implantação, site) ou todo mês (mensalidade).
+/** Como o item é cobrado: uma vez só ou todo mês (mensalidade).
  * Fica na própria linha do item porque é decisão por item, não por proposta —
  * a mesma proposta costuma ter os dois. */
 function BillingToggle({ value, disabled, onChange }: { value: 'unico' | 'recorrente'; disabled?: boolean; onChange: (v: 'unico' | 'recorrente') => void }) {
@@ -318,12 +318,12 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   // ── Conta explícita, em duas colunas: pagamento único e mensalidade ──
   // O desconto geral é rateado na proporção do subtotal de cada lado; os
   // acréscimos (frete/taxas) caem inteiros no único — taxa pontual não é receita
-  // recorrente. Sem isso, um desconto na implantação derrubaria o MRR do card.
+  // recorrente. Sem isso, um desconto no valor avulso derrubaria o MRR do card.
   const subUnico = f.rows.reduce((s, r) => s + (isRec(r) ? 0 : rowSubtotal(r)), 0)
   const subRecorrente = f.rows.reduce((s, r) => s + (isRec(r) ? rowSubtotal(r) : 0), 0)
   const subtotal = subUnico + subRecorrente
-  // Cada bloco tem o seu desconto: ceder na implantação e ceder na mensalidade
-  // são concessões diferentes e de valores diferentes.
+  // Cada bloco tem o seu desconto: ceder no valor cobrado uma vez e ceder na
+  // mensalidade são concessões diferentes e de valores diferentes.
   const descUnico = f.descontoValor ? (f.descontoTipo === 'percent' ? subUnico * (num(f.descontoValor) / 100) : num(f.descontoValor)) : 0
   const descRecorrente = f.descontoRecValor ? (f.descontoRecTipo === 'percent' ? subRecorrente * (num(f.descontoRecValor) / 100) : num(f.descontoRecValor)) : 0
   const desconto = descUnico + descRecorrente
@@ -345,7 +345,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   const saldo = Math.max(0, totalUnico - entrada)
   const nParcelas = Math.max(0, Math.round(num(f.parcelas)))
   const valorParcela = nParcelas > 0 ? saldo / nParcelas : 0
-  // Itens únicos com parcelamento próprio (implantação em 6x, site à vista).
+  // Itens únicos com parcelamento próprio (um em 6x, outro à vista).
   const parceladosPorItem = f.rows.filter((r) => !isRec(r) && r.parcelas > 1 && rowSubtotal(r) > 0)
   // Contrato: mensalidade × prazo declarado, quando o operador informa o prazo.
   const mesesContrato = f.rows.reduce((m, r) => isRec(r) && r.recorrenciaMeses > m ? r.recorrenciaMeses : m, 0)
@@ -527,8 +527,8 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
         <Card class="lg:col-span-2">
           <div class="text-sm font-semibold text-fg mb-1">Valores e pagamento</div>
           <p class="text-[11px] text-fg-subtle mb-3">
-            Desconto e condições são <strong>de cada bloco</strong>: dá para ceder na implantação sem mexer no valor
-            que se repete todo mês — e o contrário também.
+            Desconto e condições são <strong>de cada bloco</strong>: dá para ceder no que é cobrado uma vez só
+            sem mexer no valor que se repete todo mês — e o contrário também.
           </p>
 
           {/* ── Pagamento único ── */}

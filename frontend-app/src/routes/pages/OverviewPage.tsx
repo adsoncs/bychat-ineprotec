@@ -61,7 +61,7 @@ const CHART_LOSS_REASONS = W({ metric: 'leads_loss_reasons', type: 'donut', titl
 
 // KPIs do módulo Negociação — só aparecem com o módulo ativo.
 // Recorrência e pagamento único em linhas separadas: somados, um mês com uma
-// venda grande de implantação vira "crescimento" que não se repete no mês
+// venda avulsa grande vira "crescimento" que não se repete no mês
 // seguinte, e a queda seguinte parece perda de clientes.
 // "Em negociação" é estoque (agora); os demais seguem o período.
 const NEGOTIATION_MRR_KPIS: Widget[] = [
@@ -228,7 +228,7 @@ export function OverviewPage() {
             <div>
               <h2 class="text-sm font-semibold text-fg">Negociações</h2>
               <p class="text-[11px] text-fg-subtle">
-                Mensalidade e pagamento único separados — venda de implantação não vira "crescimento de recorrência".
+                Mensalidade e pagamento único separados — venda avulsa não vira "crescimento de recorrência".
                 "Em negociação" é o valor na mesa agora; os demais seguem o período selecionado.
                 {negFunnelName ? <> Exibindo apenas <strong class="text-fg-muted">{negFunnelName}</strong>.</> : null}
               </p>
@@ -374,7 +374,7 @@ export function OverviewPage() {
           },
           {
             title: '🤝 Bloco Negociações',
-            body: <>Com o módulo Negociação ativo, os valores vêm em duas linhas: <strong>recorrência</strong> (mensalidades, o MRR) e <strong>pagamento único</strong> (implantação, site, projeto). Cada item da proposta é marcado como mensalidade ou pagamento único, e o desconto geral é rateado entre os dois — assim uma venda avulsa grande não vira "crescimento de recorrência" no mês seguinte.</>,
+            body: <>Com o módulo Negociação ativo, os valores vêm em duas linhas: <strong>recorrência</strong> (mensalidades, o MRR) e <strong>pagamento único</strong> (o que o cliente paga uma vez só). Cada item da proposta é marcado como mensalidade ou pagamento único, e cada bloco tem o seu desconto — assim uma venda avulsa grande não vira "crescimento de recorrência" no mês seguinte.</>,
           },
           {
             title: '⚠️ Bloco "Atenção"',

@@ -26,7 +26,7 @@ function previousRange(cfg: any): { gte: Date; lte: Date } | null {
  * Coluna de valor somada nos KPIs de negociação:
  *   valorFinal      = tudo (1º ciclo: pagamento único + 1 × mensalidade)
  *   valorRecorrente = só mensalidade (MRR)
- *   valorUnico      = só implantação/projeto/setup
+ *   valorUnico      = só o que é cobrado uma vez
  * Separar os três é o que impede um pico de venda avulsa de parecer aumento de
  * recorrência — e vice-versa.
  */

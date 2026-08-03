@@ -13,7 +13,7 @@ const COLS = ['categoria', 'nome', 'marca', 'preco', 'cobranca', 'estoque', 'dis
 
 /**
  * Tipo de cobrança padrão do item: `recorrente` (mensalidade, entra no MRR) ou
- * `unico` (implantação, site, projeto). Aceita as palavras que o operador
+ * `unico` (cobrado uma vez só). Aceita as palavras que o operador
  * escreve na planilha — "mensal", "mensalidade", "assinatura", "recorrente".
  */
 function parseCobranca(v: unknown): 'unico' | 'recorrente' {

@@ -72,8 +72,8 @@ function normItems(raw: any[]): NormItem[] {
 /**
  * Totais da negociação, separando mensalidade de pagamento único.
  *
- * Cada bloco tem o SEU desconto: ceder na implantação e ceder na mensalidade são
- * concessões diferentes, de valores diferentes — antes um desconto só era
+ * Cada bloco tem o SEU desconto: ceder no valor cobrado uma vez e ceder na
+ * mensalidade são concessões diferentes, de valores diferentes — antes um só era
  * rateado entre os dois e não dava para dizer onde ele realmente caiu. Os
  * acréscimos (frete, taxas) pertencem ao único: taxa pontual não é recorrente.
  *

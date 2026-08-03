@@ -3,7 +3,7 @@
 // Duas visões do MESMO recorte de filtros: tabela (analisar, comparar, exportar)
 // e pipeline por status (operar — arrastar a proposta de Enviada para Em
 // negociação). Os KPIs no topo separam recorrência de pagamento único, pela
-// mesma razão da Visão Geral: venda de implantação não é crescimento de MRR.
+// mesma razão da Visão Geral: venda avulsa não é crescimento de MRR.
 //
 // A proposta abre num modal com o editor da aba do lead (`NegotiationEditor`) —
 // é a mesma proposta, mudou só de onde se chega nela.
@@ -484,7 +484,7 @@ export function NegotiationsPage() {
         steps={[
           {
             title: '💵 Recorrência x pagamento único',
-            body: <>Cada item da proposta é marcado como <strong>mensalidade</strong> ou <strong>pagamento único</strong>. Os KPIs nunca somam os dois: uma implantação grande é caixa do mês, não crescimento de receita recorrente.</>,
+            body: <>Cada item da proposta é marcado como <strong>mensalidade</strong> ou <strong>pagamento único</strong>. Os KPIs nunca somam os dois: uma venda avulsa grande é caixa do mês, não crescimento de receita recorrente.</>,
           },
           {
             title: '📋 Tabela',

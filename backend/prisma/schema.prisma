@@ -3837,7 +3837,7 @@ model Negotiation {
   // dois na proporção do subtotal de cada; acréscimos (frete/taxas) caem
   // inteiros no único, que é onde uma taxa pontual pertence.
   valorRecorrente Decimal? @db.Decimal(12, 2) // MRR: mensalidades já com desconto rateado
-  valorUnico      Decimal? @db.Decimal(12, 2) // implantação/setup/projeto + acréscimos
+  valorUnico      Decimal? @db.Decimal(12, 2) // cobrado uma vez só + acréscimos
   moeda         String   @default("BRL") @db.VarChar(3)
 
   pagamentoForma    String?  @db.VarChar(20) // pix | cartao | boleto | dinheiro
@@ -3845,7 +3845,7 @@ model Negotiation {
   entrada           Decimal? @db.Decimal(12, 2)
   condicaoPagamento String?  @db.Text
 
-  // Condições da MENSALIDADE, separadas das do único: desconto na implantação e
+  // Condições da MENSALIDADE, separadas das do único: desconto no valor avulso e
   // desconto na mensalidade são negociações diferentes e valem valores
   // diferentes — antes um desconto só era rateado entre os dois.
   descontoRecTipo   String?  @db.VarChar(10) // valor | percent
@@ -3886,7 +3886,7 @@ model NegotiationItem {
   descontoItem  Decimal? @db.Decimal(12, 2)
   subtotal      Decimal  @db.Decimal(12, 2)
 
-  // unico = cobrança de uma vez (implantação, site, landing page);
+  // unico = cobrança de uma vez só (setup, projeto, taxa de adesão…);
   // recorrente = mensalidade (entra no MRR). Default `unico` porque inflar o
   // MRR com item mal classificado é o erro mais caro dos dois.
   cobranca String @default("unico") @db.VarChar(12)
