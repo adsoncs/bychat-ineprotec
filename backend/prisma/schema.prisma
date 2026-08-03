@@ -3845,6 +3845,14 @@ model Negotiation {
   entrada           Decimal? @db.Decimal(12, 2)
   condicaoPagamento String?  @db.Text
 
+  // Condições da MENSALIDADE, separadas das do único: desconto na implantação e
+  // desconto na mensalidade são negociações diferentes e valem valores
+  // diferentes — antes um desconto só era rateado entre os dois.
+  descontoRecTipo   String?  @db.VarChar(10) // valor | percent
+  descontoRecValor  Decimal? @db.Decimal(12, 2)
+  pagamentoFormaRec String?  @db.VarChar(20) // pix | boleto | cartao_recorrente | debito_automatico
+  vencimentoDiaRec  Int? // dia do mês do vencimento (1-31)
+
   probabilidade      Int? // 0-100
   validadeAte        DateTime? // proposta expira
   fechamentoPrevisto DateTime?

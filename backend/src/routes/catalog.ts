@@ -6,7 +6,7 @@
 import { FastifyInstance } from 'fastify'
 import { read, utils, write } from 'xlsx'
 import { prisma } from '../lib/prisma.js'
-import { adminOnly } from '../lib/auth.js'
+import { adminOnly, authMiddleware } from '../lib/auth.js'
 
 // Colunas do modelo de importação (na ordem do XLSX).
 const COLS = ['categoria', 'nome', 'marca', 'preco', 'cobranca', 'estoque', 'disponivel', 'sku', 'descricao'] as const
@@ -48,7 +48,11 @@ function str(v: unknown, max: number): string | null {
 
 export async function catalogRoutes(app: FastifyInstance) {
   // ── Listagem (com busca/categoria) ──
-  app.get('/api/admin/catalog', { preHandler: adminOnly }, async (req) => {
+  // Leitura com `authMiddleware`, não `adminOnly`: quem monta a proposta escolhe
+  // os itens no catálogo, e vendedor (AGENT) não é administrador — com o gate
+  // antigo o seletor de itens vinha vazio para ele, sem dizer por quê.
+  // A escrita (criar/editar/importar) segue restrita a administradores.
+  app.get('/api/admin/catalog', { preHandler: authMiddleware }, async (req) => {
     const q = String((req.query as any)?.q || '').trim()
     const cat = String((req.query as any)?.categoria || '').trim()
     const where: any = { active: true }
@@ -59,7 +63,7 @@ export async function catalogRoutes(app: FastifyInstance) {
   })
 
   // ── Categorias distintas + contagem ──
-  app.get('/api/admin/catalog/categories', { preHandler: adminOnly }, async () => {
+  app.get('/api/admin/catalog/categories', { preHandler: authMiddleware }, async () => {
     const rows = await prisma.product.groupBy({ by: ['categoria'], where: { active: true }, _count: { _all: true } })
     return { categories: rows.map(r => ({ categoria: r.categoria, count: r._count._all })).sort((a, b) => a.categoria.localeCompare(b.categoria)) }
   })

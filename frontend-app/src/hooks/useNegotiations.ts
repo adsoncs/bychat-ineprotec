@@ -44,6 +44,11 @@ export interface Negotiation {
   parcelas: number | null
   entrada: number | string | null
   condicaoPagamento: string | null
+  /** Condições da mensalidade — separadas das do pagamento único. */
+  descontoRecTipo: 'valor' | 'percent' | null
+  descontoRecValor: number | string | null
+  pagamentoFormaRec: string | null
+  vencimentoDiaRec: number | null
   probabilidade: number | null
   validadeAte: string | null
   fechamentoPrevisto: string | null
@@ -151,14 +156,40 @@ export function useDeleteNegotiationAttachment(leadId: number) {
   })
 }
 
-// Busca no catálogo para adicionar itens (best-effort: 403 se módulo catálogo off → vazio).
-export interface CatalogHit { id: number; nome: string; categoria: string; preco: number | string | null; cobranca?: 'unico' | 'recorrente' }
+// Catálogo como fonte de itens da proposta (best-effort: módulo desligado → vazio).
+export interface CatalogHit {
+  id: number; nome: string; categoria: string; preco: number | string | null
+  cobranca?: 'unico' | 'recorrente'; descricao?: string | null; sku?: string | null; disponivel?: boolean
+}
+
+/** Busca por texto — usada no campo de digitação rápida. */
 export function useCatalogPick(q: string) {
   return useQuery({
     queryKey: ['catalog-pick', q],
     queryFn: () => api.get<{ products: CatalogHit[] }>(`/admin/catalog?q=${encodeURIComponent(q)}`).catch(() => ({ products: [] as CatalogHit[] })),
     enabled: q.trim().length >= 2,
     staleTime: 15_000,
+  })
+}
+
+/** Catálogo inteiro (opcionalmente por categoria), para o seletor de itens
+ * mostrar o que existe sem obrigar o operador a adivinhar o nome. */
+export function useCatalogBrowse(categoria: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['catalog-browse', categoria],
+    queryFn: () => api.get<{ products: CatalogHit[] }>(`/admin/catalog?categoria=${encodeURIComponent(categoria)}`).catch(() => ({ products: [] as CatalogHit[] })),
+    enabled,
+    staleTime: 30_000,
+  })
+}
+
+export function useCatalogPickCategories(enabled: boolean) {
+  return useQuery({
+    queryKey: ['catalog-pick-categories'],
+    queryFn: () => api.get<{ categories: { categoria: string; count: number }[] }>('/admin/catalog/categories')
+      .catch(() => ({ categories: [] as { categoria: string; count: number }[] })),
+    enabled,
+    staleTime: 60_000,
   })
 }
 

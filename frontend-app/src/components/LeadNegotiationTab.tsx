@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
-import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, RotateCcw } from 'lucide-preact'
+import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, RotateCcw, Boxes, Link2Off, PencilLine } from 'lucide-preact'
 import {
   useNegotiations, useNegotiation, useSaveNegotiation, useDeleteNegotiation,
   useCloseNegotiation, useReopenNegotiation, useUploadNegotiationAttachment, useDeleteNegotiationAttachment,
-  useCatalogPick, useNegotiationSuggestion, type Negotiation, type NegItem,
+  useCatalogPick, useCatalogBrowse, useCatalogPickCategories, useNegotiationSuggestion,
+  type Negotiation, type NegItem, type CatalogHit,
 } from '@/hooks/useNegotiations'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
 import { Card } from '@/components/ui/Card'
@@ -12,6 +13,7 @@ import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
 
 type Tone = 'info' | 'success' | 'danger' | 'warning' | 'neutral'
@@ -41,6 +43,10 @@ function negValueLabel(n: { valorFinal?: unknown; valorUnico?: unknown; valorRec
 interface Row {
   productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number
   cobranca: 'unico' | 'recorrente'; parcelas: number; recorrenciaMeses: number
+  /** Preço de tabela do produto (só no item vindo do catálogo) — serve para
+   * mostrar de quanto foi a concessão quando o negociado é outro. Não vai ao
+   * backend; é contexto de tela. */
+  precoTabela?: number | null
 }
 const NEW_ROW: Row = { productId: null, nome: '', quantidade: 1, precoUnit: 0, descontoItem: 0, cobranca: 'unico', parcelas: 0, recorrenciaMeses: 0 }
 const isRec = (r: Row) => r.cobranca === 'recorrente'
@@ -49,17 +55,36 @@ const rowSubtotal = (r: Row) => Math.max(0, r.precoUnit * r.quantidade - (r.desc
 // Estado do formulário num objeto só: qualquer patch marca "alterações não salvas".
 interface Form {
   titulo: string; status: string; rows: Row[]
+  // Bloco do pagamento único
   descontoTipo: 'valor' | 'percent'; descontoValor: string; acrescimos: string
-  pagamentoForma: string; parcelas: string; entrada: string; condicao: string
-  probabilidade: string; validadeAte: string; obs: string
+  pagamentoForma: string; parcelas: string; entrada: string
+  // Bloco da mensalidade
+  descontoRecTipo: 'valor' | 'percent'; descontoRecValor: string
+  pagamentoFormaRec: string; vencimentoDiaRec: string
+  // Geral
+  condicao: string; probabilidade: string; validadeAte: string; obs: string
 }
 const EMPTY_FORM: Form = {
   titulo: 'Proposta', status: 'rascunho', rows: [],
   descontoTipo: 'valor', descontoValor: '', acrescimos: '',
-  pagamentoForma: '', parcelas: '', entrada: '', condicao: '',
-  probabilidade: '', validadeAte: '', obs: '',
+  pagamentoForma: '', parcelas: '', entrada: '',
+  descontoRecTipo: 'valor', descontoRecValor: '',
+  pagamentoFormaRec: '', vencimentoDiaRec: '',
+  condicao: '', probabilidade: '', validadeAte: '', obs: '',
 }
 
+function rowFromProduct(p: CatalogHit): Row {
+  return {
+    ...NEW_ROW,
+    productId: p.id,
+    nome: p.nome,
+    precoUnit: num(p.preco),
+    cobranca: p.cobranca === 'recorrente' ? 'recorrente' : 'unico',
+    precoTabela: p.preco != null ? num(p.preco) : null,
+  }
+}
+
+/** Busca rápida por texto, para quem já sabe o nome do item. */
 function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
   const [q, setQ] = useState('')
   const { data } = useCatalogPick(q)
@@ -73,7 +98,7 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
         <div class="absolute z-10 mt-1 w-full max-h-48 overflow-auto rounded-md border border-border bg-surface shadow-lg">
           {data.products.map((p) => (
             <button key={p.id} type="button" class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex justify-between gap-2"
-              onClick={() => { onPick({ ...NEW_ROW, productId: p.id, nome: p.nome, precoUnit: num(p.preco), cobranca: p.cobranca === 'recorrente' ? 'recorrente' : 'unico' }); setQ('') }}>
+              onClick={() => { onPick(rowFromProduct(p)); setQ('') }}>
               <span class="truncate">{p.nome} <span class="text-fg-subtle">· {p.categoria}</span></span>
               <span class="text-fg-muted shrink-0">{money(p.preco)}{p.cobranca === 'recorrente' ? '/mês' : ''}</span>
             </button>
@@ -81,6 +106,99 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** Seletor do catálogo: mostra o que existe, por categoria, e deixa marcar
+ * vários de uma vez. Sem ele, o operador precisava adivinhar o nome do produto
+ * para a busca por texto devolver alguma coisa. */
+function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (rows: Row[]) => void }) {
+  const [q, setQ] = useState('')
+  const [cat, setCat] = useState('')
+  const [sel, setSel] = useState<Map<number, number>>(new Map())
+  const cats = useCatalogPickCategories(open)
+  const browse = useCatalogBrowse(cat, open)
+
+  useEffect(() => { if (!open) { setSel(new Map()); setQ(''); setCat('') } }, [open])
+
+  const produtos = (browse.data?.products ?? []).filter((p) => {
+    const t = q.trim().toLowerCase()
+    if (!t) return true
+    return `${p.nome} ${p.categoria} ${p.sku ?? ''}`.toLowerCase().includes(t)
+  })
+  function toggle(p: CatalogHit) {
+    setSel((cur) => {
+      const next = new Map(cur)
+      if (next.has(p.id)) next.delete(p.id); else next.set(p.id, 1)
+      return next
+    })
+  }
+  function confirmar() {
+    const byId = new Map((browse.data?.products ?? []).map((p) => [p.id, p]))
+    const rows: Row[] = []
+    for (const [id, qtd] of sel) {
+      const p = byId.get(id)
+      if (p) rows.push({ ...rowFromProduct(p), quantidade: Math.max(1, qtd) })
+    }
+    if (rows.length) onAdd(rows)
+    onClose()
+  }
+
+  return (
+    <Modal open={open} onOpenChange={(o) => { if (!o) onClose() }} title="Adicionar itens do catálogo" size="lg">
+      <div class="space-y-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="relative flex-1 min-w-48">
+            <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+            <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Filtrar por nome, categoria ou SKU…"
+              class="w-full pl-8 pr-2 py-1.5 rounded-md bg-surface border border-border text-sm text-fg" />
+          </div>
+          <Select value={cat} onChange={(e) => setCat((e.target as HTMLSelectElement).value)} class="w-48">
+            <option value="">Todas as categorias</option>
+            {(cats.data?.categories ?? []).map((c) => <option key={c.categoria} value={c.categoria}>{c.categoria} ({c.count})</option>)}
+          </Select>
+        </div>
+
+        {browse.isLoading ? (
+          <div class="space-y-2"><Skeleton class="h-10 w-full" /><Skeleton class="h-10 w-full" /></div>
+        ) : produtos.length === 0 ? (
+          <EmptyState icon={Boxes} title="Nada no catálogo"
+            description={cat || q ? 'Nenhum item com esse filtro. Limpe a busca ou escolha outra categoria.' : 'Cadastre produtos em CRM › Catálogo para reaproveitá-los nas propostas — ou adicione o item digitando à mão.'} />
+        ) : (
+          <div class="max-h-80 overflow-y-auto rounded-md border border-border divide-y divide-border">
+            {produtos.map((p) => {
+              const marcado = sel.has(p.id)
+              return (
+                <label key={p.id} class={`flex items-center gap-3 px-3 py-2 cursor-pointer ${marcado ? 'bg-accent/5' : 'hover:bg-surface-2'}`}>
+                  <input type="checkbox" class="h-4 w-4 shrink-0" checked={marcado} onChange={() => toggle(p)} />
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm text-fg truncate">
+                      {p.nome}
+                      {p.cobranca === 'recorrente' ? <Badge tone="info" class="ml-2">Mensalidade</Badge> : null}
+                      {p.disponivel === false ? <Badge tone="danger" class="ml-2">Esgotado</Badge> : null}
+                    </span>
+                    <span class="block text-[11px] text-fg-subtle truncate">{p.categoria}{p.sku ? ` · ${p.sku}` : ''}</span>
+                  </span>
+                  {marcado ? (
+                    <input type="number" min={1} value={String(sel.get(p.id) ?? 1)} onClick={(e) => e.preventDefault()}
+                      onInput={(e) => { const v = Math.max(1, parseInt((e.target as HTMLInputElement).value, 10) || 1); setSel((c) => new Map(c).set(p.id, v)) }}
+                      class="w-14 px-1.5 py-1 rounded bg-surface border border-border text-xs text-center" title="Quantidade" />
+                  ) : null}
+                  <span class="text-sm text-fg-muted shrink-0 tabular-nums">{money(p.preco)}{p.cobranca === 'recorrente' ? '/mês' : ''}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" size="sm" onClick={confirmar} disabled={sel.size === 0}>
+            Adicionar {sel.size > 0 ? `${sel.size} ${sel.size === 1 ? 'item' : 'itens'}` : 'itens'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -141,6 +259,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   // lead já trouxe do CRM antigo. Só preenche enquanto o operador não digitou nada.
   const { data: sugData } = useNegotiationSuggestion(isNew ? leadId : null)
   const [prefilled, setPrefilled] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   function patch(p: Partial<Form>) { setF((cur) => ({ ...cur, ...p })); setDirty(true) }
 
@@ -181,6 +300,10 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
       pagamentoForma: n.pagamentoForma || '',
       parcelas: n.parcelas != null ? String(n.parcelas) : '',
       entrada: n.entrada != null ? String(n.entrada) : '',
+      descontoRecTipo: (n.descontoRecTipo as any) || 'valor',
+      descontoRecValor: n.descontoRecValor != null ? String(n.descontoRecValor) : '',
+      pagamentoFormaRec: n.pagamentoFormaRec || '',
+      vencimentoDiaRec: n.vencimentoDiaRec != null ? String(n.vencimentoDiaRec) : '',
       condicao: n.condicaoPagamento || '',
       probabilidade: n.probabilidade != null ? String(n.probabilidade) : '',
       validadeAte: n.validadeAte ? n.validadeAte.slice(0, 10) : '',
@@ -199,9 +322,11 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   const subUnico = f.rows.reduce((s, r) => s + (isRec(r) ? 0 : rowSubtotal(r)), 0)
   const subRecorrente = f.rows.reduce((s, r) => s + (isRec(r) ? rowSubtotal(r) : 0), 0)
   const subtotal = subUnico + subRecorrente
-  const desconto = f.descontoValor ? (f.descontoTipo === 'percent' ? subtotal * (num(f.descontoValor) / 100) : num(f.descontoValor)) : 0
-  const descUnico = subtotal > 0 ? desconto * (subUnico / subtotal) : desconto
-  const descRecorrente = desconto - descUnico
+  // Cada bloco tem o seu desconto: ceder na implantação e ceder na mensalidade
+  // são concessões diferentes e de valores diferentes.
+  const descUnico = f.descontoValor ? (f.descontoTipo === 'percent' ? subUnico * (num(f.descontoValor) / 100) : num(f.descontoValor)) : 0
+  const descRecorrente = f.descontoRecValor ? (f.descontoRecTipo === 'percent' ? subRecorrente * (num(f.descontoRecValor) / 100) : num(f.descontoRecValor)) : 0
+  const desconto = descUnico + descRecorrente
   const acrescimos = num(f.acrescimos)
   const totalUnico = Math.max(0, subUnico - descUnico + acrescimos)
   const mrr = Math.max(0, subRecorrente - descRecorrente)
@@ -209,8 +334,14 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   // `valorFinal` e para o valor de venda do lead ao fechar como ganha.
   const total = totalUnico + mrr
   const temRecorrente = subRecorrente > 0
+  // Sem nenhum item ainda, mostramos o bloco do único (é o caso mais comum).
+  const temUnico = subUnico > 0 || !temRecorrente
   // Entrada abate do pagamento único → saldo parcelado (se houver parcelas).
   const entrada = num(f.entrada)
+  // No resumo, o bloco do único também aparece se houver acréscimo ou entrada
+  // lançados sem item — senão o valor sumiria da conta sem explicação.
+  // (declarado depois de `entrada` de propósito: `const` não é içado)
+  const mostraUnico = temUnico || acrescimos > 0 || entrada > 0
   const saldo = Math.max(0, totalUnico - entrada)
   const nParcelas = Math.max(0, Math.round(num(f.parcelas)))
   const valorParcela = nParcelas > 0 ? saldo / nParcelas : 0
@@ -234,6 +365,8 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
         recorrenciaMeses: isRec(r) && r.recorrenciaMeses > 0 ? r.recorrenciaMeses : null,
       })),
       descontoTipo: f.descontoTipo, descontoValor: f.descontoValor ? num(f.descontoValor) : null, frete: f.acrescimos ? acrescimos : null,
+      descontoRecTipo: f.descontoRecTipo, descontoRecValor: f.descontoRecValor ? num(f.descontoRecValor) : null,
+      pagamentoFormaRec: f.pagamentoFormaRec || null, vencimentoDiaRec: f.vencimentoDiaRec ? Math.round(num(f.vencimentoDiaRec)) : null,
       pagamentoForma: f.pagamentoForma || null, parcelas: f.parcelas ? nParcelas : null, entrada: f.entrada ? entrada : null,
       condicaoPagamento: f.condicao || null, probabilidade: f.probabilidade ? num(f.probabilidade) : null,
       validadeAte: f.validadeAte || null, observacoes: f.obs || null,
@@ -313,6 +446,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
       <Card>
         <div class="text-sm font-semibold text-fg mb-2">Itens</div>
         {!closed ? <div class="mb-3"><CatalogSearch onPick={(r) => patch({ rows: [...f.rows, r] })} /></div> : null}
+        <CatalogPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} onAdd={(rows) => patch({ rows: [...f.rows, ...rows] })} />
         {f.rows.length === 0 ? <p class="text-xs text-fg-subtle">Nenhum item ainda. Busque no catálogo acima ou clique em "Adicionar item".</p> : (
           <div class="space-y-2">
             {/* Cabeçalho das colunas — evita adivinhar o que é cada campo */}
@@ -326,7 +460,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             {f.rows.map((r, i) => (
               <div key={i} class="rounded-md border border-border/60 bg-surface-2/30 p-2 space-y-1.5">
                 <div class="grid grid-cols-12 gap-2 items-center">
-                  <input class={`${hasItemDesc ? 'col-span-4' : 'col-span-5'} px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60`} placeholder="Descrição do item" disabled={closed} value={r.nome} onInput={(e) => setRow(i, { nome: (e.target as HTMLInputElement).value })} />
+                  <input class={`${hasItemDesc ? 'col-span-4' : 'col-span-5'} px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60`} placeholder="Descrição do item" disabled={closed || r.productId != null} value={r.nome} onInput={(e) => setRow(i, { nome: (e.target as HTMLInputElement).value })} />
                   <input class="col-span-1 px-1 py-1.5 rounded bg-surface border border-border text-sm text-center disabled:opacity-60" type="number" min={1} disabled={closed} value={String(r.quantidade)} onInput={(e) => setRow(i, { quantidade: Math.max(1, parseInt((e.target as HTMLInputElement).value, 10) || 1) })} />
                   <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.precoUnit)} onInput={(e) => setRow(i, { precoUnit: num((e.target as HTMLInputElement).value) })} />
                   {hasItemDesc ? <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.descontoItem)} onInput={(e) => setRow(i, { descontoItem: num((e.target as HTMLInputElement).value) })} /> : null}
@@ -337,6 +471,24 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                 </div>
                 {/* Como este item é cobrado — o que separa MRR de venda avulsa nos relatórios */}
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                  {/* De onde veio a linha: item do catálogo (com vínculo) ou digitado à mão */}
+                  {r.productId != null ? (
+                    <span class="inline-flex items-center gap-1">
+                      <Badge tone="neutral">Catálogo</Badge>
+                      {!closed ? (
+                        <button type="button" class="text-fg-subtle hover:text-fg inline-flex items-center gap-0.5"
+                          title="Desvincular do catálogo e editar livremente"
+                          onClick={() => setRow(i, { productId: null, precoTabela: null })}>
+                          <Link2Off size={12} /> desvincular
+                        </button>
+                      ) : null}
+                      {r.precoTabela != null && Math.abs(r.precoTabela - r.precoUnit) > 0.009 ? (
+                        <span class="text-fg-subtle">· tabela {money(r.precoTabela)}</span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <Badge tone="neutral">Digitado</Badge>
+                  )}
                   <BillingToggle value={r.cobranca} disabled={closed} onChange={(v) => setRow(i, { cobranca: v })} />
                   {isRec(r) ? (
                     <span class="inline-flex items-center gap-1">
@@ -361,30 +513,74 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             ))}
           </div>
         )}
-        {!closed ? <Button size="sm" variant="ghost" class="mt-2" onClick={() => patch({ rows: [...f.rows, { ...NEW_ROW }] })}><Plus size={13} /> Adicionar item</Button> : null}
+        {!closed ? (
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <Button size="sm" variant="ghost" onClick={() => setPickerOpen(true)}><Boxes size={13} /> Adicionar do catálogo</Button>
+            <Button size="sm" variant="ghost" onClick={() => patch({ rows: [...f.rows, { ...NEW_ROW }] })}><PencilLine size={13} /> Digitar item</Button>
+            <span class="text-[11px] text-fg-subtle">Pode misturar os dois na mesma proposta.</span>
+          </div>
+        ) : null}
       </Card>
 
       {/* Valores e pagamento + resumo lado a lado */}
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card class="lg:col-span-2">
-          <div class="text-sm font-semibold text-fg mb-2">Valores e pagamento</div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-fg mb-1">Desconto</label>
-              <div class="flex gap-1">
-                <Select value={f.descontoTipo} disabled={closed} onChange={(e) => patch({ descontoTipo: (e.target as HTMLSelectElement).value as any })} class="w-20"><option value="valor">R$</option><option value="percent">%</option></Select>
-                <Input value={f.descontoValor} disabled={closed} onInput={(e) => patch({ descontoValor: (e.target as HTMLInputElement).value })} />
+          <div class="text-sm font-semibold text-fg mb-1">Valores e pagamento</div>
+          <p class="text-[11px] text-fg-subtle mb-3">
+            Desconto e condições são <strong>de cada bloco</strong>: dá para ceder na implantação sem mexer no valor
+            que se repete todo mês — e o contrário também.
+          </p>
+
+          {/* ── Pagamento único ── */}
+          {temUnico ? (
+            <div class="rounded-md border border-border/60 p-3">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-2">Pagamento único</div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-fg mb-1">Desconto no único</label>
+                  <div class="flex gap-1">
+                    <Select value={f.descontoTipo} disabled={closed} onChange={(e) => patch({ descontoTipo: (e.target as HTMLSelectElement).value as any })} class="w-20"><option value="valor">R$</option><option value="percent">%</option></Select>
+                    <Input value={f.descontoValor} disabled={closed} onInput={(e) => patch({ descontoValor: (e.target as HTMLInputElement).value })} />
+                  </div>
+                </div>
+                <Input label="Acréscimos (frete, taxas…) R$" value={f.acrescimos} disabled={closed} onInput={(e) => patch({ acrescimos: (e.target as HTMLInputElement).value })} />
+                <div>
+                  <label class="block text-xs font-medium text-fg mb-1">Forma de pagamento</label>
+                  <Select value={f.pagamentoForma} disabled={closed} onChange={(e) => patch({ pagamentoForma: (e.target as HTMLSelectElement).value })}>
+                    <option value="">—</option><option value="pix">PIX</option><option value="cartao">Cartão</option><option value="boleto">Boleto</option><option value="dinheiro">Dinheiro</option><option value="transferencia">Transferência</option><option value="financiamento">Financiamento</option><option value="outro">Outro</option>
+                  </Select>
+                </div>
+                <Input label="Entrada / sinal (R$)" value={f.entrada} disabled={closed} onInput={(e) => patch({ entrada: (e.target as HTMLInputElement).value })} />
+                <Input label="Parcelas do saldo" type="number" min={0} value={f.parcelas} disabled={closed} onInput={(e) => patch({ parcelas: (e.target as HTMLInputElement).value })} />
               </div>
             </div>
-            <Input label="Acréscimos (frete, taxas…) R$" value={f.acrescimos} disabled={closed} onInput={(e) => patch({ acrescimos: (e.target as HTMLInputElement).value })} />
-            <div>
-              <label class="block text-xs font-medium text-fg mb-1">Forma de pagamento</label>
-              <Select value={f.pagamentoForma} disabled={closed} onChange={(e) => patch({ pagamentoForma: (e.target as HTMLSelectElement).value })}>
-                <option value="">—</option><option value="pix">PIX</option><option value="cartao">Cartão</option><option value="boleto">Boleto</option><option value="dinheiro">Dinheiro</option><option value="transferencia">Transferência</option><option value="financiamento">Financiamento</option><option value="outro">Outro</option>
-              </Select>
+          ) : null}
+
+          {/* ── Mensalidade — só quando a proposta tem recorrência ── */}
+          {temRecorrente ? (
+            <div class={`rounded-md border border-border/60 p-3 ${temUnico ? 'mt-3' : ''}`}>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-2">Mensalidade</div>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-fg mb-1">Desconto na mensalidade</label>
+                  <div class="flex gap-1">
+                    <Select value={f.descontoRecTipo} disabled={closed} onChange={(e) => patch({ descontoRecTipo: (e.target as HTMLSelectElement).value as any })} class="w-20"><option value="valor">R$</option><option value="percent">%</option></Select>
+                    <Input value={f.descontoRecValor} disabled={closed} onInput={(e) => patch({ descontoRecValor: (e.target as HTMLInputElement).value })} />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-fg mb-1">Forma de cobrança</label>
+                  <Select value={f.pagamentoFormaRec} disabled={closed} onChange={(e) => patch({ pagamentoFormaRec: (e.target as HTMLSelectElement).value })}>
+                    <option value="">—</option><option value="pix">PIX</option><option value="boleto">Boleto</option><option value="cartao_recorrente">Cartão recorrente</option><option value="debito_automatico">Débito automático</option><option value="transferencia">Transferência</option><option value="outro">Outro</option>
+                  </Select>
+                </div>
+                <Input label="Dia do vencimento" type="number" min={1} max={31} placeholder="ex.: 10" value={f.vencimentoDiaRec} disabled={closed} onInput={(e) => patch({ vencimentoDiaRec: (e.target as HTMLInputElement).value })} />
+              </div>
             </div>
-            <Input label="Entrada / sinal (R$)" value={f.entrada} disabled={closed} onInput={(e) => patch({ entrada: (e.target as HTMLInputElement).value })} />
-            <Input label="Parcelas do saldo único" type="number" min={0} value={f.parcelas} disabled={closed} onInput={(e) => patch({ parcelas: (e.target as HTMLInputElement).value })} />
+          ) : null}
+
+          {/* ── Geral ── */}
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
             <Input label="Chance de fechar (%)" type="number" min={0} max={100} value={f.probabilidade} disabled={closed} onInput={(e) => patch({ probabilidade: (e.target as HTMLInputElement).value })} />
           </div>
           <div class="mt-3"><Textarea label="Condições combinadas (visível na proposta)" rows={2} disabled={closed} value={f.condicao} onInput={(e) => patch({ condicao: (e.target as HTMLTextAreaElement).value })} /></div>
@@ -396,10 +592,11 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
         <Card class="!p-4 h-fit lg:sticky lg:top-2">
           <div class="text-sm font-semibold text-fg mb-3">Resumo</div>
 
+          {mostraUnico ? (
           <div class="space-y-1.5">
             <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Pagamento único</div>
             <SummaryRow label="Subtotal" value={money(subUnico)} />
-            {descUnico > 0 ? <SummaryRow label={`Desconto${temRecorrente ? ' (parte única)' : f.descontoTipo === 'percent' ? ` (${num(f.descontoValor)}%)` : ''}`} value={money(descUnico)} sign="−" /> : null}
+            {descUnico > 0 ? <SummaryRow label={`Desconto${f.descontoTipo === 'percent' ? ` (${num(f.descontoValor)}%)` : ''}`} value={money(descUnico)} sign="−" /> : null}
             {acrescimos > 0 ? <SummaryRow label="Acréscimos" value={money(acrescimos)} sign="+" /> : null}
             <SummaryRow label="Total à vista" value={money(totalUnico)} strong />
             {entrada > 0 ? (
@@ -422,21 +619,27 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
               </div>
             ) : null}
           </div>
+          ) : null}
 
           {temRecorrente ? (
-            <div class="space-y-1.5 mt-4 pt-3 border-t border-border">
+            <div class={`space-y-1.5 ${mostraUnico ? 'mt-4 pt-3 border-t border-border' : ''}`}>
               <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Recorrente</div>
               <SummaryRow label="Subtotal mensal" value={money(subRecorrente)} />
-              {descRecorrente > 0 ? <SummaryRow label="Desconto (parte mensal)" value={money(descRecorrente)} sign="−" /> : null}
+              {descRecorrente > 0 ? <SummaryRow label={`Desconto${f.descontoRecTipo === 'percent' ? ` (${num(f.descontoRecValor)}%)` : ''}`} value={money(descRecorrente)} sign="−" /> : null}
               <SummaryRow label="Mensalidade" value={`${money(mrr)}/mês`} strong />
               {mesesContrato > 0 ? (
                 <SummaryRow label={`Contrato de ${mesesContrato} meses`} value={money(valorContrato)} />
               ) : null}
+              {f.vencimentoDiaRec ? <p class="text-[11px] text-fg-subtle">Vence todo dia {Math.round(num(f.vencimentoDiaRec))}.</p> : null}
             </div>
           ) : null}
 
           <div class="mt-4 pt-3 border-t border-border">
-            <SummaryRow label={temRecorrente ? '1º pagamento (único + 1 mês)' : 'Total'} value={money(total)} strong />
+            <SummaryRow
+              label={!temRecorrente ? 'Total' : mostraUnico ? '1º pagamento (único + 1 mês)' : '1ª mensalidade'}
+              value={money(total)}
+              strong
+            />
             {temRecorrente ? <p class="text-[11px] text-fg-subtle mt-1">É este valor que vai para o card de venda do lead ao fechar como ganha. A mensalidade entra separada nos indicadores de recorrência.</p> : null}
           </div>
         </Card>

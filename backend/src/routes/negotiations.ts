@@ -30,6 +30,13 @@ interface ItemInput {
 function normCobranca(v: unknown): 'unico' | 'recorrente' {
   return String(v ?? '').toLowerCase() === 'recorrente' ? 'recorrente' : 'unico'
 }
+/** Dia do vencimento da mensalidade: 1..31, ou null. */
+function diaDoMes(v: unknown): number | null {
+  const n = num(v)
+  if (n == null) return null
+  const i = Math.round(n)
+  return i >= 1 && i <= 31 ? i : null
+}
 /** Parcelas/meses: inteiro ≥ 1, ou null (à vista / sem prazo declarado). */
 function posInt(v: unknown): number | null {
   const n = num(v)
@@ -65,32 +72,37 @@ function normItems(raw: any[]): NormItem[] {
 /**
  * Totais da negociação, separando mensalidade de pagamento único.
  *
- * O desconto geral é rateado entre os dois blocos na proporção do subtotal de
- * cada um — desconto de 10% numa proposta 90% implantação/10% mensalidade abate
- * 90% do valor da implantação e 10% da mensalidade. Os acréscimos (frete,
- * taxas) caem inteiros no único: taxa pontual não é receita recorrente.
+ * Cada bloco tem o SEU desconto: ceder na implantação e ceder na mensalidade são
+ * concessões diferentes, de valores diferentes — antes um desconto só era
+ * rateado entre os dois e não dava para dizer onde ele realmente caiu. Os
+ * acréscimos (frete, taxas) pertencem ao único: taxa pontual não é recorrente.
  *
  * `valorFinal` continua sendo o valor de face do 1º ciclo (único + 1 ×
  * mensalidade) — é o que os relatórios e o `saleValue` do lead já usavam, e
  * numa proposta sem mensalidade o número não muda em nada.
  */
-function computeTotals(
-  items: { subtotal: number; cobranca?: string }[],
-  descontoTipo: string | null,
-  descontoValor: number | null,
-  frete: number | null,
-) {
+export interface DiscountInput {
+  descontoTipo: string | null
+  descontoValor: number | null
+  descontoRecTipo: string | null
+  descontoRecValor: number | null
+  frete: number | null
+}
+
+function aplicaDesconto(subtotal: number, tipo: string | null, valor: number | null): number {
+  if (!valor) return 0
+  return tipo === 'percent' ? subtotal * (valor / 100) : valor
+}
+
+function computeTotals(items: { subtotal: number; cobranca?: string }[], d: DiscountInput) {
   const subUnico = items.reduce((s, i) => s + (normCobranca(i.cobranca) === 'unico' ? i.subtotal : 0), 0)
   const subRecorrente = items.reduce((s, i) => s + (normCobranca(i.cobranca) === 'recorrente' ? i.subtotal : 0), 0)
-  const valorTabela = subUnico + subRecorrente
-  let desconto = 0
-  if (descontoValor) desconto = descontoTipo === 'percent' ? valorTabela * (descontoValor / 100) : descontoValor
-  const share = valorTabela > 0 ? subUnico / valorTabela : 1
-  const descUnico = desconto * share
-  const valorUnico = Math.max(0, subUnico - descUnico + (frete ?? 0))
-  const valorRecorrente = Math.max(0, subRecorrente - (desconto - descUnico))
+  const descUnico = aplicaDesconto(subUnico, d.descontoTipo, d.descontoValor)
+  const descRecorrente = aplicaDesconto(subRecorrente, d.descontoRecTipo, d.descontoRecValor)
+  const valorUnico = Math.max(0, subUnico - descUnico + (d.frete ?? 0))
+  const valorRecorrente = Math.max(0, subRecorrente - descRecorrente)
   return {
-    valorTabela,
+    valorTabela: subUnico + subRecorrente,
     valorUnico: round2(valorUnico),
     valorRecorrente: round2(valorRecorrente),
     valorFinal: round2(valorUnico + valorRecorrente),
@@ -291,14 +303,19 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const items = normItems(b.items)
     const descontoTipo = b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)
     const descontoValor = num(b.descontoValor)
+    const descontoRecTipo = b.descontoRecTipo === 'percent' ? 'percent' : (b.descontoRecValor != null ? 'valor' : null)
+    const descontoRecValor = num(b.descontoRecValor)
     const frete = num(b.frete)
-    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(items, descontoTipo, descontoValor, frete)
+    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(items, { descontoTipo, descontoValor, descontoRecTipo, descontoRecValor, frete })
     const actor = auditActor(req)
     const n = await prisma.negotiation.create({
       data: {
         leadId: Number(b.leadId), titulo: String(b.titulo || 'Proposta').slice(0, 191),
         status: STATUSES.includes(b.status) ? b.status : 'rascunho',
         valorTabela, descontoTipo, descontoValor, frete, valorFinal, valorUnico, valorRecorrente,
+        descontoRecTipo, descontoRecValor,
+        pagamentoFormaRec: b.pagamentoFormaRec ? String(b.pagamentoFormaRec).slice(0, 20) : null,
+        vencimentoDiaRec: diaDoMes(b.vencimentoDiaRec),
         pagamentoForma: b.pagamentoForma ? String(b.pagamentoForma).slice(0, 20) : null,
         parcelas: num(b.parcelas) ? Math.round(num(b.parcelas)!) : null,
         entrada: num(b.entrada), condicaoPagamento: b.condicaoPagamento ? String(b.condicaoPagamento).slice(0, 2000) : null,
@@ -324,10 +341,14 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const items = b.items !== undefined ? normItems(b.items) : null
     const descontoTipo = b.descontoTipo !== undefined ? (b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)) : cur.descontoTipo
     const descontoValor = b.descontoValor !== undefined ? num(b.descontoValor) : (cur.descontoValor != null ? Number(cur.descontoValor) : null)
+    const descontoRecTipo = b.descontoRecTipo !== undefined ? (b.descontoRecTipo === 'percent' ? 'percent' : (b.descontoRecValor != null ? 'valor' : null)) : cur.descontoRecTipo
+    const descontoRecValor = b.descontoRecValor !== undefined ? num(b.descontoRecValor) : (cur.descontoRecValor != null ? Number(cur.descontoRecValor) : null)
     const frete = b.frete !== undefined ? num(b.frete) : (cur.frete != null ? Number(cur.frete) : null)
     const baseItems = items ?? (await prisma.negotiationItem.findMany({ where: { negotiationId: id }, select: { subtotal: true, cobranca: true } })).map((i) => ({ subtotal: Number(i.subtotal), cobranca: i.cobranca }))
-    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(baseItems, descontoTipo, descontoValor, frete)
-    const data: any = { valorTabela, valorFinal, valorUnico, valorRecorrente, descontoTipo, descontoValor, frete }
+    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(baseItems, { descontoTipo, descontoValor, descontoRecTipo, descontoRecValor, frete })
+    const data: any = { valorTabela, valorFinal, valorUnico, valorRecorrente, descontoTipo, descontoValor, descontoRecTipo, descontoRecValor, frete }
+    if (b.pagamentoFormaRec !== undefined) data.pagamentoFormaRec = b.pagamentoFormaRec ? String(b.pagamentoFormaRec).slice(0, 20) : null
+    if (b.vencimentoDiaRec !== undefined) data.vencimentoDiaRec = diaDoMes(b.vencimentoDiaRec)
     if (b.titulo !== undefined) data.titulo = String(b.titulo).slice(0, 191)
     if (b.status !== undefined && STATUSES.includes(b.status)) data.status = b.status
     if (b.pagamentoForma !== undefined) data.pagamentoForma = b.pagamentoForma ? String(b.pagamentoForma).slice(0, 20) : null

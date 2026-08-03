@@ -300,6 +300,17 @@ const CUSTOM_FIELDS_READ_PATHS = new Set<string>([
 ])
 const CUSTOM_FIELDS_READ_MODULES = ['leads']
 
+// Leitura do catálogo serve a dois trabalhos: administrar os produtos e MONTAR
+// UMA PROPOSTA. Pela rota, listar o catálogo cai no módulo 'catalog', então o
+// vendedor com Negociações liberado — mas sem Catálogo — via o seletor de itens
+// vazio, sem nada explicando o porquê. Liberada a quem tem 'Ver' em qualquer um
+// dos dois. Criar/editar/importar produto (POST/PUT/DELETE) continua em 'catalog'.
+const CATALOG_READ_PATHS = new Set<string>([
+  '/api/admin/catalog',
+  '/api/admin/catalog/categories',
+])
+const CATALOG_READ_MODULES = ['catalog', 'negotiations']
+
 // Tenta resolver o user a partir do Bearer token DIRETAMENTE no hook global,
 // sem depender do `authMiddleware` da rota (que é preHandler de ROTA — roda
 // DEPOIS deste preHandler global e portanto deixaria `req.user` indefinido).
@@ -395,6 +406,11 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
 
     // Leitura de campos personalizados: basta 'Ver' em Leads (não exige Configurações).
     if (req.method === 'GET' && CUSTOM_FIELDS_READ_PATHS.has(pathOnly) && CUSTOM_FIELDS_READ_MODULES.some(m => perms[m]?.canView)) {
+      return
+    }
+
+    // Leitura do catálogo: basta 'Ver' em Catálogo OU em Negociações.
+    if (req.method === 'GET' && CATALOG_READ_PATHS.has(pathOnly) && CATALOG_READ_MODULES.some(m => perms[m]?.canView)) {
       return
     }
 
