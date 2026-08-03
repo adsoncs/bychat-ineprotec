@@ -513,6 +513,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,
   },
+  {
+    id: 'status_summary', name: 'Resumos', icon: '🏷️', category: 'crm',
+    description: 'Inverte o kanban: em vez de arrastar o card, o operador classifica a situação do atendimento escolhendo um Resumo (ex.: "AT-200 SOLICITOU MATRICULA"), e o motor move a etapa, gera as atividades com prazo e responsável, marca ganho/perdido e exige a objeção. Nasce desligado.',
+    pages: ['status-summaries', 'status-summary-report'],
+    routePrefixes: ['/api/status-summaries', '/api/activity-templates'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
 ]
 
 export function getModuleForRoute(path: string): ModuleDefinition | undefined {

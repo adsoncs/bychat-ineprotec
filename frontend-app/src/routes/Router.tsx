@@ -139,6 +139,12 @@ const migratedPages: Record<string, ComponentType> = {
   'cad-teams': lazy(() =>
     import('./pages/CadastrosTeamsPage').then((m) => ({ default: m.CadastrosTeamsPage })),
   ),
+  'cad-status-summaries': lazy(() =>
+    import('./pages/CadastrosStatusSummariesPage').then((m) => ({ default: m.CadastrosStatusSummariesPage })),
+  ),
+  'status-summary-report': lazy(() =>
+    import('./pages/StatusSummaryReportPage').then((m) => ({ default: m.StatusSummaryReportPage })),
+  ),
   'cad-loss-reasons': lazy(() =>
     import('./pages/CadastrosLossReasonsPage').then((m) => ({ default: m.CadastrosLossReasonsPage })),
   ),

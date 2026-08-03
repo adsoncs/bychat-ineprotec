@@ -71,6 +71,9 @@ model User {
   ownedCadences SalesCadence[] @relation("CadenceOwner")
   cadenceStepExecutions CadenceStepExecution[] @relation("CadenceStepExecutionOperator")
   movedLeadStages LeadStageMovement[] @relation("LeadStageMovementBy")
+  assignedActivities       Activity[]             @relation("ActivityAssignee")
+  activityTemplates        ActivityTemplate[]     @relation("ActivityTemplateAssignee")
+  leadStatusChanges        LeadStatusHistory[]    @relation("LeadStatusChangedBy")
   agentProfile  AgentProfile?
   workingHours  AgentWorkingHour[]
   ownedInstances WhatsAppInstance[] @relation("WhatsAppInstanceOwner")
@@ -295,6 +298,8 @@ model Funnel {
   cloudApiConnections CloudApiConnection[]
   whatsappInstances WhatsAppInstance[]
 
+  statusSummaries     StatusSummary[]
+
   @@map("bychat_funnels")
 }
 
@@ -318,6 +323,11 @@ model Stage {
   terminalKind String?  @db.VarChar(10)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  // Módulo Resumo: quanto tempo um lead PODE ficar na etapa e a temperatura
+  // esperada. null = etapa de transição indefinida.
+  slaHours    Int?
+  temperature String? @db.VarChar(10) // quente | morno | frio
 
   @@unique([funnelId, key])
   @@index([funnelId, position])
@@ -431,6 +441,9 @@ model Team {
   dbConnectors       DbConnector[]
 
   @@index([active, position])
+  assignedActivities  Activity[]
+  activityTemplates   ActivityTemplate[]
+
   @@map("bychat_teams")
 }
 
@@ -886,6 +899,14 @@ model Lead {
   lostReasonId  Int?
   lostReason    LossReason? @relation(fields: [lostReasonId], references: [id], onDelete: SetNull)
 
+  // ── Resumo (módulo status_summary) ──
+  // Classificação da SITUAÇÃO do atendimento (ex.: AT-200 SOLICITOU MATRICULA).
+  // O operador escolhe o resumo e o motor deriva etapa, atividades, prazos e
+  // outcome. Ver services/statusSummaryEngine.ts.
+  statusSummaryId Int?
+  statusSummary   StatusSummary? @relation(fields: [statusSummaryId], references: [id], onDelete: SetNull)
+  statusSummaryAt DateTime?
+
   // Dedup (Fase 24, Categoria A): cada submissão de Form/Meta/EnrollmentPortal/API/Make
   // cria um Lead novo. Quando há match com lead existente (por whatsapp ou email),
   // marca este lead como pending_review apontando pro candidato master. Decisão de
@@ -918,6 +939,7 @@ model Lead {
   cadenceEnrollments       CadenceEnrollment[]
   outboundSends            OutboundSend[]
   stageMovements           LeadStageMovement[]
+  statusHistory            LeadStatusHistory[]
   conversationAudits       ConversationAudit[]
   stageSuggestions         LeadStageSuggestion[]
   transferRequests         LeadTransferRequest[]
@@ -959,6 +981,8 @@ model Lead {
   @@index([possibleDuplicateOfId])
   @@index([aiScore])
   @@index([googleCampaignId])
+  @@index([statusSummaryId])
+  @@index([statusSummaryId, statusSummaryAt])
   @@map("bychat_leads")
 }
 
@@ -1013,6 +1037,192 @@ model LeadStageMovement {
   @@index([toFunnelId, movedAt])
   @@index([movedAt])
   @@map("bychat_lead_stage_movements")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO RESUMO (status_summary)
+//
+// Inverte o kanban: em vez de arrastar o card, o operador classifica a
+// SITUAÇÃO do atendimento escolhendo um Resumo (ex.: "AT-200 SOLICITOU
+// MATRICULA"). O motor deriva o resto — move de etapa/funil, gera as
+// atividades certas com prazo e responsável, marca ganho/perdido e exige a
+// objeção. Isso elimina a subjetividade do registro: dois consultores na
+// mesma situação produzem o mesmo estado no CRM.
+//
+// Motor: services/statusSummaryEngine.ts (ponto de entrada único).
+// ═══════════════════════════════════════════════════════════════
+
+model StatusSummary {
+  id       Int     @id @default(autoincrement())
+  // Código estável e visível ao operador (é como o time fala: "põe o AT-200").
+  // Único por funil — funis diferentes podem reusar o mesmo código.
+  code     String  @db.VarChar(20)
+  name     String  @db.VarChar(191)
+  helpText String? @db.Text // quando usar este resumo (vira tooltip no painel)
+
+  // Catálogo é POR FUNIL. `funnelId` null = resumo global, disponível em todos
+  // os funis que não tenham catálogo próprio. Resolução: específico > global.
+  funnelId Int?
+  funnel   Funnel? @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+
+  // Setor dono do resumo — é o prefixo do código no vocabulário do cliente
+  // (AT = atendimento, DC = documentação/conversão, SE = secretaria).
+  sector   String? @db.VarChar(10)
+  color    String? @db.VarChar(20)
+  position Int     @default(0)
+  active   Boolean @default(true)
+
+  // ── EFEITOS ──
+  // Etapa/funil de destino. Ambos null = resumo que só marca situação sem mover
+  // (ex.: AT-003 AGUARDANDO RESPOSTA, que mantém o lead em Follow Up).
+  targetFunnelId Int?
+  targetStageKey String? @db.VarChar(50)
+
+  // 'won' | 'lost' — delega pra services/leadOutcome.ts (que já cancela
+  // atividades e cadências abertas). null = não mexe no outcome.
+  setOutcome          String? @db.VarChar(10)
+  requireLossReason   Boolean @default(false) // painel obriga escolher objeção
+  defaultLossReasonId Int?
+
+  temperature String? @db.VarChar(10) // quente | morno | frio
+
+  // Conclui as atividades pendentes do lead antes de gerar as novas. É o
+  // "conclui a atividade em aberto e altera o resumo" que o manual repete.
+  closeOpenActivities Boolean @default(false)
+
+  // Em vez de gerar atividade avulsa, inscreve o lead numa cadência existente.
+  // Reusa SalesCadence — não reimplementamos escada de follow-up.
+  enrollCadenceId Int?
+
+  // ── ESCADA AUTOMÁTICA ──
+  // Próximo resumo da escada (AT-020 → AT-021 → AT-022 → AT-023). Quando
+  // `autoAdvanceOnDue` é true, o cron aplica `nextSummaryCode` sozinho assim que
+  // a atividade gerada vence sem o lead ter interagido. No Rubeus isso é manual:
+  // é onde passamos a régua deles.
+  nextSummaryCode  String? @db.VarChar(20)
+  autoAdvanceOnDue Boolean @default(false)
+
+  // ── GOVERNANÇA ──
+  // ["follow_up","sem_resposta"] = só pode ser aplicado a partir destas etapas.
+  // null/vazio = sem restrição. Evita o consultor pular degraus da escada.
+  allowedFromStages Json?
+  // ["forma_pagamento","qtd_parcelas"] — chaves de CustomField que precisam
+  // estar preenchidas antes de aplicar. É o que impede o AT-200 sem dados.
+  requiredFields    Json?
+
+  activities StatusSummaryActivity[]
+  leads      Lead[]
+  history    LeadStatusHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([funnelId, code])
+  @@index([active, position])
+  @@index([funnelId, active])
+  @@index([code])
+  @@map("bychat_status_summaries")
+}
+
+// Catálogo de atividades padronizadas (AT-WP-06, SE-IL-02...). Sem ele o título
+// da atividade é texto livre e não existe KPI por tipo de atividade.
+model ActivityTemplate {
+  id       Int     @id @default(autoincrement())
+  code     String  @unique @db.VarChar(20) // "AT-WP-06"
+  name     String  @db.VarChar(191) // "COBRANCA DE TAXA DE MATRICULA/CONTRATO"
+  // Descrição padrão da atividade (o "resumo da atividade" do Rubeus).
+  defaultDescription String? @db.Text
+
+  // Mapeia direto em Activity.type — o sufixo do código já diz o canal
+  // (-WP- whatsapp, -EM- email, -LI- call, -ST-/-IL- task).
+  type String @db.VarChar(30)
+
+  messageTemplateId Int?
+  messageTemplate   MessageTemplate? @relation(fields: [messageTemplateId], references: [id], onDelete: SetNull)
+
+  // ── PRAZO ──
+  // immediate      → agora
+  // hours / days   → dueValue corridos
+  // business_days  → dueValue em dias úteis (usa services/businessHours.ts)
+  // lead_defined   → o operador informa a data (lead pediu "me chama dia 20")
+  dueMode  String @default("immediate") @db.VarChar(20)
+  dueValue Int    @default(0)
+
+  // ── RESPONSÁVEL ──
+  // lead_owner  → assignedUserId do lead
+  // team        → fila do setor (assigneeTeamId), sem dono
+  // user        → pessoa fixa (assigneeUserId)
+  // round_robin → rodízio entre membros do assigneeTeamId
+  // creator     → quem aplicou o resumo
+  assigneeMode   String @default("lead_owner") @db.VarChar(20)
+  assigneeTeamId Int?
+  assigneeTeam   Team?  @relation(fields: [assigneeTeamId], references: [id], onDelete: SetNull)
+  assigneeUserId Int?
+  assigneeUser   User?  @relation("ActivityTemplateAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+
+  active Boolean @default(true)
+
+  summaries StatusSummaryActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([type])
+  @@map("bychat_activity_templates")
+}
+
+// Quais atividades cada resumo dispara. O prazo do template pode ser
+// sobrescrito aqui: o mesmo AT-WP-06 vence em 24h no DC-003 e em 7 dias no
+// AT-035 — é a mesma atividade, cobrada em ritmo diferente.
+model StatusSummaryActivity {
+  summaryId          Int
+  summary            StatusSummary    @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  activityTemplateId Int
+  activityTemplate   ActivityTemplate @relation(fields: [activityTemplateId], references: [id], onDelete: Cascade)
+
+  dueOverrideMode  String? @db.VarChar(20)
+  dueOverrideValue Int?
+  // Sobrescreve o "resumo da atividade" (ex.: "Cobrança – Tentativa 02").
+  titleOverride    String? @db.VarChar(191)
+  order            Int     @default(0)
+
+  @@id([summaryId, activityTemplateId])
+  @@index([activityTemplateId])
+  @@map("bychat_status_summary_activities")
+}
+
+// Append-only, mesmo padrão de LeadStageMovement. É o que permite medir
+// conversão POR RESUMO (ex.: quantos AT-030 viram AT-200 vs AT-033) e o tempo
+// médio em cada degrau da escada.
+model LeadStatusHistory {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  fromSummaryId Int?
+  toSummaryId   Int
+  toSummary     StatusSummary @relation(fields: [toSummaryId], references: [id], onDelete: Cascade)
+
+  // Snapshot dos códigos: o catálogo pode ser editado/renomeado depois, e o
+  // histórico precisa continuar legível.
+  fromCode String? @db.VarChar(20)
+  toCode   String  @db.VarChar(20)
+
+  changedAt       DateTime @default(now())
+  changedByUserId Int?
+  changedByUser   User?    @relation("LeadStatusChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  // panel | workflow | chatbot | api | auto_advance | import | seed
+  source String? @db.VarChar(30)
+  note   String? @db.Text
+  // O que o motor de fato fez: etapa movida, atividades criadas, outcome.
+  effects Json?
+
+  @@index([leadId, changedAt])
+  @@index([toSummaryId, changedAt])
+  @@index([changedAt])
+  @@map("bychat_lead_status_history")
 }
 
 model LeadEnrichment {
@@ -1125,6 +1335,17 @@ model Activity {
   userId   Int? // quem criou
   userName String? @db.VarChar(100) // nome/email de quem criou
 
+  // ── Responsável pela EXECUÇÃO (módulo Resumo) ──
+  // `userId` acima é quem CRIOU. Quando o motor gera a atividade para outro
+  // setor (handoff Comercial → Secretaria), quem executa vai aqui.
+  assignedUserId Int?
+  assignedUser   User? @relation("ActivityAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignedTeamId Int?
+  assignedTeam   Team? @relation(fields: [assignedTeamId], references: [id], onDelete: SetNull)
+
+  // Código do ActivityTemplate que originou a atividade (ex.: "AT-WP-06").
+  templateCode String? @db.VarChar(20)
+
   type        String  @db.VarChar(30) // whatsapp, email, sms, call, meeting, task, note, follow_up
   title       String  @db.VarChar(191)
   description String? @db.Text
@@ -1171,6 +1392,9 @@ model Activity {
   @@index([scheduledAt])
   @@index([gmailThreadId])
   @@index([gmailMessageId])
+  @@index([assignedUserId, status])
+  @@index([assignedTeamId, status])
+  @@index([templateCode, status])
   @@map("bychat_activities")
 }
 
@@ -1231,6 +1455,8 @@ model MessageTemplate {
   @@index([active])
   @@index([key])
   @@index([shortcut])
+  activityTemplates ActivityTemplate[]
+
   @@map("bychat_message_templates")
 }
 

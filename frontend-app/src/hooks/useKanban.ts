@@ -74,6 +74,8 @@ export interface KanbanLead {
   customFields?: Record<string, unknown> | null
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
+  // Módulo Resumo — null quando o módulo está desligado ou o lead nunca teve resumo.
+  statusSummary?: { id: number; code: string; name: string; color: string | null } | null
   tags?: { tag: { id: number; name: string; color: string } }[]
   _activityCount: number
   _metaFormName: string | null

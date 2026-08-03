@@ -57,6 +57,21 @@ const ACTION_TYPES = [
   { value: 'assign_to_team', label: 'Atribuir a equipe' },
   { value: 'assign_to_user', label: 'Atribuir a operador' },
   { value: 'transfer_to_team', label: 'Transferir para equipe' },
+  { value: 'set_summary', label: 'Aplicar resumo' },
+]
+
+const DUE_MODE_OPTIONS = [
+  { value: 'immediate', label: 'Imediato' },
+  { value: 'hours', label: 'Em N horas' },
+  { value: 'days', label: 'Em N dias corridos' },
+  { value: 'business_days', label: 'Em N dias úteis' },
+]
+
+const ASSIGNEE_MODE_OPTIONS = [
+  { value: 'lead_owner', label: 'Responsável pelo lead' },
+  { value: 'team', label: 'Fila do setor' },
+  { value: 'round_robin', label: 'Rodízio no setor' },
+  { value: 'user', label: 'Pessoa fixa' },
 ]
 
 const WAIT_UNITS = [
@@ -843,6 +858,7 @@ function ActionFields({
       )}
 
       {actionType === 'create_task' && <CreateTaskFields config={config} onPatch={onPatch} />}
+      {actionType === 'set_summary' && <SetSummaryFields config={config} onPatch={onPatch} />}
       {actionType === 'webhook' && <WebhookFields config={config} onPatch={onPatch} />}
 
       {actionType === 'assign_to_team' && (
@@ -1166,6 +1182,64 @@ function CreateTaskFields({ config, onPatch }: { config: Record<string, unknown>
         rows={2}
         value={getStr(config, 'description')}
         onInput={(e) => onPatch({ description: (e.target as HTMLTextAreaElement).value })}
+      />
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        <Select
+          label="Prazo"
+          value={getStr(config, 'dueMode') || 'immediate'}
+          onChange={(e) => onPatch({ dueMode: (e.target as HTMLSelectElement).value })}
+        >
+          {DUE_MODE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        <Input
+          label="Valor (N)"
+          type="number"
+          value={getStr(config, 'dueValue')}
+          onInput={(e) => onPatch({ dueValue: Number((e.target as HTMLInputElement).value) })}
+          hint="Ignorado quando o prazo é imediato"
+        />
+      </div>
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+        <Select
+          label="Responsável"
+          value={getStr(config, 'assigneeMode') || 'lead_owner'}
+          onChange={(e) => onPatch({ assigneeMode: (e.target as HTMLSelectElement).value })}
+        >
+          {ASSIGNEE_MODE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+        <Input
+          label="ID do setor / operador"
+          type="number"
+          value={getStr(config, 'assigneeTeamId') || getStr(config, 'assigneeUserId')}
+          onInput={(e) => {
+            const v = Number((e.target as HTMLInputElement).value) || null
+            const mode = getStr(config, 'assigneeMode') || 'lead_owner'
+            onPatch(mode === 'user' ? { assigneeUserId: v } : { assigneeTeamId: v })
+          }}
+          hint="Necessário para fila do setor, rodízio ou pessoa fixa"
+        />
+      </div>
+    </>
+  )
+}
+
+// ─── set_summary ──────────────────────────────────────────────────────────────
+
+function SetSummaryFields({ config, onPatch }: { config: Record<string, unknown>; onPatch: (p: Record<string, unknown>) => void }) {
+  return (
+    <>
+      <Input
+        label="Código do resumo"
+        value={getStr(config, 'code')}
+        onInput={(e) => onPatch({ code: (e.target as HTMLInputElement).value.toUpperCase() })}
+        placeholder="AT-021"
+        hint="O motor move a etapa, cria as atividades e classifica ganho/perdido conforme o resumo configurado em Cadastros › Resumos"
+      />
+      <Textarea
+        label="Observação (opcional)"
+        rows={2}
+        value={getStr(config, 'note')}
+        onInput={(e) => onPatch({ note: (e.target as HTMLTextAreaElement).value })}
       />
     </>
   )

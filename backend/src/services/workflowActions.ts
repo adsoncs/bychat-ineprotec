@@ -61,6 +61,18 @@ interface ActionConfig {
   title?: string
   taskType?: string
   description?: string
+  // create_task — prazo e responsável (módulo Resumo). Ausentes = vence agora,
+  // dono é o responsável pelo lead (comportamento anterior ao módulo).
+  dueMode?: string // immediate | hours | days | business_days
+  dueValue?: number
+  assigneeMode?: string // lead_owner | team | user | round_robin | creator
+  assigneeUserId?: number | null
+  assigneeTeamId?: number | null
+  templateCode?: string | null
+  // set_summary
+  code?: string
+  note?: string
+  lossReasonId?: number | null
   // webhook
   url?: string
   method?: string
@@ -381,6 +393,14 @@ export async function dispatchAction(
         title: resolveVariables(config.title || 'Tarefa do workflow', lead),
         type: config.taskType || 'task',
         description: config.description ? resolveVariables(config.description, lead) : undefined,
+        // Prazo e responsável (módulo Resumo). Omitidos = comportamento antigo:
+        // vence agora, dono é o responsável pelo lead.
+        dueMode: config.dueMode || 'immediate',
+        dueValue: config.dueValue ?? 0,
+        assigneeMode: config.assigneeMode || 'lead_owner',
+        assigneeUserId: config.assigneeUserId ?? null,
+        assigneeTeamId: config.assigneeTeamId ?? null,
+        templateCode: config.templateCode || null,
         stepExecutionId: stepExec.id,
       }, {
         attempts: 2,
@@ -686,6 +706,48 @@ export async function dispatchAction(
         where: { id: stepExec.id },
         data: { jobId: job.id }
       })
+      break
+    }
+
+    case 'set_summary': {
+      // Aplica um Resumo pelo motor. NÃO duplica os efeitos aqui: mover etapa,
+      // criar atividade e marcar ganho/perdido saem todos de applyStatusSummary,
+      // que é o único lugar onde essas regras vivem.
+      if (!config.code) {
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { status: 'failed', error: 'code do resumo não informado', completedAt: new Date() },
+        })
+        return
+      }
+      try {
+        const { applyStatusSummary } = await import('./statusSummaryEngine.js')
+        const result = await applyStatusSummary({
+          leadId,
+          code: String(config.code).trim().toUpperCase(),
+          source: 'workflow',
+          note: config.note ? resolveVariables(config.note, lead) : undefined,
+          lossReasonId: config.lossReasonId ?? null,
+          // Workflow não tem operador na frente pra corrigir campo faltando: as
+          // travas de governança são de painel, aqui elas só travariam a automação.
+          skipGuards: true,
+        })
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { status: 'completed', result: result as never, completedAt: new Date() },
+        })
+      } catch (e) {
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { status: 'failed', error: (e as Error).message, completedAt: new Date() },
+        })
+        return
+      }
+      const stepSum = await prisma.workflowStep.findUnique({ where: { id: stepId } })
+      if (stepSum?.nextStepId) {
+        const { executeNextStep } = await import('./workflowEngine.js')
+        await executeNextStep(executionId, stepSum.nextStepId)
+      }
       break
     }
 

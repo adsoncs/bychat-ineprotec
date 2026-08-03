@@ -68,6 +68,8 @@ export async function activitiesRoutes(app: FastifyInstance) {
           messageBody: messageBody,
           messageSubject: messageSubject,
           templateId: body.templateId || null,
+          assignedUserId: body.assignedUserId ?? user.userId,
+          assignedTeamId: body.assignedTeamId ?? null,
           attachmentUrl: body.attachmentUrl || null,
           attachmentName: body.attachmentName || null,
           attachmentType: body.attachmentType || null,
@@ -115,6 +117,12 @@ export async function activitiesRoutes(app: FastifyInstance) {
       if (q.leadId) where.leadId = parseInt(q.leadId)
       if (q.userId) where.userId = parseInt(q.userId)
 
+      // Módulo Resumo: filtro por quem EXECUTA (não por quem criou).
+      if (q.assignedUserId) where.assignedUserId = parseInt(q.assignedUserId)
+      if (q.assignedTeamId) where.assignedTeamId = parseInt(q.assignedTeamId)
+      if (q.unassigned === 'true') where.assignedUserId = null
+      if (q.templateCode) where.templateCode = String(q.templateCode).toUpperCase()
+
       // Filtro rapido: hoje, semana, atrasadas, agendadas (amanha+), concluidas
       // ATENÇÃO: views 'today/week/upcoming' são períodos fixos por scheduledAt
       // e SOBRESCREVEM eventual from/to vindo do front (UX desabilita os pickers nessas views).
@@ -161,7 +169,9 @@ export async function activitiesRoutes(app: FastifyInstance) {
           take: limit,
           skip: offset,
           include: {
-            lead: { select: { id: true, empresa: true, nome: true, whatsapp: true, email: true, status: true } }
+            lead: { select: { id: true, empresa: true, nome: true, whatsapp: true, email: true, status: true } },
+            assignedUser: { select: { id: true, name: true, email: true } },
+            assignedTeam: { select: { id: true, name: true, color: true } },
           }
         }),
         prisma.activity.count({ where })
@@ -212,6 +222,10 @@ export async function activitiesRoutes(app: FastifyInstance) {
         where: { leadId: parseInt(id), ...(status ? { status } : {}) },
         orderBy: { scheduledAt: 'asc' },
         take: 100,
+        include: {
+          assignedUser: { select: { id: true, name: true, email: true } },
+          assignedTeam: { select: { id: true, name: true, color: true } },
+        },
       })
 
       return { activities }
@@ -242,6 +256,8 @@ export async function activitiesRoutes(app: FastifyInstance) {
       if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
       if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
       if (body.attachmentType !== undefined) data.attachmentType = body.attachmentType
+      if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId
+      if (body.assignedTeamId !== undefined) data.assignedTeamId = body.assignedTeamId
 
       if (body.status !== undefined && ACTIVITY_STATUSES.includes(body.status)) {
         data.status = body.status

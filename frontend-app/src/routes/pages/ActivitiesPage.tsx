@@ -3,7 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Calendar, AlertCircle, ListChecks, Check, X as XIcon, Trash2, Plus,
   Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle, Pencil,
-  ArrowDownLeft, ArrowUpRight, ChevronDown,
+  ArrowDownLeft, ArrowUpRight, ChevronDown, User as UserIcon,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -34,6 +34,10 @@ import { formatDateTime, formatRelative } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { ActivityAttachments, PendingAttachmentsPicker } from '@/components/activities/ActivityAttachments'
 import { useUploadActivityAttachment } from '@/hooks/useLeadAttachments'
+import { useUserStore } from '@/stores/user'
+import { useModuleAccess } from '@/hooks/usePermissions'
+import { useAgents } from '@/hooks/useRouting'
+import { useTeams } from '@/hooks/useTeams'
 
 type View = 'overdue' | 'today' | 'upcoming' | 'completed' | 'all'
 
@@ -88,6 +92,13 @@ export function ActivitiesPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [dateField, setDateField] = useState<'scheduledAt' | 'createdAt'>('scheduledAt')
+  // Fila por responsável (módulo Resumo): 'all' | 'mine' | 'unassigned' | userId
+  const [ownerFilter, setOwnerFilter] = useState<string>('all')
+  const [teamFilter, setTeamFilter] = useState<number | ''>('')
+  const currentUserId = useUserStore((st) => st.user?.id ?? null)
+  const summaryActive = useModuleAccess('status_summary').status === 'allowed'
+  const { data: agentsData } = useAgents()
+  const { data: teamsData } = useTeams()
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim().toLowerCase()), 250)
@@ -106,8 +117,12 @@ export function ActivitiesPage() {
       if (dateTo) f.to = dateTo
       if ((dateFrom || dateTo) && dateField !== 'scheduledAt') f.dateField = dateField
     }
+    if (ownerFilter === 'mine' && currentUserId) (f as any).assignedUserId = currentUserId
+    else if (ownerFilter === 'unassigned') (f as any).unassigned = true
+    else if (ownerFilter !== 'all') (f as any).assignedUserId = Number(ownerFilter)
+    if (teamFilter !== '') (f as any).assignedTeamId = teamFilter
     return f
-  }, [view, typeFilter, dateFrom, dateTo, dateField, dateRangeDisabled])
+  }, [view, typeFilter, dateFrom, dateTo, dateField, dateRangeDisabled, ownerFilter, teamFilter, currentUserId])
 
   const { data, isLoading } = useActivities(filters as any)
   const todayQ = useActivities({ view: 'today', limit: 1 })
@@ -236,6 +251,50 @@ export function ActivitiesPage() {
               </span>
             )}
           </div>
+          {summaryActive && (
+            <div class="flex flex-wrap items-end gap-2 text-xs">
+              <div class="flex flex-col gap-1">
+                <label class="text-[0.6875rem] font-medium text-fg-muted">Responsável</label>
+                <select
+                  value={ownerFilter}
+                  onChange={(e) => setOwnerFilter((e.target as HTMLSelectElement).value)}
+                  class="h-8 rounded-md border border-border bg-surface px-2 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  <option value="all">Todos</option>
+                  <option value="mine">Minhas atividades</option>
+                  <option value="unassigned">Sem responsável (fila)</option>
+                  {(agentsData?.agents ?? []).map((a) => (
+                    <option key={a.id} value={String(a.id)}>{a.name || a.email}</option>
+                  ))}
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[0.6875rem] font-medium text-fg-muted">Setor</label>
+                <select
+                  value={teamFilter === '' ? '' : String(teamFilter)}
+                  onChange={(e) => {
+                    const v = (e.target as HTMLSelectElement).value
+                    setTeamFilter(v === '' ? '' : Number(v))
+                  }}
+                  class="h-8 rounded-md border border-border bg-surface px-2 text-xs text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  <option value="">Todos os setores</option>
+                  {(teamsData?.teams ?? []).map((t) => (
+                    <option key={t.id} value={String(t.id)}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              {(ownerFilter !== 'all' || teamFilter !== '') && (
+                <button
+                  type="button"
+                  onClick={() => { setOwnerFilter('all'); setTeamFilter('') }}
+                  class="h-8 inline-flex items-center gap-1 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-3"
+                >
+                  <XIcon size={12} /> Limpar fila
+                </button>
+              )}
+            </div>
+          )}
           <div class="flex flex-wrap gap-1.5">
             <button
               type="button"
@@ -454,6 +513,31 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
             {activity.templateId && <Sparkles size={10} class="text-fg-subtle" aria-label="Usa modelo" />}
             {activity.userName && <span class="text-[0.6875rem] text-fg-subtle">por {activity.userName}</span>}
           </div>
+          {/* Módulo Resumo: quem EXECUTA. Sem dono e com setor = fila do setor,
+              esperando alguém puxar — é o estado que o gestor precisa enxergar. */}
+          {(activity.assignedUser || activity.assignedTeam) && (
+            <div class="flex items-center gap-1.5 mt-0.5 text-[0.6875rem] flex-wrap">
+              <UserIcon size={10} class="text-fg-subtle" />
+              {activity.assignedUser ? (
+                <span class="text-fg-muted">
+                  {activity.assignedUser.name || activity.assignedUser.email}
+                </span>
+              ) : (
+                <span class="text-warning font-medium">na fila</span>
+              )}
+              {activity.assignedTeam && (
+                <span
+                  class="px-1.5 py-0.5 rounded"
+                  style={{
+                    background: `${activity.assignedTeam.color || '#6B7280'}22`,
+                    color: activity.assignedTeam.color || '#6B7280',
+                  }}
+                >
+                  {activity.assignedTeam.name}
+                </span>
+              )}
+            </div>
+          )}
           {activity.lead && (
             <div class="text-xs text-fg-muted truncate mt-0.5">
               Lead: {activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}

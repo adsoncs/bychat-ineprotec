@@ -23,11 +23,12 @@ import {
   DEFAULT_SECTION,
   isValidSection,
   useLeadActions,
+  useVisibleLeadSections,
   type LeadDetailSectionId,
 } from '@/components/LeadDetailContent'
 import { LeadDetailToc } from '@/components/LeadDetailToc'
-import { useModuleAccess } from '@/hooks/usePermissions'
 import { LeadOutcomeControls, OutcomeBadge } from '@/components/LeadOutcomeControls'
+import { LeadStatusSummaryControl } from '@/components/LeadStatusSummaryControl'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
 import { WaCallButton } from '@/components/voip/WaCallButton'
 import { CallButton } from '@/components/voip/CallButton'
@@ -53,9 +54,7 @@ export function LeadDetailPage({ params }: Props) {
     ? params.section
     : DEFAULT_SECTION
 
-  // Seções com `module` só aparecem quando o módulo está ativo (ex.: Negociação).
-  const negActive = useModuleAccess('negotiations').status === 'allowed'
-  const tocSections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
+  const tocSections = useVisibleLeadSections()
 
   const actions = useLeadActions(id, lead, {
     onLeadDeleted: () => navigate('/leads'),
@@ -120,8 +119,7 @@ export function LeadDetailPage({ params }: Props) {
 
 function SectionPicker({ section, leadId }: { section: LeadDetailSectionId; leadId: number }) {
   const [, navigate] = useLocation()
-  const negActive = useModuleAccess('negotiations').status === 'allowed'
-  const sections = LEAD_DETAIL_SECTIONS.filter((s) => !(s as { module?: string }).module || negActive)
+  const sections = useVisibleLeadSections()
   return (
     <select
       class="lg:hidden h-8 px-2 rounded-md border border-border bg-surface text-xs text-fg"
@@ -240,6 +238,15 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
             <Star size={12} /> Lead qualificado
           </span>
         )}
+
+        <span class="h-5 w-px bg-border mx-1" />
+
+        <LeadStatusSummaryControl
+          leadId={id}
+          funnelId={lead.funnelId ?? null}
+          currentStage={lead.status ?? null}
+          currentSummary={lead.statusSummary ?? null}
+        />
 
         <span class="h-5 w-px bg-border mx-1" />
 

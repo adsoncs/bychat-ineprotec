@@ -24,6 +24,8 @@ import { LeadCadencesTab } from '@/components/LeadCadencesTab'
 import { LeadAuditTab } from '@/components/LeadAuditTab'
 import { LeadJourneyTab } from '@/components/LeadJourneyTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
+import { LeadStatusHistoryTab } from '@/components/LeadStatusHistoryTab'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import { toast } from '@/lib/toast'
 
 // `module` opcional: a seção só aparece quando o módulo está ativo (gating no TOC).
@@ -31,6 +33,7 @@ export const LEAD_DETAIL_SECTIONS = [
   { id: 'overview',   label: 'Visão geral' },
   { id: 'negociacao', label: 'Negociação', module: 'negotiations' },
   { id: 'activities', label: 'Atividades' },
+  { id: 'resumos',    label: 'Resumos', module: 'status_summary' },
   { id: 'cadences',   label: 'Cadências' },
   { id: 'jornada',    label: 'Jornada IA' },
   { id: 'intel',      label: 'Inteligência' },
@@ -46,6 +49,22 @@ export const DEFAULT_SECTION: LeadDetailSectionId = 'overview'
 
 export function isValidSection(s: string | undefined | null): s is LeadDetailSectionId {
   return !!s && LEAD_DETAIL_SECTIONS.some((sec) => sec.id === s)
+}
+
+/**
+ * Seções visíveis para este usuário — esconde as que dependem de um módulo
+ * desligado. Os hooks são chamados em ordem fixa (regra dos hooks), por isso a
+ * lista de módulos é estática: ao criar uma seção com `module`, acrescente o
+ * `useModuleAccess` correspondente aqui.
+ */
+export function useVisibleLeadSections() {
+  const negotiations = useModuleAccess('negotiations').status === 'allowed'
+  const statusSummary = useModuleAccess('status_summary').status === 'allowed'
+  const allowed: Record<string, boolean> = { negotiations, status_summary: statusSummary }
+  return LEAD_DETAIL_SECTIONS.filter((s) => {
+    const mod = (s as { module?: string }).module
+    return !mod || allowed[mod] === true
+  })
 }
 
 interface Props {
@@ -73,6 +92,7 @@ export function LeadDetailContent({ id, section }: Props) {
       {section === 'intel'      && <LeadIntelTab leadId={lead.id} />}
       {section === 'audit'      && <LeadAuditTab leadId={lead.id} />}
       {section === 'activities' && <LeadActivitiesTab leadId={lead.id} />}
+      {section === 'resumos'    && <LeadStatusHistoryTab leadId={lead.id} />}
       {section === 'cadences'   && <LeadCadencesTab leadId={lead.id} />}
       {section === 'timeline'   && <LeadTimelineTab leadId={lead.id} />}
       {section === 'fields'     && <LeadFieldsTab leadId={lead.id} customFields={lead.customFields} />}

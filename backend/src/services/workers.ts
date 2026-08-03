@@ -359,7 +359,21 @@ function createWebhookWorker() {
 
 function createInternalTaskWorker() {
   return new Worker('wf-internal-task', async (job) => {
-    const { leadId, title, type, description, stepExecutionId } = job.data
+    const {
+      leadId, title, type, description, stepExecutionId,
+      dueMode, dueValue, assigneeMode, assigneeUserId, assigneeTeamId, templateCode,
+    } = job.data
+
+    // Prazo e responsável: antes toda tarefa de workflow nascia vencendo AGORA e
+    // sem dono, o que a tornava inútil para cobrança escalonada. Reusa a mesma
+    // resolução do motor de Resumos pra não haver duas regras de prazo no produto.
+    const { resolveTaskDueAt, resolveTaskAssignee } = await import('./statusSummaryEngine.js')
+    const scheduledAt = await resolveTaskDueAt(dueMode || 'immediate', Number(dueValue) || 0)
+    const assignee = await resolveTaskAssignee(leadId, {
+      assigneeMode: assigneeMode || 'lead_owner',
+      assigneeUserId: assigneeUserId ?? null,
+      assigneeTeamId: assigneeTeamId ?? null,
+    })
 
     await prisma.activity.create({
       data: {
@@ -368,7 +382,10 @@ function createInternalTaskWorker() {
         title: title || 'Tarefa do workflow',
         description: description || null,
         status: 'pending',
-        scheduledAt: new Date(),
+        scheduledAt,
+        assignedUserId: assignee.assignedUserId,
+        assignedTeamId: assignee.assignedTeamId,
+        templateCode: templateCode || null,
       }
     })
 

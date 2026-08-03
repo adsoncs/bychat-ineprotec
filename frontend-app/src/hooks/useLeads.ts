@@ -64,6 +64,8 @@ export interface LeadListItem {
   tags?: LeadTag[]
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
+  // Módulo Resumo — ausente quando o módulo está desligado.
+  statusSummary?: { id: number; code: string; name: string; color: string | null } | null
   // Lead Routing F6: responsável e setor
   assignedUserId?: number | null
   assignedAt?: string | null
@@ -121,6 +123,9 @@ export interface LeadDetail extends LeadListItem {
   saleDetected?: boolean
   saleValue?: number | null
   saleDetectedAt?: string | null
+  // Módulo Resumo — resumo vigente do lead (detalhe).
+  statusSummary?: { id: number; code: string; name: string; color: string | null; sector?: string | null } | null
+  statusSummaryAt?: string | null
   // Outcome (Fase 23)
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null

@@ -121,6 +121,7 @@ import { startGmailInboundPoll } from './services/gmailInboundPoll.js'
 import { googleTasksRoutes } from './routes/googleTasks.js'
 import { integrationsGoogleRoutes } from './routes/integrationsGoogle.js'
 import { lossReasonsRoutes } from './routes/lossReasons.js'
+import { statusSummaryRoutes } from './routes/statusSummaries.js'
 import { lookerStudioRoutes } from './routes/lookerStudio.js'
 import { enrichmentRoutes } from './routes/enrichment.js'
 import { helpdeskRoutes } from './routes/helpdesk.js'
@@ -144,6 +145,7 @@ import { startPriorityScoreScheduler } from './services/priorityScoreService.js'
 import { startEvolutionMonitor } from './services/evolutionMonitor.js'
 import { startCapiRetryScheduler } from './services/metaCapi.js'
 import { startEnrollmentExpireJob } from './services/enrollmentExpireJob.js'
+import { startStatusSummaryAdvanceJob } from './services/statusSummaryAdvanceJob.js'
 import { startEnrichmentRerunJob } from './services/enrichmentRerunJob.js'
 import { startLossReasonSpikeWatcher } from './services/lossReasonSpike.js'
 import { isIpBlocked, checkRateLimit, checkAuthRateLimit, checkTrackingRateLimit, onRateLimitExceeded, analyzeRequest, startSecurityCleanup, logSecurityEvent } from './services/security.js'
@@ -583,6 +585,7 @@ await app.register(gmailWebhookRoutes)
 await app.register(googleTasksRoutes)
 await app.register(integrationsGoogleRoutes)
 await app.register(lossReasonsRoutes)
+await app.register(statusSummaryRoutes)
 await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
@@ -1160,6 +1163,7 @@ try {
   import('./services/schedulingNotify.js').then(m => m.startSchedulingReminders()).catch(() => {})
   startPriorityScoreScheduler().catch(err => console.error('[priorityScore] init falhou:', err))
   startEnrollmentExpireJob()
+  startStatusSummaryAdvanceJob()
   startEnrichmentRerunJob()
   import('./services/voipRecordingSync.js')
     .then(m => m.startVoipRecordingSync())

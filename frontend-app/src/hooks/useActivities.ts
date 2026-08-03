@@ -27,6 +27,12 @@ export interface Activity {
   attachmentName: string | null
   attachmentType: string | null
   metadata: Record<string, unknown> | null
+  // Módulo Resumo: responsável pela execução e código da atividade padrão.
+  assignedUserId?: number | null
+  assignedTeamId?: number | null
+  assignedUser?: { id: number; name: string | null; email: string } | null
+  assignedTeam?: { id: number; name: string; color: string | null } | null
+  templateCode?: string | null
   lead?: { id: number; empresa: string | null; nome: string | null; whatsapp: string | null; email: string | null; status: string | null }
 }
 
@@ -68,6 +74,13 @@ export interface ActivitiesFilters {
   from?: string | undefined
   to?: string | undefined
   dateField?: 'scheduledAt' | 'createdAt' | undefined
+  // Módulo Resumo: filtra por quem EXECUTA (userId acima é quem criou).
+  assignedUserId?: number | undefined
+  assignedTeamId?: number | undefined
+  /** Só as sem dono — a fila que ninguém puxou ainda. */
+  unassigned?: boolean | undefined
+  /** Código do ActivityTemplate, ex.: "AT-WP-06". */
+  templateCode?: string | undefined
 }
 
 function buildQuery(f: ActivitiesFilters): string {
@@ -80,6 +93,10 @@ function buildQuery(f: ActivitiesFilters): string {
   if (f.from) p.set('from', f.from)
   if (f.to) p.set('to', f.to)
   if (f.dateField) p.set('dateField', f.dateField)
+  if (f.assignedUserId !== undefined) p.set('assignedUserId', String(f.assignedUserId))
+  if (f.assignedTeamId !== undefined) p.set('assignedTeamId', String(f.assignedTeamId))
+  if (f.unassigned) p.set('unassigned', 'true')
+  if (f.templateCode) p.set('templateCode', f.templateCode)
   const qs = p.toString()
   return qs ? `?${qs}` : ''
 }

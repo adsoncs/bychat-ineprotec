@@ -22,6 +22,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   // ── Ciclo de vida do lead ────────────────────────────────
   { value: 'lead.created',                  label: '🆕 Lead criado',                  category: 'lead' },
   { value: 'lead.stage_changed',            label: '➡️ Etapa do funil alterada',      category: 'lead' },
+  { value: 'lead.summary_changed',          label: '🏷️ Resumo alterado',              category: 'lead' },
   { value: 'lead.funnel_changed',           label: '🔀 Funil alterado',               category: 'lead' },
   { value: 'lead.tag_added',                label: '🏷️ Etiqueta adicionada',          category: 'lead' },
   { value: 'lead.tag_removed',              label: '🏷️ Etiqueta removida',            category: 'lead' },

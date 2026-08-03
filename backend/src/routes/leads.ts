@@ -458,6 +458,8 @@ export async function leadsRoutes(app: FastifyInstance) {
           team: { select: { id: true, name: true, color: true } },
           funnel: { select: { id: true, name: true } },
           lostReason: { select: { id: true, name: true, color: true } },
+          // Módulo Resumo: a listagem/kanban mostra o código do resumo no card.
+          statusSummary: { select: { id: true, code: true, name: true, color: true } },
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } }
         }
       }),
@@ -508,6 +510,8 @@ export async function leadsRoutes(app: FastifyInstance) {
       include: {
         tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
         lostReason: { select: { id: true, name: true, color: true } },
+        // Módulo Resumo: o seletor no detalhe mostra o resumo vigente.
+        statusSummary: { select: { id: true, code: true, name: true, color: true, sector: true } },
         assignedUser: { select: { id: true, name: true, email: true } },
         team: { select: { id: true, name: true, color: true } },
       }

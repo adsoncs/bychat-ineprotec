@@ -37,6 +37,7 @@ import {
   XCircle,
 } from 'lucide-preact'
 import { MarkWonModal, MarkLostModal, OutcomeBadge } from '@/components/LeadOutcomeControls'
+import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
 import {
   useKanbanBoard,
   useMoveLeadStage,
@@ -915,6 +916,7 @@ function LeadCard({
             )}>{Math.round(score)}</span>
           )}
           {lead._activityCount > 0 && <Badge tone="warning">{lead._activityCount}</Badge>}
+          <StatusSummaryBadge summary={lead.statusSummary} />
           {lead.outcome && <OutcomeBadge outcome={lead.outcome} />}
           {lead.whatsapp && (
             <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact class="!h-7 !w-7" />

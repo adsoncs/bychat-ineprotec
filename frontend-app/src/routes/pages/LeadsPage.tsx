@@ -14,6 +14,7 @@ import { useTeams, useTeamMembers } from '@/hooks/useTeams'
 import { TransferLeadModal } from '@/components/routing/TransferLeadModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { OutcomeBadge } from '@/components/LeadOutcomeControls'
+import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
 import { useBulkMarkWon, useBulkMarkLost, useLossReasons } from '@/hooks/useLeadOutcome'
 import {
   useLeads,
@@ -1597,6 +1598,7 @@ function LeadCell({ col, lead }: { col: LeadColumnKey; lead: LeadListItem }) {
         <td class="px-4 py-2">
           <div class="inline-flex items-center gap-1.5 flex-wrap">
             {lead.status ? <LeadStatusBadge status={lead.status} label={lead.statusLabel} /> : <span class="text-fg-subtle">—</span>}
+            <StatusSummaryBadge summary={lead.statusSummary} />
             {lead.outcome && <OutcomeBadge outcome={lead.outcome} />}
           </div>
         </td>

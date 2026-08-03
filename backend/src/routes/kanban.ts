@@ -135,6 +135,8 @@ export async function kanbanRoutes(app: FastifyInstance) {
           customFields: true,
           assignedUserId: true, assignedAt: true, teamId: true,
           assignedUser: { select: { id: true, name: true } },
+          // Módulo Resumo: o card mostra o código da situação atual.
+          statusSummary: { select: { id: true, code: true, name: true, color: true } },
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } } }
       }),
       prisma.kanbanPermission.findUnique({ where: { role: user.role as any } }),
