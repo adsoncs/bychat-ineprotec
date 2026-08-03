@@ -24,6 +24,8 @@ export interface NegotiationSuggestionItem {
   quantidade: number
   precoUnit: number
   descontoItem: number
+  /** unico | recorrente — herdado do catálogo (o curso da Kommo é cobrança única). */
+  cobranca: 'unico' | 'recorrente'
 }
 
 export interface NegotiationSuggestion {
@@ -59,18 +61,18 @@ async function kommoFieldKeysByName(): Promise<Map<string, string[]>> {
  */
 export interface SuggestionContext {
   byName: Map<string, string[]>
-  productsByName: Map<string, { id: number; preco: number | null }>
+  productsByName: Map<string, { id: number; preco: number | null; cobranca: string }>
 }
 
 export async function loadSuggestionContext(): Promise<SuggestionContext> {
   const [byName, products] = await Promise.all([
     kommoFieldKeysByName(),
-    prisma.product.findMany({ where: { active: true }, select: { id: true, nome: true, preco: true }, orderBy: { id: 'asc' } }),
+    prisma.product.findMany({ where: { active: true }, select: { id: true, nome: true, preco: true, cobranca: true }, orderBy: { id: 'asc' } }),
   ])
-  const productsByName = new Map<string, { id: number; preco: number | null }>()
+  const productsByName = new Map<string, { id: number; preco: number | null; cobranca: string }>()
   for (const p of products) {
     const k = p.nome.trim().toLowerCase()
-    if (!productsByName.has(k)) productsByName.set(k, { id: p.id, preco: p.preco != null ? Number(p.preco) : null })
+    if (!productsByName.has(k)) productsByName.set(k, { id: p.id, preco: p.preco != null ? Number(p.preco) : null, cobranca: p.cobranca })
   }
   return { byName, productsByName }
 }
@@ -136,7 +138,10 @@ export function buildSuggestionFromFields(cf: Record<string, any>, ctx: Suggesti
     // existir, o valor que o import derivou do catálogo da Kommo.
     const product = productsByName.get(nome.trim().toLowerCase())
     const precoUnit = product?.preco != null ? product.preco : (toNumber(cf[CF_CURSO_VALOR]) ?? 0)
-    items.push({ productId: product?.id ?? null, nome, quantidade: 1, precoUnit, descontoItem: 0 })
+    items.push({
+      productId: product?.id ?? null, nome, quantidade: 1, precoUnit, descontoItem: 0,
+      cobranca: product?.cobranca === 'recorrente' ? 'recorrente' : 'unico',
+    })
   }
 
   // ── Condições comerciais ──

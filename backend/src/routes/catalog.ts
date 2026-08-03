@@ -9,7 +9,17 @@ import { prisma } from '../lib/prisma.js'
 import { adminOnly } from '../lib/auth.js'
 
 // Colunas do modelo de importação (na ordem do XLSX).
-const COLS = ['categoria', 'nome', 'marca', 'preco', 'estoque', 'disponivel', 'sku', 'descricao'] as const
+const COLS = ['categoria', 'nome', 'marca', 'preco', 'cobranca', 'estoque', 'disponivel', 'sku', 'descricao'] as const
+
+/**
+ * Tipo de cobrança padrão do item: `recorrente` (mensalidade, entra no MRR) ou
+ * `unico` (implantação, site, projeto). Aceita as palavras que o operador
+ * escreve na planilha — "mensal", "mensalidade", "assinatura", "recorrente".
+ */
+function parseCobranca(v: unknown): 'unico' | 'recorrente' {
+  const s = String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  return ['recorrente', 'mensal', 'mensalidade', 'assinatura', 'recorrencia', 'mrr'].includes(s) ? 'recorrente' : 'unico'
+}
 
 function parsePreco(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -64,6 +74,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         marca: str(b.marca, 100), descricao: str(b.descricao, 5000), sku: str(b.sku, 60),
         preco: parsePreco(b.preco), estoque: parseInt2(b.estoque),
         disponivel: b.disponivel !== false, imageUrl: str(b.imageUrl, 500),
+        cobranca: parseCobranca(b.cobranca),
       },
     })
     return { product: p }
@@ -83,6 +94,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     if (b.estoque !== undefined) data.estoque = parseInt2(b.estoque)
     if (b.disponivel !== undefined) data.disponivel = !!b.disponivel
     if (b.imageUrl !== undefined) data.imageUrl = str(b.imageUrl, 500)
+    if (b.cobranca !== undefined) data.cobranca = parseCobranca(b.cobranca)
     const p = await prisma.product.update({ where: { id }, data }).catch(() => null)
     if (!p) return reply.code(404).send({ error: 'Produto não encontrado' })
     return { product: p }
@@ -98,8 +110,8 @@ export async function catalogRoutes(app: FastifyInstance) {
   // ── Modelo de importação (XLSX) ──
   app.get('/api/admin/catalog/template', { preHandler: adminOnly }, async (_req, reply) => {
     const example = [
-      { categoria: 'Celulares', nome: 'iPhone 15 128GB Preto', marca: 'Apple', preco: '6999,00', estoque: 5, disponivel: 'sim', sku: 'IP15-128-PRT', descricao: 'Tela 6.1", câmera 48MP, USB-C' },
-      { categoria: 'Capas', nome: 'Capa Silicone iPhone 15', marca: 'Genérica', preco: '49,90', estoque: 30, disponivel: 'sim', sku: '', descricao: 'Silicone, várias cores' },
+      { categoria: 'Celulares', nome: 'iPhone 15 128GB Preto', marca: 'Apple', preco: '6999,00', cobranca: 'único', estoque: 5, disponivel: 'sim', sku: 'IP15-128-PRT', descricao: 'Tela 6.1", câmera 48MP, USB-C' },
+      { categoria: 'Serviços', nome: 'Mensalidade CRM Starter', marca: '', preco: '890,00', cobranca: 'mensalidade', estoque: '', disponivel: 'sim', sku: 'CRM-START', descricao: 'Assinatura mensal da plataforma' },
     ]
     const ws = utils.json_to_sheet(example, { header: COLS as unknown as string[] })
     const wb = utils.book_new()
@@ -136,6 +148,7 @@ export async function catalogRoutes(app: FastifyInstance) {
         categoria, nome, marca: str(r['marca'], 100), descricao: str(r['descricao'] ?? r['descrição'] ?? r['specs'], 5000),
         sku: str(r['sku'] ?? r['codigo'] ?? r['código'], 60), preco: parsePreco(r['preco'] ?? r['preço'] ?? r['valor']),
         estoque: parseInt2(r['estoque'] ?? r['qtd'] ?? r['quantidade']), disponivel: parseBool(r['disponivel'] ?? r['disponível'] ?? r['ativo']),
+        cobranca: parseCobranca(r['cobranca'] ?? r['cobrança'] ?? r['tipo de cobranca'] ?? r['recorrencia']),
         active: true,
       }
       const existing = payload.sku

@@ -41,6 +41,7 @@ export type IconName =
   | 'Instagram'
   | 'Plug'
   | 'Boxes'
+  | 'Handshake'
   | 'Settings'
   | 'GanttChart'
   | 'GraduationCap'
@@ -133,6 +134,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'activities', label: 'Atividades', href: '/app/activities', icon: 'ListChecks', permission: 'activities' },
         { id: 'scheduling', label: 'Agenda', href: '/app/scheduling', icon: 'CalendarRange', permission: 'scheduling' },
         { id: 'meetings', label: 'Reuniões', href: '/app/meetings', icon: 'Mic', permission: 'meetings' },
+        { id: 'negotiations', label: 'Negociações', href: '/app/negotiations', icon: 'Handshake', permission: 'negotiations' },
         { id: 'catalog', label: 'Catálogo', href: '/app/catalog', icon: 'Boxes', permission: 'catalog' },
       ],
     },

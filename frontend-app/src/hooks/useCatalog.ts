@@ -12,6 +12,9 @@ export interface Product {
   disponivel: boolean
   sku: string | null
   imageUrl: string | null
+  /** unico = cobrança de uma vez; recorrente = mensalidade. Puxado como padrão
+   * ao inserir o item numa negociação. */
+  cobranca?: 'unico' | 'recorrente'
 }
 
 export interface ProductInput {
@@ -24,6 +27,7 @@ export interface ProductInput {
   estoque?: number | null
   disponivel?: boolean
   sku?: string
+  cobranca?: 'unico' | 'recorrente'
 }
 
 export function useCatalog(q: string, categoria: string) {

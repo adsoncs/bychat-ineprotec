@@ -26,7 +26,25 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 const money = (v: unknown) => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return isFinite(n) ? n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00' }
 const num = (v: unknown) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : 0 }
 
-interface Row { productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number }
+// `cobranca` decide de que lado da conta a linha cai: mensalidade entra no MRR,
+// pagamento único entra no valor de implantação/projeto. `parcelas` só vale para
+// o único (implantação em 6x) e `recorrenciaMeses` só para o recorrente.
+/** "R$ 8.000,00 + R$ 890,00/mês" quando há mensalidade; só o total quando não há.
+ * Um contrato de recorrência exibido como número único parece venda avulsa. */
+function negValueLabel(n: { valorFinal?: unknown; valorUnico?: unknown; valorRecorrente?: unknown } | null | undefined): string {
+  const mrr = num(n?.valorRecorrente)
+  if (!n || mrr <= 0) return money(n?.valorFinal)
+  const unico = num(n.valorUnico)
+  return unico > 0 ? `${money(unico)} + ${money(mrr)}/mês` : `${money(mrr)}/mês`
+}
+
+interface Row {
+  productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number
+  cobranca: 'unico' | 'recorrente'; parcelas: number; recorrenciaMeses: number
+}
+const NEW_ROW: Row = { productId: null, nome: '', quantidade: 1, precoUnit: 0, descontoItem: 0, cobranca: 'unico', parcelas: 0, recorrenciaMeses: 0 }
+const isRec = (r: Row) => r.cobranca === 'recorrente'
+const rowSubtotal = (r: Row) => Math.max(0, r.precoUnit * r.quantidade - (r.descontoItem || 0))
 
 // Estado do formulário num objeto só: qualquer patch marca "alterações não salvas".
 interface Form {
@@ -55,13 +73,36 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
         <div class="absolute z-10 mt-1 w-full max-h-48 overflow-auto rounded-md border border-border bg-surface shadow-lg">
           {data.products.map((p) => (
             <button key={p.id} type="button" class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex justify-between gap-2"
-              onClick={() => { onPick({ productId: p.id, nome: p.nome, quantidade: 1, precoUnit: num(p.preco), descontoItem: 0 }); setQ('') }}>
+              onClick={() => { onPick({ ...NEW_ROW, productId: p.id, nome: p.nome, precoUnit: num(p.preco), cobranca: p.cobranca === 'recorrente' ? 'recorrente' : 'unico' }); setQ('') }}>
               <span class="truncate">{p.nome} <span class="text-fg-subtle">· {p.categoria}</span></span>
-              <span class="text-fg-muted shrink-0">{money(p.preco)}</span>
+              <span class="text-fg-muted shrink-0">{money(p.preco)}{p.cobranca === 'recorrente' ? '/mês' : ''}</span>
             </button>
           ))}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** Como o item é cobrado: uma vez (implantação, site) ou todo mês (mensalidade).
+ * Fica na própria linha do item porque é decisão por item, não por proposta —
+ * a mesma proposta costuma ter os dois. */
+function BillingToggle({ value, disabled, onChange }: { value: 'unico' | 'recorrente'; disabled?: boolean; onChange: (v: 'unico' | 'recorrente') => void }) {
+  const opt = (v: 'unico' | 'recorrente', label: string) => (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-pressed={value === v}
+      onClick={() => onChange(v)}
+      class={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors disabled:opacity-60 ${value === v ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'}`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div class="inline-flex items-center gap-0.5 p-0.5 rounded-md bg-surface-3">
+      {opt('unico', 'Pagamento único')}
+      {opt('recorrente', 'Mensalidade')}
     </div>
   )
 }
@@ -76,7 +117,10 @@ function SummaryRow({ label, value, sign, strong }: { label: string; value: stri
   )
 }
 
-function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number | 'new'; onBack: () => void }) {
+/** Editor da proposta. Exportado porque a tela do módulo (NegotiationsPage) abre
+ * exatamente este formulário num modal — a proposta é a mesma, mudou só de onde
+ * se chega nela. */
+export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: number; id: number | 'new'; onBack: () => void; hideBack?: boolean }) {
   const isNew = id === 'new'
   const { data, isLoading } = useNegotiation(isNew ? null : (id as number))
   const save = useSaveNegotiation(leadId)
@@ -107,8 +151,10 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
       ...cur,
       titulo: s.titulo || cur.titulo,
       rows: s.items.map((i) => ({
+        ...NEW_ROW,
         productId: i.productId, nome: i.nome, quantidade: i.quantidade,
         precoUnit: i.precoUnit, descontoItem: i.descontoItem,
+        cobranca: i.cobranca === 'recorrente' ? 'recorrente' as const : 'unico' as const,
       })),
       pagamentoForma: s.pagamentoForma || cur.pagamentoForma,
       parcelas: s.parcelas != null ? String(s.parcelas) : cur.parcelas,
@@ -123,7 +169,12 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
     if (!n || loaded) return
     setF({
       titulo: n.titulo, status: n.status,
-      rows: (n.items || []).map((i: NegItem) => ({ productId: i.productId ?? null, nome: i.nome, quantidade: i.quantidade, precoUnit: num(i.precoUnit), descontoItem: num(i.descontoItem) })),
+      rows: (n.items || []).map((i: NegItem) => ({
+        productId: i.productId ?? null, nome: i.nome, quantidade: i.quantidade,
+        precoUnit: num(i.precoUnit), descontoItem: num(i.descontoItem),
+        cobranca: i.cobranca === 'recorrente' ? 'recorrente' as const : 'unico' as const,
+        parcelas: i.parcelas ?? 0, recorrenciaMeses: i.recorrenciaMeses ?? 0,
+      })),
       descontoTipo: (n.descontoTipo as any) || 'valor',
       descontoValor: n.descontoValor != null ? String(n.descontoValor) : '',
       acrescimos: n.frete != null ? String(n.frete) : '',
@@ -141,16 +192,33 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
 
   if (!isNew && isLoading) return <Skeleton class="h-64 w-full" />
 
-  // ── Conta explícita: Subtotal − Desconto + Acréscimos = Total ──
-  const subtotal = f.rows.reduce((s, r) => s + Math.max(0, r.precoUnit * r.quantidade - (r.descontoItem || 0)), 0)
+  // ── Conta explícita, em duas colunas: pagamento único e mensalidade ──
+  // O desconto geral é rateado na proporção do subtotal de cada lado; os
+  // acréscimos (frete/taxas) caem inteiros no único — taxa pontual não é receita
+  // recorrente. Sem isso, um desconto na implantação derrubaria o MRR do card.
+  const subUnico = f.rows.reduce((s, r) => s + (isRec(r) ? 0 : rowSubtotal(r)), 0)
+  const subRecorrente = f.rows.reduce((s, r) => s + (isRec(r) ? rowSubtotal(r) : 0), 0)
+  const subtotal = subUnico + subRecorrente
   const desconto = f.descontoValor ? (f.descontoTipo === 'percent' ? subtotal * (num(f.descontoValor) / 100) : num(f.descontoValor)) : 0
+  const descUnico = subtotal > 0 ? desconto * (subUnico / subtotal) : desconto
+  const descRecorrente = desconto - descUnico
   const acrescimos = num(f.acrescimos)
-  const total = Math.max(0, subtotal - desconto + acrescimos)
-  // Entrada abate do total → saldo parcelado (se houver parcelas).
+  const totalUnico = Math.max(0, subUnico - descUnico + acrescimos)
+  const mrr = Math.max(0, subRecorrente - descRecorrente)
+  // `total` = valor de face do 1º ciclo (único + 1 mensalidade). É o que vai para
+  // `valorFinal` e para o valor de venda do lead ao fechar como ganha.
+  const total = totalUnico + mrr
+  const temRecorrente = subRecorrente > 0
+  // Entrada abate do pagamento único → saldo parcelado (se houver parcelas).
   const entrada = num(f.entrada)
-  const saldo = Math.max(0, total - entrada)
+  const saldo = Math.max(0, totalUnico - entrada)
   const nParcelas = Math.max(0, Math.round(num(f.parcelas)))
   const valorParcela = nParcelas > 0 ? saldo / nParcelas : 0
+  // Itens únicos com parcelamento próprio (implantação em 6x, site à vista).
+  const parceladosPorItem = f.rows.filter((r) => !isRec(r) && r.parcelas > 1 && rowSubtotal(r) > 0)
+  // Contrato: mensalidade × prazo declarado, quando o operador informa o prazo.
+  const mesesContrato = f.rows.reduce((m, r) => isRec(r) && r.recorrenciaMeses > m ? r.recorrenciaMeses : m, 0)
+  const valorContrato = mesesContrato > 0 ? totalUnico + mrr * mesesContrato : 0
   const closed = !!n?.resultado
   // Desconto por item só aparece se algum item antigo já tiver (legado) — novos usam o desconto geral.
   const hasItemDesc = f.rows.some((r) => (r.descontoItem || 0) > 0)
@@ -160,7 +228,12 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
     if (!f.rows.length && !confirm('Salvar sem nenhum item?')) return
     const payload = {
       id: isNew ? undefined : (id as number), titulo: f.titulo, status: f.status,
-      items: f.rows, descontoTipo: f.descontoTipo, descontoValor: f.descontoValor ? num(f.descontoValor) : null, frete: f.acrescimos ? acrescimos : null,
+      items: f.rows.map((r) => ({
+        ...r,
+        parcelas: !isRec(r) && r.parcelas > 1 ? r.parcelas : null,
+        recorrenciaMeses: isRec(r) && r.recorrenciaMeses > 0 ? r.recorrenciaMeses : null,
+      })),
+      descontoTipo: f.descontoTipo, descontoValor: f.descontoValor ? num(f.descontoValor) : null, frete: f.acrescimos ? acrescimos : null,
       pagamentoForma: f.pagamentoForma || null, parcelas: f.parcelas ? nParcelas : null, entrada: f.entrada ? entrada : null,
       condicaoPagamento: f.condicao || null, probabilidade: f.probabilidade ? num(f.probabilidade) : null,
       validadeAte: f.validadeAte || null, observacoes: f.obs || null,
@@ -187,10 +260,12 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
   return (
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <button type="button" class="flex items-center gap-1 text-sm text-fg-muted hover:text-fg" onClick={goBack}><ChevronLeft size={15} /> Voltar</button>
+        {hideBack
+          ? <span />
+          : <button type="button" class="flex items-center gap-1 text-sm text-fg-muted hover:text-fg" onClick={goBack}><ChevronLeft size={15} /> Voltar</button>}
         {closed ? (
           <Badge tone={n?.resultado === 'won' ? 'success' : 'danger'}>
-            {n?.resultado === 'won' ? `Ganha · ${money(n?.valorFinal)}` : `Perdida${n?.lostReason ? ' · ' + n.lostReason.name : ''}`}
+            {n?.resultado === 'won' ? `Ganha · ${negValueLabel(n)}` : `Perdida${n?.lostReason ? ' · ' + n.lostReason.name : ''}`}
           </Badge>
         ) : null}
       </div>
@@ -239,7 +314,7 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
         <div class="text-sm font-semibold text-fg mb-2">Itens</div>
         {!closed ? <div class="mb-3"><CatalogSearch onPick={(r) => patch({ rows: [...f.rows, r] })} /></div> : null}
         {f.rows.length === 0 ? <p class="text-xs text-fg-subtle">Nenhum item ainda. Busque no catálogo acima ou clique em "Adicionar item".</p> : (
-          <div class="space-y-1.5">
+          <div class="space-y-2">
             {/* Cabeçalho das colunas — evita adivinhar o que é cada campo */}
             <div class="grid grid-cols-12 gap-2 text-[11px] font-medium text-fg-subtle px-0.5">
               <span class={hasItemDesc ? 'col-span-4' : 'col-span-5'}>Item</span>
@@ -249,18 +324,44 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
               <span class={hasItemDesc ? 'col-span-2 text-right' : 'col-span-3 text-right'}>Subtotal</span>
             </div>
             {f.rows.map((r, i) => (
-              <div key={i} class="grid grid-cols-12 gap-2 items-center">
-                <input class={`${hasItemDesc ? 'col-span-4' : 'col-span-5'} px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60`} placeholder="Descrição do item" disabled={closed} value={r.nome} onInput={(e) => setRow(i, { nome: (e.target as HTMLInputElement).value })} />
-                <input class="col-span-1 px-1 py-1.5 rounded bg-surface border border-border text-sm text-center disabled:opacity-60" type="number" min={1} disabled={closed} value={String(r.quantidade)} onInput={(e) => setRow(i, { quantidade: Math.max(1, parseInt((e.target as HTMLInputElement).value, 10) || 1) })} />
-                <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.precoUnit)} onInput={(e) => setRow(i, { precoUnit: num((e.target as HTMLInputElement).value) })} />
-                {hasItemDesc ? <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.descontoItem)} onInput={(e) => setRow(i, { descontoItem: num((e.target as HTMLInputElement).value) })} /> : null}
-                <span class={`${hasItemDesc ? 'col-span-2' : 'col-span-3'} text-sm text-fg tabular-nums text-right`}>{money(Math.max(0, r.precoUnit * r.quantidade - (r.descontoItem || 0)))}</span>
-                {!closed ? <button type="button" class="col-span-1 text-fg-subtle hover:text-danger justify-self-end" title="Remover item" onClick={() => patch({ rows: f.rows.filter((_, idx) => idx !== i) })}><Trash2 size={14} /></button> : <span class="col-span-1" />}
+              <div key={i} class="rounded-md border border-border/60 bg-surface-2/30 p-2 space-y-1.5">
+                <div class="grid grid-cols-12 gap-2 items-center">
+                  <input class={`${hasItemDesc ? 'col-span-4' : 'col-span-5'} px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60`} placeholder="Descrição do item" disabled={closed} value={r.nome} onInput={(e) => setRow(i, { nome: (e.target as HTMLInputElement).value })} />
+                  <input class="col-span-1 px-1 py-1.5 rounded bg-surface border border-border text-sm text-center disabled:opacity-60" type="number" min={1} disabled={closed} value={String(r.quantidade)} onInput={(e) => setRow(i, { quantidade: Math.max(1, parseInt((e.target as HTMLInputElement).value, 10) || 1) })} />
+                  <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.precoUnit)} onInput={(e) => setRow(i, { precoUnit: num((e.target as HTMLInputElement).value) })} />
+                  {hasItemDesc ? <input class="col-span-2 px-2 py-1.5 rounded bg-surface border border-border text-sm disabled:opacity-60" inputMode="decimal" disabled={closed} value={String(r.descontoItem)} onInput={(e) => setRow(i, { descontoItem: num((e.target as HTMLInputElement).value) })} /> : null}
+                  <span class={`${hasItemDesc ? 'col-span-2' : 'col-span-3'} text-sm text-fg tabular-nums text-right`}>
+                    {money(rowSubtotal(r))}{isRec(r) ? <span class="text-xs text-fg-muted">/mês</span> : null}
+                  </span>
+                  {!closed ? <button type="button" class="col-span-1 text-fg-subtle hover:text-danger justify-self-end" title="Remover item" onClick={() => patch({ rows: f.rows.filter((_, idx) => idx !== i) })}><Trash2 size={14} /></button> : <span class="col-span-1" />}
+                </div>
+                {/* Como este item é cobrado — o que separa MRR de venda avulsa nos relatórios */}
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                  <BillingToggle value={r.cobranca} disabled={closed} onChange={(v) => setRow(i, { cobranca: v })} />
+                  {isRec(r) ? (
+                    <span class="inline-flex items-center gap-1">
+                      contrato de
+                      <input class="w-14 px-1.5 py-1 rounded bg-surface border border-border text-xs text-center disabled:opacity-60" type="number" min={0} placeholder="—" disabled={closed}
+                        value={r.recorrenciaMeses ? String(r.recorrenciaMeses) : ''}
+                        onInput={(e) => setRow(i, { recorrenciaMeses: Math.max(0, parseInt((e.target as HTMLInputElement).value, 10) || 0) })} />
+                      meses <span class="text-fg-subtle">(opcional)</span>
+                      {r.recorrenciaMeses > 0 ? <span class="text-fg-subtle">· {money(rowSubtotal(r) * r.recorrenciaMeses)} no contrato</span> : null}
+                    </span>
+                  ) : (
+                    <span class="inline-flex items-center gap-1">
+                      em
+                      <input class="w-12 px-1.5 py-1 rounded bg-surface border border-border text-xs text-center disabled:opacity-60" type="number" min={1} placeholder="1" disabled={closed}
+                        value={r.parcelas > 1 ? String(r.parcelas) : ''}
+                        onInput={(e) => setRow(i, { parcelas: Math.max(0, parseInt((e.target as HTMLInputElement).value, 10) || 0) })} />
+                      {r.parcelas > 1 ? <>× de {money(rowSubtotal(r) / r.parcelas)}</> : <>× <span class="text-fg-subtle">(vazio = à vista)</span></>}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
-        {!closed ? <Button size="sm" variant="ghost" class="mt-2" onClick={() => patch({ rows: [...f.rows, { productId: null, nome: '', quantidade: 1, precoUnit: 0, descontoItem: 0 }] })}><Plus size={13} /> Adicionar item</Button> : null}
+        {!closed ? <Button size="sm" variant="ghost" class="mt-2" onClick={() => patch({ rows: [...f.rows, { ...NEW_ROW }] })}><Plus size={13} /> Adicionar item</Button> : null}
       </Card>
 
       {/* Valores e pagamento + resumo lado a lado */}
@@ -283,31 +384,60 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
               </Select>
             </div>
             <Input label="Entrada / sinal (R$)" value={f.entrada} disabled={closed} onInput={(e) => patch({ entrada: (e.target as HTMLInputElement).value })} />
-            <Input label="Parcelas do saldo" type="number" min={0} value={f.parcelas} disabled={closed} onInput={(e) => patch({ parcelas: (e.target as HTMLInputElement).value })} />
+            <Input label="Parcelas do saldo único" type="number" min={0} value={f.parcelas} disabled={closed} onInput={(e) => patch({ parcelas: (e.target as HTMLInputElement).value })} />
             <Input label="Chance de fechar (%)" type="number" min={0} max={100} value={f.probabilidade} disabled={closed} onInput={(e) => patch({ probabilidade: (e.target as HTMLInputElement).value })} />
           </div>
           <div class="mt-3"><Textarea label="Condições combinadas (visível na proposta)" rows={2} disabled={closed} value={f.condicao} onInput={(e) => patch({ condicao: (e.target as HTMLTextAreaElement).value })} /></div>
           <div class="mt-3"><Textarea label="Observações internas (não vai para o cliente)" rows={2} disabled={closed} value={f.obs} onInput={(e) => patch({ obs: (e.target as HTMLTextAreaElement).value })} /></div>
         </Card>
 
-        {/* Resumo — a conta inteira, sempre visível e ao vivo */}
+        {/* Resumo — a conta inteira, sempre visível e ao vivo, separando o que
+            é recorrente do que é cobrado uma vez só */}
         <Card class="!p-4 h-fit lg:sticky lg:top-2">
           <div class="text-sm font-semibold text-fg mb-3">Resumo</div>
+
           <div class="space-y-1.5">
-            <SummaryRow label={`Subtotal (${f.rows.length} ${f.rows.length === 1 ? 'item' : 'itens'})`} value={money(subtotal)} />
-            {desconto > 0 ? <SummaryRow label={`Desconto${f.descontoTipo === 'percent' ? ` (${num(f.descontoValor)}%)` : ''}`} value={money(desconto)} sign="−" /> : null}
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Pagamento único</div>
+            <SummaryRow label="Subtotal" value={money(subUnico)} />
+            {descUnico > 0 ? <SummaryRow label={`Desconto${temRecorrente ? ' (parte única)' : f.descontoTipo === 'percent' ? ` (${num(f.descontoValor)}%)` : ''}`} value={money(descUnico)} sign="−" /> : null}
             {acrescimos > 0 ? <SummaryRow label="Acréscimos" value={money(acrescimos)} sign="+" /> : null}
-            <div class="border-t border-border my-2" />
-            <SummaryRow label="Total" value={money(total)} strong />
+            <SummaryRow label="Total à vista" value={money(totalUnico)} strong />
             {entrada > 0 ? (
               <>
                 <SummaryRow label="Entrada" value={money(entrada)} sign="−" />
                 <SummaryRow label={nParcelas > 0 ? `Saldo em ${nParcelas}× de ${money(valorParcela)}` : 'Saldo'} value={money(saldo)} />
-                {entrada > total ? <p class="text-[11px] text-danger">⚠ Entrada maior que o total.</p> : null}
+                {entrada > totalUnico ? <p class="text-[11px] text-danger">⚠ Entrada maior que o pagamento único.</p> : null}
               </>
-            ) : nParcelas > 0 && total > 0 ? (
-              <SummaryRow label={`${nParcelas}× de ${money(valorParcela)}`} value={money(total)} />
+            ) : nParcelas > 0 && totalUnico > 0 ? (
+              <SummaryRow label={`${nParcelas}× de ${money(valorParcela)}`} value={money(totalUnico)} />
             ) : null}
+            {parceladosPorItem.length > 0 ? (
+              <div class="pt-1 space-y-0.5">
+                {parceladosPorItem.map((r, i) => (
+                  <div key={i} class="flex items-baseline justify-between gap-2 text-[11px] text-fg-subtle">
+                    <span class="truncate">{r.nome || 'Item'}</span>
+                    <span class="tabular-nums shrink-0">{r.parcelas}× {money(rowSubtotal(r) / r.parcelas)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {temRecorrente ? (
+            <div class="space-y-1.5 mt-4 pt-3 border-t border-border">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Recorrente</div>
+              <SummaryRow label="Subtotal mensal" value={money(subRecorrente)} />
+              {descRecorrente > 0 ? <SummaryRow label="Desconto (parte mensal)" value={money(descRecorrente)} sign="−" /> : null}
+              <SummaryRow label="Mensalidade" value={`${money(mrr)}/mês`} strong />
+              {mesesContrato > 0 ? (
+                <SummaryRow label={`Contrato de ${mesesContrato} meses`} value={money(valorContrato)} />
+              ) : null}
+            </div>
+          ) : null}
+
+          <div class="mt-4 pt-3 border-t border-border">
+            <SummaryRow label={temRecorrente ? '1º pagamento (único + 1 mês)' : 'Total'} value={money(total)} strong />
+            {temRecorrente ? <p class="text-[11px] text-fg-subtle mt-1">É este valor que vai para o card de venda do lead ao fechar como ganha. A mensalidade entra separada nos indicadores de recorrência.</p> : null}
           </div>
         </Card>
       </div>
@@ -337,7 +467,11 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
       {!isNew && !closed ? (
         <Card class="!p-4">
           <div class="text-sm font-semibold text-fg mb-1">Fechar negociação</div>
-          <p class="text-xs text-fg-muted mb-3">Ganha registra o total de {money(total)} como valor de venda do lead; perdida registra o motivo. Ambas atualizam os relatórios.</p>
+          <p class="text-xs text-fg-muted mb-3">
+            Ganha registra {money(total)} como valor de venda do lead
+            {temRecorrente ? <> ({money(totalUnico)} único + {money(mrr)}/mês, que segue nos indicadores de recorrência)</> : null}
+            ; perdida registra o motivo. Ambas atualizam os relatórios.
+          </p>
           <div class="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => doClose('won')} disabled={close.isPending}>✅ Marcar como ganha</Button>
             <div class="flex items-center gap-1">
@@ -355,7 +489,10 @@ function NegotiationEditor({ leadId, id, onBack }: { leadId: number; id: number 
         <div class="sticky bottom-0 z-10 pt-1">
           <Card class="!p-3 shadow-lg border-border">
             <div class="flex items-center gap-3 flex-wrap">
-              <div class="text-sm text-fg-muted">Total: <span class="text-base font-semibold text-fg tabular-nums">{money(total)}</span></div>
+              <div class="text-sm text-fg-muted">
+                {temRecorrente ? 'Único:' : 'Total:'} <span class="text-base font-semibold text-fg tabular-nums">{money(temRecorrente ? totalUnico : total)}</span>
+                {temRecorrente ? <> · Mensal: <span class="text-base font-semibold text-fg tabular-nums">{money(mrr)}</span>/mês</> : null}
+              </div>
               {dirty ? <Badge tone="warning">alterações não salvas</Badge> : !isNew ? <span class="text-xs text-fg-subtle">tudo salvo</span> : null}
               <div class="flex-1" />
               <Button variant="primary" size="sm" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Salvando…' : isNew ? 'Criar negociação' : 'Salvar alterações'}</Button>
@@ -401,7 +538,7 @@ export function LeadNegotiationTab({ leadId }: { leadId: number }) {
                       {neg.createdAt ? <> · criada em {new Date(neg.createdAt).toLocaleDateString('pt-BR')}</> : null}
                     </div>
                   </div>
-                  <span class="text-base font-semibold text-fg shrink-0 tabular-nums">{money(neg.valorFinal)}</span>
+                  <span class="text-base font-semibold text-fg shrink-0 tabular-nums">{negValueLabel(neg)}</span>
                 </button>
               </Card>
             )

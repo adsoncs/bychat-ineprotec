@@ -340,18 +340,35 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       sub = `${num(d.paid)} de ${num(d.total)} pagas`
       break
     case 'negotiations_open':
+    case 'negotiations_onetime_open':
       val = brl.format(num(d.value))
       sub = `${num(d.count)} negociaç${num(d.count) === 1 ? 'ão' : 'ões'} em aberto`
       break
+    case 'negotiations_mrr_open':
+      val = <>{brl.format(num(d.value))}<em class="text-base text-fg-muted ml-1">/mês</em></>
+      sub = `${num(d.count)} negociaç${num(d.count) === 1 ? 'ão' : 'ões'} com mensalidade`
+      break
     case 'negotiations_won_revenue':
+    case 'negotiations_onetime_won':
       val = brl.format(num(d.value))
       sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : `${num(d.count)} negociações ganhas`
       break
+    case 'negotiations_mrr_won':
+      val = <>{brl.format(num(d.value))}<em class="text-base text-fg-muted ml-1">/mês</em></>
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : `${num(d.count)} contrato(s) com mensalidade`
+      break
     case 'negotiations_avg_ticket':
+    case 'negotiations_onetime_avg_ticket':
       val = brl.format(num(d.value))
       sub = num(d.count) > 0
         ? `média de ${num(d.count)} negociaç${num(d.count) === 1 ? 'ão ganha' : 'ões ganhas'}`
         : 'nenhuma negociação ganha no período'
+      break
+    case 'negotiations_mrr_avg_ticket':
+      val = <>{brl.format(num(d.value))}<em class="text-base text-fg-muted ml-1">/mês</em></>
+      sub = num(d.count) > 0
+        ? `média de ${num(d.count)} contrato${num(d.count) === 1 ? '' : 's'} com mensalidade`
+        : 'nenhuma mensalidade fechada no período'
       break
     case 'helpdesk_volume':
       val = num(d.created)

@@ -65,6 +65,9 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/TrackingPage').then((m) => ({ default: m.TrackingPage })),
   ),
   links: lazy(() => import('./pages/LinksPage').then((m) => ({ default: m.LinksPage }))),
+  negotiations: lazy(() =>
+    import('./pages/NegotiationsPage').then((m) => ({ default: m.NegotiationsPage })),
+  ),
   intelligence: lazy(() =>
     import('./pages/IntelligencePage').then((m) => ({ default: m.IntelligencePage })),
   ),

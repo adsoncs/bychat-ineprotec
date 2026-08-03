@@ -9,6 +9,12 @@ export interface NegItem {
   precoUnit: number | string
   descontoItem?: number | string | null
   subtotal?: number | string
+  /** unico = cobrança de uma vez; recorrente = mensalidade (entra no MRR). */
+  cobranca?: 'unico' | 'recorrente'
+  /** Só p/ `unico`: parcelamento do item (null/1 = à vista). */
+  parcelas?: number | null
+  /** Só p/ `recorrente`: prazo do contrato em meses. */
+  recorrenciaMeses?: number | null
 }
 
 export interface NegAttachment {
@@ -30,6 +36,9 @@ export interface Negotiation {
   descontoValor: number | string | null
   frete: number | string | null
   valorFinal: number | string | null
+  /** Mensalidade somada (MRR) e pagamento único, já com o desconto rateado. */
+  valorRecorrente: number | string | null
+  valorUnico: number | string | null
   moeda: string
   pagamentoForma: string | null
   parcelas: number | null
@@ -71,7 +80,7 @@ export function useNegotiation(id: number | null) {
  * Só é consultado ao criar uma negociação nova. */
 export interface NegotiationSuggestion {
   titulo: string
-  items: Array<{ productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number }>
+  items: Array<{ productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number; cobranca?: 'unico' | 'recorrente' }>
   pagamentoForma: string | null
   parcelas: number | null
   descontoTipo: 'valor' | 'percent' | null
@@ -143,12 +152,82 @@ export function useDeleteNegotiationAttachment(leadId: number) {
 }
 
 // Busca no catálogo para adicionar itens (best-effort: 403 se módulo catálogo off → vazio).
-export interface CatalogHit { id: number; nome: string; categoria: string; preco: number | string | null }
+export interface CatalogHit { id: number; nome: string; categoria: string; preco: number | string | null; cobranca?: 'unico' | 'recorrente' }
 export function useCatalogPick(q: string) {
   return useQuery({
     queryKey: ['catalog-pick', q],
     queryFn: () => api.get<{ products: CatalogHit[] }>(`/admin/catalog?q=${encodeURIComponent(q)}`).catch(() => ({ products: [] as CatalogHit[] })),
     enabled: q.trim().length >= 2,
     staleTime: 15_000,
+  })
+}
+
+// ── Tela do módulo (todas as negociações) ─────────────────────────────────
+// Um endpoint só devolve a página da lista, os totais por status (colunas do
+// pipeline) e os KPIs — três telas do mesmo recorte, uma volta ao servidor.
+
+export interface NegotiationRow extends Negotiation {
+  lead: { id: number; nome: string | null; email: string | null; whatsapp: string | null; funnelId: number | null; status: string | null } | null
+  responsavelNome: string | null
+}
+
+export interface NegotiationsOverviewParams {
+  page?: number
+  limit?: number
+  q?: string
+  status?: string
+  /** open | won | lost */
+  resultado?: string
+  funnelId?: number | null
+  responsavelUserId?: number | null
+  /** unico | recorrente — só propostas que têm aquele componente */
+  cobranca?: string
+  dateFrom?: string
+  dateTo?: string
+  /** recent | oldest | value | mrr */
+  orderBy?: string
+}
+
+export interface NegotiationsOverview {
+  negotiations: NegotiationRow[]
+  total: number
+  page: number
+  limit: number
+  byStatus: { status: string; count: number; valorUnico: number; valorRecorrente: number; valorFinal: number }[]
+  kpis: {
+    openCount: number; openUnico: number; openMrr: number; openTotal: number
+    wonCount: number; wonUnico: number; wonMrr: number; wonTotal: number
+    lostCount: number; winRate: number | null; avgTicket: number
+  }
+}
+
+export function negotiationsOverviewQuery(p: NegotiationsOverviewParams): string {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(p)) {
+    if (v === undefined || v === null || v === '') continue
+    qs.set(k, String(v))
+  }
+  return qs.toString()
+}
+
+export function useNegotiationsOverview(p: NegotiationsOverviewParams) {
+  return useQuery({
+    queryKey: ['negotiations-overview', p],
+    queryFn: () => api.get<NegotiationsOverview>(`/admin/negotiations/overview?${negotiationsOverviewQuery(p)}`),
+    staleTime: 15_000,
+  })
+}
+
+/** Muda só o status (arrastar card no pipeline). O PUT recalcula os totais a
+ * partir dos itens que já estão salvos — não mexe na composição da proposta. */
+export function useSetNegotiationStatus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      api.put<{ negotiation: Negotiation }>(`/admin/negotiations/${id}`, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['negotiations-overview'] })
+      qc.invalidateQueries({ queryKey: ['negotiation'] })
+    },
   })
 }

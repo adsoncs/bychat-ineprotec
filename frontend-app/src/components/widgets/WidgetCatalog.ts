@@ -103,9 +103,15 @@ export const WIDGET_CATALOG: WidgetMetaWithCategory[] = [
   { category: 'helpdesk', metric: 'helpdesk_by_agent', title: 'Desempenho por Agente', description: 'Atribuídos, resolvidos, TMR e CSAT', icon: '👤', defaultSize: 'xl', defaultType: 'table', availableTypes: ['table'] },
 
   // ── Negociações (módulo Negociação) ──
-  { category: 'negociacoes', metric: 'negotiations_open', title: 'Em Negociação', description: 'Valor total e quantidade das negociações em aberto agora', icon: '🤝', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
-  { category: 'negociacoes', metric: 'negotiations_won_revenue', title: 'Fechado em Negociações', description: 'Soma do total das negociações ganhas no período (com Δ% vs anterior)', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
-  { category: 'negociacoes', metric: 'negotiations_avg_ticket', title: 'Ticket Médio', description: 'Valor médio por negociação ganha no período (receita ganha ÷ nº de ganhas)', icon: '🎫', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_mrr_open', title: 'Mensalidade em Negociação', description: 'Soma das mensalidades das negociações em aberto agora (MRR na mesa)', icon: '🔁', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_mrr_won', title: 'Mensalidade Fechada', description: 'Novo MRR fechado no período — só a parte recorrente (com Δ% vs anterior)', icon: '📈', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_mrr_avg_ticket', title: 'Ticket Médio Mensal', description: 'Mensalidade média das negociações ganhas que têm recorrência', icon: '🎫', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_onetime_open', title: 'Pagamento Único em Negociação', description: 'Implantação, setup e projetos em aberto agora — sem misturar com recorrência', icon: '🧾', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_onetime_won', title: 'Pagamento Único Fechado', description: 'Total de pagamento único fechado no período (com Δ% vs anterior)', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_onetime_avg_ticket', title: 'Ticket Médio Único', description: 'Valor médio de pagamento único por negociação ganha que tem essa parte', icon: '🏷️', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_open', title: 'Em Negociação (total)', description: 'Valor total na mesa agora, misturando mensalidade e pagamento único', icon: '🤝', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_won_revenue', title: 'Fechado em Negociações (total)', description: 'Soma do total das negociações ganhas no período (1º ciclo, com Δ% vs anterior)', icon: '💰', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
+  { category: 'negociacoes', metric: 'negotiations_avg_ticket', title: 'Ticket Médio (total)', description: 'Valor médio por negociação ganha no período (receita ganha ÷ nº de ganhas)', icon: '🎫', defaultSize: 'sm', defaultType: 'kpi', availableTypes: ['kpi'] },
 ]
 
 export const FUNNEL_AWARE_METRICS = [

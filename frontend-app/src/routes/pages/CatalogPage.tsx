@@ -19,7 +19,7 @@ function fmtPreco(v: unknown): string {
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-const EMPTY: ProductInput = { categoria: '', nome: '', marca: '', descricao: '', preco: '', estoque: null, disponivel: true, sku: '' }
+const EMPTY: ProductInput = { categoria: '', nome: '', marca: '', descricao: '', preco: '', estoque: null, disponivel: true, sku: '', cobranca: 'unico' }
 
 function ProductForm({ initial, onDone }: { initial: ProductInput; onDone: () => void }) {
   const [f, setF] = useState<ProductInput>(initial)
@@ -40,6 +40,13 @@ function ProductForm({ initial, onDone }: { initial: ProductInput; onDone: () =>
         <Input label="Nome / modelo *" value={f.nome} placeholder="iPhone 15 128GB Preto" onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
         <Input label="Marca" value={f.marca || ''} onInput={(e) => set('marca', (e.target as HTMLInputElement).value)} />
         <Input label="Preço (R$)" value={String(f.preco ?? '')} placeholder="6999,00" onInput={(e) => set('preco', (e.target as HTMLInputElement).value)} />
+        <div>
+          <label class="block text-xs font-medium text-fg mb-1">Cobrança</label>
+          <Select value={f.cobranca ?? 'unico'} onChange={(e) => set('cobranca', (e.target as HTMLSelectElement).value as 'unico' | 'recorrente')}>
+            <option value="unico">Pagamento único</option>
+            <option value="recorrente">Mensalidade (recorrente)</option>
+          </Select>
+        </div>
         <Input label="Estoque" type="number" value={f.estoque != null ? String(f.estoque) : ''} onInput={(e) => set('estoque', (e.target as HTMLInputElement).value ? parseInt((e.target as HTMLInputElement).value, 10) : null)} />
         <Input label="SKU" value={f.sku || ''} onInput={(e) => set('sku', (e.target as HTMLInputElement).value)} />
       </div>
@@ -116,17 +123,18 @@ export function CatalogPage() {
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium text-fg truncate">{p.nome}</span>
                     <Badge tone="neutral">{p.categoria}</Badge>
+                    {p.cobranca === 'recorrente' ? <Badge tone="info">Mensalidade</Badge> : null}
                     {!p.disponivel ? <Badge tone="danger">Esgotado</Badge> : null}
                   </div>
                   <div class="text-xs text-fg-muted mt-0.5">
-                    {fmtPreco(p.preco)}
+                    {fmtPreco(p.preco)}{p.cobranca === 'recorrente' ? '/mês' : ''}
                     {p.marca ? <> · {p.marca}</> : null}
                     {p.estoque != null ? <> · estoque {p.estoque}</> : null}
                     {p.sku ? <> · {p.sku}</> : null}
                   </div>
                   {p.descricao ? <div class="text-xs text-fg-subtle mt-0.5 truncate">{p.descricao}</div> : null}
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => setEditing({ id: p.id, categoria: p.categoria, nome: p.nome, marca: p.marca || '', descricao: p.descricao || '', preco: p.preco ?? '', estoque: p.estoque, disponivel: p.disponivel, sku: p.sku || '' })}><Pencil size={14} /></Button>
+                <Button size="sm" variant="ghost" onClick={() => setEditing({ id: p.id, categoria: p.categoria, nome: p.nome, marca: p.marca || '', descricao: p.descricao || '', preco: p.preco ?? '', estoque: p.estoque, disponivel: p.disponivel, sku: p.sku || '', cobranca: p.cobranca ?? 'unico' })}><Pencil size={14} /></Button>
                 <Button size="sm" variant="ghost" onClick={() => remove(p)} disabled={del.isPending}><Trash2 size={14} /></Button>
               </div>
             </Card>

@@ -60,11 +60,19 @@ const CHART_PIPELINE     = W({ metric: 'leads_by_status', type: 'funnel', title:
 const CHART_LOSS_REASONS = W({ metric: 'leads_loss_reasons', type: 'donut', title: 'Motivos de perda', size: 'md' })
 
 // KPIs do módulo Negociação — só aparecem com o módulo ativo.
-// "Em negociação" é estoque (agora); os outros dois seguem o período.
-const NEGOTIATION_KPIS: Widget[] = [
-  W({ metric: 'negotiations_open',        type: 'kpi', title: 'Em negociação',              size: 'sm' }),
-  W({ metric: 'negotiations_won_revenue', type: 'kpi', title: 'Fechado em negociações',     size: 'sm' }),
-  W({ metric: 'negotiations_avg_ticket',  type: 'kpi', title: 'Ticket médio',               size: 'sm' }),
+// Recorrência e pagamento único em linhas separadas: somados, um mês com uma
+// venda grande de implantação vira "crescimento" que não se repete no mês
+// seguinte, e a queda seguinte parece perda de clientes.
+// "Em negociação" é estoque (agora); os demais seguem o período.
+const NEGOTIATION_MRR_KPIS: Widget[] = [
+  W({ metric: 'negotiations_mrr_open',       type: 'kpi', title: 'Mensalidade em negociação', size: 'sm' }),
+  W({ metric: 'negotiations_mrr_won',        type: 'kpi', title: 'Mensalidade fechada',       size: 'sm' }),
+  W({ metric: 'negotiations_mrr_avg_ticket', type: 'kpi', title: 'Ticket médio mensal',       size: 'sm' }),
+]
+const NEGOTIATION_ONETIME_KPIS: Widget[] = [
+  W({ metric: 'negotiations_onetime_open',       type: 'kpi', title: 'Único em negociação', size: 'sm' }),
+  W({ metric: 'negotiations_onetime_won',        type: 'kpi', title: 'Único fechado',       size: 'sm' }),
+  W({ metric: 'negotiations_onetime_avg_ticket', type: 'kpi', title: 'Ticket médio único',  size: 'sm' }),
 ]
 
 // Estoque de pendências — sempre "agora", não muda com o seletor de período.
@@ -220,6 +228,7 @@ export function OverviewPage() {
             <div>
               <h2 class="text-sm font-semibold text-fg">Negociações</h2>
               <p class="text-[11px] text-fg-subtle">
+                Mensalidade e pagamento único separados — venda de implantação não vira "crescimento de recorrência".
                 "Em negociação" é o valor na mesa agora; os demais seguem o período selecionado.
                 {negFunnelName ? <> Exibindo apenas <strong class="text-fg-muted">{negFunnelName}</strong>.</> : null}
               </p>
@@ -236,10 +245,23 @@ export function OverviewPage() {
               ))}
             </select>
           </div>
-          <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
-            {NEGOTIATION_KPIS.map((w) => (
-              <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
-            ))}
+          <div class="space-y-3">
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">Recorrência (mensal)</div>
+              <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
+                {NEGOTIATION_MRR_KPIS.map((w) => (
+                  <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">Pagamento único</div>
+              <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
+                {NEGOTIATION_ONETIME_KPIS.map((w) => (
+                  <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
+                ))}
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -349,6 +371,10 @@ export function OverviewPage() {
           {
             title: '📈 Gráficos',
             body: <>Linha de leads por dia (vê crescimento), donut de origens (de onde estão vindo), pipeline por etapa (onde os leads do período estão parados) e motivos de perda (por que você está perdendo).</>,
+          },
+          {
+            title: '🤝 Bloco Negociações',
+            body: <>Com o módulo Negociação ativo, os valores vêm em duas linhas: <strong>recorrência</strong> (mensalidades, o MRR) e <strong>pagamento único</strong> (implantação, site, projeto). Cada item da proposta é marcado como mensalidade ou pagamento único, e o desconto geral é rateado entre os dois — assim uma venda avulsa grande não vira "crescimento de recorrência" no mês seguinte.</>,
           },
           {
             title: '⚠️ Bloco "Atenção"',

@@ -3831,6 +3831,13 @@ model Negotiation {
   descontoValor Decimal? @db.Decimal(12, 2)
   frete         Decimal? @db.Decimal(12, 2)
   valorFinal    Decimal? @db.Decimal(12, 2) // calculado
+
+  // Recorrência vs. pagamento único, desnormalizado da soma dos itens para os
+  // KPIs não precisarem de JOIN por item. O desconto geral é rateado entre os
+  // dois na proporção do subtotal de cada; acréscimos (frete/taxas) caem
+  // inteiros no único, que é onde uma taxa pontual pertence.
+  valorRecorrente Decimal? @db.Decimal(12, 2) // MRR: mensalidades já com desconto rateado
+  valorUnico      Decimal? @db.Decimal(12, 2) // implantação/setup/projeto + acréscimos
   moeda         String   @default("BRL") @db.VarChar(3)
 
   pagamentoForma    String?  @db.VarChar(20) // pix | cartao | boleto | dinheiro
@@ -3871,6 +3878,16 @@ model NegotiationItem {
   descontoItem  Decimal? @db.Decimal(12, 2)
   subtotal      Decimal  @db.Decimal(12, 2)
 
+  // unico = cobrança de uma vez (implantação, site, landing page);
+  // recorrente = mensalidade (entra no MRR). Default `unico` porque inflar o
+  // MRR com item mal classificado é o erro mais caro dos dois.
+  cobranca String @default("unico") @db.VarChar(12)
+  // Só p/ `unico`: em quantas vezes o item foi parcelado (null/1 = à vista).
+  parcelas Int?
+  // Só p/ `recorrente`: prazo do contrato em meses (opcional; usado para o
+  // valor total do contrato, nunca para o MRR).
+  recorrenciaMeses Int?
+
   negotiation Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
 
   @@index([negotiationId])
@@ -3908,6 +3925,9 @@ model Product {
   marca      String? @db.VarChar(100)
   imageUrl   String? @db.Text
   active     Boolean @default(true)
+  // Tipo de cobrança padrão do item (unico | recorrente). O item puxado para
+  // uma negociação já nasce classificado — o operador só corrige a exceção.
+  cobranca   String   @default("unico") @db.VarChar(12)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

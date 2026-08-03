@@ -21,25 +21,82 @@ function fileUrl(storagePath: string): string {
   return `${base}/uploads/${storagePath}`
 }
 
-interface ItemInput { productId?: number | null; nome: string; quantidade?: number; precoUnit?: number; descontoItem?: number | null }
+interface ItemInput {
+  productId?: number | null; nome: string; quantidade?: number; precoUnit?: number; descontoItem?: number | null
+  cobranca?: string; parcelas?: number | null; recorrenciaMeses?: number | null
+}
 
-function normItems(raw: any[]): { productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number | null; subtotal: number }[] {
+/** `recorrente` = mensalidade (MRR); qualquer outro valor cai em `unico`. */
+function normCobranca(v: unknown): 'unico' | 'recorrente' {
+  return String(v ?? '').toLowerCase() === 'recorrente' ? 'recorrente' : 'unico'
+}
+/** Parcelas/meses: inteiro ≥ 1, ou null (à vista / sem prazo declarado). */
+function posInt(v: unknown): number | null {
+  const n = num(v)
+  if (n == null) return null
+  const i = Math.round(n)
+  return i >= 1 ? i : null
+}
+
+interface NormItem {
+  productId: number | null; nome: string; quantidade: number; precoUnit: number
+  descontoItem: number | null; subtotal: number
+  cobranca: 'unico' | 'recorrente'; parcelas: number | null; recorrenciaMeses: number | null
+}
+
+function normItems(raw: any[]): NormItem[] {
   return (Array.isArray(raw) ? raw : []).map((i: ItemInput) => {
     const quantidade = Math.max(1, Math.round(num(i.quantidade) ?? 1))
     const precoUnit = num(i.precoUnit) ?? 0
     const descontoItem = num(i.descontoItem)
     const subtotal = Math.max(0, precoUnit * quantidade - (descontoItem ?? 0))
-    return { productId: i.productId ? Number(i.productId) : null, nome: String(i.nome || '').slice(0, 191), quantidade, precoUnit, descontoItem, subtotal }
+    const cobranca = normCobranca(i.cobranca)
+    return {
+      productId: i.productId ? Number(i.productId) : null, nome: String(i.nome || '').slice(0, 191),
+      quantidade, precoUnit, descontoItem, subtotal, cobranca,
+      // Cada campo só faz sentido de um lado do toggle — zerar o outro evita
+      // guardar "6x" numa mensalidade e confundir quem ler a proposta depois.
+      parcelas: cobranca === 'unico' ? posInt(i.parcelas) : null,
+      recorrenciaMeses: cobranca === 'recorrente' ? posInt(i.recorrenciaMeses) : null,
+    }
   }).filter((i) => i.nome)
 }
 
-function computeTotals(items: { subtotal: number }[], descontoTipo: string | null, descontoValor: number | null, frete: number | null) {
-  const valorTabela = items.reduce((s, i) => s + i.subtotal, 0)
+/**
+ * Totais da negociação, separando mensalidade de pagamento único.
+ *
+ * O desconto geral é rateado entre os dois blocos na proporção do subtotal de
+ * cada um — desconto de 10% numa proposta 90% implantação/10% mensalidade abate
+ * 90% do valor da implantação e 10% da mensalidade. Os acréscimos (frete,
+ * taxas) caem inteiros no único: taxa pontual não é receita recorrente.
+ *
+ * `valorFinal` continua sendo o valor de face do 1º ciclo (único + 1 ×
+ * mensalidade) — é o que os relatórios e o `saleValue` do lead já usavam, e
+ * numa proposta sem mensalidade o número não muda em nada.
+ */
+function computeTotals(
+  items: { subtotal: number; cobranca?: string }[],
+  descontoTipo: string | null,
+  descontoValor: number | null,
+  frete: number | null,
+) {
+  const subUnico = items.reduce((s, i) => s + (normCobranca(i.cobranca) === 'unico' ? i.subtotal : 0), 0)
+  const subRecorrente = items.reduce((s, i) => s + (normCobranca(i.cobranca) === 'recorrente' ? i.subtotal : 0), 0)
+  const valorTabela = subUnico + subRecorrente
   let desconto = 0
   if (descontoValor) desconto = descontoTipo === 'percent' ? valorTabela * (descontoValor / 100) : descontoValor
-  const valorFinal = Math.max(0, valorTabela - desconto + (frete ?? 0))
-  return { valorTabela, valorFinal }
+  const share = valorTabela > 0 ? subUnico / valorTabela : 1
+  const descUnico = desconto * share
+  const valorUnico = Math.max(0, subUnico - descUnico + (frete ?? 0))
+  const valorRecorrente = Math.max(0, subRecorrente - (desconto - descUnico))
+  return {
+    valorTabela,
+    valorUnico: round2(valorUnico),
+    valorRecorrente: round2(valorRecorrente),
+    valorFinal: round2(valorUnico + valorRecorrente),
+  }
 }
+function round2(n: number): number { return Math.round(n * 100) / 100 }
 
 const STATUSES = ['rascunho', 'enviada', 'em_negociacao', 'aceita', 'recusada', 'expirada']
 
@@ -53,6 +110,154 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       include: { _count: { select: { items: true, attachments: true } } },
     })
     return { negotiations: rows }
+  })
+
+  // ── Tela do módulo: todas as negociações + KPIs ────────────────────────
+  //
+  // O `where` sai de duas partes: o que é da própria negociação (status,
+  // resultado, responsável, período) e o que é do LEAD (funil, busca por nome).
+  // `Negotiation` só guarda `leadId` escalar — sem relação declarada —, então o
+  // recorte por lead vira um `in` de ids resolvido antes. Cabe: negociação é uma
+  // por oportunidade, não uma por mensagem.
+  //
+  // Período: negociação fechada pertence à data do FECHAMENTO, aberta à de
+  // criação. Filtrar as duas por `createdAt` esconderia o que foi fechado no mês
+  // mas proposto antes — que é justamente o que a gestão quer ver.
+  app.get('/api/admin/negotiations/overview', { preHandler: authMiddleware }, async (req, reply) => {
+    const q = req.query as any
+    const page = Math.max(1, Number(q.page) || 1)
+    const limit = Math.min(200, Math.max(1, Number(q.limit) || 50))
+    const from = q.dateFrom ? new Date(String(q.dateFrom) + 'T00:00:00.000Z') : null
+    const to = q.dateTo ? new Date(String(q.dateTo) + 'T23:59:59.999Z') : null
+    const statusList = String(q.status || '').split(',').map((s) => s.trim()).filter((s) => STATUSES.includes(s))
+    const resultado = q.resultado === 'won' || q.resultado === 'lost' ? q.resultado : q.resultado === 'open' ? 'open' : null
+    const responsavelUserId = Number(q.responsavelUserId) > 0 ? Number(q.responsavelUserId) : null
+    const funnelId = Number(q.funnelId) > 0 ? Number(q.funnelId) : null
+    const cobranca = q.cobranca === 'recorrente' || q.cobranca === 'unico' ? q.cobranca : null
+    const search = String(q.q || '').trim()
+    const orderBy = String(q.orderBy || 'recent')
+
+    // Ids de lead quando o filtro é do lado do lead (funil ou busca por nome).
+    let leadIdFilter: number[] | null = null
+    if (funnelId || search) {
+      const leadWhere: any = {}
+      if (funnelId) leadWhere.funnelId = funnelId
+      if (search) leadWhere.OR = [{ nome: { contains: search } }, { email: { contains: search } }, { whatsapp: { contains: search } }]
+      const leads = await prisma.lead.findMany({ where: leadWhere, select: { id: true }, take: 5000 })
+      leadIdFilter = leads.map((l) => l.id)
+    }
+
+    const where: any = {}
+    if (statusList.length) where.status = { in: statusList }
+    if (resultado === 'open') where.resultado = null
+    else if (resultado) where.resultado = resultado
+    if (responsavelUserId) where.responsavelUserId = responsavelUserId
+    if (cobranca === 'recorrente') where.valorRecorrente = { gt: 0 }
+    if (cobranca === 'unico') where.valorUnico = { gt: 0 }
+    if (leadIdFilter) where.leadId = { in: leadIdFilter.length ? leadIdFilter : [-1] }
+    // Busca também casa com o título da proposta, não só com o lead.
+    if (search && leadIdFilter) {
+      delete where.leadId
+      where.OR = [{ leadId: { in: leadIdFilter.length ? leadIdFilter : [-1] } }, { titulo: { contains: search } }]
+    }
+    if (from || to) {
+      const range: any = {}
+      if (from) range.gte = from
+      if (to) range.lte = to
+      const periodo = [{ fechadaEm: range }, { AND: [{ resultado: null }, { createdAt: range }] }]
+      where.AND = [...(where.AND ?? []), { OR: periodo }]
+    }
+
+    const order: any = orderBy === 'value' ? [{ valorFinal: 'desc' }]
+      : orderBy === 'mrr' ? [{ valorRecorrente: 'desc' }]
+      : orderBy === 'oldest' ? [{ createdAt: 'asc' }]
+      : [{ createdAt: 'desc' }]
+
+    // Exportação: o mesmo recorte da tela, sem paginação (teto de 5.000 linhas
+    // para não montar um arquivo que ninguém abre).
+    if (q.format === 'csv') {
+      const todas = await prisma.negotiation.findMany({ where, orderBy: order, take: 5000 })
+      const ids = Array.from(new Set(todas.map((n) => n.leadId)))
+      const uids = Array.from(new Set(todas.map((n) => n.responsavelUserId).filter((v): v is number => !!v)))
+      const [ls, us] = await Promise.all([
+        ids.length ? prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } }) : [],
+        uids.length ? prisma.user.findMany({ where: { id: { in: uids } }, select: { id: true, name: true } }) : [],
+      ])
+      const lname = new Map(ls.map((l) => [l.id, l.nome]))
+      const uname = new Map(us.map((u) => [u.id, u.name]))
+      const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+      const head = ['Lead', 'Proposta', 'Status', 'Resultado', 'Pagamento único', 'Mensalidade', 'Total 1º ciclo', 'Responsável', 'Criada em', 'Fechada em']
+      const linhas = todas.map((n) => [
+        lname.get(n.leadId) ?? `Lead #${n.leadId}`, n.titulo, n.status, n.resultado ?? 'em aberto',
+        n.valorUnico ?? 0, n.valorRecorrente ?? 0, n.valorFinal ?? 0,
+        n.responsavelUserId ? uname.get(n.responsavelUserId) ?? '' : '',
+        n.createdAt.toISOString().slice(0, 10), n.fechadaEm ? n.fechadaEm.toISOString().slice(0, 10) : '',
+      ].map(esc).join(';'))
+      // BOM + ';' para o Excel em pt-BR abrir sem passar pelo assistente de importação.
+      return reply
+        .header('Content-Disposition', 'attachment; filename="negociacoes.csv"')
+        .type('text/csv; charset=utf-8')
+        .send('﻿' + [head.map(esc).join(';'), ...linhas].join('\n'))
+    }
+
+    const [rows, total, agrupado] = await Promise.all([
+      prisma.negotiation.findMany({
+        where, orderBy: order, skip: (page - 1) * limit, take: limit,
+        include: { _count: { select: { items: true, attachments: true } } },
+      }),
+      prisma.negotiation.count({ where }),
+      // Pipeline por status (contagem + valores) — alimenta as colunas do quadro
+      // e os totais de cada uma sem uma segunda volta ao banco por coluna.
+      prisma.negotiation.groupBy({
+        by: ['status'], where,
+        _count: { _all: true }, _sum: { valorUnico: true, valorRecorrente: true, valorFinal: true },
+      }),
+    ])
+
+    // Nome do lead e do responsável só dos registros da página.
+    const leadIds = Array.from(new Set(rows.map((r) => r.leadId)))
+    const userIds = Array.from(new Set(rows.map((r) => r.responsavelUserId).filter((v): v is number => !!v)))
+    const [leads, users] = await Promise.all([
+      leadIds.length ? prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, email: true, whatsapp: true, funnelId: true, status: true } }) : [],
+      userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+    ])
+    const leadById = new Map(leads.map((l) => [l.id, l]))
+    const userById = new Map(users.map((u) => [u.id, u]))
+
+    // KPIs do recorte ATUAL (mesmo `where`), menos o filtro de resultado: os
+    // cards mostram aberto x ganho x perdido lado a lado, então filtrar por
+    // resultado antes deixaria dois deles sempre zerados.
+    const kpiWhere: any = { ...where }
+    delete kpiWhere.resultado
+    const [aberto, ganho, perdidoCount] = await Promise.all([
+      prisma.negotiation.aggregate({ where: { ...kpiWhere, resultado: null }, _sum: { valorUnico: true, valorRecorrente: true, valorFinal: true }, _count: { _all: true } }),
+      prisma.negotiation.aggregate({ where: { ...kpiWhere, resultado: 'won' }, _sum: { valorUnico: true, valorRecorrente: true, valorFinal: true }, _count: { _all: true } }),
+      prisma.negotiation.count({ where: { ...kpiWhere, resultado: 'lost' } }),
+    ])
+    const dec = (v: unknown) => (v != null ? Number(v) : 0)
+    const wonCount = ganho._count._all
+    const fechadas = wonCount + perdidoCount
+
+    return {
+      negotiations: rows.map((n) => ({
+        ...n,
+        lead: leadById.get(n.leadId) ?? null,
+        responsavelNome: n.responsavelUserId ? userById.get(n.responsavelUserId)?.name ?? null : null,
+      })),
+      total, page, limit,
+      byStatus: agrupado.map((g) => ({
+        status: g.status, count: g._count._all,
+        valorUnico: dec(g._sum.valorUnico), valorRecorrente: dec(g._sum.valorRecorrente), valorFinal: dec(g._sum.valorFinal),
+      })),
+      kpis: {
+        openCount: aberto._count._all,
+        openUnico: dec(aberto._sum.valorUnico), openMrr: dec(aberto._sum.valorRecorrente), openTotal: dec(aberto._sum.valorFinal),
+        wonCount, wonUnico: dec(ganho._sum.valorUnico), wonMrr: dec(ganho._sum.valorRecorrente), wonTotal: dec(ganho._sum.valorFinal),
+        lostCount: perdidoCount,
+        winRate: fechadas > 0 ? Math.round((wonCount / fechadas) * 100) : null,
+        avgTicket: wonCount > 0 ? Math.round(dec(ganho._sum.valorFinal) / wonCount) : 0,
+      },
+    }
   })
 
   // Uma negociação (itens + anexos + motivo de perda).
@@ -87,13 +292,13 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const descontoTipo = b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)
     const descontoValor = num(b.descontoValor)
     const frete = num(b.frete)
-    const { valorTabela, valorFinal } = computeTotals(items, descontoTipo, descontoValor, frete)
+    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(items, descontoTipo, descontoValor, frete)
     const actor = auditActor(req)
     const n = await prisma.negotiation.create({
       data: {
         leadId: Number(b.leadId), titulo: String(b.titulo || 'Proposta').slice(0, 191),
         status: STATUSES.includes(b.status) ? b.status : 'rascunho',
-        valorTabela, descontoTipo, descontoValor, frete, valorFinal,
+        valorTabela, descontoTipo, descontoValor, frete, valorFinal, valorUnico, valorRecorrente,
         pagamentoForma: b.pagamentoForma ? String(b.pagamentoForma).slice(0, 20) : null,
         parcelas: num(b.parcelas) ? Math.round(num(b.parcelas)!) : null,
         entrada: num(b.entrada), condicaoPagamento: b.condicaoPagamento ? String(b.condicaoPagamento).slice(0, 2000) : null,
@@ -106,7 +311,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       },
       include: { items: true },
     })
-    void logUserAudit({ action: 'negotiation.created', targetType: 'lead', targetUserId: null, targetLabel: `Negociação ${n.titulo}`, changes: { leadId: n.leadId, valorFinal }, ...actor })
+    void logUserAudit({ action: 'negotiation.created', targetType: 'lead', targetUserId: null, targetLabel: `Negociação ${n.titulo}`, changes: { leadId: n.leadId, valorFinal, valorUnico, valorRecorrente }, ...actor })
     return { negotiation: n }
   })
 
@@ -120,9 +325,9 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const descontoTipo = b.descontoTipo !== undefined ? (b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)) : cur.descontoTipo
     const descontoValor = b.descontoValor !== undefined ? num(b.descontoValor) : (cur.descontoValor != null ? Number(cur.descontoValor) : null)
     const frete = b.frete !== undefined ? num(b.frete) : (cur.frete != null ? Number(cur.frete) : null)
-    const baseItems = items ?? (await prisma.negotiationItem.findMany({ where: { negotiationId: id }, select: { subtotal: true } })).map((i) => ({ subtotal: Number(i.subtotal) }))
-    const { valorTabela, valorFinal } = computeTotals(baseItems, descontoTipo, descontoValor, frete)
-    const data: any = { valorTabela, valorFinal, descontoTipo, descontoValor, frete }
+    const baseItems = items ?? (await prisma.negotiationItem.findMany({ where: { negotiationId: id }, select: { subtotal: true, cobranca: true } })).map((i) => ({ subtotal: Number(i.subtotal), cobranca: i.cobranca }))
+    const { valorTabela, valorFinal, valorUnico, valorRecorrente } = computeTotals(baseItems, descontoTipo, descontoValor, frete)
+    const data: any = { valorTabela, valorFinal, valorUnico, valorRecorrente, descontoTipo, descontoValor, frete }
     if (b.titulo !== undefined) data.titulo = String(b.titulo).slice(0, 191)
     if (b.status !== undefined && STATUSES.includes(b.status)) data.status = b.status
     if (b.pagamentoForma !== undefined) data.pagamentoForma = b.pagamentoForma ? String(b.pagamentoForma).slice(0, 20) : null
@@ -153,13 +358,24 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const n = await prisma.negotiation.findUnique({ where: { id } })
     if (!n) return reply.code(404).send({ error: 'Negociação não encontrada' })
     const actor = auditActor(req)
+    // A UI pode fechar com um total diferente do salvo (ajuste de última hora).
+    // Nesse caso o split mensal/único acompanha na mesma proporção — sem isso os
+    // KPIs de recorrência ficariam contando um valor que a negociação não tem mais.
+    const storedFinal = n.valorFinal != null ? Number(n.valorFinal) : null
+    const closingFinal = num(b.valorFinal) ?? storedFinal
+    const ratio = storedFinal && closingFinal != null && storedFinal > 0 ? closingFinal / storedFinal : 1
+    const splitPatch = ratio === 1 ? {} : {
+      valorUnico: n.valorUnico != null ? round2(Number(n.valorUnico) * ratio) : null,
+      valorRecorrente: n.valorRecorrente != null ? round2(Number(n.valorRecorrente) * ratio) : null,
+    }
     const updated = await prisma.negotiation.update({
       where: { id },
       data: {
         resultado, status: resultado === 'won' ? 'aceita' : 'recusada',
         lostReasonId: resultado === 'lost' && b.lostReasonId ? Number(b.lostReasonId) : null,
         fechadaEm: new Date(), fechadaPor: actor.actorId,
-        valorFinal: num(b.valorFinal) ?? (n.valorFinal != null ? Number(n.valorFinal) : null),
+        valorFinal: closingFinal,
+        ...splitPatch,
       },
     })
     // Reflete no lead (Fase 23: outcome won/lost + motivo de perda). Ganha
@@ -189,12 +405,19 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         reasonName = r?.name ?? undefined
       }
       const via = `negociação "${n.titulo}"`
+      // "R$ 8.000,00 + R$ 890,00/mês" — a timeline mostra a composição, senão um
+      // contrato de mensalidade parece uma venda avulsa do valor do 1º ciclo.
+      const unico = updated.valorUnico != null ? Number(updated.valorUnico) : null
+      const mrr = updated.valorRecorrente != null ? Number(updated.valorRecorrente) : null
+      const wonValue = mrr && mrr > 0
+        ? `R$ ${(unico ?? 0).toFixed(2)} + R$ ${mrr.toFixed(2)}/mês`
+        : finalValue != null ? `R$ ${finalValue.toFixed(2)}` : null
       logEvent({
         leadId: n.leadId,
         type: resultado === 'won' ? EVENT_TYPES.LEAD_WON : EVENT_TYPES.LEAD_LOST,
         category: 'lifecycle',
         title: resultado === 'won'
-          ? (finalValue != null ? `Ganho na ${via} — R$ ${finalValue.toFixed(2)}` : `Ganho na ${via}`)
+          ? (wonValue ? `Ganho na ${via} — ${wonValue}` : `Ganho na ${via}`)
           : (reasonName ? `Perdido na ${via} — ${reasonName}` : `Perdido na ${via}`),
         source: 'panel',
         actorType: actor.actorId ? 'operator' : 'system',
@@ -203,6 +426,8 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         metadata: {
           negotiationId: id,
           valorFinal: finalValue,
+          valorUnico: unico,
+          valorRecorrente: mrr,
           lostReasonId: updated.lostReasonId ?? null,
           reasonName: reasonName ?? null,
           viaNegotiation: true,
@@ -210,7 +435,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         ipAddress: actor.ipAddress ?? undefined,
       })
     }
-    void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal }, ...actor })
+    void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal, valorUnico: updated.valorUnico, valorRecorrente: updated.valorRecorrente }, ...actor })
     return { negotiation: updated }
   })
 
@@ -227,11 +452,20 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       where: { id },
       data: { resultado: null, lostReasonId: null, fechadaEm: null, fechadaPor: null, status: 'em_negociacao' },
     })
-    const lead = await prisma.lead.findUnique({ where: { id: n.leadId }, select: { outcome: true } })
+    const lead = await prisma.lead.findUnique({ where: { id: n.leadId }, select: { outcome: true, saleValue: true } })
     if (lead?.outcome === prevResultado) {
+      // O /close grava saleValue = total da negociação; reabrir sem devolver esse
+      // campo deixava a "Receita ganha" contando uma venda que não existe mais.
+      // Só limpa se o valor ainda for o desta negociação — se alguém digitou outro
+      // valor no lead depois, ele manda.
+      const saleFromThis = lead.saleValue != null && n.valorFinal != null
+        && Number(lead.saleValue) === Number(n.valorFinal)
       const cleared = await prisma.lead.update({
         where: { id: n.leadId },
-        data: { outcome: null, outcomeAt: null, outcomeBy: null, lostReasonId: null },
+        data: {
+          outcome: null, outcomeAt: null, outcomeBy: null, lostReasonId: null,
+          ...(saleFromThis ? { saleValue: null } : {}),
+        },
       }).then(() => true).catch(() => false)
       // Contrapartida do evento gravado no /close: sem isto a Timeline mostraria
       // um Ganho/Perdido que não vale mais (a data de encerramento foi apagada).

@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { computeHelpdeskReport } from '../services/helpdesk.js'
@@ -22,6 +23,16 @@ function previousRange(cfg: any): { gte: Date; lte: Date } | null {
 }
 
 /**
+ * Coluna de valor somada nos KPIs de negociação:
+ *   valorFinal      = tudo (1º ciclo: pagamento único + 1 × mensalidade)
+ *   valorRecorrente = só mensalidade (MRR)
+ *   valorUnico      = só implantação/projeto/setup
+ * Separar os três é o que impede um pico de venda avulsa de parecer aumento de
+ * recorrência — e vice-versa.
+ */
+type NegField = 'valorFinal' | 'valorRecorrente' | 'valorUnico'
+
+/**
  * Soma/contagem de negociações de um funil. O funil pertence ao LEAD e
  * `Negotiation` guarda só `leadId` (sem relação declarada), então o recorte sai
  * de um JOIN — mais barato que carregar os ids do funil para um `IN` com
@@ -29,24 +40,55 @@ function previousRange(cfg: any): { gte: Date; lte: Date } | null {
  *
  * `open: true` → negociações em aberto (sem resultado), ignorando período:
  * é estoque de agora, não fluxo do período.
+ *
+ * `count` conta só as negociações que TÊM o componente pedido (> 0) quando o
+ * campo não é o total: ticket médio de mensalidade dividido pelas propostas sem
+ * mensalidade nenhuma seria um número sem significado.
  */
 async function negAggregateByFunnel(
   funnelId: number,
-  opts: { open?: boolean; resultado?: 'won' | 'lost'; from?: Date; to?: Date },
+  opts: { open?: boolean; resultado?: 'won' | 'lost'; from?: Date; to?: Date; field?: NegField },
 ): Promise<{ sum: number; count: number }> {
+  const field = opts.field ?? 'valorFinal'
+  // Nome de coluna não é parâmetro de bind — vem de um literal do tipo NegField,
+  // nunca do request, então Prisma.raw aqui não abre injeção.
+  const col = Prisma.raw(`n.\`${field}\``)
+  const countCol = field === 'valorFinal' ? Prisma.raw('1') : Prisma.raw(`CASE WHEN COALESCE(${`n.\`${field}\``}, 0) > 0 THEN 1 END`)
   const rows: any[] = opts.open
     ? await prisma.$queryRaw`
-        SELECT COALESCE(SUM(n.valorFinal), 0) AS sum, COUNT(*) AS count
+        SELECT COALESCE(SUM(${col}), 0) AS sum, COUNT(${countCol}) AS count
         FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
         WHERE n.resultado IS NULL AND l.funnelId = ${funnelId}`
     : await prisma.$queryRaw`
-        SELECT COALESCE(SUM(n.valorFinal), 0) AS sum, COUNT(*) AS count
+        SELECT COALESCE(SUM(${col}), 0) AS sum, COUNT(${countCol}) AS count
         FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
         WHERE n.resultado = ${opts.resultado ?? 'won'} AND l.funnelId = ${funnelId}
           AND (${opts.from ?? null} IS NULL OR n.fechadaEm >= ${opts.from ?? null})
           AND (${opts.to ?? null} IS NULL OR n.fechadaEm <= ${opts.to ?? null})`
   const r = rows[0] ?? {}
   return { sum: Number(r.sum ?? 0), count: Number(r.count ?? 0) }
+}
+
+/** Métrica → coluna: `negotiations_mrr_*` soma mensalidade, `*_onetime_*` soma
+ * pagamento único, o resto (métricas antigas) continua somando o total. */
+function negFieldOf(metric: string): NegField {
+  if (metric.startsWith('negotiations_mrr_')) return 'valorRecorrente'
+  if (metric.startsWith('negotiations_onetime_')) return 'valorUnico'
+  return 'valorFinal'
+}
+
+/**
+ * Mesma agregação sem recorte de funil (todos os funis), via Prisma. Contrapartida
+ * exata de `negAggregateByFunnel`: `count` só conta quem tem o componente.
+ */
+async function negAggregate(
+  where: any,
+  field: NegField,
+): Promise<{ sum: number; count: number }> {
+  const scoped = field === 'valorFinal' ? where : { ...where, [field]: { gt: 0 } }
+  const agg = await prisma.negotiation.aggregate({ where: scoped, _sum: { [field]: true } as any, _count: { _all: true } })
+  const sum = (agg._sum as any)?.[field]
+  return { sum: sum ? Number(sum) : 0, count: agg._count._all }
 }
 
 export async function userDashboardsRoutes(app: FastifyInstance) {
@@ -235,36 +277,38 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       // O funil é do LEAD, não da negociação — e Negotiation não declara relação
       // com Lead (só leadId escalar), então o recorte por funil sai de um JOIN
       // em SQL. Sem funil escolhido, seguem os agregados do Prisma.
-      case 'negotiations_open': {
-        // Estoque atual: negociações em aberto (sem resultado) e quanto há na mesa.
+      // Estoque atual: negociações em aberto (sem resultado) e quanto há na mesa.
+      // `mrr_` = só mensalidade, `onetime_` = só pagamento único, sem prefixo = tudo.
+      case 'negotiations_open':
+      case 'negotiations_mrr_open':
+      case 'negotiations_onetime_open': {
+        const field = negFieldOf(metric)
         if (negFunnelId) {
-          const r = await negAggregateByFunnel(negFunnelId, { open: true })
+          const r = await negAggregateByFunnel(negFunnelId, { open: true, field })
           return { value: r.sum, count: r.count }
         }
-        const agg = await prisma.negotiation.aggregate({
-          where: { resultado: null },
-          _sum: { valorFinal: true }, _count: { _all: true },
-        })
-        return { value: agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0, count: agg._count._all }
+        const r = await negAggregate({ resultado: null }, field)
+        return { value: r.sum, count: r.count }
       }
 
-      case 'negotiations_won_revenue': {
-        // Total fechado (ganho) em negociações no período (usa fechadaEm).
+      // Fechado (ganho) em negociações no período (usa fechadaEm).
+      case 'negotiations_won_revenue':
+      case 'negotiations_mrr_won':
+      case 'negotiations_onetime_won': {
+        const field = negFieldOf(metric)
         const prevRange = previousRange(cfg)
         if (negFunnelId) {
-          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte })
+          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte, field })
           if (!prevRange) return { value: r.sum, count: r.count }
-          const p = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: prevRange.gte, to: prevRange.lte })
+          const p = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: prevRange.gte, to: prevRange.lte, field })
           return { value: r.sum, count: r.count, prev: p.sum }
         }
         const where: any = { resultado: 'won' }
         if (hasDate) where.fechadaEm = dateFilter
-        const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })
-        const value = agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0
-        const count = agg._count._all
-        if (!prevRange) return { value, count }
-        const p = await prisma.negotiation.aggregate({ where: { resultado: 'won', fechadaEm: prevRange }, _sum: { valorFinal: true } })
-        return { value, count, prev: p._sum.valorFinal ? Number(p._sum.valorFinal) : 0 }
+        const r = await negAggregate(where, field)
+        if (!prevRange) return { value: r.sum, count: r.count }
+        const p = await negAggregate({ resultado: 'won', fechadaEm: prevRange }, field)
+        return { value: r.sum, count: r.count, prev: p.sum }
       }
 
       case 'negotiations_win_rate': {
@@ -301,19 +345,23 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         return { value, won, closed, ...(prevClosed > 0 ? { prev: Math.round((pw / prevClosed) * 100) } : {}) }
       }
 
-      case 'negotiations_avg_ticket': {
-        // Ticket médio das negociações ganhas no período (receita ganha ÷ nº ganhas).
-        // Honesto: não depende de perdas registradas, ao contrário do antigo win_rate.
+      // Ticket médio das negociações ganhas no período (soma ÷ nº ganhas).
+      // Honesto: não depende de perdas registradas, ao contrário do antigo win_rate.
+      // Nas versões `mrr_`/`onetime_`, o divisor são só as negociações que têm
+      // aquele componente — uma proposta sem mensalidade não puxa o ticket mensal
+      // para baixo.
+      case 'negotiations_avg_ticket':
+      case 'negotiations_mrr_avg_ticket':
+      case 'negotiations_onetime_avg_ticket': {
+        const field = negFieldOf(metric)
         if (negFunnelId) {
-          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte })
+          const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: dateFilter.gte, to: dateFilter.lte, field })
           return { value: r.count ? Math.round(r.sum / r.count) : 0, count: r.count }
         }
         const where: any = { resultado: 'won' }
         if (hasDate) where.fechadaEm = dateFilter
-        const agg = await prisma.negotiation.aggregate({ where, _sum: { valorFinal: true }, _count: { _all: true } })
-        const count = agg._count._all
-        const sum = agg._sum.valorFinal ? Number(agg._sum.valorFinal) : 0
-        return { value: count ? Math.round(sum / count) : 0, count }
+        const r = await negAggregate(where, field)
+        return { value: r.count ? Math.round(r.sum / r.count) : 0, count: r.count }
       }
 
       case 'leads_new': {

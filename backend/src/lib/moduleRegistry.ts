@@ -506,9 +506,9 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false,
   },
   {
-    id: 'negotiations', name: 'Negociação', icon: '🤝', category: 'crm',
-    description: 'Negociações/propostas por lead (pipeline): itens do catálogo, valores, descontos, condição de pagamento, anexos da proposta e fechamento ganho/perdido. Aparece como uma seção no detalhe do lead.',
-    pages: [],
+    id: 'negotiations', name: 'Negociações', icon: '🤝', category: 'crm',
+    description: 'Negociações/propostas: itens do catálogo, mensalidade vs. pagamento único, descontos, condição de pagamento, anexos e fechamento ganho/perdido. Tem tela própria (todas as propostas, KPIs de recorrência e pipeline por status) e uma seção no detalhe do lead.',
+    pages: ['negotiations'],
     routePrefixes: ['/api/admin/negotiations'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,

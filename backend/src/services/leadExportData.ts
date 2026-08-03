@@ -202,6 +202,7 @@ export const GROUPS: GroupDef[] = [
         negByLead[n.leadId]?.push(pick(n, [
           ['titulo', 'Título'], ['status', 'Status'], ['valorTabela', 'Valor tabela'],
           ['descontoValor', 'Desconto'], ['frete', 'Frete'], ['valorFinal', 'Valor final'],
+          ['valorUnico', 'Pagamento único'], ['valorRecorrente', 'Mensalidade (MRR)'],
           ['pagamentoForma', 'Pagamento'], ['parcelas', 'Parcelas'], ['probabilidade', 'Probabilidade %'],
           ['validadeAte', 'Válida até'], ['resultado', 'Resultado'], ['observacoes', 'Observações'],
         ] as Col[]))
@@ -209,6 +210,8 @@ export const GROUPS: GroupDef[] = [
           itemsByLead[n.leadId]?.push({
             'Negociação': fmt(n.titulo), 'Item': fmt(it.nome), 'Qtd': fmt(it.quantidade),
             'Preço unit.': fmt(it.precoUnit), 'Desconto': fmt(it.descontoItem), 'Subtotal': fmt(it.subtotal),
+            'Cobrança': it.cobranca === 'recorrente' ? 'Mensalidade' : 'Pagamento único',
+            'Parcelas': fmt(it.parcelas), 'Meses de contrato': fmt(it.recorrenciaMeses),
           })
         }
       }
