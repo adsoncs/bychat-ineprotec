@@ -8091,3 +8091,222 @@ model WebStackScan {
   @@index([cms])
   @@map("bychat_web_stack_scans")
 }
+
+// ─── Disparos Inteligentes (smart_broadcast) ──────────────
+//
+// Campanhas enviadas pelos NÚMEROS PRÓPRIOS conectados na Evolution (Baileys),
+// não pela Cloud API oficial. Como não há template HSM nem SLA da Meta, todo o
+// esforço do módulo está em (a) parecer uso humano — ritmo irregular, digitação,
+// janela de horário, variações de texto — e (b) proteger o número: aquecimento
+// progressivo, teto diário, pré-checagem de existência no WhatsApp e disjuntor
+// automático ao primeiro sinal de bloqueio. Ver services/waCampaign/*.
+//
+// Separado de BroadcastCampaign de propósito: lá o risco é custo por template,
+// aqui é a vida do chip. Misturar os dois modelos confundiria as duas coisas.
+
+model SmartCampaign {
+  id     Int    @id @default(autoincrement())
+  name   String @db.VarChar(191)
+  status String @default("draft") @db.VarChar(16) // draft|scheduled|running|paused|completed|canceled|failed
+
+  // Pool de números Evolution que revezam o envio: [{id, instanceName}]
+  senderInstances Json @db.Json
+
+  // Conteúdo: blocos de mensagem com variações/spintax.
+  // [{ variants: ["Oi {{nome}}!", "Olá {{nome}}"], mediaUrl?, mediaType?, delayAfterMs? }]
+  messageBlocks Json @db.Json
+
+  audienceType String @db.VarChar(12) // leads | import
+  audienceMeta Json?  @db.Json
+
+  // Ritmo/janela (snapshot do perfil no momento da criação — perfil pode mudar depois)
+  pacingProfileId Int?
+  pacingConfig    Json @db.Json // { minDelayMs, maxDelayMs, sessionSize, sessionBreakMs, typingEnabled, ... }
+  windowConfig    Json @db.Json // { days:[1..5], from:"09:00", to:"18:00", timezone:"America/Sao_Paulo" }
+
+  dailyCapPerNumber Int     @default(20)
+  requireOptIn      Boolean @default(false)
+
+  // Rodapé de saída, anexado à última bolha. Custa uma linha de texto e evita
+  // a denúncia — que é o sinal mais caro para o número.
+  optOutFooter String? @db.VarChar(191)
+
+  // Espalha os envios pelo horário em que CADA contato costuma responder, em vez
+  // de seguir a fila. Quem responde de noite recebe de noite.
+  usePreferredTime Boolean @default(false)
+
+  // Destino do `{{link}}`: cada destinatário recebe a URL com UTMs da campanha
+  // e um identificador próprio, em vez do mesmo link literal em toda a lista.
+  linkUrl String? @db.VarChar(500)
+
+  // O que fazer quando o contato RESPONDE — mover de etapa, atribuir dono,
+  // registrar atividade. Responder é o evento que interessa: a campanha existe
+  // para gerar conversa, não para gerar entrega.
+  // { moveToFunnelId, moveToStageKey, assignToUserId, createActivity }
+  replyActions Json?
+  // Base legal declarada (LGPD) — quem dispara assume a responsabilidade.
+  legalBasis        String? @db.VarChar(30) // consent | contract | legitimate_interest
+
+  scheduledAt DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  // Estado de risco calculado pelo disjuntor (guard.ts)
+  riskState  String  @default("ok") @db.VarChar(16) // ok | watch | throttled | halted
+  riskReason String? @db.VarChar(191)
+
+  totalRecipients Int @default(0)
+  sentCount       Int @default(0)
+  failedCount     Int @default(0)
+  skippedCount    Int @default(0)
+  repliedCount    Int @default(0)
+
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  recipients SmartCampaignRecipient[]
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("bychat_smart_campaigns")
+}
+
+model SmartCampaignRecipient {
+  id         Int           @id @default(autoincrement())
+  campaignId Int
+  campaign   SmartCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  leadId   Int?
+  phone    String  @db.VarChar(30)
+  // Chave canônica (lib/phone.ts) — dedup entre formatos diferentes do mesmo número.
+  phoneKey String  @db.VarChar(30)
+  name     String? @db.VarChar(191)
+
+  variables Json @db.Json // valores resolvidos p/ interpolação
+
+  // Número que vai falar com este destinatário (afinidade + rodízio)
+  assignedInstanceId Int?
+  assignedInstance   String? @db.VarChar(100)
+  // Qual variação de texto ele recebe (distribuição determinística por phoneKey)
+  variantIndex       Int     @default(0)
+
+  // Horário PLANEJADO do envio — a agenda é calculada antes e persistida, para
+  // sobreviver a restart e ser auditável ("por que essa mensagem sai 14:37?").
+  plannedAt DateTime?
+
+  status     String  @default("pending") @db.VarChar(12) // pending|scheduled|sending|sent|delivered|read|replied|failed|skipped
+  skipReason String? @db.VarChar(30) // opt_out|invalid_phone|not_on_whatsapp|duplicate|governance|cap|canceled|blacklist
+  externalId String? @db.VarChar(191) // key.id da Evolution
+  error      String? @db.VarChar(500)
+  sentText   String? @db.Text // texto exatamente como saiu (auditoria de variação)
+
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  deliveredAt DateTime?
+  readAt      DateTime?
+  repliedAt   DateTime?
+  failedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId, status])
+  @@index([plannedAt])
+  @@index([externalId])
+  @@index([phoneKey])
+  @@map("bychat_smart_campaign_recipients")
+}
+
+// Saúde diária por número. Uma linha por instância/dia: é o que sustenta o
+// aquecimento (warmupDay), o teto diário e o disjuntor.
+model SmartSenderHealth {
+  id           Int      @id @default(autoincrement())
+  instanceId   Int
+  instanceName String   @db.VarChar(100)
+  day          DateTime @db.Date
+
+  sent      Int @default(0)
+  delivered Int @default(0)
+  failed    Int @default(0)
+  replies   Int @default(0)
+  notFound  Int @default(0) // números que não existem no WhatsApp
+
+  // Dia da escada de aquecimento (1 = recém-conectado). Não avança sozinho se a
+  // taxa de resposta despencar.
+  warmupDay Int    @default(1)
+  dailyCap  Int    @default(20)
+  state     String @default("warming") @db.VarChar(12) // warming|healthy|throttled|paused|blocked
+
+  pausedUntil DateTime?
+  pauseReason String?   @db.VarChar(191)
+  score       Int       @default(100) // 0-100, alimenta o rodízio ponderado
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([instanceId, day])
+  @@index([instanceName])
+  @@map("bychat_smart_sender_health")
+}
+
+// Perfis de ritmo. "Conservador" é o padrão do sistema e o único recomendado
+// para número novo.
+model SmartPacingProfile {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique @db.VarChar(60)
+  description String? @db.VarChar(255)
+  isSystem    Boolean @default(false)
+
+  minDelayMs     Int     @default(40000)
+  maxDelayMs     Int     @default(180000)
+  sessionSize    Int     @default(20) // envios antes da pausa longa
+  sessionBreakMs Int     @default(600000)
+  typingEnabled  Boolean @default(true)
+  readReceipts   Boolean @default(true)
+  dailyCapStart  Int     @default(20)
+  dailyCapMax    Int     @default(250)
+  warmupCurve    Json    @db.Json // [20,35,50,80,120,180,250]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("bychat_smart_pacing_profiles")
+}
+
+// Cache de "esse número existe no WhatsApp?". Disparar para número inexistente é
+// um dos sinais que mais derruba chip — e a consulta custa uma chamada, então
+// vale guardar.
+model SmartNumberCheck {
+  id       Int     @id @default(autoincrement())
+  phoneKey String  @unique @db.VarChar(30)
+  exists   Boolean
+  jid      String? @db.VarChar(100)
+
+  checkedAt DateTime @default(now())
+
+  @@index([checkedAt])
+  @@map("bychat_smart_number_checks")
+}
+
+// Lista de supressão GLOBAL: telefones que não recebem disparo nenhum, de
+// campanha nenhuma, para sempre. Diferente do opt-out por lead (que vive em
+// Lead.optOutChannels e depende de existir um lead), aqui entra o telefone cru —
+// serve para pedido de terceiro, número errado, contato de concorrente,
+// solicitação por outro canal, decisão jurídica.
+//
+// Esta lista é consultada na montagem da audiência E no momento do envio: quem
+// pediu para sair ontem não recebe hoje porque "já estava agendado".
+model SmartSuppression {
+  id       Int    @id @default(autoincrement())
+  phoneKey String @unique @db.VarChar(30)
+  phone    String @db.VarChar(30)
+
+  reason String  @default("manual") @db.VarChar(30) // manual | opt_out | bounce | legal | import
+  note   String? @db.VarChar(255)
+
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("bychat_smart_suppressions")
+}

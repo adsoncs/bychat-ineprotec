@@ -177,6 +177,16 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'smart_broadcast', name: 'Disparos Inteligentes', icon: '🧠', category: 'marketing',
+    description: 'Campanhas pelos números próprios conectados (Evolution), com ritmo humanizado, simulação de digitação, variações de texto, aquecimento e proteção automática do número.',
+    pages: ['smart-broadcast'],
+    routePrefixes: ['/api/admin/smart-broadcast'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    // Nasce DESLIGADO: envio por número próprio é decisão consciente do tenant
+    // (fora dos termos oficiais do WhatsApp e com risco de bloqueio do chip).
+    defaultEnabled: false,
+  },
+  {
     id: 'google', name: 'Google', icon: '🔗', category: 'integracoes',
     description: 'Integrações Google: Sheets, Calendar, Drive, Ads, GA4, Gmail, Tasks, Looker e Make.',
     pages: ['googlesheets', 'googlecalendar', 'googledrive', 'googleads', 'ga4', 'gmail', 'googletasks', 'lookerstudio', 'make'],

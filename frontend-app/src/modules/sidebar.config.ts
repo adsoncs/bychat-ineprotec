@@ -210,6 +210,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'whatsapp-templates', label: 'Modelos de Mensagem', href: '/app/whatsapp-templates', icon: 'FileText', permission: 'whatsapp' },
         { id: 'whatsapp-dispatch', label: 'Disparos & Custos', href: '/app/whatsapp-dispatch', icon: 'BarChart3', permission: 'whatsapp' },
         { id: 'broadcast', label: 'Disparos em Massa', href: '/app/broadcast', icon: 'Megaphone', permission: 'broadcast' },
+        { id: 'smart-broadcast', label: 'Disparos Inteligentes', href: '/app/smart-broadcast', icon: 'BrainCircuit', permission: 'smart_broadcast' },
         { id: 'telegram', label: 'Telegram', href: '/app/telegram', icon: 'Send', permission: 'whatsapp' },
         { id: 'instagram', label: 'Instagram', href: '/app/instagram', icon: 'Instagram', permission: 'whatsapp' },
         { id: 'voip', label: 'VoIP', href: '/app/voip', icon: 'Phone', permission: 'voip' },

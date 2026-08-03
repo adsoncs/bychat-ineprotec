@@ -121,6 +121,42 @@ export class EvolutionProvider implements WhatsAppProvider {
     throw new Error('Evolution API nao suporta envio de templates HSM')
   }
 
+  /**
+   * Presença ("digitando…", "gravando áudio…"). Usado pelos Disparos
+   * Inteligentes antes de cada mensagem: quem recebe vê o mesmo que veria de uma
+   * pessoa escrevendo, e o número deixa de emitir mensagens que aparecem do nada.
+   */
+  async sendPresence(phone: string, presence: 'composing' | 'recording' | 'paused' | 'available', delayMs = 0): Promise<void> {
+    await this.evoFetch(`/chat/sendPresence/${this.instanceName}`, 'POST', {
+      number: toEvoNumber(phone),
+      presence,
+      delay: Math.max(0, Math.round(delayMs)),
+    })
+  }
+
+  /**
+   * Quais destes números existem no WhatsApp. Disparar para número inexistente é
+   * um dos sinais que mais derrubam chip — vale a consulta antes de gastar envio.
+   */
+  async checkNumbers(phones: string[]): Promise<Array<{ number: string; exists: boolean; jid: string | null }>> {
+    if (!phones.length) return []
+    const data = await this.evoFetch(`/chat/whatsappNumbers/${this.instanceName}`, 'POST', {
+      numbers: phones.map((p) => toEvoNumber(p)),
+    })
+    const arr = Array.isArray(data) ? data : (data?.data ?? [])
+    return arr.map((r: any) => ({
+      number: String(r?.number ?? ''),
+      exists: !!(r?.exists ?? r?.numberExists),
+      jid: r?.jid ? String(r.jid) : null,
+    }))
+  }
+
+  /** Estado da conexão da instância (`open`, `close`, `connecting`). */
+  async connectionState(): Promise<string> {
+    const data = await this.evoFetch(`/instance/connectionState/${this.instanceName}`)
+    return String(data?.instance?.state ?? data?.state ?? 'unknown')
+  }
+
   async sendInteractive(_phone: string, _interactive: any): Promise<WhatsAppSendResult> {
     // Evolution API nao suporta mensagens interativas oficiais
     throw new Error('Evolution API nao suporta mensagens interativas oficiais')
@@ -258,7 +294,7 @@ export function createEvolutionProvider(): EvolutionProvider {
 }
 
 /** Cria EvolutionProvider com um instanceName específico (sobrescreve env). */
-function createEvolutionProviderFor(instanceName: string): EvolutionProvider {
+export function createEvolutionProviderFor(instanceName: string): EvolutionProvider {
   const url = process.env.EVOLUTION_API_URL
   const key = process.env.EVOLUTION_API_KEY
   if (!url || !key) {

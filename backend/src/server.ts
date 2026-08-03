@@ -66,6 +66,7 @@ import { backfillUids } from './services/dedup.js'
 import { securityRoutes } from './routes/security.js'
 import { cloudApiSetupRoutes } from './routes/cloudApiSetup.js'
 import { broadcastRoutes } from './routes/broadcast.js'
+import { smartBroadcastRoutes } from './routes/smartBroadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
 import { metaAdsReportRoutes } from './routes/metaAdsReport.js'
 import { funnelReportRoutes } from './routes/funnelReport.js'
@@ -541,6 +542,7 @@ await app.register(modulesRoutes)
 await app.register(salesRoutes)
 await app.register(cloudApiSetupRoutes)
 await app.register(broadcastRoutes)
+await app.register(smartBroadcastRoutes)
 await app.register(cloudApiWebhookRoutes)
 await app.register(conversionsRoutes)
 await app.register(reportsRoutes)
@@ -1178,6 +1180,9 @@ try {
   import('./services/cloudApiTemplates.js')
     .then(m => m.startCloudApiTemplateScheduler())
     .catch(err => console.warn('[cloudApiTemplates] init falhou:', err?.message || err))
+  import('./services/smartBroadcast/index.js')
+    .then(m => m.startSmartBroadcastWorker())
+    .catch(err => console.warn('[smartBroadcast] init falhou:', err?.message || err))
   import('./services/broadcast.js')
     .then(m => m.startBroadcastWorker())
     .catch(err => console.warn('[broadcast] init falhou:', err?.message || err))

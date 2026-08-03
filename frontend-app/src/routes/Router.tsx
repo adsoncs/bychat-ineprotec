@@ -130,6 +130,9 @@ const migratedPages: Record<string, ComponentType> = {
   broadcast: lazy(() =>
     import('./pages/BroadcastPage').then((m) => ({ default: m.BroadcastPage })),
   ),
+  'smart-broadcast': lazy(() =>
+    import('./pages/SmartBroadcastPage').then((m) => ({ default: m.SmartBroadcastPage })),
+  ),
   settings: lazy(() =>
     import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
   ),

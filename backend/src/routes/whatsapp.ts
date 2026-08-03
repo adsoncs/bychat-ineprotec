@@ -525,6 +525,12 @@ export async function whatsappRoutes(app: FastifyInstance) {
               tryAutoRestart(instName, name).catch(() => {})
             } else if (action === 'requires_qr') {
               app.log.error(`[WA] Instance ${instName} requires new QR (${name}, code=${statusReason}) — manual reconnect needed`)
+              // Sessão invalidada é o sinal mais grave para os Disparos
+              // Inteligentes: o número sai de circulação e toda campanha que
+              // dependia dele pausa na hora, em vez de seguir falhando em silêncio.
+              import('../services/smartBroadcast/index.js')
+                .then((m) => m.blockSender(instName, `sessão encerrada pelo WhatsApp (${name}, código ${statusReason})`))
+                .catch(() => {})
             } else if (action === 'give_up') {
               app.log.warn(`[WA] Instance ${instName} gave up (${name}, code=${statusReason}) — not reconnecting`)
             }
@@ -561,6 +567,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
             })
             if (result.count > 0) {
               app.log.info(`[ACK] ${msgId} -> ack=${ack} (${rawStatus})`)
+            }
+            // Entrega/leitura também alimentam os Disparos Inteligentes: é o que
+            // permite ver que um número parou de entregar antes de queimá-lo.
+            if (ack >= 2) {
+              import('../services/smartBroadcast/replies.js')
+                .then((m) => m.applyAck(msgId, ack))
+                .catch(() => {})
             }
           }
         } catch (ackErr: any) {
@@ -752,6 +765,17 @@ export async function whatsappRoutes(app: FastifyInstance) {
                    message.buttonsResponseMessage?.selectedButtonId ||
                    message.listResponseMessage?.singleSelectReply?.selectedRowId ||
                    ''
+
+      // Resposta a Disparo Inteligente: marca o destinatário como respondido
+      // (tira o resto da campanha da frente dele), conta para a taxa de resposta
+      // — que é o termômetro de risco do módulo — e aplica opt-out quando o
+      // texto é um pedido de saída ("PARE", "SAIR"). Best-effort: nunca segura
+      // o processamento normal da mensagem.
+      if (phone && !isGroupMsg) {
+        import('../services/smartBroadcast/replies.js')
+          .then((m) => m.registerReply(phone, text))
+          .catch(() => {})
+      }
 
       // Detect media messages
       let mediaType = 'text'
