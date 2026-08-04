@@ -11,6 +11,7 @@ import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
 import { assertUrlIsPublic } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
 import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues } from '../services/formFlow.js'
+import { rejectLeadEntry, candidateFromForm } from '../services/leadBlocklist.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
 import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
 import { dispatchConversion } from '../services/googleAdsConversions.js'
@@ -194,7 +195,10 @@ export async function formsRoutes(app: FastifyInstance) {
             } })
           }
         }
-        if (!leadId) {
+        // Lista de bloqueio: submissão segue registrada (auditoria), mas o lead
+        // não nasce. A resposta é a mesma de sempre — bloqueio silencioso.
+        const bloqueio = await rejectLeadEntry(candidateFromForm(fields, data, ip), 'formulário')
+        if (!leadId && !bloqueio) {
           const created = await createLeadFromForm(form, fields, data, body, ip, submission.id)
           if (created) {
             leadId = created.leadId
@@ -341,6 +345,9 @@ export async function formsRoutes(app: FastifyInstance) {
         entry.count++; submitCounts.set(ip, entry)
         if (entry.count > 5) return reply.code(429).send({ ok: false })
 
+        if (await rejectLeadEntry(candidateFromForm(fields, data, ip), 'formulário (início)')) {
+          return reply.send({ ok: true })
+        }
         const created = await createLeadFromForm(form, fields, data, body, ip, null)
         if (!created) return reply.send({ ok: true }) // ainda sem nome/email/whatsapp
 

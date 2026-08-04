@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { requireApiKey, logApiCall } from '../lib/apiKey.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { flagDuplicate } from '../services/dedup.js'
@@ -93,6 +94,13 @@ export async function publicApiRoutes(app: FastifyInstance) {
     const body = req.body as any
     if (!body.nome || !body.empresa) {
       return reply.code(400).send({ error: 'Fields nome and empresa are required' })
+    }
+
+    // Lista de bloqueio. Aqui quem chama é uma integração do próprio cliente
+    // (autenticada por API Key), não o contato bloqueado — então respondemos de
+    // forma explícita em vez de silenciosa.
+    if (await rejectLeadEntry({ email: body.email, whatsapp: body.whatsapp, ip: req.ip }, 'API pública')) {
+      return reply.code(200).send({ ok: true, ignored: 'blocked', message: 'Contato na lista de bloqueio de leads' })
     }
 
     const teamId = body.teamId ? parseInt(body.teamId) : await resolveDefaultTeamId()

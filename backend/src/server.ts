@@ -64,6 +64,7 @@ import { isPrimaryInstall } from './lib/install.js'
 import { startInactivityChecker } from './services/inactivity.js'
 import { backfillUids } from './services/dedup.js'
 import { securityRoutes } from './routes/security.js'
+import { leadBlocklistRoutes } from './routes/leadBlocklist.js'
 import { cloudApiSetupRoutes } from './routes/cloudApiSetup.js'
 import { broadcastRoutes } from './routes/broadcast.js'
 import { smartBroadcastRoutes } from './routes/smartBroadcast.js'
@@ -535,6 +536,7 @@ await app.register(dashboardRoutes)
 await app.register(userDashboardsRoutes)
 await app.register(installationsRoutes)
 await app.register(securityRoutes)
+await app.register(leadBlocklistRoutes)
 await app.register(metaAdsReportRoutes)
 await app.register(funnelReportRoutes)
 await app.register(trackableLinksRoutes)

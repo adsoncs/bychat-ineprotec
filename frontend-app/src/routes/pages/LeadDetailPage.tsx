@@ -5,8 +5,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon,
-} from 'lucide-preact'
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon,, ShieldBan} from 'lucide-preact'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
@@ -499,6 +498,9 @@ function ActionsMenu({ actions }: { actions: ReturnType<typeof useLeadActions> }
             </MenuItem>
           )}
           <DropdownMenu.Separator class="h-px bg-border my-1" />
+          <MenuItem onSelect={deferred(actions.actions.blockEntry)} icon={ShieldBan}>
+            Bloquear entrada deste contato
+          </MenuItem>
           <MenuItem onSelect={deferred(actions.actions.delete)} icon={Trash2} destructive>
             Excluir lead
           </MenuItem>

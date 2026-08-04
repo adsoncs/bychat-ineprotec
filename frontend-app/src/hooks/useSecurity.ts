@@ -179,3 +179,70 @@ export function useSelfUnblock() {
     mutationFn: () => api.post<{ ok: true; ip: string; unblocked: number }>('/admin/security/self-unblock'),
   })
 }
+
+// ─── Bloqueio de entrada de leads ────────────────────────────────────────
+// Barra a criação de lead vindo de formulário, landing page, Lead Ads, API
+// pública e webhooks quando o contato casa com uma regra. Ver
+// backend/services/leadBlocklist.ts.
+
+export interface LeadBlockRule {
+  id: number
+  label: string | null
+  emailKey: string | null
+  emailDomain: string | null
+  phoneKey: string | null
+  ip: string | null
+  reason: string | null
+  active: boolean
+  hits: number
+  lastHitAt: string | null
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface LeadBlockInput {
+  id?: number
+  label?: string
+  email?: string
+  emailDomain?: string
+  whatsapp?: string
+  ip?: string
+  reason?: string
+  active?: boolean
+}
+
+export function useLeadBlocks() {
+  return useQuery({
+    queryKey: ['lead-blocks'],
+    queryFn: () => api.get<{ rules: LeadBlockRule[]; totalHits: number }>('/admin/security/lead-blocks'),
+    staleTime: 15_000,
+  })
+}
+
+export function useSaveLeadBlock() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (r: LeadBlockInput) => r.id
+      ? api.put<{ rule: LeadBlockRule }>(`/admin/security/lead-blocks/${r.id}`, r)
+      : api.post<{ rule: LeadBlockRule }>('/admin/security/lead-blocks', r),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['lead-blocks'] }),
+  })
+}
+
+export function useDeleteLeadBlock() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/admin/security/lead-blocks/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['lead-blocks'] }),
+  })
+}
+
+/** Bloqueia a partir de um lead existente (usa e-mail e WhatsApp dele). */
+export function useBlockLeadContact() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ leadId, reason }: { leadId: number; reason?: string }) =>
+      api.post<{ rule: LeadBlockRule }>(`/admin/security/lead-blocks/from-lead/${leadId}`, { reason }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['lead-blocks'] }),
+  })
+}

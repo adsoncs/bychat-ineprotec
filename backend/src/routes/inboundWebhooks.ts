@@ -10,6 +10,7 @@
 import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
+import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { adminOnly } from '../lib/auth.js'
 import { getIp, logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
@@ -251,6 +252,12 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
       routedRuleId = decision.ruleId
     }
     const source = webhook.defaultSource || 'inbound_webhook'
+
+    // Lista de bloqueio: responde ok (o provedor do outro lado não deve
+    // retentar) e não cria o lead.
+    if (await rejectLeadEntry({ email, whatsapp, ip }, `webhook ${webhook.name ?? webhook.id}`)) {
+      return reply.send({ ok: true, ignored: 'blocked' })
+    }
 
     let leadId: number | null = null
     let success = false

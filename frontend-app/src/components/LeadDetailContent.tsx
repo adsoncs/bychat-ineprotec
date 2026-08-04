@@ -26,6 +26,7 @@ import { LeadJourneyTab } from '@/components/LeadJourneyTab'
 import { LeadNegotiationTab } from '@/components/LeadNegotiationTab'
 import { LeadStatusHistoryTab } from '@/components/LeadStatusHistoryTab'
 import { useModuleAccess } from '@/hooks/usePermissions'
+import { useBlockLeadContact } from '@/hooks/useSecurity'
 import { toast } from '@/lib/toast'
 
 // `module` opcional: a seção só aparece quando o módulo está ativo (gating no TOC).
@@ -115,6 +116,8 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
   const [editOpen, setEditOpen] = useState(false)
 
   const delMut = useDeleteLead()
+  const blockContact = useBlockLeadContact()
+  const [confirmBlock, setConfirmBlock] = useState(false)
   const qualify = useQualifyLead()
   const resendReport = useResendLeadReport()
   const enrollLink = useEnrollmentLinkByLead()
@@ -152,6 +155,22 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
 
   const dialogs = (
     <>
+      {/* Bloquear a entrada deste contato — o caminho natural quando alguém
+          se inscreve toda semana e nunca responde. Não apaga o lead nem impede
+          cadastro manual: só barra formulário, anúncio, API e webhook. */}
+      <ConfirmDialog
+        open={confirmBlock}
+        onOpenChange={(o) => { if (!o) setConfirmBlock(false) }}
+        title="Bloquear a entrada deste contato"
+        description={`Novas inscrições de ${[lead?.email, lead?.whatsapp].filter(Boolean).join(' e ') || 'deste contato'} por formulário, landing page, anúncio, API e webhook deixam de criar lead. O lead atual continua aqui, e você ainda pode cadastrá-lo à mão. Gerencie em Configurações › Segurança.`}
+        confirmLabel="Bloquear entrada"
+        loading={blockContact.isPending}
+        onConfirm={() => blockContact.mutate({ leadId: id }, {
+          onSuccess: () => { toast('Contato bloqueado na entrada de leads', 'success'); setConfirmBlock(false) },
+          onError: (e: unknown) => toast((e as Error).message || 'Não foi possível bloquear', 'danger'),
+        })}
+      />
+
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={(o) => { if (!o) { setConfirmDelete(false); setForceDeleteReg(null) } }}
@@ -213,6 +232,7 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
       delete: delMut.isPending,
       enrollLink: enrollLink.isPending,
       resendReport: resendReport.isPending,
+      blockEntry: blockContact.isPending,
     },
     actions: {
       qualify: handleQualify,
@@ -222,6 +242,7 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
       duplicate: () => setDuplicateOpen(true),
       enrollmentLink: handleEnrollmentLink,
       resendReport: handleResendReport,
+      blockEntry: () => setConfirmBlock(true),
     },
   }
 }

@@ -7,6 +7,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { prisma } from '../lib/prisma.js'
+import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { requireApiKey, logApiCall } from '../lib/apiKey.js'
 import { flagDuplicate } from '../services/dedup.js'
 import { authMiddleware } from '../lib/auth.js'
@@ -230,6 +231,10 @@ export async function makeRoutes(app: FastifyInstance) {
     const body = req.body as any
     if (!body.nome || !body.empresa) {
       return reply.code(400).send({ error: 'Fields nome and empresa are required' })
+    }
+
+    if (await rejectLeadEntry({ email: body.email, whatsapp: body.whatsapp, ip: req.ip }, 'Make.com')) {
+      return reply.code(200).send({ ok: true, ignored: 'blocked', message: 'Contato na lista de bloqueio de leads' })
     }
 
     const teamId = body.teamId ? parseInt(body.teamId) : await resolveDefaultTeamId()

@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp, getOperator, EVENT_TYPES } from '../services/leadHistory.js'
 import { notifyNewLead } from '../services/notify.js'
@@ -142,8 +143,10 @@ async function pollFormLeads(form: any, integration: any): Promise<number> {
         const formWithIntegration = { ...form, integration }
         const lead = await createLeadFromMeta(formWithIntegration, fields, { metaLeadId, pageId: integration.pageId, campaignData }, null)
 
-        await prisma.metaLeadLog.update({ where: { id: log.id }, data: { status: 'processed', leadId: lead.id, processedAt: new Date() } })
-        created++
+        // `null` = contato na lista de bloqueio. Marca como processado assim
+        // mesmo, senão o poller retenta o mesmo lead para sempre.
+        await prisma.metaLeadLog.update({ where: { id: log.id }, data: { status: 'processed', leadId: lead?.id ?? null, processedAt: new Date() } })
+        if (lead) created++
       } catch (err: any) {
         await prisma.metaLeadLog.create({
           data: { metaLeadId, metaFormId: form.formId, metaPageId: integration.pageId, status: 'failed', errorMessage: `[poller] ${err.message}` }
@@ -923,8 +926,8 @@ export async function metaRoutes(app: FastifyInstance) {
 
             const lead = await createLeadFromMeta(form, fields, { metaLeadId, pageId: form.integration.pageId, campaignData }, app)
 
-            await prisma.metaLeadLog.update({ where: { id: log.id }, data: { status: 'processed', leadId: lead.id, processedAt: new Date() } })
-            created++
+            await prisma.metaLeadLog.update({ where: { id: log.id }, data: { status: 'processed', leadId: lead?.id ?? null, processedAt: new Date() } })
+            if (lead) created++
           } catch (err: any) {
             failed++
             await prisma.metaLeadLog.create({
@@ -1208,6 +1211,7 @@ export async function metaRoutes(app: FastifyInstance) {
         campaignData: { campaign_name: 'Teste Manual', ad_name: 'Teste' },
       }, app)
 
+      if (!lead) return { ok: true, blocked: true, message: 'Contato na lista de bloqueio de leads' }
       return { ok: true, lead: { id: lead.id, empresa: lead.empresa, nome: lead.nome } }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
@@ -1297,8 +1301,10 @@ async function processMetaLead(metaLeadId: string, metaFormId: string, pageId: s
     // 8. Marcar log como processado
     await prisma.metaLeadLog.update({
       where: { id: log.id },
-      data: { status: 'processed', leadId: lead.id, processedAt: new Date() }
+      data: { status: 'processed', leadId: lead?.id ?? null, processedAt: new Date() }
     })
+    // Contato bloqueado: log fechado, nada além disso a fazer.
+    if (!lead) return { ok: true, ignored: 'blocked' }
 
     // 9. Atualizar contadores
     await prisma.metaForm.update({
@@ -1374,6 +1380,13 @@ async function createLeadFromMeta(
   if (mapped.email) mapped.email = mapped.email.slice(0, 191)
   if (mapped.segmento) mapped.segmento = mapped.segmento.slice(0, 100)
   if (mapped.cidade) mapped.cidade = mapped.cidade.slice(0, 100)
+
+  // Lista de bloqueio. Devolver null aqui faz o chamador seguir como se o lead
+  // não tivesse sido criado — o poller do Meta marca o registro como processado
+  // e não fica retentando o mesmo lead para sempre.
+  if (await rejectLeadEntry({ email: mapped.email, whatsapp: mapped.whatsapp, ip: null }, 'Meta Lead Ads')) {
+    return null
+  }
 
   const cd = meta.campaignData || {}
 

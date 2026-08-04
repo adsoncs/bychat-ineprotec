@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'preact/hooks'
 import {
+  useLeadBlocks,
+  useSaveLeadBlock,
+  useDeleteLeadBlock,
+  type LeadBlockRule,
+  type LeadBlockInput,
   useSecurityStats,
   useSecurityEvents,
   useSecurityBlocks,
@@ -78,9 +83,143 @@ export function SecuritySettings() {
       <KpiSection />
       <TopIpsAndManualBlock />
       <ActiveBlocksSection />
+      <LeadBlocklistSection />
       <EventsSection />
       <UsersSection />
     </div>
+  )
+}
+
+// ─── Bloqueio de entrada de leads ───────────────
+// Nasceu do contato que se inscrevia toda semana e nunca respondia: sem isto, a
+// única saída era apagar o lead de novo e de novo. Uma regra guarda os dados
+// daquele contato e barra quando QUALQUER critério casa.
+const EMPTY_RULE: LeadBlockInput = { label: '', email: '', emailDomain: '', whatsapp: '', ip: '', reason: '' }
+
+function criterios(r: LeadBlockRule): { tipo: string; valor: string }[] {
+  const out: { tipo: string; valor: string }[] = []
+  if (r.emailKey) out.push({ tipo: 'E-mail', valor: r.emailKey })
+  if (r.emailDomain) out.push({ tipo: 'Domínio', valor: '@' + r.emailDomain })
+  if (r.phoneKey) out.push({ tipo: 'WhatsApp', valor: r.phoneKey })
+  if (r.ip) out.push({ tipo: 'IP', valor: r.ip })
+  return out
+}
+
+function LeadBlocklistSection() {
+  const { data, isLoading } = useLeadBlocks()
+  const save = useSaveLeadBlock()
+  const del = useDeleteLeadBlock()
+  const [form, setForm] = useState<LeadBlockInput | null>(null)
+  const [removing, setRemoving] = useState<LeadBlockRule | null>(null)
+  const rules = data?.rules ?? []
+  const set = <K extends keyof LeadBlockInput>(k: K, v: LeadBlockInput[K]) => setForm((f) => f ? { ...f, [k]: v } : f)
+
+  function submit() {
+    if (!form) return
+    const temCriterio = [form.email, form.emailDomain, form.whatsapp, form.ip].some((v) => (v ?? '').trim())
+    if (!temCriterio) { toast('Informe ao menos um critério: e-mail, domínio, WhatsApp ou IP', 'danger'); return }
+    save.mutate(form, {
+      onSuccess: () => { toast(form.id ? 'Bloqueio atualizado' : 'Bloqueio criado', 'success'); setForm(null) },
+      onError: (e: unknown) => toast((e as Error).message || 'Erro ao salvar', 'danger'),
+    })
+  }
+
+  return (
+    <section class="rounded-xl border border-border bg-surface-2 p-5">
+      <div class="flex items-start justify-between gap-3 flex-wrap mb-1">
+        <div>
+          <h3 class="text-sm font-semibold text-fg">Bloqueio de entrada de leads</h3>
+          <p class="text-xs text-fg-muted mt-0.5">
+            Impede que um contato entre pelo formulário, landing page, Lead Ads, API pública ou webhook.
+            A regra barra quando <strong>qualquer</strong> um dos critérios casa.
+          </p>
+        </div>
+        {!form ? <Button size="sm" variant="primary" onClick={() => setForm({ ...EMPTY_RULE })}>Novo bloqueio</Button> : null}
+      </div>
+      <p class="text-[11px] text-fg-subtle mb-4">
+        Quem é bloqueado vê a mensagem normal de "enviado com sucesso" e não descobre o bloqueio — assim não tenta
+        com outro e-mail. Mensagem recebida no WhatsApp e cadastro feito à mão pelo operador continuam passando.
+      </p>
+
+      {form ? (
+        <div class="rounded-lg border border-border bg-surface p-4 mb-4 space-y-3">
+          <div class="text-sm font-semibold text-fg">{form.id ? 'Editar bloqueio' : 'Novo bloqueio'}</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input label="Nome da regra" placeholder="Ex.: contato que só testa o formulário" value={form.label ?? ''} onInput={(e) => set('label', (e.target as HTMLInputElement).value)} />
+            <Input label="E-mail" placeholder="pessoa@exemplo.com" value={form.email ?? ''} onInput={(e) => set('email', (e.target as HTMLInputElement).value)} />
+            <Input label="Domínio inteiro" placeholder="@dominio-descartavel.com" value={form.emailDomain ?? ''} onInput={(e) => set('emailDomain', (e.target as HTMLInputElement).value)} />
+            <Input label="WhatsApp" placeholder="(62) 9 9999-9999" value={form.whatsapp ?? ''} onInput={(e) => set('whatsapp', (e.target as HTMLInputElement).value)} />
+            <Input label="IP" placeholder="200.150.10.20" value={form.ip ?? ''} onInput={(e) => set('ip', (e.target as HTMLInputElement).value)} />
+            <Input label="Motivo (interno)" placeholder="Por que está bloqueado" value={form.reason ?? ''} onInput={(e) => set('reason', (e.target as HTMLInputElement).value)} />
+          </div>
+          {(form.ip ?? '').trim() ? (
+            <p class="text-[11px] text-warning">
+              ⚠ Bloquear por IP pode barrar gente demais: numa empresa ou operadora, muitas pessoas
+              compartilham o mesmo IP. Prefira e-mail ou WhatsApp quando der.
+            </p>
+          ) : null}
+          <div class="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setForm(null)} disabled={save.isPending}>Cancelar</Button>
+            <Button size="sm" variant="primary" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Salvando…' : 'Salvar'}</Button>
+          </div>
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <Skeleton class="h-20 w-full" />
+      ) : rules.length === 0 ? (
+        <p class="text-xs text-fg-subtle">Nenhum bloqueio criado. Enquanto a lista estiver vazia, tudo entra normalmente.</p>
+      ) : (
+        <div class="space-y-2">
+          {rules.map((r) => (
+            <div key={r.id} class={`rounded-lg border p-3 ${r.active ? 'border-border bg-surface' : 'border-border/60 bg-surface/50 opacity-70'}`}>
+              <div class="flex items-start gap-3 flex-wrap">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-sm font-medium text-fg">{r.label || 'Sem nome'}</span>
+                    {!r.active ? <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">desligado</span> : null}
+                  </div>
+                  <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                    {criterios(r).map((c) => (
+                      <span key={c.tipo} class="text-[11px] px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">
+                        {c.tipo}: <span class="text-fg">{c.valor}</span>
+                      </span>
+                    ))}
+                  </div>
+                  {r.reason ? <div class="text-[11px] text-fg-subtle mt-1">{r.reason}</div> : null}
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-semibold text-fg tabular-nums">{r.hits}</div>
+                  <div class="text-[11px] text-fg-subtle">
+                    {r.hits === 1 ? 'entrada barrada' : 'entradas barradas'}
+                    {r.lastHitAt ? <> · {new Date(r.lastHitAt).toLocaleDateString('pt-BR')}</> : null}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <Button size="sm" variant="ghost" onClick={() => save.mutate({ id: r.id, active: !r.active }, { onSuccess: () => toast(r.active ? 'Bloqueio desligado' : 'Bloqueio ligado', 'success') })}>
+                    {r.active ? 'Desligar' : 'Ligar'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setForm({
+                    id: r.id, label: r.label ?? '', email: r.emailKey ?? '', emailDomain: r.emailDomain ?? '',
+                    whatsapp: r.phoneKey ?? '', ip: r.ip ?? '', reason: r.reason ?? '',
+                  })}>Editar</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(r)}>Excluir</Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!removing}
+        onOpenChange={(o) => { if (!o) setRemoving(null) }}
+        title="Excluir bloqueio"
+        description={removing ? `"${removing.label || 'Sem nome'}" volta a poder se inscrever. Já barrou ${removing.hits} entrada(s).` : ''}
+        confirmLabel="Excluir"
+        onConfirm={() => { if (removing) del.mutate(removing.id, { onSuccess: () => toast('Bloqueio excluído', 'success') }); setRemoving(null) }}
+      />
+    </section>
   )
 }
 

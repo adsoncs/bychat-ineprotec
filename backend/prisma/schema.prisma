@@ -2398,6 +2398,45 @@ model SecurityEvent {
   @@map("bychat_security_events")
 }
 
+/// Lista de bloqueio na ENTRADA de leads. Nasceu do caso real de um contato que
+/// se inscrevia repetidamente e nunca respondia: sem isso, a única saída era
+/// apagar o lead toda vez e a base seguia suja.
+///
+/// Uma regra guarda os dados daquele contato e barra quando QUALQUER critério
+/// casa (e-mail OU domínio OU WhatsApp OU IP) — quem abusa costuma trocar um
+/// dado e manter o outro. Vale só para entradas automáticas (formulário, landing
+/// page, Lead Ads, API pública, webhooks, chat do site); mensagem recebida no
+/// WhatsApp/DM e cadastro manual pelo operador não são bloqueados.
+model LeadBlockRule {
+  id Int @id @default(autoincrement())
+
+  /// Nome para achar a regra depois ("João Spam", "concorrente X").
+  label String? @db.VarChar(191)
+
+  // Critérios — todos opcionais, ao menos um obrigatório (validado na rota).
+  emailKey    String? @db.VarChar(191) // e-mail exato, normalizado em minúsculas
+  emailDomain String? @db.VarChar(120) // domínio inteiro, sem o @
+  phoneKey    String? @db.VarChar(30) // telefone canônico (lib/phone.ts)
+  ip          String? @db.VarChar(45)
+
+  reason String? @db.Text
+  active Boolean @default(true)
+
+  /// Quantas entradas essa regra já barrou — é o que mostra que ela funciona.
+  hits      Int       @default(0)
+  lastHitAt DateTime?
+
+  createdBy String?  @db.VarChar(191)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@index([emailKey])
+  @@index([phoneKey])
+  @@index([ip])
+  @@map("bychat_lead_block_rules")
+}
+
 model IpBlock {
   id        Int       @id @default(autoincrement())
   ip        String    @db.VarChar(45)
