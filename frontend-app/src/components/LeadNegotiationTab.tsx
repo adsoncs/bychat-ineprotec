@@ -43,7 +43,7 @@ function negValueLabel(n: { valorFinal?: unknown; valorUnico?: unknown; valorRec
 interface Row {
   productId: number | null; nome: string; quantidade: number; precoUnit: number; descontoItem: number
   cobranca: 'unico' | 'recorrente'; parcelas: number; recorrenciaMeses: number
-  /** Preço de tabela do produto (só no item vindo do catálogo) — serve para
+  /** Preço de tabela do catálogo (só no item vindo de lá) — serve para
    * mostrar de quanto foi a concessão quando o negociado é outro. Não vai ao
    * backend; é contexto de tela. */
   precoTabela?: number | null
@@ -110,7 +110,7 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
 }
 
 /** Seletor do catálogo: mostra o que existe, por categoria, e deixa marcar
- * vários de uma vez. Sem ele, o operador precisava adivinhar o nome do produto
+ * vários de uma vez. Sem ele, o operador precisava adivinhar o nome do item
  * para a busca por texto devolver alguma coisa. */
 function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (rows: Row[]) => void }) {
   const [q, setQ] = useState('')
@@ -150,7 +150,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
         <div class="flex flex-wrap items-center gap-2">
           <div class="relative flex-1 min-w-48">
             <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
-            <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Filtrar por nome, categoria ou SKU…"
+            <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Filtrar por nome, categoria ou código…"
               class="w-full pl-8 pr-2 py-1.5 rounded-md bg-surface border border-border text-sm text-fg" />
           </div>
           <Select value={cat} onChange={(e) => setCat((e.target as HTMLSelectElement).value)} class="w-48">
@@ -163,7 +163,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
           <div class="space-y-2"><Skeleton class="h-10 w-full" /><Skeleton class="h-10 w-full" /></div>
         ) : produtos.length === 0 ? (
           <EmptyState icon={Boxes} title="Nada no catálogo"
-            description={cat || q ? 'Nenhum item com esse filtro. Limpe a busca ou escolha outra categoria.' : 'Cadastre produtos em CRM › Catálogo para reaproveitá-los nas propostas — ou adicione o item digitando à mão.'} />
+            description={cat || q ? 'Nenhum item com esse filtro. Limpe a busca ou escolha outra categoria.' : 'Cadastre o que você vende em CRM › Catálogo para reaproveitar nas propostas — ou adicione o item digitando à mão.'} />
         ) : (
           <div class="max-h-80 overflow-y-auto rounded-md border border-border divide-y divide-border">
             {produtos.map((p) => {

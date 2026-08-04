@@ -21,6 +21,7 @@ function fmtPreco(v: unknown): string {
 
 const EMPTY: ProductInput = { categoria: '', nome: '', marca: '', descricao: '', preco: '', estoque: null, disponivel: true, sku: '', cobranca: 'unico' }
 
+/** Um item do catálogo — pode ser mercadoria, serviço, plano ou mensalidade. */
 function ProductForm({ initial, onDone }: { initial: ProductInput; onDone: () => void }) {
   const [f, setF] = useState<ProductInput>(initial)
   const save = useSaveProduct()
@@ -28,18 +29,18 @@ function ProductForm({ initial, onDone }: { initial: ProductInput; onDone: () =>
   function submit() {
     if (!f.nome?.trim() || !f.categoria?.trim()) { toast('Nome e categoria são obrigatórios', 'danger'); return }
     save.mutate(f, {
-      onSuccess: () => { toast(f.id ? 'Produto atualizado' : 'Produto adicionado', 'success'); onDone() },
+      onSuccess: () => { toast(f.id ? 'Item atualizado' : 'Item adicionado', 'success'); onDone() },
       onError: (e: unknown) => toast((e as Error).message || 'Erro ao salvar', 'danger'),
     })
   }
   return (
     <Card>
-      <div class="text-sm font-semibold text-fg mb-3">{f.id ? 'Editar produto' : 'Novo produto'}</div>
+      <div class="text-sm font-semibold text-fg mb-3">{f.id ? 'Editar item' : 'Novo item'}</div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Input label="Categoria *" value={f.categoria} placeholder="Celulares, Capas, Fones…" onInput={(e) => set('categoria', (e.target as HTMLInputElement).value)} />
-        <Input label="Nome / modelo *" value={f.nome} placeholder="iPhone 15 128GB Preto" onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
-        <Input label="Marca" value={f.marca || ''} onInput={(e) => set('marca', (e.target as HTMLInputElement).value)} />
-        <Input label="Preço (R$)" value={String(f.preco ?? '')} placeholder="6999,00" onInput={(e) => set('preco', (e.target as HTMLInputElement).value)} />
+        <Input label="Categoria *" value={f.categoria} placeholder="Como você agrupa o que vende" onInput={(e) => set('categoria', (e.target as HTMLInputElement).value)} />
+        <Input label="Nome do item *" value={f.nome} placeholder="Como o cliente chama o que você vende" onInput={(e) => set('nome', (e.target as HTMLInputElement).value)} />
+        <Input label="Marca / fornecedor" value={f.marca || ''} onInput={(e) => set('marca', (e.target as HTMLInputElement).value)} />
+        <Input label="Preço (R$)" value={String(f.preco ?? '')} placeholder="0,00" onInput={(e) => set('preco', (e.target as HTMLInputElement).value)} />
         <div>
           <label class="block text-xs font-medium text-fg mb-1">Cobrança</label>
           <Select value={f.cobranca ?? 'unico'} onChange={(e) => set('cobranca', (e.target as HTMLSelectElement).value as 'unico' | 'recorrente')}>
@@ -48,10 +49,10 @@ function ProductForm({ initial, onDone }: { initial: ProductInput; onDone: () =>
           </Select>
         </div>
         <Input label="Estoque" type="number" value={f.estoque != null ? String(f.estoque) : ''} onInput={(e) => set('estoque', (e.target as HTMLInputElement).value ? parseInt((e.target as HTMLInputElement).value, 10) : null)} />
-        <Input label="SKU" value={f.sku || ''} onInput={(e) => set('sku', (e.target as HTMLInputElement).value)} />
+        <Input label="Código interno" value={f.sku || ''} onInput={(e) => set('sku', (e.target as HTMLInputElement).value)} />
       </div>
       <div class="mt-3">
-        <Textarea label="Descrição / especificações" rows={2} value={f.descricao || ''} placeholder='Tela 6.1", câmera 48MP, USB-C' onInput={(e) => set('descricao', (e.target as HTMLTextAreaElement).value)} />
+        <Textarea label="Descrição / detalhes" rows={2} value={f.descricao || ''} placeholder="O que está incluído, condições, especificações…" onInput={(e) => set('descricao', (e.target as HTMLTextAreaElement).value)} />
       </div>
       <label class="flex items-center gap-2 cursor-pointer select-none mt-3">
         <input type="checkbox" checked={f.disponivel !== false} onChange={(e) => set('disponivel', (e.target as HTMLInputElement).checked)} class="h-4 w-4" />
@@ -87,21 +88,21 @@ export function CatalogPage() {
   }
   function remove(p: Product) {
     if (!confirm(`Remover "${p.nome}" do catálogo?`)) return
-    del.mutate(p.id, { onSuccess: () => toast('Produto removido', 'success') })
+    del.mutate(p.id, { onSuccess: () => toast('Item removido', 'success') })
   }
 
   return (
     <Page
-      title="Catálogo de Produtos"
-      description="Fonte da verdade do chatbot de IA. Cadastre os produtos aqui (manual ou por planilha) e a IA responde só com o que existe — sem inventar."
+      title="Catálogo de Produtos e Serviços"
+      description="O que a sua empresa vende: produto, serviço, plano ou mensalidade. É daqui que saem os itens das propostas e é o que a IA consulta para responder — sem inventar."
     >
       <div class="flex flex-wrap items-center gap-2 mb-4">
-        <Button variant="primary" size="sm" onClick={() => setEditing({ ...EMPTY })}><Plus size={14} /> Novo produto</Button>
+        <Button variant="primary" size="sm" onClick={() => setEditing({ ...EMPTY })}><Plus size={14} /> Novo item</Button>
         <Button variant="ghost" size="sm" onClick={() => downloadCatalogTemplate().catch(() => toast('Falha ao baixar o modelo', 'danger'))}><Download size={14} /> Baixar modelo</Button>
         <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} disabled={imp.isPending}><Upload size={14} /> {imp.isPending ? 'Importando…' : 'Importar planilha'}</Button>
         <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" class="hidden" onChange={onImport} />
         <div class="flex-1" />
-        <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Buscar produto…" class="px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg w-48" />
+        <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Buscar no catálogo…" class="px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg w-48" />
         <Select value={cat} onChange={(e) => setCat((e.target as HTMLSelectElement).value)} class="w-44">
           <option value="">Todas as categorias</option>
           {(cats.data?.categories || []).map((c) => <option key={c.categoria} value={c.categoria}>{c.categoria} ({c.count})</option>)}
@@ -113,7 +114,7 @@ export function CatalogPage() {
       {isLoading ? (
         <div class="space-y-2"><Skeleton class="h-14 w-full" /><Skeleton class="h-14 w-full" /></div>
       ) : products.length === 0 ? (
-        <EmptyState icon={Boxes} title="Catálogo vazio" description="Adicione produtos manualmente ou importe a planilha (baixe o modelo acima). Depois, ative o módulo e a IA passa a responder com base neles." />
+        <EmptyState icon={Boxes} title="Catálogo vazio" description="Cadastre o que você vende — um a um ou pela planilha (baixe o modelo acima). Depois disso, os itens ficam disponíveis nas propostas e a IA passa a responder com base neles." />
       ) : (
         <div class="space-y-2">
           {products.map((p) => (

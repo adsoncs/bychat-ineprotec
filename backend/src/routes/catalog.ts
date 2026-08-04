@@ -1,14 +1,17 @@
 // src/routes/catalog.ts
-// Catálogo de produtos da loja — fonte da verdade do chatbot de IA (a IA consulta
-// via ferramenta consultar_catalogo, não recebe a lista no prompt). CRUD manual +
-// import por planilha (modelo XLSX gerado aqui).
+// Catálogo de Produtos e Serviços — o que a empresa vende, seja mercadoria,
+// serviço, plano ou mensalidade. É a fonte da verdade do chatbot de IA (que
+// consulta via ferramenta consultar_catalogo, não recebe a lista no prompt) e de
+// onde saem os itens das propostas do módulo Negociações. CRUD manual + import
+// por planilha (modelo XLSX gerado aqui).
 
 import { FastifyInstance } from 'fastify'
 import { read, utils, write } from 'xlsx'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, authMiddleware } from '../lib/auth.js'
 
-// Colunas do modelo de importação (na ordem do XLSX).
+// Colunas do modelo de importação (na ordem do XLSX). `sku` é o código interno
+// do item — o nome da coluna fica por compatibilidade com planilhas já em uso.
 const COLS = ['categoria', 'nome', 'marca', 'preco', 'cobranca', 'estoque', 'disponivel', 'sku', 'descricao'] as const
 
 /**
@@ -113,9 +116,11 @@ export async function catalogRoutes(app: FastifyInstance) {
 
   // ── Modelo de importação (XLSX) ──
   app.get('/api/admin/catalog/template', { preHandler: adminOnly }, async (_req, reply) => {
-    const example = [
-      { categoria: 'Celulares', nome: 'iPhone 15 128GB Preto', marca: 'Apple', preco: '6999,00', cobranca: 'único', estoque: 5, disponivel: 'sim', sku: 'IP15-128-PRT', descricao: 'Tela 6.1", câmera 48MP, USB-C' },
-      { categoria: 'Serviços', nome: 'Mensalidade CRM Starter', marca: '', preco: '890,00', cobranca: 'mensalidade', estoque: '', disponivel: 'sim', sku: 'CRM-START', descricao: 'Assinatura mensal da plataforma' },
+    // Exemplos propositalmente neutros: o mesmo modelo serve para quem vende
+  // mercadoria, curso, plano ou serviço recorrente.
+  const example = [
+      { categoria: 'Categoria A', nome: 'Item cobrado uma vez', marca: '', preco: '1500,00', cobranca: 'único', estoque: '', disponivel: 'sim', sku: 'COD-001', descricao: 'Descrição do que está incluído' },
+      { categoria: 'Categoria B', nome: 'Item com mensalidade', marca: '', preco: '390,00', cobranca: 'mensalidade', estoque: '', disponivel: 'sim', sku: 'COD-002', descricao: 'O que o cliente recebe todo mês' },
     ]
     const ws = utils.json_to_sheet(example, { header: COLS as unknown as string[] })
     const wb = utils.book_new()

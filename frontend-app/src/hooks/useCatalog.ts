@@ -1,3 +1,6 @@
+// Catálogo de Produtos e Serviços — o que a empresa vende (mercadoria,
+// serviço, plano, mensalidade). O tipo continua `Product` porque é o nome do
+// model no schema; na tela tudo é chamado de "item".
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 

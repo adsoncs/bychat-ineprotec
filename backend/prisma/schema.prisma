@@ -3956,14 +3956,16 @@ model NegotiationAttachment {
   @@map("bychat_negotiation_attachments")
 }
 
-// Catálogo de produtos (loja) — fonte da verdade para o chatbot de IA. A IA
+// Catálogo de Produtos e Serviços — o que a empresa vende (mercadoria, serviço,
+// plano, mensalidade). Fonte da verdade para o chatbot de IA e origem dos itens
+// das propostas do módulo Negociações. A IA
 // consulta este catálogo via ferramenta (consultar_catalogo) em vez de receber a
-// lista no prompt, o que impede a invenção de produtos/preços.
+// lista no prompt, o que impede a invenção de itens/preços.
 model Product {
   id Int @id @default(autoincrement())
 
-  categoria  String  @db.VarChar(100) // ex.: "Celulares", "Capas", "Fones"
-  nome       String  @db.VarChar(191) // modelo/nome do produto
+  categoria  String  @db.VarChar(100) // agrupamento livre, definido pela empresa
+  nome       String  @db.VarChar(191) // nome do item como o cliente o conhece
   descricao  String? @db.Text // especificações / detalhes
   preco      Decimal? @db.Decimal(10, 2)
   estoque    Int? // quantidade; null = não controla estoque

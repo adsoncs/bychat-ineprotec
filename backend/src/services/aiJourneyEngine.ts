@@ -148,12 +148,12 @@ const TOOLS = [
   },
   {
     name: 'consultar_catalogo',
-    description: 'Consulta o CATÁLOGO REAL de produtos da loja. Use SEMPRE que o lead perguntar sobre produtos, modelos, preços, estoque ou disponibilidade. Retorna apenas produtos que EXISTEM no catálogo (nome, categoria, preço, estoque). Você deve responder somente com o que esta ferramenta devolver — NUNCA invente produtos, modelos, preços ou especificações.',
+    description: 'Consulta o CATÁLOGO REAL do que a empresa vende (produtos, serviços, planos). Use SEMPRE que o lead perguntar sobre itens, preços, condições ou disponibilidade. Retorna apenas o que EXISTE no catálogo (nome, categoria, preço, disponibilidade). Você deve responder somente com o que esta ferramenta devolver — NUNCA invente itens, preços ou características.',
     input_schema: {
       type: 'object',
       properties: {
-        busca: { type: 'string', description: 'Termo do que o lead procura (ex.: "iPhone 15", "capa", "fone bluetooth"). Opcional.' },
-        categoria: { type: 'string', description: 'Filtrar por categoria exata (ex.: "Celulares"). Opcional.' },
+        busca: { type: 'string', description: 'Termo do que o lead procura, nas palavras dele. Opcional.' },
+        categoria: { type: 'string', description: 'Filtrar por uma categoria exata do catálogo. Opcional.' },
       },
       required: [],
     },
@@ -223,11 +223,11 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
 - Se qualificado${hasSched ? ' e houver agendamento: chame **listar_horarios**, ofereça os horários ao lead, e ao ele escolher chame **agendar** com o startAt exato. Só diga que está agendado depois de agendar retornar ok=true.' : ': agradeça e finalize com **encerrar**.'}
 - Se desqualificado: agradeça cordialmente, NÃO ofereça agendamento, e chame **encerrar**.
 - Se o lead pedir um humano ou fugir do escopo, chame **transferir_humano**.`,
-    catalogSummary ? `\n## Catálogo de produtos (FONTE DA VERDADE)
-A loja trabalha com estas categorias: ${catalogSummary}.
-- SEMPRE que o lead perguntar sobre produtos, modelos, preços, estoque ou disponibilidade, chame a ferramenta **consultar_catalogo** e responda SOMENTE com os produtos que ela retornar.
-- REGRA ABSOLUTA: você só pode citar o nome/modelo/marca/preço de um produto se ele tiver vindo de **consultar_catalogo** NESTA conversa. NUNCA mencione um produto ou modelo específico que não veio da ferramenta — nem como resposta, nem como sugestão ou alternativa. Nada de "temos o modelo X" se X não veio da ferramenta.
-- Se o item pedido não existe: diga com sinceridade que não temos AQUELE item. Para oferecer alternativas, chame **consultar_catalogo** de novo (ex.: pela categoria) e ofereça só o que ela retornar. Se não houver nada, diga que no momento não temos e ofereça falar com um vendedor — SEM citar modelos.
+    catalogSummary ? `\n## Catálogo (FONTE DA VERDADE)
+O catálogo tem estas categorias: ${catalogSummary}.
+- SEMPRE que o lead perguntar sobre itens, preços, condições ou disponibilidade, chame a ferramenta **consultar_catalogo** e responda SOMENTE com o que ela retornar.
+- REGRA ABSOLUTA: você só pode citar o nome/marca/preço de um item se ele tiver vindo de **consultar_catalogo** NESTA conversa. NUNCA mencione um item específico que não veio da ferramenta — nem como resposta, nem como sugestão ou alternativa. Nada de "temos o X" se X não veio da ferramenta.
+- Se o que o lead pediu não existe: diga com sinceridade que não temos AQUILO. Para oferecer alternativas, chame **consultar_catalogo** de novo (ex.: pela categoria) e ofereça só o que ela retornar. Se não houver nada, diga que no momento não temos e ofereça falar com um atendente — SEM citar itens.
 - Não despeje o catálogo inteiro sem o lead pedir.` : '',
     schedIntro ? `\n## Ao iniciar o agendamento\nQuando começar a etapa de agendamento (logo antes de chamar listar_horarios / oferecer os horários), ABRA com uma mensagem de boas-vindas ao agendamento no espírito desta — personalize com o nome do lead, mantenha objetiva e profissional, não copie ao pé da letra:\n"${schedIntro}"` : '',
     // Horário de atendimento humano (Cadastros › Atendimento) — FONTE DA VERDADE.
