@@ -11,6 +11,9 @@ export interface CloudApiConnection {
   messagingLimit: string | null
   chatbotId: number | null
   defaultTeamId: number | null
+  /** Setores donos (vários). Com 2+, `defaultTeamId` vem nulo e o lead entra sem setor. */
+  teamIds?: number[]
+  teamNames?: string[]
   ownerUserId: number | null
   funnelId: number | null
   stageKey: string | null

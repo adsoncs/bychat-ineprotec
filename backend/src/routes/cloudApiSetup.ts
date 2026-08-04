@@ -4,6 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import { randomBytes } from 'crypto'
 import { prisma } from '../lib/prisma.js'
+import { setChannelTeams } from '../services/channelTeams.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { getMetaAppId, getMetaAppSecret, getMetaWaConfigId, metaFetch, META_GRAPH_URL } from '../lib/meta.js'
@@ -226,7 +227,9 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // GET /api/cloud-api/connection — Status da conexao Cloud API
   app.get('/api/cloud-api/connection', { preHandler: authMiddleware }, async () => {
     const connections = await prisma.cloudApiConnection.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
+      include: { teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } } },
     })
 
     const results = await Promise.all(connections.map(async (conn) => {
@@ -260,6 +263,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         messagingLimit: conn.messagingLimit,
         chatbotId: conn.chatbotId,
         defaultTeamId: conn.defaultTeamId,
+        teamIds: (conn as any).teams?.map((t: any) => t.teamId) ?? [],
+        teamNames: (conn as any).teams?.map((t: any) => t.team?.name).filter(Boolean) ?? [],
         ownerUserId: conn.ownerUserId,
         funnelId: conn.funnelId,
         stageKey: conn.stageKey,
@@ -281,6 +286,11 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   app.put('/api/cloud-api/connection/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey } = req.body as any
+    // `teamIds` = setores donos (vários). `defaultTeamId` segue aceito para
+    // quem manda um setor só.
+    const teamIds: number[] | undefined = Array.isArray((req.body as any)?.teamIds)
+      ? (req.body as any).teamIds.map(Number).filter(Boolean)
+      : (defaultTeamId !== undefined ? (defaultTeamId ? [Number(defaultTeamId)] : []) : undefined)
     const data: any = {}
     if (chatbotId !== undefined) data.chatbotId = chatbotId || null
     if (active !== undefined) data.active = active
@@ -306,8 +316,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     if (defaultTeamId !== undefined || ownerUserId !== undefined) {
       const team = defaultTeamId ? Number(defaultTeamId) : null
       const owner = ownerUserId ? Number(ownerUserId) : null
-      if (team && owner) {
-        return reply.code(400).send({ error: 'A conexão pode ter apenas um dono: setor OU agente, não ambos.' })
+      if (teamIds?.length && owner) {
+        return reply.code(400).send({ error: 'A conexão pode ter apenas um tipo de dono: setores OU agente, não ambos.' })
       }
       if (owner) {
         const u = await prisma.user.findUnique({ where: { id: owner }, select: { active: true, role: true } })
@@ -315,7 +325,6 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         if (!u.active) return reply.code(400).send({ error: 'Agente destino inativo' })
         if (u.role === 'VIEWER') return reply.code(400).send({ error: 'VIEWER não pode ser dono da conexão' })
       }
-      data.defaultTeamId = team
       data.ownerUserId = owner
     }
 
@@ -323,6 +332,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       where: { id: parseInt(id) },
       data,
     })
+    // Última palavra: sincroniza `defaultTeamId` (um setor → preenchido, vários
+    // → nulo) e limpa o agente quando há setores.
+    if (teamIds !== undefined) await setChannelTeams('cloud', conn.id, teamIds)
+    else if (data.ownerUserId) await setChannelTeams('cloud', conn.id, [])
     void logUserAudit({
       action: 'cloudapi.updated',
       targetType: 'cloud_api',

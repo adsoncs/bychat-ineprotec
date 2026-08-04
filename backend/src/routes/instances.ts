@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { setChannelTeams, channelTeamIds } from '../services/channelTeams.js'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 
 // Resolve a config da Evolution: Setting do painel (whatsapp.evolution_*)
@@ -89,6 +90,8 @@ export async function instancesRoutes(app: FastifyInstance) {
     const where = isAdminRole(user.role) ? {} : { ownerUserId: user.userId }
     const instances = await prisma.whatsAppInstance.findMany({
       where, orderBy: { createdAt: 'asc' },
+      // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
+      include: { teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } } },
     })
 
     // Batch fetch: 1 chamada à Evolution retorna todas as instâncias com ownerJid
@@ -123,7 +126,11 @@ export async function instancesRoutes(app: FastifyInstance) {
         } catch { status = 'error' }
       }
 
-      return { ...inst, status, ownerJid }
+      return {
+        ...inst, status, ownerJid,
+        teamIds: inst.teams.map((t) => t.teamId),
+        teamNames: inst.teams.map((t) => t.team.name),
+      }
     }))
 
     return { instances: withStatus }
@@ -133,6 +140,11 @@ export async function instancesRoutes(app: FastifyInstance) {
   // Valida que ownerUserId (se informado) é um user real, ativo e elegível.
   app.post('/api/admin/instances', { preHandler: adminOnly }, async (req, reply) => {
     const { name, instanceName, chatbotId, defaultTeamId, ownerUserId } = req.body as any
+    // `teamIds` = setores donos (vários). `defaultTeamId` continua aceito para
+    // quem chama a API com um setor só.
+    const teamIds: number[] = Array.isArray((req.body as any)?.teamIds)
+      ? (req.body as any).teamIds.map(Number).filter(Boolean)
+      : (defaultTeamId ? [Number(defaultTeamId)] : [])
     if (!name || !instanceName) {
       return reply.code(400).send({ error: 'Nome e nome da instância são obrigatórios' })
     }
@@ -142,8 +154,8 @@ export async function instancesRoutes(app: FastifyInstance) {
     if (exists) return reply.code(409).send({ error: 'Já existe uma instância com este nome' })
 
     // Reforma F2: dono pode ser setor OU agente — mutuamente exclusivos.
-    if (defaultTeamId && ownerUserId) {
-      return reply.code(400).send({ error: 'Instância pode ter apenas um dono: setor OU agente, não ambos.' })
+    if (teamIds.length && ownerUserId) {
+      return reply.code(400).send({ error: 'Instância pode ter apenas um tipo de dono: setores OU agente, não ambos.' })
     }
 
     // Valida que ownerUserId é um user válido (existe + ativo + role aceitável)
@@ -155,18 +167,24 @@ export async function instancesRoutes(app: FastifyInstance) {
         name,
         instanceName: clean,
         chatbotId: chatbotId || null,
-        defaultTeamId: defaultTeamId ? Number(defaultTeamId) : null,
         ownerUserId: ownerUserId ? Number(ownerUserId) : null,
         active: true,
       },
     })
-    return inst
+    // A lista é a fonte da verdade; ela sincroniza `defaultTeamId` (um setor →
+    // preenchido, vários → nulo, e aí o chatbot decide).
+    if (teamIds.length) await setChannelTeams('evolution', inst.id, teamIds)
+    const criada = await prisma.whatsAppInstance.findUnique({ where: { id: inst.id } })
+    return { ...(criada ?? inst), teamIds: await channelTeamIds('evolution', inst.id) }
   })
 
   // PUT /api/admin/instances/:id — Update instance (admin-only).
   app.put('/api/admin/instances/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const { name, chatbotId, defaultTeamId, ownerUserId, active, funnelId, stageKey, receiveGroups } = req.body as any
+    const teamIds: number[] | undefined = Array.isArray((req.body as any)?.teamIds)
+      ? (req.body as any).teamIds.map(Number).filter(Boolean)
+      : (defaultTeamId !== undefined ? (defaultTeamId ? [Number(defaultTeamId)] : []) : undefined)
     const data: any = {}
     if (name !== undefined) data.name = name
     if (chatbotId !== undefined) data.chatbotId = chatbotId || null
@@ -188,27 +206,26 @@ export async function instancesRoutes(app: FastifyInstance) {
       data.funnelId = fid
       data.stageKey = skey
     }
-    // Reforma F2: dono é mutuamente exclusivo. Trocar para um zera o outro.
-    if (defaultTeamId !== undefined && ownerUserId !== undefined) {
-      if (defaultTeamId && ownerUserId) {
-        return reply.code(400).send({ error: 'Instância pode ter apenas um dono: setor OU agente.' })
-      }
-      const ownerCheck = await assertValidOwner(ownerUserId)
-      if (!ownerCheck.ok) return reply.code(400).send({ error: ownerCheck.reason })
-      data.defaultTeamId = defaultTeamId ? Number(defaultTeamId) : null
-      data.ownerUserId = ownerUserId ? Number(ownerUserId) : null
-    } else if (defaultTeamId !== undefined) {
-      data.defaultTeamId = defaultTeamId ? Number(defaultTeamId) : null
-      if (data.defaultTeamId) data.ownerUserId = null
-    } else if (ownerUserId !== undefined) {
+    // Dono continua mutuamente exclusivo: setores OU agente. A diferença é que
+    // "setores" agora é uma lista.
+    if (teamIds?.length && ownerUserId) {
+      return reply.code(400).send({ error: 'Instância pode ter apenas um tipo de dono: setores OU agente.' })
+    }
+    if (ownerUserId !== undefined) {
       const ownerCheck = await assertValidOwner(ownerUserId)
       if (!ownerCheck.ok) return reply.code(400).send({ error: ownerCheck.reason })
       data.ownerUserId = ownerUserId ? Number(ownerUserId) : null
-      if (data.ownerUserId) data.defaultTeamId = null
     }
     if (active !== undefined) data.active = active
     const inst = await prisma.whatsAppInstance.update({ where: { id: Number(id) }, data })
-    return inst
+    // Depois do update: setChannelTeams ajusta `defaultTeamId` e limpa o agente
+    // quando há setores, então precisa ser a última palavra.
+    if (teamIds !== undefined) await setChannelTeams('evolution', inst.id, teamIds)
+    else if (data.ownerUserId) await setChannelTeams('evolution', inst.id, [])
+    // Relê: setChannelTeams é quem grava `defaultTeamId`/`ownerUserId` conforme a
+    // lista, então o objeto do update acima está desatualizado.
+    const atual = await prisma.whatsAppInstance.findUnique({ where: { id: inst.id } })
+    return { ...(atual ?? inst), teamIds: await channelTeamIds('evolution', inst.id) }
   })
 
   // DELETE /api/admin/instances/:id — Delete instance (admin-only).

@@ -10,7 +10,11 @@ export interface WhatsAppInstance {
   active: boolean
   chatbotId: number | null
   defaultTeamId: number | null
-  // Reforma F2: instância dedicada a um agente. Mutuamente exclusivo com defaultTeamId.
+  /** Setores donos (vários). Um número de recepção pode ser de mais de um setor;
+   *  com 2+, `defaultTeamId` vem nulo e o lead entra sem setor. */
+  teamIds?: number[]
+  teamNames?: string[]
+  // Reforma F2: instância dedicada a um agente. Mutuamente exclusivo com os setores donos.
   ownerUserId: number | null
   funnelId: number | null
   stageKey: string | null
@@ -28,6 +32,7 @@ export interface InstanceInput {
   instanceName: string
   chatbotId?: number | null | undefined
   defaultTeamId?: number | null | undefined
+  teamIds?: number[] | undefined
   ownerUserId?: number | null | undefined
 }
 
@@ -52,6 +57,7 @@ export interface InstanceUpdateInput {
   name?: string | undefined
   chatbotId?: number | null | undefined
   defaultTeamId?: number | null | undefined
+  teamIds?: number[] | undefined
   ownerUserId?: number | null | undefined
   funnelId?: number | null | undefined
   stageKey?: string | null | undefined

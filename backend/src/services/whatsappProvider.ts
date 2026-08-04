@@ -2,6 +2,7 @@
 // Abstração de provider WhatsApp: Evolution API vs Cloud API Oficial
 
 import { prisma } from '../lib/prisma.js'
+import { channelForUserTeams, userTeamIds } from './channelTeams.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import {
   sendTextMessage,
@@ -454,6 +455,31 @@ export async function getProviderForSender(
   const senderCh = await resolveDedicatedProviderForUser(sender.userId)
   if (senderCh) return senderCh
 
+  // 2b. Ninguém com número PESSOAL → número do SETOR. Um número pode ter vários
+  //     setores donos (recepção do Comercial + Suporte): quem é de um deles fala
+  //     por essa linha em vez de cair no número global do tenant. Primeiro o do
+  //     dono do lead, para a conversa continuar saindo pelo mesmo número; depois
+  //     o do remetente.
+  for (const uid of [leadRow?.assignedUserId, sender.userId]) {
+    if (!uid) continue
+    const teamCh = await channelForUserTeams(uid)
+    if (!teamCh) continue
+    if (teamCh.kind === 'evolution' && teamCh.instanceName) {
+      return {
+        provider: createEvolutionProviderFor(teamCh.instanceName),
+        instanceName: teamCh.instanceName,
+        cloudApiConnectionId: null,
+      }
+    }
+    if (teamCh.kind === 'cloud' && teamCh.phoneNumberId && teamCh.token) {
+      return {
+        provider: new CloudApiProvider(teamCh.phoneNumberId, teamCh.token),
+        instanceName: null,
+        cloudApiConnectionId: teamCh.id,
+      }
+    }
+  }
+
   // 3. Ninguém com número dedicado → espelha o canal de ENTRADA do lead: a
   //    resposta sai pelo MESMO canal/número pela qual o lead falou por último
   //    (Cloud API ou Evolution). Olha a ÚLTIMA mensagem RECEBIDA (fromMe=false),
@@ -544,10 +570,20 @@ function cloudChannelId(connectionId: number): string { return `cloud:${connecti
  *    (o frontend mostra "sem número vinculado").
  */
 export async function resolveSenderChannels(sender: { userId: number; role: string }): Promise<SenderChannel[]> {
-  const [instances, connections] = await Promise.all([
-    prisma.whatsAppInstance.findMany({ where: { active: true }, orderBy: { id: 'asc' } }),
-    prisma.cloudApiConnection.findMany({ where: { active: true }, orderBy: { id: 'asc' } }),
+  const [instances, connections, meusTimes] = await Promise.all([
+    prisma.whatsAppInstance.findMany({ where: { active: true }, orderBy: { id: 'asc' }, include: { teams: { select: { teamId: true } } } }),
+    prisma.cloudApiConnection.findMany({ where: { active: true }, orderBy: { id: 'asc' }, include: { teams: { select: { teamId: true } } } }),
+    userTeamIds(sender.userId),
   ])
+  // Um canal "do meu setor" é o que tem algum setor dono em comum comigo.
+  const doMeuSetor = (teams: { teamId: number }[], defaultTeamId: number | null) => {
+    const donos = new Set(teams.map((t) => t.teamId))
+    if (defaultTeamId) donos.add(defaultTeamId)
+    return donos.size > 0 && meusTimes.some((t) => donos.has(t))
+  }
+  // Sem dono nenhum: nem agente, nem setor. Só esses ficam no pool comum.
+  const semDono = (teams: { teamId: number }[], ownerUserId: number | null, defaultTeamId: number | null) =>
+    ownerUserId == null && teams.length === 0 && defaultTeamId == null
 
   const toEvo = (i: typeof instances[number]): SenderChannel => ({
     id: evoChannelId(i.instanceName),
@@ -576,9 +612,18 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
   if (sender.role !== 'AGENT') {
     return [...instances.map(toEvo), ...connections.map(toCloud)]
   }
+  // AGENT: canal pessoal dele + canais dos setores dele + canais sem dono nenhum.
+  // Número que pertence a OUTRO setor não aparece — antes ele aparecia como
+  // "compartilhado" e o envio só falhava lá na frente, no canSendVia.
   return [
-    ...instances.filter(i => i.ownerUserId === sender.userId || i.ownerUserId == null).map(toEvo),
-    ...connections.filter(c => c.ownerUserId === sender.userId || c.ownerUserId == null).map(toCloud),
+    ...instances.filter((i) =>
+      i.ownerUserId === sender.userId
+      || doMeuSetor(i.teams, i.defaultTeamId)
+      || semDono(i.teams, i.ownerUserId, i.defaultTeamId)).map(toEvo),
+    ...connections.filter((c) =>
+      c.ownerUserId === sender.userId
+      || doMeuSetor(c.teams, c.defaultTeamId)
+      || semDono(c.teams, c.ownerUserId, c.defaultTeamId)).map(toCloud),
   ]
 }
 
@@ -600,6 +645,14 @@ export async function suggestChannelForLead(
   if (sender) {
     const senderCh = await dedicatedChannelIdForUser(sender.userId)
     if (senderCh) return senderCh
+  }
+  // 2b. Número do SETOR (do dono do lead e, na falta, do remetente) — espelha o
+  //     degrau equivalente de getProviderForSender.
+  for (const uid of [leadRow?.assignedUserId, sender?.userId]) {
+    if (!uid) continue
+    const teamCh = await channelForUserTeams(uid)
+    if (teamCh?.kind === 'evolution' && teamCh.instanceName) return evoChannelId(teamCh.instanceName)
+    if (teamCh?.kind === 'cloud') return cloudChannelId(teamCh.id)
   }
   // 3. Sugere o canal de ENTRADA do lead: a última mensagem RECEBIDA (fromMe=false)
   // define por onde ele falou por último. Só cai para a última mensagem qualquer

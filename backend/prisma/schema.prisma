@@ -432,6 +432,9 @@ model Team {
   chatbots           Chatbot[]
   whatsappInstances  WhatsAppInstance[]
   cloudApiConnections CloudApiConnection[] @relation("CloudApiDefaultTeam")
+  // Números (Evolution e Cloud) que este setor divide com outros setores.
+  ownedInstances      WhatsAppInstanceTeam[]
+  ownedCloudApi       CloudApiConnectionTeam[]
   enrollmentPortals  EnrollmentPortal[]
   salesCadences      SalesCadence[]
   channelGovernances ChannelGovernance[]
@@ -705,6 +708,11 @@ model WhatsAppInstance {
   // convenção: ownerUserId ganha prioridade no roteamento.
   ownerUserId   Int?
   owner         User?    @relation("WhatsAppInstanceOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  // Vários setores podem ser donos do mesmo número (recepção atendida por
+  // Comercial + Suporte, por exemplo). `defaultTeamId` acima segue sendo o setor
+  // ÚNICO — fica preenchido quando há exatamente um setor dono e nulo quando há
+  // vários, o que faz o lead entrar sem setor e esperar a decisão do chatbot.
+  teams         WhatsAppInstanceTeam[]
   // Funil dos leads do chatbot desta instância (só faz sentido com chatbotId).
   // Quando setado, leads do chatbot são promovidos a este funil/etapa, respeitando
   // as regras do form (qualificação/agendamento). Vazio = comportamento atual.
@@ -727,6 +735,36 @@ model WhatsAppInstance {
   @@index([ownerUserId])
   @@index([funnelId])
   @@map("bychat_whatsapp_instances")
+}
+
+/// Setores donos de um número Evolution. Existe porque um número de recepção é
+/// atendido por mais de um setor, e o campo único `defaultTeamId` obrigava a
+/// escolher um só — os demais setores ficavam sem poder responder por ele.
+model WhatsAppInstanceTeam {
+  id         Int              @id @default(autoincrement())
+  instanceId Int
+  teamId     Int
+  instance   WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  team       Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+
+  @@unique([instanceId, teamId])
+  @@index([teamId])
+  @@map("bychat_whatsapp_instance_teams")
+}
+
+/// Setores donos de uma conexão Cloud API — paridade com WhatsAppInstanceTeam.
+model CloudApiConnectionTeam {
+  id           Int                @id @default(autoincrement())
+  connectionId Int
+  teamId       Int
+  connection   CloudApiConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  team         Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @default(now())
+
+  @@unique([connectionId, teamId])
+  @@index([teamId])
+  @@map("bychat_cloud_api_connection_teams")
 }
 
 model Lead {
@@ -1479,6 +1517,8 @@ model CloudApiConnection {
   // (bypass da cascata por setor). ownerUserId tem prioridade no roteamento.
   ownerUserId     Int?
   owner           User?     @relation("CloudApiConnectionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  // Vários setores donos do mesmo número — ver WhatsAppInstance.teams.
+  teams              CloudApiConnectionTeam[]
   // Funil dos leads do chatbot desta conexão (só faz sentido com chatbotId).
   // Quando setado, leads do chatbot são promovidos a este funil/etapa, respeitando
   // as regras do form (qualificação/agendamento). Vazio = comportamento atual.

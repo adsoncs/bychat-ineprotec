@@ -565,13 +565,17 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
   const [chatbotId, setChatbotId] = useState(instance.chatbotId != null ? String(instance.chatbotId) : '')
   const [funnelId, setFunnelId] = useState(instance.funnelId != null ? String(instance.funnelId) : '')
   const [stageKey, setStageKey] = useState(instance.stageKey ?? '')
-  // Reforma F2: dono = setor OU agente, mutuamente exclusivos.
+  // Dono = setores OU agente, mutuamente exclusivos. "Setores" é uma lista: um
+  // número de recepção costuma ser atendido por mais de um setor.
+  const initialTeamIds: number[] = instance.teamIds?.length
+    ? instance.teamIds
+    : (instance.defaultTeamId != null ? [instance.defaultTeamId] : [])
   const initialDonoTipo: 'team' | 'agent' | 'none' =
     instance.ownerUserId != null ? 'agent'
-    : instance.defaultTeamId != null ? 'team'
+    : initialTeamIds.length ? 'team'
     : 'none'
   const [donoTipo, setDonoTipo] = useState<'team' | 'agent' | 'none'>(initialDonoTipo)
-  const [defaultTeamId, setDefaultTeamId] = useState(instance.defaultTeamId != null ? String(instance.defaultTeamId) : '')
+  const [teamIds, setTeamIds] = useState<number[]>(initialTeamIds)
   const [ownerUserId, setOwnerUserId] = useState(instance.ownerUserId != null ? String(instance.ownerUserId) : '')
   const [active, setActive] = useState(instance.active)
   // Grupos de WhatsApp nesta conexão. OFF = comportamento histórico (descarta no webhook).
@@ -589,8 +593,8 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       toast('Nome é obrigatório', 'danger')
       return
     }
-    if (donoTipo === 'team' && !defaultTeamId) {
-      toast('Selecione um setor', 'danger')
+    if (donoTipo === 'team' && teamIds.length === 0) {
+      toast('Selecione ao menos um setor', 'danger')
       return
     }
     if (donoTipo === 'agent' && !ownerUserId) {
@@ -601,7 +605,7 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       id: instance.id,
       name: name.trim(),
       chatbotId: chatbotId ? Number(chatbotId) : null,
-      defaultTeamId: donoTipo === 'team' ? Number(defaultTeamId) : null,
+      teamIds: donoTipo === 'team' ? teamIds : [],
       ownerUserId: donoTipo === 'agent' ? Number(ownerUserId) : null,
       // Funil dos leads do chatbot (sem chatbot → sempre limpo).
       funnelId: chatbotId && funnelId ? Number(funnelId) : null,
@@ -660,10 +664,30 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
             </label>
           </div>
           {donoTipo === 'team' && (
-            <Select value={defaultTeamId} onChange={(e) => setDefaultTeamId((e.target as HTMLSelectElement).value)}>
-              <option value="">— Selecionar setor —</option>
-              {teams?.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Select>
+            <div class="space-y-1.5">
+              <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+                {teams?.teams.map((t) => (
+                  <label key={t.id} class="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={teamIds.includes(t.id)}
+                      onChange={(e) => {
+                        const on = (e.target as HTMLInputElement).checked
+                        setTeamIds((cur) => on ? [...cur, t.id] : cur.filter((x) => x !== t.id))
+                      }}
+                    />
+                    {t.name}
+                  </label>
+                ))}
+              </div>
+              {teamIds.length > 1 ? (
+                <p class="text-xs text-warning">
+                  Com mais de um setor, o lead que chegar por este número entra <strong>sem setor</strong> —
+                  quem define é o menu do chatbot ou uma regra de roteamento. Todos os setores marcados podem
+                  responder por ele.
+                </p>
+              ) : null}
+            </div>
           )}
           {donoTipo === 'agent' && (
             <Select value={ownerUserId} onChange={(e) => setOwnerUserId((e.target as HTMLSelectElement).value)}>
@@ -677,7 +701,8 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
             {donoTipo === 'agent'
               ? 'Leads que chegarem por esta instância serão atribuídos direto ao agente.'
               : donoTipo === 'team'
-              ? 'Leads serão roteados ao setor (round-robin conforme configuração).'
+              // Com 2+ setores o aviso acima já explica; repetir aqui só polui.
+              ? (teamIds.length > 1 ? '' : 'Leads serão roteados ao setor (round-robin conforme configuração).')
               : 'Sem amarração — leads caem na fila global do tenant.'}
           </p>
         </div>

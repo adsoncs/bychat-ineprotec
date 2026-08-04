@@ -545,8 +545,8 @@ export async function getOutOfHoursTeamId(): Promise<number | null> {
 // Regras:
 //   - SUPERADMIN/ADMIN: sempre passa (assumimos override gerencial).
 //   - Se instância tem ownerUserId: só esse user OU admin podem enviar por ela.
-//   - Se instância tem defaultTeamId: user deve ser membro desse team
-//     OU ser o assignedUser do lead.
+//   - Se instância tem setores donos (um ou vários): user deve ser membro de
+//     algum deles OU ser o assignedUser do lead.
 //   - Se instância não tem amarração: sem restrição extra (cobertura por team scope já feita).
 export interface CanSendViaResult {
   ok: boolean
@@ -564,11 +564,14 @@ export async function canSendVia(
   const [inst, lead] = await Promise.all([
     prisma.whatsAppInstance.findFirst({
       where: { instanceName, active: true },
-      select: { ownerUserId: true, defaultTeamId: true },
+      select: { id: true, ownerUserId: true, defaultTeamId: true },
     }),
     prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true, teamId: true } }),
   ])
   if (!inst) return { ok: false, reason: 'Instância não encontrada' }
+  const instTeams = await prisma.whatsAppInstanceTeam.findMany({
+    where: { instanceId: inst.id }, select: { teamId: true },
+  })
   if (!lead) return { ok: false, reason: 'Lead não encontrado' }
 
   // Instância pessoal: só owner.
@@ -579,15 +582,19 @@ export async function canSendVia(
     return { ok: true }
   }
 
-  // Instância de setor: precisa ser membro OU ter o lead atribuído.
+  // Instância de setor: precisa ser membro de ALGUM dos setores donos OU ter o
+  // lead atribuído. A lista cobre o número compartilhado por vários setores; o
+  // `defaultTeamId` entra junto para instância antiga que ainda não migrou.
   if (lead.assignedUserId === userId) return { ok: true }
-  if (inst.defaultTeamId) {
+  const donos = new Set<number>(instTeams.map((t) => t.teamId))
+  if (inst.defaultTeamId) donos.add(inst.defaultTeamId)
+  if (donos.size > 0) {
     const member = await prisma.teamMember.findFirst({
-      where: { userId, teamId: inst.defaultTeamId, team: { active: true } },
+      where: { userId, teamId: { in: Array.from(donos) }, team: { active: true } },
       select: { id: true },
     })
     if (member) return { ok: true }
-    return { ok: false, reason: 'Você não pertence ao setor desta instância' }
+    return { ok: false, reason: donos.size > 1 ? 'Você não pertence a nenhum setor deste número' : 'Você não pertence ao setor desta instância' }
   }
 
   // Sem amarração: sem restrição extra (instância "comum" do tenant).

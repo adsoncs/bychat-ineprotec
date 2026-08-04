@@ -269,9 +269,15 @@ function ConnectionCard({
   onDelete: () => void
 }) {
   const update = useUpdateCloudApiConnection()
+  // Setores donos (vários) — um número de recepção costuma ser atendido por mais
+  // de um setor. `defaultTeamId` entra como fallback de conexão antiga.
+  const teamsIniciais: number[] = c.teamIds?.length
+    ? c.teamIds
+    : (c.defaultTeamId != null ? [c.defaultTeamId] : [])
   const [donoTipo, setDonoTipo] = useState<'team' | 'agent' | 'none'>(
-    c.ownerUserId != null ? 'agent' : c.defaultTeamId != null ? 'team' : 'none',
+    c.ownerUserId != null ? 'agent' : teamsIniciais.length ? 'team' : 'none',
   )
+  const [teamIds, setTeamIds] = useState<number[]>(teamsIniciais)
 
   function handleChatbotChange(value: string) {
     const chatbotId = value ? Number(value) : null
@@ -290,7 +296,7 @@ function ConnectionCard({
 
   // Roteamento por dono (setor OU agente — mutuamente exclusivos, igual à
   // instância Evolution). Salva ao escolher no select; "Sem dono" salva na hora.
-  function saveDono(input: { defaultTeamId?: number | null; ownerUserId?: number | null }) {
+  function saveDono(input: { teamIds?: number[]; defaultTeamId?: number | null; ownerUserId?: number | null }) {
     update.mutate({ id: c.id, ...input }, {
       onSuccess: () => toast('Roteamento da conexão atualizado', 'success', 1_500),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -383,22 +389,37 @@ function ConnectionCard({
           </label>
           <label class="flex items-center gap-1.5 cursor-pointer">
             <input type="radio" name={`dono-${c.id}`} checked={donoTipo === 'none'} disabled={update.isPending}
-              onChange={() => { setDonoTipo('none'); saveDono({ defaultTeamId: null, ownerUserId: null }) }} />
+              onChange={() => { setDonoTipo('none'); setTeamIds([]); saveDono({ teamIds: [], ownerUserId: null }) }} />
             Sem dono
           </label>
         </div>
         {donoTipo === 'team' && (
-          <Select
-            value={c.defaultTeamId != null ? String(c.defaultTeamId) : ''}
-            disabled={update.isPending}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value
-              saveDono({ defaultTeamId: v ? Number(v) : null, ownerUserId: null })
-            }}
-          >
-            <option value="">— Selecionar setor —</option>
-            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </Select>
+          <div class="space-y-1.5">
+            <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+              {teams.map((t) => (
+                <label key={t.id} class="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    disabled={update.isPending}
+                    checked={teamIds.includes(t.id)}
+                    onChange={(e) => {
+                      const on = (e.target as HTMLInputElement).checked
+                      const next = on ? [...teamIds, t.id] : teamIds.filter((x) => x !== t.id)
+                      setTeamIds(next)
+                      saveDono({ teamIds: next, ownerUserId: null })
+                    }}
+                  />
+                  {t.name}
+                </label>
+              ))}
+            </div>
+            {teamIds.length > 1 ? (
+              <p class="text-xs text-warning">
+                Com mais de um setor, o lead que chegar por este número entra <strong>sem setor</strong> —
+                quem define é o menu do chatbot ou uma regra. Todos os setores marcados podem responder por ele.
+              </p>
+            ) : null}
+          </div>
         )}
         {donoTipo === 'agent' && (
           <Select
@@ -406,7 +427,8 @@ function ConnectionCard({
             disabled={update.isPending}
             onChange={(e) => {
               const v = (e.target as HTMLSelectElement).value
-              saveDono({ ownerUserId: v ? Number(v) : null, defaultTeamId: null })
+              setTeamIds([])
+              saveDono({ ownerUserId: v ? Number(v) : null, teamIds: [] })
             }}
           >
             <option value="">— Selecionar agente —</option>
@@ -417,7 +439,8 @@ function ConnectionCard({
           {donoTipo === 'agent'
             ? 'Leads que chegarem por este número são atribuídos direto ao agente.'
             : donoTipo === 'team'
-            ? 'Leads são roteados ao setor (round-robin conforme a configuração da equipe).'
+            // Com 2+ setores o aviso acima já explica; repetir aqui só polui.
+            ? (teamIds.length > 1 ? '' : 'Leads são roteados ao setor (round-robin conforme a configuração da equipe).')
             : 'Sem amarração — leads caem na fila global do tenant (regras/fallback).'}
         </p>
       </div>
