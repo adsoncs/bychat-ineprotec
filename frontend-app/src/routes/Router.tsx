@@ -68,6 +68,9 @@ const migratedPages: Record<string, ComponentType> = {
   negotiations: lazy(() =>
     import('./pages/NegotiationsPage').then((m) => ({ default: m.NegotiationsPage })),
   ),
+  'goals-commissions': lazy(() =>
+    import('./pages/GoalsCommissionsPage').then((m) => ({ default: m.GoalsCommissionsPage })),
+  ),
   intelligence: lazy(() =>
     import('./pages/IntelligencePage').then((m) => ({ default: m.IntelligencePage })),
   ),

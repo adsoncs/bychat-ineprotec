@@ -1,22 +1,20 @@
 // Tela do módulo Negociações: todas as propostas da operação num lugar só.
 //
-// Duas visões do MESMO recorte de filtros: tabela (analisar, comparar, exportar)
-// e pipeline por status (operar — arrastar a proposta de Enviada para Em
-// negociação). Os KPIs no topo separam recorrência de pagamento único, pela
-// mesma razão da Visão Geral: venda avulsa não é crescimento de MRR.
+// Uma tabela — analisar, comparar, exportar. A coluna de situação mostra a ETAPA
+// do funil em que o lead está (mais o selo Ganho/Perdido quando há desfecho); o
+// quadro por status da proposta foi removido justamente porque duas noções de
+// "etapa" na mesma tela confundiam quem lê. Os KPIs no topo separam recorrência
+// de pagamento único, pela mesma razão da Visão Geral: venda avulsa não é
+// crescimento de MRR.
 //
 // A proposta abre num modal com o editor da aba do lead (`NegotiationEditor`) —
 // é a mesma proposta, mudou só de onde se chega nela.
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
+import { Handshake, Download, RefreshCw, ExternalLink, HelpCircle } from 'lucide-preact'
 import {
-  DndContext, DragOverlay, PointerSensor, closestCenter, useSensor, useSensors,
-  useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
-} from '@dnd-kit/core'
-import { Handshake, Table2, Columns3, Download, RefreshCw, ExternalLink, HelpCircle } from 'lucide-preact'
-import {
-  useNegotiationsOverview, useSetNegotiationStatus, negotiationsOverviewQuery,
+  useNegotiationsOverview, negotiationsOverviewQuery,
   type NegotiationRow, type NegotiationsOverviewParams,
 } from '@/hooks/useNegotiations'
 import { NegotiationEditor } from '@/components/LeadNegotiationTab'
@@ -37,16 +35,9 @@ import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
-type Tone = 'info' | 'success' | 'danger' | 'warning' | 'neutral'
-const STATUS: Record<string, { label: string; tone: Tone }> = {
-  rascunho: { label: 'Rascunho', tone: 'neutral' },
-  enviada: { label: 'Enviada', tone: 'info' },
-  em_negociacao: { label: 'Em negociação', tone: 'warning' },
-  aceita: { label: 'Aceita', tone: 'success' },
-  recusada: { label: 'Recusada', tone: 'danger' },
-  expirada: { label: 'Expirada', tone: 'neutral' },
-}
-const PIPELINE_ORDER = ['rascunho', 'enviada', 'em_negociacao', 'aceita', 'recusada', 'expirada']
+/** Opções de itens por página — a escolha fica salva por navegador. */
+const PAGE_SIZES = [25, 50, 100, 200]
+const DEFAULT_PAGE_SIZE = 50
 
 const money = (v: unknown) => {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''))
@@ -72,72 +63,106 @@ function ValorCell({ n }: { n: NegotiationRow }) {
   )
 }
 
-function statusOf(n: NegotiationRow) {
-  if (n.resultado === 'won') return { label: 'Ganha', tone: 'success' as Tone }
-  if (n.resultado === 'lost') return { label: 'Perdida', tone: 'danger' as Tone }
-  return STATUS[n.status] ?? STATUS.rascunho
+/** Desfecho a exibir: o desta proposta manda; na proposta ainda aberta vale o
+ * do LEAD (fechado por outra proposta ou pelos botões Ganho/Perdido do lead). */
+function outcomeOf(n: NegotiationRow): 'won' | 'lost' | null {
+  return n.resultado ?? n.lead?.outcome ?? null
 }
 
-// ── Pipeline ──────────────────────────────────────────────────────────────
-
-function PipelineCard({ n, onOpen, dragging }: { n: NegotiationRow; onOpen?: () => void; dragging?: boolean }) {
-  const mrr = numOf(n.valorRecorrente)
+/**
+ * Situação do lead: a ETAPA do funil em que ele está (nome e cor configurados
+ * no funil) e, quando existe desfecho, o selo Ganho/Perdido ao lado.
+ *
+ * A etapa vem do lead, não da proposta: quem olha a lista quer saber onde o
+ * negócio está na operação, e o status interno da proposta (rascunho/enviada)
+ * não é um segundo funil — ele mora dentro do editor da proposta.
+ */
+function StageCell({ n }: { n: NegotiationRow }) {
+  const stage = n.lead?.stageName || n.lead?.status || null
+  const outcome = outcomeOf(n)
   return (
-    <div
-      class={cn(
-        'rounded-md border border-border bg-surface p-2 text-left w-full',
-        dragging ? 'shadow-lg rotate-1' : 'hover:border-accent/50 cursor-grab active:cursor-grabbing',
-      )}
-      onClick={onOpen}
-    >
-      <div class="text-sm font-medium text-fg truncate">{leadLabel(n)}</div>
-      <div class="text-xs text-fg-muted truncate">{n.titulo}</div>
-      <div class="mt-1 flex items-baseline justify-between gap-2">
-        <span class="text-sm text-fg tabular-nums">{money(n.valorUnico)}</span>
-        {mrr > 0 ? <span class="text-xs text-accent tabular-nums">{money(mrr)}/mês</span> : null}
-      </div>
-      {n.responsavelNome ? <div class="text-[11px] text-fg-subtle mt-0.5 truncate">{n.responsavelNome}</div> : null}
+    <div class="flex items-center gap-1.5 flex-wrap">
+      {stage ? (
+        <span class="inline-flex items-center gap-1.5 max-w-40" title={stage}>
+          <span class="size-2 rounded-full shrink-0" style={{ background: n.lead?.stageColor || 'var(--color-accent)' }} />
+          <span class="text-xs text-fg-muted truncate">{stage}</span>
+        </span>
+      ) : <span class="text-xs text-fg-subtle">—</span>}
+      {outcome ? <Badge tone={outcome === 'won' ? 'success' : 'danger'}>{outcome === 'won' ? 'Ganho' : 'Perdido'}</Badge> : null}
     </div>
   )
 }
 
-function DraggableCard({ n, onOpen }: { n: NegotiationRow; onOpen: () => void }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: n.id, disabled: !!n.resultado })
-  return (
-    <div ref={setNodeRef} {...listeners} {...attributes} class={isDragging ? 'opacity-40' : ''}>
-      <PipelineCard n={n} onOpen={onOpen} />
-    </div>
-  )
-}
+// ── Paginação ─────────────────────────────────────────────────────────────
 
-function PipelineColumn({ status, rows, totals, onOpen }: {
-  status: string
-  rows: NegotiationRow[]
-  totals: { count: number; valorUnico: number; valorRecorrente: number } | undefined
-  onOpen: (n: NegotiationRow) => void
+/**
+ * Rodapé da tabela: quantas linhas estão à vista, atalho para qualquer página e
+ * o tamanho da página.
+ *
+ * Com muita proposta, "Anterior/Próxima" obriga a clicar dezenas de vezes para
+ * chegar ao fim — então os números aparecem com reticências (1 … 7 8 9 … 42) e
+ * há salto direto para a primeira e a última. Mesmo padrão do rodapé de Leads.
+ */
+function TableFooter({ total, limit, page, onChangePage, onChangeLimit }: {
+  total: number
+  limit: number
+  page: number
+  onChangePage: (p: number) => void
+  onChangeLimit: (n: number) => void
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: status })
-  const meta = STATUS[status] ?? STATUS.rascunho
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const from = total === 0 ? 0 : (page - 1) * limit + 1
+  const to = Math.min(page * limit, total)
+
+  // Sempre a primeira, a última e a vizinhança da atual — o resto vira "…".
+  const items = useMemo(() => {
+    const set = new Set<number>([1, totalPages, page, page - 1, page + 1, page - 2, page + 2])
+    const visible = [...set].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b)
+    const out: ({ kind: 'page'; n: number } | { kind: 'gap' })[] = []
+    let prev = 0
+    for (const n of visible) {
+      if (n - prev > 1) out.push({ kind: 'gap' })
+      out.push({ kind: 'page', n })
+      prev = n
+    }
+    return out
+  }, [page, totalPages])
+
+  const navBtn = 'h-7 px-2 rounded-md border border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-3 disabled:opacity-40 disabled:hover:bg-surface'
+
   return (
-    <div
-      ref={setNodeRef}
-      class={cn(
-        'w-72 shrink-0 rounded-lg border p-2 space-y-2 bg-surface-2/40',
-        isOver ? 'border-accent bg-accent/5' : 'border-border',
-      )}
-    >
-      <div class="flex items-center justify-between gap-2 px-0.5">
-        <Badge tone={meta.tone}>{meta.label}</Badge>
-        <span class="text-xs text-fg-subtle tabular-nums">{totals?.count ?? rows.length}</span>
-      </div>
-      <div class="px-0.5 text-[11px] text-fg-muted tabular-nums">
-        {money(totals?.valorUnico ?? 0)}
-        {(totals?.valorRecorrente ?? 0) > 0 ? <> · {money(totals?.valorRecorrente ?? 0)}/mês</> : null}
-      </div>
-      <div class="space-y-1.5 max-h-[60vh] overflow-y-auto">
-        {rows.length === 0
-          ? <p class="text-[11px] text-fg-subtle px-0.5 py-2">Nada aqui.</p>
-          : rows.map((n) => <DraggableCard key={n.id} n={n} onOpen={() => onOpen(n)} />)}
+    <div class="flex items-center justify-between gap-2 px-3 py-2 border-t border-border text-xs flex-wrap">
+      <span class="text-fg-muted">
+        Mostrando <span class="text-fg tabular-nums">{from}</span>–<span class="text-fg tabular-nums">{to}</span> de <span class="text-fg tabular-nums">{total}</span> negociação(ões)
+      </span>
+      <div class="flex items-center gap-1 flex-wrap">
+        <button type="button" class={navBtn} onClick={() => onChangePage(1)} disabled={page <= 1} aria-label="Primeira página">«</button>
+        <button type="button" class={navBtn} onClick={() => onChangePage(page - 1)} disabled={page <= 1} aria-label="Página anterior">‹</button>
+        {items.map((it, i) => it.kind === 'gap'
+          ? <span key={`gap-${i}`} class="px-1 text-fg-subtle">…</span>
+          : (
+            <button
+              key={`p-${it.n}`}
+              type="button"
+              class={cn(
+                'h-7 min-w-[2rem] px-2 rounded-md border text-xs font-medium tabular-nums',
+                it.n === page ? 'border-accent bg-accent text-fg-on-brand' : 'border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-3',
+              )}
+              onClick={() => onChangePage(it.n)}
+              aria-current={it.n === page ? 'page' : undefined}
+            >{it.n}</button>
+          ),
+        )}
+        <button type="button" class={navBtn} onClick={() => onChangePage(page + 1)} disabled={page >= totalPages} aria-label="Próxima página">›</button>
+        <button type="button" class={navBtn} onClick={() => onChangePage(totalPages)} disabled={page >= totalPages} aria-label="Última página">»</button>
+        <select
+          class="h-7 ml-2 px-2 rounded-md border border-border bg-surface text-xs text-fg cursor-pointer focus:outline-none focus:border-accent"
+          value={limit}
+          onChange={(e) => onChangeLimit(Number((e.target as HTMLSelectElement).value))}
+          aria-label="Itens por página"
+        >
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}/pág</option>)}
+        </select>
       </div>
     </div>
   )
@@ -145,11 +170,8 @@ function PipelineColumn({ status, rows, totals, onOpen }: {
 
 // ── Página ────────────────────────────────────────────────────────────────
 
-type View = 'table' | 'pipeline'
-
 export function NegotiationsPage() {
   const [, navigate] = useLocation()
-  const [view, setView] = useState<View>(() => (localStorage.getItem('negotiations.view') === 'pipeline' ? 'pipeline' : 'table'))
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [resultado, setResultado] = useState('')
@@ -162,31 +184,37 @@ export function NegotiationsPage() {
   const [dateTo, setDateTo] = useState('')
   const [orderBy, setOrderBy] = useState('recent')
   const [page, setPage] = useState(1)
+  // Tamanho da página é preferência de quem opera (tela grande aguenta 100+),
+  // então fica no navegador — recarregar não devolve para o padrão.
+  const [limit, setLimit] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('negotiations.pageSize'))
+    return PAGE_SIZES.includes(saved) ? saved : DEFAULT_PAGE_SIZE
+  })
   const [editing, setEditing] = useState<NegotiationRow | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
-  const [dragging, setDragging] = useState<NegotiationRow | null>(null)
 
   const funnels = useFunnels()
   const users = useUsers()
-  const setStatus = useSetNegotiationStatus()
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 300)
     return () => clearTimeout(t)
   }, [searchInput])
+  // Trocar o recorte invalida a página atual: a 7 do filtro anterior pode nem
+  // existir no novo.
   useEffect(() => { setPage(1) }, [search, resultado, funnelId, responsavel, cobranca, dateFrom, dateTo, orderBy])
 
-  function changeView(v: View) {
-    setView(v)
-    try { localStorage.setItem('negotiations.view', v) } catch { /* ignore */ }
+  function changeLimit(n: number) {
+    // Volta para a 1 no MESMO render — deixar isso para um efeito faria a tela
+    // buscar a página antiga com o tamanho novo antes de se corrigir.
+    setLimit(n)
+    setPage(1)
+    try { localStorage.setItem('negotiations.pageSize', String(n)) } catch { /* ignore */ }
   }
 
-  // O pipeline precisa das colunas inteiras; a tabela pagina. Um parâmetro só
-  // muda entre as duas visões — o resto do recorte é idêntico.
   const params: NegotiationsOverviewParams = {
-    page: view === 'pipeline' ? 1 : page,
-    limit: view === 'pipeline' ? 200 : 50,
+    page,
+    limit,
     q: search || undefined,
     resultado: resultado || undefined,
     funnelId: funnelId ?? undefined,
@@ -199,44 +227,17 @@ export function NegotiationsPage() {
   const { data, isLoading, isFetching, refetch } = useNegotiationsOverview(params)
   const rows = data?.negotiations ?? []
   const kpis = data?.kpis
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1
+  const total = data?.total ?? 0
 
-  const byStatus = useMemo(() => {
-    const map = new Map<string, NegotiationRow[]>()
-    for (const s of PIPELINE_ORDER) map.set(s, [])
-    for (const n of rows) {
-      const key = PIPELINE_ORDER.includes(n.status) ? n.status : 'rascunho'
-      map.get(key)!.push(n)
-    }
-    return map
-  }, [rows])
-  const totalsByStatus = useMemo(() => {
-    const m = new Map<string, { count: number; valorUnico: number; valorRecorrente: number }>()
-    for (const g of data?.byStatus ?? []) m.set(g.status, { count: g.count, valorUnico: g.valorUnico, valorRecorrente: g.valorRecorrente })
-    return m
-  }, [data?.byStatus])
-
-  function handleDragStart(e: DragStartEvent) {
-    setDragging(rows.find((n) => n.id === Number(e.active.id)) ?? null)
-  }
-  function handleDragEnd(e: DragEndEvent) {
-    setDragging(null)
-    const id = Number(e.active.id)
-    const target = e.over?.id ? String(e.over.id) : null
-    const n = rows.find((r) => r.id === id)
-    if (!target || !n || n.status === target) return
-    if (n.resultado) { toast('Negociação fechada — reabra antes de mudar o status', 'warning'); return }
-    if (target === 'aceita' || target === 'recusada') {
-      // Ganho/perdido mexe no desfecho do LEAD e exige motivo da perda: tem que
-      // passar pelo fluxo de fechamento, não por um arrasto.
-      toast('Para dar como ganha ou perdida, abra a proposta e use "Fechar negociação"', 'warning')
-      return
-    }
-    setStatus.mutate({ id, status: target }, {
-      onSuccess: () => toast(`Movida para ${STATUS[target]?.label ?? target}`, 'success'),
-      onError: (err: unknown) => toast((err as Error).message || 'Não foi possível mover', 'danger'),
-    })
-  }
+  // Página órfã: fechar/apagar propostas (ou um recorte que encolheu) pode deixar
+  // a página atual além do fim. Aí a lista vem vazia e a tela cairia no "nenhuma
+  // negociação" — com o rodapé fora da tela, sem caminho de volta. Volta sozinha
+  // para a última página que existe.
+  useEffect(() => {
+    if (!data) return
+    const lastPage = Math.max(1, Math.ceil(total / limit))
+    if (page > lastPage) setPage(lastPage)
+  }, [data, total, limit, page])
 
   function exportCsv() {
     const qs = negotiationsOverviewQuery({ ...params, page: 1, limit: 200 })
@@ -257,24 +258,6 @@ export function NegotiationsPage() {
             <RefreshCw size={14} class={isFetching ? 'animate-spin' : ''} /> Atualizar
           </Button>
           <Button variant="ghost" size="sm" onClick={exportCsv}><Download size={14} /> Exportar</Button>
-          <div class="flex items-center gap-1 p-0.5 rounded-md bg-surface-3">
-            <button
-              type="button"
-              onClick={() => changeView('table')}
-              class={cn('h-7 px-3 rounded text-xs font-medium inline-flex items-center gap-1 transition-colors',
-                view === 'table' ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg')}
-            >
-              <Table2 size={13} /> Tabela
-            </button>
-            <button
-              type="button"
-              onClick={() => changeView('pipeline')}
-              class={cn('h-7 px-3 rounded text-xs font-medium inline-flex items-center gap-1 transition-colors',
-                view === 'pipeline' ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg')}
-            >
-              <Columns3 size={13} /> Pipeline
-            </button>
-          </div>
         </div>
       }
     >
@@ -306,18 +289,7 @@ export function NegotiationsPage() {
         />
       </div>
 
-      {/* Contexto do fechamento: fora dos cards porque é leitura de apoio, não
-          indicador de topo — e o ticket médio é do 1º ciclo, não do MRR. */}
-      {!isLoading && kpis ? (
-        <p class="text-xs text-fg-subtle -mt-1">
-          {kpis.winRate != null
-            ? <>Aproveitamento de <strong class="text-fg-muted">{kpis.winRate}%</strong> ({kpis.wonCount} ganha(s) · {kpis.lostCount} perdida(s))</>
-            : <>Nenhuma proposta fechada neste recorte</>}
-          {kpis.avgTicket ? <> · ticket médio de <strong class="text-fg-muted">{money(kpis.avgTicket)}</strong> no 1º ciclo (único + 1 mensalidade)</> : null}
-        </p>
-      ) : null}
-
-      {/* Filtros — valem para as duas visões */}
+      {/* Filtros */}
       <Card class="!p-3">
         <div class="flex flex-wrap items-center gap-2">
           <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Lead ou título da proposta…" class="w-56" />
@@ -348,14 +320,12 @@ export function NegotiationsPage() {
             <input type="date" value={dateTo} min={dateFrom || undefined} onInput={(e) => setDateTo((e.target as HTMLInputElement).value)}
               class="h-8 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent" aria-label="Data final" />
           </div>
-          {view === 'table' ? (
-            <Select value={orderBy} onChange={(e) => setOrderBy((e.target as HTMLSelectElement).value)} class="w-40">
-              <option value="recent">Mais recentes</option>
-              <option value="oldest">Mais antigas</option>
-              <option value="value">Maior valor</option>
-              <option value="mrr">Maior mensalidade</option>
-            </Select>
-          ) : null}
+          <Select value={orderBy} onChange={(e) => setOrderBy((e.target as HTMLSelectElement).value)} class="w-40">
+            <option value="recent">Mais recentes</option>
+            <option value="oldest">Mais antigas</option>
+            <option value="value">Maior valor</option>
+            <option value="mrr">Maior mensalidade</option>
+          </Select>
           {filtroAtivo ? (
             <Button variant="ghost" size="sm" onClick={() => {
               setSearchInput(''); setSearch(''); setResultado(''); setFunnelId(null)
@@ -378,15 +348,6 @@ export function NegotiationsPage() {
             ? 'Ajuste os filtros acima — o período talvez esteja cortando o que você procura.'
             : 'As propostas criadas na aba Negociação de cada lead aparecem aqui.'}
         />
-      ) : view === 'pipeline' ? (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div class="flex gap-3 overflow-x-auto pb-3">
-            {PIPELINE_ORDER.map((s) => (
-              <PipelineColumn key={s} status={s} rows={byStatus.get(s) ?? []} totals={totalsByStatus.get(s)} onOpen={setEditing} />
-            ))}
-          </div>
-          <DragOverlay>{dragging ? <div class="w-72"><PipelineCard n={dragging} dragging /></div> : null}</DragOverlay>
-        </DndContext>
       ) : (
         <Card class="!p-0 overflow-hidden">
           <div class="overflow-x-auto">
@@ -395,7 +356,7 @@ export function NegotiationsPage() {
                 <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
                   <th class="text-left font-medium px-3 py-2">Lead</th>
                   <th class="text-left font-medium px-3 py-2">Proposta</th>
-                  <th class="text-left font-medium px-3 py-2">Status</th>
+                  <th class="text-left font-medium px-3 py-2">Etapa do funil</th>
                   <th class="text-right font-medium px-3 py-2">Valores</th>
                   <th class="text-left font-medium px-3 py-2">Responsável</th>
                   <th class="text-left font-medium px-3 py-2">Data</th>
@@ -403,9 +364,7 @@ export function NegotiationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((n) => {
-                  const st = statusOf(n)
-                  return (
+                {rows.map((n) => (
                     <tr key={n.id} class="border-b border-border/60 last:border-0 hover:bg-surface-2/50 cursor-pointer" onClick={() => setEditing(n)}>
                       <td class="px-3 py-2">
                         <div class="text-fg font-medium truncate max-w-48">{leadLabel(n)}</div>
@@ -417,7 +376,7 @@ export function NegotiationsPage() {
                           {n._count?.items ?? 0} item(ns){n._count?.attachments ? ` · ${n._count.attachments} anexo(s)` : ''}
                         </div>
                       </td>
-                      <td class="px-3 py-2"><Badge tone={st.tone}>{st.label}</Badge></td>
+                      <td class="px-3 py-2"><StageCell n={n} /></td>
                       <td class="px-3 py-2"><ValorCell n={n} /></td>
                       <td class="px-3 py-2 text-fg-muted truncate max-w-36">{n.responsavelNome ?? '—'}</td>
                       <td class="px-3 py-2 text-fg-muted whitespace-nowrap">
@@ -436,20 +395,13 @@ export function NegotiationsPage() {
                         </button>
                       </td>
                     </tr>
-                  )
-                })}
+                ))}
               </tbody>
             </table>
           </div>
-          {totalPages > 1 ? (
-            <div class="flex items-center justify-between gap-2 px-3 py-2 border-t border-border">
-              <span class="text-xs text-fg-subtle">{data?.total} negociações · página {page} de {totalPages}</span>
-              <div class="flex gap-1">
-                <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Anterior</Button>
-                <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
-              </div>
-            </div>
-          ) : null}
+          {/* O rodapé fica mesmo com uma página só: é onde se troca o tamanho
+              da página e onde se lê quantas propostas o recorte tem. */}
+          <TableFooter total={total} limit={limit} page={page} onChangePage={setPage} onChangeLimit={changeLimit} />
         </Card>
       )}
 
@@ -470,7 +422,7 @@ export function NegotiationsPage() {
             >
               <ExternalLink size={12} /> Abrir o lead
             </button>
-            <NegotiationEditor leadId={editing.leadId} id={editing.id} hideBack onBack={() => { setEditing(null); refetch() }} />
+            <NegotiationEditor leadId={editing.leadId} id={editing.id} hideBack onBack={() => { setEditing(null); void refetch() }} />
           </div>
         ) : null}
       </Modal>
@@ -491,15 +443,15 @@ export function NegotiationsPage() {
           },
           {
             title: '📋 Tabela',
-            body: <>Todas as propostas do recorte, com valor único e mensalidade em colunas separadas. Ordene por maior valor ou maior mensalidade e exporte em CSV (abre no Excel).</>,
-          },
-          {
-            title: '🗂️ Pipeline',
-            body: <>O mesmo recorte em colunas por status. Arraste o card para mover a proposta entre Rascunho, Enviada e Em negociação. <strong>Ganha e perdida não se arrastam</strong>: mexem no desfecho do lead e exigem o motivo da perda, então passam pelo botão "Fechar negociação" dentro da proposta.</>,
+            body: <>Todas as propostas do recorte, com valor único e mensalidade em colunas separadas. A coluna <strong>Etapa do funil</strong> mostra onde o lead está agora — e o selo <strong>Ganho</strong>/<strong>Perdido</strong> aparece quando já existe desfecho. Ordene por maior valor ou maior mensalidade e exporte em CSV (abre no Excel).</>,
           },
           {
             title: '🔎 Filtros e período',
-            body: <>Valem para as duas visões. O período usa a data de <strong>fechamento</strong> das propostas fechadas e a de <strong>criação</strong> das abertas — assim o que foi proposto em março e fechado em abril conta em abril.</>,
+            body: <>O período usa a data de <strong>fechamento</strong> das propostas fechadas e a de <strong>criação</strong> das abertas — assim o que foi proposto em março e fechado em abril conta em abril.</>,
+          },
+          {
+            title: '📄 Paginação',
+            body: <>O rodapé mostra quantas propostas o recorte tem e leva direto a qualquer página (inclusive a primeira e a última). O seletor <strong>25/50/100/200 por página</strong> fica guardado neste navegador. Para ganhar/perder uma proposta, abra-a e use "Fechar negociação" — é lá que se registra o motivo da perda.</>,
           },
         ]}
         tip={{

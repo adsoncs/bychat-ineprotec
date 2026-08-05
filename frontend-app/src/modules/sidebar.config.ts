@@ -157,6 +157,7 @@ export const sidebarSchema: SidebarSchema = {
       label: 'Vendas & Automação',
       items: [
         { id: 'sales-ai', label: 'Vendas IA', href: '/app/sales-ai', icon: 'TrendingUp', permission: 'vendas' },
+        { id: 'goals-commissions', label: 'Metas & Comissões', href: '/app/goals-commissions', icon: 'Target', permission: 'goals_commissions' },
         { id: 'workflows', label: 'Fluxos', href: '/app/workflows', icon: 'Workflow', permission: 'workflows' },
         { id: 'sales-cadences', label: 'Cadências', href: '/app/sales-cadences', icon: 'Megaphone', permission: 'sales_engagement' },
         { id: 'jobs', label: 'Filas & Monitor', href: '/app/jobs', icon: 'GanttChart', permission: 'workflows' },

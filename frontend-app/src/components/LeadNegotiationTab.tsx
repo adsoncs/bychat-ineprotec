@@ -7,6 +7,7 @@ import {
   type Negotiation, type NegItem, type CatalogHit,
 } from '@/hooks/useNegotiations'
 import { useLossReasons } from '@/hooks/useLeadOutcome'
+import { useCommissionPreview } from '@/hooks/useGoalsCommissions'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
@@ -249,6 +250,10 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   const delAtt = useDeleteNegotiationAttachment(leadId)
   const lossReasons = useLossReasons()
   const fileRef = useRef<HTMLInputElement>(null)
+  // Comissão que esta proposta paga, calculada pelo mesmo motor que grava o
+  // lançamento. Best-effort: módulo Metas & Comissões desligado (ou proposta de
+  // outro agente) devolve nulo e o bloco simplesmente não aparece.
+  const { data: comissao } = useCommissionPreview(isNew ? null : (id as number), !isNew)
 
   const n = data?.negotiation
   const [f, setF] = useState<Form>(EMPTY_FORM)
@@ -642,6 +647,31 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             />
             {temRecorrente ? <p class="text-[11px] text-fg-subtle mt-1">É este valor que vai para o card de venda do lead ao fechar como ganha. A mensalidade entra separada nos indicadores de recorrência.</p> : null}
           </div>
+
+          {/* Comissão desta proposta — o vendedor vê na hora quanto um desconto
+              custa no bolso dele. O número vem do motor de Metas & Comissões, o
+              mesmo que grava o lançamento ao fechar. */}
+          {comissao?.preview?.aplicavel ? (
+            <div class="mt-4 pt-3 border-t border-border">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">
+                Comissão {closed ? 'desta venda' : 'estimada'}
+              </div>
+              <SummaryRow label="Total" value={money(comissao.preview.valorTotal)} strong />
+              {comissao.preview.valorUnico > 0 ? <SummaryRow label="Sobre o pagamento único" value={money(comissao.preview.valorUnico)} /> : null}
+              {comissao.preview.valorRecorrente > 0 ? (
+                <SummaryRow
+                  label={comissao.preview.mesesRecorrente > 1 ? `Sobre a mensalidade (${comissao.preview.mesesRecorrente} meses)` : 'Sobre a mensalidade'}
+                  value={money(comissao.preview.valorRecorrente)}
+                />
+              ) : null}
+              <p class="text-[11px] text-fg-subtle mt-1">
+                Regra “{comissao.preview.rule?.nome}”
+                {comissao.preview.tierLabel ? <> · faixa {comissao.preview.tierLabel}</> : null}
+                {comissao.entry?.status === 'paga' ? <> · já paga ao agente</> : null}
+                {!closed ? <> · vira lançamento quando a proposta for fechada como ganha.</> : null}
+              </p>
+            </div>
+          ) : null}
         </Card>
       </div>
 

@@ -18,6 +18,19 @@ const DEFAULT_ROLE_PRESETS: Record<string, { canView: boolean; canCreate: boolea
   VIEWER:     { canView: false, canCreate: false, canEdit: false, canDelete: false },
 }
 
+// Exceções por módulo ao preset acima. AGENT não entra na lista padrão (o
+// vendedor não administra o sistema), mas em Metas & Comissões ele precisa
+// enxergar a PRÓPRIA meta e a própria comissão — o recorte de "só o que é dele"
+// é feito na rota (scopedUserId), não por ausência de permissão. Sem isto, o
+// gate global devolveria 403 e o vendedor não veria nem a estimativa dentro da
+// proposta dele.
+const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>> = {
+  goals_commissions: {
+    AGENT: { canView: true, canCreate: false, canEdit: false, canDelete: false },
+  },
+}
+
+
 // Side effects opcionais ao ligar/desligar um módulo (ex.: seed inicial).
 type SideEffect = (enabled: boolean) => Promise<void>
 const SIDE_EFFECTS: Record<string, SideEffect> = {}
@@ -57,7 +70,8 @@ export async function isModuleEnabled(moduleId: string): Promise<boolean> {
 // Sincroniza ModulePermission para um módulo em todas as roles.
 // enabled=true → presets padrão; enabled=false → tudo zerado.
 async function syncModulePermissions(moduleId: string, enabled: boolean) {
-  for (const [role, preset] of Object.entries(DEFAULT_ROLE_PRESETS)) {
+  const presets = { ...DEFAULT_ROLE_PRESETS, ...(MODULE_ROLE_PRESETS[moduleId] ?? {}) }
+  for (const [role, preset] of Object.entries(presets)) {
     const data = enabled
       ? preset
       : { canView: false, canCreate: false, canEdit: false, canDelete: false }

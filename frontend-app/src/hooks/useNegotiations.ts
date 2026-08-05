@@ -198,7 +198,17 @@ export function useCatalogPickCategories(enabled: boolean) {
 // pipeline) e os KPIs — três telas do mesmo recorte, uma volta ao servidor.
 
 export interface NegotiationRow extends Negotiation {
-  lead: { id: number; nome: string | null; email: string | null; whatsapp: string | null; funnelId: number | null; status: string | null } | null
+  lead: {
+    id: number; nome: string | null; email: string | null; whatsapp: string | null
+    funnelId: number | null
+    /** Chave da etapa (`Lead.status`) — o rótulo legível vem em `stageName`. */
+    status: string | null
+    /** Nome e cor da etapa do funil em que o lead está agora. */
+    stageName: string | null
+    stageColor: string | null
+    /** Desfecho do LEAD (won/lost), independente do resultado desta proposta. */
+    outcome: 'won' | 'lost' | null
+  } | null
   responsavelNome: string | null
 }
 
@@ -225,7 +235,6 @@ export interface NegotiationsOverview {
   total: number
   page: number
   limit: number
-  byStatus: { status: string; count: number; valorUnico: number; valorRecorrente: number; valorFinal: number }[]
   kpis: {
     openCount: number; openUnico: number; openMrr: number; openTotal: number
     wonCount: number; wonUnico: number; wonMrr: number; wonTotal: number

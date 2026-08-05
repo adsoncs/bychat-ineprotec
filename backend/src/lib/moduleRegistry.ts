@@ -506,6 +506,16 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'goals_commissions', name: 'Metas e Comissões', icon: '🎯', category: 'vendas',
+    description: 'Metas por funil e por agente (receita, mensalidade, nº de vendas e conversão) e a comissão de cada venda — percentual ou valor fixo, com taxa separada para pagamento único e mensalidade, e faixas que melhoram a taxa conforme o atingimento da meta. Os valores saem das propostas ganhas do módulo Negociações: nada é digitado duas vezes.',
+    pages: ['goals-commissions'],
+    routePrefixes: ['/api/admin/commissions', '/api/admin/goals'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    // Nasce desligado: comissionamento é decisão comercial de cada operação, e
+    // ligar sem regra cadastrada só mostraria tela vazia.
+    defaultEnabled: false,
+  },
+  {
     id: 'negotiations', name: 'Negociações', icon: '🤝', category: 'crm',
     description: 'Negociações/propostas: itens do catálogo, mensalidade vs. pagamento único, descontos, condição de pagamento, anexos e fechamento ganho/perdido. Tem tela própria (todas as propostas, KPIs de recorrência e pipeline por status) e uma seção no detalhe do lead.',
     pages: ['negotiations'],

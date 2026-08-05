@@ -85,6 +85,8 @@ model User {
   savedFilters             SavedFilter[]
   appliedFilters           UserAppliedFilter[]
 
+  goals                    Goal[]
+  commissionRules          CommissionRuleUser[]
   @@index([email])
   @@index([role])
   @@index([isAgent])
@@ -300,6 +302,7 @@ model Funnel {
 
   statusSummaries     StatusSummary[]
 
+  goals               Goal[]
   @@map("bychat_funnels")
 }
 
@@ -3950,6 +3953,8 @@ model Negotiation {
   items       NegotiationItem[]
   attachments NegotiationAttachment[]
 
+  // Módulo Metas e Comissões: a comissão é derivada desta venda (some junto).
+  commission  CommissionEntry?
   @@index([leadId])
   @@index([status])
   @@map("bychat_negotiations")
@@ -8644,4 +8649,186 @@ model SmartSuppression {
 
   @@index([createdAt])
   @@map("bychat_smart_suppressions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MÓDULO METAS E COMISSÕES
+//
+// Fica em cima do módulo Negociações: a venda é a proposta ganha, e é dela que
+// saem a base de cálculo (pagamento único e mensalidade separados), o funil (do
+// lead) e o agente (o responsável no fechamento). Nada aqui é digitado de novo —
+// se fosse, o número da comissão divergiria do número da venda no dia seguinte.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Regra de comissão. O escopo é o par (funil, agente): `funnelId` null vale para
+// qualquer funil e nenhum agente vinculado vale para qualquer agente. Quando mais
+// de uma regra serve, ganha a mais específica (agente+funil > agente > funil >
+// geral) — e `prioridade` desempata entre regras de mesma especificidade.
+//
+// A taxa é declarada em DOIS blocos porque a proposta separa mensalidade de
+// pagamento único: comissionar 5% de um setup e 20% da primeira mensalidade é a
+// prática comum de quem vende contrato recorrente, e um percentual só sobre o
+// total esconderia essa diferença.
+model CommissionRule {
+  id     Int     @id @default(autoincrement())
+  nome   String  @db.VarChar(120)
+  active Boolean @default(true)
+
+  funnelId   Int? // null = qualquer funil
+  prioridade Int  @default(0) // desempate manual entre regras igualmente específicas
+
+  // liquido = valor negociado (com desconto) · bruto = valor de tabela dos itens.
+  // Rateado na mesma proporção do bloco quando `bruto` (ver services/commissions).
+  base String @default("liquido") @db.VarChar(10)
+
+  // Bloco "pagamento único": percent | valor | none
+  tipoUnico String   @default("percent") @db.VarChar(10)
+  taxaUnico Decimal? @db.Decimal(12, 2)
+
+  // Bloco "mensalidade": mesma gramática. `mesesRecorrente` = quantas
+  // mensalidades entram na comissão (1 = só a primeira).
+  tipoRecorrente  String   @default("percent") @db.VarChar(10)
+  taxaRecorrente  Decimal? @db.Decimal(12, 2)
+  mesesRecorrente Int      @default(1)
+
+  // Acelerador: a taxa muda conforme o atingimento da meta do período. A métrica
+  // diz CONTRA QUAL meta o atingimento é medido (a meta do agente naquele funil).
+  // Sem faixa aplicável, valem as taxas acima.
+  aceleradorAtivo   Boolean @default(false)
+  aceleradorMetrica String? @db.VarChar(20) // revenue | mrr | count | conversion
+
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tiers   CommissionTier[]
+  agents  CommissionRuleUser[]
+  entries CommissionEntry[]
+
+  @@index([active, funnelId])
+  @@map("bychat_commission_rules")
+}
+
+// Faixa do acelerador. `atingimentoMin` é o piso em % da meta (0, 80, 100…) — a
+// faixa escolhida é a de maior piso ≤ atingimento do agente no período. A taxa da
+// faixa SUBSTITUI a da regra e vale para tudo o que o agente fechou no período
+// (foi a decisão: bater a meta melhora a comissão do mês inteiro, não só da venda
+// que passou do alvo).
+model CommissionTier {
+  id     Int @id @default(autoincrement())
+  ruleId Int
+
+  atingimentoMin Int @default(0) // % da meta
+
+  tipoUnico String   @default("percent") @db.VarChar(10)
+  taxaUnico Decimal? @db.Decimal(12, 2)
+
+  tipoRecorrente String   @default("percent") @db.VarChar(10)
+  taxaRecorrente Decimal? @db.Decimal(12, 2)
+
+  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, atingimentoMin])
+  @@map("bychat_commission_tiers")
+}
+
+// Vínculo regra × agente. Sem nenhuma linha, a regra vale para todo agente.
+model CommissionRuleUser {
+  id     Int @id @default(autoincrement())
+  ruleId Int
+  userId Int
+
+  rule CommissionRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, userId])
+  @@index([userId])
+  @@map("bychat_commission_rule_users")
+}
+
+// Meta do período. Uma linha por (agente, funil, indicador, período):
+// `userId` null = meta do funil inteiro (a soma da operação), `funnelId` null =
+// meta do agente somando todos os funis. O par é intencionalmente livre para o
+// gestor montar a grade que a operação usa, sem o sistema impor um formato.
+model Goal {
+  id       Int  @id @default(autoincrement())
+  userId   Int? // null = meta da operação (não de um agente)
+  funnelId Int? // null = todos os funis
+
+  // revenue = receita ganha (R$) · mrr = nova mensalidade (R$/mês)
+  // count = nº de negociações ganhas · conversion = % ganhas sobre fechadas
+  metric String @db.VarChar(20)
+
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  target      Decimal  @db.Decimal(14, 2)
+
+  active      Boolean @default(true)
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  funnel Funnel? @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+
+  @@index([periodStart, periodEnd])
+  @@index([userId, metric])
+  @@index([funnelId, metric])
+  @@map("bychat_goals")
+}
+
+// Lançamento de comissão — uma linha por negociação ganha. É DERIVADO: some com a
+// negociação (cascade), é recalculado quando o valor da venda muda e some quando
+// a proposta é reaberta. Os campos de taxa são fotografia do que valia no
+// fechamento: mudar a regra amanhã não reescreve sozinha a comissão de ontem
+// (só o recálculo explícito do período faz isso).
+model CommissionEntry {
+  id            Int @id @default(autoincrement())
+  negotiationId Int @unique
+  leadId        Int
+  userId        Int? // beneficiário = responsável da negociação no fechamento
+  funnelId      Int?
+  ruleId        Int?
+  tierId        Int?
+
+  // 1º dia do mês do fechamento — é por ela que o painel agrupa.
+  competencia DateTime @db.Date
+  fechadaEm   DateTime
+
+  baseUnico      Decimal @default(0) @db.Decimal(12, 2)
+  baseRecorrente Decimal @default(0) @db.Decimal(12, 2)
+
+  tipoUnico       String?  @db.VarChar(10)
+  taxaUnico       Decimal? @db.Decimal(12, 2)
+  tipoRecorrente  String?  @db.VarChar(10)
+  taxaRecorrente  Decimal? @db.Decimal(12, 2)
+  mesesRecorrente Int      @default(1)
+
+  valorUnico      Decimal @default(0) @db.Decimal(12, 2)
+  valorRecorrente Decimal @default(0) @db.Decimal(12, 2)
+  valorTotal      Decimal @default(0) @db.Decimal(12, 2)
+
+  // Atingimento (%) que escolheu a faixa, guardado para a tela explicar o número.
+  atingimento Decimal? @db.Decimal(7, 2)
+
+  // prevista = calculada · paga = quitada com o agente · cancelada = venda
+  // desfeita depois de já ter sido paga (mantida como rastro).
+  status  String    @db.VarChar(12) @default("prevista")
+  pagaEm  DateTime?
+  pagaPor Int?
+
+  observacoes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  negotiation Negotiation     @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  rule        CommissionRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([userId, competencia])
+  @@index([competencia])
+  @@index([status])
+  @@map("bychat_commission_entries")
 }

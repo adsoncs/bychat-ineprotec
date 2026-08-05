@@ -10,6 +10,10 @@ import { authMiddleware } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { buildNegotiationSuggestion } from '../services/negotiationSuggestion.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
+// Metas e Comissões: a comissão é derivada desta venda. Todo caminho que muda o
+// desfecho ou o valor avisa o motor — é o que impede o número da comissão de
+// divergir do número da proposta.
+import { onNegotiationChanged, recalcAgentMonth } from '../services/commissions.js'
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -112,6 +116,24 @@ function round2(n: number): number { return Math.round(n * 100) / 100 }
 
 const STATUSES = ['rascunho', 'enviada', 'em_negociacao', 'aceita', 'recusada', 'expirada']
 
+/**
+ * Nome/cor da etapa de cada lead, indexado por "funnelId:status".
+ *
+ * `Lead.status` guarda a CHAVE da etapa (ex.: "NOVO"), não o rótulo — a mesma
+ * chave pode ter nome e cor diferentes em cada funil, então o mapa é por par
+ * funil+chave. Uma consulta só para todos os funis da página.
+ */
+async function stageLabelMap(leads: { funnelId: number | null; status: string }[]) {
+  const funnelIds = Array.from(new Set(leads.map((l) => l.funnelId).filter((v): v is number => !!v)))
+  const stages = funnelIds.length
+    ? await prisma.stage.findMany({
+        where: { funnelId: { in: funnelIds } },
+        select: { funnelId: true, key: true, name: true, color: true },
+      })
+    : []
+  return new Map(stages.map((s) => [`${s.funnelId}:${s.key}`, { name: s.name, color: s.color }]))
+}
+
 export async function negotiationsRoutes(app: FastifyInstance) {
   // Lista de negociações de um lead.
   app.get('/api/admin/negotiations', { preHandler: authMiddleware }, async (req) => {
@@ -198,9 +220,11 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (q.format === 'csv') {
       const todas = await prisma.negotiation.findMany({ where, orderBy: order, take: 5000 })
       const ids = Array.from(new Set(todas.map((n) => n.leadId)))
-      const ls = ids.length ? await prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true, assignedUserId: true } }) : []
+      const ls = ids.length ? await prisma.lead.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true, assignedUserId: true, funnelId: true, status: true } }) : []
       const lname = new Map(ls.map((l) => [l.id, l.nome]))
       const ldono = new Map(ls.map((l) => [l.id, l.assignedUserId]))
+      const stageLabelCsv = await stageLabelMap(ls)
+      const letapa = new Map(ls.map((l) => [l.id, stageLabelCsv.get(`${l.funnelId}:${l.status}`)?.name ?? l.status]))
       const uids = Array.from(new Set([
         ...todas.map((n) => n.responsavelUserId),
         ...ls.map((l) => l.assignedUserId),
@@ -208,9 +232,10 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       const us = uids.length ? await prisma.user.findMany({ where: { id: { in: uids } }, select: { id: true, name: true } }) : []
       const uname = new Map(us.map((u) => [u.id, u.name]))
       const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-      const head = ['Lead', 'Proposta', 'Status', 'Resultado', 'Pagamento único', 'Mensalidade', 'Total 1º ciclo', 'Responsável', 'Criada em', 'Fechada em']
+      const head = ['Lead', 'Proposta', 'Etapa do funil', 'Status da proposta', 'Resultado', 'Pagamento único', 'Mensalidade', 'Total 1º ciclo', 'Responsável', 'Criada em', 'Fechada em']
       const linhas = todas.map((n) => [
-        lname.get(n.leadId) ?? `Lead #${n.leadId}`, n.titulo, n.status, n.resultado ?? 'em aberto',
+        lname.get(n.leadId) ?? `Lead #${n.leadId}`, n.titulo,
+        letapa.get(n.leadId) ?? '', n.status, n.resultado ?? 'em aberto',
         n.valorUnico ?? 0, n.valorRecorrente ?? 0, n.valorFinal ?? 0,
         (() => { const id = ldono.get(n.leadId) ?? n.responsavelUserId; return id ? uname.get(id) ?? '' : '' })(),
         n.createdAt.toISOString().slice(0, 10), n.fechadaEm ? n.fechadaEm.toISOString().slice(0, 10) : '',
@@ -222,18 +247,12 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         .send('﻿' + [head.map(esc).join(';'), ...linhas].join('\n'))
     }
 
-    const [rows, total, agrupado] = await Promise.all([
+    const [rows, total] = await Promise.all([
       prisma.negotiation.findMany({
         where, orderBy: order, skip: (page - 1) * limit, take: limit,
         include: { _count: { select: { items: true, attachments: true } } },
       }),
       prisma.negotiation.count({ where }),
-      // Pipeline por status (contagem + valores) — alimenta as colunas do quadro
-      // e os totais de cada uma sem uma segunda volta ao banco por coluna.
-      prisma.negotiation.groupBy({
-        by: ['status'], where,
-        _count: { _all: true }, _sum: { valorUnico: true, valorRecorrente: true, valorFinal: true },
-      }),
     ])
 
     // Nome do lead e do responsável só dos registros da página. O responsável
@@ -241,9 +260,17 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     // (proposta órfã continua mostrando quem cuida dela).
     const leadIds = Array.from(new Set(rows.map((r) => r.leadId)))
     const leads = leadIds.length
-      ? await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, email: true, whatsapp: true, funnelId: true, status: true, assignedUserId: true } })
+      ? await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { id: true, nome: true, email: true, whatsapp: true, funnelId: true, status: true, outcome: true, assignedUserId: true } })
       : []
-    const leadById = new Map(leads.map((l) => [l.id, l]))
+    // Etapa do funil em que o lead está agora — é o que a coluna "Etapa" da tela
+    // mostra. Sem a etapa resolvida sobraria a chave crua ("NOVO"), que não é o
+    // rótulo que o operador configurou no funil.
+    const stageLabel = await stageLabelMap(leads)
+    const leadById = new Map(leads.map((l) => [l.id, {
+      ...l,
+      stageName: l.funnelId ? (stageLabel.get(`${l.funnelId}:${l.status}`)?.name ?? l.status) : l.status,
+      stageColor: l.funnelId ? (stageLabel.get(`${l.funnelId}:${l.status}`)?.color ?? null) : null,
+    }]))
     const userIds = Array.from(new Set([
       ...rows.map((r) => r.responsavelUserId),
       ...leads.map((l) => l.assignedUserId),
@@ -276,10 +303,6 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         responsavelNome: donoDe(n),
       })),
       total, page, limit,
-      byStatus: agrupado.map((g) => ({
-        status: g.status, count: g._count._all,
-        valorUnico: dec(g._sum.valorUnico), valorRecorrente: dec(g._sum.valorRecorrente), valorFinal: dec(g._sum.valorFinal),
-      })),
       kpis: {
         openCount: aberto._count._all,
         openUnico: dec(aberto._sum.valorUnico), openMrr: dec(aberto._sum.valorRecorrente), openTotal: dec(aberto._sum.valorFinal),
@@ -384,12 +407,22 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (b.observacoes !== undefined) data.observacoes = b.observacoes ? String(b.observacoes).slice(0, 5000) : null
     if (items) { await prisma.negotiationItem.deleteMany({ where: { negotiationId: id } }); data.items = { create: items } }
     const n = await prisma.negotiation.update({ where: { id }, data, include: { items: true } })
+    // Editar uma proposta JÁ FECHADA muda a base de cálculo da comissão (ajuste de
+    // valor, item corrigido). Proposta ainda aberta não gera lançamento nenhum.
+    if (cur.resultado || n.resultado) await onNegotiationChanged(id)
     return { negotiation: n }
   })
 
   app.delete('/api/admin/negotiations/:id', { preHandler: authMiddleware }, async (req) => {
     const id = Number((req.params as any).id)
+    // O lançamento de comissão cai por cascade, mas a faixa do mês do agente foi
+    // calculada COM esta venda — sem recalcular, as outras comissões do mês
+    // ficariam numa faixa que o agente não atinge mais.
+    const entry = await prisma.commissionEntry.findUnique({
+      where: { negotiationId: id }, select: { userId: true, competencia: true },
+    }).catch(() => null)
     await prisma.negotiation.delete({ where: { id } }).catch(() => {})
+    if (entry?.userId) await recalcAgentMonth(entry.userId, entry.competencia).catch(() => {})
     return { ok: true }
   })
 
@@ -480,6 +513,9 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       })
     }
     void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal, valorUnico: updated.valorUnico, valorRecorrente: updated.valorRecorrente }, ...actor })
+    // Lança (ou desfaz, se foi perdida) a comissão desta venda e reavalia a faixa
+    // do mês do agente — bater a meta melhora a taxa de tudo o que ele fechou.
+    await onNegotiationChanged(id)
     return { negotiation: updated }
   })
 
@@ -529,6 +565,9 @@ export async function negotiationsRoutes(app: FastifyInstance) {
       }
     }
     void logUserAudit({ action: 'negotiation.reopened', targetType: 'lead', targetLabel: `Negociação ${n.titulo} reaberta`, changes: { prevResultado }, ...actor })
+    // A venda deixou de existir: a comissão sai junto (ou vira 'cancelada', se já
+    // tinha sido paga) e o mês do agente é reavaliado sem ela.
+    await onNegotiationChanged(id)
     return { negotiation: updated }
   })
 
