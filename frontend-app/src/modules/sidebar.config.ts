@@ -85,6 +85,8 @@ export type IconName =
   | 'ShieldAlert'
   | 'Repeat'
   | 'ScrollText'
+  | 'Radar'
+  | 'Target'
 
 export interface SidebarItem {
   id: string
@@ -149,6 +151,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'google-ads', label: 'Google Ads', href: '/app/google-ads', icon: 'Search', permission: 'marketing' },
         { id: 'links', label: 'Links rastreáveis', href: '/app/links', icon: 'Link2', permission: 'marketing' },
         { id: 'tracking', label: 'Rastreamento', href: '/app/tracking', icon: 'Activity', permission: 'marketing' },
+        { id: 'reputation', label: 'Radar de Reputação', href: '/app/reputation', icon: 'Radar', permission: 'reputation_radar' },
       ],
       initiallyCollapsed: true,
     },
@@ -192,6 +195,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'ai-journey', label: 'Jornada IA', href: '/app/ai-journey', icon: 'Sparkles', permission: 'intelligence' },
         { id: 'status-summary-report', label: 'Relatório por Resumo', href: '/app/status-summary-report', icon: 'Tag', permission: 'status_summary' },
         { id: 'funnel-conversion', label: 'Funil de Conversão', href: '/app/funnel-conversion', icon: 'GitFork', permission: 'funnels' },
+        { id: 'status-summary-report', label: 'Relatório por Resumo', href: '/app/status-summary-report', icon: 'Tag', permission: 'status_summary' },
       ],
     },
     {
@@ -240,6 +244,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-api-keys', label: 'API Keys', href: '/app/integrations/api-keys', icon: 'Key', permission: 'apikeys' },
         { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings' },
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings' },
+        { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings' },
       ],
       initiallyCollapsed: true,
     },
@@ -265,6 +270,9 @@ export const sidebarSchema: SidebarSchema = {
         // Resumos: catálogo do módulo status_summary (nasce OFF).
         { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary' },
         { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'leads' },
+        // Resumos: catálogo do módulo status_summary (nasce OFF). Gated pelo
+        // próprio módulo — tenant que não usa não vê o item.
+        { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary' },
         { id: 'cad-custom-fields', label: 'Campos personalizados', href: '/app/cadastros/custom-fields', icon: 'Database', permission: 'settings' },
         { id: 'cad-business-hours', label: 'Atendimento', href: '/app/cadastros/business-hours', icon: 'Clock', permission: 'settings' },
       ],
@@ -278,6 +286,7 @@ export const sidebarSchema: SidebarSchema = {
       label: 'Educacional',
       items: [
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
+        { id: 'he-market', label: 'Mercado (Ensino Superior)', href: '/app/he-market', icon: 'Target', permission: 'higher_ed_market' },
         { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
         { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
         { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },

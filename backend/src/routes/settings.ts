@@ -587,7 +587,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   // textos e seções continuam em código (landing.copy.ts). Os valores são
   // injetados em window.__LANDING_CONTACT__ pelo serveLandingPage (server.ts).
   const LANDING_CONTACT_DEFAULTS = {
-    whatsappNumber: '5562985703567',
+    whatsappNumber: '5511944742843',
     whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
     loginUrl: '/app',
   }

@@ -21,7 +21,7 @@ declare global {
 /** Fallback estático — espelha os defaults do backend (server.ts/settings.ts). */
 const CONTACT_DEFAULTS = {
   /** Número no formato internacional sem símbolos, ex: 5511999999999. */
-  whatsappNumber: '5562985703567',
+  whatsappNumber: '5511944742843',
   whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
   /** Onde o botão "Entrar" leva (app servido em /app). */
   loginUrl: '/app',
@@ -47,6 +47,7 @@ export const NAV_LINKS: ReadonlyArray<{ label: string; href: string }> = [
   { label: 'IA', href: '#ia' },
   { label: 'Soluções', href: '#solucoes' },
   { label: 'Integrações', href: '#integracoes' },
+  { label: 'Comparativo', href: '#comparativo' },
   { label: 'Perguntas', href: '#faq' },
 ]
 
@@ -279,6 +280,54 @@ export const BR_DIFF: ReadonlyArray<{ title: string; text: string }> = [
     text: 'Produto desenvolvido no Brasil, pensado para o mercado local.',
   },
 ]
+
+/**
+ * Comparativo de mercado — mapa "de > para" por FUNÇÃO equivalente.
+ *
+ * Regras de conteúdo (publicidade comparativa): nada de preço, prazo de
+ * contrato ou afirmação sobre o que o concorrente "não faz" — só o que o
+ * cliente contrataria separado para ter aquela função. Marcas de terceiros
+ * pertencem aos titulares e a comparação parte de informação pública.
+ */
+export const STACK_MAP = {
+  eyebrow: 'Comparativo de mercado',
+  title: 'Uma plataforma no lugar de onze contratos',
+  subtitle:
+    'Cada função abaixo costuma ser um sistema diferente, com login, suporte e fatura próprios — e o dado do seu cliente picado entre eles. No ByChat, é tudo o mesmo cadastro.',
+  columns: { from: 'O que você contrataria separado', to: 'No ByChat é' },
+  rows: [
+    { tools: ['Digisac', 'Umbler Talk', 'Letalk'], module: 'Multiatendimento no WhatsApp oficial', icon: 'MessageSquare' },
+    { tools: ['Huggy', 'Octadesk'], module: 'Caixa de entrada unificada com filas e transferência', icon: 'Users' },
+    { tools: ['Kommo', 'RD Station CRM', 'Clint'], module: 'CRM com funil Kanban e campos próprios', icon: 'TrendingUp' },
+    { tools: ['BotConversa', 'Typebot', 'Blip'], module: 'Chatbot e jornada conduzida por IA', icon: 'Bot' },
+    { tools: ['WATI', 'Zenvia', 'SleekFlow'], module: 'Campanhas e disparos com template aprovado', icon: 'Send' },
+    { tools: ['Meetime', 'Reev'], module: 'Cadências e automações de follow-up', icon: 'Workflow' },
+    { tools: ['Calendly'], module: 'Agendamento com confirmação e lembrete automáticos', icon: 'CalendarClock' },
+    { tools: ['Fireflies', 'Otter', 'Avoma'], module: 'Reuniões gravadas, transcritas e analisadas por IA', icon: 'Video' },
+    { tools: ['Zendesk', 'Freshdesk', 'Movidesk'], module: 'Central de chamados, SLA e base de conhecimento', icon: 'Ticket' },
+    { tools: ['TinTim'], module: 'Links rastreáveis e atribuição de origem', icon: 'Target' },
+    { tools: ['Reportei'], module: 'Relatórios de Meta e Google Ads com ROAS', icon: 'BarChart3' },
+    { tools: ['Zaia', 'GPT Maker'], module: 'Agente de IA e transcrição de áudio', icon: 'Sparkles' },
+    { tools: ['Rubeus', 'CRM Educacional'], module: 'Captação e matrículas', badge: 'vertical Edu', icon: 'GraduationCap' },
+  ],
+  benefitsTitle: 'Três coisas que só acontecem quando é uma plataforma só',
+  benefits: [
+    {
+      title: 'Dado único',
+      text: 'O lead que veio do anúncio, conversou no WhatsApp, foi atendido e virou cliente é a mesma pessoa — não cinco registros em cinco sistemas.',
+    },
+    {
+      title: 'Sem integração frágil',
+      text: 'Nada de conector no meio do caminho para quebrar às 2h da manhã e você descobrir na segunda-feira.',
+    },
+    {
+      title: 'Uma fatura, em real',
+      text: 'Sem cobrança por usuário em dólar e sem somar mensalidade de meia dúzia de ferramentas.',
+    },
+  ],
+  disclaimer:
+    'Marcas citadas pertencem aos respectivos titulares. Comparativo por função equivalente, com base em informação pública de cada fabricante.',
+} as const
 
 export const FAQ: ReadonlyArray<{ q: string; a: string }> = [
   {

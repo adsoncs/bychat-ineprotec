@@ -49,6 +49,7 @@ const NAV = [
   { label: 'Processos seletivos', href: '#processos' },
   { label: 'Gestão acadêmica', href: '#erp' },
   { label: 'Pagamentos', href: '#pagamentos' },
+  { label: 'Comparativo', href: '#comparativo' },
   { label: 'Perguntas', href: '#faq' },
 ] as const
 
@@ -539,6 +540,97 @@ function Audience() {
   )
 }
 
+/**
+ * Comparativo de mercado (recorte educacional): o que a instituição contrataria
+ * separado para ter cada função da captação.
+ *
+ * O ERP acadêmico fica FORA deste comparativo de propósito — está em fase de
+ * testes, e comparar o que ainda não é entregável cria expectativa que a venda
+ * não sustenta. A seção "ERP acadêmico nativo" acima segue como está.
+ *
+ * Nada de preço, prazo de contrato ou afirmação sobre o que o concorrente não
+ * faz: só a função equivalente, a partir de informação pública.
+ */
+const STACK_EDU: ReadonlyArray<{ tools: string[]; module: string }> = [
+  { tools: ['Rubeus', 'CRM Educacional'], module: 'Captação, funil de matrícula e histórico do candidato' },
+  { tools: ['Digisac', 'Umbler Talk'], module: 'Atendimento às famílias no WhatsApp oficial, com vários atendentes' },
+  { tools: ['BotConversa', 'Blip'], module: 'Chatbot que qualifica, tira dúvidas e encaminha para a secretaria' },
+  { tools: ['Calendly'], module: 'Agendamento de visitas, com confirmação e lembrete automáticos' },
+  { tools: ['WATI', 'Zenvia'], module: 'Campanhas de rematrícula e concurso de bolsas' },
+  { tools: ['Meetime', 'Reev'], module: 'Cadências de follow-up com quem não respondeu' },
+  { tools: ['TinTim'], module: 'Links rastreáveis e origem de cada lead' },
+  { tools: ['Reportei'], module: 'Relatórios de Meta e Google Ads da campanha de matrículas' },
+  { tools: ['Zendesk'], module: 'Chamados de pais e responsáveis, com prazo de resposta' },
+]
+
+function StackMapEdu() {
+  return (
+    <section id="comparativo" class="border-t border-line bg-surface-2 py-16 sm:py-24">
+      <div class="mx-auto max-w-6xl px-5">
+        <div class="mx-auto max-w-3xl text-center">
+          <span class="inline-block rounded-full bg-brand-soft px-3 py-1 text-xs font-bold uppercase tracking-wide text-brand">
+            Comparativo de mercado
+          </span>
+          <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+            A captação inteira em um sistema só
+          </h2>
+          <p class="mt-4 text-lg text-fg-muted">
+            A instituição típica opera com um CRM de captação, uma ferramenta de WhatsApp, um chatbot
+            e um painel de relatórios — cada um com seu login e seu contrato. Como nenhum conversa
+            com o outro, ninguém consegue dizer quanto custou o aluno que matriculou.
+          </p>
+        </div>
+
+        <div class="mt-12 overflow-hidden rounded-card border border-line bg-surface">
+          <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-subtle sm:grid">
+            <span>O que a instituição contrataria separado</span>
+            <span aria-hidden="true" class="w-5" />
+            <span>No ByChat Edu é</span>
+          </div>
+          <ul class="divide-y divide-line">
+            {STACK_EDU.map((row) => (
+              <li
+                key={row.module}
+                class="grid gap-2 px-6 py-4 sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4"
+              >
+                <div class="flex flex-wrap gap-1.5">
+                  {row.tools.map((t) => (
+                    <span
+                      key={t}
+                      class="rounded-md border border-line bg-surface-2 px-2 py-1 text-sm text-fg-muted"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                <ChevronDown aria-hidden="true" class="size-5 shrink-0 -rotate-90 text-fg-subtle" />
+                <div class="flex items-start gap-2">
+                  <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-brand" />
+                  <span class="font-semibold text-ink">{row.module}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div class="mx-auto mt-10 max-w-3xl rounded-card border border-line bg-surface p-6 text-center">
+          <p class="text-fg-muted">
+            <strong class="text-ink">O gap que isso fecha:</strong> com o mesmo cadastro do primeiro
+            “oi” até a matrícula confirmada, dá para responder o que nenhum conjunto de ferramentas
+            soltas responde — <strong class="text-ink">qual anúncio trouxe o aluno que matriculou</strong>,
+            e quanto custou cada um.
+          </p>
+        </div>
+
+        <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-subtle">
+          Marcas citadas pertencem aos respectivos titulares. Comparativo por função equivalente, com
+          base em informação pública de cada fabricante.
+        </p>
+      </div>
+    </section>
+  )
+}
+
 function Faq() {
   const [open, setOpen] = useState<number | null>(0)
   return (
@@ -702,6 +794,7 @@ export function EducationalLandingPage() {
         <HowItWorks />
         <NewFeaturesEdu />
         <Audience />
+        <StackMapEdu />
         <Faq />
         <FinalCta />
       </main>

@@ -68,6 +68,8 @@ export async function activitiesRoutes(app: FastifyInstance) {
           messageBody: messageBody,
           messageSubject: messageSubject,
           templateId: body.templateId || null,
+          // Módulo Resumo: responsável pela EXECUÇÃO. Sem nada informado, cai em
+          // quem criou — comportamento de antes do módulo, preservado.
           assignedUserId: body.assignedUserId ?? user.userId,
           assignedTeamId: body.assignedTeamId ?? null,
           attachmentUrl: body.attachmentUrl || null,
@@ -117,7 +119,10 @@ export async function activitiesRoutes(app: FastifyInstance) {
       if (q.leadId) where.leadId = parseInt(q.leadId)
       if (q.userId) where.userId = parseInt(q.userId)
 
-      // Módulo Resumo: filtro por quem EXECUTA (não por quem criou).
+      // Módulo Resumo: filtro por quem EXECUTA (não por quem criou). É o que
+      // separa a fila da Secretaria da fila do Comercial quando o handoff é
+      // feito por atividade. `assignedTeamId` sem `assignedUserId` = fila do
+      // setor, sem dono — o operador puxa.
       if (q.assignedUserId) where.assignedUserId = parseInt(q.assignedUserId)
       if (q.assignedTeamId) where.assignedTeamId = parseInt(q.assignedTeamId)
       if (q.unassigned === 'true') where.assignedUserId = null
@@ -256,6 +261,8 @@ export async function activitiesRoutes(app: FastifyInstance) {
       if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
       if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
       if (body.attachmentType !== undefined) data.attachmentType = body.attachmentType
+      // Repasse de atividade entre pessoas/setores (o "manda pro supervisor" do
+      // processo). null é valor válido: devolve para a fila do setor.
       if (body.assignedUserId !== undefined) data.assignedUserId = body.assignedUserId
       if (body.assignedTeamId !== undefined) data.assignedTeamId = body.assignedTeamId
 

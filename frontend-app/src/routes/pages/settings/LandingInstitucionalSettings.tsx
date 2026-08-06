@@ -41,7 +41,7 @@ function LandingInstitucionalBody() {
   function handleSave() {
     setSaveMsg(null)
     if (!/^\d{10,15}$/.test(digits)) {
-      setSaveMsg({ kind: 'err', text: 'WhatsApp inválido. Use o formato internacional só com dígitos (ex.: 5562985703567).' })
+      setSaveMsg({ kind: 'err', text: 'WhatsApp inválido. Use o formato internacional só com dígitos (ex.: 5511944742843).' })
       return
     }
     if (!whatsappMessage.trim()) {
@@ -96,12 +96,12 @@ function LandingInstitucionalBody() {
               type="text"
               inputMode="numeric"
               value={whatsappNumber}
-              placeholder="5562985703567"
+              placeholder="5511944742843"
               onInput={(e) => setWhatsappNumber((e.target as HTMLInputElement).value)}
               class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
             />
             <div class="text-[0.6875rem] text-fg-muted mt-1">
-              Ex.: 55 + DDD + número = <code>5562985703567</code>. Alimenta todos os botões
+              Ex.: 55 + DDD + número = <code>5511944742843</code>. Alimenta todos os botões
               "Falar no WhatsApp" e "Agende uma demonstração".
             </div>
           </div>

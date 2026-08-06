@@ -510,10 +510,10 @@ export async function leadsRoutes(app: FastifyInstance) {
       include: {
         tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
         lostReason: { select: { id: true, name: true, color: true } },
-        // Módulo Resumo: o seletor no detalhe mostra o resumo vigente.
-        statusSummary: { select: { id: true, code: true, name: true, color: true, sector: true } },
         assignedUser: { select: { id: true, name: true, email: true } },
         team: { select: { id: true, name: true, color: true } },
+        // Módulo Resumo: o seletor no detalhe mostra o resumo vigente.
+        statusSummary: { select: { id: true, code: true, name: true, color: true, sector: true } },
       }
     })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })

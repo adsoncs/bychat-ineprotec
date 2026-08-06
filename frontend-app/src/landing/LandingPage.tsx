@@ -18,6 +18,7 @@ import {
   Pillars,
   Segments,
   SocialProof,
+  StackMap,
 } from './sections'
 
 /**
@@ -51,6 +52,7 @@ export function LandingPage() {
         <Integrations />
         <Cases />
         <BRDifferentials />
+        <StackMap />
         <Faq />
         <FinalCta />
       </main>

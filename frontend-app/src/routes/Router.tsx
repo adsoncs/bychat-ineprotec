@@ -8,7 +8,7 @@ import { flattenItems } from '@/modules/sidebar.config'
 import { useRecentsStore } from '@/stores/recents'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Page } from '@/components/ui/Page'
-import { ModuleGate } from '@/components/auth/ModuleGate'
+import { ModuleGate, SuperadminOnly } from '@/components/auth/ModuleGate'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 
@@ -60,6 +60,7 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   'meta-ads-report': lazy(() => import('./pages/MetaAdsReportPage').then((m) => ({ default: m.MetaAdsReportPage }))),
   'funnel-report': lazy(() => import('./pages/FunnelReportPage').then((m) => ({ default: m.FunnelReportPage }))),
+  'funnel-report-config': lazy(() => import('./pages/FunnelReportConfigPage').then((m) => ({ default: m.FunnelReportConfigPage }))),
   conversions: lazy(() => import('./pages/ConversionsPage').then((m) => ({ default: m.ConversionsPage }))),
   tracking: lazy(() =>
     import('./pages/TrackingPage').then((m) => ({ default: m.TrackingPage })),
@@ -145,14 +146,14 @@ const migratedPages: Record<string, ComponentType> = {
   'cad-teams': lazy(() =>
     import('./pages/CadastrosTeamsPage').then((m) => ({ default: m.CadastrosTeamsPage })),
   ),
+  'cad-loss-reasons': lazy(() =>
+    import('./pages/CadastrosLossReasonsPage').then((m) => ({ default: m.CadastrosLossReasonsPage })),
+  ),
   'cad-status-summaries': lazy(() =>
     import('./pages/CadastrosStatusSummariesPage').then((m) => ({ default: m.CadastrosStatusSummariesPage })),
   ),
   'status-summary-report': lazy(() =>
     import('./pages/StatusSummaryReportPage').then((m) => ({ default: m.StatusSummaryReportPage })),
-  ),
-  'cad-loss-reasons': lazy(() =>
-    import('./pages/CadastrosLossReasonsPage').then((m) => ({ default: m.CadastrosLossReasonsPage })),
   ),
   'cad-custom-fields': lazy(() =>
     import('./pages/CadastrosCustomFieldsPage').then((m) => ({ default: m.CadastrosCustomFieldsPage })),
@@ -183,6 +184,12 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   catalog: lazy(() =>
     import('./pages/CatalogPage').then((m) => ({ default: m.CatalogPage })),
+  ),
+  reputation: lazy(() =>
+    import('./pages/ReputationPage').then((m) => ({ default: m.ReputationPage })),
+  ),
+  'he-market': lazy(() =>
+    import('./pages/HeMarketPage').then((m) => ({ default: m.HeMarketPage })),
   ),
   scheduling: lazy(() =>
     import('./pages/SchedulingPage').then((m) => ({ default: m.SchedulingPage })),
@@ -383,6 +390,9 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   'integ-kommo': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationKommoPage })),
+  ),
+  'integ-crmedu': lazy(() =>
+    import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationCrmEducacionalPage })),
   ),
   'integ-email': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationEmailPage })),
@@ -717,6 +727,17 @@ export function Router() {
             {(params: { id: string }) => (
               <ModuleGate moduleId="workflows"><WorkflowBuilder params={params} /></ModuleGate>
             )}
+          </Route>
+          {/* Configuração do Relatório de Funil: rota explícita porque NÃO está no
+              sidebar (é acessada pelo botão do próprio relatório) e as rotas do
+              menu vêm do catálogo mais abaixo. Somente superadmin — quem define o
+              que é MQL muda o significado de todo KPI do relatório. */}
+          <Route path="/funnel-report/config">
+            {() => {
+              const Migrated = migratedPages['funnel-report-config']
+              if (!Migrated) return null
+              return <SuperadminOnly><Migrated /></SuperadminOnly>
+            }}
           </Route>
           {/* Importante: /leads/duplicates e /leads/import ANTES de /leads/:id pra não cair no detail */}
           <Route path="/leads/duplicates">

@@ -53,6 +53,7 @@ export function LeadDetailPage({ params }: Props) {
     ? params.section
     : DEFAULT_SECTION
 
+  // Seções com `module` só aparecem quando o módulo está ativo (Negociação, Resumos).
   const tocSections = useVisibleLeadSections()
 
   const actions = useLeadActions(id, lead, {

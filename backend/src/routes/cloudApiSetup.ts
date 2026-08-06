@@ -279,8 +279,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         messagingLimit: conn.messagingLimit,
         chatbotId: conn.chatbotId,
         defaultTeamId: conn.defaultTeamId,
-        teamIds: (conn as any).teams?.map((t: any) => t.teamId) ?? [],
-        teamNames: (conn as any).teams?.map((t: any) => t.team?.name).filter(Boolean) ?? [],
+        teamIds: conn.teams?.map((t: any) => t.teamId) ?? [],
+        teamNames: conn.teams?.map((t: any) => t.team?.name).filter(Boolean) ?? [],
         ownerUserId: conn.ownerUserId,
         funnelId: conn.funnelId,
         stageKey: conn.stageKey,
@@ -395,14 +395,13 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       data.stageKey = skey
     }
 
-    // Setor padrão e agente dedicado são mutuamente exclusivos (mesma regra da
-    // Reforma F2 nas instâncias Evolution). Trocar para um zera o outro.
-    if (defaultTeamId !== undefined || ownerUserId !== undefined) {
-      const team = defaultTeamId ? Number(defaultTeamId) : null
+    // Setores donos e agente dedicado continuam mutuamente exclusivos (mesma
+    // regra das instâncias Evolution); a diferença é que "setor" virou lista.
+    if (teamIds?.length && ownerUserId) {
+      return reply.code(400).send({ error: 'A conexão pode ter apenas um tipo de dono: setores OU agente, não ambos.' })
+    }
+    if (ownerUserId !== undefined) {
       const owner = ownerUserId ? Number(ownerUserId) : null
-      if (teamIds?.length && owner) {
-        return reply.code(400).send({ error: 'A conexão pode ter apenas um tipo de dono: setores OU agente, não ambos.' })
-      }
       if (owner) {
         const u = await prisma.user.findUnique({ where: { id: owner }, select: { active: true, role: true } })
         if (!u) return reply.code(400).send({ error: 'Agente destino não encontrado' })

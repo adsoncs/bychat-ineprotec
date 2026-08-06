@@ -36,10 +36,10 @@ export const queues = {
   aiJourney: createQueue('wf-ai-journey'),
   dbConnector: createQueue('wf-db-connector'),
   voipPoll: createQueue('wf-voip-poll'),
-  broadcast: createQueue('wf-broadcast'),
+  broadcast: createQueue('wf-broadcast'), // disparo em massa Cloud API (1 job por destinatário)
   // Disparos Inteligentes (números próprios/Evolution): 1 job por destinatário,
   // agendado para o horário que o planner calculou — não é uma fila que "corre".
-  smartBroadcast: createQueue('wf-smart-broadcast'), // disparo em massa Cloud API (1 job por destinatário)
+  smartBroadcast: createQueue('wf-smart-broadcast'),
   kommoSync: createQueue('wf-kommo-sync'), // importação/sync da Kommo CRM (jobs por fase/lote)
 }
 

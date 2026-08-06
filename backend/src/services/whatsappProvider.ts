@@ -140,10 +140,17 @@ export class EvolutionProvider implements WhatsAppProvider {
     throw new Error('Evolution API nao suporta envio de templates HSM')
   }
 
+  async sendInteractive(_phone: string, _interactive: any): Promise<WhatsAppSendResult> {
+    // Evolution API nao suporta mensagens interativas oficiais
+    throw new Error('Evolution API nao suporta mensagens interativas oficiais')
+  }
+
   /**
    * Presença ("digitando…", "gravando áudio…"). Usado pelos Disparos
    * Inteligentes antes de cada mensagem: quem recebe vê o mesmo que veria de uma
    * pessoa escrevendo, e o número deixa de emitir mensagens que aparecem do nada.
+   *
+   * `delay` é quanto tempo a Evolution mantém a presença antes de encerrá-la.
    */
   async sendPresence(phone: string, presence: 'composing' | 'recording' | 'paused' | 'available', delayMs = 0): Promise<void> {
     await this.evoFetch(`/chat/sendPresence/${this.instanceName}`, 'POST', {
@@ -174,11 +181,6 @@ export class EvolutionProvider implements WhatsAppProvider {
   async connectionState(): Promise<string> {
     const data = await this.evoFetch(`/instance/connectionState/${this.instanceName}`)
     return String(data?.instance?.state ?? data?.state ?? 'unknown')
-  }
-
-  async sendInteractive(_phone: string, _interactive: any): Promise<WhatsAppSendResult> {
-    // Evolution API nao suporta mensagens interativas oficiais
-    throw new Error('Evolution API nao suporta mensagens interativas oficiais')
   }
 
   /**
@@ -430,6 +432,8 @@ async function dedicatedChannelIdForUser(userId: number): Promise<string | null>
  *      outro número.)
  *   2. Lead sem dono / dono sem número → canal dedicado do REMETENTE (quem está
  *      atendendo fala pela própria linha).
+ *   2b. Ninguém com número pessoal → número do SETOR (o canal cujos setores
+ *      donos incluem o setor do dono do lead ou, na falta, o do remetente).
  *   3. Ninguém com número dedicado → espelha o canal de ENTRADA do lead
  *      (responde pelo mesmo número pelo qual ele falou por último).
  *   4. AGENT sem nada → erro. Admin sem nada → provider padrão.
@@ -565,9 +569,9 @@ function cloudChannelId(connectionId: number): string { return `cloud:${connecti
  * Regra:
  *  - Se o operador é DONO de algum canal (instância/conexão com ownerUserId =
  *    ele), retorna SÓ os dedicados dele (não pode usar o número de um colega).
- *  - Senão, admins (SUPERADMIN/ADMIN/MANAGER) veem todos os canais ativos
- *    (compartilhados + sem dono); AGENT sem canal dedicado recebe lista vazia
- *    (o frontend mostra "sem número vinculado").
+ *  - AGENT vê: o canal pessoal dele, os canais dos SETORES dele (um número pode
+ *    ter vários setores donos) e os que não têm dono nenhum.
+ *  - Admins (SUPERADMIN/ADMIN/MANAGER) veem todos os canais ativos.
  */
 export async function resolveSenderChannels(sender: { userId: number; role: string }): Promise<SenderChannel[]> {
   const [instances, connections, meusTimes] = await Promise.all([

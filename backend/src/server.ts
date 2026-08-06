@@ -31,6 +31,7 @@ import { supervisionRoutes } from './routes/supervision.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
 import { kommoIntegrationRoutes } from './routes/kommoIntegration.js'
+import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
 import { teamsRoutes } from './routes/teams.js'
 import { agentsRoutes } from './routes/agents.js'
 import { channelGovernanceRoutes } from './routes/channelGovernance.js'
@@ -129,6 +130,8 @@ import { enrichmentRoutes } from './routes/enrichment.js'
 import { helpdeskRoutes } from './routes/helpdesk.js'
 import { helpdeskKbRoutes } from './routes/helpdeskKb.js'
 import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
+import { reputationRoutes } from './routes/reputation.js'
+import { heMarketRoutes } from './routes/heMarket.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
@@ -593,9 +596,12 @@ await app.register(statusSummaryRoutes)
 await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
+await app.register(crmEduIntegrationRoutes)
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
 await app.register(helpdeskPortalRoutes)
+await app.register(reputationRoutes)
+await app.register(heMarketRoutes)
 
 // ── Overlay do tenant (módulos próprios: ex. ERP ineprotec, Venda360) ──
 // Carrega src/overlay/index.ts SE existir; no-op nos tenants sem overlay. Mantém
@@ -993,7 +999,7 @@ const MARKETING_HOST = resolveMarketingHost()
 // Defaults espelham frontend-app/src/landing/landing.copy.ts e o endpoint
 // /api/admin/landing-contact (settings.ts).
 const LANDING_CONTACT_DEFAULTS = {
-  whatsappNumber: '5562985703567',
+  whatsappNumber: '5511944742843',
   whatsappMessage: 'Olá! Quero conhecer o ByChat e agendar uma demonstração.',
   loginUrl: '/app',
 }
@@ -1169,6 +1175,15 @@ try {
   startEnrollmentExpireJob()
   startStatusSummaryAdvanceJob()
   startEnrichmentRerunJob()
+  import('./services/reputationIngest.js')
+    .then(m => m.startReputationRadarJob())
+    .catch(err => console.warn('[reputation] init falhou:', err?.message || err))
+  import('./services/inepIngest.js')
+    .then(m => m.startInepCensusJob())
+    .catch(err => console.warn('[inep] init falhou:', err?.message || err))
+  import('./services/heCensusIngest.js')
+    .then(m => m.startHeCensusJob())
+    .catch(err => console.warn('[he-censo] init falhou:', err?.message || err))
   import('./services/voipRecordingSync.js')
     .then(m => m.startVoipRecordingSync())
     .catch(err => console.error('[voipRecordingSync] init falhou:', err))
@@ -1185,6 +1200,10 @@ try {
   startSlaScheduler()
   startAutomationScheduler()
   startHelpdeskRoutingScheduler()
+  // Importador CRM Educacional — só age em tenant com crmedu.enabled=true
+  import('./services/crmEduSync.js')
+    .then(m => m.startCrmEduScheduler())
+    .catch(err => console.error('[crmEduSync] agendador não iniciou:', err))
   import('./services/cloudApiTemplates.js')
     .then(m => m.startCloudApiTemplateScheduler())
     .catch(err => console.warn('[cloudApiTemplates] init falhou:', err?.message || err))
@@ -1194,6 +1213,9 @@ try {
   import('./services/broadcast.js')
     .then(m => m.startBroadcastWorker())
     .catch(err => console.warn('[broadcast] init falhou:', err?.message || err))
+  import('./services/smartBroadcast/index.js')
+    .then(m => m.startSmartBroadcastWorker())
+    .catch(err => console.warn('[smartBroadcast] init falhou:', err?.message || err))
   import('./services/kommoWorker.js')
     .then(m => { m.startKommoWorker(); m.startKommoCron() })
     .catch(err => console.warn('[kommoSync] init falhou:', err?.message || err))

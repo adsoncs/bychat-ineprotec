@@ -50,7 +50,8 @@ async function requireAdmin(req: any, reply: any): Promise<any | null> {
  *
  * O guard acima aceita MANAGER porque é o mesmo usado para LER as filas de
  * avaliação, o que é legítimo. Mas aprovar documento, validar nota do ENEM e
- * corrigir redação decide a entrada de um aluno na instituição.
+ * corrigir redação decide a entrada de um aluno na instituição — a auditoria de
+ * junho já havia separado esses dois níveis no resto do produto (adminStrict).
  */
 async function requireAdminWrite(req: any, reply: any): Promise<any | null> {
   const user = await requireAdmin(req, reply)

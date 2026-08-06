@@ -46,6 +46,7 @@ import {
   PILLARS,
   SEGMENTS,
   SOCIAL_PROOF,
+  STACK_MAP,
   STEPS,
   whatsappHref,
 } from './landing.copy'
@@ -492,6 +493,93 @@ export function BRDifferentials() {
           </div>
         ))}
       </div>
+    </Section>
+  )
+}
+
+const STACK_ICONS: Record<string, typeof Video> = {
+  MessageSquare, Users, TrendingUp, Bot, Send, Workflow, CalendarClock,
+  Video, Ticket, Target, BarChart3, Sparkles, GraduationCap,
+}
+
+/**
+ * Comparativo de mercado: o stack que o cliente montaria por fora, linha a
+ * linha, contra o módulo equivalente aqui. Em telas pequenas cada linha vira
+ * um cartão empilhado (ferramentas em cima, módulo embaixo) — tabela de duas
+ * colunas no celular viraria rolagem horizontal.
+ */
+export function StackMap() {
+  return (
+    <Section id="comparativo" class="bg-surface-2">
+      <div class="mx-auto max-w-3xl text-center">
+        <Eyebrow>{STACK_MAP.eyebrow}</Eyebrow>
+        <h2 class="mt-4 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
+          {STACK_MAP.title}
+        </h2>
+        <p class="mt-4 text-lg text-fg-muted">{STACK_MAP.subtitle}</p>
+      </div>
+
+      <div class="mt-12 overflow-hidden rounded-2xl border border-line bg-surface">
+        <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-subtle sm:grid">
+          <span>{STACK_MAP.columns.from}</span>
+          <span aria-hidden="true" class="w-5" />
+          <span>{STACK_MAP.columns.to}</span>
+        </div>
+        <ul class="divide-y divide-line">
+          {STACK_MAP.rows.map((row) => {
+            const Icon = STACK_ICONS[row.icon] ?? Sparkles
+            return (
+              <li
+                key={row.module}
+                class="grid gap-2 px-6 py-4 sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-4"
+              >
+                <div class="flex flex-wrap gap-1.5">
+                  {row.tools.map((t) => (
+                    <span
+                      key={t}
+                      class="rounded-md border border-line bg-surface-2 px-2 py-1 text-sm text-fg-muted"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                <ArrowUpRight
+                  aria-hidden="true"
+                  class="size-5 shrink-0 rotate-45 text-fg-subtle sm:rotate-0"
+                />
+                <div class="flex items-start gap-2">
+                  <Icon class="mt-0.5 size-5 shrink-0 text-cta" />
+                  <span class="font-semibold text-ink">
+                    {row.module}
+                    {'badge' in row && row.badge ? (
+                      <span class="ml-2 rounded-full bg-brand-soft px-2 py-0.5 text-xs font-bold text-brand">
+                        {row.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+
+      <h3 class="mt-14 text-center text-xl font-extrabold text-ink">
+        {STACK_MAP.benefitsTitle}
+      </h3>
+      <div class="mt-6 grid gap-6 sm:grid-cols-3">
+        {STACK_MAP.benefits.map((b) => (
+          <div key={b.title} class="rounded-2xl border border-line bg-surface p-6">
+            <CheckCircle2 class="size-6 text-cta" />
+            <h4 class="mt-3 font-bold text-ink">{b.title}</h4>
+            <p class="mt-1.5 text-sm text-fg-muted">{b.text}</p>
+          </div>
+        ))}
+      </div>
+
+      <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-subtle">
+        {STACK_MAP.disclaimer}
+      </p>
     </Section>
   )
 }
