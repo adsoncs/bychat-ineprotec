@@ -50,6 +50,7 @@ export function EmbeddedSignupModal({ open, onOpenChange }: EmbeddedSignupModalP
         phoneNumberId: fb.phoneNumberId,
         code: fb.code,
         accessToken: fb.token,
+        coexistence: fb.coexistence,
       })
       setResult({
         name: resp.connection.displayName ?? resp.connection.displayPhone ?? resp.connection.wabaId,
@@ -121,8 +122,20 @@ export function EmbeddedSignupModal({ open, onOpenChange }: EmbeddedSignupModalP
             <code class="mx-1 rounded bg-surface-3 px-1">waba_id</code> e o
             <code class="mx-1 rounded bg-surface-3 px-1">phone_number_id</code>.
           </p>
+          <div class="rounded-md border border-info/40 bg-info/10 p-3 text-xs text-fg space-y-1.5">
+            <div class="font-semibold">O número já é usado no app WhatsApp Business?</div>
+            <div class="text-fg-muted">
+              No assistente do Meta, escolha a opção de <strong>continuar usando o número no
+              aplicativo</strong> (coexistência). O celular segue atendendo normalmente e o ByChat
+              passa a enviar e receber pelo mesmo número — sem QR Code e sem perder o app.
+            </div>
+            <div class="text-fg-muted">
+              Nesse modo a Meta limita o envio a <strong>20 msg/s</strong>, <strong>grupos não
+              sincronizam</strong>, e o app precisa ser aberto ao menos uma vez a cada 14 dias.
+            </div>
+          </div>
           <ul class="space-y-1.5 text-xs text-fg-muted">
-            <li>· O número precisa ter <strong>dois fatores ativos</strong> e não pode estar registrado em outro app.</li>
+            <li>· Para número <strong>novo</strong> (exclusivo da API): precisa ter <strong>dois fatores ativos</strong> e não estar registrado em outro app.</li>
             <li>· Templates aprovados na sua WABA serão importados automaticamente.</li>
             <li>· O webhook é inscrito automaticamente após a conexão.</li>
           </ul>

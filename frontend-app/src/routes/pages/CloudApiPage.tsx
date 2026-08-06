@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import {
   Cloud, Trash2, RefreshCw, Send, Plug, AlertCircle, CheckCircle,
-  Copy, Webhook, AlertTriangle, HelpCircle, FileText, BarChart3,
+  Copy, Webhook, AlertTriangle, HelpCircle, FileText, BarChart3, Smartphone,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -12,6 +12,8 @@ import {
   useTestCloudApiConnection,
   useSyncCloudApiTemplates,
   useUpdateCloudApiConnection,
+  useRefreshCloudApiMode,
+  useSyncAppData,
   type CloudApiConnection,
 } from '@/hooks/useCloudApi'
 import { useChatbots } from '@/hooks/useChatbots'
@@ -269,6 +271,8 @@ function ConnectionCard({
   onDelete: () => void
 }) {
   const update = useUpdateCloudApiConnection()
+  const refreshMode = useRefreshCloudApiMode()
+  const syncAppData = useSyncAppData()
   // Setores donos (vários) — um número de recepção costuma ser atendido por mais
   // de um setor. `defaultTeamId` entra como fallback de conexão antiga.
   const teamsIniciais: number[] = c.teamIds?.length
@@ -318,9 +322,46 @@ function ConnectionCard({
           ) : (
             <Badge tone="danger"><AlertCircle size={10} class="mr-0.5 inline" /> Token expirado</Badge>
           )}
+          {c.coexistence && <Badge tone="info"><Smartphone size={10} class="mr-0.5 inline" /> Coexistência</Badge>}
           <Badge tone={c.active ? 'success' : 'neutral'}>{c.active ? 'Ativa' : 'Inativa'}</Badge>
+          <button
+            type="button"
+            title="Reconsultar na Meta se o número ainda está no app do celular"
+            class="text-fg-muted hover:text-accent disabled:opacity-50"
+            disabled={refreshMode.isPending}
+            onClick={() => refreshMode.mutate(c.id, {
+              onSuccess: (r) => toast(r.coexistence
+                ? 'Número em coexistência: segue ativo no app do celular'
+                : 'Número exclusivo da API (não está no app do celular)', 'success'),
+              onError: (e) => toast((e as Error).message, 'danger'),
+            })}
+          >
+            <RefreshCw size={12} class={refreshMode.isPending ? 'animate-spin' : ''} />
+          </button>
         </div>
       </CardHeader>
+
+      {c.coexistence && (
+        <div class="mb-3 rounded-md border border-info/40 bg-info/10 px-2.5 py-2 text-xs text-fg">
+          <b>Este número também atende pelo celular.</b> As mensagens continuam chegando no app
+          WhatsApp Business. Nesse modo a Meta limita o envio a <b>20 msg/s</b>, <b>grupos não
+          sincronizam</b> e o app precisa ser aberto ao menos uma vez a cada 14 dias — senão a
+          Meta desliga a coexistência sozinha.
+          <div class="mt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={syncAppData.isPending}
+              onClick={() => syncAppData.mutate(c.id, {
+                onSuccess: () => toast('Importação pedida à Meta — os contatos e as conversas chegam aos poucos (pode levar até 24h)', 'success'),
+                onError: (e) => toast((e as Error).message, 'danger'),
+              })}
+            >
+              <RefreshCw size={13} class={syncAppData.isPending ? 'animate-spin' : ''} /> Importar contatos e histórico do celular
+            </Button>
+          </div>
+        </div>
+      )}
 
       {c.tokenError && (
         <div class="text-xs text-danger mb-3 bg-danger/10 rounded-md px-2 py-1.5">{c.tokenError}</div>

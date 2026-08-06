@@ -21,6 +21,8 @@ export interface CloudApiConnection {
   tokenStatus: 'valid' | 'expired' | 'unknown'
   tokenError?: string
   tokenType: string
+  /** Número segue ativo no app WhatsApp Business do celular (coexistência). */
+  coexistence?: boolean
   businessProfile: { about?: string; address?: string; description?: string; email?: string; profile_picture_url?: string } | null
   createdAt: string
   updatedAt: string
@@ -75,6 +77,8 @@ export interface SignupPayload {
   phoneNumberId: string
   code?: string | undefined
   accessToken?: string | undefined
+  /** Conectado em coexistência: o número continua ativo no app do celular. */
+  coexistence?: boolean | undefined
 }
 
 export function useCloudApiSignup() {
@@ -86,6 +90,30 @@ export function useCloudApiSignup() {
       void qc.invalidateQueries({ queryKey: ['cloud-api-connections'] })
       void qc.invalidateQueries({ queryKey: ['cloud-api-templates'] })
     },
+  })
+}
+
+/** Reconsulta na Meta se o número ainda está em coexistência.
+ *  O dono pode ligar/desligar isso pelo celular a qualquer momento. */
+export function useRefreshCloudApiMode() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: true; coexistence: boolean; platformType: string | null; throughput: unknown }>(
+        `/cloud-api/connection/${id}/refresh-mode`,
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-connections'] }),
+  })
+}
+
+/** Pede à Meta os contatos e o histórico do app do celular (só coexistência).
+ *  Assíncrono: os dados chegam depois, pelos webhooks. */
+export function useSyncAppData() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: true; contactsRequestId: string | null; historyRequestId: string | null }>(
+        `/cloud-api/connection/${id}/sync-app-data`,
+      ),
   })
 }
 

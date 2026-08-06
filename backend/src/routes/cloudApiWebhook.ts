@@ -14,6 +14,7 @@ import { broadcastRealtimeEvent } from './realtime.js'
 import { resolveRoutingFromContext, resolveDefaultTeamId, pickOperatorForTeam } from '../services/teamRouting.js'
 import { handleTemplateStatusWebhook, handleTemplateQualityWebhook } from '../services/cloudApiTemplates.js'
 import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
+import { handleMessageEchoes, handleAppStateSync, handleHistory } from '../services/cloudApiCoexistence.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
 import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
@@ -128,6 +129,33 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
             }
             await handleCallsWebhook(value, callConn, app).catch(err =>
               app.log.error(`[CloudAPI][calls] handler error: ${err.message}`))
+            continue
+          }
+
+          // ── Coexistência (número também ativo no app do celular) ──
+          // `smb_message_echoes` = o dono respondeu pelo aparelho;
+          // `smb_app_state_sync` = agenda de contatos do app;
+          // `history` = importação das conversas antigas, pós-onboarding.
+          if (change.field === 'smb_message_echoes' || change.field === 'smb_app_state_sync' || change.field === 'history') {
+            const coexPhoneId = value.metadata?.phone_number_id || ''
+            const coexConn = await prisma.cloudApiConnection.findFirst({
+              where: { active: true, phoneNumberId: coexPhoneId },
+              select: { id: true, phoneNumberId: true },
+            })
+            if (!coexConn) {
+              app.log.warn(`[Coexistence] sem conexão para phoneNumberId ${coexPhoneId}`)
+              continue
+            }
+            if (change.field === 'smb_message_echoes') {
+              await handleMessageEchoes(value, coexConn, app).catch(err =>
+                app.log.error(`[Coexistence] echoes: ${err.message}`))
+            } else if (change.field === 'smb_app_state_sync') {
+              await handleAppStateSync(value, app).catch(err =>
+                app.log.error(`[Coexistence] state sync: ${err.message}`))
+            } else {
+              await handleHistory(value, coexConn, app).catch(err =>
+                app.log.error(`[Coexistence] history: ${err.message}`))
+            }
             continue
           }
 

@@ -213,7 +213,27 @@ export interface EmbeddedSignupResult {
   token?: string
   wabaId: string
   phoneNumberId: string
+  /**
+   * true quando o número foi conectado em COEXISTÊNCIA — segue funcionando no
+   * app WhatsApp Business do celular e na API ao mesmo tempo. O backend usa
+   * isso para não tratar a conexão como migração (o número não é registrado) e
+   * para avisar o operador dos limites do modo.
+   */
+  coexistence?: boolean
 }
+
+/** Eventos de conclusão do Embedded Signup.
+ *
+ * `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` é o do fluxo de COEXISTÊNCIA — sem
+ * ele na lista, quem escolhia "já uso este número no app" concluía tudo na tela
+ * da Meta e recebia "O Meta não retornou os dados da conta", porque waba_id e
+ * phone_number_id chegavam só nesse evento e eram descartados.
+ */
+const SIGNUP_FINISH_EVENTS = [
+  'FINISH',
+  'FINISH_ONLY_WABA',
+  'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING',
+] as const
 
 /**
  * Inicia o WhatsApp Embedded Signup. Carrega o SDK, escuta `WA_EMBEDDED_SIGNUP`
@@ -229,6 +249,7 @@ export async function fbEmbeddedSignup(
 
   let wabaId: string | null = null
   let phoneNumberId: string | null = null
+  let coexistence = false
 
   interface WaSignupPayload {
     type?: string
@@ -244,10 +265,10 @@ export async function fbEmbeddedSignup(
       const raw: unknown = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
       const payload = raw as WaSignupPayload | null
       if (payload?.type !== 'WA_EMBEDDED_SIGNUP') return
-      if (payload.event === 'FINISH' || payload.event === 'FINISH_ONLY_WABA') {
-        wabaId = payload.data?.waba_id ?? wabaId
-        phoneNumberId = payload.data?.phone_number_id ?? phoneNumberId
-      }
+      if (!payload.event || !SIGNUP_FINISH_EVENTS.includes(payload.event as any)) return
+      wabaId = payload.data?.waba_id ?? wabaId
+      phoneNumberId = payload.data?.phone_number_id ?? phoneNumberId
+      if (payload.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') coexistence = true
     } catch {
       // ignora payloads que não são JSON
     }
@@ -269,6 +290,7 @@ export async function fbEmbeddedSignup(
             )
           }
           const result: EmbeddedSignupResult = { wabaId, phoneNumberId }
+          if (coexistence) result.coexistence = true
           if (auth.code) result.code = auth.code
           if (auth.accessToken) result.token = auth.accessToken
           if (!result.code && !result.token) {

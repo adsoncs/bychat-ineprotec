@@ -21,6 +21,7 @@ import {
 } from '../services/cloudApi.js'
 // Ciclo de vida centralizado (sync + detecção de mudança + notificação).
 import { syncTemplatesFromMeta, isSendableStatus } from '../services/cloudApiTemplates.js'
+import { requestSync } from '../services/cloudApiCoexistence.js'
 
 // ─── Routes ─────────────────────────────────────────────
 
@@ -89,7 +90,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       // 2. Obter info do telefone
       let phoneInfo: any = {}
       try {
-        phoneInfo = await cloudApiFetch(`/${phoneNumberId}?fields=display_phone_number,quality_rating,verified_name,platform_type,throughput,status`, accessToken)
+        // `is_on_biz_app` diz se o número segue ativo no app WhatsApp Business do
+        // celular (COEXISTÊNCIA). É a fonte da verdade — o sinal que vem do
+        // Embedded Signup é só a intenção do usuário na tela da Meta.
+        phoneInfo = await cloudApiFetch(`/${phoneNumberId}?fields=display_phone_number,quality_rating,verified_name,platform_type,throughput,status,is_on_biz_app`, accessToken)
       } catch (err: any) {
         return reply.code(400).send({ error: `Phone Number invalido: ${err.message}` })
       }
@@ -140,6 +144,13 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       const verifyToken = randomBytes(16).toString('hex')
 
       // 6. Salvar conexao
+      // Coexistência = número ativo nos DOIS lados. Confia no que a Meta
+      // responde; o flag do Embedded Signup entra só como fallback quando o
+      // campo ainda não reflete o onboarding recém-concluído.
+      const isCoexistence = phoneInfo.is_on_biz_app === true || body.coexistence === true
+      if (isCoexistence) {
+        app.log.info(`[CloudAPI] Número ${phoneInfo.display_phone_number || phoneNumberId} conectado em COEXISTÊNCIA (segue ativo no app do celular)`)
+      }
       const existing = await prisma.cloudApiConnection.findUnique({ where: { wabaId } })
       const connection = await prisma.cloudApiConnection.upsert({
         where: { wabaId },
@@ -157,6 +168,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
             businessVerification: wabaInfo.business_verification_status,
             ownershipType: wabaInfo.ownership_type,
             platformType: phoneInfo.platform_type,
+            coexistence: isCoexistence,
+            isOnBizApp: phoneInfo.is_on_biz_app ?? null,
             connectedAt: existing ? undefined : new Date().toISOString(),
             reconnectedAt: new Date().toISOString(),
           },
@@ -176,6 +189,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
             businessVerification: wabaInfo.business_verification_status,
             ownershipType: wabaInfo.ownership_type,
             platformType: phoneInfo.platform_type,
+            coexistence: isCoexistence,
+            isOnBizApp: phoneInfo.is_on_biz_app ?? null,
             connectedAt: new Date().toISOString(),
           },
         },
@@ -207,6 +222,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
           phoneNumberId: connection.phoneNumberId,
           displayPhone: connection.displayPhone,
           displayName: connection.displayName,
+          coexistence: isCoexistence,
         },
         tokenType,
         webhookUrl,
@@ -272,6 +288,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         tokenStatus,
         tokenError,
         tokenType: meta.tokenType || 'unknown',
+        // Coexistência: o número segue atendendo pelo app do celular. Muda o que
+        // o operador pode esperar (limite de 20 msg/s, sem grupos) — por isso
+        // aparece na tela, não só no metadata.
+        coexistence: meta.coexistence === true,
         businessProfile,
         createdAt: conn.createdAt,
         updatedAt: conn.updatedAt,
@@ -279,6 +299,70 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     }))
 
     return { connections: results }
+  })
+
+  // POST /api/cloud-api/connection/:id/refresh-mode — Reconsulta o modo na Meta
+  //
+  // O modo pode mudar SEM passar por aqui: o dono conecta/desconecta o número no
+  // app do celular quando quiser, e a coexistência também se desativa sozinha se
+  // o app ficar 14 dias sem ser aberto. Sem uma releitura sob demanda, a tela
+  // continuaria afirmando algo que deixou de ser verdade.
+  app.post('/api/cloud-api/connection/:id/refresh-mode', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id } = req.params as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      const info: any = await cloudApiFetch(`/${conn.phoneNumberId}?fields=is_on_biz_app,platform_type,throughput,display_phone_number`, token)
+      const meta = (conn.metadata || {}) as any
+      await prisma.cloudApiConnection.update({
+        where: { id: conn.id },
+        data: {
+          metadata: {
+            ...meta,
+            coexistence: info.is_on_biz_app === true,
+            isOnBizApp: info.is_on_biz_app ?? null,
+            platformType: info.platform_type ?? meta.platformType ?? null,
+            modeCheckedAt: new Date().toISOString(),
+          },
+        },
+      })
+      return {
+        ok: true,
+        coexistence: info.is_on_biz_app === true,
+        platformType: info.platform_type ?? null,
+        throughput: info.throughput ?? null,
+      }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `Não foi possível consultar a Meta: ${err.message}` })
+    }
+  })
+
+  // POST /api/cloud-api/connection/:id/sync-app-data — Importa contatos e histórico
+  //
+  // Só faz sentido em número de coexistência. É assíncrono: a Meta responde só o
+  // aceite e manda os dados depois pelos webhooks `history`/`smb_app_state_sync`
+  // — pode levar até 24h e chega em blocos.
+  app.post('/api/cloud-api/connection/:id/sync-app-data', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+    const meta = (conn.metadata || {}) as any
+    if (meta.coexistence !== true) {
+      return reply.code(400).send({ error: 'Só números em coexistência têm dados do app para importar.' })
+    }
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      const contacts = await requestSync(conn.phoneNumberId, token, 'smb_app_state_sync')
+      const history = await requestSync(conn.phoneNumberId, token, 'history')
+      await prisma.cloudApiConnection.update({
+        where: { id: conn.id },
+        data: { metadata: { ...meta, syncRequestedAt: new Date().toISOString() } },
+      })
+      return { ok: true, contactsRequestId: contacts.requestId, historyRequestId: history.requestId }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `Meta recusou a sincronização: ${err.message}` })
+    }
   })
 
   // PUT /api/cloud-api/connection/:id — Atualizar conexao
