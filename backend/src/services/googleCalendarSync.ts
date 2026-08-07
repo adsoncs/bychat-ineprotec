@@ -64,6 +64,20 @@ function chooseIntegrationsForUser(all: CachedCalInt[], userId: number | null): 
   return company
 }
 
+// Campo `location` do evento Google, por tipo de local do MeetingType. O Meet
+// preenche o próprio local, então só os outros tipos escrevem aqui. Sem detalhe
+// cadastrado, telefone/WhatsApp caem no contato do lead — é o que o agente precisa
+// ter à mão na hora do compromisso.
+function buildEventLocation(type: string, detail: string | null, leadPhone: string | null): string {
+  switch (type) {
+    case 'in_person': return detail || 'Presencial'
+    case 'phone': return (detail || leadPhone) ? `Telefone: ${detail || leadPhone}` : 'Por telefone'
+    case 'whatsapp': return (detail || leadPhone) ? `WhatsApp: ${detail || leadPhone}` : 'Por WhatsApp'
+    case 'custom': return detail || ''
+    default: return ''
+  }
+}
+
 export async function syncActivityToCalendar(activityId: number): Promise<void> {
   try {
     const integrations = await getActiveIntegrations()
@@ -88,6 +102,22 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
       select: { id: true, nome: true, empresa: true, email: true, whatsapp: true },
     })
 
+    // Tipo de reunião do booking: define o LOCAL do evento e se cabe link de vídeo.
+    // Sem meetingType (atividade avulsa) mantemos o comportamento antigo.
+    const meta0 = (activity.metadata as any) || {}
+    const meetingType = meta0.meetingTypeId
+      ? await prisma.meetingType.findUnique({
+          where: { id: Number(meta0.meetingTypeId) },
+          select: { locationType: true, locationDetail: true, durationMin: true },
+        }).catch(() => null)
+      : null
+    const locationType = String(meta0.locationType || meetingType?.locationType || '')
+    // Presencial, telefone, WhatsApp e link próprio (Zoom etc.) NÃO ganham Meet —
+    // o encontro tem outro lugar; criar uma sala de vídeo junto confunde o cliente.
+    const wantsMeet = locationType ? locationType === 'google_meet' : true
+    const eventLocation = buildEventLocation(locationType, meetingType?.locationDetail || null, lead?.whatsapp || null)
+    const durationMin = Number(meetingType?.durationMin) > 0 ? Number(meetingType!.durationMin) : 30
+
     // UM agendamento = UM evento. A agenda da EMPRESA é a oficial: quando ela cobre o
     // tipo da atividade, o evento nasce só nela e o operador dono entra como CONVIDADO
     // (o convite já faz o evento aparecer na agenda pessoal dele, com o mesmo Meet).
@@ -96,7 +126,6 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
     // Setting scheduling.central_calendar_email refina qual agenda central usar em bookings.
     const companyMatched = matched.filter(i => i.connectionKind === 'COMPANY')
     let targetIntegrations = companyMatched.length > 0 ? companyMatched : matched
-    const meta0 = (activity.metadata as any) || {}
 
     // E-mail do operador dono da atividade — convidado sempre que o evento é criado
     // numa agenda que não é a dele (empresa/central).
@@ -129,7 +158,9 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
       const startTime = Date.now()
       try {
         const start = activity.scheduledAt
-        const end = new Date(start.getTime() + 30 * 60_000)
+        // Duração real do tipo de reunião (era sempre 30min, o que encurtava na
+        // agenda um encontro de 1h e liberava slot ainda ocupado).
+        const end = new Date(start.getTime() + durationMin * 60_000)
 
         // Convidados: o LEAD só entra com opt-in (notifyLead) ou em booking; o
         // operador dono entra SEMPRE que o evento não está na agenda dele — sem isso
@@ -156,7 +187,12 @@ export async function syncActivityToCalendar(activityId: number): Promise<void> 
           start,
           end,
           attendees,
-          addMeetLink: integration.autoMeetLink,
+          addMeetLink: integration.autoMeetLink && wantsMeet,
+          location: eventLocation || undefined,
+          // O agente conduz a reunião: mesmo com o evento na agenda da empresa,
+          // ele edita e convida outros participantes (sócio, técnico, o chefe do lead).
+          guestsCanModify: true,
+          guestsCanInviteOthers: true,
           extendedPrivate: { bychatSource: 'activity', bychatActivityId: String(activityId) },
         })
 

@@ -305,6 +305,12 @@ export async function createCalendarEvent(connectionId: number, calendarId: stri
   attendees?: string[]
   addMeetLink?: boolean
   allDay?: boolean
+  location?: string
+  // Convidado com poder de dono: edita o evento e chama mais gente. Necessário
+  // porque o evento nasce na agenda central da empresa — sem isto o agente que
+  // conduz a reunião não consegue adicionar um participante.
+  guestsCanModify?: boolean
+  guestsCanInviteOthers?: boolean
   extendedPrivate?: Record<string, string>
 }) {
   const auth = await getAuthenticatedClient(connectionId)
@@ -318,9 +324,12 @@ export async function createCalendarEvent(connectionId: number, calendarId: stri
   }
 
   if (event.extendedPrivate) body.extendedProperties = { private: event.extendedPrivate }
+  if (event.location) body.location = event.location
 
   if (event.attendees?.length) {
     body.attendees = event.attendees.map(email => ({ email }))
+    if (event.guestsCanModify) body.guestsCanModify = true
+    if (event.guestsCanInviteOthers !== undefined) body.guestsCanInviteOthers = event.guestsCanInviteOthers
   }
 
   if (event.addMeetLink) {
