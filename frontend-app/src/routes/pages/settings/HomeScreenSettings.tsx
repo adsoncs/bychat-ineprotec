@@ -6,7 +6,7 @@
 // some para quem não pode ver, e KPI vem recortado pelo escopo do usuário.
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { ArrowDown, ArrowUp, Home, Plus, Trash2, X } from 'lucide-preact'
+import { ArrowDown, ArrowUp, Home, Info, Plus, Trash2, X } from 'lucide-preact'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -19,6 +19,7 @@ import {
   type HomeBlock, type HomeBlockType, type HomeLink, type HomeScreen,
 } from '@/hooks/useHomeScreen'
 import { cn } from '@/lib/cn'
+import { useUserStore } from '@/stores/user'
 
 const ROLE_LABEL: Record<string, string> = {
   SUPERADMIN: 'Superadmin',
@@ -38,7 +39,13 @@ const BLOCK_LABEL: Record<HomeBlockType, { label: string; help: string }> = {
 
 /** Destinos possíveis para links/atalhos — o mesmo catálogo do menu lateral. */
 const DESTINOS: HomeLink[] = flattenItems()
-  .map((i) => ({ label: i.label, path: i.href.replace('/app', ''), moduleId: i.permission }))
+  .map((i) => ({
+    label: i.label,
+    path: i.href.replace('/app', ''),
+    // item sem `permission` não tem módulo que o proteja: a chave não pode ir
+    // como `undefined` (exactOptionalPropertyTypes), tem que ficar ausente.
+    ...(i.permission ? { moduleId: i.permission } : {}),
+  }))
   .filter((d, idx, arr) => d.path && arr.findIndex((x) => x.path === d.path) === idx)
 
 const novoId = () => `b${Math.random().toString(36).slice(2, 9)}`
@@ -300,6 +307,22 @@ export function HomeScreenSettings() {
     [data?.users, excecoes],
   )
 
+  // Qual tela ESTE administrador recebe — mesma precedência do backend
+  // (exceção > cargo > Visão Geral). Sem isto o cenário mais confuso do módulo
+  // passa despercebido: quem configura mexe nas telas, não vê nada mudar na
+  // própria entrada e conclui que o salvamento está quebrado, quando na verdade
+  // o cargo dele é que ficou em "Visão Geral (padrão)".
+  const eu = useUserStore((s) => s.user)
+  const minhaTela = useMemo(() => {
+    if (!eu) return null
+    const excecao = excecoes.find((x) => String(x.userId) === String(eu.id))
+    const screenId = excecao ? excecao.screenId : papeis[eu.role] ?? null
+    return {
+      origem: excecao && excecao.screenId != null ? ('exceção sua' as const) : ('cargo' as const),
+      tela: screenId == null ? null : telas.find((s) => s.id === screenId) ?? null,
+    }
+  }, [eu, excecoes, papeis, telas])
+
   if (isLoading) return <div class="space-y-3"><Skeleton class="h-32 w-full" /><Skeleton class="h-48 w-full" /></div>
 
   return (
@@ -360,7 +383,7 @@ export function HomeScreenSettings() {
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2">
-            <Input label="Nome" value={draft.name} onInput={(e: any) => setDraft({ ...draft, name: e.currentTarget.value })} placeholder="Ex.: Tela do Agente" />
+            <Input label="Nome" value={draft.name} onInput={(e: any) => setDraft({ ...draft, name: e.currentTarget.value })} placeholder="Ex.: Tela do Agente" hint="Só aparece aqui, para você achar a tela na lista — quem usa o sistema sempre vê “Visão Geral”." />
             <Input label="Descrição" value={draft.description} onInput={(e: any) => setDraft({ ...draft, description: e.currentTarget.value })} placeholder="Aparece abaixo do título" />
           </div>
 
@@ -414,10 +437,37 @@ export function HomeScreenSettings() {
           <Button size="sm" onClick={() => void salvarQuemVe()} disabled={salvarAtribuicoes.isPending}>Salvar atribuições</Button>
         </div>
 
+        {minhaTela && (
+          <div
+            class={cn(
+              'mb-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+              minhaTela.tela
+                ? 'border-border bg-surface-2 text-fg-muted'
+                : 'border-warning/40 bg-warning/10 text-fg',
+            )}
+          >
+            <Info size={14} class="mt-0.5 shrink-0" />
+            {minhaTela.tela ? (
+              <span>
+                A sua entrada hoje é <strong>{minhaTela.tela.name}</strong> (por {minhaTela.origem}).
+              </span>
+            ) : (
+              <span>
+                Você entra como <strong>{ROLE_LABEL[eu!.role] || eu!.role}</strong> e esse cargo está em{' '}
+                <strong>Visão Geral (padrão)</strong> — por isso a <em>sua</em> tela inicial não muda por mais que você edite as
+                telas aqui. Escolha uma na linha abaixo e salve.
+              </span>
+            )}
+          </div>
+        )}
+
         <div class="space-y-2">
           {roles.map((r) => (
             <div key={r} class="flex items-center justify-between gap-3">
-              <span class="text-sm text-fg w-40 shrink-0">{ROLE_LABEL[r] || r}</span>
+              <span class="text-sm text-fg w-40 shrink-0">
+                {ROLE_LABEL[r] || r}
+                {eu?.role === r && <span class="ml-1 text-xs text-fg-muted">(você)</span>}
+              </span>
               <Select
                 class="flex-1"
                 value={papeis[r] == null ? '' : String(papeis[r])}

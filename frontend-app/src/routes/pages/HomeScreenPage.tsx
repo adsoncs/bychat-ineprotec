@@ -237,6 +237,15 @@ export function HomeBlockRenderer({ block }: { block: HomeBlock }) {
 }
 
 /**
+ * Título da porta de entrada. É FIXO de propósito: o nome da tela ("6. Composta
+ * — Tela do Agente") é rótulo de administração, serve para o admin achar a tela
+ * na lista, e não faz sentido para quem só entra no sistema. Seja a tela
+ * montada, seja a Visão Geral de fábrica, a entrada se chama sempre a mesma
+ * coisa.
+ */
+const TITULO = 'Visão Geral'
+
+/**
  * Porta de entrada do sistema. Sem tela atribuída ao papel (ou ao usuário),
  * cai na Visão Geral de fábrica — que é o comportamento de sempre e o que
  * garante que ninguém entre num app em branco.
@@ -246,7 +255,7 @@ export function HomeScreenPage() {
 
   if (isLoading) {
     return (
-      <Page title="Início">
+      <Page title={TITULO}>
         <Skeleton class="h-24 w-full" />
         <Skeleton class="mt-3 h-40 w-full" />
       </Page>
@@ -256,7 +265,7 @@ export function HomeScreenPage() {
   if (!data?.screen) return <OverviewPage />
 
   return (
-    <Page title={data.screen.name} description={data.screen.description || undefined}>
+    <Page title={TITULO} {...(data.screen.description ? { description: data.screen.description } : {})}>
       <div class="space-y-5">
         {data.screen.blocks.map((b) => (
           <HomeBlockRenderer key={b.id} block={b} />
