@@ -244,6 +244,12 @@ const HOOK_BYPASS_PATHS = new Set<string>([
 //   - upload de chat/portal públicos
 //   - prefixo do /api/admin/modules/ (gerenciamento de toggle, controle próprio)
 const HOOK_BYPASS_PREFIXES = [
+  // Tela Inicial do usuário logado: é a porta de entrada do sistema e precisa
+  // abrir para QUALQUER papel — inclusive quem não tem canView em 'dashboard'
+  // (ex.: agente cuja tela é só atalhos). A rota já autentica (authMiddleware) e
+  // poda os blocos pela permissão de quem pede. A ADMINISTRAÇÃO das telas fica
+  // em /api/admin/home-screens, essa sim catalogada no módulo 'settings'.
+  '/api/home-screen/',
   '/api/admin/modules/',
   // Públicos / externos
   '/api/forms/submit/',

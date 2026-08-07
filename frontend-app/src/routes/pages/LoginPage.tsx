@@ -16,17 +16,20 @@ interface LoginResponse {
 /**
  * Resolve o destino pós-login. Aceita só paths relativos ao app, descarta
  * `/login` (que geraria loop) e qualquer URL absoluta (XSS via open redirect).
+ *
+ * O padrão é `/` — a Tela Inicial, que resolve o que este papel deve ver e cai
+ * na Visão Geral quando não há tela atribuída.
  */
 function resolveNext(): string {
   try {
     const raw = new URL(window.location.href).searchParams.get('next') ?? ''
-    if (!raw) return '/dashboard'
-    if (!raw.startsWith('/')) return '/dashboard'
-    if (raw.startsWith('//')) return '/dashboard' // protocol-relative → bloqueado
-    if (raw === '/login' || raw.startsWith('/login?') || raw.startsWith('/login/')) return '/dashboard'
+    if (!raw) return '/'
+    if (!raw.startsWith('/')) return '/'
+    if (raw.startsWith('//')) return '/' // protocol-relative → bloqueado
+    if (raw === '/login' || raw.startsWith('/login?') || raw.startsWith('/login/')) return '/'
     return raw
   } catch {
-    return '/dashboard'
+    return '/'
   }
 }
 

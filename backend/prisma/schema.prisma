@@ -8832,3 +8832,49 @@ model CommissionEntry {
   @@index([status])
   @@map("bychat_commission_entries")
 }
+
+// ─── Tela Inicial (o que cada papel vê ao entrar) ────────────
+//
+// A Visão Geral deixa de ser a única porta de entrada: o admin monta telas
+// como uma PILHA DE BLOCOS (aviso, KPIs, atalhos, meu dia, placar) e atribui
+// cada uma a um papel — com exceção por usuário quando alguém precisa de algo
+// diferente do resto do cargo. Sem atribuição, cai na Visão Geral de fábrica.
+model HomeScreen {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(255)
+
+  // [{ id, type: 'notice'|'kpis'|'shortcuts'|'my_day'|'leaderboard', config: {...} }]
+  // Ordem do array = ordem na tela.
+  blocks Json @db.Json
+
+  active   Boolean @default(true)
+  // Telas de fábrica não podem ser apagadas (só editadas/desatribuídas).
+  isSystem Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments HomeScreenAssignment[]
+
+  @@map("bychat_home_screens")
+}
+
+// Uma linha por destino. `role` preenchido = regra do cargo; `userId`
+// preenchido = exceção que vence a regra do cargo daquele usuário.
+model HomeScreenAssignment {
+  id       Int       @id @default(autoincrement())
+  screenId Int
+  role     UserRole?
+  userId   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screen HomeScreen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+
+  @@unique([role])
+  @@unique([userId])
+  @@index([screenId])
+  @@map("bychat_home_screen_assignments")
+}

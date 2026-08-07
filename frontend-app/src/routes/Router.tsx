@@ -18,6 +18,10 @@ const items = flattenItems()
  * Páginas migradas (Fase 3+). Carregadas sob demanda via lazy() para que
  * cada rota baixe seu próprio chunk e o bundle inicial fique pequeno.
  */
+const HomeScreenPage = lazy(() =>
+  import('./pages/HomeScreenPage').then((m) => ({ default: m.HomeScreenPage })),
+)
+
 const migratedPages: Record<string, ComponentType> = {
   dashboard: lazy(() =>
     import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })),
@@ -546,12 +550,11 @@ function NotFoundPage() {
   )
 }
 
-function IndexRedirect() {
-  const [, navigate] = useLocation()
-  useEffect(() => {
-    navigate('/dashboard', { replace: true })
-  }, [navigate])
-  return null
+// A raiz é a Tela Inicial (Configurações › Tela inicial): resolve a tela do
+// papel/usuário e, quando não há nenhuma atribuída, renderiza a própria Visão
+// Geral — o comportamento que existia quando `/` só redirecionava.
+function IndexRoute() {
+  return <HomeScreenPage />
 }
 
 // Origens foi consolidado dentro de Rastreamento como aba (Fase 28). Mantém
@@ -602,7 +605,7 @@ export function Router() {
       <RouteTracker />
       <Suspense fallback={<RouteFallback />}>
         <Switch>
-          <Route path="/" component={IndexRedirect} />
+          <Route path="/" component={IndexRoute} />
           <Route path="/sources" component={SourcesRedirect} />
           <Route path="/roadmap">{() => <SettingsTabRedirect tab="roadmap" />}</Route>
           <Route path="/installations">{() => <SettingsTabRedirect tab="installations" />}</Route>

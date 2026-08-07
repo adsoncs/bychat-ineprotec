@@ -411,6 +411,8 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
       '/api/admin/agents', '/api/admin/default-team', '/api/admin/payment-providers',
       // Endpoints sem /admin
       '/api/custom-fields',
+      // Administração da Tela Inicial (a leitura do próprio usuário é bypass em permissions.ts)
+      '/api/admin/home-screens',
       // loss-reasons ficou em 'leads' (cadastro do operador, usado ao marcar lead Perdido)
     ],
     actions: ['view', 'create', 'edit', 'delete'],

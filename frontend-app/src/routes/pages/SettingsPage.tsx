@@ -3,7 +3,7 @@ import { lazy, Suspense } from 'preact/compat'
 import { useLocation } from 'wouter-preact'
 import { usePrimaryInstall } from '@/hooks/usePrimaryInstall'
 import {
-  Palette, Shield, Package,
+  Palette, Shield, Package, Home,
   Mail, Copy,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
 } from 'lucide-preact'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { cn } from '@/lib/cn'
 import { AppearanceSettings } from './settings/AppearanceSettings'
+import { HomeScreenSettings } from './settings/HomeScreenSettings'
 import { SecuritySettings } from './settings/SecuritySettings'
 import { WebhooksSettings } from './settings/WebhooksSettings'
 import { ApiKeysSettings } from './settings/ApiKeysSettings'
@@ -49,7 +50,7 @@ const InstallationsPage = PRIMARY_BUILD
   : null
 
 export type Tab =
-  | 'appearance' | 'fields' | 'teams' | 'security'
+  | 'appearance' | 'home-screen' | 'fields' | 'teams' | 'security'
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
   | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company'
@@ -65,6 +66,7 @@ export type Tab =
 // MARKETING_HOST setado no .env.
 const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean }[] = [
   { id: 'appearance', label: 'Aparência', icon: <Palette size={14} /> },
+  { id: 'home-screen', label: 'Tela inicial', icon: <Home size={14} /> },
   { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
   { id: 'security', label: 'Segurança', icon: <Shield size={14} /> },
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
@@ -169,6 +171,7 @@ export function SettingsPage() {
         </aside>
         <div class="flex-1 min-w-0">
           {tab === 'appearance' && <AppearanceSettings />}
+          {tab === 'home-screen' && <HomeScreenSettings />}
           {tab === 'email' && <EmailSettings onGoToTab={setTab} />}
           {tab === 'sms' && <SmsSettings />}
           {tab === 'ai' && <AiSettings />}

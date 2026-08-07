@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import { computeHelpdeskReport } from '../services/helpdesk.js'
 
 // Rótulos PT p/ os widgets do helpdesk (espelham a UI do módulo).
@@ -189,6 +190,16 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     const leadWhere: any = {}
     if (hasDate) leadWhere.createdAt = dateFilter
     if (cfg.funnelId) leadWhere.funnelId = Number(cfg.funnelId)
+    // Recorte por permissão (`scoped`): a Tela Inicial serve o MESMO painel a
+    // papéis diferentes, então o número precisa vir pelo scope do módulo leads —
+    // agente vê o que é dele, gestor o do setor, admin tudo. Sem a flag, nada
+    // muda: os painéis de "Meus Painéis" e a Visão Geral seguem globais.
+    if (cfg.scoped) {
+      const u = (req as any).user as { userId: number; role: string }
+      const access = await buildLeadAccessWhere(u.userId, u.role)
+      if (Object.keys(access).length > 0) leadWhere.AND = [...(leadWhere.AND || []), access]
+    }
+
     // Recorte por funil dos KPIs de negociação (a seção tem seletor próprio na
     // Visão Geral). Number inválido/0 = todos os funis.
     const negFunnelId = Number(cfg.funnelId) > 0 ? Number(cfg.funnelId) : null
