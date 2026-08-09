@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
 
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'solved' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
@@ -204,8 +205,9 @@ export interface TicketDetailResponse {
 }
 
 export interface QaStats { range: string; reviewed: number; avg: number | null; byAgent: Array<{ agentUserId: number; name: string; avg: number; count: number }> }
-export function useQaStats(range = '30d') {
-  return useQuery({ queryKey: ['helpdesk-qa', range], queryFn: () => api.get<QaStats>(`/admin/helpdesk/qa/stats?range=${range}`), staleTime: 60_000 })
+export function useQaStats(period: PeriodRange) {
+  const q = periodQuery(period)
+  return useQuery({ queryKey: ['helpdesk-qa', q], queryFn: () => api.get<QaStats>(`/admin/helpdesk/qa/stats?${q}`), staleTime: 60_000 })
 }
 
 export interface CsatStats {
@@ -231,12 +233,14 @@ export interface ReportData {
   byAgent: Array<{ agentUserId: number; name: string; assigned: number; solved: number; avgResolutionMins: number | null; reopened: number; csatAvg: number | null }>
   trend: Array<{ date: string; created: number; solved: number }>
 }
-export function useReports(range = '30d') {
-  return useQuery({ queryKey: ['helpdesk-reports', range], queryFn: () => api.get<ReportData>(`/admin/helpdesk/reports?range=${range}`), staleTime: 60_000 })
+export function useReports(period: PeriodRange) {
+  const q = periodQuery(period)
+  return useQuery({ queryKey: ['helpdesk-reports', q], queryFn: () => api.get<ReportData>(`/admin/helpdesk/reports?${q}`), staleTime: 60_000 })
 }
 
-export function useCsatStats(range = '30d') {
-  return useQuery({ queryKey: ['helpdesk-csat', range], queryFn: () => api.get<CsatStats>(`/admin/helpdesk/csat/stats?range=${range}`), staleTime: 60_000 })
+export function useCsatStats(period: PeriodRange) {
+  const q = periodQuery(period)
+  return useQuery({ queryKey: ['helpdesk-csat', q], queryFn: () => api.get<CsatStats>(`/admin/helpdesk/csat/stats?${q}`), staleTime: 60_000 })
 }
 
 export interface TicketFilters {

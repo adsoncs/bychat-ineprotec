@@ -44,6 +44,11 @@ export function WidgetRenderer({ widget, filters, actions, dashboardId, allWidge
       {!isLoading && !error && data !== undefined && (
         <WidgetBody widget={widget} data={data} dashboardId={dashboardId} allWidgets={allWidgets} />
       )}
+      {/* Métrica sem histórico datado (só contador acumulado): avisa em vez de
+          deixar o número parado sem explicação quando o período muda. */}
+      {!isLoading && !error && (data as any)?.periodScoped === false && (filters?.dateFrom || filters?.dateTo) && (
+        <div class="mt-2 text-[10px] text-fg-subtle">Total acumulado — esta métrica não tem histórico por data.</div>
+      )}
     </Card>
   )
 }
@@ -221,7 +226,7 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       break
     case 'leads_won':
       val = num(d.value)
-      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : 'ganhos no período'
+      sub = d.prev !== undefined ? <DeltaBadge curr={num(d.value)} prev={d.prev} /> : 'leads do período que fecharam'
       break
     case 'leads_won_revenue':
       val = brl.format(num(d.value))
@@ -239,9 +244,16 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       break
     case 'leads_conversion_rate':
       val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
-      sub = num(d.closed) > 0
-        ? `${num(d.won)} ganhos de ${num(d.closed)} encerrados`
-        : 'nenhum negócio encerrado no período'
+      // Dois denominadores possíveis: quem negociou (padrão) ou, em cliente que
+      // não usa o módulo Negociação, os encerrados. `basis` diz qual veio.
+      sub = d.basis === 'outcome'
+        ? (num(d.closed) > 0 ? `${num(d.won)} ganhos de ${num(d.closed)} encerrados` : 'nenhum negócio encerrado no período')
+        : num(d.negotiated) > 0
+          ? <>
+              {d.prev !== undefined && <DeltaBadge curr={num(d.value)} prev={d.prev} />}
+              <span class="block">{num(d.won)} ganhos de {num(d.negotiated)} que negociaram</span>
+            </>
+          : 'nenhuma negociação aberta no período'
       break
     case 'leads_new':
       val = num(d.today)
@@ -382,10 +394,20 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       val = num(d.value ?? d.total ?? 0)
   }
 
+  // Nem todo card conta pela mesma data: ganhos, receita e perdidos contam pelo
+  // clique no botão Ganho/Perdido, a taxa de conversão é coorte pela abertura da
+  // negociação, e novos leads pela entrada. Sem dizer qual é qual, os números
+  // parecem não fechar entre si.
+  const basis = d.basis === 'created' ? 'por data de entrada do lead'
+    : d.basis === 'outcome' ? 'por data do Ganho/Perdido'
+    : d.basis === 'negotiation' ? 'por data de abertura da negociação'
+    : null
+
   return (
     <div>
       <div class="text-3xl font-light text-fg tabular-nums leading-tight">{val}</div>
       <div class="text-xs text-fg-muted mt-1">{sub}</div>
+      {basis && <div class="text-[10px] text-fg-subtle mt-0.5">{basis}</div>}
     </div>
   )
 }

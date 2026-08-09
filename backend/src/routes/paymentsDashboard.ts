@@ -4,13 +4,12 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 
-function parseDateRange(q: any): { from: Date; to: Date; days: number } {
-  const to = q.to ? new Date(q.to) : new Date()
-  const days = Math.max(1, Math.min(parseInt(q.days) || 30, 365))
-  const from = q.from ? new Date(q.from) : new Date(to.getTime() - days * 86400 * 1000)
-  return { from, to, days }
-}
+// `from`/`to` chegam como YYYY-MM-DD do seletor de período; o resolvedor
+// compartilhado ancora o fim no último instante do dia — antes, `new Date(q.to)`
+// virava meia-noite e o dia final ficava de fora da conta.
+const parseDateRange = (q: any) => resolvePeriod(q, 30)
 
 export async function paymentsDashboardRoutes(app: FastifyInstance) {
   // ── KPIs ──────────────────────────────────────────────

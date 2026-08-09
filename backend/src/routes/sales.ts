@@ -4,6 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 import { processSaleDetection } from '../services/saleDetection.js'
 import { logEvent } from '../services/leadHistory.js'
 
@@ -197,10 +198,7 @@ export async function salesRoutes(app: FastifyInstance) {
   // Se `originType` estiver vazio, cai pra `source` (backfill automático)
   // — leads antigos via Meta Lead Ads/webhook WhatsApp não tinham originType preenchido.
   app.get('/api/admin/origins/stats', { preHandler: authMiddleware }, async (req) => {
-    const q = req.query as any
-    const days = parseInt(q.days) || 30
-    const since = new Date()
-    since.setDate(since.getDate() - days)
+    const { from: since, to: until } = resolvePeriod(req.query, 30)
 
     // COALESCE resolve a tipagem inconsistente dos leads antigos:
     //   lead.originType foi adicionado depois; fallback para lead.source
@@ -209,22 +207,22 @@ export async function salesRoutes(app: FastifyInstance) {
       prisma.$queryRaw`
         SELECT COALESCE(originType, source, 'organic') as originType, COUNT(*) as count
         FROM bychat_leads
-        WHERE createdAt >= ${since}
+        WHERE createdAt >= ${since} AND createdAt <= ${until}
         GROUP BY COALESCE(originType, source, 'organic')
         ORDER BY count DESC
       ` as Promise<any[]>,
       prisma.$queryRaw`
         SELECT DATE(createdAt) as date, COALESCE(originType, source, 'organic') as originType, COUNT(*) as count
         FROM bychat_leads
-        WHERE createdAt >= ${since} AND qualifiedAt IS NOT NULL
+        WHERE createdAt >= ${since} AND createdAt <= ${until} AND qualifiedAt IS NOT NULL
         GROUP BY DATE(createdAt), COALESCE(originType, source, 'organic')
         ORDER BY date ASC
       ` as Promise<any[]>,
-      prisma.lead.count({ where: { createdAt: { gte: since }, qualifiedAt: { not: null } } }),
+      prisma.lead.count({ where: { createdAt: { gte: since, lte: until }, qualifiedAt: { not: null } } }),
       // "Rastreado" = tem originType OU source OU trackingVisitorId (qualquer sinal de tráfego)
       prisma.lead.count({
         where: {
-          createdAt: { gte: since },
+          createdAt: { gte: since, lte: until },
           qualifiedAt: { not: null },
           OR: [
             { originType: { not: null } },

@@ -308,20 +308,53 @@ export async function logTicketEvent(e: TicketEventInput): Promise<void> {
 export type HelpdeskReportRange = '7d' | '30d' | '90d'
 
 /**
+ * Período de um relatório a partir da query: `from`/`to` (YYYY-MM-DD, do
+ * intervalo personalizado) têm precedência sobre o preset `range`. Datas
+ * invertidas são corrigidas em vez de rejeitadas — o operador que digitou na
+ * ordem errada vê o período que quis, não uma tela vazia.
+ */
+export function resolveHelpdeskPeriod(q: any): { range: string; from: Date; to: Date } {
+  const range = ((q?.range ?? '30d') as unknown as string).toString()
+  const days = range === '7d' ? 7 : range === '90d' ? 90 : 30
+  const parse = (v: unknown, endOfDay: boolean): Date | null => {
+    const s = typeof v === 'string' ? v.trim() : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+    const d = new Date(`${s}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  let from = parse(q?.from ?? q?.dateFrom, false)
+  let to = parse(q?.to ?? q?.dateTo, true)
+  if (from && to && from > to) { const swap = from; from = to; to = swap }
+  const end = to ?? new Date()
+  return { range, from: from ?? new Date(end.getTime() - days * 86_400_000), to: end }
+}
+
+/**
  * Calcula o relatório consolidado do helpdesk para um período. Fonte única
  * consumida tanto pela rota /api/admin/helpdesk/reports quanto pelos widgets
  * de dashboard (F24). Cap em 5000 tickets do período (flag `capped`).
+ *
+ * `explicit` (dateFrom/dateTo do seletor de período) tem precedência sobre o
+ * preset: sem ele, um intervalo personalizado escolhido no painel era descartado
+ * e o widget respondia sempre pelos últimos 30 dias.
  */
-export async function computeHelpdeskReport(range: string) {
+export async function computeHelpdeskReport(
+  range: string,
+  explicit?: { from?: Date | undefined; to?: Date | undefined },
+) {
   const days = range === '7d' ? 7 : range === '90d' ? 90 : 30
-  const since = new Date(Date.now() - days * 86_400_000)
+  const to = explicit?.to ?? new Date()
+  const since = explicit?.from ?? new Date(to.getTime() - days * 86_400_000)
+  const period = { gte: since, lte: to }
 
   const REPORT_SELECT = { id: true, status: true, priority: true, channel: true, type: true, assignedUserId: true, createdAt: true, firstResponseAt: true, solvedAt: true, reopenCount: true, slaFirstResponseStatus: true, slaResolutionStatus: true }
   const [rows, backlog, solvedInRange, surveys] = await Promise.all([
-    prisma.helpdeskTicket.findMany({ where: { createdAt: { gte: since } }, select: REPORT_SELECT, take: 5000 }),
-    prisma.helpdeskTicket.count({ where: { status: { notIn: ['solved', 'closed'] } } }),
-    prisma.helpdeskTicket.count({ where: { solvedAt: { gte: since } } }),
-    prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since }, respondedAt: { not: null }, agentUserId: { not: null } }, select: { agentUserId: true, rating: true } }),
+    prisma.helpdeskTicket.findMany({ where: { createdAt: period }, select: REPORT_SELECT, take: 5000 }),
+    // Backlog é estoque de agora (tickets ainda abertos), mas restrito aos que
+    // entraram no período — senão o card não muda ao trocar o seletor.
+    prisma.helpdeskTicket.count({ where: { status: { notIn: ['solved', 'closed'] }, createdAt: period } }),
+    prisma.helpdeskTicket.count({ where: { solvedAt: period } }),
+    prisma.helpdeskSurvey.findMany({ where: { sentAt: period, respondedAt: { not: null }, agentUserId: { not: null } }, select: { agentUserId: true, rating: true } }),
   ])
 
   const tally = (key: keyof typeof rows[0]) => {
@@ -359,15 +392,20 @@ export async function computeHelpdeskReport(range: string) {
     return { agentUserId: uid, name: userMap.get(uid) || `#${uid}`, assigned: a.assigned, solved: a.solved, avgResolutionMins: avg(a.resTimes), reopened: a.reopened, csatAvg: csat.length ? Number((csat.reduce((x, y) => x + y, 0) / csat.length).toFixed(1)) : null }
   }).sort((x, y) => y.solved - x.solved)
 
+  // Uma barra por dia do período escolhido (não mais "últimos N dias a partir de
+  // hoje"): com intervalo personalizado antigo isso deixava o gráfico vazio.
+  // Cap de 370 dias — acima disso o eixo vira ruído e a série pesa à toa.
   const dayKey = (d: Date) => d.toISOString().slice(0, 10)
   const trendMap = new Map<string, { created: number; solved: number }>()
-  for (let i = days - 1; i >= 0; i--) trendMap.set(dayKey(new Date(Date.now() - i * 86_400_000)), { created: 0, solved: 0 })
+  const spanDays = Math.min(370, Math.max(1, Math.round((to.getTime() - since.getTime()) / 86_400_000) + 1))
+  for (let i = spanDays - 1; i >= 0; i--) trendMap.set(dayKey(new Date(to.getTime() - i * 86_400_000)), { created: 0, solved: 0 })
   for (const r of rows) { const k = dayKey(r.createdAt); const t = trendMap.get(k); if (t) t.created++ }
   for (const r of rows) { if (r.solvedAt) { const k = dayKey(r.solvedAt); const t = trendMap.get(k); if (t) t.solved++ } }
   const trend = [...trendMap.entries()].map(([date, v]) => ({ date, ...v }))
 
   return {
     range: range === '7d' || range === '90d' ? range : '30d',
+    period: { from: dayKey(since), to: dayKey(to) },
     volume: { created: rows.length, solved: solvedInRange, backlog, reopened: rows.reduce((s, r) => s + (r.reopenCount || 0), 0), capped: rows.length >= 5000 },
     byStatus: tally('status'), byPriority: tally('priority'), byChannel: tally('channel'), byType: tally('type'),
     sla: { frMet, frBreached, frPct: frMet + frBreached ? Math.round((frMet / (frMet + frBreached)) * 100) : null, resMet, resBreached, resPct: resMet + resBreached ? Math.round((resMet / (resMet + resBreached)) * 100) : null },

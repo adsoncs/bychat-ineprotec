@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 import { getCapiConfig, getStageEventMappings, sendCapiEvent, retryFailedEvents } from '../services/metaCapi.js'
 import { sendLeadQualityFeedback, type LeadQuality } from '../services/metaLeadQualityFeedback.js'
 import { getAttributionReport, getLeadJourney } from '../services/attribution.js'
@@ -178,12 +179,9 @@ export async function conversionsRoutes(app: FastifyInstance) {
     const limit = Math.min(parseInt(q.limit) || 50, 200)
     const platform = q.platform || undefined
     const status = q.status || undefined
-    const days = parseInt(q.days) || 30
+    const { from: since, to: until } = resolvePeriod(q, 30)
 
-    const since = new Date()
-    since.setDate(since.getDate() - days)
-
-    const where: any = { createdAt: { gte: since } }
+    const where: any = { createdAt: { gte: since, lte: until } }
     if (platform) where.platform = platform
     if (status) where.status = status
 
@@ -202,22 +200,20 @@ export async function conversionsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/conversions/stats — Métricas de conversões
   app.get('/api/admin/conversions/stats', { preHandler: authMiddleware }, async (req) => {
-    const q = req.query as any
-    const days = parseInt(q.days) || 30
-    const since = new Date()
-    since.setDate(since.getDate() - days)
+    const { from: since, to: until } = resolvePeriod(req.query, 30)
+    const period = { gte: since, lte: until }
 
     const [total, sent, failed, pending, byEvent, byDay] = await Promise.all([
-      prisma.conversionEvent.count({ where: { createdAt: { gte: since } } }),
-      prisma.conversionEvent.count({ where: { status: 'sent', createdAt: { gte: since } } }),
-      prisma.conversionEvent.count({ where: { status: 'failed', createdAt: { gte: since } } }),
-      prisma.conversionEvent.count({ where: { status: 'pending', createdAt: { gte: since } } }),
+      prisma.conversionEvent.count({ where: { createdAt: period } }),
+      prisma.conversionEvent.count({ where: { status: 'sent', createdAt: period } }),
+      prisma.conversionEvent.count({ where: { status: 'failed', createdAt: period } }),
+      prisma.conversionEvent.count({ where: { status: 'pending', createdAt: period } }),
       prisma.$queryRaw`
         SELECT eventName, platform, COUNT(*) as count,
                SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent,
                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
         FROM bychat_conversion_events
-        WHERE createdAt >= ${since}
+        WHERE createdAt >= ${since} AND createdAt <= ${until}
         GROUP BY eventName, platform
         ORDER BY count DESC
       ` as Promise<any[]>,
@@ -225,7 +221,7 @@ export async function conversionsRoutes(app: FastifyInstance) {
         SELECT DATE(createdAt) as date, COUNT(*) as total,
                SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent
         FROM bychat_conversion_events
-        WHERE createdAt >= ${since}
+        WHERE createdAt >= ${since} AND createdAt <= ${until}
         GROUP BY DATE(createdAt)
         ORDER BY date ASC
       ` as Promise<any[]>,

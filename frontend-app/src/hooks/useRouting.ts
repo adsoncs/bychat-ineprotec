@@ -253,10 +253,11 @@ export interface SlaMetricsResponse {
   agents: SlaAgentMetric[]
 }
 
-export function useSlaMetrics(rangeDays: 7 | 30 = 7) {
+export function useSlaMetrics(period: { from: string; to: string }) {
+  const q = `from=${period.from}&to=${period.to}`
   return useQuery({
-    queryKey: ['routing', 'sla', 'metrics', rangeDays],
-    queryFn: () => api.get<SlaMetricsResponse>(`/admin/routing/sla/metrics?range=${rangeDays}d`),
+    queryKey: ['routing', 'sla', 'metrics', q],
+    queryFn: () => api.get<SlaMetricsResponse>(`/admin/routing/sla/metrics?${q}`),
     staleTime: 60_000,
   })
 }

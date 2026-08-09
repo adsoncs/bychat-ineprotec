@@ -17,6 +17,7 @@ import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod, periodLabel } from '@/components/ui/PeriodPicker'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -187,6 +188,9 @@ export function SupervisionPage() {
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignUser, setAssignUser] = useState('')
   const [assignTeam, setAssignTeam] = useState('')
+  // Período dos indicadores de fluxo (resolvidas, 1ª resposta, tempo de
+  // resolução). Antes eram 7 dias fixos, sem seletor na tela.
+  const period = usePeriod('supervision', '7d')
 
   const limit = 50
   const filters: SupervisionFilters = useMemo(() => ({
@@ -204,11 +208,12 @@ export function SupervisionPage() {
     offset: page * limit,
   }), [bucket, search, userId, teamId, funnelId, channel, showGroups, onlyUnread, stale, sort, page])
 
-  // Overview ignora o balde (é a visão do todo) mas respeita os demais filtros.
+  // Overview ignora o balde (é a visão do todo) mas respeita os demais filtros
+  // — e leva o período, que só ele usa (a lista não é recortada por data).
   const overviewFilters: SupervisionFilters = useMemo(() => {
     const { bucket: _b, limit: _l, offset: _o, sort: _s, ...rest } = filters
-    return rest
-  }, [filters])
+    return { ...rest, from: period.range.dateFrom, to: period.range.dateTo }
+  }, [filters, period.range.dateFrom, period.range.dateTo])
 
   const { data: ov, isLoading: ovLoading, isFetching: ovFetching, refetch } = useSupervisionOverview(overviewFilters)
   const { data: list, isLoading: listLoading } = useSupervisionConversations(filters)
@@ -256,12 +261,23 @@ export function SupervisionPage() {
       title="Supervisão"
       description="Visão gerencial do Conversas: fila, atendimento humano ou chatbot, canal, funil e ação direta sobre as conversas."
       actions={
-        <Button variant="ghost" size="sm" onClick={() => void refetch()} disabled={ovFetching}>
-          <RefreshCw size={14} class={ovFetching ? 'animate-spin mr-1' : 'mr-1'} />
-          Atualizar
-        </Button>
+        <div class="flex items-center gap-2 flex-wrap">
+          <PeriodPicker
+            preset={period.preset}
+            customFrom={period.customFrom}
+            customTo={period.customTo}
+            onPreset={period.setPreset}
+            onCustom={period.setCustom}
+            label="Período dos indicadores"
+          />
+          <Button variant="ghost" size="sm" onClick={() => void refetch()} disabled={ovFetching}>
+            <RefreshCw size={14} class={ovFetching ? 'animate-spin mr-1' : 'mr-1'} />
+            Atualizar
+          </Button>
+        </div>
       }
     >
+      <PeriodIncompleteHint show={period.range.incomplete} />
       {/* Baldes — a foto do estado atual, e também o filtro da lista abaixo. */}
       <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
         {BUCKETS.map((b) => {
@@ -320,7 +336,7 @@ export function SupervisionPage() {
         <KpiCard
           label="Resolvidas hoje"
           value={kpi?.resolvedToday ?? '—'}
-          hint={`${kpi?.resolvedPeriod ?? 0} nos últimos ${ov?.periodDays ?? 7} dias`}
+          hint={`${kpi?.resolvedPeriod ?? 0} ${periodLabel(period.range)}`}
           icon={<CheckCircle2 size={15} />}
           loading={ovLoading}
         />

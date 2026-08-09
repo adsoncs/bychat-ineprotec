@@ -15,6 +15,7 @@ import { Input, Textarea, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { SearchInput } from '@/components/ui/SearchInput'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod, periodQuery, PRESET_LABELS } from '@/components/ui/PeriodPicker'
 import {
   useTickets, useTicket, useCreateTicket, useUpdateTicket, useAddComment,
   useAgents, useTeams, useTagsCatalog, useTicketActions, useBulkAction, usePresence, searchLeads,
@@ -405,18 +406,20 @@ function fmtMins(m: number | null): string {
 }
 
 export function HelpdeskReportsPage() {
-  const [range, setRange] = useState('30d')
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('helpdesk.reports')
   const reports = useReports(range)
   const qa = useQaStats(range)
   const d = reports.data
 
   async function downloadCsv() {
     const token = localStorage.getItem(env.authTokenKey)
-    const res = await fetch(`${env.apiBase}/admin/helpdesk/reports/export?range=${range}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    // O CSV segue o mesmo período da tela — exportar 30d fixo enquanto a tela
+    // mostra outra coisa é o tipo de divergência que ninguém percebe a tempo.
+    const res = await fetch(`${env.apiBase}/admin/helpdesk/reports/export?${periodQuery(range)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `helpdesk-${range}.csv`; a.click()
+    a.href = url; a.download = `helpdesk-${range.dateFrom}_${range.dateTo}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -426,12 +429,11 @@ export function HelpdeskReportsPage() {
     <Page title="Relatórios & Analytics">
     <HelpdeskTabs active="reports" />
       <div class="space-y-4">
-        <div class="flex items-center gap-2">
-          {['7d', '30d', '90d'].map((r) => (
-            <button key={r} class={`text-xs px-3 py-1.5 rounded-md border ${range === r ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setRange(r)}>{r}</button>
-          ))}
+        <div class="flex items-center gap-2 flex-wrap">
+          <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} />
           <Button class="ml-auto" variant="secondary" size="sm" onClick={downloadCsv}><Download size={14} /> Exportar CSV</Button>
         </div>
+        <PeriodIncompleteHint show={range.incomplete} />
         {!d ? <p class="text-xs text-fg-muted">Carregando…</p> : (
           <>
             <div class="grid grid-cols-4 gap-2">
@@ -453,7 +455,7 @@ export function HelpdeskReportsPage() {
             </div>
 
             <div>
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-2">Tendência ({range})</h3>
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-fg-muted mb-2">Tendência ({PRESET_LABELS[preset]})</h3>
               <div class="flex items-end gap-0.5 h-24">
                 {d.trend.map((t) => (
                   <div key={t.date} class="flex-1 flex flex-col justify-end gap-0.5" title={`${t.date}: ${t.created} criados / ${t.solved} resolvidos`}>
@@ -577,7 +579,7 @@ export function HelpdeskOrgsPage() {
 }
 
 export function HelpdeskCsatPage() {
-  const [range, setRange] = useState('30d')
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('helpdesk.csat')
   const stats = useCsatStats(range)
   const d = stats.data
   const maxDist = Math.max(1, ...(d?.distribution ?? []).map((x) => x.count))
@@ -585,11 +587,8 @@ export function HelpdeskCsatPage() {
     <Page title="Satisfação (CSAT)">
     <HelpdeskTabs active="csat" />
       <div class="space-y-4">
-        <div class="flex gap-1">
-          {['7d', '30d', '90d'].map((r) => (
-            <button key={r} class={`text-xs px-3 py-1.5 rounded-md border ${range === r ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setRange(r)}>{r}</button>
-          ))}
-        </div>
+        <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} />
+        <PeriodIncompleteHint show={range.incomplete} />
         {!d ? <p class="text-xs text-fg-muted">Carregando…</p> : (
           <>
             <div class="grid grid-cols-4 gap-2">

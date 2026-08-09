@@ -28,6 +28,7 @@ import { useLocation } from 'wouter-preact'
 import { useOriginsStats, type OriginBreakdownItem } from '@/hooks/useOrigins'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod, periodLabel, type PeriodRange } from '@/components/ui/PeriodPicker'
 import { Button } from '@/components/ui/Button'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -52,7 +53,7 @@ function readTabFromUrl(): Tab {
 
 export function TrackingPage() {
   const [tab, setTab] = useState<Tab>(() => readTabFromUrl())
-  const [days, setDays] = useState(30)
+  const period = usePeriod('tracking')
   const [installOpen, setInstallOpen] = useState(false)
   const [validateUrlSeed, setValidateUrlSeed] = useState<string | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
@@ -81,13 +82,13 @@ export function TrackingPage() {
             <HelpCircle size={14} /> Como funciona?
           </Button>
           {(tab === 'overview' || tab === 'pages' || tab === 'origins') && (
-            <Select value={String(days)} onChange={(e) => setDays(Number((e.target as HTMLSelectElement).value))}>
-              <option value="7">Últimos 7 dias</option>
-              <option value="15">Últimos 15 dias</option>
-              <option value="30">Últimos 30 dias</option>
-              <option value="60">Últimos 60 dias</option>
-              <option value="90">Últimos 90 dias</option>
-            </Select>
+            <PeriodPicker
+              preset={period.preset}
+              customFrom={period.customFrom}
+              customTo={period.customTo}
+              onPreset={period.setPreset}
+              onCustom={period.setCustom}
+            />
           )}
           <Button variant="primary" size="sm" onClick={() => setInstallOpen(true)}>
             <Code size={12} /> Código de Instalação
@@ -104,10 +105,12 @@ export function TrackingPage() {
         <TabButton active={tab === 'sites'} onClick={() => setTab('sites')}>Sites Monitorados</TabButton>
       </div>
 
-      {tab === 'overview' && <OverviewTab days={days} />}
-      {tab === 'origins' && <OriginsTab days={days} />}
+      <PeriodIncompleteHint show={period.range.incomplete} />
+
+      {tab === 'overview' && <OverviewTab period={period.range} />}
+      {tab === 'origins' && <OriginsTab period={period.range} />}
       {tab === 'visitors' && <VisitorsTab />}
-      {tab === 'pages' && <PagesTab days={days} />}
+      {tab === 'pages' && <PagesTab period={period.range} />}
       {tab === 'validate' && <ValidateTab seedUrl={validateUrlSeed} clearSeed={() => setValidateUrlSeed(null)} />}
       {tab === 'sites' && <SitesTab onValidate={jumpToValidate} />}
 
@@ -184,9 +187,9 @@ function metaGet(meta: Record<string, unknown> | null | undefined, k: string): s
 // ─────────────────────────────────────────────────────────────────────────────
 // Overview tab
 
-function OverviewTab({ days }: { days: number }) {
-  const { data, isLoading } = useTrackingStats(days)
-  const { data: recentLeadsData, isLoading: leadsLoading } = useRecentLeads(days, 10)
+function OverviewTab({ period }: { period: PeriodRange }) {
+  const { data, isLoading } = useTrackingStats(period)
+  const { data: recentLeadsData, isLoading: leadsLoading } = useRecentLeads(period, 10)
   const [detailId, setDetailId] = useState<number | null>(null)
 
   return (
@@ -209,7 +212,7 @@ function OverviewTab({ days }: { days: number }) {
         isLoading={leadsLoading}
         leads={recentLeadsData?.leads ?? []}
         coverage={recentLeadsData?.coverage ?? null}
-        days={days}
+        period={period}
       />
 
       <RecentVisitorsCard
@@ -274,8 +277,8 @@ const ORIGIN_FALLBACK_COLOR = '#9e9e9e'
 
 function fmtOriginNum(n: number) { return (n || 0).toLocaleString('pt-BR') }
 
-function OriginsTab({ days }: { days: number }) {
-  const { data, isLoading } = useOriginsStats(days)
+function OriginsTab({ period }: { period: PeriodRange }) {
+  const { data, isLoading } = useOriginsStats(period)
   const breakdown = data?.originBreakdown ?? []
   const total = breakdown.reduce((a, b) => a + (b.count || 0), 0)
 
@@ -578,12 +581,12 @@ function ReferrersCard({ isLoading, refs }: { isLoading: boolean; refs: { referr
 // ─── Leads Recentes — alimentado por bychat_leads (não depende do pixel) ──
 
 function RecentLeadsCard({
-  isLoading, leads, coverage, days,
+  isLoading, leads, coverage, period,
 }: {
   isLoading: boolean
   leads: RecentLeadItem[]
   coverage: { totalLeads: number; leadsWithTrackedSession: number; rate: number } | null
-  days: number
+  period: PeriodRange
 }) {
   const [, navigate] = useLocation()
   return (
@@ -592,7 +595,7 @@ function RecentLeadsCard({
         <div class="min-w-0">
           <CardTitle>Leads Recentes</CardTitle>
           <p class="text-[0.6875rem] text-fg-subtle mt-0.5">
-            Todos os leads criados nos últimos {days} dias — independente de origem (Meta Lead Ads, WhatsApp, formulário, API). Use o badge "rastreado" pra saber quais também passaram pelo pixel.
+            Todos os leads criados {periodLabel(period)} — independente de origem (Meta Lead Ads, WhatsApp, formulário, API). Use o badge "rastreado" pra saber quais também passaram pelo pixel.
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
@@ -610,7 +613,7 @@ function RecentLeadsCard({
       {isLoading && <div class="px-4 pb-4"><Skeleton class="h-32 w-full" /></div>}
       {!isLoading && leads.length === 0 && (
         <div class="p-8">
-          <EmptyState description={`Nenhum lead criado nos últimos ${days} dias.`} />
+          <EmptyState description={`Nenhum lead criado ${periodLabel(period)}.`} />
         </div>
       )}
       {!isLoading && leads.length > 0 && (
@@ -1177,8 +1180,8 @@ function LinkVisitorModal({ visitorId, onClose }: { visitorId: number; onClose: 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pages tab — lista das páginas mais acessadas + verificação de tracking ativo
 
-function PagesTab({ days }: { days: number }) {
-  const { data, isLoading } = useTrackingStats(days)
+function PagesTab({ period }: { period: PeriodRange }) {
+  const { data, isLoading } = useTrackingStats(period)
   const validate = useValidateTrackingPages()
   const [results, setResults] = useState<Record<string, PageValidationResult> | null>(null)
   const pages = data?.topPages ?? []
@@ -1211,7 +1214,7 @@ function PagesTab({ days }: { days: number }) {
       <Card>
         <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
           <CardHeader class="p-0">
-            <CardTitle>Páginas com tracking (últimos {days} dias)</CardTitle>
+            <CardTitle>Páginas com tracking ({periodLabel(period)})</CardTitle>
           </CardHeader>
           <Button size="sm" variant="secondary" onClick={handleValidate} disabled={validate.isPending || pages.length === 0}>
             <Check size={12} /> {validate.isPending ? 'Verificando…' : 'Verificar tracking ativo'}

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
 
 // ── Overview / KPIs ──────────────────────────────────────
 export interface PaymentsOverview {
@@ -12,10 +13,11 @@ export interface PaymentsOverview {
   webhookCount: number
 }
 
-export function usePaymentsOverview(days = 30) {
+export function usePaymentsOverview(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['payments-overview', days],
-    queryFn: () => api.get<PaymentsOverview>(`/admin/payments/overview?days=${days}`),
+    queryKey: ['payments-overview', q],
+    queryFn: () => api.get<PaymentsOverview>(`/admin/payments/overview?${q}`),
     staleTime: 60_000,
   })
 }
@@ -29,10 +31,11 @@ export interface PaymentsTimeseriesPoint {
   revenue: number
 }
 
-export function usePaymentsTimeseries(days = 30) {
+export function usePaymentsTimeseries(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['payments-timeseries', days],
-    queryFn: () => api.get<{ days: number; series: PaymentsTimeseriesPoint[] }>(`/admin/payments/timeseries?days=${days}`),
+    queryKey: ['payments-timeseries', q],
+    queryFn: () => api.get<{ days: number; series: PaymentsTimeseriesPoint[] }>(`/admin/payments/timeseries?${q}`),
     staleTime: 60_000,
   })
 }
@@ -52,10 +55,11 @@ export interface PaymentBreakdown {
   byPortal: { id: number; name: string; count: number; paidCount: number; paidTotal: number; total: number }[]
 }
 
-export function usePaymentsBreakdown(days = 30) {
+export function usePaymentsBreakdown(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['payments-breakdown', days],
-    queryFn: () => api.get<PaymentBreakdown>(`/admin/payments/breakdown?days=${days}`),
+    queryKey: ['payments-breakdown', q],
+    queryFn: () => api.get<PaymentBreakdown>(`/admin/payments/breakdown?${q}`),
     staleTime: 60_000,
   })
 }

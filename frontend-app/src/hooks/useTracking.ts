@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipos
@@ -112,10 +113,11 @@ export interface UrlValidationResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // Hooks
 
-export function useTrackingStats(days = 30) {
+export function useTrackingStats(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['tracking-stats', days],
-    queryFn: () => api.get<TrackingStatsResponse>(`/tracking/stats?days=${days}`),
+    queryKey: ['tracking-stats', q],
+    queryFn: () => api.get<TrackingStatsResponse>(`/tracking/stats?${q}`),
     staleTime: 60_000,
   })
 }
@@ -143,10 +145,11 @@ export interface RecentLeadsResponse {
   leads: RecentLeadItem[]
 }
 
-export function useRecentLeads(days = 30, limit = 10) {
+export function useRecentLeads(period: PeriodRange, limit = 10) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['tracking-recent-leads', days, limit],
-    queryFn: () => api.get<RecentLeadsResponse>(`/tracking/recent-leads?days=${days}&limit=${limit}`),
+    queryKey: ['tracking-recent-leads', q, limit],
+    queryFn: () => api.get<RecentLeadsResponse>(`/tracking/recent-leads?${q}&limit=${limit}`),
     staleTime: 60_000,
   })
 }

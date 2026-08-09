@@ -5,6 +5,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
 import crypto from 'crypto'
 
@@ -419,10 +420,8 @@ export async function trackingRoutes(app: FastifyInstance) {
 
   // ── GET /api/tracking/stats ─── Dashboard stats ──
   app.get('/api/tracking/stats', { preHandler: authMiddleware }, async (req, reply) => {
-    const q = req.query as any
-    const days = Math.min(90, parseInt(q.days) || 30)
-    const since = new Date()
-    since.setDate(since.getDate() - days)
+    const { from: since, to: until, days } = resolvePeriod(req.query, 30)
+    const period = { gte: since, lte: until }
 
     const [
       totalVisitors,
@@ -436,14 +435,14 @@ export async function trackingRoutes(app: FastifyInstance) {
       topReferrers,
       deviceBreakdown,
     ] = await Promise.all([
-      prisma.trackingVisitor.count({ where: { lastSeenAt: { gte: since } } }),
-      prisma.trackingVisitor.count({ where: { lastSeenAt: { gte: since }, identifiedEmail: { not: null } } }),
-      prisma.trackingVisitor.count({ where: { lastSeenAt: { gte: since }, leadId: { not: null } } }),
-      prisma.trackingSession.count({ where: { startedAt: { gte: since } } }),
-      prisma.trackingEvent.count({ where: { type: 'pageview', timestamp: { gte: since } } }),
-      prisma.trackingEvent.count({ where: { type: { not: 'pageview' }, timestamp: { gte: since } } }),
+      prisma.trackingVisitor.count({ where: { lastSeenAt: period } }),
+      prisma.trackingVisitor.count({ where: { lastSeenAt: period, identifiedEmail: { not: null } } }),
+      prisma.trackingVisitor.count({ where: { lastSeenAt: period, leadId: { not: null } } }),
+      prisma.trackingSession.count({ where: { startedAt: period } }),
+      prisma.trackingEvent.count({ where: { type: 'pageview', timestamp: period } }),
+      prisma.trackingEvent.count({ where: { type: { not: 'pageview' }, timestamp: period } }),
       prisma.trackingVisitor.findMany({
-        where: { lastSeenAt: { gte: since } },
+        where: { lastSeenAt: period },
         orderBy: { lastSeenAt: 'desc' },
         take: 10,
         select: {
@@ -460,7 +459,7 @@ export async function trackingRoutes(app: FastifyInstance) {
           COUNT(DISTINCT visitorId) as visitors,
           MAX(timestamp) as lastSeen
         FROM bychat_tracking_events
-        WHERE type = 'pageview' AND timestamp >= ${since} AND url IS NOT NULL AND url != ''
+        WHERE type = 'pageview' AND timestamp >= ${since} AND timestamp <= ${until} AND url IS NOT NULL AND url != ''
         GROUP BY TRIM(TRAILING '/' FROM SUBSTRING_INDEX(SUBSTRING_INDEX(url, '?', 1), '#', 1))
         ORDER BY views DESC LIMIT 30
       ` as Promise<any[]>,
@@ -468,20 +467,20 @@ export async function trackingRoutes(app: FastifyInstance) {
       prisma.$queryRaw`
         SELECT referrer, COUNT(*) as count
         FROM bychat_tracking_sessions
-        WHERE startedAt >= ${since} AND referrer IS NOT NULL AND referrer != ''
+        WHERE startedAt >= ${since} AND startedAt <= ${until} AND referrer IS NOT NULL AND referrer != ''
         GROUP BY referrer ORDER BY count DESC LIMIT 10
       ` as Promise<any[]>,
       // Device breakdown
       prisma.$queryRaw`
         SELECT deviceType, COUNT(*) as count
         FROM bychat_tracking_sessions
-        WHERE startedAt >= ${since} AND deviceType IS NOT NULL
+        WHERE startedAt >= ${since} AND startedAt <= ${until} AND deviceType IS NOT NULL
         GROUP BY deviceType ORDER BY count DESC
       ` as Promise<any[]>,
     ])
 
     return {
-      period: { days, since: since.toISOString() },
+      period: { days, since: since.toISOString(), until: until.toISOString() },
       overview: { totalVisitors, identifiedVisitors, linkedLeads, totalSessions, totalPageviews, totalEvents },
       recentVisitors,
       topPages: (topPages || []).map((p: any) => ({ url: p.url, views: Number(p.views), visitors: Number(p.visitors || 0), lastSeen: p.lastSeen })),
@@ -497,14 +496,13 @@ export async function trackingRoutes(app: FastifyInstance) {
   // `hasTrackedSession` indica se o lead também tem sessão de pixel vinculada.
   app.get('/api/tracking/recent-leads', { preHandler: authMiddleware }, async (req) => {
     const q = req.query as any
-    const days = Math.min(90, parseInt(q.days) || 30)
+    const { from: since, to: until, days } = resolvePeriod(q, 30)
     const limit = Math.min(50, parseInt(q.limit) || 10)
-    const since = new Date()
-    since.setDate(since.getDate() - days)
+    const period = { gte: since, lte: until }
 
     const [leads, totalLeads, leadsWithVisitor] = await Promise.all([
       prisma.lead.findMany({
-        where: { createdAt: { gte: since } },
+        where: { createdAt: period },
         orderBy: { createdAt: 'desc' },
         take: limit,
         select: {
@@ -522,12 +520,12 @@ export async function trackingRoutes(app: FastifyInstance) {
           funnel: { select: { id: true, name: true } },
         },
       }),
-      prisma.lead.count({ where: { createdAt: { gte: since } } }),
-      prisma.lead.count({ where: { createdAt: { gte: since }, trackingVisitorId: { not: null } } }),
+      prisma.lead.count({ where: { createdAt: period } }),
+      prisma.lead.count({ where: { createdAt: period, trackingVisitorId: { not: null } } }),
     ])
 
     return {
-      period: { days, since: since.toISOString() },
+      period: { days, since: since.toISOString(), until: until.toISOString() },
       coverage: {
         totalLeads,
         leadsWithTrackedSession: leadsWithVisitor,

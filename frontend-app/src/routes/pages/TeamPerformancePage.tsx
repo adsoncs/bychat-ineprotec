@@ -527,7 +527,9 @@ export function TeamPerformancePage() {
         />
       )}
 
-      <SlaSection />
+      {/* Herda o período do topo da tela: dois seletores independentes na mesma
+          página faziam o SLA responder por 7 dias enquanto o resto mostrava 90. */}
+      <SlaSection from={from} to={to} />
 
       <HowItWorksModal
         open={showHowItWorks}
@@ -845,11 +847,11 @@ function EditableCapacity({ userId, value }: { userId: number; value: number }) 
 }
 
 // ─── Lead Routing F10: SLA primeira resposta ─────────────────────────
-function SlaSection() {
-  const [rangeDays, setRangeDays] = useState<7 | 30>(7)
+function SlaSection({ from, to }: { from: string; to: string }) {
   const target = useSlaTarget()
   const setTarget = useSetSlaTarget()
-  const metrics = useSlaMetrics(rangeDays)
+  // `from`/`to` chegam em ISO; a rota espera YYYY-MM-DD.
+  const metrics = useSlaMetrics({ from: from.slice(0, 10), to: to.slice(0, 10) })
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
 
@@ -887,23 +889,10 @@ function SlaSection() {
           </h3>
           <p class="text-xs text-fg-muted">
             % de leads atendidos cuja primeira ação do agente atribuído (Activity concluída)
-            ocorreu dentro do tempo configurado.
+            ocorreu dentro do tempo configurado — no período selecionado no topo da tela.
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <div class="flex bg-surface-2 border border-border rounded p-0.5">
-            {([7, 30] as const).map((d) => (
-              <button
-                key={d}
-                onClick={() => setRangeDays(d)}
-                class={`px-3 py-1 text-xs rounded ${
-                  rangeDays === d ? 'bg-accent text-fg-on-brand' : 'text-fg-muted hover:text-fg'
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
-          </div>
           {editing ? (
             <div class="flex items-center gap-1">
               <Input

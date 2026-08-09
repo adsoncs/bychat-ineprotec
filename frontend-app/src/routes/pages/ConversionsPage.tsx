@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Select } from '@/components/ui/Input'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod, PRESET_LABELS } from '@/components/ui/PeriodPicker'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
 
@@ -597,13 +598,14 @@ function MappingTab() {
 // ── Eventos enviados ────────────────────────────────────
 
 function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => void }) {
-  const [days, setDays] = useState(30)
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('conversions')
   const [platform, setPlatform] = useState<ConversionPlatform | ''>('')
   const [status, setStatus] = useState<ConversionEventStatus | ''>('')
 
-  const stats = useConversionStats(days)
+  const stats = useConversionStats(range)
   const events = useConversionEvents({
-    days,
+    from: range.dateFrom,
+    to: range.dateTo,
     ...(platform ? { platform: platform as ConversionPlatform } : {}),
     ...(status ? { status: status as ConversionEventStatus } : {}),
     limit: 100,
@@ -641,16 +643,12 @@ function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => voi
       </section>
 
       <Card>
-        <div class="grid gap-3 sm:grid-cols-4 items-end">
-          <div class="flex flex-col gap-1">
-            <span class="text-xs font-medium text-fg-muted">Período</span>
-            <Select value={String(days)} onChange={(e) => setDays(parseInt((e.target as HTMLSelectElement).value))}>
-              <option value="1">Hoje</option>
-              <option value="7">7 dias</option>
-              <option value="30">30 dias</option>
-              <option value="90">90 dias</option>
-            </Select>
-          </div>
+        <div class="flex flex-col gap-1 mb-3">
+          <span class="text-xs font-medium text-fg-muted">Período</span>
+          <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} />
+          <PeriodIncompleteHint show={range.incomplete} />
+        </div>
+        <div class="grid gap-3 sm:grid-cols-3 items-end">
           <div class="flex flex-col gap-1">
             <span class="text-xs font-medium text-fg-muted">Plataforma</span>
             <Select value={platform} onChange={(e) => setPlatform((e.target as HTMLSelectElement).value as any)}>
@@ -687,7 +685,7 @@ function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => voi
       {stats.data && stats.data.byEvent.length > 0 && (
         <Card class="p-0 overflow-hidden">
           <div class="p-3 border-b border-border">
-            <h4 class="text-sm font-semibold text-fg">Por evento ({days} dias)</h4>
+            <h4 class="text-sm font-semibold text-fg">Por evento ({PRESET_LABELS[preset]})</h4>
           </div>
           <table class="w-full text-sm">
             <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">

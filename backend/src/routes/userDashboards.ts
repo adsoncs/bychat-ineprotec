@@ -39,8 +39,9 @@ type NegField = 'valorFinal' | 'valorRecorrente' | 'valorUnico'
  * de um JOIN — mais barato que carregar os ids do funil para um `IN` com
  * dezenas de milhares de leads.
  *
- * `open: true` → negociações em aberto (sem resultado), ignorando período:
- * é estoque de agora, não fluxo do período.
+ * `open: true` → negociações em aberto (sem resultado). O período, quando vem,
+ * recorta pela ABERTURA (`createdAt`): "quanto entrou na mesa no período e ainda
+ * está lá". Sem período, é o estoque inteiro.
  *
  * `count` conta só as negociações que TÊM o componente pedido (> 0) quando o
  * campo não é o total: ticket médio de mensalidade dividido pelas propostas sem
@@ -59,7 +60,9 @@ async function negAggregateByFunnel(
     ? await prisma.$queryRaw`
         SELECT COALESCE(SUM(${col}), 0) AS sum, COUNT(${countCol}) AS count
         FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
-        WHERE n.resultado IS NULL AND l.funnelId = ${funnelId}`
+        WHERE n.resultado IS NULL AND l.funnelId = ${funnelId}
+          AND (${opts.from ?? null} IS NULL OR n.createdAt >= ${opts.from ?? null})
+          AND (${opts.to ?? null} IS NULL OR n.createdAt <= ${opts.to ?? null})`
     : await prisma.$queryRaw`
         SELECT COALESCE(SUM(${col}), 0) AS sum, COUNT(${countCol}) AS count
         FROM bychat_negotiations n JOIN bychat_leads l ON l.id = n.leadId
@@ -204,6 +207,11 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
     // Visão Geral). Number inválido/0 = todos os funis.
     const negFunnelId = Number(cfg.funnelId) > 0 ? Number(cfg.funnelId) : null
 
+    // Os widgets do helpdesk nasceram com preset próprio (`cfg.range`). Quando o
+    // painel manda um período, ele vence — senão o card ficava preso em 30d e
+    // não reagia ao seletor da tela.
+    const hdPeriod = hasDate ? { from: dateFilter.gte, to: dateFilter.lte } : undefined
+
     switch (metric) {
       case 'leads_total': {
         const total = await prisma.lead.count({ where: leadWhere })
@@ -214,28 +222,31 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         return { value: total, prev }
       }
 
+      // Ganhos, receita e perdidos contam pelo MOMENTO DO CLIQUE nos botões
+      // Ganho/Perdido — `outcomeAt` é gravado ali. Não é coorte de captação: o
+      // que interessa é o que foi fechado dentro do período, independente de
+      // quando o lead entrou.
       case 'leads_won': {
-        // Negócios ganhos no período (usa outcomeAt, não createdAt).
         const where: any = { ...leadWhere, outcome: 'won' }
         if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
         const value = await prisma.lead.count({ where })
         const prevRange = previousRange(cfg)
         const prev = prevRange ? await prisma.lead.count({ where: { ...where, outcomeAt: prevRange } }) : undefined
-        return prev === undefined ? { value } : { value, prev }
+        return { value, basis: 'outcome', ...(prev === undefined ? {} : { prev }) }
       }
 
       case 'leads_won_revenue': {
-        // Soma de saleValue dos negócios ganhos no período.
+        // Soma de saleValue dos negócios marcados como ganhos no período.
         const where: any = { ...leadWhere, outcome: 'won' }
         if (hasDate) { delete where.createdAt; where.outcomeAt = dateFilter }
         const agg = await prisma.lead.aggregate({ where, _sum: { saleValue: true }, _count: { _all: true } })
         const value = agg._sum.saleValue ? Number(agg._sum.saleValue) : 0
         const count = agg._count._all
         const prevRange = previousRange(cfg)
-        if (!prevRange) return { value, count }
+        if (!prevRange) return { value, count, basis: 'outcome' }
         const p = await prisma.lead.aggregate({ where: { ...where, outcomeAt: prevRange }, _sum: { saleValue: true } })
         const prev = p._sum.saleValue ? Number(p._sum.saleValue) : 0
-        return { value, count, prev }
+        return { value, count, prev, basis: 'outcome' }
       }
 
       case 'leads_lost': {
@@ -260,28 +271,69 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
             topReason = reason?.name ?? null
           }
         }
-        return { value, topReason, ...(prev !== undefined ? { prev } : {}) }
+        return { value, topReason, basis: 'outcome', ...(prev !== undefined ? { prev } : {}) }
       }
 
       case 'leads_conversion_rate': {
-        // % de ganhos sobre negócios encerrados (won+lost) no período.
+        // Convertidos sobre quem CHEGOU À NEGOCIAÇÃO (decisão do Adson,
+        // 2026-08-08): dos leads com proposta e valor lançado, quantos viraram
+        // venda. Antes era won/(won+lost) sobre todos os leads.
+        //
+        // O denominador inclui as negociações ainda em aberto de propósito. A
+        // versão "só encerrados" colapsa: no beyond ninguém marca Perdido depois
+        // de negociar (0 perdidos entre os que negociaram), então daria 100%
+        // fixo — o mesmo defeito que aposentou o card "Aproveitamento".
+        //
+        // Coorte pela ABERTURA da negociação: a taxa de um período é estável e
+        // só sobe conforme aquelas propostas fecham. Recortar numerador por data
+        // de ganho e denominador por abertura deixaria a razão passar de 100%.
         const base: any = { ...leadWhere }
         if (hasDate) delete base.createdAt
-        const rangeWhere = hasDate ? { outcomeAt: dateFilter } : {}
-        const [won, lost] = await Promise.all([
-          prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'won' } }),
-          prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'lost' } }),
-        ])
-        const closed = won + lost
-        const value = closed ? Math.round((won / closed) * 100) : 0
+
+        const negotiatedLeadIds = async (range: any) => {
+          const rows = await prisma.negotiation.findMany({
+            where: { valorFinal: { gt: 0 }, ...(range ? { createdAt: range } : {}) },
+            select: { leadId: true },
+            distinct: ['leadId'],
+            take: 20_000,
+          })
+          return rows.map((r) => r.leadId)
+        }
+        const rate = async (range: any) => {
+          const ids = await negotiatedLeadIds(range)
+          if (ids.length === 0) return { value: 0, won: 0, negotiated: 0 }
+          // Passa pelo Lead (e não conta os ids direto) para respeitar o recorte
+          // por funil e por permissão que já vive em `leadWhere`.
+          const scoped: any = { ...base, id: { in: ids } }
+          const [negotiated, won] = await Promise.all([
+            prisma.lead.count({ where: scoped }),
+            prisma.lead.count({ where: { ...scoped, outcome: 'won' } }),
+          ])
+          return { value: negotiated ? Math.round((won / negotiated) * 100) : 0, won, negotiated }
+        }
+
+        // Quem NUNCA abriu negociação não tem denominador — o card viraria uma
+        // lacuna permanente. Nesses tenants a taxa continua sendo ganhos sobre
+        // encerrados, e o `basis` diz qual conta está em uso (o rótulo no card
+        // muda junto, então não há dois números querendo dizer a mesma coisa).
+        // O teste é sobre o histórico inteiro, não sobre o período: se fosse
+        // por período, trocar de 30d para 7d trocaria a fórmula do card.
+        const usaNegociacao = await prisma.negotiation.count({ where: { valorFinal: { gt: 0 } } }) > 0
+        if (!usaNegociacao) {
+          const rangeWhere = hasDate ? { outcomeAt: dateFilter } : {}
+          const [won, lost] = await Promise.all([
+            prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'won' } }),
+            prisma.lead.count({ where: { ...base, ...rangeWhere, outcome: 'lost' } }),
+          ])
+          const closed = won + lost
+          return { value: closed ? Math.round((won / closed) * 100) : 0, won, closed, basis: 'outcome' }
+        }
+
+        const curr = await rate(hasDate ? dateFilter : null)
         const prevRange = previousRange(cfg)
-        if (!prevRange) return { value, won, closed }
-        const [pw, pl] = await Promise.all([
-          prisma.lead.count({ where: { ...base, outcome: 'won', outcomeAt: prevRange } }),
-          prisma.lead.count({ where: { ...base, outcome: 'lost', outcomeAt: prevRange } }),
-        ])
-        const prevClosed = pw + pl
-        return { value, won, closed, ...(prevClosed > 0 ? { prev: Math.round((pw / prevClosed) * 100) } : {}) }
+        if (!prevRange) return { ...curr, basis: 'negotiation' }
+        const p = await rate(prevRange)
+        return { ...curr, basis: 'negotiation', ...(p.negotiated > 0 ? { prev: p.value } : {}) }
       }
 
       // ── Negociações (módulo Negociação) ──────────────────────────
@@ -295,10 +347,12 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'negotiations_onetime_open': {
         const field = negFieldOf(metric)
         if (negFunnelId) {
-          const r = await negAggregateByFunnel(negFunnelId, { open: true, field })
+          const r = await negAggregateByFunnel(negFunnelId, { open: true, from: dateFilter.gte, to: dateFilter.lte, field })
           return { value: r.sum, count: r.count }
         }
-        const r = await negAggregate({ resultado: null }, field)
+        const openWhere: any = { resultado: null }
+        if (hasDate) openWhere.createdAt = dateFilter
+        const r = await negAggregate(openWhere, field)
         return { value: r.sum, count: r.count }
       }
 
@@ -668,11 +722,19 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'activities_summary': {
+        // Período aplicado sobre `scheduledAt` (quando a atividade acontece), que
+        // é a data que o operador tem em mente ao olhar a agenda — não a data em
+        // que a atividade foi cadastrada. "Atrasadas" = vencidas até agora, mas
+        // só as agendadas dentro do período escolhido.
+        const at = hasDate ? { scheduledAt: dateFilter } : {}
+        const overdueAt = hasDate
+          ? { scheduledAt: { ...dateFilter, lt: new Date() } }
+          : { scheduledAt: { lt: new Date() } }
         const [pending, overdue, completed, total] = await Promise.all([
-          prisma.activity.count({ where: { status: 'pending' } }),
-          prisma.activity.count({ where: { status: 'pending', scheduledAt: { lt: new Date() } } }),
-          prisma.activity.count({ where: { status: 'completed' } }),
-          prisma.activity.count(),
+          prisma.activity.count({ where: { status: 'pending', ...at } }),
+          prisma.activity.count({ where: { status: 'pending', ...overdueAt } }),
+          prisma.activity.count({ where: { status: 'completed', ...at } }),
+          prisma.activity.count({ where: at }),
         ])
         return { pending, overdue, completed, total }
       }
@@ -680,6 +742,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'activities_by_type': {
         const counts = await prisma.activity.groupBy({
           by: ['type'],
+          ...(hasDate ? { where: { scheduledAt: dateFilter } } : {}),
           _count: { type: true },
         })
         const typeNames: Record<string, string> = {
@@ -691,28 +754,75 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'pages_performance': {
+        // `views`/`submissions` no LandingPage são contadores acumulados desde
+        // sempre — não sabem o que é período. Com filtro de data os números vêm
+        // dos eventos (pageview no tracking, submissão no formulário), que têm
+        // timestamp; sem filtro, seguem os contadores.
         const pages = await prisma.landingPage.findMany({
           select: { id: true, title: true, slug: true, status: true, views: true, submissions: true },
           orderBy: { views: 'desc' },
           take: cfg.limit || 10,
         })
-        const total = pages.length
-        const published = pages.filter(p => p.status === 'PUBLISHED').length
-        const totalViews = pages.reduce((a, p) => a + (p.views || 0), 0)
-        const totalConv = pages.reduce((a, p) => a + (p.submissions || 0), 0)
-        return { total, published, totalViews, totalConversions: totalConv, data: pages }
+        const total = await prisma.landingPage.count()
+        const published = await prisma.landingPage.count({ where: { status: 'PUBLISHED' } })
+        if (!hasDate) {
+          const totalViews = pages.reduce((a, p) => a + (p.views || 0), 0)
+          const totalConv = pages.reduce((a, p) => a + (p.submissions || 0), 0)
+          return { total, published, totalViews, totalConversions: totalConv, data: pages }
+        }
+        const [pvRows, subs] = await Promise.all([
+          // A URL do evento é absoluta; o casamento é pelo último segmento do path.
+          prisma.$queryRaw<{ url: string; views: bigint }[]>`
+            SELECT url, COUNT(*) AS views FROM bychat_tracking_events
+            WHERE type = 'pageview' AND url IS NOT NULL AND url <> ''
+              AND timestamp >= ${dateFilter.gte ?? new Date(0)} AND timestamp <= ${dateFilter.lte ?? new Date()}
+            GROUP BY url`,
+          prisma.formSubmission.groupBy({ by: ['pageSlug'], where: { createdAt: dateFilter }, _count: { _all: true } }),
+        ])
+        const slugOf = (url: string) => {
+          const path = url.split('?')[0]?.split('#')[0] ?? ''
+          const parts = path.split('/').filter(Boolean)
+          return parts[parts.length - 1] ?? ''
+        }
+        const viewsBySlug = new Map<string, number>()
+        for (const r of pvRows) {
+          const s = slugOf(String(r.url))
+          if (s) viewsBySlug.set(s, (viewsBySlug.get(s) || 0) + Number(r.views))
+        }
+        const subsBySlug = new Map(subs.filter(s => s.pageSlug).map(s => [s.pageSlug as string, s._count._all]))
+        const data = pages
+          .map(p => ({ ...p, views: viewsBySlug.get(p.slug) || 0, submissions: subsBySlug.get(p.slug) || 0 }))
+          .sort((a, b) => b.views - a.views)
+        return {
+          total, published,
+          totalViews: data.reduce((a, p) => a + p.views, 0),
+          totalConversions: data.reduce((a, p) => a + p.submissions, 0),
+          data,
+        }
       }
 
       case 'forms_performance': {
+        // Mesma história do `pages_performance`: `Form.submissions` é acumulado.
+        // Com período, conta as submissões reais (FormSubmission tem createdAt).
         const forms = await prisma.form.findMany({
           select: { id: true, name: true, active: true, submissions: true },
           orderBy: { submissions: 'desc' },
           take: cfg.limit || 10,
         })
-        const total = forms.length
-        const active = forms.filter(f => f.active).length
-        const totalSub = forms.reduce((a, f) => a + (f.submissions || 0), 0)
-        return { total, active, totalSubmissions: totalSub, data: forms }
+        const total = await prisma.form.count()
+        const active = await prisma.form.count({ where: { active: true } })
+        if (!hasDate) {
+          const totalSub = forms.reduce((a, f) => a + (f.submissions || 0), 0)
+          return { total, active, totalSubmissions: totalSub, data: forms }
+        }
+        const grouped = await prisma.formSubmission.groupBy({
+          by: ['formId'], where: { createdAt: dateFilter }, _count: { _all: true },
+        })
+        const byForm = new Map(grouped.map(g => [g.formId, g._count._all]))
+        const data = forms
+          .map(f => ({ ...f, submissions: byForm.get(f.id) || 0 }))
+          .sort((a, b) => b.submissions - a.submissions)
+        return { total, active, totalSubmissions: data.reduce((a, f) => a + f.submissions, 0), data }
       }
 
       case 'tracking_visitors': {
@@ -729,6 +839,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'tracking_by_device': {
         const counts = await prisma.trackingSession.groupBy({
           by: ['deviceType'],
+          ...(hasDate ? { where: { startedAt: dateFilter } } : {}),
           _count: { deviceType: true },
         })
         const data = counts.filter(c => c.deviceType).map(c => ({
@@ -741,6 +852,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'tracking_by_source': {
         const counts = await prisma.trackingSession.groupBy({
           by: ['utmSource'],
+          ...(hasDate ? { where: { startedAt: dateFilter } } : {}),
           _count: { utmSource: true },
         })
         const data = counts.filter(c => c.utmSource).map(c => ({
@@ -751,10 +863,11 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'meta_leads': {
+        const at = hasDate ? { createdAt: dateFilter } : {}
         const [total, processed, failed] = await Promise.all([
-          prisma.metaLeadLog.count(),
-          prisma.metaLeadLog.count({ where: { status: 'processed' } }),
-          prisma.metaLeadLog.count({ where: { status: 'failed' } }),
+          prisma.metaLeadLog.count({ where: at }),
+          prisma.metaLeadLog.count({ where: { status: 'processed', ...at } }),
+          prisma.metaLeadLog.count({ where: { status: 'failed', ...at } }),
         ])
         return { total, processed, failed }
       }
@@ -777,16 +890,24 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'templates_usage': {
+        // ÚNICA métrica que não acompanha o período, e por falta de dado: o uso
+        // de template é registrado só como `usageCount` incrementado no envio
+        // (routes/activities, workflowActions, cadenceScheduler, services/
+        // messageTemplates) — não há linha com data para recortar. Recortar por
+        // `Activity.templateId` cobriria só o envio manual e devolveria zero
+        // para os automáticos, o que é pior que assumir o acumulado.
+        // Para tornar period-scoped: gravar uma linha por uso (templateId + data).
         const templates = await prisma.messageTemplate.findMany({
           select: { id: true, name: true, channel: true, usageCount: true, active: true },
           orderBy: { usageCount: 'desc' },
           take: cfg.limit || 10,
         })
-        return { data: templates }
+        return { data: templates, periodScoped: false }
       }
 
       case 'chatbots_summary': {
         const chatbots = await prisma.chatbot.findMany({
+          ...(hasDate ? { where: { createdAt: dateFilter } } : {}),
           select: { id: true, name: true, channel: true, active: true },
         })
         const total = chatbots.length
@@ -796,32 +917,45 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       }
 
       case 'system_resources': {
+        // Com período: o que foi criado no intervalo. Visitantes seguem
+        // `lastSeenAt` (atividade), não a data de cadastro.
+        const at = hasDate ? { createdAt: dateFilter } : {}
         const [pages, forms, chatbots, templates, visitors, metaForms] = await Promise.all([
-          prisma.landingPage.count(),
-          prisma.form.count(),
-          prisma.chatbot.count(),
-          prisma.messageTemplate.count(),
-          prisma.trackingVisitor.count(),
-          prisma.metaForm.count(),
+          prisma.landingPage.count({ where: at }),
+          prisma.form.count({ where: at }),
+          prisma.chatbot.count({ where: at }),
+          prisma.messageTemplate.count({ where: at }),
+          prisma.trackingVisitor.count({ where: hasDate ? { lastSeenAt: dateFilter } : {} }),
+          prisma.metaForm.count({ where: at }),
         ])
         return { pages, forms, chatbots, templates, visitors, metaForms }
       }
 
       case 'leads_by_tag': {
+        // Sem período, o `_count` da relação já dá o total. Com período, conta
+        // as marcações feitas no intervalo (LeadTag.createdAt) — a etiqueta pode
+        // ser aplicada muito depois da captação do lead.
         const tags = await prisma.tag.findMany({
           where: { active: true },
           orderBy: [{ position: 'asc' }],
           select: { id: true, name: true, color: true, _count: { select: { leads: true } } },
         })
-        const data = tags.map(t => ({ label: t.name, value: t._count.leads, color: t.color }))
-        return { data }
+        if (!hasDate) return { data: tags.map(t => ({ label: t.name, value: t._count.leads, color: t.color })) }
+        const grouped = await prisma.leadTag.groupBy({
+          by: ['tagId'], where: { createdAt: dateFilter }, _count: { _all: true },
+        })
+        const byTag = new Map(grouped.map(g => [g.tagId, g._count._all]))
+        return { data: tags.map(t => ({ label: t.name, value: byTag.get(t.id) || 0, color: t.color })) }
       }
 
       // ── Matrículas (Portal de Matrículas) ──
       case 'portals_total': {
+        // Com período, conta os portais criados no intervalo (quantos portais
+        // entraram no ar); sem período, o catálogo inteiro.
+        const at = hasDate ? { createdAt: dateFilter } : {}
         const [total, active] = await Promise.all([
-          prisma.enrollmentPortal.count(),
-          prisma.enrollmentPortal.count({ where: { active: true } }),
+          prisma.enrollmentPortal.count({ where: at }),
+          prisma.enrollmentPortal.count({ where: { active: true, ...at } }),
         ])
         return { value: active, total, active, inactive: total - active }
       }
@@ -1000,12 +1134,14 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       // ════════════════════ HELPDESK (F24) ════════════════════
       // Reusa computeHelpdeskReport (mesma fonte do painel de Relatórios).
       // Cada métrica devolve um superset p/ funcionar em vários tipos de widget.
+      // O período do painel (dateFrom/dateTo) tem precedência sobre o preset
+      // `range` do widget — antes ele era ignorado e o card ficava preso em 30d.
       case 'helpdesk_volume': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { ...rep.volume, value: rep.volume.created }
       }
       case 'helpdesk_sla': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return {
           frPct: rep.sla.frPct, resPct: rep.sla.resPct, value: rep.sla.resPct ?? 0,
           data: [
@@ -1015,35 +1151,36 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         }
       }
       case 'helpdesk_times': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { avgFirstResponseMins: rep.times.avgFirstResponseMins, avgResolutionMins: rep.times.avgResolutionMins }
       }
       case 'helpdesk_csat': {
         const days = cfg.range === '7d' ? 7 : cfg.range === '90d' ? 90 : 30
-        const since = new Date(Date.now() - days * 86_400_000)
-        const surveys = await prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since } }, select: { rating: true, respondedAt: true } })
+        const to = hdPeriod?.to ?? new Date()
+        const since = hdPeriod?.from ?? new Date(to.getTime() - days * 86_400_000)
+        const surveys = await prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since, lte: to } }, select: { rating: true, respondedAt: true } })
         const responded = surveys.filter((s) => s.respondedAt && s.rating)
         const avg = responded.length ? Number((responded.reduce((a, s) => a + (s.rating || 0), 0) / responded.length).toFixed(1)) : 0
         return { avg, value: avg, responded: responded.length, sent: surveys.length }
       }
       case 'helpdesk_by_status': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { data: rep.byStatus.map((s) => ({ label: HD_STATUS_LABEL[s.key] || s.key, value: s.count })) }
       }
       case 'helpdesk_by_priority': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { data: rep.byPriority.map((s) => ({ label: HD_PRIORITY_LABEL[s.key] || s.key, value: s.count })) }
       }
       case 'helpdesk_by_channel': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { data: rep.byChannel.map((s) => ({ label: HD_CHANNEL_LABEL[s.key] || s.key, value: s.count })) }
       }
       case 'helpdesk_trend': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { data: rep.trend.map((t) => ({ label: t.date.slice(5), created: t.created, solved: t.solved, value: t.created })) }
       }
       case 'helpdesk_by_agent': {
-        const rep = await computeHelpdeskReport(cfg.range || '30d')
+        const rep = await computeHelpdeskReport(cfg.range || '30d', hdPeriod)
         return { data: rep.byAgent }
       }
 

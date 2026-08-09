@@ -38,6 +38,7 @@ import {
   resolveDefaultTeamId,
   sanitizeHelpdeskCustomFields,
   computeHelpdeskReport,
+  resolveHelpdeskPeriod,
   emitHelpdeskWebhook,
   canTransition,
   attachmentUrl,
@@ -1204,10 +1205,8 @@ export async function helpdeskRoutes(app: FastifyInstance) {
 
   // GET /admin/helpdesk/qa/stats ── Médias de QA por agente ──
   app.get('/api/admin/helpdesk/qa/stats', { preHandler: authMiddleware }, async (req) => {
-    const range = ((req.query as any).range || '30d').toString()
-    const days = range === '7d' ? 7 : range === '90d' ? 90 : 30
-    const since = new Date(Date.now() - days * 86_400_000)
-    const reviews = await prisma.helpdeskQaReview.findMany({ where: { createdAt: { gte: since }, score: { not: null } }, select: { score: true, agentUserId: true, tone: true } })
+    const { range, from, to } = resolveHelpdeskPeriod(req.query)
+    const reviews = await prisma.helpdeskQaReview.findMany({ where: { createdAt: { gte: from, lte: to }, score: { not: null } }, select: { score: true, agentUserId: true, tone: true } })
     const all = reviews.map((r) => r.score!).filter((s) => s != null)
     const avg = all.length ? Math.round(all.reduce((a, b) => a + b, 0) / all.length) : null
     const byAgentMap = new Map<number, number[]>()
@@ -1246,16 +1245,14 @@ export async function helpdeskRoutes(app: FastifyInstance) {
 
   // ════════════════════ RELATÓRIOS & ANALYTICS (F11) ════════════════════
   app.get('/api/admin/helpdesk/reports', { preHandler: authMiddleware }, async (req) => {
-    const range = ((req.query as any).range || '30d').toString()
-    return computeHelpdeskReport(range)
+    const p = resolveHelpdeskPeriod(req.query)
+    return computeHelpdeskReport(p.range, { from: p.from, to: p.to })
   })
 
   // GET /api/admin/helpdesk/reports/export ── CSV dos chamados do período ──
   app.get('/api/admin/helpdesk/reports/export', { preHandler: authMiddleware }, async (req, reply) => {
-    const range = ((req.query as any).range || '30d').toString()
-    const days = range === '7d' ? 7 : range === '90d' ? 90 : 30
-    const since = new Date(Date.now() - days * 86_400_000)
-    const rows = await prisma.helpdeskTicket.findMany({ where: { createdAt: { gte: since } }, orderBy: { number: 'asc' }, take: 10000, select: { number: true, subject: true, status: true, priority: true, channel: true, type: true, requesterEmail: true, createdAt: true, firstResponseAt: true, solvedAt: true, slaResolutionStatus: true } })
+    const { range, from, to } = resolveHelpdeskPeriod(req.query)
+    const rows = await prisma.helpdeskTicket.findMany({ where: { createdAt: { gte: from, lte: to } }, orderBy: { number: 'asc' }, take: 10000, select: { number: true, subject: true, status: true, priority: true, channel: true, type: true, requesterEmail: true, createdAt: true, firstResponseAt: true, solvedAt: true, slaResolutionStatus: true } })
     const esc = (v: any) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
     const mins = (a: Date | null, b: Date) => a ? Math.round((a.getTime() - b.getTime()) / 60000) : ''
     const header = ['numero', 'assunto', 'status', 'prioridade', 'canal', 'tipo', 'solicitante', 'criado_em', 'min_1a_resposta', 'min_resolucao', 'sla_resolucao']
@@ -1303,16 +1300,15 @@ export async function helpdeskRoutes(app: FastifyInstance) {
 
   // ════════════════════ CSAT: ESTATÍSTICAS (admin) ════════════════════
   app.get('/api/admin/helpdesk/csat/stats', { preHandler: authMiddleware }, async (req) => {
-    const range = ((req.query as any).range || '30d').toString()
-    const days = range === '7d' ? 7 : range === '90d' ? 90 : 30
-    const since = new Date(Date.now() - days * 86_400_000)
+    const { range, from, to } = resolveHelpdeskPeriod(req.query)
+    const period = { gte: from, lte: to }
 
     const [sent, responded, byRating, byAgent, recent] = await Promise.all([
-      prisma.helpdeskSurvey.count({ where: { sentAt: { gte: since } } }),
-      prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since }, respondedAt: { not: null } }, select: { rating: true } }),
-      prisma.helpdeskSurvey.groupBy({ by: ['rating'], where: { sentAt: { gte: since }, respondedAt: { not: null } }, _count: { _all: true } }),
-      prisma.helpdeskSurvey.groupBy({ by: ['agentUserId'], where: { sentAt: { gte: since }, respondedAt: { not: null }, agentUserId: { not: null } }, _avg: { rating: true }, _count: { _all: true } }),
-      prisma.helpdeskSurvey.findMany({ where: { sentAt: { gte: since }, respondedAt: { not: null }, comment: { not: null } }, orderBy: { respondedAt: 'desc' }, take: 10, select: { rating: true, comment: true, respondedAt: true, ticketId: true } }),
+      prisma.helpdeskSurvey.count({ where: { sentAt: period } }),
+      prisma.helpdeskSurvey.findMany({ where: { sentAt: period, respondedAt: { not: null } }, select: { rating: true } }),
+      prisma.helpdeskSurvey.groupBy({ by: ['rating'], where: { sentAt: period, respondedAt: { not: null } }, _count: { _all: true } }),
+      prisma.helpdeskSurvey.groupBy({ by: ['agentUserId'], where: { sentAt: period, respondedAt: { not: null }, agentUserId: { not: null } }, _avg: { rating: true }, _count: { _all: true } }),
+      prisma.helpdeskSurvey.findMany({ where: { sentAt: period, respondedAt: { not: null }, comment: { not: null } }, orderBy: { respondedAt: 'desc' }, take: 10, select: { rating: true, comment: true, respondedAt: true, ticketId: true } }),
     ])
 
     const ratings = responded.map((r) => r.rating || 0).filter(Boolean)

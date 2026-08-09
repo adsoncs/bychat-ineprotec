@@ -1,8 +1,7 @@
-import { useState } from 'preact/hooks'
 import { TrendingUp, TrendingDown, DollarSign, Activity, CheckCircle } from 'lucide-preact'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { Select } from '@/components/ui/Input'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod } from '@/components/ui/PeriodPicker'
 import {
   usePaymentsOverview, usePaymentsTimeseries, usePaymentsBreakdown,
 } from '@/hooks/usePaymentsDashboard'
@@ -11,10 +10,10 @@ const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 const intf = new Intl.NumberFormat('pt-BR')
 
 export function PaymentsOverviewTab() {
-  const [days, setDays] = useState(30)
-  const overview = usePaymentsOverview(days)
-  const ts = usePaymentsTimeseries(days)
-  const bd = usePaymentsBreakdown(days)
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('payments')
+  const overview = usePaymentsOverview(range)
+  const ts = usePaymentsTimeseries(range)
+  const bd = usePaymentsBreakdown(range)
 
   const o = overview.data
 
@@ -22,16 +21,9 @@ export function PaymentsOverviewTab() {
     <div class="space-y-4">
       <div class="flex items-center gap-2">
         <span class="text-xs text-fg-muted">Período:</span>
-        <Select
-          value={String(days)}
-          onChange={(e) => setDays(parseInt((e.target as HTMLSelectElement).value) || 30)}
-        >
-          <option value="7">Últimos 7 dias</option>
-          <option value="30">Últimos 30 dias</option>
-          <option value="90">Últimos 90 dias</option>
-          <option value="365">Último ano</option>
-        </Select>
+        <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} />
       </div>
+      <PeriodIncompleteHint show={range.incomplete} />
 
       {/* KPIs */}
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

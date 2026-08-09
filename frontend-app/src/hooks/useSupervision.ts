@@ -86,7 +86,9 @@ export interface SupervisionFilters {
   sort?: string
   limit?: number
   offset?: number
-  days?: number
+  /** YYYY-MM-DD — período dos indicadores de fluxo (resolvidas, tempos) */
+  from?: string
+  to?: string
 }
 
 function toQuery(f: SupervisionFilters): string {

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
 
 export interface OriginBreakdownItem {
   originType: string
@@ -14,10 +15,11 @@ export interface OriginsStatsResponse {
   trackingRate: number
 }
 
-export function useOriginsStats(days = 30) {
+export function useOriginsStats(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: ['origins-stats', days],
-    queryFn: () => api.get<OriginsStatsResponse>(`/admin/origins/stats?days=${days}`),
+    queryKey: ['origins-stats', q],
+    queryFn: () => api.get<OriginsStatsResponse>(`/admin/origins/stats?${q}`),
     staleTime: 60_000,
   })
 }

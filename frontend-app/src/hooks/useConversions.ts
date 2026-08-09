@@ -2,6 +2,7 @@
 // Backend em /api/admin/conversions/* (services/metaCapi.ts).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
+import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
 
 export type ConversionEventStatus = 'pending' | 'sent' | 'failed' | 'skipped'
 export type ConversionPlatform = 'meta_capi' | 'google_ads'
@@ -67,7 +68,9 @@ export interface ConversionEventsFilters {
   limit?: number
   platform?: ConversionPlatform
   status?: ConversionEventStatus
-  days?: number
+  /** YYYY-MM-DD — mesmo período dos KPIs da tela */
+  from?: string
+  to?: string
 }
 
 function buildQs(f: Record<string, any>): string {
@@ -196,10 +199,11 @@ export function useConversionEvents(filters: ConversionEventsFilters = {}) {
   })
 }
 
-export function useConversionStats(days: number = 30) {
+export function useConversionStats(period: PeriodRange) {
+  const q = periodQuery(period)
   return useQuery({
-    queryKey: [STATS_KEY, days],
-    queryFn: () => api.get<ConversionStats>(`/admin/conversions/stats?days=${days}`),
+    queryKey: [STATS_KEY, q],
+    queryFn: () => api.get<ConversionStats>(`/admin/conversions/stats?${q}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
   })

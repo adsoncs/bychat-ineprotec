@@ -14,6 +14,7 @@ import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 import { invalidateRoutingCache, invalidateShiftCache } from '../services/teamRouting.js'
 import { invalidateWorkingHoursCache } from '../services/routing/workingHours.js'
 import { invalidateRulesCache, validateConditions, validateAction, simulateRouting, type RoutingContext } from '../services/routing/policyEngine.js'
@@ -913,7 +914,7 @@ export async function agentsRoutes(app: FastifyInstance) {
 
   // ── SLA (F10) ─────────────────────────────────────────────────────────
   // GET/POST /api/admin/routing/sla — Setting `routing.sla.firstResponseMinutes`.
-  // GET /api/admin/routing/sla/metrics?range=7d|30d — agrega por agente:
+  // GET /api/admin/routing/sla/metrics?from=&to= (ou range=7d|30d) — por agente:
   //   total atendidos, dentro do SLA, fora, % SLA, tempo médio de 1ª resposta.
 
   const SLA_KEY = 'routing.sla.firstResponseMinutes'
@@ -952,12 +953,11 @@ export async function agentsRoutes(app: FastifyInstance) {
     },
   )
 
-  app.get<{ Querystring: { range?: string } }>(
+  app.get<{ Querystring: { range?: string; from?: string; to?: string } }>(
     '/api/admin/routing/sla/metrics',
     { preHandler: [authMiddleware, adminOnly] },
     async (req) => {
-      const range = req.query?.range === '30d' ? 30 : 7
-      const since = new Date(Date.now() - range * 86_400_000)
+      const { from: since, to: until, days } = resolvePeriod(req.query, 7)
 
       const slaSetting = await prisma.setting.findUnique({ where: { key: SLA_KEY } })
       let slaMinutes = 30
@@ -972,7 +972,7 @@ export async function agentsRoutes(app: FastifyInstance) {
       // fila sem nunca terem operador) — métrica é "leads que algum agente tocou".
       const leads = await prisma.lead.findMany({
         where: {
-          assignedAt: { gte: since },
+          assignedAt: { gte: since, lte: until },
           assignedUserId: { not: null },
         },
         select: {
@@ -1041,7 +1041,7 @@ export async function agentsRoutes(app: FastifyInstance) {
       )
 
       return {
-        rangeDays: range,
+        rangeDays: days,
         slaMinutes,
         totals: {
           ...totals,

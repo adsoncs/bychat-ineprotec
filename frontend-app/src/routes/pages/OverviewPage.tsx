@@ -6,39 +6,11 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { WidgetRenderer } from '@/components/widgets/WidgetRenderer'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod } from '@/components/ui/PeriodPicker'
 import { useCan, useIsModuleActive } from '@/hooks/usePermissions'
 import { useFunnels } from '@/hooks/useFunnels'
 import type { Widget } from '@/hooks/useWidgets'
 import { cn } from '@/lib/cn'
-
-type RangePreset = '7d' | '30d' | '90d' | 'custom'
-
-const fmtDate = (d: Date) => d.toISOString().split('T')[0] ?? ''
-const hoje = () => {
-  const n = new Date()
-  return fmtDate(new Date(n.getFullYear(), n.getMonth(), n.getDate()))
-}
-
-/**
- * Período do painel. Em 'custom', vale o intervalo escolhido pelo operador —
- * datas invertidas são corrigidas em vez de rejeitadas, e um intervalo ainda
- * incompleto cai no padrão de 30 dias para a tela nunca ficar sem dados.
- */
-function presetRange(preset: RangePreset, custom?: { from: string; to: string }): { dateFrom: string; dateTo: string } {
-  if (preset === 'custom') {
-    const { from, to } = custom ?? { from: '', to: '' }
-    if (from && to) return from <= to ? { dateFrom: from, dateTo: to } : { dateFrom: to, dateTo: from }
-    preset = '30d'
-  }
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-  return { dateFrom: fmtDate(new Date(today.getTime() - days * 86400_000)), dateTo: fmtDate(today) }
-}
-
-const PRESET_LABELS: Record<RangePreset, string> = {
-  '7d': '7 dias', '30d': '30 dias', '90d': '90 dias', custom: 'Personalizado',
-}
 
 const W = (w: Omit<Widget, 'id'> & { id?: string }): Widget => ({ id: w.id ?? w.metric, ...w } as Widget)
 
@@ -63,7 +35,7 @@ const CHART_LOSS_REASONS = W({ metric: 'leads_loss_reasons', type: 'donut', titl
 // Recorrência e pagamento único em linhas separadas: somados, um mês com uma
 // venda avulsa grande vira "crescimento" que não se repete no mês
 // seguinte, e a queda seguinte parece perda de clientes.
-// "Em negociação" é estoque (agora); os demais seguem o período.
+// "Em negociação" = aberto no período (recorte pela data de abertura).
 const NEGOTIATION_MRR_KPIS: Widget[] = [
   W({ metric: 'negotiations_mrr_open',       type: 'kpi', title: 'Mensalidade em negociação', size: 'sm' }),
   W({ metric: 'negotiations_mrr_won',        type: 'kpi', title: 'Mensalidade fechada',       size: 'sm' }),
@@ -75,7 +47,8 @@ const NEGOTIATION_ONETIME_KPIS: Widget[] = [
   W({ metric: 'negotiations_onetime_avg_ticket', type: 'kpi', title: 'Ticket médio único',  size: 'sm' }),
 ]
 
-// Estoque de pendências — sempre "agora", não muda com o seletor de período.
+// Pendências do período selecionado: leads captados no período que ninguém
+// contatou, atividades agendadas no período que venceram, duplicados a decidir.
 const ATTENTION: Widget[] = [
   W({ metric: 'leads_uncontacted',        type: 'kpi', title: 'Leads sem contato',    size: 'sm' }),
   W({ metric: 'activities_summary',       type: 'kpi', title: 'Atividades atrasadas', size: 'sm', config: { highlight: 'overdue' } }),
@@ -86,27 +59,11 @@ export function OverviewPage() {
   const [, navigate] = useLocation()
   // Período: presets + intervalo livre. A escolha persiste, como a do funil —
   // quem trabalha um mês fechado não quer reconfigurar a cada visita.
-  const [preset, setPreset] = useState<RangePreset>(() => {
-    const p = localStorage.getItem('overview.preset')
-    return p === '7d' || p === '30d' || p === '90d' || p === 'custom' ? p : '30d'
-  })
-  const [customFrom, setCustomFrom] = useState(() => localStorage.getItem('overview.customFrom') ?? '')
-  const [customTo, setCustomTo] = useState(() => localStorage.getItem('overview.customTo') ?? '')
+  const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('overview')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const canSeeEducational = useCan('educacional', 'view') && useIsModuleActive('educacional') === true
   const canSeeNegotiations = useIsModuleActive('negotiations') === true
-  const range = presetRange(preset, { from: customFrom, to: customTo })
   const filters = { dateFrom: range.dateFrom, dateTo: range.dateTo }
-
-  function changePreset(p: RangePreset) {
-    setPreset(p)
-    try { localStorage.setItem('overview.preset', p) } catch { /* ignore */ }
-  }
-  function changeCustom(campo: 'from' | 'to', valor: string) {
-    if (campo === 'from') setCustomFrom(valor); else setCustomTo(valor)
-    try { localStorage.setItem(campo === 'from' ? 'overview.customFrom' : 'overview.customTo', valor) } catch { /* ignore */ }
-  }
-  const customIncompleto = preset === 'custom' && !(customFrom && customTo)
 
   // Pipeline: escopado a UM funil (mistura de funis confunde). Padrão = funil
   // isDefault (senão o 1º); a escolha do usuário persiste em localStorage.
@@ -153,56 +110,20 @@ export function OverviewPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>
-          <div class="flex items-center gap-1 p-0.5 rounded-md bg-surface-3">
-            {(['7d', '30d', '90d', 'custom'] as RangePreset[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => changePreset(p)}
-                class={cn(
-                  'h-7 px-3 rounded text-xs font-medium transition-colors',
-                  preset === p
-                    ? 'bg-surface text-fg shadow-sm'
-                    : 'text-fg-muted hover:text-fg',
-                )}
-              >
-                {PRESET_LABELS[p]}
-              </button>
-            ))}
-          </div>
-          {preset === 'custom' && (
-            <div class="flex items-center gap-1.5">
-              <input
-                type="date"
-                class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
-                value={customFrom}
-                max={customTo || hoje()}
-                onInput={(e) => changeCustom('from', (e.target as HTMLInputElement).value)}
-                aria-label="Data inicial"
-              />
-              <span class="text-xs text-fg-subtle">até</span>
-              <input
-                type="date"
-                class="h-7 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent"
-                value={customTo}
-                min={customFrom || undefined}
-                max={hoje()}
-                onInput={(e) => changeCustom('to', (e.target as HTMLInputElement).value)}
-                aria-label="Data final"
-              />
-            </div>
-          )}
+          <PeriodPicker
+            preset={preset}
+            customFrom={customFrom}
+            customTo={customTo}
+            onPreset={setPreset}
+            onCustom={setCustom}
+          />
         </div>
       }
     >
       {/* KPIs principais — funil de negócio com Δ% vs período anterior */}
       {/* Intervalo ainda pela metade: a tela segue mostrando os últimos 30 dias
           em vez de esvaziar enquanto a segunda data não é escolhida. */}
-      {customIncompleto && (
-        <p class="text-[11px] text-fg-subtle -mt-1">
-          Escolha as duas datas para aplicar o período personalizado — exibindo os últimos 30 dias.
-        </p>
-      )}
+      <PeriodIncompleteHint show={range.incomplete} />
 
       {/* 5 KPIs em 5 colunas: com a grade de 6 sobrava uma coluna vazia à direita. */}
       <section aria-label="Indicadores principais" class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -229,7 +150,8 @@ export function OverviewPage() {
               <h2 class="text-sm font-semibold text-fg">Negociações</h2>
               <p class="text-[11px] text-fg-subtle">
                 Mensalidade e pagamento único separados — venda avulsa não vira "crescimento de recorrência".
-                "Em negociação" é o valor na mesa agora; os demais seguem o período selecionado.
+                "Em negociação" é o que foi aberto no período e ainda não teve desfecho; os demais
+                contam pela data de fechamento.
                 {negFunnelName ? <> Exibindo apenas <strong class="text-fg-muted">{negFunnelName}</strong>.</> : null}
               </p>
             </div>
@@ -291,12 +213,15 @@ export function OverviewPage() {
         </div>
       </section>
 
-      {/* Precisa de atenção — estoque atual, independe do período selecionado */}
+      {/* Precisa de atenção — pendências dentro do período selecionado */}
       <section aria-label="Precisa de atenção">
         <div class="flex items-center justify-between mb-2">
           <div>
             <h2 class="text-sm font-semibold text-fg">Precisa de atenção</h2>
-            <p class="text-[11px] text-fg-subtle">Pendências de agora — não mudam com o seletor de período.</p>
+            <p class="text-[11px] text-fg-subtle">
+              Pendências dentro do período selecionado — leads sem contato, atividades
+              já vencidas e duplicados aguardando decisão.
+            </p>
           </div>
           <button
             type="button"
@@ -308,7 +233,7 @@ export function OverviewPage() {
         </div>
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
           {ATTENTION.map((w) => (
-            <WidgetRenderer key={w.id} widget={w} />
+            <WidgetRenderer key={w.id} widget={w} filters={filters} />
           ))}
         </div>
       </section>
@@ -366,7 +291,15 @@ export function OverviewPage() {
         steps={[
           {
             title: '📊 KPIs no topo',
-            body: <>O funil de negócio do período: novos leads, negócios ganhos, receita ganha, perdidos (com a maior objeção), taxa de conversão e visitantes do site. Cada card compara com o <strong>período anterior de mesma duração</strong> (▲/▼).</>,
+            body: <>O funil de negócio do período: novos leads, negócios ganhos, receita ganha, perdidos (com a maior objeção) e taxa de conversão. Cada card compara com o <strong>período anterior de mesma duração</strong> (▲/▼).</>,
+          },
+          {
+            title: '🗓️ Qual data cada card conta',
+            body: <>Não é a mesma para todos, e cada card diz a sua embaixo do número. <strong>Novos leads</strong> conta pela entrada do lead. <strong>Negócios ganhos, receita ganha e negócios perdidos</strong> contam pelo <strong>clique no botão Ganho/Perdido</strong> — é o que foi fechado dentro do período, não importa quando o lead entrou. A <strong>taxa de conversão</strong> é coorte: conta pela <strong>abertura da negociação</strong>.</>,
+          },
+          {
+            title: '🎯 Taxa de conversão',
+            body: <>Mede o fim do funil: dos leads que <strong>chegaram à negociação com valor lançado</strong> no período, quantos viraram venda. O denominador inclui as propostas <strong>ainda em aberto</strong> de propósito — a taxa do período sobe conforme elas fecham. Ficar de fora quem nunca chegou a negociar é o ponto: um lead descartado na triagem não diz nada sobre a sua capacidade de fechar proposta.</>,
           },
           {
             title: '📈 Gráficos',
@@ -378,11 +311,11 @@ export function OverviewPage() {
           },
           {
             title: '⚠️ Bloco "Atenção"',
-            body: <>Leads sem contato, atividades atrasadas, duplicados pendentes. É o <strong>estoque de pendências de agora</strong> — não muda com o seletor de período. Se um número desses está alto, vai resolver hoje.</>,
+            body: <>Leads sem contato, atividades vencidas, duplicados pendentes — <strong>dentro do período selecionado</strong>. Se um número desses está alto, vai resolver hoje.</>,
           },
           {
             title: '⏱️ Trocar o período',
-            body: <>Botões 7/30/90 dias. Tudo recalcula no clique. Use 7d pra ver o que tá acontecendo agora, 30d pra ver o mês, 90d pra ver tendência.</>,
+            body: <>Botões 7/30/90 dias ou <strong>Personalizado</strong> (intervalo livre entre duas datas). <strong>Toda a tela</strong> recalcula no clique — KPIs, gráficos, negociações e o bloco de atenção. Use 7d pra ver o que tá acontecendo agora, 30d pra ver o mês, 90d pra ver tendência.</>,
           },
           {
             title: '🎓 Bloco Educacional',

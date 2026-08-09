@@ -18,6 +18,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
+import { resolvePeriod } from '../lib/period.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { reassignPendingCadenceActivities } from '../services/routing/helpers.js'
 import { broadcastRealtimeEvent } from './realtime.js'
@@ -218,8 +219,8 @@ export async function supervisionRoutes(app: FastifyInstance) {
     try {
       const q = (req.query as any) || {}
       const now = new Date()
-      const days = Math.min(Math.max(parseInt(q.days) || 7, 1), 90)
-      const since = new Date(now.getTime() - days * 86400_000)
+      // Aceita `from`/`to` (intervalo personalizado da tela) e `range`/`days`.
+      const { from: since, to: until, days } = resolvePeriod(q, 7)
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       const base = filtersToWhere({ ...q, bucket: 'all' }, now)
       const withBase = (extra: Record<string, unknown>) => ({ AND: [base, extra] })
@@ -233,7 +234,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
           prisma.lead.count({ where: withBase({ AND: [activeWhere(now), { assignedUserId: null }] }) }),
           prisma.lead.count({ where: withBase({ AND: [activeWhere(now), { unreadMessages: { gt: 0 } }] }) }),
           prisma.lead.count({ where: withBase({ conversationClosedAt: { gte: todayStart } }) }),
-          prisma.lead.count({ where: withBase({ conversationClosedAt: { gte: since } }) }),
+          prisma.lead.count({ where: withBase({ conversationClosedAt: { gte: since, lte: until } }) }),
           prisma.lead.count({ where: withBase({ AND: [activeWhere(now), { isGroup: true }] }) }),
         ])
 
@@ -242,8 +243,8 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const timeRows = await prisma.lead.findMany({
         where: withBase({
           OR: [
-            { conversationClosedAt: { gte: since } },
-            { firstResponseAt: { gte: since } },
+            { conversationClosedAt: { gte: since, lte: until } },
+            { firstResponseAt: { gte: since, lte: until } },
           ],
         }),
         select: {
