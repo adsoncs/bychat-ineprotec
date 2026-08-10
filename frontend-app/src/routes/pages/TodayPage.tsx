@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Sun, CheckCircle2, MessageSquare, Mail, Phone, Calendar, FileText, Megaphone, Sparkles, HelpCircle } from 'lucide-preact'
+import { Sun, CheckCircle2, MessageSquare, Mail, Phone, Calendar, FileText, Megaphone, Sparkles, HelpCircle, Clock, AlertCircle, User, Users, Building2 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useActivities,
@@ -26,6 +26,19 @@ const ICONS: Record<ActivityType, any> = {
   follow_up: Sparkles,
 }
 
+// Nome do canal por extenso ao lado do ícone: só o ícone obriga a decorar o
+// desenho. Mesmos rótulos da tela de Atividades.
+const TYPE_LABEL: Record<ActivityType, string> = {
+  whatsapp:  'WhatsApp',
+  email:     'E-mail',
+  sms:       'SMS',
+  call:      'Ligação',
+  meeting:   'Reunião',
+  task:      'Tarefa',
+  note:      'Nota',
+  follow_up: 'Follow-up',
+}
+
 // Labels de classe de resposta compartilhados em `@/lib/cadenceLabels`.
 // Aqui apenas mapeamos a cor da badge por classe; o texto vem do label central.
 const REPLY_CLASS_BADGE_CLS: Record<string, string> = {
@@ -36,18 +49,89 @@ const REPLY_CLASS_BADGE_CLS: Record<string, string> = {
   fora_fit:     'bg-surface-3 text-fg-subtle border-border',
 }
 
+const hourFmt = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
+/** Hora "HH:MM" do agendamento, ou null quando a data é inválida/ausente. */
+function hourOf(a: Activity): string | null {
+  const t = new Date(a.scheduledAt)
+  return Number.isNaN(t.getTime()) ? null : hourFmt.format(t)
+}
+
+function timeOf(a: Activity): number {
+  const t = new Date(a.scheduledAt).getTime()
+  return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+}
+
+// Três estados de urgência, para a hora se ler como semáforo: passou da hora
+// (vermelho), acontece na próxima hora (âmbar), o resto do dia (neutro).
+type Urgency = 'overdue' | 'now' | 'later'
+
+function urgencyOf(a: Activity, now: number): Urgency {
+  // O status vem do job de atraso (30min de tolerância); a hora cobre o intervalo
+  // entre vencer e o job rodar.
+  if (a.status === 'overdue') return 'overdue'
+  const t = timeOf(a)
+  if (t === Number.MAX_SAFE_INTEGER) return 'later'
+  if (t < now) return 'overdue'
+  return t - now <= 3600_000 ? 'now' : 'later'
+}
+
+const URGENCY_CLS: Record<Urgency, string> = {
+  overdue: 'text-danger',
+  now:     'text-warning',
+  later:   'text-fg',
+}
+
+/** Quem vai executar. Só o responsável explícito — `userName` é quem CRIOU a
+ *  atividade e mostrá-lo aqui faria o operador achar que a tarefa é de outro. */
+function assigneeOf(a: Activity): { label: string; team: boolean } | null {
+  if (a.assignedUser) return { label: a.assignedUser.name || a.assignedUser.email, team: false }
+  if (a.assignedTeam) return { label: a.assignedTeam.name, team: true }
+  return null
+}
+
+/** Para onde a tarefa vai: destino explícito da atividade ou, na falta, o
+ *  contato do lead. Telefone para canais de voz/mensagem, e-mail para e-mail. */
+function contactOf(a: Activity): { icon: 'phone' | 'mail'; value: string } | null {
+  const phone = a.recipientPhone || a.lead?.whatsapp || null
+  const email = a.recipientEmail || a.lead?.email || null
+  if (a.type === 'email') return email ? { icon: 'mail', value: email } : null
+  if (a.type === 'whatsapp' || a.type === 'sms' || a.type === 'call') {
+    return phone ? { icon: 'phone', value: phone } : null
+  }
+  if (phone) return { icon: 'phone', value: phone }
+  return email ? { icon: 'mail', value: email } : null
+}
+
 interface LeadGroup {
   leadId: number
   leadLabel: string
+  leadCompany: string | null
   activities: Activity[]
+  firstAt: number
+  overdue: number
 }
 
 export function TodayPage() {
-  const { data, isLoading } = useActivities({ view: 'today', status: 'pending', limit: 100 })
+  // Duas consultas de propósito: um job marca pending→overdue 30min depois da
+  // hora (processScheduledActivities), então filtrar só 'pending' fazia a tarefa
+  // atrasada SUMIR justamente da tela que existe para mostrá-la. O status é um
+  // valor único na API, daí buscar os dois e juntar.
+  const pendingQ = useActivities({ view: 'today', status: 'pending', limit: 100 })
+  const overdueQ = useActivities({ view: 'today', status: 'overdue', limit: 100 })
+  const isLoading = pendingQ.isLoading || overdueQ.isLoading
   const update = useUpdateActivity()
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
-  const groups = groupByLead(data?.activities ?? [])
+  const now = Date.now()
+  const activities = [...(pendingQ.data?.activities ?? []), ...(overdueQ.data?.activities ?? [])]
+  const groups = groupByLead(activities, now)
+
+  // Resumo do dia: o que o operador precisa saber antes de ler qualquer linha.
+  const overdueCount = activities.filter((a) => urgencyOf(a, now) === 'overdue').length
+  const nextUp = activities
+    .filter((a) => timeOf(a) >= now)
+    .sort((a, b) => timeOf(a) - timeOf(b))[0]
 
   function handleComplete(activity: Activity) {
     update.mutate(
@@ -89,8 +173,39 @@ export function TodayPage() {
 
       {!isLoading && groups.length > 0 && (
         <>
+          <Card class="mb-3">
+            <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+              <span class="inline-flex items-baseline gap-1.5">
+                <strong class="text-lg font-semibold text-fg leading-none">{activities.length}</strong>
+                <span class="text-fg-muted">{activities.length === 1 ? 'tarefa hoje' : 'tarefas hoje'}</span>
+              </span>
+              <span class="inline-flex items-baseline gap-1.5">
+                <strong class="text-lg font-semibold text-fg leading-none">{groups.length}</strong>
+                <span class="text-fg-muted">{groups.length === 1 ? 'lead' : 'leads'}</span>
+              </span>
+              <span class={`inline-flex items-center gap-1.5 ${overdueCount > 0 ? 'text-danger' : 'text-fg-muted'}`}>
+                <AlertCircle size={14} />
+                <strong class="text-lg font-semibold leading-none">{overdueCount}</strong>
+                {overdueCount === 1 ? 'passou da hora' : 'passaram da hora'}
+              </span>
+              {nextUp && (
+                <span class="inline-flex items-center gap-1.5 text-fg-muted">
+                  <Clock size={14} />
+                  Próxima às <strong class="text-fg">{hourOf(nextUp) ?? '—'}</strong>
+                  <span class="text-fg-subtle">· {TYPE_LABEL[nextUp.type] ?? nextUp.type} com {nextUp.lead?.nome || nextUp.lead?.empresa || `Lead #${nextUp.leadId}`}</span>
+                </span>
+              )}
+            </div>
+          </Card>
+
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-fg-muted mb-3 px-1">
             <span class="font-semibold uppercase tracking-wide">Legenda:</span>
+            <span class="inline-flex items-center gap-1">
+              <span class="font-semibold text-danger tabular-nums">09:00</span>
+              passou da hora
+              <span class="font-semibold text-warning tabular-nums ml-1">14:00</span>
+              na próxima hora
+            </span>
             <span class="inline-flex items-center gap-1">
               <span class="inline-flex items-center px-1.5 h-4 rounded border border-info/40 bg-info/10 text-info">cadência</span>
               gerada por uma cadência
@@ -104,11 +219,21 @@ export function TodayPage() {
         <div class="flex flex-col gap-3">
           {groups.map((g) => (
             <Card key={g.leadId} class="p-0">
-              <div class="px-4 py-3 border-b border-border">
+              <div class="px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-2 gap-y-1">
                 <Link href={`/leads/${g.leadId}`} class="text-sm font-semibold text-fg hover:text-primary">
                   {g.leadLabel}
                 </Link>
-                <span class="ml-2 text-xs text-fg-muted">{g.activities.length} {g.activities.length === 1 ? 'tarefa' : 'tarefas'}</span>
+                {g.leadCompany && (
+                  <span class="inline-flex items-center gap-1 text-xs text-fg-muted">
+                    <Building2 size={11} /> {g.leadCompany}
+                  </span>
+                )}
+                <span class="text-xs text-fg-muted">· {g.activities.length} {g.activities.length === 1 ? 'tarefa' : 'tarefas'}</span>
+                {g.overdue > 0 && (
+                  <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-danger/40 bg-danger/10 text-danger text-[0.6875rem] font-medium">
+                    <AlertCircle size={10} /> {g.overdue} {g.overdue === 1 ? 'atrasada' : 'atrasadas'}
+                  </span>
+                )}
               </div>
               <ul class="divide-y divide-border">
                 {g.activities.map((a) => {
@@ -119,11 +244,29 @@ export function TodayPage() {
                   const replyBadge = replyClass
                     ? { label: cadenceReplyClassLabel(replyClass), cls: REPLY_CLASS_BADGE_CLS[replyClass] ?? 'bg-surface-3 text-fg-subtle border-border' }
                     : null
+                  const urgency = urgencyOf(a, now)
+                  const hour = hourOf(a)
+                  const assignee = assigneeOf(a)
+                  const contact = contactOf(a)
                   return (
                     <li key={a.id} class="px-4 py-3 flex items-start gap-3">
+                      <div class="w-14 shrink-0 text-right">
+                        <div class={`text-sm font-semibold tabular-nums leading-tight ${URGENCY_CLS[urgency]}`}>
+                          {hour ?? '--:--'}
+                        </div>
+                        {urgency === 'overdue' && (
+                          <div class="text-[0.625rem] font-medium text-danger uppercase tracking-wide">atrasada</div>
+                        )}
+                        {urgency === 'now' && (
+                          <div class="text-[0.625rem] font-medium text-warning uppercase tracking-wide">agora</div>
+                        )}
+                      </div>
                       <Icon size={18} class="text-fg-muted mt-0.5 shrink-0" />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
+                          <span class="inline-flex items-center px-1.5 h-5 rounded bg-surface-3 text-fg-muted text-[0.6875rem] font-medium">
+                            {TYPE_LABEL[a.type] ?? a.type}
+                          </span>
                           <span class="text-sm font-medium text-fg">{a.title}</span>
                           {fromCadence && (
                             <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-info/40 bg-info/10 text-info text-[0.6875rem]">
@@ -136,6 +279,25 @@ export function TodayPage() {
                             </span>
                           )}
                         </div>
+                        {(assignee || contact || a.templateCode) && (
+                          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[0.6875rem] text-fg-muted">
+                            {assignee && (
+                              <span class="inline-flex items-center gap-1" title={assignee.team ? 'Setor responsável' : 'Responsável'}>
+                                {assignee.team ? <Users size={11} /> : <User size={11} />}
+                                {assignee.label}
+                              </span>
+                            )}
+                            {contact && (
+                              <span class="inline-flex items-center gap-1 min-w-0" title={contact.icon === 'phone' ? 'Telefone' : 'E-mail'}>
+                                {contact.icon === 'phone' ? <Phone size={11} /> : <Mail size={11} />}
+                                <span class="truncate">{contact.value}</span>
+                              </span>
+                            )}
+                            {a.templateCode && (
+                              <span class="text-fg-subtle" title="Código da atividade padrão">{a.templateCode}</span>
+                            )}
+                          </div>
+                        )}
                         {a.description && (
                           <p class="text-xs text-fg-muted mt-0.5 break-words">{a.description}</p>
                         )}
@@ -173,6 +335,10 @@ export function TodayPage() {
         </>}
         steps={[
           {
+            title: '🕒 Hora na frente de tudo',
+            body: <>Cada tarefa abre com o <strong>horário</strong> em que foi agendada, e a lista vem na ordem do relógio — blocos e tarefas. A hora fica <strong>vermelha</strong> quando já passou, <strong>âmbar</strong> quando é na próxima hora. A faixa do topo resume o dia: quantas tarefas, quantos leads, quantas passaram da hora e qual é a próxima.</>,
+          },
+          {
             title: '👤 Agrupado por lead',
             body: <>Várias tarefas com o mesmo lead viram um <strong>bloco único</strong>. Em vez de mandar WhatsApp, fazer ligação e enviar e-mail em momentos separados, você abre o lead uma vez e resolve tudo de uma vez.</>,
           },
@@ -203,13 +369,24 @@ export function TodayPage() {
   )
 }
 
-function groupByLead(activities: Activity[]): LeadGroup[] {
+/** Agrupa por lead e ordena tudo por horário: as tarefas dentro do bloco e os
+ *  blocos entre si (pelo compromisso mais cedo). Trabalhar de cima para baixo
+ *  passa a ser literalmente a ordem do relógio. */
+function groupByLead(activities: Activity[], now: number): LeadGroup[] {
   const map = new Map<number, LeadGroup>()
   for (const a of activities) {
     const label = a.lead?.nome || a.lead?.empresa || `Lead #${a.leadId}`
+    // Empresa só como linha extra quando não é ela mesma o nome exibido.
+    const company = a.lead?.empresa && a.lead.empresa !== label ? a.lead.empresa : null
     const g = map.get(a.leadId)
     if (g) g.activities.push(a)
-    else map.set(a.leadId, { leadId: a.leadId, leadLabel: label, activities: [a] })
+    else map.set(a.leadId, { leadId: a.leadId, leadLabel: label, leadCompany: company, activities: [a], firstAt: 0, overdue: 0 })
   }
-  return Array.from(map.values())
+  const groups = Array.from(map.values())
+  for (const g of groups) {
+    g.activities.sort((a, b) => timeOf(a) - timeOf(b))
+    g.firstAt = timeOf(g.activities[0])
+    g.overdue = g.activities.filter((a) => urgencyOf(a, now) === 'overdue').length
+  }
+  return groups.sort((a, b) => a.firstAt - b.firstAt)
 }
