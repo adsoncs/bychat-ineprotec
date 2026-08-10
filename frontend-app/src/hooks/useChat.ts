@@ -172,7 +172,17 @@ export interface SenderChannel {
 }
 export interface SenderChannelsResponse {
   channels: SenderChannel[]
+  /** Número da conversa: o canal por onde o contato falou. Null em lead sem conversa. */
   suggestedChannelId: string | null
+  /**
+   * Conversa em andamento → número TRAVADO no canal de entrada (aquele pelo qual
+   * o contato falou, o único que ele conhece). Null em lead sem conversa (o
+   * operador escolhe o da primeira interação) e null para SUPERADMIN, que pode
+   * trocar de número — para ele o canal da conversa é só o padrão.
+   */
+  lockedChannelId: string | null
+  /** true só para SUPERADMIN: pode responder por número diferente do da conversa. */
+  canOverrideChannel: boolean
 }
 
 export function useSenderChannels(leadId: number | null, enabled = true) {

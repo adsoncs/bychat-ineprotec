@@ -400,7 +400,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const user = (req as any).user
     const leadId = q.leadId ? parseInt(q.leadId) : null
 
-    const { resolveSenderChannels, suggestChannelForLead, getCloudWindowState } = await import('../services/whatsappProvider.js')
+    const { resolveSenderChannels, suggestChannelForLead, getCloudWindowState, canOverrideConversationChannel } = await import('../services/whatsappProvider.js')
     const channels = await resolveSenderChannels({ userId: user.userId, role: user.role })
 
     // Janela de 24h só é relevante p/ Cloud; calcula uma vez por lead.
@@ -408,14 +408,23 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       ? await getCloudWindowState(leadId)
       : null
 
-    const suggestedChannelId = leadId ? await suggestChannelForLead(leadId, { userId: user.userId, role: user.role }) : null
+    // Com conversa em andamento o canal vem TRAVADO no número de entrada (o que
+    // o contato conhece); sem conversa vem null e o operador escolhe o número da
+    // primeira interação. Para o SUPERADMIN o número da conversa continua sendo
+    // o padrão (suggestedChannelId), mas sem trava — ele pode trocar.
+    const suggestion = leadId
+      ? await suggestChannelForLead(leadId, { userId: user.userId, role: user.role })
+      : { channelId: null, locked: false }
+    const canOverride = canOverrideConversationChannel(user.role)
 
     return {
       channels: channels.map(c => ({
         ...c,
         window: c.provider === 'cloud_api' ? window : null,
       })),
-      suggestedChannelId,
+      suggestedChannelId: suggestion.channelId,
+      lockedChannelId: suggestion.locked && !canOverride ? suggestion.channelId : null,
+      canOverrideChannel: canOverride,
     }
   })
 
@@ -520,6 +529,21 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             const allowed = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
             if (!allowed.some((c) => c.id === channelId)) {
               return reply.code(403).send({ error: 'Você não tem acesso a esse número de envio.' })
+            }
+            // Conversa em andamento trava o número: o contato só conhece aquele
+            // por onde falou. Um channelId diferente aqui é frontend desatualizado
+            // (cache do seletor) — barra em vez de abrir um 2º fio no aparelho dele.
+            // Exceção: SUPERADMIN pode trocar de número deliberadamente.
+            const locked = wp.canOverrideConversationChannel(user.role)
+              ? null
+              : await wp.lockedChannelForLead(lid, { userId: user.userId, role: user.role })
+            if (locked && locked.channelId !== channelId) {
+              const lockedLabel = allowed.find((c) => c.id === locked.channelId)
+              return reply.code(409).send({
+                error: `Esta conversa já está em andamento pelo número ${lockedLabel?.number || lockedLabel?.label || locked.channelId}. A resposta precisa sair por ele — é o número que o contato conhece.`,
+                code: 'CHANNEL_LOCKED',
+                lockedChannelId: locked.channelId,
+              })
             }
             const r = await wp.getProviderForChannel(channelId)
             provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId

@@ -15,7 +15,7 @@
 
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft } from 'lucide-preact'
+import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft, Lock } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -98,7 +98,9 @@ interface WhatsappChoiceModalProps {
 }
 
 // Fluxo em 3 passos:
-//   1. Escolher o NÚMERO de origem (sempre mostrado, mesmo com 1 canal).
+//   1. Escolher o NÚMERO de origem — só na PRIMEIRA interação. Com conversa em
+//      andamento o número já vem travado no canal de entrada (o único que o
+//      contato conhece) e o passo é pulado.
 //   2. Escolher modelo / mensagem livre — depende do canal:
 //        • Evolution → modelos internos (texto livre, gratuito).
 //        • Cloud API → dentro da janela 24h: texto livre + modelos HSM aprovados;
@@ -116,14 +118,17 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   const [channelId, setChannelId] = useState<string | null>(null)
   const channel = channels.find((c) => c.id === channelId) ?? null
 
-  // Pré-seleciona o canal de ENTRADA do lead (o número pelo qual ele falou por
-  // último), sugerido pelo backend — assim a resposta sai pelo mesmo número que
-  // o lead usou. O operador ainda pode trocar (botão de trocar número).
+  // Conversa em andamento → o número do canal de entrada (o único que o contato
+  // conhece) já vem escolhido e o passo 1 é pulado; para quem não é SUPERADMIN
+  // ele vem também TRAVADO, sem opção de trocar. Sem conversa, nada é
+  // pré-selecionado de propósito: o operador escolhe no passo 1 por qual número
+  // vai se apresentar.
+  const conversationChannelId = channelsData?.suggestedChannelId ?? null
+  const lockedChannelId = channelsData?.lockedChannelId ?? null
   useEffect(() => {
     if (channelId) return
-    const suggested = channelsData?.suggestedChannelId
-    if (suggested && channels.some((c) => c.id === suggested)) setChannelId(suggested)
-    else if (channels.length > 0) setChannelId(channels[0].id) // sem sugestão → 1º número como padrão
+    const preset = lockedChannelId ?? conversationChannelId
+    if (preset && channels.some((c) => c.id === preset)) setChannelId(preset)
   }, [channelsData])
   const isCloud = channel?.provider === 'cloud_api'
   const windowOpen = channel?.window?.open ?? false
@@ -265,7 +270,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
         </div>
       )}
 
-      {/* PASSO 1 — escolher número de origem */}
+      {/* PASSO 1 — escolher número de origem (só na primeira interação) */}
       {!channelId && (
         <div class="space-y-2">
           <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">Número de origem</div>
@@ -276,7 +281,12 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
               Você não tem um número de WhatsApp vinculado. Peça ao administrador para configurar uma instância ou conexão Cloud API.
             </div>
           ) : (
-            channels.map((c) => <ChannelRow key={c.id} channel={c} suggested={c.id === channelsData?.suggestedChannelId} onPick={() => setChannelId(c.id)} disabled={noPhone} />)
+            <>
+              <div class="rounded-md border border-border bg-surface-2 p-2.5 text-xs text-fg-muted">
+                Primeiro contato com este lead: escolha por qual número falar com ele. As próximas mensagens saem sempre por esse mesmo número.
+              </div>
+              {channels.map((c) => <ChannelRow key={c.id} channel={c} onPick={() => setChannelId(c.id)} disabled={noPhone} />)}
+            </>
           )}
         </div>
       )}
@@ -284,7 +294,13 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       {/* PASSO 2 — escolher modelo / mensagem livre */}
       {channelId && !isComposing && channel && (
         <div class="space-y-2">
-          <ChannelHeader channels={channels} channelId={channelId} suggestedId={channelsData?.suggestedChannelId ?? null} onSelect={switchChannel} />
+          <ChannelHeader
+            channels={channels}
+            channelId={channelId}
+            locked={lockedChannelId !== null && channelId === lockedChannelId}
+            conversationChannelId={conversationChannelId}
+            onSelect={switchChannel}
+          />
 
           {isCloud && (
             <div class={cn('rounded-md border p-2.5 text-xs flex items-start gap-2', windowOpen ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10')}>
@@ -387,7 +403,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
 }
 
 // Linha de seleção de canal (passo 1)
-function ChannelRow({ channel, suggested, onPick, disabled }: { channel: SenderChannel; suggested: boolean; onPick: () => void; disabled: boolean }) {
+function ChannelRow({ channel, onPick, disabled }: { channel: SenderChannel; onPick: () => void; disabled: boolean }) {
   const isCloud = channel.provider === 'cloud_api'
   return (
     <button type="button" onClick={onPick} disabled={disabled} class="w-full text-left rounded-md border border-border bg-surface hover:bg-surface-2 p-3 transition-colors disabled:opacity-50 flex items-center gap-3">
@@ -395,10 +411,7 @@ function ChannelRow({ channel, suggested, onPick, disabled }: { channel: SenderC
         {isCloud ? <Cloud size={16} /> : <Smartphone size={16} />}
       </span>
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-medium text-fg flex items-center gap-2">
-          {channel.label}
-          {suggested && <span class="text-[0.5625rem] font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info">Sugerido</span>}
-        </div>
+        <div class="text-sm font-medium text-fg">{channel.label}</div>
         <div class="text-xs text-fg-muted">{channel.number ?? '—'} · {isCloud ? 'WhatsApp Oficial (Cloud API)' : 'WhatsApp (Evolution)'}</div>
       </div>
       {isCloud && channel.window && (
@@ -411,15 +424,22 @@ function ChannelRow({ channel, suggested, onPick, disabled }: { channel: SenderC
   )
 }
 
-// Cabeçalho do canal escolhido (passo 2/3): mostra só o número padrão/atual e,
-// quando há mais de um, um dropdown-checklist para trocar — evita listar todos os
-// números de uma vez (rodapé poluído quando há muitas conexões).
-function ChannelHeader({ channels, channelId, suggestedId, onSelect }: { channels: SenderChannel[]; channelId: string; suggestedId: string | null; onSelect: (id: string) => void }) {
+// Cabeçalho do canal escolhido (passo 2/3): mostra o número em uso e, quando a
+// conversa ainda não existe e há mais de um disponível, um dropdown para trocar
+// — evita listar todos de uma vez (rodapé poluído com muitas conexões).
+// `locked` = conversa em andamento e operador sem poder de troca: o número é o
+// do canal de entrada e é definitivo (o contato só conhece esse). O SUPERADMIN
+// recebe locked=false com o mesmo número já escolhido — o selo "da conversa"
+// segue indicando qual é o certo e o aviso âmbar aparece se ele sair dele.
+function ChannelHeader({ channels, channelId, locked, conversationChannelId, onSelect }: { channels: SenderChannel[]; channelId: string; locked: boolean; conversationChannelId: string | null; onSelect: (id: string) => void }) {
   const [open, setOpen] = useState(false)
   const channel = channels.find((c) => c.id === channelId)
   if (!channel) return null
   const isCloud = channel.provider === 'cloud_api'
-  const canSwitch = channels.length > 1
+  const canSwitch = channels.length > 1 && !locked
+  const isConversationChannel = conversationChannelId !== null && channelId === conversationChannelId
+  const offConversation = conversationChannelId !== null && !isConversationChannel
+  const conversationChannel = channels.find((c) => c.id === conversationChannelId)
   return (
     <div class="relative mb-1">
       <div class="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
@@ -429,7 +449,14 @@ function ChannelHeader({ channels, channelId, suggestedId, onSelect }: { channel
         <div class="min-w-0 flex-1 text-xs">
           <span class="text-fg font-medium">{channel.label}</span>
           <span class="text-fg-muted"> · {channel.number ?? '—'}</span>
-          {channelId === suggestedId && <span class="ml-1.5 text-[0.5625rem] font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info">padrão</span>}
+          {isConversationChannel && (
+            <span
+              class="ml-1.5 inline-flex items-center gap-0.5 text-[0.5625rem] font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info"
+              title="Foi por este número que o contato falou — a resposta sai por ele."
+            >
+              {locked && <Lock size={9} />} da conversa
+            </span>
+          )}
         </div>
         {canSwitch && (
           <button type="button" onClick={() => setOpen((v) => !v)} class="inline-flex items-center gap-1 text-[0.6875rem] text-info hover:underline shrink-0" aria-expanded={open} aria-haspopup="listbox">
@@ -437,6 +464,12 @@ function ChannelHeader({ channels, channelId, suggestedId, onSelect }: { channel
           </button>
         )}
       </div>
+      {offConversation && (
+        <div class="mt-1 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.6875rem] text-fg">
+          Esta conversa veio pelo {conversationChannel ? `${conversationChannel.label}${conversationChannel.number ? ` · ${conversationChannel.number}` : ''}` : 'outro número'}.
+          Enviando por aqui, o contato recebe de um número que ele não conhece.
+        </div>
+      )}
       {open && canSwitch && (
         <>
           <div class="fixed inset-0 z-40" onClick={() => setOpen(false)} />
@@ -458,7 +491,7 @@ function ChannelHeader({ channels, channelId, suggestedId, onSelect }: { channel
                     {cloud ? <Cloud size={11} /> : <Smartphone size={11} />}
                   </span>
                   <span class="flex-1 truncate">{c.label}{c.number ? ` · ${c.number}` : ''}</span>
-                  {c.id === suggestedId && <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">padrão</span>}
+                  {c.id === conversationChannelId && <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">da conversa</span>}
                   {active && <Check size={12} class="text-accent shrink-0" />}
                 </button>
               )

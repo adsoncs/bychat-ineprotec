@@ -43,6 +43,8 @@ import {
   Check,
   Users,
   BotOff,
+  Lock,
+  AlertTriangle,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -926,11 +928,20 @@ function ChatPanel({
     setSlashDismissed(false)
   }, [leadId])
 
-  // Pré-seleciona o canal sugerido (de entrada do lead) quando os canais chegam.
+  // Número de envio. `conversationChannelId` é o canal por onde o contato falou:
+  // é sempre o padrão. Para quem não é SUPERADMIN ele vem também como
+  // `lockedChannelId` e o seletor some — o número não se troca no meio do fio.
+  // O SUPERADMIN recebe locked=null: abre no mesmo padrão, mas pode trocar.
+  // Sem conversa, nada vem pré-marcado: a escolha é explícita.
+  const conversationChannelId = senderChannels?.suggestedChannelId ?? null
+  const lockedChannelId = senderChannels?.lockedChannelId ?? null
   useEffect(() => {
-    if (channelId) return
-    const suggested = senderChannels?.suggestedChannelId
-    if (suggested && channels.some((c) => c.id === suggested)) setChannelId(suggested)
+    const preset = lockedChannelId ?? conversationChannelId
+    if (!preset || !channels.some((c) => c.id === preset)) return
+    // Travado: reafirma sempre. Destravado (superadmin): só pré-seleciona, pra
+    // não desfazer a troca manual a cada refetch dos canais.
+    if (lockedChannelId) { if (channelId !== lockedChannelId) setChannelId(lockedChannelId) }
+    else if (!channelId) setChannelId(preset)
   }, [senderChannels])
 
   // Marcar como lida ao abrir, ao chegar mensagem nova com a aba focada, e ao
@@ -997,9 +1008,19 @@ function ChatPanel({
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
+  // Primeira interação (lead sem conversa) com mais de um número disponível: o
+  // operador escolhe conscientemente por qual linha vai se apresentar. Com
+  // conversa em andamento nunca cai aqui — há sempre um canal pré-selecionado,
+  // travado ou não (superadmin).
+  const mustPickChannel = !isInternalNote && conversationChannelId === null && channels.length >= 2 && !channelId
+
   function handleSend() {
     const body = draft.trim()
     if (!body && !pendingFile && !pendingTplAttachment) return
+    if (mustPickChannel) {
+      toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
+      return
+    }
     // Citação só faz sentido em msg não interna; backend resolve externalId pra Evolution.
     const quotedId = !isInternalNote && quotedMsg ? quotedMsg.id : undefined
     const sendText = (mediaPayload?: { mediaType: string; mediaUrl: string; mediaName: string }) => {
@@ -1079,6 +1100,10 @@ function ChatPanel({
 
   function handleAudio(file: File) {
     setRecording(false)
+    if (mustPickChannel) {
+      toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
+      return
+    }
     // Áudio é envio direto (sem confirmação): faz upload e envia em sequência.
     upload.mutate(file, {
       onSuccess: (resp) => {
@@ -1557,12 +1582,20 @@ function ChatPanel({
           )}
           <div class="p-3">
             {!isInternalNote && channels.length >= 2 && (() => {
-              // Mantém VISÍVEL apenas o número selecionado (padrão = canal de entrada
-              // do lead). Os demais ficam no menu "Trocar" — assim o rodapé não fica
-              // poluído quando há muitos números.
+              // Três estados:
+              //  • conversa em andamento → número do canal de entrada, TRAVADO e
+              //    sem botão de trocar (o contato só conhece aquele número;
+              //    responder por outro abre um 2º fio no aparelho dele).
+              //  • idem, mas SUPERADMIN → mesmo padrão, destravado: badge "da
+              //    conversa" continua sinalizando qual é o certo, e ele pode trocar.
+              //  • lead sem conversa → nada pré-marcado e o operador escolhe o
+              //    número da primeira interação antes de conseguir enviar.
               const selected = channels.find((c) => c.id === channelId) ?? null
-              const suggestedId = senderChannels?.suggestedChannelId ?? null
+              const locked = lockedChannelId !== null && selected?.id === lockedChannelId
+              const isConversationChannel = conversationChannelId !== null && selected?.id === conversationChannelId
+              const offConversation = conversationChannelId !== null && selected !== null && !isConversationChannel
               const chanLabel = (c: SenderChannel) => `${c.provider === 'cloud_api' ? 'Cloud API' : 'Evolution'}${(c.number || c.label) ? ` · ${c.number || c.label}` : ''}`
+              const conversationLabel = channels.find((c) => c.id === conversationChannelId)
               const SelIcon = selected?.provider === 'cloud_api' ? Cloud : Smartphone
               const selCloud = selected?.provider === 'cloud_api'
               return (
@@ -1572,66 +1605,84 @@ function ChatPanel({
                     <span
                       class={cn(
                         'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold',
-                        selCloud ? 'border-info/40 bg-info/15 text-info' : 'border-success/40 bg-success/15 text-success',
+                        offConversation ? 'border-warning/50 bg-warning/15 text-warning'
+                          : selCloud ? 'border-info/40 bg-info/15 text-info' : 'border-success/40 bg-success/15 text-success',
                       )}
-                      title={`Número atual: ${chanLabel(selected)}`}
+                      title={isConversationChannel
+                        ? `Número da conversa: ${chanLabel(selected)} — foi por ele que o contato falou, então a resposta sai por ele.`
+                        : offConversation
+                          ? `Atenção: ${chanLabel(selected)} não é o número desta conversa${conversationLabel ? ` (${chanLabel(conversationLabel)})` : ''}. O contato vai receber de um número que ele não conhece.`
+                          : `Número escolhido: ${chanLabel(selected)}`}
                     >
-                      <SelIcon size={11} />
+                      {locked ? <Lock size={11} /> : offConversation ? <AlertTriangle size={11} /> : <SelIcon size={11} />}
                       {chanLabel(selected)}
-                      {selected.id === suggestedId && (
-                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-[0.5625rem] font-medium uppercase tracking-wide">padrão</span>
+                      {isConversationChannel && (
+                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-[0.5625rem] font-medium uppercase tracking-wide">da conversa</span>
                       )}
                     </span>
                   )}
-                  <div class="relative">
-                    <button
-                      type="button"
-                      onClick={() => setNumMenuOpen((v) => !v)}
-                      class="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[0.6875rem] font-medium text-fg-muted hover:bg-surface-2 hover:text-fg transition-colors"
-                      aria-expanded={numMenuOpen}
-                      aria-haspopup="listbox"
-                      title="Trocar número de envio"
-                    >
-                      <ChevronDown size={11} />
-                      {selected ? 'Trocar' : 'Escolher número'}
-                    </button>
-                    {numMenuOpen && (
-                      <>
-                        <div class="fixed inset-0 z-30" onClick={() => setNumMenuOpen(false)} />
-                        <div
-                          role="listbox"
-                          class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
-                        >
-                          <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
-                          {channels.map((c) => {
-                            const active = c.id === channelId
-                            const isCloud = c.provider === 'cloud_api'
-                            const Icon = isCloud ? Cloud : Smartphone
-                            return (
-                              <button
-                                type="button"
-                                role="option"
-                                aria-selected={active}
-                                key={c.id}
-                                onClick={() => { setChannelId(c.id); setNumMenuOpen(false) }}
-                                class={cn(
-                                  'w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
-                                  active ? 'text-fg font-semibold' : 'text-fg-muted',
-                                )}
-                              >
-                                <Icon size={12} class={isCloud ? 'text-info' : 'text-success'} />
-                                <span class="flex-1 truncate">{chanLabel(c)}</span>
-                                {c.id === suggestedId && (
-                                  <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">padrão</span>
-                                )}
-                                {active && <Check size={12} class="text-accent shrink-0" />}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  {!locked && (
+                    <div class="relative">
+                      <button
+                        type="button"
+                        onClick={() => setNumMenuOpen((v) => !v)}
+                        class={cn(
+                          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium transition-colors',
+                          selected
+                            ? 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                            : 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20',
+                        )}
+                        aria-expanded={numMenuOpen}
+                        aria-haspopup="listbox"
+                        title={selected ? 'Trocar número de envio' : 'Escolha o número da primeira mensagem'}
+                      >
+                        <ChevronDown size={11} />
+                        {selected ? 'Trocar' : 'Escolher número'}
+                      </button>
+                      {numMenuOpen && (
+                        <>
+                          <div class="fixed inset-0 z-30" onClick={() => setNumMenuOpen(false)} />
+                          <div
+                            role="listbox"
+                            class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
+                          >
+                            <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+                            {channels.map((c) => {
+                              const active = c.id === channelId
+                              const isCloud = c.provider === 'cloud_api'
+                              const Icon = isCloud ? Cloud : Smartphone
+                              return (
+                                <button
+                                  type="button"
+                                  role="option"
+                                  aria-selected={active}
+                                  key={c.id}
+                                  onClick={() => { setChannelId(c.id); setNumMenuOpen(false) }}
+                                  class={cn(
+                                    'w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
+                                    active ? 'text-fg font-semibold' : 'text-fg-muted',
+                                  )}
+                                >
+                                  <Icon size={12} class={isCloud ? 'text-info' : 'text-success'} />
+                                  <span class="flex-1 truncate">{chanLabel(c)}</span>
+                                  {c.id === conversationChannelId && (
+                                    <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">da conversa</span>
+                                  )}
+                                  {active && <Check size={12} class="text-accent shrink-0" />}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {offConversation && (
+                    <span class="text-[0.625rem] text-warning">Este não é o número desta conversa — o contato vai receber de um número que não conhece.</span>
+                  )}
+                  {!locked && !selected && (
+                    <span class="text-[0.625rem] text-fg-subtle">Primeira mensagem: escolha por qual número falar com este contato.</span>
+                  )}
                 </div>
               )
             })()}
