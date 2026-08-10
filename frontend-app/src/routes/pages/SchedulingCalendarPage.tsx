@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, X, Trash2, MapPin,
-  Video, User as UserIcon, ExternalLink, Ban, Clock, BadgeCheck,
+  Video, User as UserIcon, ExternalLink, Ban, Clock, BadgeCheck, CalendarClock,
 } from 'lucide-preact'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -17,6 +17,7 @@ import {
   useCalendar, useSaveBlock, useDeleteBlock, useUpdateBookingStatus,
   type CalendarEvent, type BlockInput,
 } from '@/hooks/useScheduling'
+import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
 
 type View = 'month' | 'week' | 'day'
 
@@ -54,6 +55,9 @@ export function CalendarPanel() {
   const [operator, setOperator] = useState<number | null>(null)
   const [editingBlock, setEditingBlock] = useState<BlockInput | null>(null)
   const [detail, setDetail] = useState<CalendarEvent | null>(null)
+  // Disponibilidade do operador filtrado: gerente ajusta a agenda da equipe sem
+  // sair do calendário. Só aparece com um operador selecionado.
+  const [availFor, setAvailFor] = useState<number | null>(null)
 
   const { data: agentsData } = useAgents()
   const agents = (agentsData?.agents ?? []).filter((a) => a.active)
@@ -153,6 +157,16 @@ export function CalendarPanel() {
                 </Select>
               </div>
             )}
+            {canSeeAll && operator != null && (
+              <Button
+                variant="secondary"
+                class="shrink-0 whitespace-nowrap"
+                onClick={() => setAvailFor(operator)}
+                title="Ver e editar os horários em que este operador pode receber reuniões"
+              >
+                <CalendarClock size={16} /> <span class="hidden sm:inline">Disponibilidade</span>
+              </Button>
+            )}
             <Button class="shrink-0 whitespace-nowrap" onClick={() => openNewBlock()}><Plus size={16} /> <span class="sm:hidden">Novo</span><span class="hidden sm:inline">Novo bloqueio</span></Button>
           </div>
         </div>
@@ -194,6 +208,13 @@ export function CalendarPanel() {
         <EventDetail event={detail}
           onClose={() => setDetail(null)}
           onEditBlock={(b) => { setDetail(null); setEditingBlock(b) }} />
+      )}
+      {availFor != null && (
+        <AvailabilityModal
+          userId={availFor}
+          userName={agents.find((a) => a.id === availFor)?.name || agents.find((a) => a.id === availFor)?.email || undefined}
+          onClose={() => setAvailFor(null)}
+        />
       )}
     </div>
   )

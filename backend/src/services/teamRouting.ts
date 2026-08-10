@@ -297,7 +297,10 @@ async function getEligibleMembers(
   })
 }
 
-export async function pickOperatorForTeam(teamId: number): Promise<number | null> {
+export async function pickOperatorForTeam(
+  teamId: number,
+  opts?: { onlyUserIds?: number[] },
+): Promise<number | null> {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
     select: { id: true, name: true, active: true, routingMode: true, workingHoursEnabled: true },
@@ -315,8 +318,16 @@ export async function pickOperatorForTeam(teamId: number): Promise<number | null
       return null
     }
   }
+  // Recorte opcional de candidatos: o Agendamento passa só quem está livre NO
+  // HORÁRIO da reunião, para o rodízio não cair em quem não atende àquela hora.
+  // Lista vazia = ninguém livre; devolve null e o caller manda para a fila.
+  const restrict = opts?.onlyUserIds
+  if (restrict && restrict.length === 0) return null
+  const narrow = (list: CandidateMember[]) =>
+    restrict ? list.filter((m) => restrict.includes(m.userId)) : list
+
   // Passe 1: só quem está "Disponível" (comportamento histórico).
-  let members = await getEligibleMembers(teamId, requireAgent)
+  let members = narrow(await getEligibleMembers(teamId, requireAgent))
   // Passe 2 (fallback suave): ninguém disponível → aceita "Ausente"/"Em pausa".
   // Mesma filosofia do soft-limit de capacity logo abaixo: entregar a um
   // operador ausente é melhor que deixar o lead órfão numa fila que ninguém
@@ -326,7 +337,7 @@ export async function pickOperatorForTeam(teamId: number): Promise<number | null
   // inteiro sem nenhum rastro (severiano, Matrículas, 23/07/2026).
   let softFallback = false
   if (members.length === 0) {
-    members = await getEligibleMembers(teamId, requireAgent, FALLBACK_STATUSES)
+    members = narrow(await getEligibleMembers(teamId, requireAgent, FALLBACK_STATUSES))
     softFallback = members.length > 0
   }
   if (members.length === 0) {
@@ -373,6 +384,67 @@ export async function pickOperatorForTeam(teamId: number): Promise<number | null
     return a.lastAssignedAt!.getTime() - b.lastAssignedAt!.getTime()
   })
   return pool[0]!.userId
+}
+
+/**
+ * userIds de uma equipe que PODEM atender reuniões — base para o Agendamento
+ * montar os horários ofertados.
+ *
+ * De propósito NÃO usa `getEligibleMembers`: aquele filtra por presença agora,
+ * horário de trabalho agora e `isTeamOpen` agora, o que faz sentido para
+ * distribuir um lead que acabou de entrar, mas não para ofertar horários da
+ * semana que vem. Se a oferta dependesse disso, a página pública ficaria sem
+ * nenhum horário à noite e no fim de semana, quando todo mundo está offline.
+ *
+ * Filtra o que é estável: usuário ativo e não bloqueado, papel operacional,
+ * perfil de agente ativo e fora de férias.
+ */
+export async function listSchedulableOperators(teamId: number, at?: Date): Promise<number[]> {
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true, active: true } })
+  if (!team || !team.active) return []
+  const requireAgent = await isRoutingV2Enabled()
+  const userFilter: Record<string, unknown> = { active: true, lockedAt: null }
+  if (requireAgent) {
+    userFilter.role = { in: ['AGENT', 'MANAGER', 'ADMIN', 'SUPERADMIN'] }
+    // Ausência é medida contra a DATA DA REUNIÃO quando ela é conhecida, não
+    // contra agora: quem volta de férias na quinta continua elegível para uma
+    // reunião na sexta. Sem `at` (montagem da grade inteira) mantém o corte por
+    // agora e a checagem por dia acontece slot a slot em `operatorsFreeAt`.
+    const ref = at ?? new Date()
+    userFilter.agentProfile = {
+      is: { active: true, OR: [{ vacationUntil: null }, { vacationUntil: { lte: ref } }] },
+    }
+  }
+  const members = await prisma.teamMember.findMany({
+    where: { teamId, user: userFilter as any },
+    select: { userId: true },
+  })
+  return members.map((m) => m.userId)
+}
+
+/** Operadores de férias na data indicada (ausência cobre o instante `at`). */
+export async function operatorsOnVacationAt(userIds: number[], at: Date): Promise<Set<number>> {
+  if (userIds.length === 0) return new Set()
+  const profiles = await prisma.agentProfile.findMany({
+    where: { userId: { in: userIds }, vacationUntil: { gt: at } },
+    select: { userId: true },
+  })
+  return new Set(profiles.map((p) => p.userId))
+}
+
+/** Menor carga entre um conjunto de operadores (desempate por menor id). Usado
+ *  pelo Agendamento quando o rodízio normal não devolve ninguém por causa de
+ *  presença — a reunião é futura, não faz sentido deixá-la órfã por isso. */
+export async function leastLoadedAmong(userIds: number[]): Promise<number | null> {
+  if (userIds.length === 0) return null
+  const counts = await prisma.lead.groupBy({
+    by: ['assignedUserId'],
+    where: { assignedUserId: { in: userIds }, outcome: null },
+    _count: { _all: true },
+  })
+  const by = new Map<number, number>(userIds.map((id) => [id, 0]))
+  for (const c of counts) if (c.assignedUserId !== null) by.set(c.assignedUserId, c._count._all)
+  return [...by.entries()].sort((a, b) => (a[1] - b[1]) || (a[0] - b[0]))[0]![0]
 }
 
 // F5 — Picker filtrado por skill.

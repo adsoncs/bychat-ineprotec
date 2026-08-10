@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle } from 'lucide-preact'
+import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock } from 'lucide-preact'
+import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useUsers, useUserAudit, useCreateUser, useUpdateUser, useDeleteUser,
@@ -78,9 +79,13 @@ export function UsersPage() {
   const [deleting, setDeleting] = useState<AdminUser | null>(null)
   const [auditing, setAuditing] = useState<AdminUser | null>(null)
   const [editingTeams, setEditingTeams] = useState<AdminUser | null>(null)
+  const [editingAvailability, setEditingAvailability] = useState<AdminUser | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
   const isSuperAdmin = me?.role === 'SUPERADMIN'
+  // Só gerente/admin/superadmin mexe na agenda dos outros — o backend recusa o
+  // resto com 403, aqui o item nem aparece.
+  const canManageAvailability = me?.role === 'SUPERADMIN' || me?.role === 'ADMIN' || me?.role === 'MANAGER'
   const users = data?.users ?? []
 
   return (
@@ -161,8 +166,10 @@ export function UsersPage() {
                       <UserActionsMenu
                         user={u}
                         canDelete={Number(me?.id) !== u.id}
+                        canManageAvailability={canManageAvailability}
                         onEdit={() => setEditing(u)}
                         onTeams={() => setEditingTeams(u)}
+                        onAvailability={() => setEditingAvailability(u)}
                         onAudit={() => setAuditing(u)}
                         onDelete={() => setDeleting(u)}
                       />
@@ -197,6 +204,13 @@ export function UsersPage() {
       )}
       {editingTeams && (
         <UserTeamsModal user={editingTeams} onClose={() => setEditingTeams(null)} />
+      )}
+      {editingAvailability && (
+        <AvailabilityModal
+          userId={editingAvailability.id}
+          userName={editingAvailability.name ?? editingAvailability.email}
+          onClose={() => setEditingAvailability(null)}
+        />
       )}
 
       <HowItWorksModal
@@ -241,12 +255,14 @@ export function UsersPage() {
 }
 
 function UserActionsMenu({
-  user, canDelete, onEdit, onTeams, onAudit, onDelete,
+  user, canDelete, canManageAvailability, onEdit, onTeams, onAvailability, onAudit, onDelete,
 }: {
   user: AdminUser
   canDelete: boolean
+  canManageAvailability: boolean
   onEdit: () => void
   onTeams: () => void
+  onAvailability: () => void
   onAudit: () => void
   onDelete: () => void
 }) {
@@ -280,6 +296,14 @@ function UserActionsMenu({
           >
             <UsersIcon size={14} /> Equipes
           </DropdownMenu.Item>
+          {canManageAvailability && (
+            <DropdownMenu.Item
+              class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
+              onSelect={onAvailability}
+            >
+              <CalendarClock size={14} /> Disponibilidade
+            </DropdownMenu.Item>
+          )}
           <DropdownMenu.Item
             class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
             onSelect={onAudit}
@@ -584,6 +608,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   // Permissões e módulos
   'permission.role_changed': 'Permissões por perfil',
   'permission.user_override_changed': 'Permissões do usuário',
+  'scheduling.availability_changed': 'Disponibilidade alterada',
   'module.toggled': 'Módulo ativado/desativado',
   // Configurações e integrações
   'setting.changed': 'Configuração alterada',

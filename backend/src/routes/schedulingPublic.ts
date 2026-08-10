@@ -134,7 +134,9 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     const mt = await prisma.meetingType.findUnique({ where: { id: b.meetingTypeId } })
     if (!mt || !mt.active) return reply.code(400).send({ error: 'Indisponível' })
     const startAt = ((req.body as any)?.startAt || '').toString()
-    const valid = await validateSlot(mt, startAt)
+    // A reunião já tem dono: o novo horário precisa caber na agenda DELE, não só
+    // na malha do tipo (senão remarcar joga a reunião para fora do expediente).
+    const valid = await validateSlot(mt, startAt, { operatorUserId: b.operatorUserId, excludeBookingId: b.id })
     if (!valid) return reply.code(400).send({ error: 'Horário indisponível. Escolha outro.' })
     const start = new Date(valid)
     const end = new Date(start.getTime() + mt.durationMin * 60000)

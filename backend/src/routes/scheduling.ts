@@ -4,8 +4,9 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
-import { computeSlots, type WeeklyRule, type ExceptionRule } from '../services/schedulingSlots.js'
+import { type WeeklyRule, type ExceptionRule } from '../services/schedulingSlots.js'
 import { getExternalGoogleEvents, pushBlockToGoogle, updateBlockInGoogle, deleteBlockFromGoogle } from '../services/schedulingGoogle.js'
+import { logUserAudit, auditActor } from '../services/userAudit.js'
 
 // Disponibilidade padrão quando o tipo ainda não tem agenda: seg-sex 09-18.
 const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
@@ -227,47 +228,25 @@ export async function schedulingRoutes(app: FastifyInstance) {
     const mt = await prisma.meetingType.findUnique({ where: { id } })
     if (!mt) return reply.code(404).send({ error: 'Tipo de reunião não encontrado' })
     const q = (req.query as any) || {}
-    const { rules, exceptions } = await loadAvailability(id)
-
-    // Conflitos: reservas ativas do dono (ou do tipo) na janela.
-    const windowEnd = new Date(Date.now() + mt.bookingWindowDays * 86400000)
-    const bookings = await prisma.booking.findMany({
-      where: {
-        status: { notIn: ['cancelled', 'no_show', 'rescheduled'] },
-        endAt: { gt: new Date() },
-        startAt: { lt: windowEnd },
-        ...(mt.ownerUserId ? { operatorUserId: mt.ownerUserId } : { meetingTypeId: id }),
-      },
-      select: { startAt: true, endAt: true },
-    })
-
-    const days = computeSlots({
-      timezone: mt.timezone,
-      durationMin: mt.durationMin,
-      slotIncrementMin: mt.slotIncrementMin,
-      bufferBeforeMin: mt.bufferBeforeMin,
-      bufferAfterMin: mt.bufferAfterMin,
-      minNoticeMin: mt.minNoticeMin,
-      bookingWindowDays: mt.bookingWindowDays,
-      maxPerDay: mt.maxPerDay,
-      visibleSlotsPerDay: mt.visibleSlotsPerDay,
-      rules: rules as WeeklyRule[],
-      exceptions: exceptions.map((e) => ({
-        date: e.date.toISOString().slice(0, 10),
-        unavailable: e.unavailable,
-        startTime: e.startTime,
-        endTime: e.endTime,
-      })) as ExceptionRule[],
-      bookings,
-      fromDate: q.from || undefined,
-      toDate: q.to || undefined,
+    // MESMA função da página pública: o preview do admin precisa mostrar
+    // exatamente o que o cliente vê. Calculando por conta própria aqui, o
+    // preview exibia horários que a oferta real já descartava (no modo equipe,
+    // os que nenhum operador atende).
+    const { getMeetingTypeSlots } = await import('../services/schedulingService.js')
+    const days = await getMeetingTypeSlots(mt, {
+      ...(q.from ? { from: String(q.from) } : {}),
+      ...(q.to ? { to: String(q.to) } : {}),
     })
     return { timezone: mt.timezone, durationMin: mt.durationMin, days }
   })
 
-  // ── MINHA DISPONIBILIDADE (agenda do operador logado, reusada pelos tipos dele) ──
-  app.get('/api/admin/scheduling/my-availability', { preHandler: authMiddleware }, async (req) => {
-    const userId = (req as any).user.userId as number
+  // ── DISPONIBILIDADE DO OPERADOR (agenda pessoal, reusada pelos tipos dele) ──
+  // Duas portas para os MESMOS dados: `my-availability` (o próprio operador) e
+  // `users/:userId/availability` (gerente/admin cuidando da agenda da equipe —
+  // ninguém precisa pedir ao agente que entre no sistema para ajustar um horário).
+
+  /** Leitura crua da agenda pessoal; devolve o padrão seg-sex 09-18 se não existir. */
+  async function readUserAvailability(userId: number) {
     const schedule = await prisma.availabilitySchedule.findFirst({ where: { ownerUserId: userId, meetingTypeId: null } })
     const exceptions = schedule
       ? await prisma.availabilityException.findMany({ where: { scheduleId: schedule.id }, orderBy: { date: 'asc' } })
@@ -277,29 +256,83 @@ export async function schedulingRoutes(app: FastifyInstance) {
       rules: (schedule?.rules as unknown as WeeklyRule[]) || DEFAULT_RULES,
       exceptions: exceptions.map((e) => ({ id: e.id, date: e.date.toISOString().slice(0, 10), unavailable: e.unavailable, startTime: e.startTime, endTime: e.endTime })),
     }
-  })
+  }
 
-  app.put('/api/admin/scheduling/my-availability', { preHandler: authMiddleware }, async (req) => {
-    const user = (req as any).user as JwtPayload
-    const userId = user.userId
-    const body = (req.body as any) || {}
-    const rawRules: any[] = Array.isArray(body.rules) ? body.rules : []
+  /** Grava a agenda pessoal. `ownerName` só nomeia o registro na criação. */
+  async function writeUserAvailability(userId: number, ownerName: string | null, body: any) {
+    const rawRules: any[] = Array.isArray(body?.rules) ? body.rules : []
     const rules: WeeklyRule[] = rawRules
       .map((r) => ({ weekday: parseInt(r.weekday, 10), start: String(r.start || ''), end: String(r.end || '') }))
       .filter((r) => r.weekday >= 0 && r.weekday <= 6 && /^\d{2}:\d{2}$/.test(r.start) && /^\d{2}:\d{2}$/.test(r.end) && r.start < r.end)
-    const tz = String(body.timezone || 'America/Sao_Paulo').substring(0, 60)
+    const tz = String(body?.timezone || 'America/Sao_Paulo').substring(0, 60)
 
     const existing = await prisma.availabilitySchedule.findFirst({ where: { ownerUserId: userId, meetingTypeId: null } })
     const schedule = existing
       ? await prisma.availabilitySchedule.update({ where: { id: existing.id }, data: { rules: rules as any, timezone: tz } })
-      : await prisma.availabilitySchedule.create({ data: { name: `Agenda de ${user.name || ('user ' + userId)}`, ownerUserId: userId, timezone: tz, rules: rules as any } })
+      : await prisma.availabilitySchedule.create({ data: { name: `Agenda de ${ownerName || ('user ' + userId)}`, ownerUserId: userId, timezone: tz, rules: rules as any } })
 
     await prisma.availabilityException.deleteMany({ where: { scheduleId: schedule.id } })
-    const rawExc: any[] = Array.isArray(body.exceptions) ? body.exceptions : []
+    const rawExc: any[] = Array.isArray(body?.exceptions) ? body.exceptions : []
     for (const e of rawExc) {
       if (!e.date || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) continue
       await prisma.availabilityException.create({
         data: { scheduleId: schedule.id, date: new Date(e.date + 'T00:00:00Z'), unavailable: e.unavailable !== false, startTime: e.startTime || null, endTime: e.endTime || null, note: e.note ? String(e.note).substring(0, 191) : null },
+      })
+    }
+    return { rules, timezone: tz, exceptionCount: rawExc.length }
+  }
+
+  app.get('/api/admin/scheduling/my-availability', { preHandler: authMiddleware }, async (req) => {
+    return readUserAvailability((req as any).user.userId as number)
+  })
+
+  app.put('/api/admin/scheduling/my-availability', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user as JwtPayload
+    await writeUserAvailability(user.userId, user.name ?? null, req.body)
+    return { ok: true }
+  })
+
+  // Agenda de OUTRO operador. Só gerente/admin/superadmin; o próprio dono também
+  // passa aqui (o frontend usa esta rota quando abre a agenda de alguém da lista).
+  app.get('/api/admin/scheduling/users/:userId/availability', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const targetId = parseInt((req.params as any).userId, 10)
+    if (!Number.isFinite(targetId)) return reply.code(400).send({ error: 'Usuário inválido' })
+    if (targetId !== user.userId && !MANAGER_ROLES.includes(user.role)) {
+      return reply.code(403).send({ error: 'Só gerente, administrador ou superadmin pode ver a disponibilidade de outro operador.' })
+    }
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true, name: true, email: true, active: true } })
+    if (!target) return reply.code(404).send({ error: 'Usuário não encontrado' })
+    return { ...(await readUserAvailability(targetId)), user: { id: target.id, name: target.name, email: target.email, active: target.active } }
+  })
+
+  app.put('/api/admin/scheduling/users/:userId/availability', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const targetId = parseInt((req.params as any).userId, 10)
+    if (!Number.isFinite(targetId)) return reply.code(400).send({ error: 'Usuário inválido' })
+    if (targetId !== user.userId && !MANAGER_ROLES.includes(user.role)) {
+      return reply.code(403).send({ error: 'Só gerente, administrador ou superadmin pode editar a disponibilidade de outro operador.' })
+    }
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true, name: true, email: true } })
+    if (!target) return reply.code(404).send({ error: 'Usuário não encontrado' })
+
+    const before = await readUserAvailability(targetId)
+    const saved = await writeUserAvailability(targetId, target.name ?? target.email, req.body)
+
+    // Mexer na agenda de outra pessoa fica no histórico dela — quem alterou, quando
+    // e o que era antes. Editar a própria não gera ruído no histórico.
+    if (targetId !== user.userId) {
+      void logUserAudit({
+        action: 'scheduling.availability_changed',
+        targetUserId: targetId,
+        targetType: 'user',
+        targetLabel: target.name || target.email,
+        changes: {
+          rules: { from: before.rules, to: saved.rules },
+          timezone: { from: before.timezone, to: saved.timezone },
+          exceptions: { from: before.exceptions.length, to: saved.exceptionCount },
+        },
+        ...auditActor(req),
       })
     }
     return { ok: true }

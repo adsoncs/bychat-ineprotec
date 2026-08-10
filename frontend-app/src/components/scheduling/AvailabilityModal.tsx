@@ -8,25 +8,37 @@ import { toast } from '@/lib/toast'
 import {
   useAvailability, useSaveAvailability, useSlotsPreview,
   useMyAvailability, useSaveMyAvailability,
+  useUserAvailability, useSaveUserAvailability,
   WEEKDAY_LABELS, type WeeklyRule, type AvailabilityException,
 } from '@/hooks/useScheduling'
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] // Seg..Dom
 
-export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, onClose }: {
+// Três modos, mesmo formulário:
+//   • `mine`        — a própria agenda do operador logado;
+//   • `userId`      — a agenda de OUTRO operador (gerente/admin cuidando da equipe);
+//   • `meetingTypeId` — a agenda específica de um tipo de reunião.
+export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId, userName, onClose }: {
   meetingTypeId?: number
   meetingTypeName?: string
   mine?: boolean
+  userId?: number
+  userName?: string
   onClose: () => void
 }) {
-  const isMine = !!mine
-  const typeAvail = useAvailability(isMine ? null : (meetingTypeId ?? null))
+  const forUser = typeof userId === 'number' ? userId : null
+  const isMine = !!mine && !forUser
+  const isPersonal = isMine || !!forUser
+  const typeAvail = useAvailability(isPersonal ? null : (meetingTypeId ?? null))
   const myAvail = useMyAvailability(isMine)
+  const userAvail = useUserAvailability(forUser)
   const saveType = useSaveAvailability(meetingTypeId ?? 0)
   const saveMine = useSaveMyAvailability()
-  const data = isMine ? myAvail.data : typeAvail.data
-  const isLoading = isMine ? myAvail.isLoading : typeAvail.isLoading
-  const save = isMine ? saveMine : saveType
+  const saveUser = useSaveUserAvailability(forUser)
+  const data = forUser ? userAvail.data : isMine ? myAvail.data : typeAvail.data
+  const isLoading = forUser ? userAvail.isLoading : isMine ? myAvail.isLoading : typeAvail.isLoading
+  const save = forUser ? saveUser : isMine ? saveMine : saveType
+  const targetLabel = userName || userAvail.data?.user?.name || userAvail.data?.user?.email || 'operador'
   const [rules, setRules] = useState<WeeklyRule[]>([])
   const [exceptions, setExceptions] = useState<AvailabilityException[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -39,7 +51,7 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, onClos
     }
   }, [data, loaded])
 
-  const slots = useSlotsPreview(!isMine && loaded ? (meetingTypeId ?? null) : null)
+  const slots = useSlotsPreview(!isPersonal && loaded ? (meetingTypeId ?? null) : null)
 
   function addRange(weekday: number) { setRules((r) => [...r, { weekday, start: '09:00', end: '18:00' }]) }
   function updateRange(idx: number, patch: Partial<WeeklyRule>) { setRules((r) => r.map((x, i) => (i === idx ? { ...x, ...patch } : x))) }
@@ -57,14 +69,22 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, onClos
       onSuccess: () => toast('Disponibilidade salva', 'success'),
       onError: (err: unknown) => toast((err as Error).message, 'danger'),
     }
-    if (isMine) saveMine.mutate({ rules, exceptions, ...(data?.timezone ? { timezone: data.timezone } : {}) }, onDone)
+    const personalInput = { rules, exceptions, ...(data?.timezone ? { timezone: data.timezone } : {}) }
+    if (forUser) saveUser.mutate(personalInput, onDone)
+    else if (isMine) saveMine.mutate(personalInput, onDone)
     else saveType.mutate({ rules, exceptions }, onDone)
   }
 
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} size="lg"
-      title={isMine ? 'Minha disponibilidade' : `Disponibilidade — ${meetingTypeName}`}
-      description={isMine ? 'Seus horários de atendimento. Os tipos de reunião usam esta agenda por padrão.' : 'Horários específicos deste tipo (sobrepõem a sua agenda padrão).'}
+      title={forUser ? `Disponibilidade — ${targetLabel}` : isMine ? 'Minha disponibilidade' : `Disponibilidade — ${meetingTypeName}`}
+      description={
+        forUser
+          ? 'Horários em que este operador pode receber reuniões. É a mesma agenda que ele vê em "Minha disponibilidade" — a alteração fica registrada no histórico dele.'
+          : isMine
+            ? 'Seus horários de atendimento. Os tipos de reunião usam esta agenda por padrão.'
+            : 'Horários específicos deste tipo (sobrepõem a sua agenda padrão).'
+      }
       footer={
         <div class="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Fechar</Button>
@@ -133,7 +153,7 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, onClos
           </div>
 
           {/* Preview de slots (só no modo por-tipo) */}
-          {!isMine && (
+          {!isPersonal && (
           <div class="pt-3 border-t border-border">
             <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Próximos horários disponíveis (preview)</div>
             {slots.isLoading ? <div class="text-xs text-fg-subtle">Calculando…</div> : (slots.data?.days?.length ? (

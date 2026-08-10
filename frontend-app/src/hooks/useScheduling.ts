@@ -132,6 +132,34 @@ export function useSaveMyAvailability() {
   })
 }
 
+// Agenda de OUTRO operador — gerente/admin/superadmin cuidando da equipe sem
+// depender de o agente entrar no sistema. Mesmos dados de `my-availability`;
+// o backend recusa (403) quem não é gerente e não é o próprio dono.
+export interface UserAvailabilityData extends AvailabilityData {
+  user: { id: number; name: string | null; email: string; active: boolean }
+}
+
+export function useUserAvailability(userId: number | null) {
+  return useQuery({
+    queryKey: ['user-availability', userId],
+    queryFn: () => api.get<UserAvailabilityData>(`/admin/scheduling/users/${userId}/availability`),
+    enabled: !!userId,
+  })
+}
+
+export function useSaveUserAvailability(userId: number | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { rules: WeeklyRule[]; exceptions: AvailabilityException[]; timezone?: string }) =>
+      api.put(`/admin/scheduling/users/${userId}/availability`, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-availability', userId] })
+      qc.invalidateQueries({ queryKey: ['my-availability'] })
+      qc.invalidateQueries({ queryKey: ['meeting-type-slots'] })
+    },
+  })
+}
+
 // ── Agenda / Calendário (Fase 7) ──
 export interface CalendarEvent {
   id: string

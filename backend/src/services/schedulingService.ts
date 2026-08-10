@@ -43,9 +43,150 @@ export async function resolveScheduleForType(mt: { id: number; ownerUserId: numb
   return { schedule, rules, exceptions }
 }
 
+/** Agenda PESSOAL de um operador (regras + exceções), com o padrão seg-sex 09-18
+ *  quando ele nunca configurou "Minha disponibilidade". */
+export async function personalSchedule(userId: number): Promise<{ rules: WeeklyRule[]; exceptions: ExceptionRule[] }> {
+  const schedule = await prisma.availabilitySchedule.findFirst({ where: { ownerUserId: userId, meetingTypeId: null } })
+  const exceptions = schedule
+    ? await prisma.availabilityException.findMany({ where: { scheduleId: schedule.id }, orderBy: { date: 'asc' } })
+    : []
+  return {
+    rules: (schedule?.rules as unknown as WeeklyRule[]) || DEFAULT_RULES,
+    exceptions: exceptions.map((e) => ({
+      date: e.date.toISOString().slice(0, 10), unavailable: e.unavailable, startTime: e.startTime, endTime: e.endTime,
+    })),
+  }
+}
+
+/** Duração assumida para uma atividade do CRM, que não tem hora de término. */
+const ACTIVITY_BLOCK_MIN = 60
+
+/** Tudo que ocupa a agenda de um operador na janela: reuniões dele (de QUALQUER
+ *  tipo), bloqueios manuais, compromissos do CRM e eventos do Google Calendar.
+ *
+ *  As atividades entram porque a Agenda já as mostra como compromisso — antes o
+ *  motor de slots as ignorava e continuava ofertando um horário em que o operador
+ *  tem reunião marcada no CRM. Reuniões que nasceram de uma reserva têm
+ *  `booking.activityId` e são puladas, senão contariam duas vezes. */
+export async function operatorBusy(
+  userId: number, from: Date, to: Date, excludeBookingId?: number | null,
+): Promise<{ startAt: Date; endAt: Date }[]> {
+  const [bookings, blocks, activities, bookingActivities, google] = await Promise.all([
+    prisma.booking.findMany({
+      where: {
+        operatorUserId: userId,
+        status: { notIn: ['cancelled', 'no_show', 'rescheduled'] },
+        endAt: { gt: from }, startAt: { lt: to },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+      select: { startAt: true, endAt: true },
+    }),
+    prisma.calendarBlock.findMany({
+      where: { operatorUserId: userId, endAt: { gt: from }, startAt: { lt: to } },
+      select: { startAt: true, endAt: true },
+    }),
+    prisma.activity.findMany({
+      where: {
+        type: { in: ['meeting', 'call'] },
+        status: { in: ['pending', 'overdue'] },
+        // `assignedUserId` é quem executa; `userId` (criador) só vale como
+        // fallback quando ninguém foi designado.
+        OR: [{ assignedUserId: userId }, { assignedUserId: null, userId }],
+        scheduledAt: { gte: new Date(from.getTime() - ACTIVITY_BLOCK_MIN * 60000), lt: to },
+      },
+      select: { id: true, scheduledAt: true },
+    }),
+    prisma.booking.findMany({ where: { activityId: { not: null } }, select: { activityId: true } }),
+    getExternalGoogleEvents(userId, from, to).catch(() => []),
+  ])
+  const fromBooking = new Set(bookingActivities.map((b) => b.activityId!))
+  const activitySpans = activities
+    .filter((a) => !fromBooking.has(a.id))
+    .map((a) => ({ startAt: a.scheduledAt, endAt: new Date(a.scheduledAt.getTime() + ACTIVITY_BLOCK_MIN * 60000) }))
+  return [
+    ...bookings,
+    ...blocks,
+    ...activitySpans,
+    ...google.map((e: any) => ({ startAt: new Date(e.startAt), endAt: new Date(e.endAt) })),
+  ]
+}
+
+/**
+ * Horários em que CADA operador elegível da equipe está livre, no formato
+ * `Set<startAt ISO>`. É a peça que faltava no modo "Orquestrar pela Equipe":
+ * antes os slots saíam da agenda do TIPO e o agente era sorteado depois, sem
+ * ninguém olhar a agenda dele — um agente que não atende de manhã recebia
+ * reunião de manhã.
+ */
+async function freeSlotsByOperator(
+  mt: NonNullable<MeetingTypeRow>,
+  operatorIds: number[],
+  opts: { from?: string; to?: string },
+): Promise<Map<number, Set<string>>> {
+  const windowEnd = new Date(Date.now() + mt.bookingWindowDays * 86400000)
+  const out = new Map<number, Set<string>>()
+  for (const uid of operatorIds) {
+    const { rules, exceptions } = await personalSchedule(uid)
+    const busy = await operatorBusy(uid, new Date(), windowEnd)
+    // maxPerDay/visibleSlotsPerDay são tetos DO TIPO — aplicados na malha do
+    // tipo, não aqui, senão cortariam a agenda de cada operador em separado.
+    const days = computeSlots({
+      timezone: mt.timezone,
+      durationMin: mt.durationMin,
+      slotIncrementMin: mt.slotIncrementMin,
+      bufferBeforeMin: mt.bufferBeforeMin,
+      bufferAfterMin: mt.bufferAfterMin,
+      minNoticeMin: mt.minNoticeMin,
+      bookingWindowDays: mt.bookingWindowDays,
+      maxPerDay: null,
+      visibleSlotsPerDay: null,
+      rules, exceptions, bookings: busy,
+      fromDate: opts.from, toDate: opts.to,
+    })
+    out.set(uid, new Set(days.flatMap((d) => d.slots.map((s) => s.startAt))))
+  }
+  return out
+}
+
+/** Operadores da equipe que estão livres num intervalo específico. */
+export async function operatorsFreeAt(teamId: number, startAt: Date, endAt: Date, tz: string): Promise<number[]> {
+  const { listSchedulableOperators, operatorsOnVacationAt } = await import('./teamRouting.js')
+  const ids = await listSchedulableOperators(teamId, startAt)
+  const ferias = await operatorsOnVacationAt(ids, startAt)
+  const free: number[] = []
+  for (const uid of ids) {
+    if (ferias.has(uid)) continue
+    const { rules, exceptions } = await personalSchedule(uid)
+    if (!withinRules(startAt, rules, exceptions, tz)) continue
+    const busy = await operatorBusy(uid, startAt, endAt)
+    if (busy.some((b) => b.startAt < endAt && startAt < b.endAt)) continue
+    free.push(uid)
+  }
+  return free
+}
+
+/** O instante cai dentro das regras semanais (respeitando exceções do dia)? */
+function withinRules(at: Date, rules: WeeklyRule[], exceptions: ExceptionRule[], tz: string): boolean {
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at)
+  const g = (t: string) => p.find((x) => x.type === t)?.value ?? ''
+  const dateStr = `${g('year')}-${g('month')}-${g('day')}`
+  const h = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(at)
+  const gh = (t: string) => h.find((x) => x.type === t)?.value ?? ''
+  const hhmm = `${gh('hour') === '24' ? '00' : gh('hour')}:${gh('minute')}`
+  const exc = exceptions.find((e) => e.date === dateStr)
+  if (exc) {
+    if (exc.unavailable) return false
+    if (exc.startTime && exc.endTime) return exc.startTime <= hhmm && hhmm < exc.endTime
+    return false
+  }
+  const weekday = new Date(`${dateStr}T12:00:00Z`).getUTCDay()
+  return rules.some((r) => r.weekday === weekday && r.start <= hhmm && hhmm < r.end)
+}
+
 export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts: { from?: string; to?: string } = {}): Promise<DaySlots[]> {
-  // No modo "Orquestrar pela Equipe" não há dono fixo: a disponibilidade usa a agenda
-  // própria do tipo e conta as reservas pelo próprio tipo (não pela agenda de 1 operador).
+  // No modo "Orquestrar pela Equipe" não há dono fixo: a agenda do tipo define o
+  // TETO do que pode ser ofertado, e logo abaixo cada slot ainda precisa ter ao
+  // menos um operador da equipe livre nele.
   const ownerForAgenda = mt.assignmentMode === 'team_routing' ? null : mt.ownerUserId
   const { rules, exceptions } = await resolveScheduleForType({ id: mt.id, ownerUserId: ownerForAgenda })
   const windowEnd = new Date(Date.now() + mt.bookingWindowDays * 86400000)
@@ -69,7 +210,8 @@ export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts:
   const googleBusyRaw = await getExternalGoogleEvents(ownerForAgenda, new Date(), windowEnd)
   const googleBusy = googleBusyRaw.map((e) => ({ startAt: new Date(e.startAt), endAt: new Date(e.endAt) }))
   const busy = [...bookings, ...blocks, ...googleBusy]
-  return computeSlots({
+  const teamMode = mt.assignmentMode === 'team_routing' && !!mt.teamId
+  const days = computeSlots({
     timezone: mt.timezone,
     durationMin: mt.durationMin,
     slotIncrementMin: mt.slotIncrementMin,
@@ -78,7 +220,9 @@ export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts:
     minNoticeMin: mt.minNoticeMin,
     bookingWindowDays: mt.bookingWindowDays,
     maxPerDay: mt.maxPerDay,
-    visibleSlotsPerDay: mt.visibleSlotsPerDay,
+    // No modo equipe o corte por dia sai depois do cruzamento com as agendas
+    // dos operadores — cortar antes esconderia horários que alguém atende.
+    visibleSlotsPerDay: teamMode ? null : mt.visibleSlotsPerDay,
     rules,
     exceptions: exceptions.map((e) => ({
       date: e.date.toISOString().slice(0, 10), unavailable: e.unavailable, startTime: e.startTime, endTime: e.endTime,
@@ -87,16 +231,64 @@ export async function getMeetingTypeSlots(mt: NonNullable<MeetingTypeRow>, opts:
     fromDate: opts.from,
     toDate: opts.to,
   })
+  if (!teamMode) return days
+
+  // Modo equipe: o slot só sobrevive se ALGUM operador elegível estiver livre
+  // nele. Sem isso o cliente marca 09:00 e o rodízio entrega a quem só atende à
+  // tarde (bug do agente Asafe, 10/08/2026).
+  const { listSchedulableOperators, operatorsOnVacationAt } = await import('./teamRouting.js')
+  // `at: windowEnd` mantém na lista quem volta de férias dentro da janela; a
+  // ausência de cada um é descontada por slot logo abaixo.
+  const horizon = new Date(Date.now() + mt.bookingWindowDays * 86400000)
+  const operatorIds = await listSchedulableOperators(mt.teamId!, horizon)
+  if (operatorIds.length === 0) return []
+  const byOperator = await freeSlotsByOperator(mt, operatorIds, opts)
+  const vacation = new Map<string, Set<number>>()
+  const onVacation = async (startAt: string) => {
+    let set = vacation.get(startAt)
+    if (!set) { set = await operatorsOnVacationAt(operatorIds, new Date(startAt)); vacation.set(startAt, set) }
+    return set
+  }
+  const anyFree = async (startAt: string) => {
+    const ferias = await onVacation(startAt)
+    return operatorIds.some((uid) => !ferias.has(uid) && byOperator.get(uid)?.has(startAt))
+  }
+  const cut = mt.visibleSlotsPerDay
+  const out: DaySlots[] = []
+  for (const d of days) {
+    const keep: typeof d.slots = []
+    for (const s of d.slots) if (await anyFree(s.startAt)) keep.push(s)
+    const slots = cut != null ? keep.slice(0, cut) : keep
+    if (slots.length > 0) out.push({ ...d, slots })
+  }
+  return out
 }
 
 // Valida que o horário escolhido é realmente um slot disponível (anti-tampering
 // e anti-double-booking). Retorna o ISO normalizado do slot ou null.
-export async function validateSlot(mt: NonNullable<MeetingTypeRow>, startAtISO: string): Promise<string | null> {
+export async function validateSlot(
+  mt: NonNullable<MeetingTypeRow>,
+  startAtISO: string,
+  opts: { operatorUserId?: number | null; excludeBookingId?: number | null } = {},
+): Promise<string | null> {
   const target = new Date(startAtISO)
   if (Number.isNaN(target.getTime())) return null
   const days = await getMeetingTypeSlots(mt)
-  for (const d of days) for (const s of d.slots) if (s.startAt === target.toISOString()) return s.startAt
-  return null
+  let hit: string | null = null
+  for (const d of days) for (const s of d.slots) if (s.startAt === target.toISOString()) hit = s.startAt
+  if (!hit) return null
+
+  // Remarcação de reunião que JÁ tem dono: o novo horário também precisa caber
+  // na agenda dele. Sem isso, remarcar valida contra a malha geral do tipo e
+  // empurra a reunião para fora do expediente do operador que vai atender.
+  if (opts.operatorUserId) {
+    const end = new Date(target.getTime() + mt.durationMin * 60000)
+    const { rules, exceptions } = await personalSchedule(opts.operatorUserId)
+    if (!withinRules(target, rules, exceptions, mt.timezone)) return null
+    const busy = await operatorBusy(opts.operatorUserId, target, end, opts.excludeBookingId)
+    if (busy.some((b) => b.startAt < end && target < b.endAt)) return null
+  }
+  return hit
 }
 
 export interface BookInput {
@@ -142,7 +334,46 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   let effectiveTeamId: number | null = mt.defaultTeamId ?? null
   if (mt.assignmentMode === 'team_routing' && mt.teamId) {
     effectiveTeamId = mt.teamId
-    effectiveOperatorId = await pickOperatorForTeam(mt.teamId).catch(() => null)
+    // O rodízio escolhe SÓ entre quem está livre NESTE horário. Antes ele era
+    // chamado sem saber a hora da reunião e podia entregar a quem não atende
+    // àquela hora. Ninguém livre (corrida entre dois clientes no mesmo slot) →
+    // null, e a reunião fica na fila da equipe em vez de cair no agente errado.
+    const livres = await operatorsFreeAt(mt.teamId, startAt, endAt, mt.timezone).catch(() => [] as number[])
+    effectiveOperatorId = await pickOperatorForTeam(mt.teamId, { onlyUserIds: livres }).catch(() => null)
+    if (!effectiveOperatorId && livres.length > 0) {
+      // O rodízio olha presença/horário AGORA. Para uma reunião marcada de
+      // madrugada ou para a semana que vem isso zeraria o pool e a reunião
+      // ficaria órfã — havendo quem atenda NAQUELE horário, entrega ao de
+      // menor carga em vez de mandar para a fila.
+      const { leastLoadedAmong } = await import('./teamRouting.js')
+      effectiveOperatorId = await leastLoadedAmong(livres).catch(() => null)
+      if (effectiveOperatorId) {
+        console.warn(`[scheduling] tipo ${mt.id}: ninguém presente agora; reunião de ${startAt.toISOString()} para o operador ${effectiveOperatorId} (livre no horário, menor carga)`)
+      }
+    }
+    if (!effectiveOperatorId) {
+      console.warn(`[scheduling] tipo ${mt.id}: nenhum operador livre em ${startAt.toISOString()} — reunião na fila da equipe ${mt.teamId}`)
+    }
+  }
+
+  // Trava anti-corrida: entre validar o slot e gravar aqui, outro cliente pode
+  // ter fechado o mesmo horário com o mesmo operador (a validação e a criação
+  // não são atômicas). Reconfere antes de tocar em lead ou reserva e devolve o erro
+  // normal de horário ocupado em vez de deixar dois clientes na mesma hora.
+  if (effectiveOperatorId) {
+    const conflito = await prisma.booking.findFirst({
+      where: {
+        operatorUserId: effectiveOperatorId,
+        status: { notIn: ['cancelled', 'no_show', 'rescheduled'] },
+        startAt: { lt: endAt },
+        endAt: { gt: startAt },
+      },
+      select: { id: true },
+    })
+    if (conflito) {
+      console.warn(`[scheduling] corrida no slot ${startAt.toISOString()} (operador ${effectiveOperatorId}, reserva ${conflito.id} chegou antes)`)
+      return { ok: false, error: 'Esse horário acabou de ser reservado. Escolha outro.' }
+    }
   }
 
   // Dedup: linka lead existente por whatsapp/email; senão cria novo.
@@ -239,6 +470,10 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
           await prisma.leadStageMovement.create({
             data: { leadId, fromFunnelId: prevFunnel, toFunnelId: effFunnelId, fromStageKey: prevStatus ?? null, toStageKey: mt.stageKey, source: 'scheduling' },
           }).catch(() => {})
+          // Agendar é o avanço mais forte que existe aqui: invalida sugestão
+          // pendente que ainda descrevia o lead antes da visita marcada.
+          const { supersedePendingSuggestions } = await import('./stageSuggestions.js')
+          await supersedePendingSuggestions(leadId, 'lead_moved')
         }
       } catch { /* não bloqueia a reserva */ }
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Trash2, Plus } from 'lucide-preact'
+import { Trash2, Plus, CalendarClock } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +12,8 @@ import {
   useAgentSkills, useSaveAgentSkills,
   type WorkingHourEntry, type SkillEntry,
 } from '@/hooks/useRouting'
+import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
+import { useUserAvailability, WEEKDAY_LABELS } from '@/hooks/useScheduling'
 
 const WEEKDAYS = [
   { value: 0, label: 'Domingo' },
@@ -50,6 +52,13 @@ export function AgentEditDrawer({ userId, onClose }: Props) {
   const [hours, setHours] = useState<WorkingHourEntry[]>([])
   const [skills, setSkills] = useState<SkillEntry[]>([])
   const [skillInput, setSkillInput] = useState('')
+  const [availOpen, setAvailOpen] = useState(false)
+
+  // Agenda de reuniões do agente — conceito DIFERENTE do horário de trabalho
+  // acima: aquele decide quando ele recebe leads, este quando o cliente pode
+  // reservar horário com ele. Aqui só o resumo; a edição abre o mesmo modal da
+  // Agenda para não duplicar formulário.
+  const availQuery = useUserAvailability(userId)
 
   // Hidrata form ao abrir
   useEffect(() => {
@@ -346,7 +355,51 @@ export function AgentEditDrawer({ userId, onClose }: Props) {
             </div>
           )}
         </section>
+
+        {/* Disponibilidade para reuniões (agenda do módulo Agenda) */}
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h4 class="text-sm font-semibold">Disponibilidade para reuniões</h4>
+              <p class="text-xs text-fg-muted">
+                Quando o cliente pode <strong>reservar horário</strong> com este agente na Agenda. Não confundir com
+                o horário de trabalho acima, que decide quando ele <strong>recebe leads</strong>.
+              </p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setAvailOpen(true)}>
+              <CalendarClock class="w-4 h-4 mr-1" /> Editar disponibilidade
+            </Button>
+          </div>
+
+          {availQuery.isLoading ? (
+            <Skeleton class="h-12 w-full" />
+          ) : (
+            <div class="text-sm bg-surface-2 border border-border rounded p-3">
+              {summarizeAvailability(availQuery.data?.rules ?? [])}
+              {(availQuery.data?.exceptions?.length ?? 0) > 0 && (
+                <span class="text-fg-muted"> · {availQuery.data?.exceptions.length} exceção(ões)</span>
+              )}
+            </div>
+          )}
+        </section>
       </div>
+
+      {availOpen && (
+        <AvailabilityModal
+          userId={userId}
+          userName={agent?.name ?? agent?.email ?? undefined}
+          onClose={() => setAvailOpen(false)}
+        />
+      )}
     </Modal>
   )
+}
+
+/** Resumo de uma linha das regras semanais: "Seg 09:00–18:00 · Ter 09:00–18:00". */
+function summarizeAvailability(rules: { weekday: number; start: string; end: string }[]): string {
+  if (rules.length === 0) return 'Sem disponibilidade configurada — nenhum horário aparece para o cliente reservar.'
+  const order = [1, 2, 3, 4, 5, 6, 0]
+  return order
+    .flatMap((wd) => rules.filter((r) => r.weekday === wd).map((r) => `${WEEKDAY_LABELS[wd]} ${r.start}–${r.end}`))
+    .join(' · ')
 }
