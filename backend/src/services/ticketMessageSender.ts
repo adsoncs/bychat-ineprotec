@@ -23,6 +23,7 @@
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { broadcastRealtimeEvent } from '../routes/realtime.js'
+import { montarPrefixo } from './operatorIdentity.js'
 
 export interface TicketMessageActor {
   userId: number
@@ -115,10 +116,23 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   let sentCloudConnId: number | null = null
   let sendError: string | null = null
 
+  // Identificação do operador (Configurações › Conversas). Vai na PRIMEIRA linha
+  // porque o WhatsApp não tem cabeçalho de remetente dentro da conversa. Nunca
+  // em nota interna (não chega ao contato) nem em áudio/figurinha/HSM — o
+  // próprio montarPrefixo devolve '' nesses casos.
+  const prefixoOperador = isInternal
+    ? ''
+    : await montarPrefixo({ leadId: lid, mediaType: mType, actorUserId: user.userId }).catch(() => '')
+
   const finalTextBody = (() => {
     const raw = (msgBody || '').trim()
-    if (isInternal || mType !== 'text' || !userSignature) return raw
-    return `${raw}\n\n_-- ${userSignature}_`
+    const comAssinatura = !isInternal && mType === 'text' && userSignature
+      ? `${raw}\n\n_-- ${userSignature}_`
+      : raw
+    // Sem corpo (mídia sem legenda) o prefixo viraria uma legenda só com o nome
+    // — o contato receberia a foto com "*Rafael · Suporte*" embaixo e nada mais.
+    if (!prefixoOperador || !comAssinatura) return comAssinatura
+    return `${prefixoOperador}${comAssinatura}`
   })()
 
   if (!isInternal) {

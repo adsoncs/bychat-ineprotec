@@ -252,6 +252,7 @@ export async function usersRoutes(app: FastifyInstance) {
     if (!user) return { error: 'Usuário não encontrado' }
     return {
       id: user.id, email: user.email, name: user.name, role: user.role,
+      displayName: user.displayName,
       active: user.active, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
       workStatus: user.workStatus,
       workStatusUpdatedAt: user.workStatusUpdatedAt,
@@ -291,7 +292,7 @@ export async function usersRoutes(app: FastifyInstance) {
   // ── PUT /api/admin/me — Editar perfil do usuário logado ──
   app.put('/api/admin/me', { preHandler: authMiddleware }, async (req, reply) => {
     const { userId } = (req as any).user as JwtPayload
-    const { name, email, password, currentPassword, signature } = req.body as any
+    const { name, email, password, currentPassword, signature, displayName } = req.body as any
 
     const user = await prisma.user.findUnique({ where: { id: userId } })
     if (!user) return reply.code(404).send({ error: 'Usuário não encontrado' })
@@ -318,11 +319,14 @@ export async function usersRoutes(app: FastifyInstance) {
     // Reforma F1.6: assinatura personalizada (anexada no fim das mensagens outbound)
     if (signature === null) data.signature = null
     else if (typeof signature === 'string') data.signature = signature.trim().slice(0, 255) || null
+    // Nome que o contato vê quando a identificação está ligada (Conversas).
+    if (displayName === null) data.displayName = null
+    else if (typeof displayName === 'string') data.displayName = displayName.trim().slice(0, 80) || null
 
     if (Object.keys(data).length === 0) return reply.code(400).send({ error: 'Nenhuma alteração enviada' })
 
     const updated = await prisma.user.update({ where: { id: userId }, data })
-    const updatedUser = { id: updated.id, email: updated.email, name: updated.name, role: updated.role }
+    const updatedUser = { id: updated.id, email: updated.email, name: updated.name, role: updated.role, displayName: updated.displayName }
     return updatedUser
   })
 

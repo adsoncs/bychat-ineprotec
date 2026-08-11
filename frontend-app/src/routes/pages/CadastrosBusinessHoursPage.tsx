@@ -1,13 +1,17 @@
 import { Page } from '@/components/ui/Page'
 import { BusinessHoursSettings } from './settings/BusinessHoursSettings'
+import { OperatorIdentitySettings } from './settings/OperatorIdentitySettings'
 
 export function CadastrosBusinessHoursPage() {
   return (
     <Page
       title="Atendimento"
-      description="Defina horários de funcionamento. Chatbots e atendimento usam para regras de resposta automática fora do expediente."
+      description="Defina horários de funcionamento e como o operador se identifica ao contato. Chatbots e atendimento usam essas regras."
     >
-      <BusinessHoursSettings />
+      <div class="space-y-8">
+        <BusinessHoursSettings />
+        <OperatorIdentitySettings />
+      </div>
     </Page>
   )
 }

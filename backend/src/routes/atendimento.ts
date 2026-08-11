@@ -775,6 +775,21 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         ipAddress: getIp(req),
       })
 
+      // Avisa o CONTATO que outra pessoa assumiu (Configurações › Conversas).
+      // Só quando o responsável muda de fato — trocar só o setor não é algo que
+      // o contato precise saber. As demais guardas (conversa aberta, horário de
+      // atendimento, anti-repetição) estão no próprio serviço.
+      if (userChanged && newUserId) {
+        const { notifyAssignmentChange } = await import('../services/operatorIdentity.js')
+        notifyAssignmentChange({
+          leadId: lid,
+          novoUserId: newUserId,
+          novoTeamId: newTeamId,
+          actorUserId: user.userId,
+          actorRole: user.role,
+        }).catch(() => {})
+      }
+
       return { ok: true, lead: updated, reassignedCadenceActivities: reassignedCount }
     } catch (err: any) {
       app.log.error(`Atendimento assign error: ${err.message}`)
@@ -877,6 +892,20 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         byUserName: dbUser?.name || dbUser?.email,
         reason: 'claim',
       })
+
+      // Alguém NOVO assumiu uma conversa que já estava em andamento com outra
+      // pessoa: para o contato, isso é uma transferência. Se o lead estava sem
+      // responsável (fila), o serviço barra pelas guardas dele.
+      if ((lead.assignedUserId ?? null) !== user.userId) {
+        const { notifyAssignmentChange } = await import('../services/operatorIdentity.js')
+        notifyAssignmentChange({
+          leadId: lid,
+          novoUserId: user.userId,
+          novoTeamId: lead.teamId ?? null,
+          actorUserId: user.userId,
+          actorRole: user.role,
+        }).catch(() => {})
+      }
 
       return { ok: true, lead: updated }
     } catch (err: any) {

@@ -192,6 +192,39 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/admin/business-hours/test — envia mensagem fora do horário de teste ──
+  // ── Identificação do operador nas Conversas ────────────────────────────
+  app.get('/api/admin/conversation-identity', { preHandler: adminOnly }, async () => {
+    const { getIdentityConfig } = await import('../services/operatorIdentity.js')
+    return { config: await getIdentityConfig() }
+  })
+
+  app.put('/api/admin/conversation-identity', { preHandler: adminOnly }, async (req) => {
+    const body = (req.body ?? {}) as any
+    const config = {
+      identificarOperador: !!body.identificarOperador,
+      identificarModo: body.identificarModo === 'sempre' ? 'sempre' : 'ao_mudar',
+      incluirSetor: body.incluirSetor !== false,
+      avisarTransferencia: !!body.avisarTransferencia,
+      avisarTransferenciaTexto: typeof body.avisarTransferenciaTexto === 'string' && body.avisarTransferenciaTexto.trim()
+        ? body.avisarTransferenciaTexto.trim().slice(0, 500)
+        : 'Você agora está sendo atendido por {agente}, do setor {setor}.',
+    }
+    await prisma.setting.upsert({
+      where: { key: 'conversation_identity' },
+      create: {
+        key: 'conversation_identity',
+        label: 'Identificação do operador (Conversas)',
+        grp: 'whatsapp',
+        fieldType: 'json',
+        value: config as any,
+      },
+      update: { value: config as any },
+    })
+    const { invalidateIdentityCache } = await import('../services/operatorIdentity.js')
+    invalidateIdentityCache()
+    return { ok: true, config }
+  })
+
   app.post('/api/admin/business-hours/test', { preHandler: adminOnly }, async (req, reply) => {
     const { to } = (req.body ?? {}) as { to?: string }
     if (!to || !/^\d{10,15}$/.test(String(to).replace(/\D/g, ''))) {

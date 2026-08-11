@@ -9,6 +9,8 @@ export interface UpdateProfileInput {
   email?: string
   currentPassword?: string
   password?: string
+  /** Nome que o CONTATO vê quando a identificação do operador está ligada. */
+  displayName?: string
 }
 
 // Backend retorna o user direto (id, email, name, role, ...). Versões antigas

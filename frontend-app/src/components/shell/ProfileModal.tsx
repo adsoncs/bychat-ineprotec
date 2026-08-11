@@ -18,6 +18,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
   const [name, setName] = useState(user?.name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
+  const [displayName, setDisplayName] = useState((user as any)?.displayName ?? '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [msg, setMsg] = useState<Msg>(null)
@@ -41,6 +42,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
       return
     }
     const body: Record<string, string> = { name: trimmedName, email: trimmedEmail }
+    body.displayName = displayName.trim()
     if (currentPassword) body.currentPassword = currentPassword
     if (newPassword) body.password = newPassword
 
@@ -93,6 +95,19 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
           onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
           autoComplete="email"
         />
+        <div>
+          <Input
+            label="Nome de exibição"
+            type="text"
+            placeholder="Como o cliente vê você (ex.: Rafael)"
+            value={displayName}
+            onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
+          />
+          <p class="mt-1 text-xs text-fg-subtle">
+            Aparece nas mensagens quando a identificação do operador está ligada em Cadastros ›
+            Atendimento. Em branco, usa o seu primeiro nome.
+          </p>
+        </div>
         <div class="border-t border-border pt-4 flex flex-col gap-3">
           <div class="text-sm font-medium text-fg">Alterar senha</div>
           <Input
