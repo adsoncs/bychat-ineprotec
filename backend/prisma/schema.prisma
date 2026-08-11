@@ -92,6 +92,7 @@ model User {
   @@index([isAgent])
   scheduledMessagesCreated  ScheduledMessage[] @relation("ScheduledMessageCreator")
   scheduledMessagesCanceled ScheduledMessage[] @relation("ScheduledMessageCanceler")
+  chatImportJobs            ChatImportJob[]    @relation("ChatImportCreator")
 
   @@map("bychat_users")
 }
@@ -1028,6 +1029,7 @@ model Lead {
   @@index([statusSummaryId])
   @@index([statusSummaryId, statusSummaryAt])
   scheduledMessages ScheduledMessage[]
+  chatImportJobs    ChatImportJob[]
 
   @@map("bychat_leads")
 }
@@ -8956,4 +8958,44 @@ model ScheduledMessage {
   @@index([createdByUserId])
   @@index([templateId])
   @@map("bychat_scheduled_messages")
+}
+
+// ── Importação de conversa do aparelho (Evolution/QR) ──────────────────────
+// Uma linha por chat que o operador mandou sincronizar. O progresso mora aqui e
+// não só na fila: importar 7 mil mensagens leva minutos, e o operador precisa
+// saber onde parou mesmo que feche a tela ou o worker reinicie.
+model ChatImportJob {
+  id           Int    @id @default(autoincrement())
+  instanceName String @db.VarChar(120)
+  /// JID do chat na Evolution — pode ser @s.whatsapp.net ou @lid.
+  remoteJid    String @db.VarChar(120)
+  /// Telefone resolvido (em @lid vem de key.remoteJidAlt).
+  telefone     String @db.VarChar(20)
+  nome         String? @db.VarChar(191)
+
+  leadId Int?
+  lead   Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  // pending | running | done | failed | canceled
+  status String @default("pending") @db.VarChar(16)
+
+  totalNaOrigem   Int @default(0) // quantas a Evolution diz que existem
+  importadas      Int @default(0) // criadas agora
+  jaExistiam      Int @default(0) // puladas por já estarem no painel
+  midiasPendentes Int @default(0) // mensagens de mídia sem arquivo baixado (fase 4)
+
+  erro String? @db.Text
+
+  createdByUserId Int?
+  createdBy       User? @relation("ChatImportCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([leadId])
+  @@index([createdByUserId])
+  @@map("bychat_chat_import_jobs")
 }

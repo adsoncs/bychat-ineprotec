@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   MessageSquare,
   Send,
@@ -86,13 +87,16 @@ import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
-import { Clock as ClockIcon, LayoutTemplate } from 'lucide-preact'
+import { Clock as ClockIcon, LayoutTemplate, MessageSquarePlus, Smartphone as SmartphoneIcon } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
 import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
 import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
+import { NewConversationModal } from '@/components/NewConversationModal'
+import { ImportChatsModal } from '@/components/ImportChatsModal'
+import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -263,6 +267,9 @@ export function ConversationsPage() {
   const [promoteSingle, setPromoteSingle] = useState<{ id: number; name?: string | null | undefined } | null>(null)
   const [promoteBulkOpen, setPromoteBulkOpen] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [novaConversaOpen, setNovaConversaOpen] = useState(false)
+  const [importarOpen, setImportarOpen] = useState(false)
+  const qcConversas = useQueryClient()
   const ticketsQ = useTickets({
     bucket, scope,
     search: search || undefined,
@@ -399,9 +406,17 @@ export function ConversationsPage() {
       title="Conversas"
       description="Atendimento ao vivo de leads via WhatsApp."
       actions={
-        <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
-          <HelpCircle size={14} /> Como funciona?
-        </Button>
+        <>
+          <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
+            <HelpCircle size={14} /> Como funciona?
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setImportarOpen(true)}>
+            <SmartphoneIcon size={14} /> Importar do celular
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setNovaConversaOpen(true)}>
+            <MessageSquarePlus size={14} /> Nova conversa
+          </Button>
+        </>
       }
     >
       <div class="flex gap-3 h-[calc(100dvh-12rem)] min-h-[36rem]">
@@ -641,6 +656,19 @@ export function ConversationsPage() {
           </aside>
         )}
       </div>
+
+      <ImportChatsModal open={importarOpen} onOpenChange={setImportarOpen} />
+
+      <NewConversationModal
+        open={novaConversaOpen}
+        onOpenChange={setNovaConversaOpen}
+        onAberta={(leadId) => {
+          // Recarrega a lista e já abre a conversa — o operador criou para falar
+          // agora, não para procurar o contato na lista depois.
+          void qcConversas.invalidateQueries({ queryKey: ['tickets'] })
+          setSelected(leadId)
+        }}
+      />
 
       <HowItWorksModal
         open={showHowItWorks}
@@ -1522,6 +1550,7 @@ function ChatPanel({
       {/* Composer */}
       {!isResolved ? (
         <div class="border-t border-border">
+          <PendingMediaBar leadId={leadId} />
           <ScheduledMessagesBar leadId={leadId} />
           {quotedMsg && (
             <div class="px-3 pt-2">

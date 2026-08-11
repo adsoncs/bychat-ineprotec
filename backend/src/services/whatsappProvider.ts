@@ -177,6 +177,36 @@ export class EvolutionProvider implements WhatsAppProvider {
     }))
   }
 
+  /**
+   * Conversas que a instância tem (as do aparelho pareado). Base da importação
+   * de histórico — a Cloud API não tem equivalente, a Meta não expõe conversa
+   * anterior à conexão.
+   */
+  async findChats(): Promise<any[]> {
+    const data = await this.evoFetch(`/chat/findChats/${this.instanceName}`, 'POST', {})
+    return Array.isArray(data) ? data : (data?.chats ?? data?.data ?? [])
+  }
+
+  /** Agenda de contatos da instância. */
+  async findContacts(): Promise<any[]> {
+    const data = await this.evoFetch(`/chat/findContacts/${this.instanceName}`, 'POST', {})
+    return Array.isArray(data) ? data : (data?.contacts ?? data?.records ?? [])
+  }
+
+  /** Mensagens de uma conversa, paginadas (a Evolution devolve 50 por página). */
+  async findMessages(remoteJid: string, page = 1): Promise<{ registros: any[]; total: number; paginas: number }> {
+    const data = await this.evoFetch(`/chat/findMessages/${this.instanceName}`, 'POST', {
+      where: { key: { remoteJid } },
+      page,
+    })
+    const env = data?.messages ?? data
+    return {
+      registros: env?.records ?? (Array.isArray(env) ? env : []),
+      total: Number(env?.total ?? 0),
+      paginas: Number(env?.pages ?? 1),
+    }
+  }
+
   /** Estado da conexão da instância (`open`, `close`, `connecting`). */
   async connectionState(): Promise<string> {
     const data = await this.evoFetch(`/instance/connectionState/${this.instanceName}`)
