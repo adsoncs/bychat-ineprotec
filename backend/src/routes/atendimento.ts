@@ -434,7 +434,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
       if (!await assertTicketAccess(req, reply, lid)) return
-      const { body: msgBody, mediaType, mediaUrl, mediaName, isInternal, quotedMsgId, channelId, template } = req.body as any
+      const { body: msgBody, mediaType, mediaUrl, mediaName, isInternal, quotedMsgId, channelId, template, continuacao } = req.body as any
       const jwtUser = (req as any).user
 
       // O envio em si vive em services/ticketMessageSender.ts — o MESMO ponto que
@@ -453,6 +453,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         template,
         actor: { userId: jwtUser.userId, role: jwtUser.role, name: jwtUser.name, email: jwtUser.email },
         origin: 'panel',
+        continuacao: !!continuacao,
         operatorMeta: getOperator(req),
         ipAddress: getIp(req),
         log: { info: (m: string) => app.log.info(m), error: (m: string) => app.log.error(m) },

@@ -577,6 +577,26 @@ function WhatsAppEditor({
     })
   }
 
+  /**
+   * Quebra em duas mensagens. Serve para isolar o que o cliente precisa copiar
+   * inteiro — código PIX, cupom, chave: no WhatsApp, copiar traz a mensagem
+   * toda, então o código no meio do texto obriga a selecionar o trecho na mão.
+   */
+  function insertQuebra() {
+    const ta = taRef.current
+    const token = '\n[[quebra]]\n'
+    if (!ta) { setBody(body + token); return }
+    const start = ta.selectionStart ?? body.length
+    const end = ta.selectionEnd ?? body.length
+    const next = body.slice(0, start) + token + body.slice(end)
+    setBody(next)
+    requestAnimationFrame(() => {
+      ta.focus()
+      const pos = start + token.length
+      ta.setSelectionRange(pos, pos)
+    })
+  }
+
   function insertVar(k: string) {
     const ta = taRef.current
     const token = `{{${k}}}`
@@ -599,6 +619,14 @@ function WhatsAppEditor({
         <WaToolBtn title="Itálico" onClick={() => wrapSelection('_')}><Italic size={14} /></WaToolBtn>
         <WaToolBtn title="Tachado" onClick={() => wrapSelection('~')}><Strikethrough size={14} /></WaToolBtn>
         <WaToolBtn title="Monoespaçado" onClick={() => wrapSelection('```')}><Code size={14} /></WaToolBtn>
+        <button
+          type="button"
+          onClick={insertQuebra}
+          title="Quebrar em duas mensagens — isola um código que o cliente vai copiar (PIX, cupom)"
+          class="inline-flex h-5 items-center rounded border border-border px-2 text-[0.625rem] text-fg-muted hover:bg-surface-3 hover:text-fg"
+        >
+          nova mensagem
+        </button>
         <span class="w-px h-4 bg-border mx-0.5" />
         <span class="text-[0.625rem] text-fg-subtle uppercase tracking-wide ml-1">Variáveis:</span>
         {varKeys.map((k) => (

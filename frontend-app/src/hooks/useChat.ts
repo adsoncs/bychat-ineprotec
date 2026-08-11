@@ -153,6 +153,8 @@ export interface SendMessageInput {
   channelId?: string | undefined
   /** Template HSM (Cloud API) — usado quando mediaType === 'template' */
   template?: { name: string; language: string; components?: unknown[] } | undefined
+  /** 2ª mensagem em diante de um envio quebrado: não leva nome do operador. */
+  continuacao?: boolean | undefined
 }
 
 // ─── Canais de envio (multi-canal: Evolution + Cloud API) ──

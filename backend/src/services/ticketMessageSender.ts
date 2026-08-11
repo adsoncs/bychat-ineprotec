@@ -46,6 +46,14 @@ export interface SendTicketMessageInput {
   actor: TicketMessageActor
   /** 'panel' = operador digitou agora · 'scheduled' = disparo agendado. */
   origin?: 'panel' | 'scheduled'
+  /**
+   * Continuação de uma sequência (a 2ª mensagem em diante de um envio quebrado).
+   * Não leva a identificação do operador: essas mensagens costumam existir para
+   * isolar algo que o cliente vai COPIAR — código PIX, cupom —, e um "*Rafael ·
+   * Suporte*" na frente iria junto na cópia, quebrando justamente o motivo de
+   * ter separado.
+   */
+  continuacao?: boolean
   /** Auditoria: vem de getOperator(req)/getIp(req) na rota; ausente no agendado. */
   operatorMeta?: Record<string, unknown>
   ipAddress?: string | null
@@ -58,10 +66,33 @@ export type SendTicketMessageResult =
 
 const noopLog = { info: () => {}, error: () => {} }
 
+/**
+ * A mensagem é só um código para o cliente copiar?
+ *
+ * Rede de segurança do prefixo do operador: mesmo fora de uma sequência (o
+ * operador colou o PIX sozinho no compositor), identificar quem falou colaria
+ * o nome dentro do que vai ser copiado. Reconhece BR Code do PIX pelo formato
+ * — começa com o payload EMV e fecha com CRC válido.
+ */
+export function ehCodigoCopiavel(body?: string | null): boolean {
+  const t = (body || '').trim()
+  // Só rejeita QUEBRA DE LINHA: o BR Code tem espaço no nome do beneficiário
+  // ("ADSON CONCEICAO SANTOS"), então barrar espaço rejeitava o próprio PIX.
+  if (!t || /[\n\r]/.test(t)) return false
+  if (!/^000201/.test(t) || t.length < 60) return false
+  const corpo = t.slice(0, -4)
+  let crc = 0xffff
+  for (let i = 0; i < corpo.length; i++) {
+    crc ^= corpo.charCodeAt(i) << 8
+    for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0') === t.slice(-4).toUpperCase()
+}
+
 export async function sendTicketMessage(input: SendTicketMessageInput): Promise<SendTicketMessageResult> {
   const {
     leadId: lid, mediaUrl, mediaName, isInternal, channelId, template,
-    actor, origin = 'panel', operatorMeta, ipAddress, log = noopLog,
+    actor, origin = 'panel', operatorMeta, ipAddress, log = noopLog, continuacao,
   } = input
   const msgBody = input.body
   const mType = input.mediaType || 'text'
@@ -120,7 +151,7 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   // porque o WhatsApp não tem cabeçalho de remetente dentro da conversa. Nunca
   // em nota interna (não chega ao contato) nem em áudio/figurinha/HSM — o
   // próprio montarPrefixo devolve '' nesses casos.
-  const prefixoOperador = isInternal
+  const prefixoOperador = isInternal || continuacao || ehCodigoCopiavel(msgBody)
     ? ''
     : await montarPrefixo({ leadId: lid, mediaType: mType, actorUserId: user.userId }).catch(() => '')
 

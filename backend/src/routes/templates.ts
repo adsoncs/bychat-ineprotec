@@ -161,12 +161,15 @@ export async function templatesRoutes(app: FastifyInstance) {
     const template = await prisma.messageTemplate.findUnique({ where: { id: parseInt(id) } })
     if (!template) return reply.code(404).send({ error: 'Template nao encontrado' })
 
-    let vars: Record<string, string> = {}
+    // Dados da NOSSA empresa (endereço, mapa, PIX). Ficam disponíveis mesmo sem
+    // lead: um modelo de "onde ficamos" não depende de quem vai receber.
+    const { buildCompanyVars } = await import('../services/companyIdentity.js')
+    let vars: Record<string, string> = await buildCompanyVars().catch(() => ({}))
     if (leadId) {
       const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } })
       if (lead) {
         const user = (req as any).user
-        vars = buildLeadVars(lead, user?.email)
+        vars = { ...vars, ...buildLeadVars(lead, user?.email) }
       }
     }
 

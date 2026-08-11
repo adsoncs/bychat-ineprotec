@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
+import { CompanyIdentitySettings } from './CompanyIdentitySettings'
 import {
   useCompanySettings, useUpdateCompanySettings, useWhatsAppGroups,
   type CompanyConfig, type WhatsAppGroup,
@@ -313,6 +314,8 @@ export function CompanySettings() {
           toast(`Grupo "${g.subject}" adicionado — clique em Salvar`, 'success')
         }}
       />
+
+      <CompanyIdentitySettings />
     </div>
   )
 }

@@ -1055,9 +1055,45 @@ function ChatPanel({
   // travado ou não (superadmin).
   const mustPickChannel = !isInternalNote && conversationChannelId === null && channels.length >= 2 && !channelId
 
+  /**
+   * Marcador de quebra: o texto vira MAIS DE UMA mensagem no WhatsApp.
+   *
+   * Existe por um motivo específico: no WhatsApp, copiar uma mensagem copia ela
+   * inteira. Um código PIX no meio de um texto explicativo obriga o cliente a
+   * selecionar o trecho na mão — que é exatamente o trabalho que a gente queria
+   * poupar. Isolado na própria mensagem, "copiar" traz só o código.
+   */
+  const MARCA_QUEBRA = /^\s*\[\[quebra\]\]\s*$/im
+
   function handleSend() {
     const body = draft.trim()
     if (!body && !pendingFile && !pendingTplAttachment) return
+
+    // Várias mensagens: envia em sequência, e a mídia (se houver) vai só na
+    // última — senão o anexo apareceria antes do texto que o explica.
+    const partes = body.split(/^\s*\[\[quebra\]\]\s*$/im).map((p) => p.trim()).filter(Boolean)
+    if (partes.length > 1 && !isInternalNote) {
+      void (async () => {
+        for (const [i, parte] of partes.entries()) {
+          try {
+            await send.mutateAsync({
+              body: parte,
+              quotedMsgId: undefined,
+              // Só a primeira leva a identificação do operador: da segunda em
+              // diante a mensagem existe para ser copiada inteira pelo cliente.
+              ...(i > 0 ? { continuacao: true } : {}),
+              ...(channelId ? { channelId } : {}),
+            })
+          } catch (e) {
+            toast((e as Error).message, 'danger')
+            return
+          }
+        }
+        setDraft('')
+        setQuotedMsg(null)
+      })()
+      return
+    }
     if (mustPickChannel) {
       toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
       return

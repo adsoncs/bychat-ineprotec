@@ -192,6 +192,81 @@ export async function settingsRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/admin/business-hours/test — envia mensagem fora do horário de teste ──
+  // ── Identidade da empresa: endereço, mapa e PIX ────────────────────────
+  app.get('/api/admin/company-identity', { preHandler: adminOnly }, async () => {
+    const { getCompanyIdentity, pixCopiaECola, enderecoEmLinha } = await import('../services/companyIdentity.js')
+    const dados = await getCompanyIdentity()
+    return {
+      dados,
+      // Já devolve pronto: a tela mostra o copia e cola e o QR sem recalcular.
+      pixCopiaECola: await pixCopiaECola(),
+      enderecoLinha: enderecoEmLinha(dados),
+    }
+  })
+
+  app.put('/api/admin/company-identity', { preHandler: adminOnly }, async (req, reply) => {
+    const b = (req.body ?? {}) as any
+    const tipos = ['cpf', 'cnpj', 'email', 'telefone', 'aleatoria']
+    const num = (v: unknown) => {
+      const n = Number(v)
+      return Number.isFinite(n) && n !== 0 ? n : null
+    }
+    const value = {
+      endereco: String(b.endereco ?? '').slice(0, 255),
+      cidade: String(b.cidade ?? '').slice(0, 120),
+      estado: String(b.estado ?? '').slice(0, 2).toUpperCase(),
+      cep: String(b.cep ?? '').slice(0, 12),
+      latitude: num(b.latitude),
+      longitude: num(b.longitude),
+      mapaUrl: String(b.mapaUrl ?? '').slice(0, 500),
+      pixChave: String(b.pixChave ?? '').trim().slice(0, 191),
+      pixTipo: tipos.includes(b.pixTipo) ? b.pixTipo : 'cnpj',
+      pixBeneficiario: String(b.pixBeneficiario ?? '').slice(0, 120),
+      pixCidade: String(b.pixCidade ?? '').slice(0, 120),
+      pixBanco: String(b.pixBanco ?? '').slice(0, 120),
+    }
+
+    // Valida a chave gerando o código: chave inválida só apareceria quando o
+    // cliente tentasse pagar, e aí o estrago já está feito.
+    if (value.pixChave) {
+      try {
+        const { gerarPixCopiaECola, validarBrCode } = await import('../lib/pixBrCode.js')
+        const cod = gerarPixCopiaECola({
+          chave: value.pixChave, tipo: value.pixTipo as any,
+          beneficiario: value.pixBeneficiario, cidade: value.pixCidade || value.cidade,
+        })
+        if (!validarBrCode(cod)) throw new Error('código inválido')
+      } catch {
+        return reply.code(400).send({ error: 'Não foi possível gerar o PIX com esta chave. Confira o tipo e o valor informados.' })
+      }
+    }
+
+    await prisma.setting.upsert({
+      where: { key: 'company_identity' },
+      create: { key: 'company_identity', label: 'Identidade da empresa', grp: 'company', fieldType: 'json', value: value as any },
+      update: { value: value as any },
+    })
+    const { invalidateCompanyIdentityCache, pixCopiaECola } = await import('../services/companyIdentity.js')
+    invalidateCompanyIdentityCache()
+    return { ok: true, dados: value, pixCopiaECola: await pixCopiaECola() }
+  })
+
+  // GET /api/admin/company-identity/pix-qrcode.png — o mesmo código, em imagem.
+  // Copia e cola e QR são o MESMO payload: um para colar no banco, outro para
+  // apontar a câmera.
+  app.get('/api/admin/company-identity/pix-qrcode.png', { preHandler: adminOnly }, async (req, reply) => {
+    const { size, valor } = req.query as { size?: string; valor?: string }
+    const px = Math.min(Math.max(parseInt(size || '320', 10) || 320, 120), 1024)
+    const { pixCopiaECola } = await import('../services/companyIdentity.js')
+    const codigo = await pixCopiaECola({ valor: valor ? Number(valor) : null })
+    if (!codigo) return reply.code(404).send({ error: 'PIX não configurado' })
+    const QRCode = (await import('qrcode')).default
+    const buf = await QRCode.toBuffer(codigo, { type: 'png', width: px, margin: 2, errorCorrectionLevel: 'M' })
+    reply.header('Content-Type', 'image/png')
+    reply.header('Cache-Control', 'no-store')
+    return reply.send(buf)
+  })
+
   // ── Identificação do operador nas Conversas ────────────────────────────
   app.get('/api/admin/conversation-identity', { preHandler: adminOnly }, async () => {
     const { getIdentityConfig } = await import('../services/operatorIdentity.js')
