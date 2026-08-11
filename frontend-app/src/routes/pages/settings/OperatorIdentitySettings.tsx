@@ -12,6 +12,7 @@ interface IdentityConfig {
   identificarModo: 'sempre' | 'ao_mudar'
   incluirSetor: boolean
   avisarTransferencia: boolean
+  avisarTransferenciaModo: 'agente' | 'agente_setor' | 'setor'
   avisarTransferenciaTexto: string
 }
 
@@ -20,7 +21,37 @@ const PADRAO: IdentityConfig = {
   identificarModo: 'ao_mudar',
   incluirSetor: true,
   avisarTransferencia: false,
-  avisarTransferenciaTexto: 'Você agora está sendo atendido por {agente}, do setor {setor}.',
+  avisarTransferenciaModo: 'agente_setor',
+  avisarTransferenciaTexto: '{quem} vai continuar o seu atendimento a partir de agora. Todo o histórico da conversa já foi repassado.',
+}
+
+/**
+ * Preview do aviso com dados de exemplo.
+ *
+ * Espelha a mesma lógica do servidor (montarTextoAviso): o cliente precisa ver o
+ * resultado ANTES de salvar — texto de transferência errado só aparece na frente
+ * do contato, quando já é tarde.
+ */
+function previewAviso(cfg: IdentityConfig): string {
+  const agente = 'Rafael'
+  const setor = 'Suporte'
+  const quem = cfg.avisarTransferenciaModo === 'setor'
+    ? `A equipe de ${setor}`
+    : cfg.avisarTransferenciaModo === 'agente'
+      ? agente
+      : `${agente}, da equipe ${setor},`
+  let t = (cfg.avisarTransferenciaTexto || '').replace(/\{quem\}/g, quem)
+  t = t.replace(/\{agente\}/g, cfg.avisarTransferenciaModo === 'setor' ? `a equipe de ${setor}` : agente)
+  if (cfg.avisarTransferenciaModo === 'agente') {
+    t = t
+      .replace(/,[^,]*\{setor\}[^,]*,/gi, ' ')
+      .replace(/[,\s]*\(\s*\{setor\}\s*\)/gi, '')
+      .replace(/[,\s]*\b(d[aoe]s?|no|na)\s+(equipe|setor|time|departamento)\s+\{setor\}/gi, '')
+      .replace(/\{setor\}/g, '')
+  } else {
+    t = t.replace(/\{setor\}/g, setor)
+  }
+  return t.replace(/\s{2,}/g, ' ').replace(/\s+([,.;!?])/g, '$1').replace(/[\s,;:—–-]+$/g, '').trim()
 }
 
 function useIdentity() {
@@ -146,6 +177,23 @@ export function OperatorIdentitySettings() {
 
         {cfg.avisarTransferencia && (
           <div class="mt-4 border-l-2 border-border pl-4">
+            <label class="mb-1 block text-sm font-medium">Como identificar quem assumiu</label>
+            <Select
+              value={cfg.avisarTransferenciaModo}
+              onChange={(e) => setCfg({ ...cfg, avisarTransferenciaModo: (e.target as HTMLSelectElement).value as IdentityConfig['avisarTransferenciaModo'] })}
+            >
+              <option value="agente">Só o nome de quem vai atender</option>
+              <option value="agente_setor">Nome e equipe</option>
+              <option value="setor">Só a equipe (sem expor o nome)</option>
+            </Select>
+            <p class="mb-3 mt-1 text-xs text-fg-subtle">
+              {cfg.avisarTransferenciaModo === 'setor'
+                ? 'Nenhum nome de operador é enviado ao contato — útil em operação com muita gente ou quando a relação é com a empresa, não com a pessoa.'
+                : cfg.avisarTransferenciaModo === 'agente'
+                  ? 'A equipe não é mencionada. Bom para consultório e atendimento consultivo, onde a relação é com a pessoa.'
+                  : 'Nome e equipe juntos. Se o operador não estiver em equipe nenhuma, sai só o nome.'}
+            </p>
+
             <label class="mb-1 block text-sm font-medium">Texto do aviso</label>
             <Textarea
               rows={2}
@@ -153,9 +201,36 @@ export function OperatorIdentitySettings() {
               onInput={(e) => setCfg({ ...cfg, avisarTransferenciaTexto: (e.target as HTMLTextAreaElement).value })}
             />
             <p class="mt-1 text-xs text-fg-subtle">
-              Use <code>{'{agente}'}</code> e <code>{'{setor}'}</code>. Quando o operador não tem
-              setor, o trecho do setor sai da frase automaticamente.
+              <code>{'{quem}'}</code> preenche conforme a opção acima. Para controle fino, use
+              <code>{' {agente}'}</code> e <code>{'{setor}'}</code> — quando o operador não tem
+              equipe, o trecho do setor sai da frase sem deixar vírgula solta.
             </p>
+
+            <div class="mt-3 rounded-md border border-border bg-surface-2 p-3">
+              <div class="mb-1 text-xs uppercase tracking-wider text-fg-subtle">Como o contato vê</div>
+              <div class="rounded-md bg-surface p-3 text-sm">{previewAviso(cfg)}</div>
+            </div>
+
+            <div class="mt-2">
+              <div class="mb-1 text-xs text-fg-subtle">Sugestões:</div>
+              <div class="flex flex-wrap gap-1.5">
+                {[
+                  ['Padrão', '{quem} vai continuar o seu atendimento a partir de agora. Todo o histórico da conversa já foi repassado.'],
+                  ['Curto', 'A partir de agora, quem continua o seu atendimento é {quem}.'],
+                  ['Formal', 'Informamos que o seu atendimento foi transferido para {quem}. Todo o histórico da conversa já está disponível.'],
+                  ['Cordial', 'A partir de agora {quem} segue com você por aqui — já passamos tudo o que conversamos até agora.'],
+                ].map(([nome, txt]) => (
+                  <button
+                    key={nome}
+                    type="button"
+                    class="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+                    onClick={() => setCfg({ ...cfg, avisarTransferenciaTexto: txt! })}
+                  >
+                    {nome}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </section>

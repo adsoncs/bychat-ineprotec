@@ -25,7 +25,13 @@ export interface ConversationIdentityConfig {
   incluirSetor: boolean
   /** Avisar o contato quando a conversa passa para outra pessoa/setor. */
   avisarTransferencia: boolean
-  /** Texto do aviso. Variáveis: {agente} {setor}. */
+  /**
+   * O que o contato vê na transferência: só a pessoa, a pessoa com a equipe, ou
+   * só a equipe. Empresa que não quer expor o nome de quem atende usa 'setor';
+   * consultório onde a relação é com a pessoa usa 'agente'.
+   */
+  avisarTransferenciaModo: 'agente' | 'agente_setor' | 'setor'
+  /** Texto do aviso. Variáveis: {quem} (resolve pelo modo), {agente}, {setor}. */
   avisarTransferenciaTexto: string
 }
 
@@ -33,8 +39,14 @@ const PADRAO: ConversationIdentityConfig = {
   identificarOperador: false,
   identificarModo: 'ao_mudar',
   incluirSetor: true,
+  // Desligado de fábrica: aviso ao contato é decisão de cada operação, não algo
+  // que deva começar a sair sozinho numa atualização.
   avisarTransferencia: false,
-  avisarTransferenciaTexto: 'Você agora está sendo atendido por {agente}, do setor {setor}.',
+  // Neutro de propósito: serve a clínica, escola, loja, escritório e B2B sem
+  // soar deslocado. E diz que o histórico foi repassado — a dor de quem é
+  // transferido é ter de explicar tudo de novo.
+  avisarTransferenciaModo: 'agente_setor',
+  avisarTransferenciaTexto: '{quem} vai continuar o seu atendimento a partir de agora. Todo o histórico da conversa já foi repassado.',
 }
 
 const CACHE_TTL_MS = 60_000
@@ -134,6 +146,52 @@ export async function montarPrefixo(opts: {
   return setor ? `*${nome} · ${setor}*\n` : `*${nome}*\n`
 }
 
+/**
+ * Monta o texto do aviso.
+ *
+ * Operador sem setor é comum (empresa pequena, agente fora de equipe), e nesse
+ * caso o trecho do setor precisa sumir INTEIRO — não só a variável. Trocar
+ * apenas `{setor}` por vazio deixaria "Rafael, da equipe , vai continuar…".
+ * Por isso a limpeza remove a preposição junto, em qualquer redação que o
+ * cliente escreva ("do setor", "da equipe", "do time", "(setor)").
+ */
+export function montarTextoAviso(
+  modelo: string,
+  agente: string,
+  setor: string | null,
+  modo: 'agente' | 'agente_setor' | 'setor' = 'agente_setor',
+): string {
+  // {quem} resolve pelo modo escolhido — um texto só atende os três formatos,
+  // em vez de obrigar a empresa a reescrever a frase para tirar o nome ou a
+  // equipe. Quem quiser controle fino continua usando {agente} e {setor}.
+  const quem = modo === 'setor'
+    ? (setor ? `A equipe de ${setor}` : agente)
+    : modo === 'agente' || !setor
+      ? agente
+      : `${agente}, da equipe ${setor},`
+  let t = (modelo || '').replace(/\{quem\}/g, quem)
+
+  // No modo 'setor' o nome não pode vazar por um {agente} escrito à mão.
+  t = t.replace(/\{agente\}/g, modo === 'setor' ? (setor ? `a equipe de ${setor}` : agente) : agente)
+  if (setor && modo !== 'agente') return t.replace(/\{setor\}/g, setor)
+
+  t = t
+    // Aposto entre vírgulas ("Rafael, da equipe X, vai…"): tira as DUAS, senão
+    // sobra "Rafael, vai…".
+    .replace(/,[^,]*\{setor\}[^,]*,/gi, ' ')
+    .replace(/[,\s]*\(\s*\{setor\}\s*\)/gi, '')
+    .replace(/[,\s]*\b(d[aoe]s?|no|na)\s+(equipe|setor|time|departamento|área|area)\s+\{setor\}/gi, '')
+    .replace(/[,\s]*\b(equipe|setor|time|departamento)\s+\{setor\}/gi, '')
+    .replace(/\{setor\}/g, '')
+  return t
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    // Conector que ficou pendurado no fim ("… para Rafael —").
+    .replace(/[\s,;:—–-]+$/g, '')
+    .trim()
+}
+
 // ── Aviso de transferência ─────────────────────────────────────────────────
 
 /** Não repete o aviso na mesma conversa dentro desta janela. Protege contra a
@@ -206,11 +264,7 @@ export async function notifyAssignmentChange(opts: {
 
     const setor = await setorDoOperador(opts.novoUserId, opts.novoTeamId)
 
-    // Sem setor, a frase padrão ficaria "…, do setor ." — tira o pedaço inteiro.
-    let texto = cfg.avisarTransferenciaTexto.replace(/\{agente\}/g, nomeExibicao(novo))
-    texto = setor
-      ? texto.replace(/\{setor\}/g, setor)
-      : texto.replace(/,?\s*do setor \{setor\}/gi, '').replace(/\{setor\}/g, '')
+    const texto = montarTextoAviso(cfg.avisarTransferenciaTexto, nomeExibicao(novo), setor, cfg.avisarTransferenciaModo)
 
     const { sendTicketMessage } = await import('./ticketMessageSender.js')
     const r = await sendTicketMessage({

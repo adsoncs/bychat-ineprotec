@@ -180,6 +180,33 @@ export async function transferRequestsRoutes(app: FastifyInstance) {
         ipAddress: getIp(req),
       })
 
+      // Aviso ao contato: para ELE, o pedido aceito é a transferência de fato
+
+      // acontecendo. As guardas (conversa aberta, horário de atendimento,
+
+      // anti-repetição) estão no próprio serviço.
+
+      {
+
+        const { notifyAssignmentChange } = await import('../services/operatorIdentity.js')
+
+        notifyAssignmentChange({
+
+          leadId: r.leadId,
+
+          novoUserId: r.toUserId,
+
+          novoTeamId: null,
+
+          actorUserId: user.userId,
+
+          actorRole: user.role,
+
+        }).catch(() => {})
+
+      }
+
+
       return { ok: true, reassignedCadenceActivities: reassignedCount }
     },
   )

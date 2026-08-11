@@ -280,9 +280,12 @@ export async function settingsRoutes(app: FastifyInstance) {
       identificarModo: body.identificarModo === 'sempre' ? 'sempre' : 'ao_mudar',
       incluirSetor: body.incluirSetor !== false,
       avisarTransferencia: !!body.avisarTransferencia,
+      avisarTransferenciaModo: ['agente', 'agente_setor', 'setor'].includes(body.avisarTransferenciaModo)
+        ? body.avisarTransferenciaModo
+        : 'agente_setor',
       avisarTransferenciaTexto: typeof body.avisarTransferenciaTexto === 'string' && body.avisarTransferenciaTexto.trim()
         ? body.avisarTransferenciaTexto.trim().slice(0, 500)
-        : 'Você agora está sendo atendido por {agente}, do setor {setor}.',
+        : '{quem} vai continuar o seu atendimento a partir de agora. Todo o histórico da conversa já foi repassado.',
     }
     await prisma.setting.upsert({
       where: { key: 'conversation_identity' },

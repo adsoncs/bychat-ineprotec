@@ -628,6 +628,20 @@ export async function supervisionRoutes(app: FastifyInstance) {
           await reassignPendingCadenceActivities(id, newUserId).catch(() => 0)
         }
 
+        // Aviso ao contato — mesma regra do Conversas. Em lote isso poderia virar
+        // rajada, mas o serviço só avisa uma vez por conversa a cada 10 minutos e
+        // ignora quem ainda não recebeu mensagem humana.
+        if (newUserId) {
+          const { notifyAssignmentChange } = await import('../services/operatorIdentity.js')
+          notifyAssignmentChange({
+            leadId: id,
+            novoUserId: newUserId,
+            novoTeamId: newTeamId ?? prev.teamId ?? null,
+            actorUserId: (req as any).user.userId,
+            actorRole: (req as any).user.role,
+          }).catch(() => {})
+        }
+
         logEvent({
           leadId: id,
           type: EVENT_TYPES.OPERATOR_ASSIGNED,
