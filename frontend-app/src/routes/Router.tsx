@@ -23,9 +23,12 @@ const HomeScreenPage = lazy(() =>
 )
 
 const migratedPages: Record<string, ComponentType> = {
-  dashboard: lazy(() =>
-    import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })),
-  ),
+  // "Visão Geral" da sidebar (/dashboard) entra pela MESMA porta que a raiz: a
+  // Tela Inicial do papel/usuário. Sem tela atribuída, a HomeScreenPage já cai
+  // na OverviewPage — então quem não configurou nada continua vendo o dashboard
+  // de fábrica. Antes esta rota renderizava a OverviewPage direto, e configurar
+  // a Tela Inicial não surtia efeito nenhum para quem chegava pelo menu.
+  dashboard: HomeScreenPage,
   analytics: lazy(() =>
     import('./pages/DashboardPage').then((m) => ({ default: m.AnalyticsPage })),
   ),
