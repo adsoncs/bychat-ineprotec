@@ -10,6 +10,7 @@ import {
   type MessageTemplateItem,
   type TemplateInput,
 } from '@/hooks/useTemplates'
+import { TemplateAttachmentField, type TemplateAttachment } from '@/components/TemplateAttachmentField'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -278,6 +279,11 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const [bodyHtml, setBodyHtml] = useState(decodeHtmlIfEscaped(template?.bodyHtml ?? ''))
   // Atalho do Conversas: normaliza p/ minúsculo, sem "/", só [a-z0-9_-].
   const [shortcut, setShortcut] = useState(template?.shortcut ?? '')
+  const [anexo, setAnexo] = useState<TemplateAttachment | null>(
+    template?.attachmentUrl
+      ? { url: template.attachmentUrl, name: template.attachmentName || 'arquivo', type: template.attachmentType || 'document' }
+      : null,
+  )
   const create = useCreateTemplate()
   const update = useUpdateTemplate()
   const { data: variables } = useTemplateVariables()
@@ -302,6 +308,9 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       body: finalBody,
       bodyHtml: channel === 'email' && cleanHtml.trim() ? cleanHtml.trim() : null,
       shortcut: shortcut.trim() || null,
+      attachmentUrl: anexo?.url ?? null,
+      attachmentName: anexo?.name ?? null,
+      attachmentType: anexo?.type ?? null,
     }
     const onSuccess = () => { toast(isEdit ? 'Modelo atualizado' : 'Modelo criado', 'success'); onClose() }
     const onError = (e: unknown) => toast((e as Error).message, 'danger')
@@ -338,13 +347,24 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
         <Select label="Categoria" value={category ?? 'general'} onChange={(e) => setCategory((e.target as HTMLSelectElement).value)}>
           {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c] ?? c}</option>)}
         </Select>
-        <Input
-          label="Atalho no chat"
-          value={shortcut}
-          placeholder="Ex: doc → digite /doc"
-          hint="No Conversas, digite / para ver os atalhos."
-          onInput={(e) => setShortcut((e.target as HTMLInputElement).value.replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-        />
+        <div>
+          <Input
+            label="Atalho no chat"
+            value={shortcut}
+            placeholder="Ex: doc → digite /doc"
+            hint="No Conversas, digite / para ver os atalhos."
+            onInput={(e) => setShortcut((e.target as HTMLInputElement).value.replace(/^\//, '').toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+          />
+          {!shortcut.trim() && sugestaoAtalho(name) && (
+            <button
+              type="button"
+              class="mt-1 text-xs text-accent hover:underline"
+              onClick={() => setShortcut(sugestaoAtalho(name))}
+            >
+              Usar /{sugestaoAtalho(name)}
+            </button>
+          )}
+        </div>
       </div>
 
       {channel === 'email' ? (
@@ -361,8 +381,24 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       ) : (
         <ChatPanel kind="sms" body={body} setBody={setBody} varKeys={varKeys} />
       )}
+
+      <TemplateAttachmentField value={anexo} onChange={setAnexo} channel={channel} />
     </Modal>
   )
+}
+
+/** Sugere um atalho a partir do nome. Sem isto quase ninguém preenche o campo
+ *  — e um modelo sem atalho não aparece ao digitar "/" no Conversas. */
+function sugestaoAtalho(nome: string): string {
+  const limpo = nome
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim()
+  if (!limpo) return ''
+  const irrelevantes = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'para', 'com', 'em', 'no', 'na'])
+  const palavras = limpo.split(/\s+/).filter((p) => !irrelevantes.has(p))
+  if (!palavras.length) return ''
+  const base = palavras.length === 1 ? palavras[0]!.slice(0, 12) : palavras.slice(0, 2).map((p) => p.slice(0, 6)).join('')
+  return base.slice(0, 20)
 }
 
 function EmailPanel({

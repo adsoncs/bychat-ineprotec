@@ -13,6 +13,7 @@ export interface MessageTemplateItem {
   bodyHtml: string | null
   attachmentUrl: string | null
   attachmentName: string | null
+  attachmentType: string | null
   active: boolean
   usageCount: number
   createdAt: string
@@ -29,6 +30,7 @@ export interface TemplateInput {
   shortcut?: string | null | undefined
   attachmentUrl?: string | null | undefined
   attachmentName?: string | null | undefined
+  attachmentType?: string | null | undefined
   active?: boolean | undefined
 }
 

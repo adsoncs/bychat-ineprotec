@@ -98,6 +98,7 @@ export async function templatesRoutes(app: FastifyInstance) {
         bodyHtml: body.bodyHtml || null,
         attachmentUrl: body.attachmentUrl || null,
         attachmentName: body.attachmentName || null,
+        attachmentType: body.attachmentType || null,
         shortcut: normalizeShortcut(body.shortcut),
         variables: body.variables || undefined,
       }
@@ -118,6 +119,7 @@ export async function templatesRoutes(app: FastifyInstance) {
     if (body.bodyHtml !== undefined) data.bodyHtml = body.bodyHtml
     if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
     if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
+    if (body.attachmentType !== undefined) data.attachmentType = body.attachmentType
     if (body.shortcut !== undefined) data.shortcut = normalizeShortcut(body.shortcut)
     if (body.variables !== undefined) data.variables = body.variables
     if (body.active !== undefined) data.active = body.active
@@ -161,6 +163,14 @@ export async function templatesRoutes(app: FastifyInstance) {
         vars = buildLeadVars(lead, user?.email)
       }
     }
+
+    // Uso real: o preview é o que o Conversas chama ao inserir um atalho. Antes
+    // só `activities.ts` contava, então o ranking de "mais usado" ignorava o
+    // canal onde o modelo mais é usado — o chat.
+    prisma.messageTemplate.update({
+      where: { id: template.id },
+      data: { usageCount: { increment: 1 } },
+    }).catch(() => {})
 
     return {
       subject: template.subject ? replaceVariables(template.subject, vars) : null,

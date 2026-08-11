@@ -1002,11 +1002,14 @@ function ChatPanel({
     } catch { /* usa o body cru se o preview falhar */ }
     setDraft(resolved)
     if (tpl.attachmentUrl) {
+      // O tipo vem gravado no modelo (definido no upload). A adivinhação pela
+      // extensão fica só como fallback para os anexos cadastrados antes disso.
       const nm = (tpl.attachmentName || tpl.attachmentUrl).toLowerCase()
-      const mt = /\.(png|jpe?g|webp|gif)$/.test(nm) ? 'image'
-        : /\.(mp4|mov|3gp|webm)$/.test(nm) ? 'video'
-        : /\.(mp3|ogg|opus|m4a|wav|aac)$/.test(nm) ? 'audio'
-        : 'document'
+      const mt = tpl.attachmentType
+        || (/\.(png|jpe?g|webp|gif)$/.test(nm) ? 'image'
+          : /\.(mp4|mov|3gp|webm)$/.test(nm) ? 'video'
+          : /\.(mp3|ogg|opus|m4a|wav|aac)$/.test(nm) ? 'audio'
+          : 'document')
       setPendingTplAttachment({ mediaType: mt, mediaUrl: tpl.attachmentUrl, mediaName: tpl.attachmentName || 'arquivo' })
     }
     requestAnimationFrame(() => textareaRef.current?.focus())
