@@ -852,7 +852,7 @@ function Row({ label, value }: { label: string; value: any }) {
 
 function TimelineRow({ label, at, done = false, fail = false }: { label: string; at: string | null; done?: boolean; fail?: boolean }) {
   return (
-    <div class="flex items-center gap-2">
+    <div class="flex min-w-0 flex-wrap items-center gap-2">
       <span class={cn(
         'size-1.5 rounded-full',
         fail ? 'bg-danger' : done ? 'bg-success' : at ? 'bg-info' : 'bg-fg-subtle/30',

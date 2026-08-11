@@ -98,7 +98,7 @@ export function EducationalDashboardPage() {
       title="Educacional"
       description="Gestão acadêmica: níveis, modalidades, unidades, campus, cursos, ofertas e processos seletivos."
       actions={
-        <div class="flex items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>

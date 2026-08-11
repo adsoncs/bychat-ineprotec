@@ -14,7 +14,23 @@ const HD_CHANNEL_LABEL: Record<string, string> = { email: 'E-mail', web: 'Web', 
  * Período anterior de mesma duração (pra comparação "vs período anterior"
  * nos KPIs da Visão Geral). Retorna null se o widget não recebeu dateFrom+dateTo.
  */
+/**
+ * Período de comparação do Δ%.
+ *
+ * Quando a tela manda `prevFrom`/`prevTo`, são eles que valem — com o seletor
+ * de MESES o anterior é o mesmo trecho do mês passado (1–11/jul contra 1–11/ago),
+ * não os 11 dias imediatamente anteriores (21–31/jul). Comparar início de mês
+ * com fim de mês compara movimentos diferentes do funil.
+ *
+ * Sem eles, mantém o comportamento antigo: mesma duração, imediatamente antes.
+ */
 function previousRange(cfg: any): { gte: Date; lte: Date } | null {
+  if (cfg?.prevFrom && cfg?.prevTo) {
+    return {
+      gte: new Date(cfg.prevFrom + 'T00:00:00.000Z'),
+      lte: new Date(cfg.prevTo + 'T23:59:59.999Z'),
+    }
+  }
   if (!cfg?.dateFrom || !cfg?.dateTo) return null
   const from = new Date(cfg.dateFrom + 'T00:00:00.000Z')
   const to = new Date(cfg.dateTo + 'T23:59:59.999Z')

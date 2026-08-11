@@ -98,6 +98,9 @@ export interface PaymentMethodsFilters {
   days?: number
   limit?: number
   offset?: number
+  /** Intervalo do seletor de meses; o backend prioriza sobre `days`. */
+  from?: string
+  to?: string
 }
 
 export function usePaymentMethods(filters: PaymentMethodsFilters = {}) {
@@ -132,7 +135,7 @@ export interface WebhookHitRow {
   connection: { id: number; name: string; provider: string } | null
 }
 
-export function useWebhookHits(filters: { provider?: string; status?: string; eventType?: string; days?: number; limit?: number; offset?: number } = {}) {
+export function useWebhookHits(filters: { provider?: string; status?: string; eventType?: string; days?: number; from?: string; to?: string; limit?: number; offset?: number } = {}) {
   return useQuery({
     queryKey: ['webhook-hits-list', filters],
     queryFn: () => {

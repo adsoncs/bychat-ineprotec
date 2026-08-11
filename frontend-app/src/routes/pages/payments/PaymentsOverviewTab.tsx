@@ -19,7 +19,7 @@ export function PaymentsOverviewTab() {
 
   return (
     <div class="space-y-4">
-      <div class="flex items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
         <span class="text-xs text-fg-muted">Período:</span>
         <PeriodPicker preset={preset} customFrom={customFrom} customTo={customTo} onPreset={setPreset} onCustom={setCustom} />
       </div>

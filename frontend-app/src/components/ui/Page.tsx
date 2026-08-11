@@ -19,7 +19,9 @@ export function Page({ title, description, actions, children }: PageProps) {
           <h1 class="text-2xl font-semibold tracking-tight text-fg truncate">{title}</h1>
           {description && <p class="text-sm text-fg-muted mt-1">{description}</p>}
         </div>
-        {actions && <div class="flex items-center gap-2">{actions}</div>}
+        {/* flex-wrap + min-w-0: a área de ações cresceu (o seletor de período tem
+            6 botões) e sem isso ela empurrava o título e estourava a largura. */}
+        {actions && <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">{actions}</div>}
       </header>
       {children}
     </div>

@@ -10,6 +10,7 @@ import {
   CalendarCheck, Handshake, Trophy, DollarSign, RefreshCw, Settings2, AlertTriangle,
 } from 'lucide-preact'
 import { useAuth } from '@/hooks/useAuth'
+import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 import { useFunnelReport, type Kpi, type FunnelStage, type BreakdownRow, type DailyRow } from '@/hooks/useFunnelReport'
 
 // ── formatação pt-BR ─────────────────────────────────────────────
@@ -149,18 +150,18 @@ export function FunnelReportPage() {
   const [, navigate] = useLocation()
   const { user } = useAuth()
   const ehSuperadmin = user?.role === 'SUPERADMIN'
-  const [from, setFrom] = useState(isoAgo(29))
-  const [to, setTo] = useState(today())
+  const [from, setFrom] = useState(presetRange('m0').dateFrom)
+  const [to, setTo] = useState(presetRange('m0').dateTo)
   const [funnelId, setFunnelId] = useState<number | undefined>(undefined)
   const { data, isLoading, isFetching, refetch } = useFunnelReport({ from, to, funnelId })
   const revealRef = useReveal()
 
-  const presets: { label: string; from: string; to: string }[] = [
-    { label: 'Últimos 30 dias', from: isoAgo(29), to: today() },
-    { label: 'Este mês', from: monthStart(0), to: today() },
-    { label: 'Mês passado', from: monthStart(-1), to: monthEnd(-1) },
-    { label: 'Últimos 90 dias', from: isoAgo(89), to: today() },
-  ]
+  // Meses fechados, como no resto do sistema. Esta tela já tinha "Este mês" e
+  // "Mês passado" à mão — agora a régua é a mesma de todas as outras.
+  const presets = (['m0', 'm1', 'm2', 'm3', 'm4'] as RangePreset[]).map((p) => {
+    const r = presetRange(p)
+    return { label: presetLabel(p), from: r.dateFrom, to: r.dateTo }
+  })
 
   const kpiOrder: { key: keyof NonNullable<typeof data>['kpis']; label: string }[] = [
     { key: 'investimento', label: 'Investimento' }, { key: 'mql', label: 'MQL' }, { key: 'sql', label: 'SQL' },

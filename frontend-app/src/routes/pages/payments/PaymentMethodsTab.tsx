@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Select } from '@/components/ui/Input'
+import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 import { Button } from '@/components/ui/Button'
 import { Pagination } from '@/components/ui/Pagination'
 import { usePaymentMethods, type PaymentMethodsFilters, type PaymentMethodRow } from '@/hooks/usePaymentsDashboard'
@@ -16,7 +17,10 @@ const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 
 export function PaymentMethodsTab() {
   const [filters, setFilters] = useState<PaymentMethodsFilters>({ days: 30, limit: 50, offset: 0 })
-  const { data, isLoading } = usePaymentMethods(filters)
+  // Período em meses fechados; o backend já aceita from/to (resolvePeriod).
+  const [mesSelecionado, setMesSelecionado] = useState<RangePreset>('m0')
+  const periodoMes = presetRange(mesSelecionado)
+  const { data, isLoading } = usePaymentMethods({ ...filters, from: periodoMes.dateFrom, to: periodoMes.dateTo })
 
   function update<K extends keyof PaymentMethodsFilters>(key: K, value: PaymentMethodsFilters[K]) {
     setFilters((s) => ({ ...s, [key]: value, offset: 0 }))
@@ -51,11 +55,10 @@ export function PaymentMethodsTab() {
             <option value="pagarme">Pagar.me</option>
             <option value="asaas">Asaas</option>
           </Select>
-          <Select label="Período" value={String(filters.days ?? 30)} onChange={(e) => update('days', parseInt((e.target as HTMLSelectElement).value) || 30)}>
-            <option value="7">7 dias</option>
-            <option value="30">30 dias</option>
-            <option value="90">90 dias</option>
-            <option value="365">1 ano</option>
+          <Select label="Período" value={mesSelecionado} onChange={(e) => setMesSelecionado((e.target as HTMLSelectElement).value as RangePreset)}>
+            {(['m0','m1','m2','m3','m4'] as RangePreset[]).map((p) => (
+              <option key={p} value={p}>{presetLabel(p)}</option>
+            ))}
           </Select>
         </div>
       </Card>

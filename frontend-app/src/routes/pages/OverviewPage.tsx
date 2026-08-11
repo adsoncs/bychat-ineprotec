@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { WidgetRenderer } from '@/components/widgets/WidgetRenderer'
-import { PeriodPicker, PeriodIncompleteHint, usePeriod } from '@/components/ui/PeriodPicker'
+import { PeriodPicker, PeriodIncompleteHint, usePeriod, previousRange } from '@/components/ui/PeriodPicker'
 import { useCan, useIsModuleActive } from '@/hooks/usePermissions'
 import { useFunnels } from '@/hooks/useFunnels'
 import type { Widget } from '@/hooks/useWidgets'
@@ -63,7 +63,16 @@ export function OverviewPage() {
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const canSeeEducational = useCan('educacional', 'view') && useIsModuleActive('educacional') === true
   const canSeeNegotiations = useIsModuleActive('negotiations') === true
-  const filters = { dateFrom: range.dateFrom, dateTo: range.dateTo }
+  // prevFrom/prevTo: o Δ% compara com o MESMO trecho do mês anterior (1–11/jul
+  // contra 1–11/ago). Sem isso o backend usaria os 11 dias imediatamente
+  // anteriores — fim de julho contra início de agosto, movimentos diferentes.
+  const anterior = previousRange(range)
+  const filters = {
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
+    prevFrom: anterior.dateFrom,
+    prevTo: anterior.dateTo,
+  }
 
   // Pipeline: escopado a UM funil (mistura de funis confunde). Padrão = funil
   // isDefault (senão o 1º); a escolha do usuário persiste em localStorage.
@@ -106,7 +115,7 @@ export function OverviewPage() {
       title="Visão Geral"
       description="Panorama executivo: aquisição, conversão e receita do período — sem precisar montar nada."
       actions={
-        <div class="flex items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>

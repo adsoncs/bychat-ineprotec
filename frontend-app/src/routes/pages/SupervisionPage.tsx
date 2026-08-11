@@ -513,7 +513,7 @@ export function SupervisionPage() {
             Conversas <span class="text-fg-muted font-normal">({total})</span>
           </span>
           {total > limit && (
-            <div class="flex items-center gap-2">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
               <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Anterior</Button>
               <span class="text-xs text-fg-muted">{page + 1} / {Math.ceil(total / limit)}</span>
               <Button variant="ghost" size="sm" disabled={(page + 1) * limit >= total} onClick={() => setPage((p) => p + 1)}>Próxima</Button>

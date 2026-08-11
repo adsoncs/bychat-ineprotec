@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Badge } from '@/components/ui/Badge'
 import { Select } from '@/components/ui/Input'
+import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 import { Pagination } from '@/components/ui/Pagination'
 import { Modal } from '@/components/ui/Modal'
 import { useWebhookHits, useWebhookHit, type WebhookHitRow } from '@/hooks/usePaymentsDashboard'
@@ -27,8 +28,12 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function WebhookHitsTab() {
   const [filters, setFilters] = useState({ days: 7, limit: 50, offset: 0, provider: '', status: '' })
+  // Período em meses fechados; o backend já aceita from/to (resolvePeriod).
+  const [mesSelecionado, setMesSelecionado] = useState<RangePreset>('m0')
+  const periodoMes = presetRange(mesSelecionado)
   const { data, isLoading } = useWebhookHits({
-    days: filters.days,
+    from: periodoMes.dateFrom,
+    to: periodoMes.dateTo,
     limit: filters.limit,
     offset: filters.offset,
     ...(filters.provider ? { provider: filters.provider } : {}),
@@ -45,11 +50,11 @@ export function WebhookHitsTab() {
       <Card>
         <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div class="flex items-center gap-2 flex-wrap">
-            <Select value={String(filters.days)} onChange={(e) => update('days', parseInt((e.target as HTMLSelectElement).value) || 7)}>
-              <option value="1">Hoje</option>
-              <option value="7">Últimos 7 dias</option>
-              <option value="30">Últimos 30 dias</option>
-            </Select>
+            <Select value={mesSelecionado} onChange={(e) => setMesSelecionado((e.target as HTMLSelectElement).value as RangePreset)}>
+            {(['m0','m1','m2','m3','m4'] as RangePreset[]).map((p) => (
+              <option key={p} value={p}>{presetLabel(p)}</option>
+            ))}
+          </Select>
             <Select value={filters.provider} onChange={(e) => update('provider', (e.target as HTMLSelectElement).value)}>
               <option value="">Todos provedores</option>
               <option value="pagarme">Pagar.me</option>

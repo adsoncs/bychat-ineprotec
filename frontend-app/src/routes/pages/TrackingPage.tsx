@@ -739,7 +739,7 @@ function RecentVisitorsCard({
                 return (
                   <tr key={v.id}>
                     <td class="px-3 py-2 min-w-0">
-                      <div class="flex items-center gap-2">
+                      <div class="flex min-w-0 flex-wrap items-center gap-2">
                         <div class={cn(
                           'size-7 rounded-full grid place-items-center shrink-0',
                           isIdentified ? 'bg-info/15 text-info' : 'bg-surface-3 text-fg-muted',
@@ -857,7 +857,7 @@ function VisitorsTab() {
                   return (
                     <tr key={v.id}>
                       <td class="px-3 py-2 min-w-0">
-                        <div class="flex items-center gap-2">
+                        <div class="flex min-w-0 flex-wrap items-center gap-2">
                           <span class={cn('size-2 rounded-full shrink-0', isIdentified ? 'bg-success' : 'bg-surface-3')} />
                           <div class="min-w-0">
                             <div class="text-fg font-medium truncate">{name}</div>
@@ -1116,7 +1116,7 @@ function TimelineSection({ events, loading }: { events: TrackingEvent[]; loading
                   {meta.icon}
                 </span>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
                     <span class="font-medium text-fg capitalize">{e.type.replace(/_/g, ' ')}</span>
                     <span class="text-[0.625rem] text-fg-subtle whitespace-nowrap">
                       {new Date(e.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}

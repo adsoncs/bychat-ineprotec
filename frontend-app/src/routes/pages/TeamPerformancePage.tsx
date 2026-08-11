@@ -26,15 +26,18 @@ import {
 } from '@/hooks/useTeamMetrics'
 import { useUserStore } from '@/stores/user'
 import { toast } from '@/lib/toast'
+import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 import { useSlaMetrics, useSlaTarget, useSetSlaTarget } from '@/hooks/useRouting'
 import { ApiError } from '@/lib/apiClient'
 
-const PRESETS: { value: string; label: string; days: number }[] = [
-  { value: '7', label: 'Últimos 7 dias', days: 7 },
-  { value: '14', label: 'Últimos 14 dias', days: 14 },
-  { value: '30', label: 'Últimos 30 dias', days: 30 },
-  { value: '90', label: 'Últimos 90 dias', days: 90 },
-  { value: 'custom', label: 'Período personalizado', days: 0 },
+// Períodos: meses fechados, como no resto do sistema (ver PeriodPicker).
+const PRESETS: { value: RangePreset; label: string }[] = [
+  { value: 'm0', label: presetLabel('m0') },
+  { value: 'm1', label: presetLabel('m1') },
+  { value: 'm2', label: presetLabel('m2') },
+  { value: 'm3', label: presetLabel('m3') },
+  { value: 'm4', label: presetLabel('m4') },
+  { value: 'custom', label: 'Período personalizado' },
 ]
 
 const QUALIFICATION_SOURCES: { value: string; label: string }[] = [
@@ -79,7 +82,7 @@ function formatBRL(value: number): string {
 }
 
 export function TeamPerformancePage() {
-  const [periodPreset, setPeriodPreset] = useState('30')
+  const [periodPreset, setPeriodPreset] = useState<string>('m0')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [teamId, setTeamId] = useState<string>('')
@@ -99,17 +102,10 @@ export function TeamPerformancePage() {
   const funnels = funnelsData?.funnels ?? []
 
   const { from, to } = useMemo(() => {
-    if (periodPreset === 'custom' && customFrom && customTo) {
-      return {
-        from: new Date(customFrom + 'T00:00:00').toISOString(),
-        to: new Date(customTo + 'T23:59:59').toISOString(),
-      }
-    }
-    const days = Number(periodPreset) || 30
-    const now = new Date()
+    const r = presetRange(periodPreset as RangePreset, { from: customFrom, to: customTo })
     return {
-      from: new Date(now.getTime() - days * 24 * 3600 * 1000).toISOString(),
-      to: now.toISOString(),
+      from: new Date(r.dateFrom + 'T00:00:00').toISOString(),
+      to: new Date(r.dateTo + 'T23:59:59').toISOString(),
     }
   }, [periodPreset, customFrom, customTo])
 

@@ -649,34 +649,39 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const portalId = parseInt(id)
     const q = req.query as any
-    const days = Math.max(1, Math.min(365, parseInt(q.days) || 30))
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    // Aceita `from`/`to` (seletor de meses da tela) e mantém `days` para quem
+    // ainda chama pela querystring antiga.
+    const { resolvePeriod } = await import('../lib/period.js')
+    const periodo = resolvePeriod(q, 30)
+    const days = periodo.days
+    const since = periodo.from
+    const until = periodo.to
 
     const [portal, totalReg, paidReg, pendingReg, expiredReg, totalRevenue, byStatus, byDay, bySource] = await Promise.all([
       prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { views: true, submissions: true, conversions: true } }),
-      prisma.enrollmentRegistration.count({ where: { portalId, createdAt: { gte: since } } }),
-      prisma.enrollmentRegistration.count({ where: { portalId, paymentStatus: 'paid', createdAt: { gte: since } } }),
-      prisma.enrollmentRegistration.count({ where: { portalId, status: 'pending', createdAt: { gte: since } } }),
-      prisma.enrollmentRegistration.count({ where: { portalId, status: 'expired', createdAt: { gte: since } } }),
+      prisma.enrollmentRegistration.count({ where: { portalId, createdAt: { gte: since, lte: until } } }),
+      prisma.enrollmentRegistration.count({ where: { portalId, paymentStatus: 'paid', createdAt: { gte: since, lte: until } } }),
+      prisma.enrollmentRegistration.count({ where: { portalId, status: 'pending', createdAt: { gte: since, lte: until } } }),
+      prisma.enrollmentRegistration.count({ where: { portalId, status: 'expired', createdAt: { gte: since, lte: until } } }),
       prisma.enrollmentRegistration.aggregate({
         _sum: { paymentAmount: true },
-        where: { portalId, paymentStatus: 'paid', createdAt: { gte: since } },
+        where: { portalId, paymentStatus: 'paid', createdAt: { gte: since, lte: until } },
       }),
       prisma.enrollmentRegistration.groupBy({
         by: ['status'],
-        where: { portalId, createdAt: { gte: since } },
+        where: { portalId, createdAt: { gte: since, lte: until } },
         _count: { _all: true },
       }),
       prisma.$queryRaw<Array<{ day: string; total: bigint; paid: bigint }>>`
         SELECT DATE(createdAt) as day, COUNT(*) as total,
                SUM(CASE WHEN paymentStatus='paid' THEN 1 ELSE 0 END) as paid
         FROM bychat_enrollment_registrations
-        WHERE portalId = ${portalId} AND createdAt >= ${since}
+        WHERE portalId = ${portalId} AND createdAt >= ${since} AND createdAt <= ${until}
         GROUP BY DATE(createdAt) ORDER BY day DESC LIMIT ${days}
       `,
       prisma.enrollmentRegistration.groupBy({
         by: ['utmSource'],
-        where: { portalId, createdAt: { gte: since } },
+        where: { portalId, createdAt: { gte: since, lte: until } },
         _count: { _all: true },
       }),
     ])

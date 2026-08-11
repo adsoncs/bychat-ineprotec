@@ -10,18 +10,16 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Select } from '@/components/ui/Input'
 import { LineChart } from '@/components/charts/LineChart'
 import { formatDateShort } from '@/lib/format'
+import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 
-const PERIODS: { value: number; label: string }[] = [
-  { value: 7,   label: '7 dias' },
-  { value: 30,  label: '30 dias' },
-  { value: 90,  label: '90 dias' },
-  { value: 180, label: '180 dias' },
-  { value: 365, label: '1 ano' },
-]
+// Meses fechados, como no resto do sistema (ver PeriodPicker).
+const PERIODS: { value: RangePreset; label: string }[] =
+  (['m0', 'm1', 'm2', 'm3', 'm4'] as RangePreset[]).map((p) => ({ value: p, label: presetLabel(p) }))
 
 export function PortalAnalyticsTab({ portal }: { portal: EnrollmentPortal }) {
-  const [days, setDays] = useState(30)
-  const { data, isLoading, error } = usePortalAnalytics(portal.id, days)
+  const [mes, setMes] = useState<RangePreset>('m0')
+  const periodo = presetRange(mes)
+  const { data, isLoading, error } = usePortalAnalytics(portal.id, { from: periodo.dateFrom, to: periodo.dateTo })
 
   return (
     <div class="space-y-3">
@@ -30,11 +28,11 @@ export function PortalAnalyticsTab({ portal }: { portal: EnrollmentPortal }) {
           <div>
             <div class="text-sm font-medium text-fg">Analytics do portal</div>
             <div class="text-xs text-fg-subtle mt-0.5">
-              KPIs e atividade do portal nos últimos {days} dia(s).
+              KPIs e atividade do portal em {presetLabel(mes)}.
             </div>
           </div>
           <Select
-            value={String(days)}
+            value={mes}
             onChange={(e) => setDays(Number((e.target as HTMLSelectElement).value))}
             aria-label="Período"
           >

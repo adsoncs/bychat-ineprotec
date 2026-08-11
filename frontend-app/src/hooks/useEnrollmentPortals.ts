@@ -290,10 +290,12 @@ export interface PortalAnalytics {
   bySource: { source: string; count: number }[]
 }
 
-export function usePortalAnalytics(id: number | null | undefined, days = 30) {
+export function usePortalAnalytics(id: number | null | undefined, periodo: { from: string; to: string }) {
   return useQuery({
-    queryKey: ['portal-analytics', id, days],
-    queryFn: () => api.get<PortalAnalytics>(`/admin/enrollment-portals/${id}/analytics?days=${days}`),
+    queryKey: ['portal-analytics', id, periodo.from, periodo.to],
+    queryFn: () => api.get<PortalAnalytics>(
+      `/admin/enrollment-portals/${id}/analytics?from=${periodo.from}&to=${periodo.to}`,
+    ),
     enabled: !!id,
     staleTime: 60_000,
   })

@@ -1361,7 +1361,7 @@ function TicketDetail({ id, onBack }: { id: number; onBack: () => void }) {
                 rows={3}
                 placeholder={canEdit ? 'Escreva sua mensagem…' : 'Escreva uma nota interna…'}
               />
-              <div class="flex items-center gap-3">
+              <div class="flex min-w-0 flex-wrap items-center gap-3">
                 {canEdit ? (
                   <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
                     <input type="checkbox" checked={internal} onChange={(e) => setInternal((e.target as HTMLInputElement).checked)} />
@@ -1997,7 +1997,7 @@ export function HelpdeskImportPage() {
             </div>
           )}
 
-          <div class="flex items-center gap-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <Button variant="secondary" size="sm" disabled={busy} onClick={() => run(true)}>
               {busy ? 'Processando…' : 'Pré-visualizar'}
             </Button>
@@ -2012,7 +2012,7 @@ export function HelpdeskImportPage() {
 
         {result && (
           <Card class="space-y-3">
-            <div class="flex items-center gap-2">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
               <h3 class="text-sm font-semibold text-fg">{rep!.dryRun ? 'Pré-visualização' : 'Importação concluída'}</h3>
               <Badge tone={rep!.dryRun ? 'info' : 'success'}>{rep!.source}</Badge>
               {!rep!.dryRun && <Badge tone="success">✓ aplicado</Badge>}

@@ -22,6 +22,7 @@ import { AddWidgetModal } from '@/components/widgets/AddWidgetModal'
 import { EditWidgetModal } from '@/components/widgets/EditWidgetModal'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { presetRange, presetLabel, hoje, type RangePreset } from '@/components/ui/PeriodPicker'
 
 interface DashboardPageProps {
   pageType?: 'dashboard' | 'analytics'
@@ -406,27 +407,25 @@ function FiltersBar({
 
   function fmt(d: Date) { return d.toISOString().split('T')[0] ?? '' }
 
-  function setPreset(preset: 'today' | '7d' | '30d' | '90d') {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    let from = '', to = ''
-    if (preset === 'today') { from = fmt(today); to = fmt(today) }
-    else if (preset === '7d') { to = fmt(today); from = fmt(new Date(today.getTime() - 7 * 86400000)) }
-    else if (preset === '30d') { to = fmt(today); from = fmt(new Date(today.getTime() - 30 * 86400000)) }
-    else if (preset === '90d') { to = fmt(today); from = fmt(new Date(today.getTime() - 90 * 86400000)) }
-    onChange({ ...filters, dateFrom: from, dateTo: to })
+  // Meses fechados, como no resto do sistema. "Hoje" continua porque este painel
+  // é usado para acompanhar o dia corrente, não só para fechar mês.
+  function setPreset(preset: 'today' | RangePreset) {
+    if (preset === 'today') {
+      const hj = hoje()
+      onChange({ ...filters, dateFrom: hj, dateTo: hj })
+      return
+    }
+    const r = presetRange(preset)
+    onChange({ ...filters, dateFrom: r.dateFrom, dateTo: r.dateTo })
   }
 
   function clear() { onChange({ dateFrom: '', dateTo: '', funnelId: '' }) }
 
-  function isPresetActive(preset: 'today' | '7d' | '30d' | '90d'): boolean {
+  function isPresetActive(preset: 'today' | RangePreset): boolean {
     if (!filters.dateFrom || !filters.dateTo) return false
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const fmtToday = fmt(today)
-    if (preset === 'today') return filters.dateFrom === fmtToday && filters.dateTo === fmtToday
-    const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-    return filters.dateTo === fmtToday && filters.dateFrom === fmt(new Date(today.getTime() - days * 86400000))
+    if (preset === 'today') { const hj = hoje(); return filters.dateFrom === hj && filters.dateTo === hj }
+    const r = presetRange(preset)
+    return filters.dateFrom === r.dateFrom && filters.dateTo === r.dateTo
   }
 
   const presetBtnClass = (active: boolean) =>
@@ -472,9 +471,11 @@ function FiltersBar({
       <span class="h-4 w-px bg-border mx-1" />
 
       <button type="button" class={presetBtnClass(isPresetActive('today'))} onClick={() => setPreset('today')}>Hoje</button>
-      <button type="button" class={presetBtnClass(isPresetActive('7d'))} onClick={() => setPreset('7d')}>7 dias</button>
-      <button type="button" class={presetBtnClass(isPresetActive('30d'))} onClick={() => setPreset('30d')}>30 dias</button>
-      <button type="button" class={presetBtnClass(isPresetActive('90d'))} onClick={() => setPreset('90d')}>90 dias</button>
+      {(['m4', 'm3', 'm2', 'm1', 'm0'] as RangePreset[]).map((mp) => (
+        <button key={mp} type="button" class={presetBtnClass(isPresetActive(mp))} onClick={() => setPreset(mp)}>
+          {presetLabel(mp, mp !== 'm0')}
+        </button>
+      ))}
       <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-danger hover:bg-danger/10" onClick={clear}>
         Limpar
       </button>
