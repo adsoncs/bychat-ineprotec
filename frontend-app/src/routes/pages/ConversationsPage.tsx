@@ -86,10 +86,13 @@ import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
+import { Clock as ClockIcon } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
+import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
+import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
 import { SearchInput } from '@/components/ui/SearchInput'
@@ -867,6 +870,7 @@ function ChatPanel({
   const lead = infoData?.lead
   const currentUserId = useUserStore((s) => s.user?.id)
   const send = useSendMessage(leadId)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   // Canais de envio (multi-canal: Evolution + Cloud API). O operador escolhe por
   // qual número responder; pré-seleciona o canal de ENTRADA do lead. Sem isso o
   // backend resolvia sozinho e caía sempre na Cloud API.
@@ -1509,6 +1513,7 @@ function ChatPanel({
       {/* Composer */}
       {!isResolved ? (
         <div class="border-t border-border">
+          <ScheduledMessagesBar leadId={leadId} />
           {quotedMsg && (
             <div class="px-3 pt-2">
               <div class="flex items-stretch gap-2 p-2 rounded-md bg-surface-3 border-l-2 border-accent">
@@ -1774,6 +1779,16 @@ function ChatPanel({
                 >
                   <StickyNote size={16} />
                 </button>
+                <button
+                  type="button"
+                  class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
+                  onClick={() => setScheduleOpen(true)}
+                  disabled={send.isPending || isInternalNote}
+                  aria-label="Agendar mensagem"
+                  title={isInternalNote ? 'Nota interna não pode ser agendada' : 'Agendar mensagem para depois'}
+                >
+                  <ClockIcon size={16} />
+                </button>
                 {draft.trim() || pendingFile || pendingTplAttachment ? (
                   <Button
                     variant="primary"
@@ -1809,6 +1824,15 @@ function ChatPanel({
         open={promoteAfterClaimOpen}
         mode={{ kind: 'single', leadId, leadName: ticket?.nome ?? lead?.nome ?? null }}
         onOpenChange={setPromoteAfterClaimOpen}
+      />
+
+      <ScheduleMessageModal
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        leadId={leadId}
+        textoInicial={draft}
+        channelId={channelId ?? undefined}
+        onAgendado={() => setDraft('')}
       />
     </>
   )

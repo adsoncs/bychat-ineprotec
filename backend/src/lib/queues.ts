@@ -40,6 +40,9 @@ export const queues = {
   // Disparos Inteligentes (números próprios/Evolution): 1 job por destinatário,
   // agendado para o horário que o planner calculou — não é uma fila que "corre".
   smartBroadcast: createQueue('wf-smart-broadcast'),
+  // Tick das mensagens agendadas do Conversas. A fila só carrega o 'tick'; o
+  // agendamento em si mora no banco (ScheduledMessage), não no Redis.
+  scheduledMessages: createQueue('wf-scheduled-messages'),
   kommoSync: createQueue('wf-kommo-sync'), // importação/sync da Kommo CRM (jobs por fase/lote)
 }
 

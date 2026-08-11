@@ -27,6 +27,7 @@ import { chatbotsRoutes } from './routes/chatbots.js'
 import { instancesRoutes } from './routes/instances.js'
 import { funnelsRoutes } from './routes/funnels.js'
 import { atendimentoRoutes } from './routes/atendimento.js'
+import { scheduledMessagesRoutes } from './routes/scheduledMessages.js'
 import { supervisionRoutes } from './routes/supervision.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
@@ -509,6 +510,7 @@ await app.register(chatbotsRoutes)
 await app.register(instancesRoutes)
 await app.register(funnelsRoutes)
 await app.register(atendimentoRoutes)
+await app.register(scheduledMessagesRoutes)
 await app.register(supervisionRoutes)
 await app.register(transferRequestsRoutes)
 await app.register(leadsImportRoutes)
@@ -1171,6 +1173,9 @@ try {
   startWorkflowEngine()
   startWorkers()
   startCadenceScheduler().catch(err => console.error('[cadenceScheduler] init falhou:', err))
+import('./services/scheduledMessageScheduler.js')
+  .then(m => m.startScheduledMessageScheduler())
+  .catch(err => console.error('[scheduledMessages] init falhou:', err?.message || err))
   startDbConnectorScheduler().catch(err => console.error('[dbConnectorScheduler] init falhou:', err))
   import('./services/schedulingNotify.js').then(m => m.startSchedulingReminders()).catch(() => {})
   startPriorityScoreScheduler().catch(err => console.error('[priorityScore] init falhou:', err))

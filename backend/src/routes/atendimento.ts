@@ -436,285 +436,36 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (!await assertTicketAccess(req, reply, lid)) return
       const { body: msgBody, mediaType, mediaUrl, mediaName, isInternal, quotedMsgId, channelId, template } = req.body as any
       const jwtUser = (req as any).user
-      const mType = mediaType || 'text'
-      // quotedMsgId no schema é Int? (FK ao Message.id local). Frontend envia o ID
-      // interno; aqui buscamos o externalId WhatsApp para passar ao provider.
-      const quotedInternalId: number | null = typeof quotedMsgId === 'number' && Number.isFinite(quotedMsgId) ? quotedMsgId : null
-      let quotedExternalId: string | null = null
-      if (quotedInternalId !== null) {
-        const ref = await prisma.message.findUnique({ where: { id: quotedInternalId }, select: { externalId: true, leadId: true } })
-        if (ref && ref.leadId === parseInt(leadId)) quotedExternalId = ref.externalId
-      }
 
-      if (mType === 'text' && (!msgBody || !msgBody.trim())) {
-        return reply.code(400).send({ error: 'Mensagem vazia' })
-      }
-
-      // Buscar nome atualizado do banco (Meu Perfil > Nome) ao invés do JWT que pode estar desatualizado.
-      // Reforma F1.6: também busca signature personalizada (anexada no fim das mensagens outbound).
-      const dbUser = await prisma.user.findUnique({
-        where: { id: jwtUser.userId },
-        select: { name: true, email: true, signature: true },
-      })
-      const user = { ...jwtUser, name: dbUser?.name || jwtUser.name, email: dbUser?.email || jwtUser.email }
-      const userSignature = dbUser?.signature?.trim() || null
-
-      const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } })
-      if (!lead) {
-        return reply.code(404).send({ error: 'Lead nao encontrado' })
-      }
-
-      // Operador mandou mensagem = atendimento ativo. Garante conversa aberta
-      // (idempotente). Cobre caso de outbound em lead que estava na caixa bruta
-      // ou em ticket resolvido.
-      if (!isInternal) {
-        const { ensureConversationOpen } = await import('../services/leadConversation.js')
-        ensureConversationOpen(lead.id, { byUserId: user.userId, byUserName: user.name || user.email, reason: 'outbound' }).catch(() => {})
-      }
-
-      // If not internal note, send via WhatsApp (Evolution ou Cloud API)
-      let sentExternalId: string | null = null
-      let sentProvider: string = 'evolution'
-      let sentInstance: string | null = null
-      let sentCloudConnId: number | null = null
-      let sendError: string | null = null
-
-      // Reforma F1.6: anexa signature do operador no fim das mensagens outbound de texto.
-      // Não aplica em notas internas, áudio ou mídia (caption já é curta).
-      // Formato: "\n\n_-- {signature}_" — itálico em WhatsApp.
-      const finalTextBody = (() => {
-        const raw = (msgBody || '').trim()
-        if (isInternal || mType !== 'text' || !userSignature) return raw
-        return `${raw}\n\n_-- ${userSignature}_`
-      })()
-
-      if (!isInternal) {
-        // Lead de Instagram/Messenger → responde via Graph /me/messages (não WhatsApp).
-        const igRecipient: string | null = (lead.source === 'instagram' || lead.source === 'messenger' || (lead.uid || '').startsWith('instagram:') || (lead.uid || '').startsWith('messenger:'))
-          ? ((lead.formData as any)?.instagramSenderId || (lead.formData as any)?.messengerSenderId || (lead.uid || '').replace(/^(instagram|messenger):/, '') || null)
-          : null
-        if (igRecipient) {
-          const igChannel = (lead.source === 'messenger' || (lead.uid || '').startsWith('messenger:')) ? 'messenger' : 'instagram'
-          // Janela de 24h: dentro → RESPONSE; fora → tag HUMAN_AGENT (até 7 dias).
-          const lastIn = await prisma.message.findFirst({ where: { leadId: lid, fromMe: false }, orderBy: { timestamp: 'desc' }, select: { timestamp: true } })
-          const withinWindow = !!lastIn && (Date.now() - lastIn.timestamp.getTime()) < 24 * 3600 * 1000
-          // Mídia: a Meta baixa a URL pública → monta URL absoluta do nosso /uploads.
-          let attachment: { type: string; url: string } | undefined
-          if (mType !== 'text') {
-            if (!mediaUrl) return reply.code(400).send({ error: 'Mídia sem arquivo para enviar.' })
-            // Instagram não tem tipo próprio para figurinha nem GIF: a figurinha
-            // (.webp) vai como imagem e o GIF (.mp4) como vídeo — que é o mais
-            // próximo do que o destinatário espera ver.
-            const igType = mType === 'image' || mType === 'sticker' ? 'image'
-              : mType === 'video' || mType === 'gif' ? 'video'
-                : mType === 'audio' ? 'audio' : 'file'
-            const base = (process.env.APP_URL || '').replace(/\/$/, '')
-            attachment = { type: igType, url: /^https?:\/\//.test(mediaUrl) ? mediaUrl : `${base}${mediaUrl}` }
-          }
-          const { sendInstagramDM } = await import('./instagram.js')
-          const r = await sendInstagramDM(igRecipient, finalTextBody, { withinWindow, attachment })
-          sentProvider = igChannel
-          sentExternalId = r.messageId
-          sendError = r.error
-        } else {
-        try {
-          const wp = await import('../services/whatsappProvider.js')
-          let provider: any
-          let instanceName: string | null
-          let cloudConnId: number | null = null
-
-          if (channelId) {
-            // Override explícito do seletor de número (modal multi-canal). Valida
-            // que o canal pertence aos canais permitidos do operador.
-            const allowed = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
-            if (!allowed.some((c) => c.id === channelId)) {
-              return reply.code(403).send({ error: 'Você não tem acesso a esse número de envio.' })
-            }
-            // Conversa em andamento trava o número: o contato só conhece aquele
-            // por onde falou. Um channelId diferente aqui é frontend desatualizado
-            // (cache do seletor) — barra em vez de abrir um 2º fio no aparelho dele.
-            // Exceção: SUPERADMIN pode trocar de número deliberadamente.
-            const locked = wp.canOverrideConversationChannel(user.role)
-              ? null
-              : await wp.lockedChannelForLead(lid, { userId: user.userId, role: user.role })
-            if (locked && locked.channelId !== channelId) {
-              const lockedLabel = allowed.find((c) => c.id === locked.channelId)
-              return reply.code(409).send({
-                error: `Esta conversa já está em andamento pelo número ${lockedLabel?.number || lockedLabel?.label || locked.channelId}. A resposta precisa sair por ele — é o número que o contato conhece.`,
-                code: 'CHANNEL_LOCKED',
-                lockedChannelId: locked.channelId,
-              })
-            }
-            const r = await wp.getProviderForChannel(channelId)
-            provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId
-          } else {
-            // F2: a instância vem do REMETENTE (AGENT usa a própria dedicada;
-            // admin sem instância usa default). Agora também resolve conexão
-            // Cloud dedicada do remetente (paridade Evolution).
-            const r = await wp.getProviderForSender(lead, { userId: user.userId, role: user.role })
-            provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId ?? null
-          }
-          sentProvider = provider.providerName
-          sentInstance = instanceName
-          sentCloudConnId = cloudConnId
-
-          // Defesa adicional: se houver instância identificada, valida via canSendVia
-          // (regra: owner-only quando ownerUserId está setado)
-          if (instanceName && provider.providerName === 'evolution') {
-            const { canSendVia } = await import('../services/teamRouting.js')
-            const ok = await canSendVia(user.userId, user.role, parseInt(leadId), instanceName)
-            if (!ok.ok) {
-              return reply.code(403).send({ error: ok.reason || 'Sem permissão para enviar por essa instância' })
-            }
-          }
-
-          // Grupo pela Cloud API é IMPOSSÍVEL, não é limitação nossa: a Groups
-          // API do Meta só opera grupos criados por ela mesma (grupo existente
-          // não pode ser adotado), exige selo verde e limita a 8 participantes.
-          // Melhor barrar com motivo do que deixar o Meta devolver erro opaco.
-          if ((lead as any).isGroup && provider.providerName === 'cloud_api') {
-            return reply.code(400).send({
-              error: 'O WhatsApp Oficial (Cloud API) não envia mensagens para grupos. Use uma conexão Evolution para falar neste grupo.',
-              code: 'GROUP_NOT_SUPPORTED_CLOUD_API',
-            })
-          }
-
-          // Janela de 24h (Cloud API): fora da janela, só template HSM aprovado.
-          if (provider.providerName === 'cloud_api' && mType !== 'template') {
-            const win = await wp.getCloudWindowState(parseInt(leadId))
-            if (!win.open) {
-              return reply.code(409).send({
-                error: 'Janela de 24h fechada: fora das 24h da última mensagem do contato, o WhatsApp Oficial só permite enviar um modelo (template) aprovado pela Meta.',
-                code: 'WINDOW_CLOSED',
-              })
-            }
-          }
-
-          let result: any
-          // Grupo: o destino é o JID "<id>@g.us" (não há telefone). toEvoNumber()
-          // preserva JID completo, então o envio segue o mesmo caminho.
-          const destinatario: string = (lead as any).groupJid || (lead as any).waLid || lead.whatsapp
-
-          if (mType === 'template') {
-            if (provider.providerName !== 'cloud_api') {
-              return reply.code(400).send({ error: 'Modelos HSM só podem ser enviados pelo WhatsApp Oficial (Cloud API).' })
-            }
-            if (!template?.name || !template?.language) {
-              return reply.code(400).send({ error: 'Template inválido (name e language obrigatórios).' })
-            }
-            result = await provider.sendTemplate(destinatario, template.name, template.language, template.components)
-          } else if (mType === 'text') {
-            result = await provider.sendText(destinatario, finalTextBody, quotedExternalId ? { quotedExternalId } : undefined)
-          } else if (mType === 'audio') {
-            result = await provider.sendAudio(destinatario, mediaUrl)
-          } else {
-            result = await provider.sendMedia(destinatario, mediaUrl, mType, finalTextBody || undefined, mediaName || undefined)
-          }
-
-          sentExternalId = result?.messageId || null
-          app.log.info(`[Atendimento] Sent ${mType} via ${sentProvider}${instanceName ? ` (${instanceName})` : ''}${cloudConnId ? ` (cloud#${cloudConnId})` : ''}, externalId=${sentExternalId}`)
-        } catch (sendErr: any) {
-          sendError = sendErr.message
-          app.log.error(`WhatsApp send error: ${sendErr.message}`)
-        }
-        } // fim do else (envio WhatsApp; o ramo Instagram já tratou acima)
-      }
-
-      // Se falhou o envio (e não é nota interna), retorna erro sem salvar.
-      // A mensagem já vem traduzida dos providers (lib/whatsappErrors) e diz o
-      // que houve e o que fazer — o nome do canal só entra quando NÃO é WhatsApp,
-      // para não gerar frases como "Falha ao enviar via WhatsApp: o número não
-      // tem WhatsApp".
-      if (!isInternal && sendError) {
-        const canalLabel = sentProvider === 'instagram' ? 'Instagram' : sentProvider === 'messenger' ? 'Messenger' : null
-        return reply.code(502).send({
-          error: canalLabel ? `${canalLabel}: ${sendError}` : sendError,
-          detail: sendError,
-        })
-      }
-
-      // Origem do canal (qual número saiu) — para distinguir conversas na UI
-      let outEvolutionInstance: string | null = null
-      let outCloudApiConnectionId: number | null = null
-      if (!isInternal) {
-        if (sentProvider === 'evolution') {
-          outEvolutionInstance = sentInstance
-        } else if (sentProvider === 'cloud_api') {
-          // Usa a conexão efetivamente resolvida (seletor de número); só cai pra
-          // "primeira ativa" como compatibilidade quando não houve override.
-          outCloudApiConnectionId = sentCloudConnId
-            ?? (await prisma.cloudApiConnection.findFirst({ where: { active: true }, select: { id: true } }))?.id
-            ?? null
-        }
-      }
-
-      const message = await prisma.message.create({
-        data: {
-          leadId: parseInt(leadId),
-          fromMe: true,
-          body: finalTextBody,
-          // Template HSM é registrado como texto (preview já renderizado) para
-          // aparecer legível no histórico de Conversas.
-          mediaType: mType === 'template' ? 'text' : mType,
-          mediaUrl: mediaUrl || null,
-          mediaName: mediaName || null,
-          isInternal: isInternal || false,
-          provider: isInternal ? 'evolution' : sentProvider,
-          evolutionInstance: outEvolutionInstance,
-          cloudApiConnectionId: outCloudApiConnectionId,
-          senderName: user.name || user.email || 'Agente',
-          externalId: sentExternalId,
-          quotedMsgId: quotedInternalId,
-          ack: sentExternalId ? 1 : 0,
-          timestamp: new Date()
-        }
-      })
-
-      // Registra o disparo Cloud API para o painel de acompanhamento/custo.
-      // O webhook de status completa categoria/cobrança depois.
-      if (!isInternal && sentProvider === 'cloud_api' && sentExternalId) {
-        const { recordOutbound } = await import('../services/cloudApiBilling.js')
-        recordOutbound({
-          wamid: sentExternalId,
-          connectionId: outCloudApiConnectionId,
-          leadId: parseInt(leadId),
-          templateName: mType === 'template' ? (template?.name ?? null) : null,
-        }).catch(() => {})
-      }
-
-      broadcastRealtimeEvent({
-        type: 'message:sent',
-        payload: { leadId: parseInt(leadId), messageId: message.id, fromMe: true },
-      })
-
-      await prisma.lead.update({
-        where: { id: parseInt(leadId) },
-        data: { lastMessageAt: new Date() }
-      })
-
-      // Takeover humano: o operador falou com o lead → o chatbot para de responder
-      // nesta conversa até alguém devolvê-la ao bot. Nota interna não conta (não
-      // chega ao lead). Ver services/botTakeover.ts.
-      let pausedBot = false
-      if (!isInternal) {
-        const { pauseBotForHuman } = await import('../services/botTakeover.js')
-        pausedBot = await pauseBotForHuman(parseInt(leadId), { userId: user.userId, userName: user.name })
-      }
-
-      logEvent({
-        leadId: parseInt(leadId),
-        type: isInternal ? EVENT_TYPES.MESSAGE_INTERNAL : EVENT_TYPES.MESSAGE_SENT,
-        category: 'communication',
-        title: isInternal ? 'Nota interna adicionada' : `Mensagem enviada pelo operador via ${sentExternalId ? 'WhatsApp' : 'painel'}`,
-        channel: isInternal ? 'system' : (sentExternalId ? 'whatsapp' : 'manual'),
-        source: 'panel',
-        ...getOperator(req),
-        description: (msgBody || '').substring(0, 200),
-        metadata: { mediaType: mType, isInternal, externalId: sentExternalId, messageId: message.id },
+      // O envio em si vive em services/ticketMessageSender.ts — o MESMO ponto que
+      // o disparo agendado usa, para que as regras de número travado, janela de
+      // 24h e governança não existam em duas versões.
+      const { sendTicketMessage } = await import('../services/ticketMessageSender.js')
+      const r = await sendTicketMessage({
+        leadId: lid,
+        body: msgBody,
+        mediaType,
+        mediaUrl,
+        mediaName,
+        isInternal,
+        quotedMsgId,
+        channelId,
+        template,
+        actor: { userId: jwtUser.userId, role: jwtUser.role, name: jwtUser.name, email: jwtUser.email },
+        origin: 'panel',
+        operatorMeta: getOperator(req),
         ipAddress: getIp(req),
+        log: { info: (m: string) => app.log.info(m), error: (m: string) => app.log.error(m) },
       })
 
-      return { message }
+      if (!r.ok) {
+        const payload: Record<string, unknown> = { error: r.error }
+        if (r.code) payload.code = r.code
+        if (r.detail) payload.detail = r.detail
+        if (r.lockedChannelId) payload.lockedChannelId = r.lockedChannelId
+        return reply.code(r.status).send(payload)
+      }
+      return { message: r.message }
     } catch (err: any) {
       app.log.error(`Atendimento send error: ${err.message}`)
       return reply.code(500).send({ error: err.message })

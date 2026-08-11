@@ -90,6 +90,9 @@ model User {
   @@index([email])
   @@index([role])
   @@index([isAgent])
+  scheduledMessagesCreated  ScheduledMessage[] @relation("ScheduledMessageCreator")
+  scheduledMessagesCanceled ScheduledMessage[] @relation("ScheduledMessageCanceler")
+
   @@map("bychat_users")
 }
 
@@ -1024,6 +1027,8 @@ model Lead {
   @@index([googleCampaignId])
   @@index([statusSummaryId])
   @@index([statusSummaryId, statusSummaryAt])
+  scheduledMessages ScheduledMessage[]
+
   @@map("bychat_leads")
 }
 
@@ -1497,6 +1502,7 @@ model MessageTemplate {
   @@index([key])
   @@index([shortcut])
   activityTemplates ActivityTemplate[]
+  scheduledMessages ScheduledMessage[]
 
   @@map("bychat_message_templates")
 }
@@ -8877,4 +8883,66 @@ model HomeScreenAssignment {
   @@unique([userId])
   @@index([screenId])
   @@map("bychat_home_screen_assignments")
+}
+
+// ── Mensagem agendada (Conversas) ──────────────────────────────────────────
+// Uma mensagem que o operador deixa marcada para sair depois, numa conversa
+// específica. Diferente do BroadcastCampaign (massa, template HSM) e do
+// CadenceStepExecution (preso a uma cadência): aqui é 1 contato, 1 mensagem.
+//
+// A LINHA é a fonte da verdade — não o job do BullMQ. Um job com dias de atraso
+// vive só no Redis: um flush apagaria o agendamento sem deixar rastro, e
+// cancelar viraria caça ao jobId. Um tick de 60s varre `scheduledAt <= now`,
+// no mesmo padrão do cadenceScheduler.
+model ScheduledMessage {
+  id     Int  @id @default(autoincrement())
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Quando sair. Sempre em UTC; a UI converte para o fuso do operador.
+  scheduledAt DateTime
+  // pending | sent | canceled | failed | skipped
+  status      String   @default("pending") @db.VarChar(16)
+
+  // text = texto livre (Evolution, ou Cloud API com janela aberta)
+  // template_hsm = modelo aprovado pela Meta (único que sai fora da janela)
+  kind String @default("text") @db.VarChar(16)
+
+  // Template interno (bychat_message_templates) que originou o texto. As
+  // variáveis são resolvidas NO ENVIO, não aqui: se o nome ou a etapa do lead
+  // mudarem no intervalo, a mensagem sai com o valor do dia do disparo.
+  templateId Int?
+  template   MessageTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  // Corpo já resolvido (fallback quando não há template, ou texto digitado).
+  body       String?          @db.Text
+  // Template HSM: { name, language, components } — formato de sendTemplate().
+  hsmPayload Json?            @db.Json
+
+  // Número de saída escolhido no seletor. Só uma dica: o canal é RESOLVIDO de
+  // novo no disparo, porque o lock da conversa pode ter mudado no intervalo.
+  channelId String? @db.VarChar(60)
+
+  // Cancela sozinha se o contato responder antes da hora — evita o follow-up
+  // constrangedor que chega depois de a pessoa já ter falado.
+  cancelIfReplied Boolean @default(true)
+
+  createdByUserId Int?
+  createdBy       User? @relation("ScheduledMessageCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  canceledByUserId Int?
+  canceledBy       User? @relation("ScheduledMessageCanceler", fields: [canceledByUserId], references: [id], onDelete: SetNull)
+
+  // Resultado do disparo.
+  sentAt       DateTime?
+  sentMessageId Int?     // Message.id gerado
+  errorMessage String?   @db.Text
+  attempts     Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([leadId, status])
+  @@index([createdByUserId])
+  @@index([templateId])
+  @@map("bychat_scheduled_messages")
 }
