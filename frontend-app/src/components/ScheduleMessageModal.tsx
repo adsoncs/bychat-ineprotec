@@ -2,9 +2,10 @@ import { useState } from 'preact/hooks'
 import { Clock, AlertTriangle } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { Input, Textarea } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { useCreateScheduledMessage } from '@/hooks/useScheduledMessages'
+import { useSenderChannels } from '@/hooks/useChat'
 
 interface Props {
   open: boolean
@@ -53,6 +54,27 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
   const [cancelarSeResponder, setCancelarSeResponder] = useState(true)
   const criar = useCreateScheduledMessage(leadId)
 
+  // Mesmos canais do compositor: o operador precisa saber (e escolher) por qual
+  // número a mensagem vai sair — é o que decide se existe janela de 24h.
+  const { data: sc } = useSenderChannels(leadId)
+  const canais = sc?.channels ?? []
+  const travado = sc?.lockedChannelId ?? null
+  const podeTrocar = sc?.canOverrideChannel ?? false
+  const [canalEscolhido, setCanalEscolhido] = useState<string | null>(null)
+  const canalId = canalEscolhido ?? travado ?? sc?.suggestedChannelId ?? canais[0]?.id ?? null
+  const canal = canais.find((c) => c.id === canalId) ?? null
+  const canalFixo = !!travado && !podeTrocar
+
+  // Aviso de janela calculado aqui, com o número já conhecido: só a Cloud API
+  // tem janela de 24h, então na Evolution não há o que avisar. Dois casos
+  // distintos: a janela JÁ está fechada (o contato não escreveu nas últimas
+  // 24h — esperar não resolve), ou ela fecha antes do horário escolhido.
+  const ehCloud = canal?.provider === 'cloud_api'
+  const janelaFecha = ehCloud && canal?.window?.expiresAt ? new Date(canal.window.expiresAt) : null
+  const janelaJaFechada = !!ehCloud && canal?.window ? !canal.window.open : false
+  const foraDaJanela =
+    janelaJaFechada || (!!janelaFecha && new Date(quando).getTime() > janelaFecha.getTime())
+
   function agendar() {
     const corpo = texto.trim()
     if (!corpo) {
@@ -73,7 +95,7 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
         scheduledAt: data.toISOString(),
         body: corpo,
         cancelIfReplied: cancelarSeResponder,
-        ...(channelId ? { channelId } : {}),
+        ...(canalId ? { channelId: canalId } : {}),
       },
       {
         onSuccess: (r) => {
@@ -119,6 +141,32 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
         </div>
 
         <div>
+          <label class="mb-1 block text-sm font-medium">Enviar pelo número</label>
+          {canalFixo ? (
+            <div class="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
+              <span class="font-medium">{canal?.number || canal?.label || 'número da conversa'}</span>
+              <span class="ml-2 text-xs text-fg-subtle">
+                {canal?.provider === 'cloud_api' ? 'WhatsApp Oficial' : 'Evolution'}
+              </span>
+              <span class="mt-0.5 block text-xs text-fg-subtle">
+                Esta conversa já está em andamento por este número — é o que o contato conhece.
+              </span>
+            </div>
+          ) : (
+            <Select
+              value={canalId ?? ''}
+              onChange={(e) => setCanalEscolhido((e.target as HTMLSelectElement).value || null)}
+            >
+              {canais.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.number || c.label} — {c.provider === 'cloud_api' ? 'WhatsApp Oficial' : 'Evolution'}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+
+        <div>
           <label class="mb-1 block text-sm font-medium">Quando enviar</label>
           <div class="mb-2 flex flex-wrap gap-2">
             {atalhos().map((a) => (
@@ -137,6 +185,27 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
             value={quando}
             onInput={(e) => setQuando((e.target as HTMLInputElement).value)}
           />
+          {foraDaJanela && (
+            <div class="mt-2 flex gap-2 rounded-md border border-warning bg-warning/10 p-2 text-xs text-fg">
+              <AlertTriangle size={14} class="mt-0.5 shrink-0 text-warning" />
+              <span>
+                {janelaJaFechada ? (
+                  <>
+                    A janela de 24h deste número está <strong>fechada</strong> — o contato não escreveu
+                    nas últimas 24h. Uma mensagem de texto não será entregue pelo WhatsApp Oficial
+                    {canais.some((c) => c.provider === 'evolution') ? '; escolha um número Evolution acima' : ''}.
+                  </>
+                ) : (
+                  <>
+                    A janela de 24h deste número fecha em{' '}
+                    <strong>{janelaFecha?.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</strong>.
+                    Depois disso o WhatsApp Oficial só entrega modelo aprovado (HSM) — antecipe o horário
+                    {canais.some((c) => c.provider === 'evolution') ? ' ou escolha um número Evolution acima' : ''}.
+                  </>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         <label class="flex items-start gap-2 text-sm">
@@ -158,7 +227,7 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
           <AlertTriangle size={14} class="mt-0.5 shrink-0" />
           <span>
             No horário do envio a mensagem passa pelas mesmas regras de uma mensagem digitada agora:
-            número da conversa, opt-out e janela de 24h do WhatsApp Oficial.
+            número da conversa, opt-out e bloqueios de envio.
           </span>
         </div>
       </div>

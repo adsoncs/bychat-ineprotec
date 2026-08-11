@@ -75,15 +75,46 @@ export async function scheduledMessagesRoutes(app: FastifyInstance) {
       }
     }
 
-    // Aviso (não bloqueio) de janela de 24h: quem envia por Cloud API e agenda
-    // texto livre para depois da janela vai receber WINDOW_CLOSED no disparo. O
-    // operador precisa saber disso AGORA, não descobrir amanhã pelo histórico.
+    // Número de envio: valida contra os canais que ESTE operador pode usar, e
+    // contra o lock da conversa — as mesmas regras do envio manual. Sem isso, o
+    // agendamento seria uma porta lateral para responder por outro número.
+    const wp = await import('../services/whatsappProvider.js')
+    const canais = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
+    let canal = channelId ? canais.find((c: any) => c.id === channelId) : null
+    if (channelId && !canal) {
+      return reply.code(403).send({ error: 'Você não tem acesso a esse número de envio.' })
+    }
+    if (canal && !wp.canOverrideConversationChannel(user.role)) {
+      const locked = await wp.lockedChannelForLead(leadId, { userId: user.userId, role: user.role })
+      if (locked && locked.channelId !== canal.id) {
+        const label = canais.find((c: any) => c.id === locked.channelId)
+        return reply.code(409).send({
+          error: `Esta conversa está em andamento pelo número ${label?.number || label?.label || locked.channelId}. O agendamento precisa sair por ele — é o número que o contato conhece.`,
+          code: 'CHANNEL_LOCKED',
+          lockedChannelId: locked.channelId,
+        })
+      }
+    }
+    // Sem escolha explícita, o aviso considera o número que a conversa usaria.
+    if (!canal) {
+      const sug = await wp.suggestChannelForLead(leadId, { userId: user.userId, role: user.role }).catch(() => null)
+      canal = sug?.channelId ? canais.find((c: any) => c.id === sug.channelId) ?? null : null
+    }
+
+    // Aviso (não bloqueio) de janela de 24h. Só faz sentido na Cloud API: a
+    // Evolution não tem janela. Antes o aviso saía em qualquer caso, com um "se
+    // esta conversa sai pela Cloud API" que o operador não tinha como responder.
     let aviso: string | null = null
-    if (tipo === 'text') {
-      const wp = await import('../services/whatsappProvider.js')
+    if (tipo === 'text' && canal?.provider === 'cloud_api') {
       const win = await wp.getCloudWindowState(leadId).catch(() => null)
-      if (win?.expiresAt && quando.getTime() > new Date(win.expiresAt).getTime()) {
-        aviso = 'No horário escolhido a janela de 24h do WhatsApp Oficial já terá fechado. Se esta conversa sai pela Cloud API, só um modelo aprovado (HSM) será entregue.'
+      const numero = canal.number || canal.label
+      if (win && !win.open) {
+        // Janela nunca abriu (ou já fechou): esperar não melhora nada — sem
+        // `expiresAt` a checagem de "vai fechar antes da hora" não pegava este
+        // caso, o mais comum de todos, e o agendamento nascia condenado.
+        aviso = `A janela de 24h do número ${numero} está fechada — o contato não escreveu nas últimas 24h. Como ele é WhatsApp Oficial, uma mensagem de texto não será entregue no horário agendado; use um número Evolution ou um modelo aprovado (HSM).`
+      } else if (win?.expiresAt && quando.getTime() > new Date(win.expiresAt).getTime()) {
+        aviso = `No horário escolhido a janela de 24h já terá fechado para o número ${numero}. Como ele é WhatsApp Oficial, só um modelo aprovado (HSM) seria entregue — considere antecipar o horário ou agendar por um número Evolution.`
       }
     }
 

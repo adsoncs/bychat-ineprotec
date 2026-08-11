@@ -156,16 +156,33 @@ async function dispararUma(sm: any): Promise<void> {
     return
   }
 
-  // channelId NÃO é repassado de propósito: deixar o sender resolver o número
-  // evita disparar por um canal que deixou de ser o da conversa desde então.
-  const r = await sendTicketMessage({
+  // O número escolhido no agendamento é respeitado — o operador decidiu por qual
+  // sair, e é sobre ele que o aviso de janela de 24h foi dado.
+  let r = await sendTicketMessage({
     leadId: sm.leadId,
     body,
     mediaType: sm.kind === 'template_hsm' ? 'template' : 'text',
     template: sm.kind === 'template_hsm' ? (sm.hsmPayload as any) : null,
     actor: { userId: criador.id, role: criador.role },
     origin: 'scheduled',
+    ...(sm.channelId ? { channelId: sm.channelId } : {}),
   })
+
+  // Entre agendar e enviar, o contato pode ter respondido por outro número e
+  // mudado o lock da conversa. Insistir no número velho abriria um segundo fio
+  // no aparelho dele; desistir deixaria o follow-up sem sair. Então repete sem
+  // channelId, deixando o sender resolver o número que a conversa usa AGORA.
+  if (!r.ok && r.code === 'CHANNEL_LOCKED' && sm.channelId) {
+    console.warn(`[scheduledMessages] #${sm.id}: número da conversa mudou desde o agendamento — reenviando pelo número atual`)
+    r = await sendTicketMessage({
+      leadId: sm.leadId,
+      body,
+      mediaType: sm.kind === 'template_hsm' ? 'template' : 'text',
+      template: sm.kind === 'template_hsm' ? (sm.hsmPayload as any) : null,
+      actor: { userId: criador.id, role: criador.role },
+      origin: 'scheduled',
+    })
+  }
 
   if (r.ok) {
     await prisma.scheduledMessage.update({
