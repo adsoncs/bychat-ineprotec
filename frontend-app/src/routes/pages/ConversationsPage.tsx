@@ -86,12 +86,13 @@ import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
-import { Clock as ClockIcon } from 'lucide-preact'
+import { Clock as ClockIcon, LayoutTemplate } from 'lucide-preact'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
 import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
+import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -871,6 +872,7 @@ function ChatPanel({
   const currentUserId = useUserStore((s) => s.user?.id)
   const send = useSendMessage(leadId)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [hsmOpen, setHsmOpen] = useState(false)
   // Canais de envio (multi-canal: Evolution + Cloud API). O operador escolhe por
   // qual número responder; pré-seleciona o canal de ENTRADA do lead. Sem isso o
   // backend resolvia sozinho e caía sempre na Cloud API.
@@ -938,6 +940,10 @@ function ChatPanel({
   // O SUPERADMIN recebe locked=null: abre no mesmo padrão, mas pode trocar.
   // Sem conversa, nada vem pré-marcado: a escolha é explícita.
   const conversationChannelId = senderChannels?.suggestedChannelId ?? null
+  // Modelo com cabeçalho/mídia/botões só existe na Cloud API — a Evolution
+  // lança erro em mensagem interativa. Sem canal Cloud, o botão nem aparece.
+  const canalAtual = channels.find((c) => c.id === (channelId ?? senderChannels?.suggestedChannelId))
+  const podeEnviarHsm = (canalAtual?.provider ?? '') === 'cloud_api'
   const lockedChannelId = senderChannels?.lockedChannelId ?? null
   useEffect(() => {
     const preset = lockedChannelId ?? conversationChannelId
@@ -1782,6 +1788,18 @@ function ChatPanel({
                 >
                   <StickyNote size={16} />
                 </button>
+                {podeEnviarHsm && (
+                  <button
+                    type="button"
+                    class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
+                    onClick={() => setHsmOpen(true)}
+                    disabled={send.isPending || isInternalNote}
+                    aria-label="Enviar modelo aprovado"
+                    title="Modelo aprovado (com cabeçalho, mídia e botões)"
+                  >
+                    <LayoutTemplate size={16} />
+                  </button>
+                )}
                 <button
                   type="button"
                   class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
@@ -1827,6 +1845,28 @@ function ChatPanel({
         open={promoteAfterClaimOpen}
         mode={{ kind: 'single', leadId, leadName: ticket?.nome ?? lead?.nome ?? null }}
         onOpenChange={setPromoteAfterClaimOpen}
+      />
+
+      <HsmTemplatePicker
+        open={hsmOpen}
+        onOpenChange={setHsmOpen}
+        enviando={send.isPending}
+        onSend={({ name, language, components, preview }) => {
+          send.mutate(
+            {
+              mediaType: 'template',
+              // O corpo já interpolado vai junto: é o que fica legível no
+              // histórico da conversa (o envio real usa o template + components).
+              body: preview,
+              template: { name, language, ...(components ? { components } : {}) },
+              ...(channelId ? { channelId } : {}),
+            },
+            {
+              onSuccess: () => { setHsmOpen(false); toast('Modelo enviado', 'success') },
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            },
+          )
+        }}
       />
 
       <ScheduleMessageModal

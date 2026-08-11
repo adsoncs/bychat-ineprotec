@@ -11,6 +11,7 @@ import {
   type TemplateInput,
 } from '@/hooks/useTemplates'
 import { TemplateAttachmentField, type TemplateAttachment } from '@/components/TemplateAttachmentField'
+import { TemplateCompositionFields } from '@/components/TemplateCompositionFields'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -279,6 +280,9 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
   const [bodyHtml, setBodyHtml] = useState(decodeHtmlIfEscaped(template?.bodyHtml ?? ''))
   // Atalho do Conversas: normaliza p/ minúsculo, sem "/", só [a-z0-9_-].
   const [shortcut, setShortcut] = useState(template?.shortcut ?? '')
+  const [header, setHeader] = useState(template?.header ?? '')
+  const [footer, setFooter] = useState(template?.footer ?? '')
+  const [options, setOptions] = useState<string[]>(template?.options ?? [])
   const [anexo, setAnexo] = useState<TemplateAttachment | null>(
     template?.attachmentUrl
       ? { url: template.attachmentUrl, name: template.attachmentName || 'arquivo', type: template.attachmentType || 'document' }
@@ -311,6 +315,9 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       attachmentUrl: anexo?.url ?? null,
       attachmentName: anexo?.name ?? null,
       attachmentType: anexo?.type ?? null,
+      header: header.trim() || null,
+      footer: footer.trim() || null,
+      options: options.map((o) => o.trim()).filter(Boolean),
     }
     const onSuccess = () => { toast(isEdit ? 'Modelo atualizado' : 'Modelo criado', 'success'); onClose() }
     const onError = (e: unknown) => toast((e as Error).message, 'danger')
@@ -381,6 +388,17 @@ function TemplateFormModal({ template, onClose }: { template: MessageTemplateIte
       ) : (
         <ChatPanel kind="sms" body={body} setBody={setBody} varKeys={varKeys} />
       )}
+
+      <TemplateCompositionFields
+        header={header}
+        setHeader={setHeader}
+        footer={footer}
+        setFooter={setFooter}
+        options={options}
+        setOptions={setOptions}
+        channel={channel}
+        body={body}
+      />
 
       <TemplateAttachmentField value={anexo} onChange={setAnexo} channel={channel} />
     </Modal>

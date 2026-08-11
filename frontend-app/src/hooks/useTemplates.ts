@@ -14,6 +14,9 @@ export interface MessageTemplateItem {
   attachmentUrl: string | null
   attachmentName: string | null
   attachmentType: string | null
+  header: string | null
+  footer: string | null
+  options: string[] | null
   active: boolean
   usageCount: number
   createdAt: string
@@ -31,6 +34,9 @@ export interface TemplateInput {
   attachmentUrl?: string | null | undefined
   attachmentName?: string | null | undefined
   attachmentType?: string | null | undefined
+  header?: string | null | undefined
+  footer?: string | null | undefined
+  options?: string[] | null | undefined
   active?: boolean | undefined
 }
 

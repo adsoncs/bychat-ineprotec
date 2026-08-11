@@ -99,6 +99,9 @@ export async function templatesRoutes(app: FastifyInstance) {
         attachmentUrl: body.attachmentUrl || null,
         attachmentName: body.attachmentName || null,
         attachmentType: body.attachmentType || null,
+        header: body.header || null,
+        footer: body.footer || null,
+        options: Array.isArray(body.options) && body.options.length ? body.options : undefined,
         shortcut: normalizeShortcut(body.shortcut),
         variables: body.variables || undefined,
       }
@@ -120,6 +123,9 @@ export async function templatesRoutes(app: FastifyInstance) {
     if (body.attachmentUrl !== undefined) data.attachmentUrl = body.attachmentUrl
     if (body.attachmentName !== undefined) data.attachmentName = body.attachmentName
     if (body.attachmentType !== undefined) data.attachmentType = body.attachmentType
+    if (body.header !== undefined) data.header = body.header || null
+    if (body.footer !== undefined) data.footer = body.footer || null
+    if (body.options !== undefined) data.options = Array.isArray(body.options) && body.options.length ? body.options : null
     if (body.shortcut !== undefined) data.shortcut = normalizeShortcut(body.shortcut)
     if (body.variables !== undefined) data.variables = body.variables
     if (body.active !== undefined) data.active = body.active
@@ -172,9 +178,24 @@ export async function templatesRoutes(app: FastifyInstance) {
       data: { usageCount: { increment: 1 } },
     }).catch(() => {})
 
+    // Monta a mensagem final: cabeçalho, corpo, rodapé e opções numeradas. É
+    // esse texto que entra no compositor — a Evolution não envia botão, então a
+    // lista numerada é a forma de oferecer escolhas fechadas fora da Cloud API.
+    const partes: string[] = []
+    if (template.header) partes.push(`*${replaceVariables(template.header, vars)}*`)
+    partes.push(replaceVariables(template.body, vars))
+    const opcoes = Array.isArray(template.options) ? (template.options as string[]) : []
+    if (opcoes.length) {
+      partes.push(opcoes.map((o, i) => `${i + 1}) ${replaceVariables(String(o), vars)}`).join('\n'))
+    }
+    if (template.footer) partes.push(`_${replaceVariables(template.footer, vars)}_`)
+    const composto = partes.join('\n\n')
+
     return {
       subject: template.subject ? replaceVariables(template.subject, vars) : null,
-      body: replaceVariables(template.body, vars),
+      body: composto,
+      // Corpo sem a composição, para quem precisa só do texto puro.
+      rawBody: replaceVariables(template.body, vars),
       bodyHtml: template.bodyHtml ? replaceVariables(template.bodyHtml, vars) : null,
       variables: vars,
     }

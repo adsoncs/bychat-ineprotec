@@ -1488,6 +1488,17 @@ model MessageTemplate {
   bodyHtml       String?  @db.LongText // versao HTML (email)
   attachmentUrl  String?  @db.Text // anexo padrao (URL)
   attachmentName String?  @db.VarChar(191)
+  // Tipo do anexo, definido no upload. Antes o Conversas adivinhava pela
+  // extensão do nome na hora de enviar — arquivo sem extensão ou com uma
+  // incomum (.jfif) virava documento e chegava errado ao contato.
+  attachmentType String?  @db.VarChar(20) // image | video | audio | document
+  // Composição da mensagem (canal não-oficial). Botão de verdade só existe na
+  // Cloud API — a Evolution lança erro em mensagem interativa —, então aqui as
+  // opções viram lista numerada no fim do texto, que é como o chatbot já as
+  // entrega quando o canal não é oficial.
+  header         String?  @db.VarChar(120) // linha de destaque antes do corpo
+  footer         String?  @db.VarChar(120) // assinatura/observação no fim
+  options        Json?  @db.Json         // string[] — vira "1) …" no envio
   variables      Json?    @db.Json // lista de variaveis usadas [{key, label, default}]
   active         Boolean  @default(true)
   usageCount     Int      @default(0) // quantas vezes foi usado
