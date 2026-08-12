@@ -107,7 +107,7 @@ function CampaignList({ onNew, onEdit, onOpen }: { onNew: () => void; onEdit: (i
           <EmptyState
             icon={<BrainCircuit size={28} />}
             title="Nenhuma campanha ainda"
-            description="Aqui o envio sai pelos números conectados na Evolution, com intervalos irregulares, simulação de digitação e teto diário por número."
+            description="Aqui o envio sai pelos seus próprios números de WhatsApp, com intervalos irregulares, simulação de digitação e teto diário por número."
           />
         ) : (
           <div class="space-y-2">

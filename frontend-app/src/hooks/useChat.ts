@@ -38,7 +38,7 @@ export interface Ticket {
   /** Conversa de GRUPO de WhatsApp (Evolution) — não é um contato individual. */
   isGroup?: boolean
   /** Canal/número de origem da conversa (última mensagem) */
-  channel: { provider: 'evolution' | 'cloud_api'; label: string; number: string | null; name: string | null } | null
+  channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string | null; number: string | null; name: string | null; color?: string | null } | null
 }
 
 export interface TicketsCounters {
@@ -168,6 +168,8 @@ export interface SenderChannel {
   id: string
   provider: 'evolution' | 'cloud_api'
   label: string
+  /** Cor escolhida pelo cliente; null usa a do provedor. */
+  color?: string | null
   number: string | null
   dedicated: boolean
   window: SenderWindowState | null

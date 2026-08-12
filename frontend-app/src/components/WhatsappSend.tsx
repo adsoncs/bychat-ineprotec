@@ -25,6 +25,7 @@ import { useSendMessage, useSenderChannels, type SenderChannel } from '@/hooks/u
 import { useCloudApiTemplates, parseTemplateComponents, type CloudApiTemplate, type ParsedTemplate } from '@/hooks/useCloudApi'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { nomeDoCanal } from '@/lib/channelColors'
 
 // Cor oficial WhatsApp = #25d366
 const WPP_BG = 'bg-[#25d366]'
@@ -407,12 +408,12 @@ function ChannelRow({ channel, onPick, disabled }: { channel: SenderChannel; onP
   const isCloud = channel.provider === 'cloud_api'
   return (
     <button type="button" onClick={onPick} disabled={disabled} class="w-full text-left rounded-md border border-border bg-surface hover:bg-surface-2 p-3 transition-colors disabled:opacity-50 flex items-center gap-3">
-      <span class={cn('size-8 rounded-full grid place-items-center shrink-0', isCloud ? 'bg-info/15 text-info' : 'bg-success/15 text-success')}>
+      <span class={cn('size-8 rounded-full grid place-items-center shrink-0', isCloud ? 'bg-info/15 text-info' : 'bg-surface-3 text-fg-muted')}>
         {isCloud ? <Cloud size={16} /> : <Smartphone size={16} />}
       </span>
       <div class="min-w-0 flex-1">
-        <div class="text-sm font-medium text-fg">{channel.label}</div>
-        <div class="text-xs text-fg-muted">{channel.number ?? '—'} · {isCloud ? 'WhatsApp Oficial (Cloud API)' : 'WhatsApp (Evolution)'}</div>
+        <div class="text-sm font-medium text-fg">{nomeDoCanal(channel)}</div>
+        <div class="text-xs text-fg-muted">{channel.number ?? '—'} · {isCloud ? 'WhatsApp Oficial' : 'WhatsApp comum'}</div>
       </div>
       {isCloud && channel.window && (
         <span class={cn('text-[0.625rem] font-medium rounded px-1.5 py-0.5 shrink-0', channel.window.open ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning')}>

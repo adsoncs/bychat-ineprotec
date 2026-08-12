@@ -108,6 +108,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { cn } from '@/lib/cn'
+import { corDoCanal, nomeDoCanal } from '@/lib/channelColors'
 import { formatRelative } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
@@ -447,7 +448,11 @@ export function ConversationsPage() {
                   <option value="">Todos os números</option>
                   {(numbersQ.data?.channels ?? [])
                     .filter((c) => c.provider === 'evolution' || c.provider === 'cloud_api')
-                    .map((c) => <option key={c.id} value={c.id}>{c.number || c.label}</option>)}
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {nomeDoCanal(c)}{c.number && nomeDoCanal(c) !== c.number ? ` — ${c.number}` : ''}
+                      </option>
+                    ))}
                 </Select>
               </div>
               <div class="flex-1 min-w-0">
@@ -723,25 +728,32 @@ function InstagramLogo({ size = 9 }: { size?: number }) {
 }
 
 function ChannelTag({ channel, compact = false }: {
-  channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string; number: string | null; name: string | null } | null
+  channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string | null; number: string | null; name: string | null; color?: string | null } | null
   compact?: boolean
 }) {
   if (!channel) return null
-  const map: Record<string, { Icon: any; cls: string; text: string }> = {
-    cloud_api: { Icon: Cloud, cls: 'bg-info/15 text-info', text: 'Cloud' },
-    instagram: { Icon: InstagramLogo, cls: 'bg-[#E1306C]/15 text-[#E1306C]', text: 'Instagram' },
-    messenger: { Icon: MessageCircle, cls: 'bg-[#0084FF]/15 text-[#0084FF]', text: 'Messenger' },
-    evolution: { Icon: Smartphone, cls: 'bg-success/15 text-success', text: 'Evolution' },
+  // Redes sociais mantêm a cor da marca — ali a origem É a rede. Nos canais de
+  // WhatsApp quem manda é a cor escolhida pelo cliente: com vários números, o
+  // verde do provedor era igual em todos e não identificava nada.
+  const map: Record<string, { Icon: any; cls: string }> = {
+    cloud_api: { Icon: Cloud, cls: '' },
+    instagram: { Icon: InstagramLogo, cls: 'bg-[#E1306C]/15 text-[#E1306C]' },
+    messenger: { Icon: MessageCircle, cls: 'bg-[#0084FF]/15 text-[#0084FF]' },
+    evolution: { Icon: Smartphone, cls: '' },
   }
-  const { Icon, cls, text } = map[channel.provider] || map.evolution
+  const { Icon, cls } = map[channel.provider] || map.evolution
   const num = channel.number || channel.name
+  const ehWhats = channel.provider === 'evolution' || channel.provider === 'cloud_api'
+  const cor = ehWhats ? corDoCanal(channel.color, channel.provider) : null
+  const texto = ehWhats ? nomeDoCanal({ label: channel.label, number: num, provider: channel.provider }) : (channel.provider === 'instagram' ? 'Instagram' : 'Messenger')
   return (
     <span
-      class={cn('inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full', cls)}
-      title={`Canal: ${channel.label}${num ? ' · ' + num : ''}`}
+      class={cn('inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[0.625rem] font-semibold', cls)}
+      style={cor ? { backgroundColor: `${cor}26`, color: cor } : undefined}
+      title={`Canal: ${texto}${num && texto !== num ? ' · ' + num : ''}`}
     >
       <Icon size={9} />
-      {text}{!compact && num ? ` · ${num}` : ''}
+      {texto}{!compact && num && texto !== num ? ` · ${num}` : ''}
     </span>
   )
 }
@@ -1778,10 +1790,12 @@ function ChatPanel({
               const locked = lockedChannelId !== null && selected?.id === lockedChannelId
               const isConversationChannel = conversationChannelId !== null && selected?.id === conversationChannelId
               const offConversation = conversationChannelId !== null && selected !== null && !isConversationChannel
-              const chanLabel = (c: SenderChannel) => `${c.provider === 'cloud_api' ? 'Cloud API' : 'Evolution'}${(c.number || c.label) ? ` · ${c.number || c.label}` : ''}`
+              const chanLabel = (c: SenderChannel) => {
+                const n = nomeDoCanal(c)
+                return c.number && c.number !== n ? `${n} · ${c.number}` : n
+              }
               const conversationLabel = channels.find((c) => c.id === conversationChannelId)
               const SelIcon = selected?.provider === 'cloud_api' ? Cloud : Smartphone
-              const selCloud = selected?.provider === 'cloud_api'
               return (
                 <div class="mb-2 flex flex-wrap items-center gap-1.5">
                   <span class="text-[0.625rem] font-medium text-fg-subtle">Enviar por:</span>
@@ -1789,8 +1803,13 @@ function ChatPanel({
                     <span
                       class={cn(
                         'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold',
-                        offConversation ? 'border-warning/50 bg-warning/15 text-warning'
-                          : selCloud ? 'border-info/40 bg-info/15 text-info' : 'border-success/40 bg-success/15 text-success',
+                        // Cor aqui só quando ela significa alguma coisa: número
+                        // fora do da conversa é aviso. No caso normal o chip usa a
+                        // cor do sistema — a identificação por cor do canal vive na
+                        // lista de conversas, junto do nome do contato.
+                        offConversation
+                          ? 'border-warning/50 bg-warning/15 text-warning'
+                          : 'border-border bg-surface-2 text-fg-muted',
                       )}
                       title={isConversationChannel
                         ? `Número da conversa: ${chanLabel(selected)} — foi por ele que o contato falou, então a resposta sai por ele.`
@@ -1847,7 +1866,7 @@ function ChatPanel({
                                     active ? 'text-fg font-semibold' : 'text-fg-muted',
                                   )}
                                 >
-                                  <Icon size={12} class={isCloud ? 'text-info' : 'text-success'} />
+                                  <Icon size={12} class="text-fg-subtle" />
                                   <span class="flex-1 truncate">{chanLabel(c)}</span>
                                   {c.id === conversationChannelId && (
                                     <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">da conversa</span>

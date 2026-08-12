@@ -667,6 +667,8 @@ export interface SenderChannel {
   id: string
   provider: ChannelProvider
   label: string
+  /** Cor de identificação escolhida pelo cliente; null usa a do provedor. */
+  color: string | null
   number: string | null
   /** true se o operador é dono exclusivo deste canal (ownerUserId) */
   dedicated: boolean
@@ -705,6 +707,7 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
     id: evoChannelId(i.instanceName),
     provider: 'evolution',
     label: i.name || i.instanceName,
+    color: i.color ?? null,
     number: i.phone ?? null,
     dedicated: i.ownerUserId === sender.userId,
   })
@@ -712,6 +715,7 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
     id: cloudChannelId(c.id),
     provider: 'cloud_api',
     label: c.displayName || c.displayPhone || `Cloud #${c.id}`,
+    color: c.color ?? null,
     number: c.displayPhone ?? null,
     dedicated: c.ownerUserId === sender.userId,
   })

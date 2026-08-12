@@ -459,7 +459,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
                 connectionId: last.cloudApiConnection?.id ?? null,
                 label: last.provider === 'cloud_api'
                   ? (last.cloudApiConnection?.displayName || last.cloudApiConnection?.displayPhone || 'API Oficial')
-                  : (last.evolutionInstance || 'Evolution'),
+                  : (last.evolutionInstance || 'WhatsApp'),
               }
             : null,
           bot,

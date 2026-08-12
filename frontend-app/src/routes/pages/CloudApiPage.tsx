@@ -32,6 +32,8 @@ import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { EmbeddedSignupModal } from '@/components/EmbeddedSignupModal'
 import { cloudApiQualityLabel } from '@/lib/statusLabels'
 import { toast } from '@/lib/toast'
+import { cn } from '@/lib/cn'
+import { CANAL_CORES } from '@/lib/channelColors'
 
 function buildWebhookUrl(): string {
   if (typeof window === 'undefined') return ''
@@ -282,6 +284,16 @@ function ConnectionCard({
     c.ownerUserId != null ? 'agent' : teamsIniciais.length ? 'team' : 'none',
   )
   const [teamIds, setTeamIds] = useState<number[]>(teamsIniciais)
+  // Identidade do canal: nome que o operador vê na conversa e cor de origem.
+  const [nomeCanal, setNomeCanal] = useState(c.displayName ?? '')
+  const [cor, setCor] = useState(c.color ?? '')
+
+  function salvarIdentidade(patch: { displayName?: string; color?: string | null }) {
+    update.mutate({ id: c.id, ...patch }, {
+      onSuccess: () => toast('Identificação do canal atualizada', 'success', 1_500),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
 
   function handleChatbotChange(value: string) {
     const chatbotId = value ? Number(value) : null
@@ -374,6 +386,50 @@ function ConnectionCard({
         <Field label="Tipo de token" value={c.tokenType} />
         {c.qualityRating && <Field label="Qualidade" value={cloudApiQualityLabel(c.qualityRating)} />}
         {c.messagingLimit && <Field label="Limite" value={c.messagingLimit} />}
+      </div>
+
+      {/* Identificação do canal — é o que o operador vê na conversa */}
+      <div class="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+        <Input
+          label="Nome do canal"
+          value={nomeCanal}
+          placeholder={c.displayPhone}
+          hint="Como este número aparece para quem atende. Ex.: Comercial, Suporte, Loja Centro."
+          disabled={update.isPending}
+          onInput={(e) => setNomeCanal((e.target as HTMLInputElement).value)}
+          onBlur={() => {
+            const v = nomeCanal.trim()
+            if (v !== (c.displayName ?? '')) salvarIdentidade({ displayName: v })
+          }}
+        />
+        <div>
+          <label class="mb-1 block text-sm font-medium">Cor de identificação</label>
+          <div class="flex flex-wrap items-center gap-1.5">
+            {CANAL_CORES.map((cc) => (
+              <button
+                key={cc.hex}
+                type="button"
+                title={cc.nome}
+                aria-label={cc.nome}
+                aria-pressed={cor === cc.hex}
+                disabled={update.isPending}
+                onClick={() => {
+                  const nova = cor === cc.hex ? '' : cc.hex
+                  setCor(nova)
+                  salvarIdentidade({ color: nova || null })
+                }}
+                class={cn(
+                  'size-7 rounded-full border-2 transition-transform',
+                  cor === cc.hex ? 'scale-110 border-fg' : 'border-transparent hover:scale-105',
+                )}
+                style={{ backgroundColor: cc.hex }}
+              />
+            ))}
+          </div>
+          <p class="mt-1 text-xs text-fg-subtle">
+            Marca a origem das conversas deste número na lista de atendimento.
+          </p>
+        </div>
       </div>
 
       {/* Inline edit: chatbot + ativa */}

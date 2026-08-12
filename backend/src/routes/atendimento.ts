@@ -228,7 +228,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
                 timestamp: true,
                 provider: true,
                 evolutionInstance: true,
-                cloudApiConnection: { select: { displayPhone: true, displayName: true } },
+                cloudApiConnection: { select: { displayPhone: true, displayName: true, color: true } },
               },
             },
           },
@@ -240,22 +240,28 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // Pré-carrega instâncias/conexões pra resolver em memória + fallback p/
       // histórico (mensagens antigas sem evolutionInstance/cloudApiConnectionId).
       const [allInstances, allCloud] = await Promise.all([
-        prisma.whatsAppInstance.findMany({ select: { instanceName: true, name: true, phone: true } }),
-        prisma.cloudApiConnection.findMany({ where: { active: true }, select: { displayPhone: true, displayName: true } }),
+        prisma.whatsAppInstance.findMany({ select: { instanceName: true, name: true, phone: true, color: true } }),
+        prisma.cloudApiConnection.findMany({ where: { active: true }, select: { displayPhone: true, displayName: true, color: true } }),
       ])
       const instByName = new Map(allInstances.map(i => [i.instanceName, i]))
       const soleInstance = allInstances.length === 1 ? allInstances[0] : null
       const soleCloud = allCloud.length === 1 ? allCloud[0] : null
       const buildChannel = (m: any) => {
         if (!m) return null
+        // O rótulo é o nome que a empresa deu ao canal — não o do provedor. Quem
+        // atende precisa saber QUAL número falou com o contato; "Evolution" e
+        // "Cloud API" são detalhe de integração e não dizem nada na conversa.
         if (m.provider === 'cloud_api') {
           const c = m.cloudApiConnection || soleCloud
-          return { provider: 'cloud_api', label: 'Cloud API', number: c?.displayPhone ?? null, name: c?.displayName ?? null }
+          return { provider: 'cloud_api', label: c?.displayName ?? null, number: c?.displayPhone ?? null, name: c?.displayName ?? null, color: (c as any)?.color ?? null }
         }
-        if (m.provider === 'instagram') return { provider: 'instagram', label: 'Instagram', number: null, name: null }
-        if (m.provider === 'messenger') return { provider: 'messenger', label: 'Messenger', number: null, name: null }
+        if (m.provider === 'instagram') return { provider: 'instagram', label: 'Instagram', number: null, name: null, color: null }
+        if (m.provider === 'messenger') return { provider: 'messenger', label: 'Messenger', number: null, name: null, color: null }
         const inst = (m.evolutionInstance ? instByName.get(m.evolutionInstance) : null) || soleInstance
-        return { provider: 'evolution', label: 'Evolution', number: inst?.phone ?? null, name: inst?.name ?? m.evolutionInstance ?? null }
+        // Nome só serve como rótulo se não for o identificador técnico da
+        // instância — nesse caso o cadastro nunca recebeu um nome de verdade.
+        const nomeInst = inst?.name && inst.name !== inst.instanceName ? inst.name : null
+        return { provider: 'evolution', label: nomeInst, number: inst?.phone ?? null, name: nomeInst ?? m.evolutionInstance ?? null, color: inst?.color ?? null }
       }
 
       const result = tickets.map(t => {

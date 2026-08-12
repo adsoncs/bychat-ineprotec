@@ -7,6 +7,8 @@ export interface CloudApiConnection {
   phoneNumberId: string
   displayPhone: string
   displayName: string | null
+  /** Cor de identificação do canal (paleta fechada). */
+  color?: string | null
   qualityRating: string | null
   messagingLimit: string | null
   chatbotId: number | null
@@ -160,7 +162,8 @@ export function useUpdateCloudApiConnection() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, ...input }: { id: number; chatbotId?: number | null; active?: boolean; defaultTeamId?: number | null
-  teamIds?: number[]; ownerUserId?: number | null; funnelId?: number | null; stageKey?: string | null }) =>
+  teamIds?: number[]; ownerUserId?: number | null; funnelId?: number | null; stageKey?: string | null
+  displayName?: string; color?: string | null }) =>
       api.put<{ ok: true }>(`/cloud-api/connection/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-connections'] }),
   })

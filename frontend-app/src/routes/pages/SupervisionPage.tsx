@@ -81,7 +81,7 @@ function prettyChannel(raw: string): string {
   if (!raw || raw === 'sem mensagem') return 'Sem mensagem'
   const [provider, rest] = raw.split(':')
   if (provider === 'cloud_api') return rest ? `API Oficial #${rest}` : 'API Oficial'
-  return rest || 'Evolution'
+  return rest || 'WhatsApp'
 }
 
 /** Quem conduz + em que ponto do chatbot. */

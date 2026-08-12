@@ -738,7 +738,11 @@ model WhatsAppInstance {
   // para todos os participantes). Só Evolution — a Cloud API oficial não expõe
   // os grupos reais do número.
   receiveGroups Boolean  @default(false)
-  active        Boolean  @default(true)
+  active    /// Cor de identificação do canal na operação. Paleta fechada (ver
+  /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
+  /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
+  color                String?  @db.VarChar(9)
+      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -1556,7 +1560,11 @@ model CloudApiConnection {
   displayName     String?   @db.VarChar(191) // Nome do WABA
   qualityRating   String?   @db.VarChar(20) // GREEN, YELLOW, RED
   messagingLimit  String?   @db.VarChar(50) // Tier: 1K, 10K, 100K, UNLIMITED
-  active          Boolean   @default(true)
+  active    /// Cor de identificação do canal na operação. Paleta fechada (ver
+  /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
+  /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
+  color                String?  @db.VarChar(9)
+        Boolean   @default(true)
   metadata        Json?     @db.Json
   messages        Message[]
   messageLogs     CloudApiMessageLog[]

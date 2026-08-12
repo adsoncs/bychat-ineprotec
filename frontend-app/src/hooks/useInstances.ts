@@ -25,6 +25,8 @@ export interface WhatsAppInstance {
   updatedAt: string
   status: 'connected' | 'disconnected' | 'error' | 'unknown'
   ownerJid: string | null
+  /** Cor de identificação do canal (paleta fechada). */
+  color?: string | null
 }
 
 export interface InstanceInput {
@@ -63,6 +65,8 @@ export interface InstanceUpdateInput {
   stageKey?: string | null | undefined
   active?: boolean | undefined
   receiveGroups?: boolean | undefined
+  /** Cor de identificação do canal (paleta fechada). */
+  color?: string | null
 }
 
 export function useUpdateInstance() {

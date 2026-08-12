@@ -4,6 +4,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
+import { nomeDoCanal } from '@/lib/channelColors'
 import { useCreateScheduledMessage } from '@/hooks/useScheduledMessages'
 import { useSenderChannels } from '@/hooks/useChat'
 
@@ -144,25 +145,28 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
           <label class="mb-1 block text-sm font-medium">Enviar pelo número</label>
           {canalFixo ? (
             <div class="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
-              <span class="font-medium">{canal?.number || canal?.label || 'número da conversa'}</span>
-              <span class="ml-2 text-xs text-fg-subtle">
-                {canal?.provider === 'cloud_api' ? 'WhatsApp Oficial' : 'Evolution'}
-              </span>
+              <span class="font-medium">{nomeDoCanal(canal)}</span>
+              {canal?.number && nomeDoCanal(canal) !== canal.number && (
+                <span class="ml-2 text-xs text-fg-subtle">{canal.number}</span>
+              )}
               <span class="mt-0.5 block text-xs text-fg-subtle">
                 Esta conversa já está em andamento por este número — é o que o contato conhece.
               </span>
             </div>
           ) : (
-            <Select
-              value={canalId ?? ''}
-              onChange={(e) => setCanalEscolhido((e.target as HTMLSelectElement).value || null)}
-            >
-              {canais.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.number || c.label} — {c.provider === 'cloud_api' ? 'WhatsApp Oficial' : 'Evolution'}
-                </option>
-              ))}
-            </Select>
+            <div class="flex items-center gap-2">
+              <Select
+                class="flex-1"
+                value={canalId ?? ''}
+                onChange={(e) => setCanalEscolhido((e.target as HTMLSelectElement).value || null)}
+              >
+                {canais.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {nomeDoCanal(c)}{c.number && nomeDoCanal(c) !== c.number ? ` — ${c.number}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
           )}
         </div>
 
@@ -193,14 +197,14 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
                   <>
                     A janela de 24h deste número está <strong>fechada</strong> — o contato não escreveu
                     nas últimas 24h. Uma mensagem de texto não será entregue pelo WhatsApp Oficial
-                    {canais.some((c) => c.provider === 'evolution') ? '; escolha um número Evolution acima' : ''}.
+                    {canais.some((c) => c.provider === 'evolution') ? '; escolha um número do WhatsApp comum acima' : ''}.
                   </>
                 ) : (
                   <>
                     A janela de 24h deste número fecha em{' '}
                     <strong>{janelaFecha?.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</strong>.
                     Depois disso o WhatsApp Oficial só entrega modelo aprovado (HSM) — antecipe o horário
-                    {canais.some((c) => c.provider === 'evolution') ? ' ou escolha um número Evolution acima' : ''}.
+                    {canais.some((c) => c.provider === 'evolution') ? ' ou escolha um número do WhatsApp comum acima' : ''}.
                   </>
                 )}
               </span>

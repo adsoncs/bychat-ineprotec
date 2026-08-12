@@ -37,6 +37,8 @@ import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { cn } from '@/lib/cn'
+import { CANAL_CORES } from '@/lib/channelColors'
 
 interface QrFlow {
   instanceId: number
@@ -176,7 +178,7 @@ export function WhatsappPage() {
   return (
     <Page
       title="WhatsApp"
-      description="Instâncias da Evolution API conectadas aos números WhatsApp."
+      description="Números de WhatsApp comum conectados por QR Code, um por celular pareado."
       actions={
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
@@ -237,7 +239,7 @@ export function WhatsappPage() {
           open
           onOpenChange={(o) => { if (!o) setDeleting(null) }}
           title={`Excluir "${deleting.name}"`}
-          description="A instância será removida da Evolution API e do banco. Mensagens ficarão arquivadas no lead."
+          description="O número será desconectado e removido do painel. As mensagens já recebidas ficam arquivadas no lead."
           destructive
           confirmLabel="Excluir"
           loading={del.isPending}
@@ -253,9 +255,9 @@ export function WhatsappPage() {
         onClose={() => setShowHowItWorks(false)}
         title="Como funciona o canal WhatsApp?"
         problem={<>
-          Esta é a sua <strong>conexão com o WhatsApp comum (não-business)</strong> via Evolution API.
-          Cada <em>instância</em> equivale a um número de WhatsApp ligado ao sistema, lendo e enviando
-          mensagens em tempo real, como se fosse um celular pareado.
+          Esta é a sua <strong>conexão com o WhatsApp comum (não-oficial)</strong>, feita por leitura de
+          QR Code. Cada <em>conexão</em> equivale a um número de WhatsApp ligado ao sistema, lendo e
+          enviando mensagens em tempo real, como se fosse um celular pareado.
         </>}
         steps={[
           {
@@ -531,11 +533,11 @@ function CreateInstanceModal({ onClose }: { onClose: () => void }) {
           placeholder="Ex.: Vendas Brasil"
         />
         <Input
-          label="Instance name (Evolution)"
+          label="Identificador técnico"
           value={instanceName}
           onInput={(e) => setInstanceName((e.target as HTMLInputElement).value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
           placeholder="vendas_br"
-          hint="Apenas letras minúsculas, números, hífen e underline. Identificador único na Evolution API."
+          hint="Apenas letras minúsculas, números, hífen e underline. Nome interno da conexão — o contato nunca vê. Não pode ser alterado depois."
         />
         <Select
           label="Chatbot vinculado"
@@ -580,6 +582,7 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
   const [active, setActive] = useState(instance.active)
   // Grupos de WhatsApp nesta conexão. OFF = comportamento histórico (descarta no webhook).
   const [receiveGroups, setReceiveGroups] = useState(instance.receiveGroups ?? false)
+  const [cor, setCor] = useState<string>((instance as any).color || '')
   const update = useUpdateInstance()
   const { data: chatbots } = useChatbots()
   const { data: teams } = useTeams()
@@ -612,6 +615,7 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       stageKey: chatbotId && funnelId && stageKey ? stageKey : null,
       active,
       receiveGroups,
+      color: cor || null,
     }, {
       onSuccess: () => { toast('Instância atualizada', 'success'); onClose() },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -634,7 +638,37 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
       }
     >
       <div class="space-y-3">
-        <Input label="Nome amigável" value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+        <Input
+          label="Nome amigável"
+          value={name}
+          hint="É este nome que o operador vê na conversa — não o nome técnico da instância."
+          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+        />
+
+        <div>
+          <label class="mb-1 block text-sm font-medium">Cor de identificação</label>
+          <div class="flex flex-wrap items-center gap-1.5">
+            {CANAL_CORES.map((c) => (
+              <button
+                key={c.hex}
+                type="button"
+                title={c.nome}
+                aria-label={c.nome}
+                aria-pressed={cor === c.hex}
+                onClick={() => setCor(cor === c.hex ? '' : c.hex)}
+                class={cn(
+                  'size-7 rounded-full border-2 transition-transform',
+                  cor === c.hex ? 'scale-110 border-fg' : 'border-transparent hover:scale-105',
+                )}
+                style={{ backgroundColor: c.hex }}
+              />
+            ))}
+          </div>
+          <p class="mt-1 text-xs text-fg-subtle">
+            Marca a origem das conversas deste número na lista de atendimento. Sem cor escolhida,
+            usa a cor padrão do tipo de conexão.
+          </p>
+        </div>
         <Select label="Chatbot vinculado" value={chatbotId} onChange={(e) => setChatbotId((e.target as HTMLSelectElement).value)}>
           <option value="">Sem chatbot</option>
           {chatbots?.chatbots.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

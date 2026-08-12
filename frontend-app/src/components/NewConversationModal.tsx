@@ -4,6 +4,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
+import { nomeDoCanal } from '@/lib/channelColors'
 import { api } from '@/lib/apiClient'
 import { useSenderChannels } from '@/hooks/useChat'
 
@@ -100,12 +101,12 @@ export function NewConversationModal({ open, onOpenChange, onAberta }: Props) {
           <div>
             <label class="mb-1 block text-sm font-medium">Enviar pelo número</label>
             <Select value={canal} onChange={(e) => setCanal((e.target as HTMLSelectElement).value)}>
-              <option value="">Escolher na hora de enviar</option>
-              {canais.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.number || c.label} — {c.provider === 'cloud_api' ? 'WhatsApp Oficial' : 'Evolution'}
-                </option>
-              ))}
+                <option value="">Escolher na hora de enviar</option>
+                {canais.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {nomeDoCanal(c)}{c.number && nomeDoCanal(c) !== c.number ? ` — ${c.number}` : ''}
+                  </option>
+                ))}
             </Select>
           </div>
         )}

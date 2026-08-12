@@ -275,6 +275,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         phoneNumberId: conn.phoneNumberId,
         displayPhone: conn.displayPhone,
         displayName: conn.displayName,
+        color: conn.color,
         qualityRating: conn.qualityRating,
         messagingLimit: conn.messagingLimit,
         chatbotId: conn.chatbotId,
@@ -369,7 +370,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // (chatbotId, active, defaultTeamId, ownerUserId — paridade com a instância Evolution)
   app.put('/api/cloud-api/connection/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey } = req.body as any
+    const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey, displayName, color } = req.body as any
     // `teamIds` = setores donos (vários). `defaultTeamId` segue aceito para
     // quem manda um setor só.
     const teamIds: number[] | undefined = Array.isArray((req.body as any)?.teamIds)
@@ -378,6 +379,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     const data: any = {}
     if (chatbotId !== undefined) data.chatbotId = chatbotId || null
     if (active !== undefined) data.active = active
+    // Nome que o operador vê na conversa (o técnico "Cloud API" não diz nada a ele).
+    if (displayName !== undefined) data.displayName = String(displayName || '').slice(0, 120) || null
+    // Paleta fechada: só hex de 6 dígitos; vazio limpa.
+    if (color !== undefined) data.color = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : null
 
     // Funil dos leads do chatbot (validar funil + etapa). Vazio = não promove.
     if (funnelId !== undefined || stageKey !== undefined) {

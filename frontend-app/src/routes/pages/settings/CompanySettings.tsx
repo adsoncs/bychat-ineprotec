@@ -135,7 +135,7 @@ function GroupPickerModal(props: {
       open={props.open}
       onOpenChange={props.onOpenChange}
       title="Escolher grupo do WhatsApp"
-      description="Grupos de que o número conectado participa. Os avisos são enviados pela Evolution — a API oficial (Cloud API) não entrega em grupo."
+      description="Grupos de que o número conectado participa. Os avisos saem pelo número comum — a API oficial (Cloud API) não entrega em grupo."
       size="lg"
     >
       {isLoading && <Skeleton class="h-40 w-full" />}
