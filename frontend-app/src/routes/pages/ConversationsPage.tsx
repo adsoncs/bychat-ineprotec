@@ -1184,16 +1184,76 @@ function ChatPanel({
     })
   }
 
+  /** Limites do WhatsApp por tipo — mais apertados que o teto de 25 MB do
+   *  upload. Avisar aqui evita anexar, enviar e só então descobrir que não vai. */
+  const LIMITE_POR_TIPO: Record<string, number> = {
+    image: 5 * 1024 * 1024,
+    video: 16 * 1024 * 1024,
+    audio: 16 * 1024 * 1024,
+    outro: 100 * 1024 * 1024,
+  }
+
+  function aceitarArquivo(file: File): boolean {
+    const grupo = file.type.startsWith('image/') ? 'image'
+      : file.type.startsWith('video/') ? 'video'
+        : file.type.startsWith('audio/') ? 'audio' : 'outro'
+    const limite = LIMITE_POR_TIPO[grupo]!
+    if (file.size > limite) {
+      const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`
+      toast(`Arquivo de ${mb(file.size)} — o limite do WhatsApp para ${grupo === 'video' ? 'vídeo' : grupo === 'image' ? 'imagem' : 'este tipo'} é ${mb(limite)}.`, 'danger')
+      return false
+    }
+    setPendingFile(file)
+    setPendingPreviewUrl(file.type.startsWith('image/') ? URL.createObjectURL(file) : null)
+    return true
+  }
+
   function handleFileInput(e: Event) {
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
     input.value = ''
     if (!file) return
-    setPendingFile(file)
-    if (file.type.startsWith('image/')) {
-      setPendingPreviewUrl(URL.createObjectURL(file))
-    } else {
-      setPendingPreviewUrl(null)
+    aceitarArquivo(file)
+  }
+
+  /**
+   * Ctrl+V no compositor: print de tela e arquivo copiado do explorador viram
+   * anexo, em vez de o operador ter de salvar em disco e procurar no seletor.
+   */
+  function handlePaste(e: ClipboardEvent) {
+    const itens = Array.from(e.clipboardData?.items ?? [])
+    const arquivos = itens.filter((i) => i.kind === 'file')
+    if (!arquivos.length) return // colagem de texto normal segue o caminho padrão
+
+    const file = arquivos[0]!.getAsFile()
+    if (!file) return
+    e.preventDefault()
+
+    // Print de tela vem com nome genérico ("image.png") ou sem nome nenhum — o
+    // histórico ficaria cheio de "image.png" e o contato receberia assim.
+    const semNome = !file.name || /^image\.(png|jpe?g)$/i.test(file.name)
+    const nomeFinal = semNome
+      ? `captura-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${(file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`
+      : file.name
+    const comNome = new File([file], nomeFinal, { type: file.type })
+
+    if (aceitarArquivo(comNome) && arquivos.length > 1) {
+      // Um por vez: `pendingFile` guarda um anexo só, e mandar os demais em
+      // silêncio faria o operador achar que enviou tudo.
+      toast(`Colado 1 de ${arquivos.length} arquivos — envie e cole o próximo.`, 'warning')
+    }
+  }
+
+  /** Arrastar e soltar na conversa — o gesto de quem já está com a pasta aberta. */
+  const [arrastando, setArrastando] = useState(false)
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    setArrastando(false)
+    const file = e.dataTransfer?.files?.[0]
+    if (!file) return
+    if (aceitarArquivo(file) && (e.dataTransfer?.files?.length ?? 0) > 1) {
+      toast(`Recebido 1 de ${e.dataTransfer!.files.length} arquivos — envie e solte o próximo.`, 'warning')
     }
   }
 
@@ -1569,7 +1629,25 @@ function ChatPanel({
       )}
 
       {/* Mensagens */}
-      <div ref={scrollRef} class="flex-1 overflow-y-auto p-4 space-y-2 bg-surface">
+      <div
+        ref={scrollRef}
+        class={cn(
+          'flex-1 overflow-y-auto p-4 space-y-2 bg-surface relative',
+          arrastando && 'outline outline-2 outline-dashed outline-accent -outline-offset-4',
+        )}
+        onDragOver={(e) => { e.preventDefault(); if (!arrastando) setArrastando(true) }}
+        onDragLeave={(e) => {
+          // Só desliga ao sair da área inteira: passar sobre uma mensagem filha
+          // dispara dragleave e faria o destaque piscar.
+          if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setArrastando(false)
+        }}
+        onDrop={handleDrop}
+      >
+        {arrastando && (
+          <div class="pointer-events-none sticky top-2 z-10 mx-auto w-fit rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-fg-on-brand shadow-md">
+            Solte para anexar
+          </div>
+        )}
         {isLoading && (
           <div class="flex flex-col gap-2">
             {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-12 w-2/3" />)}
@@ -1852,6 +1930,7 @@ function ChatPanel({
                     setDraft((e.target as HTMLTextAreaElement).value)
                     ajustarAltura(e.target as HTMLTextAreaElement)
                   }}
+                  onPaste={handlePaste}
                   onMouseUp={(e) => {
                     // Soltou depois de arrastar a borda: guarda a altura como o
                     // novo piso. Sem isso o próximo ajuste automático desfaria o
