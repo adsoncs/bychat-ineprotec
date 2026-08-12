@@ -300,10 +300,14 @@ export async function executeNextStep(executionId: number, stepId: number): Prom
               result: { branch: 'default', matched: false },
             }
           })
+          // Nenhuma condição casou: o caminho "senão" é o altStepId (é o que a UI
+          // e o canvas chamam de "Se NÃO atender"). NÃO cair no nextStepId — em
+          // ramificação ele é só o destino visual das condições, e usá-lo como
+          // padrão faz o fluxo executar justamente com quem foi filtrado fora.
           if (config.defaultStepId) {
             await executeNextStep(executionId, config.defaultStepId)
-          } else if (step.nextStepId) {
-            await executeNextStep(executionId, step.nextStepId)
+          } else if (step.altStepId) {
+            await executeNextStep(executionId, step.altStepId)
           } else {
             await completeExecution(executionId, 'completed')
           }

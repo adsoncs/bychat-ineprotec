@@ -490,7 +490,10 @@ function StepEditModal({
 
   function handleSave() {
     update.mutate(
-      { stepId: step.id, name, config, nextStepId, altStepId },
+      // Ramificação não tem "próximo passo": cada condição aponta o seu destino e
+      // quem não casa nenhuma sai pelo "senão". Gravar null evita que um destino
+      // pendurado volte a virar caminho padrão de quem foi filtrado fora.
+      { stepId: step.id, name, config, nextStepId: isBranch ? null : nextStepId, altStepId },
       {
         onSuccess: () => { toast('Passo salvo', 'success'); onClose() },
         onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -499,7 +502,8 @@ function StepEditModal({
   }
 
   const otherSteps = steps.filter((s) => s.id !== step.id)
-  const isCondition = step.type === 'condition' || step.type === 'branch'
+  const isBranch = step.type === 'branch'
+  const isCondition = step.type === 'condition' || isBranch
 
   return (
     <Modal
@@ -531,6 +535,13 @@ function StepEditModal({
         />
 
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          {isBranch ? (
+            <div class="text-[0.6875rem] text-fg-subtle self-center">
+              Cada condição acima aponta o próprio destino. Quem não casar nenhuma
+              condição sai pelo caminho "senão" ao lado — se ele estiver vazio, o
+              fluxo termina sem executar mais nada.
+            </div>
+          ) : (
           <div>
             <label class="text-xs font-medium text-fg-muted mb-1.5 block" for="step-next">Próximo passo (→)</label>
             <select
@@ -549,9 +560,12 @@ function StepEditModal({
             </select>
             <p class="text-[0.6875rem] text-fg-subtle mt-1">Para onde ir após este passo</p>
           </div>
+          )}
           {isCondition ? (
             <div>
-              <label class="text-xs font-medium text-fg-muted mb-1.5 block" for="step-alt">Se NÃO atender (Senão →)</label>
+              <label class="text-xs font-medium text-fg-muted mb-1.5 block" for="step-alt">
+                {isBranch ? 'Se nenhuma condição casar (Senão →)' : 'Se NÃO atender (Senão →)'}
+              </label>
               <select
                 id="step-alt"
                 value={altStepId === null ? '' : String(altStepId)}
