@@ -940,6 +940,33 @@ function ChatPanel({
   const [promoteAfterClaimOpen, setPromoteAfterClaimOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  // Altura do compositor.
+  //
+  // Antes era uma linha fixa que NÃO crescia: passando da primeira linha o texto
+  // rolava dentro da caixa e quem escrevia cinco linhas só enxergava a última.
+  // Agora a caixa acompanha o que está sendo digitado e, se o operador arrastar
+  // a borda, aquela altura vira o piso e fica lembrada para as próximas vezes.
+  const [alturaFixada, setAlturaFixada] = useState<number>(() => {
+    const v = Number(localStorage.getItem('conversas.composerHeight') || '')
+    return Number.isFinite(v) && v >= 36 ? v : 0
+  })
+
+  /** Ajusta a altura ao conteúdo, respeitando o piso arrastado e o teto da tela. */
+  function ajustarAltura(el: HTMLTextAreaElement | null) {
+    if (!el) return
+    // Teto por viewport: em notebook, uma caixa "grande" não pode engolir o
+    // histórico da conversa.
+    const teto = Math.min(224, Math.round(window.innerHeight * 0.4))
+    const piso = Math.max(36, alturaFixada)
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, piso), teto)}px`
+    el.style.overflowY = el.scrollHeight > teto ? 'auto' : 'hidden'
+  }
+
+  // Reajusta quando o texto muda por fora da digitação (modelo inserido, emoji,
+  // rascunho limpo após enviar).
+  useEffect(() => { ajustarAltura(textareaRef.current) }, [draft, alturaFixada])
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -1813,14 +1840,29 @@ function ChatPanel({
                 <textarea
                   ref={textareaRef}
                   class={cn(
-                    'flex-1 min-h-[2.25rem] max-h-[8rem] px-3 py-2 rounded-md border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-none',
+                    'flex-1 min-h-[2.25rem] px-3 py-2 rounded-md border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-y',
                     isInternalNote
                       ? 'bg-warning/10 border-warning/40'
                       : 'bg-surface border-border',
                   )}
+                  title="Arraste a borda de baixo para deixar a caixa maior — o tamanho fica salvo."
                   placeholder={isInternalNote ? 'Nota interna (não enviada ao cliente)…' : 'Digite uma mensagem…'}
                   value={draft}
-                  onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
+                  onInput={(e) => {
+                    setDraft((e.target as HTMLTextAreaElement).value)
+                    ajustarAltura(e.target as HTMLTextAreaElement)
+                  }}
+                  onMouseUp={(e) => {
+                    // Soltou depois de arrastar a borda: guarda a altura como o
+                    // novo piso. Sem isso o próximo ajuste automático desfaria o
+                    // que a pessoa acabou de escolher.
+                    const el = e.target as HTMLTextAreaElement
+                    const h = Math.round(el.getBoundingClientRect().height)
+                    if (Math.abs(h - Math.max(36, alturaFixada)) > 8) {
+                      setAlturaFixada(h)
+                      try { localStorage.setItem('conversas.composerHeight', String(h)) } catch { /* modo privado */ }
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (slashOpen) {
                       const n = slashMatches.length
