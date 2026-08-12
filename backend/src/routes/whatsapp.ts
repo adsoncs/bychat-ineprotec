@@ -265,6 +265,29 @@ async function saveEvolutionMedia(messageKey: any, instance: string, mediaType: 
   }
 }
 
+// Transcrição de áudio é opcional (painel Conversas › Preferências, seção
+// Áudio — só administrador). Default LIGADA: quem já usa não perde o recurso
+// por não conhecer a chave. Cache curto porque isto é caminho de webhook.
+let transcribeFlag: { value: boolean; at: number } | null = null
+const TRANSCRIBE_TTL_MS = 60_000
+
+/** Chamado pelo PUT /api/admin/settings — o toggle vale no áudio seguinte. */
+export function invalidateTranscriptionFlag(): void {
+  transcribeFlag = null
+}
+
+export async function isTranscriptionEnabled(): Promise<boolean> {
+  if (transcribeFlag && Date.now() - transcribeFlag.at < TRANSCRIBE_TTL_MS) return transcribeFlag.value
+  let enabled = true
+  const row = await prisma.setting.findUnique({ where: { key: 'conversations.transcribe_audio' } }).catch(() => null)
+  if (row && row.value != null) {
+    const v = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : row.value
+    enabled = v === true || v === 'true' || v === 1 || v === '1'
+  }
+  transcribeFlag = { value: enabled, at: Date.now() }
+  return enabled
+}
+
 async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
   try {
     const { writeFileSync, unlinkSync, mkdirSync } = await import('fs')
@@ -808,10 +831,14 @@ export async function whatsappRoutes(app: FastifyInstance) {
           const audioBuf = await downloadAudioFromEvolution(key, inboundInstance)
           if (audioBuf) {
             mediaUrl = await saveMediaBuffer(audioBuf, message.audioMessage.mimetype || '', 'audio', app)
-            const transcription = await transcribeAudio(audioBuf)
-            if (transcription) {
-              mediaCaption = transcription
-              app.log.info(`[Audio] Transcribed from ${phone}: ${transcription.substring(0, 100)}`)
+            // O download continua acontecendo com a transcrição desligada: é ele
+            // que produz o arquivo tocável na conversa.
+            if (await isTranscriptionEnabled()) {
+              const transcription = await transcribeAudio(audioBuf)
+              if (transcription) {
+                mediaCaption = transcription
+                app.log.info(`[Audio] Transcribed from ${phone}: ${transcription.substring(0, 100)}`)
+              }
             }
           }
         } catch (transcribeErr: any) {

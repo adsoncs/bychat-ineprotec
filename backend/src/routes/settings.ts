@@ -75,6 +75,12 @@ export async function settingsRoutes(app: FastifyInstance) {
       const { invalidateDedupModeCache } = await import('../services/dedup.js')
       invalidateDedupModeCache()
     }
+    // Transcrição de áudio: o webhook guarda a flag por 60s — invalida para o
+    // toggle do painel valer já no próximo áudio.
+    if (Object.keys(updates).includes('conversations.transcribe_audio')) {
+      const { invalidateTranscriptionFlag } = await import('./whatsapp.js')
+      invalidateTranscriptionFlag()
+    }
     // Invalida cache do Google Ads developer token quando admin alterar (Fase 25)
     if (Object.keys(updates).some(k => k === 'google.ads.developer_token')) {
       const { invalidateGoogleAdsTokenCache } = await import('./googleAds.js')

@@ -12,11 +12,33 @@ import type { Page, Route } from '@playwright/test'
 type MockValue = unknown
 type MockMap = Record<string, MockValue>
 
+/** Espelha `backend/src/lib/moduleRegistry.ts` — só os ids importam aqui. */
+const ALL_MODULE_IDS = [
+  'dashboard', 'atendimento', 'supervision', 'leads', 'intelligence', 'kanban',
+  'funnels', 'activities', 'scheduling', 'tags', 'workflows', 'sales_engagement',
+  'captacao', 'marketing', 'vendas', 'whatsapp', 'broadcast', 'smart_broadcast',
+  'google', 'educacional', 'settings', 'users', 'teams', 'enrollment_portals',
+  'security', 'apikeys', 'installations', 'tools', 'helpdesk', 'voip', 'meetings',
+  'catalog', 'negotiations', 'goals_commissions', 'status_summary',
+  'higher_ed_market', 'reputation_radar',
+]
+
 const DEFAULT_MOCKS: MockMap = {
   // Backend retorna o user direto (sem envelope { user }). O mock segue o
   // contrato real para evitar reincidência do bug que travava o login.
   '/api/admin/me': { id: 1, name: 'Tester', email: 'tester@example.com', role: 'admin' },
   '/api/admin/settings': { settings: [], grouped: {} },
+  // Permissões por módulo. Sem este mock o shell quebra (`modules.some`) e
+  // NENHUMA rota renderiza — a página fica presa em "Carregando…". Com a lista
+  // vazia o ModuleGate barra tudo com "Módulo não disponível", então o default
+  // é: todos os módulos ativos e liberados. Um teste que precise simular módulo
+  // desligado/sem permissão sobrescreve esta chave.
+  '/api/admin/my-permissions': {
+    modules: ALL_MODULE_IDS.map((id) => ({ id, name: id, icon: '', category: 'crm', pages: [], active: true })),
+    permissions: Object.fromEntries(
+      ALL_MODULE_IDS.map((id) => [id, { canView: true, canCreate: true, canEdit: true, canDelete: true }]),
+    ),
+  },
   '/api/admin/appearance': { appearance: {}, defaults: {} },
   '/api/dashboard': {
     kpis: {

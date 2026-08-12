@@ -191,6 +191,18 @@
   }
 }
 
+/* Nome do operador dentro da bolha enviada.
+ *
+ * Ele não é um rótulo próprio: a identificação do operador manda `*Nome*` como
+ * primeira linha do CORPO da mensagem (o contato vê isso no WhatsApp dele), e
+ * o formatador transforma em <strong>. Para o destaque escolhido em Conversas ›
+ * Preferências valer também nesse nome, a regra alcança o primeiro <strong> do
+ * corpo. Os fallbacks são o estado atual: sem preferência, nada muda. */
+.conv-operator-body > strong:first-child {
+  color: var(--conv-name-color, currentColor);
+  font-weight: var(--conv-name-weight, 700);
+}
+
 /* prefers-reduced-motion: reduzir/anular animações para usuários sensíveis.
  * !important é a única forma de sobrepor todas as transitions inline e de bibliotecas
  * (Radix, Tailwind utilities). Desabilitamos a regra só nesse bloco. */

@@ -46,6 +46,7 @@ import {
   BotOff,
   Lock,
   AlertTriangle,
+  SlidersHorizontal,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -96,6 +97,8 @@ import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
 import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
 import { NewConversationModal } from '@/components/NewConversationModal'
 import { ImportChatsModal } from '@/components/ImportChatsModal'
+import { ConversationPrefsModal } from '@/components/ConversationPrefsModal'
+import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@/hooks/useConversationPrefs'
 import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
@@ -251,6 +254,16 @@ function operatorPresence(lastSeenAt: string | null | undefined): { label: strin
 }
 
 export function ConversationsPage() {
+  // As preferências ficam em volta da tela inteira: lista, conversa e player
+  // leem do mesmo contexto.
+  return (
+    <ConversationPrefsProvider>
+      <ConversationsScreen />
+    </ConversationPrefsProvider>
+  )
+}
+
+function ConversationsScreen() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
   const [scope, setScope] = useState<Scope>('mine')
   const [search, setSearch] = useState('')
@@ -268,6 +281,8 @@ export function ConversationsPage() {
   const [promoteSingle, setPromoteSingle] = useState<{ id: number; name?: string | null | undefined } | null>(null)
   const [promoteBulkOpen, setPromoteBulkOpen] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
+  const { cssVars } = useConversationPrefs()
   const [novaConversaOpen, setNovaConversaOpen] = useState(false)
   const [importarOpen, setImportarOpen] = useState(false)
   const qcConversas = useQueryClient()
@@ -411,6 +426,14 @@ export function ConversationsPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPrefsOpen(true)}
+            title="Preferências das conversas (fonte, áudio, lista)"
+          >
+            <SlidersHorizontal size={14} /> <span class="hidden md:inline">Preferências</span>
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setImportarOpen(true)}>
             <SmartphoneIcon size={14} /> Importar do celular
           </Button>
@@ -420,7 +443,7 @@ export function ConversationsPage() {
         </>
       }
     >
-      <div class="flex gap-3 h-[calc(100dvh-12rem)] min-h-[36rem]">
+      <div class="flex gap-3 h-[calc(100dvh-12rem)] min-h-[36rem]" style={cssVars}>
         {/* Lista de tickets */}
         <aside class={cn('w-full sm:w-80 lg:w-96 xl:w-[26rem] shrink-0 flex flex-col rounded-lg border border-border bg-surface-2', selected !== null && 'hidden sm:flex')}>
           <div class="p-3 space-y-2 border-b border-border">
@@ -662,6 +685,13 @@ export function ConversationsPage() {
         )}
       </div>
 
+      <ConversationPrefsModal
+        open={prefsOpen}
+        onOpenChange={setPrefsOpen}
+        notifEnabled={notifEnabled}
+        onToggleNotif={toggleNotif}
+      />
+
       <ImportChatsModal open={importarOpen} onOpenChange={setImportarOpen} />
 
       <NewConversationModal
@@ -775,6 +805,7 @@ function TicketRow({
   onToggleSelect?: (() => void) | undefined
   onPromote?: (() => void) | undefined
 }) {
+  const { prefs } = useConversationPrefs()
   const name = ticket.nome ?? ticket.whatsapp ?? 'Sem nome'
   const initials = (name ?? '?').slice(0, 2).toUpperCase()
   const lastBody = ticket.lastMessage?.body ?? ticket.lastMessagePreview ?? ''
@@ -782,6 +813,7 @@ function TicketRow({
   const preview = lastBody ? previewPrefix + lastBody : 'Sem mensagens'
   const isQualified = !!ticket.qualifiedAt
   const showStar = !isQualified && !!onPromote
+  const compact = prefs.density === 'compact'
 
   return (
     <li class="group relative">
@@ -789,7 +821,8 @@ function TicketRow({
         type="button"
         onClick={onClick}
         class={cn(
-          'w-full text-left px-3 py-3 border-b border-border hover:bg-surface-3 transition-colors',
+          'w-full text-left px-3 border-b border-border hover:bg-surface-3 transition-colors',
+          compact ? 'py-1.5' : 'py-3',
           active && 'bg-surface-3',
           selected && 'bg-accent/5',
         )}
@@ -806,16 +839,24 @@ function TicketRow({
               {selected ? <CheckSquare size={14} class="text-accent" /> : <Square size={14} />}
             </button>
           )}
-          <div class="size-9 rounded-full bg-surface-3 grid place-items-center text-fg-muted text-xs font-semibold shrink-0 overflow-hidden">
-            {ticket.profilePicUrl
-              ? <img src={ticket.profilePicUrl} alt="" class="w-full h-full object-cover" />
-              : ticket.isGroup
-              ? <Users size={16} />
-              : initials}
-          </div>
+          {prefs.showAvatars && (
+            <div class={cn(
+              'rounded-full bg-surface-3 grid place-items-center text-fg-muted text-xs font-semibold shrink-0 overflow-hidden',
+              compact ? 'size-7' : 'size-9',
+            )}>
+              {ticket.profilePicUrl
+                ? <img src={ticket.profilePicUrl} alt="" class="w-full h-full object-cover" />
+                : ticket.isGroup
+                ? <Users size={compact ? 13 : 16} />
+                : initials}
+            </div>
+          )}
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">
-              <span class="text-sm text-fg truncate inline-flex items-center gap-1.5 min-w-0">
+              <span
+                class="text-fg truncate inline-flex items-center gap-1.5 min-w-0"
+                style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
+              >
                 <ChannelIcon source={ticket.source} />
                 <span class="truncate">
                   {name}
@@ -826,7 +867,9 @@ function TicketRow({
                 <span class="text-[0.625rem] text-fg-subtle whitespace-nowrap shrink-0">{formatRelative(ticket.lastMessageAt)}</span>
               )}
             </div>
-            <div class="flex items-center flex-wrap gap-1 mt-0.5">
+            {/* Selos (canal, tipo, setor, responsável): é o que a densidade
+                compacta troca por mais conversas visíveis na tela. */}
+            <div class={cn('items-center flex-wrap gap-1 mt-0.5', compact ? 'hidden' : 'flex')}>
               <ChannelTag channel={ticket.channel} compact />
               {ticket.isGroup ? (
                 // Grupo não é lead nem "conversa" a qualificar: badge próprio,
@@ -870,7 +913,9 @@ function TicketRow({
               )}
             </div>
             <div class="flex items-center gap-2 mt-0.5">
-              <span class="text-xs text-fg-muted truncate flex-1">{preview}</span>
+              {prefs.showPreview
+                ? <span class="text-xs text-fg-muted truncate flex-1">{preview}</span>
+                : <span class="flex-1" />}
               {ticket.unreadMessages > 0 && (
                 <span class="text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-accent text-fg-on-brand shrink-0">
                   {ticket.unreadMessages}
@@ -904,6 +949,7 @@ function ChatPanel({
   showInfo: boolean
   onToggleInfo: () => void
 }) {
+  const { prefs: prefsConversa } = useConversationPrefs()
   const { data, isLoading } = useTicketMessages(leadId)
   const { data: ticketsList } = useTickets({ bucket })
   const { data: infoData } = useTicketInfo(leadId)
@@ -1361,7 +1407,12 @@ function ChatPanel({
             : (ticket?.nome ?? ticket?.empresa ?? '?')[0]?.toUpperCase()}
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium text-fg truncate">{ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}</div>
+          <div
+            class="font-medium text-fg truncate"
+            style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
+          >
+            {ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}
+          </div>
           {typing && (
             <div class="text-[0.6875rem] text-accent flex items-center gap-1 mt-0.5">
               <span class="inline-flex gap-0.5" aria-hidden>
@@ -1942,7 +1993,7 @@ function ChatPanel({
                       ? 'bg-warning/10 border-warning/40'
                       : 'bg-surface border-border',
                   )}
-                  title="Arraste a borda de baixo para deixar a caixa maior — o tamanho fica salvo."
+                  title={`Arraste a borda de baixo para deixar a caixa maior — o tamanho fica salvo. ${prefsConversa.sendOnEnter ? 'Enter envia, Shift+Enter quebra linha.' : 'Ctrl+Enter envia, Enter quebra linha.'}`}
                   placeholder={isInternalNote ? 'Nota interna (não enviada ao cliente)…' : 'Digite uma mensagem…'}
                   value={draft}
                   onInput={(e) => {
@@ -1969,7 +2020,15 @@ function ChatPanel({
                       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); void selectShortcut(slashMatches[Math.min(slashIndex, n - 1)]); return }
                       if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                     }
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    // Tecla de envio conforme a preferência: "Enter envia"
+                    // (Shift+Enter quebra) ou "Ctrl+Enter envia" — nesta, o
+                    // Enter sozinho quebra linha, para respostas longas.
+                    if (e.key !== 'Enter') return
+                    if (prefsConversa.sendOnEnter) {
+                      if (e.shiftKey) return
+                      e.preventDefault()
+                      handleSend()
+                    } else if (e.ctrlKey || e.metaKey) {
                       e.preventDefault()
                       handleSend()
                     }
@@ -2101,10 +2160,16 @@ function MediaContent({
   url: string
   name: string | null
 }) {
+  const { prefs } = useConversationPrefs()
+  // Privacidade: em sala aberta a mídia do cliente fica desfocada até o operador
+  // passar o mouse. `group-hover` não serve aqui (a bolha inteira é um group do
+  // botão de responder), então o efeito é próprio deste elemento.
+  const blur = prefs.blurMedia ? 'blur-md hover:blur-none transition-[filter] duration-150' : ''
+
   if (type === 'image') {
     return (
       <a href={url} target="_blank" rel="noreferrer" class="mb-1 block">
-        <img src={url} alt={name ?? 'Imagem'} class="max-w-full rounded" />
+        <img src={url} alt={name ?? 'Imagem'} class={cn('max-w-full rounded', blur)} />
       </a>
     )
   }
@@ -2117,7 +2182,7 @@ function MediaContent({
         src={url}
         alt={name ?? 'Figurinha'}
         loading="lazy"
-        class="mb-1 block h-32 w-32 object-contain"
+        class={cn('mb-1 block h-32 w-32 object-contain', blur)}
       />
     )
   }
@@ -2133,7 +2198,7 @@ function MediaContent({
           muted
           playsInline
           preload="metadata"
-          class="max-w-full rounded"
+          class={cn('max-w-full rounded', blur)}
           style={{ maxHeight: '18rem' }}
         />
         <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.625rem] font-semibold text-white">
@@ -2142,16 +2207,16 @@ function MediaContent({
       </div>
     )
   }
+  // Largura própria, não `w-full`: a bolha se dimensiona pelo conteúdo, e um
+  // player com width:100% não contribui largura nenhuma para esse cálculo. Nos
+  // áudios que nós enviamos não há texto junto (o do cliente vem com a
+  // transcrição), então a bolha encolhia até sobrar só um pedaço do player.
   if (type === 'audio') {
-    return (
-      <audio controls preload="metadata" src={url} class="mb-1 w-full max-w-[16rem]">
-        Áudio
-      </audio>
-    )
+    return <AudioPlayer url={url} speed={prefs.audioSpeed} />
   }
   if (type === 'video') {
     return (
-      <video controls preload="metadata" src={url} class="mb-1 w-full max-w-[20rem] rounded">
+      <video controls preload="metadata" src={url} class={cn('mb-1 w-80 max-w-full rounded', blur)}>
         Vídeo
       </video>
     )
@@ -2166,6 +2231,50 @@ function MediaContent({
       <FileText size={14} />
       <span class="max-w-[14rem] truncate">{name ?? 'Anexo'}</span>
     </a>
+  )
+}
+
+/**
+ * Player de áudio com velocidade. Começa na velocidade escolhida nas
+ * preferências e pode ser acelerado durante a escuta — ouvir um áudio de três
+ * minutos em 1× é o gargalo de quem atende por WhatsApp.
+ */
+function AudioPlayer({ url, speed }: { url: string; speed: number }) {
+  const ref = useRef<HTMLAudioElement>(null)
+  const [rate, setRate] = useState(speed)
+
+  // Preferência mudou no painel → players já montados acompanham.
+  useEffect(() => { setRate(speed) }, [speed])
+  useEffect(() => { if (ref.current) ref.current.playbackRate = rate }, [rate])
+
+  function cycle() {
+    const i = AUDIO_SPEEDS.indexOf(rate)
+    setRate(AUDIO_SPEEDS[(i + 1) % AUDIO_SPEEDS.length] ?? 1)
+  }
+
+  return (
+    <div class="mb-1 flex items-center gap-1.5">
+      <audio
+        ref={ref}
+        controls
+        preload="metadata"
+        src={url}
+        class="w-64 max-w-full"
+        // O navegador reseta a taxa ao (re)carregar a mídia.
+        onLoadedMetadata={() => { if (ref.current) ref.current.playbackRate = rate }}
+      >
+        Áudio
+      </audio>
+      <button
+        type="button"
+        onClick={cycle}
+        class="shrink-0 h-7 px-1.5 rounded border border-border bg-surface text-[0.6875rem] font-semibold text-fg-muted hover:text-fg hover:bg-surface-3"
+        title="Velocidade de reprodução (clique para alternar)"
+        aria-label={`Velocidade ${String(rate).replace('.', ',')}x — clique para alternar`}
+      >
+        {String(rate).replace('.', ',')}×
+      </button>
+    </div>
   )
 }
 
@@ -2928,6 +3037,12 @@ function MessageBubble({ msg, quoted, highlight, onReply }: {
   highlight?: string
   onReply?: () => void
 }) {
+  const { prefs, nameStyle } = useConversationPrefs()
+  // Áudio no WhatsApp não tem legenda: quando a mensagem é de áudio e mesmo
+  // assim tem corpo, esse texto é a transcrição feita pelo servidor.
+  const bodyIsTranscript = msg.mediaType === 'audio' && !!msg.body
+  const showBody = !!msg.body && (!bodyIsTranscript || prefs.showTranscript)
+
   return (
     <div class={cn('group flex items-end gap-1', msg.fromMe ? 'justify-end' : 'justify-start')}>
       {msg.fromMe && onReply && !msg.isInternal && (
@@ -2943,26 +3058,38 @@ function MessageBubble({ msg, quoted, highlight, onReply }: {
       )}
       <div
         class={cn(
-          'max-w-[75%] rounded-lg px-3 py-2 text-sm',
+          'max-w-[75%] rounded-lg px-3 py-2',
           msg.fromMe
             ? 'bg-accent text-fg-on-brand rounded-br-sm'
             : 'bg-surface-2 text-fg border border-border rounded-bl-sm',
           msg.isInternal && 'border-warning/40 bg-warning/10 text-fg',
         )}
+        style={{ fontSize: 'var(--conv-msg-font, 0.875rem)' }}
       >
         {msg.isInternal && (
-          <div class="text-[0.625rem] font-semibold uppercase tracking-wider text-warning mb-0.5">
+          <div
+            class="font-semibold uppercase tracking-wider text-warning mb-0.5"
+            style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
+          >
             Nota interna{msg.senderName ? ` · ${msg.senderName}` : ''}
           </div>
         )}
         {msg.senderName && !msg.fromMe && !msg.isInternal && (
-          <div class="text-[0.625rem] font-medium text-fg-muted mb-0.5">{msg.senderName}</div>
+          <div
+            class="font-medium text-fg-muted mb-0.5"
+            style={{ fontSize: 'var(--conv-meta-font, 0.625rem)', ...nameStyle }}
+          >
+            {msg.senderName}
+          </div>
         )}
         {quoted && (
-          <div class={cn(
-            'mb-1 px-2 py-1 rounded border-l-2 text-[0.6875rem] truncate',
-            msg.fromMe ? 'bg-black/15 border-white/60' : 'bg-surface-3 border-accent',
-          )}>
+          <div
+            class={cn(
+              'mb-1 px-2 py-1 rounded border-l-2 truncate',
+              msg.fromMe ? 'bg-black/15 border-white/60' : 'bg-surface-3 border-accent',
+            )}
+            style={{ fontSize: 'calc(var(--conv-meta-font, 0.625rem) + 0.0625rem)' }}
+          >
             <div class="font-medium opacity-80">
               {quoted.fromMe ? 'Você' : (quoted.senderName ?? 'Mensagem')}
             </div>
@@ -2974,8 +3101,23 @@ function MessageBubble({ msg, quoted, highlight, onReply }: {
         {msg.mediaType && msg.mediaType !== 'text' && msg.mediaUrl && (
           <MediaContent type={msg.mediaType} url={msg.mediaUrl} name={msg.mediaName} />
         )}
-        {msg.body && <div class="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: highlightHtml(msg.body, highlight ?? '') }} />}
-        <div class={cn('text-[0.625rem] mt-1', msg.fromMe ? 'opacity-80' : 'text-fg-subtle')}>
+        {showBody && (
+          <div
+            class={cn(
+              'whitespace-pre-wrap break-words',
+              bodyIsTranscript && 'italic opacity-90',
+              // Mensagem nossa: o nome do operador vem como primeira linha do
+              // corpo (`*Nome*`), e é o CSS que o destaca — ver global.css.
+              msg.fromMe && !msg.isInternal && 'conv-operator-body',
+            )}
+            title={bodyIsTranscript ? 'Transcrição automática do áudio' : undefined}
+            dangerouslySetInnerHTML={{ __html: highlightHtml(msg.body ?? '', highlight ?? '') }}
+          />
+        )}
+        <div
+          class={cn('mt-1', msg.fromMe ? 'opacity-80' : 'text-fg-subtle')}
+          style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
+        >
           {formatHourMinute(msg.timestamp)}
           {msg.fromMe && !msg.isInternal && <AckIcon ack={msg.ack} />}
         </div>
