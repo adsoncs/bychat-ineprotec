@@ -158,6 +158,9 @@ export async function createLeadFromForm(
     data: {
       uid: await generateUid(),
       nome: nome || 'Lead LP', email: email || '', whatsapp: whatsapp || '', empresa: empresa || '',
+      // O contato se apresentou no formulário: nome mais forte que a agenda do
+      // WhatsApp e que o pushName (ver services/leadDisplayName.ts).
+      nomeOrigem: 'formulario',
       segmento: mapped.segmento || null, cidade: mapped.cidade || null,
       // _formId: lembra o formulário de origem (usado p/ filtrar notificações no
       // agendamento — ex.: avisar operador só de leads do form X que agendaram).

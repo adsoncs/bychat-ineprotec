@@ -1325,6 +1325,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           scores: true,
           lastStep: true,
           profilePicUrl: true,
+          // Identidade: de onde veio o nome exibido, o nome da agenda da
+          // empresa e o apelido que o contato usa no WhatsApp dele. O painel
+          // mostra os dois últimos como referência, sem virar identidade.
+          nomeOrigem: true,
+          nomeWhatsappAgenda: true,
+          pushName: true,
           createdAt: true,
           lastActivityAt: true,
           lastMessageAt: true,

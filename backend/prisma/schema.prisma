@@ -886,6 +886,21 @@ model Lead {
   // Permite associar mensagens recebidas ao lead certo mesmo sem conseguir resolver pro phone.
   waLid String? @db.VarChar(100)
 
+  // ── Identidade do contato: de onde veio o nome ──
+  // `nome` é o que o sistema mostra em todo lugar. Antes ele nascia do
+  // `pushName` — o nome que o CONTATO escolheu no WhatsApp dele —, então a
+  // empresa via "Zé da Obra 🔨" no lugar do nome que ela mesma cadastrou.
+  // Agora o pushName fica guardado à parte (referência, nunca identidade), o
+  // nome que a empresa salvou na agenda do aparelho conectado vem do sync da
+  // Evolution, e `nomeOrigem` diz quem venceu — é ele que impede um sync de
+  // passar por cima do que um humano digitou.
+  /// Nome que a EMPRESA salvou na agenda do celular conectado via QR Code.
+  nomeWhatsappAgenda String? @db.VarChar(191)
+  /// Nome que o CONTATO escolheu no WhatsApp dele (só referência).
+  pushName           String? @db.VarChar(191)
+  /// manual | formulario | import | agenda | pushname | telefone | grupo
+  nomeOrigem         String? @db.VarChar(20)
+
   // ── Conversa de GRUPO de WhatsApp (só Evolution) ──
   // Grupo NÃO é pessoa: fica fora do chatbot, do enriquecimento e do score de IA,
   // e não entra no resolvedor de identidade por telefone/nome (contactIdentity).

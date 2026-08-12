@@ -337,6 +337,12 @@ export function useAssignTicket() {
 export interface TicketLeadInfo {
   id: number
   nome: string | null
+  /** manual | formulario | import | agenda | pushname | telefone | grupo */
+  nomeOrigem?: string | null
+  /** Nome que a EMPRESA salvou na agenda do WhatsApp conectado. */
+  nomeWhatsappAgenda?: string | null
+  /** Nome que o CONTATO escolheu no WhatsApp dele — referência, não identidade. */
+  pushName?: string | null
   empresa: string | null
   whatsapp: string | null
   /** Conversa de GRUPO de WhatsApp — sem telefone, sem chatbot, sem score. */

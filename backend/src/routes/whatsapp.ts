@@ -1012,10 +1012,21 @@ export async function whatsappRoutes(app: FastifyInstance) {
             instanceName: inboundInstance,
           })
           const { deriveLeadOrigin } = await import('../lib/leadOrigin.js')
+          // Nome do contato novo: o que a EMPRESA salvou na agenda do aparelho
+          // conectado; sem isso, o telefone formatado. O `pushName` (nome que o
+          // contato escolheu para si) fica guardado à parte — vira referência,
+          // nunca a identidade que a equipe vê na lista.
+          const { nomeNaAgenda } = await import('../services/whatsappAgendaSync.js')
+          const { nomeInicialWhatsapp } = await import('../services/leadDisplayName.js')
+          const nomeAgenda = await nomeNaAgenda(inboundInstance, phone, waLidToPersist)
+          const inicial = nomeInicialWhatsapp({ nomeAgenda, phone })
           lead = await prisma.lead.create({
             data: {
               uid: await generateUid(),
-              nome: data.pushName || phone,
+              nome: inicial.nome,
+              nomeOrigem: inicial.origem,
+              nomeWhatsappAgenda: nomeAgenda,
+              pushName: data.pushName || null,
               empresa: '',
               whatsapp: phone,
               email: '',
@@ -1035,6 +1046,22 @@ export async function whatsappRoutes(app: FastifyInstance) {
           if (routing.ruleName) {
             app.log.info(`[Webhook] Lead ${lead.id} roteado via "${routing.ruleName}" → team=${routing.teamId}, user=${routing.userId}`)
           }
+        } else if (data.pushName) {
+          // Lead que já existe: guarda o pushName como referência e, se o nome
+          // atual for fraco (só o número, ou pushName de antes desta mudança),
+          // aproveita para trocar pelo nome da agenda quando ele existir.
+          void (async () => {
+            const { registrarNome } = await import('../services/leadDisplayName.js')
+            const { nomeNaAgenda } = await import('../services/whatsappAgendaSync.js')
+            const atual = await prisma.lead.findUnique({ where: { id: lead!.id }, select: { nomeOrigem: true } })
+            const fraco = !atual?.nomeOrigem || atual.nomeOrigem === 'telefone' || atual.nomeOrigem === 'pushname'
+            const nomeAgenda = fraco ? await nomeNaAgenda(inboundInstance, phone, waLidToPersist) : null
+            await registrarNome({
+              leadId: lead!.id,
+              pushName: data.pushName,
+              ...(nomeAgenda ? { nome: nomeAgenda, nomeAgenda, origem: 'agenda' as const } : { origem: 'pushname' as const }),
+            })
+          })().catch(() => {})
         }
         await prisma.message.create({
           data: {
@@ -1260,6 +1287,28 @@ export async function whatsappRoutes(app: FastifyInstance) {
       return { ok: true, webhookUrl, result }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // POST /api/whatsapp/sync-agenda — puxa a agenda do(s) aparelho(s) conectado(s)
+  // e corrige os nomes dos contatos que ainda estão como telefone ou pushName.
+  // Existe para não ter de esperar a varredura diária depois de salvar contatos
+  // novos no celular.
+  app.post('/api/whatsapp/sync-agenda', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      const { instance } = (req.body ?? {}) as { instance?: string }
+      const { sincronizarAgenda, sincronizarTodasAsAgendas } = await import('../services/whatsappAgendaSync.js')
+      const resultados = instance
+        ? [await sincronizarAgenda(instance)]
+        : await sincronizarTodasAsAgendas()
+      return {
+        ok: true,
+        resultados,
+        contatosSalvos: resultados.reduce((s, r) => s + r.contatosSalvos, 0),
+        leadsAtualizados: resultados.reduce((s, r) => s + r.leadsAtualizados, 0),
+      }
+    } catch (err: any) {
+      return reply.code(502).send({ error: err.message })
     }
   })
 }

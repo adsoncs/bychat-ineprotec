@@ -1839,6 +1839,11 @@ function ChatPanel({
                   highlight={q}
                   onReply={() => setQuotedMsg(m)}
                   pendente={m.id < 0}
+                  // Em conversa de uma pessoa só, o rótulo é o nome do contato
+                  // no CRM — a mensagem guarda o apelido que ele usa no WhatsApp
+                  // dele, e não é isso que a equipe deve ver. Em grupo o rótulo
+                  // continua sendo quem falou.
+                  nomeContato={isGroupChat ? null : (ticket?.nome ?? lead?.nome ?? null)}
                 />
               </div>
             )
@@ -2552,6 +2557,15 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
             <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Contato</div>
             <dl class="text-xs space-y-1">
               <InfoRow label="WhatsApp" value={lead.whatsapp} icon={<Phone size={10} />} />
+              {/* Referências de nome. Ficam aqui, e não na lista nem na bolha:
+                  ajudam o operador a reconhecer a pessoa sem que o apelido dela
+                  vire a identidade que a empresa vê. */}
+              {lead.nomeWhatsappAgenda && lead.nomeWhatsappAgenda !== lead.nome && (
+                <InfoRow label="Na agenda do WhatsApp" value={lead.nomeWhatsappAgenda} />
+              )}
+              {lead.pushName && lead.pushName !== lead.nome && (
+                <InfoRow label="Como ele se identifica" value={lead.pushName} />
+              )}
               <InfoRow label="Email" value={lead.email} icon={<Mail size={10} />} />
               <InfoRow label="Segmento" value={lead.segmento} />
               <InfoRow label="Cidade" value={lead.cidade} icon={<MapPin size={10} />} />
@@ -3134,13 +3148,15 @@ function highlightHtml(body: string, term: string): string {
   return formatted.replace(new RegExp(`(${safe})`, 'gi'), '<mark class="bg-warning/40 text-fg rounded px-0.5">$1</mark>')
 }
 
-function MessageBubble({ msg, quoted, highlight, onReply, pendente = false }: {
+function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nomeContato = null }: {
   msg: ChatMessage
   quoted?: ChatMessage | null
   highlight?: string
   onReply?: () => void
   /** Ainda esperando a confirmação do servidor — bolha em tom mais fraco. */
   pendente?: boolean
+  /** Nome do contato no CRM; em grupo vem null para valer quem falou. */
+  nomeContato?: string | null
 }) {
   const { prefs, nameStyle } = useConversationPrefs()
   // Áudio no WhatsApp não tem legenda: quando a mensagem é de áudio e mesmo
@@ -3179,12 +3195,12 @@ function MessageBubble({ msg, quoted, highlight, onReply, pendente = false }: {
             Nota interna{msg.senderName ? ` · ${msg.senderName}` : ''}
           </div>
         )}
-        {msg.senderName && !msg.fromMe && !msg.isInternal && (
+        {(nomeContato || msg.senderName) && !msg.fromMe && !msg.isInternal && (
           <div
             class="font-medium text-fg-muted mb-0.5"
             style={{ fontSize: 'var(--conv-meta-font, 0.625rem)', ...nameStyle }}
           >
-            {msg.senderName}
+            {nomeContato || msg.senderName}
           </div>
         )}
         {quoted && (

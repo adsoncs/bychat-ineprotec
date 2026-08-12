@@ -1268,6 +1268,12 @@ import('./services/profilePictureSync.js')
   import('./services/aiLeadScoreService.js')
     .then(m => m.startAiLeadScoreScheduler())
     .catch(err => console.warn('[aiLeadScore] init falhou:', err?.message || err))
+  // Nome que a EMPRESA salvou na agenda do WhatsApp conectado → nome do lead.
+  // Roda em segundo plano porque é uma varredura por instância; só melhora
+  // nomes fracos (telefone/pushName), nunca o que um humano digitou.
+  import('./services/whatsappAgendaSync.js')
+    .then(m => m.startAgendaSyncJob())
+    .catch(err => console.warn('[agendaSync] init falhou:', err?.message || err))
   // Backfill UIDs para leads existentes
   backfillUids().then(n => { if (n > 0) console.log(`✅ UIDs gerados para ${n} leads existentes`) }).catch(() => {})
 } catch (err) {

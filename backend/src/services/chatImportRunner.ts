@@ -15,6 +15,7 @@ import { queues, redisConnection } from '../lib/queues.js'
 import { bullmqJobsTotal, captureException } from '../lib/observability.js'
 import { phoneKey, onlyDigits } from '../lib/phone.js'
 import { generateUid } from './dedup.js'
+import { telefoneComoNome } from './leadDisplayName.js'
 
 const QUEUE_NAME = 'wf-chat-import'
 /** Teto por chat. 7 mil mensagens numa conversa antiga é volume real, e
@@ -90,7 +91,12 @@ export async function importarChat(jobId: number): Promise<void> {
         const novo = await prisma.lead.create({
           data: {
             uid: await generateUid(),
-            nome: job.nome || job.telefone,
+            // O nome vem da lista de chats do APARELHO (contatos da Evolution),
+            // que é a agenda da empresa — é o nome que o operador viu na tela
+            // ao escolher a conversa. Sem nome, o telefone formatado.
+            nome: job.nome || telefoneComoNome(job.telefone),
+            nomeOrigem: job.nome ? 'import' : 'telefone',
+            nomeWhatsappAgenda: job.nome || null,
             whatsapp: onlyDigits(job.telefone),
             phoneKey: chave,
             email: '', empresa: '', scores: {},
