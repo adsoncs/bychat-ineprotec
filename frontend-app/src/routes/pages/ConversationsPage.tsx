@@ -1074,6 +1074,47 @@ function ChatPanel({
   // (c) operador volta da aba em background → contador zera ao focar
   const unread = ticket?.unreadMessages ?? 0
   const messageCount = data?.messages.length ?? 0
+
+  // Mensagens já disparadas e ainda sem resposta do servidor. Elas aparecem na
+  // conversa NA HORA, com o relógio de "enviando": o POST espera a Evolution
+  // entregar (mediana de ~1s, p90 de 2,4s) e sem isto a tela ficava parada,
+  // com o texto preso na caixa, todo esse tempo. Não vão para o cache do React
+  // Query porque o polling de 5s as apagaria antes da resposta chegar.
+  const [pendentes, setPendentes] = useState<ChatMessage[]>([])
+  const pendenteSeq = useRef(-1)
+
+  function novoPendente(campos: Partial<ChatMessage>): ChatMessage {
+    const id = pendenteSeq.current--
+    return {
+      id,
+      fromMe: true,
+      body: null,
+      mediaType: null,
+      mediaUrl: null,
+      mediaName: null,
+      ack: 0,
+      isDeleted: false,
+      isInternal: false,
+      senderName: null,
+      externalId: null,
+      quotedMsgId: null,
+      timestamp: new Date().toISOString(),
+      ...campos,
+    }
+  }
+
+  function removerPendente(id: number) {
+    setPendentes((atuais) => atuais.filter((p) => p.id !== id))
+  }
+
+  // Com a caixa liberada, o operador dispara a segunda mensagem antes de a
+  // primeira voltar. Os POSTs vão para uma fila: um de cada vez, na ordem em
+  // que foram escritos — em paralelo, a ordem de entrega no WhatsApp poderia
+  // inverter. A fila segue adiante mesmo quando um envio falha.
+  const filaRef = useRef<Promise<unknown>>(Promise.resolve())
+  function enfileirar(tarefa: () => Promise<unknown>) {
+    filaRef.current = filaRef.current.then(tarefa, tarefa)
+  }
   useEffect(() => {
     if (unread > 0 && !document.hidden) {
       markRead.mutate(leadId)
@@ -1096,7 +1137,10 @@ function ChatPanel({
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [messageCount, showInfo])
+  }, [messageCount, showInfo, pendentes.length])
+
+  // Trocou de conversa: o que estava voando pertence à conversa anterior.
+  useEffect(() => { setPendentes([]) }, [leadId])
 
   // ── Atalhos "/": templates de WhatsApp com atalho salvo ──
   const tplQ = useTemplates({ channel: 'whatsapp' })
@@ -1150,15 +1194,37 @@ function ChatPanel({
    */
   const MARCA_QUEBRA = /^\s*\[\[quebra\]\]\s*$/im
 
+  /** Devolve o texto à caixa quando o envio falha, sem atropelar o que já foi digitado. */
+  function devolverTexto(texto: string) {
+    if (!texto) return
+    setDraft((atual) => (atual.trim() ? atual : texto))
+    focarCaixa()
+  }
+
+  /** O cursor volta para a caixa: quem envia costuma enviar de novo em seguida. */
+  function focarCaixa() {
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
   function handleSend() {
     const body = draft.trim()
     if (!body && !pendingFile && !pendingTplAttachment) return
+
+    if (mustPickChannel) {
+      toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
+      return
+    }
 
     // Várias mensagens: envia em sequência, e a mídia (se houver) vai só na
     // última — senão o anexo apareceria antes do texto que o explica.
     const partes = body.split(/^\s*\[\[quebra\]\]\s*$/im).map((p) => p.trim()).filter(Boolean)
     if (partes.length > 1 && !isInternalNote) {
-      void (async () => {
+      const otimistas = partes.map((parte) => novoPendente({ body: parte, mediaType: 'text' }))
+      setPendentes((atuais) => [...atuais, ...otimistas])
+      setDraft('')
+      setQuotedMsg(null)
+      focarCaixa()
+      enfileirar(async () => {
         for (const [i, parte] of partes.entries()) {
           try {
             await send.mutateAsync({
@@ -1170,55 +1236,76 @@ function ChatPanel({
               ...(channelId ? { channelId } : {}),
             })
           } catch (e) {
+            // Falhou no meio: some com as bolhas que não saíram e devolve o
+            // texto restante para a caixa, para não perder o que foi escrito.
+            const restantes = otimistas.slice(i)
+            setPendentes((atuais) => atuais.filter((p) => !restantes.some((r) => r.id === p.id)))
+            devolverTexto(partes.slice(i).join('\n[[quebra]]\n'))
             toast((e as Error).message, 'danger')
             return
           }
+          removerPendente(otimistas[i]!.id)
         }
-        setDraft('')
-        setQuotedMsg(null)
-      })()
-      return
-    }
-    if (mustPickChannel) {
-      toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
+      })
       return
     }
     // Citação só faz sentido em msg não interna; backend resolve externalId pra Evolution.
     const quotedId = !isInternalNote && quotedMsg ? quotedMsg.id : undefined
+    const eraNotaInterna = isInternalNote
     const sendText = (mediaPayload?: { mediaType: string; mediaUrl: string; mediaName: string }) => {
-      send.mutate(
-        {
-          body: body || undefined,
-          isInternal: isInternalNote || undefined,
-          quotedMsgId: quotedId,
-          channelId: !isInternalNote && channelId ? channelId : undefined,
-          ...(mediaPayload ?? {}),
-        },
-        {
-          onSuccess: () => {
-            setDraft('')
-            setIsInternalNote(false)
-            setPendingFile(null)
-            setPendingPreviewUrl(null)
-            setPendingTplAttachment(null)
-            setQuotedMsg(null)
-          },
-          onError: (e: unknown) => toast((e as Error).message, 'danger'),
-        },
-      )
+      // A bolha entra na conversa agora; a caixa esvazia agora. Se o envio
+      // falhar, a bolha some e o texto volta — nada é perdido.
+      const otimista = novoPendente({
+        body: body || null,
+        isInternal: eraNotaInterna,
+        quotedMsgId: quotedId ?? null,
+        mediaType: mediaPayload?.mediaType ?? 'text',
+        mediaUrl: mediaPayload?.mediaUrl ?? null,
+        mediaName: mediaPayload?.mediaName ?? null,
+      })
+      setPendentes((atuais) => [...atuais, otimista])
+      enfileirar(async () => {
+        try {
+          await send.mutateAsync({
+            body: body || undefined,
+            isInternal: eraNotaInterna || undefined,
+            quotedMsgId: quotedId,
+            channelId: !eraNotaInterna && channelId ? channelId : undefined,
+            ...(mediaPayload ?? {}),
+          })
+          removerPendente(otimista.id)
+        } catch (e) {
+          removerPendente(otimista.id)
+          devolverTexto(body)
+          toast((e as Error).message, 'danger')
+        }
+      })
     }
-    if (pendingTplAttachment) {
+
+    // O que vai junto precisa ser capturado ANTES de limpar os estados.
+    const tplAnexo = pendingTplAttachment
+    const arquivo = pendingFile
+
+    // Limpa a caixa no clique, não na resposta do servidor.
+    setDraft('')
+    setIsInternalNote(false)
+    setPendingTplAttachment(null)
+    setPendingFile(null)
+    setPendingPreviewUrl(null)
+    setQuotedMsg(null)
+    focarCaixa()
+
+    if (tplAnexo) {
       // Anexo de template já hospedado → envia direto (sem novo upload).
-      sendText(pendingTplAttachment)
-    } else if (pendingFile) {
-      const file = pendingFile
-      upload.mutate(file, {
+      sendText(tplAnexo)
+    } else if (arquivo) {
+      upload.mutate(arquivo, {
         onSuccess: (resp) => sendText({
-          mediaType: inferMediaType(resp.mimetype || file.type || '', resp.filename || file.name),
+          mediaType: inferMediaType(resp.mimetype || arquivo.type || '', resp.filename || arquivo.name),
           mediaUrl: resp.url,
           mediaName: resp.filename,
         }),
-        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        onError: (e: unknown) => { devolverTexto(body); toast((e as Error).message, 'danger') },
       })
     } else {
       sendText()
@@ -1722,9 +1809,11 @@ function ChatPanel({
         {(() => {
           if (isLoading || !data) return null
           const q = chatSearch?.trim().toLowerCase() ?? ''
+          // Buscando, mostra só o que já está gravado; fora da busca, as
+          // mensagens ainda em voo entram no fim da conversa.
           const filtered = q
             ? data.messages.filter((m) => (m.body ?? '').toLowerCase().includes(q) || (m.senderName ?? '').toLowerCase().includes(q))
-            : data.messages
+            : [...data.messages, ...pendentes]
           if (q && filtered.length === 0) {
             return <div class="text-center text-xs text-fg-subtle py-8">Nenhuma mensagem encontrada para "{chatSearch}".</div>
           }
@@ -1744,7 +1833,13 @@ function ChatPanel({
                     </span>
                   </div>
                 )}
-                <MessageBubble msg={m} quoted={quoted} highlight={q} onReply={() => setQuotedMsg(m)} />
+                <MessageBubble
+                  msg={m}
+                  quoted={quoted}
+                  highlight={q}
+                  onReply={() => setQuotedMsg(m)}
+                  pendente={m.id < 0}
+                />
               </div>
             )
           })
@@ -2033,7 +2128,11 @@ function ChatPanel({
                       handleSend()
                     }
                   }}
-                  disabled={send.isPending}
+                  // NÃO desabilitar durante o envio: o navegador tira o foco de
+                  // campo desabilitado e não devolve quando reabilita — era por
+                  // isso que, depois de enviar, era preciso clicar na caixa de
+                  // novo. Como a mensagem já saiu da caixa no clique, dá para
+                  // continuar escrevendo a próxima enquanto a anterior voa.
                   rows={1}
                 />
                 <button
@@ -2079,7 +2178,11 @@ function ChatPanel({
                     variant="primary"
                     size="md"
                     onClick={handleSend}
-                    disabled={send.isPending || upload.isPending}
+                    // Só o upload trava o botão: o envio em si já saiu da frente
+                    // do operador (bolha otimista + fila que preserva a ordem).
+                    disabled={upload.isPending}
+                    aria-label="Enviar mensagem"
+                    title="Enviar mensagem"
                   >
                     <Send size={14} />
                   </Button>
@@ -3031,11 +3134,13 @@ function highlightHtml(body: string, term: string): string {
   return formatted.replace(new RegExp(`(${safe})`, 'gi'), '<mark class="bg-warning/40 text-fg rounded px-0.5">$1</mark>')
 }
 
-function MessageBubble({ msg, quoted, highlight, onReply }: {
+function MessageBubble({ msg, quoted, highlight, onReply, pendente = false }: {
   msg: ChatMessage
   quoted?: ChatMessage | null
   highlight?: string
   onReply?: () => void
+  /** Ainda esperando a confirmação do servidor — bolha em tom mais fraco. */
+  pendente?: boolean
 }) {
   const { prefs, nameStyle } = useConversationPrefs()
   // Áudio no WhatsApp não tem legenda: quando a mensagem é de áudio e mesmo
@@ -3044,8 +3149,8 @@ function MessageBubble({ msg, quoted, highlight, onReply }: {
   const showBody = !!msg.body && (!bodyIsTranscript || prefs.showTranscript)
 
   return (
-    <div class={cn('group flex items-end gap-1', msg.fromMe ? 'justify-end' : 'justify-start')}>
-      {msg.fromMe && onReply && !msg.isInternal && (
+    <div class={cn('group flex items-end gap-1', msg.fromMe ? 'justify-end' : 'justify-start', pendente && 'opacity-70')}>
+      {msg.fromMe && onReply && !msg.isInternal && !pendente && (
         <button
           type="button"
           class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 opacity-0 group-hover:opacity-100 transition-opacity"
