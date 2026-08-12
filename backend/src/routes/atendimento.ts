@@ -384,7 +384,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // Return in chronological order
       messages.reverse()
 
-      return { messages, hasMore: messages.length === limit }
+      // Menções de grupo chegam como "@<identificador>" — número que não é
+      // telefone e não diz nada a quem lê. Resolvido na LEITURA para o texto
+      // gravado continuar sendo o que o contato recebeu, e para as mensagens
+      // antigas aparecerem certas sem migração.
+      const { resolverMencoesEmLote } = await import('../services/mentionResolver.js')
+      const comMencoes = await resolverMencoesEmLote(messages).catch(() => messages)
+
+      return { messages: comMencoes, hasMore: messages.length === limit }
     } catch (err: any) {
       app.log.error(`Atendimento messages error: ${err.message}`)
       return reply.code(500).send({ error: err.message })
