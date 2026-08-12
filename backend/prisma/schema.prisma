@@ -54,6 +54,12 @@ model User {
   // Reforma F1.6: assinatura personalizada anexada ao fim das mensagens
   // outbound do operador. Markdown simples (negrito/itálico).
   signature            String?   @db.VarChar(255)
+  // Nome que o CONTATO vê quando a identificação do operador está ligada
+  // (Conversas). Separado de `name` de propósito: o cadastro costuma ter o
+  // nome completo, e ninguém quer se apresentar como "Rafael Augusto Menezes
+  // da Silva" a cada mensagem — nem expor o sobrenome a qualquer contato.
+  // Vazio = usa o primeiro nome de `name`.
+  displayName         String?   @db.VarChar(80)
   // Módulo VoIP: ramal (extension) do operador no PABX FaleMaisVoip. Usado pelo
   // click-to-call (v1/dial) — a chamada toca neste ramal e depois disca o destino.
   voipExtension        String?   @db.VarChar(20)
