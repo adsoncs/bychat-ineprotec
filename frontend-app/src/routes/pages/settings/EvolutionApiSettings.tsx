@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
+import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
 import { cn } from '@/lib/cn'
 
 export function EvolutionApiSettings() {
@@ -36,10 +37,13 @@ export function EvolutionApiSettings() {
     })
   }
 
+  // O card de conexão vem ANTES de carga e erro: numa instalação nova o monitor
+  // não tem o que monitorar, e era justamente aqui que faltava o lugar para
+  // informar endereço e chave — a tela inteira virava "erro ao carregar".
   if (isLoading) {
     return (
       <div class="space-y-3">
-        <Skeleton class="h-32 w-full" />
+        <ConexaoCard />
         <Skeleton class="h-32 w-full" />
         <Skeleton class="h-48 w-full" />
       </div>
@@ -48,23 +52,27 @@ export function EvolutionApiSettings() {
 
   if (error || !health) {
     return (
-      <Card>
-        <div class="flex items-start gap-2 p-3 text-sm text-fg">
-          <AlertCircle size={16} class="mt-0.5 shrink-0 text-danger" />
-          <div class="flex-1">
-            <div class="font-medium">Erro ao carregar monitor</div>
-            <div class="text-xs text-fg-muted mt-0.5">{(error as Error)?.message ?? 'Falha de conexão'}</div>
+      <div class="space-y-4">
+        <ConexaoCard />
+        <Card>
+          <div class="flex items-start gap-2 p-3 text-sm text-fg">
+            <AlertCircle size={16} class="mt-0.5 shrink-0 text-danger" />
+            <div class="flex-1">
+              <div class="font-medium">Erro ao carregar monitor</div>
+              <div class="text-xs text-fg-muted mt-0.5">{(error as Error)?.message ?? 'Falha de conexão'}</div>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => refetch()}>
+              <RefreshCw size={12} /> Tentar de novo
+            </Button>
           </div>
-          <Button size="sm" variant="secondary" onClick={() => refetch()}>
-            <RefreshCw size={12} /> Tentar de novo
-          </Button>
-        </div>
-      </Card>
+        </Card>
+      </div>
     )
   }
 
   return (
     <div class="space-y-4">
+      <ConexaoCard />
       {/* Status cards */}
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <ApiStatusCard health={health} />
@@ -105,6 +113,93 @@ export function EvolutionApiSettings() {
       )}
       {logsOpen && <UpgradeLogsModal onClose={() => setLogsOpen(false)} />}
     </div>
+  )
+}
+
+/**
+ * Endereço e chave da API de WhatsApp.
+ *
+ * Ficavam só no `.env`, escritos na instalação. Instalação nova que pulou essa
+ * etapa não tinha por onde informar: conectar um número respondia "Failed to
+ * parse URL from /instance/create" e não havia tela para corrigir. Aqui grava
+ * em Setting, que tem precedência sobre o `.env` em todo o backend.
+ */
+function ConexaoCard() {
+  const { data, isLoading } = useSettings()
+  const salvar = useUpdateSettings()
+  const [url, setUrl] = useState<string | null>(null)
+  const [chave, setChave] = useState<string | null>(null)
+
+  const lido = (k: string): string => {
+    const v = data?.settings.find((s) => s.key === k)?.value
+    return typeof v === 'string' ? v.replace(/^"|"$/g, '') : ''
+  }
+  const urlAtual = url ?? lido('whatsapp.evolution_url')
+  const chaveAtual = chave ?? lido('whatsapp.evolution_key')
+  const configurado = !!urlAtual && !!chaveAtual
+
+  function handleSalvar() {
+    const payload: Record<string, string> = {}
+    if (url !== null) payload['whatsapp.evolution_url'] = url.trim().replace(/\/+$/, '')
+    // A chave chega mascarada do servidor; só vai no payload se foi reescrita.
+    if (chave !== null) payload['whatsapp.evolution_key'] = chave.trim()
+    if (!Object.keys(payload).length) return toast('Nada mudou', 'warning')
+    salvar.mutate(payload, {
+      onSuccess: () => {
+        toast('Conexão salva — já vale para conectar números', 'success')
+        setUrl(null); setChave(null)
+      },
+      onError: (e: unknown) => toast((e as Error).message || 'Erro ao salvar', 'danger'),
+    })
+  }
+
+  if (isLoading) return <Skeleton class="h-28 w-full" />
+
+  return (
+    <Card>
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <div class="text-sm font-medium text-fg">Conexão com a API de WhatsApp</div>
+          <div class="text-xs text-fg-muted">
+            Endereço e chave do servidor que atende os números conectados por QR Code.
+          </div>
+        </div>
+        <Badge tone={configurado ? 'accent' : 'warning'} solid>
+          {configurado ? 'Configurada' : 'Falta configurar'}
+        </Badge>
+      </div>
+
+      {!configurado && (
+        <div class="mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-fg">
+          Sem estes dados não é possível conectar um número: a tela de Números WhatsApp
+          vai recusar a conexão explicando o mesmo.
+        </div>
+      )}
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <Input
+          label="Endereço da API"
+          value={urlAtual}
+          placeholder="https://evolution.suaempresa.com.br"
+          hint="Sem barra no fim."
+          onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
+        />
+        <Input
+          label="Chave da API"
+          type="password"
+          value={chaveAtual}
+          placeholder="cole a chave (apikey)"
+          hint="Guardada cifrada; aqui volta mascarada."
+          onInput={(e) => setChave((e.target as HTMLInputElement).value)}
+        />
+      </div>
+
+      <div class="mt-3 flex justify-end">
+        <Button size="sm" variant="primary" onClick={handleSalvar} disabled={salvar.isPending}>
+          {salvar.isPending ? 'Salvando…' : 'Salvar conexão'}
+        </Button>
+      </div>
+    </Card>
   )
 }
 

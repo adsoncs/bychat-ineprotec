@@ -14,7 +14,10 @@ import { isGroupJid } from '../lib/phone.js'
 // salvar, valores ainda mascarados são ignorados (não sobrescrevem o segredo).
 const SECRET_MASK = '••••••••'
 function isSecretKey(key: string): boolean {
-  return /(secret|token|api[_-]?key|apikey|password|passwd|\.pass\b|\.key\b|credential|client[_-]?secret|private[_-]?key|access[_-]?key)/i.test(key)
+  // `[._]key` e não só `\.key`: a chave da Evolution se chama
+  // `whatsapp.evolution_key` — com underscore ela escapava da máscara e voltava
+  // em claro no GET, mesmo já sendo gravada cifrada.
+  return /(secret|token|api[_-]?key|apikey|password|passwd|[._]pass\b|[._]key\b|credential|client[_-]?secret|private[_-]?key|access[_-]?key)/i.test(key)
 }
 function isMaskedValue(v: unknown): boolean {
   return typeof v === 'string' && (v === SECRET_MASK || /^["']?[•·]+["']?$/.test(v))

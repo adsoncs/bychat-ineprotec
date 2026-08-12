@@ -20,8 +20,20 @@ async function getEvoConfig(): Promise<{ url: string; key: string }> {
   }
 }
 
+/** Erro de configuração ausente — distinto de falha da API, que é 5xx. */
+export class EvolutionNaoConfigurada extends Error {
+  constructor() {
+    super('WhatsApp não configurado: informe o endereço e a chave da API em Configurações › Evolution API antes de conectar um número.')
+    this.name = 'EvolutionNaoConfigurada'
+  }
+}
+
 async function evoFetch(path: string, method = 'GET', body?: any) {
   const { url, key } = await getEvoConfig()
+  // Sem URL, o `fetch` de uma string relativa estoura "Failed to parse URL from
+  // /instance/create" — mensagem que não diz a ninguém o que fazer. Instalação
+  // nova nasce sem esses dados, então este é o caminho comum, não o raro.
+  if (!url || !key) throw new EvolutionNaoConfigurada()
   const opts: any = { method, headers: { 'Content-Type': 'application/json', 'apikey': key } }
   if (body) opts.body = JSON.stringify(body)
   const res = await fetch(`${url}${path}`, opts)
@@ -277,7 +289,8 @@ export async function instancesRoutes(app: FastifyInstance) {
       const qr = await evoFetch(`/instance/connect/${inst.instanceName}`)
       return qr
     } catch (err: any) {
-      return reply.code(500).send({ error: err.message })
+      const cfg = err instanceof EvolutionNaoConfigurada
+      return reply.code(cfg ? 400 : 500).send({ error: err.message })
     }
   })
 
@@ -289,7 +302,10 @@ export async function instancesRoutes(app: FastifyInstance) {
     try {
       await evoFetch(`/instance/logout/${inst.instanceName}`, 'DELETE')
       return { ok: true }
-    } catch (err: any) { return reply.code(500).send({ error: err.message }) }
+    } catch (err: any) {
+      const cfg = err instanceof EvolutionNaoConfigurada
+      return reply.code(cfg ? 400 : 500).send({ error: err.message })
+    }
   })
 
   // POST /api/admin/instances/:id/restart
@@ -300,7 +316,10 @@ export async function instancesRoutes(app: FastifyInstance) {
     try {
       await evoFetch(`/instance/restart/${inst.instanceName}`, 'PUT')
       return { ok: true }
-    } catch (err: any) { return reply.code(500).send({ error: err.message }) }
+    } catch (err: any) {
+      const cfg = err instanceof EvolutionNaoConfigurada
+      return reply.code(cfg ? 400 : 500).send({ error: err.message })
+    }
   })
 
   // GET /api/admin/instances/:id/status
@@ -311,6 +330,9 @@ export async function instancesRoutes(app: FastifyInstance) {
     try {
       const result = await evoFetch(`/instance/connectionState/${inst.instanceName}`)
       return { instance: inst.instanceName, ...result }
-    } catch (err: any) { return reply.code(500).send({ error: err.message }) }
+    } catch (err: any) {
+      const cfg = err instanceof EvolutionNaoConfigurada
+      return reply.code(cfg ? 400 : 500).send({ error: err.message })
+    }
   })
 }
