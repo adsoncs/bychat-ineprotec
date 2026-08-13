@@ -20,17 +20,39 @@ export interface ClientGmailChannel {
   signature: string
 }
 
-/** Resolve a caixa da empresa usada para e-mails de cliente. */
+/**
+ * Resolve a caixa da empresa usada para e-mails de cliente.
+ *
+ * A conexão PRECISA ter o escopo gmail.send: contas conectadas antes de a
+ * feature existir (ou que só consentiram Calendar/Sheets) fazem o Google
+ * devolver "Request had insufficient authentication scopes" no envio. Como a
+ * escolha era por menor id, uma conexão sem o escopo sequestrava o envio de
+ * todo o sistema — por isso o filtro e a preferência por COMPANY.
+ */
 export async function getClientGmailChannel(): Promise<ClientGmailChannel | null> {
+  const canSend = {
+    active: true,
+    scopes: { contains: 'https://www.googleapis.com/auth/gmail.send' },
+  } as const
+  const include = { connection: { select: { id: true, email: true } } } as const
+
   const config =
+    // 1) a caixa marcada como canal de e-mail do cliente
     (await prisma.gmailConfig.findFirst({
-      where: { active: true, syncReplies: true, connection: { active: true } },
-      include: { connection: { select: { id: true, email: true } } },
+      where: { active: true, syncReplies: true, connection: { ...canSend } },
+      include,
       orderBy: { id: 'asc' },
     })) ??
+    // 2) a caixa da empresa
     (await prisma.gmailConfig.findFirst({
-      where: { active: true, connection: { active: true } },
-      include: { connection: { select: { id: true, email: true } } },
+      where: { active: true, connection: { ...canSend, kind: 'COMPANY' } },
+      include,
+      orderBy: { id: 'asc' },
+    })) ??
+    // 3) qualquer caixa que consiga enviar
+    (await prisma.gmailConfig.findFirst({
+      where: { active: true, connection: { ...canSend } },
+      include,
       orderBy: { id: 'asc' },
     }))
   if (!config?.connection) return null
@@ -64,7 +86,12 @@ export async function sendLeadEmail(input: {
   attachments?: OutboundAttachment[]
 }): Promise<{ activityId: number; gmailThreadId: string; gmailMessageId: string; attachments: number }> {
   const channel = await getClientGmailChannel()
-  if (!channel) throw new Error('Nenhuma caixa de Gmail da empresa configurada para e-mail de cliente.')
+  if (!channel) {
+    throw new Error(
+      'Nenhuma caixa de Gmail com permissão de envio configurada. Em Configurações > Google, ' +
+      'conecte a conta da empresa concedendo o acesso ao Gmail (enviar e ler).'
+    )
+  }
 
   // Resposta dentro de uma thread existente.
   let threadId: string | undefined
@@ -99,6 +126,15 @@ export async function sendLeadEmail(input: {
     attachments: atts.length
       ? atts.map(a => ({ filename: a.filename, mimeType: a.mimeType, contentBase64: a.content.toString('base64') }))
       : undefined,
+  }).catch((e: any) => {
+    // O Google devolve isso quando a conta foi conectada sem o escopo de envio.
+    if (/insufficient authentication scopes|insufficientPermissions/i.test(String(e?.message || ''))) {
+      throw new Error(
+        `A conta ${channel.email} está conectada sem permissão para enviar e-mail. ` +
+        'Em Configurações > Google, reconecte essa conta autorizando o acesso ao Gmail.'
+      )
+    }
+    throw e
   })
 
   const activity = await prisma.activity.create({
