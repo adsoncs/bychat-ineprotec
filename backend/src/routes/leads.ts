@@ -763,15 +763,19 @@ export async function leadsRoutes(app: FastifyInstance) {
 
     const data: any = {}
     // Básicos
-    if (body.empresa !== undefined)  data.empresa  = body.empresa
+    // empresa/nome/whatsapp/email são NOT NULL no schema, mas o modal manda null
+    // quando o campo fica em branco (contato vindo do WhatsApp raramente tem
+    // empresa ou e-mail). Sem o coalesce o Prisma derrubava o update inteiro com
+    // PrismaClientValidationError → 500 em "Editar dados do contato".
+    if (body.empresa !== undefined)  data.empresa  = body.empresa ?? ''
     // Nome digitado por gente é o mais forte que existe: marca a origem para
     // que nenhum sync de agenda do WhatsApp passe por cima depois.
     if (body.nome !== undefined) {
-      data.nome = body.nome
-      if (String(body.nome).trim()) data.nomeOrigem = 'manual'
+      data.nome = body.nome ?? ''
+      if (String(data.nome).trim()) data.nomeOrigem = 'manual'
     }
-    if (body.whatsapp !== undefined) data.whatsapp = body.whatsapp
-    if (body.email !== undefined)    data.email    = body.email
+    if (body.whatsapp !== undefined) data.whatsapp = body.whatsapp ?? ''
+    if (body.email !== undefined)    data.email    = body.email ?? ''
     if (body.segmento !== undefined) data.segmento = body.segmento
     if (body.cidade !== undefined)   data.cidade   = body.cidade
     // Qualificação
