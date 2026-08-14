@@ -21,6 +21,8 @@ export const pt = {
   'shell.theme.system': 'Automático',
   'shell.skipToContent': 'Pular para o conteúdo principal',
   'shell.nav.aria': 'Navegação principal',
+  'shell.sidebar.collapse': 'Recolher menu',
+  'shell.sidebar.expand': 'Expandir menu',
 
   // Locale
   'locale.label': 'Idioma',
@@ -61,6 +63,8 @@ export const en: Catalog = {
   'shell.theme.system': 'Auto',
   'shell.skipToContent': 'Skip to main content',
   'shell.nav.aria': 'Main navigation',
+  'shell.sidebar.collapse': 'Collapse menu',
+  'shell.sidebar.expand': 'Expand menu',
   'locale.label': 'Language',
   'locale.pt': 'Português',
   'locale.en': 'English',
@@ -93,6 +97,8 @@ export const es: Catalog = {
   'shell.theme.system': 'Automático',
   'shell.skipToContent': 'Saltar al contenido principal',
   'shell.nav.aria': 'Navegación principal',
+  'shell.sidebar.collapse': 'Contraer menú',
+  'shell.sidebar.expand': 'Expandir menú',
   'locale.label': 'Idioma',
   'locale.pt': 'Português',
   'locale.en': 'English',

@@ -66,6 +66,16 @@
   gap: 0.125rem;
 }
 
+/* rodapé: hospeda o botão de expandir quando a barra está no modo faixa */
+.app-sidebar-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
 .app-sidebar-section-label {
   padding: 0.75rem 0.75rem 0.25rem;
   font-size: 0.6875rem;
@@ -111,17 +121,32 @@
 }
 
 .app-sidebar[data-mode='rail'] .app-sidebar-section-label,
-.app-sidebar[data-mode='rail'] .app-sidebar-item-label,
 .app-sidebar[data-mode='rail'] .app-sidebar-item-badge,
 .app-sidebar[data-mode='rail'] .app-sidebar-group-toggle {
   display: none;
 }
 
+/* O rótulo some por opacidade, não por `display`: cortá-lo de uma vez no meio de
+ * uma animação de 200ms é o que fazia o recuo parecer um salto. Sai em 120ms,
+ * antes de a barra terminar de encolher, então o texto nunca aparece espremido.
+ * O nome continua disponível a leitor de tela pelo aria-label do link. */
 .app-sidebar-item-label {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  opacity: 1;
+  visibility: visible;
+  /* visibility entra na hora ao expandir e sai só no fim do fade ao recolher —
+   * é ela que tira o texto da árvore de acessibilidade e do hit-testing, o que
+   * `opacity` sozinha não faz. */
+  transition: opacity var(--duration-fast) var(--ease-out), visibility 0s linear 0s;
+}
+
+.app-sidebar[data-mode='rail'] .app-sidebar-item-label {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--duration-fast) var(--ease-out), visibility 0s linear var(--duration-fast);
 }
 
 .app-sidebar-item-badge {
@@ -188,7 +213,10 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-/* main: dá espaço para a sidebar fixa */
+/* main: dá espaço para a sidebar fixa.
+ * O offset vem do MODO EFETIVO da sidebar (data-sidebar-mode), não do tamanho da
+ * janela: quem recolhe o menu num monitor grande precisa receber o espaço de
+ * volta. Mesma duração e curva da largura da barra — os dois se movem juntos. */
 .app-main {
   min-width: 0;
   padding: 1.25rem;
@@ -196,12 +224,17 @@
   transition: margin-left var(--duration-base) var(--ease-out);
 }
 
-.app-shell[data-shell-layout='laptop'] .app-main {
+.app-shell[data-sidebar-mode='rail'] .app-main {
   --app-main-offset: var(--sidebar-w-rail);
 }
 
-.app-shell[data-shell-layout='desktop'] .app-main {
+.app-shell[data-sidebar-mode='expanded'] .app-main {
   --app-main-offset: var(--sidebar-w-expanded);
+}
+
+/* drawer (mobile): a barra flutua sobre o conteúdo, que não recua. */
+.app-shell[data-sidebar-mode='drawer'] .app-main {
+  --app-main-offset: 0;
 }
 
 /* drawer: backdrop + slide */

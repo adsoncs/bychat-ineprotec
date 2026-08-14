@@ -32,7 +32,11 @@ export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
       aria-current={isActive ? 'page' : undefined}
     >
       <SidebarIcon name={item.icon} size={18} />
-      <span class={cn('app-sidebar-item-label', iconOnly && 'sr-only')}>{item.label}</span>
+      {/* No rail o rótulo desaparece por opacidade (ver shell.css) em vez de
+        * `sr-only`: com `sr-only` ele saía do fluxo no mesmo instante e o texto
+        * piscava fora durante a animação. Quem lê tela usa o aria-label do link
+        * acima, então aqui o texto é escondido da árvore de acessibilidade. */}
+      <span class="app-sidebar-item-label" aria-hidden={iconOnly}>{item.label}</span>
       {item.badge !== undefined && !iconOnly && (
         <span class="app-sidebar-item-badge">{item.badge}</span>
       )}

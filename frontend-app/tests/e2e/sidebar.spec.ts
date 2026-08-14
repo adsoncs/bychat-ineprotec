@@ -46,6 +46,65 @@ test.describe('sidebar — modo correto por breakpoint', () => {
   })
 })
 
+test.describe('sidebar — recolher/expandir (preferência do usuário)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuthenticatedApp(page)
+  })
+
+  test('botão recolhe, o conteúdo acompanha e a escolha sobrevive ao reload', async ({ page, viewport }) => {
+    test.skip(viewport === null || viewport.width < 1280, 'só em desktop, onde o padrão é expanded')
+    await page.goto('/app/')
+    const shell = page.locator('.app-shell')
+    const main = page.locator('.app-main')
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'expanded')
+
+    // O recuo do conteúdo tem que seguir a barra: era o defeito que deixava uma
+    // faixa vazia quando a preferência divergia do breakpoint.
+    const offsetExpandido = await main.evaluate((el) => getComputedStyle(el).marginLeft)
+
+    await page.getByLabel('Recolher menu').click()
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'rail')
+    await expect(page.locator('.app-sidebar[data-mode="rail"]')).toBeVisible()
+    await expect(page.locator('.app-sidebar .app-sidebar-item-label').first()).toBeHidden()
+    await expect
+      .poll(async () => main.evaluate((el) => getComputedStyle(el).marginLeft))
+      .not.toBe(offsetExpandido)
+
+    // Preferência persistida (localStorage bh:sidebar).
+    await page.reload()
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'rail')
+
+    // E dá para voltar pelo botão do rodapé, sem depender do atalho.
+    await page.getByLabel('Expandir menu').click()
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'expanded')
+    await expect
+      .poll(async () => main.evaluate((el) => getComputedStyle(el).marginLeft))
+      .toBe(offsetExpandido)
+  })
+
+  test('Ctrl+B alterna o menu', async ({ page, viewport }) => {
+    test.skip(viewport === null || viewport.width < 1280, 'só em desktop')
+    await page.goto('/app/')
+    const shell = page.locator('.app-shell')
+    await page.locator('main').click({ position: { x: 10, y: 10 } })
+    await page.keyboard.press('ControlOrMeta+B')
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'rail')
+    await page.keyboard.press('ControlOrMeta+B')
+    await expect(shell).toHaveAttribute('data-sidebar-mode', 'expanded')
+  })
+
+  test('no mobile a preferência não vale: continua drawer', async ({ page, viewport }) => {
+    test.skip(viewport !== null && viewport.width >= 1024, 'só em mobile')
+    // Simula quem recolheu o menu no desktop e depois abriu no celular.
+    await page.addInitScript(() => {
+      localStorage.setItem('bh:sidebar', JSON.stringify({ state: { mode: 'rail' }, version: 0 }))
+    })
+    await page.goto('/app/')
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-sidebar-mode', 'drawer')
+    await expect(page.locator('.app-sidebar')).toHaveCount(0)
+  })
+})
+
 test.describe('sidebar — scroll interno', () => {
   test('com 30+ itens, lista rola sem cobrir conteúdo', async ({ page, viewport }) => {
     test.skip(viewport === null || viewport.width < 1024, 'apenas onde sidebar fica visível')

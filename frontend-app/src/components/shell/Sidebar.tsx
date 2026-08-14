@@ -1,10 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { useShellLayout } from '@/hooks/useBreakpoint'
-import { useSidebarStore } from '@/stores/sidebar'
+import { useSidebarStore, resolveSidebarMode } from '@/stores/sidebar'
 import { useT } from '@/i18n'
 import { SidebarBody } from './SidebarBody'
-import { SidebarHeader } from './SidebarHeader'
+import { SidebarHeader, SidebarCollapseButton } from './SidebarHeader'
 
 /**
  * Sidebar — 3 modos resolvidos automaticamente pelo breakpoint:
@@ -21,9 +21,8 @@ export function Sidebar() {
   const drawerOpen = useSidebarStore((s) => s.drawerOpen)
   const closeDrawer = useSidebarStore((s) => s.closeDrawer)
 
-  // Modo efetivo: drawer em mobile, ou preferência do usuário, ou auto pelo breakpoint
-  const effectiveMode: 'drawer' | 'rail' | 'expanded' =
-    layout === 'mobile' ? 'drawer' : mode === 'auto' ? (layout === 'laptop' ? 'rail' : 'expanded') : mode
+  // Modo efetivo — mesma função que o AppShell usa para deslocar o conteúdo.
+  const effectiveMode = resolveSidebarMode(layout, mode)
 
   if (effectiveMode === 'drawer') {
     return (
@@ -46,8 +45,16 @@ export function Sidebar() {
   const iconOnly = effectiveMode === 'rail'
   return (
     <aside class="app-sidebar" data-mode={effectiveMode}>
-      <SidebarHeader iconOnly={iconOnly} />
+      <SidebarHeader iconOnly={iconOnly} showCollapseButton />
       <SidebarNav iconOnly={iconOnly} />
+      {/* Recolhida, a barra perde o botão do cabeçalho (não cabe ao lado do
+        * logo em 4rem) e o reencontra aqui — sem isto o usuário ficaria preso
+        * no modo faixa, dependendo do atalho para voltar. */}
+      {iconOnly && (
+        <div class="app-sidebar-footer">
+          <SidebarCollapseButton iconOnly />
+        </div>
+      )}
     </aside>
   )
 }

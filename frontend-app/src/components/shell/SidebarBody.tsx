@@ -39,7 +39,8 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
   const footer = sidebarSchema.footer.filter(visible)
 
   return (
-    <nav class="app-sidebar-nav" aria-label="Navegação principal">
+    // id referenciado pelo aria-controls do botão de recolher (SidebarHeader)
+    <nav id="app-sidebar-nav" class="app-sidebar-nav" aria-label="Navegação principal">
       {pinned.length > 0 && (
         <div class="app-sidebar-section" data-section="pinned">
           {!iconOnly && <div class="app-sidebar-section-label">Início</div>}
