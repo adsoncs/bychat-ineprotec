@@ -93,17 +93,17 @@ export function ConversationPrefsModal({
                 ]}
                 onChange={(v) => setNotifPref({ notifyEvents: v as 'incoming' | 'both' })}
               />
-              <Switch
-                checked={notif.notifyGroups}
-                onChange={(v) => setNotifPref({ notifyGroups: v })}
-                label="Tocar som em grupos"
-                help="Grupo costuma ter muito mais volume que conversa individual — desligue se o bipe atrapalhar."
-              />
               <p class="text-[0.6875rem] text-fg-subtle">
                 Timbre, volume e aviso na área de trabalho ficam em “Minhas preferências”, no menu do seu usuário.
               </p>
             </>
           )}
+          <Switch
+            checked={notif.notifyGroups}
+            onChange={(v) => setNotifPref({ notifyGroups: v })}
+            label="Avisar sobre mensagens de grupos"
+            help="Vale para o som e para o aviso na área de trabalho. Grupo costuma ter muito mais volume que conversa individual — desligue se atrapalhar."
+          />
         </Section>
 
         <Section title="Leitura" hint="Ajuste o tamanho do texto sem mexer no zoom do navegador.">

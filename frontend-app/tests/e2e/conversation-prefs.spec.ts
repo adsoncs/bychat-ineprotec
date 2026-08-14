@@ -262,11 +262,22 @@ test.describe('sons das conversas', () => {
     await abrirPainel(page)
     // Os controles só aparecem com o som ligado (padrão).
     await page.getByRole('group', { name: 'Quando emitir som' }).getByRole('button', { name: 'Ao enviar e receber' }).click()
-    await page.getByText('Tocar som em grupos').click()
+    await page.getByText('Avisar sobre mensagens de grupos').click()
 
     await expect.poll(() => salvos.length).toBeGreaterThanOrEqual(2)
     expect(salvos.some((p) => p.notifyEvents === 'both')).toBe(true)
     expect(salvos.some((p) => p.notifyGroups === false)).toBe(true)
+  })
+
+  test('o controle de grupos continua acessível com o som desligado', async ({ page }) => {
+    await page.route('**/api/admin/me/preferences', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: { notifySound: false } }) }),
+    )
+    await abrirPainel(page)
+    // Ele vale também para o aviso na área de trabalho — sem isto, quem usa só
+    // o aviso do sistema ficaria sem como silenciar grupo.
+    await expect(page.getByText('Avisar sobre mensagens de grupos')).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Quando emitir som' })).toHaveCount(0)
   })
 
   test('desligar o som esconde os controles dependentes', async ({ page }) => {
