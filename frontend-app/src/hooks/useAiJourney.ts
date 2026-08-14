@@ -16,7 +16,10 @@ export interface StageSuggestion {
   leadId: number
   funnelId: number
   fromStageKey: string | null
-  suggestedStageKey: string
+  /** null quando `kind` = 'not_in_funnel' — não há etapa a sugerir. */
+  suggestedStageKey: string | null
+  /** 'stage' = mover de etapa · 'not_in_funnel' = o lead não é deste funil */
+  kind: 'stage' | 'not_in_funnel'
   confidence: number
   reasoning: string | null
   modelUsed: string | null

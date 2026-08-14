@@ -61,6 +61,12 @@ export async function moveLeadStage(input: MoveLeadStageInput): Promise<MoveLead
   if (toFunnelId && toFunnelId !== fromFunnelId) data.funnelId = toFunnelId
   await prisma.lead.update({ where: { id: leadId }, data })
 
+  // Sugestões pendentes da Jornada IA descrevem a etapa que acabou de ficar
+  // para trás — invalidar aqui evita que o operador veja "mova para X" depois
+  // de o lead já ter passado por X.
+  const { supersedePendingSuggestions } = await import('./stageSuggestions.js')
+  await supersedePendingSuggestions(leadId, 'lead_moved')
+
   // Histórico do Relatório de Funil. Não derruba a operação se falhar — a
   // instalação pode estar numa versão sem a tabela.
   await prisma.leadStageMovement.create({

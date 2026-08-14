@@ -72,10 +72,17 @@ function SuggestionRow({ s, onApply, onReject }: { s: StageSuggestion; onApply: 
             {s.status === 'applied' && <Badge tone="success">aplicada</Badge>}
             {s.status === 'rejected' && <Badge tone="danger">rejeitada</Badge>}
             {s.status === 'superseded' && <Badge tone="neutral">substituída</Badge>}
+            {s.kind === 'not_in_funnel' && <Badge tone="warning">fora do funil</Badge>}
           </div>
           <div class="text-xs text-fg-muted mb-1">
-            <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
-            {s.funnel?.name ? <span class="text-fg-subtle">{' · '}{s.funnel.name}</span> : null}
+            {s.kind === 'not_in_funnel' ? (
+              <>Não pertence a <strong class="text-fg">{s.funnel?.name ?? 'este funil'}</strong> — está em <code class="font-mono">{fromName}</code></>
+            ) : (
+              <>
+                <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
+                {s.funnel?.name ? <span class="text-fg-subtle">{' · '}{s.funnel.name}</span> : null}
+              </>
+            )}
           </div>
           {s.reasoning && <p class="text-xs text-fg leading-relaxed">{s.reasoning}</p>}
           <div class="text-[0.6875rem] text-fg-subtle mt-1">
@@ -86,11 +93,13 @@ function SuggestionRow({ s, onApply, onReject }: { s: StageSuggestion; onApply: 
         </div>
         {s.status === 'pending' && (
           <div class="flex flex-col gap-1 shrink-0">
-            <Button variant="primary" size="sm" onClick={onApply}>
-              <CheckCircle2 size={12} /> Aplicar
-            </Button>
+            {s.kind !== 'not_in_funnel' && (
+              <Button variant="primary" size="sm" onClick={onApply}>
+                <CheckCircle2 size={12} /> Aplicar
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={onReject}>
-              <XCircle size={12} /> Rejeitar
+              <XCircle size={12} /> {s.kind === 'not_in_funnel' ? 'Descartar' : 'Rejeitar'}
             </Button>
           </div>
         )}

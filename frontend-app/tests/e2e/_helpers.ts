@@ -27,6 +27,10 @@ const DEFAULT_MOCKS: MockMap = {
   // Backend retorna o user direto (sem envelope { user }). O mock segue o
   // contrato real para evitar reincidência do bug que travava o login.
   '/api/admin/me': { id: 1, name: 'Tester', email: 'tester@example.com', role: 'admin' },
+  // Avisos de mensagem nova: consultados pelo AppShell em TODA tela, então sem
+  // estes mocks qualquer smoke test passa a bater na rede.
+  '/api/admin/me/preferences': { preferences: {} },
+  '/api/atendimento/unread-count': { unread: 0 },
   '/api/admin/settings': { settings: [], grouped: {} },
   // Permissões por módulo. Sem este mock o shell quebra (`modules.some`) e
   // NENHUMA rota renderiza — a página fica presa em "Carregando…". Com a lista

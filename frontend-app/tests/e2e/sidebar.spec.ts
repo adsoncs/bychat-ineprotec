@@ -128,3 +128,38 @@ test.describe('sidebar — Cmd+K abre paleta', () => {
     await expect(page.getByPlaceholder('Buscar páginas, ações…')).toBeVisible()
   })
 })
+
+test.describe('preferências da conta', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuthenticatedApp(page)
+  })
+
+  // O painel "Minhas preferências" abre pelo menu do usuário, e esse dropdown
+  // não renderiza itens no E2E (o store de usuário fica vazio com o mock de
+  // /api/admin/me). O que dá para garantir aqui é o efeito das preferências:
+  // elas chegam do servidor e mandam no shell.
+  test('preferência vinda do servidor manda no menu lateral', async ({ page, viewport }) => {
+    test.skip(viewport === null || viewport.width < 1280, 'só em desktop, onde o padrão é expanded')
+    await page.route('**/api/admin/me/preferences', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: { sidebarMode: 'rail' } }) }),
+    )
+    await page.goto('/app/')
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-sidebar-mode', 'rail')
+  })
+
+  test('contador de não lidas aparece no menu e some quando desligado', async ({ page, viewport }) => {
+    test.skip(viewport === null || viewport.width < 1280, 'só em desktop, onde o rótulo e o número aparecem')
+    await page.route('**/api/atendimento/unread-count', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ unread: 7 }) }),
+    )
+    await page.goto('/app/')
+    await expect(page.locator('.app-sidebar-item[data-id="conversations"] .app-sidebar-item-badge')).toHaveText('7')
+
+    // Com a preferência desligada, o número não aparece.
+    await page.route('**/api/admin/me/preferences', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: { showUnreadBadge: false } }) }),
+    )
+    await page.reload()
+    await expect(page.locator('.app-sidebar-item[data-id="conversations"] .app-sidebar-item-badge')).toHaveCount(0)
+  })
+})

@@ -1,8 +1,10 @@
 import type { ComponentChildren } from 'preact'
-import { useState, useEffect, useMemo } from 'preact/hooks'
+import { useState, useEffect, useMemo, useRef } from 'preact/hooks'
 import { useDbConnectorNames } from '@/hooks/useDbConnectors'
 import { setDbConnectorNames } from '@/lib/leadSourceLabels'
 import { useShellLayout } from '@/hooks/useBreakpoint'
+import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSidebarStore, resolveSidebarMode } from '@/stores/sidebar'
 import { useT } from '@/i18n'
 import { Sidebar } from './Sidebar'
@@ -29,6 +31,30 @@ export function AppShell({ children }: AppShellProps) {
   const setSidebarMode = useSidebarStore((s) => s.setMode)
   const effectiveSidebarMode = resolveSidebarMode(layout, sidebarMode)
 
+  // O modo do menu virou preferência da CONTA. O store continua sendo a fonte
+  // do render (é síncrono, o servidor responde depois), então o que chega do
+  // servidor é aplicado nele uma vez — e toda troca pelo botão/atalho sobe de
+  // volta, em `toggleSidebar`.
+  const { prefs: accountPrefs, setPref: setAccountPref, loaded: prefsLoaded } = useAccountPrefs()
+  const sidebarSyncedRef = useRef(false)
+  useEffect(() => {
+    // Espera a resposta do servidor: sincronizar com o espelho local marcaria a
+    // conta como "já aplicada" e a preferência real nunca chegaria à tela de
+    // quem abriu o painel num computador novo.
+    if (!prefsLoaded || sidebarSyncedRef.current) return
+    sidebarSyncedRef.current = true
+    if (accountPrefs.sidebarMode !== sidebarMode) setSidebarMode(accountPrefs.sidebarMode)
+  }, [prefsLoaded, accountPrefs.sidebarMode, sidebarMode, setSidebarMode])
+
+  function toggleSidebar() {
+    const next = effectiveSidebarMode === 'rail' ? 'expanded' : 'rail'
+    setSidebarMode(next)
+    setAccountPref({ sidebarMode: next })
+  }
+
+  // Aviso de mensagem nova em qualquer tela — antes só existia dentro de Conversas.
+  useGlobalNotifications()
+
   // Alimenta o mapa id→nome dos Conectores de BD para que leadSourceLabel()
   // mostre o nome amigável do canal (em vez de "db_connector:1") em funis,
   // relatórios, Leads, Kanban e Conversas. useMemo roda no render, antes dos
@@ -54,7 +80,7 @@ export function AppShell({ children }: AppShellProps) {
       }
       if (key === 'b' && layout !== 'mobile') {
         e.preventDefault()
-        setSidebarMode(effectiveSidebarMode === 'rail' ? 'expanded' : 'rail')
+        toggleSidebar()
       }
     }
     window.addEventListener('keydown', onKey)

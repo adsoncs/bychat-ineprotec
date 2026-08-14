@@ -257,7 +257,62 @@ export async function usersRoutes(app: FastifyInstance) {
       workStatus: user.workStatus,
       workStatusUpdatedAt: user.workStatusUpdatedAt,
       capacity: user.capacity,
+      preferences: user.preferences ?? {},
     }
+  })
+
+  // ── Preferências da conta ──
+  // Ficam no usuário, e não no localStorage, porque acompanham a pessoa: quem
+  // silencia o som no computador de casa não quer ouvi-lo no do escritório.
+  // Guardadas como JSON solto — preferência nova não deve pedir migration.
+  // Só chaves conhecidas entram: o corpo vem do navegador e viraria depósito de
+  // lixo (ou payload gigante) sem essa peneira.
+  // Booleanas e de escolha fechada. A validação por tipo evita que o navegador
+  // grave um valor que a interface não sabe renderizar depois.
+  const PREF_BOOL = new Set([
+    'notifySound', 'notifyDesktop', 'notifyPreview', 'showUnreadBadge', 'flashTitle',
+    'notifyGroups', // som para mensagem de grupo do WhatsApp
+  ])
+  const PREF_ENUM: Record<string, string[]> = {
+    notifyVolume: ['low', 'medium', 'high'],
+    // Catálogo de timbres (lib/notificationSound.ts no frontend). Fica aqui
+    // repetido de propósito: o servidor não pode aceitar um id que a interface
+    // não sabe tocar, senão o aviso vira silêncio sem ninguém entender.
+    notifySoundId: ['classico', 'duplo', 'suave', 'ascendente', 'grave', 'cristal'],
+    notifyWhen: ['always', 'away'],
+    // 'incoming' = só o que chega · 'both' = também confirma o que você envia
+    notifyEvents: ['incoming', 'both'],
+    sidebarMode: ['auto', 'rail', 'expanded'],
+  }
+
+  app.get('/api/admin/me/preferences', { preHandler: authMiddleware }, async (req) => {
+    const { userId } = (req as any).user as JwtPayload
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { preferences: true } })
+    return { preferences: (user?.preferences as Record<string, unknown>) ?? {} }
+  })
+
+  app.put('/api/admin/me/preferences', { preHandler: authMiddleware }, async (req, reply) => {
+    const { userId } = (req as any).user as JwtPayload
+    const body = (req.body as any)?.preferences ?? req.body
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return reply.code(400).send({ error: 'Envie um objeto de preferências' })
+    }
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { preferences: true } })
+    const merged: Record<string, unknown> = { ...((current?.preferences as Record<string, unknown>) ?? {}) }
+    for (const [k, v] of Object.entries(body)) {
+      if (PREF_BOOL.has(k)) { merged[k] = typeof v === 'boolean' ? v : !!v; continue }
+      const opcoes = PREF_ENUM[k]
+      // Valor fora da lista é descartado em silêncio: recusar a requisição
+      // inteira faria uma preferência nova (de uma aba com versão antiga do app)
+      // derrubar o salvamento das outras.
+      if (opcoes && typeof v === 'string' && opcoes.includes(v)) merged[k] = v
+    }
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { preferences: merged as any },
+      select: { preferences: true },
+    })
+    return { preferences: updated.preferences }
   })
 
   // ── PUT /api/admin/me/work-status — Operador troca seu próprio status ──

@@ -118,7 +118,11 @@ export function AiJourneyPage() {
         steps={[
           {
             title: '🎙️ A IA escuta cada nova mensagem',
-            body: <>A cada mensagem nova do lead (debounce 60s pra não rodar a cada palavra), a IA lê a conversa inteira e tenta deduzir em qual etapa do funil o lead deveria estar.</>,
+            body: <>A cada mensagem nova do lead (debounce 60s pra não rodar a cada palavra), a IA lê a conversa inteira e tenta deduzir em qual etapa do funil o lead deveria estar. Há um intervalo mínimo entre duas análises do mesmo lead, pra ele não ser reclassificado a cada pausa da conversa.</>,
+          },
+          {
+            title: '🔁 E revisita quem ficou parado',
+            body: <>De tempos em tempos a Jornada reavalia leads com sugestão parada e recolhe as que o tempo venceu. Assim que alguém move o lead — bot, fluxo ou você no kanban — a sugestão pendente é descartada na hora: ela descrevia um estado que não existe mais.</>,
           },
           {
             title: '⚙️ Configure por funil',
@@ -130,7 +134,7 @@ export function AiJourneyPage() {
           },
           {
             title: '✅ Você revisa as pendentes',
-            body: <>Lista de sugestões com: nome do lead, etapa atual → etapa sugerida, confiança (%), trecho da conversa que motivou. Botão "Aplicar" move; "Rejeitar" descarta (a IA aprende).</>,
+            body: <>Lista de sugestões com: nome do lead, etapa atual → etapa sugerida, confiança (%), trecho da conversa que motivou. "Aplicar" move o lead — e recusa a movimentação se ele já estiver numa etapa igual ou mais adiantada. "Rejeitar" descarta a sugestão. Quando a IA conclui que o contato não é deste funil, ela marca <strong>fora do funil</strong> em vez de escolher uma etapa qualquer.</>,
           },
           {
             title: '📚 Histórico applied/rejected',
@@ -156,6 +160,9 @@ function SuggestionRow({ suggestion, canDecide, onApply, onReject }: {
   const fromName = suggestion.funnel?.stages?.find(s => s.key === suggestion.fromStageKey)?.name ?? suggestion.fromStageKey ?? '—'
   const toName = suggestion.funnel?.stages?.find(s => s.key === suggestion.suggestedStageKey)?.name ?? suggestion.suggestedStageKey
   const tone = suggestion.confidence >= 80 ? 'success' : suggestion.confidence >= 60 ? 'warning' : 'danger'
+  // 'not_in_funnel': a IA concluiu que o contato não pertence a este funil. Não
+  // há etapa a aplicar — quem decide o destino é o operador, no card do lead.
+  const notInFunnel = suggestion.kind === 'not_in_funnel'
 
   return (
     <Card class="p-3">
@@ -169,10 +176,17 @@ function SuggestionRow({ suggestion, canDecide, onApply, onReject }: {
             {suggestion.status === 'applied' && <Badge tone="success">aplicada</Badge>}
             {suggestion.status === 'rejected' && <Badge tone="danger">rejeitada</Badge>}
             {suggestion.status === 'superseded' && <Badge tone="neutral">substituída</Badge>}
+            {notInFunnel && <Badge tone="warning">fora do funil</Badge>}
           </div>
           <div class="text-xs text-fg-muted mb-1">
-            <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
-            {' · '}<span class="text-fg-subtle">{suggestion.funnel?.name}</span>
+            {notInFunnel ? (
+              <>Não pertence a <strong class="text-fg">{suggestion.funnel?.name}</strong> — está em <code class="font-mono">{fromName}</code></>
+            ) : (
+              <>
+                <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
+                {' · '}<span class="text-fg-subtle">{suggestion.funnel?.name}</span>
+              </>
+            )}
           </div>
           {suggestion.reasoning && <p class="text-xs text-fg leading-relaxed">{suggestion.reasoning}</p>}
           <div class="text-[0.6875rem] text-fg-subtle mt-1">
@@ -183,11 +197,18 @@ function SuggestionRow({ suggestion, canDecide, onApply, onReject }: {
         </div>
         {canDecide && (
           <div class="flex flex-col gap-1 shrink-0">
-            <Button variant="primary" size="sm" onClick={onApply}>
-              <CheckCircle2 size={12} /> Aplicar
-            </Button>
+            {!notInFunnel && (
+              <Button variant="primary" size="sm" onClick={onApply}>
+                <CheckCircle2 size={12} /> Aplicar
+              </Button>
+            )}
+            {notInFunnel && (
+              <Link href={`/leads/${suggestion.leadId}`} class="text-xs text-accent hover:underline whitespace-nowrap">
+                Abrir lead
+              </Link>
+            )}
             <Button variant="secondary" size="sm" onClick={onReject}>
-              <XCircle size={12} /> Rejeitar
+              <XCircle size={12} /> {notInFunnel ? 'Descartar' : 'Rejeitar'}
             </Button>
           </div>
         )}

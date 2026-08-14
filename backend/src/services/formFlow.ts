@@ -248,6 +248,10 @@ export async function moveLeadStage(leadId: number, funnelId: number | null, sta
   await prisma.leadStageMovement.create({
     data: { leadId, fromFunnelId: lead.funnelId, toFunnelId: toFunnel, fromStageKey: lead.status ?? null, toStageKey: stageKey, source },
   }).catch(() => {})
+  // Toda sugestão pendente da Jornada IA retratava a etapa ANTERIOR — depois
+  // deste movimento ela mandaria o operador refazer o que acabou de acontecer.
+  const { supersedePendingSuggestions } = await import('./stageSuggestions.js')
+  await supersedePendingSuggestions(leadId, 'lead_moved')
   return stageKey
 }
 

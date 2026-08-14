@@ -888,7 +888,14 @@ export async function whatsappRoutes(app: FastifyInstance) {
         })
         broadcastRealtimeEvent({
           type: 'message:received',
-          payload: { leadId: groupLead.id, messageId: createdGroupMsg.id, mediaType, channel: 'whatsapp_group' },
+          // `isGroup` explícito: o painel silencia grupos por preferência do
+          // operador e não deve depender de reconhecer o nome do canal.
+          payload: {
+            leadId: groupLead.id, messageId: createdGroupMsg.id, mediaType,
+            channel: 'whatsapp_group', isGroup: true,
+            from: groupSenderName(data.pushName, participantJid) || groupLead.nome || 'Grupo',
+            preview: (msgText || `[${mediaType || 'mídia'}]`).slice(0, 120),
+          },
           scope: { leadId: groupLead.id },
         })
         logEvent({
@@ -1081,6 +1088,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
         await prisma.lead.update({
           where: { id: lead.id },
           data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() }
+        })
+
+        // Mensagem 1:1 da Evolution não emitia evento nenhum — só o caminho de
+        // GRUPO emitia. Conversas só via a mensagem no próximo refetch, e o
+        // aviso ao operador (som/notificação) nunca disparava neste canal.
+        broadcastRealtimeEvent({
+          type: 'message:received',
+          payload: {
+            leadId: lead.id, mediaType: mediaType || 'text', channel: 'evolution',
+            from: data.pushName || lead.nome || phone,
+            preview: (msgText || `[${mediaType || 'mídia'}]`).slice(0, 120),
+          },
+          scope: { leadId: lead.id },
         })
 
         // Reabre conversa se já existia mas estava encerrada (closedAt preenchido).

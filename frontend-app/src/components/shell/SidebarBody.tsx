@@ -3,6 +3,8 @@ import { sidebarSchema, type SidebarItem as SidebarItemType } from '@/modules/si
 import { SidebarItem } from './SidebarItem'
 import { SidebarGroup } from './SidebarGroup'
 import { useMyPermissions } from '@/hooks/usePermissions'
+import { useUnreadCount } from '@/hooks/useUnreadCount'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useUserStore } from '@/stores/user'
 
 interface SidebarBodyProps {
@@ -18,6 +20,16 @@ interface SidebarBodyProps {
 export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
   const role = useUserStore((s) => s.user?.role ?? null)
   const { data, isLoading } = useMyPermissions()
+  // Contador de conversas esperando: o operador vê que há mensagem sem estar em
+  // Conversas — antes o único sinal era o som, e só dentro daquela tela.
+  const { prefs } = useAccountPrefs()
+  const { data: unread } = useUnreadCount()
+
+  /** Injeta o contador no item de Conversas; os demais passam intactos. */
+  function withBadge(item: SidebarItemType): SidebarItemType {
+    if (!prefs.showUnreadBadge || item.id !== 'conversations' || !unread?.unread) return item
+    return { ...item, badge: unread.unread > 99 ? '99+' : unread.unread }
+  }
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
 
   function visible(item: SidebarItemType): boolean {
@@ -45,7 +57,7 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
         <div class="app-sidebar-section" data-section="pinned">
           {!iconOnly && <div class="app-sidebar-section-label">Início</div>}
           {pinned.map((item) => (
-            <SidebarItem key={item.id} item={item} iconOnly={iconOnly} onNavigate={onNavigate} />
+            <SidebarItem key={item.id} item={withBadge(item)} iconOnly={iconOnly} onNavigate={onNavigate} />
           ))}
         </div>
       )}
@@ -56,7 +68,7 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
         return (
           <SidebarGroup
             key={group.id}
-            group={{ ...group, items }}
+            group={{ ...group, items: items.map(withBadge) }}
             iconOnly={iconOnly}
             isOpen={openGroupId === group.id}
             onToggle={() => setOpenGroupId((current) => (current === group.id ? null : group.id))}

@@ -453,7 +453,15 @@ export async function formsRoutes(app: FastifyInstance) {
     if (!form || !form.active) return reply.code(404).type('text/html').send('<!doctype html><title>404</title>Formulário não encontrado')
 
     const embed = (req.query as any)?.embed === '1' || (req.query as any)?.embed === 'true'
-    const baseUrl = process.env.APP_URL || `https://${req.hostname}`
+    // URLs RELATIVAS de propósito (não `APP_URL`): esta página é sempre servida
+    // pelo NOSSO host — inclusive dentro de iframe, onde o iframe aponta para cá.
+    // Com APP_URL fixo, o formulário aberto num domínio e apontando para outro
+    // fazia fetch cross-origin e o navegador BLOQUEAVA por CSP (o `connect-src`
+    // não lista o outro domínio). O sintoma era o agendamento travado em
+    // "Carregando horários…" e a reserva falhando no fim. Relativo funciona em
+    // qualquer domínio. O script de EMBED (/api/forms/embed/:id.js) roda no site
+    // do cliente e continua precisando de URL absoluta — não mexer nele.
+    const baseUrl = ''
     const fields: any[] = Array.isArray(form.fields) ? form.fields as any[] : []
     const settings = form.settings as any || {}
     const styling = { ...getDefaultFormStyling(), ...((form.styling as any) ?? {}) }

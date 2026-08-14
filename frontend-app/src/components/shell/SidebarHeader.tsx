@@ -3,6 +3,7 @@ import { useLocation } from 'wouter-preact'
 import { cn } from '@/lib/cn'
 import { BrandLogo } from '@/components/BrandLogo'
 import { useSidebarStore } from '@/stores/sidebar'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useT } from '@/i18n'
 
 interface SidebarHeaderProps {
@@ -22,8 +23,15 @@ const HOME_HREF = '/app/dashboard'
  */
 export function SidebarCollapseButton({ iconOnly, class: className }: { iconOnly: boolean; class?: string }) {
   const setMode = useSidebarStore((s) => s.setMode)
+  const { setPref } = useAccountPrefs()
   const t = useT()
   const label = iconOnly ? t('shell.sidebar.expand') : t('shell.sidebar.collapse')
+
+  function alternar() {
+    const next = iconOnly ? 'expanded' : 'rail'
+    setMode(next)          // efeito imediato na tela
+    setPref({ sidebarMode: next }) // e a escolha segue a conta
+  }
 
   return (
     <button
@@ -33,7 +41,7 @@ export function SidebarCollapseButton({ iconOnly, class: className }: { iconOnly
         'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-accent)]',
         className,
       )}
-      onClick={() => setMode(iconOnly ? 'expanded' : 'rail')}
+      onClick={alternar}
       aria-label={label}
       aria-expanded={!iconOnly}
       aria-controls="app-sidebar-nav"

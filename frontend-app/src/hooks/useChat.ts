@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '@/lib/apiClient'
+import { playSentSound } from '@/lib/notificationSound'
+import { readMirror as readAccountPrefsMirror } from '@/hooks/useAccountPrefs'
 import { onServerEvent } from '@/lib/realtime'
 
 export type Bucket = 'inbox' | 'raw' | 'resolved' | 'snoozed'
@@ -204,6 +206,13 @@ export function useSendMessage(leadId: number | null) {
     mutationFn: (input: SendMessageInput) =>
       api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/messages`, input),
     onSuccess: () => {
+      // Confirmação sonora do envio, quando a pessoa pediu por ela. Lê o espelho
+      // local em vez de usar o hook de preferências: isto é um callback de
+      // mutação, fora da árvore de componentes.
+      const prefs = readAccountPrefsMirror()
+      if (prefs.notifySound && prefs.notifyEvents === 'both') {
+        playSentSound(prefs.notifySoundId, prefs.notifyVolume)
+      }
       void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
       void qc.invalidateQueries({ queryKey: ['tickets'] })
       // Responder ao lead pausa o chatbot nesta conversa (takeover humano) —

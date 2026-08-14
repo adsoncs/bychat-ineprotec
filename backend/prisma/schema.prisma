@@ -41,6 +41,10 @@ model User {
   twoFactorConfirmedAt  DateTime?
   /// Hashes SHA-256 dos códigos de recuperação, em JSON. Uso único cada.
   twoFactorBackupCodes  String?   @db.Text
+  // Preferências da conta que precisam seguir a pessoa entre navegadores e
+  // máquinas — hoje só as de notificação (som e aviso na área de trabalho).
+  // JSON solto de propósito: preferência nova não deve pedir migration.
+  preferences         Json?
   // Status de trabalho do operador. Usado pelo round-robin (exclui não-disponíveis)
   // e pela presença em listagens. Valores: available | away | busy | offline.
   workStatus           String    @default("offline") @db.VarChar(20)
@@ -738,11 +742,11 @@ model WhatsAppInstance {
   // para todos os participantes). Só Evolution — a Cloud API oficial não expõe
   // os grupos reais do número.
   receiveGroups Boolean  @default(false)
-  active    /// Cor de identificação do canal na operação. Paleta fechada (ver
+  /// Cor de identificação do canal na operação. Paleta fechada (ver
   /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
   /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
   color                String?  @db.VarChar(9)
-      Boolean  @default(true)
+  active        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -958,6 +962,13 @@ model Lead {
   aiScoreLabel  String?  @db.VarChar(10)   // 'hot' | 'warm' | 'cold'
   aiScoreReason Json?
   aiScoredAt    DateTime?
+
+  // Jornada Automática por IA: quando o lead foi classificado pela última vez.
+  // Gravado SEMPRE que a análise roda até o fim — inclusive quando o veredito é
+  // "já está na etapa certa" e nenhuma sugestão nasce. É o que sustenta o
+  // cooldown (não reanalisar em rajada) e o "só reanalisa se houve mensagem
+  // nova": basta comparar com `lastMessageAt`.
+  aiStageAnalyzedAt DateTime?
 
   // Outcome (Fase 23): classificação manual do lead pelo operador.
   // null = em andamento; 'won' = convertido (Ganho); 'lost' = sem fit / disse não (Perdido).
@@ -1575,11 +1586,11 @@ model CloudApiConnection {
   displayName     String?   @db.VarChar(191) // Nome do WABA
   qualityRating   String?   @db.VarChar(20) // GREEN, YELLOW, RED
   messagingLimit  String?   @db.VarChar(50) // Tier: 1K, 10K, 100K, UNLIMITED
-  active    /// Cor de identificação do canal na operação. Paleta fechada (ver
+  /// Cor de identificação do canal na operação. Paleta fechada (ver
   /// CANAL_CORES no front): cor livre gera tom que some no tema claro ou
   /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
   color                String?  @db.VarChar(9)
-        Boolean   @default(true)
+  active          Boolean   @default(true)
   metadata        Json?     @db.Json
   messages        Message[]
   messageLogs     CloudApiMessageLog[]
@@ -4800,7 +4811,12 @@ model LeadStageSuggestion {
   funnelId        Int
   funnel          Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
   fromStageKey    String?  @db.VarChar(50)
-  suggestedStageKey String @db.VarChar(50)
+  // Nulo quando `kind` = 'not_in_funnel': a IA concluiu que o lead não pertence
+  // a este funil e não há etapa a sugerir. Antes esse caso virava `null` e era
+  // descartado em silêncio, então o operador nunca ficava sabendo.
+  suggestedStageKey String? @db.VarChar(50)
+  // 'stage' = mover para a etapa sugerida | 'not_in_funnel' = tirar deste funil
+  kind            String   @default("stage") @db.VarChar(20)
   confidence      Int      @db.SmallInt  // 0-100
   reasoning       String?  @db.Text
   modelUsed       String?  @db.VarChar(50)

@@ -72,19 +72,40 @@ export async function aiJourneyRoutes(app: FastifyInstance) {
     const take = Math.min(200, parseInt(q?.limit || '50') || 50)
     const where: any = { status }
     if (funnelId) where.funnelId = funnelId
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       prisma.leadStageSuggestion.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         take,
         include: {
-          lead: { select: { id: true, nome: true, whatsapp: true, status: true } },
+          lead: { select: { id: true, nome: true, whatsapp: true, status: true, funnelId: true } },
           funnel: { select: { id: true, name: true, stages: { where: { active: true }, select: { key: true, name: true, color: true } } } },
         },
       }),
       prisma.leadStageSuggestion.count({ where }),
     ])
-    return { data, total }
+
+    // Rede de segurança: mesmo com a invalidação nos pontos de movimentação,
+    // qualquer caminho novo que escreva `lead.status` direto poderia deixar
+    // pendente vencida na tela. Aqui ela nunca é exibida — e some do banco no
+    // próximo tick, que roda o mesmo critério.
+    if (status !== 'pending') return { data: rows, total }
+
+    const funnelIds = [...new Set(rows.map(r => r.funnelId))]
+    const allStages = funnelIds.length
+      ? await prisma.stage.findMany({
+          where: { funnelId: { in: funnelIds } },
+          select: { funnelId: true, key: true, position: true, active: true, terminalKind: true },
+        })
+      : []
+    const byFunnel = new Map<number, Map<string, { key: string; position: number; active: boolean; terminalKind: string | null }>>()
+    for (const s of allStages) {
+      if (!byFunnel.has(s.funnelId)) byFunnel.set(s.funnelId, new Map())
+      byFunnel.get(s.funnelId)!.set(s.key, s)
+    }
+    const { staleReasonFor } = await import('../services/stageSuggestions.js')
+    const data = rows.filter(r => !r.lead || !staleReasonFor(r, r.lead, byFunnel.get(r.funnelId) ?? new Map()))
+    return { data, total: total - (rows.length - data.length) }
   })
 
   // GET /api/admin/ai-journey/suggestions/by-lead/:leadId
@@ -107,13 +128,50 @@ export async function aiJourneyRoutes(app: FastifyInstance) {
     const sug = await prisma.leadStageSuggestion.findUnique({ where: { id: parseInt(id) } })
     if (!sug) return reply.code(404).send({ error: 'Sugestão não encontrada' })
     if (sug.status !== 'pending') return reply.code(400).send({ error: `Sugestão está com status "${sug.status}" e não pode mais ser aplicada` })
+    if (sug.kind !== 'stage' || !sug.suggestedStageKey) {
+      return reply.code(400).send({ error: 'Esta sugestão não aponta uma etapa — o lead precisa ser movido de funil manualmente' })
+    }
 
-    const lead = await prisma.lead.findUnique({ where: { id: sug.leadId }, select: { id: true, status: true } })
+    const lead = await prisma.lead.findUnique({ where: { id: sug.leadId }, select: { id: true, status: true, funnelId: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não existe mais' })
 
+    // Revalidação no momento do clique. Entre a análise e o "Aplicar" pode ter
+    // passado muita coisa (o bot roteou, alguém arrastou no kanban); aplicar às
+    // cegas era o que rebaixava lead — havia pendentes de 92% de confiança
+    // mandando um lead em Proposta de volta para Visita agendada.
+    const { staleReasonFor } = await import('../services/stageSuggestions.js')
+    const stages = await prisma.stage.findMany({
+      where: { funnelId: sug.funnelId },
+      select: { key: true, position: true, active: true, terminalKind: true },
+    })
+    const stale = staleReasonFor(sug, lead, new Map(stages.map(s => [s.key, s])))
+    if (stale) {
+      await prisma.leadStageSuggestion.update({
+        where: { id: sug.id },
+        data: { status: 'superseded', decidedAt: new Date(), decidedById: user?.userId ?? null, decisionNote: `[auto] Não aplicada: ${stale}.` },
+      })
+      return reply.code(409).send({ error: 'A sugestão não vale mais para o estado atual do lead e foi descartada', reason: stale })
+    }
+
     const previousStatus = lead.status
+    // Passa pelo movimento canônico: ele valida a etapa no funil de destino e
+    // respeita `forwardOnly`, coisas que o update direto pulava.
+    // `moveLeadStage` invalida as pendentes do lead — inclusive ESTA. Por isso o
+    // update abaixo é por id e não exige `status: 'pending'`: ele é a última
+    // palavra e devolve a sugestão ao estado correto ('applied').
+    const { moveLeadStage } = await import('../services/formFlow.js')
+    await moveLeadStage(lead.id, sug.funnelId, sug.suggestedStageKey, 'ai_journey', { forwardOnly: true })
+
+    const after = await prisma.lead.findUnique({ where: { id: lead.id }, select: { status: true } })
+    if (after?.status !== sug.suggestedStageKey) {
+      await prisma.leadStageSuggestion.update({
+        where: { id: sug.id },
+        data: { status: 'superseded', decidedAt: new Date(), decidedById: user?.userId ?? null, decisionNote: '[auto] Não aplicada: movimentação recusada (etapa inválida ou regressão).' },
+      })
+      return reply.code(409).send({ error: 'A movimentação foi recusada — o lead já está numa etapa igual ou mais avançada' })
+    }
+
     await prisma.$transaction([
-      prisma.lead.update({ where: { id: lead.id }, data: { status: sug.suggestedStageKey } }),
       prisma.leadStageSuggestion.update({
         where: { id: sug.id },
         data: { status: 'applied', appliedAt: new Date(), decidedAt: new Date(), decidedById: user?.userId ?? null, decisionNote: body.note ?? null },

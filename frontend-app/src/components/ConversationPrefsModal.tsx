@@ -10,6 +10,8 @@ import { Loader2, RotateCcw } from 'lucide-preact'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
+import { Section, Segmented, Switch } from '@/components/ui/PrefControls'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
 import { useUserStore } from '@/stores/user'
 import {
@@ -44,6 +46,7 @@ export function ConversationPrefsModal({
   onToggleNotif: () => void
 }) {
   const { prefs, setPref, reset } = useConversationPrefs()
+  const { prefs: notif, setPref: setNotifPref } = useAccountPrefs()
   const role = useUserStore((s) => s.user?.role)
   const isAdmin = role === 'ADMIN' || role === 'SUPERADMIN'
 
@@ -52,7 +55,7 @@ export function ConversationPrefsModal({
       open={open}
       onOpenChange={onOpenChange}
       title="Preferências das conversas"
-      description="Valem só para você, neste navegador. Os itens marcados como “toda a equipe” mudam a instalação inteira."
+      description="Valem só para você. Os sons acompanham a sua conta; o resto vale neste navegador. Os itens marcados como “toda a equipe” mudam a instalação inteira."
       size="xl"
       footer={
         <>
@@ -68,6 +71,41 @@ export function ConversationPrefsModal({
       }
     >
       <div class="space-y-5">
+        {/* Sons vêm primeiro: é o que a pessoa abre este painel para ajustar, e
+          * no fim de um painel longo ficavam abaixo da dobra — quem procurou não
+          * achou. */}
+        <Section title="Sons" hint="Valem para a sua conta, em qualquer computador.">
+          <Switch
+            checked={notifEnabled}
+            onChange={onToggleNotif}
+            label="Som nas conversas"
+            help="Mesmo controle do sino no topo da lista."
+          />
+          {notifEnabled && (
+            <>
+              <Segmented
+                label="Quando emitir som"
+                help="Confirmar o envio ajuda quem manda muita mensagem seguida; para a maioria, só o que chega basta."
+                value={notif.notifyEvents}
+                options={[
+                  { id: 'incoming', label: 'Apenas ao receber' },
+                  { id: 'both', label: 'Ao enviar e receber' },
+                ]}
+                onChange={(v) => setNotifPref({ notifyEvents: v as 'incoming' | 'both' })}
+              />
+              <Switch
+                checked={notif.notifyGroups}
+                onChange={(v) => setNotifPref({ notifyGroups: v })}
+                label="Tocar som em grupos"
+                help="Grupo costuma ter muito mais volume que conversa individual — desligue se o bipe atrapalhar."
+              />
+              <p class="text-[0.6875rem] text-fg-subtle">
+                Timbre, volume e aviso na área de trabalho ficam em “Minhas preferências”, no menu do seu usuário.
+              </p>
+            </>
+          )}
+        </Section>
+
         <Section title="Leitura" hint="Ajuste o tamanho do texto sem mexer no zoom do navegador.">
           <Segmented
             label="Tamanho da fonte das mensagens"
@@ -159,12 +197,6 @@ export function ConversationPrefsModal({
             onChange={(v) => setPref('sendOnEnter', v === 'enter')}
           />
           <Switch
-            checked={notifEnabled}
-            onChange={onToggleNotif}
-            label="Som ao chegar mensagem nova"
-            help="Mesmo controle do sino no topo da lista."
-          />
-          <Switch
             checked={prefs.blurMedia}
             onChange={(v) => setPref('blurMedia', v)}
             label="Desfocar imagens e vídeos até passar o mouse"
@@ -221,79 +253,8 @@ function TranscriptionSetting() {
 
 // ── Peças ──────────────────────────────────────────────────────────────
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ComponentChildren }) {
-  return (
-    <section class="space-y-3">
-      <div>
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-fg-muted">{title}</h3>
-        {hint && <p class="text-[0.6875rem] text-fg-subtle mt-0.5">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  )
-}
 
-function Segmented({
-  label, help, value, options, onChange,
-}: {
-  label: string
-  help?: string
-  value: string
-  options: { id: string; label: string }[]
-  onChange: (id: string) => void
-}) {
-  return (
-    <div>
-      <div class="text-sm text-fg mb-1">{label}</div>
-      <div class="inline-flex gap-1 p-0.5 rounded-md bg-surface-3 flex-wrap" role="group" aria-label={label}>
-        {options.map((o) => {
-          const active = o.id === value
-          return (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => onChange(o.id)}
-              aria-pressed={active}
-              class={cn(
-                'h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
-              )}
-            >
-              {o.label}
-            </button>
-          )
-        })}
-      </div>
-      {help && <p class="text-[0.6875rem] text-fg-subtle mt-1">{help}</p>}
-    </div>
-  )
-}
 
-function Switch({
-  checked, onChange, label, help, disabled = false,
-}: {
-  checked: boolean
-  onChange: (checked: boolean) => void
-  label: string
-  help?: string
-  disabled?: boolean
-}) {
-  return (
-    <label class={cn('flex items-start gap-2', disabled ? 'opacity-60' : 'cursor-pointer')}>
-      <input
-        type="checkbox"
-        class="mt-1"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
-      />
-      <span class="text-sm text-fg">
-        {label}
-        {help && <span class="block text-xs text-fg-muted">{help}</span>}
-      </span>
-    </label>
-  )
-}
 
 /** Amostra ao vivo: mostra fontes, negrito e cor sem fechar o painel. */
 function Preview({ messageFont, contactFont, bubbleMetaFont, nameBold, nameColor }: {

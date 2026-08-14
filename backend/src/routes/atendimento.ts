@@ -37,6 +37,40 @@ async function assertTicketAccess(
 
 export async function atendimentoRoutes(app: FastifyInstance) {
 
+  // ── GET /api/atendimento/unread-count — quantas conversas esperam por você ──
+  // Existe para o contador do menu, que fica visível em TODA tela: buscar a
+  // lista inteira de tickets a cada 30s só para exibir um número seria caro, e
+  // o menu não precisa de nenhum dado do lead — só da contagem.
+  // O escopo é o MESMO da listagem (own/team/all), senão o número mostraria
+  // conversas que o operador não pode abrir.
+  app.get('/api/atendimento/unread-count', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const user = (req as any).user as JwtPayload
+      const myTeamIds = await getUserTeamIds(user.userId)
+      const effectiveScope = await getLeadScope(user.userId, user.role)
+
+      let scopeWhere: any = {}
+      if (effectiveScope === 'own') {
+        scopeWhere = { assignedUserId: user.userId }
+      } else if (effectiveScope !== 'all') {
+        scopeWhere = {
+          OR: [
+            { assignedUserId: user.userId },
+            ...(myTeamIds.length > 0 ? [{ teamId: { in: myTeamIds } }] : []),
+          ],
+        }
+      }
+
+      const unread = await prisma.lead.count({
+        where: { ...scopeWhere, unreadMessages: { gt: 0 } },
+      })
+      return { unread }
+    } catch (err: any) {
+      req.log.error(`[atendimento] unread-count: ${err?.message || err}`)
+      return reply.code(500).send({ error: 'Falha ao contar conversas não lidas' })
+    }
+  })
+
   // ── GET /api/atendimento/tickets — List conversations ──
   // Filtros:
   //   status: waiting | attending | open | resolved | all

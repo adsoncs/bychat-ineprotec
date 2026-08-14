@@ -612,6 +612,13 @@ export async function leadsRoutes(app: FastifyInstance) {
       data: updateData
     })
 
+    // O operador acabou de decidir a etapa na mão: qualquer sugestão pendente
+    // da Jornada IA virou fotografia velha.
+    if (updateData.status && updateData.status !== lead.status) {
+      const { supersedePendingSuggestions } = await import('../services/stageSuggestions.js')
+      await supersedePendingSuggestions(parseInt(id), 'lead_moved')
+    }
+
     const assignedToFunnel = !funnelId && targetStage.funnelId;
     logEvent({
       leadId: parseInt(id),

@@ -37,8 +37,10 @@ export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
         * piscava fora durante a animação. Quem lê tela usa o aria-label do link
         * acima, então aqui o texto é escondido da árvore de acessibilidade. */}
       <span class="app-sidebar-item-label" aria-hidden={iconOnly}>{item.label}</span>
-      {item.badge !== undefined && !iconOnly && (
-        <span class="app-sidebar-item-badge">{item.badge}</span>
+      {/* No rail o CSS transforma este mesmo elemento num ponto sobre o ícone —
+        * por isso ele é renderizado nos dois modos. O número segue no tooltip. */}
+      {item.badge !== undefined && (
+        <span class="app-sidebar-item-badge" aria-hidden={iconOnly}>{item.badge}</span>
       )}
     </a>
   )

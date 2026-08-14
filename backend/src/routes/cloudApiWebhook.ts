@@ -454,9 +454,15 @@ async function processIncomingMessage(
       }
     })
     // Reforma F4: scope.leadId — só sockets com acesso ao lead recebem.
+    // `from`/`preview` alimentam o aviso na área de trabalho do operador: sem
+    // eles a notificação diria só "nova mensagem", sem dizer de quem.
     broadcastRealtimeEvent({
       type: 'message:received',
-      payload: { leadId: lead.id, messageId: created.id, mediaType, channel: 'cloud_api' },
+      payload: {
+        leadId: lead.id, messageId: created.id, mediaType, channel: 'cloud_api',
+        from: contactName || lead.nome || phone,
+        preview: (msgText || `[${mediaType}]`).slice(0, 120),
+      },
       scope: { leadId: lead.id },
     })
     await prisma.lead.update({

@@ -480,10 +480,12 @@ function createConversationAuditWorker() {
 
 function createAiJourneyWorker() {
   return new Worker('wf-ai-journey', async (job) => {
-    const { leadId } = job.data as { leadId: number }
+    const { leadId, force } = job.data as { leadId: number; force?: boolean }
     if (!leadId) throw new Error('Job sem leadId')
     const { runAiJourneyForLead } = await import('./aiJourneyService.js')
-    return await runAiJourneyForLead(leadId)
+    // `force` vem do tick (aiJourneyScheduler), que já decidiu que este lead
+    // merece análise — pular o cooldown ali é o ponto.
+    return await runAiJourneyForLead(leadId, { force: !!force })
   }, {
     connection: redisConnection,
     concurrency: 3,

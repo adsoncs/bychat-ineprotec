@@ -34,6 +34,8 @@ export const queues = {
   aiLeadScore: createQueue('wf-ai-lead-score'),
   conversationAudit: createQueue('wf-conversation-audit'),
   aiJourney: createQueue('wf-ai-journey'),
+  // Tick da Jornada IA: poda sugestões vencidas e reanalisa quem ficou parado.
+  aiJourneyScheduler: createQueue('wf-ai-journey-scheduler'),
   dbConnector: createQueue('wf-db-connector'),
   voipPoll: createQueue('wf-voip-poll'),
   broadcast: createQueue('wf-broadcast'), // disparo em massa Cloud API (1 job por destinatário)

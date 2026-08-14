@@ -242,3 +242,40 @@ test.describe('Conversas — painel de preferências', () => {
     ).toHaveAttribute('aria-pressed', 'true')
   })
 })
+
+test.describe('sons das conversas', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuthenticatedApp(page)
+    await page.goto('/app/conversations')
+  })
+
+  test('escolher "ao enviar e receber" e desligar grupos grava na conta', async ({ page }) => {
+    const salvos: Record<string, unknown>[] = []
+    await page.route('**/api/admin/me/preferences', async (route) => {
+      if (route.request().method() === 'PUT') {
+        salvos.push(route.request().postDataJSON()?.preferences ?? {})
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: {} }) })
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: {} }) })
+    })
+
+    await abrirPainel(page)
+    // Os controles só aparecem com o som ligado (padrão).
+    await page.getByRole('group', { name: 'Quando emitir som' }).getByRole('button', { name: 'Ao enviar e receber' }).click()
+    await page.getByText('Tocar som em grupos').click()
+
+    await expect.poll(() => salvos.length).toBeGreaterThanOrEqual(2)
+    expect(salvos.some((p) => p.notifyEvents === 'both')).toBe(true)
+    expect(salvos.some((p) => p.notifyGroups === false)).toBe(true)
+  })
+
+  test('desligar o som esconde os controles dependentes', async ({ page }) => {
+    await page.route('**/api/admin/me/preferences', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferences: {} }) }),
+    )
+    await abrirPainel(page)
+    await expect(page.getByRole('group', { name: 'Quando emitir som' })).toBeVisible()
+    await page.getByText('Som nas conversas').click()
+    await expect(page.getByRole('group', { name: 'Quando emitir som' })).toHaveCount(0)
+  })
+})

@@ -1,4 +1,4 @@
-import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, ChevronDown, Shield, Settings as SettingsIcon, Eye, BarChart3, Copy, Headphones } from 'lucide-preact'
+import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, ChevronDown, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Copy, Headphones } from 'lucide-preact'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
@@ -12,6 +12,7 @@ import { ROLE_LABELS, type UserRole } from '@/hooks/useUsers'
 import type { WorkStatus } from '@/stores/user'
 import { useDuplicatesCount } from '@/hooks/useLeads'
 import { ProfileModal } from './ProfileModal'
+import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { TransferInbox } from '@/components/routing/TransferInbox'
 import { cn } from '@/lib/cn'
 
@@ -108,6 +109,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
   const lastLoginRel = formatRelativeTime(user?.lastLoginAt)
   const memberSinceRel = formatRelativeTime(user?.createdAt)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
 
   return (
     <header class="app-topbar">
@@ -234,6 +236,13 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+                  onSelect={() => setPrefsOpen(true)}
+                >
+                  <SlidersHorizontal size={14} class="text-fg-muted" />
+                  Minhas preferências
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
                   onSelect={() => { window.location.assign('/app/settings') }}
                 >
                   <SettingsIcon size={14} class="text-fg-muted" />
@@ -257,6 +266,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
         </DropdownMenu.Root>
       </div>
       <ProfileModal open={profileOpen} onOpenChange={setProfileOpen} />
+      <AccountPrefsModal open={prefsOpen} onOpenChange={setPrefsOpen} />
     </header>
   )
 }

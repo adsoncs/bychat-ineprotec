@@ -123,7 +123,15 @@ export function getFromAddress(cfg: Record<string, string>, prefix: string): str
   }
   const name = cfg['notification.sender_name'] || 'BeyondHub'
   const domain = cfg['notification.email_domain'] || process.env.EMAIL_DOMAIN || 'beyondhub.com.br'
-  return `${name} ${prefix} <${prefix.toLowerCase().replace(/\s/g, '')}@${domain}>`
+  // A caixa local sai do prefixo, e prefixo em português tem acento: "Notificações"
+  // virava `notificações@…`, que o Resend recusa ("non-ASCII characters") — o
+  // e-mail simplesmente não saía. O nome de exibição continua acentuado; só o
+  // endereço é normalizado.
+  const local = prefix
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // tira acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '') || 'nao-responda'
+  return `${name} ${prefix} <${local}@${domain}>`
 }
 
 // ── Public API ──

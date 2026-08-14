@@ -1,6 +1,9 @@
 import type { ComponentChildren } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
+import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
+import { useActiveConversationStore } from '@/stores/activeConversation'
 import {
   MessageSquare,
   Send,
@@ -207,32 +210,6 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
   }
 }
 
-function loadNotifEnabled(): boolean {
-  try { return localStorage.getItem('bh_atd_notif') !== '0' } catch { return true }
-}
-
-function playTone(tones: number[]) {
-  try {
-    const Ctx = (window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
-    if (!Ctx) return
-    const ctx = new Ctx()
-    tones.forEach((freq, i) => {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'sine'
-      osc.frequency.value = freq
-      gain.gain.value = 0.06
-      osc.connect(gain).connect(ctx.destination)
-      osc.start(ctx.currentTime + i * 0.12)
-      osc.stop(ctx.currentTime + i * 0.12 + 0.1)
-    })
-    setTimeout(() => { void ctx.close() }, 1000)
-  } catch { /* ignore */ }
-}
-function playBeep() { playTone([880, 660]) } // notificação de mensagem nova
-function playToggleOn() { playTone([523, 659, 784]) } // C–E–G ascendente
-function playToggleOff() { playTone([784, 523]) } // descendente
-
 function formatSnoozeLabel(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
@@ -276,7 +253,12 @@ function ConversationsScreen() {
   const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
   const [showInfo, setShowInfo] = useState(false)
-  const [notifEnabled, setNotifEnabled] = useState<boolean>(loadNotifEnabled())
+  // Som e aviso agora são preferência da CONTA (useAccountPrefs) e o
+  // disparo vive no shell (useGlobalNotifications), valendo em qualquer tela.
+  // Aqui ficou só o sino, que liga/desliga a mesma preferência.
+  const { prefs: notifPrefs, setPref: setNotifPref } = useAccountPrefs()
+  const notifEnabled = notifPrefs.notifySound
+  const setActiveConversation = useActiveConversationStore((s) => s.setActiveConversation)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [promoteSingle, setPromoteSingle] = useState<{ id: number; name?: string | null | undefined } | null>(null)
   const [promoteBulkOpen, setPromoteBulkOpen] = useState(false)
@@ -342,59 +324,19 @@ function ConversationsScreen() {
   }
   function clearSelection() { setSelectedIds(new Set()) }
 
-  // Detect new tickets in inbox → ring + flash title
-  const lastInboxCountRef = useRef<number | null>(null)
-  const titleAlertRef = useRef<{ original: string; interval: number | null } | null>(null)
-
+  // Conversa aberta na tela: o aviso global consulta isto para não bipar a
+  // mensagem que o operador está vendo chegar.
   useEffect(() => {
-    const count = (ticketsQ.data?.tickets ?? []).length
-    const prev = lastInboxCountRef.current
-    if (prev !== null && count > prev && notifEnabled && document.hidden) {
-      playBeep()
-      // Title alert: alterna entre original e "(N) Nova mensagem!"
-      const original = document.title
-      if (!titleAlertRef.current) {
-        titleAlertRef.current = { original, interval: null }
-        const newCount = count - prev
-        let toggle = false
-        const interval = window.setInterval(() => {
-          document.title = toggle ? original : `(${newCount}) Nova mensagem!`
-          toggle = !toggle
-        }, 1000)
-        titleAlertRef.current.interval = interval
-      }
-    }
-    lastInboxCountRef.current = count
-  }, [ticketsQ.data, bucket, notifEnabled])
-
-  // Reset title quando aba ganha foco
-  useEffect(() => {
-    function onFocus() {
-      const ref = titleAlertRef.current
-      if (ref?.interval) {
-        clearInterval(ref.interval)
-        document.title = ref.original
-        titleAlertRef.current = null
-      }
-    }
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) onFocus() })
-    return () => {
-      window.removeEventListener('focus', onFocus)
-      const ref = titleAlertRef.current
-      if (ref?.interval) clearInterval(ref.interval)
-    }
-  }, [])
+    setActiveConversation(selected)
+    return () => setActiveConversation(null)
+  }, [selected, setActiveConversation])
 
   function toggleNotif() {
-    setNotifEnabled((v) => {
-      const next = !v
-      try { localStorage.setItem('bh_atd_notif', next ? '1' : '0') } catch { /* ignore */ }
-      // Feedback sonoro: confirma o toggle e ainda valida que o áudio do navegador
-      // está autorizado (gesture-required policy aplica).
-      if (next) playToggleOn(); else playToggleOff()
-      return next
-    })
+    const next = !notifEnabled
+    setNotifPref({ notifySound: next })
+    // Feedback sonoro: confirma o toggle e ainda destrava o áudio do navegador
+    // (a política de autoplay exige um gesto — este clique é o gesto).
+    if (next) playToggleOn(); else playToggleOff()
   }
 
   // Esc fecha a conversa selecionada (mas não interfere se modal/dropdown nativo

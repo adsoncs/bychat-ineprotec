@@ -365,10 +365,15 @@ app.addHook('preHandler', async (req) => {
 })
 
 // ── CSRF PROTECTION ─────────────────────────────
+// CORS_ORIGIN/APP_URL aceitam LISTA separada por vírgula — durante o rebrand
+// ByChat→Attrae o tenant responde no domínio novo E no antigo, e sem isto o
+// login no domínio novo levaria 403 do guard de CSRF abaixo.
 const ALLOWED_ORIGINS = [
-  process.env.CORS_ORIGIN || 'https://bychat.ia.br',
-  process.env.APP_URL || 'https://bychat.ia.br',
-].filter(Boolean)
+  ...(process.env.CORS_ORIGIN || 'https://bychat.ia.br').split(','),
+  ...(process.env.APP_URL || 'https://bychat.ia.br').split(','),
+]
+  .map(o => o.trim())
+  .filter(Boolean)
 
 app.addHook('onRequest', async (req, reply) => {
   // CSRF: validar Origin em requests de mutação (POST/PUT/DELETE)
