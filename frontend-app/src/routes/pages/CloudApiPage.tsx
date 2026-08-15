@@ -3,6 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   Cloud, Trash2, RefreshCw, Send, Plug, AlertCircle, CheckCircle,
   Copy, Webhook, AlertTriangle, HelpCircle, FileText, BarChart3, Smartphone,
+  IdCard,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -30,6 +31,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { EmbeddedSignupModal } from '@/components/EmbeddedSignupModal'
+import { CloudApiProfileModal } from '@/components/CloudApiProfileModal'
 import { cloudApiQualityLabel } from '@/lib/statusLabels'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -52,6 +54,7 @@ export function CloudApiPage() {
   )
   const [deleting, setDeleting] = useState<CloudApiConnection | null>(null)
   const [testing, setTesting] = useState<CloudApiConnection | null>(null)
+  const [editingProfile, setEditingProfile] = useState<CloudApiConnection | null>(null)
   const [signupOpen, setSignupOpen] = useState(false)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const del = useDeleteCloudApiConnection()
@@ -158,6 +161,7 @@ export function CloudApiPage() {
           syncing={sync.isPending}
           onSync={() => handleSync(c.wabaId)}
           onTest={() => setTesting(c)}
+          onProfile={() => setEditingProfile(c)}
           onDelete={() => setDeleting(c)}
         />
       ))}
@@ -216,6 +220,10 @@ export function CloudApiPage() {
 
       {testing && <TestMessageModal connection={testing} onClose={() => setTesting(null)} />}
 
+      {editingProfile && (
+        <CloudApiProfileModal connection={editingProfile} onClose={() => setEditingProfile(null)} />
+      )}
+
       <EmbeddedSignupModal open={signupOpen} onOpenChange={setSignupOpen} />
 
       <HowItWorksModal
@@ -261,7 +269,7 @@ export function CloudApiPage() {
 
 function ConnectionCard({
   connection: c, chatbots, teams, agents, syncing,
-  onSync, onTest, onDelete,
+  onSync, onTest, onProfile, onDelete,
 }: {
   connection: CloudApiConnection
   chatbots: { id: number; name: string }[]
@@ -270,6 +278,7 @@ function ConnectionCard({
   syncing: boolean
   onSync: () => void
   onTest: () => void
+  onProfile: () => void
   onDelete: () => void
 }) {
   const update = useUpdateCloudApiConnection()
@@ -548,6 +557,9 @@ function ConnectionCard({
         </Button>
         <Button variant="secondary" size="sm" onClick={onSync} disabled={syncing}>
           <RefreshCw size={12} class={syncing ? 'animate-spin' : ''} /> Sincronizar modelos
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onProfile}>
+          <IdCard size={12} /> Perfil da empresa
         </Button>
         <button
           type="button"

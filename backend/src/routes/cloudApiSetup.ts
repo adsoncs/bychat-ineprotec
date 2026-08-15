@@ -18,6 +18,13 @@ import {
   getWabaInfo,
   subscribeWebhook,
   getBusinessProfile,
+  updateBusinessProfile,
+  uploadResumable,
+  getPhoneNumberInfo,
+  setTwoStepPin,
+  getConversationalAutomation,
+  updateConversationalAutomation,
+  BUSINESS_VERTICALS,
 } from '../services/cloudApi.js'
 // Ciclo de vida centralizado (sync + detecção de mudança + notificação).
 import { syncTemplatesFromMeta, isSendableStatus } from '../services/cloudApiTemplates.js'
@@ -472,6 +479,271 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       return { ok: true, messageId: result.messageId }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ══════════════════════════════════════════════════════
+  //  PERFIL DA EMPRESA — o que o cliente vê no WhatsApp
+  // ══════════════════════════════════════════════════════
+
+  // Limites da Meta. Enviar acima disso não trunca: a atualização inteira é
+  // recusada, então cortamos antes de chamar a Graph.
+  const PROFILE_LIMITS = { about: 139, address: 256, description: 512, email: 128, website: 256 }
+  const AUTOMATION_LIMITS = { prompts: 4, prompt: 80, commands: 30, commandName: 32, commandDescription: 256 }
+
+  /** Aplica limite e devolve `null` quando o operador esvaziou o campo. */
+  function trimField(value: unknown, max: number): string | null {
+    const v = String(value ?? '').trim()
+    if (!v) return null
+    return v.slice(0, max)
+  }
+
+  // GET /api/cloud-api/connection/:id/profile — Perfil atual + dados do número
+  app.get('/api/cloud-api/connection/:id/profile', { preHandler: authMiddleware }, async (req, reply) => {
+    const { id } = req.params as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      // Só o perfil é obrigatório para a tela abrir. Número e automação são
+      // consultas separadas na Graph: se uma falhar, a UI esconde aquele bloco
+      // em vez de derrubar a tela inteira.
+      const [profile, number, automation] = await Promise.all([
+        getBusinessProfile(conn.phoneNumberId, token),
+        getPhoneNumberInfo(conn.phoneNumberId, token).catch(() => null),
+        getConversationalAutomation(conn.phoneNumberId, token).catch(() => null),
+      ])
+      return {
+        profile: {
+          about: profile?.about ?? '',
+          address: profile?.address ?? '',
+          description: profile?.description ?? '',
+          email: profile?.email ?? '',
+          vertical: profile?.vertical ?? '',
+          websites: Array.isArray(profile?.websites) ? profile.websites : [],
+          profilePictureUrl: profile?.profile_picture_url ?? null,
+        },
+        // Quais campos a Meta realmente tem preenchidos hoje. A UI usa isso para
+        // não deixar o operador achar que o painel "perdeu" um dado que nunca
+        // existiu na conta — o perfil da API não herda o do app do celular.
+        filled: {
+          about: !!profile?.about,
+          address: !!profile?.address,
+          description: !!profile?.description,
+          email: !!profile?.email,
+          vertical: !!profile?.vertical && profile.vertical !== 'UNDEFINED',
+          websites: Array.isArray(profile?.websites) && profile.websites.length > 0,
+          profilePicture: !!profile?.profile_picture_url,
+        },
+        number: number ? {
+          displayPhone: number.display_phone_number ?? conn.displayPhone,
+          verifiedName: number.verified_name ?? null,
+          nameStatus: number.name_status ?? null,
+          newNameStatus: number.new_name_status ?? null,
+          codeVerificationStatus: number.code_verification_status ?? null,
+          qualityRating: number.quality_rating ?? null,
+          messagingLimitTier: number.messaging_limit_tier ?? null,
+          platformType: number.platform_type ?? null,
+          isOfficialBusinessAccount: number.is_official_business_account ?? null,
+          isOnBizApp: number.is_on_biz_app ?? null,
+          status: number.status ?? null,
+          accountMode: number.account_mode ?? null,
+          searchVisibility: number.search_visibility ?? null,
+          throughputLevel: number.throughput?.level ?? null,
+          webhookUrl: number.webhook_configuration?.application
+            ?? number.webhook_configuration?.whatsapp_business_account ?? null,
+          lastOnboardedTime: number.last_onboarded_time ?? null,
+        } : null,
+        automation,
+        verticals: BUSINESS_VERTICALS,
+        limits: { ...PROFILE_LIMITS, ...AUTOMATION_LIMITS },
+      }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `Não foi possível ler o perfil na Meta: ${err.message}` })
+    }
+  })
+
+  // PUT /api/cloud-api/connection/:id/automation — Boas-vindas, perguntas
+  // frequentes e comandos que aparecem na conversa antes do cliente escrever.
+  app.put('/api/cloud-api/connection/:id/automation', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const body = (req.body ?? {}) as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+
+    const input: Record<string, any> = {}
+    if (body.enableWelcomeMessage !== undefined) input.enable_welcome_message = !!body.enableWelcomeMessage
+
+    if (body.prompts !== undefined) {
+      const prompts = (Array.isArray(body.prompts) ? body.prompts : [])
+        .map((p: unknown) => String(p ?? '').trim().slice(0, AUTOMATION_LIMITS.prompt))
+        .filter(Boolean)
+      if (prompts.length > AUTOMATION_LIMITS.prompts) {
+        return reply.code(400).send({ error: `A Meta aceita no máximo ${AUTOMATION_LIMITS.prompts} perguntas frequentes` })
+      }
+      input.prompts = prompts
+    }
+
+    if (body.commands !== undefined) {
+      const commands = (Array.isArray(body.commands) ? body.commands : [])
+        .map((c: any) => ({
+          command_name: String(c?.name ?? c?.command_name ?? '').trim().replace(/^\//, '').slice(0, AUTOMATION_LIMITS.commandName),
+          command_description: String(c?.description ?? c?.command_description ?? '').trim().slice(0, AUTOMATION_LIMITS.commandDescription),
+        }))
+        // Comando sem nome ou sem descrição faz a Meta recusar a lista inteira.
+        .filter((c: any) => c.command_name && c.command_description)
+      if (commands.length > AUTOMATION_LIMITS.commands) {
+        return reply.code(400).send({ error: `A Meta aceita no máximo ${AUTOMATION_LIMITS.commands} comandos` })
+      }
+      input.commands = commands
+    }
+
+    if (!Object.keys(input).length) return reply.code(400).send({ error: 'Nada para atualizar' })
+
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      await updateConversationalAutomation(conn.phoneNumberId, token, input as any)
+      const automation = await getConversationalAutomation(conn.phoneNumberId, token).catch(() => null)
+      void logUserAudit({
+        action: 'cloudapi.automation_updated',
+        targetType: 'cloud_api',
+        targetLabel: conn.displayName || conn.displayPhone || conn.phoneNumberId,
+        changes: { fields: Object.keys(input) },
+        ...auditActor(req),
+      })
+      return { ok: true, automation }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `A Meta recusou a atualização: ${err.message}` })
+    }
+  })
+
+  // PUT /api/cloud-api/connection/:id/profile — Salva o perfil na Meta
+  app.put('/api/cloud-api/connection/:id/profile', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const body = (req.body ?? {}) as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+
+    const fields: Record<string, any> = {}
+
+    // A Meta trata string vazia como "apagar o campo"; por isso o null vira ''
+    // em vez de sumir do payload — senão não haveria como limpar um endereço.
+    for (const [key, max] of [
+      ['about', PROFILE_LIMITS.about],
+      ['address', PROFILE_LIMITS.address],
+      ['description', PROFILE_LIMITS.description],
+    ] as const) {
+      if (body[key] !== undefined) fields[key] = trimField(body[key], max) ?? ''
+    }
+
+    if (body.email !== undefined) {
+      const email = trimField(body.email, PROFILE_LIMITS.email)
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return reply.code(400).send({ error: 'E-mail inválido' })
+      }
+      fields.email = email ?? ''
+    }
+
+    if (body.vertical !== undefined) {
+      const vertical = String(body.vertical || '').trim().toUpperCase()
+      if (vertical && !(BUSINESS_VERTICALS as readonly string[]).includes(vertical)) {
+        return reply.code(400).send({ error: 'Setor inválido' })
+      }
+      fields.vertical = vertical || 'UNDEFINED'
+    }
+
+    if (body.websites !== undefined) {
+      const raw = Array.isArray(body.websites) ? body.websites : [body.websites]
+      const websites = raw
+        .map((w: unknown) => trimField(w, PROFILE_LIMITS.website))
+        .filter((w: string | null): w is string => !!w)
+      if (websites.length > 2) {
+        return reply.code(400).send({ error: 'A Meta aceita no máximo 2 sites' })
+      }
+      // Sem esquema a Meta recusa a URL; completar é mais útil que reclamar.
+      fields.websites = websites.map((w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`))
+    }
+
+    if (!Object.keys(fields).length) return reply.code(400).send({ error: 'Nada para atualizar' })
+
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      await updateBusinessProfile(conn.phoneNumberId, token, fields)
+      const profile = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
+      void logUserAudit({
+        action: 'cloudapi.profile_updated',
+        targetType: 'cloud_api',
+        targetLabel: conn.displayName || conn.displayPhone || conn.phoneNumberId,
+        changes: { fields: Object.keys(fields) },
+        ...auditActor(req),
+      })
+      return { ok: true, profile }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `A Meta recusou a atualização: ${err.message}` })
+    }
+  })
+
+  // POST /api/cloud-api/connection/:id/profile-picture — Troca a foto do perfil
+  //
+  // A foto não aceita URL nem media id: é preciso subir o arquivo pela Resumable
+  // Upload API e mandar o handle. Fazemos os dois passos aqui para o operador não
+  // ficar com um handle solto se fechar a tela no meio.
+  app.post('/api/cloud-api/connection/:id/profile-picture', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+
+    const data = await req.file()
+    if (!data) return reply.code(400).send({ error: 'Arquivo obrigatório' })
+
+    const mimeType = data.mimetype
+    if (!['image/jpeg', 'image/png'].includes(mimeType)) {
+      return reply.code(400).send({ error: 'A foto precisa ser JPG ou PNG' })
+    }
+    const buffer = await data.toBuffer()
+    if (buffer.length > 5 * 1024 * 1024) {
+      return reply.code(400).send({ error: 'A foto precisa ter até 5 MB' })
+    }
+
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      const appId = await getMetaAppId().catch(() => '')
+      const handle = await uploadResumable(appId || conn.wabaId, token, buffer, mimeType, conn.wabaId)
+      await updateBusinessProfile(conn.phoneNumberId, token, { profile_picture_handle: handle })
+      const profile = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
+      void logUserAudit({
+        action: 'cloudapi.profile_picture_updated',
+        targetType: 'cloud_api',
+        targetLabel: conn.displayName || conn.displayPhone || conn.phoneNumberId,
+        changes: { bytes: buffer.length, mimeType },
+        ...auditActor(req),
+      })
+      return { ok: true, profilePictureUrl: profile?.profile_picture_url ?? null }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `Não foi possível trocar a foto: ${err.message}` })
+    }
+  })
+
+  // POST /api/cloud-api/connection/:id/two-step-pin — PIN de duas etapas
+  app.post('/api/cloud-api/connection/:id/two-step-pin', { preHandler: adminOnly }, async (req, reply) => {
+    const { id } = req.params as any
+    const pin = String((req.body as any)?.pin ?? '').trim()
+    if (!/^\d{6}$/.test(pin)) return reply.code(400).send({ error: 'O PIN precisa ter exatamente 6 dígitos' })
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
+    if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
+    try {
+      const token = decryptToken(conn.systemUserToken)
+      await setTwoStepPin(conn.phoneNumberId, token, pin)
+      // O PIN em si nunca é gravado nem logado — só o fato de ter mudado.
+      void logUserAudit({
+        action: 'cloudapi.two_step_pin_updated',
+        targetType: 'cloud_api',
+        targetLabel: conn.displayName || conn.displayPhone || conn.phoneNumberId,
+        ...auditActor(req),
+      })
+      return { ok: true }
+    } catch (err: any) {
+      return reply.code(400).send({ error: `A Meta recusou o novo PIN: ${err.message}` })
     }
   })
 

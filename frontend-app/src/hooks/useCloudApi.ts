@@ -169,6 +169,137 @@ export function useUpdateCloudApiConnection() {
   })
 }
 
+// ── Perfil da empresa no WhatsApp (o que o cliente vê ao abrir a conversa) ──
+
+export interface CloudApiBusinessProfile {
+  about: string
+  address: string
+  description: string
+  email: string
+  vertical: string
+  websites: string[]
+  profilePictureUrl: string | null
+}
+
+/** Campos que a Meta mantém e a integração só consegue ler. */
+export interface CloudApiNumberInfo {
+  displayPhone: string | null
+  verifiedName: string | null
+  nameStatus: string | null
+  newNameStatus: string | null
+  codeVerificationStatus: string | null
+  qualityRating: string | null
+  messagingLimitTier: string | null
+  platformType: string | null
+  isOfficialBusinessAccount: boolean | null
+  isOnBizApp: boolean | null
+  status: string | null
+  accountMode: string | null
+  searchVisibility: string | null
+  throughputLevel: string | null
+  webhookUrl: string | null
+  lastOnboardedTime: string | null
+}
+
+/** Boas-vindas, perguntas frequentes e comandos que aparecem na conversa. */
+export interface CloudApiAutomation {
+  enable_welcome_message: boolean
+  prompts: string[]
+  commands: { command_name: string; command_description: string }[]
+}
+
+/** Quais campos a Meta tem preenchidos de fato hoje. */
+export interface CloudApiProfileFilled {
+  about: boolean
+  address: boolean
+  description: boolean
+  email: boolean
+  vertical: boolean
+  websites: boolean
+  profilePicture: boolean
+}
+
+export interface CloudApiProfileResponse {
+  profile: CloudApiBusinessProfile
+  filled: CloudApiProfileFilled
+  number: CloudApiNumberInfo | null
+  automation: CloudApiAutomation | null
+  verticals: string[]
+  limits: {
+    about: number; address: number; description: number; email: number; website: number
+    prompts: number; prompt: number; commands: number; commandName: number; commandDescription: number
+  }
+}
+
+export function useCloudApiProfile(id: number | null) {
+  return useQuery({
+    queryKey: ['cloud-api-profile', id],
+    queryFn: () => api.get<CloudApiProfileResponse>(`/cloud-api/connection/${id}/profile`),
+    enabled: id != null,
+    staleTime: 30_000,
+  })
+}
+
+export interface UpdateCloudApiProfileInput {
+  about?: string
+  address?: string
+  description?: string
+  email?: string
+  vertical?: string
+  websites?: string[]
+}
+
+export function useUpdateCloudApiProfile(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: UpdateCloudApiProfileInput) =>
+      api.put<{ ok: true }>(`/cloud-api/connection/${id}/profile`, input),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cloud-api-profile', id] })
+      void qc.invalidateQueries({ queryKey: ['cloud-api-connections'] })
+    },
+  })
+}
+
+/** Sobe a foto e já a aplica ao perfil (a Meta exige o handle do upload). */
+export function useUploadCloudApiProfilePicture(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return api.post<{ ok: true; profilePictureUrl: string | null }>(
+        `/cloud-api/connection/${id}/profile-picture`, fd,
+      )
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['cloud-api-profile', id] })
+      void qc.invalidateQueries({ queryKey: ['cloud-api-connections'] })
+    },
+  })
+}
+
+export interface UpdateCloudApiAutomationInput {
+  enableWelcomeMessage?: boolean
+  prompts?: string[]
+  commands?: { name: string; description: string }[]
+}
+
+export function useUpdateCloudApiAutomation(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: UpdateCloudApiAutomationInput) =>
+      api.put<{ ok: true }>(`/cloud-api/connection/${id}/automation`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-profile', id] }),
+  })
+}
+
+export function useSetCloudApiTwoStepPin(id: number) {
+  return useMutation({
+    mutationFn: (pin: string) => api.post<{ ok: true }>(`/cloud-api/connection/${id}/two-step-pin`, { pin }),
+  })
+}
+
 export function useDeleteCloudApiConnection() {
   const qc = useQueryClient()
   return useMutation({

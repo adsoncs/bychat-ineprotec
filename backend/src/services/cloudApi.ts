@@ -260,6 +260,136 @@ export async function getBusinessProfile(phoneNumberId: string, token: string): 
   return result?.data?.[0] || {}
 }
 
+/** Setores aceitos pela Meta no campo `vertical` do perfil. Qualquer outro valor
+ *  faz a Meta rejeitar a atualização inteira — por isso a lista é fechada. */
+export const BUSINESS_VERTICALS = [
+  'UNDEFINED', 'OTHER', 'AUTO', 'BEAUTY', 'APPAREL', 'EDU', 'ENTERTAIN', 'EVENT_PLAN',
+  'FINANCE', 'GROCERY', 'GOVT', 'HOTEL', 'HEALTH', 'NONPROFIT', 'PROF_SERVICES',
+  'RETAIL', 'TRAVEL', 'RESTAURANT', 'NOT_A_BIZ',
+] as const
+
+export type BusinessVertical = typeof BUSINESS_VERTICALS[number]
+
+export interface BusinessProfileInput {
+  about?: string
+  address?: string
+  description?: string
+  email?: string
+  vertical?: string
+  websites?: string[]
+  profile_picture_handle?: string
+}
+
+/** Grava o perfil da empresa (o que o cliente vê ao abrir a conversa no WhatsApp).
+ *  A Meta só altera os campos enviados; o que não vier no body permanece. */
+export async function updateBusinessProfile(
+  phoneNumberId: string,
+  token: string,
+  fields: BusinessProfileInput
+): Promise<void> {
+  await cloudApiFetch(`/${phoneNumberId}/whatsapp_business_profile`, token, 'POST', {
+    messaging_product: 'whatsapp',
+    ...fields,
+  })
+}
+
+/** Sobe um arquivo pela Resumable Upload API e devolve o `handle` (`h`).
+ *  A foto de perfil não aceita URL nem media id — só esse handle.
+ *  A sessão de upload é do APP; instalações antigas subiam pelo WABA, então o
+ *  WABA fica de reserva para não quebrar quem já dependia disso. */
+export async function uploadResumable(
+  ownerId: string,
+  token: string,
+  buffer: Buffer,
+  mimeType: string,
+  fallbackOwnerId?: string
+): Promise<string> {
+  const attempt = async (owner: string): Promise<string> => {
+    const sessionResp = await fetch(`${GRAPH_URL}/${owner}/uploads`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_length: buffer.length, file_type: mimeType, messaging_product: 'whatsapp' }),
+    })
+    const session = await sessionResp.json() as any
+    if (!session?.id) {
+      throw new Error(session?.error?.message || 'A Meta não abriu a sessão de upload')
+    }
+    const uploadResp = await fetch(`${GRAPH_URL}/${session.id}`, {
+      method: 'POST',
+      headers: { 'Authorization': `OAuth ${token}`, 'Content-Type': mimeType, 'file_offset': '0' },
+      body: buffer as any,
+    })
+    const uploadResult = await uploadResp.json() as any
+    if (!uploadResult?.h) {
+      throw new Error(uploadResult?.error?.message || 'A Meta não devolveu o identificador do arquivo')
+    }
+    return uploadResult.h as string
+  }
+
+  try {
+    return await attempt(ownerId)
+  } catch (err) {
+    if (!fallbackOwnerId || fallbackOwnerId === ownerId) throw err
+    return attempt(fallbackOwnerId)
+  }
+}
+
+/** Dados do número que a Meta mantém e a integração só lê (nome verificado,
+ *  status de revisão do nome, qualidade, limite de disparo, webhook em uso). */
+export async function getPhoneNumberInfo(phoneNumberId: string, token: string): Promise<any> {
+  const fields = [
+    'id', 'display_phone_number', 'verified_name', 'name_status', 'new_name_status',
+    'code_verification_status', 'quality_rating', 'messaging_limit_tier',
+    'platform_type', 'throughput', 'is_official_business_account', 'is_on_biz_app',
+    'status', 'account_mode', 'search_visibility', 'webhook_configuration',
+    'last_onboarded_time',
+  ].join(',')
+  return cloudApiFetch(`/${phoneNumberId}?fields=${fields}`, token)
+}
+
+// ─── Automação conversacional (o que aparece na conversa) ────
+
+export interface ConversationalCommand { command_name: string; command_description: string }
+
+export interface ConversationalAutomation {
+  enable_welcome_message: boolean
+  /** "Perguntas frequentes": até 4 atalhos que o cliente toca ao abrir a conversa. */
+  prompts: string[]
+  /** Comandos com "/": até 30. */
+  commands: ConversationalCommand[]
+}
+
+export async function getConversationalAutomation(
+  phoneNumberId: string,
+  token: string
+): Promise<ConversationalAutomation> {
+  const result = await cloudApiFetch(`/${phoneNumberId}?fields=conversational_automation`, token)
+  const ca = result?.conversational_automation || {}
+  return {
+    enable_welcome_message: ca.enable_welcome_message === true,
+    prompts: Array.isArray(ca.prompts) ? ca.prompts : [],
+    commands: Array.isArray(ca.commands) ? ca.commands : [],
+  }
+}
+
+export async function updateConversationalAutomation(
+  phoneNumberId: string,
+  token: string,
+  input: Partial<ConversationalAutomation>
+): Promise<void> {
+  const body: Record<string, any> = {}
+  if (input.enable_welcome_message !== undefined) body.enable_welcome_message = input.enable_welcome_message
+  // A Meta substitui a lista inteira: mandar [] é o jeito de apagar tudo.
+  if (input.prompts !== undefined) body.prompts = input.prompts
+  if (input.commands !== undefined) body.commands = input.commands
+  await cloudApiFetch(`/${phoneNumberId}/conversational_automation`, token, 'POST', body)
+}
+
+/** Troca o PIN da verificação em duas etapas do número (exigido no re-registro). */
+export async function setTwoStepPin(phoneNumberId: string, token: string, pin: string): Promise<void> {
+  await cloudApiFetch(`/${phoneNumberId}`, token, 'POST', { pin })
+}
+
 export async function getWabaInfo(wabaId: string, token: string): Promise<any> {
   return cloudApiFetch(`/${wabaId}?fields=name,currency,timezone_id,account_review_status,business_verification_status,ownership_type`, token)
 }
