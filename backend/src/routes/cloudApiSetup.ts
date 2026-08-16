@@ -559,7 +559,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         limits: { ...PROFILE_LIMITS, ...AUTOMATION_LIMITS },
       }
     } catch (err: any) {
-      return reply.code(400).send({ error: `Não foi possível ler o perfil na Meta: ${err.message}` })
+      return reply.code(400).send({ error: `Não foi possível ler o perfil na Meta. ${err.message}` })
     }
   })
 
@@ -613,7 +613,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       })
       return { ok: true, automation }
     } catch (err: any) {
-      return reply.code(400).send({ error: `A Meta recusou a atualização: ${err.message}` })
+      return reply.code(400).send({ error: err.message })
     }
   })
 
@@ -624,32 +624,80 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(id) } })
     if (!conn) return reply.code(404).send({ error: 'Conexão não encontrada' })
 
-    const fields: Record<string, any> = {}
+    let token: string
+    try {
+      token = decryptToken(conn.systemUserToken)
+    } catch {
+      return reply.code(400).send({
+        error: 'Não foi possível ler o token desta conexão (chave de criptografia trocada). Reconecte a conta em Configurações › WhatsApp.',
+      })
+    }
 
-    // A Meta trata string vazia como "apagar o campo"; por isso o null vira ''
-    // em vez de sumir do payload — senão não haveria como limpar um endereço.
-    for (const [key, max] of [
-      ['about', PROFILE_LIMITS.about],
-      ['address', PROFILE_LIMITS.address],
-      ['description', PROFILE_LIMITS.description],
+    // O perfil atual decide o que dá para mandar: campos que a Meta não aceita
+    // esvaziar só podem sair do payload, e o operador precisa saber disso.
+    const atual = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
+    if (!atual) {
+      return reply.code(400).send({
+        error: 'Não foi possível ler o perfil atual na Meta para comparar as mudanças. Tente de novo em instantes.',
+      })
+    }
+
+    const fields: Record<string, any> = {}
+    const warnings: string[] = []
+
+    /** Campo cortado no limite não é recusado pela Meta, mas o operador precisa
+     *  saber que o texto dele não foi salvo inteiro. */
+    function avisarCorte(rotulo: string, original: unknown, max: number) {
+      if (String(original ?? '').trim().length > max) {
+        warnings.push(`O campo "${rotulo}" passou de ${max} caracteres e foi salvo cortado.`)
+      }
+    }
+
+    // `about` é o único campo de texto que a Meta se recusa a esvaziar: mandar
+    // '' devolve 500 "(#131000) Something went wrong" e derruba a gravação
+    // inteira, inclusive dos outros campos. Fora do payload, ele fica como está.
+    if (body.about !== undefined) {
+      const about = trimField(body.about, PROFILE_LIMITS.about)
+      if (about) {
+        avisarCorte('Recado (status)', body.about, PROFILE_LIMITS.about)
+        fields.about = about
+      } else if (atual.about) {
+        warnings.push('O recado (status) não foi apagado: a Meta não permite deixar esse campo em branco depois de preenchido.')
+      }
+    }
+
+    // Estes a Meta aceita em branco — '' é como se apaga o valor.
+    for (const [key, rotulo, max] of [
+      ['address', 'Endereço', PROFILE_LIMITS.address],
+      ['description', 'Descrição', PROFILE_LIMITS.description],
     ] as const) {
-      if (body[key] !== undefined) fields[key] = trimField(body[key], max) ?? ''
+      if (body[key] !== undefined) {
+        avisarCorte(rotulo, body[key], max)
+        fields[key] = trimField(body[key], max) ?? ''
+      }
     }
 
     if (body.email !== undefined) {
       const email = trimField(body.email, PROFILE_LIMITS.email)
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return reply.code(400).send({ error: 'E-mail inválido' })
+        return reply.code(400).send({ error: 'E-mail inválido. Use o formato nome@empresa.com.br ou deixe o campo em branco.' })
       }
       fields.email = email ?? ''
     }
 
+    // A Meta não tem "voltar para não informado": 'UNDEFINED' aparece na leitura
+    // de quem nunca definiu setor, mas na escrita ela responde 400 (#100). Só
+    // resta omitir o campo e explicar.
     if (body.vertical !== undefined) {
       const vertical = String(body.vertical || '').trim().toUpperCase()
-      if (vertical && !(BUSINESS_VERTICALS as readonly string[]).includes(vertical)) {
-        return reply.code(400).send({ error: 'Setor inválido' })
+      if (vertical && vertical !== 'UNDEFINED') {
+        if (!(BUSINESS_VERTICALS as readonly string[]).includes(vertical)) {
+          return reply.code(400).send({ error: `Setor "${vertical}" não é aceito pela Meta. Escolha um da lista.` })
+        }
+        fields.vertical = vertical
+      } else if (atual.vertical && atual.vertical !== 'UNDEFINED') {
+        warnings.push('O setor continua como estava: a Meta não permite voltar um setor já definido para "Não informado".')
       }
-      fields.vertical = vertical || 'UNDEFINED'
     }
 
     if (body.websites !== undefined) {
@@ -658,16 +706,20 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         .map((w: unknown) => trimField(w, PROFILE_LIMITS.website))
         .filter((w: string | null): w is string => !!w)
       if (websites.length > 2) {
-        return reply.code(400).send({ error: 'A Meta aceita no máximo 2 sites' })
+        return reply.code(400).send({ error: 'A Meta aceita no máximo 2 sites. Remova um deles.' })
       }
       // Sem esquema a Meta recusa a URL; completar é mais útil que reclamar.
       fields.websites = websites.map((w: string) => (/^https?:\/\//i.test(w) ? w : `https://${w}`))
     }
 
-    if (!Object.keys(fields).length) return reply.code(400).send({ error: 'Nada para atualizar' })
+    if (!Object.keys(fields).length) {
+      // Nada sobrou no payload: ou o corpo veio vazio, ou tudo que o operador
+      // pediu esbarrou numa restrição da Meta. O aviso é a resposta útil aqui.
+      if (warnings.length) return { ok: true, profile: atual, warnings }
+      return reply.code(400).send({ error: 'Nenhum campo do perfil foi alterado.' })
+    }
 
     try {
-      const token = decryptToken(conn.systemUserToken)
       await updateBusinessProfile(conn.phoneNumberId, token, fields)
       const profile = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
       void logUserAudit({
@@ -677,9 +729,11 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         changes: { fields: Object.keys(fields) },
         ...auditActor(req),
       })
-      return { ok: true, profile }
+      return { ok: true, profile, warnings }
     } catch (err: any) {
-      return reply.code(400).send({ error: `A Meta recusou a atualização: ${err.message}` })
+      // `err.message` já vem traduzido pelo cliente da Graph (contexto "profile"),
+      // então repeti-lo com prefixo só empilharia frase em cima de frase.
+      return reply.code(400).send({ error: err.message })
     }
   })
 
@@ -720,7 +774,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       })
       return { ok: true, profilePictureUrl: profile?.profile_picture_url ?? null }
     } catch (err: any) {
-      return reply.code(400).send({ error: `Não foi possível trocar a foto: ${err.message}` })
+      return reply.code(400).send({ error: `Não foi possível trocar a foto. ${err.message}` })
     }
   })
 
@@ -743,7 +797,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       })
       return { ok: true }
     } catch (err: any) {
-      return reply.code(400).send({ error: `A Meta recusou o novo PIN: ${err.message}` })
+      return reply.code(400).send({ error: `Não foi possível definir o PIN. ${err.message}` })
     }
   })
 

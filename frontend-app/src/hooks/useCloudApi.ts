@@ -249,11 +249,18 @@ export interface UpdateCloudApiProfileInput {
   websites?: string[]
 }
 
+/** Campos que a Meta se recusou a alterar (e por quê). O salvamento em si deu
+ *  certo — só uma parte não passou. */
+export interface UpdateCloudApiProfileResult {
+  ok: true
+  warnings?: string[]
+}
+
 export function useUpdateCloudApiProfile(id: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: UpdateCloudApiProfileInput) =>
-      api.put<{ ok: true }>(`/cloud-api/connection/${id}/profile`, input),
+      api.put<UpdateCloudApiProfileResult>(`/cloud-api/connection/${id}/profile`, input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['cloud-api-profile', id] })
       void qc.invalidateQueries({ queryKey: ['cloud-api-connections'] })

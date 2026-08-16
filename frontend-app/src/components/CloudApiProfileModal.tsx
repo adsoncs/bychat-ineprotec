@@ -12,14 +12,16 @@ import {
   useUploadCloudApiProfilePicture,
   useSetCloudApiTwoStepPin,
   type CloudApiConnection,
+  type UpdateCloudApiProfileInput,
 } from '@/hooks/useCloudApi'
 import { cloudApiQualityLabel } from '@/lib/statusLabels'
 import { toast } from '@/lib/toast'
 
 /** Setores aceitos pela Meta. O valor vai cru para a Graph; o rótulo é só a
- *  tradução do que o Gerenciador do WhatsApp mostra. */
+ *  tradução do que o Gerenciador do WhatsApp mostra. `UNDEFINED` fica de fora
+ *  da escrita de propósito: a Meta só o devolve na leitura de quem nunca
+ *  definiu setor e recusa recebê-lo de volta. */
 const VERTICAIS: Record<string, string> = {
-  UNDEFINED: 'Não informado',
   AUTO: 'Automotivo',
   BEAUTY: 'Beleza, spa e salão',
   APPAREL: 'Roupas e acessórios',
@@ -36,7 +38,11 @@ const VERTICAIS: Record<string, string> = {
   RETAIL: 'Compras e varejo',
   TRAVEL: 'Viagens e transporte',
   RESTAURANT: 'Restaurantes',
-  NOT_A_BIZ: 'Não é uma empresa',
+  ALCOHOL: 'Bebidas alcoólicas',
+  ONLINE_GAMBLING: 'Apostas online',
+  PHYSICAL_GAMBLING: 'Apostas presenciais',
+  OTC_DRUGS: 'Medicamentos sem receita',
+  MATRIMONY_SERVICE: 'Serviços matrimoniais',
   OTHER: 'Outro',
 }
 
@@ -79,6 +85,8 @@ export function CloudApiProfileModal({
   const [comandos, setComandos] = useState<ComandoEdit[]>([])
   // A automação é outro endpoint da Meta: só é enviada se o operador mexeu nela.
   const [automacaoTocada, setAutomacaoTocada] = useState(false)
+  // O que a Meta se recusou a alterar no último salvamento.
+  const [avisos, setAvisos] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
 
   // O formulário só é preenchido quando o perfil chega da Meta — antes disso
@@ -99,6 +107,7 @@ export function CloudApiProfileModal({
       name: c.command_name, description: c.command_description,
     })))
     setAutomacaoTocada(false)
+    setAvisos([])
   }, [data])
 
   const limites = data?.limits ?? {
@@ -114,18 +123,44 @@ export function CloudApiProfileModal({
 
   async function handleSalvar() {
     if (!data) return
+    const atual = data.profile
     const websites = [site1, site2].map((s) => s.trim()).filter(Boolean)
+
+    // Só o que o operador realmente mexeu. Reenviar o formulário inteiro fazia
+    // uma leitura incompleta da Meta virar apagamento do que estava lá.
+    const input: UpdateCloudApiProfileInput = {}
+    if (sobre.trim() !== atual.about.trim()) input.about = sobre
+    if (descricao.trim() !== atual.description.trim()) input.description = descricao
+    if (endereco.trim() !== atual.address.trim()) input.address = endereco
+    if (email.trim() !== atual.email.trim()) input.email = email
+    // `vertical` vai vazio quando é "Não informado" — o servidor omite o campo.
+    // Mandar 'UNDEFINED' faz a Meta recusar o perfil inteiro com (#100).
+    if (setor !== (atual.vertical === 'UNDEFINED' ? '' : atual.vertical)) input.vertical = setor
+    if (websites.join('|') !== atual.websites.join('|')) input.websites = websites
+
+    if (!Object.keys(input).length && !automacaoTocada) {
+      toast('Nada foi alterado no perfil', 'info')
+      onClose()
+      return
+    }
+
     try {
-      await salvar.mutateAsync({
-        about: sobre, description: descricao, address: endereco, email,
-        vertical: setor || 'UNDEFINED', websites,
-      })
+      const r = Object.keys(input).length
+        ? await salvar.mutateAsync(input)
+        : { warnings: [] as string[] }
       if (automacaoTocada) {
         await salvarAutomacao.mutateAsync({
           enableWelcomeMessage: boasVindas,
           prompts: perguntas.map((p) => p.trim()).filter(Boolean),
           commands: comandosValidos(comandos),
         })
+      }
+      // Salvou, mas a Meta barrou parte do que foi pedido: o operador precisa
+      // ler o motivo antes da tela fechar e ele achar que ficou tudo gravado.
+      if (r.warnings?.length) {
+        setAvisos(r.warnings)
+        toast('Perfil salvo, mas a Meta não aceitou tudo', 'warning')
+        return
       }
       toast('Perfil atualizado no WhatsApp', 'success')
       onClose()
@@ -168,6 +203,15 @@ export function CloudApiProfileModal({
 
       {!!error && !isLoading && (
         <div class="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{(error as Error).message}</div>
+      )}
+
+      {avisos.length > 0 && (
+        <div class="mb-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+          <div class="text-xs font-medium text-warning">O que a Meta não aceitou</div>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4 text-xs text-fg-muted">
+            {avisos.map((a) => <li key={a}>{a}</li>)}
+          </ul>
+        </div>
       )}
 
       {data && (
@@ -222,7 +266,7 @@ export function CloudApiProfileModal({
               label="Recado (status)"
               value={sobre}
               maxLength={limites.about}
-              hint={`Frase curta abaixo do nome no perfil. ${sobre.length}/${limites.about}`}
+              hint={`Frase curta abaixo do nome no perfil. A Meta não deixa apagar depois de preenchido. ${sobre.length}/${limites.about}`}
               onInput={(e) => setSobre((e.target as HTMLInputElement).value)}
             />
             <Textarea
@@ -265,6 +309,7 @@ export function CloudApiProfileModal({
               <Select
                 label="Setor"
                 value={setor}
+                hint={preenchidos?.vertical ? 'A Meta não permite voltar para "Não informado".' : undefined}
                 onChange={(e) => setSetor((e.target as HTMLSelectElement).value)}
               >
                 <option value="">Não informado</option>

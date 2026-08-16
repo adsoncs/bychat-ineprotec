@@ -51,6 +51,16 @@ export function validateWebhookSignature(rawBody: Buffer, signature: string, app
 
 // ─── Cloud API HTTP Client ──────────────────────────────
 
+/** De qual tela veio a chamada, deduzido do caminho da Graph. O tradutor de
+ *  erros precisa disso: "(#100)" num envio fala de contato, e no perfil fala de
+ *  campo do formulário. */
+function contextForPath(path: string): 'send' | 'profile' | 'automation' | 'account' {
+  if (path.includes('/messages')) return 'send'
+  if (path.includes('whatsapp_business_profile')) return 'profile'
+  if (path.includes('conversational_automation')) return 'automation'
+  return 'account'
+}
+
 export async function cloudApiFetch(
   path: string,
   token: string,
@@ -73,7 +83,7 @@ export async function cloudApiFetch(
     // original fica no log, que é onde o suporte precisa dele.
     console.warn(`[cloudApi] ${resp.status} em ${path}: ${err.slice(0, 500)}`)
     const { humanizeWhatsAppError } = await import('../lib/whatsappErrors.js')
-    throw new Error(humanizeWhatsAppError(err, resp.status))
+    throw new Error(humanizeWhatsAppError(err, resp.status, contextForPath(path)))
   }
   return resp.json()
 }
@@ -260,12 +270,16 @@ export async function getBusinessProfile(phoneNumberId: string, token: string): 
   return result?.data?.[0] || {}
 }
 
-/** Setores aceitos pela Meta no campo `vertical` do perfil. Qualquer outro valor
- *  faz a Meta rejeitar a atualização inteira — por isso a lista é fechada. */
+/** Setores aceitos pela Meta ao **gravar** o campo `vertical` do perfil.
+ *  Qualquer outro valor faz a Meta rejeitar a atualização inteira — por isso a
+ *  lista é fechada. Ela é a que a própria Graph devolve no erro (#100), e não
+ *  bate com a de leitura: `UNDEFINED` só aparece na leitura (significa "setor
+ *  nunca definido") e `NOT_A_BIZ` não é aceito em nenhuma das duas pontas. */
 export const BUSINESS_VERTICALS = [
-  'UNDEFINED', 'OTHER', 'AUTO', 'BEAUTY', 'APPAREL', 'EDU', 'ENTERTAIN', 'EVENT_PLAN',
+  'OTHER', 'AUTO', 'BEAUTY', 'APPAREL', 'EDU', 'ENTERTAIN', 'EVENT_PLAN',
   'FINANCE', 'GROCERY', 'GOVT', 'HOTEL', 'HEALTH', 'NONPROFIT', 'PROF_SERVICES',
-  'RETAIL', 'TRAVEL', 'RESTAURANT', 'NOT_A_BIZ',
+  'RETAIL', 'TRAVEL', 'RESTAURANT', 'ALCOHOL', 'ONLINE_GAMBLING',
+  'PHYSICAL_GAMBLING', 'OTC_DRUGS', 'MATRIMONY_SERVICE',
 ] as const
 
 export type BusinessVertical = typeof BUSINESS_VERTICALS[number]
@@ -281,7 +295,13 @@ export interface BusinessProfileInput {
 }
 
 /** Grava o perfil da empresa (o que o cliente vê ao abrir a conversa no WhatsApp).
- *  A Meta só altera os campos enviados; o que não vier no body permanece. */
+ *  A Meta só altera os campos enviados; o que não vier no body permanece.
+ *
+ *  Dois campos não aceitam ser esvaziados e derrubam a chamada inteira quando
+ *  vão em branco — quem monta o payload precisa omiti-los nesse caso:
+ *    • `about` em branco  → 500 "(#131000) Something went wrong"
+ *    • `vertical` vazio ou 'UNDEFINED' → 400 "(#100) Param vertical must be one of…"
+ *  `address`, `description`, `email` e `websites` aceitam vazio normalmente. */
 export async function updateBusinessProfile(
   phoneNumberId: string,
   token: string,
