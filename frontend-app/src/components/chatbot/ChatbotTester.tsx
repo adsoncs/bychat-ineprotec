@@ -3,6 +3,14 @@ import { Bot, Send, RotateCcw, User as UserIcon, AlertCircle, CheckCircle } from
 import { useChatQuestions, useChatbot, type ChatQuestion } from '@/hooks/useChatbots'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { api } from '@/lib/apiClient'
+
+interface PreviewReply {
+  sessionId: string
+  messages: string[]
+  phase?: string
+  ended?: boolean
+}
 
 type Speaker = 'bot' | 'user' | 'system'
 
@@ -24,6 +32,15 @@ export function ChatbotTester({ chatbotId }: Props) {
     [qData],
   )
 
+  // Bot conduzido por IA não tem fila de perguntas para simular: a conversa vem
+  // do motor real (`/preview/start` e `/preview/message`), o mesmo que roda no
+  // embed. Sem isto, o teste do painel dizia "Adicione perguntas antes de
+  // testar" e não havia como experimentar um chatbot de IA de dentro do sistema.
+  const isAiBot = bot?.mode === 'ai_journey'
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
   const [step, setStep] = useState(0) // index na fila de perguntas ativas
   const [messages, setMessages] = useState<Msg[]>([])
   const [draft, setDraft] = useState('')
@@ -31,11 +48,13 @@ export function ChatbotTester({ chatbotId }: Props) {
   const [done, setDone] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Reseta sempre que o chatbotId muda
+  // Reseta sempre que o chatbotId muda. No bot de IA a conversa só pode começar
+  // depois que `bot` chega (é `mode` que decide qual motor usar).
   useEffect(() => {
-    reset()
+    if (isAiBot && !sessionId) { void startAiSession(); return }
+    if (!isAiBot && bot) reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatbotId, questions.length])
+  }, [chatbotId, questions.length, isAiBot, bot?.id])
 
   // Auto-scroll
   useEffect(() => {
@@ -52,7 +71,36 @@ export function ChatbotTester({ chatbotId }: Props) {
     setMessages((m) => [...m, { speaker: 'system', text, ts: Date.now() }])
   }
 
+  async function startAiSession() {
+    setMessages([]); setDraft(''); setDone(false); setAiError(null); setAiLoading(true)
+    try {
+      const r = await api.post<PreviewReply>(`/chatbots/${chatbotId}/preview/start`, {})
+      setSessionId(r.sessionId)
+      for (const m of r.messages ?? []) pushBot(m)
+      if (r.ended) setDone(true)
+    } catch (e) {
+      setAiError((e as Error).message || 'Não foi possível iniciar o teste.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  async function sendAiMessage(text: string) {
+    if (!sessionId) return
+    pushUser(text); setDraft(''); setAiLoading(true); setAiError(null)
+    try {
+      const r = await api.post<PreviewReply>(`/chatbots/${chatbotId}/preview/message`, { sessionId, message: text })
+      for (const m of r.messages ?? []) pushBot(m)
+      if (r.ended) setDone(true)
+    } catch (e) {
+      setAiError((e as Error).message || 'Falha ao falar com o chatbot.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   function reset() {
+    if (isAiBot) { setSessionId(null); void startAiSession(); return }
     setMessages([])
     setStep(0)
     setAnswers({})
@@ -113,6 +161,11 @@ export function ChatbotTester({ chatbotId }: Props) {
   function handleSubmit() {
     if (done) return
     const value = draft.trim()
+    if (isAiBot) {
+      if (!value || aiLoading) return
+      void sendAiMessage(value)
+      return
+    }
     const q = questions[step]
     if (!q) return
     const err = validate(q, value)
@@ -143,7 +196,8 @@ export function ChatbotTester({ chatbotId }: Props) {
 
   if (isLoading) return <Skeleton class="h-64 w-full" />
 
-  if (questions.length === 0) {
+  // Só o bot roteirizado precisa de perguntas; o de IA conversa pelo motor real.
+  if (!isAiBot && questions.length === 0) {
     return (
       <div class="rounded-md border border-dashed border-border p-6 text-center">
         <Bot size={20} class="text-fg-subtle mx-auto mb-2" />
@@ -161,7 +215,9 @@ export function ChatbotTester({ chatbotId }: Props) {
       <header class="flex items-center justify-between gap-2 p-2 border-b border-border">
         <div class="text-xs text-fg-muted inline-flex items-center gap-1.5">
           <Bot size={12} class="text-accent" />
-          Simulação local — não envia mensagens reais
+          {isAiBot
+            ? 'Conversa real com a IA — em memória, sem criar lead nem enviar mensagens'
+            : 'Simulação local — não envia mensagens reais'}
         </div>
         <Button size="sm" variant="ghost" onClick={reset}>
           <RotateCcw size={11} /> Reiniciar
@@ -172,14 +228,29 @@ export function ChatbotTester({ chatbotId }: Props) {
         {messages.map((m, i) => (
           <Bubble key={i} msg={m} />
         ))}
-        {done && (
+        {aiLoading && (
+          <div class="text-xs text-fg-subtle inline-flex items-center gap-1.5">
+            <Bot size={11} class="text-accent" /> digitando…
+          </div>
+        )}
+        {aiError && (
+          <div class="rounded-md border border-danger/40 bg-danger/10 p-2 text-xs text-danger inline-flex items-center gap-1">
+            <AlertCircle size={11} /> {aiError}
+          </div>
+        )}
+        {done && !isAiBot && (
           <div class="rounded-md border border-success/40 bg-success/10 p-2 text-xs text-success inline-flex items-center gap-1">
             <CheckCircle size={11} /> Conversa concluída · {Object.keys(answers).length} resposta(s) capturada(s)
           </div>
         )}
+        {done && isAiBot && (
+          <div class="rounded-md border border-success/40 bg-success/10 p-2 text-xs text-success inline-flex items-center gap-1">
+            <CheckCircle size={11} /> Conversa encerrada pelo chatbot
+          </div>
+        )}
       </div>
 
-      {!done && currentQ && (
+      {!done && (isAiBot || currentQ) && (
         <div class="border-t border-border p-2 space-y-2">
           {isOptionsType && options.length > 0 && (
             <div class="flex flex-wrap gap-1">
@@ -198,8 +269,9 @@ export function ChatbotTester({ chatbotId }: Props) {
           <div class="flex items-end gap-2">
             <textarea
               class="flex-1 min-h-[2.25rem] max-h-24 px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-none"
-              placeholder="Digite sua resposta…"
+              placeholder={isAiBot ? 'Escreva como se fosse o cliente…' : 'Digite sua resposta…'}
               value={draft}
+              disabled={isAiBot && aiLoading}
               onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -209,7 +281,7 @@ export function ChatbotTester({ chatbotId }: Props) {
               }}
               rows={1}
             />
-            <Button size="md" variant="primary" onClick={handleSubmit}>
+            <Button size="md" variant="primary" onClick={handleSubmit} disabled={isAiBot && aiLoading}>
               <Send size={12} />
             </Button>
           </div>

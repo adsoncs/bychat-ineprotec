@@ -265,7 +265,9 @@ export function ChatbotsPage() {
           open
           onOpenChange={(o) => { if (!o) setTestingOf(null) }}
           title={`Testar — ${testingOf.name}`}
-          description="Simulação local da conversa, sem enviar mensagens reais."
+          description={testingOf.mode === 'ai_journey'
+            ? 'Conversa com o motor real do chatbot, em memória: não cria lead nem envia mensagem para ninguém.'
+            : 'Simulação local da conversa, sem enviar mensagens reais.'}
           size="lg"
           footer={<Button variant="secondary" size="sm" onClick={() => setTestingOf(null)}>Fechar</Button>}
         >
