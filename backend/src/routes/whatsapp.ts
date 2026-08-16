@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
-import { isLikelyLid, onlyDigits } from '../lib/phone.js'
+import { isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -702,15 +702,31 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       if (remoteJid.endsWith('@lid')) {
         // LID (@lid) é um identificador de PRIVACIDADE do WhatsApp — NÃO é telefone.
-        // Tenta obter o número real via Evolution; o match CRM (waLid/phoneKey/nome)
-        // fica a cargo do resolvedor de identidade unificado, abaixo.
+        // Tenta obter o número real; o match CRM (waLid/phoneKey/nome) fica a
+        // cargo do resolvedor de identidade unificado, abaixo.
         waLidToPersist = remoteJid
-        const resolved = await resolveLidToPhone(remoteJid, data.pushName)
-        if (resolved) {
-          phone = resolved
-          app.log.info(`[Webhook] LID ${remoteJid} resolved to phone: ${phone}`)
+
+        // 1º: `key.remoteJidAlt`. Com `addressingMode: "lid"` a Evolution já manda
+        // o número real neste campo — é dado, não palpite. Sem ler isto, caíamos
+        // direto nas heurísticas (foto de perfil / pushName), que erram justamente
+        // em quem não tem foto nem nome: o contato entrava no CRM com o LID no
+        // lugar do telefone e ninguém conseguia responder.
+        const altJid: string = key.remoteJidAlt || data.remoteJidAlt || ''
+        const fromAlt = altJid.endsWith('@s.whatsapp.net')
+          ? altJid.replace('@s.whatsapp.net', '')
+          : ''
+        if (fromAlt && !isLikelyLid(fromAlt) && phoneKeyOf(fromAlt)) {
+          phone = fromAlt
+          app.log.info(`[Webhook] LID ${remoteJid} → ${phone} (remoteJidAlt)`)
         } else {
-          phone = '' // sem número ainda — o resolvedor tenta achar o lead existente
+          // 2º: heurísticas contra o banco do Evolution (foto/correlação/pushName).
+          const resolved = await resolveLidToPhone(remoteJid, data.pushName)
+          if (resolved) {
+            phone = resolved
+            app.log.info(`[Webhook] LID ${remoteJid} resolved to phone: ${phone}`)
+          } else {
+            phone = '' // sem número ainda — o resolvedor tenta achar o lead existente
+          }
         }
       } else {
         phone = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '')
