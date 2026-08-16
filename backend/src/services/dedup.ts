@@ -1,6 +1,7 @@
 // services/dedup.ts — UID generation, duplicate detection, flagging & lead merge
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { podeSubstituir, type NomeOrigem } from './leadDisplayName.js'
 import { phoneKey } from '../lib/phone.js'
 
 // Canais de origem da Categoria A (Captura) — sempre criam lead novo + flag.
@@ -397,15 +398,48 @@ export async function mergeLeads(opts: MergeOptions) {
 
   // 1. Mesclar dados: preencher campos vazios do principal com dados do secundário
   const updateData: any = {}
-  if (!keep.nome && merge.nome) updateData.nome = merge.nome
+  // Nome: quem decide é a hierarquia de origem (leadDisplayName), não a ordem
+  // do merge. O lead absorvido costuma ser o do formulário — nome que o próprio
+  // contato declarou — enquanto o mantido nasceu do WhatsApp com pushName.
+  // Preencher só quando o principal está vazio guardava o apelido ("O.") e
+  // jogava fora o nome real ("Inara Oliveira").
+  if (merge.nome && (
+    !keep.nome ||
+    podeSubstituir(keep.nomeOrigem, (merge.nomeOrigem as NomeOrigem | null) ?? 'pushname')
+  )) {
+    updateData.nome = merge.nome
+    if (merge.nomeOrigem) updateData.nomeOrigem = merge.nomeOrigem
+  }
+  if (!keep.pushName && merge.pushName) updateData.pushName = merge.pushName
+  if (!keep.nomeWhatsappAgenda && merge.nomeWhatsappAgenda) updateData.nomeWhatsappAgenda = merge.nomeWhatsappAgenda
   if (!keep.empresa && merge.empresa) updateData.empresa = merge.empresa
   if (!keep.email && merge.email) updateData.email = merge.email
   if (!keep.whatsapp && merge.whatsapp) updateData.whatsapp = merge.whatsapp
+  // O LID do secundário PRECISA vir junto: é por ele que o WhatsApp endereça
+  // as mensagens dessa pessoa quando ela usa o modo privacidade. Perder o
+  // waLid no merge faz a próxima mensagem dela criar uma NOVA duplicata,
+  // desfazendo exatamente o que a mesclagem acabou de arrumar.
+  if (!keep.waLid && merge.waLid) updateData.waLid = merge.waLid
   if (!keep.segmento && merge.segmento) updateData.segmento = merge.segmento
   if (!keep.cidade && merge.cidade) updateData.cidade = merge.cidade
   if (!keep.solucaoNome && merge.solucaoNome) updateData.solucaoNome = merge.solucaoNome
   if (!keep.maturidade && merge.maturidade) updateData.maturidade = merge.maturidade
   if (!keep.source && merge.source) updateData.source = merge.source
+
+  // Funil e etapa. O lead mantido pode ter nascido num canal que não coloca
+  // ninguém no funil — WhatsApp em instalação sem funil padrão — enquanto o
+  // absorvido veio de Meta Lead Ads/formulário, com funil e etapa definidos.
+  // Sem herdar isso o merge tira o contato do Kanban: ele não aparece em
+  // nenhuma coluna e a operação conclui que "o lead não caiu".
+  if (!keep.funnelId && merge.funnelId) {
+    updateData.funnelId = merge.funnelId
+    // A etapa só acompanha se existir no funil herdado; senão o lead ficaria
+    // num status que nenhuma coluna do board conhece.
+    const etapaValida = keep.status
+      ? await prisma.stage.findFirst({ where: { funnelId: merge.funnelId, key: keep.status, active: true } })
+      : null
+    if (!etapaValida && merge.status) updateData.status = merge.status
+  }
 
   // Mesclar scores: se o principal não tem score, usar do secundário
   const keepScores = (keep.scores as any) || {}
@@ -422,12 +456,19 @@ export async function mergeLeads(opts: MergeOptions) {
     updateData.customFields = Object.keys(merged).length > 0 ? merged : undefined
   }
 
-  // Mesclar campaign data
-  if (!keep.campaignId && merge.campaignId) updateData.campaignId = merge.campaignId
-  if (!keep.campaignName && merge.campaignName) updateData.campaignName = merge.campaignName
-  if (!keep.utmSource && merge.utmSource) updateData.utmSource = merge.utmSource
-  if (!keep.utmMedium && merge.utmMedium) updateData.utmMedium = merge.utmMedium
-  if (!keep.utmCampaign && merge.utmCampaign) updateData.utmCampaign = merge.utmCampaign
+  // Mesclar campaign data — a identidade completa do anúncio, não só a campanha.
+  // Sem conjunto/criativo/formulário o lead sai do relatório de Meta Ads por
+  // anúncio mesmo tendo vindo de um, e o custo por lead fica atribuído a menos
+  // leads do que a campanha realmente trouxe.
+  const CAMPOS_ATRIBUICAO = [
+    'campaignId', 'campaignName', 'adsetId', 'adsetName', 'adId', 'adName',
+    'metaFormId', 'metaPageId', 'sourceId', 'originType',
+    'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm',
+    'gclid', 'fbclid', 'ctwaClid',
+  ] as const
+  for (const campo of CAMPOS_ATRIBUICAO) {
+    if (!(keep as any)[campo] && (merge as any)[campo]) updateData[campo] = (merge as any)[campo]
+  }
 
   // Mesclar formData: guardar dados do merge como _mergedFormData
   const keepFD = (keep.formData as any) || {}
