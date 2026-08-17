@@ -24,31 +24,55 @@ export interface StartResult {
   plan: PlanSummary
 }
 
+export interface StartChecks {
+  /** Impedem o disparo: sem isto não há o que enviar, nem por onde. */
+  errors: string[]
+  /** Recomendações fortes. Aparecem na tela, mas quem decide é o operador. */
+  warnings: string[]
+}
+
 /**
- * Checagens que o sistema faz ANTES de deixar disparar. Não são burocracia: cada
- * item aqui corresponde a um jeito conhecido de queimar número.
+ * Checagens antes de disparar, separadas por quem manda na decisão.
+ *
+ * A versão anterior tratava tudo como erro e desabilitava o botão de iniciar —
+ * inclusive a falta de uma variável no texto ou da base legal. São boas práticas
+ * de verdade, mas viraram impedimento burocrático: o operador que sabe o que
+ * está fazendo (lista pequena, aviso operacional, contato que pediu retorno)
+ * ficava sem saída dentro do produto. Agora só bloqueia o que torna o envio
+ * impossível; o resto é aviso, entra na nota de risco e fica registrado.
  */
-export function validateForStart(campaign: any): string[] {
+export function checkForStart(campaign: any): StartChecks {
   const errors: string[] = []
+  const warnings: string[] = []
   const blocks = (campaign.messageBlocks ?? []) as MessageBlock[]
   const withText = blocks.filter((b) => (b.variants ?? []).some((v) => String(v ?? '').trim()))
-  if (!withText.length) errors.push('Escreva ao menos uma mensagem')
+  const withMedia = blocks.filter((b) => String((b as any).mediaUrl ?? '').trim())
+  // Só é impossível enviar quando não há NADA para mandar — uma campanha de
+  // imagem sem legenda é legítima.
+  if (!withText.length && !withMedia.length) errors.push('Escreva ao menos uma mensagem (ou anexe uma mídia)')
   if (!Array.isArray(campaign.senderInstances) || !campaign.senderInstances.length) {
     errors.push('Escolha ao menos um número de envio')
   }
+
   if (!hasPersonalization(blocks)) {
-    errors.push('A mensagem precisa de ao menos uma variável (ex.: {{primeiro_nome}}) — texto idêntico para todo mundo é o que mais gera denúncia')
+    warnings.push('Nenhuma variável no texto (ex.: {{primeiro_nome}}): mensagem idêntica para todo mundo é mais fácil de agrupar do outro lado')
   }
   const variantCount = (blocks[0]?.variants ?? []).filter((v) => String(v ?? '').trim()).length
   if (variantCount < 2) {
-    errors.push('Escreva ao menos 2 variações do primeiro bloco — mil mensagens idênticas são fáceis de agrupar')
+    warnings.push('Só uma redação do primeiro bloco — com 2 ou mais variações o disparo fica bem menos parecido com robô')
   }
-  // LGPD: quem dispara precisa saber dizer por que aquela lista pode ser
-  // contatada. Fica registrado na campanha, junto de quem a iniciou.
+  // LGPD: continua sendo o certo declarar, e fica registrado na campanha junto
+  // de quem a iniciou. Deixou de impedir o disparo porque a responsabilidade é
+  // de quem opera, não do botão.
   if (!campaign.legalBasis) {
-    errors.push('Declare a base legal do contato (consentimento, execução de contrato ou legítimo interesse)')
+    warnings.push('Base legal do contato não declarada (consentimento, execução de contrato ou legítimo interesse)')
   }
-  return errors
+  return { errors, warnings }
+}
+
+/** Compatibilidade: só o que de fato impede o disparo. */
+export function validateForStart(campaign: any): string[] {
+  return checkForStart(campaign).errors
 }
 
 /** Inicia agora ou agenda. Em ambos os casos a agenda é calculada e persistida. */

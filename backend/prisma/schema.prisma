@@ -8579,8 +8579,22 @@ model SmartCampaign {
   pacingConfig    Json @db.Json // { minDelayMs, maxDelayMs, sessionSize, sessionBreakMs, typingEnabled, ... }
   windowConfig    Json @db.Json // { days:[1..5], from:"09:00", to:"18:00", timezone:"America/Sao_Paulo" }
 
+  // Teto de envios por número por dia. Quando o operador informa um valor, ele
+  // MANDA — inclusive acima da escada de aquecimento. A escada continua sendo o
+  // padrão de quem não mexe, mas deixou de ser um teto intransponível: número
+  // antigo, com histórico de conversa, não precisa recomeçar em 20/dia.
   dailyCapPerNumber Int     @default(20)
   requireOptIn      Boolean @default(false)
+
+  // Pula a consulta "esse número existe no WhatsApp?" antes de planejar. A
+  // consulta protege o remetente, mas em lista já conhecida ela só custa tempo
+  // (e trava a campanha inteira quando a Evolution está instável).
+  skipNumberCheck Boolean @default(false)
+
+  // Sensibilidade do disjuntor: quando a campanha se interrompe sozinha.
+  // { level: 'strict'|'normal'|'off', noReplyAfter, notFoundRate, failStreak }
+  // Ausente = 'normal'. Ver services/smartBroadcast/guard.ts.
+  guardConfig Json?
 
   // Rodapé de saída, anexado à última bolha. Custa uma linha de texto e evita
   // a denúncia — que é o sinal mais caro para o número.

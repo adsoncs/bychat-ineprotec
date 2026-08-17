@@ -62,11 +62,32 @@ export function interpolateVars(text: string, vars: Record<string, string>): str
 }
 
 /**
+ * Markdown que o WhatsApp NÃO entende, convertido para o que ele entende.
+ *
+ * Quem escreve a campanha (ou pede o texto a uma IA) escreve em Markdown por
+ * hábito: `**negrito**`, `### Título`, listas com `-`. No WhatsApp isso chega
+ * literal — a família lê "**Colégio Severiano**" com os asteriscos à mostra, e
+ * o disparo inteiro parece amador. Converter aqui, na renderização, é melhor do
+ * que pedir ao operador que decore a sintaxe do WhatsApp.
+ */
+export function whatsappMarkdown(text: string): string {
+  return String(text ?? '')
+    // "# Título" / "### Título" → negrito, que é o mais próximo que existe lá.
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$/gm, '*$1*')
+    // **negrito** → *negrito* (no WhatsApp o negrito é UM asterisco).
+    .replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
+    // __itálico__ → _itálico_
+    .replace(/__([^_\n]+)__/g, '_$1_')
+    // Marcador de lista no começo da linha → bolinha.
+    .replace(/^[ \t]{0,3}[*-][ \t]+/gm, '• ')
+}
+
+/**
  * Limpa o rastro de variável vazia — "Olá , tudo bem?" vira "Olá, tudo bem?".
  * Roda no fim, depois do spintax, senão a expansão reintroduz espaços duplos.
  */
 export function tidy(text: string): string {
-  return String(text ?? '')
+  return whatsappMarkdown(text)
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/ +([,.!?])/g, '$1')
     .trim()

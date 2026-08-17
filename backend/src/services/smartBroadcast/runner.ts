@@ -29,7 +29,7 @@ import { renderBlocks, buildRecipientLink, type MessageBlock } from './variants.
 import { simulateTyping, sleep, interBubbleDelay } from './typing.js'
 import { DEFAULT_PACING, DEFAULT_WINDOW, nextWindowStart, type PacingConfig, type WindowConfig } from './pacing.js'
 import { getOrCreateHealth, isAvailable, bumpCounters } from './health.js'
-import { noteSendOk, noteSendFailure, evaluateCampaign, refreshAllScores } from './guard.js'
+import { noteSendOk, noteSendFailure, evaluateCampaign, refreshAllScores, guardConfigOf } from './guard.js'
 import { isSuppressed } from './suppression.js'
 
 const QUEUE = 'wf-smart-broadcast'
@@ -100,7 +100,9 @@ function createSmartWorker(): Worker {
       await markSkipped(rec.id, 'sender_blocked')
       return
     }
-    if (!isAvailable(health)) {
+    // O teto da campanha vale sobre a escada de aquecimento (ver health.ts).
+    const campaignCap = Number(campaign.dailyCapPerNumber) || 0
+    if (!isAvailable(health, new Date(), campaignCap)) {
       const retryAt = health.pausedUntil && health.pausedUntil > new Date()
         ? new Date(health.pausedUntil.getTime() + 60_000)
         : nextWindowStart(new Date(Date.now() + 8 * 3600_000), window)
@@ -204,7 +206,7 @@ function createSmartWorker(): Worker {
       })
       await prisma.smartCampaign.update({ where: { id: campaign.id }, data: { failedCount: { increment: 1 } } })
       await bumpCounters(rec.assignedInstanceId, { failed: 1 })
-      await noteSendFailure(rec.assignedInstanceId, msg)
+      await noteSendFailure(rec.assignedInstanceId, msg, guardConfigOf(campaign).failStreak)
       await evaluateCampaign(campaign.id).catch(() => {})
       // Não relança: repetir o envio agora atropelaria o ritmo planejado. O
       // disjuntor já reagiu, e a falha fica visível na tela.

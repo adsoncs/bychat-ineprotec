@@ -9,7 +9,7 @@ import { authMiddleware } from '../lib/auth.js'
 import {
   buildRecipientsFromLeads, buildRecipientsFromRows, planCampaign, poolStatus,
   startCampaign, pauseCampaign, resumeCampaign, cancelCampaign, campaignMetrics,
-  validateForStart, previewSamples, extractVarNames, contentDiversity, buildRecipientLink,
+  checkForStart, previewSamples, extractVarNames, contentDiversity, buildRecipientLink,
   variantPerformance, assessRisk,
   suppress, unsuppress, suppressMany, listProfiles, seedSystemProfiles,
   DEFAULT_PACING, DEFAULT_WINDOW, DEFAULT_WARMUP_CURVE,
@@ -67,6 +67,8 @@ export async function smartBroadcastRoutes(app: FastifyInstance) {
         dailyCapPerNumber: Number(b.dailyCapPerNumber) || DEFAULT_WARMUP_CURVE[0],
         requireOptIn: !!b.requireOptIn,
         usePreferredTime: !!b.usePreferredTime,
+        skipNumberCheck: !!b.skipNumberCheck,
+        guardConfig: b.guardConfig ?? undefined,
         legalBasis: b.legalBasis ?? null,
         optOutFooter: b.optOutFooter ?? null,
         linkUrl: b.linkUrl ?? null,
@@ -112,6 +114,8 @@ export async function smartBroadcastRoutes(app: FastifyInstance) {
     if (b.optOutFooter !== undefined) data.optOutFooter = b.optOutFooter ? String(b.optOutFooter).slice(0, 191) : null
     if (b.linkUrl !== undefined) data.linkUrl = b.linkUrl ? String(b.linkUrl).slice(0, 500) : null
     if (b.replyActions !== undefined) data.replyActions = b.replyActions
+    if (b.skipNumberCheck !== undefined) data.skipNumberCheck = !!b.skipNumberCheck
+    if (b.guardConfig !== undefined) data.guardConfig = b.guardConfig ?? undefined
     if (b.audienceType !== undefined && campaign.status === 'draft') {
       data.audienceType = b.audienceType === 'import' ? 'import' : 'leads'
     }
@@ -287,12 +291,14 @@ export async function smartBroadcastRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const campaign = await prisma.smartCampaign.findUnique({ where: { id: Number(id) } })
     if (!campaign) return reply.code(404).send({ error: 'Campanha não encontrada' })
-    const problems = validateForStart(campaign)
+    // `problems` = só o que impede o disparo (a tela desabilita o botão por
+    // ele). `advisories` = as recomendações, que aparecem mas não travam.
+    const { errors: problems, warnings: advisories } = checkForStart(campaign)
     try {
       const plan = await planCampaign(campaign.id, { dryRun: true, skipNumberCheck: (req.body as any)?.skipNumberCheck !== false })
-      return { plan, problems }
+      return { plan, problems, advisories }
     } catch (err: any) {
-      return reply.code(400).send({ error: String(err?.message ?? err), problems })
+      return reply.code(400).send({ error: String(err?.message ?? err), problems, advisories })
     }
   })
 

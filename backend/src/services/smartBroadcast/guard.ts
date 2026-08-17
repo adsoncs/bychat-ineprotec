@@ -20,14 +20,46 @@
 import { prisma } from '../../lib/prisma.js'
 import { dayStart, refreshScore } from './health.js'
 
-/** Falhas seguidas do mesmo número antes da pausa temporária. */
-const FAIL_STREAK_LIMIT = 5
+// Limites por SENSIBILIDADE. O disjuntor continua existindo, mas deixou de ser
+// um valor único cravado no código: a campanha escolhe o quanto quer que ele
+// interfira. 'normal' é o padrão e já é mais folgado que os números antigos
+// (150 envios sem resposta interrompiam campanhas legítimas de lista fria, que
+// costumam responder depois do primeiro dia).
+export type GuardLevel = 'strict' | 'normal' | 'off'
+
+export interface GuardConfig {
+  level: GuardLevel
+  /** Falhas seguidas do mesmo número antes da pausa temporária. */
+  failStreak: number
+  /** Proporção de destinatários inexistentes que condena a lista (0-1). */
+  notFoundRate: number
+  /** Envios sem nenhuma resposta que disparam revisão humana. */
+  noReplyAfter: number
+}
+
+const LEVELS: Record<GuardLevel, Omit<GuardConfig, 'level'>> = {
+  strict: { failStreak: 5, notFoundRate: 0.2, noReplyAfter: 150 },
+  normal: { failStreak: 8, notFoundRate: 0.35, noReplyAfter: 400 },
+  // 'off' não desliga a proteção do NÚMERO (sessão derrubada continua
+  // bloqueando o chip) — desliga a interrupção automática da CAMPANHA.
+  off: { failStreak: 12, notFoundRate: 1, noReplyAfter: 0 },
+}
+
 const FAIL_PAUSE_MS = 45 * 60_000
-/** Proporção de destinatários inexistentes que condena a lista. */
-const NOT_FOUND_RATE_LIMIT = 0.25
-const NOT_FOUND_MIN_SAMPLE = 20
-/** Envios sem nenhuma resposta que disparam revisão humana. */
-const NO_REPLY_STREAK = 150
+const NOT_FOUND_MIN_SAMPLE = 50
+
+/** Lê a sensibilidade da campanha; sem configuração explícita, 'normal'. */
+export function guardConfigOf(campaign: any): GuardConfig {
+  const raw = (campaign?.guardConfig ?? {}) as Partial<GuardConfig>
+  const level: GuardLevel = raw.level === 'strict' || raw.level === 'off' ? raw.level : 'normal'
+  const base = LEVELS[level]
+  return {
+    level,
+    failStreak: Number(raw.failStreak) > 0 ? Number(raw.failStreak) : base.failStreak,
+    notFoundRate: typeof raw.notFoundRate === 'number' && raw.notFoundRate > 0 ? raw.notFoundRate : base.notFoundRate,
+    noReplyAfter: typeof raw.noReplyAfter === 'number' ? raw.noReplyAfter : base.noReplyAfter,
+  }
+}
 
 /** Falhas consecutivas por instância (em memória: reiniciar o backend zera, e tudo bem). */
 const failStreak = new Map<number, number>()
@@ -37,10 +69,10 @@ export async function noteSendOk(instanceId: number): Promise<void> {
 }
 
 /** Registra falha e, no limite, tira o número de circulação por um tempo. */
-export async function noteSendFailure(instanceId: number, error: string): Promise<boolean> {
+export async function noteSendFailure(instanceId: number, error: string, limit?: number): Promise<boolean> {
   const streak = (failStreak.get(instanceId) ?? 0) + 1
   failStreak.set(instanceId, streak)
-  if (streak < FAIL_STREAK_LIMIT) return false
+  if (streak < (limit && limit > 0 ? limit : LEVELS.normal.failStreak)) return false
   await pauseSender(instanceId, `${streak} falhas seguidas — última: ${error.slice(0, 120)}`, FAIL_PAUSE_MS)
   failStreak.set(instanceId, 0)
   return true
@@ -93,6 +125,9 @@ export async function blockSender(instanceName: string, reason: string): Promise
  * humana para voltar.
  */
 export async function evaluateCampaign(campaignId: number): Promise<'ok' | 'watch' | 'halted'> {
+  const campaign = await prisma.smartCampaign.findUnique({ where: { id: campaignId }, select: { guardConfig: true } })
+  const cfg = guardConfigOf(campaign)
+
   const agg = await prisma.smartCampaignRecipient.groupBy({
     by: ['status'],
     where: { campaignId },
@@ -110,13 +145,13 @@ export async function evaluateCampaign(campaignId: number): Promise<'ok' | 'watc
   const processed = sent + failed + notFound
 
   // Lista ruim: proporção alta de números que sequer existem no WhatsApp.
-  if (processed >= NOT_FOUND_MIN_SAMPLE && notFound / processed > NOT_FOUND_RATE_LIMIT) {
+  if (cfg.notFoundRate < 1 && processed >= NOT_FOUND_MIN_SAMPLE && notFound / processed > cfg.notFoundRate) {
     await halt(campaignId, `${Math.round((notFound / processed) * 100)}% dos números não existem no WhatsApp — lista precisa de revisão`)
     return 'halted'
   }
 
   // Muito envio e nenhuma resposta: ou não interessa, ou não está chegando.
-  if (sent >= NO_REPLY_STREAK && replied === 0) {
+  if (cfg.noReplyAfter > 0 && sent >= cfg.noReplyAfter && replied === 0) {
     await halt(campaignId, `${sent} mensagens enviadas sem nenhuma resposta — revise a mensagem e a lista antes de continuar`)
     return 'halted'
   }

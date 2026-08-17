@@ -241,7 +241,9 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
   const blocked = pool.filter((p) => p.health.state === 'blocked')
   for (const b of blocked) warnings.push(`Número ${b.instanceName} está bloqueado e não vai enviar`)
   const usable = pool.filter((p) => p.health.state !== 'blocked')
-  if (!usable.length) throw new Error('Todos os números do pool estão bloqueados')
+  if (!usable.length) {
+    throw new Error(`Todos os números escolhidos estão bloqueados (${blocked.map((b) => b.instanceName).join(', ')}). Reconecte o número pelo QR ou escolha outra conexão.`)
+  }
 
   const recipients = await prisma.smartCampaignRecipient.findMany({
     where: { campaignId, status: { in: ['pending', 'scheduled'] } },
@@ -253,7 +255,11 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
   // ── Pré-checagem: quem não existe no WhatsApp sai antes de custar envio ──
   let notOnWhatsApp = 0
   let eligible = recipients
-  if (!opts.skipNumberCheck) {
+  // A checagem protege o remetente, mas é a etapa mais lenta do planejamento e
+  // depende da Evolution estar respondendo. Em lista já conhecida o operador
+  // pode dispensá-la na própria campanha.
+  const skipCheck = opts.skipNumberCheck || campaign.skipNumberCheck === true
+  if (!skipCheck) {
     const { map } = await checkNumbers(usable[0]!.instanceName, recipients.map((r) => r.phone))
     const missing = recipients.filter((r) => map.get(r.phoneKey) === false)
     notOnWhatsApp = missing.length
@@ -269,7 +275,15 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
       warnings.push(`${Math.round((notOnWhatsApp / recipients.length) * 100)}% dos números não existem no WhatsApp — sinal de lista desatualizada`)
     }
   }
-  if (!eligible.length) throw new Error('Nenhum destinatário elegível depois da checagem de números')
+  if (!eligible.length) {
+    // Sem esta saída o operador ficava sem entender: a lista existe, mas a
+    // checagem devolveu "não existe" para todo mundo — o que quase sempre é a
+    // Evolution respondendo mal, não uma lista 100% inválida.
+    throw new Error(
+      `Nenhum dos ${recipients.length} números passou na checagem do WhatsApp. `
+      + 'Se a lista é boa, marque "não verificar números" no passo de ritmo e planeje de novo.',
+    )
+  }
 
   // ── Quem fala com quem ──
   const assignments = await distribute(eligible, usable)
@@ -284,7 +298,17 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
     bySender.set(a.instanceId, list)
   }
 
+  // Escada de aquecimento do PERFIL de ritmo escolhido (o campo já existia no
+  // modelo e nunca era lido — todo mundo usava a curva embutida). Quem quiser
+  // aquecer mais rápido cria um perfil próprio em vez de pedir código novo.
+  const profile = campaign.pacingProfileId
+    ? await prisma.smartPacingProfile.findUnique({ where: { id: campaign.pacingProfileId } }).catch(() => null)
+    : null
+  const profileCurve = Array.isArray(profile?.warmupCurve) ? (profile!.warmupCurve as number[]) : null
+  const warmupCurve = profileCurve?.length ? profileCurve.filter((n) => Number(n) > 0) : DEFAULT_WARMUP_CURVE
+
   const allDates: Date[] = []
+  const capAboveCurve: string[] = []
   const perSender: PlanSummary['perSender'] = []
   const updates: Array<{ id: number; instanceId: number; instanceName: string; plannedAt: Date }> = []
 
@@ -302,9 +326,19 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
     if (!list.length) continue
     // Escada a partir do degrau atual do número: quem já está aquecido não volta
     // para 20/dia só porque a campanha é nova.
-    const curve = DEFAULT_WARMUP_CURVE.slice(Math.max(0, entry.health.warmupDay - 1))
-    const cap = Math.min(campaign.dailyCapPerNumber || curve[0] || 20, curve[0] ?? 20)
-    const dailyCap = [cap, ...curve.slice(1).map((c) => Math.min(c, campaign.dailyCapPerNumber || c))]
+    const curve = warmupCurve.slice(Math.max(0, entry.health.warmupDay - 1))
+    // O teto informado pelo operador MANDA. Antes ele só podia reduzir (o
+    // `Math.min` com a escada), então quem tinha um número antigo e queria
+    // 300/dia continuava preso em 20 sem entender por quê. A escada segue como
+    // padrão de quem não mexe no campo.
+    const requested = Number(campaign.dailyCapPerNumber) || 0
+    const cap = requested > 0 ? requested : (curve[0] ?? 20)
+    const dailyCap = requested > 0
+      ? requested
+      : [cap, ...curve.slice(1)]
+    if (requested > 0 && requested > (curve[0] ?? 20)) {
+      capAboveCurve.push(`${entry.instanceName} (${requested}/dia contra ${curve[0] ?? 20} da escada)`)
+    }
 
     const dates = planSchedule({ count: list.length, startFrom, pacing, window, dailyCap })
     for (let i = 0; i < list.length; i++) {
@@ -343,6 +377,9 @@ export async function planCampaign(campaignId: number, opts: PlanOptions = {}): 
 
   if (perSender.length === 1 && updates.length > 200) {
     warnings.push('Um único número para toda a campanha: considere distribuir entre 2 ou 3 conexões')
+  }
+  if (capAboveCurve.length) {
+    warnings.push(`Teto acima da escada de aquecimento em ${capAboveCurve.join(', ')} — vale só para número antigo, com histórico de conversa`)
   }
 
   // ── Diversidade real do conteúdo ──

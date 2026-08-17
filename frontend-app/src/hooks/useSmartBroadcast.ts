@@ -256,7 +256,9 @@ export function useSmartImportCommit() {
 export function useSimulateCampaign() {
   return useMutation({
     mutationFn: ({ id, skipNumberCheck }: { id: number; skipNumberCheck?: boolean }) =>
-      api.post<{ plan: PlanSummary; problems: string[] }>(`${BASE}/campaigns/${id}/simulate`, { skipNumberCheck }),
+      // `problems` bloqueia o disparo; `advisories` são recomendações que o
+      // operador pode ignorar (ver checkForStart no backend).
+      api.post<{ plan: PlanSummary; problems: string[]; advisories: string[] }>(`${BASE}/campaigns/${id}/simulate`, { skipNumberCheck }),
   })
 }
 

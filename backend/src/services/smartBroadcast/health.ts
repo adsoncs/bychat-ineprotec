@@ -87,17 +87,23 @@ export async function getOrCreateHealth(
   return created as SenderHealth
 }
 
-/** Quanto este número ainda pode enviar hoje. */
-export function remainingToday(h: SenderHealth): number {
+/**
+ * Quanto este número ainda pode enviar hoje. `campaignCap` é o teto que o
+ * operador definiu na campanha: quando ele existe, MANDA sobre a escada de
+ * aquecimento — senão o plano prometeria 300/dia e o executor pararia em 20,
+ * empurrando a campanha inteira para o dia seguinte sem explicar por quê.
+ */
+export function remainingToday(h: SenderHealth, campaignCap?: number): number {
   if (h.state === 'blocked' || h.state === 'paused') return 0
-  return Math.max(0, h.dailyCap - h.sent)
+  const cap = campaignCap && campaignCap > 0 ? Math.max(h.dailyCap, campaignCap) : h.dailyCap
+  return Math.max(0, cap - h.sent)
 }
 
 /** Está apto a enviar agora? (respeita pausa temporária do disjuntor) */
-export function isAvailable(h: SenderHealth, now: Date = new Date()): boolean {
+export function isAvailable(h: SenderHealth, now: Date = new Date(), campaignCap?: number): boolean {
   if (h.state === 'blocked') return false
   if (h.pausedUntil && h.pausedUntil.getTime() > now.getTime()) return false
-  return remainingToday(h) > 0
+  return remainingToday(h, campaignCap) > 0
 }
 
 export async function bumpCounters(

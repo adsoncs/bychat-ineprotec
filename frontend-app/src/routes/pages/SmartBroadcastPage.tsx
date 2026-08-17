@@ -36,6 +36,9 @@ import { Modal } from '@/components/ui/Modal'
 import { useFunnels, useStages } from '@/hooks/useFunnels'
 import { useAgents } from '@/hooks/useRouting'
 
+/** Sensibilidade do disjuntor (services/smartBroadcast/guard.ts). */
+type GuardLevel = 'strict' | 'normal' | 'off'
+
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Rascunho', scheduled: 'Agendada', running: 'Enviando', paused: 'Pausada',
   completed: 'Concluída', canceled: 'Cancelada', failed: 'Falhou',
@@ -237,6 +240,9 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
   const [dailyCap, setDailyCap] = useState(20)
   const [replyActions, setReplyActions] = useState<ReplyActions>({ createActivity: true })
   const [usePreferredTime, setUsePreferredTime] = useState(false)
+  const [guardLevel, setGuardLevel] = useState<GuardLevel>('normal')
+  const [skipNumberCheck, setSkipNumberCheck] = useState(false)
+  const [advisories, setAdvisories] = useState<string[]>([])
   const [legalBasis, setLegalBasis] = useState('')
   const { data: profilesData } = usePacingProfiles()
   const { data: funnelsData } = useFunnels()
@@ -273,6 +279,8 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
     setLegalBasis(c.legalBasis ?? '')
     setWindow({ ...DEFAULT_WINDOW, ...(c.windowConfig ?? {}) })
     setDailyCap(c.dailyCapPerNumber ?? 20)
+    setSkipNumberCheck(!!(c as any).skipNumberCheck)
+    setGuardLevel(((c as any).guardConfig?.level as GuardLevel) ?? 'normal')
     if (c.totalRecipients > 0) setKeptAudience({ created: c.totalRecipients, skipped: c.skippedCount })
     setLoadedEdit(true)
   }, [isEdit, loadedEdit, detail])
@@ -346,7 +354,10 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
     const chosen = pacingOptions.find((o) => o.key === pacingKey) ?? pacingOptions[0]!
     const pacing: PacingConfig = { ...chosen.config }
     delete (pacing as any).label; delete (pacing as any).hint
-    await update.mutateAsync({ id: campaignId, pacingConfig: pacing, windowConfig: window, dailyCapPerNumber: dailyCap, replyActions, usePreferredTime } as any)
+    await update.mutateAsync({
+      id: campaignId, pacingConfig: pacing, windowConfig: window, dailyCapPerNumber: dailyCap,
+      replyActions, usePreferredTime, skipNumberCheck, guardConfig: { level: guardLevel },
+    } as any)
 
     // A audiência só é processada agora: as variáveis do texto já estão definidas.
     if (audienceTouched || !keptAudience) {
@@ -364,12 +375,13 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
     if (!campaignId) return
     try {
       await update.mutateAsync({ id: campaignId, legalBasis: legalBasis || null } as any)
-      const res = await simulate.mutateAsync({ id: campaignId, skipNumberCheck: false })
-      setPlan(res.plan); setProblems(res.problems)
+      const res = await simulate.mutateAsync({ id: campaignId, skipNumberCheck })
+      setPlan(res.plan); setProblems(res.problems); setAdvisories((res as any).advisories ?? [])
       if (res.problems.length) toast('Simulação concluída com pendências', 'warning')
       else toast('Simulação concluída', 'success')
     } catch (err: any) {
       setPlan(null)
+      setAdvisories((err?.advisories as string[]) ?? [])
       toast(err?.message ?? 'Falha na simulação', 'danger')
     }
   }
@@ -619,7 +631,7 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
             <div class="rounded-md border border-info/40 bg-info/10 p-3 text-xs text-fg space-y-1">
               <div><b>Variáveis:</b> <code>{'{{primeiro_nome}}'}</code>, <code>{'{{nome}}'}</code>, <code>{'{{empresa}}'}</code>, <code>{'{{cidade}}'}</code> — e qualquer campo personalizado do lead.</div>
               <div><b>Spintax:</b> <code>{'{Oi|Olá|Bom dia}'}</code> sorteia uma opção em cada envio.</div>
-              <div>O sistema exige ao menos <b>uma variável</b> e <b>duas variações</b> — mensagem idêntica para todo mundo é o que mais gera denúncia.</div>
+              <div>O recomendado é ao menos <b>uma variável</b> e <b>duas variações</b> — mensagem idêntica para todo mundo é o que mais gera denúncia. Não é obrigatório: sem isso o disparo segue, só pesa na nota de risco.</div>
             </div>
           </Card>
 
@@ -693,7 +705,35 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
               <Input label="Para às" type="time" value={window.to} onInput={(e) => setWindow({ ...window, to: (e.target as HTMLInputElement).value })} />
               <Input label="Máximo por número/dia" type="number" value={dailyCap}
                 onInput={(e) => setDailyCap(Number((e.target as HTMLInputElement).value) || 20)}
-                hint="O aquecimento pode reduzir esse teto." />
+                hint="Este valor manda. Acima da escada de aquecimento, só com número antigo." />
+            </div>
+
+            <div class="pt-3 border-t border-border space-y-3">
+              <div class="flex items-center gap-1.5">
+                <ShieldAlert size={13} class="text-accent" />
+                <span class="text-sm font-medium text-fg">Proteções automáticas</span>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <Select label="Interromper a campanha sozinha" value={guardLevel}
+                  onChange={(e) => setGuardLevel((e.target as HTMLSelectElement).value as GuardLevel)}>
+                  <option value="strict">Rígido — para no primeiro sinal ruim</option>
+                  <option value="normal">Padrão — para só diante de sinal forte</option>
+                  <option value="off">Mínimo — só o essencial para salvar o número</option>
+                </Select>
+                <label class="flex items-start gap-2 text-xs text-fg cursor-pointer pt-6">
+                  <input type="checkbox" checked={skipNumberCheck} class="mt-0.5"
+                    onChange={(e) => setSkipNumberCheck((e.target as HTMLInputElement).checked)} />
+                  <span>
+                    <b>Não verificar se os números existem no WhatsApp.</b> A checagem protege o remetente,
+                    mas é a etapa mais lenta e depende da conexão responder. Dispense em lista já conhecida.
+                  </span>
+                </label>
+              </div>
+              <p class="text-xs text-fg-muted -mt-1">
+                {guardLevel === 'strict' && 'Para com 5 falhas seguidas, 20% de números inexistentes ou 150 envios sem resposta.'}
+                {guardLevel === 'normal' && 'Para com 8 falhas seguidas, 35% de números inexistentes ou 400 envios sem resposta.'}
+                {guardLevel === 'off' && 'A campanha não se interrompe por lista ruim ou silêncio. Sessão derrubada continua bloqueando o número — isso não se desliga.'}
+              </p>
             </div>
 
             <div class="pt-3 border-t border-border space-y-3">
@@ -770,7 +810,7 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
               </Select>
               <p class="text-xs text-fg-muted">
                 {LEGAL_BASIS.find((l) => l.value === legalBasis)?.hint
-                  ?? 'Obrigatório para disparar. Fica registrado na campanha junto de quem a iniciou.'}
+                  ?? 'Recomendado pela LGPD. Fica registrado na campanha junto de quem a iniciou.'}
               </p>
             </div>
 
@@ -785,6 +825,18 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
               <div class="rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-fg space-y-1">
                 <div class="flex items-center gap-1.5 font-semibold text-danger"><ShieldAlert size={13} /> Pendências que impedem o disparo</div>
                 {problems.map((p) => <div key={p}>• {p}</div>)}
+              </div>
+            )}
+
+            {advisories.length > 0 && (
+              <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-fg space-y-1">
+                <div class="flex items-center gap-1.5 font-semibold text-warning">
+                  <ShieldAlert size={13} /> Recomendações — você pode disparar assim mesmo
+                </div>
+                {advisories.map((p) => <div key={p}>• {p}</div>)}
+                <div class="pt-1 text-fg-muted">
+                  Cada item aqui pesa na nota de risco ao lado. A decisão é sua, e fica registrada na campanha.
+                </div>
               </div>
             )}
 
@@ -815,7 +867,10 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
             {step === 3 && <Button variant="primary" onClick={step3Next} disabled={busy}>Avançar <ArrowRight size={14} /></Button>}
             {step === 4 && <Button variant="primary" onClick={step4Next} disabled={busy}>Processar audiência <ArrowRight size={14} /></Button>}
             {step === 5 && (
-              <Button variant="primary" onClick={finish} disabled={busy || !plan || problems.length > 0 || (audienceResult?.created ?? 0) === 0}>
+              // Simular deixou de ser obrigatório: o start replaneja de qualquer
+              // forma, e exigir a simulação só adiava o disparo de quem já sabe
+              // o que vai enviar.
+              <Button variant="primary" onClick={finish} disabled={busy || problems.length > 0 || (audienceResult?.created ?? 0) === 0}>
                 {scheduledAt ? <><Clock size={14} /> Agendar</> : <><Send size={14} /> Iniciar campanha</>}
               </Button>
             )}
