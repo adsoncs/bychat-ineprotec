@@ -61,6 +61,7 @@ import {
   CornerUpLeft,
   Pin,
   PinOff,
+  RefreshCw,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -120,6 +121,7 @@ import { ImportChatsModal } from '@/components/ImportChatsModal'
 import { ConversationPrefsModal } from '@/components/ConversationPrefsModal'
 import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@/hooks/useConversationPrefs'
 import { PendingMediaBar } from '@/components/PendingMediaBar'
+import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -1013,6 +1015,8 @@ function ChatPanel({
   const [recording, setRecording] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  /** Sincronizar o histórico DESTA conversa com o celular conectado. */
+  const [syncOpen, setSyncOpen] = useState(false)
   const [isInternalNote, setIsInternalNote] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [pendingPreviewUrl, setPendingPreviewUrl] = useState<string | null>(null)
@@ -1696,6 +1700,17 @@ function ChatPanel({
         </>
       )}
 
+      {/* Puxar o histórico do aparelho sem sair da conversa. Some em grupo:
+          grupo não vira atendimento e não tem lead para receber as mensagens. */}
+      {!isGroupChat && (
+        <>
+          <div class="my-1 border-t border-border" />
+          <ItemAcao icone={<RefreshCw size={14} />} onClick={() => { setMenuAcoesOpen(false); setSyncOpen(true) }}>
+            Sincronizar do celular
+          </ItemAcao>
+        </>
+      )}
+
       <div class="my-1 border-t border-border" />
       <ItemAcao icone={<Trash2 size={14} />} perigo onClick={() => { setMenuAcoesOpen(false); setDeleteOpen(true) }}>
         Excluir conversa
@@ -2040,6 +2055,14 @@ function ChatPanel({
           currentTeamId={lead?.teamId ?? null}
           currentUserId={lead?.assignedUserId ?? null}
           onClose={() => setTransferOpen(false)}
+        />
+      )}
+
+      {syncOpen && (
+        <ChatSyncModal
+          leadId={leadId}
+          nome={ticket?.nome ?? lead?.nome ?? null}
+          onClose={() => setSyncOpen(false)}
         />
       )}
 

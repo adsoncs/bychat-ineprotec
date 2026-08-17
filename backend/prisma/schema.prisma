@@ -9089,5 +9089,7 @@ model ChatImportJob {
   @@index([status, createdAt])
   @@index([leadId])
   @@index([createdByUserId])
+  /// Cruzar a lista do aparelho com o que já foi sincronizado, e achar job em aberto do chat.
+  @@index([instanceName, remoteJid])
   @@map("bychat_chat_import_jobs")
 }

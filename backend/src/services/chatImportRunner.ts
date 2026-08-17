@@ -192,21 +192,36 @@ export async function importarChat(jobId: number): Promise<void> {
   }
 }
 
-/** Enfileira os chats escolhidos. Devolve os jobs criados. */
+/**
+ * Enfileira os chats escolhidos. Devolve os jobs criados.
+ *
+ * `prioridade` menor fura a fila: a sincronização pedida dentro de uma conversa
+ * não pode ficar atrás de um "sincronizar tudo" de mil conversas — o operador
+ * está com o cliente na linha.
+ */
 export async function enfileirarImportacao(
   instanceName: string,
   chats: Array<{ remoteJid: string; telefone: string; nome?: string | null; leadId?: number | null }>,
   createdByUserId: number,
-): Promise<Array<{ id: number; remoteJid: string }>> {
-  const criados: Array<{ id: number; remoteJid: string }> = []
+  prioridade = 5,
+): Promise<Array<{ id: number; remoteJid: string; jaEstava: boolean }>> {
+  // Uma consulta só para toda a seleção: com "sincronizar tudo" isto passou a
+  // receber milhares de chats, e um SELECT por chat travava a requisição.
+  const jids = [...new Set(chats.map((c) => c.remoteJid))]
+  const abertos = jids.length
+    ? await prisma.chatImportJob.findMany({
+        where: { instanceName, remoteJid: { in: jids }, status: { in: ['pending', 'running'] } },
+        select: { id: true, remoteJid: true },
+      })
+    : []
+  const jaNaFila = new Map(abertos.map((j) => [j.remoteJid, j.id]))
+
+  const criados: Array<{ id: number; remoteJid: string; jaEstava: boolean }> = []
   for (const c of chats) {
     if (!c.telefone) continue
     // Mesmo chat já na fila: não duplica o trabalho.
-    const emAndamento = await prisma.chatImportJob.findFirst({
-      where: { instanceName, remoteJid: c.remoteJid, status: { in: ['pending', 'running'] } },
-      select: { id: true },
-    })
-    if (emAndamento) { criados.push({ id: emAndamento.id, remoteJid: c.remoteJid }); continue }
+    const emAndamento = jaNaFila.get(c.remoteJid)
+    if (emAndamento) { criados.push({ id: emAndamento, remoteJid: c.remoteJid, jaEstava: true }); continue }
 
     const job = await prisma.chatImportJob.create({
       data: {
@@ -219,13 +234,15 @@ export async function enfileirarImportacao(
       },
       select: { id: true },
     })
+    jaNaFila.set(c.remoteJid, job.id)
     await queues.chatImport.add('import', { jobId: job.id }, {
       attempts: 2,
       backoff: { type: 'exponential', delay: 10_000 },
       removeOnComplete: 200,
       removeOnFail: 100,
+      priority: prioridade,
     })
-    criados.push({ id: job.id, remoteJid: c.remoteJid })
+    criados.push({ id: job.id, remoteJid: c.remoteJid, jaEstava: false })
   }
   return criados
 }

@@ -654,9 +654,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     if (!instanceName) return reply.code(400).send({ error: 'Nenhuma instância WhatsApp ativa.' })
 
     try {
-      const { listarChatsDoAparelho } = await import('../services/whatsappChatImport.js')
+      const { listarChatsDoAparelho, resumirChats } = await import('../services/whatsappChatImport.js')
       const chats = await listarChatsDoAparelho(instanceName)
-      return { instance: instanceName, chats }
+      return { instance: instanceName, chats, resumo: resumirChats(chats) }
     } catch (err: any) {
       return reply.code(502).send({ error: err?.message || 'Não foi possível ler as conversas do aparelho.' })
     }
@@ -678,9 +678,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const { instance, chats } = (req.body ?? {}) as { instance?: string; chats?: any[] }
     if (!instance) return reply.code(400).send({ error: 'Informe a instância.' })
     if (!Array.isArray(chats) || !chats.length) return reply.code(400).send({ error: 'Nenhuma conversa selecionada.' })
-    // Teto por lote: cada chat pode ter milhares de mensagens, e uma seleção de
-    // "todas" viraria horas de fila sem o operador perceber.
-    if (chats.length > 100) return reply.code(400).send({ error: 'Selecione no máximo 100 conversas por vez.' })
+    // Teto de sanidade, não de usabilidade: a fila processa 2 por vez e a tela
+    // mostra o andamento, então não há razão para obrigar o operador a fatiar a
+    // seleção em blocos de 100 como antes.
+    if (chats.length > 5000) return reply.code(400).send({ error: 'Seleção grande demais (máximo 5.000 conversas por disparo).' })
 
     const { enfileirarImportacao } = await import('../services/chatImportRunner.js')
     const jobs = await enfileirarImportacao(
@@ -688,19 +689,56 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       chats.map((c) => ({ remoteJid: String(c.remoteJid), telefone: String(c.telefone || ''), nome: c.nome ?? null, leadId: c.leadId ?? null })),
       user.userId,
     )
-    return { ok: true, jobs }
+    return {
+      ok: true,
+      jobs,
+      enfileiradas: jobs.filter((j) => !j.jaEstava).length,
+      jaEstavamNaFila: jobs.filter((j) => j.jaEstava).length,
+    }
   })
 
   // ── GET /api/atendimento/whatsapp-chats/import — progresso ─────────────────
   app.get('/api/atendimento/whatsapp-chats/import', { preHandler: authMiddleware }, async (req) => {
-    const { ativos } = req.query as { ativos?: string }
-    const jobs = await prisma.chatImportJob.findMany({
-      where: ativos === '1' ? { status: { in: ['pending', 'running'] } } : {},
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: { lead: { select: { id: true, nome: true } } },
+    const { ativos, limite } = req.query as { ativos?: string; limite?: string }
+    const take = Math.min(Math.max(parseInt(limite || '') || 60, 10), 200)
+    const [jobs, agregado] = await Promise.all([
+      prisma.chatImportJob.findMany({
+        where: ativos === '1' ? { status: { in: ['pending', 'running'] } } : {},
+        orderBy: { createdAt: 'desc' },
+        take,
+        include: { lead: { select: { id: true, nome: true } } },
+      }),
+      prisma.chatImportJob.groupBy({ by: ['status'], _count: { _all: true }, _sum: { importadas: true } }),
+    ])
+    const porStatus = Object.fromEntries(agregado.map((a) => [a.status, a._count._all]))
+    return {
+      jobs,
+      fila: {
+        naFila: porStatus['pending'] ?? 0,
+        rodando: porStatus['running'] ?? 0,
+        concluidos: porStatus['done'] ?? 0,
+        falharam: porStatus['failed'] ?? 0,
+        cancelados: porStatus['canceled'] ?? 0,
+        mensagensImportadas: agregado.reduce((s, a) => s + (a._sum.importadas ?? 0), 0),
+      },
+    }
+  })
+
+  // ── POST /api/atendimento/whatsapp-chats/import/cancelar-tudo ──────────────
+  // Freio de emergência: um "sincronizar todas" de mil conversas precisa de um
+  // jeito de parar sem clicar em cada job.
+  app.post('/api/atendimento/whatsapp-chats/import/cancelar-tudo', { preHandler: authMiddleware }, async () => {
+    const r = await prisma.chatImportJob.updateMany({
+      where: { status: { in: ['pending', 'running'] } },
+      data: { status: 'canceled', finishedAt: new Date() },
     })
-    return { jobs }
+    return { ok: true, cancelados: r.count }
+  })
+
+  // ── DELETE /api/atendimento/whatsapp-chats/import/historico — limpar ───────
+  app.delete('/api/atendimento/whatsapp-chats/import/historico', { preHandler: authMiddleware }, async () => {
+    const r = await prisma.chatImportJob.deleteMany({ where: { status: { in: ['done', 'failed', 'canceled'] } } })
+    return { ok: true, removidos: r.count }
   })
 
   // ── DELETE /api/atendimento/whatsapp-chats/import/:id — cancelar ───────────
@@ -739,7 +777,21 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   // gente que não é mais lead. O padrão é 90 dias.
   app.post('/api/atendimento/whatsapp-chats/import-all', { preHandler: authMiddleware }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
-    const { instance, dias } = (req.body ?? {}) as { instance?: string; dias?: number }
+    const {
+      instance, dias, somenteNovas, somenteComLead, incluirSincronizadas, busca, limite,
+    } = (req.body ?? {}) as {
+      instance?: string
+      dias?: number
+      /** Só conversas que ainda não têm lead no painel. */
+      somenteNovas?: boolean
+      /** Só conversas que JÁ têm lead — o inverso, para o recorte "já têm lead". */
+      somenteComLead?: boolean
+      /** Refazer também as que já foram sincronizadas antes. */
+      incluirSincronizadas?: boolean
+      busca?: string
+      /** Teto opcional escolhido pelo operador; sem ele, vai tudo. */
+      limite?: number
+    }
     let instanceName = instance
     if (!instanceName) {
       const inst = await prisma.whatsAppInstance.findFirst({ where: { active: true }, select: { instanceName: true }, orderBy: { id: 'asc' } })
@@ -748,18 +800,30 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     if (!instanceName) return reply.code(400).send({ error: 'Nenhuma instância WhatsApp ativa.' })
 
     const janelaDias = Math.min(Math.max(Number(dias) || 90, 1), 3650)
-    const limite = new Date(Date.now() - janelaDias * 24 * 3600 * 1000)
+    const corte = new Date(Date.now() - janelaDias * 24 * 3600 * 1000)
+    const termo = String(busca || '').trim().toLowerCase()
 
     try {
       const { listarChatsDoAparelho } = await import('../services/whatsappChatImport.js')
       const todos = await listarChatsDoAparelho(instanceName)
       const importaveis = todos.filter((c) => c.importavel)
-      const noPeriodo = importaveis.filter((c) => c.ultimaMensagemEm && new Date(c.ultimaMensagemEm) >= limite)
+      const noPeriodo = importaveis.filter((c) => c.ultimaMensagemEm && new Date(c.ultimaMensagemEm) >= corte)
 
-      // Teto por disparo: acima disso o operador não tem noção do que pediu, e
-      // a fila fica horas ocupada.
-      const MAX = 300
-      const lote = noPeriodo.slice(0, MAX)
+      let alvo = noPeriodo
+      if (somenteNovas) alvo = alvo.filter((c) => !c.leadId)
+      if (somenteComLead) alvo = alvo.filter((c) => !!c.leadId)
+      const jaSincronizadas = alvo.filter((c) => !!c.sincronizadoEm).length
+      if (!incluirSincronizadas) alvo = alvo.filter((c) => !c.sincronizadoEm)
+      if (termo) {
+        alvo = alvo.filter((c) => (c.nome || '').toLowerCase().includes(termo)
+          || (c.telefone || '').includes(termo)
+          || (c.leadNome || '').toLowerCase().includes(termo))
+      }
+
+      // Sem teto obrigatório: quem tem 1.200 conversas não deve precisar de 4
+      // disparos. O `limite` existe só para quem QUER fatiar.
+      const teto = Number(limite) > 0 ? Math.min(Number(limite), 5000) : 5000
+      const lote = alvo.slice(0, teto)
 
       const { enfileirarImportacao } = await import('../services/chatImportRunner.js')
       const jobs = await enfileirarImportacao(
@@ -770,12 +834,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       return {
         ok: true,
-        enfileiradas: jobs.length,
+        enfileiradas: jobs.filter((j) => !j.jaEstava).length,
+        jaEstavamNaFila: jobs.filter((j) => j.jaEstava).length,
         // Números explícitos: o operador precisa saber o que NÃO foi, e por quê.
         totalNoAparelho: todos.length,
         naoImportaveis: todos.length - importaveis.length,
         foraDoPeriodo: importaveis.length - noPeriodo.length,
-        acimaDoTeto: Math.max(0, noPeriodo.length - MAX),
+        jaSincronizadas: incluirSincronizadas ? 0 : jaSincronizadas,
+        acimaDoTeto: Math.max(0, alvo.length - lote.length),
         janelaDias,
       }
     } catch (err: any) {
@@ -811,40 +877,145 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/atendimento/whatsapp-contacts/import — criar leads da agenda ──
+  // Aceita a lista escolhida na tela OU `todos: true`, que resolve a seleção no
+  // servidor. Com `todos`, a agenda inteira entra de uma vez — antes o teto de
+  // 500 obrigava a marcar contato por contato em bases grandes.
   app.post('/api/atendimento/whatsapp-contacts/import', { preHandler: authMiddleware }, async (req, reply) => {
-    const user = (req as any).user as JwtPayload
-    const { contatos } = (req.body ?? {}) as { contatos?: Array<{ telefone: string; nome?: string | null }> }
-    if (!Array.isArray(contatos) || !contatos.length) return reply.code(400).send({ error: 'Nenhum contato selecionado.' })
-    if (contatos.length > 500) return reply.code(400).send({ error: 'Selecione no máximo 500 contatos por vez.' })
-
-    const { phoneKey, onlyDigits } = await import('../lib/phone.js')
-    const { generateUid } = await import('../services/dedup.js')
-    const { resolveDefaultTeamId } = await import('../services/teamRouting.js')
-    const teamId = await resolveDefaultTeamId().catch(() => null)
-
-    let criados = 0
-    let jaExistiam = 0
-    for (const c of contatos) {
-      const chave = phoneKey(c.telefone)
-      if (!chave) continue
-      const existe = await prisma.lead.findFirst({ where: { phoneKey: chave }, select: { id: true } })
-      if (existe) { jaExistiam++; continue }
-      await prisma.lead.create({
-        data: {
-          uid: await generateUid(),
-          nome: (c.nome || '').trim() || onlyDigits(c.telefone),
-          whatsapp: onlyDigits(c.telefone),
-          phoneKey: chave,
-          email: '', empresa: '', scores: {},
-          status: 'NOVO',
-          source: 'whatsapp_contacts',
-          teamId,
-          formData: { origem: 'agenda_aparelho' },
-        },
-      })
-      criados++
+    const { contatos, todos, instance, busca } = (req.body ?? {}) as {
+      contatos?: Array<{ telefone: string; nome?: string | null }>
+      todos?: boolean
+      instance?: string
+      busca?: string
     }
-    return { ok: true, criados, jaExistiam }
+
+    let alvo: Array<{ telefone: string; nome?: string | null }> = []
+
+    if (todos) {
+      let instanceName = instance
+      if (!instanceName) {
+        const inst = await prisma.whatsAppInstance.findFirst({ where: { active: true }, select: { instanceName: true }, orderBy: { id: 'asc' } })
+        instanceName = inst?.instanceName
+      }
+      if (!instanceName) return reply.code(400).send({ error: 'Nenhuma instância WhatsApp ativa.' })
+      const { listarContatosDaAgenda } = await import('../services/whatsappChatImport.js')
+      const termo = String(busca || '').trim().toLowerCase()
+      alvo = (await listarContatosDaAgenda(instanceName))
+        .filter((c) => c.importavel && !c.leadId)
+        .filter((c) => !termo || (c.nome || '').toLowerCase().includes(termo) || (c.telefone || '').includes(termo))
+        .map((c) => ({ telefone: c.telefone!, nome: c.nome }))
+    } else {
+      if (!Array.isArray(contatos) || !contatos.length) return reply.code(400).send({ error: 'Nenhum contato selecionado.' })
+      alvo = contatos
+    }
+
+    if (!alvo.length) return { ok: true, criados: 0, jaExistiam: 0, ignorados: 0 }
+
+    const { importarContatosComoLeads } = await import('../services/whatsappChatImport.js')
+    const r = await importarContatosComoLeads(alvo)
+    return { ok: true, ...r }
+  })
+
+  // ── Sincronizar UMA conversa, de dentro dela ───────────────────────────────
+  // O operador está com o histórico do celular na frente e o painel vazio; ir
+  // até a tela de importação, achar o contato no meio de mil e voltar é um
+  // caminho que ninguém faz. Aqui ele sincroniza o contato que está lendo.
+
+  // GET: situação da última sincronização deste lead (para a tela acompanhar).
+  app.get('/api/atendimento/tickets/:leadId/sync-whatsapp', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const job = await prisma.chatImportJob.findFirst({
+      where: { leadId: lid },
+      orderBy: { createdAt: 'desc' },
+    })
+    return { job }
+  })
+
+  // POST: procura a conversa no aparelho e enfileira a importação com prioridade.
+  app.post('/api/atendimento/tickets/:leadId/sync-whatsapp', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: lid },
+      select: { id: true, nome: true, whatsapp: true, phoneKey: true },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada.' })
+
+    const { phoneKey } = await import('../lib/phone.js')
+    const chave = lead.phoneKey || phoneKey(lead.whatsapp || '')
+    if (!chave) {
+      return reply.code(422).send({
+        motivo: 'sem_telefone',
+        error: 'Esta conversa não tem um telefone válido — não há como localizá-la no celular.',
+      })
+    }
+
+    // Já há sincronização em curso: devolve a existente em vez de duplicar.
+    const emAndamento = await prisma.chatImportJob.findFirst({
+      where: { leadId: lid, status: { in: ['pending', 'running'] } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (emAndamento) return { ok: true, jaEstava: true, job: emAndamento }
+
+    // Onde procurar: a instância que já conversou com este lead vem primeiro;
+    // depois as demais ativas (número novo pode ter herdado a conversa).
+    const ultima = await prisma.message.findFirst({
+      where: { leadId: lid, provider: 'evolution', evolutionInstance: { not: null } },
+      orderBy: { timestamp: 'desc' },
+      select: { evolutionInstance: true },
+    })
+    const ativas = await prisma.whatsAppInstance.findMany({
+      where: { active: true },
+      select: { instanceName: true },
+      orderBy: { id: 'asc' },
+    })
+    const candidatas = [
+      ...(ultima?.evolutionInstance ? [ultima.evolutionInstance] : []),
+      ...ativas.map((i) => i.instanceName),
+    ].filter((v, i, a) => a.indexOf(v) === i)
+
+    if (!candidatas.length) {
+      return reply.code(422).send({
+        motivo: 'sem_instancia',
+        error: 'Nenhum número conectado por QR Code. Só esses têm histórico para trazer.',
+      })
+    }
+
+    const { encontrarChatDoLead } = await import('../services/whatsappChatImport.js')
+    let achado: { remoteJid: string; nome: string | null; telefone: string } | null = null
+    let instanceName = ''
+    const falhas: string[] = []
+    for (const inst of candidatas) {
+      try {
+        const r = await encontrarChatDoLead(inst, chave)
+        if (r) { achado = r; instanceName = inst; break }
+      } catch (e: any) {
+        falhas.push(String(e?.message || e))
+      }
+    }
+
+    if (!achado) {
+      // Nada a sincronizar é resultado legítimo, não erro: a tela precisa
+      // distinguir "não existe conversa no celular" de "deu problema".
+      if (falhas.length === candidatas.length) {
+        return reply.code(502).send({ motivo: 'falha_provedor', error: falhas[0] || 'Não foi possível falar com o WhatsApp.' })
+      }
+      return { ok: true, encontrado: false, motivo: 'sem_conversa_no_aparelho' }
+    }
+
+    const { enfileirarImportacao } = await import('../services/chatImportRunner.js')
+    const [criado] = await enfileirarImportacao(
+      instanceName,
+      [{ remoteJid: achado.remoteJid, telefone: achado.telefone, nome: achado.nome || lead.nome, leadId: lid }],
+      user.userId,
+      1, // fura a fila do "sincronizar todas"
+    )
+    if (!criado) return reply.code(500).send({ error: 'Não foi possível iniciar a sincronização.' })
+
+    const job = await prisma.chatImportJob.findUnique({ where: { id: criado.id } })
+    return { ok: true, encontrado: true, instancia: instanceName, job }
   })
 
   app.post('/api/atendimento/upload', { preHandler: authMiddleware }, async (req, reply) => {
