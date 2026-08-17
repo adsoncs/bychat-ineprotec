@@ -2,6 +2,7 @@
 // Abstração de provider WhatsApp: Evolution API vs Cloud API Oficial
 
 import { prisma } from '../lib/prisma.js'
+import { Prisma } from '@prisma/client'
 import { channelForUserTeams, userTeamIds } from './channelTeams.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import {
@@ -588,6 +589,97 @@ export interface InboundChannel {
   kind: 'evolution' | 'cloud'
   instanceName: string | null
   cloudApiConnectionId: number | null
+}
+
+/**
+ * Conversas que pertencem a um canal — a MESMA regra que decide por qual número
+ * respondemos (`inboundChannelForLead`): vale a última mensagem RECEBIDA e, se
+ * a conversa nunca recebeu nada, a última mensagem qualquer.
+ *
+ * O filtro da lista de Conversas casava "tem ALGUMA mensagem enviada por este
+ * número, em qualquer época". Uma conversa atendida ontem pelo número A e hoje
+ * pelo B aparecia nos dois filtros — e, como o rótulo mostra o canal atual, ela
+ * surgia na lista do A carimbada como B: "filtrei uma instância e veio conversa
+ * de outra". Aqui a conversa pertence a um canal só, o mesmo que a tela mostra.
+ */
+export async function leadsDoCanal(channelId: string): Promise<number[]> {
+  const evo = channelId.startsWith('evolution:') ? channelId.slice('evolution:'.length) : null
+  const cloudId = channelId.startsWith('cloud:') ? parseInt(channelId.slice('cloud:'.length)) : null
+  if (!evo && !Number.isFinite(cloudId as number)) return []
+
+  const condicao = evo
+    ? Prisma.sql`m.provider = 'evolution' AND m.evolutionInstance = ${evo}`
+    : Prisma.sql`m.provider = 'cloud_api' AND m.cloudApiConnectionId = ${cloudId}`
+
+  // 1. Conversas cuja última mensagem RECEBIDA veio por este canal.
+  const porEntrada = await prisma.$queryRaw<Array<{ leadId: number }>>(Prisma.sql`
+    SELECT m.leadId
+    FROM bychat_messages m
+    INNER JOIN (
+      SELECT leadId, MAX(timestamp) AS ts
+      FROM bychat_messages
+      WHERE isInternal = 0 AND fromMe = 0
+      GROUP BY leadId
+    ) u ON u.leadId = m.leadId AND u.ts = m.timestamp
+    WHERE m.isInternal = 0 AND m.fromMe = 0 AND ${condicao}
+  `)
+
+  // 2. Conversas que NUNCA receberam nada (só nós falamos): vale a última
+  //    mensagem, senão elas sumiriam de todos os filtros.
+  const semEntrada = await prisma.$queryRaw<Array<{ leadId: number }>>(Prisma.sql`
+    SELECT m.leadId
+    FROM bychat_messages m
+    INNER JOIN (
+      SELECT leadId, MAX(timestamp) AS ts
+      FROM bychat_messages
+      WHERE isInternal = 0
+      GROUP BY leadId
+    ) u ON u.leadId = m.leadId AND u.ts = m.timestamp
+    WHERE m.isInternal = 0 AND ${condicao}
+      AND NOT EXISTS (
+        SELECT 1 FROM bychat_messages r
+        WHERE r.leadId = m.leadId AND r.isInternal = 0 AND r.fromMe = 0
+      )
+  `)
+
+  return [...new Set([...porEntrada, ...semEntrada].map((r) => Number(r.leadId)))]
+}
+
+/**
+ * Canal efetivo de cada conversa, pela mesma regra — para a lista rotular o
+ * número com o mesmo critério com que filtra e responde.
+ */
+export async function canalEfetivoDeLeads(
+  leadIds: number[],
+): Promise<Map<number, { provider: string; evolutionInstance: string | null; cloudApiConnectionId: number | null }>> {
+  const saida = new Map<number, { provider: string; evolutionInstance: string | null; cloudApiConnectionId: number | null }>()
+  if (!leadIds.length) return saida
+
+  const linhas = await prisma.$queryRaw<Array<{
+    leadId: number; provider: string; evolutionInstance: string | null; cloudApiConnectionId: number | null; recebida: number
+  }>>(Prisma.sql`
+    SELECT m.leadId, m.provider, m.evolutionInstance, m.cloudApiConnectionId, (1 - m.fromMe) AS recebida
+    FROM bychat_messages m
+    INNER JOIN (
+      SELECT leadId, fromMe, MAX(timestamp) AS ts
+      FROM bychat_messages
+      WHERE isInternal = 0 AND leadId IN (${Prisma.join(leadIds)})
+      GROUP BY leadId, fromMe
+    ) u ON u.leadId = m.leadId AND u.fromMe = m.fromMe AND u.ts = m.timestamp
+    WHERE m.isInternal = 0 AND m.leadId IN (${Prisma.join(leadIds)})
+  `)
+
+  // A recebida ganha da enviada; entre iguais, a mais recente já veio do join.
+  for (const l of linhas) {
+    const atual = saida.get(Number(l.leadId))
+    if (atual && !l.recebida) continue
+    saida.set(Number(l.leadId), {
+      provider: l.provider,
+      evolutionInstance: l.evolutionInstance,
+      cloudApiConnectionId: l.cloudApiConnectionId === null ? null : Number(l.cloudApiConnectionId),
+    })
+  }
+  return saida
 }
 
 export async function inboundChannelForLead(leadId: number): Promise<InboundChannel | null> {

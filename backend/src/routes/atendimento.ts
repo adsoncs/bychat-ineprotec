@@ -256,14 +256,22 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         const fid = parseInt(fq)
         if (Number.isFinite(fid)) where.funnelId = fid
       }
-      // Filtro por NÚMERO DE ENVIO: conversas que têm ao menos uma mensagem ENVIADA
-      // (fromMe) por este canal. Id no formato "evolution:<instância>" | "cloud:<id>".
+      // Filtro por NÚMERO: conversas que PERTENCEM a este canal.
+      //
+      // Antes a regra era "tem ao menos uma mensagem enviada por este número,
+      // em qualquer época" — e uma conversa atendida ontem pelo número A e hoje
+      // pelo B aparecia nos DOIS filtros, carimbada com o rótulo do B. Era o
+      // "filtrei uma instância e veio conversa de outra".
+      //
+      // Agora vale a mesma regra que decide por qual número respondemos: o
+      // canal da última mensagem recebida (e, para conversa que só nós
+      // iniciamos, o da última mensagem). Uma conversa pertence a um canal só.
       const sc = (query.senderChannel ?? '').toString()
-      if (sc.startsWith('evolution:')) {
-        andClauses.push({ messages: { some: { fromMe: true, evolutionInstance: sc.slice('evolution:'.length) } } })
-      } else if (sc.startsWith('cloud:')) {
-        const cid = parseInt(sc.slice('cloud:'.length))
-        if (Number.isFinite(cid)) andClauses.push({ messages: { some: { fromMe: true, cloudApiConnectionId: cid } } })
+      if (sc.startsWith('evolution:') || sc.startsWith('cloud:')) {
+        const { leadsDoCanal } = await import('../services/whatsappProvider.js')
+        const idsDoCanal = await leadsDoCanal(sc)
+        // Nenhuma conversa nesse número: lista vazia, e não a lista inteira.
+        andClauses.push({ id: { in: idsDoCanal.length ? idsDoCanal : [-1] } })
       }
       // Merge (append) preservando as cláusulas de bucket já em where.AND (antes o
       // where.AND era SOBRESCRITO por search/tags, perdendo o filtro de snooze).
@@ -318,9 +326,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // histórico (mensagens antigas sem evolutionInstance/cloudApiConnectionId).
       const [allInstances, allCloud] = await Promise.all([
         prisma.whatsAppInstance.findMany({ select: { instanceName: true, name: true, phone: true, color: true } }),
-        prisma.cloudApiConnection.findMany({ where: { active: true }, select: { displayPhone: true, displayName: true, color: true } }),
+        prisma.cloudApiConnection.findMany({ where: { active: true }, select: { id: true, displayPhone: true, displayName: true, color: true } }),
       ])
       const instByName = new Map(allInstances.map(i => [i.instanceName, i]))
+      const cloudById = new Map(allCloud.map(c => [c.id, c]))
       const soleInstance = allInstances.length === 1 ? allInstances[0] : null
       const soleCloud = allCloud.length === 1 ? allCloud[0] : null
       const buildChannel = (m: any) => {
@@ -329,7 +338,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         // atende precisa saber QUAL número falou com o contato; "Evolution" e
         // "Cloud API" são detalhe de integração e não dizem nada na conversa.
         if (m.provider === 'cloud_api') {
-          const c = m.cloudApiConnection || soleCloud
+          // Resolve pelo id quando o objeto não veio junto — é o caso do canal
+          // efetivo, que sai de uma consulta enxuta (só ids).
+          const c = m.cloudApiConnection || (m.cloudApiConnectionId ? cloudById.get(m.cloudApiConnectionId) : null) || soleCloud
           return { provider: 'cloud_api', label: c?.displayName ?? null, number: c?.displayPhone ?? null, name: c?.displayName ?? null, color: (c as any)?.color ?? null }
         }
         if (m.provider === 'instagram') return { provider: 'instagram', label: 'Instagram', number: null, name: null, color: null }
@@ -341,12 +352,28 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         return { provider: 'evolution', label: nomeInst, number: inst?.phone ?? null, name: nomeInst ?? m.evolutionInstance ?? null, color: inst?.color ?? null }
       }
 
+      // O rótulo do número segue o MESMO critério do filtro e do envio: senão a
+      // conversa aparece na lista de um número mostrando o nome de outro.
+      const { canalEfetivoDeLeads } = await import('../services/whatsappProvider.js')
+      const canalPorLead = await canalEfetivoDeLeads([...ticketsFixados, ...tickets].map(t => t.id))
+
       const result = [...ticketsFixados, ...tickets].map(t => {
         const last = t.messages[0] || null
+        const efetivo = canalPorLead.get(t.id)
+        // `last` ainda alimenta a prévia da conversa; o canal vem do efetivo,
+        // com a última mensagem como retaguarda (conversa sem histórico útil).
+        const paraCanal = efetivo
+          ? {
+              provider: efetivo.provider,
+              evolutionInstance: efetivo.evolutionInstance,
+              cloudApiConnection: null,
+              cloudApiConnectionId: efetivo.cloudApiConnectionId,
+            }
+          : last
         return {
           ...t,
           lastMessage: last ? { body: last.body, fromMe: last.fromMe, timestamp: last.timestamp } : null,
-          channel: buildChannel(last),
+          channel: buildChannel(paraCanal),
           pinned: fixados.has(t.id),
           messages: undefined,
         }
