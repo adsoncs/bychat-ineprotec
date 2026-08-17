@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
+import { usePonteiroGrosso, useLarguraElemento } from '@/hooks/useBreakpoint'
 import { useActiveConversationStore } from '@/stores/activeConversation'
 import {
   MessageSquare,
@@ -50,6 +51,13 @@ import {
   Lock,
   AlertTriangle,
   SlidersHorizontal,
+  ChevronLeft,
+  MoreVertical,
+  Ban,
+  Forward,
+  Copy,
+  SmilePlus,
+  MailQuestion,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -70,6 +78,11 @@ import {
   useTypingState,
   useUploadChatMedia,
   useSenderNumbers,
+  useEditMessage,
+  useDeleteMessage,
+  useForwardMessage,
+  useReactMessage,
+  useMarkTicketUnread,
   inferMediaType,
   type Bucket,
   type Scope,
@@ -268,6 +281,9 @@ function ConversationsScreen() {
   const [novaConversaOpen, setNovaConversaOpen] = useState(false)
   const [importarOpen, setImportarOpen] = useState(false)
   const qcConversas = useQueryClient()
+  // Desfaz a leitura acidental: devolve a conversa para a fila de não lidas.
+  const marcarNaoLida = useMarkTicketUnread()
+
   const ticketsQ = useTickets({
     bucket, scope,
     search: search || undefined,
@@ -579,6 +595,22 @@ function ConversationsScreen() {
                     selected={selectedIds.has(t.id)}
                     onToggleSelect={() => toggleSelect(t.id)}
                     onPromote={!t.qualifiedAt && !t.isGroup ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
+                    onMarcarNaoLida={() => {
+                      marcarNaoLida.mutate(t.id, {
+                        onSuccess: (r) => {
+                          // Se a conversa aberta é essa, fecha: deixá-la aberta
+                          // marcaria como lida de novo no próximo tick.
+                          if (selected === t.id) setSelected(null)
+                          toast(
+                            r.espelhadoNoWhatsapp
+                              ? 'Conversa marcada como não lida aqui e no WhatsApp'
+                              : 'Conversa marcada como não lida',
+                            'success',
+                          )
+                        },
+                        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                      })
+                    }}
                   />
                 ))}
               </ul>
@@ -699,9 +731,11 @@ function InstagramLogo({ size = 9 }: { size?: number }) {
   )
 }
 
-function ChannelTag({ channel, compact = false }: {
+function ChannelTag({ channel, compact = false, semTexto = false }: {
   channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string | null; number: string | null; name: string | null; color?: string | null } | null
   compact?: boolean
+  /** Só o ícone colorido, para quando a linha não comporta o nome do canal. */
+  semTexto?: boolean
 }) {
   if (!channel) return null
   // Redes sociais mantêm a cor da marca — ali a origem É a rede. Nos canais de
@@ -720,12 +754,12 @@ function ChannelTag({ channel, compact = false }: {
   const texto = ehWhats ? nomeDoCanal({ label: channel.label, number: num, provider: channel.provider }) : (channel.provider === 'instagram' ? 'Instagram' : 'Messenger')
   return (
     <span
-      class={cn('inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[0.625rem] font-semibold', cls)}
+      class={cn('inline-flex max-w-full items-center gap-0.5 truncate whitespace-nowrap rounded-full px-1.5 py-px text-[0.625rem] font-semibold', cls)}
       style={cor ? { backgroundColor: `${cor}26`, color: cor } : undefined}
       title={`Canal: ${texto}${num && texto !== num ? ' · ' + num : ''}`}
     >
       <Icon size={9} />
-      {texto}{!compact && num && texto !== num ? ` · ${num}` : ''}
+      {semTexto ? null : <>{texto}{!compact && num && texto !== num ? ` · ${num}` : ''}</>}
     </span>
   )
 }
@@ -738,6 +772,7 @@ function TicketRow({
   selected = false,
   onToggleSelect,
   onPromote,
+  onMarcarNaoLida,
 }: {
   ticket: Ticket
   active: boolean
@@ -746,6 +781,7 @@ function TicketRow({
   selected?: boolean | undefined
   onToggleSelect?: (() => void) | undefined
   onPromote?: (() => void) | undefined
+  onMarcarNaoLida?: (() => void) | undefined
 }) {
   const { prefs } = useConversationPrefs()
   const name = ticket.nome ?? ticket.whatsapp ?? 'Sem nome'
@@ -867,6 +903,21 @@ function TicketRow({
           </div>
         </div>
       </button>
+      {onMarcarNaoLida && ticket.unreadMessages === 0 && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onMarcarNaoLida() }}
+          class={cn(
+            'absolute size-7 rounded-md grid place-items-center bg-surface-2 border border-border text-fg-muted',
+            'opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-fg-on-brand hover:border-accent transition-opacity focus:opacity-100',
+            showStar ? 'right-10 top-2' : 'right-2 top-2',
+          )}
+          title="Marcar como não lida"
+          aria-label="Marcar como não lida"
+        >
+          <MailQuestion size={13} />
+        </button>
+      )}
       {showStar && (
         <button
           type="button"
@@ -930,7 +981,26 @@ function ChatPanel({
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [chatSearch, setChatSearch] = useState<string | null>(null)
   const [quotedMsg, setQuotedMsg] = useState<ChatMessage | null>(null)
-  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  // Editar/encaminhar/apagar/reagir uma mensagem já enviada.
+  const editar = useEditMessage(leadId)
+  const apagar = useDeleteMessage(leadId)
+  const reagir = useReactMessage(leadId)
+  /** Mensagem em edição: enquanto existe, o compositor vira "salvar edição". */
+  const [editando, setEditando] = useState<ChatMessage | null>(null)
+  /** Mensagem escolhida para encaminhar — abre o seletor de conversas. */
+  const [encaminhando, setEncaminhando] = useState<ChatMessage | null>(null)
+  /** Confirmação do apagar para todos: é irreversível e sai do nosso lado. */
+  const [apagarAlvo, setApagarAlvo] = useState<{ msg: ChatMessage; escopo: 'me' | 'all' } | null>(null)
+  // Menu "⋯" do cabeçalho — guarda as ações de exceção que antes ficavam
+  // soltas na barra e a faziam quebrar em várias linhas.
+  const [menuAcoesOpen, setMenuAcoesOpen] = useState(false)
+  const acoesToque = usePonteiroGrosso()
+  // Quanto o cabeçalho REALMENTE tem de largura — com a lista ao lado e o
+  // painel de informações aberto, sobra bem menos do que a janela sugere.
+  const headerRef = useRef<HTMLElement>(null)
+  const larguraHeader = useLarguraElemento(headerRef)
+  /** Abaixo disso não cabe botão com rótulo sem espremer o nome do contato. */
+  const cabeAcaoPrincipal = larguraHeader === 0 || larguraHeader >= 460
   // Menu de troca de número de envio (mantém visível só o número padrão/atual;
   // os demais ficam neste dropdown — evita o rodapé poluído com muitos números).
   const [numMenuOpen, setNumMenuOpen] = useState(false)
@@ -1148,7 +1218,41 @@ function ChatPanel({
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
+  /** A janela de edição é do WhatsApp: 15 minutos, texto, e só o que saiu
+   *  daqui. Fora disso o botão nem aparece — melhor que aparecer e falhar. */
+  function podeEditarMensagem(m: ChatMessage): boolean {
+    if (!m.fromMe || m.deletedForAll || m.id < 0) return false
+    if (m.mediaType && m.mediaType !== 'text') return false
+    return (Date.now() - new Date(m.timestamp).getTime()) / 60_000 <= 15
+  }
+
+  async function executarApagar(m: ChatMessage, escopo: 'me' | 'all') {
+    try {
+      await apagar.mutateAsync({ messageId: m.id, scope: escopo })
+      toast(escopo === 'all' ? 'Mensagem apagada para todos' : 'Mensagem apagada da sua tela', 'success')
+    } catch (e) {
+      toast((e as Error).message, 'danger')
+    }
+  }
+
+  async function salvarEdicao() {
+    if (!editando) return
+    const texto = draft.trim()
+    if (!texto) { toast('O texto não pode ficar vazio', 'warning'); return }
+    try {
+      await editar.mutateAsync({ messageId: editando.id, body: texto })
+      setEditando(null)
+      setDraft('')
+      focarCaixa()
+      toast('Mensagem editada', 'success')
+    } catch (e) {
+      toast((e as Error).message, 'danger')
+    }
+  }
+
   function handleSend() {
+    // Compositor em modo edição: Enter salva a edição em vez de mandar nova.
+    if (editando) { void salvarEdicao(); return }
     const body = draft.trim()
     if (!body && !pendingFile && !pendingTplAttachment) return
 
@@ -1421,79 +1525,278 @@ function ChatPanel({
     snoozeUntilDate(d)
   }
 
+  // As ações de exceção da conversa. Mesma lista nos dois formatos: menu
+  // flutuante no mouse, folha inferior no dedo.
+  const itensMenuConversa = (
+    <>
+      {/* Onde a barra não comporta os botões (celular), eles encabeçam o menu. */}
+      {!cabeAcaoPrincipal && (
+        isRaw && !isAssigned ? (
+          <ItemAcao
+            icone={<Hand size={14} />}
+            onClick={() => {
+              setMenuAcoesOpen(false)
+              claim.mutate(leadId, {
+                onSuccess: () => {
+                  toast('Lead assumido — atendimento iniciado', 'success')
+                  if (!(lead?.qualifiedAt ?? ticket?.qualifiedAt)) setPromoteAfterClaimOpen(true)
+                },
+                onError: (e: unknown) => toast((e as Error).message, 'danger'),
+              })
+            }}
+          >
+            Assumir atendimento
+          </ItemAcao>
+        ) : isResolved ? (
+          <ItemAcao
+            icone={<Inbox size={14} />}
+            onClick={() => {
+              setMenuAcoesOpen(false)
+              openConv.mutate(leadId, {
+                onSuccess: () => toast('Atendimento reaberto', 'success'),
+                onError: (e: unknown) => toast((e as Error).message, 'danger'),
+              })
+            }}
+          >
+            Reabrir atendimento
+          </ItemAcao>
+        ) : (
+          <ItemAcao
+            icone={<CheckCircle size={14} />}
+            onClick={() => {
+              setMenuAcoesOpen(false)
+              closeConv.mutate(leadId, {
+                onSuccess: () => toast(isRaw ? 'Lead descartado da Caixa' : 'Atendimento encerrado — movido para Resolvidos', 'success'),
+                onError: (e: unknown) => toast((e as Error).message, 'danger'),
+              })
+            }}
+          >
+            {isRaw ? 'Descartar da Caixa' : 'Resolver atendimento'}
+          </ItemAcao>
+        )
+      )}
+      {!cabeAcaoPrincipal && (
+        <ItemAcao icone={<Info size={14} />} onClick={() => { setMenuAcoesOpen(false); onToggleInfo() }}>
+          Informações do lead
+        </ItemAcao>
+      )}
+      {assignedToMe && !isResolved && !isRaw && (
+        <ItemAcao
+          icone={<UserMinus size={14} />}
+          onClick={() => {
+            setMenuAcoesOpen(false)
+            release.mutate(leadId, {
+              onSuccess: () => toast('Lead devolvido à fila', 'success'),
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            })
+          }}
+        >
+          Devolver à fila
+        </ItemAcao>
+      )}
+      {!isResolved && (
+        <ItemAcao icone={<ArrowRightLeft size={14} />} onClick={() => { setMenuAcoesOpen(false); setTransferOpen(true) }}>
+          Transferir para operador ou setor
+        </ItemAcao>
+      )}
+
+      {/* Adormecer com as opções à mostra: submenu dentro de menu é um alvo
+          difícil no mouse e impossível no dedo. */}
+      {!isResolved && !isRaw && !isSnoozed && (
+        <>
+          <div class="my-1 border-t border-border" />
+          <div class="px-3 py-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Adormecer até</div>
+          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(1) }}>
+            Daqui a 1 hora
+          </ItemAcao>
+          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(4) }}>
+            Daqui a 4 horas
+          </ItemAcao>
+          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeTomorrowAt9h() }}>
+            Amanhã às 9h
+          </ItemAcao>
+          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeNextMonday() }}>
+            Segunda-feira às 9h
+          </ItemAcao>
+          <div class="px-3 pb-2 pt-1">
+            <label class="mb-1 block text-[0.6875rem] text-fg-subtle" for="snooze-custom">Outra data e hora</label>
+            <input
+              id="snooze-custom"
+              type="datetime-local"
+              class="w-full rounded border border-border bg-surface-2 px-2 py-1.5 text-xs text-fg focus:border-accent focus:outline-none"
+              onChange={(e) => {
+                const v = (e.target as HTMLInputElement).value
+                if (!v) return
+                const d = new Date(v)
+                if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
+                  toast('Escolha uma data no futuro', 'warning'); return
+                }
+                setMenuAcoesOpen(false)
+                snoozeUntilDate(d)
+              }}
+            />
+          </div>
+        </>
+      )}
+
+      <div class="my-1 border-t border-border" />
+      <ItemAcao icone={<Trash2 size={14} />} perigo onClick={() => { setMenuAcoesOpen(false); setDeleteOpen(true) }}>
+        Excluir conversa
+      </ItemAcao>
+    </>
+  )
+
   return (
     <>
-      {/* Header */}
-      <header class="flex items-start gap-3 p-3 border-b border-border">
-        <button type="button" class="sm:hidden size-8 rounded grid place-items-center text-fg-muted hover:bg-surface-3" onClick={onClose} aria-label="Voltar">
-          <XIcon size={16} />
+      {/* Cabeçalho da conversa.
+       *
+       * Antes eram três blocos disputando a mesma linha, com `flex-wrap` nas
+       * ações: sete botões que, ao faltar largura, quebravam em duas e três
+       * fileiras e empurravam a identidade do contato — o "encavalado".
+       *
+       * Agora a régua é fixa: identidade à esquerda encolhe e trunca, ações à
+       * direita NUNCA quebram (sem wrap) porque só três ficam visíveis; o resto
+       * mora no menu "⋯". Assim o cabeçalho tem sempre a mesma altura, de 360px
+       * a 1920px.
+       */}
+      <header ref={headerRef} class="@container flex items-center gap-2.5 border-b border-border p-2.5 sm:gap-3 sm:p-3">
+        <button
+          type="button"
+          class="grid size-9 shrink-0 place-items-center rounded-md text-fg-muted hover:bg-surface-3 sm:hidden"
+          onClick={onClose}
+          aria-label="Voltar para a lista de conversas"
+        >
+          <ChevronLeft size={18} />
         </button>
-        <div class="size-9 rounded-full bg-surface-3 grid place-items-center text-fg-muted text-sm font-semibold shrink-0 overflow-hidden">
+
+        <div class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-surface-3 text-sm font-semibold text-fg-muted sm:size-10">
           {lead?.profilePicUrl
-            ? <img src={lead.profilePicUrl} alt="" class="w-full h-full object-cover" />
+            ? <img src={lead.profilePicUrl} alt="" class="h-full w-full object-cover" />
             : isGroupChat
             ? <Users size={16} />
             : (ticket?.nome ?? ticket?.empresa ?? '?')[0]?.toUpperCase()}
         </div>
-        <div class="flex-1 min-w-0">
-          <div
-            class="font-medium text-fg truncate"
-            style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
-          >
-            {ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}
+
+        {/* Identidade. `min-w-0` é o que autoriza o truncamento: sem ele o nome
+            longo empurra as ações para fora da tela em vez de cortar. */}
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1.5">
+            <span
+              class="truncate font-medium text-fg"
+              style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
+              title={[
+                ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`,
+                ticket?.empresa ? `Empresa: ${ticket.empresa}` : null,
+                lead?.team ? `Setor: ${lead.team.name}` : null,
+                `Responsável: ${lead?.assignedUser?.name ?? lead?.assignedUser?.email ?? 'ninguém'}`,
+              ].filter(Boolean).join(' · ')}
+            >
+              {ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}
+            </span>
+            {isSnoozed && (
+              <span class="shrink-0 text-warning" title="Atendimento adormecido">
+                <Clock size={12} />
+              </span>
+            )}
           </div>
-          {typing && (
-            <div class="text-[0.6875rem] text-accent flex items-center gap-1 mt-0.5">
+
+          {/* Segunda linha: enquanto o contato digita, ela CEDE o lugar ao aviso
+              em vez de somar mais uma linha — é o que evita o cabeçalho pular
+              de altura a cada tecla do outro lado. */}
+          {typing ? (
+            <div class="mt-0.5 flex items-center gap-1 text-[0.6875rem] text-accent">
               <span class="inline-flex gap-0.5" aria-hidden>
-                <span class="size-1 rounded-full bg-current animate-pulse" style={{ animationDelay: '0ms' }} />
-                <span class="size-1 rounded-full bg-current animate-pulse" style={{ animationDelay: '150ms' }} />
-                <span class="size-1 rounded-full bg-current animate-pulse" style={{ animationDelay: '300ms' }} />
+                <span class="size-1 animate-pulse rounded-full bg-current" style={{ animationDelay: '0ms' }} />
+                <span class="size-1 animate-pulse rounded-full bg-current" style={{ animationDelay: '150ms' }} />
+                <span class="size-1 animate-pulse rounded-full bg-current" style={{ animationDelay: '300ms' }} />
               </span>
               {typing.kind === 'audio' ? 'gravando áudio…' : 'digitando…'}
             </div>
-          )}
-          <div class="flex items-center gap-2 mt-0.5 text-xs text-fg-muted flex-wrap">
-            {/* Grupo: o "telefone" é o id do JID, não serve para ninguém — troca
-                pelo selo de grupo, que também avisa que o bot não atua aqui. */}
-            {isGroupChat ? (
-              <span class="inline-flex items-center gap-1 text-accent" title="Grupo de WhatsApp — o chatbot não responde aqui">
-                <Users size={10} /> Grupo
-              </span>
-            ) : ticket?.whatsapp ? (
-              <span class="inline-flex items-center gap-1"><Phone size={10} />{ticket.whatsapp}</span>
-            ) : null}
-            {ticket?.channel && <ChannelTag channel={ticket.channel} />}
-            {ticket?.empresa && <span class="text-fg-subtle">| {ticket.empresa}</span>}
-            {lead?.team && (
-              <span class="text-fg-subtle">
-                · setor: <span style={{ color: lead.team.color ?? undefined }}>{lead.team.name}</span>
-              </span>
-            )}
-            <span class="text-fg-subtle inline-flex items-center gap-1">
-              · {lead?.assignedUser ? (
+          ) : (
+            <div class="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-fg-muted">
+              {/* Em grupo o "telefone" seria o id do JID, que não diz nada a
+                  ninguém — o selo avisa também que o bot não atua aqui. */}
+              {isGroupChat ? (
+                <span class="inline-flex shrink-0 items-center gap-1 text-accent" title="Grupo de WhatsApp — o chatbot não responde aqui">
+                  <Users size={11} /> Grupo
+                </span>
+              ) : ticket?.whatsapp ? (
+                // No painel estreito o DDI sai: "+55 " são quatro caracteres que
+                // roubam do que identifica de fato, o DDD e o número.
+                <span class="inline-flex shrink-0 items-center gap-1" title={`Telefone: ${ticket.whatsapp}`}>
+                  <Phone size={11} class="shrink-0" />
+                  <span class="@sm:hidden">{formatarTelefone(ticket.whatsapp, 'curto')}</span>
+                  <span class="hidden @sm:inline">{formatarTelefone(ticket.whatsapp)}</span>
+                </span>
+              ) : null}
+
+              {ticket?.channel && (
                 <>
-                  {(() => {
-                    const p = operatorPresence(lead.assignedUser.lastSeenAt)
-                    return p ? (
-                      <span
-                        class="inline-block size-2 rounded-full"
-                        style={{ background: p.color }}
-                        title={`${lead.assignedUser.name ?? lead.assignedUser.email} · ${p.label}`}
-                        aria-label={p.label}
-                      />
-                    ) : null
-                  })()}
-                  {lead.assignedUser.name ?? lead.assignedUser.email}
+                  <SeparadorMeta />
+                  {/* Teto em vez de encolhimento livre: com `shrink` o chip
+                      espremia até sobrar só o ícone e o canal deixava de ser
+                      identificável, que é justamente para o que ele existe. */}
+                  <span class="shrink-0 @sm:hidden"><ChannelTag channel={ticket.channel} compact semTexto /></span>
+                  <span class="hidden max-w-36 shrink-0 @sm:inline"><ChannelTag channel={ticket.channel} compact /></span>
                 </>
-              ) : 'sem operador'}
-            </span>
-          </div>
+              )}
+
+              {/* Da empresa em diante, some primeiro no celular: cabe tudo no
+                  painel Informações, e aqui competiria com o essencial. */}
+              {ticket?.empresa && (
+                <>
+                  <SeparadorMeta class="hidden @5xl:inline" />
+                  <span class="hidden max-w-44 shrink-0 truncate @5xl:inline" title={ticket.empresa}>{ticket.empresa}</span>
+                </>
+              )}
+
+              {lead?.team && (
+                <>
+                  <SeparadorMeta class="hidden @2xl:inline" />
+                  <span
+                    class="hidden max-w-40 shrink-0 items-center gap-1 @2xl:inline-flex"
+                    title={`Setor: ${lead.team.name}`}
+                  >
+                    <span class="size-2 shrink-0 rounded-full" style={{ background: lead.team.color ?? 'currentColor' }} aria-hidden />
+                    <span class="truncate">{lead.team.name}</span>
+                  </span>
+                </>
+              )}
+
+              <SeparadorMeta class="hidden @3xl:inline" />
+              <span class="hidden max-w-40 shrink-0 items-center gap-1 @3xl:inline-flex">
+                {lead?.assignedUser ? (
+                  <>
+                    {(() => {
+                      const p = operatorPresence(lead.assignedUser.lastSeenAt)
+                      return p ? (
+                        <span
+                          class="inline-block size-2 rounded-full"
+                          style={{ background: p.color }}
+                          title={`${lead.assignedUser.name ?? lead.assignedUser.email} · ${p.label}`}
+                          aria-label={p.label}
+                        />
+                      ) : <UserIcon size={11} />
+                    })()}
+                    <span class="max-w-32 truncate">{lead.assignedUser.name ?? lead.assignedUser.email}</span>
+                  </>
+                ) : (
+                  <span class="italic text-fg-subtle">sem operador</span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
-        <div class="flex items-center gap-1 flex-wrap justify-end">
+
+        {/* Ações. Só as três de sempre ficam à vista — buscar, informações e a
+            ação principal do momento. As de exceção (devolver, transferir,
+            adormecer, excluir) moram no "⋯": são elas que, soltas, quebravam a
+            linha. `shrink-0` e a ausência de wrap garantem a régua. */}
+        <div class="flex shrink-0 items-center gap-1" data-testid="acoes-conversa">
           <button
             type="button"
             class={cn(
-              'size-8 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 shrink-0',
+              'grid size-9 place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg',
               chatSearch !== null && 'bg-surface-3 text-fg',
             )}
             onClick={() => {
@@ -1501,20 +1804,31 @@ function ChatPanel({
               requestAnimationFrame(() => searchInputRef.current?.focus())
             }}
             aria-label="Buscar nesta conversa"
+            aria-pressed={chatSearch !== null}
             title="Buscar nesta conversa (Ctrl+F)"
           >
-            <Search size={14} />
+            <Search size={16} />
           </button>
-          <Button
-            variant={showInfo ? 'secondary' : 'ghost'}
-            size="sm"
+
+          <button
+            type="button"
+            class={cn(
+              'size-9 place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg',
+              cabeAcaoPrincipal ? 'grid' : 'hidden',
+              showInfo && 'bg-surface-3 text-fg',
+            )}
             onClick={onToggleInfo}
-            title="Painel de informações do lead"
+            aria-label="Painel de informações do lead"
             aria-pressed={showInfo}
+            title="Informações do lead"
           >
-            <Info size={12} /> <span class="hidden md:inline">Informações</span><span class="md:hidden">Info</span>
-          </Button>
-          {isRaw && !isAssigned && (
+            <Info size={16} />
+          </button>
+
+          {/* Ação principal do momento: uma só, e sempre no mesmo lugar. Em
+              tela estreita ela encabeça o menu, para o nome do contato e o
+              número caberem inteiros. */}
+          {!cabeAcaoPrincipal ? null : isRaw && !isAssigned ? (
             <Button
               variant="primary"
               size="sm"
@@ -1530,78 +1844,23 @@ function ChatPanel({
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })}
             >
-              <Hand size={12} /> {claim.isPending ? 'Assumindo…' : 'Assumir'}
+              <Hand size={13} />
+              <span class="hidden xs:inline">{claim.isPending ? 'Assumindo…' : 'Assumir'}</span>
             </Button>
-          )}
-          {assignedToMe && !isResolved && !isRaw && (
+          ) : isResolved ? (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              onClick={() => release.mutate(leadId, {
-                onSuccess: () => toast('Lead devolvido à fila', 'success'),
+              disabled={openConv.isPending}
+              onClick={() => openConv.mutate(leadId, {
+                onSuccess: () => toast('Atendimento reaberto', 'success'),
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })}
-              disabled={release.isPending}
-              title="Devolver lead à fila"
-              aria-label="Devolver lead à fila"
             >
-              <UserMinus size={12} /> <span class="hidden lg:inline">Devolver</span>
+              <Inbox size={13} />
+              <span class="hidden xs:inline">Reabrir</span>
             </Button>
-          )}
-          {!isResolved && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setTransferOpen(true)}
-              title="Transferir para operador / equipe"
-              aria-label="Transferir lead"
-            >
-              <ArrowRightLeft size={12} /> <span class="hidden lg:inline">Transferir</span>
-            </Button>
-          )}
-          {!isResolved && !isRaw && !isSnoozed && (
-            <div class="relative">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSnoozeMenuOpen((v) => !v)}
-                title="Adormecer atendimento (volta automaticamente)"
-                aria-label="Adormecer atendimento"
-                aria-expanded={snoozeMenuOpen}
-              >
-                <Clock size={12} /> <span class="hidden lg:inline">Adormecer</span>
-              </Button>
-              {snoozeMenuOpen && (
-                <>
-                  <div class="fixed inset-0 z-30" onClick={() => setSnoozeMenuOpen(false)} />
-                  <div class="absolute right-0 top-full mt-1 z-40 w-56 rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
-                    <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-surface-3 text-fg" onClick={() => snoozeRelative(1)}>Por 1 hora</button>
-                    <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-surface-3 text-fg" onClick={() => snoozeRelative(4)}>Por 4 horas</button>
-                    <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-surface-3 text-fg" onClick={snoozeTomorrowAt9h}>Amanhã 9h</button>
-                    <button type="button" class="w-full text-left px-3 py-1.5 hover:bg-surface-3 text-fg" onClick={snoozeNextMonday}>Próxima segunda 9h</button>
-                    <div class="border-t border-border my-1" />
-                    <label class="block px-3 py-1.5 text-fg-muted text-[0.6875rem] uppercase tracking-wider">Personalizado</label>
-                    <div class="px-3 pb-2">
-                      <input
-                        type="datetime-local"
-                        class="w-full px-2 py-1 rounded border border-border bg-surface-2 text-xs text-fg focus:outline-none focus:border-accent"
-                        onChange={(e) => {
-                          const v = (e.target as HTMLInputElement).value
-                          if (!v) return
-                          const d = new Date(v)
-                          if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
-                            toast('Data deve ser no futuro', 'warning'); return
-                          }
-                          snoozeUntilDate(d)
-                        }}
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          {!isResolved && (
+          ) : (
             <Button
               variant="secondary"
               size="sm"
@@ -1612,31 +1871,47 @@ function ChatPanel({
               })}
               title={isRaw ? 'Descartar lead da Caixa (sem assumir)' : 'Encerrar atendimento'}
             >
-              <CheckCircle size={12} /> Resolver
+              <CheckCircle size={13} />
+              <span class="hidden xs:inline">Resolver</span>
             </Button>
           )}
-          {isResolved && (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={openConv.isPending}
-              onClick={() => openConv.mutate(leadId, {
-                onSuccess: () => toast('Atendimento reaberto', 'success'),
-                onError: (e: unknown) => toast((e as Error).message, 'danger'),
-              })}
+
+          <div class="relative">
+            <button
+              type="button"
+              class={cn(
+                'grid size-9 place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg',
+                menuAcoesOpen && 'bg-surface-3 text-fg',
+              )}
+              onClick={() => setMenuAcoesOpen((v) => !v)}
+              aria-label="Mais ações da conversa"
+              aria-expanded={menuAcoesOpen}
+              aria-haspopup="menu"
+              title="Mais ações"
             >
-              <Inbox size={12} /> Reabrir
-            </Button>
-          )}
-          <button
-            type="button"
-            class="size-8 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-3 shrink-0"
-            onClick={() => setDeleteOpen(true)}
-            aria-label="Excluir conversa"
-            title="Excluir conversa"
-          >
-            <Trash2 size={14} />
-          </button>
+              <MoreVertical size={16} />
+            </button>
+
+            {menuAcoesOpen && (
+              acoesToque
+                ? (
+                  <FolhaDeAcoes titulo="Conversa" onFechar={() => setMenuAcoesOpen(false)}>
+                    {itensMenuConversa}
+                  </FolhaDeAcoes>
+                )
+                : (
+                  <>
+                    <div class="fixed inset-0 z-30" onClick={() => setMenuAcoesOpen(false)} />
+                    <div
+                      class="absolute right-0 top-full z-40 mt-1 w-64 rounded-md border border-border bg-surface py-1 text-sm shadow-lg"
+                      role="menu"
+                    >
+                      {itensMenuConversa}
+                    </div>
+                  </>
+                )
+            )}
+          </div>
         </div>
       </header>
 
@@ -1720,6 +1995,30 @@ function ChatPanel({
         />
       )}
 
+      {encaminhando && (
+        <ForwardMessageModal
+          leadId={leadId}
+          msg={encaminhando}
+          onClose={() => setEncaminhando(null)}
+        />
+      )}
+
+      {/* Apagar para todos sai do nosso lado e não volta — confirma antes. */}
+      <ConfirmDialog
+        open={!!apagarAlvo}
+        onOpenChange={(o) => { if (!o) setApagarAlvo(null) }}
+        title="Apagar para todos?"
+        description="A mensagem some também do WhatsApp do contato, e no lugar dela fica o aviso de mensagem apagada. Não dá para desfazer."
+        confirmLabel="Apagar para todos"
+        destructive
+        loading={apagar.isPending}
+        onConfirm={async () => {
+          if (!apagarAlvo) return
+          await executarApagar(apagarAlvo.msg, apagarAlvo.escopo)
+          setApagarAlvo(null)
+        }}
+      />
+
       {/* Mensagens */}
       <div
         ref={scrollRef}
@@ -1751,11 +2050,15 @@ function ChatPanel({
         {(() => {
           if (isLoading || !data) return null
           const q = chatSearch?.trim().toLowerCase() ?? ''
+          // "Apagar para mim" tira a bolha da tela e pronto — o WhatsApp do
+          // contato segue com ela. O "para todos" continua na lista, porque
+          // vira o aviso de mensagem apagada (é o que o app faz).
+          const visiveis = data.messages.filter((m) => !m.isDeleted || m.deletedForAll)
           // Buscando, mostra só o que já está gravado; fora da busca, as
           // mensagens ainda em voo entram no fim da conversa.
           const filtered = q
-            ? data.messages.filter((m) => (m.body ?? '').toLowerCase().includes(q) || (m.senderName ?? '').toLowerCase().includes(q))
-            : [...data.messages, ...pendentes]
+            ? visiveis.filter((m) => (m.body ?? '').toLowerCase().includes(q) || (m.senderName ?? '').toLowerCase().includes(q))
+            : [...visiveis, ...pendentes]
           if (q && filtered.length === 0) {
             return <div class="text-center text-xs text-fg-subtle py-8">Nenhuma mensagem encontrada para "{chatSearch}".</div>
           }
@@ -1781,6 +2084,20 @@ function ChatPanel({
                   highlight={q}
                   onReply={() => setQuotedMsg(m)}
                   pendente={m.id < 0}
+                  podeEditar={podeEditarMensagem(m)}
+                  onEditar={() => { setEditando(m); setDraft(m.body ?? ''); setQuotedMsg(null) }}
+                  onEncaminhar={() => setEncaminhando(m)}
+                  onApagar={(escopo) => {
+                    // Apagar da própria tela não precisa de confirmação: é
+                    // reversível na prática (a mensagem continua no WhatsApp).
+                    if (escopo === 'me') void executarApagar(m, 'me')
+                    else setApagarAlvo({ msg: m, escopo })
+                  }}
+                  onReagir={(emoji) => {
+                    reagir.mutate({ messageId: m.id, emoji }, {
+                      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                    })
+                  }}
                   // Em conversa de uma pessoa só, o rótulo é o nome do contato
                   // no CRM — a mensagem guarda o apelido que ele usa no WhatsApp
                   // dele, e não é isso que a equipe deve ver. Em grupo o rótulo
@@ -1798,6 +2115,27 @@ function ChatPanel({
         <div class="border-t border-border">
           <PendingMediaBar leadId={leadId} />
           <ScheduledMessagesBar leadId={leadId} />
+          {editando && (
+            <div class="px-3 pt-2">
+              <div class="flex items-stretch gap-2 p-2 rounded-md bg-warning/10 border-l-2 border-warning">
+                <div class="flex-1 min-w-0">
+                  <div class="text-[0.625rem] font-medium text-warning flex items-center gap-1">
+                    <Pencil size={10} /> Editando mensagem enviada
+                  </div>
+                  <div class="text-xs text-fg-muted truncate">{editando.body}</div>
+                </div>
+                <button
+                  type="button"
+                  class="size-7 shrink-0 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-2"
+                  onClick={() => { setEditando(null); setDraft('') }}
+                  aria-label="Cancelar edição"
+                  title="Cancelar edição"
+                >
+                  <XIcon size={14} />
+                </button>
+              </div>
+            </div>
+          )}
           {quotedMsg && (
             <div class="px-3 pt-2">
               <div class="flex items-stretch gap-2 p-2 rounded-md bg-surface-3 border-l-2 border-accent">
@@ -3090,7 +3428,116 @@ function highlightHtml(body: string, term: string): string {
   return formatted.replace(new RegExp(`(${safe})`, 'gi'), '<mark class="bg-warning/40 text-fg rounded px-0.5">$1</mark>')
 }
 
-function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nomeContato = null }: {
+/** Emojis do atalho de reação — os mesmos que o WhatsApp oferece de primeira. */
+const REACOES_RAPIDAS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
+/** Escolher para quem encaminhar. Lista as conversas que o operador já pode
+ *  abrir (contatos e grupos), com busca — é a mesma lista da coluna da
+ *  esquerda, então não inventa um catálogo paralelo de destinos. */
+function ForwardMessageModal({ leadId, msg, onClose }: {
+  leadId: number
+  msg: ChatMessage
+  onClose: () => void
+}) {
+  const [busca, setBusca] = useState('')
+  const [escolhidos, setEscolhidos] = useState<number[]>([])
+  const encaminhar = useForwardMessage(leadId)
+  // `scope: 'all'` não burla permissão: o servidor filtra pelo que o operador
+  // alcança, e ainda revalida cada destino no encaminhamento.
+  const { data, isLoading } = useTickets({ scope: 'all', search: busca || undefined, limit: 30 })
+
+  const destinos = (data?.tickets ?? []).filter((t) => t.id !== leadId)
+  const preview = msg.body?.trim() || (msg.mediaType && msg.mediaType !== 'text' ? `(${msg.mediaType})` : '(sem texto)')
+
+  async function enviar() {
+    try {
+      const r = await encaminhar.mutateAsync({ messageId: msg.id, leadIds: escolhidos })
+      const falhas = r.resultados.filter((x) => !x.ok)
+      if (!falhas.length) {
+        toast(`Encaminhada para ${r.enviados} conversa(s)`, 'success')
+      } else {
+        // Falha parcial é o caso comum (janela de 24h fechada num destino da
+        // API Oficial): dizer quantas foram e por que a outra não foi.
+        toast(`Encaminhada para ${r.enviados}. ${falhas.length} não saiu: ${falhas[0]?.erro ?? ''}`, 'warning')
+      }
+      onClose()
+    } catch (e) {
+      toast((e as Error).message, 'danger')
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onClose() }}
+      title="Encaminhar mensagem"
+      description="A mensagem é reenviada como nova para quem você escolher — sem a identificação do operador na frente."
+      size="md"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!escolhidos.length || encaminhar.isPending}
+            onClick={() => void enviar()}
+          >
+            {encaminhar.isPending ? 'Encaminhando…' : `Encaminhar${escolhidos.length ? ` (${escolhidos.length})` : ''}`}
+          </Button>
+        </>
+      }
+    >
+      <div class="space-y-3">
+        <div class="rounded-md border border-border bg-surface-2 px-3 py-2">
+          <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">Mensagem</div>
+          <div class="mt-0.5 line-clamp-3 text-sm text-fg-muted">{preview}</div>
+        </div>
+
+        <SearchInput
+          value={busca}
+          onChange={setBusca}
+          placeholder="Buscar contato ou grupo…"
+        />
+
+        <div class="max-h-72 overflow-y-auto rounded-md border border-border divide-y divide-border">
+          {isLoading && <div class="p-3 text-xs text-fg-subtle">Carregando conversas…</div>}
+          {!isLoading && destinos.length === 0 && (
+            <div class="p-3 text-xs text-fg-subtle">Nenhuma conversa encontrada.</div>
+          )}
+          {destinos.map((t) => {
+            const marcado = escolhidos.includes(t.id)
+            return (
+              <button
+                key={t.id}
+                type="button"
+                class={cn('flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2', marcado && 'bg-accent/10')}
+                onClick={() => setEscolhidos((a) => marcado ? a.filter((x) => x !== t.id) : [...a, t.id])}
+              >
+                {marcado ? <CheckSquare size={14} class="text-accent" /> : <Square size={14} class="text-fg-subtle" />}
+                {t.isGroup ? <Users size={13} class="text-fg-subtle" /> : <UserIcon size={13} class="text-fg-subtle" />}
+                <span class="min-w-0 flex-1 truncate text-sm text-fg">
+                  {t.nome || t.empresa || t.whatsapp || `#${t.id}`}
+                </span>
+                {t.channel?.label && (
+                  <span class="shrink-0 text-[0.625rem] text-fg-subtle">{t.channel.label}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <p class="text-[0.6875rem] text-fg-subtle">
+          Até 20 conversas por vez. Em número da API Oficial, o destino precisa ter falado com você
+          nas últimas 24 horas — fora disso a Meta só aceita modelo aprovado.
+        </p>
+      </div>
+    </Modal>
+  )
+}
+
+function MessageBubble({
+  msg, quoted, highlight, onReply, pendente = false, nomeContato = null,
+  onEditar, onApagar, onEncaminhar, onReagir, podeEditar = false,
+}: {
   msg: ChatMessage
   quoted?: ChatMessage | null
   highlight?: string
@@ -3099,35 +3546,97 @@ function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nome
   pendente?: boolean
   /** Nome do contato no CRM; em grupo vem null para valer quem falou. */
   nomeContato?: string | null
+  onEditar?: () => void
+  onApagar?: (escopo: 'me' | 'all') => void
+  onEncaminhar?: () => void
+  onReagir?: (emoji: string) => void
+  /** Dentro da janela de 15 min do WhatsApp e é texto nosso. */
+  podeEditar?: boolean
 }) {
   const { prefs, nameStyle } = useConversationPrefs()
+  /** Menu de ações desta bolha. Fica aqui (e não dentro de MessageActions)
+   *  porque o "pressionar e segurar" acontece na bolha. */
+  const [menuAberto, setMenuAberto] = useState(false)
+
+  // Apagada para todos: o WhatsApp mantém o lugar dela na conversa com o aviso,
+  // em vez de sumir — é isso que deixa claro para a equipe que houve mensagem.
+  if (msg.deletedForAll) {
+    return (
+      <div class={cn('flex', msg.fromMe ? 'justify-end' : 'justify-start')}>
+        <div class="max-w-[75%] rounded-lg border border-dashed border-border bg-surface-2 px-3 py-2 text-fg-subtle italic flex items-center gap-1.5"
+          style={{ fontSize: 'var(--conv-msg-font, 0.875rem)' }}>
+          <Ban size={13} />
+          {msg.fromMe ? 'Você apagou esta mensagem' : 'Esta mensagem foi apagada'}
+          <span class="not-italic opacity-70" style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}>
+            {formatHourMinute(msg.timestamp)}
+          </span>
+        </div>
+      </div>
+    )
+  }
   // Áudio no WhatsApp não tem legenda: quando a mensagem é de áudio e mesmo
   // assim tem corpo, esse texto é a transcrição feita pelo servidor.
   const bodyIsTranscript = msg.mediaType === 'audio' && !!msg.body
   const showBody = !!msg.body && (!bodyIsTranscript || prefs.showTranscript)
 
+  // "Pressionar e segurar" para abrir as ações, como no WhatsApp do celular.
+  // 450ms é o ponto em que o gesto já não se confunde com um toque comum nem
+  // obriga a esperar; arrastar (rolar a conversa) cancela.
+  const pressaoRef = useRef<number | null>(null)
+  function iniciarPressao() {
+    if (pendente) return
+    cancelarPressao()
+    pressaoRef.current = window.setTimeout(() => {
+      setMenuAberto(true)
+      // Vibração curta confirma que o gesto pegou — é o retorno que o toque
+      // não tem por não haver cursor.
+      navigator.vibrate?.(10)
+    }, 450)
+  }
+  function cancelarPressao() {
+    if (pressaoRef.current !== null) {
+      clearTimeout(pressaoRef.current)
+      pressaoRef.current = null
+    }
+  }
+  useEffect(() => cancelarPressao, [])
+
+  const acoes = !pendente && (
+    <MessageActions
+      msg={msg}
+      podeEditar={podeEditar}
+      onReply={onReply}
+      onEditar={onEditar}
+      onApagar={onApagar}
+      onEncaminhar={onEncaminhar}
+      onReagir={onReagir}
+      aberto={menuAberto}
+      setAberto={setMenuAberto}
+    />
+  )
+
   return (
     <div class={cn('group flex items-end gap-1', msg.fromMe ? 'justify-end' : 'justify-start', pendente && 'opacity-70')}>
-      {msg.fromMe && onReply && !msg.isInternal && !pendente && (
-        <button
-          type="button"
-          class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={onReply}
-          aria-label="Responder"
-          title="Responder"
-        >
-          <Reply size={12} />
-        </button>
-      )}
+      {msg.fromMe && acoes}
       <div
         class={cn(
-          'max-w-[75%] rounded-lg px-3 py-2',
+          'msg-bubble-pressable max-w-[75%] rounded-lg px-3 py-2',
           msg.fromMe
             ? 'bg-accent text-fg-on-brand rounded-br-sm'
             : 'bg-surface-2 text-fg border border-border rounded-bl-sm',
           msg.isInternal && 'border-warning/40 bg-warning/10 text-fg',
+          // Realce enquanto o menu daquela mensagem está aberto — no celular a
+          // folha cobre parte da tela e sem isso perde-se de vista qual é.
+          menuAberto && 'ring-2 ring-accent/60',
         )}
         style={{ fontSize: 'var(--conv-msg-font, 0.875rem)' }}
+        // Pressionar e segurar (celular) e botão direito (desktop) abrem o
+        // mesmo menu do botão — sem isso, no toque só restaria o botão.
+        onContextMenu={(e: Event) => { if (!pendente) { e.preventDefault(); setMenuAberto(true) } }}
+        onTouchStart={iniciarPressao}
+        onTouchEnd={cancelarPressao}
+        onTouchMove={cancelarPressao}
+        onTouchCancel={cancelarPressao}
       >
         {msg.isInternal && (
           <div
@@ -3143,6 +3652,11 @@ function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nome
             style={{ fontSize: 'var(--conv-meta-font, 0.625rem)', ...nameStyle }}
           >
             {nomeContato || msg.senderName}
+          </div>
+        )}
+        {msg.isForwarded && (
+          <div class="mb-0.5 flex items-center gap-1 italic opacity-70" style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}>
+            <Forward size={10} /> Encaminhada
           </div>
         )}
         {quoted && (
@@ -3178,17 +3692,144 @@ function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nome
           />
         )}
         <div
-          class={cn('mt-1', msg.fromMe ? 'opacity-80' : 'text-fg-subtle')}
+          class={cn('mt-1 flex items-center gap-1', msg.fromMe ? 'opacity-80' : 'text-fg-subtle')}
           style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
         >
           {formatHourMinute(msg.timestamp)}
+          {/* "editada" ao lado da hora, como no WhatsApp: quem lê precisa saber
+              que o texto atual não é o que foi enviado na hora. */}
+          {msg.editedAt && <span title={`Editada às ${formatHourMinute(msg.editedAt)}`}>· editada</span>}
           {msg.fromMe && !msg.isInternal && <AckIcon ack={msg.ack} />}
         </div>
+
+        {/* Reações ficam presas na borda de baixo da bolha, como no app. */}
+        {!!msg.reactions?.length && (
+          <div class="-mb-3 -mt-0.5 flex gap-0.5">
+            {msg.reactions.map((r) => (
+              <span
+                key={`${r.emoji}-${r.fromMe}`}
+                class="rounded-full border border-border bg-surface px-1 py-px leading-none shadow-sm"
+                style={{ fontSize: '0.75rem' }}
+                title={r.fromMe ? 'Sua reação' : `Reação de ${r.senderName ?? 'contato'}`}
+              >
+                {r.emoji}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      {!msg.fromMe && onReply && (
+      {!msg.fromMe && acoes}
+    </div>
+  )
+}
+
+/** Menu de ações da mensagem — o que aparece ao passar o mouse na bolha, no
+ *  mesmo lugar em que o WhatsApp Web põe a setinha. Reagir fica fora do menu,
+ *  em atalho de emoji, porque é a ação mais usada e de um clique só. */
+function MessageActions({
+  msg, podeEditar, onReply, onEditar, onApagar, onEncaminhar, onReagir,
+  aberto, setAberto,
+}: {
+  msg: ChatMessage
+  podeEditar: boolean
+  onReply?: (() => void) | undefined
+  onEditar?: (() => void) | undefined
+  onApagar?: ((escopo: 'me' | 'all') => void) | undefined
+  onEncaminhar?: (() => void) | undefined
+  onReagir?: ((emoji: string) => void) | undefined
+  /** Controlado por fora para o "pressionar e segurar" na bolha abrir o mesmo
+   *  menu que o botão abre. */
+  aberto: boolean
+  setAberto: (v: boolean) => void
+}) {
+  const [mostrarEmojis, setMostrarEmojis] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const toque = usePonteiroGrosso()
+
+  // Fecha ao clicar fora — o menu flutuante vive dentro da lista rolável, então
+  // não dá para depender de um overlay. A folha do celular tem o dela.
+  useEffect(() => {
+    if (toque || (!aberto && !mostrarEmojis)) return
+    function fora(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setAberto(false); setMostrarEmojis(false)
+      }
+    }
+    document.addEventListener('mousedown', fora)
+    return () => document.removeEventListener('mousedown', fora)
+  }, [aberto, mostrarEmojis, toque, setAberto])
+
+  const reagivel = !msg.isInternal && !!onReagir
+  const jaReagi = msg.reactions?.find((r) => r.fromMe)
+
+  const itens = (
+    <>
+      {/* Responder e reagir também entram no menu do celular: lá o atalho de
+          emoji flutuante fica pequeno demais para o dedo. */}
+      {toque && onReply && (
+        <ItemAcao icone={<Reply size={15} />} onClick={() => { setAberto(false); onReply() }}>
+          Responder
+        </ItemAcao>
+      )}
+      {toque && reagivel && (
+        <div class="flex justify-around px-2 py-2">
+          {REACOES_RAPIDAS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              class={cn('min-h-11 min-w-11 rounded-full text-2xl', jaReagi?.emoji === e && 'bg-accent/20')}
+              onClick={() => { onReagir?.(jaReagi?.emoji === e ? '' : e); setAberto(false) }}
+              aria-label={jaReagi?.emoji === e ? 'Remover reação' : `Reagir com ${e}`}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+      {onEncaminhar && (
+        <ItemAcao icone={<Forward size={13} />} onClick={() => { setAberto(false); onEncaminhar() }}>
+          Encaminhar
+        </ItemAcao>
+      )}
+      {!!msg.body && (
+        <ItemAcao
+          icone={<Copy size={13} />}
+          onClick={() => {
+            void navigator.clipboard.writeText(msg.body ?? '')
+            toast('Texto copiado', 'success')
+            setAberto(false)
+          }}
+        >
+          Copiar texto
+        </ItemAcao>
+      )}
+      {podeEditar && onEditar && (
+        <ItemAcao icone={<Pencil size={13} />} onClick={() => { setAberto(false); onEditar() }}>
+          Editar
+        </ItemAcao>
+      )}
+      {onApagar && (
+        <>
+          <div class="my-1 border-t border-border" />
+          <ItemAcao icone={<Trash2 size={13} />} onClick={() => { setAberto(false); onApagar('me') }}>
+            Apagar para mim
+          </ItemAcao>
+          {msg.fromMe && (
+            <ItemAcao icone={<Ban size={13} />} perigo onClick={() => { setAberto(false); onApagar('all') }}>
+              Apagar para todos
+            </ItemAcao>
+          )}
+        </>
+      )}
+    </>
+  )
+
+  return (
+    <div ref={ref} class="relative flex items-center gap-0.5 self-end">
+      {onReply && !toque && (
         <button
           type="button"
-          class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 opacity-0 group-hover:opacity-100 transition-opacity"
+          class="msg-action size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
           onClick={onReply}
           aria-label="Responder"
           title="Responder"
@@ -3196,6 +3837,136 @@ function MessageBubble({ msg, quoted, highlight, onReply, pendente = false, nome
           <Reply size={12} />
         </button>
       )}
+      {reagivel && !toque && (
+        <button
+          type="button"
+          class="msg-action size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
+          data-aberto={mostrarEmojis ? 'true' : 'false'}
+          onClick={() => { setMostrarEmojis((v) => !v); setAberto(false) }}
+          aria-label="Reagir"
+          title="Reagir"
+        >
+          <SmilePlus size={12} />
+        </button>
+      )}
+      <button
+        type="button"
+        class="msg-action size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
+        data-aberto={aberto ? 'true' : 'false'}
+        onClick={() => { setAberto((v) => !v); setMostrarEmojis(false) }}
+        aria-label="Mais ações"
+        title="Mais ações"
+      >
+        <ChevronDown size={13} />
+      </button>
+
+      {mostrarEmojis && (
+        <div class="absolute bottom-7 right-0 z-30 flex gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg">
+          {REACOES_RAPIDAS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              class={cn('rounded-full px-1 hover:bg-surface-3', jaReagi?.emoji === e && 'bg-accent/20')}
+              style={{ fontSize: '1rem' }}
+              // Tocar de novo no emoji que já está lá remove a reação, igual
+              // ao WhatsApp — por isso o vazio.
+              onClick={() => { onReagir?.(jaReagi?.emoji === e ? '' : e); setMostrarEmojis(false) }}
+              title={jaReagi?.emoji === e ? 'Remover reação' : `Reagir com ${e}`}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {aberto && (
+        toque
+          // No dedo o menu sobe de baixo ocupando a largura toda: menu flutuante
+          // de 11rem encosta na borda em tela estreita e sai cortado.
+          ? <FolhaDeAcoes titulo="Mensagem" onFechar={() => setAberto(false)}>{itens}</FolhaDeAcoes>
+          : (
+            <div class="absolute bottom-7 right-0 z-30 min-w-44 rounded-md border border-border bg-surface py-1 shadow-lg text-sm">
+              {itens}
+            </div>
+          )
+      )}
     </div>
+  )
+}
+
+/** Menu em folha inferior — o formato que a pessoa já conhece do celular, com
+ *  fundo escurecido para fechar tocando fora e alvos de 44px. */
+function FolhaDeAcoes({ titulo, onFechar, children }: {
+  titulo: string
+  onFechar: () => void
+  children: ComponentChildren
+}) {
+  // Trava a rolagem do fundo enquanto a folha está aberta, senão o dedo arrasta
+  // a conversa atrás dela.
+  useEffect(() => {
+    const anterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = anterior }
+  }, [])
+
+  return (
+    <div class="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={titulo}>
+      <button
+        type="button"
+        class="absolute inset-0 bg-black/40"
+        aria-label="Fechar"
+        onClick={onFechar}
+      />
+      <div class="relative w-full rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-2xl">
+        <div class="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
+        <div class="px-4 pb-1 text-xs uppercase tracking-wider text-fg-subtle">{titulo}</div>
+        <div class="pb-2">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+/** Ponto que separa os dados do contato no cabeçalho. Existe como componente
+ *  para o separador sumir junto com o dado que ele separa — antes eram "|" e
+ *  "·" soltos no texto, que sobravam pendurados quando o campo vinha vazio. */
+/** Telefone em formato de gente: +55 62 99111-4444 (ou "(62) 99111-4444" na
+ *  versão curta, para painel estreito). Cru, ele é uma fileira de 13 dígitos
+ *  que ninguém lê e que, ao ser cortada, ainda vira um número errado. */
+function formatarTelefone(bruto: string, forma: 'completo' | 'curto' = 'completo'): string {
+  const d = bruto.replace(/\D/g, '')
+  const br = d.startsWith('55') ? d.slice(2) : d
+  const ddd = br.slice(0, 2)
+  const resto = br.length === 11 ? `${br.slice(2, 7)}-${br.slice(7)}`
+    : br.length === 10 ? `${br.slice(2, 6)}-${br.slice(6)}`
+    : ''
+  if (!resto) return bruto
+  return forma === 'curto' ? `(${ddd}) ${resto}` : `+55 ${ddd} ${resto}`
+}
+
+function SeparadorMeta({ class: className }: { class?: string }) {
+  return <span class={cn('shrink-0 text-fg-subtle/60', className)} aria-hidden>·</span>
+}
+
+function ItemAcao({ icone, children, onClick, perigo = false }: {
+  icone: ComponentChildren
+  children: ComponentChildren
+  onClick: () => void
+  perigo?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      class={cn(
+        // min-h-11 = 44px: o mínimo de alvo que o app adota para toque. No
+        // desktop o padding menor mantém o menu compacto.
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
+        '[@media(hover:none)]:min-h-11 [@media(hover:none)]:px-4 [@media(hover:none)]:text-base',
+        perigo ? 'text-danger' : 'text-fg',
+      )}
+      onClick={onClick}
+    >
+      {icone}
+      {children}
+    </button>
   )
 }
