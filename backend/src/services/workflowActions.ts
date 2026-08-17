@@ -812,9 +812,17 @@ export async function dispatchAction(
           // livre a número fora da janela 24h).
           const { createEvolutionProvider } = await import('./whatsappProvider.js')
           const provider = createEvolutionProvider()
+          const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
           for (const phone of generalPhones) {
             try {
-              await provider.sendText(phone, body)
+              const r = await provider.sendText(phone, body)
+              // Destino é grupo acompanhado no painel: a bolha entra na conversa.
+              // Sem isso o aviso existia só no WhatsApp, e quem respondesse
+              // citando ele chegava aqui sem o trecho citado.
+              await registrarSaidaParaGrupo({
+                destino: phone, texto: body, externalId: r?.messageId ?? null,
+                instanceName: (provider as any).instanceName ?? null,
+              })
             } catch (e: any) { console.warn(`[notify_operator] WhatsApp falhou (${phone}):`, e?.message) }
           }
           prisma.messageTemplate.update({ where: { id: config.waTemplateId }, data: { usageCount: { increment: 1 } } }).catch(() => {})

@@ -38,7 +38,12 @@ async function sendWa(leadId: number | null, phone: string, text: string): Promi
     const provider = leadId
       ? (await wp.getProviderForLeadOwner({ id: leadId, whatsapp: phone })).provider
       : wp.createEvolutionProvider()
-    await provider.sendText(phone, text)
+    const r = await provider.sendText(phone, text)
+    const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
+    await registrarSaidaParaGrupo({
+      destino: phone, texto: text, externalId: r?.messageId ?? null,
+      instanceName: (provider as any).instanceName ?? null,
+    })
   } catch (e: any) { console.warn('[scheduling] WhatsApp falhou:', e?.message) }
 }
 

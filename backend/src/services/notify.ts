@@ -183,9 +183,14 @@ async function sendWhatsApp(text: string): Promise<void> {
   // entrega texto livre a número fora da janela 24h.
   const { createEvolutionProvider } = await import('./whatsappProvider.js')
   const provider = createEvolutionProvider()
+  const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
   for (const num of whatsapps) {
     try {
-      await provider.sendText(num, text)
+      const r = await provider.sendText(num, text)
+      await registrarSaidaParaGrupo({
+        destino: num, texto: text, externalId: r?.messageId ?? null,
+        instanceName: (provider as any).instanceName ?? null,
+      })
     } catch (err: any) {
       console.error(`WhatsApp notify error (${num}): ${err.message}`)
     }

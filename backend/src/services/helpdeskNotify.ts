@@ -41,7 +41,13 @@ async function waToOperator(phone: string | null, text: string): Promise<void> {
   try {
     // Aviso interno ao operador → Evolution (texto livre a número interno).
     const wp = await import('./whatsappProvider.js')
-    await wp.createEvolutionProvider().sendText(phone, text)
+    const provider = wp.createEvolutionProvider()
+    const r = await provider.sendText(phone, text)
+    const { registrarSaidaParaGrupo } = await import('./groupOutboundLog.js')
+    await registrarSaidaParaGrupo({
+      destino: phone, texto: text, externalId: r?.messageId ?? null,
+      instanceName: (provider as any).instanceName ?? null,
+    })
   } catch (e) {
     console.warn('[helpdesk-notify] WhatsApp falhou:', (e as Error).message)
   }
