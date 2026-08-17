@@ -124,7 +124,7 @@ import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@
 import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { LeadFunnelCard } from '@/components/LeadFunnelCard'
-import { useTabLabels } from '@/hooks/useTabLabels'
+import { useTabLabels, useConversationTheme } from '@/hooks/useTabLabels'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -290,6 +290,8 @@ function ConversationsScreen() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
   // Nomes das abas definidos pela empresa (Preferências › Nomes das abas).
   const { labels } = useTabLabels()
+  // Tema escolhido pela empresa (Preferências › Tema). Vale só neste módulo.
+  const { theme: temaConversas } = useConversationTheme()
   const [scope, setScope] = useState<Scope>('mine')
   const [search, setSearch] = useState('')
   // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
@@ -438,7 +440,13 @@ function ConversationsScreen() {
         </>
       }
     >
-      <div class="flex gap-3 h-[calc(100dvh-12rem)] min-h-[36rem]" style={cssVars}>
+      <div
+        class="flex gap-3 h-[calc(100dvh-12rem)] min-h-[36rem]"
+        style={cssVars}
+        // O tema redefine os tokens do design system SÓ aqui dentro: o menu, os
+        // relatórios e o resto do painel seguem com o visual do sistema.
+        data-conv-theme={temaConversas === 'default' ? undefined : temaConversas}
+      >
         {/* Lista de tickets */}
         <aside class={cn('w-full sm:w-80 lg:w-96 xl:w-[26rem] shrink-0 flex flex-col rounded-lg border border-border bg-surface-2', selected !== null && 'hidden sm:flex')}>
           <div class="p-3 space-y-2 border-b border-border">
@@ -2165,7 +2173,9 @@ function ChatPanel({
       <div
         ref={scrollRef}
         class={cn(
-          'flex-1 overflow-y-auto p-4 space-y-2 bg-surface relative',
+          // `conv-chat-surface` recebe o papel de parede quando há tema; sem
+          // tema, o bg-surface de sempre continua valendo.
+          'conv-chat-surface flex-1 overflow-y-auto p-4 space-y-2 bg-surface relative',
           arrastando && 'outline outline-2 outline-dashed outline-accent -outline-offset-4',
         )}
         onDragOver={(e) => { e.preventDefault(); if (!arrastando) setArrastando(true) }}
@@ -3782,8 +3792,8 @@ function MessageBubble({
         class={cn(
           'msg-bubble-pressable max-w-[75%] rounded-lg px-3 py-2',
           msg.fromMe
-            ? 'bg-accent text-fg-on-brand rounded-br-sm'
-            : 'bg-surface-2 text-fg border border-border rounded-bl-sm',
+            ? 'conv-bubble-out bg-accent text-fg-on-brand rounded-br-sm'
+            : 'conv-bubble-in bg-surface-2 text-fg border border-border rounded-bl-sm',
           msg.isInternal && 'border-warning/40 bg-warning/10 text-fg',
           // Realce enquanto o menu daquela mensagem está aberto — no celular a
           // folha cobre parte da tela e sem isso perde-se de vista qual é.

@@ -49,3 +49,48 @@ export function useUpdateTabLabels() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conversation-tab-labels'] }),
   })
 }
+
+// ── Tema do módulo ─────────────────────────────────────────────────────────
+
+export const TEMAS = [
+  {
+    id: 'default' as const,
+    nome: 'Padrão do sistema',
+    resumo: 'O mesmo visual do restante do painel.',
+    amostra: { fundo: 'var(--color-surface)', saida: 'var(--color-accent)', entrada: 'var(--color-surface-2)' },
+  },
+  {
+    id: 'wa-dark' as const,
+    nome: 'WhatsApp escuro',
+    resumo: 'As cores do WhatsApp Web no modo escuro.',
+    amostra: { fundo: '#0b141a', saida: '#005c4b', entrada: '#202c33' },
+  },
+  {
+    id: 'wa-light' as const,
+    nome: 'WhatsApp claro',
+    resumo: 'A versão clara, com texto mais escuro para leitura o dia inteiro.',
+    amostra: { fundo: '#efeae2', saida: '#d9fdd3', entrada: '#ffffff' },
+  },
+]
+
+export type TemaConversas = (typeof TEMAS)[number]['id']
+
+export function useConversationTheme() {
+  const q = useQuery({
+    queryKey: ['conversation-theme'],
+    queryFn: () => api.get<{ theme: TemaConversas }>('/atendimento/theme'),
+    staleTime: 10 * 60_000,
+  })
+  // Enquanto carrega vale o padrão: a tela nunca pisca uma cor que não é a da
+  // empresa e depois volta.
+  return { theme: q.data?.theme ?? 'default', carregando: q.isLoading }
+}
+
+export function useUpdateConversationTheme() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (theme: TemaConversas) =>
+      api.put<{ ok: true; theme: TemaConversas }>('/atendimento/theme', { theme }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conversation-theme'] }),
+  })
+}

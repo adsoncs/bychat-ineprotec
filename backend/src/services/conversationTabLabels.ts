@@ -55,6 +55,39 @@ export function sanear(bruto: unknown): TabLabels {
   return { scope, bucket }
 }
 
+// ── Tema do módulo ─────────────────────────────────────────────────────────
+
+export const TEMA_KEY = 'conversations.theme'
+/** `default` = o visual do próprio sistema (nada muda). */
+export const TEMAS = ['default', 'wa-dark', 'wa-light'] as const
+export type TemaConversas = (typeof TEMAS)[number]
+
+export async function lerTema(): Promise<TemaConversas> {
+  const row = await prisma.setting.findUnique({ where: { key: TEMA_KEY } }).catch(() => null)
+  const bruto = typeof row?.value === 'string'
+    ? row.value.replace(/^"|"$/g, '')
+    : (row?.value as string | undefined)
+  return (TEMAS as readonly string[]).includes(bruto ?? '') ? (bruto as TemaConversas) : 'default'
+}
+
+export async function gravarTema(bruto: unknown): Promise<TemaConversas> {
+  const tema: TemaConversas = (TEMAS as readonly string[]).includes(String(bruto))
+    ? (String(bruto) as TemaConversas)
+    : 'default'
+  await prisma.setting.upsert({
+    where: { key: TEMA_KEY },
+    update: { value: tema as never },
+    create: {
+      key: TEMA_KEY,
+      value: tema as never,
+      label: 'Tema do Conversas',
+      grp: 'conversations',
+      fieldType: 'text',
+    },
+  })
+  return tema
+}
+
 export async function lerTabLabels(): Promise<TabLabels> {
   const row = await prisma.setting.findUnique({ where: { key: TAB_LABELS_KEY } }).catch(() => null)
   if (!row?.value) return PADRAO

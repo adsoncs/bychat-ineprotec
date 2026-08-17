@@ -8,6 +8,7 @@
 @import 'tailwindcss';
 @import './tokens.css';
 @import './shell.css';
+@import './conversation-themes.css';
 
 /**
  * Tailwind v4 — registrar tokens semânticos como theme.

@@ -1,0 +1,121 @@
+/**
+ * Temas do módulo Conversas.
+ *
+ * A tela de atendimento é onde o operador passa o dia inteiro, e quem vem do
+ * WhatsApp Web sente cada diferença de cor como atrito. Aqui a empresa escolhe
+ * entre o visual do sistema e dois que imitam o WhatsApp — e a escolha vale
+ * para a equipe toda, porque um time que olha a mesma tela precisa falar da
+ * mesma tela.
+ *
+ * Tudo acontece por variável: o `data-conv-theme` no contêiner do módulo
+ * redefine os tokens do design system SÓ ali dentro. Nenhum componente sabe que
+ * existe tema — por isso o padrão continua idêntico ao que sempre foi, e o
+ * resto do painel (menu, relatórios) não muda de cor junto.
+ *
+ * Sobre "exatamente igual": as cores e a estrutura são as do WhatsApp Web. O
+ * papel de parede é uma textura nossa, discreta — a arte de doodles do
+ * aplicativo é da Meta e não seria honesto copiá-la.
+ */
+
+/* ── Tokens próprios do módulo ──────────────────────────────────────────────
+ * O tema padrão não define nada: cada uso traz o fallback com o valor de hoje,
+ * então "padrão" é literalmente o que já existia.
+ */
+
+/* ── WhatsApp escuro ─────────────────────────────────────────────────────── */
+[data-conv-theme='wa-dark'] {
+  color-scheme: dark;
+
+  --color-surface: #111b21;
+  --color-surface-2: #202c33;
+  --color-surface-3: #2a3942;
+  --color-surface-inset: #0b141a;
+
+  --color-fg: #e9edef;
+  --color-fg-muted: #8696a0;
+  --color-fg-subtle: #667781;
+  --color-fg-on-brand: #e9edef;
+
+  --color-border: rgb(134 150 160 / 0.15);
+  --color-border-strong: rgb(134 150 160 / 0.3);
+
+  --color-accent: #00a884;
+  --color-accent-hover: #06cf9c;
+  --color-accent-active: #008069;
+
+  /* Fundo da conversa: cor do WhatsApp + textura própria, bem discreta. */
+  --conv-chat-bg: #0b141a;
+  --conv-chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='%23e9edef' fill-opacity='0.028'%3E%3Ccircle cx='14' cy='14' r='2.5'/%3E%3Ccircle cx='42' cy='42' r='2.5'/%3E%3Cpath d='M28 6l3 6-3 6-3-6z'/%3E%3Cpath d='M6 34h8v2H6zm36 0h8v2h-8z'/%3E%3C/g%3E%3C/svg%3E");
+
+  --conv-bubble-out: #005c4b;
+  --conv-bubble-out-fg: #e9edef;
+  --conv-bubble-in: #202c33;
+  --conv-bubble-in-fg: #e9edef;
+  --conv-bubble-border: transparent;
+}
+
+/* ── WhatsApp claro ──────────────────────────────────────────────────────── */
+[data-conv-theme='wa-light'] {
+  color-scheme: light;
+
+  --color-surface: #ffffff;
+  --color-surface-2: #f7f8fa;
+  --color-surface-3: #eceff1;
+  --color-surface-inset: #f0f2f5;
+
+  /* Texto mais escuro que o do aplicativo: #3b4a54 no branco fica em 7:1, e a
+     tela é lida oito horas por dia. */
+  --color-fg: #111b21;
+  --color-fg-muted: #54656f;
+  --color-fg-subtle: #667781;
+  --color-fg-on-brand: #ffffff;
+
+  --color-border: rgb(17 27 33 / 0.1);
+  --color-border-strong: rgb(17 27 33 / 0.18);
+
+  --color-accent: #008069;
+  --color-accent-hover: #00a884;
+  --color-accent-active: #006d5b;
+
+  --conv-chat-bg: #efeae2;
+  --conv-chat-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='%23111b21' fill-opacity='0.032'%3E%3Ccircle cx='14' cy='14' r='2.5'/%3E%3Ccircle cx='42' cy='42' r='2.5'/%3E%3Cpath d='M28 6l3 6-3 6-3-6z'/%3E%3Cpath d='M6 34h8v2H6zm36 0h8v2h-8z'/%3E%3C/g%3E%3C/svg%3E");
+
+  --conv-bubble-out: #d9fdd3;
+  --conv-bubble-out-fg: #111b21;
+  --conv-bubble-in: #ffffff;
+  --conv-bubble-in-fg: #111b21;
+  --conv-bubble-border: rgb(17 27 33 / 0.06);
+}
+
+/* ── Aplicação ──────────────────────────────────────────────────────────────
+ * Só três regras, e todas com fallback: sem tema, nada muda.
+ */
+
+/* Papel de parede da área de mensagens. */
+[data-conv-theme] .conv-chat-surface {
+  background-color: var(--conv-chat-bg, var(--color-surface));
+  background-image: var(--conv-chat-pattern, none);
+  background-repeat: repeat;
+}
+
+/* Bolha enviada — no WhatsApp ela não usa a cor de botão, tem a sua. */
+[data-conv-theme] .conv-bubble-out {
+  background-color: var(--conv-bubble-out, var(--color-accent));
+  color: var(--conv-bubble-out-fg, var(--color-fg-on-brand));
+}
+
+/* Bolha recebida. */
+[data-conv-theme] .conv-bubble-in {
+  background-color: var(--conv-bubble-in, var(--color-surface-2));
+  color: var(--conv-bubble-in-fg, var(--color-fg));
+  border-color: var(--conv-bubble-border, var(--color-border));
+}
+
+/* A sombra sutil que o WhatsApp usa para descolar a bolha do papel de parede.
+   Só nos temas dele: no padrão, a borda do design system já faz esse papel. */
+[data-conv-theme='wa-dark'] .conv-bubble-out,
+[data-conv-theme='wa-dark'] .conv-bubble-in,
+[data-conv-theme='wa-light'] .conv-bubble-out,
+[data-conv-theme='wa-light'] .conv-bubble-in {
+  box-shadow: 0 1px 0.5px rgb(11 20 26 / 0.13);
+}

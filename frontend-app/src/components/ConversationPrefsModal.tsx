@@ -13,7 +13,10 @@ import { toast } from '@/lib/toast'
 import { Section, Segmented, Switch } from '@/components/ui/PrefControls'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
-import { CAIXAS, ESCOPOS, LABELS_PADRAO, useTabLabels, useUpdateTabLabels, type TabLabels } from '@/hooks/useTabLabels'
+import {
+  CAIXAS, ESCOPOS, LABELS_PADRAO, TEMAS, useTabLabels, useUpdateTabLabels,
+  useConversationTheme, useUpdateConversationTheme, type TabLabels, type TemaConversas,
+} from '@/hooks/useTabLabels'
 import { Input } from '@/components/ui/Input'
 import { useUserStore } from '@/stores/user'
 import {
@@ -173,6 +176,8 @@ export function ConversationPrefsModal({
           />
         </Section>
 
+        {isAdmin && <TemaDoConversas />}
+
         {isAdmin && <NomesDasAbas />}
 
         <Section title="Áudio">
@@ -209,6 +214,84 @@ export function ConversationPrefsModal({
         </Section>
       </div>
     </Modal>
+  )
+}
+
+// ── Tema do módulo (toda a equipe) ─────────────────────────────────────
+
+/**
+ * O visual da tela de atendimento.
+ *
+ * Quem vem do WhatsApp Web sente cada diferença de cor como atrito — e é nesta
+ * tela que o operador passa o dia. A escolha vale para a equipe inteira: um
+ * time que combina "clica no verde ali em cima" precisa estar olhando a mesma
+ * tela.
+ *
+ * Só o módulo Conversas muda; o resto do painel segue o design do sistema.
+ */
+function TemaDoConversas() {
+  const { theme } = useConversationTheme()
+  const salvar = useUpdateConversationTheme()
+
+  function escolher(id: TemaConversas) {
+    if (id === theme || salvar.isPending) return
+    salvar.mutate(id, {
+      onSuccess: () => toast('Tema do Conversas atualizado para toda a equipe', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  return (
+    <Section
+      title="Tema do Conversas"
+      hint="Vale para TODA a equipe e só para esta tela — o restante do painel mantém o visual do sistema."
+    >
+      <div class="rounded-md border border-border bg-surface-3/50 p-3">
+        <div class="mb-2 flex items-center gap-2">
+          <span class="rounded bg-accent/10 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wider text-accent">
+            Toda a equipe
+          </span>
+          {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
+        </div>
+
+        <div class="grid gap-2 sm:grid-cols-3">
+          {TEMAS.map((t) => {
+            const ativo = t.id === theme
+            return (
+              <button
+                key={t.id}
+                type="button"
+                aria-pressed={ativo}
+                disabled={salvar.isPending}
+                onClick={() => escolher(t.id)}
+                class={cn(
+                  'cursor-pointer rounded-md border p-2 text-left transition-colors duration-200',
+                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+                  ativo ? 'border-accent bg-accent/5' : 'border-border bg-surface hover:border-accent/60',
+                  salvar.isPending && 'cursor-not-allowed opacity-60',
+                )}
+              >
+                {/* Prévia: papel de parede, bolha recebida e bolha enviada — os
+                    três elementos que definem a cara da conversa. */}
+                <span
+                  class="mb-1.5 flex h-12 w-full flex-col justify-center gap-1 rounded border border-border px-1.5"
+                  style={{ background: t.amostra.fundo }}
+                  aria-hidden="true"
+                >
+                  <span class="h-2.5 w-3/5 rounded-sm" style={{ background: t.amostra.entrada }} />
+                  <span class="h-2.5 w-2/5 self-end rounded-sm" style={{ background: t.amostra.saida }} />
+                </span>
+                <span class="flex items-center gap-1 text-xs font-medium text-fg">
+                  {t.nome}
+                  {ativo && <span class="text-[0.625rem] font-normal text-accent">· em uso</span>}
+                </span>
+                <span class="mt-0.5 block text-[0.6875rem] leading-snug text-fg-subtle">{t.resumo}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </Section>
   )
 }
 

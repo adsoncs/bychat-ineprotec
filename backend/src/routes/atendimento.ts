@@ -1799,6 +1799,19 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     return { ok: true, labels: await gravarTabLabels(req.body) }
   })
 
+  // ── Tema do módulo Conversas ───────────────────────────────────────────────
+  // Mesma divisão dos nomes das abas: qualquer operador lê (a tela precisa
+  // pintar), só administrador escolhe — o visual vale para a equipe inteira.
+  app.get('/api/atendimento/theme', { preHandler: authMiddleware }, async () => {
+    const { lerTema, TEMAS } = await import('../services/conversationTabLabels.js')
+    return { theme: await lerTema(), disponiveis: TEMAS }
+  })
+
+  app.put('/api/atendimento/theme', { preHandler: adminStrict }, async (req) => {
+    const { gravarTema } = await import('../services/conversationTabLabels.js')
+    return { ok: true, theme: await gravarTema((req.body as any)?.theme) }
+  })
+
   // ── GET /api/atendimento/tickets/:leadId/funnel — funil e etapas do lead ──
   //
   // O operador está na conversa e precisa mover o lead sem sair dela: ir até o
