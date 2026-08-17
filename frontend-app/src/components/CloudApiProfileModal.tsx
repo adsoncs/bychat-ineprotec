@@ -309,7 +309,7 @@ export function CloudApiProfileModal({
               <Select
                 label="Setor"
                 value={setor}
-                hint={preenchidos?.vertical ? 'A Meta não permite voltar para "Não informado".' : undefined}
+                {...(preenchidos?.vertical ? { hint: 'A Meta não permite voltar para "Não informado".' } : {})}
                 onChange={(e) => setSetor((e.target as HTMLSelectElement).value)}
               >
                 <option value="">Não informado</option>

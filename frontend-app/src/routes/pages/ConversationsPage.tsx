@@ -58,6 +58,9 @@ import {
   Copy,
   SmilePlus,
   MailQuestion,
+  CornerUpLeft,
+  Pin,
+  PinOff,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -83,6 +86,7 @@ import {
   useForwardMessage,
   useReactMessage,
   useMarkTicketUnread,
+  useTogglePin,
   inferMediaType,
   type Bucket,
   type Scope,
@@ -283,6 +287,8 @@ function ConversationsScreen() {
   const qcConversas = useQueryClient()
   // Desfaz a leitura acidental: devolve a conversa para a fila de não lidas.
   const marcarNaoLida = useMarkTicketUnread()
+  // Fixar conversa no topo — vale só para quem fixou.
+  const alternarFixado = useTogglePin()
 
   const ticketsQ = useTickets({
     bucket, scope,
@@ -407,7 +413,7 @@ function ConversationsScreen() {
           <div class="p-3 space-y-2 border-b border-border">
             <div class="flex items-center gap-2">
               <div class="flex-1 min-w-0">
-                <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nome, empresa, telefone…" />
+                <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nome, empresa, telefone ou texto das mensagens…" />
               </div>
               <button
                 type="button"
@@ -595,6 +601,12 @@ function ConversationsScreen() {
                     selected={selectedIds.has(t.id)}
                     onToggleSelect={() => toggleSelect(t.id)}
                     onPromote={!t.qualifiedAt && !t.isGroup ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
+                    onAlternarFixado={() => {
+                      alternarFixado.mutate({ leadId: t.id, pinned: !!t.pinned }, {
+                        onSuccess: () => toast(t.pinned ? 'Conversa desafixada' : 'Conversa fixada no topo', 'success'),
+                        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                      })
+                    }}
                     onMarcarNaoLida={() => {
                       marcarNaoLida.mutate(t.id, {
                         onSuccess: (r) => {
@@ -773,6 +785,7 @@ function TicketRow({
   onToggleSelect,
   onPromote,
   onMarcarNaoLida,
+  onAlternarFixado,
 }: {
   ticket: Ticket
   active: boolean
@@ -782,6 +795,7 @@ function TicketRow({
   onToggleSelect?: (() => void) | undefined
   onPromote?: (() => void) | undefined
   onMarcarNaoLida?: (() => void) | undefined
+  onAlternarFixado?: (() => void) | undefined
 }) {
   const { prefs } = useConversationPrefs()
   const name = ticket.nome ?? ticket.whatsapp ?? 'Sem nome'
@@ -791,6 +805,7 @@ function TicketRow({
   const preview = lastBody ? previewPrefix + lastBody : 'Sem mensagens'
   const isQualified = !!ticket.qualifiedAt
   const showStar = !isQualified && !!onPromote
+  const fixada = !!ticket.pinned
   const compact = prefs.density === 'compact'
 
   return (
@@ -835,6 +850,9 @@ function TicketRow({
                 class="text-fg truncate inline-flex items-center gap-1.5 min-w-0"
                 style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
               >
+                {/* O alfinete explica por que esta conversa está fora da
+                    ordem por data — sem ele, o topo parece bagunçado. */}
+                {fixada && <Pin size={11} class="shrink-0 text-accent" aria-label="Conversa fixada" />}
                 <ChannelIcon source={ticket.source} />
                 <span class="truncate">
                   {name}
@@ -903,6 +921,27 @@ function TicketRow({
           </div>
         </div>
       </button>
+      {onAlternarFixado && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAlternarFixado() }}
+          class={cn(
+            'absolute right-2 top-2 size-7 rounded-md grid place-items-center border transition-opacity',
+            // Só no hover, como os outros: quem indica o estado o tempo todo é
+            // o alfinete ao lado do nome. Um botão fixo aqui cobriria a hora da
+            // última mensagem, que vive neste canto.
+            'opacity-0 group-hover:opacity-100 focus:opacity-100',
+            fixada
+              ? 'border-accent/40 bg-accent/15 text-accent hover:bg-accent hover:text-fg-on-brand'
+              : 'border-border bg-surface-2 text-fg-muted hover:bg-accent hover:text-fg-on-brand hover:border-accent',
+          )}
+          title={fixada ? 'Desafixar conversa' : 'Fixar conversa no topo'}
+          aria-label={fixada ? 'Desafixar conversa' : 'Fixar conversa no topo'}
+          aria-pressed={fixada}
+        >
+          {fixada ? <PinOff size={13} /> : <Pin size={13} />}
+        </button>
+      )}
       {onMarcarNaoLida && ticket.unreadMessages === 0 && (
         <button
           type="button"
@@ -910,7 +949,7 @@ function TicketRow({
           class={cn(
             'absolute size-7 rounded-md grid place-items-center bg-surface-2 border border-border text-fg-muted',
             'opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-fg-on-brand hover:border-accent transition-opacity focus:opacity-100',
-            showStar ? 'right-10 top-2' : 'right-2 top-2',
+            onAlternarFixado ? (showStar ? 'right-[4.5rem] top-2' : 'right-10 top-2') : (showStar ? 'right-10 top-2' : 'right-2 top-2'),
           )}
           title="Marcar como não lida"
           aria-label="Marcar como não lida"
@@ -922,7 +961,10 @@ function TicketRow({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onPromote?.() }}
-          class="absolute right-2 top-2 size-7 rounded-md grid place-items-center bg-surface-2 border border-border text-fg-muted opacity-0 group-hover:opacity-100 hover:bg-success hover:text-white hover:border-success transition-opacity focus:opacity-100"
+          class={cn(
+            'absolute top-2 size-7 rounded-md grid place-items-center bg-surface-2 border border-border text-fg-muted opacity-0 group-hover:opacity-100 hover:bg-success hover:text-white hover:border-success transition-opacity focus:opacity-100',
+            onAlternarFixado ? 'right-10' : 'right-2',
+          )}
           title="Promover a Lead"
           aria-label="Promover a Lead"
         >
@@ -991,6 +1033,21 @@ function ChatPanel({
   const [encaminhando, setEncaminhando] = useState<ChatMessage | null>(null)
   /** Confirmação do apagar para todos: é irreversível e sai do nosso lado. */
   const [apagarAlvo, setApagarAlvo] = useState<{ msg: ChatMessage; escopo: 'me' | 'all' } | null>(null)
+  /** Mensagem destacada por um instante depois de pular para ela. */
+  const [destacada, setDestacada] = useState<number | null>(null)
+
+  /** Tocar na citação leva à mensagem original, como no WhatsApp. Se ela ainda
+   *  não foi carregada (conversa longa), avisa em vez de não fazer nada. */
+  function irParaMensagem(id: number) {
+    const el = document.getElementById(`msg-${id}`)
+    if (!el) {
+      toast('A mensagem citada é mais antiga que as carregadas aqui. Role para cima para carregá-la.', 'info')
+      return
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setDestacada(id)
+    window.setTimeout(() => setDestacada((atual) => (atual === id ? null : atual)), 1800)
+  }
   // Menu "⋯" do cabeçalho — guarda as ações de exceção que antes ficavam
   // soltas na barra e a faziam quebrar em várias linhas.
   const [menuAcoesOpen, setMenuAcoesOpen] = useState(false)
@@ -1503,7 +1560,7 @@ function ChatPanel({
 
   function snoozeUntilDate(date: Date) {
     snooze.mutate({ leadId, until: date.toISOString() }, {
-      onSuccess: () => { setSnoozeMenuOpen(false); toast(`Adormecido até ${formatSnoozeLabel(date.toISOString())}`, 'success') },
+      onSuccess: () => { setMenuAcoesOpen(false); toast(`Adormecido até ${formatSnoozeLabel(date.toISOString())}`, 'success') },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -2070,7 +2127,7 @@ function ChatPanel({
             const showDivider = !prev || dayKey(m.timestamp) !== dayKey(prev.timestamp)
             const quoted = m.quotedMsgId != null ? byId.get(m.quotedMsgId) ?? null : null
             return (
-              <div key={m.id}>
+              <div key={m.id} id={`msg-${m.id}`} class={cn(destacada === m.id && 'rounded-lg ring-2 ring-accent/70 transition-[box-shadow] duration-500')}>
                 {showDivider && (
                   <div class="flex items-center justify-center my-2">
                     <span class="text-[0.625rem] uppercase tracking-wider px-2 py-0.5 rounded bg-surface-2 text-fg-subtle border border-border">
@@ -2098,6 +2155,7 @@ function ChatPanel({
                       onError: (e: unknown) => toast((e as Error).message, 'danger'),
                     })
                   }}
+                  onIrParaCitada={irParaMensagem}
                   // Em conversa de uma pessoa só, o rótulo é o nome do contato
                   // no CRM — a mensagem guarda o apelido que ele usa no WhatsApp
                   // dele, e não é isso que a equipe deve ver. Em grupo o rótulo
@@ -3536,7 +3594,7 @@ function ForwardMessageModal({ leadId, msg, onClose }: {
 
 function MessageBubble({
   msg, quoted, highlight, onReply, pendente = false, nomeContato = null,
-  onEditar, onApagar, onEncaminhar, onReagir, podeEditar = false,
+  onEditar, onApagar, onEncaminhar, onReagir, podeEditar = false, onIrParaCitada,
 }: {
   msg: ChatMessage
   quoted?: ChatMessage | null
@@ -3552,11 +3610,26 @@ function MessageBubble({
   onReagir?: (emoji: string) => void
   /** Dentro da janela de 15 min do WhatsApp e é texto nosso. */
   podeEditar?: boolean
+  /** Rola até a mensagem citada e a destaca. */
+  onIrParaCitada?: (id: number) => void
 }) {
   const { prefs, nameStyle } = useConversationPrefs()
   /** Menu de ações desta bolha. Fica aqui (e não dentro de MessageActions)
    *  porque o "pressionar e segurar" acontece na bolha. */
   const [menuAberto, setMenuAberto] = useState(false)
+
+  // Preferimos o resumo do servidor: ele conhece a mensagem citada mesmo que
+  // ela seja antiga e não esteja carregada na tela.
+  const citado = msg.quoted ?? (quoted
+    ? {
+        id: quoted.id,
+        body: quoted.body,
+        fromMe: quoted.fromMe,
+        senderName: quoted.senderName,
+        mediaType: quoted.mediaType,
+        deleted: !!quoted.deletedForAll,
+      }
+    : null)
 
   // Apagada para todos: o WhatsApp mantém o lugar dela na conversa com o aviso,
   // em vez de sumir — é isso que deixa claro para a equipe que houve mensagem.
@@ -3659,21 +3732,35 @@ function MessageBubble({
             <Forward size={10} /> Encaminhada
           </div>
         )}
-        {quoted && (
-          <div
+        {/* Trecho citado. Vale para as DUAS direções: quando o cliente responde
+            tocando em "responder" — inclusive em grupo, onde sem isso não dá
+            para saber a quem ele falou — e quando fomos nós. O resumo vem do
+            servidor (`msg.quoted`); o lookup local serve às mensagens ainda em
+            voo, que ainda não voltaram da API. */}
+        {citado && (
+          <button
+            type="button"
             class={cn(
-              'mb-1 px-2 py-1 rounded border-l-2 truncate',
+              'mb-1 flex w-full gap-1.5 rounded border-l-2 px-2 py-1 text-left',
               msg.fromMe ? 'bg-black/15 border-white/60' : 'bg-surface-3 border-accent',
+              onIrParaCitada && 'hover:brightness-110',
             )}
             style={{ fontSize: 'calc(var(--conv-meta-font, 0.625rem) + 0.0625rem)' }}
+            onClick={() => onIrParaCitada?.(citado.id)}
+            title={onIrParaCitada ? 'Ir para a mensagem citada' : undefined}
           >
-            <div class="font-medium opacity-80">
-              {quoted.fromMe ? 'Você' : (quoted.senderName ?? 'Mensagem')}
-            </div>
-            <div class="opacity-90 truncate">
-              {quoted.body || (quoted.mediaType && quoted.mediaType !== 'text' ? `(${quoted.mediaType})` : '')}
-            </div>
-          </div>
+            <CornerUpLeft size={11} class="mt-0.5 shrink-0 opacity-70" />
+            <span class="min-w-0 flex-1">
+              <span class="block font-medium opacity-80">
+                {citado.fromMe ? 'Você' : (citado.senderName ?? 'Contato')}
+              </span>
+              <span class="block truncate opacity-90">
+                {citado.deleted
+                  ? 'mensagem apagada'
+                  : citado.body || (citado.mediaType && citado.mediaType !== 'text' ? `(${citado.mediaType})` : '')}
+              </span>
+            </span>
+          </button>
         )}
         {msg.mediaType && msg.mediaType !== 'text' && msg.mediaUrl && (
           <MediaContent type={msg.mediaType} url={msg.mediaUrl} name={msg.mediaName} />
@@ -3703,8 +3790,10 @@ function MessageBubble({
         </div>
 
         {/* Reações ficam presas na borda de baixo da bolha, como no app. */}
+        {/* Reações pendem da borda inferior DIREITA: à esquerda cobriam a hora
+            e o recibo de leitura, que ficam nesse canto da bolha. */}
         {!!msg.reactions?.length && (
-          <div class="-mb-3 -mt-0.5 flex gap-0.5">
+          <div class="-mb-3 -mt-0.5 flex justify-end gap-0.5">
             {msg.reactions.map((r) => (
               <span
                 key={`${r.emoji}-${r.fromMe}`}
@@ -3853,7 +3942,7 @@ function MessageActions({
         type="button"
         class="msg-action size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
         data-aberto={aberto ? 'true' : 'false'}
-        onClick={() => { setAberto((v) => !v); setMostrarEmojis(false) }}
+        onClick={() => { setAberto(!aberto); setMostrarEmojis(false) }}
         aria-label="Mais ações"
         title="Mais ações"
       >
