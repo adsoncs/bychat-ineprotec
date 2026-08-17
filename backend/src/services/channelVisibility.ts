@@ -1,0 +1,109 @@
+// src/services/channelVisibility.ts
+//
+// Quem enxerga as conversas de cada número.
+//
+// A permissão do painel sempre foi do LEAD: quem é dono dele, ou o setor dele,
+// vê a conversa — não importa por qual linha ela aconteceu. Isso basta enquanto
+// todos os números são da empresa. Deixa de bastar no instante em que alguém
+// conecta a linha PESSOAL: no kobogo foram 11.195 mensagens de 210 contatos
+// visíveis para a gerência inteira, porque os leads entraram sem dono num setor
+// compartilhado.
+//
+// Aqui o número declara quem pode acompanhá-lo. Regras, na ordem:
+//
+//   1. número `all` (padrão) — nada muda, vale a permissão do lead;
+//   2. número `restricted` — só o SUPERADMIN, o agente dono e os observadores
+//      escolhidos veem qualquer conversa que tenha passado por ele.
+//
+// "Qualquer conversa que tenha passado por ele" é proposital, e não "conversa
+// que hoje pertence a ele": se o contato falou uma vez pela linha pessoal e
+// depois pela corporativa, abrir a conversa mostraria o histórico inteiro —
+// esconder só metade seria uma proteção que não protege.
+
+import { prisma } from '../lib/prisma.js'
+
+export interface CanaisOcultos {
+  /** `instanceName` das instâncias Evolution que este usuário não pode ver. */
+  instancias: string[]
+  /** ids das conexões Cloud API que este usuário não pode ver. */
+  conexoes: number[]
+}
+
+const VAZIO: CanaisOcultos = { instancias: [], conexoes: [] }
+
+/**
+ * Os canais reservados aos quais o usuário NÃO tem acesso.
+ *
+ * Devolve vazio para superadmin e quando não há canal reservado nenhum — que é
+ * o caso de toda instalação que nunca mexeu nisso.
+ */
+export async function canaisOcultosPara(userId: number, role: string): Promise<CanaisOcultos> {
+  // Superadmin administra a instalação: esconder dele seria esconder de quem
+  // configura a própria regra.
+  if (role === 'SUPERADMIN') return VAZIO
+
+  const [instancias, conexoes] = await Promise.all([
+    prisma.whatsAppInstance.findMany({
+      where: { visibility: 'restricted' },
+      select: { instanceName: true, ownerUserId: true, viewers: { select: { userId: true } } },
+    }),
+    prisma.cloudApiConnection.findMany({
+      where: { visibility: 'restricted' },
+      select: { id: true, ownerUserId: true, viewers: { select: { userId: true } } },
+    }),
+  ])
+  if (!instancias.length && !conexoes.length) return VAZIO
+
+  const podeVer = (dono: number | null, viewers: { userId: number }[]) =>
+    dono === userId || viewers.some((v) => v.userId === userId)
+
+  return {
+    instancias: instancias.filter((i) => !podeVer(i.ownerUserId, i.viewers)).map((i) => i.instanceName),
+    conexoes: conexoes.filter((c) => !podeVer(c.ownerUserId, c.viewers)).map((c) => c.id),
+  }
+}
+
+/**
+ * Cláusula Prisma que remove da listagem tudo que tocou um canal reservado.
+ *
+ * `messages: { none: ... }` em vez de uma lista de ids: a conta é feita pelo
+ * banco e não cresce com o histórico.
+ */
+export function clausulaDeOcultacao(ocultos: CanaisOcultos): any | null {
+  const alvos: any[] = []
+  if (ocultos.instancias.length) {
+    alvos.push({ provider: 'evolution', evolutionInstance: { in: ocultos.instancias } })
+  }
+  if (ocultos.conexoes.length) {
+    alvos.push({ provider: 'cloud_api', cloudApiConnectionId: { in: ocultos.conexoes } })
+  }
+  if (!alvos.length) return null
+  return { messages: { none: { OR: alvos } } }
+}
+
+/** Atalho: a cláusula pronta para um usuário (ou `null` quando não há o que esconder). */
+export async function filtroDeCanaisVisiveis(userId: number, role: string): Promise<any | null> {
+  return clausulaDeOcultacao(await canaisOcultosPara(userId, role))
+}
+
+/** Este usuário pode abrir ESTA conversa? Usado no acesso direto por URL. */
+export async function podeVerConversa(leadId: number, userId: number, role: string): Promise<boolean> {
+  const ocultos = await canaisOcultosPara(userId, role)
+  if (!ocultos.instancias.length && !ocultos.conexoes.length) return true
+
+  const tocou = await prisma.message.findFirst({
+    where: {
+      leadId,
+      OR: [
+        ...(ocultos.instancias.length
+          ? [{ provider: 'evolution', evolutionInstance: { in: ocultos.instancias } }]
+          : []),
+        ...(ocultos.conexoes.length
+          ? [{ provider: 'cloud_api', cloudApiConnectionId: { in: ocultos.conexoes } }]
+          : []),
+      ],
+    },
+    select: { id: true },
+  })
+  return !tocou
+}

@@ -20,6 +20,7 @@ import {
 import { useChatbots } from '@/hooks/useChatbots'
 import { useTeams } from '@/hooks/useTeams'
 import { useUsers } from '@/hooks/useUsers'
+import { ChannelVisibilityCard } from '@/components/ChannelVisibilityCard'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -549,6 +550,16 @@ function ConnectionCard({
             ? (teamIds.length > 1 ? '' : 'Leads são roteados ao setor (round-robin conforme a configuração da equipe).')
             : 'Sem amarração — leads caem na fila global do tenant (regras/fallback).'}
         </p>
+      </div>
+
+      {/* Quem acompanha este número. Some inteiro para quem não é superadmin. */}
+      <div class="mt-4">
+        <ChannelVisibilityCard
+          kind="cloud"
+          channelId={c.id}
+          channel={c as any}
+          nomeDoCanal={(c as any).displayName || (c as any).displayPhone || 'este número'}
+        />
       </div>
 
       <div class="flex gap-2 mt-4">

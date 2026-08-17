@@ -5,7 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { randomBytes } from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { setChannelTeams } from '../services/channelTeams.js'
-import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { authMiddleware, adminOnly, superadminOnly } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { getMetaAppId, getMetaAppSecret, getMetaWaConfigId, metaFetch, META_GRAPH_URL } from '../lib/meta.js'
 import {
@@ -247,12 +247,46 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   //  CONNECTION — Status e gerenciamento
   // ══════════════════════════════════════════════════════
 
+  // ── PUT /api/cloud-api/connection/:id/visibility — quem vê este número ────
+  // Mesma regra da instância Evolution: decidir quem enxerga uma linha inteira
+  // é do dono da instalação, não do administrador de operação.
+  app.put('/api/cloud-api/connection/:id/visibility', { preHandler: superadminOnly }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const { visibility, viewerIds } = (req.body ?? {}) as { visibility?: string; viewerIds?: number[] }
+
+    const conn = await prisma.cloudApiConnection.findUnique({ where: { id }, select: { id: true } })
+    if (!conn) return reply.code(404).send({ error: 'Número não encontrado.' })
+
+    const modo = visibility === 'restricted' ? 'restricted' : 'all'
+    const ids = Array.isArray(viewerIds)
+      ? [...new Set(viewerIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+      : []
+    const validos = ids.length
+      ? (await prisma.user.findMany({ where: { id: { in: ids }, active: true }, select: { id: true } })).map((u) => u.id)
+      : []
+
+    await prisma.cloudApiConnection.update({ where: { id }, data: { visibility: modo } })
+    await prisma.cloudApiConnectionViewer.deleteMany({ where: { connectionId: id } })
+    if (modo === 'restricted' && validos.length) {
+      await prisma.cloudApiConnectionViewer.createMany({
+        data: validos.map((userId) => ({ connectionId: id, userId })),
+        skipDuplicates: true,
+      })
+    }
+
+    return { ok: true, visibility: modo, viewerIds: modo === 'restricted' ? validos : [] }
+  })
+
   // GET /api/cloud-api/connection — Status da conexao Cloud API
   app.get('/api/cloud-api/connection', { preHandler: authMiddleware }, async () => {
     const connections = await prisma.cloudApiConnection.findMany({
       orderBy: { createdAt: 'desc' },
       // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
-      include: { teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } } },
+      include: {
+        teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } },
+        // Quem acompanha o número quando ele é reservado.
+        viewers: { select: { userId: true, user: { select: { name: true, email: true } } }, orderBy: { id: 'asc' } },
+      },
     })
 
     const results = await Promise.all(connections.map(async (conn) => {

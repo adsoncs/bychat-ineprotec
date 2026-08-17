@@ -16,6 +16,10 @@ export interface WhatsAppInstance {
   teamNames?: string[]
   // Reforma F2: instância dedicada a um agente. Mutuamente exclusivo com os setores donos.
   ownerUserId: number | null
+  /** `all` (padrão) ou `restricted` — quem enxerga as conversas deste número. */
+  visibility?: 'all' | 'restricted'
+  /** Quem acompanha o número quando ele é reservado. */
+  viewers?: Array<{ userId: number; user?: { name: string | null; email: string | null } }>
   funnelId: number | null
   stageKey: string | null
   // Receber grupos de WhatsApp nesta conexão (só Evolution; a Cloud API oficial

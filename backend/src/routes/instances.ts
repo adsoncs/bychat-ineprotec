@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { setChannelTeams, channelTeamIds } from '../services/channelTeams.js'
-import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
+import { adminOnly, authMiddleware, superadminOnly, type JwtPayload } from '../lib/auth.js'
 
 // Resolve a config da Evolution: Setting do painel (whatsapp.evolution_*)
 // sobrepõe o env — mesma estratégia de workers/chatbotFlow/evolutionMonitor.
@@ -103,7 +103,11 @@ export async function instancesRoutes(app: FastifyInstance) {
     const instances = await prisma.whatsAppInstance.findMany({
       where, orderBy: { createdAt: 'asc' },
       // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
-      include: { teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } } },
+      include: {
+        teams: { select: { teamId: true, team: { select: { name: true } } }, orderBy: { id: 'asc' } },
+        // Quem acompanha o número quando ele é reservado.
+        viewers: { select: { userId: true, user: { select: { name: true, email: true } } }, orderBy: { id: 'asc' } },
+      },
     })
 
     // Batch fetch: 1 chamada à Evolution retorna todas as instâncias com ownerJid
@@ -188,6 +192,45 @@ export async function instancesRoutes(app: FastifyInstance) {
     if (teamIds.length) await setChannelTeams('evolution', inst.id, teamIds)
     const criada = await prisma.whatsAppInstance.findUnique({ where: { id: inst.id } })
     return { ...(criada ?? inst), teamIds: await channelTeamIds('evolution', inst.id) }
+  })
+
+  // ── PUT /api/admin/instances/:id/visibility — quem vê este número ─────────
+  //
+  // Fora do PUT geral de propósito: mudar QUEM ENXERGA uma linha inteira é
+  // decisão de dono da instalação, não de administrador de operação. Um número
+  // pessoal conectado ao painel derramava o histórico todo na visão da
+  // gerência, e é isto que fecha a torneira.
+  app.put('/api/admin/instances/:id/visibility', { preHandler: superadminOnly }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const { visibility, viewerIds } = (req.body ?? {}) as { visibility?: string; viewerIds?: number[] }
+
+    const inst = await prisma.whatsAppInstance.findUnique({ where: { id }, select: { id: true } })
+    if (!inst) return reply.code(404).send({ error: 'Número não encontrado.' })
+
+    const modo = visibility === 'restricted' ? 'restricted' : 'all'
+    const ids = Array.isArray(viewerIds)
+      ? [...new Set(viewerIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+      : []
+    // Só usuário ativo vira observador — id órfão viraria acesso fantasma.
+    const validos = ids.length
+      ? (await prisma.user.findMany({ where: { id: { in: ids }, active: true }, select: { id: true } })).map((u) => u.id)
+      : []
+
+    await prisma.whatsAppInstance.update({ where: { id }, data: { visibility: modo } })
+    await prisma.whatsAppInstanceViewer.deleteMany({ where: { instanceId: id } })
+    if (modo === 'restricted' && validos.length) {
+      await prisma.whatsAppInstanceViewer.createMany({
+        data: validos.map((userId) => ({ instanceId: id, userId })),
+        skipDuplicates: true,
+      })
+    }
+
+    return {
+      ok: true,
+      visibility: modo,
+      viewerIds: modo === 'restricted' ? validos : [],
+      ignorados: ids.filter((i) => !validos.includes(i)),
+    }
   })
 
   // PUT /api/admin/instances/:id — Update instance (admin-only).

@@ -32,6 +32,13 @@ async function assertTicketAccess(
     reply.code(403).send({ error: 'Sem permissão sobre este lead' })
     return false
   }
+  // Número reservado: esconder da lista e deixar abrir pela URL seria uma
+  // proteção que não protege — o id da conversa é adivinhável.
+  const { podeVerConversa } = await import('../services/channelVisibility.js')
+  if (!await podeVerConversa(leadId, user.userId, user.role)) {
+    reply.code(403).send({ error: 'Esta conversa pertence a um número reservado.' })
+    return false
+  }
   return true
 }
 
@@ -174,8 +181,16 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         }
       }
 
+      // O aviso do menu não pode contar o que a tela esconde: seria um número
+      // que nunca abre.
+      const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+      const semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
       const unread = await prisma.lead.count({
-        where: { ...scopeWhere, unreadMessages: { gt: 0 } },
+        where: {
+          ...scopeWhere,
+          unreadMessages: { gt: 0 },
+          ...(semCanaisOcultos ? { AND: [semCanaisOcultos] } : {}),
+        },
       })
       return { unread }
     } catch (err: any) {
@@ -303,6 +318,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         const fid = parseInt(fq)
         if (Number.isFinite(fid)) filtros.funnelId = fid
       }
+
+      // Números RESERVADOS: some da lista e dos contadores tudo que passou por
+      // um número que este operador não acompanha. Entra junto dos filtros
+      // porque precisa valer igualmente para a lista e para os badges.
+      const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+      const semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
+      if (semCanaisOcultos) filtrosAnd.push(semCanaisOcultos)
 
       // Filtro por NÚMERO: conversas que PERTENCEM a este canal.
       //

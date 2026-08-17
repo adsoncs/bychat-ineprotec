@@ -26,6 +26,7 @@ import {
 import { useChatbots, type ChatbotItem } from '@/hooks/useChatbots'
 import { useTeams } from '@/hooks/useTeams'
 import { useUsers } from '@/hooks/useUsers'
+import { ChannelVisibilityCard } from '@/components/ChannelVisibilityCard'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -766,6 +767,15 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
             </p>
           )}
         </div>
+
+        {/* Quem acompanha este número. Fica por último porque é a decisão mais
+            rara — e some inteiro para quem não é superadmin. */}
+        <ChannelVisibilityCard
+          kind="evolution"
+          channelId={instance.id}
+          channel={instance as any}
+          nomeDoCanal={instance.name}
+        />
       </div>
     </Modal>
   )
