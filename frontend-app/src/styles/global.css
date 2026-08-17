@@ -56,6 +56,9 @@
   --spacing-topbar: var(--topbar-h);
 
   /* Breakpoints — sobrescreve defaults para casar com nossa arquitetura */
+  /* `xs` cobre o celular pequeno (360–400px), onde um rótulo a mais no botão
+     já estoura a linha: abaixo dele o botão fica só com o ícone. */
+  --breakpoint-xs: 400px;
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
@@ -201,6 +204,47 @@
 .conv-operator-body > strong:first-child {
   color: var(--conv-name-color, currentColor);
   font-weight: var(--conv-name-weight, 700);
+}
+
+/* Ações da mensagem (responder, reagir, mais).
+ *
+ * No desktop elas só aparecem ao passar o mouse pela bolha. Em celular e tablet
+ * NÃO existe esse momento: `group-hover` nunca acontece, e o botão ficava
+ * invisível — porém ainda clicável, então um toque perto da borda disparava
+ * "Responder" sem nada visível ali. Duas correções:
+ *
+ *   1. escondido = também inerte (`pointer-events: none`), acabando com o
+ *      toque fantasma;
+ *   2. em aparelho sem mouse (`hover: none`), o botão fica sempre visível e o
+ *      alvo cresce para o dedo — é o que o WhatsApp Web faz no celular.
+ */
+.msg-action {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+.group:hover .msg-action,
+.msg-action:focus-visible,
+.msg-action[data-aberto='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .msg-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* Alvo confortável para o dedo sem inflar a bolha no desktop. */
+  .msg-action {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+  /* Pressionar e segurar abre nosso menu; sem isto o iOS abre a lupa de
+   * seleção por cima dele. Copiar continua possível — é item do menu. */
+  .msg-bubble-pressable {
+    -webkit-touch-callout: none;
+  }
 }
 
 /* prefers-reduced-motion: reduzir/anular animações para usuários sensíveis.
