@@ -206,7 +206,26 @@ async function resolveLidToPhone(lid: string, pushName?: string): Promise<string
  *  cita (texto, imagem, áudio, documento…). Sem varrer os tipos, a resposta do
  *  cliente chegava como mensagem solta e ninguém entendia a que ele respondeu —
  *  ainda mais em grupo, onde a conversa é de vários. */
-function idDaMensagemCitada(message: any): string {
+function idDaMensagemCitada(data: any): string {
+  if (!data || typeof data !== 'object') return ''
+
+  // Nível RAIZ do payload — é onde mora a citação de RESPOSTA DE TEXTO, que é
+  // o caso mais comum de todos. A Evolution achata a mensagem antes de enviar:
+  //
+  //   i.message.extendedTextMessage && (i.messageType = 'conversation',
+  //     i.message.conversation = i.message.extendedTextMessage.text,
+  //     delete i.message.extendedTextMessage)   // <- leva o contextInfo junto
+  //
+  // Ou seja: o `contextInfo` da resposta some de dentro de `message`, e só
+  // sobrevive na cópia que ela guarda na raiz. Procurar apenas dentro de
+  // `message` — como fazíamos — descartava TODA resposta de texto citada: a
+  // conversa mostrava a réplica solta, e o operador não sabia a que o cliente
+  // se referia. Mídia não passa por esse achatamento, e por isso só ela vinha
+  // marcada.
+  const naRaiz = data?.contextInfo?.stanzaId
+  if (naRaiz) return String(naRaiz)
+
+  const message = data?.message ?? data
   if (!message || typeof message !== 'object') return ''
   const direto = message.extendedTextMessage?.contextInfo?.stanzaId
   if (direto) return String(direto)
@@ -977,7 +996,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // Resposta a uma mensagem: liga a citação ao registro local. `null`
       // quando a citada não está no nosso histórico (importação parcial), e aí
       // a bolha só não mostra o trecho — nada quebra.
-      const citadaExternalId = idDaMensagemCitada(message)
+      const citadaExternalId = idDaMensagemCitada(data)
       let quotedMsgId: number | null = null
       if (citadaExternalId) {
         const citada = await prisma.message.findFirst({
