@@ -174,6 +174,20 @@ const EVOLUTION_RULES: Rule[] = [
     match: /not-authorized|forbidden.*group|only admins/i,
     message: () => 'Só administradores podem publicar neste grupo. Peça para promoverem o número da empresa a administrador.',
   },
+  // Ações sobre mensagem já enviada (editar/apagar/reagir). A Evolution compara
+  // o JID do pedido com o que ela guardou, e responde em inglês e sem contexto.
+  {
+    match: /remotejid does not match/i,
+    message: () => 'O WhatsApp não reconheceu esta conversa para a ação. Recarregue a conversa e tente de novo; se persistir, apague a mensagem e envie de novo.',
+  },
+  {
+    match: /message not found/i,
+    message: () => 'O WhatsApp não encontrou mais esta mensagem no aparelho — provavelmente ela é antiga demais ou já foi apagada por lá.',
+  },
+  {
+    match: /message not compatible/i,
+    message: () => 'O WhatsApp só permite editar mensagens de texto. Para mídia, apague para todos e envie de novo.',
+  },
 ]
 
 /** Extrai o primeiro código de erro numérico da Meta presente no texto. */

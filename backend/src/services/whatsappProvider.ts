@@ -175,8 +175,44 @@ export class EvolutionProvider implements WhatsAppProvider {
     return key
   }
 
+  /**
+   * A `key` como a Evolution a guardou — não como deduzimos do telefone.
+   *
+   * Editar/apagar/reagir comparam o `remoteJid` do pedido com o da mensagem no
+   * banco dela, e a comparação é literal. Boa parte dos chats vive sob o
+   * identificador de privacidade (`<numero>@lid`), que NÃO é o telefone: montar
+   * `5562…@s.whatsapp.net` a partir do lead devolvia
+   * `400 RemoteJid does not match` e o operador via só "falha de comunicação".
+   *
+   * Uma consulta por `key.id` resolve o JID verdadeiro (e o `participant`, em
+   * grupo). Se ela não responder, seguimos com a key deduzida — que é a certa
+   * nos chats que não usam @lid.
+   */
+  private async resolverKey(ref: WhatsAppMessageRef): Promise<any> {
+    const deduzida = this.keyOf(ref)
+    if (!ref.externalId) return deduzida
+    try {
+      const data = await this.evoFetch(`/chat/findMessages/${this.instanceName}`, 'POST', {
+        where: { key: { id: ref.externalId } },
+      })
+      const env = data?.messages ?? data
+      const registro = (env?.records ?? (Array.isArray(env) ? env : []))[0]
+      const k = registro?.key
+      if (k?.id && k?.remoteJid) {
+        const key: any = { id: String(k.id), remoteJid: String(k.remoteJid), fromMe: !!k.fromMe }
+        const participant = k.participant ?? ref.participant
+        if (String(k.remoteJid).endsWith('@g.us') && participant) key.participant = String(participant)
+        return key
+      }
+    } catch {
+      // Sem resposta da Evolution: melhor tentar com a key deduzida do que
+      // falhar antes de tentar.
+    }
+    return deduzida
+  }
+
   async editText(ref: WhatsAppMessageRef, newText: string): Promise<void> {
-    const key = this.keyOf(ref)
+    const key = await this.resolverKey(ref)
     await this.evoFetch(`/chat/updateMessage/${this.instanceName}`, 'POST', {
       number: key.remoteJid,
       key,
@@ -185,7 +221,7 @@ export class EvolutionProvider implements WhatsAppProvider {
   }
 
   async deleteForEveryone(ref: WhatsAppMessageRef): Promise<void> {
-    const key = this.keyOf(ref)
+    const key = await this.resolverKey(ref)
     await this.evoFetch(`/chat/deleteMessageForEveryone/${this.instanceName}`, 'DELETE', {
       id: key.id,
       remoteJid: key.remoteJid,
@@ -195,7 +231,7 @@ export class EvolutionProvider implements WhatsAppProvider {
   }
 
   async markChatUnread(ref: WhatsAppMessageRef): Promise<void> {
-    const key = this.keyOf(ref)
+    const key = await this.resolverKey(ref)
     await this.evoFetch(`/chat/markChatUnread/${this.instanceName}`, 'POST', {
       chat: key.remoteJid,
       lastMessage: { key },
@@ -204,7 +240,7 @@ export class EvolutionProvider implements WhatsAppProvider {
 
   async react(ref: WhatsAppMessageRef, emoji: string): Promise<void> {
     await this.evoFetch(`/message/sendReaction/${this.instanceName}`, 'POST', {
-      key: this.keyOf(ref),
+      key: await this.resolverKey(ref),
       reaction: emoji,
     })
   }
