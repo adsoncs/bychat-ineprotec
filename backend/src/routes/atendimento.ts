@@ -355,7 +355,11 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const ticketsFixados = (offset === 0 && whereFixados)
         ? await prisma.lead.findMany({
             where: whereFixados,
-            orderBy: { lastMessageAt: 'desc' },
+            // Desempate por id: sem ele, conversas com a MESMA data (ou sem
+            // data, caso das resolvidas antigas) trocam de posição entre uma
+            // página e outra — e a rolagem repete umas e pula outras. No terram
+            // eram 22 repetidas em 638.
+            orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
             take: limit,
             select: SELECAO_TICKET,
           })
@@ -369,7 +373,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const [tickets, total] = await Promise.all([
         prisma.lead.findMany({
           where: whereLista,
-          orderBy: { lastMessageAt: 'desc' },
+          orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
           take: Math.max(0, limit - ticketsFixados.length),
           skip: offset,
           select: SELECAO_TICKET,
