@@ -111,7 +111,10 @@ export function ChatSyncModal({ leadId, nome, onClose }: Props) {
   const [restamMidias, setRestamMidias] = useState<number | null>(null)
 
   const baixarMidias = useMutation({
-    mutationFn: () => api.post<{ baixadas: number; falharam: number; restantes: number }>(
+    // Lote curto de propósito: decifrar mídia antiga na Evolution é lento e o
+    // proxy corta a requisição em 60s. Vários lotes pequenos sempre respondem;
+    // um lote grande vira erro de rede com as mídias baixadas pela metade.
+    mutationFn: () => api.post<{ baixadas: number; falharam: number; restantes: number; parcial?: boolean; expiradas?: number }>(
       `/atendimento/tickets/${leadId}/fetch-media`, { limite: 8 },
     ),
     onSuccess: (r) => {
@@ -119,13 +122,29 @@ export function ChatSyncModal({ leadId, nome, onClose }: Props) {
       toast(
         r.baixadas
           ? `${r.baixadas} mídia(s) carregada(s)${r.restantes ? ` · faltam ${r.restantes}` : ''}`
-          : 'O WhatsApp já expirou estes arquivos — eles não voltam.',
+          : r.expiradas
+            ? `${r.expiradas} mídia(s) não voltam — o WhatsApp já expirou os arquivos.`
+            : r.parcial
+              ? 'O WhatsApp está lento agora — tente de novo em instantes.'
+              : 'Não foi possível recuperar estas mídias agora.',
         r.baixadas ? 'success' : 'warning',
       )
       void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
       void qc.invalidateQueries({ queryKey: ['pending-media', leadId] })
     },
-    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    onError: (e: unknown) => {
+      const err = e as ApiError
+      // 502/503/504 aqui é o proxy cortando a espera pela Evolution, não uma
+      // falha do painel — dizer "HTTP 503" não ajuda ninguém.
+      toast(
+        err.status >= 502
+          ? 'O WhatsApp demorou demais para entregar os arquivos. Parte pode ter sido carregada — tente de novo.'
+          : err.message,
+        'danger',
+      )
+      void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
+      void qc.invalidateQueries({ queryKey: ['pending-media', leadId] })
+    },
   })
 
   const procurando = iniciar.isPending

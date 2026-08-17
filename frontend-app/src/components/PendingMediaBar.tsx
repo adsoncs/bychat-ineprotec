@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ImageDown, Loader2 } from 'lucide-preact'
-import { api } from '@/lib/apiClient'
+import { api, ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 
 /**
@@ -24,20 +24,36 @@ export function PendingMediaBar({ leadId }: { leadId: number }) {
   })
 
   const baixar = useMutation({
-    mutationFn: () => api.post<{ baixadas: number; falharam: number; restantes: number }>(
-      `/atendimento/tickets/${leadId}/fetch-media`, { limite: 15 },
+    // 8 por vez: decifrar mídia antiga na Evolution é lento e o proxy corta a
+    // requisição em 60s — lote grande virava erro de rede no meio do download.
+    mutationFn: () => api.post<{ baixadas: number; falharam: number; restantes: number; parcial?: boolean; expiradas?: number }>(
+      `/atendimento/tickets/${leadId}/fetch-media`, { limite: 8 },
     ),
     onSuccess: (r) => {
-      if (r.baixadas) toast(`${r.baixadas} mídia(s) carregada(s)`, 'success')
-      if (!r.baixadas && r.falharam) {
-        // Arquivo expirado no servidor do WhatsApp é o caso comum — insistir
-        // não resolve, e o operador precisa saber que não vai aparecer.
-        toast('Não foi possível recuperar estas mídias — o WhatsApp já expirou os arquivos.', 'warning')
+      if (r.baixadas) toast(`${r.baixadas} mídia(s) carregada(s)${r.restantes ? ` · faltam ${r.restantes}` : ''}`, 'success')
+      // Expirado vem antes de "lento": o arquivo não volta, e mandar tentar de
+      // novo seria enganar o operador.
+      else if (r.expiradas) {
+        toast(`${r.expiradas} mídia(s) não voltam — o WhatsApp já expirou os arquivos no servidor dele.`, 'warning')
+      } else if (r.parcial) {
+        toast('O WhatsApp está lento agora — tente de novo em instantes.', 'warning')
+      } else if (r.falharam) {
+        toast('Não foi possível recuperar estas mídias agora.', 'warning')
       }
       void qc.invalidateQueries({ queryKey: ['pending-media', leadId] })
       void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
     },
-    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    onError: (e: unknown) => {
+      const err = e as ApiError
+      toast(
+        err.status >= 502
+          ? 'O WhatsApp demorou demais para entregar os arquivos. Parte pode ter sido carregada — tente de novo.'
+          : err.message,
+        'danger',
+      )
+      void qc.invalidateQueries({ queryKey: ['pending-media', leadId] })
+      void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
+    },
   })
 
   const pendentes = q.data?.pendentes ?? 0
@@ -56,7 +72,7 @@ export function PendingMediaBar({ leadId }: { leadId: number }) {
         onClick={() => baixar.mutate()}
       >
         {baixar.isPending ? <Loader2 size={12} class="inline animate-spin" /> : null}
-        {baixar.isPending ? ' Carregando…' : `Carregar ${Math.min(pendentes, 15)}`}
+        {baixar.isPending ? ' Carregando…' : `Carregar ${Math.min(pendentes, 8)}`}
       </button>
     </div>
   )

@@ -44,6 +44,40 @@ async function salvar(buf: Buffer, mime: string, mediaType: string): Promise<str
   return `/uploads/evolution-media/${nome}`
 }
 
+/** Teto por arquivo. Decifrar mídia antiga é lento, e mídia sumida do servidor
+ *  do WhatsApp fica pendurada — sem isso, uma única chamada trava o lote. */
+const TIMEOUT_POR_MIDIA_MS = 12_000
+/** Orçamento do lote inteiro. O nginx corta o upstream em 60s: se a resposta
+ *  não sair antes disso, o operador recebe erro de proxy no lugar do resultado,
+ *  mesmo com as mídias sendo gravadas. Melhor devolver o parcial e deixar ele
+ *  pedir o resto. */
+const ORCAMENTO_LOTE_MS = 30_000
+
+/** Erro da Evolution com o corpo preservado — é o corpo que diz se o arquivo
+ *  sumiu de vez ou se foi um tropeço passageiro. */
+class EvoMediaError extends Error {
+  readonly status: number
+  readonly corpo: string
+  constructor(status: number, corpo: string) {
+    super(`Evolution ${status}`)
+    this.status = status
+    this.corpo = corpo
+  }
+}
+
+/**
+ * Arquivo que o WhatsApp não entrega mais.
+ *
+ * O CDN devolve "Failed to fetch stream" quando a URL cifrada expirou (o
+ * parâmetro `oe=` da própria URL é a validade). Isso é definitivo: nem o
+ * aparelho recupera. Timeout e queda de rede, ao contrário, merecem nova
+ * tentativa — por isso a distinção.
+ */
+function midiaSumiu(e: unknown): boolean {
+  if (!(e instanceof EvoMediaError)) return false
+  return e.status === 400 && /failed to fetch stream|no such file|not found/i.test(e.corpo)
+}
+
 async function evoFetch(path: string, body: unknown): Promise<any> {
   const url = process.env.EVOLUTION_API_URL || ''
   const key = process.env.EVOLUTION_API_KEY || ''
@@ -52,8 +86,9 @@ async function evoFetch(path: string, body: unknown): Promise<any> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: key },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(TIMEOUT_POR_MIDIA_MS),
   })
-  if (!r.ok) throw new Error(`Evolution ${r.status}`)
+  if (!r.ok) throw new EvoMediaError(r.status, await r.text().catch(() => ''))
   return r.json()
 }
 
@@ -61,6 +96,21 @@ export interface ResultadoMidias {
   baixadas: number
   falharam: number
   restantes: number
+  /** Verdadeiro quando o lote parou pelo tempo, não por ter acabado. */
+  parcial?: boolean
+  /** Quantas o WhatsApp já expirou — não voltam, e não serão tentadas de novo. */
+  expiradas?: number
+}
+
+/** Mídias sem arquivo que ainda vale a pena tentar. */
+function filtroPendentes(leadId: number) {
+  return {
+    leadId,
+    mediaUrl: null,
+    mediaUnavailableAt: null,
+    externalId: { not: null },
+    mediaType: { in: ['image', 'video', 'audio', 'sticker', 'document'] },
+  }
 }
 
 /**
@@ -82,12 +132,7 @@ export async function baixarMidiasPendentes(leadId: number, limite = 15): Promis
   if (!job) return { baixadas: 0, falharam: 0, restantes: 0 }
 
   const pendentes = await prisma.message.findMany({
-    where: {
-      leadId,
-      mediaUrl: null,
-      externalId: { not: null },
-      mediaType: { in: ['image', 'video', 'audio', 'sticker', 'document'] },
-    },
+    where: filtroPendentes(leadId),
     orderBy: { timestamp: 'desc' },
     take: limite,
     select: { id: true, externalId: true, fromMe: true, mediaType: true },
@@ -96,8 +141,14 @@ export async function baixarMidiasPendentes(leadId: number, limite = 15): Promis
 
   let baixadas = 0
   let falharam = 0
+  let expiradas = 0
+  let parcial = false
+  const prazo = Date.now() + ORCAMENTO_LOTE_MS
 
   for (const m of pendentes) {
+    // Para antes que o proxy corte: o que já baixou fica gravado e a tela
+    // convida a pedir o resto.
+    if (Date.now() > prazo) { parcial = true; break }
     try {
       const resp = await evoFetch(`/chat/getBase64FromMediaMessage/${job.instanceName}`, {
         message: { key: { id: m.externalId, remoteJid: job.remoteJid, fromMe: m.fromMe } },
@@ -106,33 +157,27 @@ export async function baixarMidiasPendentes(leadId: number, limite = 15): Promis
       const url = await salvar(Buffer.from(resp.base64, 'base64'), resp?.mimetype || '', m.mediaType || 'document')
       await prisma.message.update({ where: { id: m.id }, data: { mediaUrl: url } })
       baixadas++
-    } catch {
-      // Mídia expirada no servidor do WhatsApp é o caso mais comum aqui: o
-      // arquivo some depois de um tempo e não há como recuperar. Não é erro
-      // nosso, e insistir não adianta.
+    } catch (e) {
       falharam++
+      // Arquivo expirado no servidor do WhatsApp é o caso mais comum aqui, e é
+      // definitivo: fica marcado para não custar mais 5 segundos por clique.
+      if (midiaSumiu(e)) {
+        expiradas++
+        await prisma.message.update({ where: { id: m.id }, data: { mediaUnavailableAt: new Date() } }).catch(() => {})
+      }
     }
   }
 
-  const restantes = await prisma.message.count({
-    where: {
-      leadId, mediaUrl: null, externalId: { not: null },
-      mediaType: { in: ['image', 'video', 'audio', 'sticker', 'document'] },
-    },
-  })
+  const restantes = await prisma.message.count({ where: filtroPendentes(leadId) })
 
   // Mantém o contador do job coerente com a realidade da conversa.
   await prisma.chatImportJob.updateMany({ where: { leadId }, data: { midiasPendentes: restantes } }).catch(() => {})
 
-  return { baixadas, falharam, restantes }
+  return { baixadas, falharam, restantes, parcial, expiradas }
 }
 
-/** Quantas mídias desta conversa ainda estão sem arquivo. */
+/** Quantas mídias desta conversa ainda dá para baixar (as expiradas não contam
+ *  — um contador que nunca zera é pior do que contador nenhum). */
 export async function contarMidiasPendentes(leadId: number): Promise<number> {
-  return prisma.message.count({
-    where: {
-      leadId, mediaUrl: null, externalId: { not: null },
-      mediaType: { in: ['image', 'video', 'audio', 'sticker', 'document'] },
-    },
-  })
+  return prisma.message.count({ where: filtroPendentes(leadId) })
 }

@@ -1344,6 +1344,10 @@ model Message {
   mediaType   String   @default("text") @db.VarChar(30)
   mediaUrl    String?  @db.Text
   mediaName   String?  @db.VarChar(191)
+  /// Quando o WhatsApp deixou de entregar o arquivo desta mensagem. O CDN
+  /// expira a mídia (a URL traz `oe=<validade>`) e a partir daí nenhuma
+  /// tentativa funciona — insistir só gasta segundos contra a Evolution.
+  mediaUnavailableAt DateTime?
   ack         Int      @default(0)
   isDeleted   Boolean  @default(false)
   isInternal  Boolean  @default(false)
