@@ -5,7 +5,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon,, ShieldBan} from 'lucide-preact'
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan} from 'lucide-preact'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
