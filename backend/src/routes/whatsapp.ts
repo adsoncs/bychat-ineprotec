@@ -200,6 +200,23 @@ async function resolveLidToPhone(lid: string, pushName?: string): Promise<string
 
 // ─── Audio transcription ─────────────────────────────────
 
+/** Id da mensagem CITADA, quando o contato respondeu tocando em "responder".
+ *
+ *  O `contextInfo` não fica num lugar só: ele acompanha o tipo da mensagem que
+ *  cita (texto, imagem, áudio, documento…). Sem varrer os tipos, a resposta do
+ *  cliente chegava como mensagem solta e ninguém entendia a que ele respondeu —
+ *  ainda mais em grupo, onde a conversa é de vários. */
+function idDaMensagemCitada(message: any): string {
+  if (!message || typeof message !== 'object') return ''
+  const direto = message.extendedTextMessage?.contextInfo?.stanzaId
+  if (direto) return String(direto)
+  for (const conteudo of Object.values(message) as any[]) {
+    const id = conteudo?.contextInfo?.stanzaId
+    if (id) return String(id)
+  }
+  return ''
+}
+
 /** Extrai o texto novo de um payload de edição da Evolution. O caminho varia
  *  conforme a versão, então tentamos os formatos conhecidos em ordem. */
 function textoEditado(item: any): string {
@@ -957,6 +974,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
           .catch(() => {})
       }
 
+      // Resposta a uma mensagem: liga a citação ao registro local. `null`
+      // quando a citada não está no nosso histórico (importação parcial), e aí
+      // a bolha só não mostra o trecho — nada quebra.
+      const citadaExternalId = idDaMensagemCitada(message)
+      let quotedMsgId: number | null = null
+      if (citadaExternalId) {
+        const citada = await prisma.message.findFirst({
+          where: { externalId: citadaExternalId },
+          select: { id: true },
+        })
+        quotedMsgId = citada?.id ?? null
+      }
+
       // Detect media messages
       let mediaType = 'text'
       let mediaUrl = ''
@@ -1031,6 +1061,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             // apagar essa mensagem depois, dentro do grupo.
             senderJid: participantJid || null,
             externalId: messageId || null,
+            quotedMsgId,
             provider: 'evolution',
             evolutionInstance: inboundInstance,
             timestamp: new Date(),
@@ -1236,6 +1267,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             evolutionInstance: inboundInstance,
             senderName: data.pushName || lead.nome || phone,
             externalId: messageId || null,
+            quotedMsgId,
             timestamp: new Date()
           }
         })

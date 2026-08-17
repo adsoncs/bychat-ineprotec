@@ -499,6 +499,18 @@ async function processIncomingMessage(
       app.log.info(`[CloudAPI] Lead ${lead.id} roteado via "${routedVia}" → team=${routedTeamId}, user=${routedUserId}`)
     }
 
+    // Resposta a uma mensagem: a Meta manda o wamid da citada em `context.id`.
+    // Sem ligar isso, a resposta do cliente aparecia solta na conversa e o
+    // operador não sabia a que trecho ele se referia.
+    let quotedMsgId: number | null = null
+    if (msg.context?.id) {
+      const citada = await prisma.message.findFirst({
+        where: { externalId: String(msg.context.id) },
+        select: { id: true },
+      })
+      quotedMsgId = citada?.id ?? null
+    }
+
     const created = await prisma.message.create({
       data: {
         leadId: lead.id,
@@ -511,6 +523,7 @@ async function processIncomingMessage(
         cloudApiConnectionId: conn.id,
         senderName: contactName || lead.nome || phone,
         externalId: msgId || null,
+        quotedMsgId,
         timestamp,
       }
     })
