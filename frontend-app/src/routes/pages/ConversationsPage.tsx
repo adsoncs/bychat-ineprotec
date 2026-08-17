@@ -67,6 +67,8 @@ import {
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTickets,
+  useTicketsInfinite,
+  TICKETS_POR_PAGINA,
   useTicketMessages,
   useSendMessage,
   useSenderChannels,
@@ -125,6 +127,7 @@ import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { LeadFunnelCard } from '@/components/LeadFunnelCard'
 import { useTabLabels, useConversationTheme } from '@/hooks/useTabLabels'
+
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -323,13 +326,33 @@ function ConversationsScreen() {
   // Fixar conversa no topo — vale só para quem fixou.
   const alternarFixado = useTogglePin()
 
-  const ticketsQ = useTickets({
+  const ticketsQ = useTicketsInfinite({
     bucket, scope,
     search: search || undefined,
     senderChannel: senderChannel || undefined,
     funnelId: funnelFilter || undefined,
     kind: kindFilter || undefined,
   })
+  // As páginas viram uma lista só: quem rola não deve perceber que existem
+  // páginas. Contadores e total vêm da primeira (valem para o recorte inteiro).
+  const ticketsCarregados = ticketsQ.data?.pages.flatMap((p) => p.tickets) ?? []
+
+  // Rolagem infinita: quando o fim da lista aparece, a página seguinte é
+  // pedida. `rootMargin` antecipa em 300px para a lista não "travar" no fim.
+  const sentinelaRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const alvo = sentinelaRef.current
+    if (!alvo || !ticketsQ.hasNextPage) return
+    const obs = new IntersectionObserver(
+      (entradas) => {
+        if (entradas[0]?.isIntersecting && !ticketsQ.isFetchingNextPage) void ticketsQ.fetchNextPage()
+      },
+      { rootMargin: '300px' },
+    )
+    obs.observe(alvo)
+    return () => obs.disconnect()
+  }, [ticketsQ.hasNextPage, ticketsQ.isFetchingNextPage, ticketsCarregados.length])
+  const totalDoRecorte = ticketsQ.data?.pages[0]?.total ?? 0
 
   // Auto-seleciona lead via ?leadId=X (vindo do kebab "WhatsApp" / "Abrir conversa"
   // em LeadsPage / LeadDetailPage). Passa por todos os buckets/scopes pra achar o
@@ -358,7 +381,7 @@ function ConversationsScreen() {
 
   // Seleção só faz sentido na "Caixa de entrada" (raw) — leads que ainda não viraram Lead.
   const selectionEnabled = bucket === 'raw'
-  const tickets = ticketsQ.data?.tickets ?? []
+  const tickets = ticketsCarregados
   const promotableTickets = tickets.filter((t) => !t.qualifiedAt)
   const allSelected = selectionEnabled && promotableTickets.length > 0 && promotableTickets.every((t) => selectedIds.has(t.id))
 
@@ -412,7 +435,7 @@ function ConversationsScreen() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected])
 
-  const counters = ticketsQ.data?.counters
+  const counters = ticketsQ.data?.pages[0]?.counters
 
   return (
     <Page
@@ -612,7 +635,7 @@ function ConversationsScreen() {
                 {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} class="h-14 w-full" />)}
               </div>
             )}
-            {!ticketsQ.isLoading && ticketsQ.data?.tickets.length === 0 && (
+            {!ticketsQ.isLoading && ticketsCarregados.length === 0 && (
               <EmptyState
                 icon={<MessageSquare size={20} />}
                 title="Nenhuma conversa encontrada"
@@ -634,10 +657,10 @@ function ConversationsScreen() {
                 }
               />
             )}
-            {!ticketsQ.isLoading && ticketsQ.data && ticketsQ.data.tickets.length > 0 && (
+            {!ticketsQ.isLoading && ticketsCarregados.length > 0 && (
               <ul>
                 {/* Grupo não vira lead: fica fora da promoção individual e da seleção em massa. */}
-                {ticketsQ.data.tickets.map((t) => (
+                {ticketsCarregados.map((t) => (
                   <TicketRow
                     key={t.id}
                     ticket={t}
@@ -672,6 +695,38 @@ function ConversationsScreen() {
                   />
                 ))}
               </ul>
+            )}
+
+            {/* Fim da lista: a rolagem puxa a próxima página sozinha, e o botão
+              * fica como caminho alternativo — para teclado, leitor de tela e
+              * para o caso de o observador não disparar (aba em segundo plano,
+              * navegador antigo). */}
+            {ticketsQ.hasNextPage && (
+              <div ref={sentinelaRef} class="p-3">
+                <button
+                  type="button"
+                  disabled={ticketsQ.isFetchingNextPage}
+                  onClick={() => void ticketsQ.fetchNextPage()}
+                  class={cn(
+                    'flex min-h-11 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border',
+                    'bg-surface text-xs text-fg-muted transition-colors duration-200 hover:bg-surface-3 hover:text-fg',
+                    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+                    'disabled:cursor-wait disabled:opacity-70 sm:min-h-9',
+                  )}
+                >
+                  {ticketsQ.isFetchingNextPage
+                    ? <><Loader2 size={13} class="animate-spin" /> Carregando…</>
+                    : `Carregar mais (${Math.max(0, totalDoRecorte - ticketsCarregados.length)} restantes)`}
+                </button>
+              </div>
+            )}
+
+            {/* Chegou ao fim de uma lista longa: dizer isso evita a dúvida de
+              * "será que falta carregar?". Em lista curta seria ruído. */}
+            {!ticketsQ.hasNextPage && ticketsCarregados.length >= TICKETS_POR_PAGINA && (
+              <p class="p-3 text-center text-[0.6875rem] text-fg-subtle">
+                {ticketsCarregados.length} conversas — fim da lista
+              </p>
             )}
           </div>
         </aside>

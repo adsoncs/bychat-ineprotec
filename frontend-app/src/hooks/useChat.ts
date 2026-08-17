@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'preact/hooks'
 import { api } from '@/lib/apiClient'
 import { playSentSound } from '@/lib/notificationSound'
@@ -116,6 +116,43 @@ export function useTickets(filters: TicketsFilters = {}) {
     queryFn: () => api.get<TicketsListResponse>(`/atendimento/tickets${buildQuery(filters)}`),
     staleTime: 5_000,
     refetchInterval: 15_000,
+  })
+}
+
+/** Quantas conversas cada página traz. */
+export const TICKETS_POR_PAGINA = 50
+
+/**
+ * A lista de conversas, paginada por rolagem.
+ *
+ * A tela buscava UMA página e parava: a aba dizia "186" e só 50 conversas eram
+ * alcançáveis — as outras 136 não existiam para o operador, sem nem um aviso de
+ * que havia mais. Aqui a lista continua conforme ele rola.
+ *
+ * `pinned` fica de fora da conta do deslocamento: as conversas fixadas vêm
+ * inteiras na primeira página, fora da paginação, e contá-las faria a segunda
+ * página pular exatamente esse tanto de conversas.
+ */
+export function useTicketsInfinite(filters: TicketsFilters = {}) {
+  const porPagina = filters.limit ?? TICKETS_POR_PAGINA
+  return useInfiniteQuery({
+    queryKey: ['tickets', 'infinite', { ...filters, limit: porPagina }],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.get<TicketsListResponse>(
+        `/atendimento/tickets${buildQuery({ ...filters, limit: porPagina, offset: pageParam as number })}`,
+      ),
+    getNextPageParam: (ultima, todas) => {
+      // Página incompleta = chegou ao fim. Mais barato e mais confiável do que
+      // comparar com o total, que muda enquanto o operador rola.
+      if (ultima.tickets.length < porPagina) return undefined
+      return todas.reduce((n, pag) => n + pag.tickets.filter((t) => !t.pinned).length, 0)
+    },
+    staleTime: 5_000,
+    // A atualização automática refaz TODAS as páginas carregadas. Quem rolou
+    // fundo está garimpando histórico e não precisa de recarga a cada 15s —
+    // seriam dezenas de consultas por minuto.
+    refetchInterval: (q) => ((q.state.data?.pages.length ?? 1) > 3 ? 60_000 : 15_000),
   })
 }
 
