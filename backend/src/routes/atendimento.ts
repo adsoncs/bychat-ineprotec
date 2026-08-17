@@ -102,6 +102,52 @@ function uniaoDasCaixas(now: Date) {
   ]
 }
 
+/**
+ * A condição de UMA caixa (aba de baixo), como cláusula Prisma.
+ *
+ * Ficava embutida na montagem da lista, e por isso os contadores tinham a sua
+ * própria cópia das mesmas regras — que foi se afastando com o tempo. Uma
+ * definição só é o que mantém o número da aba igual ao que ela abre.
+ */
+function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] } {
+  // inbox/raw escondem adormecidos; snooze expirado conta como ativo.
+  const naoAdormecido = { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }
+
+  switch (bucket) {
+    case 'inbox':
+      // Atendimento: conversa aberta, não fechada, não adormecida.
+      return { campos: { conversationOpenedAt: { not: null }, conversationClosedAt: null }, and: [naoAdormecido] }
+    case 'raw':
+      // Caixa: chegou mensagem e ninguém assumiu.
+      return {
+        campos: { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
+        and: [naoAdormecido],
+      }
+    case 'resolved':
+      return { campos: { conversationClosedAt: { not: null } }, and: [] }
+    case 'snoozed':
+      // Aguardando: adormecido OU atribuído sem atendimento iniciado.
+      return {
+        campos: {},
+        and: [{
+          OR: [
+            { snoozedUntil: { gt: now } },
+            {
+              assignedUserId: { not: null },
+              conversationOpenedAt: null,
+              conversationClosedAt: null,
+              lastMessageAt: { not: null },
+            },
+          ],
+        }],
+      }
+    case 'all':
+      return { campos: {}, and: [{ OR: uniaoDasCaixas(now) }] }
+    default:
+      return { campos: {}, and: [] }
+  }
+}
+
 export async function atendimentoRoutes(app: FastifyInstance) {
 
   // ── GET /api/atendimento/unread-count — quantas conversas esperam por você ──
@@ -187,74 +233,38 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         }
       }
 
-      const where: any = { ...scopeWhere }
-
-      // Bucket: classificação no novo modelo de Conversas (filtra por estado de conversa).
+      // Caixa selecionada (aba de baixo) e o instante de referência do snooze.
+      //
       // Lifecycle do ticket:
-      //   1) Lead manda mensagem → cai em 'raw' (Caixa: ninguém pegou ainda)
-      //   2) Operador clica "Assumir" → claim atribui + abre conversa → vai para 'inbox' (Atendimento)
-      //   3) Operador adormece OU tem lead atribuído sem conversa aberta → 'snoozed' (Aguardando)
+      //   1) Lead manda mensagem → 'raw' (Caixa: ninguém pegou ainda)
+      //   2) Operador clica "Assumir" → 'inbox' (Atendimento)
+      //   3) Adormece OU é atribuído sem conversa aberta → 'snoozed' (Aguardando)
       //   4) Operador encerra → 'resolved' (Resolvidos)
-      //   Mensagem inbound em conversa fechada reabre automaticamente (volta para 'inbox').
+      //   Mensagem nova em conversa fechada reabre e devolve para 'inbox'.
       const bucket = (query.bucket || 'inbox').toString()
       const now = new Date()
-      // Filtro de snooze: inbox/raw escondem leads adormecidos. Snoozed
-      // expirado (snoozedUntil <= now) é tratado como ativo (lazy unsnooze).
-      const notSnoozed = { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }
-      if (bucket === 'inbox') {
-        // Atendimento: conversa aberta, não fechada, não adormecida
-        where.conversationOpenedAt = { not: null }
-        where.conversationClosedAt = null
-        where.AND = [...(where.AND ?? []), notSnoozed]
-      } else if (bucket === 'raw') {
-        // Caixa: leads com mensagens recebidas que ainda não foram assumidos
-        // por nenhum operador (assignedUserId null) e nunca tiveram conversa
-        // aberta. Atribuir ou assumir o lead já o tira daqui.
-        where.conversationOpenedAt = null
-        where.lastMessageAt = { not: null }
-        where.assignedUserId = null
-        where.AND = [...(where.AND ?? []), notSnoozed]
-      } else if (bucket === 'resolved') {
-        where.conversationClosedAt = { not: null }
-      } else if (bucket === 'snoozed') {
-        // Aguardando: snooze ativo OU lead atribuído sem conversa aberta
-        // (ex: atribuição manual via /assign sem claim — operador responsável
-        // identificado mas atendimento ainda não iniciado).
-        where.AND = [
-          ...(where.AND ?? []),
-          {
-            OR: [
-              { snoozedUntil: { gt: now } },
-              {
-                assignedUserId: { not: null },
-                conversationOpenedAt: null,
-                conversationClosedAt: null,
-                lastMessageAt: { not: null },
-              },
-            ],
-          },
-        ]
-      } else if (bucket === 'all') {
-        // "Todos": a UNIÃO exata das outras quatro abas — nem mais, nem menos.
-        //
-        // Um filtro mais simples ("tem mensagem") parecia equivalente e não é:
-        // deixava de fora conversa resolvida sem lastMessageAt e trazia lead de
-        // formulário que nunca falou com a gente. Aba que some com o que a
-        // vizinha mostra é pior do que aba nenhuma, então aqui está o OR
-        // literal das quatro condições. O escopo (mine/team/all) e as
-        // permissões continuam aplicados acima disto.
-        where.AND = [...(where.AND ?? []), { OR: uniaoDasCaixas(now) }]
-      }
+
+      // ── Filtros da tela, separados do escopo e da caixa ────────────────
+      //
+      // Esta separação é o que faz o NÚMERO da aba bater com a LISTA. Antes os
+      // contadores eram montados à parte, só com a permissão do usuário: com
+      // "Meus" selecionado, a Caixa (que por definição só tem lead SEM dono)
+      // mostrava "3" e abria vazia — os três eram de outras pessoas. O mesmo
+      // acontecia com busca, funil e número: a lista respeitava, o badge não.
+      //
+      // Agora existe uma peça só — `filtros` + `filtrosAnd` — usada pela lista
+      // E por todos os contadores; o que muda entre eles é apenas o escopo e a
+      // condição da caixa.
+      const filtros: any = {}
+      const filtrosAnd: any[] = []
 
       // Filtros legados de status (waiting/attending) são SUBfiltros do bucket inbox.
       if (status === 'waiting') {
-        where.unreadMessages = { gt: 0 }
+        filtros.unreadMessages = { gt: 0 }
       } else if (status === 'attending') {
-        where.unreadMessages = 0
+        filtros.unreadMessages = 0
       }
 
-      // search e tagIds: combinar via AND para preservar scope
-      const andClauses: any[] = []
       if (search) {
         const alvos: any[] = [
           { nome: { contains: search } },
@@ -269,28 +279,31 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         if (search.trim().length >= 3) {
           alvos.push({ messages: { some: { body: { contains: search }, isDeleted: false } } })
         }
-        andClauses.push({ OR: alvos })
+        filtrosAnd.push({ OR: alvos })
       }
+
       if (query.tagIds) {
         const tagIdArr = String(query.tagIds).split(',').map(Number).filter(Boolean)
         if (tagIdArr.length > 0) {
-          andClauses.push({ tags: { some: { tagId: { in: tagIdArr } } } })
+          filtrosAnd.push({ tags: { some: { tagId: { in: tagIdArr } } } })
         }
       }
+
       // Filtro por TIPO de conversa: contato individual x grupo de WhatsApp.
       // Vazio = os dois juntos (grupos ficam misturados na caixa, com badge).
       const kind = (query.kind ?? '').toString()
-      if (kind === 'groups') where.isGroup = true
-      else if (kind === 'contacts') where.isGroup = false
+      if (kind === 'groups') filtros.isGroup = true
+      else if (kind === 'contacts') filtros.isGroup = false
 
       // Filtro por FUNIL: id específico OU "none" (contatos sem funil).
       const fq = (query.funnelId ?? '').toString()
       if (fq === 'none' || fq === 'null') {
-        where.funnelId = null
+        filtros.funnelId = null
       } else if (fq) {
         const fid = parseInt(fq)
-        if (Number.isFinite(fid)) where.funnelId = fid
+        if (Number.isFinite(fid)) filtros.funnelId = fid
       }
+
       // Filtro por NÚMERO: conversas que PERTENCEM a este canal.
       //
       // Antes a regra era "tem ao menos uma mensagem enviada por este número,
@@ -306,13 +319,21 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         const { leadsDoCanal } = await import('../services/whatsappProvider.js')
         const idsDoCanal = await leadsDoCanal(sc)
         // Nenhuma conversa nesse número: lista vazia, e não a lista inteira.
-        andClauses.push({ id: { in: idsDoCanal.length ? idsDoCanal : [-1] } })
+        filtrosAnd.push({ id: { in: idsDoCanal.length ? idsDoCanal : [-1] } })
       }
-      // Merge (append) preservando as cláusulas de bucket já em where.AND (antes o
-      // where.AND era SOBRESCRITO por search/tags, perdendo o filtro de snooze).
-      if (andClauses.length > 0) {
-        where.AND = [...(where.AND ?? []), ...andClauses]
+
+      /** Junta escopo + filtros da tela + caixa numa cláusula só. */
+      const montarWhere = (escopo: any, caixa: string) => {
+        const cond = condicaoDaCaixa(caixa, now)
+        return {
+          ...escopo,
+          ...filtros,
+          ...cond.campos,
+          AND: [...filtrosAnd, ...cond.and],
+        }
       }
+
+      const where: any = montarWhere(scopeWhere, bucket)
 
       // Conversas que ESTE operador fixou (a fixação é pessoal). Elas saem da
       // paginação normal e entram inteiras no topo da primeira página: ordenar
@@ -416,61 +437,52 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
 
 
-      // Contadores: respeitam o scope efetivo do user.
-      // - 'all'  → sem restrição (admin/superadmin vê totais globais)
-      // - 'team' → meus leads + setores
-      // - 'own'  → só meus leads (agent)
-      let counterScope: any
-      if (effectiveScope === 'all') {
-        counterScope = {}
-      } else if (effectiveScope === 'own') {
-        counterScope = { assignedUserId: user.userId }
-      } else {
-        counterScope = {
-          OR: [
-            { assignedUserId: user.userId },
-            ...(myTeamIds.length > 0 ? [{ teamId: { in: myTeamIds } }] : []),
-          ],
-        }
-      }
+      // ── Contadores ────────────────────────────────────────────────────
+      //
+      // Cada número responde a UMA pergunta: "quantas conversas eu vejo se
+      // clicar aqui agora?". Por isso todos usam os mesmos `filtros` da lista —
+      // busca, tags, funil, número, tipo — e o escopo que está selecionado.
+      //
+      // Antes eles eram montados à parte, só com a permissão do usuário: com
+      // "Meus" selecionado, a Caixa mostrava 3 e abria vazia (os três eram de
+      // outras pessoas, e a Caixa por definição só tem lead sem dono). Filtrar
+      // por número ou buscar também não mexia em badge nenhum.
+      //
+      // Os números das CAIXAS variam a caixa e mantêm o escopo selecionado; os
+      // do ESCOPO (Meus/Setor) variam o escopo e mantêm a caixa aberta.
+      const escopoMeus = { assignedUserId: user.userId }
+      const escopoSetor = myTeamIds.length > 0
+        ? { teamId: { in: myTeamIds }, assignedUserId: null }
+        : { id: -1 }
 
-      // Counters: contagem do que está visível em cada bucket. inbox/raw já
-      // descontam snoozed (lead adormecido sai de "Atendimento" enquanto dorme).
-      const notSnoozedFilter = { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }
-      const waitingBucketFilter = {
-        OR: [
-          { snoozedUntil: { gt: now } },
-          {
-            assignedUserId: { not: null },
-            conversationOpenedAt: null,
-            conversationClosedAt: null,
-            lastMessageAt: { not: null },
-          },
-        ],
-      }
-      const [waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount, inboxCount, rawCount, snoozedCount, allCount] = await Promise.all([
-        prisma.lead.count({ where: { ...counterScope, completed: false, unreadMessages: { gt: 0 }, AND: [notSnoozedFilter] } }),
-        prisma.lead.count({ where: { ...counterScope, completed: false, unreadMessages: 0, lastMessageAt: { not: null }, AND: [notSnoozedFilter] } }),
-        prisma.lead.count({ where: { ...counterScope, conversationClosedAt: { not: null } } }),
-        prisma.lead.count({ where: { assignedUserId: user.userId, completed: false } }),
+      const [
+        waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount,
+        inboxCount, rawCount, snoozedCount, allCount, groupsCount,
+      ] = await Promise.all([
+        // waiting/attending: subfiltros legados do Atendimento (não lidas x lidas).
+        prisma.lead.count({
+          where: { ...montarWhere(scopeWhere, 'inbox'), unreadMessages: { gt: 0 } },
+        }),
+        prisma.lead.count({
+          where: { ...montarWhere(scopeWhere, 'inbox'), unreadMessages: 0 },
+        }),
+        prisma.lead.count({ where: montarWhere(scopeWhere, 'resolved') }),
+        // Meus / Setor: a caixa aberta continua valendo — o badge diz quantas
+        // conversas DESTA aba pertencem àquele escopo.
+        prisma.lead.count({ where: montarWhere(escopoMeus, bucket) }),
         myTeamIds.length > 0
-          ? prisma.lead.count({ where: { teamId: { in: myTeamIds }, assignedUserId: null, completed: false } })
+          ? prisma.lead.count({ where: montarWhere(escopoSetor, bucket) })
           : Promise.resolve(0),
-        // inbox: tickets ativos no novo modelo (sem os adormecidos)
-        prisma.lead.count({ where: { ...counterScope, conversationOpenedAt: { not: null }, conversationClosedAt: null, AND: [notSnoozedFilter] } }),
-        // raw: Caixa = mensagens recebidas em leads SEM ticket aberto E SEM operador atribuído (sem adormecidos)
-        prisma.lead.count({ where: { ...counterScope, conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null, AND: [notSnoozedFilter] } }),
-        // snoozed (Aguardando): adormecido OU atribuído mas ainda sem conversa aberta
-        prisma.lead.count({ where: { ...counterScope, AND: [waitingBucketFilter] } }),
-        // todos: mesma união da lista, para o número do badge e o que aparece
-        // ao clicar contarem a mesma história.
-        prisma.lead.count({ where: { ...counterScope, AND: [{ OR: uniaoDasCaixas(now) }] } }),
+        prisma.lead.count({ where: montarWhere(scopeWhere, 'inbox') }),
+        prisma.lead.count({ where: montarWhere(scopeWhere, 'raw') }),
+        prisma.lead.count({ where: montarWhere(scopeWhere, 'snoozed') }),
+        prisma.lead.count({ where: montarWhere(scopeWhere, 'all') }),
+        // Existe conversa de grupo aqui? A UI só mostra o filtro
+        // "Contatos / Grupos" para quem recebe grupos de verdade. Ignora o
+        // recorte por tipo — senão escolher "Só contatos" faria o próprio
+        // filtro desaparecer.
+        prisma.lead.count({ where: { ...scopeWhere, isGroup: true } }),
       ])
-
-      // Existe alguma conversa de grupo no escopo? A UI usa isso para só mostrar
-      // o filtro "Contatos / Grupos" em quem realmente recebe grupos — sem isso,
-      // todo mundo veria um filtro inútil (o toggle é OFF por padrão).
-      const groupsCount = await prisma.lead.count({ where: { ...counterScope, isGroup: true } })
 
       return {
         tickets: result,
