@@ -204,6 +204,57 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
   })
 }
 
+// ─── Reação e revogação vindas do contato ───────────────
+
+/** O contato reagiu a uma mensagem nossa (ou tirou a reação, mandando emoji
+ *  vazio). Guardamos na própria mensagem reagida. */
+async function aplicarReacaoRecebida(msg: any, contactName: string) {
+  const alvo = msg.reaction?.message_id
+  if (!alvo) return
+  const emoji = String(msg.reaction?.emoji ?? '')
+  const mensagem = await prisma.message.findFirst({
+    where: { externalId: alvo },
+    select: { id: true, leadId: true, reactions: true },
+  })
+  if (!mensagem) return
+
+  const atuais = (Array.isArray(mensagem.reactions) ? mensagem.reactions : []) as any[]
+  // Uma reação por lado, como no WhatsApp: a nova do contato substitui a dele.
+  const semDoContato = atuais.filter((r) => r?.fromMe)
+  const novas = emoji
+    ? [...semDoContato, { emoji, fromMe: false, senderName: contactName || null, at: new Date().toISOString() }]
+    : semDoContato
+
+  await prisma.message.update({ where: { id: mensagem.id }, data: { reactions: novas as any } })
+  broadcastRealtimeEvent({
+    type: 'message.reacted',
+    payload: { id: mensagem.id, reactions: novas },
+    scope: { leadId: mensagem.leadId },
+  })
+}
+
+/** O contato apagou para todos. Marca a mensagem como apagada — a bolha vira
+ *  "mensagem apagada", igual ao WhatsApp. */
+async function aplicarRevogacaoRecebida(msg: any) {
+  const alvo = msg.revoke?.original_message_id
+  if (!alvo) return
+  const mensagem = await prisma.message.findFirst({
+    where: { externalId: alvo },
+    select: { id: true, leadId: true },
+  })
+  if (!mensagem) return
+  await prisma.message.update({
+    where: { id: mensagem.id },
+    // `deletedByUserId` fica nulo: quem apagou foi o contato, não um operador.
+    data: { deletedForAll: true, isDeleted: true, deletedAt: new Date() },
+  })
+  broadcastRealtimeEvent({
+    type: 'message.deleted',
+    payload: { id: mensagem.id, scope: 'all', byContact: true },
+    scope: { leadId: mensagem.leadId },
+  })
+}
+
 // ─── Process Incoming Message ───────────────────────────
 
 async function processIncomingMessage(
@@ -316,7 +367,17 @@ async function processIncomingMessage(
       break
 
     case 'reaction':
-      // Ignorar reacoes por enquanto
+      // Reação não é mensagem: é estado da mensagem reagida. Vai para o campo
+      // `reactions` dela, que é o que a bolha mostra — registrar como mensagem
+      // nova encheria a conversa de linhas com um emoji só.
+      await aplicarReacaoRecebida(msg, contactName)
+      return
+
+    case 'revoke':
+      // O contato apagou uma mensagem para todos. A Meta não deixa a empresa
+      // apagar, mas AVISA quando o cliente apaga — e a conversa aqui precisa
+      // refletir isso, senão fica mostrando algo que sumiu do lado dele.
+      await aplicarRevogacaoRecebida(msg)
       return
 
     default:

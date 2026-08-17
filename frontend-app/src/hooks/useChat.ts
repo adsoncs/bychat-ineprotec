@@ -127,6 +127,21 @@ export interface ChatMessage {
   externalId: string | null
   quotedMsgId: number | null
   timestamp: string
+  /** Última edição. A bolha mostra "editada" quando existe. */
+  editedAt?: string | null
+  /** Apagada para todos: some no contato também, e a bolha vira o aviso. */
+  deletedForAll?: boolean
+  /** Chegou por encaminhamento. */
+  isForwarded?: boolean
+  /** Reações na mensagem — uma nossa e uma do contato, como no WhatsApp. */
+  reactions?: MessageReaction[] | null
+}
+
+export interface MessageReaction {
+  emoji: string
+  fromMe: boolean
+  senderName?: string | null
+  at: string
 }
 
 export function useTicketMessages(leadId: number | null) {
@@ -197,6 +212,80 @@ export function useSenderChannels(leadId: number | null, enabled = true) {
     queryFn: () => api.get<SenderChannelsResponse>(`/whatsapp/sender-channels${leadId ? `?leadId=${leadId}` : ''}`),
     enabled: enabled && leadId !== null,
     staleTime: 30_000,
+  })
+}
+
+// ─── Ações sobre uma mensagem já enviada ──────────────────
+//
+// O que cada canal aceita quem decide é o servidor: a Evolution (QR Code) faz
+// editar e apagar para todos; a API Oficial da Meta não tem essas duas — ela
+// só avisa quando o CLIENTE apaga. Nesses casos a resposta traz o motivo, e a
+// tela mostra o motivo em vez de esconder o botão.
+
+/** Invalida a conversa e a lista: as duas mostram o texto da mensagem. */
+function useInvalidarConversa(leadId: number | null) {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
+    void qc.invalidateQueries({ queryKey: ['tickets'] })
+  }
+}
+
+export function useEditMessage(leadId: number | null) {
+  const invalidar = useInvalidarConversa(leadId)
+  return useMutation({
+    mutationFn: ({ messageId, body }: { messageId: number; body: string }) =>
+      api.patch<{ ok: true }>(`/atendimento/tickets/${leadId}/messages/${messageId}`, { body }),
+    onSuccess: invalidar,
+  })
+}
+
+export function useDeleteMessage(leadId: number | null) {
+  const invalidar = useInvalidarConversa(leadId)
+  return useMutation({
+    mutationFn: ({ messageId, scope }: { messageId: number; scope: 'me' | 'all' }) =>
+      api.delete<{ ok: true }>(`/atendimento/tickets/${leadId}/messages/${messageId}?scope=${scope}`),
+    onSuccess: invalidar,
+  })
+}
+
+export interface ForwardResult {
+  ok: true
+  enviados: number
+  resultados: Array<{ leadId: number; ok: boolean; erro?: string }>
+}
+
+export function useForwardMessage(leadId: number | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ messageId, leadIds }: { messageId: number; leadIds: number[] }) =>
+      api.post<ForwardResult>(`/atendimento/tickets/${leadId}/messages/${messageId}/forward`, { leadIds }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
+  })
+}
+
+export function useReactMessage(leadId: number | null) {
+  const invalidar = useInvalidarConversa(leadId)
+  return useMutation({
+    // Emoji vazio remove a reação — é assim que o WhatsApp faz.
+    mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string }) =>
+      api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/messages/${messageId}/react`, { emoji }),
+    onSuccess: invalidar,
+  })
+}
+
+/** Devolve a conversa para a fila de não lidas (abriu por engano). */
+export function useMarkTicketUnread() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadId: number) =>
+      api.put<{ ok: true; unreadMessages: number; espelhadoNoWhatsapp: boolean }>(
+        `/atendimento/tickets/${leadId}/unread`,
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+      void qc.invalidateQueries({ queryKey: ['tickets', 'unread-count'] })
+    },
   })
 }
 

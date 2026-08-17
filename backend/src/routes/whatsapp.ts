@@ -200,6 +200,89 @@ async function resolveLidToPhone(lid: string, pushName?: string): Promise<string
 
 // ─── Audio transcription ─────────────────────────────────
 
+/** Extrai o texto novo de um payload de edição da Evolution. O caminho varia
+ *  conforme a versão, então tentamos os formatos conhecidos em ordem. */
+function textoEditado(item: any): string {
+  const editada = item?.update?.message?.editedMessage ?? item?.message?.editedMessage ?? item?.editedMessage
+  const conteudo = editada?.message?.protocolMessage?.editedMessage ?? editada?.message ?? editada
+  return conteudo?.conversation
+    || conteudo?.extendedTextMessage?.text
+    || item?.update?.message?.conversation
+    || item?.message?.conversation
+    || ''
+}
+
+/** O contato (ou nós, de outro aparelho) editou uma mensagem. */
+async function aplicarEdicaoRecebida(item: any, app: FastifyInstance) {
+  const msgId = item?.key?.id || item?.keyId || item?.id || ''
+  const texto = textoEditado(item)
+  if (!msgId || !texto) return
+  const msg = await prisma.message.findFirst({
+    where: { externalId: msgId },
+    select: { id: true, leadId: true, body: true, originalBody: true },
+  })
+  if (!msg || msg.body === texto) return
+  await prisma.message.update({
+    where: { id: msg.id },
+    data: {
+      body: texto,
+      editedAt: new Date(),
+      ...(msg.originalBody ? {} : { originalBody: msg.body }),
+    },
+  })
+  app.log.info(`[WA] Mensagem ${msgId} editada pelo contato`)
+  broadcastRealtimeEvent({
+    type: 'message.edited',
+    payload: { id: msg.id, body: texto, editedAt: new Date().toISOString() },
+    scope: { leadId: msg.leadId },
+  })
+}
+
+/** O contato apagou para todos: a bolha vira "mensagem apagada", como no app. */
+async function aplicarRevogacaoRecebida(msgId: string, app: FastifyInstance) {
+  if (!msgId) return
+  const msg = await prisma.message.findFirst({
+    where: { externalId: msgId },
+    select: { id: true, leadId: true },
+  })
+  if (!msg) return
+  await prisma.message.update({
+    where: { id: msg.id },
+    // Sem `deletedByUserId`: quem apagou foi o contato.
+    data: { deletedForAll: true, isDeleted: true, deletedAt: new Date() },
+  })
+  app.log.info(`[WA] Mensagem ${msgId} apagada pelo contato`)
+  broadcastRealtimeEvent({
+    type: 'message.deleted',
+    payload: { id: msg.id, scope: 'all', byContact: true },
+    scope: { leadId: msg.leadId },
+  })
+}
+
+/** Reação recebida: estado da mensagem reagida, não mensagem nova. */
+async function aplicarReacaoRecebidaEvolution(reaction: any, senderName: string, app: FastifyInstance) {
+  const alvo = reaction?.key?.id
+  if (!alvo) return
+  const emoji = String(reaction?.text ?? '')
+  const msg = await prisma.message.findFirst({
+    where: { externalId: alvo },
+    select: { id: true, leadId: true, reactions: true },
+  })
+  if (!msg) return
+  const atuais = (Array.isArray(msg.reactions) ? msg.reactions : []) as any[]
+  const semDoContato = atuais.filter((r) => r?.fromMe)
+  const novas = emoji
+    ? [...semDoContato, { emoji, fromMe: false, senderName: senderName || null, at: new Date().toISOString() }]
+    : semDoContato
+  await prisma.message.update({ where: { id: msg.id }, data: { reactions: novas as any } })
+  app.log.info(`[WA] Reação "${emoji}" na mensagem ${alvo}`)
+  broadcastRealtimeEvent({
+    type: 'message.reacted',
+    payload: { id: msg.id, reactions: novas },
+    scope: { leadId: msg.leadId },
+  })
+}
+
 async function downloadAudioFromEvolution(messageKey: any, instanceName?: string): Promise<Buffer | null> {
   try {
     const inst = instanceName || evoInstance()
@@ -568,6 +651,21 @@ export async function whatsappRoutes(app: FastifyInstance) {
         return { ok: true }
       }
 
+      // ── O contato editou ou apagou uma mensagem ──
+      //
+      // A Evolution emite isso de mais de um jeito conforme a versão: evento
+      // próprio (`messages.edit`, `messages.delete`) ou embutido no
+      // `messages.update` (com `message.editedMessage`, ou status DELETED).
+      // Tratamos as duas formas porque o parque tem versões diferentes.
+      if (event === 'messages.edit' || event === 'messages.delete') {
+        const itens = Array.isArray(body.data) ? body.data : [body.data]
+        for (const item of itens) {
+          if (event === 'messages.edit') await aplicarEdicaoRecebida(item, app)
+          else await aplicarRevogacaoRecebida(item?.key?.id || item?.id || '', app)
+        }
+        return { ok: true }
+      }
+
       // Handle ACK updates (message status: sent, delivered, read)
       if (event === 'messages.update') {
         const STATUS_MAP: Record<string, number> = {
@@ -579,6 +677,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
           for (const upd of updates) {
             const msgId = upd?.key?.id || upd?.keyId || ''
             const rawStatus = upd?.update?.status ?? upd?.status
+
+            // Edição embutida no update (Evolution mais antiga): o texto novo
+            // vem dentro de `editedMessage`, não em evento separado.
+            if (msgId && (upd?.update?.message?.editedMessage || upd?.message?.editedMessage)) {
+              await aplicarEdicaoRecebida(upd, app)
+              continue
+            }
+            // Revogação embutida: status textual DELETED/REVOKED.
+            if (msgId && typeof rawStatus === 'string' && /^(deleted|revoked)$/i.test(rawStatus)) {
+              await aplicarRevogacaoRecebida(msgId, app)
+              continue
+            }
+
             if (!msgId || rawStatus === undefined) continue
 
             let ack: number
@@ -803,6 +914,30 @@ export async function whatsappRoutes(app: FastifyInstance) {
         }
       }
 
+      // Reação a uma mensagem existente. Sai aqui: não é conversa nova, é
+      // estado da mensagem reagida — e seguir adiante registraria uma bolha
+      // com um emoji solto e ainda acordaria o chatbot.
+      if (message.reactionMessage) {
+        await aplicarReacaoRecebidaEvolution(message.reactionMessage, data.pushName || '', app)
+        return { ok: true }
+      }
+
+      // Mensagem apagada pelo contato chega como protocolMessage REVOKE dentro
+      // do próprio upsert em algumas versões da Evolution.
+      if (message.protocolMessage?.type === 'REVOKE' || message.protocolMessage?.type === 0) {
+        await aplicarRevogacaoRecebida(message.protocolMessage?.key?.id || '', app)
+        return { ok: true }
+      }
+
+      // Edição também pode vir no upsert (editedMessage dentro do protocolo).
+      if (message.editedMessage || message.protocolMessage?.editedMessage) {
+        await aplicarEdicaoRecebida(
+          { key: { id: message.protocolMessage?.key?.id || messageId }, message },
+          app,
+        )
+        return { ok: true }
+      }
+
       const text = message.conversation ||
                    message.extendedTextMessage?.text ||
                    message.buttonsResponseMessage?.selectedButtonId ||
@@ -892,6 +1027,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
             mediaName: mediaName || null,
             // Quem falou dentro do grupo — sem isso a conversa fica ilegível.
             senderName: groupSenderName(data.pushName, participantJid),
+            // O JID de quem falou é o que o WhatsApp exige para reagir ou
+            // apagar essa mensagem depois, dentro do grupo.
+            senderJid: participantJid || null,
             externalId: messageId || null,
             provider: 'evolution',
             evolutionInstance: inboundInstance,

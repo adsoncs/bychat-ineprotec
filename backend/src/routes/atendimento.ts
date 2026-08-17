@@ -417,7 +417,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           senderName: true,
           externalId: true,
           quotedMsgId: true,
-          timestamp: true
+          timestamp: true,
+          // Estado da mensagem depois de enviada: a bolha precisa saber se foi
+          // editada, se foi apagada para todos (vira "mensagem apagada" em vez
+          // de sumir), se veio encaminhada e quais reações tem.
+          editedAt: true,
+          deletedForAll: true,
+          isForwarded: true,
+          reactions: true,
         }
       })
 
@@ -832,6 +839,103 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     } catch (err: any) {
       app.log.error(`Upload error: ${err.message}`)
       return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ══════════════════════════════════════════════════════
+  //  AÇÕES SOBRE A MENSAGEM — editar, apagar, encaminhar, reagir
+  //
+  //  O que cada canal aceita é decidido no provider, não aqui: a Evolution faz
+  //  tudo; a API Oficial da Meta não tem editar nem apagar (confirmado na
+  //  documentação — ela só NOTIFICA quando o cliente apaga). Nesses casos o
+  //  operador recebe o motivo, e o "apagar para mim" continua valendo, porque
+  //  esse é local dos dois lados.
+  // ══════════════════════════════════════════════════════
+
+  /** Traduz o erro do serviço em resposta HTTP preservando status e código. */
+  function respondeErroAcao(reply: any, err: any) {
+    const status = typeof err?.status === 'number' ? err.status : 500
+    return reply.code(status).send({ error: err?.message || 'Falha na ação', code: err?.code })
+  }
+
+  function atorDaRequisicao(req: any) {
+    const u = (req as any).user as JwtPayload & { name?: string; email?: string }
+    return { userId: u.userId, role: u.role, name: u.name ?? null, email: u.email ?? null }
+  }
+
+  // PATCH /api/atendimento/tickets/:leadId/messages/:messageId — editar texto
+  app.patch('/api/atendimento/tickets/:leadId/messages/:messageId', { preHandler: authMiddleware }, async (req, reply) => {
+    const { leadId, messageId } = req.params as any
+    const lid = parseInt(leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    try {
+      const { editarMensagem } = await import('../services/messageActions.js')
+      return await editarMensagem(lid, parseInt(messageId), (req.body as any)?.body ?? '', atorDaRequisicao(req))
+    } catch (err: any) {
+      return respondeErroAcao(reply, err)
+    }
+  })
+
+  // DELETE /api/atendimento/tickets/:leadId/messages/:messageId?scope=me|all
+  app.delete('/api/atendimento/tickets/:leadId/messages/:messageId', { preHandler: authMiddleware }, async (req, reply) => {
+    const { leadId, messageId } = req.params as any
+    const lid = parseInt(leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const scope = (req.query as any)?.scope === 'all' ? 'all' : 'me'
+    try {
+      const { apagarMensagem } = await import('../services/messageActions.js')
+      return await apagarMensagem(lid, parseInt(messageId), scope, atorDaRequisicao(req))
+    } catch (err: any) {
+      return respondeErroAcao(reply, err)
+    }
+  })
+
+  // POST /api/atendimento/tickets/:leadId/messages/:messageId/forward
+  app.post('/api/atendimento/tickets/:leadId/messages/:messageId/forward', { preHandler: authMiddleware }, async (req, reply) => {
+    const { leadId, messageId } = req.params as any
+    const lid = parseInt(leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const alvos = Array.isArray((req.body as any)?.leadIds) ? (req.body as any).leadIds : []
+    const destinos = alvos.map((id: unknown) => ({ leadId: Number(id) })).filter((d: any) => Number.isFinite(d.leadId))
+    // Encaminhar é ENVIAR para outra conversa: quem não pode falar com o
+    // destino não pode encaminhar para ele.
+    for (const d of destinos) {
+      const quem = (req as any).user as JwtPayload
+      if (!await canUserAccessLead(quem.userId, quem.role, d.leadId)) {
+        return reply.code(403).send({ error: 'Você não tem acesso a uma das conversas de destino.' })
+      }
+    }
+    try {
+      const { encaminharMensagem } = await import('../services/messageActions.js')
+      return await encaminharMensagem(lid, parseInt(messageId), destinos, atorDaRequisicao(req))
+    } catch (err: any) {
+      return respondeErroAcao(reply, err)
+    }
+  })
+
+  // POST /api/atendimento/tickets/:leadId/messages/:messageId/react
+  app.post('/api/atendimento/tickets/:leadId/messages/:messageId/react', { preHandler: authMiddleware }, async (req, reply) => {
+    const { leadId, messageId } = req.params as any
+    const lid = parseInt(leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    try {
+      const { reagirMensagem } = await import('../services/messageActions.js')
+      // String vazia é como o WhatsApp remove a reação — não é erro.
+      return await reagirMensagem(lid, parseInt(messageId), String((req.body as any)?.emoji ?? ''), atorDaRequisicao(req))
+    } catch (err: any) {
+      return respondeErroAcao(reply, err)
+    }
+  })
+
+  // PUT /api/atendimento/tickets/:leadId/unread — desfaz a leitura acidental
+  app.put('/api/atendimento/tickets/:leadId/unread', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    try {
+      const { marcarConversaNaoLida } = await import('../services/messageActions.js')
+      return await marcarConversaNaoLida(lid, atorDaRequisicao(req))
+    } catch (err: any) {
+      return respondeErroAcao(reply, err)
     }
   })
 

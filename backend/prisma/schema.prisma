@@ -1343,6 +1343,26 @@ model Message {
   ack         Int      @default(0)
   isDeleted   Boolean  @default(false)
   isInternal  Boolean  @default(false)
+
+  // ── Editar / apagar / encaminhar / reagir (paridade com o WhatsApp) ──
+  /// Quando a mensagem foi editada pela última vez. O WhatsApp só aceita
+  /// edição até 15 minutos depois do envio, e só de mensagem nossa.
+  editedAt      DateTime?
+  /// Texto anterior à primeira edição. O WhatsApp não guarda isso; aqui guarda
+  /// porque conversa de atendimento vira prova em reclamação e em auditoria.
+  originalBody  String?  @db.LongText
+  /// Apagada para todos (revoke). Diferente de `isDeleted`: aqui a mensagem
+  /// sumiu também no aparelho do contato, e a bolha vira "mensagem apagada".
+  deletedForAll Boolean  @default(false)
+  deletedAt     DateTime?
+  /// Quem apagou pelo painel. Null quando foi o contato quem apagou.
+  deletedByUserId Int?
+  /// Chegou aqui por encaminhamento feito no painel.
+  isForwarded   Boolean  @default(false)
+  /// Reações no formato [{ emoji, fromMe, senderName, at }]. Guardadas na
+  /// própria mensagem: reação não é mensagem, é estado dela.
+  reactions     Json?    @db.Json
+
   provider    String   @default("evolution") @db.VarChar(20) // evolution | cloud_api
   // Origem real da mensagem (qual número/canal) — distingue conversas de
   // números diferentes no módulo Conversas. Preenchido nos webhooks/envio.
@@ -1350,6 +1370,10 @@ model Message {
   cloudApiConnectionId Int? // FK quando provider='cloud_api'
   cloudApiConnection   CloudApiConnection? @relation(fields: [cloudApiConnectionId], references: [id], onDelete: SetNull)
   senderName  String?  @db.VarChar(100)
+  /// JID de quem enviou, quando a conversa é de GRUPO. O WhatsApp exige esse
+  /// `participant` para agir sobre a mensagem de outra pessoa (reagir, apagar):
+  /// sem ele, só o id não identifica a mensagem dentro do grupo.
+  senderJid   String?  @db.VarChar(100)
   externalId  String?  @db.VarChar(191)
   quotedMsgId Int?
   timestamp   DateTime @default(now())

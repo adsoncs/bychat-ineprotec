@@ -9,6 +9,7 @@ import {
   sendMediaMessage,
   sendTemplateMessage,
   sendInteractiveMessage,
+  sendReactionMessage,
   decryptToken,
   normalizePhone,
 } from './cloudApi.js'
@@ -45,6 +46,20 @@ export interface WhatsAppSendOptions {
   quotedExternalId?: string
 }
 
+/** Identifica UMA mensagem já enviada no WhatsApp. Editar, apagar e reagir
+ *  precisam da chave inteira — só o id não basta em grupo, onde o WhatsApp
+ *  exige também quem enviou. */
+export interface WhatsAppMessageRef {
+  /** `key.id` da mensagem (o que guardamos em `Message.externalId`). */
+  externalId: string
+  /** Conversa onde ela está: telefone, JID de grupo (@g.us) ou @lid. */
+  chat: string
+  /** Mensagem nossa. O WhatsApp só deixa editar/apagar-para-todos as nossas. */
+  fromMe: boolean
+  /** Em grupo, o JID de quem enviou. Ignorado em conversa individual. */
+  participant?: string | undefined
+}
+
 export interface WhatsAppProvider {
   readonly providerName: 'evolution' | 'cloud_api'
   sendText(phone: string, text: string, options?: WhatsAppSendOptions): Promise<WhatsAppSendResult>
@@ -52,6 +67,19 @@ export interface WhatsAppProvider {
   sendTemplate(phone: string, templateName: string, language: string, components?: any[]): Promise<WhatsAppSendResult>
   sendInteractive(phone: string, interactive: any): Promise<WhatsAppSendResult>
   sendAudio(phone: string, audioUrl: string): Promise<WhatsAppSendResult>
+
+  // ── Ações sobre mensagem já enviada ──
+  // Opcionais na interface porque a API Oficial da Meta simplesmente não tem
+  // as três primeiras: quem usa Cloud API recebe um erro explicando isso, em
+  // vez de um botão que finge funcionar.
+  /** Reescreve o texto de uma mensagem nossa (WhatsApp: até 15 min). */
+  editText?(ref: WhatsAppMessageRef, newText: string): Promise<void>
+  /** Apaga para todos (revoke) — some também no aparelho do contato. */
+  deleteForEveryone?(ref: WhatsAppMessageRef): Promise<void>
+  /** Marca a conversa como NÃO lida no aparelho/WhatsApp Web. */
+  markChatUnread?(ref: WhatsAppMessageRef): Promise<void>
+  /** Reage com emoji; string vazia remove a reação. */
+  react?(ref: WhatsAppMessageRef, emoji: string): Promise<void>
 }
 
 // ─── Evolution API Provider ─────────────────────────────
@@ -133,6 +161,52 @@ export class EvolutionProvider implements WhatsAppProvider {
       audio: audioUrl,
     })
     return { messageId: result?.key?.id || null, provider: 'evolution' }
+  }
+
+  // ── Ações sobre mensagem já enviada ──
+
+  /** Monta a `key` do Baileys que a Evolution espera nessas rotas. Em grupo o
+   *  `participant` é obrigatório: sem ele o WhatsApp não sabe qual mensagem
+   *  daquele chat é para mexer. */
+  private keyOf(ref: WhatsAppMessageRef) {
+    const remoteJid = ref.chat.includes('@') ? ref.chat : `${toEvoNumber(ref.chat)}@s.whatsapp.net`
+    const key: any = { id: ref.externalId, remoteJid, fromMe: ref.fromMe }
+    if (remoteJid.endsWith('@g.us') && ref.participant) key.participant = ref.participant
+    return key
+  }
+
+  async editText(ref: WhatsAppMessageRef, newText: string): Promise<void> {
+    const key = this.keyOf(ref)
+    await this.evoFetch(`/chat/updateMessage/${this.instanceName}`, 'POST', {
+      number: key.remoteJid,
+      key,
+      text: newText,
+    })
+  }
+
+  async deleteForEveryone(ref: WhatsAppMessageRef): Promise<void> {
+    const key = this.keyOf(ref)
+    await this.evoFetch(`/chat/deleteMessageForEveryone/${this.instanceName}`, 'DELETE', {
+      id: key.id,
+      remoteJid: key.remoteJid,
+      fromMe: key.fromMe,
+      ...(key.participant ? { participant: key.participant } : {}),
+    })
+  }
+
+  async markChatUnread(ref: WhatsAppMessageRef): Promise<void> {
+    const key = this.keyOf(ref)
+    await this.evoFetch(`/chat/markChatUnread/${this.instanceName}`, 'POST', {
+      chat: key.remoteJid,
+      lastMessage: { key },
+    })
+  }
+
+  async react(ref: WhatsAppMessageRef, emoji: string): Promise<void> {
+    await this.evoFetch(`/message/sendReaction/${this.instanceName}`, 'POST', {
+      key: this.keyOf(ref),
+      reaction: emoji,
+    })
   }
 
   async sendTemplate(_phone: string, _templateName: string, _language: string, _components?: any[]): Promise<WhatsAppSendResult> {
@@ -279,6 +353,29 @@ export class CloudApiProvider implements WhatsAppProvider {
   async sendInteractive(phone: string, interactive: any): Promise<WhatsAppSendResult> {
     const result = await sendInteractiveMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), interactive)
     return { ...result, provider: 'cloud_api' }
+  }
+
+  // ── Ações sobre mensagem já enviada ──
+  // A API Oficial da Meta não tem editar nem apagar: uma vez entregue, a
+  // mensagem fica. Falhar aqui com a explicação é melhor do que esconder o
+  // botão, porque o operador que veio do WhatsApp Web vai procurar por ele.
+
+  async editText(_ref: WhatsAppMessageRef, _newText: string): Promise<void> {
+    throw new Error('A API Oficial da Meta não permite editar mensagem já enviada. Isso só funciona nos números conectados por QR Code.')
+  }
+
+  async deleteForEveryone(_ref: WhatsAppMessageRef): Promise<void> {
+    throw new Error('A API Oficial da Meta não permite apagar mensagem para todos. Isso só funciona nos números conectados por QR Code — aqui dá para apagar só da sua tela.')
+  }
+
+  async markChatUnread(_ref: WhatsAppMessageRef): Promise<void> {
+    // Não existe na Cloud API: o "não lida" vale só no painel. Silencioso de
+    // propósito — a marcação local já aconteceu e é o que o operador queria.
+  }
+
+  async react(ref: WhatsAppMessageRef, emoji: string): Promise<void> {
+    const to = ref.chat.includes('@') ? ref.chat.split('@')[0] : ensureBrazilDdi(normalizePhone(ref.chat))
+    await sendReactionMessage(this.phoneNumberId, this.token, to, ref.externalId, emoji)
   }
 }
 
