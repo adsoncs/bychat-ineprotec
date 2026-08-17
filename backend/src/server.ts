@@ -327,6 +327,22 @@ app.addHook('preParsing', async (req, _reply, payload) => {
   return payload
 })
 
+// ── CORPO VAZIO EM JSON ─────────────────────────
+// Ação sem parâmetro (fixar conversa, marcar como não lida, assumir) é um POST
+// ou PUT sem nada para enviar. Quando o cliente HTTP manda
+// `Content-Type: application/json` mesmo assim, o parser padrão do Fastify
+// derruba com FST_ERR_CTP_EMPTY_JSON_BODY — e a ação falha por um detalhe de
+// transporte, não por regra de negócio. Corpo vazio aqui vira `{}`.
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  const texto = typeof body === 'string' ? body : String(body ?? '')
+  if (!texto.trim()) return done(null, {})
+  try {
+    done(null, JSON.parse(texto))
+  } catch (err) {
+    done(err as Error, undefined)
+  }
+})
+
 // ── INPUT SANITIZATION ──────────────────────────
 function sanitizeValue(val: any): any {
   if (typeof val === 'string') {

@@ -104,6 +104,8 @@ model User {
   scheduledMessagesCanceled ScheduledMessage[] @relation("ScheduledMessageCanceler")
   chatImportJobs            ChatImportJob[]    @relation("ChatImportCreator")
 
+  conversationPins ConversationPin[]
+
   @@map("bychat_users")
 }
 
@@ -1067,6 +1069,8 @@ model Lead {
   scheduledMessages ScheduledMessage[]
   chatImportJobs    ChatImportJob[]
 
+  conversationPins ConversationPin[]
+
   @@map("bychat_leads")
 }
 
@@ -1389,6 +1393,25 @@ model Message {
 // Histórico de anotações internas do lead. Substitui o campo Lead.annotation
 // (single-value) por uma lista append-only com autor + timestamp — operadores
 // veem tudo que foi registrado ao longo do tempo.
+/// Conversa fixada no topo da lista.
+///
+/// É POR OPERADOR, não do lead: cada pessoa fixa o que está acompanhando hoje,
+/// e fixar para todo mundo bagunçaria a fila dos colegas. Mesma lógica do
+/// WhatsApp, onde a fixação vale para a conta que fixou.
+model ConversationPin {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leadId Int
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, leadId])
+  @@index([userId, createdAt])
+  @@map("bychat_conversation_pins")
+}
+
 model LeadNote {
   id     Int  @id @default(autoincrement())
   leadId Int

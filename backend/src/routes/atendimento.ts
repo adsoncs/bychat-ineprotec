@@ -35,6 +35,48 @@ async function assertTicketAccess(
   return true
 }
 
+/** Campos de um item da lista de conversas. Extraído porque duas consultas
+ *  precisam dele: a das conversas fixadas (que sobem ao topo) e a da lista
+ *  paginada — e um `select` divergente entre elas faria a mesma conversa
+ *  aparecer com dados diferentes conforme estivesse fixada ou não. */
+const SELECAO_TICKET = {
+      id: true,
+      nome: true,
+      empresa: true,
+      whatsapp: true,
+      email: true,
+      segmento: true,
+      status: true,
+      completed: true,
+      source: true,
+      profilePicUrl: true,
+      unreadMessages: true,
+      lastMessageAt: true,
+      createdAt: true,
+      assignedUserId: true,
+      assignedUser: { select: { id: true, name: true, email: true } },
+      teamId: true,
+      team: { select: { id: true, name: true, color: true, slug: true } },
+      funnelId: true,
+      isGroup: true,
+      tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+      qualifiedAt: true,
+      qualificationSource: true,
+      snoozedUntil: true,
+      messages: {
+        orderBy: { timestamp: 'desc' },
+        take: 1,
+        select: {
+          body: true,
+          fromMe: true,
+          timestamp: true,
+          provider: true,
+          evolutionInstance: true,
+          cloudApiConnection: { select: { displayPhone: true, displayName: true, color: true } },
+        },
+      },
+  } as const
+
 export async function atendimentoRoutes(app: FastifyInstance) {
 
   // ── GET /api/atendimento/unread-count — quantas conversas esperam por você ──
@@ -179,14 +221,20 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // search e tagIds: combinar via AND para preservar scope
       const andClauses: any[] = []
       if (search) {
-        andClauses.push({
-          OR: [
-            { nome: { contains: search } },
-            { empresa: { contains: search } },
-            { whatsapp: { contains: search } },
-            { email: { contains: search } },
-          ],
-        })
+        const alvos: any[] = [
+          { nome: { contains: search } },
+          { empresa: { contains: search } },
+          { whatsapp: { contains: search } },
+          { email: { contains: search } },
+        ]
+        // Procurar DENTRO das mensagens é o que o operador espera de uma busca
+        // de conversas ("aquele cliente que falou em boleto"). Exige 3
+        // caracteres: com uma ou duas letras o LIKE '%x%' varre a tabela
+        // inteira e devolve quase tudo, o que não ajuda ninguém.
+        if (search.trim().length >= 3) {
+          alvos.push({ messages: { some: { body: { contains: search }, isDeleted: false } } })
+        }
+        andClauses.push({ OR: alvos })
       }
       if (query.tagIds) {
         const tagIdArr = String(query.tagIds).split(',').map(Number).filter(Boolean)
@@ -223,49 +271,44 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         where.AND = [...(where.AND ?? []), ...andClauses]
       }
 
+      // Conversas que ESTE operador fixou (a fixação é pessoal). Elas saem da
+      // paginação normal e entram inteiras no topo da primeira página: ordenar
+      // depois de paginar não funcionaria — uma conversa fixada de duas semanas
+      // atrás simplesmente não estaria entre os `limit` mais recentes.
+      const pins = await prisma.conversationPin.findMany({
+        where: { userId: user.userId },
+        orderBy: { createdAt: 'desc' },
+        select: { leadId: true },
+      })
+      const idsFixados = pins.map(p => p.leadId)
+      const fixados = new Set(idsFixados)
+
+      // As fixadas ainda respeitam os filtros da tela: fixar não faz uma
+      // conversa resolvida aparecer na caixa de entrada.
+      const whereFixados = idsFixados.length
+        ? { AND: [where, { id: { in: idsFixados } }] }
+        : null
+      const ticketsFixados = (offset === 0 && whereFixados)
+        ? await prisma.lead.findMany({
+            where: whereFixados,
+            orderBy: { lastMessageAt: 'desc' },
+            take: limit,
+            select: SELECAO_TICKET,
+          })
+        : []
+
+      // A lista normal nunca repete o que já subiu (nem em páginas seguintes).
+      const whereLista = idsFixados.length
+        ? { AND: [where, { id: { notIn: idsFixados } }] }
+        : where
+
       const [tickets, total] = await Promise.all([
         prisma.lead.findMany({
-          where,
+          where: whereLista,
           orderBy: { lastMessageAt: 'desc' },
-          take: limit,
+          take: Math.max(0, limit - ticketsFixados.length),
           skip: offset,
-          select: {
-            id: true,
-            nome: true,
-            empresa: true,
-            whatsapp: true,
-            email: true,
-            segmento: true,
-            status: true,
-            completed: true,
-            source: true,
-            profilePicUrl: true,
-            unreadMessages: true,
-            lastMessageAt: true,
-            createdAt: true,
-            assignedUserId: true,
-            assignedUser: { select: { id: true, name: true, email: true } },
-            teamId: true,
-            team: { select: { id: true, name: true, color: true, slug: true } },
-            funnelId: true,
-            isGroup: true,
-            tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
-            qualifiedAt: true,
-            qualificationSource: true,
-            snoozedUntil: true,
-            messages: {
-              orderBy: { timestamp: 'desc' },
-              take: 1,
-              select: {
-                body: true,
-                fromMe: true,
-                timestamp: true,
-                provider: true,
-                evolutionInstance: true,
-                cloudApiConnection: { select: { displayPhone: true, displayName: true, color: true } },
-              },
-            },
-          },
+          select: SELECAO_TICKET,
         }),
         prisma.lead.count({ where }),
       ])
@@ -298,15 +341,18 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         return { provider: 'evolution', label: nomeInst, number: inst?.phone ?? null, name: nomeInst ?? m.evolutionInstance ?? null, color: inst?.color ?? null }
       }
 
-      const result = tickets.map(t => {
+      const result = [...ticketsFixados, ...tickets].map(t => {
         const last = t.messages[0] || null
         return {
           ...t,
           lastMessage: last ? { body: last.body, fromMe: last.fromMe, timestamp: last.timestamp } : null,
           channel: buildChannel(last),
+          pinned: fixados.has(t.id),
           messages: undefined,
         }
       })
+
+
 
       // Contadores: respeitam o scope efetivo do user.
       // - 'all'  → sem restrição (admin/superadmin vê totais globais)
@@ -430,6 +476,35 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       // Return in chronological order
       messages.reverse()
+
+      // Trecho da mensagem CITADA em cada resposta.
+      //
+      // A tela só conseguia mostrar a citação quando a mensagem original estava
+      // entre as 50 carregadas. Quando o cliente responde a algo de ontem — o
+      // caso mais comum em grupo —, a bolha aparecia sem contexto nenhum. Aqui
+      // o servidor manda junto o resumo do que foi citado, uma consulta só para
+      // a página inteira.
+      const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
+      if (citadasIds.length) {
+        const citadas = await prisma.message.findMany({
+          where: { id: { in: citadasIds } },
+          select: { id: true, body: true, fromMe: true, senderName: true, mediaType: true, deletedForAll: true },
+        })
+        const porId = new Map(citadas.map(c => [c.id, c]))
+        for (const m of messages as any[]) {
+          const c = m.quotedMsgId ? porId.get(m.quotedMsgId) : null
+          m.quoted = c
+            ? {
+                id: c.id,
+                body: c.deletedForAll ? null : c.body,
+                fromMe: c.fromMe,
+                senderName: c.senderName,
+                mediaType: c.mediaType,
+                deleted: c.deletedForAll,
+              }
+            : null
+        }
+      }
 
       // Menções de grupo chegam como "@<identificador>" — número que não é
       // telefone e não diz nada a quem lê. Resolvido na LEITURA para o texto
@@ -925,6 +1000,41 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     } catch (err: any) {
       return respondeErroAcao(reply, err)
     }
+  })
+
+  /** Teto de conversas fixadas por operador. O WhatsApp para em 3; aqui a fila
+   *  de atendimento é maior, mas sem limite a fixação deixa de destacar nada. */
+  const PINS_MAX = 10
+
+  // POST /api/atendimento/tickets/:leadId/pin — fixa no topo (só para você)
+  app.post('/api/atendimento/tickets/:leadId/pin', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const { userId } = (req as any).user as JwtPayload
+    const jaFixadas = await prisma.conversationPin.count({ where: { userId } })
+    const jaTem = await prisma.conversationPin.findUnique({ where: { userId_leadId: { userId, leadId: lid } } })
+    if (!jaTem && jaFixadas >= PINS_MAX) {
+      return reply.code(400).send({
+        error: `Você já tem ${PINS_MAX} conversas fixadas. Desafixe uma antes de fixar outra.`,
+        code: 'PIN_LIMIT',
+      })
+    }
+    // Idempotente: fixar de novo não é erro, é o estado que o operador quer.
+    await prisma.conversationPin.upsert({
+      where: { userId_leadId: { userId, leadId: lid } },
+      create: { userId, leadId: lid },
+      update: {},
+    })
+    return { ok: true, pinned: true }
+  })
+
+  // DELETE /api/atendimento/tickets/:leadId/pin — desafixa
+  app.delete('/api/atendimento/tickets/:leadId/pin', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const { userId } = (req as any).user as JwtPayload
+    await prisma.conversationPin.deleteMany({ where: { userId, leadId: lid } })
+    return { ok: true, pinned: false }
   })
 
   // PUT /api/atendimento/tickets/:leadId/unread — desfaz a leitura acidental

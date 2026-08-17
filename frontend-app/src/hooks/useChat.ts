@@ -39,6 +39,8 @@ export interface Ticket {
   qualificationSource: string | null
   /** Conversa de GRUPO de WhatsApp (Evolution) — não é um contato individual. */
   isGroup?: boolean
+  /** Fixada no topo por ESTE operador (a fixação é pessoal). */
+  pinned?: boolean
   /** Canal/número de origem da conversa (última mensagem) */
   channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string | null; number: string | null; name: string | null; color?: string | null } | null
 }
@@ -135,6 +137,20 @@ export interface ChatMessage {
   isForwarded?: boolean
   /** Reações na mensagem — uma nossa e uma do contato, como no WhatsApp. */
   reactions?: MessageReaction[] | null
+  /** Trecho citado, quando esta mensagem responde a outra. */
+  quoted?: QuotedPreview | null
+}
+
+/** Resumo da mensagem CITADA, montado pelo servidor. Vem junto da resposta
+ *  porque a citada pode ser antiga e estar fora das 50 mensagens carregadas —
+ *  era esse o caso em que a resposta do cliente aparecia sem contexto. */
+export interface QuotedPreview {
+  id: number
+  body: string | null
+  fromMe: boolean
+  senderName: string | null
+  mediaType: string | null
+  deleted: boolean
 }
 
 export interface MessageReaction {
@@ -271,6 +287,21 @@ export function useReactMessage(leadId: number | null) {
     mutationFn: ({ messageId, emoji }: { messageId: number; emoji: string }) =>
       api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/messages/${messageId}/react`, { emoji }),
     onSuccess: invalidar,
+  })
+}
+
+interface PinResult { ok: true; pinned: boolean }
+
+/** Fixa/desafixa a conversa no topo da lista. Vale só para quem fixou. */
+export function useTogglePin() {
+  const qc = useQueryClient()
+  return useMutation({
+    // `pinned` é o estado ATUAL: fixada vira desafixar, e vice-versa.
+    mutationFn: ({ leadId, pinned }: { leadId: number; pinned: boolean }): Promise<PinResult> =>
+      pinned
+        ? api.delete<PinResult>(`/atendimento/tickets/${leadId}/pin`)
+        : api.post<PinResult>(`/atendimento/tickets/${leadId}/pin`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   })
 }
 
