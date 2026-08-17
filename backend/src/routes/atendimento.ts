@@ -1747,6 +1747,82 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     }
   })
 
+  // ── GET /api/atendimento/tickets/:leadId/funnel — funil e etapas do lead ──
+  //
+  // O operador está na conversa e precisa mover o lead sem sair dela: ir até o
+  // Kanban, achar o card no meio de centenas e voltar é o caminho que ninguém
+  // faz — e por isso a etapa ficava desatualizada.
+  //
+  // Devolve o funil ATUAL com a trilha inteira, os funis para onde dá para
+  // mudar, por onde o lead já passou e o que ESTE usuário pode fazer: a tela
+  // precisa saber se pode avançar/retroceder antes de oferecer o clique.
+  app.get('/api/atendimento/tickets/:leadId/funnel', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: lid },
+      select: { id: true, funnelId: true, status: true, qualifiedAt: true },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada.' })
+
+    const funis = await prisma.funnel.findMany({
+      where: { active: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      select: {
+        id: true, name: true, isDefault: true,
+        stages: {
+          where: { active: true },
+          orderBy: { position: 'asc' },
+          select: { key: true, name: true, color: true, position: true, terminalKind: true },
+        },
+      },
+    })
+
+    // Por onde já passou: só o que NÃO é o funil atual, com a última etapa em
+    // cada um. É a resposta para "esse contato já esteve em outro funil?".
+    const movimentos = await prisma.leadStageMovement.findMany({
+      where: { leadId: lid, toFunnelId: { not: null } },
+      orderBy: { movedAt: 'desc' },
+      select: { toFunnelId: true, toStageKey: true, movedAt: true },
+      take: 200,
+    })
+    const passagens: Array<{ funnelId: number; nome: string; etapaKey: string | null; etapaNome: string | null; em: string }> = []
+    const vistos = new Set<number>()
+    for (const m of movimentos) {
+      const fid = m.toFunnelId!
+      if (fid === lead.funnelId || vistos.has(fid)) continue
+      vistos.add(fid)
+      const f = funis.find((x) => x.id === fid)
+      if (!f) continue
+      passagens.push({
+        funnelId: fid,
+        nome: f.name,
+        etapaKey: m.toStageKey,
+        etapaNome: f.stages.find((e) => e.key === m.toStageKey)?.name ?? m.toStageKey,
+        em: m.movedAt.toISOString(),
+      })
+    }
+
+    // Mesmos padrões da rota que move (leads.ts): sem linha na tabela, ADMIN,
+    // MANAGER e AGENT avançam; só ADMIN retrocede. SUPERADMIN passa por cima.
+    const perm = user.role === 'SUPERADMIN'
+      ? null
+      : await prisma.kanbanPermission.findUnique({ where: { role: user.role as any } })
+    const podeAvancar = user.role === 'SUPERADMIN' || (perm?.canAdvance ?? ['ADMIN', 'MANAGER', 'AGENT'].includes(user.role))
+    const podeRetroceder = user.role === 'SUPERADMIN' || (perm?.canRetreat ?? user.role === 'ADMIN')
+
+    return {
+      funilAtual: lead.funnelId ? funis.find((f) => f.id === lead.funnelId) ?? null : null,
+      etapaAtual: lead.status ?? null,
+      qualificado: !!lead.qualifiedAt,
+      funis,
+      passagens,
+      permissoes: { podeAvancar, podeRetroceder },
+    }
+  })
+
   // ── GET /api/atendimento/tickets/:leadId/info — Lead details ──
   app.get('/api/atendimento/tickets/:leadId/info', { preHandler: authMiddleware }, async (req, reply) => {
     try {

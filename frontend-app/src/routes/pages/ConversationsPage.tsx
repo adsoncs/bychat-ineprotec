@@ -122,6 +122,7 @@ import { ConversationPrefsModal } from '@/components/ConversationPrefsModal'
 import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@/hooks/useConversationPrefs'
 import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
+import { LeadFunnelCard } from '@/components/LeadFunnelCard'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -665,11 +666,37 @@ function ConversationsScreen() {
           )}
         </section>
 
-        {/* Painel info do lead (toggleable) */}
+        {/* Painel info do lead (toggleable).
+         *
+         * Em tela grande ele divide a largura com a conversa. Abaixo de `lg`
+         * não havia painel NENHUM: o item "Informações do lead" do menu
+         * alternava um estado que nada renderizava — e é no celular que o
+         * agente mais precisa mover a etapa. Ali ele vira folha sobreposta,
+         * com fundo clicável para fechar. */}
         {selected !== null && showInfo && (
-          <aside class="hidden lg:flex w-80 shrink-0 flex-col rounded-lg border border-border bg-surface-2">
-            <InfoPanel leadId={selected} onClose={() => setShowInfo(false)} />
-          </aside>
+          <>
+            <aside class="hidden lg:flex w-80 shrink-0 flex-col rounded-lg border border-border bg-surface-2">
+              <InfoPanel leadId={selected} onClose={() => setShowInfo(false)} />
+            </aside>
+
+            <div class="lg:hidden">
+              <div
+                class="fixed inset-0 bg-[oklch(0%_0_0/0.45)]"
+                style={{ zIndex: 'var(--z-backdrop)' }}
+                onClick={() => setShowInfo(false)}
+                aria-hidden="true"
+              />
+              <aside
+                class="fixed inset-y-0 right-0 flex w-[min(22rem,92vw)] flex-col border-l border-border bg-surface-2 shadow-xl"
+                style={{ zIndex: 'var(--z-modal)' }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Informações do lead"
+              >
+                <InfoPanel leadId={selected} onClose={() => setShowInfo(false)} />
+              </aside>
+            </div>
+          </>
         )}
       </div>
 
@@ -2933,12 +2960,14 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
             </dl>
           </section>
 
+          {/* Funil e etapa — mover sem sair da conversa */}
+          <LeadFunnelCard leadId={leadId} />
+
           {/* Status */}
           <section>
             <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Status</div>
             <dl class="text-xs space-y-1">
               <InfoRow label="Status" value={lead.completed ? 'Resolvido' : 'Aberto'} />
-              <InfoRow label="Etapa" value={lead.status} />
               <InfoRow label="Maturidade" value={lead.maturidade} />
               <InfoRow label="Solução" value={lead.solucaoNome} />
               <InfoRow

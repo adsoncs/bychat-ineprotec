@@ -550,7 +550,10 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──
   app.put('/api/bychat/leads/:id/status', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
-    const { status } = req.body as any
+    // `funnelId` opcional: mover o lead PARA OUTRO funil, escolhendo a etapa de
+    // entrada. Sem ele, o comportamento é o de sempre — trocar de etapa dentro
+    // do funil atual.
+    const { status, funnelId: funnelDestino } = req.body as any
     const user = (req as any).user as JwtPayload
 
     if (!await assertLeadAccess(req, reply, parseInt(id))) return
@@ -559,8 +562,15 @@ export async function leadsRoutes(app: FastifyInstance) {
     const lead = await prisma.lead.findUnique({ where: { id: parseInt(id) } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
 
+    const trocandoDeFunil = Number.isFinite(Number(funnelDestino)) && Number(funnelDestino) !== lead.funnelId
+    const funnelId = trocandoDeFunil ? Number(funnelDestino) : lead.funnelId
+
+    if (trocandoDeFunil) {
+      const destino = await prisma.funnel.findFirst({ where: { id: funnelId!, active: true }, select: { id: true } })
+      if (!destino) return reply.code(400).send({ error: 'Funil de destino inválido ou inativo.' })
+    }
+
     // Validate target stage within lead's funnel
-    const funnelId = lead.funnelId
     const targetStage = funnelId
       ? await prisma.stage.findFirst({ where: { funnelId, key: status } })
       : await prisma.stage.findFirst({ where: { key: status } })
@@ -568,8 +578,10 @@ export async function leadsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Etapa inválida para este funil' })
     }
 
-    const currentStage = funnelId
-      ? await prisma.stage.findFirst({ where: { funnelId, key: lead.status } })
+    // A etapa de ORIGEM é lida no funil de origem — em troca de funil, comparar
+    // posições entre funis diferentes não quer dizer nada.
+    const currentStage = lead.funnelId
+      ? await prisma.stage.findFirst({ where: { funnelId: lead.funnelId, key: lead.status } })
       : await prisma.stage.findFirst({ where: { key: lead.status } })
     const currentPos = currentStage?.position ?? 0
     const targetPos = targetStage.position
@@ -579,15 +591,20 @@ export async function leadsRoutes(app: FastifyInstance) {
     //   - canAdvance: ADMIN, MANAGER e AGENT (operadores que trabalham leads)
     //   - canRetreat: apenas ADMIN (mais sensível — voltar etapa)
     //   - VIEWER: nunca move
-    if (currentPos !== targetPos && user.role !== 'SUPERADMIN') {
+    // Trocar de funil conta como avanço: é uma decisão de quem trabalha o lead,
+    // não de quem só consulta.
+    if ((trocandoDeFunil || currentPos !== targetPos) && user.role !== 'SUPERADMIN') {
       const perm = await prisma.kanbanPermission.findUnique({ where: { role: user.role as any } })
       const canAdvance = perm?.canAdvance ?? ['ADMIN', 'MANAGER', 'AGENT'].includes(user.role)
       const canRetreat = perm?.canRetreat ?? user.role === 'ADMIN'
 
-      if (targetPos > currentPos && !canAdvance) {
+      if (trocandoDeFunil && !canAdvance) {
+        return reply.code(403).send({ error: 'Sem permissão para mover leads entre funis' })
+      }
+      if (!trocandoDeFunil && targetPos > currentPos && !canAdvance) {
         return reply.code(403).send({ error: 'Sem permissão para avançar leads de etapa' })
       }
-      if (targetPos < currentPos && !canRetreat) {
+      if (!trocandoDeFunil && targetPos < currentPos && !canRetreat) {
         return reply.code(403).send({ error: 'Sem permissão para retroceder leads de etapa' })
       }
     }
@@ -603,7 +620,7 @@ export async function leadsRoutes(app: FastifyInstance) {
 
     // Atualiza status E funnelId (garante que lead aparece no kanban)
     const updateData: any = { status }
-    if (!lead.funnelId && targetStage.funnelId) {
+    if (trocandoDeFunil || !lead.funnelId) {
       updateData.funnelId = targetStage.funnelId
     }
 
@@ -611,6 +628,25 @@ export async function leadsRoutes(app: FastifyInstance) {
       where: { id: parseInt(id) },
       data: updateData
     })
+
+    // Histórico de movimentação — é o que alimenta o Relatório de Funil e o
+    // "já passou por" da conversa. A rota atualizava o Lead sem registrar nada,
+    // então mover pelo painel não deixava rastro nenhum (só o evento de
+    // timeline, que não guarda o par funil-origem/funil-destino).
+    if (updateData.status !== lead.status || trocandoDeFunil) {
+      await prisma.leadStageMovement.create({
+        data: {
+          leadId: parseInt(id),
+          fromFunnelId: lead.funnelId ?? null,
+          toFunnelId: targetStage.funnelId,
+          fromStageKey: lead.status ?? null,
+          toStageKey: status,
+          movedByUserId: user.userId ?? null,
+          source: 'panel',
+          reason: trocandoDeFunil ? 'Movido para outro funil pelo painel' : null,
+        },
+      }).catch(() => { /* instalação antiga sem a tabela */ })
+    }
 
     // O operador acabou de decidir a etapa na mão: qualquer sugestão pendente
     // da Jornada IA virou fotografia velha.
