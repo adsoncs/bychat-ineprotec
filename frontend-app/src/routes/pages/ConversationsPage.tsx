@@ -62,6 +62,7 @@ import {
   Pin,
   PinOff,
   RefreshCw,
+  Layers,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -123,6 +124,7 @@ import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@
 import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { LeadFunnelCard } from '@/components/LeadFunnelCard'
+import { useTabLabels } from '@/hooks/useTabLabels'
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
@@ -139,21 +141,45 @@ import { formatRelative } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 
-const bucketMeta: { id: Bucket; label: string; shortLabel: string; counterKey: keyof TicketCountersShape; Icon: typeof MessageSquare }[] = [
-  { id: 'inbox', label: 'Atendimento', shortLabel: 'Atend.', counterKey: 'inbox', Icon: MessageSquare },
-  { id: 'raw', label: 'Caixa', shortLabel: 'Caixa', counterKey: 'raw', Icon: Inbox },
-  { id: 'snoozed', label: 'Aguardando', shortLabel: 'Aguard.', counterKey: 'snoozed', Icon: Clock },
-  { id: 'resolved', label: 'Resolvidos', shortLabel: 'Resolv.', counterKey: 'resolved', Icon: CheckCircle },
+// As abas. O rótulo aqui é só o de fábrica: o nome exibido vem de
+// `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
+// muda junto, só a palavra.
+const bucketMeta: { id: Bucket; shortLabel: string; counterKey: keyof TicketCountersShape; Icon: typeof MessageSquare }[] = [
+  { id: 'inbox', shortLabel: 'Atend.', counterKey: 'inbox', Icon: MessageSquare },
+  { id: 'raw', shortLabel: 'Caixa', counterKey: 'raw', Icon: Inbox },
+  { id: 'snoozed', shortLabel: 'Aguard.', counterKey: 'snoozed', Icon: Clock },
+  { id: 'resolved', shortLabel: 'Resolv.', counterKey: 'resolved', Icon: CheckCircle },
+  // "Todos" ignora o estado da conversa: mostra Atendimento, Caixa, Aguardando
+  // e Resolvidos juntos. O escopo (Meus/Setor/Todos) continua valendo, e o
+  // servidor nunca devolve o que o operador não pode ver.
+  { id: 'all', shortLabel: 'Todos', counterKey: 'all', Icon: Layers },
 ]
 
-const scopeMeta: { id: Scope; label: string; shortLabel: string; counterKey: keyof TicketCountersShape | null }[] = [
-  { id: 'mine', label: 'Meus', shortLabel: 'Meus', counterKey: 'mine' },
-  { id: 'team', label: 'Setor', shortLabel: 'Setor', counterKey: 'teamQueue' },
-  { id: 'all', label: 'Todos', shortLabel: 'Todos', counterKey: null },
+const scopeMeta: { id: Scope; shortLabel: string; counterKey: keyof TicketCountersShape | null }[] = [
+  { id: 'mine', shortLabel: 'Meus', counterKey: 'mine' },
+  { id: 'team', shortLabel: 'Setor', counterKey: 'teamQueue' },
+  { id: 'all', shortLabel: 'Todos', counterKey: null },
 ]
+
+/**
+ * O nome curto da aba, para a barra estreita do celular.
+ *
+ * Enquanto o nome for o de fábrica, vale a abreviação que a gente escreveu
+ * ("Atendimento" → "Atend."). Se a empresa escolheu o próprio nome, ele aparece
+ * inteiro — abreviar por conta própria a palavra da casa produz coisas como
+ * "Secretaria" virando "Secre.", que ninguém pediu. O `truncate` do CSS corta o
+ * que não couber, sem inventar.
+ */
+function rotuloCurto(nome: string, curtoPadrao: string, id: string): string {
+  const padroes: Record<string, string> = {
+    inbox: 'Atendimento', raw: 'Caixa', snoozed: 'Aguardando', resolved: 'Resolvidos', all: 'Todos',
+  }
+  return nome === padroes[id] ? curtoPadrao : nome
+}
 
 interface TicketCountersShape {
   inbox: number
+  all: number
   raw: number
   resolved: number
   snoozed: number
@@ -262,6 +288,8 @@ export function ConversationsPage() {
 
 function ConversationsScreen() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
+  // Nomes das abas definidos pela empresa (Preferências › Nomes das abas).
+  const { labels } = useTabLabels()
   const [scope, setScope] = useState<Scope>('mine')
   const [search, setSearch] = useState('')
   // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
@@ -487,7 +515,7 @@ function ConversationsScreen() {
                       active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
                     )}
                   >
-                    <span class="truncate">{s.label}</span>
+                    <span class="truncate">{labels.scope[s.id]}</span>
                     {count != null && count > 0 && (
                       <span class={cn(
                         'text-[0.625rem] px-1 rounded shrink-0',
@@ -498,7 +526,7 @@ function ConversationsScreen() {
                 )
               })}
             </nav>
-            <nav class="grid grid-cols-4 gap-1" aria-label="Tipo">
+            <nav class="grid grid-cols-5 gap-1" aria-label="Tipo">
               {bucketMeta.map((b) => {
                 const count = counters ? counters[b.counterKey] : null
                 const active = bucket === b.id
@@ -508,7 +536,7 @@ function ConversationsScreen() {
                     key={b.id}
                     type="button"
                     onClick={() => setBucket(b.id)}
-                    title={b.label}
+                    title={labels.bucket[b.id]}
                     class={cn(
                       'min-w-0 h-9 px-1.5 rounded-md text-[0.6875rem] font-medium transition-colors',
                       'inline-flex flex-col items-center justify-center gap-0.5',
@@ -520,8 +548,8 @@ function ConversationsScreen() {
                   >
                     <span class="inline-flex items-center gap-1 min-w-0">
                       <Icon size={12} class="shrink-0" />
-                      <span class="truncate hidden lg:inline">{b.label}</span>
-                      <span class="truncate lg:hidden">{b.shortLabel}</span>
+                      <span class="truncate hidden lg:inline">{labels.bucket[b.id]}</span>
+                      <span class="truncate lg:hidden">{rotuloCurto(labels.bucket[b.id], b.shortLabel, b.id)}</span>
                     </span>
                     {count != null && count > 0 && (
                       <span class={cn(
@@ -581,13 +609,20 @@ function ConversationsScreen() {
                 icon={<MessageSquare size={20} />}
                 title="Nenhuma conversa encontrada"
                 description={
-                  bucket === 'inbox'
-                    ? 'Sem conversas em atendimento.'
-                    : bucket === 'raw'
-                      ? 'Caixa vazia — nenhum lead aguardando ser assumido.'
-                      : bucket === 'snoozed'
-                        ? 'Nenhum lead aguardando — sem conversas adormecidas ou pendentes de primeiro contato.'
-                        : 'Nenhuma conversa resolvida.'
+                  // O texto cita a aba pelo nome que a empresa deu — dizer
+                  // "Caixa vazia" para quem batizou de "Recepção" é falar de
+                  // uma tela que a pessoa não vê.
+                  bucket === 'all'
+                    ? (scope === 'mine'
+                        ? 'Nenhuma conversa sua, em nenhuma situação.'
+                        : 'Nenhuma conversa no seu acesso, em nenhuma situação.')
+                    : bucket === 'inbox'
+                      ? `Sem conversas em ${labels.bucket.inbox.toLowerCase()}.`
+                      : bucket === 'raw'
+                        ? `${labels.bucket.raw} vazia — nenhum lead aguardando ser assumido.`
+                        : bucket === 'snoozed'
+                          ? 'Nenhum lead aguardando — sem conversas adormecidas ou pendentes de primeiro contato.'
+                          : 'Nenhuma conversa resolvida.'
                 }
               />
             )}

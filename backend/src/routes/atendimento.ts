@@ -3,7 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
-import { authMiddleware } from '../lib/auth.js'
+import { authMiddleware, adminStrict } from '../lib/auth.js'
 import { type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { snapshotLead, moveToTrash } from '../services/trash.js'
@@ -76,6 +76,31 @@ const SELECAO_TICKET = {
         },
       },
   } as const
+
+/**
+ * As quatro caixas do Conversas como uma lista de condições.
+ *
+ * Serve à aba "Todos" (lista e contador): ela é a união destas, e escrever a
+ * união em um lugar só é o que impede o badge de discordar da lista.
+ */
+function uniaoDasCaixas(now: Date) {
+  return [
+    // Atendimento — inclusive o que estiver adormecido, que na aba própria sai.
+    { conversationOpenedAt: { not: null }, conversationClosedAt: null },
+    // Caixa
+    { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
+    // Resolvidos
+    { conversationClosedAt: { not: null } },
+    // Aguardando (as duas formas)
+    { snoozedUntil: { gt: now } },
+    {
+      assignedUserId: { not: null },
+      conversationOpenedAt: null,
+      conversationClosedAt: null,
+      lastMessageAt: { not: null },
+    },
+  ]
+}
 
 export async function atendimentoRoutes(app: FastifyInstance) {
 
@@ -209,7 +234,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             ],
           },
         ]
-      } // 'all' => sem filtro de bucket
+      } else if (bucket === 'all') {
+        // "Todos": a UNIÃO exata das outras quatro abas — nem mais, nem menos.
+        //
+        // Um filtro mais simples ("tem mensagem") parecia equivalente e não é:
+        // deixava de fora conversa resolvida sem lastMessageAt e trazia lead de
+        // formulário que nunca falou com a gente. Aba que some com o que a
+        // vizinha mostra é pior do que aba nenhuma, então aqui está o OR
+        // literal das quatro condições. O escopo (mine/team/all) e as
+        // permissões continuam aplicados acima disto.
+        where.AND = [...(where.AND ?? []), { OR: uniaoDasCaixas(now) }]
+      }
 
       // Filtros legados de status (waiting/attending) são SUBfiltros do bucket inbox.
       if (status === 'waiting') {
@@ -413,7 +448,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           },
         ],
       }
-      const [waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount, inboxCount, rawCount, snoozedCount] = await Promise.all([
+      const [waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount, inboxCount, rawCount, snoozedCount, allCount] = await Promise.all([
         prisma.lead.count({ where: { ...counterScope, completed: false, unreadMessages: { gt: 0 }, AND: [notSnoozedFilter] } }),
         prisma.lead.count({ where: { ...counterScope, completed: false, unreadMessages: 0, lastMessageAt: { not: null }, AND: [notSnoozedFilter] } }),
         prisma.lead.count({ where: { ...counterScope, conversationClosedAt: { not: null } } }),
@@ -427,6 +462,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         prisma.lead.count({ where: { ...counterScope, conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null, AND: [notSnoozedFilter] } }),
         // snoozed (Aguardando): adormecido OU atribuído mas ainda sem conversa aberta
         prisma.lead.count({ where: { ...counterScope, AND: [waitingBucketFilter] } }),
+        // todos: mesma união da lista, para o número do badge e o que aparece
+        // ao clicar contarem a mesma história.
+        prisma.lead.count({ where: { ...counterScope, AND: [{ OR: uniaoDasCaixas(now) }] } }),
       ])
 
       // Existe alguma conversa de grupo no escopo? A UI usa isso para só mostrar
@@ -444,6 +482,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           mine: mineCount,
           teamQueue: teamQueueCount,
           inbox: inboxCount,
+          all: allCount,
           raw: rawCount,
           snoozed: snoozedCount,
           groups: groupsCount,
@@ -1745,6 +1784,19 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       app.log.error(`Atendimento unsnooze error: ${err.message}`)
       return reply.code(500).send({ error: err.message })
     }
+  })
+
+  // ── Nomes das abas do Conversas ────────────────────────────────────────────
+  // Ler é de qualquer operador (a tela precisa dos nomes para desenhar);
+  // escrever é de administrador, porque o vocabulário vale para a equipe toda.
+  app.get('/api/atendimento/tab-labels', { preHandler: authMiddleware }, async () => {
+    const { lerTabLabels, PADRAO } = await import('../services/conversationTabLabels.js')
+    return { labels: await lerTabLabels(), padrao: PADRAO }
+  })
+
+  app.put('/api/atendimento/tab-labels', { preHandler: adminStrict }, async (req) => {
+    const { gravarTabLabels } = await import('../services/conversationTabLabels.js')
+    return { ok: true, labels: await gravarTabLabels(req.body) }
   })
 
   // ── GET /api/atendimento/tickets/:leadId/funnel — funil e etapas do lead ──

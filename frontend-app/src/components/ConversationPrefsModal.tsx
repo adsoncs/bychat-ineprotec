@@ -13,6 +13,8 @@ import { toast } from '@/lib/toast'
 import { Section, Segmented, Switch } from '@/components/ui/PrefControls'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
+import { CAIXAS, ESCOPOS, LABELS_PADRAO, useTabLabels, useUpdateTabLabels, type TabLabels } from '@/hooks/useTabLabels'
+import { Input } from '@/components/ui/Input'
 import { useUserStore } from '@/stores/user'
 import {
   AUDIO_SPEEDS,
@@ -171,6 +173,8 @@ export function ConversationPrefsModal({
           />
         </Section>
 
+        {isAdmin && <NomesDasAbas />}
+
         <Section title="Áudio">
           {isAdmin && <TranscriptionSetting />}
           <Switch
@@ -205,6 +209,112 @@ export function ConversationPrefsModal({
         </Section>
       </div>
     </Modal>
+  )
+}
+
+// ── Nomes das abas (toda a equipe) ─────────────────────────────────────
+
+/**
+ * O vocabulário da tela, definido pela empresa.
+ *
+ * "Caixa", "Atendimento", "Setor" descrevem UM jeito de trabalhar. Escola fala
+ * em "Secretaria", clínica em "Recepção", agência em "Prospecção" — e a equipe
+ * passa o dia relendo um rótulo que não é o dela. Aqui o administrador troca a
+ * palavra; nenhuma regra muda junto.
+ */
+function NomesDasAbas() {
+  const { labels } = useTabLabels()
+  const salvar = useUpdateTabLabels()
+  const [rascunho, setRascunho] = useState<TabLabels | null>(null)
+
+  const atual = rascunho ?? labels
+  const mudou = JSON.stringify(atual) !== JSON.stringify(labels)
+
+  function editar(grupo: 'scope' | 'bucket', id: string, valor: string) {
+    setRascunho({ ...atual, [grupo]: { ...atual[grupo], [id]: valor } } as TabLabels)
+  }
+
+  function aplicar(valores: TabLabels) {
+    salvar.mutate(valores, {
+      onSuccess: () => { setRascunho(null); toast('Nomes das abas atualizados para toda a equipe', 'success') },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  const campos: Array<{ grupo: 'scope' | 'bucket'; id: string; ajuda: string }> = [
+    ...ESCOPOS.map((id) => ({ grupo: 'scope' as const, id, ajuda: {
+      mine: 'Conversas atribuídas ao próprio operador.',
+      team: 'Fila dos setores de que ele participa.',
+      all: 'Tudo que o acesso dele alcança.',
+    }[id] })),
+    ...CAIXAS.map((id) => ({ grupo: 'bucket' as const, id, ajuda: {
+      inbox: 'Conversa aberta e em andamento.',
+      raw: 'Chegou mensagem e ninguém assumiu.',
+      snoozed: 'Adormecida ou atribuída sem atendimento iniciado.',
+      resolved: 'Atendimento encerrado.',
+      all: 'Ignora a situação e mostra todas juntas.',
+    }[id] })),
+  ]
+
+  return (
+    <Section
+      title="Nomes das abas"
+      hint="Como o Conversas chama cada aba para TODA a equipe. Só os nomes mudam — o que cada aba mostra continua igual."
+    >
+      <div class="rounded-md border border-border bg-surface-3/50 p-3">
+        <div class="mb-2 flex items-center gap-2">
+          <span class="rounded bg-accent/10 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wider text-accent">
+            Toda a equipe
+          </span>
+          {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
+        </div>
+
+        <div class="grid gap-2 sm:grid-cols-2">
+          {campos.map((c) => {
+            const padrao = (LABELS_PADRAO as any)[c.grupo][c.id] as string
+            return (
+              <label key={`${c.grupo}.${c.id}`} class="block">
+                <span class="mb-0.5 block text-[0.6875rem] text-fg-muted">
+                  {padrao}
+                  <span class="ml-1 text-fg-subtle">· {c.ajuda}</span>
+                </span>
+                <Input
+                  value={(atual as any)[c.grupo][c.id]}
+                  maxLength={24}
+                  placeholder={padrao}
+                  aria-label={`Nome da aba ${padrao}`}
+                  onInput={(e) => editar(c.grupo, c.id, (e.target as HTMLInputElement).value)}
+                />
+              </label>
+            )
+          })}
+        </div>
+
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-[0.6875rem] text-fg-subtle">
+            {mudou ? 'Alterações ainda não salvas.' : 'Em dia com o que a equipe vê.'}
+          </span>
+          <div class="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={salvar.isPending}
+              onClick={() => aplicar(LABELS_PADRAO)}
+            >
+              <RotateCcw size={13} /> Nomes padrão
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!mudou || salvar.isPending}
+              onClick={() => aplicar(atual)}
+            >
+              Salvar nomes
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Section>
   )
 }
 

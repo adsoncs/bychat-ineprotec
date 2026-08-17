@@ -5,7 +5,9 @@ import { playSentSound } from '@/lib/notificationSound'
 import { readMirror as readAccountPrefsMirror } from '@/hooks/useAccountPrefs'
 import { onServerEvent } from '@/lib/realtime'
 
-export type Bucket = 'inbox' | 'raw' | 'resolved' | 'snoozed'
+/** 'all' ignora o estado da conversa e mostra as quatro caixas juntas — o
+ *  escopo (mine/team/all) e as permissões continuam valendo. */
+export type Bucket = 'inbox' | 'raw' | 'resolved' | 'snoozed' | 'all'
 export type Scope = 'mine' | 'team' | 'all'
 
 export interface TicketLastMessage {
@@ -47,6 +49,8 @@ export interface Ticket {
 
 export interface TicketsCounters {
   inbox: number
+  /** Tudo que o operador enxerga, sem recorte por estado — a aba "Todos". */
+  all: number
   raw: number
   resolved: number
   snoozed: number
