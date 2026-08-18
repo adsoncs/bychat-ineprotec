@@ -388,6 +388,9 @@ const migratedPages: Record<string, ComponentType> = {
   'module-permissions': lazy(() =>
     import('./pages/ModulePermissionsPage').then((m) => ({ default: m.ModulePermissionsPage })),
   ),
+  'conversation-access': lazy(() =>
+    import('./pages/ConversationAccessPage').then((m) => ({ default: m.ConversationAccessPage })),
+  ),
   google: lazy(() =>
     import('./pages/GoogleSuitePage').then((m) => ({ default: m.GoogleSuitePage })),
   ),

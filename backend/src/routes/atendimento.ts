@@ -8,6 +8,10 @@ import { type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { snapshotLead, moveToTrash } from '../services/trash.js'
 import { canUserAccessLead, getUserTeamIds, isAdminRole, getLeadScope } from '../lib/teamAccess.js'
+import {
+  mapaDeAcesso, filtroDeConversas, permissoesNaConversa, permite, permiteEmAlgumCanal,
+  type Acao,
+} from '../services/conversationAccess.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { reassignPendingCadenceActivities } from '../services/routing/helpers.js'
 
@@ -23,10 +27,28 @@ function describeAssignment(
 
 // Guarda de acesso para endpoints que mutam ou expõem dados de um ticket específico.
 // Retorna true quando OK; quando false, já enviou a resposta de erro apropriada.
+//
+// `acao` diz o que está sendo tentado — só o gerenciador do Conversas a usa; o
+// caminho antigo nunca distinguiu ler de escrever aqui e continua não
+// distinguindo, para não endurecer nada em quem não configurou a matriz.
 async function assertTicketAccess(
-  req: any, reply: any, leadId: number,
+  req: any, reply: any, leadId: number, acao: Acao = 'view',
 ): Promise<boolean> {
   const user = req.user as JwtPayload
+
+  // Gerenciador do Conversas: quando há matriz para este usuário, ela responde
+  // sozinha — escopo do lead e reserva de número saem de cena, senão a regra
+  // mais restritiva venceria sempre e a marcação não valeria de nada.
+  const mapa = await mapaDeAcesso(user.userId, user.role)
+  if (mapa.configurado) {
+    const perms = await permissoesNaConversa(mapa, leadId)
+    if (!perms || !permite(perms, acao)) {
+      reply.code(403).send({ error: 'Sem permissão sobre esta conversa', acao })
+      return false
+    }
+    return true
+  }
+
   const ok = await canUserAccessLead(user.userId, user.role, leadId)
   if (!ok) {
     reply.code(403).send({ error: 'Sem permissão sobre este lead' })
@@ -166,6 +188,18 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.get('/api/atendimento/unread-count', { preHandler: authMiddleware }, async (req, reply) => {
     try {
       const user = (req as any).user as JwtPayload
+
+      // Gerenciador do Conversas configurado: ele é a única autoridade, e o
+      // contador do menu precisa contar exatamente o que a lista abre.
+      const mapa = await mapaDeAcesso(user.userId, user.role)
+      const filtroMatriz = await filtroDeConversas(mapa)
+      if (filtroMatriz) {
+        const unread = await prisma.lead.count({
+          where: { unreadMessages: { gt: 0 }, AND: [filtroMatriz] },
+        })
+        return { unread }
+      }
+
       const myTeamIds = await getUserTeamIds(user.userId)
       const effectiveScope = await getLeadScope(user.userId, user.role)
 
@@ -218,13 +252,30 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       const myTeamIds = await getUserTeamIds(user.userId)
 
+      // Gerenciador do Conversas. Quando existe matriz para este usuário ela
+      // define sozinha o universo de conversas — dono, setor e reserva de
+      // número não entram. As abas Meus/Setor continuam funcionando, mas como
+      // FILTRO de tela sobre esse universo, e não como teto de permissão.
+      const mapa = await mapaDeAcesso(user.userId, user.role)
+      const filtroMatriz = await filtroDeConversas(mapa)
+
       // Reforma F1: scope efetivo do user no módulo 'leads' (own/team/all)
       // é o teto. Query param ?scope= pode RESTRINGIR mas não EXPANDIR.
-      const effectiveScope = await getLeadScope(user.userId, user.role)
+      const effectiveScope = filtroMatriz ? 'all' : await getLeadScope(user.userId, user.role)
 
       // Cláusula de acesso por escopo
       let scopeWhere: any = {}
-      if (requestedScope === 'mine' || effectiveScope === 'own') {
+      if (filtroMatriz) {
+        if (requestedScope === 'mine') {
+          scopeWhere = { AND: [filtroMatriz, { assignedUserId: user.userId }] }
+        } else if (requestedScope === 'team') {
+          scopeWhere = myTeamIds.length > 0
+            ? { AND: [filtroMatriz, { teamId: { in: myTeamIds }, assignedUserId: null }] }
+            : { id: -1 }
+        } else {
+          scopeWhere = filtroMatriz
+        }
+      } else if (requestedScope === 'mine' || effectiveScope === 'own') {
         // 'mine' explícito OU user com scope='own' → só os próprios.
         scopeWhere = { assignedUserId: user.userId }
       } else if (requestedScope === 'team') {
@@ -322,9 +373,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // Números RESERVADOS: some da lista e dos contadores tudo que passou por
       // um número que este operador não acompanha. Entra junto dos filtros
       // porque precisa valer igualmente para a lista e para os badges.
-      const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
-      const semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
-      if (semCanaisOcultos) filtrosAnd.push(semCanaisOcultos)
+      //
+      // Sob a matriz do gerenciador esta regra não roda: as duas responderiam a
+      // mesma pergunta e a reserva, por ser sempre mais restritiva, anularia o
+      // que o superadmin marcou. Foi assim que um grupo corporativo sumiu da
+      // gerência inteira por ter recebido duas mensagens da linha pessoal.
+      let semCanaisOcultos: any = null
+      if (!filtroMatriz) {
+        const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+        semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
+        if (semCanaisOcultos) filtrosAnd.push(semCanaisOcultos)
+      }
 
       // Filtro por NÚMERO: conversas que PERTENCEM a este canal.
       //
@@ -476,9 +535,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       //
       // Os números das CAIXAS variam a caixa e mantêm o escopo selecionado; os
       // do ESCOPO (Meus/Setor) variam o escopo e mantêm a caixa aberta.
-      const escopoMeus = { assignedUserId: user.userId }
+      //
+      // Sob a matriz, os dois escopos continuam sendo recortes do universo que
+      // ela liberou — daí o `AND` com o filtro: sem ele, "Meus" contaria
+      // conversas que a matriz esconde.
+      const comMatriz = (escopo: any) => (filtroMatriz ? { AND: [filtroMatriz, escopo] } : escopo)
+      const escopoMeus = comMatriz({ assignedUserId: user.userId })
       const escopoSetor = myTeamIds.length > 0
-        ? { teamId: { in: myTeamIds }, assignedUserId: null }
+        ? comMatriz({ teamId: { in: myTeamIds }, assignedUserId: null })
         : { id: -1 }
 
       const [
@@ -680,7 +744,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'create')) return
       const { body: msgBody, mediaType, mediaUrl, mediaName, isInternal, quotedMsgId, channelId, template, continuacao } = req.body as any
       const jwtUser = (req as any).user
 
@@ -727,6 +791,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.post('/api/atendimento/conversations', { preHandler: authMiddleware }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
     const { nome, telefone, channelId, ignorarChecagem } = (req.body ?? {}) as any
+
+    // Conversa que ainda não existe não tem canal para consultar na matriz — o
+    // que dá para exigir é que a pessoa possa iniciar por ALGUM número. Por
+    // qual, quem decide é o seletor, já podado pela mesma matriz.
+    const mapa = await mapaDeAcesso(user.userId, user.role)
+    if (mapa.configurado && !permiteEmAlgumCanal(mapa, 'create')) {
+      return reply.code(403).send({ error: 'Você não tem permissão para iniciar conversas.' })
+    }
 
     const { startConversation } = await import('../services/conversationStarter.js')
     const r = await startConversation({
@@ -1053,7 +1125,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.post('/api/atendimento/tickets/:leadId/sync-whatsapp', { preHandler: authMiddleware }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
     const lid = parseInt((req.params as any).leadId)
-    if (!await assertTicketAccess(req, reply, lid)) return
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
 
     const lead = await prisma.lead.findUnique({
       where: { id: lid },
@@ -1231,7 +1303,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.patch('/api/atendimento/tickets/:leadId/messages/:messageId', { preHandler: authMiddleware }, async (req, reply) => {
     const { leadId, messageId } = req.params as any
     const lid = parseInt(leadId)
-    if (!await assertTicketAccess(req, reply, lid)) return
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
     try {
       const { editarMensagem } = await import('../services/messageActions.js')
       return await editarMensagem(lid, parseInt(messageId), (req.body as any)?.body ?? '', atorDaRequisicao(req))
@@ -1244,7 +1316,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.delete('/api/atendimento/tickets/:leadId/messages/:messageId', { preHandler: authMiddleware }, async (req, reply) => {
     const { leadId, messageId } = req.params as any
     const lid = parseInt(leadId)
-    if (!await assertTicketAccess(req, reply, lid)) return
+    if (!await assertTicketAccess(req, reply, lid, 'delete')) return
     const scope = (req.query as any)?.scope === 'all' ? 'all' : 'me'
     try {
       const { apagarMensagem } = await import('../services/messageActions.js')
@@ -1258,14 +1330,20 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.post('/api/atendimento/tickets/:leadId/messages/:messageId/forward', { preHandler: authMiddleware }, async (req, reply) => {
     const { leadId, messageId } = req.params as any
     const lid = parseInt(leadId)
-    if (!await assertTicketAccess(req, reply, lid)) return
+    if (!await assertTicketAccess(req, reply, lid, 'create')) return
     const alvos = Array.isArray((req.body as any)?.leadIds) ? (req.body as any).leadIds : []
     const destinos = alvos.map((id: unknown) => ({ leadId: Number(id) })).filter((d: any) => Number.isFinite(d.leadId))
     // Encaminhar é ENVIAR para outra conversa: quem não pode falar com o
     // destino não pode encaminhar para ele.
     for (const d of destinos) {
       const quem = (req as any).user as JwtPayload
-      if (!await canUserAccessLead(quem.userId, quem.role, d.leadId)) {
+      const mapaDestino = await mapaDeAcesso(quem.userId, quem.role)
+      if (mapaDestino.configurado) {
+        const perms = await permissoesNaConversa(mapaDestino, d.leadId)
+        if (!perms || !permite(perms, 'create')) {
+          return reply.code(403).send({ error: 'Você não pode enviar para uma das conversas de destino.' })
+        }
+      } else if (!await canUserAccessLead(quem.userId, quem.role, d.leadId)) {
         return reply.code(403).send({ error: 'Você não tem acesso a uma das conversas de destino.' })
       }
     }
@@ -1281,7 +1359,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   app.post('/api/atendimento/tickets/:leadId/messages/:messageId/react', { preHandler: authMiddleware }, async (req, reply) => {
     const { leadId, messageId } = req.params as any
     const lid = parseInt(leadId)
-    if (!await assertTicketAccess(req, reply, lid)) return
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
     try {
       const { reagirMensagem } = await import('../services/messageActions.js')
       // String vazia é como o WhatsApp remove a reação — não é erro.
@@ -1373,7 +1451,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'edit')) return
       const user = (req as any).user as { userId: number; name?: string; email?: string }
       const { closeConversation } = await import('../services/leadConversation.js')
       await closeConversation(lid, { byUserId: user.userId, byUserName: user.name || user.email })
@@ -1391,7 +1469,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'edit')) return
       const user = (req as any).user as { userId: number; name?: string; email?: string }
       const { openConversation } = await import('../services/leadConversation.js')
       await openConversation(lid, { byUserId: user.userId, byUserName: user.name || user.email, reason: 'manual' })
@@ -1409,7 +1487,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'edit')) return
       const user = (req as any).user as { userId: number; name?: string; email?: string }
       const { resumeBot } = await import('../services/botTakeover.js')
       const resumed = await resumeBot(lid, { userId: user.userId, userName: user.name || user.email })
@@ -1424,7 +1502,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'delete')) return
       const user = (req as any).user as JwtPayload
 
       const snapshot = await snapshotLead(lid)
@@ -1482,8 +1560,20 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
 
       // Permissão: precisa ter acesso atual ao lead OU ser admin.
-      const canAccess = await canUserAccessLead(user.userId, user.role, lid)
-      if (!canAccess) return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+      //
+      // Sob a matriz, transferir é EDITAR a conversa: quem só tem "Ver" no
+      // canal não move conversa de dono. Sem matriz nada muda aqui — a regra
+      // antiga é `canUserAccessLead` e só, e endurecê-la de carona mudaria o
+      // comportamento de instalação que não pediu nada.
+      const mapaAssign = await mapaDeAcesso(user.userId, user.role)
+      if (mapaAssign.configurado) {
+        const perms = await permissoesNaConversa(mapaAssign, lid)
+        if (!perms || !permite(perms, 'edit')) {
+          return reply.code(403).send({ error: 'Sem permissão para transferir esta conversa' })
+        }
+      } else if (!await canUserAccessLead(user.userId, user.role, lid)) {
+        return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+      }
 
       // Validar destino
       const newUserId = body.userId === null ? null : (body.userId !== undefined ? parseInt(body.userId) : lead.assignedUserId)
@@ -1632,7 +1722,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
 
       // Permissão: admin OU membro da equipe (ou lead sem equipe — fila geral).
-      if (!isAdminRole(user.role)) {
+      //
+      // Sob a matriz do gerenciador o setor não decide nada: assumir é editar a
+      // conversa, e quem tem "Editar" no canal dela assume mesmo sem integrar o
+      // setor — é justamente o caso do grupo que ninguém do setor dono atende.
+      const mapaClaim = await mapaDeAcesso(user.userId, user.role)
+      if (mapaClaim.configurado) {
+        const perms = await permissoesNaConversa(mapaClaim, lid)
+        if (!perms || !permite(perms, 'edit')) {
+          return reply.code(403).send({ error: 'Sem permissão para assumir esta conversa' })
+        }
+      } else if (!isAdminRole(user.role)) {
         if (lead.teamId) {
           const teamIds = await getUserTeamIds(user.userId)
           if (!teamIds.includes(lead.teamId)) {
@@ -1729,7 +1829,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (!lead.assignedUserId) return reply.code(400).send({ error: 'Lead já está na fila' })
 
       // Permissão: o próprio dono ou admin.
-      if (lead.assignedUserId !== user.userId && !isAdminRole(user.role)) {
+      // Sob a matriz, "Editar" no canal também libera — devolver à fila é
+      // gestão da conversa, e prender o gestor à condição de dono recriaria o
+      // problema que a matriz veio resolver.
+      const mapaRelease = await mapaDeAcesso(user.userId, user.role)
+      const podeEditarPelaMatriz = mapaRelease.configurado
+        && permite((await permissoesNaConversa(mapaRelease, lid)) ?? { canView: false, canCreate: false, canEdit: false, canDelete: false }, 'edit')
+      if (lead.assignedUserId !== user.userId && !isAdminRole(user.role) && !podeEditarPelaMatriz) {
         return reply.code(403).send({ error: 'Apenas o operador atribuído ou admin pode liberar' })
       }
 
@@ -1777,7 +1883,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'edit')) return
       const { until } = req.body as { until?: string }
       if (!until) return reply.code(400).send({ error: 'Campo "until" obrigatório (ISO8601).' })
       const date = new Date(until)
@@ -1813,7 +1919,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
-      if (!await assertTicketAccess(req, reply, lid)) return
+      if (!await assertTicketAccess(req, reply, lid, 'edit')) return
 
       const updated = await prisma.lead.update({
         where: { id: lid },

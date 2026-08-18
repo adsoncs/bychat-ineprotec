@@ -954,6 +954,21 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
   // quem tinha uma conexão Cloud dedicada perdia as instâncias Evolution
   // compartilhadas (e só conseguia enviar pela oficial). Agora os canais sem dono
   // (pool comum) sempre aparecem ao lado dos dedicados.
+  // Gerenciador do Conversas: quando há matriz, ela decide por quais números
+  // esta pessoa fala — antes de qualquer política por papel. Oferecer uma linha
+  // que o envio vai recusar depois é pior que não oferecer: o operador escreve
+  // a mensagem inteira para só então descobrir.
+  const { mapaDeAcesso, canaisComAcao } = await import('./conversationAccess.js')
+  const mapa = await mapaDeAcesso(sender.userId, sender.role)
+  if (mapa.configurado) {
+    const podem = canaisComAcao(mapa, 'create')
+    if (podem.qualquer) return [...instances.map(toEvo), ...connections.map(toCloud)]
+    return [
+      ...instances.filter((i) => podem.instancias.has(i.id)).map(toEvo),
+      ...connections.filter((c) => podem.conexoes.has(c.id)).map(toCloud),
+    ]
+  }
+
   if (sender.role !== 'AGENT') {
     return [...instances.map(toEvo), ...connections.map(toCloud)]
   }

@@ -70,12 +70,23 @@ async function resolveLeadRecipients(leadId: number): Promise<Set<number>> {
   const connectedUserIds = new Set<number>()
   for (const s of sockets) connectedUserIds.add(s.user.userId)
 
-  // Avalia cada user. canUserAccessLead já lida com role+scope.
+  // Avalia cada user. canUserAccessLead já lida com role+scope; o gerenciador
+  // do Conversas, quando configurado, responde no lugar dele.
+  //
+  // Sem isto o aviso de mensagem nova aparecia para conversa que a lista
+  // esconde: o bipe tocava, o operador procurava e não achava nada.
+  const { mapaDeAcesso, permissoesNaConversa } = await import('../services/conversationAccess.js')
   for (const s of sockets) {
     const u = s.user
     if (allowed.has(u.userId)) continue
     try {
-      if (await canUserAccessLead(u.userId, u.role, leadId)) allowed.add(u.userId)
+      const mapa = await mapaDeAcesso(u.userId, u.role)
+      if (mapa.configurado) {
+        const perms = await permissoesNaConversa(mapa, leadId)
+        if (perms?.canView) allowed.add(u.userId)
+      } else if (await canUserAccessLead(u.userId, u.role, leadId)) {
+        allowed.add(u.userId)
+      }
     } catch {
       // Em erro, fail-closed (não inclui)
     }

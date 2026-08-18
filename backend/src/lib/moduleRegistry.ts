@@ -28,7 +28,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'atendimento', name: 'Conversas', icon: '💬', category: 'crm',
     description: 'Inbox unificada de atendimento — WhatsApp, Instagram, Email em um só lugar.',
     pages: ['atendimento'],
-    routePrefixes: ['/api/atendimento', '/api/bychat/chat'],
+    routePrefixes: ['/api/atendimento', '/api/bychat/chat', '/api/admin/conversation-access'],
     actions: ['view', 'create', 'edit', 'delete'],
     core: true, defaultEnabled: true,
   },

@@ -390,6 +390,52 @@ model ModulePermission {
   @@map("bychat_module_permissions")
 }
 
+/// Gerenciador de acesso do Conversas — a matriz que o superadmin marca.
+///
+/// As permissões do painel são de MÓDULO (ModulePermission) e o alcance é do
+/// LEAD (scope own/team/all + números reservados). Isso não sabe responder
+/// "o gestor acompanha os grupos do número da recepção, e nada mais dele" —
+/// a única saída era mexer em setor, em dono e no escopo do papel inteiro, e
+/// cada ajuste desses respinga em Leads, Kanban, Relatórios.
+///
+/// Aqui a pergunta é feita direto: para cada CANAL e cada TIPO de conversa
+/// (contato x grupo), o que este papel — ou esta pessoa — pode fazer.
+///
+/// Regra de ouro: tabela sem linha para o sujeito = nada configurado = o
+/// Conversas se comporta exatamente como antes. Só quem for marcado passa a
+/// ser regido por aqui, e aí a marcação é a palavra final: vale mais que o
+/// scope do papel e mais que a reserva do número.
+model ConversationAccessRule {
+  id Int @id @default(autoincrement())
+
+  /// 'role' (linha base do papel) ou 'user' (exceção nominal, vence o papel).
+  subjectType String @db.VarChar(10)
+  /// Nome do papel ('MANAGER') quando subjectType='role'; id do usuário em
+  /// texto ('4') quando 'user'. Uma coluna só porque o par (tipo, id) é sempre
+  /// lido junto — e MySQL não aplica UNIQUE sobre coluna nula.
+  subjectId String @db.VarChar(50)
+
+  /// 'evolution:<instanceId>', 'cloud:<connectionId>' ou '*' (qualquer canal,
+  /// inclusive Instagram, Messenger e conversa sem mensagem). Regra do canal
+  /// específico vence a coringa.
+  channelKey String @db.VarChar(40)
+
+  /// 'contact' (conversa com pessoa) ou 'group' (grupo de WhatsApp).
+  kind String @db.VarChar(10)
+
+  canView   Boolean @default(false)
+  canCreate Boolean @default(false)
+  canEdit   Boolean @default(false)
+  canDelete Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([subjectType, subjectId, channelKey, kind])
+  @@index([subjectType, subjectId])
+  @@map("bychat_conversation_access_rules")
+}
+
 // Reforma de permissões (2026-05-21): catálogo de módulos no DB.
 // Antes: lista vivia só em backend/src/lib/moduleRegistry.ts (TS-side).
 // Agora: linha em bychat_modules permite admin desabilitar globalmente

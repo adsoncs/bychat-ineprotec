@@ -25,6 +25,46 @@ import { broadcastRealtimeEvent } from './realtime.js'
 
 const SUPERVISOR_ROLES = new Set(['SUPERADMIN', 'ADMIN', 'MANAGER'])
 
+/**
+ * O recorte que o gerenciador do Conversas impõe a quem abre a Supervisão.
+ *
+ * O painel foi desenhado para ignorar o alcance por dono/setor — "quem entra é
+ * gestão e enxerga tudo". Isso continua valendo enquanto ninguém configurou a
+ * matriz. A partir do momento em que o superadmin diz por escrito quais canais
+ * um papel acompanha, a Supervisão não pode ser a porta dos fundos que devolve
+ * o que a tela principal esconde.
+ *
+ * Devolve `{}` (nenhum recorte) quando não há matriz para o usuário.
+ */
+async function recorteDaMatriz(req: any): Promise<Record<string, any>> {
+  const user = req.user as JwtPayload
+  const { mapaDeAcesso, filtroDeConversas } = await import('../services/conversationAccess.js')
+  const mapa = await mapaDeAcesso(user.userId, user.role)
+  return (await filtroDeConversas(mapa)) ?? {}
+}
+
+/**
+ * Das conversas pedidas, as que este supervisor pode de fato EDITAR.
+ *
+ * As ações do painel são em lote. Recusar o lote inteiro porque uma conversa
+ * está fora do alcance seria pior que inútil — o gestor não tem como saber
+ * qual delas travou. Aqui as fora de alcance apenas não entram, e o retorno
+ * de cada rota já distingue o que foi feito do que não foi.
+ */
+async function idsQuePodeEditar(req: any, ids: number[]): Promise<number[]> {
+  const user = req.user as JwtPayload
+  const { mapaDeAcesso, permissoesNaConversa, permite } = await import('../services/conversationAccess.js')
+  const mapa = await mapaDeAcesso(user.userId, user.role)
+  if (!mapa.configurado) return ids
+
+  const permitidos: number[] = []
+  for (const id of ids) {
+    const perms = await permissoesNaConversa(mapa, id)
+    if (perms && permite(perms, 'edit')) permitidos.push(id)
+  }
+  return permitidos
+}
+
 /** Só gestão entra. Retorna false já tendo respondido 403. */
 function requireSupervisor(req: any, reply: any): boolean {
   const user = req.user as JwtPayload
@@ -222,7 +262,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // Aceita `from`/`to` (intervalo personalizado da tela) e `range`/`days`.
       const { from: since, to: until, days } = resolvePeriod(q, 7)
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const base = filtersToWhere({ ...q, bucket: 'all' }, now)
+      const base = { AND: [filtersToWhere({ ...q, bucket: 'all' }, now), await recorteDaMatriz(req)] }
       const withBase = (extra: Record<string, unknown>) => ({ AND: [base, extra] })
 
       const [raw, inbox, snoozed, resolvedNow, unassigned, unread, resolvedToday, resolvedPeriod, groups] =
@@ -382,7 +422,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const now = new Date()
       const limit = Math.min(parseInt(q.limit) || 50, 200)
       const offset = parseInt(q.offset) || 0
-      const where = filtersToWhere(q, now)
+      const where = { AND: [filtersToWhere(q, now), await recorteDaMatriz(req)] }
 
       const sort = (q.sort || 'recent').toString()
       const orderBy =
@@ -513,11 +553,13 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const user = (req as any).user as JwtPayload
       const ids = normalizeIds((req.body as any)?.leadIds)
       if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const alvos = await idsQuePodeEditar(req, ids)
+      if (!alvos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
 
       const { closeConversation } = await import('../services/leadConversation.js')
       const done: number[] = []
       const failed: Array<{ id: number; error: string }> = []
-      for (const id of ids) {
+      for (const id of alvos) {
         try {
           await closeConversation(id, { byUserId: user.userId, byUserName: user.name || user.email })
           await prisma.lead.update({ where: { id }, data: { completed: true } })
@@ -540,10 +582,12 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const user = (req as any).user as JwtPayload
       const ids = normalizeIds((req.body as any)?.leadIds)
       if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const alvos = await idsQuePodeEditar(req, ids)
+      if (!alvos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
 
       const { openConversation } = await import('../services/leadConversation.js')
       let count = 0
-      for (const id of ids) {
+      for (const id of alvos) {
         try {
           await openConversation(id, { byUserId: user.userId, byUserName: user.name || user.email, reason: 'manual' })
           await prisma.lead.update({ where: { id }, data: { completed: false } })
@@ -564,10 +608,12 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const user = (req as any).user as JwtPayload
       const ids = normalizeIds((req.body as any)?.leadIds)
       if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const alvos = await idsQuePodeEditar(req, ids)
+      if (!alvos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
 
       const { resumeBot } = await import('../services/botTakeover.js')
       let count = 0
-      for (const id of ids) {
+      for (const id of alvos) {
         const ok = await resumeBot(id, { userId: user.userId, userName: user.name || user.email }).catch(() => false)
         if (ok) count++
       }
@@ -587,6 +633,8 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const body = (req.body as any) || {}
       const ids = normalizeIds(body.leadIds)
       if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const alvos = await idsQuePodeEditar(req, ids)
+      if (!alvos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
 
       const hasUser = body.userId !== undefined
       const hasTeam = body.teamId !== undefined
@@ -611,7 +659,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const destLabel = `${destUser ? (destUser.name || destUser.email) : 'fila'} / ${destTeam?.name || 'sem setor'}`
 
       let count = 0
-      for (const id of ids) {
+      for (const id of alvos) {
         const prev = await prisma.lead.findUnique({
           where: { id },
           select: { assignedUserId: true, teamId: true },
@@ -673,6 +721,8 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const body = (req.body as any) || {}
       const ids = normalizeIds(body.leadIds)
       if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const alvos = await idsQuePodeEditar(req, ids)
+      if (!alvos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
 
       let until: Date | null = null
       if (body.until) {
@@ -682,7 +732,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
       }
 
       await prisma.lead.updateMany({ where: { id: { in: ids } }, data: { snoozedUntil: until } })
-      for (const id of ids) {
+      for (const id of alvos) {
         logEvent({
           leadId: id,
           type: EVENT_TYPES.OPERATOR_ASSIGNED,
@@ -694,7 +744,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
           ipAddress: getIp(req),
         })
       }
-      return { ok: true, updated: ids.length }
+      return { ok: true, updated: alvos.length }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }

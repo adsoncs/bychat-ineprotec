@@ -389,6 +389,10 @@ export const sidebarSchema: SidebarSchema = {
   footer: [
     { id: 'users', label: 'Usuários', href: '/app/users', icon: 'Users', permission: 'users' },
     { id: 'module-permissions', label: 'Permissões', href: '/app/module-permissions', icon: 'ShieldCheck', permission: 'users' },
+    // Sem `permission` de propósito: item sem chave declarada só o SUPERADMIN
+    // enxerga (regra do SidebarBody), e é exatamente quem pode editar a matriz
+    // — ela amplia o alcance de um papel para além do escopo dele.
+    { id: 'conversation-access', label: 'Acesso ao Conversas', href: '/app/conversation-access', icon: 'MessageSquare' },
     { id: 'settings', label: 'Configurações', href: '/app/settings', icon: 'Settings', permission: 'settings' },
   ],
 }
