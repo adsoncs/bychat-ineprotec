@@ -120,10 +120,25 @@ export async function listarChatsDoAparelho(instanceName: string): Promise<ChatD
     : []
   const porChave = new Map(leads.map((l) => [l.phoneKey!, l]))
 
-  const contagens = leads.length
+  // Grupo não tem telefone: a conversa dele no painel é achada pelo `groupJid`.
+  // Sem este cruzamento a tela mostraria "novo" para todo grupo que já está no
+  // painel há meses, e o operador reimportaria tudo achando que falta.
+  const gruposNoAparelho = lista
+    .map((c) => String(c?.remoteJid || ''))
+    .filter((j) => j.endsWith('@g.us'))
+  const leadsGrupo = gruposNoAparelho.length
+    ? await prisma.lead.findMany({
+        where: { groupJid: { in: [...new Set(gruposNoAparelho)] } },
+        select: { id: true, nome: true, groupJid: true },
+      })
+    : []
+  const porGrupo = new Map(leadsGrupo.map((l) => [l.groupJid!, l]))
+
+  const idsParaContar = [...leads.map((l) => l.id), ...leadsGrupo.map((l) => l.id)]
+  const contagens = idsParaContar.length
     ? await prisma.message.groupBy({
         by: ['leadId'],
-        where: { leadId: { in: leads.map((l) => l.id) } },
+        where: { leadId: { in: idsParaContar } },
         _count: { _all: true },
       })
     : []
@@ -148,7 +163,7 @@ export async function listarChatsDoAparelho(instanceName: string): Promise<ChatD
     const jid = String(c?.remoteJid || '')
     const isGroup = jid.endsWith('@g.us')
     const k = chaves.get(jid) || null
-    const lead = k ? porChave.get(k) ?? null : null
+    const lead = isGroup ? porGrupo.get(jid) ?? null : (k ? porChave.get(k) ?? null : null)
     const job = ultimoJob.get(jid) ?? null
     return {
       sincronizadoEm: job?.status === 'done' ? (job.finishedAt?.toISOString() ?? null) : null,
@@ -156,7 +171,14 @@ export async function listarChatsDoAparelho(instanceName: string): Promise<ChatD
       ultimaImportacao: job?.importadas ?? 0,
       remoteJid: jid,
       telefone: telefoneDoChat(c),
-      nome: c?.pushName || null,
+      // Em grupo o `pushName` é do último participante que falou, não do grupo:
+      // usar isso batizaria a conversa com o nome de um membro. Vale o assunto
+      // que a Evolution trouxer, depois o nome que o painel já conhece — e o
+      // assunto de verdade é buscado no WhatsApp na hora de criar o lead
+      // (`resolveGroupLead`), que é quem tem `fetchGroupSubject`.
+      nome: isGroup
+        ? (String(c?.subject || c?.name || '').trim() || lead?.nome || null)
+        : (c?.pushName || null),
       fotoUrl: c?.profilePicUrl || null,
       isGroup,
       naoLidas: Number(c?.unreadCount || 0),
@@ -165,9 +187,11 @@ export async function listarChatsDoAparelho(instanceName: string): Promise<ChatD
       leadId: lead?.id ?? null,
       leadNome: lead?.nome ?? null,
       mensagensNoPainel: lead ? porLead.get(lead.id) ?? 0 : 0,
-      // Grupo e chat sem telefone resolvível não têm como virar conversa de
-      // atendimento — a UI mostra, mas não deixa selecionar.
-      importavel: !isGroup && !!telefoneDoChat(c),
+      // Grupo É importável: vira conversa de grupo no painel (lead com
+      // `isGroup`), a mesma que o inbound já cria quando alguém fala no grupo.
+      // Só fica de fora o chat de pessoa sem telefone resolvível — esse não tem
+      // como virar contato.
+      importavel: isGroup || !!telefoneDoChat(c),
     }
   }).sort((a, b) => (b.ultimaMensagemEm || '').localeCompare(a.ultimaMensagemEm || ''))
 }
@@ -213,6 +237,38 @@ export async function encontrarChatDoLead(
       remoteJid: String(c?.remoteJid || ''),
       nome: c?.pushName || null,
       telefone: tel,
+      ultimaMensagemEm: c?.updatedAt ? new Date(c.updatedAt).toISOString() : null,
+    }
+  }
+  return null
+}
+
+/**
+ * Acha, no aparelho, a conversa de um GRUPO.
+ *
+ * Grupo não passa por `encontrarChatDoLead`: não tem telefone e portanto não
+ * tem `phoneKey` para casar. O `groupJid` já é a identidade completa — só
+ * precisamos confirmar que ESTA instância participa do grupo, senão pediríamos
+ * o histórico de um grupo do qual o número não faz parte.
+ */
+export async function encontrarGrupoNoAparelho(
+  instanceName: string,
+  groupJid: string,
+): Promise<{ remoteJid: string; nome: string | null; ultimaMensagemEm: string | null } | null> {
+  const { getProviderForChannel } = await import('./whatsappProvider.js')
+  const { provider } = await getProviderForChannel(`evolution:${instanceName}`)
+  if (provider.providerName !== 'evolution') return null
+
+  const brutos = await (provider as any).findChats()
+  const lista: any[] = Array.isArray(brutos) ? brutos : (brutos?.chats ?? [])
+
+  for (const c of lista) {
+    if (String(c?.remoteJid || '') !== groupJid) continue
+    return {
+      remoteJid: groupJid,
+      // `pushName` num chat de grupo é de quem falou por último — nunca serve
+      // como nome do grupo. Quem sabe o assunto é `fetchGroupSubject`.
+      nome: null,
       ultimaMensagemEm: c?.updatedAt ? new Date(c.updatedAt).toISOString() : null,
     }
   }

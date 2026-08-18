@@ -1018,7 +1018,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { enfileirarImportacao } = await import('../services/chatImportRunner.js')
       const jobs = await enfileirarImportacao(
         instanceName,
-        lote.map((c) => ({ remoteJid: c.remoteJid, telefone: c.telefone!, nome: c.nome, leadId: c.leadId })),
+        // `telefone` vem null em grupo — a fila deriva a identidade do remoteJid.
+        lote.map((c) => ({ remoteJid: c.remoteJid, telefone: c.telefone, nome: c.nome, leadId: c.leadId })),
         user.userId,
       )
 
@@ -1129,13 +1130,18 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
     const lead = await prisma.lead.findUnique({
       where: { id: lid },
-      select: { id: true, nome: true, whatsapp: true, phoneKey: true },
+      select: { id: true, nome: true, whatsapp: true, phoneKey: true, isGroup: true, groupJid: true },
     })
     if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada.' })
 
+    // Grupo e contato têm identidades diferentes: um é achado pelo `groupJid`,
+    // o outro pelo telefone canônico. O resto do caminho (escolher a instância,
+    // enfileirar com prioridade) é o mesmo para os dois.
+    const ehGrupo = lead.isGroup && !!lead.groupJid
+
     const { phoneKey } = await import('../lib/phone.js')
-    const chave = lead.phoneKey || phoneKey(lead.whatsapp || '')
-    if (!chave) {
+    const chave = ehGrupo ? null : (lead.phoneKey || phoneKey(lead.whatsapp || ''))
+    if (!ehGrupo && !chave) {
       return reply.code(422).send({
         motivo: 'sem_telefone',
         error: 'Esta conversa não tem um telefone válido — não há como localizá-la no celular.',
@@ -1173,13 +1179,15 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       })
     }
 
-    const { encontrarChatDoLead } = await import('../services/whatsappChatImport.js')
-    let achado: { remoteJid: string; nome: string | null; telefone: string } | null = null
+    const { encontrarChatDoLead, encontrarGrupoNoAparelho } = await import('../services/whatsappChatImport.js')
+    let achado: { remoteJid: string; nome: string | null; telefone?: string | null } | null = null
     let instanceName = ''
     const falhas: string[] = []
     for (const inst of candidatas) {
       try {
-        const r = await encontrarChatDoLead(inst, chave)
+        const r = ehGrupo
+          ? await encontrarGrupoNoAparelho(inst, lead.groupJid!)
+          : await encontrarChatDoLead(inst, chave!)
         if (r) { achado = r; instanceName = inst; break }
       } catch (e: any) {
         falhas.push(String(e?.message || e))

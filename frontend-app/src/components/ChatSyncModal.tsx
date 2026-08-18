@@ -26,6 +26,8 @@ import { toast } from '@/lib/toast'
 interface Props {
   leadId: number
   nome?: string | null
+  /** Conversa de grupo: muda os textos, porque "contato" não descreve um grupo. */
+  isGroup?: boolean
   onClose: () => void
 }
 
@@ -48,7 +50,8 @@ interface SyncResposta {
   job?: SyncJob | null
 }
 
-export function ChatSyncModal({ leadId, nome, onClose }: Props) {
+export function ChatSyncModal({ leadId, nome, isGroup = false, onClose }: Props) {
+  const alvo = isGroup ? 'grupo' : 'contato'
   const qc = useQueryClient()
   const [jobId, setJobId] = useState<number | null>(null)
   const [semConversa, setSemConversa] = useState(false)
@@ -156,7 +159,7 @@ export function ChatSyncModal({ leadId, nome, onClose }: Props) {
     <Modal
       open
       onOpenChange={(v) => { if (!v) onClose() }}
-      title="Sincronizar do celular"
+      title={isGroup ? 'Sincronizar grupo' : 'Sincronizar do celular'}
       description={nome ? `Histórico de ${nome} no aparelho conectado` : 'Histórico desta conversa no aparelho conectado'}
       size="md"
       footer={
@@ -191,7 +194,7 @@ export function ChatSyncModal({ leadId, nome, onClose }: Props) {
           <Estado
             icone={<Loader2 size={22} class="animate-spin text-accent" />}
             titulo="Procurando esta conversa no celular…"
-            texto="Estamos varrendo os números conectados por QR Code atrás do histórico deste contato."
+            texto={`Estamos varrendo os números conectados por QR Code atrás do histórico deste ${alvo}.`}
           />
         )}
 
@@ -209,11 +212,15 @@ export function ChatSyncModal({ leadId, nome, onClose }: Props) {
             tom="muted"
             icone={<Smartphone size={22} class="text-fg-muted" />}
             titulo="Nada para sincronizar"
-            texto="Este contato não tem conversa nos números conectados por QR Code. Ou o histórico está em outro aparelho, ou a conversa nasceu aqui no painel — nos dois casos, não há mensagem antiga para trazer."
+            texto={isGroup
+              ? 'Nenhum número conectado por QR Code participa deste grupo. Só quem é membro recebe o histórico — um número que entrou depois não enxerga o que foi conversado antes.'
+              : 'Este contato não tem conversa nos números conectados por QR Code. Ou o histórico está em outro aparelho, ou a conversa nasceu aqui no painel — nos dois casos, não há mensagem antiga para trazer.'}
           >
             <ul class="mt-2 space-y-1 text-xs text-fg-subtle">
               <li>· Números do WhatsApp Oficial (Cloud API) não guardam histórico anterior à conexão.</li>
-              <li>· Se o contato só existe em outro número da empresa, conecte-o e repita.</li>
+              {isGroup
+                ? <li>· A API Oficial não enxerga grupos — grupo só existe em número conectado por QR Code.</li>
+                : <li>· Se o contato só existe em outro número da empresa, conecte-o e repita.</li>}
             </ul>
           </Estado>
         )}

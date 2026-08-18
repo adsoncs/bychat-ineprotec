@@ -1825,16 +1825,13 @@ function ChatPanel({
         </>
       )}
 
-      {/* Puxar o histórico do aparelho sem sair da conversa. Some em grupo:
-          grupo não vira atendimento e não tem lead para receber as mensagens. */}
-      {!isGroupChat && (
-        <>
-          <div class="my-1 border-t border-border" />
-          <ItemAcao icone={<RefreshCw size={14} />} onClick={() => { setMenuAcoesOpen(false); setSyncOpen(true) }}>
-            Sincronizar do celular
-          </ItemAcao>
-        </>
-      )}
+      {/* Puxar o histórico do aparelho sem sair da conversa — vale também em
+          grupo: a conversa de grupo é um lead como outro qualquer (isGroup) e
+          recebe o histórico do aparelho pelo mesmo caminho. */}
+      <div class="my-1 border-t border-border" />
+      <ItemAcao icone={<RefreshCw size={14} />} onClick={() => { setMenuAcoesOpen(false); setSyncOpen(true) }}>
+        {isGroupChat ? 'Sincronizar grupo' : 'Sincronizar do celular'}
+      </ItemAcao>
 
       <div class="my-1 border-t border-border" />
       <ItemAcao icone={<Trash2 size={14} />} perigo onClick={() => { setMenuAcoesOpen(false); setDeleteOpen(true) }}>
@@ -2187,6 +2184,7 @@ function ChatPanel({
         <ChatSyncModal
           leadId={leadId}
           nome={ticket?.nome ?? lead?.nome ?? null}
+          isGroup={isGroupChat}
           onClose={() => setSyncOpen(false)}
         />
       )}

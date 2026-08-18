@@ -123,7 +123,7 @@ const SITUACOES: Array<{ v: Situacao; rotulo: string }> = [
   { v: 'novas', rotulo: 'Sem lead no painel' },
   { v: 'no-painel', rotulo: 'Já têm lead' },
   { v: 'sincronizadas', rotulo: 'Já sincronizadas' },
-  { v: 'nao-importaveis', rotulo: 'Grupos e sem telefone' },
+  { v: 'nao-importaveis', rotulo: 'Sem telefone' },
 ]
 
 /** Quantos itens vão ao DOM de uma vez. Milhares de linhas travam o modal. */
@@ -243,7 +243,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
         r.jaEstavamNaFila ? `${r.jaEstavamNaFila} já estavam na fila` : '',
         r.jaSincronizadas ? `${r.jaSincronizadas} já sincronizadas antes` : '',
         r.foraDoPeriodo ? `${r.foraDoPeriodo} fora do período` : '',
-        r.naoImportaveis ? `${r.naoImportaveis} grupos/sem telefone` : '',
+        r.naoImportaveis ? `${r.naoImportaveis} sem telefone` : '',
         r.acimaDoTeto ? `${r.acimaDoTeto} acima do teto de 5.000` : '',
       ].filter(Boolean).join(' · ')
       toast(
@@ -590,7 +590,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                 <Cartao rotulo="Sem lead no painel" valor={resumo.novos} ativo={situacao === 'novas'} onClick={() => setSituacao('novas')} />
                 <Cartao rotulo="Já têm lead" valor={resumo.jaNoPainel} ativo={situacao === 'no-painel'} onClick={() => setSituacao('no-painel')} />
                 <Cartao rotulo="Já sincronizadas" valor={resumo.sincronizados} tom="success" ativo={situacao === 'sincronizadas'} onClick={() => setSituacao('sincronizadas')} />
-                <Cartao rotulo="Grupos / sem telefone" valor={resumo.grupos + resumo.semTelefone} tom="muted" ativo={situacao === 'nao-importaveis'} onClick={() => setSituacao('nao-importaveis')} />
+                <Cartao rotulo="Sem telefone" valor={resumo.semTelefone} tom="muted" ativo={situacao === 'nao-importaveis'} onClick={() => setSituacao('nao-importaveis')} />
               </div>
             )}
 
@@ -695,7 +695,14 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                         )}
                         <div class="min-w-0 flex-1">
                           <div class="flex flex-wrap items-center gap-1.5">
-                            <span class="truncate text-sm font-medium">{c.nome || c.telefone || c.remoteJid.split('@')[0]}</span>
+                            <span class="truncate text-sm font-medium">
+                              {c.nome
+                                || c.telefone
+                                // Grupo sem assunto conhecido: o mesmo rótulo que o
+                                // painel dá a ele ao receber a primeira mensagem,
+                                // em vez dos 18 dígitos crus do JID.
+                                || (c.isGroup ? `Grupo ${c.remoteJid.replace(/\D/g, '').slice(-6)}` : c.remoteJid.split('@')[0])}
+                            </span>
                             {c.isGroup && <Badge tone="neutral">Grupo</Badge>}
                             {!c.isGroup && !c.importavel && (
                               <Badge tone="neutral" title="O WhatsApp não revelou o telefone deste contato (identificador de privacidade @lid)">
@@ -742,12 +749,12 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                   </button>
                 )}
 
-                {situacao !== 'nao-importaveis' && !!resumo && (resumo.grupos + resumo.semTelefone) > 0 && (
+                {situacao !== 'nao-importaveis' && !!resumo && resumo.semTelefone > 0 && (
                   <p class="flex items-start gap-1.5 text-xs text-fg-subtle">
                     <CircleSlash size={12} class="mt-0.5 shrink-0" />
-                    {resumo.grupos} grupo(s) e {resumo.semTelefone} contato(s) sem telefone ficam de fora: grupo não vira
-                    atendimento, e sem número não há como criar o lead. O WhatsApp esconde o telefone atrás de um
-                    identificador de privacidade quando o contato nunca escreveu para você.
+                    {resumo.semTelefone} contato(s) sem telefone ficam de fora: sem número não há como criar o lead. O
+                    WhatsApp esconde o telefone atrás de um identificador de privacidade quando o contato nunca escreveu
+                    para você. Grupos entram normalmente — viram conversa de grupo no painel.
                   </p>
                 )}
               </>

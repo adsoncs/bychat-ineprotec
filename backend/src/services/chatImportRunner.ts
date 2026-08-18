@@ -4,8 +4,9 @@
 //
 // Cuidados que definem o resultado:
 //  - dedup por externalId: reimportar o mesmo chat não duplica mensagem
-//  - NÃO mexe em lastMessageAt nem em unreadMessages: mensagem de meses atrás
-//    não pode ressuscitar a conversa no topo da caixa como se fosse nova
+//  - NÃO mexe em unreadMessages: histórico antigo não é "não lido"
+//  - `lastMessageAt` sobe até a mensagem mais NOVA da conversa, nunca desce —
+//    ver `tornarVisivelNoConversas()`, que é o que faz a importação aparecer
 //  - mídia entra com o tipo certo e sem arquivo; o download vem depois (fase 4),
 //    porque baixar tudo de antemão é o que trava a importação
 
@@ -16,6 +17,7 @@ import { bullmqJobsTotal, captureException } from '../lib/observability.js'
 import { phoneKey, onlyDigits } from '../lib/phone.js'
 import { generateUid } from './dedup.js'
 import { telefoneComoNome } from './leadDisplayName.js'
+import { resolveGroupLead, groupSenderName } from './whatsappGroups.js'
 
 const QUEUE_NAME = 'wf-chat-import'
 /** Teto por chat. 7 mil mensagens numa conversa antiga é volume real, e
@@ -62,6 +64,79 @@ function tipoDe(messageType: string | undefined, message: any): { mediaType: str
   return { mediaType: 'text', body: '' }
 }
 
+/**
+ * Sob QUAIS JIDs a Evolution pode ter guardado esta mesma conversa.
+ *
+ * `findMessages` casa `key.remoteJid` por igualdade exata, e o mesmo contato
+ * costuma existir em MAIS DE UM JID no banco da Evolution: o `@lid` (o
+ * identificador de privacidade, sob o qual fica o histórico antigo) e o
+ * `<telefone>@s.whatsapp.net`. Importar só o JID que a lista de chats devolveu
+ * traz um dos dois e deixa o outro para trás — foi o "importei e a mensagem de
+ * hoje não veio": o histórico antigo estava no `@lid` e as mensagens recentes
+ * no JID de telefone.
+ *
+ * O telefone entra nas duas formas do Brasil, com e sem o 9º dígito: o número
+ * gravado no job vem de `key.remoteJidAlt`, que a Evolution entrega no formato
+ * antigo (`556291138484`), enquanto a conversa pode estar sob o formato novo.
+ *
+ * Varrer um JID inexistente custa uma consulta que volta vazia — barato perto
+ * de perder metade da conversa.
+ */
+export function jidsDoMesmoChat(remoteJid: string, telefone: string | null | undefined): string[] {
+  const jids = new Set<string>()
+  if (remoteJid) jids.add(remoteJid)
+  // Grupo tem um JID só e não tem telefone: nada a expandir.
+  if (remoteJid.endsWith('@g.us')) return [...jids]
+
+  const numeros = new Set<string>()
+  const chave = phoneKey(telefone)
+  if (chave) {
+    numeros.add(chave)
+    // "55 DD 9 XXXXXXXX" → "55 DD XXXXXXXX" (formato sem o 9º dígito).
+    const br = /^55([1-9][1-9])9(\d{8})$/.exec(chave)
+    if (br) numeros.add(`55${br[1]}${br[2]}`)
+  }
+  const cru = onlyDigits(telefone)
+  // Só um telefone plausível; `cru` pode ser lixo curto ou um LID de 15 dígitos.
+  if (cru.length >= 10 && cru.length <= 13) numeros.add(cru)
+
+  for (const n of numeros) jids.add(`${n}@s.whatsapp.net`)
+  return [...jids]
+}
+
+/**
+ * Faz a conversa importada APARECER no Conversas.
+ *
+ * As abas são decididas por dois campos do lead (ver `condicaoDaCaixa` em
+ * routes/atendimento.ts): "Atendimento" exige `conversationOpenedAt`, "Caixa"
+ * exige `lastMessageAt`. Um lead criado pela importação não tinha nenhum dos
+ * dois — então a importação gravava tudo no banco e a conversa não caía em aba
+ * NENHUMA, nem na "Todos". É o "importou e não reflete no Conversas": 634
+ * conversas mudas na kobogo, 347 delas vindas da própria importação.
+ *
+ * `lastMessageAt` recebe a data da mensagem mais nova da conversa e só SOBE:
+ * histórico de meses atrás não ressuscita a conversa no topo da caixa — o
+ * cuidado original continua valendo. A conversa entra na posição da sua última
+ * atividade de verdade.
+ *
+ * Roda a cada sincronização, e não só quando trouxe mensagem nova: assim uma
+ * conversa que já ficou muda é consertada no próximo "sincronizar" sem que
+ * ninguém precise mexer no banco.
+ */
+async function tornarVisivelNoConversas(leadId: number): Promise<void> {
+  const [lead, ultima] = await Promise.all([
+    prisma.lead.findUnique({ where: { id: leadId }, select: { lastMessageAt: true } }),
+    prisma.message.findFirst({
+      where: { leadId },
+      orderBy: { timestamp: 'desc' },
+      select: { timestamp: true },
+    }),
+  ])
+  if (!lead || !ultima) return
+  if (lead.lastMessageAt && lead.lastMessageAt >= ultima.timestamp) return
+  await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: ultima.timestamp } })
+}
+
 export async function importarChat(jobId: number): Promise<void> {
   const job = await prisma.chatImportJob.findUnique({ where: { id: jobId } })
   if (!job || job.status === 'canceled') return
@@ -76,8 +151,20 @@ export async function importarChat(jobId: number): Promise<void> {
     const { provider } = await getProviderForChannel(`evolution:${job.instanceName}`)
     if (provider.providerName !== 'evolution') throw new Error('A instância não é Evolution.')
 
+    // Conversa de GRUPO tem outra identidade: não tem telefone, o lead é achado
+    // (ou criado) pelo `groupJid` e cada mensagem guarda QUEM falou dentro dele.
+    const ehGrupo = job.remoteJid.endsWith('@g.us')
+
     // 1. Lead: reaproveita pelo telefone canônico; só cria se não houver.
     let leadId = job.leadId
+    if (!leadId && ehGrupo) {
+      // Mesma porta de entrada do inbound de grupo: assunto do grupo, dedup por
+      // groupJid e roteamento pelo dono da conexão. Sem isso a importação criaria
+      // um lead "pessoa" com o JID no lugar do telefone.
+      const grupo = await resolveGroupLead({ groupJid: job.remoteJid, instanceName: job.instanceName })
+      leadId = grupo.id
+      await prisma.chatImportJob.update({ where: { id: jobId }, data: { leadId } })
+    }
     if (!leadId) {
       const chave = phoneKey(job.telefone)
       if (!chave) throw new Error('Telefone do chat não é válido.')
@@ -114,9 +201,17 @@ export async function importarChat(jobId: number): Promise<void> {
 
     // 2. O que já existe, para não duplicar. Um Set na memória evita um SELECT
     //    por mensagem — são milhares.
+    //
+    // Só mensagens da EVOLUTION entram no conjunto. O `externalId` não é único
+    // entre provedores: o id que a Evolution dá a uma mensagem (`3A…`, gerado
+    // pelo aparelho) pode ser igual ao que a Cloud API deu a OUTRA mensagem, na
+    // mesma conversa. Quando isso acontece, a mensagem verdadeira era descartada
+    // como "já existia" e nunca aparecia — foi o que engoliu o teste do contato
+    // 62991138484: a mensagem "Esse é um teste de importação" tinha o mesmo id
+    // de uma confirmação de agendamento enviada dias antes pela Cloud API.
     const jaTem = new Set(
       (await prisma.message.findMany({
-        where: { leadId, externalId: { not: null } },
+        where: { leadId, externalId: { not: null }, provider: 'evolution' },
         select: { externalId: true },
       })).map((m) => m.externalId!),
     )
@@ -124,60 +219,105 @@ export async function importarChat(jobId: number): Promise<void> {
     let importadas = 0
     let jaExistiam = 0
     let midiasPendentes = 0
-    let pagina = 1
-    let paginas = 1
+    let totalNaOrigem = 0
+    let cancelado = false
 
-    while (pagina <= Math.min(paginas, MAX_PAGINAS)) {
-      const atual = await prisma.chatImportJob.findUnique({ where: { id: jobId }, select: { status: true } })
-      if (atual?.status === 'canceled') return
+    // O mesmo contato mora em mais de um JID na Evolution (@lid e telefone) —
+    // varre todos e deixa o dedup por externalId juntar as duas pontas.
+    for (const jid of jidsDoMesmoChat(job.remoteJid, job.telefone)) {
+      if (cancelado) break
+      let pagina = 1
+      let paginas = 1
 
-      const { registros, total, paginas: p } = await (provider as any).findMessages(job.remoteJid, pagina)
-      paginas = p || 1
-      if (pagina === 1) {
-        await prisma.chatImportJob.update({ where: { id: jobId }, data: { totalNaOrigem: total || registros.length } })
-      }
-      if (!registros.length) break
+      while (pagina <= Math.min(paginas, MAX_PAGINAS)) {
+        const atual = await prisma.chatImportJob.findUnique({ where: { id: jobId }, select: { status: true } })
+        if (atual?.status === 'canceled') { cancelado = true; break }
 
-      const novas: any[] = []
-      for (const r of registros) {
-        const externalId = r?.key?.id ? String(r.key.id) : null
-        if (!externalId || jaTem.has(externalId)) { jaExistiam++; continue }
-        jaTem.add(externalId)
+        const { registros, total, paginas: p } = await (provider as any).findMessages(jid, pagina)
+        paginas = p || 1
+        if (pagina === 1) {
+          // Soma dos JIDs: o progresso da tela precisa refletir a conversa
+          // inteira, não só o pedaço que estava sob o primeiro identificador.
+          totalNaOrigem += total || registros.length
+          await prisma.chatImportJob.update({ where: { id: jobId }, data: { totalNaOrigem } })
+        }
+        if (!registros.length) break
 
-        const { mediaType, body } = tipoDe(r?.messageType, r?.message)
-        const ehMidia = mediaType !== 'text'
-        if (ehMidia) midiasPendentes++
+        const novas: any[] = []
+        for (const r of registros) {
+          const externalId = r?.key?.id ? String(r.key.id) : null
+          if (!externalId || jaTem.has(externalId)) { jaExistiam++; continue }
+          jaTem.add(externalId)
 
-        // messageTimestamp vem em segundos.
-        const ts = r?.messageTimestamp ? new Date(Number(r.messageTimestamp) * 1000) : new Date()
+          const { mediaType, body } = tipoDe(r?.messageType, r?.message)
+          const ehMidia = mediaType !== 'text'
+          if (ehMidia) midiasPendentes++
 
-        novas.push({
-          leadId,
-          fromMe: !!r?.key?.fromMe,
-          body,
-          mediaType,
-          mediaUrl: null,
-          isInternal: false,
-          provider: 'evolution',
-          evolutionInstance: job.instanceName,
-          senderName: r?.key?.fromMe ? 'Importado' : (r?.pushName || job.nome || null),
-          externalId,
-          ack: 1,
-          timestamp: ts,
+          // messageTimestamp vem em segundos.
+          const ts = r?.messageTimestamp ? new Date(Number(r.messageTimestamp) * 1000) : new Date()
+
+          // Em grupo, `pushName` é de QUEM FALOU (não do grupo) e o JID do
+          // participante é o que o WhatsApp exige depois para reagir ou apagar.
+          const participante: string = r?.key?.participant || r?.participant || ''
+
+          novas.push({
+            leadId,
+            fromMe: !!r?.key?.fromMe,
+            body,
+            mediaType,
+            mediaUrl: null,
+            isInternal: false,
+            provider: 'evolution',
+            evolutionInstance: job.instanceName,
+            senderName: r?.key?.fromMe
+              ? 'Importado'
+              : ehGrupo
+                ? groupSenderName(r?.pushName, participante)
+                : (r?.pushName || job.nome || null),
+            senderJid: ehGrupo ? (participante || null) : null,
+            externalId,
+            ack: 1,
+            timestamp: ts,
+          })
+        }
+
+        if (novas.length) {
+          // Reconferência no banco imediatamente antes de gravar.
+          //
+          // O `jaTem` é uma foto tirada no início do job, e agora DOIS jobs
+          // podem estar olhando para as mesmas mensagens: a lista do aparelho
+          // mostra o `@lid` e o `<telefone>@s.whatsapp.net` como duas linhas, e
+          // desde que a varredura passou a cobrir as duas pontas, sincronizar
+          // ambas cai no mesmo lead com o mesmo conteúdo. Sem esta conferência
+          // a conversa fica com tudo em dobro (e não há índice único que
+          // segure: `externalId` é só indexado).
+          const ids = novas.map((n) => n.externalId as string)
+          const existentes = new Set(
+            (await prisma.message.findMany({
+              where: { leadId, provider: 'evolution', externalId: { in: ids } },
+              select: { externalId: true },
+            })).map((m) => m.externalId!),
+          )
+          const paraGravar = novas.filter((n) => !existentes.has(n.externalId as string))
+          jaExistiam += novas.length - paraGravar.length
+          if (paraGravar.length) {
+            await prisma.message.createMany({ data: paraGravar, skipDuplicates: true })
+            importadas += paraGravar.length
+          }
+        }
+
+        await prisma.chatImportJob.update({
+          where: { id: jobId },
+          data: { importadas, jaExistiam, midiasPendentes },
         })
+        pagina++
       }
-
-      if (novas.length) {
-        await prisma.message.createMany({ data: novas, skipDuplicates: true })
-        importadas += novas.length
-      }
-
-      await prisma.chatImportJob.update({
-        where: { id: jobId },
-        data: { importadas, jaExistiam, midiasPendentes },
-      })
-      pagina++
     }
+
+    if (cancelado) return
+
+    // Sem isto a conversa fica no banco e fora de todas as abas do Conversas.
+    await tornarVisivelNoConversas(leadId)
 
     await prisma.chatImportJob.update({
       where: { id: jobId },
@@ -201,7 +341,7 @@ export async function importarChat(jobId: number): Promise<void> {
  */
 export async function enfileirarImportacao(
   instanceName: string,
-  chats: Array<{ remoteJid: string; telefone: string; nome?: string | null; leadId?: number | null }>,
+  chats: Array<{ remoteJid: string; telefone?: string | null; nome?: string | null; leadId?: number | null }>,
   createdByUserId: number,
   prioridade = 5,
 ): Promise<Array<{ id: number; remoteJid: string; jaEstava: boolean }>> {
@@ -218,7 +358,12 @@ export async function enfileirarImportacao(
 
   const criados: Array<{ id: number; remoteJid: string; jaEstava: boolean }> = []
   for (const c of chats) {
-    if (!c.telefone) continue
+    // Grupo não tem telefone: guarda os dígitos do próprio JID, do mesmo jeito
+    // que `resolveGroupLead` faz no campo `whatsapp` do lead. O que identifica a
+    // conversa é o `remoteJid`, e é por ele que o runner reconhece o grupo.
+    const ehGrupo = c.remoteJid.endsWith('@g.us')
+    const telefone = ehGrupo ? onlyDigits(c.remoteJid).slice(0, 20) : onlyDigits(c.telefone)
+    if (!telefone) continue
     // Mesmo chat já na fila: não duplica o trabalho.
     const emAndamento = jaNaFila.get(c.remoteJid)
     if (emAndamento) { criados.push({ id: emAndamento, remoteJid: c.remoteJid, jaEstava: true }); continue }
@@ -227,7 +372,7 @@ export async function enfileirarImportacao(
       data: {
         instanceName,
         remoteJid: c.remoteJid,
-        telefone: onlyDigits(c.telefone),
+        telefone,
         nome: c.nome || null,
         leadId: c.leadId ?? null,
         createdByUserId,
