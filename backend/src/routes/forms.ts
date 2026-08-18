@@ -2,6 +2,7 @@
 // Forms — CRUD admin + submit público + embed Web Component + pipeline form→lead
 
 import { FastifyInstance } from 'fastify'
+import { getBranding } from '../lib/branding.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { JWT_SECRET } from '../lib/secrets.js'
@@ -96,8 +97,16 @@ export async function formsRoutes(app: FastifyInstance) {
       return reply.code(429).send({ ok: false, error: 'Muitas tentativas. Aguarde 1 minuto.' })
     }
 
+    // A rota é por ID. Slug aqui vira NaN e o Prisma estourava com "Argument
+    // `id` is missing" — 500 e alerta no monitoramento por um endereço errado,
+    // que é coisa de quem chamou, não falha nossa.
+    const formId = parseInt(id)
+    if (!Number.isFinite(formId)) {
+      return reply.code(404).send({ ok: false, error: 'Formulário não encontrado' })
+    }
+
     try {
-      const form = await prisma.form.findUnique({ where: { id: parseInt(id) } })
+      const form = await prisma.form.findUnique({ where: { id: formId } })
       if (!form || !form.active) return reply.code(404).send({ ok: false, error: 'Formulário não encontrado' })
 
       const body = req.body as any
@@ -466,7 +475,8 @@ export async function formsRoutes(app: FastifyInstance) {
     const settings = form.settings as any || {}
     const styling = { ...getDefaultFormStyling(), ...((form.styling as any) ?? {}) }
 
-    const html = generateConversationalPage(form.id, form.name, fields, settings, styling, baseUrl, embed)
+    const { brandName } = await getBranding().catch(() => ({ brandName: 'Attrae' }))
+    const html = generateConversationalPage(form.id, form.name, fields, settings, styling, baseUrl, embed, brandName)
     reply
       .header('Content-Security-Policy', 'frame-ancestors *')
       .header('Cache-Control', 'no-store')
@@ -1091,6 +1101,10 @@ function generateConversationalPage(
   styling: any,
   baseUrl: string,
   embed: boolean,
+  // Nome da marca vindo das Configurações (`appearance.admin_brand_name`). O
+  // rodapé dizia "Feito com ByChat" em texto fixo — o nome antigo do produto,
+  // visível para TODO lead que abre um formulário, muito depois do rebranding.
+  brandName = 'Attrae',
 ): string {
   const e = (s: any): string => (s == null ? '' : String(s))
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -1207,7 +1221,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--q-color);display:f
 <body>
 ${cfg.showProgress ? '<div class="progress"><i id="bar"></i></div>' : ''}
 <div class="main"><div id="root"></div></div>
-${embed ? '' : '<div class="foot">Feito com ByChat</div>'}
+${embed ? '' : `<div class="foot">Feito com ${String(brandName).replace(/[<>&]/g, '')}</div>`}
 <script>
 (function(){
 var FID=${formId};var API=${JSON.stringify(baseUrl)};var TITLE=${JSON.stringify(formName)};

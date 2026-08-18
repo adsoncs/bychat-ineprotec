@@ -180,7 +180,7 @@ export function FormsPage() {
           },
           {
             title: '🔗 Publique com o código de embed',
-            body: <>Botão <strong>Embed</strong>: gera um snippet JavaScript pra colar no seu site/landing page. Pode também ser usado como página standalone (ex.: form.bychat.ia.br/seu-form).</>,
+            body: <>Botão <strong>Embed</strong>: gera um snippet JavaScript pra colar no seu site/landing page. Pode também ser usado como página hospedada por nós (o endereço aparece em Compartilhar).</>,
           },
           {
             title: '👤 Cada submissão vira lead',
