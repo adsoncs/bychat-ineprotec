@@ -93,6 +93,10 @@
   --z-sticky: 20;
   --z-topbar: 30;
   --z-sidebar: 40;
+  /* Editores em tela cheia (Formulários, Landing Pages): cobrem topbar/sidebar,
+     mas ficam ABAIXO de backdrop/modal/popover para que diálogos portalizados
+     (Radix → document.body) continuem aparecendo por cima. */
+  --z-fullscreen: 45;
   --z-backdrop: 50;
   --z-drawer: 60;
   --z-modal: 70;

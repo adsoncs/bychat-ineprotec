@@ -293,8 +293,12 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
 
   const usedKeys = fields.map((f) => f.key)
 
+  // A página é um overlay em tela cheia. Fica em --z-fullscreen (abaixo do modal):
+  // a paleta "Adicionar campo" é um Dialog portalizado pro document.body (z-modal
+  // 70) — com a página em z 80 ela abria ATRÁS do fundo opaco e o botão parecia
+  // não funcionar.
   return (
-    <div class="fixed inset-0 z-[80] bg-surface flex flex-col">
+    <div class="fixed inset-0 bg-surface flex flex-col" style={{ zIndex: 'var(--z-fullscreen)' }}>
       {/* Topbar */}
       <header class="h-14 shrink-0 border-b border-border bg-surface flex items-center gap-2 px-3">
         <Button variant="ghost" size="sm" class="shrink-0" onClick={handleBack}><ArrowLeft size={16} /> Voltar</Button>
