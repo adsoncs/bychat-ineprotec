@@ -310,6 +310,16 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
       if (body) { out.push(body); messages.push({ role: 'assistant', content: turn.text }); replied = true }
       break
     }
+    // Texto escrito JUNTO da chamada de ferramenta: mostra antes de executar as
+    // ferramentas, igual ao loop de produção em aiJourneyEngine. Sem isso o preview
+    // engolia a resposta e caía no "deixa eu verificar" — fazendo parecer erro de
+    // prompt o que era só o simulador descartando o que a IA tinha escrito.
+    if (turn.text.trim()) {
+      const { text: pre, options: preOpts } = aiExtractOptions(turn.text)
+      const body = preOpts.length ? `${pre}\n\n${preOpts.map((o: string, idx: number) => `${idx + 1}) ${o}`).join('\n')}` : pre
+      if (body) { out.push(body); replied = true }
+    }
+
     messages.push({ role: 'assistant', content: turn.assistant })
     const results: any[] = []
     for (const call of turn.calls) {
@@ -328,7 +338,11 @@ export interface PreviewResult { sessionId: string; messages: string[]; phase: s
 export async function startPreview(chatbotId: number): Promise<PreviewResult | { error: string }> {
   gc()
   const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } })
-  if (!chatbot || !chatbot.active) return { error: 'Chatbot não encontrado' }
+  // Chatbot INATIVO pode ser testado: testar antes de ativar é justamente o uso do
+  // simulador. Antes a guarda exigia `active` e devolvia "Chatbot não encontrado" —
+  // mensagem que mentia sobre a causa e deixava o botão Testar inútil no único
+  // momento em que ele mais serve.
+  if (!chatbot) return { error: 'Chatbot não encontrado' }
 
   const out: string[] = []
   const greet = (chatbot.greetingMessage || '').trim()
