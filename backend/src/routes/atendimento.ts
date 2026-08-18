@@ -507,7 +507,21 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         // "Contatos / Grupos" para quem recebe grupos de verdade. Ignora o
         // recorte por tipo — senão escolher "Só contatos" faria o próprio
         // filtro desaparecer.
-        prisma.lead.count({ where: { ...scopeWhere, isGroup: true } }),
+        //
+        // Ignora também busca, caixa e demais filtros de tela, de propósito: o
+        // seletor some quando este número zera, e some no meio de uma digitação
+        // deixaria quem estivesse em "Só grupos" preso numa lista vazia sem
+        // caminho de volta. O que ele NÃO pode ignorar é a visibilidade — antes
+        // ignorava, e por isso anunciava "Só grupos (11)" abrindo três: no
+        // kobogo, 4 dos 11 grupos do gestor tinham passado por um número
+        // reservado e sumiam da lista sem sumir da conta.
+        prisma.lead.count({
+          where: {
+            ...scopeWhere,
+            isGroup: true,
+            ...(semCanaisOcultos ? { AND: [semCanaisOcultos] } : {}),
+          },
+        }),
       ])
 
       return {
