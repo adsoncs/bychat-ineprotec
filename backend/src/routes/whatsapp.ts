@@ -1005,6 +1005,11 @@ export async function whatsappRoutes(app: FastifyInstance) {
         })
         quotedMsgId = citada?.id ?? null
       }
+      // A citada nem sempre já está gravada quando a resposta chega: o webhook
+      // não garante ordem, e a mensagem original pode entrar milissegundos
+      // depois. Antes o vínculo morria aqui — a bolha ficava sem contexto para
+      // sempre. Guardando o externalId, a leitura resolve mais tarde.
+      const quotedExternalId = citadaExternalId || null
 
       // Detect media messages
       let mediaType = 'text'
@@ -1081,6 +1086,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             senderJid: participantJid || null,
             externalId: messageId || null,
             quotedMsgId,
+            quotedExternalId,
             provider: 'evolution',
             evolutionInstance: inboundInstance,
             timestamp: new Date(),
@@ -1287,6 +1293,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             senderName: data.pushName || lead.nome || phone,
             externalId: messageId || null,
             quotedMsgId,
+            quotedExternalId,
             timestamp: new Date()
           }
         })

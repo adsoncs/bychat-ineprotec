@@ -666,6 +666,29 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // caso mais comum em grupo —, a bolha aparecia sem contexto nenhum. Aqui
       // o servidor manda junto o resumo do que foi citado, uma consulta só para
       // a página inteira.
+      // Resolução tardia: resposta cuja citada ainda não existia quando ela
+      // chegou ficou com `quotedMsgId` nulo, mas guardou o `quotedExternalId`.
+      // Como a citada quase sempre entra logo depois, basta resolver agora — e
+      // gravar, para não repetir a consulta em toda abertura da conversa.
+      const pendentes = (messages as any[]).filter(m => !m.quotedMsgId && m.quotedExternalId)
+      if (pendentes.length) {
+        const externos = [...new Set(pendentes.map(m => m.quotedExternalId as string))]
+        const achadas = await prisma.message.findMany({
+          where: { externalId: { in: externos } },
+          select: { id: true, externalId: true },
+        })
+        const porExterno = new Map(achadas.map(a => [a.externalId, a.id]))
+        const paraGravar: Array<{ id: number; quotedMsgId: number }> = []
+        for (const m of pendentes) {
+          const achado = porExterno.get(m.quotedExternalId)
+          if (achado) { m.quotedMsgId = achado; paraGravar.push({ id: m.id, quotedMsgId: achado }) }
+        }
+        // fora do caminho da resposta: falhar aqui não pode derrubar a leitura
+        Promise.all(paraGravar.map(g =>
+          prisma.message.update({ where: { id: g.id }, data: { quotedMsgId: g.quotedMsgId } }),
+        )).catch(() => {})
+      }
+
       const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
       if (citadasIds.length) {
         const citadas = await prisma.message.findMany({

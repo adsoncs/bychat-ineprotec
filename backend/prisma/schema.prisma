@@ -1440,6 +1440,12 @@ model Message {
   senderJid   String?  @db.VarChar(100)
   externalId  String?  @db.VarChar(191)
   quotedMsgId Int?
+  /// externalId da mensagem citada, guardado SEMPRE que a resposta traz citação.
+  /// `quotedMsgId` só é preenchido quando a citada já está gravada — e ela nem
+  /// sempre está no instante em que a resposta chega (a ordem do webhook não é
+  /// garantida). Antes o vínculo era descartado nesse caso e a bolha ficava sem
+  /// contexto para sempre; agora a resolução pode acontecer depois, na leitura.
+  quotedExternalId String? @db.VarChar(191)
   timestamp   DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
