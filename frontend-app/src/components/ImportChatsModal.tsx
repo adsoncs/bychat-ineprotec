@@ -571,12 +571,12 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
           <button
             type="button"
             class="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-fg-muted hover:bg-surface-3"
-            title="Reler o aparelho"
+            title="Consulta o aparelho agora e traz a lista atualizada. Nada é importado neste passo — só depois de você escolher."
             onClick={() => {
               void qc.invalidateQueries({ queryKey: aba === 'agenda' ? ['whatsapp-contacts'] : ['whatsapp-chats'] })
             }}
           >
-            <RefreshCw size={11} class={carregando ? 'animate-spin' : ''} /> Recarregar
+            <RefreshCw size={11} class={carregando ? 'animate-spin' : ''} /> {carregando ? 'Consultando o aparelho…' : 'Atualizar do aparelho'}
           </button>
         </div>
 

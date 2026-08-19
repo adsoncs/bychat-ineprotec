@@ -20,9 +20,20 @@ import { telefoneComoNome } from './leadDisplayName.js'
 import { resolveGroupLead, groupSenderName } from './whatsappGroups.js'
 
 const QUEUE_NAME = 'wf-chat-import'
-/** Teto por chat. 7 mil mensagens numa conversa antiga é volume real, e
- *  importar tudo raramente ajuda — o que interessa é o histórico recente. */
-const MAX_PAGINAS = 40
+/** Teto por chat. Eram 40 páginas (~2.000 mensagens) e isso ESCONDIA o resto:
+ *  grupo com 5.281 mensagens lia as 2.000 primeiras, via que todas já existiam
+ *  e encerrava com "concluído, 0 importadas" — para sempre. Quem usava concluía
+ *  que a importação "às vezes funciona, às vezes não"; na verdade conversa curta
+ *  completava e grupo grande nunca completava.
+ *
+ *  O teto continua existindo (um chat gigante não pode prender o worker), mas
+ *  agora é alto o bastante para caber a conversa inteira, e quem interrompe de
+ *  verdade é o LIMITE DE TEMPO — que protege sem depender do tamanho. */
+const MAX_PAGINAS = 400
+/** Tempo máximo varrendo UM chat. Protege o worker sem cortar histórico: um
+ *  chat que não termina em 3 minutos volta na próxima sincronização de onde
+ *  parou, porque o dedup por externalId pula o que já entrou. */
+const LIMITE_MS_POR_CHAT = 3 * 60 * 1000
 
 let worker: Worker | null = null
 
@@ -228,8 +239,15 @@ export async function importarChat(jobId: number): Promise<void> {
       if (cancelado) break
       let pagina = 1
       let paginas = 1
+      const inicioDoChat = Date.now()
 
       while (pagina <= Math.min(paginas, MAX_PAGINAS)) {
+        if (Date.now() - inicioDoChat > LIMITE_MS_POR_CHAT) {
+          // Não é erro: o que faltou entra na próxima sincronização, e o dedup
+          // por externalId garante que nada seja relido à toa.
+          break
+        }
+
         const atual = await prisma.chatImportJob.findUnique({ where: { id: jobId }, select: { status: true } })
         if (atual?.status === 'canceled') { cancelado = true; break }
 
