@@ -63,7 +63,7 @@ import {
   PinOff,
   RefreshCw,
   Layers,
-} from 'lucide-preact'
+, UserRound} from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTickets,
@@ -2765,6 +2765,30 @@ function MediaContent({
       <a href={url} target="_blank" rel="noreferrer" class="mb-1 block">
         <img src={url} alt={name ?? 'Imagem'} class={cn('max-w-full rounded', blur)} />
       </a>
+    )
+  }
+  // Contato compartilhado: cartão com o telefone clicável. Sem este caso a
+  // conversa mostrava só "Contato compartilhado" e o operador não tinha o
+  // número — precisava pedir de novo para a pessoa.
+  if (type === 'contact') {
+    const linhas = (name ?? '').split(',').map((n) => n.trim()).filter(Boolean)
+    const telefones = (url ?? '').split('\n')
+      .flatMap((v) => [...v.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)].map((m) => m[1].trim()))
+      .filter(Boolean)
+    return (
+      <div class="mb-1 rounded-md border border-border bg-surface-2 px-3 py-2">
+        <div class="flex items-center gap-2">
+          <UserRound size={15} class="shrink-0 text-fg-muted" />
+          <span class="truncate font-medium">{linhas.join(', ') || 'Contato'}</span>
+        </div>
+        {telefones.map((t) => (
+          <a key={t} href={`https://wa.me/${t.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
+            class="mt-1 block pl-[23px] text-accent hover:underline"
+            style={{ fontSize: 'var(--conv-meta-font, 0.75rem)' }}>
+            {t}
+          </a>
+        ))}
+      </div>
     )
   }
   // Figurinha: é imagem (.webp), mas não se comporta como foto — no WhatsApp

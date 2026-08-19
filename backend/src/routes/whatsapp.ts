@@ -236,6 +236,26 @@ function idDaMensagemCitada(data: any): string {
   return ''
 }
 
+/** Nome e telefone de um contato compartilhado.
+ *
+ *  O WhatsApp manda o contato como vCard. Sem ler esse vCard a conversa
+ *  mostrava só "Contato compartilhado": a equipe recebia uma indicação e não
+ *  tinha como ligar para ela. O `displayName` vem no payload, mas o telefone
+ *  só existe dentro do vCard, na linha TEL — daí a leitura. */
+function dadosDoContato(conteudo: any): { nome: string; telefones: string[]; vcard: string } {
+  const vcard = String(conteudo?.vcard ?? '')
+  const doVcard = (campo: string): string => {
+    const m = new RegExp(`^${campo}[^:\\r\\n]*:(.*)$`, 'im').exec(vcard)
+    return m ? String(m[1]).trim() : ''
+  }
+  const nome = String(conteudo?.displayName || '').trim() || doVcard('FN') || doVcard('N').replace(/;+/g, ' ').trim()
+  // Um contato pode ter vários números (celular, comercial): pegamos todos.
+  const telefones = [...vcard.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)]
+    .map((m) => String(m[1]).trim())
+    .filter(Boolean)
+  return { nome, telefones, vcard }
+}
+
 /** Extrai o texto novo de um payload de edição da Evolution. O caminho varia
  *  conforme a versão, então tentamos os formatos conhecidos em ordem. */
 function textoEditado(item: any): string {
@@ -1057,6 +1077,23 @@ export async function whatsappRoutes(app: FastifyInstance) {
       } else if (message.stickerMessage) {
         mediaType = 'sticker'
         mediaUrl = await saveEvolutionMedia(key, inboundInstance, 'sticker', message.stickerMessage.mimetype || '', app)
+      } else if (message.contactMessage || message.contactsArrayMessage) {
+        // Contato compartilhado. Antes caía fora de toda a cadeia e a conversa
+        // registrava só o rótulo "Contato compartilhado", jogando fora nome e
+        // telefone — o que a equipe justamente precisa para dar sequência.
+        mediaType = 'contact'
+        const lista: any[] = message.contactsArrayMessage?.contacts?.length
+          ? message.contactsArrayMessage.contacts
+          : [message.contactMessage]
+        const contatos = lista.map(dadosDoContato).filter((c) => c.nome || c.telefones.length)
+        mediaName = contatos.map((c) => c.nome).filter(Boolean).join(', ')
+        // O vCard inteiro vai no corpo para não se perder: é dele que sai o
+        // cartão na tela, e ele guarda mais do que nome e telefone.
+        mediaUrl = contatos.map((c) => c.vcard).filter(Boolean).join('\n')
+        mediaCaption = contatos
+          .map((c) => [c.nome, ...c.telefones].filter(Boolean).join(' · '))
+          .filter(Boolean)
+          .join('\n') || 'Contato compartilhado'
       }
 
       const msgText = text || mediaCaption
