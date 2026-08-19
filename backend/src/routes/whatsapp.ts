@@ -943,7 +943,54 @@ export async function whatsappRoutes(app: FastifyInstance) {
                   where: { id: recentMsg.id },
                   data: { externalId: messageId, ack: 1 }
                 })
+              } else {
+                // Não casou com nenhum envio nosso: a equipe respondeu pelo
+                // APLICATIVO DO CELULAR, não pelo painel. Antes a mensagem era
+                // descartada aqui — o operador abria a conversa, não via a
+                // própria resposta e concluía que "a mensagem não chegou".
+                // Medido no kobogo: 11% das individuais e 15% das de grupo.
+                const jaTem = await prisma.message.findFirst({
+                  where: { externalId: messageId }, select: { id: true },
+                })
+                if (!jaTem) {
+                  const conteudo = data?.message ?? {}
+                  const legenda = conteudo.imageMessage?.caption || conteudo.videoMessage?.caption
+                    || conteudo.documentMessage?.caption || ''
+                  const corpo = String(
+                    conteudo.conversation || conteudo.extendedTextMessage?.text || legenda || '',
+                  ).trim()
+                  const tipo = conteudo.imageMessage ? 'image'
+                    : conteudo.videoMessage ? 'video'
+                    : conteudo.audioMessage ? 'audio'
+                    : conteudo.documentMessage ? 'document'
+                    : conteudo.stickerMessage ? 'sticker'
+                    : (conteudo.contactMessage || conteudo.contactsArrayMessage) ? 'contact'
+                    : 'text'
+                  // Sem corpo e sem mídia não há o que mostrar (protocolo, recibo).
+                  if (corpo || tipo !== 'text') {
+                    await prisma.message.create({
+                      data: {
+                        leadId: lead.id,
+                        fromMe: true,
+                        body: corpo || `[${tipo}]`,
+                        mediaType: tipo,
+                        provider: 'evolution',
+                        evolutionInstance: inboundInstance,
+                        // deixa explícito na conversa de onde veio a resposta
+                        senderName: 'Equipe (pelo celular)',
+                        externalId: messageId,
+                        ack: 1,
+                        timestamp: new Date(),
+                      },
+                    })
+                    await prisma.lead.update({
+                      where: { id: lead.id },
+                      data: { lastMessageAt: new Date(), lastActivityAt: new Date() },
+                    }).catch(() => {})
+                  }
+                }
               }
+
             }
           } catch { /* ignore */ }
         }
