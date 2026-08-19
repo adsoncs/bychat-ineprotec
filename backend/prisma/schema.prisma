@@ -859,6 +859,11 @@ model Lead {
   // válido (ex.: contato só por LID). Indexada (não-única: o resolvedor central
   // de inbound dedupa na escrita; LID/vazios podem repetir).
   phoneKey     String? @db.VarChar(20)
+  /// Número (instância) por onde este lead chegou. Sem isso o lead era achado
+  /// só pelo telefone, e um mesmo contato que escrevesse para DUAS empresas do
+  /// mesmo tenant caía na MESMA conversa — o atendente de uma via o atendimento
+  /// da outra. Nulo nos leads anteriores a esta regra.
+  instanceName String? @db.VarChar(100)
   email        String  @db.VarChar(191)
   segmento     String? @db.VarChar(100)
   cidade       String? @db.VarChar(100)

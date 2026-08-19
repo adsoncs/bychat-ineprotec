@@ -236,6 +236,35 @@ function idDaMensagemCitada(data: any): string {
   return ''
 }
 
+/** Acha o lead deste contato NESTA instância.
+ *
+ *  A regra é: um lead por telefone POR INSTÂNCIA. Sem isso, um contato que
+ *  escreve para duas empresas do mesmo tenant cai na mesma conversa, e o
+ *  atendente de uma vê o atendimento da outra — aconteceu no kobogo, onde
+ *  Kobogó Tech e Anywhere dividem a instalação.
+ *
+ *  Leads criados antes desta regra têm `instanceName` nulo: são adotados pela
+ *  primeira instância que falar com eles, em vez de virarem duplicata. */
+async function acharLeadDaInstancia(phone: string, instanceName: string | null) {
+  const daInstancia = instanceName
+    ? await prisma.lead.findFirst({
+        where: { whatsapp: phone, instanceName },
+        orderBy: { createdAt: 'desc' },
+      })
+    : null
+  if (daInstancia) return daInstancia
+
+  // legado: sem instância definida, adota
+  const semInstancia = await prisma.lead.findFirst({
+    where: { whatsapp: phone, instanceName: null },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (semInstancia && instanceName) {
+    await prisma.lead.update({ where: { id: semInstancia.id }, data: { instanceName } }).catch(() => {})
+  }
+  return semInstancia
+}
+
 /** Nome e telefone de um contato compartilhado.
  *
  *  O WhatsApp manda o contato como vCard. Sem ler esse vCard a conversa
@@ -932,7 +961,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             // (no grupo, o lead é achado pelo JID — não há telefone).
             const lead = isGroupMsg
               ? await prisma.lead.findFirst({ where: { groupJid: remoteJid }, orderBy: { createdAt: 'asc' } })
-              : await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+              : await acharLeadDaInstancia(phone, inboundInstance)
             if (lead) {
               const recentMsg = await prisma.message.findFirst({
                 where: { leadId: lead.id, fromMe: true, externalId: null },
@@ -1248,7 +1277,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       app.log.info(`WhatsApp msg from ${phone}: ${msgText.substring(0, 100)}`)
 
       // Log mensagem recebida (se lead existe)
-      const existingLeadForLog = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+      const existingLeadForLog = await acharLeadDaInstancia(phone, inboundInstance)
 
       // Foto de perfil do contato (assíncrono, não bloqueia): baixa e hospeda
       // localmente. O helper se auto-limita pelo TTL e migra URLs antigas
@@ -1330,6 +1359,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
               pushName: data.pushName || null,
               empresa: '',
               whatsapp: phone,
+              // um lead por telefone POR INSTÂNCIA: é o que mantém separadas as
+              // conversas de empresas diferentes que dividem a instalação
+              instanceName: inboundInstance || null,
               email: '',
               formData: { _source: 'whatsapp' },
               scores: {},
