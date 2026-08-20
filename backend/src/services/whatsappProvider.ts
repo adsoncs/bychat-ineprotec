@@ -1000,12 +1000,29 @@ export async function suggestChannelForLead(
   leadId: number,
   sender?: { userId: number; role: string },
 ): Promise<{ channelId: string | null; locked: boolean }> {
-  if (!sender) {
-    const inbound = await inboundChannelForLead(leadId)
-    return inbound ? { channelId: inbound.channelId, locked: true } : { channelId: null, locked: false }
-  }
-  const locked = await lockedChannelForLead(leadId, sender)
-  return locked ? { channelId: locked.channelId, locked: true } : { channelId: null, locked: false }
+  // Lead que chegou POR WhatsApp (instância ou Cloud): o número de entrada é o
+  // número daquele lead, e segue sendo o padrão. É o que o contato conhece.
+  const inbound = await inboundChannelForLead(leadId)
+  if (inbound) return { channelId: inbound.channelId, locked: false }
+
+  // Lead que veio de outro canal (formulário, importação, API) nunca teve
+  // número: usa o padrão que o admin definiu. Sem esse padrão o operador
+  // escolhia na mão a cada conversa.
+  const padrao = await canalPadraoSemWhatsapp()
+  return { channelId: padrao, locked: false }
+}
+
+/** Número padrão para leads que não entraram por WhatsApp.
+ *  Definido por admin/superadmin em Configurações; nulo enquanto não escolherem
+ *  (aí o operador escolhe na hora, como antes). */
+export async function canalPadraoSemWhatsapp(): Promise<string | null> {
+  const s = await prisma.setting.findUnique({ where: { key: 'conversations.default_channel_id' } }).catch(() => null)
+  if (!s?.value) return null
+  const id = typeof s.value === 'string' ? s.value.replace(/^"|"$/g, '') : String(s.value)
+  if (!id) return null
+  // some se o canal foi apagado/desativado depois de escolhido
+  const canais = await resolveSenderChannels({ userId: 0, role: 'superadmin' }).catch(() => [])
+  return canais.some((c: any) => c.id === id) ? id : null
 }
 
 // ─── Janela de atendimento de 24h (Cloud API) ──────────

@@ -757,7 +757,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         window: c.provider === 'cloud_api' ? window : null,
       })),
       suggestedChannelId: suggestion.channelId,
-      lockedChannelId: suggestion.locked && !canOverride ? suggestion.channelId : null,
+      // Ninguém mais fica preso ao número sugerido: qualquer nível pode trocar
+      // quando precisar. A sugestão continua marcando qual é o número certo.
+      lockedChannelId: null,
       canOverrideChannel: canOverride,
     }
   })
@@ -883,6 +885,44 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       orderBy: { id: 'asc' },
     })
     return { instances: rows }
+  })
+
+  // ── Número padrão para leads sem canal WhatsApp ───────────────────────────
+  // Lead que entrou por WhatsApp já tem número próprio (o de entrada). Este é o
+  // padrão dos OUTROS: formulário, importação, API. Só admin e superadmin
+  // definem; qualquer nível continua podendo trocar na hora do envio.
+  app.get('/api/atendimento/canal-padrao', { preHandler: authMiddleware }, async () => {
+    const s = await prisma.setting.findUnique({ where: { key: 'conversations.default_channel_id' } })
+    const bruto = typeof s?.value === 'string' ? s.value.replace(/^"|"$/g, '') : ''
+    return { channelId: bruto || null }
+  })
+
+  app.put('/api/atendimento/canal-padrao', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user
+    if (!['admin', 'superadmin'].includes(String(user?.role))) {
+      return reply.code(403).send({ error: 'Só admin ou superadmin define o número padrão.' })
+    }
+    const { channelId } = (req.body || {}) as { channelId?: string | null }
+    const valor = channelId ? String(channelId) : ''
+    if (valor) {
+      const { resolveSenderChannels } = await import('../services/whatsappProvider.js')
+      const canais = await resolveSenderChannels({ userId: user.userId, role: user.role })
+      if (!canais.some((c: any) => c.id === valor)) {
+        return reply.code(400).send({ error: 'Número não encontrado entre os canais disponíveis.' })
+      }
+    }
+    await prisma.setting.upsert({
+      where: { key: 'conversations.default_channel_id' },
+      create: {
+        key: 'conversations.default_channel_id',
+        value: JSON.stringify(valor),
+        label: 'Número padrão para leads sem canal WhatsApp',
+        grp: 'conversations',
+        fieldType: 'text',
+      },
+      update: { value: JSON.stringify(valor) },
+    })
+    return { ok: true, channelId: valor || null }
   })
 
   // ── POST /api/atendimento/whatsapp-chats/import — sincronizar selecionadas ──

@@ -17,6 +17,8 @@ import {
   CAIXAS, ESCOPOS, LABELS_PADRAO, TEMAS, useTabLabels, useUpdateTabLabels,
   useConversationTheme, useUpdateConversationTheme, type TabLabels, type TemaConversas,
 } from '@/hooks/useTabLabels'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/apiClient'
 import { Input } from '@/components/ui/Input'
 import { useUserStore } from '@/stores/user'
 import {
@@ -176,6 +178,7 @@ export function ConversationPrefsModal({
           />
         </Section>
 
+        {isAdmin && <NumeroPadraoSemWhatsapp />}
         {isAdmin && <TemaDoConversas />}
 
         {isAdmin && <NomesDasAbas />}
@@ -517,6 +520,57 @@ function Swatches({ label, help, value, onChange }: {
         })}
       </div>
       {help && <p class="text-[0.6875rem] text-fg-subtle mt-1">{help}</p>}
+    </div>
+  )
+}
+/** Número padrão para leads que NÃO entraram por WhatsApp.
+ *
+ *  Lead vindo de instância ou Cloud API já tem número próprio: o de entrada,
+ *  que é o único que o contato conhece. Os outros (formulário, importação, API)
+ *  não têm nenhum — antes o operador escolhia na mão em cada conversa. Aqui o
+ *  administrador define uma vez qual número atende esses casos. */
+function NumeroPadraoSemWhatsapp() {
+  const qc = useQueryClient()
+  const canais = useQuery({
+    queryKey: ['sender-channels-prefs'],
+    queryFn: () => api.get<{ channels: Array<{ id: string; name?: string; number?: string; provider?: string }> }>('/atendimento/sender-channels'),
+  })
+  const atual = useQuery({
+    queryKey: ['canal-padrao'],
+    queryFn: () => api.get<{ channelId: string | null }>('/atendimento/canal-padrao'),
+  })
+  const salvar = useMutation({
+    mutationFn: (channelId: string | null) => api.put<{ ok: boolean }>('/atendimento/canal-padrao', { channelId }),
+    onSuccess: () => {
+      toast('Número padrão salvo', 'success')
+      void qc.invalidateQueries({ queryKey: ['canal-padrao'] })
+      void qc.invalidateQueries({ queryKey: ['sender-channels'] })
+    },
+    onError: (e: unknown) => toast((e as Error).message, 'danger'),
+  })
+  const lista = canais.data?.channels ?? []
+  return (
+    <div class="space-y-1.5 rounded-md border border-border bg-surface-2 p-3">
+      <span class="text-sm font-medium text-fg">Número padrão para leads sem WhatsApp</span>
+      <p class="text-[0.6875rem] text-fg-subtle">
+        Vale para lead que entrou por formulário, importação ou API. Quem chegou por
+        WhatsApp continua atendido pelo número por onde escreveu. Qualquer pessoa pode
+        trocar o número na hora de enviar.
+      </p>
+      <select
+        class="h-8 w-full rounded-md border border-border bg-surface px-2 text-sm text-fg"
+        value={atual.data?.channelId ?? ''}
+        disabled={salvar.isPending || canais.isLoading}
+        onChange={(e) => salvar.mutate((e.target as HTMLSelectElement).value || null)}
+      >
+        <option value="">Sem padrão (o operador escolhe)</option>
+        {lista.map((c) => (
+          <option key={c.id} value={c.id}>
+            {[c.name, c.number].filter(Boolean).join(' · ') || c.id}
+            {c.provider === 'cloud_api' ? ' (Cloud API)' : ''}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
