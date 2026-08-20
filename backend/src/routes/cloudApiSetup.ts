@@ -30,6 +30,24 @@ import {
 import { syncTemplatesFromMeta, isSendableStatus } from '../services/cloudApiTemplates.js'
 import { requestSync } from '../services/cloudApiCoexistence.js'
 
+/**
+ * O template usa variáveis NOMEADAS (`{{nome}}`) em vez de posicionais (`{{1}}`)?
+ *
+ * A Meta precisa ser avisada disso por um campo próprio (`parameter_format`).
+ * Sem ele, lê o corpo como posicional, não reconhece `{{nome}}` e devolve
+ * REJECTED/INVALID_FORMAT no mesmo segundo — sem passar por revisão humana.
+ */
+function templateUsesNamedParams(components: unknown): boolean {
+  const lista = Array.isArray(components) ? components : []
+  for (const c of lista as any[]) {
+    const texto = typeof c?.text === 'string' ? c.text : ''
+    for (const m of texto.matchAll(/\{\{\s*([^}\s]+)\s*\}\}/g)) {
+      if (!/^\d+$/.test(String(m[1]))) return true
+    }
+  }
+  return false
+}
+
 // ─── Routes ─────────────────────────────────────────────
 
 export async function cloudApiSetupRoutes(app: FastifyInstance) {
@@ -992,6 +1010,12 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         components: finalComponents,
       }
 
+      // Variáveis NOMEADAS ({{nome}}) exigem `parameter_format: 'NAMED'`. Sem o
+      // campo a Meta lê o corpo como posicional, não reconhece `{{nome}}` e
+      // devolve REJECTED/INVALID_FORMAT no mesmo segundo. Comprovado no par de
+      // testes: com o campo → PENDING, sem ele → REJECTED.
+      if (templateUsesNamedParams(finalComponents)) templatePayload.parameter_format = 'NAMED'
+
       // allow_category_change (Meta pode reclassificar)
       if (body.allowCategoryChange !== false) {
         templatePayload.allow_category_change = true
@@ -1038,6 +1062,9 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       // Meta permite editar templates APPROVED e REJECTED (cria nova versao)
       const updatePayload: any = { components: body.components }
       if (body.category) updatePayload.category = body.category
+      // Mesma regra da criação: sem `parameter_format` o corpo nomeado é lido
+      // como posicional e a edição volta REJECTED na hora.
+      if (templateUsesNamedParams(body.components)) updatePayload.parameter_format = 'NAMED'
 
       const { cloudApiFetch } = await import('../services/cloudApi.js')
       const result = await cloudApiFetch(
