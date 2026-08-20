@@ -118,6 +118,20 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
         if (running) continue
       }
 
+      // Guarda anti-loop. Desde que `change_stage` passou a usar moveLeadStage,
+      // mover etapa EMITE lead.stage_changed — então dois fluxos que escutem
+      // mudança de etapa e mudem etapa podem se realimentar. Hoje nenhum fluxo
+      // tem esse par, mas a porta ficou aberta e um loop desses só aparece em
+      // produção, girando. Rajada legítima (uma conversa movimentada) não chega
+      // perto deste teto; loop passa dele em segundos.
+      const recentes = await prisma.workflowExecution.count({
+        where: { workflowId: workflow.id, leadId: event.leadId, createdAt: { gt: new Date(Date.now() - 60_000) } },
+      })
+      if (recentes >= 10) {
+        console.warn(`[Workflow] "${workflow.name}" disparou ${recentes}x para o lead #${event.leadId} em 1 min — execução ignorada (proteção contra laço)`)
+        continue
+      }
+
       // Criar execução
       const execution = await prisma.workflowExecution.create({
         data: {

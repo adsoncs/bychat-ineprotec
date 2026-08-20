@@ -59,10 +59,39 @@ function ehItemDeLista(linha: string): boolean {
   return /^\s*(\d+[).]|[-*•])\s+/.test(linha)
 }
 
-/** Divide um bloco em frases, preservando o sinal de pontuação final. */
+/**
+ * Abreviações que terminam em ponto sem terminar a frase. Sem esta lista,
+ * "Dr. Paulo" vira duas mensagens.
+ */
+const ABREVIACAO = /\b(sr|sra|srta|dr|dra|prof|profa|eng|adm|av|ltda|etc|ex|obs|pág|nº|no)\.$/i
+
+/**
+ * Divide um bloco em frases SEM alterar o texto.
+ *
+ * A primeira versão cortava em todo `[.!?]` e rejuntava com espaço — o que
+ * transformava "R$ 4.500,00" em "R$ 4. 500,00" e quebraria URL e e-mail no
+ * meio. Um ponto só termina frase quando vem espaço (ou o fim do texto) logo
+ * depois: é isso que separa "por mês. Fechado?" de "4.500,00",
+ * "captacaoedu.com.br" e "contato@captacaoedu.com.br".
+ */
 function frases(bloco: string): string[] {
-  const partes = bloco.match(/[^.!?]+[.!?]+|\S[^.!?]*$/g)
-  return (partes || [bloco]).map((f) => f.trim()).filter(Boolean)
+  const out: string[] = []
+  let inicio = 0
+  const re = /[.!?…]+/gu
+  let m: RegExpExecArray | null
+  while ((m = re.exec(bloco)) !== null) {
+    const fim = m.index + m[0].length
+    const depois = bloco.slice(fim)
+    // Sem espaço depois = número, domínio, sigla: não é fim de frase.
+    if (depois.length > 0 && !/^\s/.test(depois)) continue
+    const trecho = bloco.slice(inicio, fim)
+    if (ABREVIACAO.test(trecho.trimEnd())) continue
+    out.push(trecho.trim())
+    inicio = fim
+  }
+  const resto = bloco.slice(inicio).trim()
+  if (resto) out.push(resto)
+  return out.filter(Boolean)
 }
 
 /**
