@@ -4,13 +4,20 @@
 import { prisma } from '../lib/prisma.js'
 
 interface ConditionConfig {
-  type?: string       // has_tag, not_has_tag, time_since, lost_reason_in
-  field?: string      // lead.status, lead.source, lead.funnelId, lead.customFields.cargo, lead.lostReason.name
+  type?: string       // has_tag, not_has_tag, time_since, stage_is, source_is, lost_reason_in
+  field?: string      // lead.status, lead.source, lead.originType, lead.funnelId, lead.customFields.cargo, lead.lostReason.name
   operator?: string   // equals, not_equals, contains, gt, lt, gte, lte, in
   value?: any
   tagName?: string
   unit?: string       // hours, minutes, days
   reasonIds?: number[] // Fase 23.1: lista de objeções para `lost_reason_in`
+}
+
+/** Normaliza `value` de condição em lista: aceita array, CSV ou escalar. */
+function valueList(value: any): string[] {
+  if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean)
+  if (value === undefined || value === null) return []
+  return String(value).split(',').map((v) => v.trim()).filter(Boolean)
 }
 
 export async function evaluateCondition(config: ConditionConfig, leadId: number): Promise<boolean> {
@@ -32,6 +39,28 @@ export async function evaluateCondition(config: ConditionConfig, leadId: number)
       select: { id: true },
     })
     return config.type === 'has_booking' ? !!booking : !booking
+  }
+
+  // Etapa atual do lead. O editor de fluxos oferece "O lead está em uma etapa
+  // específica" desde sempre, mas nenhum ramo tratava o tipo aqui — a condição
+  // caía no `return false` do fim e o fluxo seguia eternamente pelo "senão".
+  // Aceita uma etapa ou várias (array/CSV): "está em NOVO ou CONTATADO".
+  if (config.type === 'stage_is' || config.type === 'stage_is_not') {
+    const alvo = valueList(config.value)
+    if (alvo.length === 0) return false // sem etapa escolhida = condição incompleta
+    const bate = alvo.includes(String(lead.status))
+    return config.type === 'stage_is' ? bate : !bate
+  }
+
+  // Origem do lead. Mesmo caso do `stage_is`. Compara com `originType` (o campo
+  // granular: meta_ctwa, google_ads, trackable_link...) E com o `source` legado,
+  // porque os dois convivem — `source='landing_page'` cobre tanto web_form
+  // quanto google_ads, então exigir só um dos campos perderia lead de verdade.
+  if (config.type === 'source_is' || config.type === 'source_is_not') {
+    const alvo = valueList(config.value)
+    if (alvo.length === 0) return false
+    const bate = alvo.includes(String(lead.originType)) || alvo.includes(String(lead.source))
+    return config.type === 'source_is' ? bate : !bate
   }
 
   // Tag conditions

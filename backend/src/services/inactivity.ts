@@ -1,9 +1,12 @@
 // src/services/inactivity.ts
 // Verifica leads com conversas inativas e executa ações configuráveis por chatbot
-// IMPORTANTE: mensagens SOMENTE são enviadas pela instância vinculada ao chatbot
+// IMPORTANTE: mensagens saem pelo canal onde o lead já conversa (Evolution ou
+// Cloud API); sem histórico, pela instância vinculada ao chatbot. Nunca por um
+// canal aleatório.
 
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { quebrarEmMensagens, intervaloDigitacao } from './messageStyle.js'
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
@@ -40,15 +43,48 @@ async function resolveInstanceForChatbot(chatbotId: number): Promise<{ url: stri
   return { url, key, instanceName: instance.instanceName }
 }
 
-async function sendWhatsAppViaChatbotInstance(phone: string, text: string, chatbotId: number): Promise<boolean> {
+/**
+ * Envia a mensagem de retomada pelo canal por onde o lead JÁ conversa.
+ *
+ * Antes daqui só saía Evolution: `resolveInstanceForChatbot` procura uma
+ * WhatsAppInstance com aquele chatbotId, e um chatbot que atende pela Cloud API
+ * simplesmente não tem uma — a retomada era silenciosamente descartada com um
+ * aviso no log. Agora o canal vem do histórico do lead (getProviderForLead), e a
+ * instância vinculada ao chatbot fica como caminho antigo, para quem não tem
+ * histórico ainda.
+ *
+ * O texto passa pelas mesmas regras de escrita das outras mensagens do bot: cada
+ * ideia em sua bolha, sem travessão e sem emoji.
+ */
+async function sendWhatsAppViaChatbotInstance(phone: string, text: string, chatbotId: number, leadId?: number): Promise<boolean> {
+  const partes = quebrarEmMensagens(text)
+  if (!partes.length) return false
+
+  if (leadId) {
+    try {
+      const { getProviderForLead } = await import('./whatsappProvider.js')
+      const provider = await getProviderForLead({ id: leadId, whatsapp: phone })
+      for (const [i, parte] of partes.entries()) {
+        await provider.sendText(phone, parte)
+        if (i < partes.length - 1) await new Promise((r) => setTimeout(r, intervaloDigitacao(partes[i + 1] as string)))
+      }
+      return true
+    } catch (err) {
+      console.warn(`[Inactivity] envio pelo canal do lead #${leadId} falhou, tentando a instância do chatbot:`, err)
+    }
+  }
+
   const conn = await resolveInstanceForChatbot(chatbotId)
   if (!conn) return false
+  // Caminho antigo (chamada crua na Evolution): vai em uma mensagem só, com as
+  // partes separadas por linha em branco.
+  const textoUnico = partes.join('\n\n')
 
   try {
     const resp = await fetch(`${conn.url}/message/sendText/${conn.instanceName}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: conn.key },
-      body: JSON.stringify({ number: phone, text })
+      body: JSON.stringify({ number: phone, text: textoUnico })
     })
     if (!resp.ok) {
       const errText = await resp.text().catch(() => '')
@@ -138,7 +174,7 @@ async function checkInactiveLeads(): Promise<void> {
 
         // Send re-engagement message — ONLY via the instance linked to this chatbot
         if ((action === 'notify' || action === 'notify_then_close') && message && source === 'whatsapp' && lead.whatsapp) {
-          const sent = await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id)
+          const sent = await sendWhatsAppViaChatbotInstance(lead.whatsapp, message, bot.id, lead.id)
 
           if (!sent) {
             console.warn(`[Inactivity] Skipping lead #${lead.id} — no instance linked to chatbot #${bot.id} (${bot.name})`)

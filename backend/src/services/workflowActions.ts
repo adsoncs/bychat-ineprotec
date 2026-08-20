@@ -12,6 +12,42 @@ function looksLikeHtml(s: string): boolean {
   return /<[a-z][\s\S]*>/i.test(s)
 }
 
+/**
+ * Fecha um passo de ação SÍNCRONA: vai para o próximo passo, ou encerra a
+ * execução quando este era o último.
+ *
+ * Existia só nas ações por fila (`advanceWorkflow` em workers.ts). As síncronas
+ * — mudar etapa, etiqueta, atribuir, avisar equipe — apenas paravam: a execução
+ * ficava em 'running' PARA SEMPRE, mesmo com o fluxo inteiro já executado. Isso
+ * enche a tela de execuções do fluxo com corridas que nunca terminam e bloqueia
+ * a re-entrada de quem usa reentryPolicy 'never' / 'after_completion'.
+ */
+async function finalizarPasso(
+  executionId: number,
+  stepId: number,
+  /** `falhou` encerra como falha; `encerrar` fecha sem seguir para o próximo passo. */
+  opts?: { falhou?: boolean; encerrar?: boolean },
+): Promise<void> {
+  if (opts?.falhou || opts?.encerrar) {
+    await prisma.workflowExecution.update({
+      where: { id: executionId },
+      data: { status: opts.falhou ? 'failed' : 'completed', completedAt: new Date() },
+    }).catch(() => {})
+    return
+  }
+
+  const step = await prisma.workflowStep.findUnique({ where: { id: stepId } })
+  if (step?.nextStepId) {
+    const { executeNextStep } = await import('./workflowEngine.js')
+    await executeNextStep(executionId, step.nextStepId)
+    return
+  }
+  await prisma.workflowExecution.update({
+    where: { id: executionId },
+    data: { status: 'completed', completedAt: new Date() },
+  }).catch(() => {})
+}
+
 // A5: pré-checagem central de governança antes de enfileirar envios.
 //   - opt_out / blacklist / lead_not_found → bloqueio definitivo (step.failed)
 //   - silence_window / frequency_cap       → defer (job entra na fila com delay)
@@ -169,6 +205,7 @@ export async function dispatchAction(
             where: { id: stepExec.id },
             data: { status: 'failed', error: `Template ${config.templateId} não encontrado`, completedAt: new Date() }
           })
+          await finalizarPasso(executionId, stepId, { falhou: true })
           return
         }
         // bumpa usageCount (auditoria); silencia falha
@@ -181,6 +218,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'Mensagem vazia', completedAt: new Date() }
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       const gov = await enforceGovernance(leadId, 'whatsapp', stepExec.id)
@@ -212,6 +250,7 @@ export async function dispatchAction(
             where: { id: stepExec.id },
             data: { status: 'failed', error: `Template ${config.templateId} não encontrado`, completedAt: new Date() }
           })
+          await finalizarPasso(executionId, stepId, { falhou: true })
           return
         }
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
@@ -254,6 +293,7 @@ export async function dispatchAction(
             where: { id: stepExec.id },
             data: { status: 'failed', error: `Template ${config.templateId} não encontrado`, completedAt: new Date() }
           })
+          await finalizarPasso(executionId, stepId, { falhou: true })
           return
         }
         prisma.messageTemplate.update({ where: { id: tpl.id }, data: { usageCount: { increment: 1 } } }).catch(() => {})
@@ -265,6 +305,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'Mensagem vazia', completedAt: new Date() }
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       const gov = await enforceGovernance(leadId, 'sms', stepExec.id)
@@ -286,36 +327,37 @@ export async function dispatchAction(
     }
 
     case 'change_stage': {
-      // Executa direto (operação rápida, sem fila)
-      const oldStatus = lead.status
-      const updateData: any = { status: config.stageKey }
-      if (config.funnelId) updateData.funnelId = config.funnelId
-
-      await prisma.lead.update({ where: { id: leadId }, data: updateData })
-
-      logEvent({
+      // Executa direto (operação rápida, sem fila). Passa pelo helper central em
+      // vez de um `lead.update` cru: era só o update + logEvent, então a passagem
+      // não entrava em LeadStageMovement e o Relatório de Funil não enxergava
+      // nenhuma etapa movida por automação. O helper também emite
+      // lead.stage_changed (permitindo encadear fluxos) e invalida sugestões
+      // pendentes da Jornada IA que descrevem a etapa já vencida.
+      const { moveLeadStage } = await import('./leadStageMove.js')
+      const movimento = await moveLeadStage({
         leadId,
-        type: EVENT_TYPES.STATUS_CHANGED,
-        category: 'lifecycle',
-        title: `Etapa alterada por workflow`,
+        toStageKey: config.stageKey,
+        toFunnelId: config.funnelId ?? null,
         source: 'workflow',
-        actorType: 'system',
-        oldValue: oldStatus,
-        newValue: config.stageKey,
-        metadata: { funnelId: config.funnelId, executionId },
+        reason: 'Etapa alterada por workflow',
+        metadata: { executionId, stepId },
       })
 
       await prisma.workflowStepExecution.update({
         where: { id: stepExec.id },
-        data: { status: 'completed', completedAt: new Date(), result: { oldStatus, newStatus: config.stageKey } }
+        data: {
+          status: 'completed',
+          completedAt: new Date(),
+          result: {
+            oldStatus: movimento.fromStageKey,
+            newStatus: movimento.toStageKey,
+            // false = lead já estava nesta etapa/funil; o helper é idempotente.
+            moved: movimento.moved,
+          },
+        }
       })
 
-      // Avançar workflow
-      const step = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (step?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, step.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -349,11 +391,7 @@ export async function dispatchAction(
         data: { status: 'completed', completedAt: new Date(), result: { tagName: config.tagName } }
       })
 
-      const step2 = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (step2?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, step2.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -379,11 +417,7 @@ export async function dispatchAction(
         data: { status: 'completed', completedAt: new Date() }
       })
 
-      const step3 = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (step3?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, step3.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -419,6 +453,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'teamId não informado', completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       const team = await prisma.team.findUnique({
@@ -430,6 +465,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: `Equipe ${config.teamId} não existe ou está inativa`, completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
 
@@ -493,11 +529,7 @@ export async function dispatchAction(
         },
       })
 
-      const stepAssignTeam = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (stepAssignTeam?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, stepAssignTeam.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -507,6 +539,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'userId não informado', completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       const targetUser = await prisma.user.findUnique({
@@ -518,6 +551,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: `Operador ${config.userId} não existe ou está inativo`, completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
 
@@ -544,6 +578,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'Operador não pertence a nenhuma equipe ativa', completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
 
@@ -594,11 +629,7 @@ export async function dispatchAction(
         },
       })
 
-      const stepAssignUser = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (stepAssignUser?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, stepAssignUser.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -608,6 +639,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'teamId não informado', completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       const team = await prisma.team.findUnique({
@@ -619,6 +651,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: `Equipe ${config.teamId} não existe ou está inativa`, completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
 
@@ -673,11 +706,7 @@ export async function dispatchAction(
         },
       })
 
-      const stepTransfer = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (stepTransfer?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, stepTransfer.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -718,6 +747,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: 'code do resumo não informado', completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
       try {
@@ -741,13 +771,10 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'failed', error: (e as Error).message, completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { falhou: true })
         return
       }
-      const stepSum = await prisma.workflowStep.findUnique({ where: { id: stepId } })
-      if (stepSum?.nextStepId) {
-        const { executeNextStep } = await import('./workflowEngine.js')
-        await executeNextStep(executionId, stepSum.nextStepId)
-      }
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -766,6 +793,7 @@ export async function dispatchAction(
           where: { id: stepExec.id },
           data: { status: 'skipped', result: { reason: 'atendimento humano recente' }, completedAt: new Date() },
         })
+        await finalizarPasso(executionId, stepId, { encerrar: true })
         return
       }
       const { resumeBot } = await import('./botTakeover.js')
@@ -774,6 +802,7 @@ export async function dispatchAction(
         where: { id: stepExec.id },
         data: { status: 'completed', result: { resumed }, completedAt: new Date() },
       })
+      await finalizarPasso(executionId, stepId)
       return
     }
 
@@ -847,6 +876,7 @@ export async function dispatchAction(
         where: { id: stepExec.id },
         data: { status: 'completed', completedAt: new Date(), result: { phone: generalPhones.join(', ') || null, email: email || null, cc: ccList || null } },
       })
+      await finalizarPasso(executionId, stepId)
       break
     }
 
@@ -855,5 +885,6 @@ export async function dispatchAction(
         where: { id: stepExec.id },
         data: { status: 'failed', error: `Action type desconhecido: ${config.actionType}`, completedAt: new Date() }
       })
+      await finalizarPasso(executionId, stepId, { falhou: true })
   }
 }
