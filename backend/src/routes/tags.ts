@@ -4,6 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
+import { requireModule } from '../lib/permissions.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logEvent, EVENT_TYPES, getOperator, getIp } from '../services/leadHistory.js'
 
@@ -23,7 +24,13 @@ export async function tagsRoutes(app: FastifyInstance) {
   })
 
   // ── GET /api/tags/all ─── Todas incluindo inativas ──
-  app.get('/api/tags/all', { preHandler: adminOnly }, async () => {
+  //
+  // É o que a tela de Etiquetas consome. Era `adminOnly`, e isso brigava com a
+  // permissão do módulo: o menu aparecia para quem tinha `tags.canView`, a
+  // página abria e a chamada voltava 403 — etiqueta nenhuma na tela, sem
+  // explicação. Quem decide o acesso é a permissão do módulo, que é onde o
+  // admin configura. Criar, editar e apagar seguem restritos.
+  app.get('/api/tags/all', { preHandler: [authMiddleware, requireModule('tags', 'view')] }, async () => {
     const tags = await prisma.tag.findMany({
       orderBy: [{ position: 'asc' }, { name: 'asc' }],
       select: { ...TAG_SELECT, _count: { select: { leads: true } } },
