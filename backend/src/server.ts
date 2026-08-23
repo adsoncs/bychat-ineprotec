@@ -1294,6 +1294,12 @@ import('./services/profilePictureSync.js')
   // Nome que a EMPRESA salvou na agenda do WhatsApp conectado → nome do lead.
   // Roda em segundo plano porque é uma varredura por instância; só melhora
   // nomes fracos (telefone/pushName), nunca o que um humano digitou.
+  // Número sem WhatsApp: confere o telefone de todo lead novo e marca o que não
+  // existe. O operador via o problema só ao tentar falar — e pela Cloud API nem
+  // isso, porque lá a Meta aceita o envio e nunca entrega.
+  import('./services/whatsappNumberCheck.js')
+    .then(m => m.startWhatsAppNumberCheck())
+    .catch(err => console.warn('[waCheck] init falhou:', err?.message || err))
   import('./services/whatsappAgendaSync.js')
     .then(m => m.startAgendaSyncJob())
     .catch(err => console.warn('[agendaSync] init falhou:', err?.message || err))

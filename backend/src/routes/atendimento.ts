@@ -2118,6 +2118,27 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   })
 
   // ── GET /api/atendimento/tickets/:leadId/info — Lead details ──
+  /**
+   * "Este número tem WhatsApp?" — consultado quando a conversa é aberta.
+   *
+   * Rota separada de propósito: a resposta depende de uma consulta externa e
+   * não pode atrasar o carregamento das mensagens. Devolve `existe: null`
+   * quando não deu para saber (sem Evolution ativa, grupo, telefone ausente) —
+   * a tela então não afirma nada, que é diferente de afirmar que existe.
+   */
+  app.get('/api/atendimento/tickets/:leadId/whatsapp-check', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const lid = parseInt((req.params as any).leadId)
+      if (!await assertTicketAccess(req, reply, lid)) return
+      const { checarNumeroDoLead } = await import('../services/whatsappNumberCheck.js')
+      const r = await checarNumeroDoLead(lid)
+      return reply.send({ success: true, ...r })
+    } catch (err: any) {
+      // Falha aqui nunca pode impedir o atendimento: responde "não sei".
+      return reply.send({ success: true, existe: null, checadoEm: null, doCache: false, erro: err?.message })
+    }
+  })
+
   app.get('/api/atendimento/tickets/:leadId/info', { preHandler: authMiddleware }, async (req, reply) => {
     try {
       const { leadId } = req.params as any

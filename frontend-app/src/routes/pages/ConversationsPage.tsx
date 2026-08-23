@@ -70,6 +70,7 @@ import {
   useTicketsInfinite,
   TICKETS_POR_PAGINA,
   useTicketMessages,
+  useWhatsAppCheck,
   useSendMessage,
   useSenderChannels,
   type SenderChannel,
@@ -1125,6 +1126,20 @@ function ChatPanel({
   // qual número responder; pré-seleciona o canal de ENTRADA do lead. Sem isso o
   // backend resolvia sozinho e caía sempre na Cloud API.
   const { data: senderChannels } = useSenderChannels(leadId)
+  // Grupo não tem "número com WhatsApp" a conferir — o JID não é telefone.
+  const { data: waCheck } = useWhatsAppCheck(leadId, !ticket?.isGroup)
+  /** Só afirma quando a resposta é conclusiva: `null` = não deu para saber. */
+  const semWhatsApp = waCheck?.existe === false
+  /**
+   * Guarda de todos os caminhos de saída — texto, áudio, modelo e agendamento.
+   * Bloquear só o `handleSend` deixaria o áudio e o HSM passarem, que é o mesmo
+   * envio para o mesmo número inexistente.
+   */
+  function envioBloqueado(): boolean {
+    if (!semWhatsApp) return false
+    toast('Este número não tem WhatsApp. Corrija o telefone no cadastro ou fale por outro canal.', 'danger')
+    return true
+  }
   const channels = senderChannels?.channels ?? []
   const [channelId, setChannelId] = useState<string | null>(null)
   const upload = useUploadChatMedia()
@@ -1442,6 +1457,10 @@ function ChatPanel({
     const body = draft.trim()
     if (!body && !pendingFile && !pendingTplAttachment) return
 
+    // Nota interna continua liberada — ela não vai para o WhatsApp, e registrar
+    // o que aconteceu é justamente o que resta a fazer.
+    if (!isInternalNote && envioBloqueado()) return
+
     if (mustPickChannel) {
       toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
       return
@@ -1641,6 +1660,7 @@ function ChatPanel({
 
   function handleAudio(file: File) {
     setRecording(false)
+    if (envioBloqueado()) return
     if (mustPickChannel) {
       toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
       return
@@ -2319,6 +2339,24 @@ function ChatPanel({
       {/* Composer */}
       {!isResolved ? (
         <div class="border-t border-border">
+          {/* Número sem WhatsApp: avisar ANTES de escrever.
+              Pela Evolution o envio falha com erro técnico; pela Cloud API a
+              Meta aceita e nunca entrega — a bolha aparece na tela como se
+              tivesse saído, e o operador segue esperando resposta de um número
+              que não existe. */}
+          {semWhatsApp && (
+            <div class="px-3 pt-2">
+              <div class="flex items-start gap-2 p-2 rounded-md bg-danger/10 border-l-2 border-danger">
+                <AlertTriangle size={14} class="shrink-0 mt-0.5 text-danger" />
+                <div class="flex-1 min-w-0 text-xs">
+                  <div class="font-medium text-danger">Este número não tem WhatsApp</div>
+                  <div class="text-fg-muted">
+                    Conferimos {ticket?.whatsapp ? <span class="font-medium">{ticket.whatsapp}</span> : 'o número'} e ele não existe no WhatsApp — confira o DDD e o dígito 9 no cadastro. Fale por telefone ou e-mail.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <PendingMediaBar leadId={leadId} />
           <ScheduledMessagesBar leadId={leadId} />
           {editando && (
@@ -2647,7 +2685,7 @@ function ChatPanel({
                     type="button"
                     class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
                     onClick={() => setHsmOpen(true)}
-                    disabled={send.isPending || isInternalNote}
+                    disabled={send.isPending || isInternalNote || semWhatsApp}
                     aria-label="Enviar modelo aprovado"
                     title="Modelo aprovado (com cabeçalho, mídia e botões)"
                   >
@@ -2658,7 +2696,7 @@ function ChatPanel({
                   type="button"
                   class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
                   onClick={() => setScheduleOpen(true)}
-                  disabled={send.isPending || isInternalNote}
+                  disabled={send.isPending || isInternalNote || semWhatsApp}
                   aria-label="Agendar mensagem"
                   title={isInternalNote ? 'Nota interna não pode ser agendada' : 'Agendar mensagem para depois'}
                 >
@@ -2671,7 +2709,7 @@ function ChatPanel({
                     onClick={handleSend}
                     // Só o upload trava o botão: o envio em si já saiu da frente
                     // do operador (bolha otimista + fila que preserva a ordem).
-                    disabled={upload.isPending}
+                    disabled={upload.isPending || (semWhatsApp && !isInternalNote)}
                     aria-label="Enviar mensagem"
                     title="Enviar mensagem"
                   >
@@ -2710,6 +2748,7 @@ function ChatPanel({
         onOpenChange={setHsmOpen}
         enviando={send.isPending}
         onSend={({ name, language, components, preview }) => {
+          if (envioBloqueado()) return
           send.mutate(
             {
               mediaType: 'template',

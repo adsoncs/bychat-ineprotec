@@ -216,6 +216,27 @@ export function useTicketMessages(leadId: number | null) {
   })
 }
 
+/**
+ * "Este número tem WhatsApp?" — consultado ao abrir a conversa.
+ *
+ * `existe: null` significa que não deu para saber (sem Evolution ativa, grupo,
+ * telefone ausente): a tela não avisa nada, que é diferente de garantir que o
+ * número existe. A resposta do servidor vem de um carimbo de 30 dias, então
+ * reabrir a mesma conversa não gera consulta nova.
+ */
+export function useWhatsAppCheck(leadId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ['ticket-whatsapp-check', leadId],
+    queryFn: () => api.get<{ existe: boolean | null; checadoEm: string | null }>(
+      `/atendimento/tickets/${leadId}/whatsapp-check`,
+    ),
+    enabled: leadId !== null && enabled,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+}
+
 export interface SendMessageInput {
   body?: string | undefined
   mediaType?: string | undefined
