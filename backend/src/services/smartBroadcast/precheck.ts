@@ -56,6 +56,14 @@ export async function checkNumbers(instanceName: string, phones: string[]): Prom
       for (const r of results) {
         const key = phoneKey(r.number)
         if (!key) continue
+        // Contato que a instância conhece pelo nome, mas que a consulta diz não
+        // existir, é conta em modo @lid — o telefone deixou de ser o
+        // identificador que `onWhatsApp` resolve. Sem veredito, segue no plano:
+        // mesmo tratamento da falha de API (ver cabeçalho).
+        if (!r.exists && r.name) {
+          console.warn(`[smartBroadcast] ${key}: consulta diz que não existe, mas o contato é conhecido ("${r.name}") — tratado como inconclusivo`)
+          continue
+        }
         map.set(key, r.exists)
         checked++
         await prisma.smartNumberCheck.upsert({

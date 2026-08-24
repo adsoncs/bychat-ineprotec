@@ -70,7 +70,10 @@ export async function startConversation(input: StartConversationInput): Promise<
       }
       if (provider?.providerName === 'evolution' && typeof provider.checkNumbers === 'function') {
         const r = await provider.checkNumbers([digitos])
-        if (r.length && r[0] && r[0].exists === false) {
+        // `name` preenchido junto de exists=false é contradição: a instância
+        // conhece o contato, mas a consulta por telefone não resolve — conta em
+        // modo @lid. Bloquear aí impediria falar com quem tem WhatsApp sim.
+        if (r.length && r[0] && r[0].exists === false && !r[0].name) {
           return {
             ok: false,
             status: 422,

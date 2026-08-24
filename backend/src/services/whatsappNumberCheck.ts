@@ -48,6 +48,29 @@ interface CarimboWa {
   existe: boolean
   em: string
   numero: string
+  /** de onde veio a conclusão: 'consulta' (Evolution) ou 'historico' (a
+   *  conversa prova que o número existe, independentemente da consulta). */
+  via?: 'consulta' | 'historico'
+}
+
+/**
+ * A conversa já aconteceu? Mensagem que o contato MANDOU, ou que nós mandamos e
+ * o WhatsApp confirmou entregue/lida (ack ≥ 2), é prova direta de que o número
+ * existe — mais forte que qualquer consulta.
+ *
+ * Isto existe porque `onWhatsApp` responde `exists: false` para conta em modo
+ * **@lid**: o WhatsApp trocou o identificador público da conta e o telefone
+ * virou só alternativo, então a busca pelo número não resolve. Sem esta trava,
+ * um lead com mensagens entregues E LIDAS recebia a tag "Sem WhatsApp" e o
+ * aviso na conversa — foi o caso da Vanessa (lead 554 do beyond, 5 mensagens
+ * lidas e uma resposta dela).
+ */
+async function conversaProvaQueExiste(leadId: number): Promise<boolean> {
+  const prova = await prisma.message.findFirst({
+    where: { leadId, OR: [{ fromMe: false }, { ack: { gte: 2 } }] },
+    select: { id: true },
+  }).catch(() => null)
+  return !!prova
 }
 
 function carimbo(formData: unknown): CarimboWa | null {
@@ -122,7 +145,7 @@ async function aplicarTag(leadId: number, existe: boolean): Promise<void> {
 export async function checarNumeroDoLead(leadId: number, opts?: { forcar?: boolean }): Promise<ResultadoChecagem> {
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, whatsapp: true, isGroup: true, formData: true },
+    select: { id: true, whatsapp: true, isGroup: true, formData: true, waLid: true },
   })
   if (!lead) return { existe: null, checadoEm: null, doCache: false }
   // Grupo não é pessoa e o JID não é telefone: consultar daria "não existe".
@@ -140,20 +163,39 @@ export async function checarNumeroDoLead(leadId: number, opts?: { forcar?: boole
   if (!provider) return { existe: null, checadoEm: null, doCache: false }
 
   let existe: boolean
+  let nomeConhecido: string | null = null
   try {
     const r = await provider.checkNumbers([numero])
     if (!r?.length || typeof r[0]?.exists !== 'boolean') return { existe: null, checadoEm: null, doCache: false }
     existe = r[0].exists
+    nomeConhecido = r[0].name ?? null
   } catch {
     // Evolution fora do ar não é resposta: não carimba nada, tenta na próxima.
     return { existe: null, checadoEm: null, doCache: false }
+  }
+
+  let via: 'consulta' | 'historico' = 'consulta'
+
+  // Um "não existe" só vale quando nada o contradiz.
+  if (!existe) {
+    if (await conversaProvaQueExiste(leadId)) {
+      existe = true
+      via = 'historico'
+      console.log(`[waCheck] lead ${leadId}: consulta disse que ${numero} não existe, mas a conversa prova o contrário (provável @lid)`)
+    } else if (nomeConhecido || lead.waLid) {
+      // A instância conhece o contato pelo nome, ou o lead já tem @lid gravado:
+      // a consulta não consegue responder por telefone. Inconclusivo é
+      // diferente de negativo — não carimba e não marca.
+      console.log(`[waCheck] lead ${leadId}: ${numero} inconclusivo (contato conhecido como "${nomeConhecido ?? lead.waLid}" — conta em @lid)`)
+      return { existe: null, checadoEm: null, doCache: false }
+    }
   }
 
   const em = new Date().toISOString()
   const fd = (lead.formData || {}) as Record<string, unknown>
   await prisma.lead.update({
     where: { id: leadId },
-    data: { formData: { ...fd, _waCheck: { existe, em, numero } } as never },
+    data: { formData: { ...fd, _waCheck: { existe, em, numero, via } } as never },
   }).catch(() => {})
   await aplicarTag(leadId, existe)
 

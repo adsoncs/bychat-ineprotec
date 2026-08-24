@@ -275,7 +275,7 @@ export class EvolutionProvider implements WhatsAppProvider {
    * Quais destes números existem no WhatsApp. Disparar para número inexistente é
    * um dos sinais que mais derrubam chip — vale a consulta antes de gastar envio.
    */
-  async checkNumbers(phones: string[]): Promise<Array<{ number: string; exists: boolean; jid: string | null }>> {
+  async checkNumbers(phones: string[]): Promise<Array<{ number: string; exists: boolean; jid: string | null; name: string | null }>> {
     if (!phones.length) return []
     const data = await this.evoFetch(`/chat/whatsappNumbers/${this.instanceName}`, 'POST', {
       numbers: phones.map((p) => toEvoNumber(p)),
@@ -285,6 +285,10 @@ export class EvolutionProvider implements WhatsAppProvider {
       number: String(r?.number ?? ''),
       exists: !!(r?.exists ?? r?.numberExists),
       jid: r?.jid ? String(r.jid) : null,
+      // `name` vem quando a instância CONHECE o contato. Junto de exists=false
+      // é contradição — e a pista de que a conta está em modo @lid, onde o
+      // telefone deixou de ser o identificador que a consulta resolve.
+      name: r?.name ? String(r.name) : null,
     }))
   }
 
