@@ -78,9 +78,13 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     const funnelOverride = await resolveFormFunnel(b.formId, mt.stageKey)
     const result = await createBooking(mt, {
       name: b.name, email: b.email, phone: b.phone, startAt: b.startAt, answers: b.answers,
-      timezone: b.timezone, visitorId: b.visitorId, utm: b.utm, funnelOverride,
+      timezone: b.timezone, visitorId: b.visitorId, utm: b.utm, funnelOverride, ip: req.ip,
     })
     if (!result.ok) return reply.code(400).send({ error: result.error })
+    // Barrado pela lista de bloqueio: a resposta acima já vem como sucesso (sem
+    // reserva no banco). Sai antes de registrar conversão de formulário — senão
+    // o lead bloqueado apareceria no relatório do form como convertido.
+    if (result.blocked) return result
 
     // Agendou = converteu. Registra a submissão do formulário aqui, no servidor,
     // em vez de depender do envio final no navegador (que só roda depois da tela
@@ -138,6 +142,13 @@ export async function schedulingPublicRoutes(app: FastifyInstance) {
     // na malha do tipo (senão remarcar joga a reunião para fora do expediente).
     const valid = await validateSlot(mt, startAt, { operatorUserId: b.operatorUserId, excludeBookingId: b.id })
     if (!valid) return reply.code(400).send({ error: 'Horário indisponível. Escolha outro.' })
+    // Lista de bloqueio também no remarcar: sem isto, quem entrou antes da regra
+    // seguia empurrando a mesma reunião indefinidamente. Silencioso — responde
+    // como se tivesse remarcado, e a reserva fica onde está.
+    const { rejectLeadAction } = await import('../services/leadBlocklist.js')
+    if (await rejectLeadAction(b.leadId, { ip: req.ip }, 'agendamento (remarcar)').catch(() => null)) {
+      return { ok: true, startAt: new Date(valid).toISOString() }
+    }
     const start = new Date(valid)
     const end = new Date(start.getTime() + mt.durationMin * 60000)
     await prisma.booking.update({ where: { id: b.id }, data: { startAt: start, endAt: end, status: 'scheduled' } })

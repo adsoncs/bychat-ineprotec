@@ -80,6 +80,10 @@ export interface LeadDetail extends LeadListItem {
   annotation: string | null
   // Agendamento vigente do lead (módulo de Agendamento) — sincroniza automático.
   agendamento?: { startAt: string; endAt: string; status: string; timezone: string } | null
+  /** Regra da lista de bloqueio que casa com este contato (Configurações ›
+   *  Segurança). Calculado no GET, não é coluna — some assim que a regra é
+   *  desligada. Enquanto existir, TODA entrada automática do contato é barrada. */
+  blocked?: { ruleId: number; label: string | null; criterion: 'email' | 'domain' | 'whatsapp' | 'ip'; reason: string | null } | null
   metaFormId: string | null
   customFields: Record<string, unknown> | null
   updatedAt: string

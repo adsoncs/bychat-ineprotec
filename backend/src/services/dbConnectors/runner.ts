@@ -105,6 +105,14 @@ export async function runConnector(connectorId: number, opts: RunOptions): Promi
           if (existing) { leadsSkipped++; continue }
         }
 
+        // Lista de bloqueio — o conector roda em cron, é entrada automática.
+        {
+          const { rejectLeadEntry } = await import('../leadBlocklist.js')
+          if (await rejectLeadEntry(
+            { email: mapped.email, whatsapp: mapped.whatsapp }, 'conector de banco',
+          ).catch(() => null)) { leadsSkipped++; continue }
+        }
+
         // Routing default
         let assignedUserId: number | null = null
         if (connector.defaultTeamId) {

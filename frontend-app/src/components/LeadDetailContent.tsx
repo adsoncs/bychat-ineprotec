@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { ShieldBan } from 'lucide-preact'
 import {
   useLead,
   useDeleteLead,
@@ -84,8 +85,32 @@ export function LeadDetailContent({ id, section }: Props) {
     return <Skeleton class="h-64 w-full" />
   }
 
+  // Aviso de contato bloqueado. Sem ele o operador vê as ações automáticas do
+  // lead (agendamento, portal, chamado, mensagem) simplesmente não acontecerem,
+  // sem nenhuma explicação na tela — o motivo só aparecia no log de Segurança.
+  const bloqueio = lead.blocked
+  const CRITERIO: Record<string, string> = {
+    email: 'e-mail', domain: 'domínio do e-mail', whatsapp: 'WhatsApp', ip: 'IP',
+  }
+
   return (
     <div class="space-y-4">
+      {bloqueio && (
+        <div class="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm">
+          <ShieldBan size={18} class="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
+          <div>
+            <strong class="text-danger">Contato bloqueado</strong>
+            <span class="text-muted"> — casa com uma regra de {CRITERIO[bloqueio.criterion] ?? bloqueio.criterion}
+              {bloqueio.label ? ` ("${bloqueio.label}")` : ''}. Nenhuma entrada automática dele é aceita:
+              formulário, agendamento, portal, chamado, mensagem recebida e integrações.
+              {bloqueio.reason ? ` Motivo: ${bloqueio.reason}.` : ''}
+            </span>
+            <div class="mt-1 text-xs text-muted">
+              Para liberar, desligue a regra em Configurações › Segurança › Bloqueio de entrada de leads.
+            </div>
+          </div>
+        </div>
+      )}
       {section === 'overview'   && <LeadOverviewTab lead={lead} />}
       {section === 'negociacao' && <LeadNegotiationTab leadId={lead.id} />}
       {section === 'tracking'   && <LeadTrackingTab lead={lead} />}

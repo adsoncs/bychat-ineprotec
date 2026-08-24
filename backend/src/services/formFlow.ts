@@ -125,6 +125,17 @@ export async function createLeadFromForm(
   const empresa = mapped.empresa || mapped.company || ''
   if (!(nome || email || whatsapp)) return null
 
+  // Lista de bloqueio — rede final. Esta função é o caminho comum de TODOS os
+  // criadores de lead por conteúdo de formulário: rota /forms, chatbot roteirizado
+  // e Jornada IA. A rota já barra antes (sem nem gravar a submissão); os outros
+  // dois chegavam direto aqui e escapavam. Devolver null é o mesmo contrato de
+  // "dados insuficientes", que todos os chamadores já tratam.
+  {
+    const { rejectLeadEntry } = await import('./leadBlocklist.js')
+    const canal = ctx?.channel === 'whatsapp' ? 'chatbot (WhatsApp)' : 'formulário/chatbot'
+    if (await rejectLeadEntry({ email, whatsapp, ip }, canal).catch(() => null)) return null
+  }
+
   let targetFunnelId = stageOverride?.funnelId ?? form.funnelId ?? null
   let targetStageKey = stageOverride?.stageKey ?? form.stageKey ?? 'NOVO'
   if (!targetFunnelId) {

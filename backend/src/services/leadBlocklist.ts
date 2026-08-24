@@ -148,6 +148,87 @@ export async function rejectLeadEntry(c: LeadBlockCandidate, canal: string): Pro
 }
 
 /**
+ * Mensagem recebida (WhatsApp, Cloud API, Instagram, Telegram) de um contato
+ * bloqueado: não vira lead nem conversa, mas fica RASTRO no log de Segurança
+ * com um trecho do texto.
+ *
+ * Por que o rastro importa: aqui o risco é o oposto do formulário — se um
+ * cliente real for barrado por engano, ele some do atendimento sem ninguém
+ * perceber. O evento no log é o único jeito de descobrir isso depois.
+ */
+export async function rejectInboundMessage(
+  c: LeadBlockCandidate,
+  canal: string,
+  texto?: string | null,
+): Promise<LeadBlockMatch | null> {
+  const match = await findLeadBlock(c).catch(() => null)
+  if (!match) return null
+
+  prisma.leadBlockRule.update({
+    where: { id: match.ruleId },
+    data: { hits: { increment: 1 }, lastHitAt: new Date() },
+  }).catch(() => { /* ignore */ })
+
+  const preview = String(texto ?? '').replace(/\s+/g, ' ').trim().slice(0, 280)
+  const quem = [c.email, c.whatsapp].filter(Boolean).join(' · ') || 'sem identificação'
+  logSecurityEvent({
+    ip: c.ip || '0.0.0.0',
+    type: 'lead_blocked',
+    severity: 'low',
+    email: c.email || undefined,
+    details: `Mensagem recebida descartada em ${canal} por ${CRITERION_LABEL[match.criterion]}`
+      + `${match.label ? ` — regra "${match.label}"` : ''} (${quem})`
+      + `${preview ? ` · texto: "${preview}"` : ''}`,
+  }).catch(() => { /* ignore */ })
+
+  return match
+}
+
+/**
+ * Mesma verificação, mas para um lead que JÁ EXISTE na base.
+ *
+ * Existe porque o bloqueio nasceu olhando só a ENTRADA: quem já era lead antes
+ * da regra continuava agendando reunião, abrindo chamado e se inscrevendo em
+ * portal — o dado bloqueado nem passava pela porta que checa. Toda ação
+ * automática disparada pelo próprio contato deve consultar isto antes de gravar.
+ */
+export async function findLeadBlockById(leadId: number | null | undefined): Promise<LeadBlockMatch | null> {
+  if (!leadId) return null
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { email: true, whatsapp: true },
+  }).catch(() => null)
+  if (!lead) return null
+  return findLeadBlock({ email: lead.email, whatsapp: lead.whatsapp })
+}
+
+/**
+ * Verificação + registro para ação de lead existente (agendar, reagendar, abrir
+ * chamado…). Devolve a regra que barrou, ou null quando pode seguir.
+ */
+export async function rejectLeadAction(
+  leadId: number | null | undefined,
+  candidate: LeadBlockCandidate,
+  canal: string,
+): Promise<LeadBlockMatch | null> {
+  // O dado digitado agora vem primeiro: numa reserva ele é mais atual que o do
+  // cadastro, e é por ele que a pessoa costuma voltar.
+  const porDado = await rejectLeadEntry(candidate, canal)
+  if (porDado) return porDado
+
+  if (!leadId) return null
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { email: true, whatsapp: true },
+  }).catch(() => null)
+  if (!lead) return null
+
+  // Segunda passada com os dados do cadastro — o hit e o evento de segurança
+  // saem daqui, com o mesmo canal.
+  return rejectLeadEntry({ email: lead.email, whatsapp: lead.whatsapp, ip: candidate.ip }, canal)
+}
+
+/**
  * Extrai o candidato a partir de uma submissão de formulário: os campos do form
  * são dinâmicos, e é o `mapTo` de cada um que diz qual vira e-mail/WhatsApp.
  */

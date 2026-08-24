@@ -861,6 +861,19 @@ export async function instagramRoutes(app: FastifyInstance) {
 
         const uid = `${channel}:${senderId}`
         let lead = await prisma.lead.findFirst({ where: { uid } })
+        // Lista de bloqueio. Aqui só dá para casar quando o lead JÁ existe: um DM
+        // não traz e-mail nem telefone, e as regras são por e-mail/domínio/
+        // telefone/IP. Contato novo por DM entra normalmente — quando ele
+        // informar o contato em outro canal, aí passa a casar.
+        if (lead) {
+          const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')
+          if (await findLeadBlockById(lead.id).catch(() => null)) {
+            await rejectInboundMessage(
+              { email: lead.email, whatsapp: lead.whatsapp }, canalNome, text,
+            ).catch(() => null)
+            continue
+          }
+        }
         if (!lead) {
           // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
           const prof = await fetchSenderProfile(senderId, channel)

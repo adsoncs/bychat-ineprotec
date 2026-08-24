@@ -581,6 +581,13 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
         })
         updated++
       } else {
+        // Lista de bloqueio: a sincronização roda sozinha, então é entrada
+        // automática como qualquer outra — sem isto, o contato barrado no
+        // formulário voltava pela integração.
+        const { rejectLeadEntry } = await import('./leadBlocklist.js')
+        if (await rejectLeadEntry({ email, whatsapp }, 'Kommo (sincronização)').catch(() => null)) {
+          continue
+        }
         const lead = await prisma.lead.create({
           data: {
             uid: await generateUid(),

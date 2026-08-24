@@ -272,6 +272,19 @@ async function processIncomingMessage(
 
   if (!phone) return
 
+  // ── Lista de bloqueio (mensagem RECEBIDA) ──
+  // Mesma decisão do webhook da Evolution: descarta, mas deixa rastro no log de
+  // Segurança. Antes de marcar como lida — não faz sentido dar recibo a quem
+  // está bloqueado.
+  {
+    const { rejectInboundMessage } = await import('../services/leadBlocklist.js')
+    const previewMsg = String(msg?.text?.body || msg?.button?.text || msg?.interactive?.list_reply?.title
+      || msg?.interactive?.button_reply?.title || msg?.image?.caption || msg?.video?.caption || '')
+    if (await rejectInboundMessage({ whatsapp: phone }, 'WhatsApp (Cloud API)', previewMsg).catch(() => null)) {
+      return
+    }
+  }
+
   // Marcar como lida automaticamente
   if (msgId) {
     markAsRead(phoneNumberId, token, msgId).catch(() => {})

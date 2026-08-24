@@ -545,6 +545,13 @@ async function gravarLead(l: CrmEduLead, opts: OpcoesSync, p: ProgressoSync): Pr
     return
   }
 
+  // Lista de bloqueio — a carga do CRM Educacional é automática.
+  const { rejectLeadEntry } = await import('./leadBlocklist.js')
+  if (await rejectLeadEntry({ email, whatsapp }, 'CRM Educacional').catch(() => null)) {
+    p.ignorados = (p.ignorados ?? 0) + 1
+    return
+  }
+
   const lead = await prisma.lead.create({
     data: {
       uid: await generateUid(),

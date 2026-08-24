@@ -953,6 +953,25 @@ export async function whatsappRoutes(app: FastifyInstance) {
         }
       }
 
+      // ── Lista de bloqueio (mensagem RECEBIDA) ────────────────────────
+      // A primeira versão do bloqueio deixava os canais de fora de propósito:
+      // um cliente real barrado por engano sumiria do atendimento. O Adson pediu
+      // o bloqueio global, então a mensagem passa a ser descartada aqui — mas
+      // com RASTRO: `rejectInboundMessage` grava evento no log de Segurança com
+      // um trecho do texto, que é o único jeito de descobrir um falso positivo.
+      // GRUPO fica de fora: a regra casa uma pessoa, e o grupo tem outras.
+      if (!key.fromMe && phone && !isGroupMsg) {
+        const { rejectInboundMessage } = await import('../services/leadBlocklist.js')
+        const corpoMsg = data?.message ?? {}
+        const previewMsg = String(
+          corpoMsg.conversation || corpoMsg.extendedTextMessage?.text
+          || corpoMsg.imageMessage?.caption || corpoMsg.videoMessage?.caption || '',
+        )
+        if (await rejectInboundMessage({ whatsapp: phone }, 'WhatsApp', previewMsg).catch(() => null)) {
+          return reply.send({ ok: true, ignored: 'blocked' })
+        }
+      }
+
       // Mensagens enviadas por nós — salvar externalId + ack inicial
       if (key.fromMe) {
         if (messageId && (phone || isGroupMsg)) {

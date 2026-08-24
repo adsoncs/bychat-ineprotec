@@ -488,6 +488,26 @@ Para começar, qual é o seu nome?`
         lastActivityAt: new Date()
       }
 
+      // Lista de bloqueio: o chat do site abre a conversa SEM contato nenhum (o
+      // lead nasce vazio), então a checagem só é possível quando a pessoa digita
+      // e-mail/telefone no meio do papo. A partir daí a conversa é encerrada
+      // silenciosamente — nada de contato é gravado no lead nem o diagnóstico
+      // roda. Sem isto, bastava usar o chat para contornar o bloqueio do form.
+      if (extractedFormData.email || extractedFormData.whatsapp) {
+        const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+        const bloqueio = await rejectLeadEntry(
+          { email: extractedFormData.email, whatsapp: extractedFormData.whatsapp, ip: req.ip },
+          'chat do site',
+        ).catch(() => null)
+        if (bloqueio) {
+          await prisma.lead.update({
+            where: { id: leadId },
+            data: { completed: true, lastActivityAt: new Date() },
+          }).catch(() => {})
+          return { messages: chatMessages, completed: true }
+        }
+      }
+
       // Update top-level fields if extracted
       if (extractedFormData.nome) updateData.nome = extractedFormData.nome
       if (extractedFormData.empresa) updateData.empresa = extractedFormData.empresa

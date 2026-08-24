@@ -374,6 +374,14 @@ export async function processChatbotMessage(
   promoteFunnelId?: number | null,
   promoteStageKey?: string | null,
 ): Promise<void> {
+  // Lista de bloqueio: o motor do chatbot também é chamado por caminhos que não
+  // passam pelo webhook (preview, reprocessamento, fila). Barrar aqui garante que
+  // o bot não responda nem crie lead para contato bloqueado, com rastro no log.
+  {
+    const { rejectInboundMessage } = await import('./leadBlocklist.js')
+    if (await rejectInboundMessage({ whatsapp: phone }, 'chatbot', text).catch(() => null)) return
+  }
+
   // Carregar chatbot do banco se disponível
   let chatbot: any = null
   if (chatbotId) {

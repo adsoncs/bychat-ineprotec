@@ -178,6 +178,17 @@ export async function telegramRoutes(app: FastifyInstance) {
     const fullName = [from.first_name, from.last_name].filter(Boolean).join(' ').trim() || from.username || `Telegram #${from.id}`
 
     let lead = await prisma.lead.findFirst({ where: { uid } })
+    // Lista de bloqueio: como no Instagram, só casa quando o lead já existe —
+    // o Telegram não entrega e-mail nem telefone.
+    if (lead) {
+      const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')
+      if (await findLeadBlockById(lead.id).catch(() => null)) {
+        await rejectInboundMessage(
+          { email: lead.email, whatsapp: lead.whatsapp }, 'Telegram', message.text ?? '',
+        ).catch(() => null)
+        return { ok: true }
+      }
+    }
     if (!lead) {
       lead = await prisma.lead.create({
         data: {

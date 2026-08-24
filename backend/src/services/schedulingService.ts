@@ -7,6 +7,7 @@ import { generateUid, normalizePhone, findDuplicate } from './dedup.js'
 import { eventBus } from '../lib/eventBus.js'
 import { getExternalGoogleEvents } from './schedulingGoogle.js'
 import { pickOperatorForTeam } from './teamRouting.js'
+import { rejectLeadAction } from './leadBlocklist.js'
 
 export const DEFAULT_RULES: WeeklyRule[] = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, start: '09:00', end: '18:00' }))
 
@@ -303,12 +304,20 @@ export interface BookInput {
   // Funil efetivo (ex.: funil da conexão do chatbot). Quando setado, a reunião move
   // o lead para a etapa do tipo (mt.stageKey) DENTRO deste funil, em vez de mt.funnelId.
   funnelOverride?: number | null
+  /** IP de quem reservou — usado pela regra de bloqueio por IP. */
+  ip?: string | null
+  /** `false` só para agendamento feito pelo OPERADOR no painel: ali ele está
+   *  vendo com quem fala, e a lista de bloqueio vale para entrada automática. */
+  enforceBlocklist?: boolean
 }
 
 export interface BookResult {
   ok: boolean
   error?: string
   booking?: { id: number; token: string; startAt: string; endAt: string; status: string }
+  /** Barrado pela lista de bloqueio. Nada foi gravado; `ok` vem true de
+   *  propósito, para a página pública responder como se tivesse agendado. */
+  blocked?: boolean
 }
 
 export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: BookInput): Promise<BookResult> {
@@ -379,6 +388,32 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // Dedup: linka lead existente por whatsapp/email; senão cria novo.
   let leadId: number | null = null
   const dup = await findDuplicate(whatsapp || undefined, email || undefined)
+
+  // Lista de bloqueio. Só aqui, depois da dedup, porque a regra também vale para
+  // quem JÁ é lead: o bloqueio nascia só na porta de entrada e um contato antigo
+  // seguia marcando reunião atrás de reunião. Silencioso, como no formulário — a
+  // resposta abaixo é de sucesso e nada é gravado; avisar faria a pessoa trocar
+  // de e-mail e voltar.
+  if (input.enforceBlocklist !== false) {
+    const bloqueio = await rejectLeadAction(
+      dup?.lead?.id ?? null,
+      { email: email || null, whatsapp: whatsapp || null, ip: input.ip ?? null },
+      'agendamento',
+    ).catch(() => null)
+    if (bloqueio) {
+      return {
+        ok: true,
+        blocked: true,
+        // Sem operatorUserId/teamId de propósito: são opcionais aqui e não
+        // existem na versão mais antiga do tipo em alguns tenants — mantém o
+        // mesmo patch aplicável nos dois.
+        booking: {
+          id: 0, token: '', status: 'confirmed',
+          startAt: startAt.toISOString(), endAt: endAt.toISOString(),
+        },
+      }
+    }
+  }
   if (dup?.lead?.id) {
     const lid = dup.lead.id
     leadId = lid

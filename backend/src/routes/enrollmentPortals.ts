@@ -1418,6 +1418,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!email && !whatsapp) return reply.code(400).send({ error: 'Informe email ou WhatsApp' })
     if (cpf && !isValidCpf(cpf)) return reply.code(400).send({ error: 'CPF inválido' })
 
+    // ── Lista de bloqueio ──────────────────────────────────────────────
+    // Diferente do formulário, aqui o bloqueio NÃO pode fingir sucesso: a
+    // resposta carrega código de inscrição, link de pagamento e magic link, e
+    // inventar esses dados quebraria a tela seguinte. A recusa é genérica de
+    // propósito — parece indisponibilidade, não revela a regra.
+    {
+      const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+      if (await rejectLeadEntry({ email, whatsapp, ip: req.ip }, 'portal de matrícula').catch(() => null)) {
+        return reply.code(503).send({ error: 'Não foi possível concluir agora. Tente novamente mais tarde.' })
+      }
+    }
+
+
     // Consentimento LGPD obrigatório (defesa em profundidade — o front já bloqueia).
     // Continuação por magic link já consentiu no portal de interesse → exceção.
     const lgpdConsent = fd.lgpdConsent === true || fd.lgpdConsent === 'true'
@@ -2431,6 +2444,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reply.code(400).send({ error: 'E-mail inválido' })
     if (!lgpdConsent) return reply.code(400).send({ error: 'Você precisa aceitar a política de privacidade para prosseguir' })
 
+    // ── Lista de bloqueio ──────────────────────────────────────────────
+    // Diferente do formulário, aqui o bloqueio NÃO pode fingir sucesso: a
+    // resposta carrega código de inscrição, link de pagamento e magic link, e
+    // inventar esses dados quebraria a tela seguinte. A recusa é genérica de
+    // propósito — parece indisponibilidade, não revela a regra.
+    {
+      const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+      if (await rejectLeadEntry({ email, whatsapp, ip: req.ip }, 'portal (interesse)').catch(() => null)) {
+        return reply.code(503).send({ error: 'Não foi possível concluir agora. Tente novamente mais tarde.' })
+      }
+    }
+
+
     // Curso de interesse — não bloqueia se inválido, só ignora (pode ter mudado).
     let courseName = ''
     if (offeringId) {
@@ -2816,6 +2842,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const nome = String(body.nome || '').trim() || 'Visitante portal'
     const whatsapp = String(body.whatsapp || '').trim()
     const email = String(body.email || '').trim()
+
+    // Lista de bloqueio — só quando o widget já traz contato (a sessão pode
+    // começar anônima). Silencioso: devolve uma sessão que não persiste lead.
+    if (email || whatsapp) {
+      const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+      if (await rejectLeadEntry({ email, whatsapp, ip: req.ip }, 'chat do portal').catch(() => null)) {
+        return { sessionId, leadId: null, blocked: true }
+      }
+    }
 
     // Dedup por sessionId armazenado em formData._portalChatSession
     let lead = await prisma.lead.findFirst({

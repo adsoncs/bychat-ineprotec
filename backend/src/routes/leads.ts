@@ -544,7 +544,13 @@ export async function leadsRoutes(app: FastifyInstance) {
         select: { id: true, name: true },
       }).catch(() => null)
     }
-    return { ...lead, agendamento, statusLabel, outcomeByUser }
+    // Lista de bloqueio: calculado na hora (não é coluna) para refletir a regra
+    // vigente — ligar/desligar um bloqueio muda o aviso na tela na mesma hora.
+    // Sem isto, o operador via as ações automáticas do lead sumirem sem motivo.
+    const { findLeadBlock } = await import('../services/leadBlocklist.js')
+    const bloqueio = await findLeadBlock({ email: lead.email, whatsapp: lead.whatsapp }).catch(() => null)
+
+    return { ...lead, agendamento, statusLabel, outcomeByUser, blocked: bloqueio }
   })
 
   // ── PUT /api/bychat/leads/:id/status ─── Atualizar etapa ──

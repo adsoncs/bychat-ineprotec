@@ -22,6 +22,15 @@ export async function helpdeskPortalRoutes(app: FastifyInstance) {
   app.post('/api/v1/helpdesk/portal/request-link', async (req, reply) => {
     const email = ((req.body as any)?.email || '').toString().trim().toLowerCase()
     if (!email || !email.includes('@')) return reply.code(400).send({ error: 'E-mail inválido' })
+    // Lista de bloqueio: sem isto o bloqueado pedia o link e abria chamado à
+    // vontade. Silencioso — a resposta é a mesma de sucesso (o portal não diz
+    // se o e-mail existe), só que nenhum e-mail sai.
+    {
+      const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+      if (await rejectLeadEntry({ email, ip: req.ip }, 'portal de suporte (acesso)').catch(() => null)) {
+        return { ok: true }
+      }
+    }
     const link = `${appOrigin(req)}/suporte?t=${signMagicLink(email)}`
     try {
       const cfg = await getEmailConfig()
@@ -102,6 +111,14 @@ export async function helpdeskPortalRoutes(app: FastifyInstance) {
     const b = (req.body as any) || {}
     const subject = (b.subject || '').toString().trim()
     if (!subject) return reply.code(400).send({ error: 'Assunto obrigatório' })
+    // Quem já tinha sessão aberta antes da regra continuava abrindo chamado.
+    {
+      const { rejectLeadEntry } = await import('../services/leadBlocklist.js')
+      if (await rejectLeadEntry({ email, ip: req.ip }, 'portal de suporte (chamado)').catch(() => null)) {
+        // Número fictício: a tela seguinte só o exibe. Nada é gravado.
+        return reply.code(201).send({ number: 0 })
+      }
+    }
     // sanitiza respostas de campos personalizados contra o catálogo (só showInForm)
     const customFields = await sanitizeHelpdeskCustomFields(b.customFields, true)
     if (customFields.error) return reply.code(400).send({ error: customFields.error })
