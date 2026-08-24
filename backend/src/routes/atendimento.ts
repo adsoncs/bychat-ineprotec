@@ -645,6 +645,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           senderName: true,
           externalId: true,
           quotedMsgId: true,
+          // Sem isto o `quotedExternalId` chegava undefined e a resolução
+          // tardia de citação (logo abaixo) nunca rodava: resposta cuja citada
+          // ainda não existia ficava para sempre sem contexto na bolha.
+          quotedExternalId: true,
           timestamp: true,
           // Estado da mensagem depois de enviada: a bolha precisa saber se foi
           // editada, se foi apagada para todos (vira "mensagem apagada" em vez
