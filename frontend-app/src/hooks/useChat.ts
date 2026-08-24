@@ -180,6 +180,19 @@ export interface ChatMessage {
   reactions?: MessageReaction[] | null
   /** Trecho citado, quando esta mensagem responde a outra. */
   quoted?: QuotedPreview | null
+  /** Por que NÃO foi entregue (só quando ack = -1). A Meta aceita o envio e
+   *  reprova depois, por webhook — sem isto a bolha ficava igual à de uma
+   *  mensagem ainda saindo. */
+  deliveryError?: DeliveryError | null
+}
+
+export interface DeliveryError {
+  /** código da Meta (ex.: 131026); nulo quando o webhook não trouxe detalhe */
+  code: number | null
+  /** título original em inglês — só para suporte técnico */
+  title: string | null
+  /** frase pronta para quem atende */
+  message: string
 }
 
 /** Resumo da mensagem CITADA, montado pelo servidor. Vem junto da resposta

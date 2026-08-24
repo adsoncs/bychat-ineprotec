@@ -689,6 +689,30 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         )).catch(() => {})
       }
 
+      // Motivo da FALHA de entrega (ack = -1).
+      //
+      // A Meta aceita o envio (devolve o wamid) e só depois manda o webhook de
+      // status dizendo que não entregou. O código do erro era gravado apenas no
+      // log de cobrança, então a bolha ficava idêntica a uma mensagem ainda
+      // saindo — e ninguém no atendimento ficava sabendo que o cliente não
+      // recebeu. Aqui o motivo volta junto da mensagem, já em português.
+      const falhadas = (messages as any[]).filter(m => m.fromMe && m.ack === -1 && m.externalId)
+      if (falhadas.length) {
+        const { explicarFalhaDeEntrega } = await import('../services/deliveryFailure.js')
+        const wamids = [...new Set(falhadas.map(m => m.externalId as string))]
+        const logs = await prisma.cloudApiMessageLog.findMany({
+          where: { wamid: { in: wamids } },
+          select: { wamid: true, errorCode: true, errorTitle: true },
+        })
+        const porWamid = new Map(logs.map(l => [l.wamid, l]))
+        const dono = await prisma.lead.findUnique({ where: { id: lid }, select: { whatsapp: true } })
+        const destino = dono?.whatsapp ?? undefined
+        for (const m of falhadas) {
+          const log = porWamid.get(m.externalId)
+          m.deliveryError = explicarFalhaDeEntrega(log?.errorCode ?? null, log?.errorTitle ?? null, destino)
+        }
+      }
+
       const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
       if (citadasIds.length) {
         const citadas = await prisma.message.findMany({

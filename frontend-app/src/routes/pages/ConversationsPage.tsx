@@ -97,6 +97,7 @@ import {
   type Scope,
   type Ticket,
   type ChatMessage,
+  type DeliveryError,
   type TicketLeadInfo,
 } from '@/hooks/useChat'
 import { useTeams, useTeamMembers } from '@/hooks/useTeams'
@@ -3663,9 +3664,21 @@ function formatHourMinute(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function AckIcon({ ack }: { ack: number | null }) {
+function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | null }) {
   if (ack === null) return null
-  if (ack <= 0) {
+  // Falha de entrega. Antes caía no mesmo ramo do "pendente" e desenhava o
+  // relógio: quem atendia lia como "ainda saindo" uma mensagem que o cliente
+  // nunca recebeu.
+  if (ack < 0) {
+    return (
+      <AlertTriangle
+        size={12}
+        class="inline-block shrink-0 align-middle text-danger ml-1"
+        title={error?.message || 'O WhatsApp não entregou esta mensagem.'}
+      />
+    )
+  }
+  if (ack === 0) {
     // Pending — clock
     return (
       <svg viewBox="0 0 12 12" width={12} height={12} fill="currentColor" class="inline-block align-middle text-fg-subtle ml-1">
@@ -3999,8 +4012,25 @@ function MessageBubble({
           {/* "editada" ao lado da hora, como no WhatsApp: quem lê precisa saber
               que o texto atual não é o que foi enviado na hora. */}
           {msg.editedAt && <span title={`Editada às ${formatHourMinute(msg.editedAt)}`}>· editada</span>}
-          {msg.fromMe && !msg.isInternal && <AckIcon ack={msg.ack} />}
+          {msg.fromMe && !msg.isInternal && <AckIcon ack={msg.ack} error={msg.deliveryError} />}
         </div>
+
+        {/* Motivo da falha por extenso. O ícone sozinho não basta: sem saber se
+            foi número inválido, janela de 24h ou bloqueio da Meta, ninguém sabe
+            se adianta reenviar. */}
+        {msg.fromMe && !msg.isInternal && msg.ack === -1 && (
+          <div
+            class="mt-1 flex items-start gap-1 rounded-md border-l-2 border-danger bg-danger/10 px-1.5 py-1 text-danger"
+            style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
+            title={msg.deliveryError?.title ? `Meta: ${msg.deliveryError.title}${msg.deliveryError.code ? ` (${msg.deliveryError.code})` : ''}` : undefined}
+          >
+            <AlertTriangle size={12} class="mt-px shrink-0" />
+            <span class="whitespace-pre-wrap break-words">
+              <span class="font-medium">Não entregue.</span>{' '}
+              {msg.deliveryError?.message || 'O WhatsApp não entregou esta mensagem.'}
+            </span>
+          </div>
+        )}
 
         {/* Reações ficam presas na borda de baixo da bolha, como no app. */}
         {/* Reações pendem da borda inferior DIREITA: à esquerda cobriam a hora
