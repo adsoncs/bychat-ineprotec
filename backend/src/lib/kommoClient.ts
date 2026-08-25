@@ -75,6 +75,32 @@ export function isKommoConfigured(cfg: KommoConfig): boolean {
   return Boolean(cfg.subdomain && cfg.token)
 }
 
+/**
+ * Config para LER O HISTÓRICO DE CONVERSAS — usa um token à parte.
+ *
+ * `GET /talks/{id}/messages` exige o escopo `list_external_messages` ("External
+ * chat history" na tela de permissões da integração). O token de `kommo.token`
+ * não o tem, e trocá-lo não é opção: é o mesmo JWT que o checkout Laravel usa
+ * em produção, e reautorizar a integração para ganhar o escopo invalidaria o
+ * envio de leads do checkout. Por isso o histórico anda com credencial própria,
+ * emitida por uma segunda integração privada.
+ *
+ * Sem `kommo.chats_token` cai no token normal — que responde 403 "Invalid
+ * scope" no endpoint de mensagens. É de propósito: o erro diz o que falta, em
+ * vez de a importação simplesmente não trazer nada.
+ */
+export async function getKommoChatsConfig(): Promise<KommoConfig> {
+  const base = await getKommoConfig()
+  let token: string | null = null
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: 'kommo.chats_token' } })
+    token = unwrap(row?.value)
+  } catch {
+    // DB indisponível — cai pro token normal (e no 403 explicativo).
+  }
+  return { ...base, token: token ?? base.token }
+}
+
 function baseUrl(subdomain: string): string {
   return `https://${subdomain}.kommo.com/api/v4`
 }
