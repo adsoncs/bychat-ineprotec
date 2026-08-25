@@ -609,11 +609,15 @@ export interface InboundChannel {
 export async function leadsDoCanal(channelId: string): Promise<number[]> {
   const evo = channelId.startsWith('evolution:') ? channelId.slice('evolution:'.length) : null
   const cloudId = channelId.startsWith('cloud:') ? parseInt(channelId.slice('cloud:'.length)) : null
-  if (!evo && !Number.isFinite(cloudId as number)) return []
+  // Histórico importado da Kommo: canal único, sem número, por isso sem sufixo.
+  const kommo = channelId === 'kommo:historico'
+  if (!evo && !kommo && !Number.isFinite(cloudId as number)) return []
 
   const condicao = evo
     ? Prisma.sql`m.provider = 'evolution' AND m.evolutionInstance = ${evo}`
-    : Prisma.sql`m.provider = 'cloud_api' AND m.cloudApiConnectionId = ${cloudId}`
+    : kommo
+      ? Prisma.sql`m.provider = 'kommo'`
+      : Prisma.sql`m.provider = 'cloud_api' AND m.cloudApiConnectionId = ${cloudId}`
 
   // 1. Conversas cuja última mensagem RECEBIDA veio por este canal.
   const porEntrada = await prisma.$queryRaw<Array<{ leadId: number }>>(Prisma.sql`

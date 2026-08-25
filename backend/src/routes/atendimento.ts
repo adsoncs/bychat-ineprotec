@@ -404,7 +404,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // canal da última mensagem recebida (e, para conversa que só nós
       // iniciamos, o da última mensagem). Uma conversa pertence a um canal só.
       const sc = (query.senderChannel ?? '').toString()
-      if (sc.startsWith('evolution:') || sc.startsWith('cloud:')) {
+      if (sc.startsWith('evolution:') || sc.startsWith('cloud:') || sc === 'kommo:historico') {
         const { leadsDoCanal } = await import('../services/whatsappProvider.js')
         const idsDoCanal = await leadsDoCanal(sc)
         // Nenhuma conversa nesse número: lista vazia, e não a lista inteira.
@@ -494,6 +494,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         }
         if (m.provider === 'instagram') return { provider: 'instagram', label: 'Instagram', number: null, name: null, color: null }
         if (m.provider === 'messenger') return { provider: 'messenger', label: 'Messenger', number: null, name: null, color: null }
+        // Histórico importado da Kommo. Não é um número por onde se responde —
+        // o rótulo diz "histórico" para o atendente não tentar continuar a
+        // conversa por um canal que não existe mais.
+        if (m.provider === 'kommo') return { provider: 'kommo', label: 'Kommo (histórico)', number: null, name: 'Kommo (histórico)', color: null }
         const inst = (m.evolutionInstance ? instByName.get(m.evolutionInstance) : null) || soleInstance
         // Nome só serve como rótulo se não for o identificador técnico da
         // instância — nesse caso o cadastro nunca recebeu um nome de verdade.
