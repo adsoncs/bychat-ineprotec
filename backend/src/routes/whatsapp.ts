@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
-import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
+import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
 import { isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
@@ -1351,6 +1351,14 @@ export async function whatsappRoutes(app: FastifyInstance) {
         app.log.info(`[Webhook] No chatbot linked to instance ${inboundInstance}, saving message only`)
         let lead = existingLeadForLog
         if (!lead) {
+          // A busca lá em cima aconteceu ANTES de consultar chatbot, roteamento
+          // e agenda — janela suficiente para uma segunda mensagem do mesmo
+          // contato entrar e criar a ficha em dobro. Aqui a criação acontece com
+          // exclusividade e começa procurando de novo: quem chega depois
+          // encontra o que o primeiro criou.
+          lead = await semFichaEmDobro(chaveDoContato(phone, inboundInstance), async () => {
+          const jaExiste = await acharLeadDaInstancia(phone, inboundInstance)
+          if (jaExiste) return jaExiste
           const { generateUid } = await import('../services/dedup.js')
           // Fix C (Reforma F2): se a instância tem `ownerUserId`, o lead é
           // atribuído DIRETO ao operador dono — sem passar por cascata de
@@ -1369,7 +1377,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
           const { nomeInicialWhatsapp } = await import('../services/leadDisplayName.js')
           const nomeAgenda = await nomeNaAgenda(inboundInstance, phone, waLidToPersist)
           const inicial = nomeInicialWhatsapp({ nomeAgenda, phone })
-          lead = await prisma.lead.create({
+          const novo = await prisma.lead.create({
             data: {
               uid: await generateUid(),
               nome: inicial.nome,
@@ -1396,8 +1404,10 @@ export async function whatsappRoutes(app: FastifyInstance) {
             }
           })
           if (routing.ruleName) {
-            app.log.info(`[Webhook] Lead ${lead.id} roteado via "${routing.ruleName}" → team=${routing.teamId}, user=${routing.userId}`)
+            app.log.info(`[Webhook] Lead ${novo.id} roteado via "${routing.ruleName}" → team=${routing.teamId}, user=${routing.userId}`)
           }
+          return novo
+          })
         } else if (data.pushName) {
           // Lead que já existe: guarda o pushName como referência e, se o nome
           // atual for fraco (só o número, ou pushName de antes desta mudança),

@@ -17,7 +17,7 @@ import { handleCallsWebhook } from '../services/cloudApiCallsWebhook.js'
 import { handleMessageEchoes, handleAppStateSync, handleHistory } from '../services/cloudApiCoexistence.js'
 import { tryConfirmBookingReply } from '../services/schedulingNotify.js'
 import { generateUid } from '../services/dedup.js'
-import { resolveLeadForContact, reconcileLeadIdentity } from '../services/contactIdentity.js'
+import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 import { writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -445,6 +445,16 @@ async function processIncomingMessage(
     }
 
     if (!lead) {
+      // Criação com exclusividade para este contato: duas mensagens chegando
+      // juntas passavam as duas pela busca acima — nenhuma achava — e criavam
+      // duas fichas. A tarefa começa procurando de novo, que é o que faz a
+      // segunda aproveitar o que a primeira criou.
+      lead = await semFichaEmDobro(chaveDoContato(phone, `cloud:${conn.id}`), async () => {
+      const denovo = await resolveLeadForContact({ phone })
+      if (denovo.lead) {
+        const achado = await prisma.lead.findUnique({ where: { id: denovo.lead.id } })
+        if (achado) return achado
+      }
       // Roteamento por equipe/agente, espelhando o webhook Evolution:
       //   1. conn.ownerUserId → conexão dedicada a um agente (bypass, F2);
       //   2. regras V2 (resolveRoutingFromContext);
@@ -475,7 +485,7 @@ async function processIncomingMessage(
         gclid: originData?.gclid ?? null,
         trackableLinkId: originData?.trackableLinkId ?? null,
       })
-      lead = await prisma.lead.create({
+      const novo = await prisma.lead.create({
         data: {
           uid: await generateUid(),
           nome: contactName || phone,
@@ -495,10 +505,10 @@ async function processIncomingMessage(
         }
       })
       if (originData) {
-        saveLeadOrigin(lead.id, originData).catch(e => app.log.warn(`Origin save error: ${e}`))
+        saveLeadOrigin(novo.id, originData).catch(e => app.log.warn(`Origin save error: ${e}`))
       }
       logEvent({
-        leadId: lead.id,
+        leadId: novo.id,
         type: EVENT_TYPES.LEAD_CREATED,
         category: 'lifecycle',
         title: 'Lead criado via WhatsApp Cloud API',
@@ -509,7 +519,9 @@ async function processIncomingMessage(
         metadata: { phone, source: 'whatsapp', provider: 'cloud_api', originType },
       })
       const routedVia = conn.ownerUserId ? 'conexão dedicada (agente)' : (routedRuleName || (conn.defaultTeamId ? 'setor padrão da conexão' : 'fallback'))
-      app.log.info(`[CloudAPI] Lead ${lead.id} roteado via "${routedVia}" → team=${routedTeamId}, user=${routedUserId}`)
+      app.log.info(`[CloudAPI] Lead ${novo.id} roteado via "${routedVia}" → team=${routedTeamId}, user=${routedUserId}`)
+      return novo
+      })
     }
 
     // Resposta a uma mensagem: a Meta manda o wamid da citada em `context.id`.

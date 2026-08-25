@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { semFichaEmDobro } from '../services/contactIdentity.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
@@ -875,6 +876,13 @@ export async function instagramRoutes(app: FastifyInstance) {
           }
         }
         if (!lead) {
+          // Dois DMs seguidos do mesmo perfil passavam os dois pela busca acima
+          // e criavam duas fichas. A trava serializa por `uid` (que aqui já é a
+          // identidade: "instagram:<senderId>") e a tarefa começa procurando de
+          // novo — quem chega depois encontra o que o primeiro criou.
+          lead = await semFichaEmDobro(uid, async () => {
+          const jaExiste = await prisma.lead.findFirst({ where: { uid } })
+          if (jaExiste) return jaExiste
           // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
           const prof = await fetchSenderProfile(senderId, channel)
           const formData: Record<string, any> = channel === 'messenger'
@@ -882,7 +890,7 @@ export async function instagramRoutes(app: FastifyInstance) {
             : { instagramSenderId: senderId }
           if (prof.username) formData.instagramUsername = prof.username
           if (prof.profilePic) formData.profilePicUrl = prof.profilePic
-          lead = await prisma.lead.create({
+          const novo = await prisma.lead.create({
             data: {
               uid,
               nome: prof.name || `${canalNome} #${senderId}`,
@@ -899,10 +907,12 @@ export async function instagramRoutes(app: FastifyInstance) {
           })
           broadcastRealtimeEvent({
             type: 'lead:created',
-            payload: { id: lead.id, nome: lead.nome, status: lead.status },
+            payload: { id: novo.id, nome: novo.nome, status: novo.status },
           })
           // Foto de perfil → avatar local (a URL da Meta expira).
-          if (prof.profilePic) cacheIgAvatar(lead.id, prof.profilePic, app).catch(() => {})
+          if (prof.profilePic) cacheIgAvatar(novo.id, prof.profilePic, app).catch(() => {})
+          return novo
+          })
         }
 
         // Mídia: a DM pode trazer attachments (image/video/audio/file/share/story).

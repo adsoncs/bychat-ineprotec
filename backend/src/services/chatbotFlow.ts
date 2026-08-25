@@ -4,6 +4,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { semFichaEmDobro, chaveDoContato } from './contactIdentity.js'
 import { getBranding } from '../lib/branding.js'
 import { notifyNewLead } from './notify.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -416,6 +417,18 @@ export async function processChatbotMessage(
   const isNew = !lead
 
   if (!lead) {
+    // Criação com exclusividade para este contato: duas mensagens chegando
+    // juntas passavam as duas pela busca acima e criavam duas fichas. A tarefa
+    // começa procurando de novo — é isso que faz a segunda aproveitar o que a
+    // primeira criou.
+    const resultado = await semFichaEmDobro(chaveDoContato(phone, instanceName ?? null), async () => {
+    const jaExiste = await prisma.lead.findFirst({
+      where: { whatsapp: phone, completed: false },
+      orderBy: { createdAt: 'desc' },
+    })
+    // Outra mensagem do mesmo contato ganhou a corrida e já criou a ficha (e já
+    // mandou a saudação): esta segue o fluxo normal em vez de saudar de novo.
+    if (jaExiste) return { lead: jaExiste, saudou: false }
     // Cria novo lead
     const firstMessage = greetingMsg || `Olá! 👋 Eu sou a assistente virtual da ${brand.brandName}.
 
@@ -464,7 +477,7 @@ Para começar, qual é o seu *nome*?`
       }
       promote = { funnelId: promoteFunnelId, status: stageKey, qualifiedAt: new Date(), qualificationSource: 'chatbot' }
     }
-    lead = await prisma.lead.create({
+    const novo = await prisma.lead.create({
       data: {
         uid: await generateUid(),
         nome: '',
@@ -491,11 +504,11 @@ Para começar, qual é o seu *nome*?`
 
     // Save origin data if detected
     if (originData) {
-      saveLeadOrigin(lead.id, originData).catch(e => app.log.warn(`Origin save error: ${e}`))
+      saveLeadOrigin(novo.id, originData).catch(e => app.log.warn(`Origin save error: ${e}`))
     }
 
     logEvent({
-      leadId: lead.id,
+      leadId: novo.id,
       type: EVENT_TYPES.LEAD_CREATED,
       category: 'lifecycle',
       title: 'Lead criado via WhatsApp',
@@ -507,7 +520,7 @@ Para começar, qual é o seu *nome*?`
     })
 
     logEvent({
-      leadId: lead.id,
+      leadId: novo.id,
       type: EVENT_TYPES.DIAGNOSIS_STARTED,
       category: 'lifecycle',
       title: 'Diagnóstico iniciado via WhatsApp',
@@ -524,7 +537,7 @@ Para começar, qual é o seu *nome*?`
     try {
       await prisma.message.create({
         data: {
-          leadId: lead.id,
+          leadId: novo.id,
           fromMe: true,
           body: firstMessage,
           mediaType: 'text',
@@ -538,14 +551,20 @@ Para começar, qual é o seu *nome*?`
         }
       })
       await prisma.lead.update({
-        where: { id: lead.id },
+        where: { id: novo.id },
         data: { lastMessageAt: new Date() }
       })
     } catch (msgErr) {
       app.log.warn(`Failed to save greeting message: ${msgErr}`)
     }
 
-    return
+    return { lead: novo, saudou: true }
+    })
+
+    // Saudação enviada = a conversa começou agora; nada mais a fazer com esta
+    // mensagem. Se outra requisição criou a ficha antes, seguimos com ela.
+    if (resultado.saudou) return
+    lead = resultado.lead
   }
 
   // Lead existente — continua conversa

@@ -81,3 +81,48 @@ export async function reconcileLeadIdentity(
     await prisma.lead.update({ where: { id: leadId }, data }).catch(() => {})
   }
 }
+
+// ── Trava contra a ficha em dobro ───────────────────────────────────────
+//
+// Duas mensagens do mesmo contato chegando quase juntas passavam as duas pela
+// busca — nenhuma achava — e as duas criavam. Medido no kobogo: 8 dos 10 pares
+// nasceram na MESMA instância com 57 a 491 MILISSEGUNDOS de diferença. Entre a
+// busca e a criação o webhook ainda consulta chatbot, roteamento e agenda, o
+// que alarga a janela.
+//
+// Cada instalação roda UM processo (pm2 `instances: 1`, `exec_mode: fork`),
+// então as duas requisições disputam o mesmo event loop: serializar por chave
+// aqui fecha o caso inteiro, sem migration e sem depender de índice no banco.
+//
+// O que fecha a corrida não é a fila, é REFAZER A BUSCA dentro dela: a segunda
+// requisição procura depois que a primeira terminou, e então encontra.
+
+const criacoesEmVoo = new Map<string, Promise<unknown>>()
+
+/** Chave da trava: um contato por linha de WhatsApp, que é a regra de identidade. */
+export function chaveDoContato(phone: string | null | undefined, instanceName: string | null | undefined): string {
+  return `${phoneKey(phone) ?? phone ?? '?'}@${instanceName ?? '-'}`
+}
+
+/**
+ * Executa `tarefa` com exclusividade para aquele contato.
+ *
+ * A tarefa DEVE começar procurando o lead de novo — é isso que faz a segunda
+ * requisição aproveitar o que a primeira criou em vez de criar a segunda ficha.
+ */
+export async function semFichaEmDobro<T>(chave: string, tarefa: () => Promise<T>): Promise<T> {
+  const anterior = criacoesEmVoo.get(chave)
+  // Se a anterior falhou, tanto faz: o que importa é que terminou, e a busca
+  // desta já enxerga o que aquela tiver gravado.
+  if (anterior) await anterior.catch(() => {})
+
+  const atual = tarefa()
+  criacoesEmVoo.set(chave, atual)
+  try {
+    return await atual
+  } finally {
+    // Só limpa se ninguém entrou depois: senão apagaria a trava de quem está
+    // esperando.
+    if (criacoesEmVoo.get(chave) === atual) criacoesEmVoo.delete(chave)
+  }
+}
