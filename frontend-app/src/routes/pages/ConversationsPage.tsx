@@ -1192,6 +1192,16 @@ function ChatPanel({
   const { data: infoData } = useTicketInfo(leadId)
   const ticket = ticketsList?.tickets.find((t) => t.id === leadId)
   const lead = infoData?.lead
+  // Identidade do cabeçalho: vem do PRÓPRIO lead aberto, não de procurá-lo na
+  // lista da aba. A lista traz 50 por página e só do bucket selecionado — quem
+  // abre a conversa de outra tela ("Abrir no Conversas" da Supervisão, o botão
+  // do módulo Contatos, um link com ?leadId=) cai fora dela, e o cabeçalho
+  // exibia "Lead #381" para alguém que tem nome havia meses.
+  //
+  // A ficha é o último recurso, e mesmo assim como legenda: o código do lead
+  // pode interessar, mas nunca no lugar do nome.
+  const nomeDoContato = lead?.nome ?? ticket?.nome ?? lead?.empresa ?? ticket?.empresa ?? null
+  const empresaDoContato = lead?.empresa ?? ticket?.empresa ?? null
   const currentUserId = useUserStore((s) => s.user?.id)
   const send = useSendMessage(leadId)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -1969,7 +1979,7 @@ function ChatPanel({
             ? <img src={lead.profilePicUrl} alt="" class="h-full w-full object-cover" />
             : isGroupChat
             ? <Users size={16} />
-            : (ticket?.nome ?? ticket?.empresa ?? '?')[0]?.toUpperCase()}
+            : (nomeDoContato ?? '?')[0]?.toUpperCase()}
         </div>
 
         {/* Identidade. `min-w-0` é o que autoriza o truncamento: sem ele o nome
@@ -1980,13 +1990,13 @@ function ChatPanel({
               class="truncate font-medium text-fg"
               style={{ fontSize: 'var(--conv-name-font, 0.875rem)' }}
               title={[
-                ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`,
-                ticket?.empresa ? `Empresa: ${ticket.empresa}` : null,
+                nomeDoContato ?? `Contato #${leadId}`,
+                empresaDoContato ? `Empresa: ${empresaDoContato}` : null,
                 lead?.team ? `Setor: ${lead.team.name}` : null,
                 `Responsável: ${lead?.assignedUser?.name ?? lead?.assignedUser?.email ?? 'ninguém'}`,
               ].filter(Boolean).join(' · ')}
             >
-              {ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}
+              {nomeDoContato ?? lead?.whatsapp ?? `Contato #${leadId}`}
             </span>
             {isSnoozed && (
               <span class="shrink-0 text-warning" title="Atendimento adormecido">
@@ -2284,7 +2294,7 @@ function ChatPanel({
       {syncOpen && (
         <ChatSyncModal
           leadId={leadId}
-          nome={ticket?.nome ?? lead?.nome ?? null}
+          nome={nomeDoContato}
           isGroup={isGroupChat}
           onClose={() => setSyncOpen(false)}
         />
@@ -2293,7 +2303,7 @@ function ChatPanel({
       {deleteOpen && (
         <DeleteTicketDialog
           leadId={leadId}
-          leadName={ticket?.nome ?? ticket?.empresa ?? `Lead #${leadId}`}
+          leadName={nomeDoContato ?? `Contato #${leadId}`}
           onClose={() => setDeleteOpen(false)}
           onDeleted={() => { setDeleteOpen(false); onClose() }}
         />
@@ -2409,7 +2419,7 @@ function ChatPanel({
                   // no CRM — a mensagem guarda o apelido que ele usa no WhatsApp
                   // dele, e não é isso que a equipe deve ver. Em grupo o rótulo
                   // continua sendo quem falou.
-                  nomeContato={isGroupChat ? null : (ticket?.nome ?? lead?.nome ?? null)}
+                  nomeContato={isGroupChat ? null : nomeDoContato}
                 />
               </div>
             )
@@ -2820,7 +2830,7 @@ function ChatPanel({
 
       <PromoteLeadDialog
         open={promoteAfterClaimOpen}
-        mode={{ kind: 'single', leadId, leadName: ticket?.nome ?? lead?.nome ?? null }}
+        mode={{ kind: 'single', leadId, leadName: nomeDoContato }}
         onOpenChange={setPromoteAfterClaimOpen}
       />
 
