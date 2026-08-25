@@ -872,7 +872,9 @@ export async function leadsRoutes(app: FastifyInstance) {
       category: 'lifecycle',
       title: `Dados do lead editados: ${changedFields.join(', ')}`,
       source: 'panel',
-      actorType: 'operator',
+      // Edição de dados cadastrais (telefone, e-mail, nome) é a ação mais
+      // sensível da tela: tem de dizer QUEM editou, não só de que IP.
+      ...getOperator(req),
       description: `Campos alterados: ${changedFields.join(', ')}`,
       oldValue: JSON.stringify(changedFields.reduce((acc: any, k: string) => { acc[k] = (existing as any)[k]; return acc }, {})),
       newValue: JSON.stringify(changedFields.reduce((acc: any, k: string) => { acc[k] = data[k]; return acc }, {})),
@@ -1413,7 +1415,7 @@ export async function leadsRoutes(app: FastifyInstance) {
         title: 'Relatório de diagnóstico enviado por email',
         channel: 'email',
         source: 'panel',
-        actorType: 'operator',
+        ...getOperator(req),
         description: `Relatório enviado para ${lead.email}`,
         metadata: { email: lead.email },
         ipAddress: getIp(req),

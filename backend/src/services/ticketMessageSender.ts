@@ -376,6 +376,12 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
     pausedBot = await pauseBotForHuman(lid, { userId: user.userId, userName: user.name })
   }
 
+  // Só chame de "do operador" quando houver operador identificado. Sem
+  // operatorMeta o envio é automático (aviso de transferência, por exemplo), e
+  // o título antigo afirmava um autor humano que a auditoria não tem como achar.
+  const via = sentExternalId ? 'WhatsApp' : 'painel'
+  const temOperador = Boolean((operatorMeta as any)?.userName)
+
   logEvent({
     leadId: lid,
     type: isInternal ? EVENT_TYPES.MESSAGE_INTERNAL : EVENT_TYPES.MESSAGE_SENT,
@@ -383,8 +389,10 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
     title: isInternal
       ? 'Nota interna adicionada'
       : origin === 'scheduled'
-        ? `Mensagem agendada enviada via ${sentExternalId ? 'WhatsApp' : 'painel'}`
-        : `Mensagem enviada pelo operador via ${sentExternalId ? 'WhatsApp' : 'painel'}`,
+        ? `Mensagem agendada enviada via ${via}`
+        : temOperador
+          ? `Mensagem enviada pelo operador via ${via}`
+          : `Mensagem automática enviada via ${via}`,
     channel: isInternal ? 'system' : (sentExternalId ? 'whatsapp' : 'manual'),
     source: origin === 'scheduled' ? 'scheduled' : 'panel',
     ...(operatorMeta || {}),

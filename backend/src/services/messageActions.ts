@@ -164,7 +164,7 @@ export async function editarMensagem(
     leadId, type: EVENT_TYPES.MESSAGE_SENT, category: 'operator',
     title: 'Mensagem editada',
     description: `De "${(msg.body ?? '').slice(0, 120)}" para "${texto.slice(0, 120)}"`,
-    source: 'panel', channel: 'whatsapp',
+    source: 'panel', channel: 'whatsapp', actorType: 'operator',
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   avisarTelas(leadId, 'message.edited', { id: msg.id, body: texto, editedAt: atualizada.editedAt })
@@ -211,7 +211,7 @@ export async function apagarMensagem(
     leadId, type: EVENT_TYPES.MESSAGE_SENT, category: 'operator',
     title: scope === 'all' ? 'Mensagem apagada para todos' : 'Mensagem apagada da tela',
     description: (msg.body ?? `(${msg.mediaType})`).slice(0, 200),
-    source: 'panel', channel: 'whatsapp',
+    source: 'panel', channel: 'whatsapp', actorType: 'operator',
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   avisarTelas(leadId, 'message.deleted', { id: msg.id, scope })
@@ -276,7 +276,7 @@ export async function encaminharMensagem(
     leadId, type: EVENT_TYPES.MESSAGE_SENT, category: 'operator',
     title: `Mensagem encaminhada para ${enviados} conversa(s)`,
     description: (msg.body ?? `(${msg.mediaType})`).slice(0, 200),
-    source: 'panel', channel: 'whatsapp',
+    source: 'panel', channel: 'whatsapp', actorType: 'operator',
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   return { ok: true as const, enviados, resultados }
@@ -352,7 +352,7 @@ export async function marcarConversaNaoLida(leadId: number, actor: ActionActor) 
   logEvent({
     leadId, type: EVENT_TYPES.OPERATOR_MARKED_READ, category: 'operator',
     title: 'Conversa marcada como não lida',
-    source: 'panel',
+    source: 'panel', actorType: 'operator',
     userId: actor.userId, userName: actor.name || actor.email || undefined,
   })
   avisarTelas(leadId, 'ticket.unread', { leadId, unreadMessages: total })
