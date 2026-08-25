@@ -27,6 +27,7 @@ import { chatbotsRoutes } from './routes/chatbots.js'
 import { instancesRoutes } from './routes/instances.js'
 import { funnelsRoutes } from './routes/funnels.js'
 import { atendimentoRoutes } from './routes/atendimento.js'
+import { contatosRoutes } from './routes/contatos.js'
 import { scheduledMessagesRoutes } from './routes/scheduledMessages.js'
 import { supervisionRoutes } from './routes/supervision.js'
 import { conversationAccessRoutes } from './routes/conversationAccess.js'
@@ -532,6 +533,7 @@ await app.register(chatbotsRoutes)
 await app.register(instancesRoutes)
 await app.register(funnelsRoutes)
 await app.register(atendimentoRoutes)
+await app.register(contatosRoutes)
 await app.register(scheduledMessagesRoutes)
 await app.register(supervisionRoutes)
 await app.register(conversationAccessRoutes)

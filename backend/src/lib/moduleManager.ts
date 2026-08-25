@@ -28,6 +28,14 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   goals_commissions: {
     AGENT: { canView: true, canCreate: false, canEdit: false, canDelete: false },
   },
+  // Contatos é a lista de quem já falou com a empresa: quem atende PRECISA
+  // enxergar e mexer nela, então o AGENT entra com ver/criar/editar. Apagar
+  // fica de fora por padrão nele e no MANAGER — apagar um contato leva junto o
+  // histórico da conversa, e é decisão que se toma uma vez, não no meio do
+  // atendimento. O administrador afrouxa em Permissões se quiser.
+  contatos: {
+    AGENT: { canView: true, canCreate: true, canEdit: true, canDelete: false },
+  },
 }
 
 

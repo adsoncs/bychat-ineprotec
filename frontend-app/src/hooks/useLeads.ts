@@ -708,6 +708,11 @@ export function useQualifyLead() {
       void qc.invalidateQueries({ queryKey: ['ticket-info', id] })
       void qc.invalidateQueries({ queryKey: ['tickets'] })
       void qc.invalidateQueries({ queryKey: ['kanban'] })
+      // Promover TIRA a ficha do módulo Contatos: sem isto ela continuaria
+      // listada lá até o cache expirar, e um segundo clique tentaria promover
+      // quem já é lead.
+      void qc.invalidateQueries({ queryKey: ['contatos'] })
+      void qc.invalidateQueries({ queryKey: ['contatos-resumo'] })
     },
   })
 }
@@ -735,6 +740,8 @@ export function useBulkQualifyLeads() {
       void qc.invalidateQueries({ queryKey: ['leads'] })
       void qc.invalidateQueries({ queryKey: ['tickets'] })
       void qc.invalidateQueries({ queryKey: ['kanban'] })
+      void qc.invalidateQueries({ queryKey: ['contatos'] })
+      void qc.invalidateQueries({ queryKey: ['contatos-resumo'] })
     },
   })
 }

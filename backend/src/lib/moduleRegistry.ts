@@ -33,6 +33,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
+    id: 'contatos', name: 'Contatos', icon: '📇', category: 'crm',
+    description: 'Quem já conversou com a empresa e ainda não virou Lead. Mesma ficha do Lead, num estado anterior.',
+    pages: ['contatos'],
+    routePrefixes: ['/api/contatos'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    core: true, defaultEnabled: true,
+  },
+  {
     id: 'supervision', name: 'Supervisão', icon: '🎧', category: 'crm',
     description: 'Painel gerencial do Conversas: baldes, KPIs, quem conduz (bot ou humano), canal, funil e ações sobre as conversas.',
     pages: ['supervision'],

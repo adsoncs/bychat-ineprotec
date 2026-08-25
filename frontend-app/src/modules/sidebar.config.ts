@@ -42,6 +42,7 @@ export type IconName =
   | 'Plug'
   | 'Boxes'
   | 'Handshake'
+  | 'BookUser'
   | 'Settings'
   | 'GanttChart'
   | 'GraduationCap'
@@ -130,6 +131,10 @@ export const sidebarSchema: SidebarSchema = {
       id: 'crm',
       label: 'CRM',
       items: [
+        // Contato é conversa que ainda não virou Lead: mesma ficha, outro estado
+        // (`qualifiedAt = null`). Fica ANTES de Leads porque é por onde a pessoa
+        // entra — e o que não for promovido continua vivendo aqui.
+        { id: 'contatos', label: 'Contatos', href: '/app/contatos', icon: 'BookUser', permission: 'contatos' },
         { id: 'leads', label: 'Leads', href: '/app/leads', icon: 'Users', permission: 'leads' },
         { id: 'leads-duplicates', label: 'Duplicados', href: '/app/leads/duplicates', icon: 'Copy', permission: 'leads' },
         { id: 'kanban', label: 'Kanban', href: '/app/kanban', icon: 'KanbanSquare', permission: 'kanban' },

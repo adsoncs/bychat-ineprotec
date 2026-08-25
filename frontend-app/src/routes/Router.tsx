@@ -32,6 +32,7 @@ const migratedPages: Record<string, ComponentType> = {
   analytics: lazy(() =>
     import('./pages/DashboardPage').then((m) => ({ default: m.AnalyticsPage })),
   ),
+  contatos: lazy(() => import('./pages/ContatosPage').then((m) => ({ default: m.ContatosPage }))),
   leads: lazy(() => import('./pages/LeadsPage').then((m) => ({ default: m.LeadsPage }))),
   'leads-duplicates': lazy(() => import('./pages/LeadsDuplicatesPage').then((m) => ({ default: m.LeadsDuplicatesPage }))),
   kanban: lazy(() => import('./pages/KanbanPage').then((m) => ({ default: m.KanbanPage }))),
