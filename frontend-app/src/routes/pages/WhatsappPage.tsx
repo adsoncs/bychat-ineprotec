@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Phone, Plus, Trash2, RefreshCw, Power, Wifi, WifiOff, AlertCircle,
   Pencil, User, Image as ImageIcon, Upload, X as XIcon, RotateCcw, CheckCircle2, HelpCircle,
+  BookUser,
 } from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -20,6 +21,7 @@ import {
   useRemoveProfilePicture,
   useInstanceStatus,
   useWhatsappConnectionStream,
+  useSyncAgenda,
   uploadProfilePicture,
   type WhatsAppInstance,
 } from '@/hooks/useInstances'
@@ -75,6 +77,7 @@ export function WhatsappPage() {
   const { data, isLoading, isFetching } = useInstances()
   const { data: chatbots } = useChatbots()
   const qc = useQueryClient()
+  const syncAgenda = useSyncAgenda()
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<WhatsAppInstance | null>(null)
   const [profileOf, setProfileOf] = useState<WhatsAppInstance | null>(null)
@@ -176,6 +179,23 @@ export function WhatsappPage() {
     toast('Atualizando status…', 'info', 1_500)
   }
 
+  function handleSyncAgenda() {
+    syncAgenda.mutate(undefined, {
+      onSuccess: (r) => {
+        // O número que interessa é quantos NOMES mudaram. "5.000 contatos lidos"
+        // sem nenhum lead corrigido soaria como sucesso e não é: quer dizer que
+        // a agenda não tinha nada além do que já sabíamos.
+        toast(
+          r.leadsAtualizados > 0
+            ? `${r.leadsAtualizados} contato${r.leadsAtualizados > 1 ? 's' : ''} renomeado${r.leadsAtualizados > 1 ? 's' : ''} (${r.contatosSalvos} lidos do aparelho)`
+            : `${r.contatosSalvos} contato${r.contatosSalvos === 1 ? '' : 's'} lido${r.contatosSalvos === 1 ? '' : 's'} do aparelho. Nenhum nome precisou mudar.`,
+          r.leadsAtualizados > 0 ? 'success' : 'info',
+        )
+      },
+      onError: (e: unknown) => toast((e as Error).message || 'Não foi possível ler a agenda', 'danger'),
+    })
+  }
+
   return (
     <Page
       title="WhatsApp"
@@ -187,6 +207,26 @@ export function WhatsappPage() {
           </Button>
           <Button variant="ghost" size="sm" onClick={handleRefreshStatus} disabled={isFetching}>
             <RotateCcw size={14} class={isFetching ? 'animate-spin' : ''} /> Atualizar
+          </Button>
+          {/* Os contatos do aparelho entram sozinhos (varredura diária + consulta
+            * ao criar cada lead); isto só antecipa, para quem acabou de salvar
+            * contatos novos no celular não precisar esperar até amanhã.
+            *
+            * RESSALVA CONHECIDA: a Evolution guarda o nome da agenda e o apelido
+            * do contato na MESMA coluna e reescreve quando a pessoa manda
+            * mensagem — medido em 25/08/2026: 472 de 754 contatos do beyond já
+            * foram reescritos. Para quem nunca escreveu, o valor é mesmo o da
+            * agenda; para quem escreveu, tende a ser o apelido. Por isso o
+            * rótulo aqui fala em CONTATOS DO APARELHO, não em agenda. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSyncAgenda}
+            disabled={syncAgenda.isPending}
+            title="Lê os contatos dos celulares conectados e nomeia quem ainda aparece só como telefone"
+          >
+            <BookUser size={14} class={syncAgenda.isPending ? 'animate-pulse' : ''} />
+            {syncAgenda.isPending ? 'Lendo os contatos…' : 'Sincronizar contatos'}
           </Button>
           <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
             <Plus size={14} /> Nova instância

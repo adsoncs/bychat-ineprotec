@@ -246,3 +246,34 @@ export async function uploadProfilePicture(file: File): Promise<string> {
   const res = await api.post<{ url: string }>('/atendimento/upload', fd)
   return res.url
 }
+
+// ── Contatos do aparelho ───────────────────────────────────────────────
+//
+// Os contatos do celular conectado entram sozinhos (varredura diária mais uma
+// consulta ao criar cada lead); isto só antecipa, para quem acabou de salvar
+// contatos novos não precisar esperar até amanhã.
+//
+// Chama-se "contatos", e não "agenda", de propósito: a Evolution guarda o nome
+// da agenda e o apelido do contato na mesma coluna. Ver
+// `backend/scripts/diagnostico-agenda-vs-pushname.ts`.
+
+export interface SyncAgendaResult {
+  ok: true
+  contatosSalvos: number
+  leadsAtualizados: number
+  resultados: Array<{ instancia: string; contatosSalvos: number; leadsAtualizados: number; erro?: string }>
+}
+
+/** Puxa a agenda agora. Sem `instance`, varre todos os números conectados. */
+export function useSyncAgenda() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (instance?: string) =>
+      api.post<SyncAgendaResult>('/whatsapp/sync-agenda', instance ? { instance } : {}),
+    onSuccess: () => {
+      // Os nomes mudam na lista de conversas e no painel do lead.
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+      void qc.invalidateQueries({ queryKey: ['leads'] })
+    },
+  })
+}
