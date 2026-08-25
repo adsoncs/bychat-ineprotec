@@ -432,7 +432,13 @@ export function useMarkAsRead() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (leadId: number) => api.put<{ ok: true }>(`/atendimento/tickets/${leadId}/read`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
+    // `ticket-info` é a fonte do contador do painel aberto; sem invalidá-lo o
+    // valor ficava velho no cache e a conversa era marcada de novo a cada vez
+    // que voltava à tela — uma linha repetida na timeline por visita.
+    onSuccess: (_r, leadId) => {
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+      void qc.invalidateQueries({ queryKey: ['ticket-info', leadId] })
+    },
   })
 }
 

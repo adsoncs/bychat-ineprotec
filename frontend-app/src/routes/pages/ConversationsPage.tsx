@@ -1288,7 +1288,14 @@ function ChatPanel({
   // (a) operador abre ticket pela 1ª vez → lê o que estava pendente
   // (b) ticket já aberto, cliente envia msg → contador cai sem ação manual
   // (c) operador volta da aba em background → contador zera ao focar
-  const unread = ticket?.unreadMessages ?? 0
+  //
+  // O número vem do PRÓPRIO ticket aberto, não de procurar a conversa na lista
+  // da aba: aquela busca só enxerga as 50 primeiras do bucket, e quando não
+  // achava caía em 0 — o código concluía "não há o que marcar" sem saber. Uma
+  // conversa lá embaixo na lista, aberta a partir do Kanban com outra aba
+  // selecionada, ou já resolvida, nunca marcava como lida por mais vezes que
+  // fosse aberta.
+  const unread = infoData?.lead?.unreadMessages ?? 0
   const messageCount = data?.messages.length ?? 0
 
   // Mensagens já disparadas e ainda sem resposta do servidor. Elas aparecem na
@@ -1340,12 +1347,12 @@ function ChatPanel({
 
   useEffect(() => {
     function onFocus() {
-      if ((ticket?.unreadMessages ?? 0) > 0) markRead.mutate(leadId)
+      if (unread > 0) markRead.mutate(leadId)
     }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadId, ticket?.unreadMessages])
+  }, [leadId, unread])
 
   // Scroll para o fim quando mensagens chegarem (incluso quando o painel info
   // está aberto — antes o scroll só ocorria no re-render do painel principal).
