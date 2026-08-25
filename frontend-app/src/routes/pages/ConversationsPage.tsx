@@ -63,7 +63,8 @@ import {
   PinOff,
   RefreshCw,
   Layers,
-, UserRound} from 'lucide-preact'
+  UserRound,
+} from 'lucide-preact'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTickets,
