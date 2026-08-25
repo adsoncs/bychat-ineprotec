@@ -442,6 +442,31 @@ export function useMarkAsRead() {
   })
 }
 
+export interface MarkReadBulkResult {
+  ok: true
+  /** Quantas realmente tinham não lidas e foram zeradas. */
+  marcadas: number
+  /** Selecionadas que já estavam lidas — não viram evento na timeline. */
+  jaLidas: number
+  /** Selecionadas fora do alcance de quem pediu; puladas sem derrubar o lote. */
+  semAcesso: number
+}
+
+/** Marca várias conversas como lidas de uma vez, direto da lista. */
+export function useMarkReadBulk() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadIds: number[]) =>
+      api.put<MarkReadBulkResult>('/atendimento/tickets/read-bulk', { leadIds }),
+    onSuccess: (_r, leadIds) => {
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+      // Uma delas pode estar aberta no painel: sem isto o contador dela ficaria
+      // velho e a conversa seria remarcada no próximo tick.
+      for (const id of leadIds) void qc.invalidateQueries({ queryKey: ['ticket-info', id] })
+    },
+  })
+}
+
 export interface UploadResponse {
   url: string
   filename: string

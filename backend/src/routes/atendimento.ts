@@ -31,11 +31,12 @@ function describeAssignment(
 // `acao` diz o que está sendo tentado — só o gerenciador do Conversas a usa; o
 // caminho antigo nunca distinguiu ler de escrever aqui e continua não
 // distinguindo, para não endurecer nada em quem não configurou a matriz.
-async function assertTicketAccess(
-  req: any, reply: any, leadId: number, acao: Acao = 'view',
-): Promise<boolean> {
-  const user = req.user as JwtPayload
+type AcessoTicket = { ok: true } | { ok: false; status: number; error: string; acao?: Acao }
 
+/** A checagem em si, sem tocar na resposta. Existe separada porque as ações em
+ *  LOTE precisam separar o que a pessoa pode fazer do que não pode, em vez de
+ *  recusar o lote inteiro por causa de uma conversa fora do alcance dela. */
+async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao = 'view'): Promise<AcessoTicket> {
   // Gerenciador do Conversas: quando há matriz para este usuário, ela responde
   // sozinha — escopo do lead e reserva de número saem de cena, senão a regra
   // mais restritiva venceria sempre e a marcação não valeria de nada.
@@ -43,25 +44,32 @@ async function assertTicketAccess(
   if (mapa.configurado) {
     const perms = await permissoesNaConversa(mapa, leadId)
     if (!perms || !permite(perms, acao)) {
-      reply.code(403).send({ error: 'Sem permissão sobre esta conversa', acao })
-      return false
+      return { ok: false, status: 403, error: 'Sem permissão sobre esta conversa', acao }
     }
-    return true
+    return { ok: true }
   }
 
-  const ok = await canUserAccessLead(user.userId, user.role, leadId)
-  if (!ok) {
-    reply.code(403).send({ error: 'Sem permissão sobre este lead' })
-    return false
+  if (!await canUserAccessLead(user.userId, user.role, leadId)) {
+    return { ok: false, status: 403, error: 'Sem permissão sobre este lead' }
   }
   // Número reservado: esconder da lista e deixar abrir pela URL seria uma
   // proteção que não protege — o id da conversa é adivinhável.
   const { podeVerConversa } = await import('../services/channelVisibility.js')
   if (!await podeVerConversa(leadId, user.userId, user.role)) {
-    reply.code(403).send({ error: 'Esta conversa pertence a um número reservado.' })
-    return false
+    return { ok: false, status: 403, error: 'Esta conversa pertence a um número reservado.' }
   }
-  return true
+  return { ok: true }
+}
+
+async function assertTicketAccess(
+  req: any, reply: any, leadId: number, acao: Acao = 'view',
+): Promise<boolean> {
+  const r = await checarAcessoTicket(req.user as JwtPayload, leadId, acao)
+  if (r.ok) return true
+  const payload: Record<string, unknown> = { error: r.error }
+  if (r.acao) payload.acao = r.acao
+  reply.code(r.status).send(payload)
+  return false
 }
 
 /** Campos de um item da lista de conversas. Extraído porque duas consultas
@@ -1512,6 +1520,62 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       return await marcarConversaNaoLida(lid, atorDaRequisicao(req))
     } catch (err: any) {
       return respondeErroAcao(reply, err)
+    }
+  })
+
+  // ── PUT /api/atendimento/tickets/read-bulk — marcar VÁRIAS como lidas ──
+  // O painel só marca a conversa que está aberta, uma por vez. Quem tem uma
+  // fila inteira de não lidas antigas — trabalho já feito que o sistema não
+  // registrou — teria de abrir cada conversa e esperar. Aqui a lista resolve
+  // em um pedido só.
+  //
+  // Conversa fora do alcance da pessoa é PULADA, não derruba o lote: numa
+  // seleção de dezenas, recusar tudo por causa de uma seria pior.
+  app.put('/api/atendimento/tickets/read-bulk', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const user = (req as any).user as JwtPayload
+      const brutos = (req.body as any)?.leadIds
+      if (!Array.isArray(brutos) || !brutos.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      const ids = [...new Set(brutos.map((n: unknown) => parseInt(String(n))).filter((n: number) => Number.isFinite(n)))]
+      if (!ids.length) return reply.code(400).send({ error: 'Informe leadIds' })
+      // Teto de sanidade: a tela seleciona o que está carregado na lista, então
+      // não chega perto disso — o limite existe para um cliente mal-comportado.
+      if (ids.length > 500) return reply.code(400).send({ error: 'No máximo 500 conversas por vez.' })
+
+      const permitidos: number[] = []
+      const semAcesso: number[] = []
+      for (const id of ids) {
+        if ((await checarAcessoTicket(user, id)).ok) permitidos.push(id)
+        else semAcesso.push(id)
+      }
+      if (!permitidos.length) return reply.code(403).send({ error: 'Sem permissão sobre estas conversas' })
+
+      // Só as que realmente têm não lidas: assim a timeline não ganha uma linha
+      // "marcadas como lidas" em conversa que já estava lida. A consulta traz
+      // as existentes (e não só as não lidas) para que a contagem devolvida não
+      // conte id inexistente como "já lida".
+      const existentes = await prisma.lead.findMany({
+        where: { id: { in: permitidos } },
+        select: { id: true, unreadMessages: true },
+      })
+      const idsAlvo = existentes.filter((l) => (l.unreadMessages ?? 0) > 0).map((l) => l.id)
+      if (idsAlvo.length) {
+        await prisma.lead.updateMany({ where: { id: { in: idsAlvo } }, data: { unreadMessages: 0 } })
+        for (const id of idsAlvo) {
+          logEvent({
+            leadId: id,
+            type: EVENT_TYPES.OPERATOR_MARKED_READ,
+            category: 'operator',
+            title: 'Mensagens marcadas como lidas (em lote)',
+            source: 'panel',
+            ...getOperator(req),
+            ipAddress: getIp(req),
+          })
+        }
+      }
+      return { ok: true, marcadas: idsAlvo.length, jaLidas: existentes.length - idsAlvo.length, semAcesso: semAcesso.length }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
     }
   })
 

@@ -58,6 +58,7 @@ import {
   Copy,
   SmilePlus,
   MailQuestion,
+  MailOpen,
   CornerUpLeft,
   Pin,
   PinOff,
@@ -92,6 +93,7 @@ import {
   useForwardMessage,
   useReactMessage,
   useMarkTicketUnread,
+  useMarkReadBulk,
   useTogglePin,
   inferMediaType,
   type Bucket,
@@ -327,6 +329,9 @@ function ConversationsScreen() {
   const qcConversas = useQueryClient()
   // Desfaz a leitura acidental: devolve a conversa para a fila de não lidas.
   const marcarNaoLida = useMarkTicketUnread()
+  // Marcar como lida em lote: a fila de não lidas antigas some de uma vez, sem
+  // precisar abrir conversa por conversa.
+  const marcarLidasEmLote = useMarkReadBulk()
   // Fixar conversa no topo — vale só para quem fixou.
   const alternarFixado = useTogglePin()
 
@@ -383,11 +388,17 @@ function ConversationsScreen() {
     setSelectedIds(new Set())
   }, [bucket, scope])
 
-  // Seleção só faz sentido na "Caixa de entrada" (raw) — leads que ainda não viraram Lead.
-  const selectionEnabled = bucket === 'raw'
+  // Selecionar vale em qualquer aba: PROMOVER continua sendo coisa da Caixa
+  // (lead que ainda não virou Lead), mas marcar como lida serve em todas — é
+  // justamente no Atendimento que se acumula a fila de não lidas antigas.
   const tickets = ticketsCarregados
-  const promotableTickets = tickets.filter((t) => !t.qualifiedAt)
-  const allSelected = selectionEnabled && promotableTickets.length > 0 && promotableTickets.every((t) => selectedIds.has(t.id))
+  const selectionEnabled = tickets.length > 0
+  const promotableTickets = bucket === 'raw' ? tickets.filter((t) => !t.qualifiedAt && !t.isGroup) : []
+  const allSelected = selectionEnabled && tickets.every((t) => selectedIds.has(t.id))
+  // Quantas das selecionadas realmente têm o que marcar. O botão mostra este
+  // número, não o da seleção: prometer "marcar 12" e zerar 3 seria mentir.
+  const selecionadasNaoLidas = tickets.filter((t) => selectedIds.has(t.id) && t.unreadMessages > 0)
+  const selecionadasPromoviveis = promotableTickets.filter((t) => selectedIds.has(t.id))
 
   function toggleSelect(id: number) {
     setSelectedIds((prev) => {
@@ -400,7 +411,7 @@ function ConversationsScreen() {
     setSelectedIds((prev) => {
       if (allSelected) return new Set()
       const next = new Set(prev)
-      promotableTickets.forEach((t) => next.add(t.id))
+      tickets.forEach((t) => next.add(t.id))
       return next
     })
   }
@@ -597,19 +608,28 @@ function ConversationsScreen() {
               })}
             </nav>
           </div>
-          {selectionEnabled && promotableTickets.length > 0 && (
+          {selectionEnabled && (
             <div class="px-3 py-1.5 border-b border-border flex items-center gap-2 text-[0.6875rem]">
               <button
                 type="button"
                 onClick={toggleSelectAll}
                 class="inline-flex items-center gap-1 text-fg-muted hover:text-fg"
-                title={allSelected ? 'Desmarcar todas' : 'Selecionar todas (não qualificadas)'}
+                title={allSelected ? 'Desmarcar todas' : 'Selecionar todas as conversas carregadas'}
               >
                 {allSelected ? <CheckSquare size={13} class="text-accent" /> : <Square size={13} />}
                 <span>{allSelected ? 'Desmarcar todas' : 'Selecionar todas'}</span>
               </button>
+              {/* "Selecionar todas" pega o que ESTÁ CARREGADO, e a lista continua
+                * conforme se rola. Dizer o número evita a leitura de que a ação
+                * alcançou o recorte inteiro. */}
               <span class="text-fg-subtle">·</span>
-              <span class="text-fg-muted">{promotableTickets.length} não qualificada{promotableTickets.length > 1 ? 's' : ''}</span>
+              <span class="text-fg-muted">{tickets.length} carregada{tickets.length > 1 ? 's' : ''}</span>
+              {bucket === 'raw' && promotableTickets.length > 0 && (
+                <>
+                  <span class="text-fg-subtle">·</span>
+                  <span class="text-fg-muted">{promotableTickets.length} não qualificada{promotableTickets.length > 1 ? 's' : ''}</span>
+                </>
+              )}
             </div>
           )}
           {selectedIds.size > 0 && (
@@ -624,13 +644,40 @@ function ConversationsScreen() {
               >
                 Limpar
               </button>
-              <button
-                type="button"
-                onClick={() => setPromoteBulkOpen(true)}
-                class="inline-flex items-center gap-1 px-2 py-1 rounded bg-success text-white text-[0.6875rem] hover:opacity-90"
-              >
-                <Star size={11} /> Promover {selectedIds.size}
-              </button>
+              {selecionadasNaoLidas.length > 0 && (
+                <button
+                  type="button"
+                  disabled={marcarLidasEmLote.isPending}
+                  onClick={() => {
+                    const ids = selecionadasNaoLidas.map((t) => t.id)
+                    marcarLidasEmLote.mutate(ids, {
+                      onSuccess: (r) => {
+                        clearSelection()
+                        toast(
+                          r.marcadas === 1
+                            ? 'Conversa marcada como lida'
+                            : `${r.marcadas} conversas marcadas como lidas`,
+                          'success',
+                        )
+                      },
+                      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                    })
+                  }}
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-fg-on-brand text-[0.6875rem] hover:opacity-90 disabled:opacity-50"
+                >
+                  <MailOpen size={11} />
+                  {marcarLidasEmLote.isPending ? 'Marcando…' : `Marcar ${selecionadasNaoLidas.length} como lida${selecionadasNaoLidas.length > 1 ? 's' : ''}`}
+                </button>
+              )}
+              {bucket === 'raw' && selecionadasPromoviveis.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPromoteBulkOpen(true)}
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-success text-white text-[0.6875rem] hover:opacity-90"
+                >
+                  <Star size={11} /> Promover {selecionadasPromoviveis.length}
+                </button>
+              )}
             </div>
           )}
           <div class="flex-1 overflow-y-auto">
@@ -670,7 +717,7 @@ function ConversationsScreen() {
                     ticket={t}
                     active={selected === t.id}
                     onClick={() => setSelected(t.id)}
-                    selectable={selectionEnabled && !t.qualifiedAt && !t.isGroup}
+                    selectable={selectionEnabled}
                     selected={selectedIds.has(t.id)}
                     onToggleSelect={() => toggleSelect(t.id)}
                     onPromote={!t.qualifiedAt && !t.isGroup ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
@@ -680,6 +727,12 @@ function ConversationsScreen() {
                         onError: (e: unknown) => toast((e as Error).message, 'danger'),
                       })
                     }}
+                    onMarcarLida={t.unreadMessages > 0 ? () => {
+                      marcarLidasEmLote.mutate([t.id], {
+                        onSuccess: () => toast('Conversa marcada como lida', 'success'),
+                        onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                      })
+                    } : undefined}
                     onMarcarNaoLida={() => {
                       marcarNaoLida.mutate(t.id, {
                         onSuccess: (r) => {
@@ -742,7 +795,7 @@ function ConversationsScreen() {
         />
         <PromoteLeadDialog
           open={promoteBulkOpen}
-          mode={promoteBulkOpen ? { kind: 'bulk', leadIds: Array.from(selectedIds) } : null}
+          mode={promoteBulkOpen ? { kind: 'bulk', leadIds: selecionadasPromoviveis.map((t) => t.id) } : null}
           onOpenChange={(o) => { if (!o) setPromoteBulkOpen(false) }}
           onDone={() => clearSelection()}
         />
@@ -916,6 +969,7 @@ function TicketRow({
   onToggleSelect,
   onPromote,
   onMarcarNaoLida,
+  onMarcarLida,
   onAlternarFixado,
 }: {
   ticket: Ticket
@@ -926,6 +980,7 @@ function TicketRow({
   onToggleSelect?: (() => void) | undefined
   onPromote?: (() => void) | undefined
   onMarcarNaoLida?: (() => void) | undefined
+  onMarcarLida?: (() => void) | undefined
   onAlternarFixado?: (() => void) | undefined
 }) {
   const { prefs } = useConversationPrefs()
@@ -1073,19 +1128,35 @@ function TicketRow({
           {fixada ? <PinOff size={13} /> : <Pin size={13} />}
         </button>
       )}
-      {onMarcarNaoLida && ticket.unreadMessages === 0 && (
+      {/* Leitura: um botão só, nas duas direções.
+        *
+        * "Marcar como lida" aparece quando há não lidas e "marcar como não
+        * lida" quando não há — nunca os dois juntos, então dividem a mesma
+        * posição e o canto não ganha mais um alvo para o olho percorrer.
+        *
+        * O de LER existe porque abrir a conversa nem sempre é possível ou
+        * desejável: fila de conversas antigas já respondidas por fora, ou
+        * atendimento que terminou em outro canal. Sem ele, limpar significaria
+        * abrir uma por uma e esperar. */}
+      {(onMarcarNaoLida || onMarcarLida) && (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onMarcarNaoLida() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (ticket.unreadMessages > 0) onMarcarLida?.()
+            else onMarcarNaoLida?.()
+          }}
+          disabled={ticket.unreadMessages > 0 ? !onMarcarLida : !onMarcarNaoLida}
           class={cn(
             'absolute size-7 rounded-md grid place-items-center bg-surface-2 border border-border text-fg-muted',
             'opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-fg-on-brand hover:border-accent transition-opacity focus:opacity-100',
+            'disabled:hidden',
             onAlternarFixado ? (showStar ? 'right-[4.5rem] top-2' : 'right-10 top-2') : (showStar ? 'right-10 top-2' : 'right-2 top-2'),
           )}
-          title="Marcar como não lida"
-          aria-label="Marcar como não lida"
+          title={ticket.unreadMessages > 0 ? 'Marcar como lida' : 'Marcar como não lida'}
+          aria-label={ticket.unreadMessages > 0 ? 'Marcar como lida' : 'Marcar como não lida'}
         >
-          <MailQuestion size={13} />
+          {ticket.unreadMessages > 0 ? <MailOpen size={13} /> : <MailQuestion size={13} />}
         </button>
       )}
       {showStar && (
