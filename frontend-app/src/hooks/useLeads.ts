@@ -371,12 +371,32 @@ export interface LeadHistoryEvent {
   title: string
   description: string | null
   channel: string | null
+  source: string | null
   actorType: string | null
-  actorName: string | null
+  // O backend devolve userId/userName/ipAddress (ver bychat_lead_events). Já foi
+  // declarado aqui como "actorName" — nome que só existe na auditoria de usuário
+  // — e por isso o autor nunca aparecia na timeline.
+  userId: number | null
+  userName: string | null
+  ipAddress: string | null
   oldValue: string | null
   newValue: string | null
   metadata: Record<string, unknown> | null
   createdAt: string
+}
+
+// Quem fez a ação, para auditoria. Operador sempre pelo nome; os demais atores
+// ganham um rótulo explícito para que "sem nome" nunca seja ambíguo na tela.
+const ACTOR_TYPE_LABELS: Record<string, string> = {
+  ai: 'IA',
+  integration: 'Integração',
+  lead: 'Contato',
+  system: 'Sistema',
+}
+
+export function eventAuthorLabel(event: Pick<LeadHistoryEvent, 'userName' | 'actorType'>): string {
+  if (event.userName) return event.userName
+  return ACTOR_TYPE_LABELS[event.actorType ?? ''] ?? 'Sistema'
 }
 
 export interface LeadHistoryFilters {

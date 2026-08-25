@@ -107,6 +107,7 @@ import {
   useOpenConversation,
   useCloseConversation,
   useLeadTransferHistory,
+  eventAuthorLabel,
   useAddLeadTags,
   useRemoveLeadTag,
 } from '@/hooks/useLeads'
@@ -3336,7 +3337,7 @@ function TransferHistorySection({ leadId }: { leadId: number }) {
                 </div>
               )}
               <div class="text-[0.625rem] text-fg-subtle mt-0.5">
-                por {e.actorName ?? 'Sistema'} · {formatRelative(e.createdAt)}
+                por <span title={e.ipAddress ? `IP ${e.ipAddress}` : undefined}>{eventAuthorLabel(e)}</span> · {formatRelative(e.createdAt)}
               </div>
               {e.description && (
                 <div class="text-[0.625rem] text-fg-subtle italic mt-0.5">"{e.description}"</div>

@@ -46,6 +46,7 @@ import {
   type LeadsListFilters,
   type ManualLeadInput,
   type LeadHistoryEvent,
+  eventAuthorLabel,
   type LeadContactInput,
 } from '@/hooks/useLeads'
 import { WhatsappChoiceModal, SendWhatsAppButton } from '@/components/WhatsappSend'
@@ -2617,7 +2618,14 @@ function TimelineEvent({ event }: { event: LeadHistoryEvent }) {
           </div>
         )}
         <div class="text-[0.6875rem] text-fg-subtle mt-1">
-          {event.actorName && <span class="mr-2">{event.actorName}</span>}
+          {/* Autoria sempre visível: toda ação da timeline é rastreável. O IP,
+              quando registrado, fica no tooltip para não poluir a linha. */}
+          <span
+            class="mr-2 font-medium text-fg-muted"
+            title={event.ipAddress ? `IP ${event.ipAddress}` : undefined}
+          >
+            {eventAuthorLabel(event)}
+          </span>
           {formatDateTime(event.createdAt)}
         </div>
       </div>
