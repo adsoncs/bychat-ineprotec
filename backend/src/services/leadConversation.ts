@@ -72,9 +72,15 @@ export async function closeConversation(leadId: number, opts: OpenOpts = {}): Pr
 
   const now = new Date()
   // Sem conversa aberta: abre + fecha agora (descarte da Caixa). Senão, só fecha.
+  //
+  // Encerrar zera o não-lido. Antes o contador ficava como estava e a conversa
+  // saía da aba — e como o painel procurava o número na lista da aba, ele nunca
+  // mais tinha como zerar: ficava "não lida" para sempre, já resolvida. Encerrar
+  // é o gesto mais explícito de "terminei com isto"; se chegar mensagem nova, o
+  // webhook reabre a conversa e volta a contar.
   const data = cur.conversationOpenedAt
-    ? { conversationClosedAt: now }
-    : { conversationOpenedAt: now, conversationClosedAt: now }
+    ? { conversationClosedAt: now, unreadMessages: 0 }
+    : { conversationOpenedAt: now, conversationClosedAt: now, unreadMessages: 0 }
 
   await prisma.lead.update({ where: { id: leadId }, data })
   logEvent({
