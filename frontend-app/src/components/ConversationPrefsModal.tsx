@@ -533,7 +533,10 @@ function NumeroPadraoSemWhatsapp() {
   const qc = useQueryClient()
   const canais = useQuery({
     queryKey: ['sender-channels-prefs'],
-    queryFn: () => api.get<{ channels: Array<{ id: string; name?: string; number?: string; provider?: string }> }>('/atendimento/sender-channels'),
+    // Mesma rota do seletor de envio (`/whatsapp/sender-channels`): antes apontava
+    // para `/atendimento/sender-channels`, que não existe — a lista voltava 404 e o
+    // administrador só via "Sem padrão", sem número nenhum para escolher.
+    queryFn: () => api.get<{ channels: Array<{ id: string; label?: string; number?: string; provider?: string }> }>('/whatsapp/sender-channels'),
   })
   const atual = useQuery({
     queryKey: ['canal-padrao'],
@@ -566,7 +569,7 @@ function NumeroPadraoSemWhatsapp() {
         <option value="">Sem padrão (o operador escolhe)</option>
         {lista.map((c) => (
           <option key={c.id} value={c.id}>
-            {[c.name, c.number].filter(Boolean).join(' · ') || c.id}
+            {[c.label, c.number].filter(Boolean).join(' · ') || c.id}
             {c.provider === 'cloud_api' ? ' (Cloud API)' : ''}
           </option>
         ))}
