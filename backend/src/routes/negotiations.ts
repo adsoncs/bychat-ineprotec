@@ -134,6 +134,26 @@ async function stageLabelMap(leads: { funnelId: number | null; status: string }[
   return new Map(stages.map((s) => [`${s.funnelId}:${s.key}`, { name: s.name, color: s.color }]))
 }
 
+/**
+ * O funil de uma negociação.
+ *
+ * Aceita a escolha explícita — mas só se o lead realmente estiver naquele
+ * funil, como principal ou como adicional. Escolher um funil onde ele não está
+ * criaria uma venda contabilizada num processo que não aconteceu.
+ */
+async function funilDaNegociacao(
+  leadId: number, escolhido: unknown, principal: number | null,
+): Promise<number | null> {
+  const pedido = Number(escolhido)
+  if (!Number.isFinite(pedido)) return principal
+  if (pedido === principal) return pedido
+  const vinculo = await prisma.leadFunnel.findUnique({
+    where: { leadId_funnelId: { leadId, funnelId: pedido } },
+    select: { saiuEm: true },
+  })
+  return vinculo && vinculo.saiuEm === null ? pedido : principal
+}
+
 export async function negotiationsRoutes(app: FastifyInstance) {
   // Lista de negociações de um lead.
   app.get('/api/admin/negotiations', { preHandler: authMiddleware }, async (req) => {
@@ -342,7 +362,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
   app.post('/api/admin/negotiations', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
     if (!b.leadId) return reply.code(400).send({ error: 'leadId é obrigatório' })
-    const leadDono = await prisma.lead.findUnique({ where: { id: Number(b.leadId) }, select: { assignedUserId: true } })
+    const leadDono = await prisma.lead.findUnique({ where: { id: Number(b.leadId) }, select: { assignedUserId: true, funnelId: true } })
     const items = normItems(b.items)
     const descontoTipo = b.descontoTipo === 'percent' ? 'percent' : (b.descontoValor != null ? 'valor' : null)
     const descontoValor = num(b.descontoValor)
@@ -354,6 +374,11 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     const n = await prisma.negotiation.create({
       data: {
         leadId: Number(b.leadId), titulo: String(b.titulo || 'Proposta').slice(0, 191),
+        // Em qual funil esta venda acontece. Vem escolhido quando o lead está
+        // em mais de um processo; senão herda o principal. É por este campo
+        // que a meta e a comissão contam — e é uma negociação, um funil, para
+        // a mesma receita não ser contada em dois lugares.
+        funnelId: await funilDaNegociacao(Number(b.leadId), b.funnelId, leadDono?.funnelId ?? null),
         status: STATUSES.includes(b.status) ? b.status : 'rascunho',
         valorTabela, descontoTipo, descontoValor, frete, valorFinal, valorUnico, valorRecorrente,
         descontoRecTipo, descontoRecValor,

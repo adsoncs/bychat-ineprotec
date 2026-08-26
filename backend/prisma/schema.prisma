@@ -324,6 +324,8 @@ model Funnel {
   goals       Goal[]
   leadFunnels LeadFunnel[]
 
+  negotiations Negotiation[]
+
   @@map("bychat_funnels")
 }
 
@@ -4199,6 +4201,21 @@ model Negotiation {
   pagamentoFormaRec String?  @db.VarChar(20) // pix | boleto | cartao_recorrente | debito_automatico
   vencimentoDiaRec  Int? // dia do mês do vencimento (1-31)
 
+  /// Em qual funil esta venda acontece.
+  ///
+  /// Antes a comissão derivava o funil do LEAD, e isso deixou de bastar quando
+  /// o lead passou a poder estar em mais de um funil ao mesmo tempo: a venda
+  /// negociada num processo adicional não era vista pela meta daquele funil, e
+  /// contá-la em todos os funis do lead inflaria receita e comissão — o mesmo
+  /// dinheiro pago duas vezes.
+  ///
+  /// Uma negociação, um funil: é ele que a meta e a comissão leem. Nasce com o
+  /// funil que o lead tinha na criação (o backfill fez o mesmo com as antigas,
+  /// então nenhum número histórico mudou) e pode ser trocado enquanto a
+  /// negociação está aberta.
+  funnelId Int?
+  funnel   Funnel? @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+
   probabilidade      Int? // 0-100
   validadeAte        DateTime? // proposta expira
   fechamentoPrevisto DateTime?
@@ -4222,6 +4239,7 @@ model Negotiation {
 
   @@index([leadId])
   @@index([status])
+  @@index([funnelId])
   @@map("bychat_negotiations")
 }
 

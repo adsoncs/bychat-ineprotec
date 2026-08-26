@@ -168,16 +168,29 @@ export async function realizadoDoAgente(
       resultado: { not: null },
       fechadaEm: { gte: start, lte: end },
     },
-    select: { id: true, leadId: true, resultado: true, valorFinal: true, valorRecorrente: true },
+    select: { id: true, leadId: true, funnelId: true, resultado: true, valorFinal: true, valorRecorrente: true },
   })
   let rows = negs
   if (funnelId != null) {
-    const ids = Array.from(new Set(negs.map((n) => n.leadId)))
-    const leads = ids.length
-      ? await prisma.lead.findMany({ where: { id: { in: ids }, funnelId }, select: { id: true } })
-      : []
-    const doFunil = new Set(leads.map((l) => l.id))
-    rows = negs.filter((n) => doFunil.has(n.leadId))
+    // O funil é o DA NEGOCIAÇÃO, não o do lead.
+    //
+    // Enquanto o lead cabia num funil só, os dois eram a mesma coisa. Com o
+    // lead podendo estar em vários, derivar do lead erra dos dois lados: a
+    // venda fechada num processo adicional não apareceria na meta dele, e
+    // contá-la em todos os funis do lead pagaria a mesma comissão mais de uma
+    // vez. Uma negociação pertence a um processo.
+    //
+    // Negociação antiga sem funil próprio (anterior à coluna, ou de lead que
+    // nunca entrou em funil) continua caindo no funil do lead — é o que ela
+    // sempre significou, e mudar isso reescreveria comissão já paga.
+    const semFunilProprio = negs.filter((n) => n.funnelId == null).map((n) => n.leadId)
+    const doLead = semFunilProprio.length
+      ? new Set((await prisma.lead.findMany({
+          where: { id: { in: Array.from(new Set(semFunilProprio)) }, funnelId },
+          select: { id: true },
+        })).map((l) => l.id))
+      : new Set<number>()
+    rows = negs.filter((n) => (n.funnelId != null ? n.funnelId === funnelId : doLead.has(n.leadId)))
   }
   const won = rows.filter((n) => n.resultado === 'won')
   const lost = rows.filter((n) => n.resultado === 'lost')
@@ -272,7 +285,7 @@ export async function previewNegotiation(
   const neg = await prisma.negotiation.findUnique({
     where: { id: negotiationId },
     select: {
-      id: true, leadId: true, resultado: true, fechadaEm: true, responsavelUserId: true,
+      id: true, leadId: true, funnelId: true, resultado: true, fechadaEm: true, responsavelUserId: true,
       valorUnico: true, valorRecorrente: true, valorFinal: true,
     },
   })
@@ -280,7 +293,9 @@ export async function previewNegotiation(
   if (!opts.hipotetica && neg.resultado !== 'won') return semComissao('A negociação ainda não foi ganha')
 
   const lead = await prisma.lead.findUnique({ where: { id: neg.leadId }, select: { funnelId: true, assignedUserId: true } })
-  const funnelId = lead?.funnelId ?? null
+  // O funil desta venda: o dela, e só na falta dele o do lead (negociação
+  // anterior à coluna). É por ele que a regra de comissão é escolhida.
+  const funnelId = neg.funnelId ?? lead?.funnelId ?? null
   // Fechada congela o responsável; em aberto vale o dono atual do lead.
   const userId = neg.responsavelUserId ?? lead?.assignedUserId ?? null
   if (userId == null) return semComissao('Negociação sem responsável — defina o dono do lead', { funnelId })
