@@ -334,6 +334,13 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   // Funil efetivo: override (funil da conexão) tem prioridade sobre o do tipo.
   const effFunnelId = input.funnelOverride ?? mt.funnelId ?? null
 
+  // Dedup ANTES de escolher o operador: quem já tem dono precisa ser conhecido
+  // aqui, senão o rodízio sorteia alguém e só depois descobrimos que o lead já
+  // era de outro agente — que é como o agendamento vinha trocando o responsável
+  // no meio do caminho.
+  let leadId: number | null = null
+  const dup = await findDuplicate(whatsapp || undefined, email || undefined)
+
   // Operador/equipe efetivos da reunião.
   //  • fixed (padrão): dono operador fixo do tipo (mt.ownerUserId).
   //  • team_routing: distribui pela Equipe (mt.teamId) usando o motor de Roteamento
@@ -348,7 +355,23 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     // àquela hora. Ninguém livre (corrida entre dois clientes no mesmo slot) →
     // null, e a reunião fica na fila da equipe em vez de cair no agente errado.
     const livres = await operatorsFreeAt(mt.teamId, startAt, endAt, mt.timezone).catch(() => [] as number[])
-    effectiveOperatorId = await pickOperatorForTeam(mt.teamId, { onlyUserIds: livres }).catch(() => null)
+
+    // Lead que JÁ tem responsável não entra no rodízio: quem o atende conduz a
+    // reunião. O lead chega ao agendamento vindo do formulário, onde o roteador
+    // já escolheu um agente — deixar o sorteio decidir de novo trocava o
+    // responsável entre a inscrição e a confirmação, na frente do cliente.
+    // Só vale se o agente puder mesmo atender NAQUELE horário: `livres` já
+    // desconta quem não é da equipe, está de férias, fora do expediente ou com
+    // a agenda ocupada.
+    const donoAtual = dup?.lead?.assignedUserId ?? null
+    if (donoAtual && livres.includes(donoAtual)) {
+      effectiveOperatorId = donoAtual
+    } else {
+      if (donoAtual) {
+        console.log(`[scheduling] lead ${dup?.lead?.id} é do agente ${donoAtual}, que não pode atender em ${startAt.toISOString()} — vai para o rodízio`)
+      }
+      effectiveOperatorId = await pickOperatorForTeam(mt.teamId, { onlyUserIds: livres }).catch(() => null)
+    }
     if (!effectiveOperatorId && livres.length > 0) {
       // O rodízio olha presença/horário AGORA. Para uma reunião marcada de
       // madrugada ou para a semana que vem isso zeraria o pool e a reunião
@@ -385,10 +408,6 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
     }
   }
 
-  // Dedup: linka lead existente por whatsapp/email; senão cria novo.
-  let leadId: number | null = null
-  const dup = await findDuplicate(whatsapp || undefined, email || undefined)
-
   // Lista de bloqueio. Só aqui, depois da dedup, porque a regra também vale para
   // quem JÁ é lead: o bloqueio nascia só na porta de entrada e um contato antigo
   // seguia marcando reunião atrás de reunião. Silencioso, como no formulário — a
@@ -417,12 +436,20 @@ export async function createBooking(mt: NonNullable<MeetingTypeRow>, input: Book
   if (dup?.lead?.id) {
     const lid = dup.lead.id
     leadId = lid
-    // A reunião passa para o operador efetivo (dono fixo do tipo OU operador roteado
-    // pela equipe). Mesmo que o lead já tenha outro responsável, ao agendar ele vai
-    // para quem atende os agendamentos. No modo equipe, também vincula a equipe (mantém
-    // o lead na fila dela quando ninguém está elegível no momento).
+    // O lead segue quem vai conduzir a reunião — mas, com a preferência pelo
+    // dono atual aplicada acima, "quem conduz" já É o responsável de sempre
+    // quando ele pode atender. Sobra o caso em que ele não podia: aí a reunião
+    // foi para outro e o lead acompanha, para não ficar com o card em um nome e
+    // a agenda em outro.
+    //
+    // Escreve só quando o agente MUDA de fato: regravar o mesmo id renovaria
+    // `assignedAt` a cada agendamento e a timeline mostraria uma reatribuição
+    // que não aconteceu.
     const dupData: { assignedUserId?: number; assignedAt?: Date; teamId?: number; email?: string; whatsapp?: string; nome?: string } = {}
-    if (effectiveOperatorId) { dupData.assignedUserId = effectiveOperatorId; dupData.assignedAt = new Date() }
+    if (effectiveOperatorId && effectiveOperatorId !== (dup?.lead?.assignedUserId ?? null)) {
+      dupData.assignedUserId = effectiveOperatorId
+      dupData.assignedAt = new Date()
+    }
     if (mt.assignmentMode === 'team_routing' && effectiveTeamId) dupData.teamId = effectiveTeamId
     // Backfill de contato: o agendamento sempre traz e-mail/telefone. Preenche o que estiver
     // faltando no lead (sem sobrescrever o que já existe), pra o e-mail aparecer no card e os
