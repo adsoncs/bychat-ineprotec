@@ -191,7 +191,15 @@ export async function contatosRoutes(app: FastifyInstance) {
       // Os contadores usam o MESMO recorte da lista — busca e filtro de número
       // incluídos. Número de topo que não bate com o que está na tela ensina o
       // operador a desconfiar dos dois.
-      const recorte = { busca: q.search, canal: q.canal || undefined, origem: q.origem || undefined }
+      const recorte = {
+        busca: q.search,
+        canal: q.canal || undefined,
+        origem: q.origem || undefined,
+        // O filtro "já respondidos" também é recorte da tela. Ficou de fora na
+        // primeira correção e os cards voltaram a divergir da lista — a suíte
+        // pegou: lista 60, cards 79.
+        respondeu: q.respondeu === '1',
+      }
       const base = await montarWhere(user, { ...recorte, grupos: 'excluir' })
       const comGrupo = await montarWhere(user, { ...recorte, grupos: 'apenas' })
       const respondidos = await montarWhere(user, { ...recorte, grupos: 'excluir', respondeu: true })
