@@ -62,7 +62,14 @@ export async function kanbanRoutes(app: FastifyInstance) {
     const leadWhere: any = { qualifiedAt: { not: null } }
     if (funnelId) {
       stageWhere.funnelId = funnelId
-      leadWhere.funnelId = funnelId
+      // O quadro de um funil mostra quem está nele — pelo funil principal
+      // (`Lead.funnelId`, como sempre) OU por um vínculo adicional ativo. Sem o
+      // segundo, colocar o lead "também" num funil não tinha efeito nenhum no
+      // Kanban, que é justamente onde o processo é trabalhado.
+      leadWhere.OR = [
+        { funnelId },
+        { leadFunnels: { some: { funnelId, saiuEm: null } } },
+      ]
     }
 
     // Filtros compartilhados com /api/bychat/leads — Kanban respeita os mesmos
@@ -137,7 +144,13 @@ export async function kanbanRoutes(app: FastifyInstance) {
           assignedUser: { select: { id: true, name: true } },
           // Módulo Resumo: o card mostra o código da situação atual.
           statusSummary: { select: { id: true, code: true, name: true, color: true } },
-          tags: { select: { tag: { select: { id: true, name: true, color: true } } } } }
+          tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+          // Só o vínculo DESTE funil: é dele que sai a etapa quando o lead está
+          // aqui como adicional (o `status` do Lead é a etapa do principal, que
+          // é outro funil e outra régua).
+          funnelId: true,
+          ...(funnelId ? { leadFunnels: { where: { funnelId, saiuEm: null }, select: { stageKey: true, entrouEm: true } } } : {}),
+        }
       }),
       prisma.kanbanPermission.findUnique({ where: { role: user.role as any } }),
       prisma.funnel.findMany({ where: { active: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }], select: { id: true, name: true, isDefault: true } })
@@ -166,8 +179,22 @@ export async function kanbanRoutes(app: FastifyInstance) {
     const grouped: Record<string, any[]> = {}
     stages.forEach(s => { grouped[s.key] = [] })
     leads.forEach(l => {
-      const enriched = { ...l, _activityCount: actMap[l.id] || 0, _metaFormName: l.metaFormId ? metaFormNames[l.metaFormId] || null : null }
-      if (grouped[l.status]) grouped[l.status].push(enriched)
+      // Lead que está aqui como ADICIONAL tem etapa própria neste funil; o
+      // `status` dele é a posição no funil principal e não vale nesta régua.
+      const vinculo = (l as any).leadFunnels?.[0] ?? null
+      const adicional = !!vinculo && (l as any).funnelId !== funnelId
+      const etapaAqui = adicional ? (vinculo.stageKey ?? l.status) : l.status
+      const enriched = {
+        ...l,
+        _activityCount: actMap[l.id] || 0,
+        _metaFormName: l.metaFormId ? metaFormNames[l.metaFormId] || null : null,
+        // O card precisa dizer que este não é o processo principal da pessoa —
+        // sem isso o operador cobra aqui um andamento que está sendo tocado em
+        // outro funil.
+        _funilAdicional: adicional,
+        status: etapaAqui,
+      }
+      if (grouped[etapaAqui]) grouped[etapaAqui].push(enriched)
     })
 
     return {

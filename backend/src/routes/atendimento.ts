@@ -2203,14 +2203,87 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const podeAvancar = user.role === 'SUPERADMIN' || (perm?.canAdvance ?? ['ADMIN', 'MANAGER', 'AGENT'].includes(user.role))
     const podeRetroceder = user.role === 'SUPERADMIN' || (perm?.canRetreat ?? user.role === 'ADMIN')
 
+    // Funis ADICIONAIS: aqueles em que o lead está ALÉM do principal. Vêm de
+    // LeadFunnel; o principal continua saindo do próprio Lead, que é o que as
+    // telas antigas leem.
+    const { funisDoLead } = await import('../services/leadFunnels.js')
+    const adicionais = (await funisDoLead(lid)).filter((v) => !v.principal)
+
     return {
       funilAtual: lead.funnelId ? funis.find((f) => f.id === lead.funnelId) ?? null : null,
+      adicionais: adicionais.map((v) => ({
+        funnelId: v.funnelId,
+        nome: v.funnelName,
+        etapaKey: v.stageKey,
+        etapaNome: v.stageName,
+        entrouEm: v.entrouEm.toISOString(),
+      })),
       etapaAtual: lead.status ?? null,
       qualificado: !!lead.qualifiedAt,
       funis,
       passagens,
       permissoes: { podeAvancar, podeRetroceder },
     }
+  })
+
+  // ── Funis ADICIONAIS do lead ────────────────────────────────────────────
+  //
+  // O funil principal continua sendo movido pelas rotas de sempre (Kanban,
+  // /leads/:id/status): é ele que o Lead guarda e que o resto do sistema lê.
+  // Estas três tratam de estar TAMBÉM em outro processo ao mesmo tempo — o que
+  // antes só dava para representar trocando de funil e perdendo a posição no
+  // anterior.
+
+  app.post('/api/atendimento/tickets/:leadId/funnels', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
+    const b = (req.body ?? {}) as any
+    const funnelId = parseInt(b.funnelId)
+    if (!Number.isFinite(funnelId)) return reply.code(400).send({ error: 'Informe o funil.' })
+
+    const { adicionarAoFunil } = await import('../services/leadFunnels.js')
+    const r = await adicionarAoFunil({
+      leadId: lid,
+      funnelId,
+      stageKey: b.stageKey ?? null,
+      origem: 'manual',
+      userId: user.userId,
+      userName: user.name || user.email,
+    })
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    return r
+  })
+
+  app.delete('/api/atendimento/tickets/:leadId/funnels/:funnelId', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const p = req.params as any
+    const lid = parseInt(p.leadId)
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
+
+    const { removerDoFunil } = await import('../services/leadFunnels.js')
+    const r = await removerDoFunil({
+      leadId: lid,
+      funnelId: parseInt(p.funnelId),
+      userId: user.userId,
+      userName: user.name || user.email,
+    })
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    return r
+  })
+
+  app.put('/api/atendimento/tickets/:leadId/funnels/:funnelId/stage', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const p = req.params as any
+    const lid = parseInt(p.leadId)
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
+    const stageKey = String((req.body as any)?.stageKey ?? '')
+    if (!stageKey) return reply.code(400).send({ error: 'Informe a etapa.' })
+
+    const { moverEtapaNoFunil } = await import('../services/leadFunnels.js')
+    const r = await moverEtapaNoFunil({ leadId: lid, funnelId: parseInt(p.funnelId), stageKey, userId: user.userId })
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    return r
   })
 
   // ── GET /api/atendimento/tickets/:leadId/info — Lead details ──

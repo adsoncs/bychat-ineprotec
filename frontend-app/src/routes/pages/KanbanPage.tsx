@@ -907,6 +907,17 @@ function LeadCard({
         <span class="text-sm text-fg truncate flex-1 min-w-0 inline-flex items-center gap-1.5">
           <ChannelIcon source={lead.source} />
           <span class="truncate">{lead.nome ?? lead.empresa ?? '—'}</span>
+          {/* Este lead está aqui como funil ADICIONAL: o processo principal
+            * dele é outro. Sem dizer isso, o operador cobra neste quadro um
+            * andamento que está sendo tocado em outro lugar. */}
+          {lead._funilAdicional && (
+            <span
+              class="shrink-0 text-fg-subtle"
+              title="Também está em outro funil, que é o processo principal deste lead"
+            >
+              <GitFork size={11} />
+            </span>
+          )}
         </span>
         <div class="flex items-center gap-1 shrink-0">
           {score !== null && (

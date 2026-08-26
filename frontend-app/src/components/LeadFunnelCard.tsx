@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, Loader2, Target, Lock, History } from 'lucide-preact'
+import { Check, ChevronDown, Loader2, Target, Lock, History, Plus, X } from 'lucide-preact'
 import { api, ApiError } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { toast } from '@/lib/toast'
@@ -43,8 +43,18 @@ interface Passagem {
   em: string
 }
 
+interface Adicional {
+  funnelId: number
+  nome: string
+  etapaKey: string | null
+  etapaNome: string | null
+  entrouEm: string
+}
+
 interface Resposta {
   funilAtual: Funil | null
+  /** Funis em que o lead está ALÉM do principal. Ver services/leadFunnels.ts. */
+  adicionais: Adicional[]
   etapaAtual: string | null
   qualificado: boolean
   funis: Funil[]
@@ -56,12 +66,37 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   const qc = useQueryClient()
   const [trocaAberta, setTrocaAberta] = useState(false)
   const [movendo, setMovendo] = useState<string | null>(null)
+  // Lista de "colocar também em": separada da troca de propósito. Trocar tira o
+  // lead de onde ele está; isto acrescenta um processo sem mexer no atual, e
+  // misturar as duas no mesmo menu faria uma ser feita no lugar da outra.
+  const [somaAberta, setSomaAberta] = useState(false)
 
   const q = useQuery({
     queryKey: ['ticket-funnel', leadId],
     queryFn: () => api.get<Resposta>(`/atendimento/tickets/${leadId}/funnel`),
     enabled: !!leadId,
     staleTime: 30_000,
+  })
+
+  const somar = useMutation({
+    mutationFn: (funnelId: number) =>
+      api.post<{ ok: true }>(`/atendimento/tickets/${leadId}/funnels`, { funnelId }),
+    onSuccess: () => {
+      toast('Lead agora também está nesse funil', 'success')
+      setSomaAberta(false)
+      void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
+    },
+    onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para adicionar', 'danger'),
+  })
+
+  const tirar = useMutation({
+    mutationFn: (funnelId: number) =>
+      api.delete<{ ok: true }>(`/atendimento/tickets/${leadId}/funnels/${funnelId}`),
+    onSuccess: () => {
+      toast('Lead saiu desse funil', 'success')
+      void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
+    },
+    onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para remover', 'danger'),
   })
 
   const mover = useMutation({
@@ -98,10 +133,14 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   if (q.isError || !q.data) return null
 
   const { funilAtual, etapaAtual, funis, passagens, permissoes } = q.data
+  const adicionais = q.data.adicionais ?? []
   const etapas = funilAtual?.stages ?? []
   const atual = etapas.find((e) => e.key === etapaAtual) ?? null
   const posAtual = atual?.position ?? -1
   const outrosFunis = funis.filter((f) => f.id !== funilAtual?.id)
+  // Para "colocar também em": os que ainda não têm o lead, nem como principal
+  // nem como adicional.
+  const funisParaSomar = outrosFunis.filter((f) => !adicionais.some((a) => a.funnelId === f.id))
 
   function acionar(etapa: Etapa, funnelId?: number) {
     if (mover.isPending) return
@@ -292,6 +331,72 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
           </div>
         )}
       </div>
+
+      {/* Também em outros funis.
+        *
+        * Até aqui o lead cabia num funil só, e representar "está em dois
+        * processos" exigia trocar — perdendo a posição no primeiro. Estes são os
+        * vínculos ADICIONAIS: cada um com a sua etapa, sem mexer no principal. */}
+      {(adicionais.length > 0 || (permissoes.podeAvancar && funisParaSomar.length > 0)) && (
+        <div class="mt-2">
+          {adicionais.length > 0 && (
+            <ul class="space-y-1">
+              {adicionais.map((a) => (
+                <li key={a.funnelId} class="group flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1.5">
+                  <Target size={10} class="shrink-0 text-fg-subtle" />
+                  <span class="min-w-0 flex-1 text-[0.6875rem]">
+                    <span class="text-fg">{a.nome}</span>
+                    {a.etapaNome && <span class="text-fg-muted"> · {a.etapaNome}</span>}
+                  </span>
+                  {permissoes.podeAvancar && (
+                    <button
+                      type="button"
+                      onClick={() => tirar.mutate(a.funnelId)}
+                      disabled={tirar.isPending}
+                      class="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-fg-subtle hover:text-danger transition-opacity"
+                      title={`Tirar do funil ${a.nome}`}
+                      aria-label={`Tirar do funil ${a.nome}`}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {permissoes.podeAvancar && funisParaSomar.length > 0 && (
+            <div class="relative">
+              <button
+                type="button"
+                onClick={() => setSomaAberta((v) => !v)}
+                class="mt-1 inline-flex items-center gap-1 text-[0.6875rem] text-fg-muted hover:text-fg"
+              >
+                <Plus size={10} /> Colocar também em outro funil
+              </button>
+              {somaAberta && (
+                <div class="mt-1 rounded-md border border-border bg-surface p-1 shadow-lg">
+                  {funisParaSomar.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => somar.mutate(f.id)}
+                      disabled={somar.isPending}
+                      class="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[0.6875rem] hover:bg-surface-3 disabled:opacity-50"
+                    >
+                      <Target size={10} class="shrink-0 text-fg-subtle" />
+                      <span class="min-w-0 flex-1 truncate text-fg">{f.name}</span>
+                      <span class="shrink-0 text-fg-subtle">
+                        {somar.isPending ? <Loader2 size={10} class="animate-spin" /> : (f.stages[0]?.name ?? 'sem etapas')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Por onde já passou: responde "esse contato já esteve em outro funil?" */}
       {passagens.length > 0 && (

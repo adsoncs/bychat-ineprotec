@@ -79,6 +79,8 @@ export interface KanbanLead {
   tags?: { tag: { id: number; name: string; color: string } }[]
   _activityCount: number
   _metaFormName: string | null
+  /** Está neste quadro como funil ADICIONAL — o processo principal dele é outro. */
+  _funilAdicional?: boolean
   // Lead Routing F6
   assignedUserId?: number | null
   assignedAt?: string | null
