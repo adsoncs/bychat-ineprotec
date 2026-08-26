@@ -402,6 +402,61 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         return { value: r.sum, count: r.count, prev: p.sum }
       }
 
+      // ── Contagem por PROPOSTA, não por lead ──────────────────────────
+      // Um responsável com dois filhos é UM lead e DUAS matrículas: cada filho
+      // tem a sua proposta (o time nomeia com o nome da criança). Os KPIs de
+      // lead contam a família, o que responde "quantas famílias fechamos" e não
+      // "quantas matrículas fizemos" — e ainda somam os valores dos dois num
+      // ticket médio só. Estas duas métricas contam a proposta, que é a unidade
+      // real de conversão em escola. Vale para qualquer cliente que venda mais
+      // de uma coisa ao mesmo contato.
+      case 'negotiations_won_count': {
+        const prevRange = previousRange(cfg)
+        const contar = async (range: any) => {
+          if (negFunnelId) {
+            const r = await negAggregateByFunnel(negFunnelId, { resultado: 'won', from: range?.gte, to: range?.lte })
+            return r.count
+          }
+          return prisma.negotiation.count({ where: { resultado: 'won', ...(range ? { fechadaEm: range } : {}) } })
+        }
+        const value = await contar(hasDate ? dateFilter : null)
+        if (!prevRange) return { value }
+        return { value, prev: await contar(prevRange) }
+      }
+
+      // Coorte pela ABERTURA da proposta, igual à taxa por lead: das propostas
+      // abertas no período, quantas viraram matrícula. Mesmo piso de amostra —
+      // "100%" de uma proposta só não é resultado, é ruído.
+      case 'negotiations_conversion_rate': {
+        const MIN_AMOSTRA = 5
+        const taxa = async (range: any) => {
+          const base: any = { valorFinal: { gt: 0 }, ...(range ? { createdAt: range } : {}) }
+          if (negFunnelId) {
+            const ids = await prisma.negotiation.findMany({ where: base, select: { id: true, leadId: true }, take: 20_000 })
+            if (ids.length === 0) return { value: 0, won: 0, negotiated: 0 }
+            const doFunil = await prisma.lead.findMany({ where: { funnelId: negFunnelId, id: { in: ids.map((i) => i.leadId) } }, select: { id: true } })
+            const setLeads = new Set(doFunil.map((l) => l.id))
+            const negociadas = ids.filter((i) => setLeads.has(i.leadId)).map((i) => i.id)
+            if (negociadas.length === 0) return { value: 0, won: 0, negotiated: 0 }
+            const ganhas = await prisma.negotiation.count({ where: { id: { in: negociadas }, resultado: 'won' } })
+            return { value: Math.round((ganhas / negociadas.length) * 100), won: ganhas, negotiated: negociadas.length }
+          }
+          const [negotiated, won] = await Promise.all([
+            prisma.negotiation.count({ where: base }),
+            prisma.negotiation.count({ where: { ...base, resultado: 'won' } }),
+          ])
+          return { value: negotiated ? Math.round((won / negotiated) * 100) : 0, won, negotiated }
+        }
+        const curr = await taxa(hasDate ? dateFilter : null)
+        if (curr.negotiated > 0 && curr.negotiated < MIN_AMOSTRA) {
+          return { ...curr, insufficient: true, minSample: MIN_AMOSTRA }
+        }
+        const prevRange = previousRange(cfg)
+        if (!prevRange) return curr
+        const p = await taxa(prevRange)
+        return { ...curr, ...(p.negotiated >= MIN_AMOSTRA ? { prev: p.value } : {}) }
+      }
+
       case 'negotiations_win_rate': {
         // % de negociações ganhas sobre as fechadas (ganhas + perdidas) no período.
         const prevRange = previousRange(cfg)

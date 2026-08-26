@@ -242,6 +242,32 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
         </>
       )
       break
+    // Contagem por PROPOSTA: um responsável com dois filhos é um lead e duas
+    // matrículas. O card de lead responde "quantas famílias", este responde
+    // "quantas matrículas" — e o rótulo de cada um diz qual é qual.
+    case 'negotiations_won_count':
+      val = num(d.value)
+      sub = (
+        <>
+          {d.prev !== undefined && <DeltaBadge curr={num(d.value)} prev={d.prev} />}
+          <span class="block">propostas ganhas (uma por aluno)</span>
+        </>
+      )
+      break
+    case 'negotiations_conversion_rate':
+      if (d.insufficient) {
+        val = <em class="text-base text-fg-muted">—</em>
+        sub = `${num(d.won)} de ${num(d.negotiated)} — amostra pequena para uma taxa`
+        break
+      }
+      val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
+      sub = num(d.negotiated) > 0
+        ? <>
+            {d.prev !== undefined && <DeltaBadge curr={num(d.value)} prev={d.prev} />}
+            <span class="block">{num(d.won)} de {num(d.negotiated)} propostas</span>
+          </>
+        : 'nenhuma proposta aberta no período'
+      break
     case 'leads_conversion_rate':
       // Amostra abaixo do piso: o percentual mente com cara de resultado ("100%"
       // de uma única negociação). Mostra a contagem crua e nenhum número grande.
