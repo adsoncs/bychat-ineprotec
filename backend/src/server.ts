@@ -34,6 +34,7 @@ import { conversationAccessRoutes } from './routes/conversationAccess.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
 import { kommoIntegrationRoutes } from './routes/kommoIntegration.js'
+import { kommoWebhookRoutes } from './routes/kommoWebhook.js'
 import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
 import { teamsRoutes } from './routes/teams.js'
 import { agentsRoutes } from './routes/agents.js'
@@ -624,6 +625,7 @@ await app.register(statusSummaryRoutes)
 await app.register(lookerStudioRoutes)
 await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
+await app.register(kommoWebhookRoutes)
 await app.register(crmEduIntegrationRoutes)
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
@@ -1254,6 +1256,11 @@ import('./services/profilePictureSync.js')
   import('./services/kommoWorker.js')
     .then(m => { m.startKommoWorker(); m.startKommoCron() })
     .catch(err => console.warn('[kommoSync] init falhou:', err?.message || err))
+  // Conversas da Kommo em tempo real: o webhook é o caminho rápido, este ciclo
+  // é a rede de segurança para quando o aviso não chega.
+  import('./services/kommoTalksLive.js')
+    .then(m => m.startKommoTalksLive())
+    .catch(err => console.warn('[kommo-live] init falhou:', err?.message || err))
   import('./services/paymentSync.js')
     .then(m => m.startPaymentReconciliationScheduler())
     .catch(err => console.warn('[paymentSync] init falhou:', err?.message || err))
