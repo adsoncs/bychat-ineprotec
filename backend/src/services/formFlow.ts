@@ -263,6 +263,14 @@ export async function moveLeadStage(leadId: number, funnelId: number | null, sta
   // deste movimento ela mandaria o operador refazer o que acabou de acontecer.
   const { supersedePendingSuggestions } = await import('./stageSuggestions.js')
   await supersedePendingSuggestions(leadId, 'lead_moved')
+
+  // Entrou numa etapa de desfecho → marca Ganho/Perdido. Este caminho (form,
+  // chatbot roteirizado, Jornada IA) não emite `lead.stage_changed`, então é o
+  // que um listener deixaria de fora — motivo de a chamada ser explícita.
+  const { applyStageOutcome } = await import('./stageOutcome.js')
+  await applyStageOutcome({ leadId, toStageKey: stageKey, funnelId: toFunnel, origem: source })
+    .catch((e) => console.warn('[stageOutcome] falhou:', (e as Error).message))
+
   return stageKey
 }
 

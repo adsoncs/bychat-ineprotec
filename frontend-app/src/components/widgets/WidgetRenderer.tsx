@@ -243,6 +243,13 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
       )
       break
     case 'leads_conversion_rate':
+      // Amostra abaixo do piso: o percentual mente com cara de resultado ("100%"
+      // de uma única negociação). Mostra a contagem crua e nenhum número grande.
+      if (d.insufficient) {
+        val = <em class="text-base text-fg-muted">—</em>
+        sub = `${num(d.won)} de ${num(d.negotiated)} — amostra pequena para uma taxa`
+        break
+      }
       val = <>{num(d.value)}<em class="text-base text-fg-muted ml-1">%</em></>
       // Dois denominadores possíveis: quem negociou (padrão) ou, em cliente que
       // não usa o módulo Negociação, os encerrados. `basis` diz qual veio.

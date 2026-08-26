@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { applyStageOutcome } from '../services/stageOutcome.js'
 import { notifyNewLead, sendReportToLead } from '../services/notify.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { buildLeadAccessWhere, canUserAccessLead, type AccessRole } from '../lib/teamAccess.js'
@@ -675,6 +676,15 @@ export async function leadsRoutes(app: FastifyInstance) {
       metadata: { fromPosition: currentPos, toPosition: targetPos, funnelId: updateData.funnelId || funnelId, assignedToFunnel },
       ipAddress: getIp(req),
     })
+
+    // Entrou numa etapa de desfecho → marca Ganho/Perdido. É o caminho do
+    // arrasto no Kanban, onde o botão Ganho/Perdido era esquecido todo dia.
+    // Aguardado (não fire-and-forget) para o lead voltar já classificado na
+    // resposta — senão o card recarrega antes e pisca sem a marcação.
+    await applyStageOutcome({
+      leadId: parseInt(id), toStageKey: status, funnelId: targetStage.funnelId,
+      origem: 'panel', userId: user.userId, userName: (user as any).name,
+    }).catch((e) => console.warn('[stageOutcome] falhou:', (e as Error).message))
 
     // Trigger CAPI se etapa mapeada (fire-and-forget)
     onLeadStageChanged(parseInt(id), status).catch(() => {})
@@ -1656,6 +1666,13 @@ export async function leadsRoutes(app: FastifyInstance) {
         metadata: { bulkOperation: true, totalInBatch: leadIds.length },
         ipAddress: getIp(req),
       })
+      // Etapa de desfecho vale no lote também — é onde o mutirão de limpeza de
+      // funil acontece, justamente o movimento que mais deixava lead sem
+      // Ganho/Perdido. Um lead que falhe não derruba os outros do lote.
+      await applyStageOutcome({
+        leadId: lead.id, toStageKey: status, funnelId: targetStage.funnelId,
+        origem: 'panel_lote', userId: user.userId, userName: (user as any).name,
+      }).catch((e) => console.warn(`[stageOutcome] lead ${lead.id}:`, (e as Error).message))
       moved++
     }
 

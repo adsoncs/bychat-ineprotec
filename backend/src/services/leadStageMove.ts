@@ -96,6 +96,14 @@ export async function moveLeadStage(input: MoveLeadStageInput): Promise<MoveLead
     metadata: { fromFunnelId, toFunnelId, ...(metadata ?? {}) },
   })
 
+  // Entrou numa etapa de desfecho → marca Ganho/Perdido. Explícito aqui, e não
+  // como listener do evento abaixo, porque nem todo caminho de movimentação
+  // emite (`formFlow.moveLeadStage` não emite nada) e este emite duas vezes.
+  const { applyStageOutcome } = await import('./stageOutcome.js')
+  await applyStageOutcome({
+    leadId, toStageKey, funnelId: toFunnelId, origem: source, userId,
+  }).catch((e) => console.warn('[stageOutcome] falhou:', (e as Error).message))
+
   if (!skipEvent) {
     eventBus.emitDomain({
       type: 'lead.stage_changed',

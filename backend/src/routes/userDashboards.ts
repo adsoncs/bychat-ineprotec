@@ -345,11 +345,21 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
           return { value: closed ? Math.round((won / closed) * 100) : 0, won, closed, basis: 'outcome' }
         }
 
+        // Piso de amostra. Julho do severiano tinha UMA negociação aberta (a
+        // primeira do tenant, de 31/07) e ela foi ganha: o card anunciava "100%"
+        // ao lado de zeros em todos os outros, e agosto ainda exibia queda de
+        // 100%→14% comparando com aquele único caso. Uma proporção de 1 em 1 não
+        // é um resultado; abaixo do piso o card mostra a contagem e cala o
+        // percentual, e o período anterior só vira Δ se ele mesmo tiver base.
+        const MIN_AMOSTRA = 5
         const curr = await rate(hasDate ? dateFilter : null)
+        if (curr.negotiated > 0 && curr.negotiated < MIN_AMOSTRA) {
+          return { ...curr, basis: 'negotiation', insufficient: true, minSample: MIN_AMOSTRA }
+        }
         const prevRange = previousRange(cfg)
         if (!prevRange) return { ...curr, basis: 'negotiation' }
         const p = await rate(prevRange)
-        return { ...curr, basis: 'negotiation', ...(p.negotiated > 0 ? { prev: p.value } : {}) }
+        return { ...curr, basis: 'negotiation', ...(p.negotiated >= MIN_AMOSTRA ? { prev: p.value } : {}) }
       }
 
       // ── Negociações (módulo Negociação) ──────────────────────────

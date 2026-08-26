@@ -169,6 +169,13 @@ function StageRow({
               <Badge tone="warning">Garante vaga</Badge>
             </span>
           )}
+          {stage.terminalKind && (
+            <span title="Entrar nesta etapa marca o lead como ganho/perdido" class="inline-flex">
+              <Badge tone={stage.terminalKind === 'won' ? 'success' : 'danger'}>
+                {stage.terminalKind === 'won' ? 'Ganho' : 'Perdido'}
+              </Badge>
+            </span>
+          )}
         </div>
       </div>
       <span class="text-xs text-fg-muted tabular-nums shrink-0" title="Leads nesta etapa">
@@ -189,6 +196,7 @@ function StageFormModal({ funnelId, stage, onClose }: { funnelId: number; stage:
   const [color, setColor] = useState(stage?.color ?? '#1a73e8')
   const [active, setActive] = useState(stage?.active ?? true)
   const [consumesSlot, setConsumesSlot] = useState(stage?.consumesSlot ?? false)
+  const [terminalKind, setTerminalKind] = useState<'won' | 'lost' | ''>(stage?.terminalKind ?? '')
 
   const create = useCreateStage(funnelId)
   const update = useUpdateStage(funnelId)
@@ -200,13 +208,13 @@ function StageFormModal({ funnelId, stage, onClose }: { funnelId: number; stage:
     if (!color) { toast('Cor é obrigatória', 'danger'); return }
 
     if (isEdit && stage) {
-      const payload: Partial<StageInput> = { name: name.trim(), color, active, consumesSlot }
+      const payload: Partial<StageInput> = { name: name.trim(), color, active, consumesSlot, terminalKind }
       update.mutate({ id: stage.id, ...payload }, {
         onSuccess: () => { toast('Etapa atualizada', 'success'); onClose() },
         onError: (e: unknown) => toast((e as Error).message, 'danger'),
       })
     } else {
-      create.mutate({ key: key.trim(), name: name.trim(), color, active, consumesSlot }, {
+      create.mutate({ key: key.trim(), name: name.trim(), color, active, consumesSlot, terminalKind }, {
         onSuccess: () => { toast('Etapa criada', 'success'); onClose() },
         onError: (e: unknown) => toast((e as Error).message, 'danger'),
       })
@@ -256,6 +264,24 @@ function StageFormModal({ funnelId, stage, onClose }: { funnelId: number; stage:
             <div class="text-xs text-fg-muted">Marca esta etapa como ocupação real de uma vaga (útil para portais educacionais com limite por turma).</div>
           </div>
         </label>
+        <div>
+          <label class="block text-sm text-fg mb-1" for="stage-terminal">Etapa de desfecho</label>
+          <select
+            id="stage-terminal"
+            class="w-full h-9 px-2 rounded border border-border bg-surface text-sm text-fg cursor-pointer focus:outline-none focus:border-accent"
+            value={terminalKind}
+            onChange={(e) => setTerminalKind((e.target as HTMLSelectElement).value as 'won' | 'lost' | '')}
+          >
+            <option value="">Nenhuma — etapa comum</option>
+            <option value="won">Ganho — quem chega aqui virou venda</option>
+            <option value="lost">Perdido — quem chega aqui foi perdido</option>
+          </select>
+          <p class="text-xs text-fg-muted mt-1">
+            Mover um lead para esta etapa marca Ganho/Perdido sozinho, e classificar
+            um lead traz ele para cá. Só uma etapa de cada tipo por funil. Deixe em
+            "Nenhuma" nos funis de atendimento — ali "Resolvido" não é venda ganha.
+          </p>
+        </div>
       </div>
     </Modal>
   )

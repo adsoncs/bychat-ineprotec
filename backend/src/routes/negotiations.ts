@@ -14,6 +14,7 @@ import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 // desfecho ou o valor avisa o motor — é o que impede o número da comissão de
 // divergir do número da proposta.
 import { onNegotiationChanged, recalcAgentMonth } from '../services/commissions.js'
+import { markLeadWon, markLeadLost } from '../services/leadOutcome.js'
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
@@ -490,68 +491,56 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         ...splitPatch,
       },
     })
-    // Reflete no lead (Fase 23: outcome won/lost + motivo de perda). Ganha
-    // também grava saleValue = total da negociação → entra na "Receita ganha"
-    // da Visão Geral/Relatórios sem precisar de mais nada.
+    // Reflete no lead pelo caminho ÚNICO (`markLeadWon`/`markLeadLost`). Antes
+    // esta rota escrevia o outcome direto no Lead, e o resultado era um fechamento
+    // pela metade: o lead ficava ganho mas as tarefas pendentes continuavam de pé,
+    // a venda detectada não era reconciliada e o feedback de conversão nunca saía
+    // para a Meta — tudo isso só acontecia quando a marcação vinha do botão.
+    //
+    // `skipNegotiationSync` porque a proposta desta rota JÁ foi fechada acima, e
+    // a sincronia fecharia junto as outras que o lead tenha em aberto: as do
+    // outro filho, do outro período. Aqui quem escolhe a proposta é o operador.
     const finalValue = updated.valorFinal != null ? Number(updated.valorFinal) : null
-    const leadClosed = await prisma.lead.update({
-      where: { id: n.leadId },
-      data: {
-        outcome: resultado, outcomeAt: new Date(), outcomeBy: actor.actorId,
-        lostReasonId: resultado === 'lost' && b.lostReasonId ? Number(b.lostReasonId) : undefined,
-        saleValue: resultado === 'won' && finalValue != null ? finalValue : undefined,
-      },
-    }).then(() => true).catch(() => false)
-
-    // Timeline do lead: fechar por aqui grava outcome/outcomeAt igual aos botões
-    // Ganho/Perdido, mas antes não deixava rastro no histórico — o desfecho ficava
-    // só na auditoria e na aba Negociação. Registra o evento no mesmo formato que
-    // markLeadWon/markLeadLost para a Timeline mostrar quando e por quem.
-    if (leadClosed) {
-      let reasonName: string | undefined
-      if (resultado === 'lost' && updated.lostReasonId) {
-        const r = await prisma.lossReason.findUnique({
-          where: { id: updated.lostReasonId },
-          select: { name: true },
-        }).catch(() => null)
-        reasonName = r?.name ?? undefined
-      }
-      const via = `negociação "${n.titulo}"`
-      // "R$ 8.000,00 + R$ 890,00/mês" — a timeline mostra a composição, senão um
-      // contrato de mensalidade parece uma venda avulsa do valor do 1º ciclo.
+    const wonValueLabel = (() => {
       const unico = updated.valorUnico != null ? Number(updated.valorUnico) : null
       const mrr = updated.valorRecorrente != null ? Number(updated.valorRecorrente) : null
-      const wonValue = mrr && mrr > 0
+      return mrr && mrr > 0
         ? `R$ ${(unico ?? 0).toFixed(2)} + R$ ${mrr.toFixed(2)}/mês`
         : finalValue != null ? `R$ ${finalValue.toFixed(2)}` : null
-      logEvent({
-        leadId: n.leadId,
-        type: resultado === 'won' ? EVENT_TYPES.LEAD_WON : EVENT_TYPES.LEAD_LOST,
-        category: 'lifecycle',
-        title: resultado === 'won'
-          ? (wonValue ? `Ganho na ${via} — ${wonValue}` : `Ganho na ${via}`)
-          : (reasonName ? `Perdido na ${via} — ${reasonName}` : `Perdido na ${via}`),
-        source: 'panel',
-        actorType: actor.actorId ? 'operator' : 'system',
-        userId: actor.actorId ?? undefined,
-        userName: actor.actorName ?? undefined,
-        metadata: {
-          negotiationId: id,
-          valorFinal: finalValue,
-          valorUnico: unico,
-          valorRecorrente: mrr,
-          lostReasonId: updated.lostReasonId ?? null,
-          reasonName: reasonName ?? null,
-          viaNegotiation: true,
-        },
-        ipAddress: actor.ipAddress ?? undefined,
-      })
-    }
+    })()
+    const leadClosed = await (async () => {
+      const comum = {
+        leadId: n.leadId, userId: actor.actorId ?? undefined, userName: actor.actorName ?? undefined,
+        ipAddress: actor.ipAddress ?? undefined, skipNegotiationSync: true,
+        note: `Fechado pela negociação "${n.titulo}"`,
+      }
+      if (resultado === 'won') {
+        await markLeadWon({
+          ...comum,
+          ...(finalValue != null ? { value: finalValue } : {}),
+          eventTitle: wonValueLabel ? `Ganho na negociação "${n.titulo}" — ${wonValueLabel}` : `Ganho na negociação "${n.titulo}"`,
+        })
+      } else {
+        await markLeadLost({
+          ...comum,
+          reasonId: updated.lostReasonId ?? null,
+          eventTitle: `Perdido na negociação "${n.titulo}"`,
+        })
+      }
+      return true
+    })().catch((e) => { console.warn('[negotiations/close] desfecho do lead:', (e as Error).message); return false })
+
+    // A timeline sai de markLeadWon/markLeadLost, com o `eventTitle` passado
+    // acima — antes esta rota gravava o evento por conta própria, e unificar o
+    // desfecho teria deixado dois LEAD_WON para o mesmo fechamento.
+
     void logUserAudit({ action: 'negotiation.closed', targetType: 'lead', targetLabel: `Negociação ${n.titulo} → ${resultado}`, changes: { resultado, valorFinal: updated.valorFinal, valorUnico: updated.valorUnico, valorRecorrente: updated.valorRecorrente }, ...actor })
     // Lança (ou desfaz, se foi perdida) a comissão desta venda e reavalia a faixa
     // do mês do agente — bater a meta melhora a taxa de tudo o que ele fechou.
     await onNegotiationChanged(id)
-    return { negotiation: updated }
+    // `leadClosed` no retorno: o desfecho do lead pode falhar sem derrubar o
+    // fechamento da proposta, e a tela precisa saber a diferença.
+    return { negotiation: updated, leadClosed }
   })
 
   // Reabrir uma negociação fechada (voltou a negociar / fechou sem querer).

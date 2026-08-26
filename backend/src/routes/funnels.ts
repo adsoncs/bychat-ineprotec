@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { normTerminalKind, conflitoTerminalKind } from '../lib/terminalStage.js'
 import { adminOnly, authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotFunnel } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -159,11 +160,17 @@ export async function funnelsRoutes(app: FastifyInstance) {
   app.post('/api/admin/funnels/:id/stages', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const { key, name, color, consumesSlot } = req.body as any
+    const terminalKind = normTerminalKind((req.body as any).terminalKind)
     if (!key || !name || !color) return reply.code(400).send({ error: 'Key, nome e cor são obrigatórios' })
 
     const cleanKey = key.toUpperCase().replace(/[^A-Z0-9_]/g, '')
     const exists = await prisma.stage.findFirst({ where: { funnelId: Number(id), key: cleanKey } })
     if (exists) return reply.code(409).send({ error: 'Já existe uma etapa com esta chave neste funil' })
+
+    if (terminalKind) {
+      const conflito = await conflitoTerminalKind(Number(id), terminalKind)
+      if (conflito) return reply.code(409).send({ error: conflito })
+    }
 
     const maxPos = await prisma.stage.aggregate({ where: { funnelId: Number(id) }, _max: { position: true } })
     const stage = await prisma.stage.create({
@@ -174,6 +181,7 @@ export async function funnelsRoutes(app: FastifyInstance) {
         color,
         position: (maxPos._max.position ?? -1) + 1,
         consumesSlot: !!consumesSlot,
+        ...(terminalKind !== undefined ? { terminalKind } : {}),
       }
     })
     return stage

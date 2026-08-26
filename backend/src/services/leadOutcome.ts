@@ -16,6 +16,15 @@ export interface MarkWonInput {
   userId?: number
   userName?: string
   ipAddress?: string
+  /**
+   * Quem já cuidou da proposta avisa aqui. É o caso da rota `/negotiations/:id/
+   * close`: ela fecha UMA proposta escolhida a dedo, e deixar a sincronia rodar
+   * fecharia junto as outras que o lead tenha em aberto — as do outro filho, do
+   * outro período — como se tivessem sido vendidas.
+   */
+  skipNegotiationSync?: boolean
+  /** Título do evento na timeline. Default: "Marcado como Ganho". */
+  eventTitle?: string
 }
 
 export interface MarkLostInput {
@@ -25,6 +34,10 @@ export interface MarkLostInput {
   userId?: number
   userName?: string
   ipAddress?: string
+  /** Ver `MarkWonInput.skipNegotiationSync`. */
+  skipNegotiationSync?: boolean
+  /** Título do evento na timeline. Default: "Marcado como Perdido". */
+  eventTitle?: string
 }
 
 export interface ReopenInput {
@@ -123,8 +136,8 @@ async function reconcileDetectedSale(leadId: number, value: number | null | unde
 
 // ── API pública ──────────────────────────────────────────
 
-export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number; cancelledActivities: number }> {
-  const { leadId, value, note, userId, userName, ipAddress } = input
+export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number; cancelledActivities: number; negotiations: { fechadas: number; ambiguas: number } }> {
+  const { leadId, value, note, userId, userName, ipAddress, skipNegotiationSync, eventTitle } = input
   const before = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { id: true, outcome: true, saleDetected: true, saleValue: true },
@@ -148,16 +161,24 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   const cancelled = await cancelPendingActivities(leadId, 'lead_won')
   await reconcileDetectedSale(leadId, value ?? null, userId)
   const moved = await autoMoveToTerminalStage(leadId, 'won')
+  // Fecha a proposta junto. Aqui e não nas rotas porque TODO caminho de marcação
+  // passa por esta função — botão do painel, Resumo, etapa de desfecho, API — e
+  // o cliente pediu que o valor seja lançado venha de onde vier.
+  const { syncNegotiationsWithLeadOutcome } = await import('./negotiationOutcomeSync.js')
+  const negs = skipNegotiationSync
+    ? { fechadas: 0, ambiguas: 0 }
+    : await syncNegotiationsWithLeadOutcome(leadId, 'won', { userId, nota: note ?? undefined })
+        .catch((e) => { console.warn('[leadOutcome] negociação:', (e as Error).message); return { fechadas: 0, ambiguas: 0 } })
 
   logEvent({
     leadId,
     type: EVENT_TYPES.LEAD_WON,
     category: 'lifecycle',
-    title: value != null ? `Marcado como Ganho — R$ ${value.toFixed(2)}` : 'Marcado como Ganho',
+    title: eventTitle ?? (value != null ? `Marcado como Ganho — R$ ${value.toFixed(2)}` : 'Marcado como Ganho'),
     source: 'panel',
     ...(await actor(userId, userName)),
     description: note || undefined,
-    metadata: { value: value ?? null, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null },
+    metadata: { value: value ?? null, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null, negociacoesFechadas: negs.fechadas, negociacoesAmbiguas: negs.ambiguas },
     ipAddress,
   })
 
@@ -181,11 +202,11 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   // Silencioso quando o lead não veio de Lead Ads ou a feature está off.
   sendLeadQualityFeedback({ leadId, quality: 'CONVERTED' }).catch(() => {})
 
-  return { leadId, cancelledActivities: cancelled }
+  return { leadId, cancelledActivities: cancelled, negotiations: negs }
 }
 
-export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: number; cancelledActivities: number }> {
-  const { leadId, reasonId, note, userId, userName, ipAddress } = input
+export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: number; cancelledActivities: number; negotiations: { fechadas: number; ambiguas: number } }> {
+  const { leadId, reasonId, note, userId, userName, ipAddress, skipNegotiationSync, eventTitle } = input
   const before = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { id: true, outcome: true },
@@ -210,6 +231,13 @@ export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: numb
   })
   const cancelled = await cancelPendingActivities(leadId, 'lead_lost')
   const moved = await autoMoveToTerminalStage(leadId, 'lost')
+  // Perda fecha TODAS as propostas abertas: nenhuma soma receita, então não há
+  // risco em fechar demais — ao contrário do ganho, que exige proposta única.
+  const { syncNegotiationsWithLeadOutcome } = await import('./negotiationOutcomeSync.js')
+  const negs = skipNegotiationSync
+    ? { fechadas: 0, ambiguas: 0 }
+    : await syncNegotiationsWithLeadOutcome(leadId, 'lost', { userId, lostReasonId: validReasonId, nota: note ?? undefined })
+        .catch((e) => { console.warn('[leadOutcome] negociação:', (e as Error).message); return { fechadas: 0, ambiguas: 0 } })
 
   let reasonName: string | undefined
   if (validReasonId) {
@@ -221,11 +249,11 @@ export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: numb
     leadId,
     type: EVENT_TYPES.LEAD_LOST,
     category: 'lifecycle',
-    title: reasonName ? `Marcado como Perdido — ${reasonName}` : 'Marcado como Perdido',
+    title: eventTitle ?? (reasonName ? `Marcado como Perdido — ${reasonName}` : 'Marcado como Perdido'),
     source: 'panel',
     ...(await actor(userId, userName)),
     description: note || undefined,
-    metadata: { reasonId: validReasonId, reasonName, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null },
+    metadata: { reasonId: validReasonId, reasonName, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null, negociacoesFechadas: negs.fechadas },
     ipAddress,
   })
 
@@ -250,7 +278,7 @@ export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: numb
   const quality = classifyLossAsQuality(reasonName)
   sendLeadQualityFeedback({ leadId, quality }).catch(() => {})
 
-  return { leadId, cancelledActivities: cancelled }
+  return { leadId, cancelledActivities: cancelled, negotiations: negs }
 }
 
 export async function reopenLead(input: ReopenInput): Promise<{ leadId: number; previousOutcome: string | null }> {

@@ -34,6 +34,8 @@ export interface FunnelStage {
   position: number
   active: boolean
   consumesSlot: boolean
+  /** Etapa de desfecho: entrar nela marca o lead como Ganho/Perdido. */
+  terminalKind: 'won' | 'lost' | null
 }
 
 export interface FunnelDetail extends FunnelListItem {
@@ -47,6 +49,8 @@ export interface StageInput {
   color: string
   consumesSlot?: boolean | undefined
   active?: boolean | undefined
+  /** '' limpa a marcação; ausente não mexe. */
+  terminalKind?: 'won' | 'lost' | '' | undefined
 }
 
 export function useFunnel(id: number | null | undefined) {

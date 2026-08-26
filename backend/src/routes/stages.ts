@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { adminOnly } from '../lib/auth.js'
+import { normTerminalKind, conflitoTerminalKind } from '../lib/terminalStage.js'
 
 export async function stagesRoutes(app: FastifyInstance) {
 
@@ -22,6 +23,7 @@ export async function stagesRoutes(app: FastifyInstance) {
   // ── POST /api/admin/stages — Criar etapa (requer funnelId) ──
   app.post('/api/admin/stages', { preHandler: adminOnly }, async (req, reply) => {
     const { key, name, color, position, funnelId, consumesSlot } = req.body as any
+    const terminalKind = normTerminalKind((req.body as any).terminalKind)
     if (!key || !name || !color) {
       return reply.code(400).send({ error: 'Key, nome e cor são obrigatórios' })
     }
@@ -38,6 +40,11 @@ export async function stagesRoutes(app: FastifyInstance) {
     const exists = await prisma.stage.findFirst({ where: { funnelId: resolvedFunnelId, key: cleanKey } })
     if (exists) return reply.code(409).send({ error: 'Já existe uma etapa com esta chave neste funil' })
 
+    if (terminalKind) {
+      const conflito = await conflitoTerminalKind(resolvedFunnelId, terminalKind)
+      if (conflito) return reply.code(409).send({ error: conflito })
+    }
+
     const maxPos = await prisma.stage.aggregate({ where: { funnelId: resolvedFunnelId }, _max: { position: true } })
     const stage = await prisma.stage.create({
       data: {
@@ -47,6 +54,7 @@ export async function stagesRoutes(app: FastifyInstance) {
         color,
         position: position ?? ((maxPos._max.position ?? -1) + 1),
         consumesSlot: !!consumesSlot,
+        ...(terminalKind !== undefined ? { terminalKind } : {}),
       }
     })
     return stage
@@ -56,6 +64,7 @@ export async function stagesRoutes(app: FastifyInstance) {
   app.put('/api/admin/stages/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const { name, color, position, active, consumesSlot } = req.body as any
+    const terminalKind = normTerminalKind((req.body as any).terminalKind)
     const stage = await prisma.stage.findUnique({ where: { id: Number(id) } })
     if (!stage) return reply.code(404).send({ error: 'Etapa não encontrada' })
 
@@ -65,6 +74,13 @@ export async function stagesRoutes(app: FastifyInstance) {
     if (position !== undefined) data.position = position
     if (active !== undefined) data.active = active
     if (consumesSlot !== undefined) data.consumesSlot = !!consumesSlot
+    if (terminalKind !== undefined) {
+      if (terminalKind) {
+        const conflito = await conflitoTerminalKind(stage.funnelId, terminalKind, stage.id)
+        if (conflito) return reply.code(409).send({ error: conflito })
+      }
+      data.terminalKind = terminalKind
+    }
 
     return prisma.stage.update({ where: { id: Number(id) }, data })
   })
