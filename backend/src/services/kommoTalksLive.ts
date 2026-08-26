@@ -20,8 +20,16 @@ import { importarTalk } from './kommoTalks.js'
 import { getKommoChatsConfig, kommoFetch, type KommoConfig } from '../lib/kommoClient.js'
 import { prisma } from '../lib/prisma.js'
 
-/** De quanto em quanto tempo a rede de segurança roda. */
-const CICLO_MIN = parseInt(process.env.KOMMO_TALKS_LIVE_MIN || '5', 10)
+/**
+ * De quanto em quanto tempo o ciclo roda.
+ *
+ * 1 minuto, e não 5, porque o webhook `add_message` da Kommo só dispara para
+ * mensagem RECEBIDA: a resposta da consultora não avisa ninguém e só entra
+ * aqui. Medido em 26/08 com o time atendendo: mensagem do cliente chegava em
+ * ~2s, a da equipe levava até 5 min — a pergunta aparecia no bychat e a
+ * resposta não. O custo de fechar essa janela é uma requisição por minuto.
+ */
+const CICLO_MIN = parseInt(process.env.KOMMO_TALKS_LIVE_MIN || '1', 10)
 /**
  * Teto de quanto o ciclo olha para trás quando o cursor está velho (serviço
  * parado a noite toda, por exemplo). Sem teto, um cursor de semanas atrás
@@ -32,13 +40,18 @@ const JANELA_MAX_H = 24
  * O lead pode ainda não existir aqui: a conversa começa na Kommo no mesmo
  * minuto em que o lead é criado lá, e o sync de leads roda a cada 15 min. Em
  * vez de perder a conversa, ela espera o lead aparecer.
+ *
+ * A espera é em TEMPO, não em número de ciclos: amarrada a ciclos, mudar o
+ * intervalo de 5 para 1 minuto encurtaria a paciência de duas horas para
+ * vinte e cinco minutos sem ninguém perceber. Duas horas dão margem para o
+ * sync de leads falhar algumas vezes antes de desistirmos.
  */
-const RETRY_MAX = 25
+const ESPERA_LEAD_MS = 2 * 60 * 60 * 1000
 const CHAVE_CURSOR = 'kommo.talks_live_cursor'
 
 /** Conversas sendo processadas agora — webhook e ciclo não se atropelam. */
 const emVoo = new Set<number>()
-/** talkId → tentativas já feitas, para a conversa cujo lead ainda não chegou. */
+/** talkId → quando começou a esperar, para a conversa cujo lead não chegou. */
 const aguardandoLead = new Map<number, number>()
 
 async function lerCursor(): Promise<number | null> {
@@ -80,9 +93,17 @@ export async function sincronizarTalk(
   try {
     const r = await importarTalk(talkId, { cfg })
     if (r.pulou === 'sem-lead') {
-      const tentativas = (aguardandoLead.get(talkId) ?? 0) + 1
-      if (tentativas <= RETRY_MAX) aguardandoLead.set(talkId, tentativas)
-      else aguardandoLead.delete(talkId)
+      const desde = aguardandoLead.get(talkId)
+      if (desde === undefined) {
+        aguardandoLead.set(talkId, Date.now())
+        console.log(`[kommo-live] talk ${talkId} sem lead ainda — aguardando o sync de leads`)
+      } else if (Date.now() - desde > ESPERA_LEAD_MS) {
+        // Desistir calado esconderia uma conversa real. Quem lê o log precisa
+        // do id para ir atrás na Kommo: quase sempre é conversa de contato que
+        // nunca virou lead (o caso das 9 de instagram_business no import).
+        aguardandoLead.delete(talkId)
+        console.warn(`[kommo-live] talk ${talkId} DESISTIDO após 2h sem lead correspondente no bychat`)
+      }
       return 'sem-lead'
     }
     aguardandoLead.delete(talkId)
