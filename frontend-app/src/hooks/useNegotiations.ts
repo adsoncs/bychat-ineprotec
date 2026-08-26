@@ -44,6 +44,8 @@ export interface Negotiation {
   parcelas: number | null
   entrada: number | string | null
   condicaoPagamento: string | null
+  /** Funil desta venda — é por ele que a meta e a comissão contam. */
+  funnelId: number | null
   /** Condições da mensalidade — separadas das do pagamento único. */
   descontoRecTipo: 'valor' | 'percent' | null
   descontoRecValor: number | string | null

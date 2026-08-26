@@ -431,8 +431,18 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (b.fechamentoPrevisto !== undefined) data.fechamentoPrevisto = b.fechamentoPrevisto ? new Date(b.fechamentoPrevisto) : null
     if (b.observacoes !== undefined) data.observacoes = b.observacoes ? String(b.observacoes).slice(0, 5000) : null
     if (items) { await prisma.negotiationItem.deleteMany({ where: { negotiationId: id } }); data.items = { create: items } }
-    const n = await prisma.negotiation.update({ where: { id }, data, include: { items: true } })
-    // Editar uma proposta JÁ FECHADA muda a base de cálculo da comissão (ajuste de
+        // Trocar o funil da venda: só enquanto ela está ABERTA. Depois de fechada,
+    // a comissão já foi lançada naquele funil e na faixa daquele mês — mudar o
+    // processo por baixo reescreveria a meta de dois funis de uma vez.
+    if (b.funnelId !== undefined) {
+      if (cur.resultado) {
+        return reply.code(400).send({ error: 'Esta venda já foi fechada — o funil dela não muda mais.' })
+      }
+      const lead = await prisma.lead.findUnique({ where: { id: cur.leadId }, select: { funnelId: true } })
+      data.funnelId = await funilDaNegociacao(cur.leadId, b.funnelId, lead?.funnelId ?? null)
+    }
+
+    const n = await prisma.negotiation.update({ where: { id }, data, include: { items: true } }) // Editar uma proposta JÁ FECHADA muda a base de cálculo da comissão (ajuste de
     // valor, item corrigido). Proposta ainda aberta não gera lançamento nenhum.
     if (cur.resultado || n.resultado) await onNegotiationChanged(id)
     return { negotiation: n }

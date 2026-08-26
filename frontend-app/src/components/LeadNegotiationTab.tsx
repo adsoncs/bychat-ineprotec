@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/apiClient'
 import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, RotateCcw, Boxes, Link2Off, PencilLine } from 'lucide-preact'
 import {
   useNegotiations, useNegotiation, useSaveNegotiation, useDeleteNegotiation,
@@ -64,6 +66,8 @@ interface Form {
   pagamentoFormaRec: string; vencimentoDiaRec: string
   // Geral
   condicao: string; probabilidade: string; validadeAte: string; obs: string
+  /** Em qual funil esta venda acontece. Vazio = o funil principal do lead. */
+  funnelId: string
 }
 const EMPTY_FORM: Form = {
   titulo: 'Proposta', status: 'rascunho', rows: [],
@@ -71,7 +75,7 @@ const EMPTY_FORM: Form = {
   pagamentoForma: '', parcelas: '', entrada: '',
   descontoRecTipo: 'valor', descontoRecValor: '',
   pagamentoFormaRec: '', vencimentoDiaRec: '',
-  condicao: '', probabilidade: '', validadeAte: '', obs: '',
+  condicao: '', probabilidade: '', validadeAte: '', obs: '', funnelId: '',
 }
 
 function rowFromProduct(p: CatalogHit): Row {
@@ -311,6 +315,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
       vencimentoDiaRec: n.vencimentoDiaRec != null ? String(n.vencimentoDiaRec) : '',
       condicao: n.condicaoPagamento || '',
       probabilidade: n.probabilidade != null ? String(n.probabilidade) : '',
+      funnelId: n.funnelId != null ? String(n.funnelId) : '',
       validadeAte: n.validadeAte ? n.validadeAte.slice(0, 10) : '',
       obs: n.observacoes || '',
     })
@@ -357,6 +362,22 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   const valorContrato = mesesContrato > 0 ? totalUnico + mrr * mesesContrato : 0
   const closed = !!n?.resultado
   // Desconto por item só aparece se algum item antigo já tiver (legado) — novos usam o desconto geral.
+  // Os funis em que este lead está. Só interessa quando há mais de um: com um
+  // só, escolher não é escolha — é um campo a mais para ignorar.
+  const funisDoLead = useQuery({
+    queryKey: ['ticket-funnel', leadId],
+    queryFn: () => api.get<{
+      funilAtual: { id: number; name: string } | null
+      adicionais: Array<{ funnelId: number; nome: string }>
+    }>(`/atendimento/tickets/${leadId}/funnel`),
+    enabled: !!leadId,
+    staleTime: 60_000,
+  })
+  const opcoesDeFunil = [
+    ...(funisDoLead.data?.funilAtual ? [{ id: funisDoLead.data.funilAtual.id, nome: funisDoLead.data.funilAtual.name, principal: true }] : []),
+    ...(funisDoLead.data?.adicionais ?? []).map((a) => ({ id: a.funnelId, nome: a.nome, principal: false })),
+  ]
+
   const hasItemDesc = f.rows.some((r) => (r.descontoItem || 0) > 0)
 
   function setRow(i: number, p: Partial<Row>) { patch({ rows: f.rows.map((r, idx) => idx === i ? { ...r, ...p } : r) }) }
@@ -375,6 +396,9 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
       pagamentoForma: f.pagamentoForma || null, parcelas: f.parcelas ? nParcelas : null, entrada: f.entrada ? entrada : null,
       condicaoPagamento: f.condicao || null, probabilidade: f.probabilidade ? num(f.probabilidade) : null,
       validadeAte: f.validadeAte || null, observacoes: f.obs || null,
+      // Só manda quando o operador escolheu: sem isso o servidor herda o funil
+      // principal do lead, que é o certo na esmagadora maioria das vendas.
+      ...(f.funnelId ? { funnelId: num(f.funnelId) } : {}),
     }
     save.mutate(payload as any, {
       onSuccess: () => { setDirty(false); toast('Negociação salva', 'success'); if (isNew) onBack() },
@@ -443,6 +467,34 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
               {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </Select>
           </div>
+          {/* Em qual processo esta venda acontece.
+            *
+            * Aparece só quando o lead está em mais de um funil — que é quando a
+            * pergunta existe. É por este campo que a meta e a comissão contam, e
+            * uma venda pertence a UM processo: contá-la em todos pagaria a mesma
+            * comissão mais de uma vez.
+            *
+            * Fechada, não muda mais: a comissão já foi lançada naquele funil e
+            * na faixa daquele mês. */}
+          {opcoesDeFunil.length > 1 && (
+            <div>
+              <label class="block text-xs font-medium text-fg mb-1">
+                Funil da venda
+                {closed && <span class="ml-1 font-normal text-fg-subtle">· fechada, não muda</span>}
+              </label>
+              <Select
+                value={f.funnelId || String(opcoesDeFunil.find((o) => o.principal)?.id ?? '')}
+                disabled={closed}
+                onChange={(e) => patch({ funnelId: (e.target as HTMLSelectElement).value })}
+              >
+                {opcoesDeFunil.map((o) => (
+                  <option key={o.id} value={String(o.id)}>
+                    {o.nome}{o.principal ? ' (principal)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <Input label="Válida até" type="date" value={f.validadeAte} disabled={closed} onInput={(e) => patch({ validadeAte: (e.target as HTMLInputElement).value })} />
         </div>
       </Card>
