@@ -959,7 +959,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
   app.put('/api/atendimento/canal-padrao', { preHandler: authMiddleware }, async (req, reply) => {
     const user = (req as any).user
-    if (!['admin', 'superadmin'].includes(String(user?.role))) {
+    // Os papéis são MAIÚSCULOS no token (ver lib/auth.ts). Comparar com a versão
+    // minúscula fazia esta rota recusar até o superadmin: o número padrão nunca
+    // chegou a ser salvo por ninguém, e a tela devolvia 403 sem explicação.
+    if (user?.role !== 'SUPERADMIN' && user?.role !== 'ADMIN') {
       return reply.code(403).send({ error: 'Só admin ou superadmin define o número padrão.' })
     }
     const { channelId } = (req.body || {}) as { channelId?: string | null }
