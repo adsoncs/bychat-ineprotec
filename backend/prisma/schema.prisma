@@ -1004,6 +1004,13 @@ model Lead {
   conversationOpenedAt DateTime?
   conversationClosedAt DateTime?
 
+  // Contato voltou a falar depois de a conversa ter sido ENCERRADA. Marca o
+  // instante do retorno e move o lead de Resolvidos para a Caixa — a fila de
+  // "chegou e ninguém pegou" — sem mexer no dono (assignedUserId é o
+  // responsável no funil inteiro, não só na conversa). Zera quando alguém
+  // assume/responde (abre o atendimento de novo) ou quando é encerrado.
+  conversationReopenedAt DateTime?
+
   // Snooze (adiar atendimento). NULL = ativo; data futura = oculto da inbox/raw
   // até passar a hora. Aparece na bucket "Aguardando" e mostra banner no chat.
   snoozedUntil DateTime?
@@ -1128,6 +1135,7 @@ model Lead {
   @@index([qualifiedAt])
   @@index([firstResponseAt])
   @@index([conversationOpenedAt, conversationClosedAt])
+  @@index([conversationReopenedAt])
   @@index([outcome])
   @@index([outcome, outcomeAt])
   @@index([outcome, lostReasonId, outcomeAt])

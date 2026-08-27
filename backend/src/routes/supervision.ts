@@ -77,17 +77,27 @@ function requireSupervisor(req: any, reply: any): boolean {
 
 // ── Baldes ────────────────────────────────────────────────────────────────
 // Cópia fiel do lifecycle de routes/atendimento.ts. Se lá mudar, muda aqui:
-//   raw      Caixa       — chegou mensagem, ninguém assumiu
+//   raw      Caixa       — chegou mensagem, ninguém assumiu (inclui o contato
+//                          que voltou a falar depois de resolvido)
 //   inbox    Atendimento — conversa aberta e não encerrada
 //   snoozed  Aguardando  — adormecida OU atribuída sem atendimento iniciado
-//   resolved Resolvidos  — conversa encerrada
+//   resolved Resolvidos  — conversa encerrada e sem retorno pendente
+// O critério é o mesmo de routes/atendimento.ts (condicaoDaCaixa): mudar lá sem
+// mudar aqui faz a supervisão contar um mundo e a tela de Conversas outro.
 export type Bucket = 'raw' | 'inbox' | 'snoozed' | 'resolved'
 
 function bucketWhere(bucket: Bucket, now: Date): Record<string, unknown> {
   const notSnoozed = { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] }
   switch (bucket) {
     case 'raw':
-      return { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null, AND: [notSnoozed] }
+      return {
+        AND: [notSnoozed, {
+          OR: [
+            { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
+            { conversationReopenedAt: { not: null } },
+          ],
+        }],
+      }
     case 'inbox':
       return { conversationOpenedAt: { not: null }, conversationClosedAt: null, AND: [notSnoozed] }
     case 'snoozed':
@@ -100,7 +110,7 @@ function bucketWhere(bucket: Bucket, now: Date): Record<string, unknown> {
         }],
       }
     case 'resolved':
-      return { conversationClosedAt: { not: null } }
+      return { conversationClosedAt: { not: null }, conversationReopenedAt: null }
   }
 }
 
@@ -229,10 +239,13 @@ function readBotState(formData: unknown): BotState {
 function resolveBucket(lead: {
   conversationOpenedAt: Date | null
   conversationClosedAt: Date | null
+  conversationReopenedAt: Date | null
   snoozedUntil: Date | null
   assignedUserId: number | null
   lastMessageAt: Date | null
 }, now: Date): Bucket {
+  // Antes do teste de encerrada: com retorno pendente a conversa está na Caixa.
+  if (lead.conversationReopenedAt) return 'raw'
   if (lead.conversationClosedAt) return 'resolved'
   if (lead.snoozedUntil && lead.snoozedUntil > now) return 'snoozed'
   if (lead.conversationOpenedAt) return 'inbox'
@@ -442,6 +455,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
             unreadMessages: true, lastMessageAt: true, createdAt: true,
             assignedUserId: true, assignedAt: true, firstResponseAt: true,
             conversationOpenedAt: true, conversationClosedAt: true, snoozedUntil: true,
+            conversationReopenedAt: true,
             profilePicUrl: true, formData: true, chatbotId: true,
             assignedUser: { select: { id: true, name: true, email: true } },
             team: { select: { id: true, name: true, color: true } },

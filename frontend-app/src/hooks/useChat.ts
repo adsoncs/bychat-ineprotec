@@ -33,6 +33,9 @@ export interface Ticket {
   conversationOpenedAt: string | null
   conversationClosedAt: string | null
   snoozedUntil: string | null
+  /** Contato voltou a falar depois de resolvido: a conversa está na Caixa
+   *  esperando alguém pegar, mesmo tendo dono. null = sem retorno pendente. */
+  conversationReopenedAt: string | null
   assignedUserId: number | null
   assignedUser: { id: number; name: string | null; email: string } | null
   teamId: number | null

@@ -3,9 +3,10 @@
 //
 // Conversa "aberta" = lead aparece como ticket em Conversas; novas mensagens
 // caem direto no atendimento. Conversa "fechada" = ticket sai da listagem
-// principal, fica em Resolvidos. Mensagens novas em conversa fechada REABREM
-// automaticamente. Mensagens em lead que NUNCA teve conversa aberta ficam na
-// "Caixa de entrada bruta" — operador decide se abre.
+// principal, fica em Resolvidos. Mensagem nova em conversa fechada devolve o
+// lead para a CAIXA — ver markConversationReopened. Mensagens em lead que
+// NUNCA teve conversa aberta ficam na "Caixa de entrada bruta" — operador
+// decide se abre.
 
 import { prisma } from '../lib/prisma.js'
 import { logEvent } from './leadHistory.js'
@@ -20,7 +21,10 @@ interface OpenOpts {
 export async function openConversation(leadId: number, opts: OpenOpts = {}): Promise<{ opened: boolean; reopened: boolean }> {
   const cur = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, conversationOpenedAt: true, conversationClosedAt: true, snoozedUntil: true },
+    select: {
+      id: true, conversationOpenedAt: true, conversationClosedAt: true,
+      snoozedUntil: true, conversationReopenedAt: true,
+    },
   })
   if (!cur) return { opened: false, reopened: false }
   // Conversa já está aberta (sem closedAt mais recente que openedAt)
@@ -28,8 +32,11 @@ export async function openConversation(leadId: number, opts: OpenOpts = {}): Pro
   if (isOpen) {
     // Mesmo idempotente, limpa snooze: cliente voltou a falar (ou operador
     // mandou outbound) → não faz sentido continuar adormecido.
-    if (cur.snoozedUntil && cur.snoozedUntil > new Date()) {
-      await prisma.lead.update({ where: { id: leadId }, data: { snoozedUntil: null } })
+    if ((cur.snoozedUntil && cur.snoozedUntil > new Date()) || cur.conversationReopenedAt) {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { snoozedUntil: null, conversationReopenedAt: null },
+      })
     }
     return { opened: false, reopened: false }
   }
@@ -37,7 +44,12 @@ export async function openConversation(leadId: number, opts: OpenOpts = {}): Pro
   const wasReopen = !!cur.conversationOpenedAt && !!cur.conversationClosedAt
   await prisma.lead.update({
     where: { id: leadId },
-    data: { conversationOpenedAt: new Date(), conversationClosedAt: null, snoozedUntil: null },
+    // conversationReopenedAt zera aqui: a espera na Caixa termina no instante em
+    // que alguém assume ou responde, e é isso que tira o lead da Caixa.
+    data: {
+      conversationOpenedAt: new Date(), conversationClosedAt: null,
+      snoozedUntil: null, conversationReopenedAt: null,
+    },
   })
   logEvent({
     leadId,
@@ -78,9 +90,11 @@ export async function closeConversation(leadId: number, opts: OpenOpts = {}): Pr
   // mais tinha como zerar: ficava "não lida" para sempre, já resolvida. Encerrar
   // é o gesto mais explícito de "terminei com isto"; se chegar mensagem nova, o
   // webhook reabre a conversa e volta a contar.
+  // conversationReopenedAt volta a NULL: encerrar é a resposta ao retorno do
+  // contato, e sem zerar o lead ficaria preso na Caixa depois de resolvido.
   const data = cur.conversationOpenedAt
-    ? { conversationClosedAt: now, unreadMessages: 0 }
-    : { conversationOpenedAt: now, conversationClosedAt: now, unreadMessages: 0 }
+    ? { conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null }
+    : { conversationOpenedAt: now, conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null }
 
   await prisma.lead.update({ where: { id: leadId }, data })
   logEvent({
@@ -98,18 +112,69 @@ export async function closeConversation(leadId: number, opts: OpenOpts = {}): Pr
 }
 
 // Garante que a conversa está aberta — usado em outbound (operador mandou
-// mensagem) e em reabertura por mensagem inbound em conversa fechada.
+// mensagem) e ao assumir o ticket.
 export async function ensureConversationOpen(leadId: number, opts: OpenOpts = {}) {
   return openConversation(leadId, opts)
 }
 
-// Helpers de filtro reutilizáveis nas queries de tickets.
+/**
+ * O contato voltou a falar numa conversa JÁ ENCERRADA.
+ *
+ * Isto chamava openConversation, e o lead voltava direto para Atendimento com o
+ * dono de antes: a conversa renascia "em atendimento" sem ninguém ter pegado, e
+ * quem estivesse de olho na Caixa não via que havia trabalho novo. Agora o
+ * retorno cai na CAIXA, que é justamente a fila de "chegou e ninguém pegou".
+ *
+ * O encerramento fica de pé (conversationClosedAt intacto) e quem marca o
+ * retorno é conversationReopenedAt — é ele que move o lead de Resolvidos para a
+ * Caixa. Assim o dono não é mexido: assignedUserId é o responsável no funil
+ * inteiro, não só na conversa, e zerá-lo a cada retorno tiraria o lead da
+ * carteira do vendedor, das metas e das comissões.
+ *
+ * Idempotente e sem renovar: a segunda mensagem seguida preserva o instante da
+ * primeira. Renovar faria o lead rejuvenescer na fila a cada mensagem e passar
+ * na frente de quem espera há mais tempo.
+ */
+export async function markConversationReopened(leadId: number, opts: OpenOpts = {}): Promise<{ reopened: boolean }> {
+  const cur = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { conversationOpenedAt: true, conversationClosedAt: true, conversationReopenedAt: true },
+  })
+  if (!cur) return { reopened: false }
+  // Só vale para conversa encerrada: a aberta não tem o que reabrir, e o lead
+  // que nunca conversou já entra na Caixa pelo caminho normal.
+  const encerrada = !!cur.conversationOpenedAt && !!cur.conversationClosedAt
+  if (!encerrada || cur.conversationReopenedAt) return { reopened: false }
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: { conversationReopenedAt: new Date(), snoozedUntil: null },
+  })
+  logEvent({
+    leadId,
+    type: 'conversation_reopened' as any,
+    category: 'lifecycle',
+    title: 'Contato voltou a falar — conversa devolvida à Caixa',
+    source: opts.reason || 'reopen_message',
+    actorType: 'lead',
+    description: opts.reason || undefined,
+  })
+  return { reopened: true }
+}
+
+// Helpers de filtro reutilizáveis nas queries de tickets. A definição que MANDA
+// é a de routes/atendimento.ts (condicaoDaCaixa) — estes são o mesmo critério
+// escrito curto, e mudar um sem o outro é o que faz o contador discordar da lista.
 // inbox    = atendimento ativo (ticket aberto agora). openConversation sempre
 //            zera closedAt, então closedAt == null + openedAt != null garante "aberto".
-// raw      = mensagens recebidas em lead que nunca teve ticket aberto.
-// resolved = ticket fechado (lead já foi atendido alguma vez e o operador encerrou).
+// raw      = lead que nunca teve ticket aberto, MAIS o que voltou a falar depois
+//            de resolvido e ainda espera alguém pegar.
+// resolved = ticket fechado e sem retorno pendente do contato.
 export const conversationFilters = {
   inbox:    { conversationOpenedAt: { not: null }, conversationClosedAt: null },
-  resolved: { conversationClosedAt: { not: null } },
-  raw:      { conversationOpenedAt: null, lastMessageAt: { not: null } },
+  resolved: { conversationClosedAt: { not: null }, conversationReopenedAt: null },
+  raw:      { OR: [
+    { conversationOpenedAt: null, lastMessageAt: { not: null } },
+    { conversationReopenedAt: { not: null } },
+  ] },
 } as const

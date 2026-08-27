@@ -954,8 +954,15 @@ export async function instagramRoutes(app: FastifyInstance) {
           where: { id: lead.id },
           data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() },
         })
-        const { ensureConversationOpen } = await import('../services/leadConversation.js')
-        ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
+        // Conversa já encerrada: o contato voltou a falar e o retorno vai para a
+        // CAIXA, esperando alguém pegar — igual ao WhatsApp. Nos demais casos a
+        // DM abre o ticket direto, como sempre fez neste canal.
+        const { ensureConversationOpen, markConversationReopened } = await import('../services/leadConversation.js')
+        if (lead.conversationOpenedAt && lead.conversationClosedAt) {
+          markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
+        } else {
+          ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
+        }
       }
     }
 

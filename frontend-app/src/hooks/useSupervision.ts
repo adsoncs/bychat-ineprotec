@@ -68,6 +68,7 @@ export interface SupervisionConversation {
   firstResponseMin: number | null
   openMin: number | null
   snoozedUntil: string | null
+  conversationReopenedAt: string | null
   conversationOpenedAt: string | null
   conversationClosedAt: string | null
   createdAt: string

@@ -580,11 +580,12 @@ async function processIncomingMessage(
       metadata: { mediaType, messageId: msgId, phone, provider: 'cloud_api' },
     })
 
-    // Reabre conversa se já existia mas estava encerrada (paridade Evolution).
-    // Lead que nunca teve conversa aberta fica na "Caixa de entrada bruta".
+    // Conversa encerrada e o contato voltou a falar: volta para a CAIXA
+    // (paridade Evolution). Lead que nunca teve conversa aberta fica na
+    // "Caixa de entrada bruta".
     if (lead.conversationOpenedAt && lead.conversationClosedAt) {
-      const { ensureConversationOpen } = await import('../services/leadConversation.js')
-      ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
+      const { markConversationReopened } = await import('../services/leadConversation.js')
+      markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
     }
     return
   }

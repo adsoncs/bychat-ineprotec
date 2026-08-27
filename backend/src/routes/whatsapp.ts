@@ -1460,12 +1460,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
           scope: { leadId: lead.id },
         })
 
-        // Reabre conversa se já existia mas estava encerrada (closedAt preenchido).
+        // Conversa encerrada e o contato voltou a falar: devolve para a CAIXA,
+        // não para Atendimento — ninguém pegou este retorno ainda.
         // Lead que NUNCA teve conversa aberta fica na "Caixa de entrada bruta" —
         // a mensagem é registrada acima mas não vira ticket sozinha.
         if (lead.conversationOpenedAt && lead.conversationClosedAt) {
-          const { ensureConversationOpen } = await import('../services/leadConversation.js')
-          ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
+          const { markConversationReopened } = await import('../services/leadConversation.js')
+          markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
         }
 
         // Auto-resposta fora do horário de atendimento (apenas no caminho sem chatbot)

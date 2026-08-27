@@ -100,6 +100,9 @@ const SELECAO_TICKET = {
       qualifiedAt: true,
       qualificationSource: true,
       snoozedUntil: true,
+      // A lista mostra "Voltou a falar" na conversa que o contato reabriu: sem
+      // isso o operador vê um lead COM dono na Caixa e não entende por quê.
+      conversationReopenedAt: true,
       messages: {
         orderBy: { timestamp: 'desc' },
         take: 1,
@@ -124,10 +127,14 @@ function uniaoDasCaixas(now: Date) {
   return [
     // Atendimento — inclusive o que estiver adormecido, que na aba própria sai.
     { conversationOpenedAt: { not: null }, conversationClosedAt: null },
-    // Caixa
+    // Caixa — as duas formas: nunca atendido, e o que voltou a falar depois de
+    // resolvido. A segunda tem closedAt preenchido, então já entrava na união
+    // pela cláusula de Resolvidos; escrever as duas mantém a união igual ao que
+    // as abas somam, que é a razão de esta função existir.
     { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
+    { conversationReopenedAt: { not: null } },
     // Resolvidos
-    { conversationClosedAt: { not: null } },
+    { conversationClosedAt: { not: null }, conversationReopenedAt: null },
     // Aguardando (as duas formas)
     { snoozedUntil: { gt: now } },
     {
@@ -155,13 +162,25 @@ function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] }
       // Atendimento: conversa aberta, não fechada, não adormecida.
       return { campos: { conversationOpenedAt: { not: null }, conversationClosedAt: null }, and: [naoAdormecido] }
     case 'raw':
-      // Caixa: chegou mensagem e ninguém assumiu.
+      // Caixa: chegou mensagem e ninguém assumiu. São dois casos —
+      //  1) lead que nunca teve atendimento aberto e está sem dono;
+      //  2) contato que voltou a falar depois de resolvido (conversationReopenedAt).
+      // O caso (2) IGNORA o dono de propósito: o responsável no funil continua
+      // sendo dele, mas a conversa está sem atendente e precisa ser pega. Sai da
+      // Caixa quando alguém assume ou responde — aí o atendimento abre de novo.
       return {
-        campos: { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
-        and: [naoAdormecido],
+        campos: {},
+        and: [naoAdormecido, {
+          OR: [
+            { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
+            { conversationReopenedAt: { not: null } },
+          ],
+        }],
       }
     case 'resolved':
-      return { campos: { conversationClosedAt: { not: null } }, and: [] }
+      // Quem voltou a falar sai daqui: já está na Caixa, e a mesma conversa em
+      // duas abas faria a soma passar do total da aba "Todos".
+      return { campos: { conversationClosedAt: { not: null }, conversationReopenedAt: null }, and: [] }
     case 'snoozed':
       // Aguardando: adormecido OU atribuído sem atendimento iniciado.
       return {
@@ -314,7 +333,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       //   2) Operador clica "Assumir" → 'inbox' (Atendimento)
       //   3) Adormece OU é atribuído sem conversa aberta → 'snoozed' (Aguardando)
       //   4) Operador encerra → 'resolved' (Resolvidos)
-      //   Mensagem nova em conversa fechada reabre e devolve para 'inbox'.
+      //   Mensagem nova em conversa fechada devolve para 'raw' (Caixa): o
+      //   contato voltou e ninguém pegou esse retorno ainda.
       const bucket = (query.bucket || 'inbox').toString()
       const now = new Date()
 

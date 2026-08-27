@@ -887,11 +887,11 @@ function ConversationsScreen() {
         steps={[
           {
             title: '📥 As 4 caixas (abas)',
-            body: <><strong>Caixa</strong>: conversas sem dono — pegue uma e atenda. <strong>Atendimento</strong>: as suas, em curso. <strong>Aguardando</strong>: você respondeu e está esperando o cliente. <strong>Resolvidos</strong>: fechadas.</>,
+            body: <><strong>Caixa</strong>: chegou mensagem e ninguém pegou — inclusive o contato que voltou a falar depois de a conversa ter sido resolvida. <strong>Atendimento</strong>: conversa aberta, em curso. <strong>Aguardando</strong>: adiada para mais tarde, ou já atribuída a alguém que ainda não abriu o atendimento. <strong>Resolvidos</strong>: encerradas por alguém da equipe. A aba não olha quem mandou a última mensagem — olha em que ponto do atendimento a conversa está.</>,
           },
           {
             title: '👤 Pegar (claim) ou transferir',
-            body: <>Clique em uma conversa da Caixa — vira sua automaticamente. Pra passar pra outro vendedor, use <strong>Transferir</strong>. Pra devolver à Caixa, use <strong>Liberar</strong>.</>,
+            body: <>Clique em uma conversa da Caixa — vira sua automaticamente. Pra passar pra outro vendedor, use <strong>Transferir</strong>. <strong>Liberar</strong> tira o seu nome e devolve à fila do setor; a conversa continua aberta em Atendimento, agora sem responsável.</>,
           },
           {
             title: '💬 Responder',
@@ -1039,6 +1039,14 @@ function TicketRow({
                 {/* O alfinete explica por que esta conversa está fora da
                     ordem por data — sem ele, o topo parece bagunçado. */}
                 {fixada && <Pin size={11} class="shrink-0 text-accent" aria-label="Conversa fixada" />}
+                {/* O contato voltou a falar depois de a conversa ser resolvida.
+                    Sem este selo, o operador vê um lead COM responsável parado
+                    na Caixa e não entende o que ele está fazendo ali. */}
+                {ticket.conversationReopenedAt && (
+                  <span class="shrink-0 text-warning" title="Voltou a falar depois de resolvida">
+                    <CornerUpLeft size={11} aria-label="Voltou a falar depois de resolvida" />
+                  </span>
+                )}
                 <ChannelIcon source={ticket.source} />
                 <span class="truncate">
                   {name}
