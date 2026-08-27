@@ -2306,6 +2306,116 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     return r
   })
 
+  // ── Canal (número) de um GRUPO ────────────────────────────────────────────
+  //
+  // Grupo não escolhe por onde entra: o WhatsApp entrega a mensagem a TODAS as
+  // linhas nossas que estão nele. Enquanto o canal da conversa saía da última
+  // mensagem recebida, dois grupos diferentes apareciam no mesmo número — foi o
+  // que o kobogo viu, com as duas linhas dentro do mesmo grupo. Aqui o número
+  // fica travado por escolha, e vale para o rótulo, para o filtro e para o
+  // número por onde a resposta sai. Ver services/whatsappGroups.ts.
+  app.get('/api/atendimento/tickets/:leadId/canal-grupo', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: lid },
+      select: { id: true, isGroup: true, instanceName: true },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada.' })
+    if (!lead.isGroup) return { isGroup: false, titular: null, opcoes: [] }
+
+    // Só entram as linhas que COMPROVADAMENTE estão no grupo — as que já
+    // trocaram mensagem nele. Oferecer uma linha de fora deixaria a conversa
+    // presa a um número que não recebe nada daquele grupo.
+    const porLinha = await prisma.message.groupBy({
+      by: ['evolutionInstance'],
+      where: { leadId: lid, provider: 'evolution', evolutionInstance: { not: null }, isInternal: false },
+      _count: { _all: true },
+      _max: { timestamp: true },
+    })
+    const nomes = porLinha.map((r) => r.evolutionInstance as string)
+    if (lead.instanceName && !nomes.includes(lead.instanceName)) nomes.push(lead.instanceName)
+
+    const instancias = nomes.length
+      ? await prisma.whatsAppInstance.findMany({
+          where: { instanceName: { in: nomes }, active: true },
+          select: { id: true, name: true, instanceName: true, phone: true, color: true },
+        })
+      : []
+
+    const opcoes = instancias.map((i) => {
+      const uso = porLinha.find((r) => r.evolutionInstance === i.instanceName)
+      return {
+        id: i.id,
+        instanceName: i.instanceName,
+        // O nome técnico não é rótulo: quando ninguém batizou o número, a tela
+        // mostra o próprio identificador e não uma etiqueta falsa.
+        label: i.name && i.name !== i.instanceName ? i.name : i.instanceName,
+        phone: i.phone,
+        color: i.color,
+        mensagens: uso?._count._all ?? 0,
+        ultimaEm: uso?._max.timestamp ?? null,
+      }
+    }).sort((a, b) => b.mensagens - a.mensagens)
+
+    return { isGroup: true, titular: lead.instanceName, opcoes }
+  })
+
+  app.put('/api/atendimento/tickets/:leadId/canal-grupo', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    if (user.role !== 'SUPERADMIN' && user.role !== 'ADMIN') {
+      return reply.code(403).send({ error: 'Só admin ou superadmin troca o número de um grupo.' })
+    }
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid, 'edit')) return
+
+    const lead = await prisma.lead.findUnique({
+      where: { id: lid },
+      select: { id: true, nome: true, isGroup: true, instanceName: true },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada.' })
+    if (!lead.isGroup) return reply.code(400).send({ error: 'Só conversa de grupo tem número titular.' })
+
+    const bruto = (req.body ?? {}) as { instanceName?: string | null }
+    const escolhido = bruto.instanceName ? String(bruto.instanceName) : null
+
+    if (escolhido) {
+      const inst = await prisma.whatsAppInstance.findFirst({
+        where: { instanceName: escolhido, active: true },
+        select: { instanceName: true },
+      })
+      if (!inst) return reply.code(400).send({ error: 'Número não encontrado entre os canais ativos.' })
+      // Participação comprovada: sem mensagem trocada, não há como afirmar que
+      // esta linha está no grupo — e travar ali silenciaria a conversa.
+      const participa = await prisma.message.findFirst({
+        where: { leadId: lid, provider: 'evolution', evolutionInstance: escolhido },
+        select: { id: true },
+      })
+      if (!participa) {
+        return reply.code(400).send({ error: 'Este número nunca trocou mensagem neste grupo — não dá para atribuí-lo à conversa.' })
+      }
+    }
+
+    if (escolhido === lead.instanceName) return { ok: true, titular: escolhido }
+
+    await prisma.lead.update({ where: { id: lid }, data: { instanceName: escolhido } })
+    logEvent({
+      leadId: lid,
+      type: EVENT_TYPES.LEAD_EDITED,
+      category: 'system',
+      title: escolhido ? 'Número do grupo definido' : 'Número do grupo liberado',
+      description: escolhido
+        ? `O grupo passa a pertencer ao número ${escolhido}${lead.instanceName ? ` (antes: ${lead.instanceName})` : ''}.`
+        : 'O grupo volta a seguir o número da última mensagem recebida.',
+      source: 'panel',
+      ...getOperator(req),
+      ipAddress: getIp(req),
+    } as any)
+
+    return { ok: true, titular: escolhido }
+  })
+
   // ── GET /api/atendimento/tickets/:leadId/info — Lead details ──
   /**
    * "Este número tem WhatsApp?" — consultado quando a conversa é aberta.

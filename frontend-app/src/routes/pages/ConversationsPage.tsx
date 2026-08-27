@@ -132,6 +132,7 @@ import { AUDIO_SPEEDS, ConversationPrefsProvider, useConversationPrefs } from '@
 import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { LeadFunnelCard } from '@/components/LeadFunnelCard'
+import { GroupChannelCard } from '@/components/GroupChannelCard'
 import { useTabLabels, useConversationTheme } from '@/hooks/useTabLabels'
 
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
@@ -3219,6 +3220,11 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
               <InfoRow label="Cidade" value={lead.cidade} icon={<MapPin size={10} />} />
             </dl>
           </section>
+
+          {/* Número do grupo. Só em conversa de grupo, onde o WhatsApp entrega
+              a mesma mensagem a todas as linhas nossas que estão nele e o canal
+              precisa ser escolhido em vez de adivinhado. */}
+          {lead.isGroup && <GroupChannelCard leadId={leadId} />}
 
           {/* Funil e etapa — mover sem sair da conversa */}
           <LeadFunnelCard leadId={leadId} />

@@ -71,6 +71,11 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
   })
 
   if (existing) {
+    // Titular do grupo: adota este número quando o grupo ainda não tem um (é o
+    // caso de todo grupo criado antes desta regra) ou quando o titular morreu.
+    const dono = await ensureGroupChannelOwner(existing, instanceName)
+    if (dono !== existing.instanceName) existing.instanceName = dono
+
     // Nome ainda placeholder (a API falhou na criação) ou grupo renomeado no
     // WhatsApp: tenta corrigir sem bloquear o fluxo.
     if (isPlaceholderName(existing.nome)) {
@@ -98,6 +103,9 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
       // JID completo em `groupJid` (fonte da verdade para envio e dedup).
       whatsapp: onlyDigits(groupJid).slice(0, 30),
       phoneKey: null,
+      // Titular do grupo — ver `ensureGroupChannelOwner`. Quem criou a conversa
+      // é o dono natural dela; o admin troca depois, dentro da conversa.
+      instanceName,
       email: '',
       formData: { _source: 'whatsapp_group' },
       scores: {},
@@ -113,6 +121,84 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
       assignedAt: routing.userId ? new Date() : null,
     },
   })
+}
+
+/**
+ * Canal TITULAR do grupo — o número a que a conversa pertence.
+ *
+ * Quando duas linhas da mesma empresa participam do MESMO grupo, o WhatsApp
+ * entrega cada mensagem para as duas. Sem titular, o canal da conversa saía da
+ * última mensagem recebida — uma loteria entre as irmãs: no kobogo os dois
+ * grupos "Acesso Remoto" apareciam no mesmo número, e a resposta saía por ele.
+ *
+ * O titular vive em `Lead.instanceName`, o mesmo campo que num contato já diz
+ * por qual número ele chegou — grupo é lead, a semântica é a mesma.
+ *
+ * Regras de adoção, nesta ordem:
+ *  1. Grupo sem titular (todos os criados antes desta regra) adota a linha que
+ *     está entregando a mensagem — mantém o comportamento de hoje, e o admin
+ *     troca depois na conversa.
+ *  2. Titular apagado ou desativado deixa de valer e a linha viva assume: sem
+ *     isso o grupo emudeceria junto com a instância desligada.
+ *  3. Caso normal: o titular é mantido, venha a mensagem por qual linha vier.
+ *
+ * NÃO descarta mensagem: quem impede a duplicata é o dedup por `externalId`
+ * dentro do lead (rotas/whatsapp.ts). Travar a entrada no titular deixaria o
+ * grupo mudo sempre que ele caísse — a linha irmã continua sendo porta válida.
+ */
+export async function ensureGroupChannelOwner(
+  lead: { id: number; instanceName: string | null },
+  instanceName: string,
+): Promise<string> {
+  const atual = lead.instanceName
+  if (atual === instanceName) return atual
+  if (atual) {
+    const viva = await prisma.whatsAppInstance.findFirst({
+      where: { instanceName: atual, active: true },
+      select: { id: true },
+    })
+    if (viva) return atual
+  }
+  await prisma.lead.update({ where: { id: lead.id }, data: { instanceName } }).catch(() => {})
+  return instanceName
+}
+
+/**
+ * Titular de cada grupo, já descartando o que aponta para linha desligada.
+ *
+ * É a fonte única de "de quem é esta conversa de grupo" para o rótulo do canal,
+ * o filtro por número e o número por onde a resposta sai — os três precisam
+ * responder igual, senão a conversa aparece na lista de um número mostrando o
+ * nome de outro. Titular de instância inativa não vale: o canal cai de volta na
+ * regra geral (a última mensagem), em vez de apontar para um número desligado.
+ *
+ * Sem `leadIds` devolve todos os grupos — é o que o filtro por número precisa,
+ * que parte do canal e não de uma lista de conversas.
+ */
+export async function titularesDeGrupos(leadIds?: number[]): Promise<Map<number, string>> {
+  const mapa = new Map<number, string>()
+  if (leadIds && !leadIds.length) return mapa
+
+  const grupos = await prisma.lead.findMany({
+    where: {
+      isGroup: true,
+      instanceName: { not: null },
+      ...(leadIds ? { id: { in: leadIds } } : {}),
+    },
+    select: { id: true, instanceName: true },
+  })
+  if (!grupos.length) return mapa
+
+  const vivas = new Set(
+    (await prisma.whatsAppInstance.findMany({
+      where: { instanceName: { in: [...new Set(grupos.map((g) => g.instanceName as string))] }, active: true },
+      select: { instanceName: true },
+    })).map((i) => i.instanceName),
+  )
+  for (const g of grupos) {
+    if (g.instanceName && vivas.has(g.instanceName)) mapa.set(g.id, g.instanceName)
+  }
+  return mapa
 }
 
 /**

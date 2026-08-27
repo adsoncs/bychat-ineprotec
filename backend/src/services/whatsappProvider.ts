@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prisma.js'
 import { Prisma } from '@prisma/client'
 import { channelForUserTeams, userTeamIds } from './channelTeams.js'
+import { titularesDeGrupos } from './whatsappGroups.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import {
   sendTextMessage,
@@ -650,7 +651,19 @@ export async function leadsDoCanal(channelId: string): Promise<number[]> {
       )
   `)
 
-  return [...new Set([...porEntrada, ...semEntrada].map((r) => Number(r.leadId)))]
+  const ids = new Set([...porEntrada, ...semEntrada].map((r) => Number(r.leadId)))
+
+  // GRUPO não segue a regra da última mensagem: ele pertence ao número TITULAR
+  // (ver services/whatsappGroups.ts). Com duas linhas nossas dentro do mesmo
+  // grupo, a conversa aparecia no filtro das duas, alternando conforme quem
+  // entregou a última mensagem. Entra no filtro do titular e sai do dos outros.
+  const titulares = await titularesDeGrupos()
+  for (const [leadId, titular] of titulares) {
+    if (evo && titular === evo) ids.add(leadId)
+    else ids.delete(leadId)
+  }
+
+  return [...ids]
 }
 
 /**
@@ -687,10 +700,26 @@ export async function canalEfetivoDeLeads(
       cloudApiConnectionId: l.cloudApiConnectionId === null ? null : Number(l.cloudApiConnectionId),
     })
   }
+
+  // Grupo com titular ignora tudo acima: a conversa é do número a que o grupo
+  // pertence, e não de quem entregou a última mensagem — que, com duas linhas
+  // nossas no mesmo grupo, alterna entre elas a cada mensagem.
+  for (const [leadId, titular] of await titularesDeGrupos(leadIds)) {
+    saida.set(leadId, { provider: 'evolution', evolutionInstance: titular, cloudApiConnectionId: null })
+  }
+
   return saida
 }
 
 export async function inboundChannelForLead(leadId: number): Promise<InboundChannel | null> {
+  // Grupo: a resposta sai pelo número TITULAR. Sem isto ela saía pela linha que
+  // entregou a última mensagem — e, com duas linhas nossas no grupo, a equipe
+  // aparecia ora por um número ora por outro dentro da mesma conversa.
+  const titular = (await titularesDeGrupos([leadId])).get(leadId)
+  if (titular) {
+    return { channelId: evoChannelId(titular), kind: 'evolution', instanceName: titular, cloudApiConnectionId: null }
+  }
+
   const sel = { provider: true, evolutionInstance: true, cloudApiConnectionId: true } as const
   const last =
     (await prisma.message.findFirst({

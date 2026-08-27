@@ -997,9 +997,28 @@ export async function whatsappRoutes(app: FastifyInstance) {
                 // descartada aqui — o operador abria a conversa, não via a
                 // própria resposta e concluía que "a mensagem não chegou".
                 // Medido no kobogo: 11% das individuais e 15% das de grupo.
+                // Escopo do LEAD, e não global: o mesmo `key.id` aparece em
+                // DUAS conversas quando duas linhas nossas falam entre si, e a
+                // busca global fazia a segunda ser descartada. Em grupo o
+                // escopo por lead é justamente o que encontra o eco da linha
+                // irmã — as duas estão na mesma conversa.
                 const jaTem = await prisma.message.findFirst({
-                  where: { externalId: messageId }, select: { id: true },
+                  where: { leadId: lead.id, externalId: messageId },
+                  select: { id: true, fromMe: true },
                 })
+                if (jaTem && !jaTem.fromMe) {
+                  // O eco venceu a corrida: a linha irmã entregou a mensagem
+                  // como recebida antes de a nossa confirmar o envio. É nossa —
+                  // vira enviada, senão a conversa mostra a própria equipe no
+                  // lugar do contato, e ainda marca a conversa como não lida.
+                  await prisma.message.update({
+                    where: { id: jaTem.id },
+                    data: { fromMe: true, senderName: 'Equipe (pelo celular)', senderJid: null, ack: 1 },
+                  }).catch(() => {})
+                  await prisma.$executeRaw`
+                    UPDATE bychat_leads SET unreadMessages = GREATEST(unreadMessages - 1, 0) WHERE id = ${lead.id}
+                  `.catch(() => {})
+                }
                 if (!jaTem) {
                   const conteudo = data?.message ?? {}
                   const legenda = conteudo.imageMessage?.caption || conteudo.videoMessage?.caption
@@ -1035,6 +1054,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
                       where: { id: lead.id },
                       data: { lastMessageAt: new Date(), lastActivityAt: new Date() },
                     }).catch(() => {})
+                    // Em grupo, a linha irmã ainda vai entregar esta MESMA
+                    // mensagem como recebida. A trava é por conversa (não por
+                    // `key.id` solto) porque o id global se repete em conversas
+                    // legítimas — ver o comentário do `jaTem` acima.
+                    if (isGroupMsg) {
+                      await redis.set(`evogrp:${lead.id}:${messageId}`, '1', 'EX', 86400, 'NX').catch(() => {})
+                    }
                   }
                 }
               }
@@ -1203,6 +1229,35 @@ export async function whatsappRoutes(app: FastifyInstance) {
         if (!msgText && mediaType === 'text') return { ok: true }
         const participantJid: string = key.participant || data.participant || ''
         const groupLead = await resolveGroupLead({ groupJid: remoteJid, instanceName: inboundInstance })
+
+        // ECO DA LINHA IRMÃ. Com duas instâncias nossas dentro do mesmo grupo,
+        // o WhatsApp entrega cada mensagem às duas — e o que uma ENVIOU chega
+        // aqui, pela outra, como recebida, com o mesmo `key.id`. O guard de
+        // idempotência lá em cima não pega este caso: ele só vale entre
+        // recebidas, e o ramo `fromMe` retorna antes de marcar a chave. Sem
+        // isto a bolha aparece duas vezes — 96 repetidas em 10 dias num único
+        // grupo do kobogo, metade delas creditada ao contato errado.
+        //
+        // A trava do Redis resolve a corrida (as duas entregas chegam com menos
+        // de 1s de diferença); o banco é a retaguarda se o Redis estiver fora.
+        if (messageId) {
+          try {
+            const inedita = await redis.set(`evogrp:${groupLead.id}:${messageId}`, '1', 'EX', 86400, 'NX')
+            if (inedita === null) {
+              app.log.info(`[Webhook] Grupo ${remoteJid}: eco de ${messageId} por ${inboundInstance} — já registrada`)
+              return { ok: true }
+            }
+          } catch { /* Redis fora: cai na checagem em banco */ }
+          const jaRegistrada = await prisma.message.findFirst({
+            where: { leadId: groupLead.id, externalId: messageId },
+            select: { id: true },
+          })
+          if (jaRegistrada) {
+            app.log.info(`[Webhook] Grupo ${remoteJid}: eco de ${messageId} por ${inboundInstance} — já registrada`)
+            return { ok: true }
+          }
+        }
+
         const createdGroupMsg = await prisma.message.create({
           data: {
             leadId: groupLead.id,
