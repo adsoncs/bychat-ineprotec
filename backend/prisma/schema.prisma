@@ -9260,6 +9260,12 @@ model HomeScreen {
   // Ordem do array = ordem na tela.
   blocks Json @db.Json
 
+  // Tela pronta do produto em vez de pilha de blocos. Quando preenchido, o
+  // frontend renderiza um painel inteiro que já existe (hoje: 'educacional') e
+  // `blocks` fica vazio — são coisas excludentes, e o editor esconde os blocos
+  // quando a tela é nativa.
+  builtin String? @db.VarChar(40)
+
   active   Boolean @default(true)
   // Telas de fábrica não podem ser apagadas (só editadas/desatribuídas).
   isSystem Boolean @default(false)

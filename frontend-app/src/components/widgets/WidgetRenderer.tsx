@@ -21,6 +21,13 @@ interface WidgetRendererProps {
   /** dashboard ativo — usado para persistir mudanças inline (selector funil em leads_by_funnel) */
   dashboardId?: number | undefined
   allWidgets?: Widget[] | undefined
+  /**
+   * Dados já resolvidos por quem chama. Com isto preenchido o widget não vai à
+   * rede: serve a Tela Inicial nativa, que busca tudo de uma vez numa rota
+   * própria e aproveita este renderizador (KPI com Δ%, linha, rosca) em vez de
+   * ganhar uma segunda implementação de gráfico.
+   */
+  dadosProntos?: unknown
 }
 
 const PALETTE = [
@@ -28,9 +35,13 @@ const PALETTE = [
   '#00bcd4', '#ff9800', '#4caf50', '#673ab7', '#795548', '#607d8b',
 ]
 
-export function WidgetRenderer({ widget, filters, actions, dashboardId, allWidgets }: WidgetRendererProps) {
+export function WidgetRenderer({ widget, filters, actions, dashboardId, allWidgets, dadosProntos }: WidgetRendererProps) {
   const config = { ...filters, ...(widget.config ?? {}) }
-  const { data, isLoading, error } = useWidgetData({ metric: widget.metric, config })
+  const temProntos = dadosProntos !== undefined
+  const consulta = useWidgetData({ metric: widget.metric, config }, !temProntos)
+  const data = temProntos ? dadosProntos : consulta.data
+  const isLoading = temProntos ? false : consulta.isLoading
+  const error = temProntos ? null : consulta.error
 
   return (
     <Card>

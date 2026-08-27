@@ -156,10 +156,15 @@ export interface WidgetDataParams {
   config?: Record<string, unknown> | undefined
 }
 
-export function useWidgetData(params: WidgetDataParams) {
+export function useWidgetData(params: WidgetDataParams, enabled = true) {
   return useQuery({
     queryKey: ['widget-data', params],
     queryFn: () => api.post<unknown>('/admin/widget-data', params),
     staleTime: 60_000,
+    // Desligado quando quem renderiza já tem o número em mãos — é o caso da
+    // Tela Inicial nativa, que recebe tudo por uma rota só e não pode chamar
+    // /admin/widget-data (gateado pelo módulo 'dashboard', que o papel dela
+    // muitas vezes não tem).
+    enabled,
   })
 }

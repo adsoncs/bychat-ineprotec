@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import { computeHelpdeskReport } from '../services/helpdesk.js'
+import * as edu from '../services/educationalMetrics.js'
 
 // Rótulos PT p/ os widgets do helpdesk (espelham a UI do módulo).
 const HD_STATUS_LABEL: Record<string, string> = { new: 'Novo', open: 'Aberto', pending: 'Pendente', on_hold: 'Em espera', solved: 'Resolvido', closed: 'Fechado' }
@@ -1041,105 +1042,16 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
         return { value: active, total, active, inactive: total - active }
       }
 
-      case 'registrations_total': {
-        const regWhere: any = {}
-        if (hasDate) regWhere.createdAt = dateFilter
-        const total = await prisma.enrollmentRegistration.count({ where: regWhere })
-        const prevRange = previousRange(cfg)
-        if (!prevRange) return { value: total }
-        const prev = await prisma.enrollmentRegistration.count({ where: { createdAt: prevRange } })
-        return { value: total, prev }
-      }
-
-      case 'registrations_paid': {
-        const regWhere: any = { paymentStatus: 'paid' }
-        if (hasDate) regWhere.createdAt = dateFilter
-        const paid = await prisma.enrollmentRegistration.count({ where: regWhere })
-        const totalWhere: any = {}
-        if (hasDate) totalWhere.createdAt = dateFilter
-        const total = await prisma.enrollmentRegistration.count({ where: totalWhere })
-        const prevRange = previousRange(cfg)
-        if (!prevRange) return { value: paid, paid, total }
-        const prev = await prisma.enrollmentRegistration.count({ where: { paymentStatus: 'paid', createdAt: prevRange } })
-        return { value: paid, paid, total, prev }
-      }
-
-      case 'registrations_revenue': {
-        const regWhere: any = { paymentStatus: 'paid' }
-        if (hasDate) regWhere.createdAt = dateFilter
-        const agg = await prisma.enrollmentRegistration.aggregate({
-          where: regWhere,
-          _sum: { paymentAmount: true },
-        })
-        const value = Number(agg._sum.paymentAmount || 0)
-        const prevRange = previousRange(cfg)
-        if (!prevRange) return { value, format: 'currency' }
-        const p = await prisma.enrollmentRegistration.aggregate({
-          where: { paymentStatus: 'paid', createdAt: prevRange },
-          _sum: { paymentAmount: true },
-        })
-        return { value, format: 'currency', prev: Number(p._sum.paymentAmount || 0) }
-      }
-
-      case 'registrations_conversion_rate': {
-        const regWhere: any = {}
-        if (hasDate) regWhere.createdAt = dateFilter
-        const [total, paid] = await Promise.all([
-          prisma.enrollmentRegistration.count({ where: regWhere }),
-          prisma.enrollmentRegistration.count({ where: { ...regWhere, paymentStatus: 'paid' } }),
-        ])
-        const rate = total > 0 ? Math.round((paid / total) * 100) : 0
-        return { value: rate, paid, total }
-      }
-
-      case 'registrations_by_day': {
-        const groupBy = cfg.groupBy || 'day'
-        const defaultRange = groupBy === 'week' ? 90 : groupBy === 'month' ? 365 : 30
-        const range = hasDate ? dateFilter : { gte: new Date(Date.now() - defaultRange * 86400000) }
-        const regs = await prisma.enrollmentRegistration.findMany({
-          where: { createdAt: range },
-          select: { createdAt: true, paymentStatus: true },
-          orderBy: { createdAt: 'asc' },
-        })
-        const buckets: Record<string, { total: number; paid: number }> = {}
-        regs.forEach(r => {
-          let key: string
-          if (groupBy === 'week') {
-            const d = new Date(r.createdAt)
-            const day = d.getDay()
-            const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-            key = new Date(d.setDate(diff)).toISOString().split('T')[0]
-          } else if (groupBy === 'month') {
-            key = r.createdAt.toISOString().substring(0, 7)
-          } else {
-            key = r.createdAt.toISOString().split('T')[0]
-          }
-          if (!buckets[key]) buckets[key] = { total: 0, paid: 0 }
-          buckets[key].total++
-          if (r.paymentStatus === 'paid') buckets[key].paid++
-        })
-        return { data: Object.entries(buckets).sort().map(([label, v]) => ({ label, value: v.total, paid: v.paid })) }
-      }
-
-      case 'registrations_by_portal': {
-        const regWhere: any = {}
-        if (hasDate) regWhere.createdAt = dateFilter
-        const counts = await prisma.enrollmentRegistration.groupBy({
-          by: ['portalId'],
-          where: regWhere,
-          _count: { _all: true },
-        })
-        const portals = await prisma.enrollmentPortal.findMany({
-          where: { id: { in: counts.map(c => c.portalId) } },
-          select: { id: true, nome: true },
-        })
-        const nameMap = new Map(portals.map(p => [p.id, p.nome]))
-        const data = counts
-          .map(c => ({ label: nameMap.get(c.portalId) || `Portal #${c.portalId}`, value: c._count._all, key: String(c.portalId) }))
-          .sort((a, b) => b.value - a.value)
-          .slice(0, cfg.limit || 10)
-        return { data }
-      }
+      // As seis métricas do Educacional vivem em services/educationalMetrics.ts
+      // porque a Tela Inicial nativa serve os MESMOS números por outra porta,
+      // aberta a papéis que não têm o módulo 'dashboard'. Com o cálculo em dois
+      // lugares, uma correção de conversão num lado deixaria o outro mentindo.
+      case 'registrations_total':           return edu.inscricoesTotal(cfg)
+      case 'registrations_paid':            return edu.inscricoesPagas(cfg)
+      case 'registrations_revenue':         return edu.receitaDoPeriodo(cfg)
+      case 'registrations_conversion_rate': return edu.taxaDeConversao(cfg)
+      case 'registrations_by_day':          return edu.inscricoesPorDia(cfg)
+      case 'registrations_by_portal':       return edu.inscricoesPorPortal(cfg)
 
       case 'registrations_by_status': {
         const regWhere: any = {}

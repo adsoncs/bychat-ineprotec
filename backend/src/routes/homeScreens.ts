@@ -15,8 +15,29 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { resolvePermissions } from '../lib/permissions.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
+import * as edu from '../services/educationalMetrics.js'
 
 const ROLES = ['SUPERADMIN', 'ADMIN', 'MANAGER', 'AGENT', 'VIEWER'] as const
+
+/**
+ * Telas prontas do produto, oferecidas no editor ao lado das montadas em
+ * blocos. São painéis inteiros que já existem em outro módulo e que fazem
+ * sentido como porta de entrada.
+ *
+ * `abreDado` avisa o admin, na hora de escolher, que atribuir esta tela mostra
+ * os números a quem não tem o módulo — a decisão é dele, mas não pode ser
+ * silenciosa.
+ */
+const TELAS_NATIVAS = [
+  {
+    key: 'educacional',
+    nome: 'Visão Geral Educacional',
+    descricao: 'Matrículas, inscrições, receita e conversão do período, com gráficos por dia e por portal.',
+    abreDado: 'Quem receber esta tela vê matrículas, receita e conversão mesmo sem permissão no módulo Educacional.',
+  },
+] as const
+
+const CHAVES_NATIVAS = new Set(TELAS_NATIVAS.map((t) => t.key))
 export const BLOCK_TYPES = ['notice', 'kpis', 'shortcuts', 'my_day', 'leaderboard'] as const
 type BlockType = (typeof BLOCK_TYPES)[number]
 
@@ -73,23 +94,50 @@ async function pruneForUser(blocks: Block[], user: JwtPayload): Promise<Block[]>
   return out
 }
 
+/**
+ * Tela deste usuário. Precedência: exceção do usuário → regra do papel → nada
+ * (o frontend cai na Visão Geral de fábrica, que é o comportamento de sempre).
+ *
+ * Extraído porque a rota de dados da tela nativa precisa da MESMA resposta para
+ * decidir se entrega os números: se as duas resolvessem por conta própria, uma
+ * mudança de precedência abriria dado para quem já não vê mais a tela.
+ */
+async function atribuicaoDoUsuario(user: JwtPayload) {
+  return (
+    (await prisma.homeScreenAssignment.findFirst({
+      where: { userId: user.userId, screen: { active: true } },
+      include: { screen: true },
+    })) ||
+    (await prisma.homeScreenAssignment.findFirst({
+      where: { role: user.role as any, screen: { active: true } },
+      include: { screen: true },
+    }))
+  )
+}
+
 export async function homeScreensRoutes(app: FastifyInstance) {
   // ── Resolução da tela do usuário logado ───────────────────────────────
-  // Precedência: exceção do usuário → regra do papel → nada (o frontend cai na
-  // Visão Geral de fábrica, que é o comportamento de sempre).
   app.get('/api/home-screen/me', { preHandler: authMiddleware }, async (req) => {
     const user = (req as any).user as JwtPayload
-    const assignment =
-      (await prisma.homeScreenAssignment.findFirst({
-        where: { userId: user.userId, screen: { active: true } },
-        include: { screen: true },
-      })) ||
-      (await prisma.homeScreenAssignment.findFirst({
-        where: { role: user.role as any, screen: { active: true } },
-        include: { screen: true },
-      }))
+    const assignment = await atribuicaoDoUsuario(user)
 
     if (!assignment?.screen) return { screen: null }
+
+    // Tela nativa não tem blocos: o frontend renderiza um painel pronto e os
+    // dados vêm por rota própria, já com a checagem de atribuição.
+    if (assignment.screen.builtin) {
+      return {
+        screen: {
+          id: assignment.screen.id,
+          name: assignment.screen.name,
+          description: assignment.screen.description,
+          builtin: assignment.screen.builtin,
+          blocks: [],
+        },
+        pruned: 0,
+        source: assignment.userId ? 'user' : 'role',
+      }
+    }
     const originais = sanitizeBlocks(assignment.screen.blocks)
     const blocks = await pruneForUser(originais, user)
     return {
@@ -105,6 +153,44 @@ export async function homeScreensRoutes(app: FastifyInstance) {
       pruned: originais.length - blocks.length,
       // De onde veio a tela — o admin consegue explicar "por que estou vendo isto".
       source: assignment.userId ? 'user' : 'role',
+    }
+  })
+
+  // ── Dados da tela nativa "Visão Geral Educacional" ────────────────────
+  //
+  // Mora aqui, e não em /api/admin/educacional, de propósito: o prefixo
+  // /api/home-screen/ é liberado do gate de módulo porque é a porta de entrada
+  // do sistema, e a decisão do produto é que quem RECEBE esta tela vê os
+  // indicadores mesmo sem permissão no módulo Educacional.
+  //
+  // Aberto não é o mesmo que solto: só responde a quem realmente tem a tela
+  // nativa atribuída (pelo papel ou por exceção de usuário). Sem isso, a rota
+  // viraria um atalho para qualquer autenticado ler receita e volume de
+  // matrículas — que é justamente o dado que o módulo protege.
+  app.get('/api/home-screen/educacional', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const q = req.query as { dateFrom?: string; dateTo?: string; groupBy?: any }
+
+    const minha = await atribuicaoDoUsuario(user)
+    if (minha?.screen?.builtin !== 'educacional') {
+      return reply.code(403).send({ error: 'Esta tela não está atribuída a você.' })
+    }
+
+    const cfg = { dateFrom: q.dateFrom, dateTo: q.dateTo, groupBy: q.groupBy }
+    const [panorama, inscricoes, pagas, receita, conversao, porDia, porPortal] = await Promise.all([
+      edu.panoramaAcademico(),
+      edu.inscricoesTotal(cfg),
+      edu.inscricoesPagas(cfg),
+      edu.receitaDoPeriodo(cfg),
+      edu.taxaDeConversao(cfg),
+      edu.inscricoesPorDia(cfg),
+      edu.inscricoesPorPortal(cfg),
+    ])
+
+    return {
+      panorama,
+      kpis: { inscricoes, pagas, receita, conversao },
+      graficos: { porDia: porDia.data, porPortal: porPortal.data },
     }
   })
 
@@ -200,18 +286,28 @@ export async function homeScreensRoutes(app: FastifyInstance) {
       prisma.homeScreenAssignment.findMany(),
       prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true, role: true }, orderBy: { name: 'asc' } }),
     ])
-    return { screens, assignments, users, roles: ROLES }
+    return { screens, assignments, users, roles: ROLES, nativas: TELAS_NATIVAS }
   })
 
   app.post('/api/admin/home-screens', { preHandler: adminOnly }, async (req, reply) => {
-    const body = req.body as { name?: string; description?: string; blocks?: any }
+    const body = req.body as { name?: string; description?: string; blocks?: any; builtin?: string | null }
     const name = String(body.name || '').trim()
     if (!name) return reply.code(400).send({ error: 'Nome é obrigatório' })
+
+    const builtin = body.builtin ? String(body.builtin) : null
+    if (builtin && !CHAVES_NATIVAS.has(builtin as any)) {
+      return reply.code(400).send({ error: 'Tela nativa desconhecida' })
+    }
+
     const screen = await prisma.homeScreen.create({
       data: {
         name: name.substring(0, 120),
         description: body.description ? String(body.description).substring(0, 255) : null,
-        blocks: sanitizeBlocks(body.blocks) as any,
+        // Tela nativa não guarda blocos: o conteúdo é o painel pronto. Gravar os
+        // dois deixaria um resto invisível esperando para reaparecer no dia em
+        // que alguém tirasse o `builtin`.
+        blocks: (builtin ? [] : sanitizeBlocks(body.blocks)) as any,
+        builtin,
       },
     })
     return { screen }
@@ -219,13 +315,20 @@ export async function homeScreensRoutes(app: FastifyInstance) {
 
   app.put('/api/admin/home-screens/:id', { preHandler: adminOnly }, async (req, reply) => {
     const id = Number((req.params as any).id)
-    const body = req.body as { name?: string; description?: string; blocks?: any; active?: boolean }
+    const body = req.body as { name?: string; description?: string; blocks?: any; active?: boolean; builtin?: string | null }
     const existing = await prisma.homeScreen.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'Tela não encontrada' })
     const data: any = {}
     if (body.name !== undefined) data.name = String(body.name).trim().substring(0, 120) || existing.name
     if (body.description !== undefined) data.description = body.description ? String(body.description).substring(0, 255) : null
-    if (body.blocks !== undefined) data.blocks = sanitizeBlocks(body.blocks) as any
+    if (body.builtin !== undefined) {
+      const b = body.builtin ? String(body.builtin) : null
+      if (b && !CHAVES_NATIVAS.has(b as any)) return reply.code(400).send({ error: 'Tela nativa desconhecida' })
+      data.builtin = b
+      if (b) data.blocks = [] as any
+    }
+    const virouNativa = data.builtin != null
+    if (body.blocks !== undefined && !virouNativa) data.blocks = sanitizeBlocks(body.blocks) as any
     if (body.active !== undefined) data.active = !!body.active
     const screen = await prisma.homeScreen.update({ where: { id }, data })
     return { screen }

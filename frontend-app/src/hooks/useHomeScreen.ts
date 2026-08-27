@@ -41,6 +41,16 @@ export interface HomeScreen {
   blocks: HomeBlock[]
   active?: boolean
   isSystem?: boolean
+  /** Painel pronto do produto no lugar da pilha de blocos (hoje: 'educacional'). */
+  builtin?: string | null
+}
+
+/** Painel pronto oferecido no editor, vindo do servidor. */
+export interface TelaNativa {
+  key: string
+  nome: string
+  descricao: string
+  abreDado?: string
 }
 
 export interface HomeAssignment {
@@ -94,6 +104,7 @@ export interface AdminHomeData {
   assignments: HomeAssignment[]
   users: { id: number; name: string; email: string; role: string }[]
   roles: string[]
+  nativas?: TelaNativa[]
 }
 
 export function useHomeScreensAdmin() {
@@ -106,7 +117,7 @@ export function useHomeScreensAdmin() {
 export function useSaveHomeScreen() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (s: { id?: number; name: string; description?: string | null; blocks: HomeBlock[]; active?: boolean }) =>
+    mutationFn: (s: { id?: number; name: string; description?: string | null; blocks: HomeBlock[]; active?: boolean; builtin?: string | null }) =>
       s.id
         ? api.put<{ screen: HomeScreen }>(`/admin/home-screens/${s.id}`, s)
         : api.post<{ screen: HomeScreen }>('/admin/home-screens', s),

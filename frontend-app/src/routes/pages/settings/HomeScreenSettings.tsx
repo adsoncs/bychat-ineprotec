@@ -227,7 +227,7 @@ export function HomeScreenSettings() {
   const salvarAtribuicoes = useSaveAssignments()
 
   const [selecionada, setSelecionada] = useState<number | 'nova' | null>(null)
-  const [draft, setDraft] = useState<{ name: string; description: string; blocks: HomeBlock[] }>({ name: '', description: '', blocks: [] })
+  const [draft, setDraft] = useState<{ name: string; description: string; blocks: HomeBlock[]; builtin: string | null }>({ name: '', description: '', blocks: [], builtin: null })
   const [novoBloco, setNovoBloco] = useState<HomeBlockType>('notice')
   const [papeis, setPapeis] = useState<Record<string, number | null>>({})
   const [excecoes, setExcecoes] = useState<{ userId: number; screenId: number | null }[]>([])
@@ -246,11 +246,34 @@ export function HomeScreenSettings() {
 
   const abrir = (s: HomeScreen) => {
     setSelecionada(s.id)
-    setDraft({ name: s.name, description: s.description || '', blocks: Array.isArray(s.blocks) ? s.blocks : [] })
+    setDraft({
+      name: s.name,
+      description: s.description || '',
+      blocks: Array.isArray(s.blocks) ? s.blocks : [],
+      builtin: s.builtin ?? null,
+    })
   }
   const abrirNova = () => {
     setSelecionada('nova')
-    setDraft({ name: '', description: '', blocks: [] })
+    setDraft({ name: '', description: '', blocks: [], builtin: null })
+  }
+
+  const nativas = data?.nativas ?? []
+  const nativaEscolhida = nativas.find((n) => n.key === draft.builtin) ?? null
+
+  /** Escolher um painel pronto troca o conteúdo da tela: blocos e painel são
+   *  excludentes, então limpa o que estava montado em vez de guardar um resto
+   *  invisível. Vem com um nome sugerido, que o admin pode trocar. */
+  const escolherNativa = (key: string) => {
+    if (!key) { setDraft({ ...draft, builtin: null }); return }
+    const n = nativas.find((x) => x.key === key)
+    setDraft({
+      ...draft,
+      builtin: key,
+      blocks: [],
+      name: draft.name.trim() || n?.nome || draft.name,
+      description: draft.description.trim() || n?.descricao || draft.description,
+    })
   }
 
   const moverBloco = (i: number, dir: -1 | 1) => {
@@ -270,6 +293,7 @@ export function HomeScreenSettings() {
         name: draft.name.trim(),
         description: draft.description.trim() || null,
         blocks: draft.blocks,
+        builtin: draft.builtin,
       })
       toast('Tela salva', 'success')
       setSelecionada(null)
@@ -357,7 +381,9 @@ export function HomeScreenSettings() {
               <button class="min-w-0 text-left" onClick={() => abrir(s)}>
                 <div class="truncate text-sm text-fg">{s.name}</div>
                 <div class="truncate text-xs text-fg-muted">
-                  {(Array.isArray(s.blocks) ? s.blocks : []).map((b) => BLOCK_LABEL[b.type]?.label).filter(Boolean).join(' · ') || 'sem blocos'}
+                  {s.builtin
+                    ? `Painel pronto · ${(data?.nativas ?? []).find((n) => n.key === s.builtin)?.nome ?? s.builtin}`
+                    : (Array.isArray(s.blocks) ? s.blocks : []).map((b) => BLOCK_LABEL[b.type]?.label).filter(Boolean).join(' · ') || 'sem blocos'}
                 </div>
               </button>
               <div class="flex items-center gap-2 shrink-0">
@@ -387,7 +413,35 @@ export function HomeScreenSettings() {
             <Input label="Descrição" value={draft.description} onInput={(e: any) => setDraft({ ...draft, description: e.currentTarget.value })} placeholder="Aparece abaixo do título" />
           </div>
 
-          <div class="mt-4 space-y-3">
+          {/* Conteúdo da tela: painel pronto OU pilha de blocos — nunca os dois.
+              O seletor vem antes de tudo porque a escolha muda o editor inteiro. */}
+          {nativas.length > 0 && (
+            <div class="mt-4">
+              <Select
+                label="Conteúdo da tela"
+                value={draft.builtin ?? ''}
+                onChange={(e: any) => escolherNativa(e.currentTarget.value)}
+                hint="Painel pronto é uma tela inteira do produto; montada com blocos você escolhe cada pedaço."
+              >
+                <option value="">Montar com blocos</option>
+                {nativas.map((n) => (
+                  <option key={n.key} value={n.key}>Painel pronto — {n.nome}</option>
+                ))}
+              </Select>
+            </div>
+          )}
+
+          {nativaEscolhida && (
+            <div class="mt-3 rounded-lg border border-border bg-surface-2/50 p-3">
+              <div class="text-sm font-medium text-fg">{nativaEscolhida.nome}</div>
+              <div class="mt-0.5 text-xs text-fg-muted">{nativaEscolhida.descricao}</div>
+              {nativaEscolhida.abreDado && (
+                <div class="mt-2 text-xs text-warning">{nativaEscolhida.abreDado}</div>
+              )}
+            </div>
+          )}
+
+          <div class={nativaEscolhida ? 'hidden' : 'mt-4 space-y-3'}>
             {draft.blocks.map((b, i) => (
               <div key={b.id} class="rounded-lg border border-border p-3">
                 <div class="mb-2 flex items-center justify-between gap-2">
