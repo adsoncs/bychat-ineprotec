@@ -112,20 +112,65 @@ export class EvolutionProvider implements WhatsAppProvider {
 
     if (!res.ok) {
       // Erro cru da Evolution vira frase de operador (lib/whatsappErrors).
-      throw new Error(humanizeWhatsAppError(parsed, res.status))
+      const erro = new Error(humanizeWhatsAppError(parsed, res.status))
+      // A recusa por "número não existe" fica MARCADA, e não só traduzida: quem
+      // envia precisa distinguir esse caso para conferir de novo antes de dar o
+      // veredito ao operador (ver `comRetryDeJid`).
+      if (/"exists"\s*:\s*false/.test(typeof parsed === 'string' ? parsed : JSON.stringify(parsed))) {
+        ;(erro as any).waNumberNotFound = true
+      }
+      throw erro
     }
 
     return parsed
   }
 
-  async sendText(phone: string, text: string, options?: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
-    const body: any = { number: toEvoNumber(phone), text }
-    if (options?.quotedExternalId) {
-      // Evolution v2: passa o key.id da mensagem citada — o backend resolve fromMe/remoteJid.
-      body.quoted = { key: { id: options.quotedExternalId } }
+  /**
+   * Reenvia no JID canônico quando a Evolution recusa por "número não existe".
+   *
+   * A Evolution confere o destinatário (`onWhatsApp`) antes de cada envio, e a
+   * consulta FALHA de vez em quando: devolve `exists:false` para número que
+   * existe — dá para ver na resposta, que volta com o `jid` ecoando o número
+   * consultado e sem `name`, em vez do JID canônico. O operador recebia
+   * "O número X não tem WhatsApp. Confira o telefone no cadastro do contato."
+   * no meio de uma conversa aberta e ativa.
+   *
+   * Kobogo, lead 5167 (26/08): duas tentativas recusadas às 08:53, e às 13:07 as
+   * mensagens saindo normalmente para o MESMO número, sem ninguém tocar no
+   * cadastro. Reproduzido depois na mão — a primeira consulta ao número "frio"
+   * respondeu `exists:false` e as oito seguintes, `exists:true`.
+   *
+   * O que fica no meio do caminho é a resolução do 9º dígito: o cadastro guarda
+   * `5547921255873` e o JID real é `554721255873@s.whatsapp.net` (732 dos 791
+   * contatos da instância têm JID de 12 dígitos), então quase todo envio depende
+   * dessa tradução no servidor. Ao repetir no JID canônico, ela deixa de existir.
+   *
+   * Só o "não existe" passa por aqui — qualquer outro erro sobe intacto, e uma
+   * segunda recusa também.
+   */
+  private async comRetryDeJid<T>(destino: string, enviar: (destino: string) => Promise<T>): Promise<T> {
+    try {
+      return await enviar(destino)
+    } catch (err: any) {
+      // JID completo (@lid, @g.us, @s.whatsapp.net) não tem o que resolver.
+      if (!err?.waNumberNotFound || destino.includes('@')) throw err
+      const [r] = await this.checkNumbers([destino]).catch(() => [])
+      if (!r?.exists || !r.jid) throw err
+      console.log(`[Evolution] ${this.instanceName}: envio para ${destino} recusado como inexistente, mas a checagem devolveu ${r.jid} — repetindo no JID`)
+      return await enviar(r.jid)
     }
-    const result = await this.evoFetch(`/message/sendText/${this.instanceName}`, 'POST', body)
-    return { messageId: result?.key?.id || null, provider: 'evolution' }
+  }
+
+  async sendText(phone: string, text: string, options?: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
+    return this.comRetryDeJid(phone, async (destino) => {
+      const body: any = { number: toEvoNumber(destino), text }
+      if (options?.quotedExternalId) {
+        // Evolution v2: passa o key.id da mensagem citada — o backend resolve fromMe/remoteJid.
+        body.quoted = { key: { id: options.quotedExternalId } }
+      }
+      const result = await this.evoFetch(`/message/sendText/${this.instanceName}`, 'POST', body)
+      return { messageId: result?.key?.id || null, provider: 'evolution' as const }
+    })
   }
 
   async sendMedia(phone: string, mediaUrl: string, mediaType: string, caption?: string, fileName?: string): Promise<WhatsAppSendResult> {
@@ -137,32 +182,38 @@ export class EvolutionProvider implements WhatsAppProvider {
     // GIF é MP4 sem áudio: vai como vídeo, com `gifPlayback` para o WhatsApp
     // tocar em loop no lugar de exibir um player.
     const isGif = mediaType === 'gif'
-    const result = await this.evoFetch(`/message/sendMedia/${this.instanceName}`, 'POST', {
-      number: toEvoNumber(phone),
-      mediatype: isGif ? 'video' : mediaType === 'document' ? 'document' : mediaType,
-      media: mediaUrl,
-      fileName: fileName || undefined,
-      caption: caption || undefined,
-      ...(isGif ? { gifPlayback: true } : {}),
+    return this.comRetryDeJid(phone, async (destino) => {
+      const result = await this.evoFetch(`/message/sendMedia/${this.instanceName}`, 'POST', {
+        number: toEvoNumber(destino),
+        mediatype: isGif ? 'video' : mediaType === 'document' ? 'document' : mediaType,
+        media: mediaUrl,
+        fileName: fileName || undefined,
+        caption: caption || undefined,
+        ...(isGif ? { gifPlayback: true } : {}),
+      })
+      return { messageId: result?.key?.id || null, provider: 'evolution' as const }
     })
-    return { messageId: result?.key?.id || null, provider: 'evolution' }
   }
 
   /** Figurinha (.webp) — rota dedicada da Evolution. */
   async sendSticker(phone: string, stickerUrl: string): Promise<WhatsAppSendResult> {
-    const result = await this.evoFetch(`/message/sendSticker/${this.instanceName}`, 'POST', {
-      number: toEvoNumber(phone),
-      sticker: stickerUrl,
+    return this.comRetryDeJid(phone, async (destino) => {
+      const result = await this.evoFetch(`/message/sendSticker/${this.instanceName}`, 'POST', {
+        number: toEvoNumber(destino),
+        sticker: stickerUrl,
+      })
+      return { messageId: result?.key?.id || null, provider: 'evolution' as const }
     })
-    return { messageId: result?.key?.id || null, provider: 'evolution' }
   }
 
   async sendAudio(phone: string, audioUrl: string): Promise<WhatsAppSendResult> {
-    const result = await this.evoFetch(`/message/sendWhatsAppAudio/${this.instanceName}`, 'POST', {
-      number: toEvoNumber(phone),
-      audio: audioUrl,
+    return this.comRetryDeJid(phone, async (destino) => {
+      const result = await this.evoFetch(`/message/sendWhatsAppAudio/${this.instanceName}`, 'POST', {
+        number: toEvoNumber(destino),
+        audio: audioUrl,
+      })
+      return { messageId: result?.key?.id || null, provider: 'evolution' as const }
     })
-    return { messageId: result?.key?.id || null, provider: 'evolution' }
   }
 
   // ── Ações sobre mensagem já enviada ──

@@ -296,6 +296,20 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
         log.info(`[Atendimento] Sent ${mType} via ${sentProvider}${instanceName ? ` (${instanceName})` : ''}${cloudConnId ? ` (cloud#${cloudConnId})` : ''}, externalId=${sentExternalId}`)
       } catch (sendErr: any) {
         sendError = sendErr.message
+        // "Número não tem WhatsApp" numa conversa que ESTÁ acontecendo é a
+        // checagem da Evolution falhando, não o cadastro errado (o provider já
+        // repetiu no JID canônico antes de chegar aqui). Mandar o operador
+        // "conferir o telefone no cadastro" nesse caso o faz mexer num número
+        // certo — e o certo é tentar de novo.
+        if (sendErr?.waNumberNotFound) {
+          const prova = await prisma.message.findFirst({
+            where: { leadId: lid, OR: [{ fromMe: false }, { ack: { gte: 2 } }] },
+            select: { id: true },
+          }).catch(() => null)
+          if (prova) {
+            sendError = 'O WhatsApp não confirmou o número agora — a conferência do servidor falhou, mas esta conversa já teve mensagem entregue. Tente enviar de novo em instantes.'
+          }
+        }
         log.error(`WhatsApp send error: ${sendErr.message}`)
       }
     }
