@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer'
 import { prisma } from '../lib/prisma.js'
 import { getBranding } from '../lib/branding.js'
 import { renderSystemEmail, nowVars } from './systemEmailTemplates.js'
+import { linhaDoLink } from '../lib/appUrl.js'
 
 const INV_LABELS = [
   'Sem orçamento definido','Até R$1.000/mês','R$1.000–2.500/mês',
@@ -156,8 +157,8 @@ export async function notifyNewLead(lead: any): Promise<void> {
     `*Solução indicada:* ${lead.solucaoNome || '–'}`,
     `*Investimento:* ${inv}`,
     ``,
-    `🔗 Ver no painel: ${process.env.APP_URL || 'https://bychat.ia.br'}/painel`,
-  ]
+    linhaDoLink('🔗 Ver no painel:', '/painel'),
+  ].filter((l) => l !== '')
   const msg = msgLines.join('\n')
 
   const results = await Promise.allSettled([

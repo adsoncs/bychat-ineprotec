@@ -12,8 +12,9 @@
 
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
+import { appUrlObrigatoria } from '../lib/appUrl.js'
 
-function getAppUrl() { return process.env.APP_URL || 'https://bychat.ia.br' }
+function getAppUrl() { return appUrlObrigatoria() }
 
 export interface EnrollmentConfirmationInput {
   enrollmentId: number

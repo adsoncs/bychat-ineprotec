@@ -3005,7 +3005,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const sig = crypto.createHmac('sha256', secret).update(body64).digest('base64url')
     const token = `${body64}.${sig}`
 
-    const base = portal.customDomain ? `https://${portal.customDomain}` : `${process.env.APP_URL || 'https://bychat.ia.br'}/portal/${portal.slug}`
+    // Sem domínio próprio e sem APP_URL não há endereço para o candidato — o
+    // fallback que estava aqui apontava para o domínio anterior à migração.
+    if (!portal.customDomain && !process.env.APP_URL) {
+      return reply.code(500).send({ error: 'APP_URL não configurada no .env — sem ela não há endereço para o link do portal.' })
+    }
+    const base = portal.customDomain
+      ? `https://${portal.customDomain}`
+      : `${process.env.APP_URL!.replace(/\/$/, '')}/portal/${portal.slug}`
     const url = `${base}?t=${encodeURIComponent(token)}`
 
     return { url, token, expiresAt: new Date(prefill.exp), portal: { nome: portal.nome, slug: portal.slug } }

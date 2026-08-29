@@ -237,7 +237,12 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         app.log.warn(`[CloudAPI] Template sync failed: ${tmplErr.message}`)
       }
 
-      const webhookUrl = `${process.env.APP_URL || 'https://bychat.ia.br'}/api/cloud-api/webhook`
+      // Este endereço é o que a tela manda cadastrar na Meta. Um fallback com o
+      // domínio anterior à migração faria o cliente cadastrar o endereço errado
+      // e as mensagens nunca chegariam — melhor mostrar vazio e a tela cobrar.
+      const webhookUrl = process.env.APP_URL
+        ? `${process.env.APP_URL.replace(/\/$/, '')}/api/cloud-api/webhook`
+        : null
 
       return {
         ok: true,

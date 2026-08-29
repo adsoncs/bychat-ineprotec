@@ -69,7 +69,9 @@ export interface SignupResponse {
     displayName: string | null
   }
   tokenType: string
-  webhookUrl: string
+  // null quando o painel está sem APP_URL: melhor a tela não mostrar endereço
+  // nenhum do que mandar cadastrar um endereço errado na Meta.
+  webhookUrl: string | null
   webhookSubscribed: boolean
   templatesSynced: number
 }

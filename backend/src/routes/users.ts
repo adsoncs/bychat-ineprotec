@@ -622,8 +622,16 @@ export async function usersRoutes(app: FastifyInstance) {
       data: { userId: user.id, token: tokenHash, expiresAt }
     })
 
-    const appUrl = process.env.APP_URL || 'https://bychat.ia.br'
-    const resetLink = `${appUrl}/app/reset-password?token=${token}`
+    // Este link vai por e-mail para quem perdeu a senha. Sem APP_URL o fallback
+    // que estava aqui mandava o usuário para o domínio anterior à migração —
+    // melhor falhar de forma visível do que entregar um link morto na caixa
+    // de entrada de quem está trancado do lado de fora.
+    const appUrl = process.env.APP_URL
+    if (!appUrl) {
+      req.log.error('[users] APP_URL não configurada — link de redefinição não pôde ser montado.')
+      return reply.code(500).send({ error: 'Não foi possível montar o link de redefinição. Avise o suporte técnico.' })
+    }
+    const resetLink = `${appUrl.replace(/\/$/, '')}/app/reset-password?token=${token}`
 
     try {
       await sendPasswordResetEmail(user.email, user.name, resetLink)

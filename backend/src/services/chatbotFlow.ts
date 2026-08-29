@@ -14,6 +14,7 @@ import { saveLeadOrigin, type OriginData } from './originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from './teamRouting.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { linhaDoLink } from '../lib/appUrl.js'
 
 // Protocolo de opções clicáveis: injetado no system prompt só quando o canal é
 // Cloud API (botões nativos). O modelo termina a mensagem com [[OPTIONS: a | b | c]]
@@ -743,7 +744,7 @@ ${analysis?.prioridade ? `\n🎯 *Prioridade #1:*\n${analysis.prioridade}` : ''}
 
 ---
 Quer conversar sobre o seu resultado? Estamos à disposição! 💬
-🔗 Acesse o resultado completo: ${process.env.APP_URL || 'https://bychat.ia.br'}`
+${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
 
       // Envia o resultado padrão de scoring. Cenários como envio de link de
       // matrícula pré-preenchido foram movidos pra Fluxos (Workflow) — assim

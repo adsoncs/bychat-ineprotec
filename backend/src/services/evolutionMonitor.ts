@@ -52,7 +52,10 @@ function getEvoConfig() {
     url: process.env.EVOLUTION_API_URL || '',
     key: process.env.EVOLUTION_API_KEY || '',
     instance: process.env.EVOLUTION_INSTANCE || 'beyond-main',
-    appUrl: process.env.APP_URL || 'https://bychat.ia.br',
+    // Sem fallback de propósito: o valor que estava aqui era o domínio anterior
+    // à migração, e um webhook apontado para ele manda as mensagens do cliente
+    // para um endereço que pode não ser mais nosso.
+    appUrl: process.env.APP_URL || null,
   }
 }
 
@@ -66,6 +69,103 @@ async function evoFetch(baseUrl: string, apiKey: string, path: string, method = 
   const res = await fetch(`${baseUrl}${path}`, opts)
   const text = await res.text()
   try { return JSON.parse(text) } catch { return text }
+}
+
+// ─── Webhook da instância ───────────────────────────────
+
+/**
+ * Eventos que o webhook PRECISA entregar — são exatamente os que
+ * `routes/whatsapp.ts` trata. `PRESENCE_UPDATE` está aqui porque é o
+ * "digitando…" que aparece na conversa.
+ */
+export const EVENTOS_WEBHOOK_NECESSARIOS = [
+  'MESSAGES_UPSERT',
+  'MESSAGES_UPDATE',
+  'CONNECTION_UPDATE',
+  'PRESENCE_UPDATE',
+] as const
+
+/** URL/chave da Evolution — o Configurações (banco) vence o `.env`. */
+async function resolverConfigEvolution(): Promise<{ url: string; key: string; appUrl: string | null }> {
+  const cfg = getEvoConfig()
+  const dbSettings = await prisma.setting.findMany({
+    where: { key: { in: ['whatsapp.evolution_url', 'whatsapp.evolution_key'] } },
+  })
+  const dbCfg: Record<string, string> = {}
+  dbSettings.forEach((r) => { dbCfg[r.key] = typeof r.value === 'string' ? r.value : String(r.value).replace(/"/g, '') })
+  return {
+    url: dbCfg['whatsapp.evolution_url'] || cfg.url,
+    key: dbCfg['whatsapp.evolution_key'] || cfg.key,
+    appUrl: cfg.appUrl,
+  }
+}
+
+/**
+ * Aponta o webhook da instância para o endereço atual do painel SEM perder o que
+ * já estava configurado.
+ *
+ * Antes havia duas listas FIXAS e divergentes no código: a rota
+ * `/api/whatsapp/set-webhook` gravava 3 eventos (sem `PRESENCE_UPDATE` — usar o
+ * botão tirava o "digitando…" de todo mundo) e o auto-fix daqui gravava 4.
+ * Qualquer uma das duas apagava os extras da instância: `terram_n1` tinha
+ * `SEND_MESSAGE`, `CONTACTS_UPDATE` e `CHATS_UPDATE`. A lista passa a ser a
+ * UNIÃO do que já está lá com o que o código precisa, e o `headers` (onde vive o
+ * token de `EVOLUTION_WEBHOOK_KEY`) é preservado — reescrevê-lo em branco faria
+ * o webhook inteiro voltar 401.
+ *
+ * Não grava quando nada muda: a troca tem uma janela, curta mas real, em que a
+ * Evolution ainda entrega no endereço anterior.
+ */
+export async function garantirWebhookDaInstancia(
+  instanceName: string,
+): Promise<{ ok: boolean; mudou: boolean; url: string | null; eventos: string[]; message: string }> {
+  const { url, key, appUrl } = await resolverConfigEvolution()
+  if (!url || !key) return { ok: false, mudou: false, url: null, eventos: [], message: 'Evolution API não configurada (URL ou chave ausente).' }
+  // Sem APP_URL não dá para saber o endereço do painel, e chutar um domínio
+  // (era o que o fallback antigo fazia, apontando para o domínio anterior à
+  // migração) manda o WhatsApp para um endereço que pode não ser mais nosso.
+  if (!appUrl) {
+    return { ok: false, mudou: false, url: null, eventos: [], message: 'APP_URL não configurada no .env — sem ela não há como saber o endereço do painel.' }
+  }
+
+  const esperada = `${appUrl.replace(/\/$/, '')}/api/whatsapp/webhook`
+  const atual = await evoFetch(url, key, `/webhook/find/${instanceName}`).catch(() => null)
+  const urlAtual: string | null = atual?.url || atual?.webhook?.url || null
+  const eventosAtuais: string[] = Array.isArray(atual?.events || atual?.webhook?.events)
+    ? (atual.events || atual.webhook.events)
+    : []
+  const headersAtuais = atual?.headers ?? atual?.webhook?.headers ?? null
+
+  const eventos = Array.from(new Set([...eventosAtuais, ...EVENTOS_WEBHOOK_NECESSARIOS]))
+  const faltavaEvento = eventos.length !== eventosAtuais.length
+  if (urlAtual === esperada && !faltavaEvento) {
+    return { ok: true, mudou: false, url: esperada, eventos, message: 'Webhook já estava correto.' }
+  }
+
+  const gravou = await evoFetch(url, key, `/webhook/set/${instanceName}`, 'POST', {
+    webhook: {
+      url: esperada,
+      enabled: true,
+      webhookByEvents: false,
+      webhookBase64: false,
+      events: eventos,
+      ...(headersAtuais ? { headers: headersAtuais } : {}),
+    },
+  })
+  // `evoFetch` daqui devolve o corpo mesmo em erro — sem esta checagem, uma
+  // instância que existe só no nosso banco (registro órfão, nunca criada na
+  // Evolution) responderia 404 e nós reportaríamos sucesso.
+  if (gravou?.status && Number(gravou.status) >= 400) {
+    const detalhe = gravou?.response?.message?.[0] || gravou?.error || `HTTP ${gravou.status}`
+    return { ok: false, mudou: false, url: null, eventos, message: `Evolution recusou: ${detalhe}` }
+  }
+  return {
+    ok: true,
+    mudou: true,
+    url: esperada,
+    eventos,
+    message: `Webhook da instância ${instanceName} agora aponta para ${esperada}${faltavaEvento ? ` (eventos completados: ${eventos.join(', ')})` : ''}`,
+  }
 }
 
 // ─── Core Check ─────────────────────────────────────────
@@ -82,13 +182,16 @@ async function runHealthCheck(): Promise<EvolutionHealth> {
 
   const url = dbCfg['whatsapp.evolution_url'] || cfg.url
   const key = dbCfg['whatsapp.evolution_key'] || cfg.key
-  const expectedWebhookUrl = `${cfg.appUrl}/api/whatsapp/webhook`
+  // Sem APP_URL não existe endereço esperado: comparar contra "null/api/..."
+  // marcaria TODA instância como mal configurada e ofereceria um "corrigir" que
+  // apontaria o webhook para lugar nenhum.
+  const expectedWebhookUrl = cfg.appUrl ? `${cfg.appUrl.replace(/\/$/, '')}/api/whatsapp/webhook` : null
 
   const health: EvolutionHealth = {
     lastCheck: new Date().toISOString(),
     api: { status: 'offline', url, responseTimeMs: 0, version: null, error: null },
     instances: [],
-    webhook: { status: 'missing', expected: expectedWebhookUrl, current: null, events: [], error: null },
+    webhook: { status: 'missing', expected: expectedWebhookUrl ?? '', current: null, events: [], error: null },
     issues: [],
   }
 
@@ -166,7 +269,12 @@ async function runHealthCheck(): Promise<EvolutionHealth> {
               health.webhook.events = Array.isArray(events) ? events : []
             }
 
-            if (webhookUrl === expectedWebhookUrl) {
+            if (!expectedWebhookUrl) {
+              // Sem APP_URL não há o que conferir — o alerta é sobre a config
+              // que falta, não sobre a instância.
+              health.webhook.status = 'error'
+              health.webhook.error = 'APP_URL não configurada no .env'
+            } else if (webhookUrl === expectedWebhookUrl) {
               health.webhook.status = 'ok'
             } else if (webhookUrl) {
               health.webhook.status = 'misconfigured'
@@ -255,23 +363,16 @@ export async function executeFixAction(action: string): Promise<{ ok: boolean; m
   dbSettings.forEach(r => { dbCfg[r.key] = typeof r.value === 'string' ? r.value : String(r.value).replace(/"/g, '') })
   const url = dbCfg['whatsapp.evolution_url'] || cfg.url
   const key = dbCfg['whatsapp.evolution_key'] || cfg.key
-  const expectedWebhookUrl = `${cfg.appUrl}/api/whatsapp/webhook`
+  const expectedWebhookUrl = cfg.appUrl ? `${cfg.appUrl.replace(/\/$/, '')}/api/whatsapp/webhook` : null
 
   const [actionType, actionParam] = action.split(':')
 
   try {
     switch (actionType) {
       case 'fix-webhook': {
-        await evoFetch(url, key, `/webhook/set/${actionParam}`, 'POST', {
-          webhook: {
-            url: expectedWebhookUrl,
-            enabled: true,
-            webhookByEvents: false,
-            webhookBase64: false,
-            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE']
-          }
-        })
-        return { ok: true, message: `Webhook da instância ${actionParam} corrigido para ${expectedWebhookUrl}` }
+        // Preserva eventos extras e headers da instância — ver garantirWebhookDaInstancia.
+        const r = await garantirWebhookDaInstancia(actionParam)
+        return { ok: r.ok, message: r.message }
       }
 
       case 'reconnect': {
@@ -285,6 +386,9 @@ export async function executeFixAction(action: string): Promise<{ ok: boolean; m
       case 'recreate': {
         const inst = await prisma.whatsAppInstance.findUnique({ where: { id: Number(actionParam) } })
         if (!inst) return { ok: false, message: 'Instância não encontrada' }
+        // Instância nova sem endereço de webhook nasce muda: recebe no WhatsApp
+        // e nada chega ao painel. Melhor não criar do que criar surda.
+        if (!expectedWebhookUrl) return { ok: false, message: 'APP_URL não configurada no .env — sem ela a instância nasceria sem webhook.' }
 
         await evoFetch(url, key, '/instance/create', 'POST', {
           instanceName: inst.instanceName,
@@ -294,7 +398,7 @@ export async function executeFixAction(action: string): Promise<{ ok: boolean; m
             url: expectedWebhookUrl,
             webhookByEvents: false,
             webhookBase64: false,
-            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE']
+            events: [...EVENTOS_WEBHOOK_NECESSARIOS]
           }
         })
         return { ok: true, message: `Instância ${inst.name} recriada na Evolution API. Conecte via QR Code.` }

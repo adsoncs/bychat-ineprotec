@@ -319,7 +319,12 @@ export async function instancesRoutes(app: FastifyInstance) {
 
       // Create if not exists
       if (!instanceExists) {
-        const webhookUrl = `${process.env.APP_URL || 'https://bychat.ia.br'}/api/whatsapp/webhook`
+        // Ver a nota igual em routes/whatsapp.ts: domínio chutado aqui deixa a
+        // linha muda — recebe no WhatsApp e nada chega ao painel.
+        if (!process.env.APP_URL) {
+          return reply.code(400).send({ error: 'APP_URL não configurada no .env — sem ela a instância nasceria sem webhook válido.' })
+        }
+        const webhookUrl = `${process.env.APP_URL.replace(/\/$/, '')}/api/whatsapp/webhook`
         const createResult = await evoFetch('/instance/create', 'POST', {
           instanceName: inst.instanceName,
           integration: 'WHATSAPP-BAILEYS',

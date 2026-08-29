@@ -6,6 +6,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { prisma } from '../lib/prisma.js'
+import { appUrlObrigatoria } from '../lib/appUrl.js'
 
 /** 32 bytes hex = 64 chars (cabe em VARCHAR(64) UNIQUE). */
 function newToken(): string {
@@ -42,7 +43,9 @@ export async function getOrCreateOptOutToken(leadId: number): Promise<string> {
  * Garante token válido (gera on-demand). */
 export async function getPreferencesUrl(leadId: number): Promise<string> {
   const token = await getOrCreateOptOutToken(leadId)
-  const base = (process.env.APP_URL || 'https://bychat.ia.br').replace(/\/$/, '')
+  // Link de preferências/opt-out (LGPD): sem endereço não há o que entregar ao
+  // titular, e um domínio chutado seria pior que o erro.
+  const base = appUrlObrigatoria()
   return `${base}/preferencias/${token}`
 }
 

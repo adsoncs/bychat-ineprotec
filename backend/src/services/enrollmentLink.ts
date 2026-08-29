@@ -5,6 +5,7 @@
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
+import { appUrlObrigatoria } from '../lib/appUrl.js'
 
 export async function generateEnrollmentLinkForLead(leadId: number, portalId: number): Promise<string | null> {
   const [lead, portal] = await Promise.all([
@@ -32,6 +33,6 @@ export async function generateEnrollmentLinkForLead(leadId: number, portalId: nu
   const sig = crypto.createHmac('sha256', secret).update(body64).digest('base64url')
   const token = `${body64}.${sig}`
 
-  const base = portal.customDomain ? `https://${portal.customDomain}` : `${process.env.APP_URL || 'https://bychat.ia.br'}/portal/${portal.slug}`
+  const base = portal.customDomain ? `https://${portal.customDomain}` : `${appUrlObrigatoria()}/portal/${portal.slug}`
   return `${base}?t=${encodeURIComponent(token)}`
 }

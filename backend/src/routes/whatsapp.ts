@@ -525,7 +525,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
       // Se não existe, cria a instância
       if (!instanceExists) {
-        const webhookUrl = `${process.env.APP_URL || 'https://bychat.ia.br'}/api/whatsapp/webhook`
+        // Sem APP_URL a instância nasceria com o webhook num domínio chutado — o
+        // valor que estava aqui era o anterior à migração, e a linha ficaria
+        // recebendo no WhatsApp sem nada chegar ao painel.
+        if (!process.env.APP_URL) {
+          return reply.code(400).send({ error: 'APP_URL não configurada no .env — sem ela a instância nasceria sem webhook válido.' })
+        }
+        const webhookUrl = `${process.env.APP_URL.replace(/\/$/, '')}/api/whatsapp/webhook`
         const createResult = await evoFetch('/instance/create', 'POST', {
           instanceName: evoInstance(),
           integration: 'WHATSAPP-BAILEYS',
@@ -1704,20 +1710,27 @@ export async function whatsappRoutes(app: FastifyInstance) {
     }
   })
 
-  // POST /api/whatsapp/set-webhook — Configura webhook na instância
+  // POST /api/whatsapp/set-webhook — aponta o webhook da instância para este painel
+  //
+  // Esta rota gravava uma lista FIXA de 3 eventos, SEM `PRESENCE_UPDATE`: quem
+  // clicasse no botão tirava o "digitando…" da conversa, e apagava os eventos
+  // extras de instâncias que tinham outros (`terram_n1` tinha SEND_MESSAGE,
+  // CONTACTS_UPDATE e CHATS_UPDATE). O endereço também vinha de um fallback com
+  // o domínio anterior à migração, que mandaria as mensagens do cliente para um
+  // endereço que pode não ser mais nosso.
+  //
+  // Passou a delegar para `garantirWebhookDaInstancia`, que soma os eventos em
+  // vez de sobrescrevê-los, preserva os headers e não grava quando nada muda.
+  // Aceita `instanceName` no corpo — antes só a instância default do .env era
+  // alcançável, e quem tem duas linhas não conseguia arrumar a segunda.
   app.post('/api/whatsapp/set-webhook', { preHandler: adminOnly }, async (req, reply) => {
     try {
-      const webhookUrl = `${process.env.APP_URL || 'https://bychat.ia.br'}/api/whatsapp/webhook`
-      const result = await evoFetch(`/webhook/set/${evoInstance()}`, 'POST', {
-        webhook: {
-          url: webhookUrl,
-          enabled: true,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE']
-        }
-      })
-      return { ok: true, webhookUrl, result }
+      const { instanceName } = (req.body || {}) as { instanceName?: string }
+      const { garantirWebhookDaInstancia } = await import('../services/evolutionMonitor.js')
+      const alvo = instanceName || evoInstance()
+      const r = await garantirWebhookDaInstancia(alvo)
+      if (!r.ok) return reply.code(400).send({ error: r.message })
+      return { ok: true, webhookUrl: r.url, mudou: r.mudou, events: r.eventos, message: r.message }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }

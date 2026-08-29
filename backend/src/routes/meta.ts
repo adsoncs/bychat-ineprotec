@@ -715,7 +715,11 @@ export async function metaRoutes(app: FastifyInstance) {
         app.log.warn(`[Meta] Webhook auto-subscribe falhou (connect manual): ${subErr.message}`)
       }
 
-      const webhookUrl = `${process.env.APP_URL || 'https://bychat.ia.br'}/api/meta/webhook`
+      // Sem APP_URL, mostrar um endereço chutado (o valor daqui era o domínio
+      // anterior à migração) faria o cliente cadastrar o webhook errado na Meta.
+      const webhookUrl = process.env.APP_URL
+        ? `${process.env.APP_URL.replace(/\/$/, '')}/api/meta/webhook`
+        : null
 
       return {
         ok: true,
