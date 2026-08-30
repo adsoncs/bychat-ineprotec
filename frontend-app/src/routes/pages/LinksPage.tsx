@@ -1126,7 +1126,7 @@ function PixelInstallModal({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onOpenChange={(o) => { if (!o) onClose() }}
-      title="Instalar Pixel do ByChat Beyond"
+      title="Instalar Pixel do Attrae"
       description="Conecte visitantes anônimos do seu site aos leads que chegam via WhatsApp."
       size="lg"
       footer={<Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>}
@@ -1204,7 +1204,7 @@ function HowItWorksModal({ onClose, onShowPixel }: { onClose: () => void; onShow
             O cliente abre o WhatsApp com mensagem pré-preenchida. No fim, uma marca invisível{' '}
             <code class="bg-surface-3 px-1 rounded">#ref:black-friday</code> que só o sistema lê.
           </Step>
-          <Step n={4} title="👤 O lead entra no ByChat">
+          <Step n={4} title="👤 O lead entra no Attrae">
             Quando ele envia, o sistema lê a marca e amarra "esse lead veio do link Black Friday". Essa info gruda no
             lead pra sempre.
           </Step>

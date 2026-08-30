@@ -126,7 +126,7 @@ export function EmbeddedSignupModal({ open, onOpenChange }: EmbeddedSignupModalP
             <div class="font-semibold">O número já é usado no app WhatsApp Business?</div>
             <div class="text-fg-muted">
               No assistente do Meta, escolha a opção de <strong>continuar usando o número no
-              aplicativo</strong> (coexistência). O celular segue atendendo normalmente e o ByChat
+              aplicativo</strong> (coexistência). O celular segue atendendo normalmente e o Attrae
               passa a enviar e receber pelo mesmo número — sem QR Code e sem perder o app.
             </div>
             <div class="text-fg-muted">

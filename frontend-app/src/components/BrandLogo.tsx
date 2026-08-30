@@ -41,7 +41,7 @@ export function BrandLogo({ variant = 'admin', iconOnly = false, class: classNam
   }
   const mode = get(`appearance.${prefix}_logo_mode`, 'text')
   const url = get(`appearance.${prefix}_logo_url`, '')
-  const name = get(`appearance.${prefix}_brand_name`, 'ByChat Beyond')
+  const name = get(`appearance.${prefix}_brand_name`, 'Attrae')
   const accent = get(`appearance.${prefix}_brand_accent`, '')
   const accentColor =
     variant === 'admin'

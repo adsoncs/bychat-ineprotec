@@ -330,7 +330,7 @@ function TrashPageContent() {
         onClose={() => setShowHowItWorks(false)}
         title="Como funciona a Lixeira?"
         problem={<>
-          Excluir é definitivo? Não — no ByChat, exclusão é "soft delete": o item sai da lista
+          Excluir é definitivo? Não — no Attrae, exclusão é "soft delete": o item sai da lista
           normal mas <strong>fica na lixeira por 90 dias</strong>. Apagou um lead importante?
           Deletou cadência por engano? Tem como recuperar. Depois dos 90 dias, vira definitivo.
         </>}

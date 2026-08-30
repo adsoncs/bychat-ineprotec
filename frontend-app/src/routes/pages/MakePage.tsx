@@ -111,7 +111,7 @@ export function MakePage() {
   return (
     <Page
       title="Make.com"
-      description="Conecte o ByChat Beyond ao Make e automatize com 7000+ apps."
+      description="Conecte o Attrae ao Make e automatize com 7000+ apps."
       actions={
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
@@ -134,7 +134,7 @@ export function MakePage() {
             <p class="text-sm text-fg-muted leading-relaxed">
               Triggers instantâneos (lead criado, venda detectada, mensagem recebida) e actions
               (criar lead, enviar WhatsApp, mover etapa) já estão prontos via API. Configure uma
-              vez e o Make conecta o ByChat ao Google Sheets, Slack, HubSpot, Stripe, Notion, e
+              vez e o Make conecta o Attrae ao Google Sheets, Slack, HubSpot, Stripe, Notion, e
               7000+ apps.
             </p>
           </div>
@@ -179,7 +179,7 @@ export function MakePage() {
             e crie um novo cenário.
           </li>
           <li>
-            Escolha o app <strong class="text-fg">ByChat Beyond</strong> ou importe o pacote oficial
+            Escolha o app <strong class="text-fg">Attrae</strong> ou importe o pacote oficial
             (botão abaixo) em modo Developer.
           </li>
           <li>
@@ -256,7 +256,7 @@ export function MakePage() {
           <EmptyState
             icon={<Boxes size={24} />}
             title="Nenhum webhook registrado pelo Make"
-            description="Crie um cenário no Make com um gatilho do ByChat Beyond — o webhook aparece aqui."
+            description="Crie um cenário no Make com um gatilho do Attrae — o webhook aparece aqui."
           />
         )}
         {!isLoading && makeHooks.length > 0 && (
@@ -330,7 +330,7 @@ export function MakePage() {
       {/* Publicar app */}
       <Card>
         <CardHeader>
-          <CardTitle>Publicar o app ByChat Beyond no Make</CardTitle>
+          <CardTitle>Publicar o app Attrae no Make</CardTitle>
         </CardHeader>
         <p class="text-sm text-fg-muted mb-3 leading-relaxed">
           O Make tem um conceito de <strong class="text-fg">Custom App</strong>. Em vez de cada
@@ -388,7 +388,7 @@ export function MakePage() {
             </li>
             <li>
               Cada cliente que abrir esse link vê o app na lista. Ao criar cenário, ele só preenche
-              <strong class="text-fg"> Base URL</strong> + <strong class="text-fg">API Key</strong> (geradas no ByChat).
+              <strong class="text-fg"> Base URL</strong> + <strong class="text-fg">API Key</strong> (geradas no Attrae).
             </li>
           </ol>
         </div>
@@ -438,21 +438,21 @@ export function MakePage() {
         title="Como funciona o Make.com?"
         problem={<>
           O Make (antigo Integromat) é uma plataforma de automação que conecta <strong>7000+ apps</strong>.
-          Você quer mandar leads do ByChat pro HubSpot? Avisar Slack quando alguém compra? Salvar
+          Você quer mandar leads do Attrae pro HubSpot? Avisar Slack quando alguém compra? Salvar
           contato no Notion? Em vez de pedir desenvolvedor, monta no Make em minutos.
         </>}
         steps={[
           {
             title: '🔑 Crie uma API Key',
-            body: <>Pra autenticar o Make no ByChat, você precisa de uma <strong>API Key</strong> com permissões adequadas. O sistema te avisa se ainda não tem — basta criar em <strong>Integrações › API Keys</strong>.</>,
+            body: <>Pra autenticar o Make no Attrae, você precisa de uma <strong>API Key</strong> com permissões adequadas. O sistema te avisa se ainda não tem — basta criar em <strong>Integrações › API Keys</strong>.</>,
           },
           {
             title: '⚡ Use os triggers (eventos)',
-            body: <>O Make ouve eventos do ByChat: <strong>lead criado, mudou de etapa, virou venda, recebeu mensagem, foi etiquetado</strong>. Cada vez que o evento acontece, dispara o cenário no Make.</>,
+            body: <>O Make ouve eventos do Attrae: <strong>lead criado, mudou de etapa, virou venda, recebeu mensagem, foi etiquetado</strong>. Cada vez que o evento acontece, dispara o cenário no Make.</>,
           },
           {
             title: '🛠️ Use as actions (comandos)',
-            body: <>Do Make, você manda comandos pro ByChat: <strong>criar lead, atualizar campo, mover etapa, enviar WhatsApp, adicionar etiqueta</strong>. Ideal pra trazer dados de outras ferramentas.</>,
+            body: <>Do Make, você manda comandos pro Attrae: <strong>criar lead, atualizar campo, mover etapa, enviar WhatsApp, adicionar etiqueta</strong>. Ideal pra trazer dados de outras ferramentas.</>,
           },
           {
             title: '🔗 Webhooks visíveis aqui',
@@ -460,13 +460,13 @@ export function MakePage() {
           },
           {
             title: '📦 App oficial em revisão',
-            body: <>Existe um app ByChat no Make em desenvolvimento (esperando aprovação da equipe Make). Enquanto isso, você usa via webhook genérico + API Key — funciona igual.</>,
+            body: <>Existe um app Attrae no Make em desenvolvimento (esperando aprovação da equipe Make). Enquanto isso, você usa via webhook genérico + API Key — funciona igual.</>,
           },
         ]}
         tip={{
           tone: 'info',
           title: '💡 Exemplo prático',
-          body: <>Cenário comum: "quando lead virar venda no ByChat → criar fatura no Asaas → enviar PIX por WhatsApp → adicionar em planilha mensal". Tudo isso no Make, sem código, encadeando módulos.</>,
+          body: <>Cenário comum: "quando lead virar venda no Attrae → criar fatura no Asaas → enviar PIX por WhatsApp → adicionar em planilha mensal". Tudo isso no Make, sem código, encadeando módulos.</>,
         }}
       />
     </Page>
@@ -586,7 +586,7 @@ function JsonViewerModal({ onClose }: { onClose: () => void }) {
       onOpenChange={(o) => {
         if (!o) onClose()
       }}
-      title="Definição completa do app ByChat Beyond"
+      title="Definição completa do app Attrae"
       description="Cole cada bloco na aba correspondente do Developer Hub."
       size="xl"
       footer={

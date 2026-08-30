@@ -667,7 +667,7 @@ function MeetingsSettingsCard() {
         <Input
           label="Nome do bot na reunião"
           value={f.botName}
-          placeholder="ByChat Transcritor"
+          placeholder="Attrae Transcritor"
           hint="Como o bot aparece para os participantes da reunião."
           onInput={(e) => set('botName', (e.target as HTMLInputElement).value)}
         />

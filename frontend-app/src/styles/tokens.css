@@ -55,10 +55,16 @@
      mesmo verde escuro — o botão "Salvar" e o botão "Marcar ganho" eram
      indistinguíveis lado a lado. Em 190 a distância vai para 38° do verde e 45°
      do info, sem chegar perto do azul de onde a marca estava saindo. */
-  --brand-300: oklch(0.870 0.082 192); /* #92E6E2 */
-  --brand-400: oklch(0.818 0.100 190); /* #6DD8D2 — acento do tema escuro */
-  --brand-500: oklch(0.738 0.106 189); /* #48C0B8 */
-  --brand-600: oklch(0.627 0.098 188); /* #2A9B93 */
+  /* Azul, e não o teal que esta pele chegou a usar. O motivo é de produto, não
+     de gosto: `applyAppearance` só sobrescreve o acento quando a cor salva
+     DIFERE do default legado (#1a73e8) — e 8 das 12 instalações estão
+     exatamente nesse valor, ou seja, herdam o tom daqui. Trocar este token por
+     teal mudou a cor da marca de quem nunca escolheu cor nenhuma. Quem escolheu
+     (habitat #a3c701, unialfa #ea4335, demo #4285f4) segue intocado. */
+  --brand-300: oklch(0.800 0.120 258); /* #97C6FF */
+  --brand-400: oklch(0.740 0.150 258); /* #6CABFF — acento do tema escuro */
+  --brand-500: oklch(0.650 0.190 258); /* #4285F4 — o azul da marca */
+  --brand-600: oklch(0.520 0.190 258); /* #0462D3 */
 
   /* Cores de DADO — não são estado. Existem para separar séries e categorias
      (um KPI de leads e um de tempo de resposta medem coisas diferentes e não
@@ -88,7 +94,7 @@
   /* ─── Semânticos: texto ─── */
   --color-fg: var(--ink-100);
   --color-fg-muted: var(--ink-400);
-  --color-fg-on-brand: oklch(0.224 0.040 190); /* #002120 — 10,0:1 sobre o acento */
+  --color-fg-on-brand: oklch(0.220 0.050 258); /* #061A3B — 7,4:1 sobre o acento */
 
   /* ─── Semânticos: borda ───
      A borda deixou de carregar a hierarquia sozinha (ver `--hairline`). Por isso
@@ -293,11 +299,12 @@
   --hairline-fill: inset 0 1px 0 oklch(1 0 0 / 0.18);
   --inset-well: inset 0 1px 2px oklch(0.215 0.018 256 / 0.07);
 
-  /* Teal escuro: o do tema escuro daria 1,5:1 sobre branco.
-     6,10:1 em texto, e o branco por cima do botão dá os mesmos 6,10:1. */
-  --color-accent: oklch(0.483 0.090 190);    /* #006E6A */
-  --color-accent-hover: oklch(0.52 0.095 190);
-  --color-accent-active: oklch(0.407 0.076 190);
+  /* Azul escuro: o do tema escuro daria 2,3:1 sobre branco, e o acento também
+     serve de TEXTO (link, rótulo de aba ativa). 6,72:1 em texto sobre branco, e
+     o branco por cima do botão dá os mesmos 6,72:1. */
+  --color-accent: oklch(0.480 0.180 258);    /* #0057C0 — 6,72:1 em texto sobre branco */
+  --color-accent-hover: oklch(0.530 0.185 258);
+  --color-accent-active: oklch(0.420 0.165 258);
 
   /* Estados recalibrados para fundo claro: as versões do tema escuro foram
      desenhadas contra superfície escura e, sobre branco, ficavam entre 2:1 e
@@ -326,7 +333,7 @@
   --grain-opacity: 0.018;
 
   /* Anel de foco: acompanha o acento escurecido do tema claro. */
-  --color-ring: oklch(0.483 0.090 190);
+  --color-ring: oklch(0.480 0.180 258);
 
   /* Realce sobre o fundo: no escuro o fio de luz basta, porque o item ativo é
      mais CLARO que a barra. Aqui ele é branco sobre quase-branco — 1,07:1 —

@@ -239,7 +239,7 @@ export function CloudApiPage() {
         steps={[
           {
             title: '🔌 Conectar conta WABA',
-            body: <>Botão <strong>Conectar conta</strong> abre o <em>Embedded Signup da Meta</em>. Você loga no Facebook, escolhe sua empresa (ou cria uma), seleciona o número de WhatsApp Business e autoriza o ByChat. Em ~5 minutos a conta está conectada.</>,
+            body: <>Botão <strong>Conectar conta</strong> abre o <em>Embedded Signup da Meta</em>. Você loga no Facebook, escolhe sua empresa (ou cria uma), seleciona o número de WhatsApp Business e autoriza o Attrae. Em ~5 minutos a conta está conectada.</>,
           },
           {
             title: '📝 Modelos aprovados pela Meta',

@@ -129,7 +129,7 @@ export function MetaAdsPage() {
         steps={[
           {
             title: '🔌 Conecte sua página',
-            body: <>Botão <strong>Conectar página</strong> faz login no Facebook e autoriza o ByChat. Você escolhe quais páginas e contas de anúncio conectar. Pode conectar múltiplas (uma por negócio).</>,
+            body: <>Botão <strong>Conectar página</strong> faz login no Facebook e autoriza o Attrae. Você escolhe quais páginas e contas de anúncio conectar. Pode conectar múltiplas (uma por negócio).</>,
           },
           {
             title: '📋 Sincronize os formulários',

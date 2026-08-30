@@ -404,7 +404,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                 label="Produto / serviço"
                 value={productName}
                 onInput={(e) => setProductName((e.target as HTMLInputElement).value)}
-                placeholder="Ex.: ByChat Beyond, plataforma de captação"
+                placeholder="Ex.: Attrae, plataforma de captação"
               />
               <Input
                 label="Proposta de valor (1 frase)"

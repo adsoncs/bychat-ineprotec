@@ -123,7 +123,7 @@ export function GoogleAccountSettings() {
         <ul class="space-y-2 text-sm text-fg-muted">
           <li class="flex items-start gap-2">
             <Folder size={14} class="mt-0.5 text-amber-500 shrink-0" />
-            <span><strong class="text-fg">Drive</strong> — pasta "ByChat CRM" e arquivos por lead permanecem na conta da empresa, garantindo audit trail e acesso compartilhado.</span>
+            <span><strong class="text-fg">Drive</strong> — pasta "Attrae CRM" e arquivos por lead permanecem na conta da empresa, garantindo audit trail e acesso compartilhado.</span>
           </li>
           <li class="flex items-start gap-2">
             <Sheet size={14} class="mt-0.5 text-emerald-500 shrink-0" />

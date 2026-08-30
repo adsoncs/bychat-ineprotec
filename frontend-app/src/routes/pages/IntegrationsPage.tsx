@@ -512,7 +512,7 @@ export function IntegrationsPage() {
         onClose={() => setShowHowItWorks(false)}
         title="Como funcionam as Integrações?"
         problem={<>
-          O ByChat não vive isolado: ele se conecta com WhatsApp, Meta/Google Ads, Google Workspace,
+          O Attrae não vive isolado: ele se conecta com WhatsApp, Meta/Google Ads, Google Workspace,
           Make.com, sistemas de pagamento, e-mail, SMS… Esta é a <strong>tela mestra</strong> que mostra
           o estado de tudo num lugar só — quem está conectado, quem está com erro, quem ainda falta.
         </>}

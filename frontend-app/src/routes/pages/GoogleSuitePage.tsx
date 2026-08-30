@@ -135,7 +135,7 @@ export function GoogleSuitePage() {
           },
           {
             title: '📅 Calendar / ✅ Tasks',
-            body: <>Atividades agendadas no ByChat viram eventos no Calendar do operador. Tarefas viram items no Google Tasks. Conexão por operador — cada um vê só o seu calendário.</>,
+            body: <>Atividades agendadas no Attrae viram eventos no Calendar do operador. Tarefas viram items no Google Tasks. Conexão por operador — cada um vê só o seu calendário.</>,
           },
           {
             title: '💾 Drive / 📧 Gmail / 📈 GA4 / 📺 Looker',
@@ -524,7 +524,7 @@ function ConnectionsCard() {
         <div>
           <div class="text-sm font-semibold text-fg">Conexão da empresa</div>
           <div class="text-xs text-fg-muted mt-0.5">
-            Conta usada para Drive (pasta "ByChat CRM"), planilhas centrais e como fallback de operadores sem Google conectado.
+            Conta usada para Drive (pasta "Attrae CRM"), planilhas centrais e como fallback de operadores sem Google conectado.
           </div>
         </div>
         <Button variant="primary" size="sm" onClick={handleConnect} disabled={auth.isPending}>
@@ -1377,7 +1377,7 @@ function DriveTab() {
       <div class="flex items-center justify-between mb-3">
         <div>
           <div class="text-sm font-semibold text-fg">Configuração do Drive</div>
-          <div class="text-xs text-fg-muted mt-0.5">Pasta-raiz "ByChat CRM" criada automaticamente. Cada lead ganha sua subpasta.</div>
+          <div class="text-xs text-fg-muted mt-0.5">Pasta-raiz "Attrae CRM" criada automaticamente. Cada lead ganha sua subpasta.</div>
         </div>
         {!config && (
           <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
@@ -1644,7 +1644,7 @@ function DriveConfigModal({ onClose }: { onClose: () => void }) {
   function handleSubmit() {
     if (!connectionId) { toast('Selecione uma conta Google', 'danger'); return }
     create.mutate({ connectionId: Number(connectionId), autoUploadChat }, {
-      onSuccess: () => { toast('Drive configurado — pasta "ByChat CRM" criada', 'success'); onClose() },
+      onSuccess: () => { toast('Drive configurado — pasta "Attrae CRM" criada', 'success'); onClose() },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
@@ -1675,7 +1675,7 @@ function DriveConfigModal({ onClose }: { onClose: () => void }) {
         </label>
         <div class="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-fg flex items-start gap-2">
           <AlertTriangle size={14} class="mt-0.5 shrink-0 text-warning" />
-          <span>Vai criar (ou reaproveitar) a pasta "ByChat CRM" no Drive da conta selecionada.</span>
+          <span>Vai criar (ou reaproveitar) a pasta "Attrae CRM" no Drive da conta selecionada.</span>
         </div>
       </div>
     </Modal>
@@ -2026,8 +2026,8 @@ function GmailConfigModal({ config, onClose }: { config: GmailConfig | null; onC
 
 function SendTestModal({ onClose }: { onClose: () => void }) {
   const [to, setTo] = useState('')
-  const [subject, setSubject] = useState('Teste — ByChat Beyond')
-  const [body, setBody] = useState('Este é um email de teste enviado pelo ByChat Beyond.')
+  const [subject, setSubject] = useState('Teste — Attrae')
+  const [body, setBody] = useState('Este é um email de teste enviado pelo Attrae.')
   const send = useSendGmail()
 
   function handleSubmit() {
