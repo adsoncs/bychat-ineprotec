@@ -68,11 +68,25 @@ def resolver(nome, tema, base):
     return oklch_para_srgb(L, C, h)
 
 
+def cortar_temas(css):
+    """Separa o bloco do tema escuro (:root) do bloco claro.
+
+    O corte tem de ser no SELETOR, não na primeira vez que a string aparece: o
+    arquivo menciona `[data-theme='light']` em dois comentários antes de chegar
+    na regra. Com `css.index` o corte caía no comentário do cabeçalho, o bloco
+    escuro saía VAZIO — e o verificador dizia "não resolvido" para todos os
+    tokens do tema escuro, ou seja, deixava metade do sistema sem cobertura sem
+    que ninguém percebesse, porque a saída parecia apenas uma limitação.
+    """
+    m = re.search(r"^\[data-theme='light'\]\s*\{", css, re.M)
+    if not m:
+        raise SystemExit("tokens.css: não achei a regra [data-theme='light'] — o corte entre os temas depende dela.")
+    return tokens_do_bloco(css, 0, m.start()), tokens_do_bloco(css, m.start())
+
+
 def main():
     css = open(ARQ, encoding='utf-8').read()
-    corte = css.index("[data-theme='light']")
-    escuro = tokens_do_bloco(css, 0, corte)
-    claro = tokens_do_bloco(css, corte)
+    escuro, claro = cortar_temas(css)
 
     superficies = ['--color-surface', '--color-surface-2', '--color-surface-3']
     # `fg-subtle` foi fundido em `fg-muted` (27/08): dois níveis de texto apagado
@@ -92,7 +106,13 @@ def main():
             piores = []
             for sup in superficies:
                 fundo = resolver(sup, tema, escuro)
+                if fundo is None:
+                    print(f'  {sup:22s} não resolvido — superfície sem cor, verificação incompleta')
+                    falhas += 1
+                    continue
                 piores.append((contraste(cor, fundo), sup))
+            if not piores:
+                continue
             pior, onde = min(piores)
             ok = pior >= minimo
             if not ok:
@@ -105,6 +125,10 @@ def main():
     for rotulo, tema in (('escuro', {}), ('claro', claro)):
         acento = resolver('--color-accent', tema, escuro)
         texto = resolver('--color-fg-on-brand', tema, escuro)
+        if acento is None or texto is None:
+            print(f'  tema {rotulo:7s} não resolvido — acento ou fg-on-brand sem cor')
+            falhas += 1
+            continue
         c = contraste(acento, texto)
         ok = c >= MIN_TEXTO
         if not ok:
