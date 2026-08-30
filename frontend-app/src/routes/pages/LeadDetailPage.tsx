@@ -176,11 +176,11 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
             <span class="inline-flex items-center px-2 h-5 rounded-md border border-info/40 bg-info/15 text-info font-medium">
               {lead.status ?? 'NOVO'}
             </span>
-            {lead.qualifiedAt && (
-              <span class="inline-flex items-center gap-1 px-2 h-5 rounded-md border border-warning/40 bg-warning/15 text-warning font-medium">
-                <Star size={10} /> Qualificado
-              </span>
-            )}
+            {/* Havia aqui um selo "Qualificado" com a MESMA aparência do badge
+              * de etapa ao lado — e lido como se fosse uma segunda etapa do
+              * funil. Vinha de `qualifiedAt`, que só distingue lead de conversa
+              * solta; a origem que ele representa já aparece nesta mesma linha
+              * ("Formulário"), e a qualidade quem responde é o Lead Score. */}
             <OutcomeBadge outcome={lead.outcome} lostReason={lead.lostReason ?? null} note={lead.outcomeNote} />
             <LeadOwnerBadge leadId={id} assignedUser={lead.assignedUser} />
             <span class="text-fg-muted">·</span>
@@ -224,22 +224,27 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
       </div>
 
       <div class="flex items-center gap-2 px-5 py-2.5 border-t border-border bg-surface-2/30 flex-wrap">
-        {!actions.isQualified ? (
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={actions.actions.qualify}
-            disabled={actions.isPending.qualify}
-          >
-            <Star size={12} /> Qualificar
-          </Button>
-        ) : (
-          <span class="inline-flex items-center gap-1.5 text-xs text-warning">
-            <Star size={12} /> Lead qualificado
-          </span>
+        {/* O selo "Lead qualificado" saiu daqui. `qualifiedAt` só diz que o
+          * registro entrou como LEAD e não como conversa solta (form, ads,
+          * portal, manual) — 96% dos leads o têm. Numa tela de lead isso é
+          * redundante, e lido ao lado do Lead Score e da etapa do funil vira
+          * contradição: o lead 722 mostrava "Lead qualificado" com score 35
+          * (frio) na etapa "Contatado". Quem responde pela qualidade é o score;
+          * quem separa lead de conversa é o Conversas, que rotula "Lead" ×
+          * "Apenas conversa". O botão fica: promover ainda é ação útil. */}
+        {!actions.isQualified && (
+          <>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={actions.actions.qualify}
+              disabled={actions.isPending.qualify}
+            >
+              <Star size={12} /> Qualificar
+            </Button>
+            <span class="h-5 w-px bg-border mx-1" />
+          </>
         )}
-
-        <span class="h-5 w-px bg-border mx-1" />
 
         <LeadStatusSummaryControl
           leadId={id}
