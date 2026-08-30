@@ -198,7 +198,6 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'google-ads-report', label: 'Relatório Google Ads', href: '/app/google-ads-report', icon: 'BarChart3', permission: 'vendas' },
         { id: 'conversation-audit', label: 'Auditoria de Conversas', href: '/app/conversation-audit', icon: 'Bot', permission: 'intelligence' },
         { id: 'ai-journey', label: 'Jornada IA', href: '/app/ai-journey', icon: 'Sparkles', permission: 'intelligence' },
-        { id: 'status-summary-report', label: 'Relatório por Resumo', href: '/app/status-summary-report', icon: 'Tag', permission: 'status_summary' },
         { id: 'funnel-conversion', label: 'Funil de Conversão', href: '/app/funnel-conversion', icon: 'GitFork', permission: 'funnels' },
         { id: 'status-summary-report', label: 'Relatório por Resumo', href: '/app/status-summary-report', icon: 'Tag', permission: 'status_summary' },
       ],
@@ -272,8 +271,6 @@ export const sidebarSchema: SidebarSchema = {
         // Objeções (motivos de perda): operador usa ao marcar lead como perdido.
         // Gated por 'leads' para AGENT poder visualizar/escolher; CRUD continua
         // restrito por canCreate/canEdit/canDelete no backend.
-        // Resumos: catálogo do módulo status_summary (nasce OFF).
-        { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary' },
         { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'leads' },
         // Resumos: catálogo do módulo status_summary (nasce OFF). Gated pelo
         // próprio módulo — tenant que não usa não vê o item.
