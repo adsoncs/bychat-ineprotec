@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Plus, Sparkles } from 'lucide-preact'
+import { Plus, Sparkles } from '@/components/ui/icon-set'
 import type { EntryMode } from '@/hooks/useEducational'
 import type { PortalFieldType } from '@/hooks/useEnrollmentPortals'
 import { Card } from '@/components/ui/Card'
@@ -123,7 +123,7 @@ export function SimpleFormEditor({
       </div>
 
       <Card>
-        <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-2">
+        <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-2">
           ⚡ Tamanho do formulário
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -135,11 +135,11 @@ export function SimpleFormEditor({
               class="text-left p-2.5 rounded-md border border-border bg-surface hover:bg-surface-3 transition-colors"
             >
               <div class="text-sm font-medium text-accent">{t.label}</div>
-              <div class="text-[0.6875rem] text-fg-muted mt-0.5">{t.description}</div>
+              <div class="text-2xs text-fg-muted mt-0.5">{t.description}</div>
             </button>
           ))}
         </div>
-        <div class="text-[0.625rem] text-fg-subtle mt-2">
+        <div class="text-3xs text-fg-muted mt-2">
           Os campos extras de cada modo de ingresso (ENEM, Transferência, etc.) são aplicados automaticamente.
         </div>
       </Card>
@@ -219,10 +219,10 @@ function BlockCard({
             {def.label}
             {required && <Badge tone="info">obrigatório</Badge>}
           </div>
-          <div class="text-[0.6875rem] text-fg-muted mt-0.5">{def.description}</div>
+          <div class="text-2xs text-fg-muted mt-0.5">{def.description}</div>
         </div>
         {required ? (
-          <span class="text-[0.6875rem] text-fg-subtle px-2">sempre ativo</span>
+          <span class="text-2xs text-fg-muted px-2">sempre ativo</span>
         ) : (
           <label class="relative inline-block w-10 h-6 cursor-pointer shrink-0">
             <input
@@ -284,7 +284,7 @@ function IdentityConfigEditor({ config, onUpdate }: {
           Pedir endereço (CEP + rua)
         </label>
       </div>
-      <div class="text-[0.6875rem] text-fg-subtle mt-2">
+      <div class="text-2xs text-fg-muted mt-2">
         Campos básicos sempre incluídos: nome, e-mail, WhatsApp, CPF.
       </div>
     </div>
@@ -304,7 +304,7 @@ function CoursePickerConfigEditor({ config, onUpdate }: {
 
   return (
     <div>
-      <div class="text-[0.6875rem] text-fg-muted mb-1.5">Como o candidato vai escolher o curso:</div>
+      <div class="text-2xs text-fg-muted mb-1.5">Como o candidato vai escolher o curso:</div>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
         {options.map((opt) => (
           <label
@@ -323,7 +323,7 @@ function CoursePickerConfigEditor({ config, onUpdate }: {
             />
             <div class="min-w-0">
               <div class="text-xs font-medium text-fg">{opt.icon} {opt.title}</div>
-              <div class="text-[0.6875rem] text-fg-muted mt-0.5">{opt.desc}</div>
+              <div class="text-2xs text-fg-muted mt-0.5">{opt.desc}</div>
             </div>
           </label>
         ))}
@@ -358,7 +358,7 @@ function CoursePickerConfigEditor({ config, onUpdate }: {
             }}
             placeholder="Ex: 42"
           />
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             Cole o ID da oferta única que este portal vai inscrever.
           </div>
         </div>
@@ -409,7 +409,7 @@ function EntryModesConfigEditor({ config, modes, processes, portalSpIds, onUpdat
 
   return (
     <div class="space-y-2">
-      <div class="text-[0.6875rem] text-fg-muted">
+      <div class="text-2xs text-fg-muted">
         Os campos extras de cada modo são definidos em Educacional → Modos de Ingresso. Aqui você só decide se serão pedidos no formulário deste portal.
       </div>
       {modes.map((m) => {
@@ -431,7 +431,7 @@ function EntryModesConfigEditor({ config, modes, processes, portalSpIds, onUpdat
               <div class="text-lg shrink-0">{m.icon ?? '🎓'}</div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-medium text-fg">{m.name}</div>
-                <div class="text-[0.6875rem] text-fg-muted mt-0.5">
+                <div class="text-2xs text-fg-muted mt-0.5">
                   {evalLabel(m.evaluationType)} · {spsCount} processo{spsCount === 1 ? '' : 's'} usa{spsCount === 1 ? '' : 'm'} este modo
                 </div>
               </div>
@@ -456,21 +456,21 @@ function EntryModesConfigEditor({ config, modes, processes, portalSpIds, onUpdat
             {enabled && (
               <>
                 {extras.length === 0 && customFields.length === 0 ? (
-                  <div class="text-[0.6875rem] italic text-fg-subtle">Nenhum campo extra definido para este modo.</div>
+                  <div class="text-2xs italic text-fg-muted">Nenhum campo extra definido para este modo.</div>
                 ) : (
                   <>
-                    <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-1">
+                    <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-1">
                       Campos pedidos quando candidato escolher este modo:
                     </div>
                     <div class="flex flex-wrap gap-1">
                       {extras.map((f, i) => (
-                        <span key={`x-${i}`} class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[0.6875rem] bg-info/15 text-info">
+                        <span key={`x-${i}`} class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-2xs bg-info/15 text-info">
                           {f.required !== false && <strong>*&nbsp;</strong>}
                           {f.label ?? f.name}
                         </span>
                       ))}
                       {customFields.map((f, i) => (
-                        <span key={`c-${i}`} class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.6875rem] bg-warning/15 text-warning">
+                        <span key={`c-${i}`} class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs bg-warning/15 text-warning">
                           {f.required !== false && <strong>*&nbsp;</strong>}
                           {f.label ?? f.name}
                           <button
@@ -580,7 +580,7 @@ function AddCustomFieldModal({ modeCode, onClose, onSave }: {
 
 function DocumentsConfigInfo() {
   return (
-    <div class="text-[0.6875rem] text-fg-muted leading-relaxed">
+    <div class="text-2xs text-fg-muted leading-relaxed">
       A lista exata de documentos é definida pelo <strong>modo de ingresso</strong> de cada processo seletivo (ou pela personalização do processo, em Educacional → Processos Seletivos → Documentos).
       <br />
       Após enviar a inscrição, o candidato é direcionado para uma página dedicada onde envia os documentos (PDF/JPG).
@@ -607,10 +607,10 @@ function PaymentConfigEditor({ config, onUpdate }: {
           }}
         />
       </div>
-      <div class="rounded-md border border-warning/30 bg-warning/10 p-2 text-[0.6875rem] text-warning mt-2">
+      <div class="rounded-md border border-warning/30 bg-warning/10 p-2 text-2xs text-warning mt-2">
         ⚠ Para a cobrança funcionar, configure uma <strong>conexão de pagamento</strong> em Configurações → Pagamento.
       </div>
-      <div class="text-[0.6875rem] text-fg-subtle mt-1">
+      <div class="text-2xs text-fg-muted mt-1">
         O <strong>valor da taxa</strong> é definido em cada Processo Seletivo (Educacional → Processos Seletivos).
       </div>
     </div>
@@ -632,7 +632,7 @@ function CompletionConfigEditor({ config, onUpdate }: {
           <input type="radio" name="cmp-beh" checked={beh === 'message'} onChange={() => onUpdate({ behavior: 'message' })} class="mt-0.5" />
           <div>
             <div class="text-xs font-medium text-fg">💬 Mostrar mensagem</div>
-            <div class="text-[0.6875rem] text-fg-muted">Exibe um texto de agradecimento na própria página.</div>
+            <div class="text-2xs text-fg-muted">Exibe um texto de agradecimento na própria página.</div>
           </div>
         </label>
         <label class={cn(
@@ -642,7 +642,7 @@ function CompletionConfigEditor({ config, onUpdate }: {
           <input type="radio" name="cmp-beh" checked={beh === 'redirect'} onChange={() => onUpdate({ behavior: 'redirect' })} class="mt-0.5" />
           <div>
             <div class="text-xs font-medium text-fg">↗ Redirecionar URL</div>
-            <div class="text-[0.6875rem] text-fg-muted">Manda o candidato para outra página (ex: site da faculdade).</div>
+            <div class="text-2xs text-fg-muted">Manda o candidato para outra página (ex: site da faculdade).</div>
           </div>
         </label>
       </div>
@@ -676,7 +676,7 @@ function CustomStepConfigEditor({ config, onUpdateName, onRemove }: {
   const fieldsCount = config.fields?.length ?? 0
   return (
     <div>
-      <div class="text-[0.6875rem] text-fg-muted mb-2">
+      <div class="text-2xs text-fg-muted mb-2">
         Etapa custom com {fieldsCount} campo(s). Para edição completa de campos custom, use o <strong>Modo avançado</strong>.
       </div>
       <Input

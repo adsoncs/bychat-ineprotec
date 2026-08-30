@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import {
   GraduationCap, Building2, Users, TrendingDown, Target, Swords, Settings2, RefreshCw, AlertTriangle, Check,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useHeOverview, useHeAreas, useHeCities, useHeUfs, useHeCompetitors, useHeOpportunities,
   useHeMyIes, useHeSettings, useHeInstitutionSearch, useSaveHeSettings, useHeImports, useRunHeImport,
@@ -55,7 +55,7 @@ function Kpi({ label, value, hint, icon, tone, delta, deltaGoodWhen = 'up' }: {
           </span>
         )}
       </div>
-      {hint && <div class="text-[0.6875rem] text-fg-subtle mt-0.5">{hint}</div>}
+      {hint && <div class="text-2xs text-fg-muted mt-0.5">{hint}</div>}
     </Card>
   )
 }
@@ -73,7 +73,7 @@ function Bar({ value, max, tone = 'accent' }: { value: number; max: number; tone
 /** Aviso recorrente: sem ele o usuário lê "—" como bug. */
 function EadNote() {
   return (
-    <p class="text-[0.6875rem] text-fg-subtle flex items-start gap-1.5 mt-3">
+    <p class="text-2xs text-fg-muted flex items-start gap-1.5 mt-3">
       <AlertTriangle size={12} class="mt-0.5 shrink-0" />
       <span>
         Ocupação, vagas ociosas e candidatos por vaga consideram <b>apenas cursos presenciais</b>:
@@ -138,7 +138,7 @@ function OverviewTab({ f }: { f: HeFilters }) {
             <dl class="space-y-1 text-sm">
               <div class="flex justify-between"><dt class="text-fg-muted">Matrículas</dt><dd class="tabular-nums text-fg">{num(e.enrolled)}</dd></div>
               <div class="flex justify-between"><dt class="text-fg-muted">Ingressantes</dt><dd class="tabular-nums text-fg">{num(e.entrants)}</dd></div>
-              <div class="flex justify-between"><dt class="text-fg-muted">Ocupação</dt><dd class="tabular-nums text-fg-subtle">—</dd></div>
+              <div class="flex justify-between"><dt class="text-fg-muted">Ocupação</dt><dd class="tabular-nums text-fg-muted">—</dd></div>
               <div class="flex justify-between"><dt class="text-fg-muted">Evasão</dt><dd class="tabular-nums text-fg">{pct(e.dropoutRate)}</dd></div>
             </dl>
           </div>
@@ -166,7 +166,7 @@ function OverviewTab({ f }: { f: HeFilters }) {
               <tbody>
                 {(cities.data?.cities || []).slice(0, 20).map((c) => (
                   <tr key={c.cityCode} class="border-b border-border/50 last:border-0 hover:bg-surface-2">
-                    <td class="py-2 pr-3 text-fg">{c.city}<span class="text-fg-subtle text-xs">/{c.uf}</span></td>
+                    <td class="py-2 pr-3 text-fg">{c.city}<span class="text-fg-muted text-xs">/{c.uf}</span></td>
                     <td class="py-2 pr-3 text-right tabular-nums text-fg">{num(c.enrolled)}</td>
                     <td class="py-2 pr-3 text-right"><Badge tone={occTone(c.occupancy)}>{pct(c.occupancy, 0)}</Badge></td>
                     <td class="py-2 pr-3 text-right tabular-nums text-fg">{num(c.idleSeats)}</td>
@@ -335,15 +335,15 @@ function Comparison({ label, mine, market, format, betterWhen }: {
 
   return (
     <div class="rounded-lg bg-surface-2 p-3">
-      <div class="text-[0.6875rem] text-fg-muted">{label}</div>
+      <div class="text-2xs text-fg-muted">{label}</div>
       <div class="flex items-baseline gap-2 mt-1">
         <span class={`text-xl font-semibold tabular-nums ${better === null ? 'text-fg' : better ? 'text-success' : 'text-danger'}`}>
           {format(mine)}
         </span>
-        <span class="text-xs text-fg-subtle">vs {format(market)} do mercado</span>
+        <span class="text-xs text-fg-muted">vs {format(market)} do mercado</span>
       </div>
       {has && (
-        <div class={`text-[0.625rem] mt-0.5 ${better ? 'text-success' : 'text-danger'}`}>
+        <div class={`text-3xs mt-0.5 ${better ? 'text-success' : 'text-danger'}`}>
           {better ? 'melhor' : 'pior'} que a praça em {format(diff)}
         </div>
       )}
@@ -415,7 +415,7 @@ function MyIesTab({ f, onGoToSettings }: { f: HeFilters; onGoToSettings: () => v
                 <tr key={`${c.name}-${i}`} class="border-b border-border/50 last:border-0 hover:bg-surface-2">
                   <td class="py-2 pr-3">
                     <div class="text-fg truncate max-w-[280px]" title={c.name}>{c.name}</div>
-                    <div class="text-[0.625rem] text-fg-subtle">
+                    <div class="text-3xs text-fg-muted">
                       {MODALITY[c.modality] || '—'}{c.degree ? ` · ${DEGREE[c.degree] || ''}` : ''}
                     </div>
                   </td>
@@ -505,7 +505,7 @@ function SettingsTab() {
                 >
                   <span class="min-w-0">
                     <span class="text-sm text-fg block truncate">{i.name}</span>
-                    <span class="text-[0.6875rem] text-fg-subtle">
+                    <span class="text-2xs text-fg-muted">
                       {i.acronym ? `${i.acronym} · ` : ''}{i.city || '—'}/{i.uf || '—'} · {i.isPrivate ? 'privada' : 'pública'} · CO_IES {i.coIes}
                     </span>
                   </span>
@@ -631,7 +631,7 @@ export function HeMarketPage() {
                 {doneYears.map((y) => <option key={y} value={String(y)}>Censo {y}</option>)}
               </Select>
             ) : year ? (
-              <span class="text-xs text-fg-subtle">censo {year}</span>
+              <span class="text-xs text-fg-muted">censo {year}</span>
             ) : null}
           </div>
         </Card>

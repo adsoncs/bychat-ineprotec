@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   RefreshCw, CheckCircle2, AlertTriangle, Loader2, Smartphone, ImageDown, MessageSquare,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { api, ApiError } from '@/lib/apiClient'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -164,7 +164,7 @@ export function ChatSyncModal({ leadId, nome, isGroup = false, onClose }: Props)
       size="md"
       footer={
         <div class="flex w-full items-center justify-between gap-2">
-          <span class="text-xs text-fg-subtle">
+          <span class="text-xs text-fg-muted">
             {importando ? 'Pode fechar — a sincronização continua em segundo plano.' : ''}
           </span>
           <div class="flex gap-2">
@@ -216,7 +216,7 @@ export function ChatSyncModal({ leadId, nome, isGroup = false, onClose }: Props)
               ? 'Nenhum número conectado por QR Code participa deste grupo. Só quem é membro recebe o histórico — um número que entrou depois não enxerga o que foi conversado antes.'
               : 'Este contato não tem conversa nos números conectados por QR Code. Ou o histórico está em outro aparelho, ou a conversa nasceu aqui no painel — nos dois casos, não há mensagem antiga para trazer.'}
           >
-            <ul class="mt-2 space-y-1 text-xs text-fg-subtle">
+            <ul class="mt-2 space-y-1 text-xs text-fg-muted">
               <li>· Números do WhatsApp Oficial (Cloud API) não guardam histórico anterior à conexão.</li>
               {isGroup
                 ? <li>· A API Oficial não enxerga grupos — grupo só existe em número conectado por QR Code.</li>

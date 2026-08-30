@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { X as XIcon } from 'lucide-preact'
+import { X as XIcon } from '@/components/ui/icon-set'
 import { type CadenceStep } from '@/hooks/useSalesCadences'
 import { useTemplates } from '@/hooks/useTemplates'
 import { Button } from '@/components/ui/Button'
@@ -86,7 +86,7 @@ export function CadenceStepEditPanel({ step, steps, onPatch, onClose }: Props) {
           <span class="text-base">{meta.icon}</span>
           <div class="min-w-0">
             <div
-              class="text-[0.6875rem] font-medium uppercase tracking-wide"
+              class="text-2xs font-medium uppercase tracking-wide"
               style={{ color: meta.color }}
             >
               {meta.label}
@@ -192,7 +192,7 @@ export function CadenceStepEditPanel({ step, steps, onPatch, onClose }: Props) {
                 <option key={s.id} value={s.id}>#{s.order + 1} {CHANNEL_META[s.channel]?.label ?? s.channel}</option>
               ))}
             </select>
-            <p class="text-[0.6875rem] text-fg-subtle mt-1">
+            <p class="text-2xs text-fg-muted mt-1">
               Quando vazio, o scheduler usa a ordem linear histórica (modo legado).
             </p>
           </div>

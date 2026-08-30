@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   Palette, Type, Square, Settings as SettingsIcon, ImageIcon, Code,
   Eye, RotateCcw, Save, Smartphone, Monitor, Tablet,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -205,7 +205,7 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
       {/* Toolbar topo */}
       <div class="flex items-center gap-2 flex-wrap pb-2 border-b border-border">
         <span class="text-sm font-semibold text-fg">Aparência</span>
-        <span class="text-xs text-fg-subtle">·</span>
+        <span class="text-xs text-fg-muted">·</span>
         <span class="text-xs text-fg-muted truncate">{page.title}</span>
         <span class="flex-1" />
 
@@ -252,7 +252,7 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
         <div class="flex flex-col gap-3 min-w-0 overflow-y-auto pr-1">
           {/* Presets */}
           <div>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-1.5">Presets prontos</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-1.5">Presets prontos</div>
             <div class="flex flex-wrap gap-1.5">
               {PRESETS.map((p) => (
                 <button
@@ -355,7 +355,7 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
                   <option value="">— Mesma do corpo —</option>
                   {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </Select>
-                <p class="text-[0.6875rem] text-fg-subtle">
+                <p class="text-2xs text-fg-muted">
                   Para usar fontes diferentes das listadas, cadastre-as em Marca → Google Fonts e referencie pelo nome aqui.
                 </p>
               </Section>
@@ -427,7 +427,7 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
                   />
                   Rolagem suave (smooth scroll)
                 </label>
-                <p class="text-[0.625rem] text-fg-muted">Dá o "deslizar" premium dos sites de ponta (Lenis). Desativado automaticamente para quem prefere reduzir movimento.</p>
+                <p class="text-3xs text-fg-muted">Dá o "deslizar" premium dos sites de ponta (Lenis). Desativado automaticamente para quem prefere reduzir movimento.</p>
               </Section>
             </div>
           )}
@@ -459,10 +459,10 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
         {/* ────── coluna direita: preview iframe ────── */}
         <div class="min-w-0 flex flex-col">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium inline-flex items-center gap-1">
+            <span class="text-2xs uppercase tracking-wider text-fg-muted font-medium inline-flex items-center gap-1">
               <Eye size={12} /> Preview ao vivo
             </span>
-            {preview.isPending && <span class="text-[0.6875rem] text-fg-subtle">atualizando…</span>}
+            {preview.isPending && <span class="text-2xs text-fg-muted">atualizando…</span>}
           </div>
 
           <div class="rounded-md border border-border bg-[repeating-linear-gradient(45deg,_var(--color-surface-3)_0_8px,_transparent_8px_16px)] p-2 flex-1 min-h-[400px] overflow-auto">
@@ -498,8 +498,8 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
 function Section({ title, hint, children }: { title: string; hint?: string; children: preact.ComponentChildren }) {
   return (
     <div>
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-1.5">{title}</div>
-      {hint && <p class="text-[0.6875rem] text-fg-subtle mb-2">{hint}</p>}
+      <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-1.5">{title}</div>
+      {hint && <p class="text-2xs text-fg-muted mb-2">{hint}</p>}
       <div class="space-y-2">{children}</div>
     </div>
   )

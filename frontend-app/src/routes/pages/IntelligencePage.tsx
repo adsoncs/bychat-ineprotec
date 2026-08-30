@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   Sparkles, ShieldCheck, Database, TrendingUp, Search, Download,
   RefreshCw, X as XIcon, AlertTriangle, Layers, Zap, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useIntelOverview,
@@ -250,7 +250,7 @@ export function IntelligencePage() {
               )
             })}
             <div class="flex-1" />
-            <label class="text-xs text-fg-subtle">Ordenar por</label>
+            <label class="text-xs text-fg-muted">Ordenar por</label>
             <select
               class="h-7 px-2 rounded-md bg-surface border border-border text-fg text-xs cursor-pointer focus:outline-none focus:border-accent"
               value={orderBy}
@@ -483,7 +483,7 @@ function IntelRow({
         <button type="button" class="text-left text-fg hover:text-accent truncate" onClick={onView}>
           {lead.nome ?? lead.empresa ?? `Lead #${lead.id}`}
         </button>
-        <div class="text-[0.6875rem] text-fg-subtle truncate">
+        <div class="text-2xs text-fg-muted truncate">
           {lead.empresa ? lead.empresa + ' · ' : ''}{lead.email ?? lead.whatsapp ?? '—'}
         </div>
       </td>
@@ -506,17 +506,17 @@ function IntelRow({
         <td class="px-3 py-2 text-right tabular-nums">
           {typeof lead.opportunity === 'number' ? (
             <span class={cn(
-              'inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-semibold',
+              'inline-flex items-center px-1.5 py-0.5 rounded text-2xs font-semibold',
               lead.opportunity >= 100 ? 'bg-success/15 text-success'
                 : lead.opportunity >= 70 ? 'bg-info/15 text-info'
                 : lead.opportunity >= 40 ? 'bg-warning/15 text-warning'
-                : 'bg-surface-3 text-fg-subtle',
+                : 'bg-surface-3 text-fg-muted',
             )}>{lead.opportunity}</span>
           ) : '—'}
         </td>
       )}
       <td class="px-3 py-2 text-right tabular-nums">
-        <span class={lead.totalFacts > 0 ? 'text-info' : 'text-fg-subtle'}>{lead.totalFacts}</span>
+        <span class={lead.totalFacts > 0 ? 'text-info' : 'text-fg-muted'}>{lead.totalFacts}</span>
       </td>
       <td class="px-3 py-2 text-xs text-fg-muted whitespace-nowrap">
         {lead.enrichedAt ? formatRelative(lead.enrichedAt) : '—'}
@@ -615,7 +615,7 @@ function PageNumbers({ page, totalPages, onChange }: { page: number; totalPages:
           ← Anterior
         </button>
         {items.map((it, i) => it.kind === 'gap'
-          ? <span key={`gap-${i}`} class="px-1 text-fg-subtle">…</span>
+          ? <span key={`gap-${i}`} class="px-1 text-fg-muted">…</span>
           : (
             <button
               key={`p-${it.n}`}

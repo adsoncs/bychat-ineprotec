@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { MessageSquarePlus, AlertTriangle } from 'lucide-preact'
+import { MessageSquarePlus, AlertTriangle } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'

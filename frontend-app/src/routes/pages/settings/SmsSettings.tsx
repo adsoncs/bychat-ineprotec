@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'preact/hooks'
 import {
   MessageSquare, Save, Send, CheckCircle, AlertCircle, Info, ExternalLink,
   Eye, EyeOff,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useSettings, useUpdateSettings, useTestSms } from '@/hooks/useSettings'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -103,9 +103,9 @@ export function SmsSettings() {
             <ExternalLink size={10} />
           </a>
           ). Cada SMS de workflow é enviado via{' '}
-          <code class="rounded bg-surface-2 px-1 py-0.5 text-[0.6875rem] font-mono">POST /api/v2/send</code>{' '}
+          <code class="rounded bg-surface-2 px-1 py-0.5 text-2xs font-mono">POST /api/v2/send</code>{' '}
           com a API key abaixo no header{' '}
-          <code class="rounded bg-surface-2 px-1 py-0.5 text-[0.6875rem] font-mono">auth-key</code>.
+          <code class="rounded bg-surface-2 px-1 py-0.5 text-2xs font-mono">auth-key</code>.
           Os números são normalizados (DDI 55 removido se presente; aceita formato livre).
         </div>
       </div>
@@ -114,14 +114,14 @@ export function SmsSettings() {
         <CardHeader>
           <CardTitle>
             <span class="inline-flex flex-wrap items-center gap-2">
-              <MessageSquare size={16} class="text-fg-subtle" /> Comtele
+              <MessageSquare size={16} class="text-fg-muted" /> Comtele
               {configured
                 ? <Badge tone="success">CONFIGURADO</Badge>
                 : <Badge tone="neutral">SEM CHAVE</Badge>}
               {smsTest && <SmsTestBadge result={smsTest} />}
             </span>
           </CardTitle>
-          <span class="text-xs text-fg-subtle">Única opção suportada</span>
+          <span class="text-xs text-fg-muted">Única opção suportada</span>
         </CardHeader>
         <div class="space-y-3 max-w-xl">
           <div>
@@ -135,7 +135,7 @@ export function SmsSettings() {
                 onInput={(e) => patch('sms.comtele.api_key', (e.target as HTMLInputElement).value)}
                 placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
                 autoComplete="off"
-                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent font-mono"
+                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent font-mono"
               />
               <Button
                 type="button"
@@ -147,7 +147,7 @@ export function SmsSettings() {
                 {keyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
-            <div class="text-[0.6875rem] text-fg-subtle mt-1">
+            <div class="text-2xs text-fg-muted mt-1">
               Encontre em sms.comtele.com.br → Configurações → API.
             </div>
           </div>
@@ -177,7 +177,7 @@ function SmsTestBadge({ result }: { result: SmsTestResult }) {
   if (result.ok) {
     return (
       <span
-        class="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-success"
+        class="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-success"
         title={`Verificado em ${new Date(result.at).toLocaleString('pt-BR')}${result.providerId ? ` (id ${result.providerId})` : ''}`}
       >
         <CheckCircle size={10} /> Verificado {ago}
@@ -186,7 +186,7 @@ function SmsTestBadge({ result }: { result: SmsTestResult }) {
   }
   return (
     <span
-      class="inline-flex items-center gap-1 rounded-md bg-danger/15 px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-danger"
+      class="inline-flex items-center gap-1 rounded-md bg-danger/15 px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-danger"
       title={result.error ?? 'Falha no último teste'}
     >
       <AlertCircle size={10} /> Falhou {ago}

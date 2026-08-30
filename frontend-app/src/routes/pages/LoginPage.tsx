@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { LogIn, AlertCircle } from 'lucide-preact'
+import { LogIn, AlertCircle } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { api, setToken, ApiError } from '@/lib/apiClient'

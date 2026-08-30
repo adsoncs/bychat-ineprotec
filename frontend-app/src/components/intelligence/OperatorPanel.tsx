@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, ShieldCheck, RefreshCw, Database, ServerCrash, Clock, Search } from 'lucide-preact'
+import { Activity, AlertTriangle, ShieldCheck, RefreshCw, Database, ServerCrash, Clock, Search } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -70,7 +70,7 @@ export function OperatorPanel() {
 
       {/* Auditoria LGPD */}
       <Card class="p-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
           <ShieldCheck size={11} /> Origem dos consentimentos LGPD
         </div>
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-3 text-xs">
@@ -81,19 +81,19 @@ export function OperatorPanel() {
           <div class="p-2 rounded-md bg-warning/10 border border-warning/30">
             <div class="text-warning font-semibold tabular-nums text-base">{lgpdAudit.operatorOverride}</div>
             <div class="text-fg-muted">Operator override</div>
-            <div class="text-fg-subtle text-[0.6875rem] mt-0.5">Operador assumiu base legal</div>
+            <div class="text-fg-muted text-2xs mt-0.5">Operador assumiu base legal</div>
           </div>
           <div class="p-2 rounded-md bg-surface-3 border border-border">
             <div class="text-fg-muted font-semibold tabular-nums text-base">{lgpdAudit.legacy}</div>
             <div class="text-fg-muted">Legacy</div>
-            <div class="text-fg-subtle text-[0.6875rem] mt-0.5">Origem desconhecida — revalidar se questionado</div>
+            <div class="text-fg-muted text-2xs mt-0.5">Origem desconhecida — revalidar se questionado</div>
           </div>
         </div>
       </Card>
 
       {/* Saúde dos providers */}
       <Card class="p-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
           <Database size={11} /> Saúde dos providers
         </div>
         <div class="overflow-x-auto">
@@ -113,7 +113,7 @@ export function OperatorPanel() {
                   <td class="py-1.5 font-mono text-fg">{p.source}</td>
                   <td class="text-right tabular-nums text-fg">{p.activeFacts}</td>
                   <td class="text-right tabular-nums">
-                    <span class={p.disputedFacts > 0 ? 'text-danger' : 'text-fg-subtle'}>{p.disputedFacts}</span>
+                    <span class={p.disputedFacts > 0 ? 'text-danger' : 'text-fg-muted'}>{p.disputedFacts}</span>
                   </td>
                   <td class="text-right tabular-nums text-fg-muted">{p.avgConfidence !== null ? `${p.avgConfidence}%` : '—'}</td>
                   <td class="text-right">
@@ -134,7 +134,7 @@ export function OperatorPanel() {
       {/* Erros por provider (24h) */}
       {runsLast24h.errorsByProvider.length > 0 && (
         <Card class="p-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
             <AlertTriangle size={11} /> Erros por provider (últimas 24h)
           </div>
           <div class="space-y-1.5">
@@ -157,7 +157,7 @@ export function OperatorPanel() {
 
       {/* Daily runs */}
       <Card class="p-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
           <Clock size={11} /> Runs por dia (últimos 7 dias)
         </div>
         <div class="flex items-end gap-1 h-24">
@@ -168,11 +168,11 @@ export function OperatorPanel() {
             const pct = (d.count / max) * 100
             return (
               <div key={d.day} class="flex-1 flex flex-col items-center gap-1 min-w-0">
-                <div class="text-[0.6875rem] text-fg-muted tabular-nums">{d.count}</div>
+                <div class="text-2xs text-fg-muted tabular-nums">{d.count}</div>
                 <div class="w-full bg-surface-3 rounded-t" style={{ height: `${Math.max(4, pct)}%` }}>
                   <div class="h-full bg-info rounded-t" />
                 </div>
-                <div class="text-[0.6875rem] text-fg-subtle tabular-nums">{d.day.slice(5)}</div>
+                <div class="text-2xs text-fg-muted tabular-nums">{d.day.slice(5)}</div>
               </div>
             )
           })}
@@ -182,13 +182,13 @@ export function OperatorPanel() {
       {/* Top leads contestados */}
       {topDisputedLeads.length > 0 && (
         <Card class="p-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
             <AlertTriangle size={11} /> Leads com mais fatos contestados
           </div>
           <ul class="divide-y divide-border">
             {topDisputedLeads.map(l => (
               <li key={l.leadId} class="py-1.5 flex items-center gap-2 text-xs">
-                <span class="text-fg-subtle">#{l.leadId}</span>
+                <span class="text-fg-muted">#{l.leadId}</span>
                 <span class="text-fg flex-1 truncate">{l.nome ?? l.empresa ?? '—'}</span>
                 <Badge tone="danger" solid>{l.disputedCount} contestado(s)</Badge>
               </li>
@@ -208,10 +208,10 @@ function SocialSearchToggle() {
     <Card class="p-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-1 flex items-center gap-1">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-1 flex items-center gap-1">
             <Search size={11} /> Busca social por nome
           </div>
-          <p class="text-[0.6875rem] text-fg-muted leading-relaxed">
+          <p class="text-2xs text-fg-muted leading-relaxed">
             Procura LinkedIn/Instagram/etc pelo <strong>nome</strong> do lead. Como nome não identifica
             alguém com certeza, os achados entram como <strong>"candidatos a verificar"</strong> (fora do
             dossiê/score) para o agente confirmar. <strong>Desligado</strong> = sem descoberta social por

@@ -14,7 +14,7 @@ import {
   AlignRight,
   Quote,
   Code,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { cn } from '@/lib/cn'
 
 interface RichTextEditorProps {
@@ -103,7 +103,7 @@ export function RichTextEditor({ value, onChange, placeholder, varKeys = [], min
   }
 
   return (
-    <div class="rounded-md border border-border bg-surface overflow-hidden">
+    <div class="rounded-md border border-border bg-surface-inset surface-inset overflow-hidden">
       <div class="flex flex-wrap items-center gap-0.5 px-1.5 py-1 border-b border-border bg-surface-2">
         <ToolbarBtn title="Negrito (Ctrl+B)" onClick={() => run('bold')}><Bold size={14} /></ToolbarBtn>
         <ToolbarBtn title="Itálico (Ctrl+I)" onClick={() => run('italic')}><Italic size={14} /></ToolbarBtn>
@@ -111,7 +111,7 @@ export function RichTextEditor({ value, onChange, placeholder, varKeys = [], min
         <ToolbarBtn title="Tachado" onClick={() => run('strikeThrough')}><Strikethrough size={14} /></ToolbarBtn>
         <Divider />
         <ToolbarBtn title="Subtítulo" onClick={() => run('formatBlock', '<h2>')}><Heading2 size={14} /></ToolbarBtn>
-        <ToolbarBtn title="Parágrafo" onClick={() => run('formatBlock', '<p>')}><span class="text-[0.6875rem] font-semibold">P</span></ToolbarBtn>
+        <ToolbarBtn title="Parágrafo" onClick={() => run('formatBlock', '<p>')}><span class="text-2xs font-semibold">P</span></ToolbarBtn>
         <ToolbarBtn title="Citação" onClick={() => run('formatBlock', '<blockquote>')}><Quote size={14} /></ToolbarBtn>
         <ToolbarBtn title="Código" onClick={() => run('formatBlock', '<pre>')}><Code size={14} /></ToolbarBtn>
         <Divider />
@@ -125,12 +125,12 @@ export function RichTextEditor({ value, onChange, placeholder, varKeys = [], min
         <ToolbarBtn title="Link" onClick={makeLink}><Link2 size={14} /></ToolbarBtn>
         <div class="relative">
           <ToolbarBtn title="Cor do texto" onClick={() => setColorOpen((o) => !o)} btnRef={colorBtnRef}>
-            <span class="inline-flex items-center gap-0.5 text-[0.6875rem] font-semibold">A<span class="block w-2.5 h-1 rounded-sm bg-gradient-to-r from-danger via-warning to-info" /></span>
+            <span class="inline-flex items-center gap-0.5 text-2xs font-semibold">A<span class="block w-2.5 h-1 rounded-sm bg-gradient-to-r from-danger via-warning to-info" /></span>
           </ToolbarBtn>
           {colorOpen && (
             <>
               <div class="fixed inset-0 z-10" onClick={() => setColorOpen(false)} />
-              <div class="absolute z-20 mt-1 grid grid-cols-5 gap-1 p-1.5 rounded-md border border-border bg-surface shadow-lg">
+              <div class="absolute z-20 mt-1 grid grid-cols-5 gap-1 p-1.5 rounded-md border border-border bg-surface-2 shadow-lg surface-raised">
                 {COLOR_SWATCHES.map((c) => (
                   <button
                     key={c}
@@ -150,13 +150,13 @@ export function RichTextEditor({ value, onChange, placeholder, varKeys = [], min
           <>
             <Divider />
             <div class="flex flex-wrap gap-1 items-center">
-              <span class="text-[0.625rem] text-fg-subtle uppercase tracking-wide ml-1">Variáveis:</span>
+              <span class="text-3xs text-fg-muted uppercase tracking-wide ml-1">Variáveis:</span>
               {varKeys.map((k) => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => insertVariable(k)}
-                  class="inline-flex items-center h-5 px-2 rounded-full text-[0.625rem] font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
+                  class="inline-flex items-center h-5 px-2 rounded-full text-3xs font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
                 >
                   {`{{${k}}}`}
                 </button>
@@ -181,7 +181,7 @@ export function RichTextEditor({ value, onChange, placeholder, varKeys = [], min
       <style>{`
         .rich-editor:empty::before {
           content: attr(data-placeholder);
-          color: var(--color-fg-subtle, #94a3b8);
+          color: var(--color-fg-muted, #94a3b8);
           pointer-events: none;
         }
         .rich-editor h2 { font-size: 1rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }

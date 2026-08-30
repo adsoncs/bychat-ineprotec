@@ -24,7 +24,7 @@ export function DashboardMock() {
                 i === 0 ? 'bg-brand-soft' : ''
               }`}
             >
-              <span class="grid size-7 shrink-0 place-items-center rounded-full bg-brand/15 text-[10px] font-bold text-brand">
+              <span class="grid size-7 shrink-0 place-items-center rounded-full bg-brand/15 text-3xs font-bold text-brand">
                 {n.slice(0, 1)}
               </span>
               <div class="min-w-0 flex-1">
@@ -47,7 +47,7 @@ export function DashboardMock() {
                 key={m.k}
                 class="rounded-xl border border-line bg-surface p-3"
               >
-                <div class="text-[10px] font-medium text-fg-subtle">{m.k}</div>
+                <div class="text-3xs font-medium text-fg-muted">{m.k}</div>
                 <div class="mt-1 text-lg font-extrabold text-ink">{m.v}</div>
               </div>
             ))}
@@ -64,14 +64,14 @@ export function DashboardMock() {
             </div>
             <div class="flex items-center gap-2 rounded-full bg-surface-2 px-3 py-2">
               <div class="h-2 flex-1 rounded bg-line" />
-              <span class="grid size-6 place-items-center rounded-full bg-cta text-[9px] font-bold text-cta-fg">
+              <span class="grid size-6 place-items-center rounded-full bg-cta text-3xs font-bold text-cta-fg">
                 ➤
               </span>
             </div>
           </div>
 
           <div class="flex items-center gap-2 rounded-xl border border-line bg-surface p-3">
-            <span class="rounded-md bg-cta/15 px-2 py-0.5 text-[10px] font-semibold text-cta">
+            <span class="rounded-md bg-cta/15 px-2 py-0.5 text-3xs font-semibold text-cta">
               IA
             </span>
             <div class="h-1.5 flex-1 rounded bg-line" />

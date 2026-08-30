@@ -2,90 +2,231 @@
  * Design tokens — fonte única de verdade para cores, espaçamento, tipografia.
  *
  * Camadas:
- *   1. Tokens primitivos: valores brutos (escalas de cinza, palette)
+ *   1. Tokens primitivos: valores brutos (escala neutra, palette)
  *   2. Tokens semânticos: nomes de uso (surface, fg, border) — referenciam primitivos
  *
- * Tema: dark por padrão (compat com legado). Light fica para fase futura.
+ * ─── Pele "Vitrine" ───
+ * O painel deixou de ser uma folha plana com bordas por toda parte e passou a ser
+ * um PLANO FLUTUANDO sobre um fundo quase preto. Três consequências que valem
+ * para qualquer componente novo:
+ *
+ *   1. Hierarquia é PROFUNDIDADE, não linha. Uma superfície se separa da de baixo
+ *      pela luminosidade + o fio de luz no topo (`--hairline`) + a sombra. A borda
+ *      vira reforço opcional, não o mecanismo principal. Onde antes ia
+ *      `border border-border`, hoje costuma bastar `bg-surface-2` + `--hairline`.
+ *   2. Existe uma superfície a mais: `--color-panel` é o plano que hospeda a
+ *      página (o `.app-main`), abaixo dos cards (`--color-surface-2`) e acima do
+ *      fundo (`--color-surface`). Card sobre painel sobre fundo.
+ *   3. O acento é menta fria, não azul. O azul anterior era o Google Blue
+ *      (#1A73E8) herdado do legado — a cor mais genérica possível num painel.
+ *
+ * Tema: escuro por padrão; claro em [data-theme='light'].
  * NÃO use valores hardcoded em componentes — sempre via tokens.
  */
 
 :root {
   color-scheme: dark;
 
-  /* ─── Primitivos ─── */
-  --slate-50: oklch(0.985 0.005 247);
-  --slate-100: oklch(0.95 0.013 247);
-  --slate-200: oklch(0.9 0.02 247);
-  --slate-300: oklch(0.82 0.025 247);
-  --slate-400: oklch(0.66 0.035 247);
-  --slate-500: oklch(0.52 0.04 247);
-  --slate-600: oklch(0.42 0.04 247);
-  --slate-700: oklch(0.32 0.04 247);
-  --slate-800: oklch(0.24 0.035 247);
-  --slate-900: oklch(0.18 0.03 247);
-  --slate-950: oklch(0.13 0.025 247);
+  /* ─── Primitivos: escala neutra ───
+     Azul-tinta (hue ~254). Os degraus baixos ficaram MAIS baixos que a escala
+     anterior: o fundo desce para 0.133 (era 0.13 no `slate-950`, mas o painel
+     em cima subia junto) e abre espaço para três planos empilhados acima dele
+     sem que nenhum encoste no preto. */
+  --ink-50: oklch(0.985 0.004 253);
+  --ink-100: oklch(0.944 0.010 253);
+  --ink-200: oklch(0.885 0.016 253);
+  --ink-300: oklch(0.806 0.024 253);
+  --ink-400: oklch(0.699 0.035 253);
+  --ink-500: oklch(0.556 0.036 253);
+  --ink-600: oklch(0.393 0.032 254);
+  --ink-700: oklch(0.325 0.029 255);
+  --ink-800: oklch(0.281 0.026 253);
+  --ink-850: oklch(0.236 0.023 254);
+  --ink-900: oklch(0.189 0.017 253);
+  --ink-925: oklch(0.171 0.017 257);
+  --ink-950: oklch(0.133 0.008 254);
 
-  /* Brand: Google Blue #1A73E8 — espelha o legado.
-   * 500 (~#1A73E8 main) / 400 (~#4285F4 hover) / 600 (~#1557B0 active). */
-  --brand-400: oklch(0.66 0.18 258);
-  --brand-500: oklch(0.59 0.19 258);
-  --brand-600: oklch(0.5 0.17 258);
+  /* Brand: menta fria.
+   * O nome `--brand-*` fica: `lib/applyAppearance.ts` sobrescreve `--brand-500`
+   * e `--brand-400` com a cor do tenant (white-label). Trocar o nome aqui
+   * quebraria a personalização de marca sem erro visível. */
+  /* O matiz é 190 (teal), não 175 (menta), por um motivo medido: em 175 o acento
+     e o `success` ficavam a 23° de distância, e no TEMA CLARO os dois viravam o
+     mesmo verde escuro — o botão "Salvar" e o botão "Marcar ganho" eram
+     indistinguíveis lado a lado. Em 190 a distância vai para 38° do verde e 45°
+     do info, sem chegar perto do azul de onde a marca estava saindo. */
+  --brand-300: oklch(0.870 0.082 192); /* #92E6E2 */
+  --brand-400: oklch(0.818 0.100 190); /* #6DD8D2 — acento do tema escuro */
+  --brand-500: oklch(0.738 0.106 189); /* #48C0B8 */
+  --brand-600: oklch(0.627 0.098 188); /* #2A9B93 */
 
-  --success-500: oklch(0.72 0.17 152);
-  --warning-500: oklch(0.78 0.17 75);
-  --danger-500: oklch(0.66 0.22 25);
-  --info-500: oklch(0.72 0.15 240);
+  /* Cores de DADO — não são estado. Existem para separar séries e categorias
+     (um KPI de leads e um de tempo de resposta medem coisas diferentes e não
+     podem ser do mesmo tom). Croma no limite do gamut sRGB para o L escolhido:
+     acima disso o browser corta sozinho e a cor sai diferente da declarada. */
+  --violet-500: oklch(0.76 0.132 295); /* #B89EFF */
+  --orange-500: oklch(0.79 0.134 55);  /* #FFA15C */
 
-  /* ─── Semânticos: superfícies ─── */
-  --color-surface: var(--slate-950);
-  --color-surface-2: var(--slate-900);
-  --color-surface-3: var(--slate-800);
-  --color-surface-inset: oklch(0.1 0.022 247);
+  --success-500: oklch(0.78 0.15 152);
+  --warning-500: oklch(0.8 0.145 78);
+  --danger-500: oklch(0.68 0.19 20);
+  --info-500: oklch(0.75 0.11 235);
+
+  /* ─── Semânticos: superfícies ───
+     Quatro planos, do fundo para a frente:
+       surface     fundo da janela — sidebar e topbar vivem aqui, sem cromo
+       panel       o plano flutuante que hospeda a página (.app-main)
+       surface-2   card / linha destacada, sobre o painel
+       surface-3   hover, aninhado, cabeçalho de tabela
+     `surface-inset` é o sentido oposto: campo, poço, área rebaixada. */
+  --color-surface: var(--ink-950);
+  --color-panel: var(--ink-900);
+  --color-surface-2: var(--ink-850);
+  --color-surface-3: var(--ink-800);
+  --color-surface-inset: var(--ink-925);
 
   /* ─── Semânticos: texto ─── */
-  --color-fg: var(--slate-100);
-  --color-fg-muted: var(--slate-400);
-  --color-fg-subtle: var(--slate-500);
-  --color-fg-on-brand: var(--slate-950);
+  --color-fg: var(--ink-100);
+  --color-fg-muted: var(--ink-400);
+  --color-fg-on-brand: oklch(0.224 0.040 190); /* #002120 — 10,0:1 sobre o acento */
 
-  /* ─── Semânticos: borda ─── */
-  --color-border: oklch(0.28 0.025 247 / 0.7);
-  --color-border-strong: var(--slate-700);
-  --color-ring: var(--brand-500);
+  /* ─── Semânticos: borda ───
+     A borda deixou de carregar a hierarquia sozinha (ver `--hairline`). Por isso
+     ela pôde ficar mais discreta sem perder a separação: 1,49:1 sobre o painel,
+     1,34:1 sobre o card — suficiente para delimitar, fraca o bastante para não
+     desenhar a grade de tabela que o painel tinha antes. */
+  --color-border: oklch(0.325 0.029 255 / 0.72);
+  --color-border-strong: var(--ink-600);
+  --color-ring: var(--brand-400);
+
+  /* Borda do card. No escuro é TRANSPARENTE de propósito: profundidade já vem do
+     degrau de luminosidade + fio de luz + sombra, e uma quarta pista desenha de
+     volta a grade de linhas que a pele veio remover. A largura continua sendo
+     1px (ver `.surface-raised`), então utilitários como `border-warning/40`
+     seguem funcionando nos cards de alerta — eles só pintam o que estava
+     invisível. No tema claro a borda volta, porque lá branco sobre branco não
+     tem degrau de luminosidade para dar. */
+  --color-border-card: transparent;
+
+  /* Fio de luz no topo da superfície — o que dá a impressão de que ela tem
+     espessura e está sob uma fonte de luz vinda de cima. É o truque de
+     profundidade do macOS SEM `backdrop-filter`: custa zero de composição,
+     então pode ir em toda linha de lista, ao contrário do vidro real.
+     Uso: `box-shadow: var(--hairline), <sombra>`. */
+  --hairline: inset 0 1px 0 oklch(1 0 0 / 0.06);
+  --hairline-strong: inset 0 1px 0 oklch(1 0 0 / 0.1);
+  /* Sobre preenchimento sólido (botão primário, badge cheio) o fio de 6% some:
+     a superfície já é clara. Aqui ele precisa ser forte o bastante para ler
+     como o topo biselado pegando luz. */
+  --hairline-fill: inset 0 1px 0 oklch(1 0 0 / 0.28);
+
+  /* Realce de quem sobe um degrau SOBRE O FUNDO da janela (item de menu ativo,
+     hover). No escuro o degrau de luminância já se vê e o fio de luz basta; no
+     claro o token vira sombra, porque lá o realce é branco sobre quase-branco. */
+  --elev-on-ground: var(--hairline);
+
+  /* Cores de DADO — barra, segmento, ponto de gráfico.
+     Separadas das de estado porque o critério é outro: texto pequeno exige
+     4,5:1 e elemento gráfico exige 3:1. No tema escuro os dois coincidem, mas
+     no claro `--color-warning` teve de ser escurecido até #906106 para servir
+     de texto, e uma barra inteira nesse tom lê como sujeira, não como "morno".
+     Regra de uso: o traço colorido usa `--data-*`; o número ao lado dele
+     continua usando `--color-*`, que é a versão legível. */
+  --data-success: var(--color-success);
+  --data-warning: var(--color-warning);
+  --data-danger: var(--color-danger);
+  --data-muted: var(--color-fg-muted);
+  /* O oposto do fio: campo é POÇO, não placa. Sombra interna vinda de cima. */
+  --inset-well: inset 0 1px 2px oklch(0 0 0 / 0.28);
 
   /* ─── Semânticos: estado ─── */
-  --color-accent: var(--brand-500);
-  --color-accent-hover: var(--brand-400);
-  --color-accent-active: var(--brand-600);
+  --color-accent: var(--brand-400);
+  --color-accent-hover: var(--brand-300);
+  --color-accent-active: var(--brand-500);
 
   --color-success: var(--success-500);
   --color-warning: var(--warning-500);
   --color-danger: var(--danger-500);
   --color-info: var(--info-500);
+  --color-violet: var(--violet-500);
+  --color-orange: var(--orange-500);
 
-  /* ─── Tipografia ─── */
-  --font-sans: 'Inter', 'InterVariable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* ─── Luz ambiente e material ───
+     O que fazia o painel parecer "cinza chapado" não era a cor: era a AUSÊNCIA
+     de variação dentro de cada plano. Duas correções, ambas de custo zero:
+
+       1. dois halos radiais gigantes e muito diluídos no fundo da janela, que
+          dão direção à luz — a tela deixa de ter iluminação uniforme;
+       2. um degradê de topo em cada superfície elevada (`--material`), como se
+          a luz viesse de cima. É o mesmo princípio do `--hairline`, espalhado
+          por 40% da altura em vez de concentrado em 1px.
+
+     Nada disso usa `backdrop-filter`: são pintura, não composição. */
+  --ambient-1: radial-gradient(38rem 26rem at 12% -4%, color-mix(in oklab, var(--color-accent) 13%, transparent), transparent 70%);
+  --ambient-2: radial-gradient(32rem 24rem at 92% 108%, color-mix(in oklab, var(--color-violet) 11%, transparent), transparent 70%);
+  --material: linear-gradient(180deg, oklch(1 0 0 / 0.045), oklch(1 0 0 / 0) 42%);
+  /* O painel de conteúdo é opaco e cobre 85% da tela — sem luz PRÓPRIA, os
+     halos do fundo só apareceriam na tira da barra lateral, e aí eles leem como
+     uma mancha no canto em vez de iluminação. Estes dois radiais são a mesma
+     luz, continuada por dentro do painel. */
+  --material-panel:
+    radial-gradient(46rem 30rem at 8% 0%, color-mix(in oklab, var(--color-accent) 7%, transparent), transparent 62%),
+    radial-gradient(38rem 26rem at 96% 3%, color-mix(in oklab, var(--color-violet) 5%, transparent), transparent 60%),
+    linear-gradient(180deg, oklch(1 0 0 / 0.045), oklch(1 0 0 / 0) 42%);
+  /* Grão: quebra o banding dos degradês acima e tira o aspecto de plástico.
+     Acima de ~5% começa a sujar o texto pequeno. */
+  --grain-opacity: 0.035;
+
+  /* ─── Tipografia ───
+     Manrope: caixa alta estreita, terminais retos e um `g` de andar único —
+     lê como interface de produto, não como o Inter que todo painel SaaS usa.
+     Inter continua na pilha como rede de segurança enquanto a fonte carrega. */
+  --font-sans: 'Manrope', 'Inter', 'InterVariable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'JetBrains Mono', 'Menlo', monospace;
 
-  /* ─── Layout: shell ─── */
+  /* ─── Layout: shell ───
+     A folga (`--app-gutter`) é o que separa o painel flutuante das bordas da
+     janela. Mudá-la move a página inteira; não é um padding qualquer. */
   --sidebar-w-expanded: 16rem; /* 256px */
   --sidebar-w-rail: 4rem;      /* 64px  */
   --sidebar-w-drawer: 18rem;   /* 288px */
   --topbar-h: 3.5rem;          /* 56px  */
+  --app-gutter: 0.625rem;      /* 10px  */
 
-  /* ─── Raios ─── */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-2xl: 1.5rem;
+  /* ─── Ícones ───
+     Escala única do painel (ver components/ui/Icon.tsx). Use os degraus; um
+     tamanho fora deles deixa a UI com pesos ópticos diferentes lado a lado.
+     O traço é em PX DE TELA e constante — quem aplica é o <Icon>/<IconProvider>,
+     não o CSS; os tokens abaixo existem para quem precisa casar a caixa de um
+     ícone com padding/altura de outro elemento. */
+  --icon-xxs: 10px;
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+  --icon-stroke: 1.5;
+
+  /* ─── Raios ───
+     Subiram um degrau. O raio aninhado é o que evita o "canto duplo": o raio de
+     dentro deve ser o de fora MENOS o padding entre eles. Card com
+     `--radius-lg` (14px) e padding de 16px pede filho com ~4px, não com 14px. */
+  --radius-sm: 0.5rem;     /* 8px  */
+  --radius-md: 0.625rem;   /* 10px */
+  --radius-lg: 0.875rem;   /* 14px */
+  --radius-xl: 1.125rem;   /* 18px */
+  --radius-2xl: 1.5rem;    /* 24px */
+  --radius-panel: 1rem;    /* 16px — o plano flutuante */
   --radius-full: 9999px;
 
-  /* ─── Sombras ─── */
-  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.3);
-  --shadow-md: 0 4px 8px -2px oklch(0 0 0 / 0.35);
-  --shadow-lg: 0 12px 24px -8px oklch(0 0 0 / 0.45);
-  --shadow-xl: 0 24px 48px -16px oklch(0 0 0 / 0.55);
+  /* ─── Sombras ───
+     Difusas e muito deslocadas: sombra curta e dura lê como caixa colada na
+     tela; sombra longa lê como objeto acima dela. */
+  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 0.4);
+  --shadow-md: 0 6px 14px -6px oklch(0 0 0 / 0.5);
+  --shadow-lg: 0 16px 32px -12px oklch(0 0 0 / 0.6);
+  --shadow-xl: 0 32px 64px -20px oklch(0 0 0 / 0.7);
+  --shadow-panel: 0 24px 48px -20px oklch(0 0 0 / 0.7);
 
   /* ─── Z-index escala (single source) ─── */
   --z-base: 0;
@@ -114,34 +255,94 @@
 /**
  * Light theme — ativado por [data-theme='light'] no <html>.
  * Mantemos os mesmos nomes semânticos; só os valores mudam.
+ *
+ * A inversão não é simétrica: no escuro a superfície de cima é MAIS CLARA que a
+ * de baixo; no claro ela é mais clara também (branco sobre cinza). O que muda de
+ * papel é o fundo — vira o cinza, e o painel/card viram o branco. É por isso que
+ * o fio de luz não serve aqui: sobre branco ele é invisível, e quem faz a
+ * separação volta a ser a borda + uma sombra muito curta.
  */
 [data-theme='light'] {
   color-scheme: light;
 
-  /* Superfícies invertidas: surface mais claro, surface-2/3 ligeiramente sombreados. */
-  --color-surface: oklch(0.99 0.003 247);
-  --color-surface-2: oklch(0.97 0.005 247);
-  --color-surface-3: oklch(0.94 0.008 247);
-  --color-surface-inset: oklch(0.96 0.005 247);
+  /* O fundo é um cinza a 2,4 pontos de luminância do branco (1,07:1). O
+     anterior, #E9ECF1, ficava a 5,8 pontos e lia como uma faixa cinza atrás do
+     painel; este lê como papel de fundo. Com a diferença tão curta, quem separa
+     o painel deixa de ser a luminância e passa a ser a sombra — ver
+     --shadow-panel e o realce do item ativo no shell.css. */
+  --color-surface: oklch(0.976 0.004 258);   /* #F5F7FA — o fundo, quase branco */
+  --color-panel: oklch(1 0 0);               /* #FFFFFF — o plano flutuante */
+  --color-surface-2: oklch(1 0 0);           /* card: branco + borda + sombra curta */
+  --color-surface-3: oklch(0.966 0.006 255); /* #F1F4F8 */
+  --color-surface-inset: oklch(0.975 0.005 258);
 
   /* Texto */
-  --color-fg: oklch(0.18 0.025 247);
-  --color-fg-muted: oklch(0.42 0.03 247);
-  --color-fg-subtle: oklch(0.55 0.025 247);
-  --color-fg-on-brand: oklch(0.99 0.005 247);
+  --color-fg: oklch(0.215 0.018 256);        /* 17,5:1 sobre o painel */
+  --color-fg-muted: oklch(0.512 0.032 253);  /* 5,7:1 */
+  --color-fg-on-brand: oklch(1 0 0);
 
   /* Bordas */
-  --color-border: oklch(0.86 0.012 247);
-  --color-border-strong: oklch(0.78 0.018 247);
+  --color-border: oklch(0.913 0.012 252);
+  --color-border-strong: oklch(0.842 0.018 253);
+  --color-border-card: oklch(0.913 0.012 252);
 
-  /* Acento ligeiramente mais escuro para contraste em fundo claro. */
-  --color-accent: var(--brand-600);
-  --color-accent-hover: var(--brand-500);
-  --color-accent-active: oklch(0.42 0.16 258);
+  /* Sobre branco, o fio de luz não existe: some sem deixar buraco no
+     `box-shadow` composto de quem usa `var(--hairline), …`. */
+  --hairline: inset 0 1px 0 oklch(1 0 0 / 0);
+  --hairline-strong: inset 0 1px 0 oklch(1 0 0 / 0);
+  --hairline-fill: inset 0 1px 0 oklch(1 0 0 / 0.18);
+  --inset-well: inset 0 1px 2px oklch(0.215 0.018 256 / 0.07);
 
-  /* Sombras mais suaves em fundo claro. */
-  --shadow-sm: 0 1px 2px 0 oklch(0.13 0.025 247 / 0.08);
-  --shadow-md: 0 4px 8px -2px oklch(0.13 0.025 247 / 0.1);
-  --shadow-lg: 0 12px 24px -8px oklch(0.13 0.025 247 / 0.12);
-  --shadow-xl: 0 24px 48px -16px oklch(0.13 0.025 247 / 0.15);
+  /* Teal escuro: o do tema escuro daria 1,5:1 sobre branco.
+     6,10:1 em texto, e o branco por cima do botão dá os mesmos 6,10:1. */
+  --color-accent: oklch(0.483 0.090 190);    /* #006E6A */
+  --color-accent-hover: oklch(0.52 0.095 190);
+  --color-accent-active: oklch(0.407 0.076 190);
+
+  /* Estados recalibrados para fundo claro: as versões do tema escuro foram
+     desenhadas contra superfície escura e, sobre branco, ficavam entre 2:1 e
+     2,4:1 — abaixo do mínimo de 4,5:1 para texto, e `text-warning`/`text-danger`
+     são justamente os usos mais comuns. Os valores abaixo são o ponto de maior
+     saturação que ainda passa em 4,5:1 contra `--color-surface-3`. */
+  --color-success: oklch(0.51 0.135 152);
+  --color-warning: oklch(0.53 0.11 75);
+  --color-danger: oklch(0.55 0.223 25);
+  --color-info: oklch(0.52 0.117 240);
+  --color-violet: oklch(0.47 0.19 295);
+  --color-orange: oklch(0.52 0.13 55);
+
+  /* No claro a luz ambiente quase some (sobre branco ela vira sujeira) e o
+     material não existe: um degradê branco sobre branco não pinta nada. O que
+     dá relevo aqui continua sendo borda + sombra curta. */
+  --ambient-1: radial-gradient(38rem 26rem at 12% -4%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent 70%);
+  --ambient-2: radial-gradient(32rem 24rem at 92% 108%, color-mix(in oklab, var(--color-violet) 6%, transparent), transparent 70%);
+  --material: none;
+  /* No claro o painel é branco puro, que é o "chapado" da queixa. Uma lavagem
+     de 4% e 3% não é percebida como cor — é percebida como o papel não estar
+     morto. Acima disso começa a parecer que o tema tem tint. */
+  --material-panel:
+    radial-gradient(46rem 30rem at 8% 0%, color-mix(in oklab, var(--color-accent) 4%, transparent), transparent 62%),
+    radial-gradient(38rem 26rem at 96% 3%, color-mix(in oklab, var(--color-violet) 3%, transparent), transparent 60%);
+  --grain-opacity: 0.018;
+
+  /* Anel de foco: acompanha o acento escurecido do tema claro. */
+  --color-ring: oklch(0.483 0.090 190);
+
+  /* Realce sobre o fundo: no escuro o fio de luz basta, porque o item ativo é
+     mais CLARO que a barra. Aqui ele é branco sobre quase-branco — 1,07:1 —
+     então quem mostra que o item subiu é a sombra curta. */
+  --elev-on-ground: var(--shadow-sm);
+
+  /* Vivas, porque aqui elas só precisam de 3:1 e nunca carregam texto. */
+  --data-success: oklch(0.66 0.170 152);     /* #11AE5B */
+  --data-warning: oklch(0.76 0.155 72);      /* #ED9E20 */
+  --data-danger: oklch(0.60 0.215 27);       /* #E4312F */
+  --data-muted: oklch(0.72 0.028 254);
+
+  /* Sombras curtas e frias — objeto pousado no papel, não flutuando. */
+  --shadow-sm: 0 1px 2px 0 oklch(0.215 0.018 256 / 0.08);
+  --shadow-md: 0 4px 10px -4px oklch(0.215 0.018 256 / 0.12);
+  --shadow-lg: 0 12px 24px -10px oklch(0.215 0.018 256 / 0.14);
+  --shadow-xl: 0 24px 48px -16px oklch(0.215 0.018 256 / 0.16);
+  --shadow-panel: 0 8px 24px -12px oklch(0.215 0.018 256 / 0.14);
 }

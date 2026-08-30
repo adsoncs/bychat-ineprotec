@@ -3,7 +3,7 @@ import {
   Settings as SettingsIcon, Users as UsersIcon, AlertTriangle,
   Power, Calendar, Pencil, GitBranch, Plus, Trash2, GripVertical, Zap,
   FlaskConical, ScrollText, Clock, ArrowRightLeft,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Input } from '@/components/ui/Input'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -334,7 +334,7 @@ function EscalationCard() {
                   Salvar
                 </Button>
               </div>
-              <div class="text-xs text-fg-subtle mt-1">5–1440 min ({Math.round(c.minutes / 60 * 10) / 10}h hoje)</div>
+              <div class="text-xs text-fg-muted mt-1">5–1440 min ({Math.round(c.minutes / 60 * 10) / 10}h hoje)</div>
             </div>
             <div>
               <div class="text-xs text-fg-muted mb-1">Devolver de agente offline</div>
@@ -351,7 +351,7 @@ function EscalationCard() {
                 </div>
                 <span class="ml-2 text-sm">{c.reassignOnOffline ? 'Sim' : 'Não'}</span>
               </label>
-              <div class="text-xs text-fg-subtle mt-1">Threshold: 30min offline</div>
+              <div class="text-xs text-fg-muted mt-1">Threshold: 30min offline</div>
             </div>
             <div class="flex items-end">
               <Button
@@ -431,7 +431,7 @@ function ShiftCard() {
                   Salvar
                 </Button>
               </div>
-              <div class="text-xs text-fg-subtle mt-1">0–240 min (0 = libera imediato; 30 = padrão)</div>
+              <div class="text-xs text-fg-muted mt-1">0–240 min (0 = libera imediato; 30 = padrão)</div>
             </div>
             <div class="flex items-end">
               <Button
@@ -501,7 +501,7 @@ function TransferTimeoutCard() {
               Salvar
             </Button>
           </div>
-          <div class="text-xs text-fg-subtle mt-1">1–168 horas (24 = padrão)</div>
+          <div class="text-xs text-fg-muted mt-1">1–168 horas (24 = padrão)</div>
         </div>
       </div>
     </Card>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Search, Send, Trash2, Plus, AlertCircle, ExternalLink, KeyRound, ChevronRight, Check, HelpCircle } from 'lucide-preact'
+import { Search, Send, Trash2, Plus, AlertCircle, ExternalLink, KeyRound, ChevronRight, Check, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useGoogleAdsConfig,
@@ -157,7 +157,7 @@ export function GoogleAdsPage() {
         {!leadsLoading && leads && leads.data.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-4 py-2 font-medium">Lead</th>
                   <th class="text-left px-4 py-2 font-medium">GCLID</th>
@@ -172,15 +172,15 @@ export function GoogleAdsPage() {
                   <tr key={l.id} class="hover:bg-surface-3">
                     <td class="px-4 py-2">
                       <div class="text-fg truncate max-w-[14rem]">{l.empresa ?? l.nome ?? '—'}</div>
-                      <div class="text-xs text-fg-subtle truncate">{l.email ?? l.whatsapp ?? ''}</div>
+                      <div class="text-xs text-fg-muted truncate">{l.email ?? l.whatsapp ?? ''}</div>
                     </td>
-                    <td class="px-4 py-2 font-mono text-[0.625rem] text-fg-muted truncate max-w-[12rem]" title={l.gclid ?? ''}>{l.gclid?.slice(0, 20)}…</td>
+                    <td class="px-4 py-2 font-mono text-3xs text-fg-muted truncate max-w-[12rem]" title={l.gclid ?? ''}>{l.gclid?.slice(0, 20)}…</td>
                     <td class="px-4 py-2"><Badge tone="neutral">{l.status ?? '—'}</Badge></td>
                     <td class="px-4 py-2 text-right tabular-nums">
                       {l.saleDetected ? (
                         <span class="text-success">{l.saleValue !== null ? brl.format(l.saleValue) : '✓'}</span>
                       ) : (
-                        <span class="text-fg-subtle">—</span>
+                        <span class="text-fg-muted">—</span>
                       )}
                     </td>
                     <td class="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(l.createdAt)}</td>
@@ -434,9 +434,9 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
                   >
                     <div class="min-w-0">
                       <div class="text-sm font-medium text-fg truncate">{c.email}</div>
-                      {!c.active && <div class="text-[0.6875rem] text-warning">conexão inativa — reconecte</div>}
+                      {!c.active && <div class="text-2xs text-warning">conexão inativa — reconecte</div>}
                     </div>
-                    <ChevronRight size={14} class="text-fg-subtle shrink-0" />
+                    <ChevronRight size={14} class="text-fg-muted shrink-0" />
                   </button>
                 ))}
               </div>
@@ -481,11 +481,11 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
                         {c.descriptiveName ?? `Conta ${c.id}`}
                         {c.isManager && <Badge tone="neutral" class="ml-2">MCC</Badge>}
                       </div>
-                      <div class="text-[0.6875rem] text-fg-subtle font-mono truncate">
+                      <div class="text-2xs text-fg-muted font-mono truncate">
                         ID: {formatCustomerId(c.id)}{c.currencyCode ? ` · ${c.currencyCode}` : ''}
                       </div>
                     </div>
-                    {!c.isManager && <ChevronRight size={14} class="text-fg-subtle shrink-0" />}
+                    {!c.isManager && <ChevronRight size={14} class="text-fg-muted shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -497,7 +497,7 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
             <>
               <div class="text-xs text-fg-muted mb-3">
                 Mapeie cada evento do funil a uma <strong>Conversion Action</strong> diferente do Google Ads. Marque só os triggers que você quer reportar — deixar mais de um ativo permite otimizar bid strategies por etapa (Lead Qualificado, Pagamento, Venda etc).
-                <span class="block mt-1 text-[0.6875rem] text-warning"><strong>Não</strong> mande o mesmo evento para várias CAs — isso gera double-counting no Google.</span>
+                <span class="block mt-1 text-2xs text-warning"><strong>Não</strong> mande o mesmo evento para várias CAs — isso gera double-counting no Google.</span>
               </div>
               {actionsQ.isLoading && (
                 <div class="flex flex-col gap-2">
@@ -529,7 +529,7 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
                           />
                           <div class="flex-1 min-w-0">
                             <div class="text-sm font-medium text-fg">{trow.label}</div>
-                            <div class="text-[0.6875rem] text-fg-muted">{trow.hint}</div>
+                            <div class="text-2xs text-fg-muted">{trow.hint}</div>
                           </div>
                         </label>
                         {row.enabled && (
@@ -581,7 +581,7 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
                 />
                 <div>
                   <div class="font-medium">Envio automático de conversões</div>
-                  <div class="text-[0.6875rem] text-fg-muted">
+                  <div class="text-2xs text-fg-muted">
                     Master kill-switch: quando ligado, cada trigger ativo acima envia a conversão pro Google Ads no momento exato em que o evento acontece no sistema. Desligado = apenas envio manual continua funcionando.
                   </div>
                 </div>
@@ -614,12 +614,12 @@ function WizardStepper({ step }: { step: WizardStep }) {
                   : 'bg-surface-3 text-fg-muted',
             )}
           >
-            <span class="size-4 rounded-full bg-white/30 grid place-items-center text-[0.625rem] font-bold shrink-0">
+            <span class="size-4 rounded-full bg-white/30 grid place-items-center text-3xs font-bold shrink-0">
               {step > s.n ? '✓' : s.n}
             </span>
             <span class="truncate">{s.label}</span>
           </div>
-          {i < steps.length - 1 && <ChevronRight size={12} class="text-fg-subtle shrink-0" />}
+          {i < steps.length - 1 && <ChevronRight size={12} class="text-fg-muted shrink-0" />}
         </div>
       ))}
     </div>
@@ -702,7 +702,7 @@ function ApiErrorBanner({ error }: { error: { message?: string } }) {
                 Sobre níveis de acesso ↗
               </a>
             </div>
-            <p class="mt-2 text-[0.6875rem] text-fg-subtle">
+            <p class="mt-2 text-2xs text-fg-muted">
               Alternativa imediata para testes: criar uma <strong>conta de teste</strong> no MCC
               e usar o Customer ID dela durante o desenvolvimento.
             </p>
@@ -710,14 +710,14 @@ function ApiErrorBanner({ error }: { error: { message?: string } }) {
         )}
 
         {versionDeprecated && (
-          <p class="mt-2 text-[0.6875rem] text-fg-subtle">
+          <p class="mt-2 text-2xs text-fg-muted">
             A versão da API configurada no servidor foi descontinuada pelo Google.
             Avise o admin pra atualizar <code class="px-1 py-0.5 rounded bg-surface-3">GOOGLE_ADS_API_VERSION</code>.
           </p>
         )}
 
         {!apiNotEnabled && !versionDeprecated && !testTokenOnly && (
-          <p class="mt-1 text-[0.6875rem] text-fg-subtle">
+          <p class="mt-1 text-2xs text-fg-muted">
             Causas comuns: Google Ads API não habilitada no projeto Cloud, Developer Token pendente de aprovação, ou conta Google sem permissão de leitura.
           </p>
         )}
@@ -761,7 +761,7 @@ function LoginCustomerIdCard() {
         <CardTitle>Login Customer ID (MCC)</CardTitle>
       </CardHeader>
       <div class="text-xs text-fg-muted mb-2">
-        Quando o <strong>Developer Token</strong> vive em uma conta MCC (Manager) e as contas que você sincroniza são <strong>sub-contas</strong> dela, o Google exige enviar o ID da MCC no header <code class="font-mono">login-customer-id</code>. Sem isso o sync retorna vazio ou <code class="font-mono">PERMISSION_DENIED</code>. <span class="text-fg-subtle">Deixe vazio se você só usa contas standalone (sem MCC).</span>
+        Quando o <strong>Developer Token</strong> vive em uma conta MCC (Manager) e as contas que você sincroniza são <strong>sub-contas</strong> dela, o Google exige enviar o ID da MCC no header <code class="font-mono">login-customer-id</code>. Sem isso o sync retorna vazio ou <code class="font-mono">PERMISSION_DENIED</code>. <span class="text-fg-muted">Deixe vazio se você só usa contas standalone (sem MCC).</span>
       </div>
       <div class="flex gap-2 items-end">
         <div class="flex-1">
@@ -779,7 +779,7 @@ function LoginCustomerIdCard() {
           {update.isPending ? 'Salvando…' : 'Salvar'}
         </Button>
       </div>
-      <div class="text-[0.6875rem] text-fg-subtle mt-2">
+      <div class="text-2xs text-fg-muted mt-2">
         Atual: {data?.loginCustomerId ? <code class="font-mono">{formatCustomerId(data.loginCustomerId)}</code> : <em>não definido</em>}
       </div>
     </Card>

@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { Link } from 'wouter-preact'
 import {
   Sparkles, ChevronRight, CheckCircle2, XCircle, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useStageSuggestions,
@@ -68,7 +68,7 @@ export function AiJourneyPage() {
                 key={s}
                 type="button"
                 onClick={() => setStatus(s)}
-                class={`h-8 px-3 rounded-md text-xs font-medium border ${status === s ? 'bg-accent text-white border-accent' : 'bg-surface text-fg-muted border-border hover:bg-surface-2'}`}
+                class={`h-8 px-3 rounded-md text-xs font-medium border ${status === s ? 'bg-accent text-fg-on-brand border-accent' : 'bg-surface text-fg-muted border-border hover:bg-surface-2'}`}
               >
                 {s === 'pending' ? 'Pendentes' : s === 'applied' ? 'Aplicadas' : 'Rejeitadas'}
               </button>
@@ -184,12 +184,12 @@ function SuggestionRow({ suggestion, canDecide, onApply, onReject }: {
             ) : (
               <>
                 <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
-                {' · '}<span class="text-fg-subtle">{suggestion.funnel?.name}</span>
+                {' · '}<span class="text-fg-muted">{suggestion.funnel?.name}</span>
               </>
             )}
           </div>
           {suggestion.reasoning && <p class="text-xs text-fg leading-relaxed">{suggestion.reasoning}</p>}
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             {new Date(suggestion.createdAt).toLocaleString('pt-BR')}
             {suggestion.modelUsed && ` · ${suggestion.modelUsed}`}
             {suggestion.decisionNote && ` · "${suggestion.decisionNote}"`}

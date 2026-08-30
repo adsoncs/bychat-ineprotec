@@ -65,7 +65,10 @@ import {
   RefreshCw,
   Layers,
   UserRound,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
+import { ICON_SIZE } from '@/components/ui/Icon'
+// Logo de marca: vem do registry, não redesenhado aqui (traço e grade únicos).
+import { Instagram as InstagramLogo } from '@/components/ui/icons.custom'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTickets,
@@ -118,7 +121,7 @@ import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
 import { useTags } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
-import { Clock as ClockIcon, LayoutTemplate, MessageSquarePlus, Smartphone as SmartphoneIcon } from 'lucide-preact'
+import { Clock as ClockIcon, LayoutTemplate, MessageSquarePlus, Smartphone as SmartphoneIcon } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
@@ -249,7 +252,7 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
       )
     case 'manual':
       return (
-        <svg {...common} fill="currentColor" class="text-fg-subtle" aria-label={title}>
+        <svg {...common} fill="currentColor" class="text-fg-muted" aria-label={title}>
           <title>{title}</title>
           <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
         </svg>
@@ -283,7 +286,7 @@ function operatorPresence(lastSeenAt: string | null | undefined): { label: strin
   if (Number.isNaN(ms)) return null
   if (ms < 5 * 60_000) return { label: 'Online', color: 'var(--color-success)' }
   if (ms < 30 * 60_000) return { label: 'Ausente', color: 'var(--color-warning)' }
-  return { label: 'Offline', color: 'var(--color-fg-subtle)' }
+  return { label: 'Offline', color: 'var(--color-fg-muted)' }
 }
 
 export function ConversationsPage() {
@@ -460,7 +463,7 @@ function ConversationsScreen() {
       actions={
         <>
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
-            <HelpCircle size={14} /> Como funciona?
+            <HelpCircle size={ICON_SIZE.sm} /> Como funciona?
           </Button>
           <Button
             variant="ghost"
@@ -468,13 +471,13 @@ function ConversationsScreen() {
             onClick={() => setPrefsOpen(true)}
             title="Preferências das conversas (fonte, áudio, lista)"
           >
-            <SlidersHorizontal size={14} /> <span class="hidden md:inline">Preferências</span>
+            <SlidersHorizontal size={ICON_SIZE.sm} /> <span class="hidden md:inline">Preferências</span>
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setImportarOpen(true)}>
-            <SmartphoneIcon size={14} /> Importar do celular
+            <SmartphoneIcon size={ICON_SIZE.sm} /> Importar do celular
           </Button>
           <Button variant="primary" size="sm" onClick={() => setNovaConversaOpen(true)}>
-            <MessageSquarePlus size={14} /> Nova conversa
+            <MessageSquarePlus size={ICON_SIZE.sm} /> Nova conversa
           </Button>
         </>
       }
@@ -500,7 +503,7 @@ function ConversationsScreen() {
                 title={notifEnabled ? 'Som de notificação ativo (clique para silenciar)' : 'Notificação silenciada (clique para ativar)'}
                 aria-label={notifEnabled ? 'Silenciar notificações' : 'Ativar notificações'}
               >
-                {notifEnabled ? <Bell size={16} /> : <BellOff size={16} />}
+                {notifEnabled ? <Bell size={ICON_SIZE.md} /> : <BellOff size={ICON_SIZE.md} />}
               </button>
             </div>
             <div class="flex gap-2 flex-wrap">
@@ -558,14 +561,14 @@ function ConversationsScreen() {
                     type="button"
                     onClick={() => setScope(s.id)}
                     class={cn(
-                      'flex-1 min-w-0 h-7 px-2 rounded text-[0.6875rem] font-medium transition-colors inline-flex items-center justify-center gap-1',
+                      'flex-1 min-w-0 h-7 px-2 rounded text-2xs font-medium transition-colors inline-flex items-center justify-center gap-1',
                       active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
                     )}
                   >
                     <span class="truncate">{labels.scope[s.id]}</span>
                     {count != null && count > 0 && (
                       <span class={cn(
-                        'text-[0.625rem] px-1 rounded shrink-0',
+                        'text-3xs px-1 rounded shrink-0',
                         active ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-fg-muted',
                       )}>{count}</span>
                     )}
@@ -585,7 +588,7 @@ function ConversationsScreen() {
                     onClick={() => setBucket(b.id)}
                     title={labels.bucket[b.id]}
                     class={cn(
-                      'min-w-0 h-9 px-1.5 rounded-md text-[0.6875rem] font-medium transition-colors',
+                      'min-w-0 h-9 px-1.5 rounded-md text-2xs font-medium transition-colors',
                       'inline-flex flex-col items-center justify-center gap-0.5',
                       'lg:flex-row lg:gap-1.5 lg:h-8',
                       active
@@ -594,13 +597,13 @@ function ConversationsScreen() {
                     )}
                   >
                     <span class="inline-flex items-center gap-1 min-w-0">
-                      <Icon size={12} class="shrink-0" />
+                      <Icon size={ICON_SIZE.xs} class="shrink-0" />
                       <span class="truncate hidden lg:inline">{labels.bucket[b.id]}</span>
                       <span class="truncate lg:hidden">{rotuloCurto(labels.bucket[b.id], b.shortLabel, b.id)}</span>
                     </span>
                     {count != null && count > 0 && (
                       <span class={cn(
-                        'text-[0.625rem] px-1 rounded shrink-0 leading-none py-px',
+                        'text-3xs px-1 rounded shrink-0 leading-none py-px',
                         active ? 'bg-white/25 text-fg-on-brand' : 'bg-surface-2 text-fg-muted',
                       )}>{count}</span>
                     )}
@@ -610,24 +613,24 @@ function ConversationsScreen() {
             </nav>
           </div>
           {selectionEnabled && (
-            <div class="px-3 py-1.5 border-b border-border flex items-center gap-2 text-[0.6875rem]">
+            <div class="px-3 py-1.5 border-b border-border flex items-center gap-2 text-2xs">
               <button
                 type="button"
                 onClick={toggleSelectAll}
                 class="inline-flex items-center gap-1 text-fg-muted hover:text-fg"
                 title={allSelected ? 'Desmarcar todas' : 'Selecionar todas as conversas carregadas'}
               >
-                {allSelected ? <CheckSquare size={13} class="text-accent" /> : <Square size={13} />}
+                {allSelected ? <CheckSquare size={ICON_SIZE.xs} class="text-accent" /> : <Square size={ICON_SIZE.xs} />}
                 <span>{allSelected ? 'Desmarcar todas' : 'Selecionar todas'}</span>
               </button>
               {/* "Selecionar todas" pega o que ESTÁ CARREGADO, e a lista continua
                 * conforme se rola. Dizer o número evita a leitura de que a ação
                 * alcançou o recorte inteiro. */}
-              <span class="text-fg-subtle">·</span>
+              <span class="text-fg-muted">·</span>
               <span class="text-fg-muted">{tickets.length} carregada{tickets.length > 1 ? 's' : ''}</span>
               {bucket === 'raw' && promotableTickets.length > 0 && (
                 <>
-                  <span class="text-fg-subtle">·</span>
+                  <span class="text-fg-muted">·</span>
                   <span class="text-fg-muted">{promotableTickets.length} não qualificada{promotableTickets.length > 1 ? 's' : ''}</span>
                 </>
               )}
@@ -641,7 +644,7 @@ function ConversationsScreen() {
               <button
                 type="button"
                 onClick={clearSelection}
-                class="text-[0.6875rem] text-fg-muted hover:text-fg"
+                class="text-2xs text-fg-muted hover:text-fg"
               >
                 Limpar
               </button>
@@ -664,9 +667,9 @@ function ConversationsScreen() {
                       onError: (e: unknown) => toast((e as Error).message, 'danger'),
                     })
                   }}
-                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-fg-on-brand text-[0.6875rem] hover:opacity-90 disabled:opacity-50"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-accent text-fg-on-brand text-2xs hover:opacity-90 disabled:opacity-50"
                 >
-                  <MailOpen size={11} />
+                  <MailOpen size={ICON_SIZE.xxs} />
                   {marcarLidasEmLote.isPending ? 'Marcando…' : `Marcar ${selecionadasNaoLidas.length} como lida${selecionadasNaoLidas.length > 1 ? 's' : ''}`}
                 </button>
               )}
@@ -674,9 +677,9 @@ function ConversationsScreen() {
                 <button
                   type="button"
                   onClick={() => setPromoteBulkOpen(true)}
-                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-success text-white text-[0.6875rem] hover:opacity-90"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded bg-success text-fg-on-brand text-2xs hover:opacity-90"
                 >
-                  <Star size={11} /> Promover {selecionadasPromoviveis.length}
+                  <Star size={ICON_SIZE.xxs} /> Promover {selecionadasPromoviveis.length}
                 </button>
               )}
             </div>
@@ -689,7 +692,7 @@ function ConversationsScreen() {
             )}
             {!ticketsQ.isLoading && ticketsCarregados.length === 0 && (
               <EmptyState
-                icon={<MessageSquare size={20} />}
+                icon={<MessageSquare size={ICON_SIZE.lg} />}
                 title="Nenhuma conversa encontrada"
                 description={
                   // O texto cita a aba pelo nome que a empresa deu — dizer
@@ -773,7 +776,7 @@ function ConversationsScreen() {
                   )}
                 >
                   {ticketsQ.isFetchingNextPage
-                    ? <><Loader2 size={13} class="animate-spin" /> Carregando…</>
+                    ? <><Loader2 size={ICON_SIZE.xs} class="animate-spin" /> Carregando…</>
                     : `Carregar mais (${Math.max(0, totalDoRecorte - ticketsCarregados.length)} restantes)`}
                 </button>
               </div>
@@ -782,7 +785,7 @@ function ConversationsScreen() {
             {/* Chegou ao fim de uma lista longa: dizer isso evita a dúvida de
               * "será que falta carregar?". Em lista curta seria ruído. */}
             {!ticketsQ.hasNextPage && ticketsCarregados.length >= TICKETS_POR_PAGINA && (
-              <p class="p-3 text-center text-[0.6875rem] text-fg-subtle">
+              <p class="p-3 text-center text-2xs text-fg-muted">
                 {ticketsCarregados.length} conversas — fim da lista
               </p>
             )}
@@ -806,7 +809,7 @@ function ConversationsScreen() {
           {selected === null ? (
             <div class="flex-1 grid place-items-center text-center p-6">
               <div>
-                <MessageSquare size={48} class="text-fg-subtle mx-auto mb-3" />
+                <MessageSquare size={48} class="text-fg-muted mx-auto mb-3" />
                 <p class="text-base font-medium text-fg">Atendimento</p>
                 <p class="text-sm text-fg-muted">Selecione uma conversa para iniciar</p>
               </div>
@@ -917,16 +920,6 @@ function ConversationsScreen() {
   )
 }
 
-function InstagramLogo({ size = 9 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0">
-      <rect width="20" height="20" x="2" y="2" rx="5" />
-      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-    </svg>
-  )
-}
 
 function ChannelTag({ channel, compact = false, semTexto = false }: {
   channel: { provider: 'evolution' | 'cloud_api' | 'instagram' | 'messenger'; label: string | null; number: string | null; name: string | null; color?: string | null } | null
@@ -951,11 +944,11 @@ function ChannelTag({ channel, compact = false, semTexto = false }: {
   const texto = ehWhats ? nomeDoCanal({ label: channel.label, number: num, provider: channel.provider }) : (channel.provider === 'instagram' ? 'Instagram' : 'Messenger')
   return (
     <span
-      class={cn('inline-flex max-w-full items-center gap-0.5 truncate whitespace-nowrap rounded-full px-1.5 py-px text-[0.625rem] font-semibold', cls)}
+      class={cn('inline-flex max-w-full items-center gap-0.5 truncate whitespace-nowrap rounded-full px-1.5 py-px text-3xs font-semibold', cls)}
       style={cor ? { backgroundColor: `${cor}26`, color: cor } : undefined}
       title={`Canal: ${texto}${num && texto !== num ? ' · ' + num : ''}`}
     >
-      <Icon size={9} />
+      <Icon size={ICON_SIZE.xxs} />
       {semTexto ? null : <>{texto}{!compact && num && texto !== num ? ` · ${num}` : ''}</>}
     </span>
   )
@@ -1016,7 +1009,7 @@ function TicketRow({
               aria-label={selected ? 'Desmarcar' : 'Marcar'}
               aria-pressed={selected}
             >
-              {selected ? <CheckSquare size={14} class="text-accent" /> : <Square size={14} />}
+              {selected ? <CheckSquare size={ICON_SIZE.sm} class="text-accent" /> : <Square size={ICON_SIZE.sm} />}
             </button>
           )}
           {prefs.showAvatars && (
@@ -1039,13 +1032,13 @@ function TicketRow({
               >
                 {/* O alfinete explica por que esta conversa está fora da
                     ordem por data — sem ele, o topo parece bagunçado. */}
-                {fixada && <Pin size={11} class="shrink-0 text-accent" aria-label="Conversa fixada" />}
+                {fixada && <Pin size={ICON_SIZE.xxs} class="shrink-0 text-accent" aria-label="Conversa fixada" />}
                 {/* O contato voltou a falar depois de a conversa ser resolvida.
                     Sem este selo, o operador vê um lead COM responsável parado
                     na Caixa e não entende o que ele está fazendo ali. */}
                 {ticket.conversationReopenedAt && (
                   <span class="shrink-0 text-warning" title="Voltou a falar depois de resolvida">
-                    <CornerUpLeft size={11} aria-label="Voltou a falar depois de resolvida" />
+                    <CornerUpLeft size={ICON_SIZE.xxs} aria-label="Voltou a falar depois de resolvida" />
                   </span>
                 )}
                 <ChannelIcon source={ticket.source} />
@@ -1055,7 +1048,7 @@ function TicketRow({
                 </span>
               </span>
               {ticket.lastMessageAt && (
-                <span class="text-[0.625rem] text-fg-subtle whitespace-nowrap shrink-0">{formatRelative(ticket.lastMessageAt)}</span>
+                <span class="text-3xs text-fg-muted whitespace-nowrap shrink-0">{formatRelative(ticket.lastMessageAt)}</span>
               )}
             </div>
             {/* Selos (canal, tipo, setor, responsável): é o que a densidade
@@ -1066,41 +1059,41 @@ function TicketRow({
                 // Grupo não é lead nem "conversa" a qualificar: badge próprio,
                 // sem os rótulos Lead/Conversa que valem para contato individual.
                 <span
-                  class="inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-accent/10 text-accent"
+                  class="inline-flex items-center gap-0.5 text-3xs font-semibold px-1.5 py-px rounded-full bg-accent/10 text-accent"
                   title="Grupo de WhatsApp — o chatbot não responde aqui"
                 >
-                  <Users size={9} /> Grupo
+                  <Users size={ICON_SIZE.xxs} /> Grupo
                 </span>
               ) : isQualified ? (
                 <span
-                  class="inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-success/10 text-success"
+                  class="inline-flex items-center gap-0.5 text-3xs font-semibold px-1.5 py-px rounded-full bg-success/10 text-success"
                   title="Lead qualificado"
                 >
-                  <Target size={9} /> Lead
+                  <Target size={ICON_SIZE.xxs} /> Lead
                 </span>
               ) : (
                 <span
-                  class="inline-flex items-center gap-0.5 text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-surface-3 text-fg-muted"
+                  class="inline-flex items-center gap-0.5 text-3xs font-semibold px-1.5 py-px rounded-full bg-surface-3 text-fg-muted"
                   title="Apenas conversa — não conta em métricas"
                 >
-                  <MessageSquare size={9} /> Conversa
+                  <MessageSquare size={ICON_SIZE.xxs} /> Conversa
                 </span>
               )}
               {ticket.team && (
                 <span
-                  class="inline-flex items-center text-[0.625rem] font-semibold px-1.5 py-px rounded-full"
+                  class="inline-flex items-center text-3xs font-semibold px-1.5 py-px rounded-full"
                   style={{ background: `${ticket.team.color ?? '#6b7280'}22`, color: ticket.team.color ?? undefined }}
                 >
                   {ticket.team.name}
                 </span>
               )}
               {ticket.assignedUser ? (
-                <span class="inline-flex items-center gap-0.5 text-[0.625rem] text-fg-muted">
-                  <UserIcon size={9} />
+                <span class="inline-flex items-center gap-0.5 text-3xs text-fg-muted">
+                  <UserIcon size={ICON_SIZE.xxs} />
                   {ticket.assignedUser.name ?? ticket.assignedUser.email}
                 </span>
               ) : (
-                <span class="text-[0.625rem] italic text-fg-subtle">na fila</span>
+                <span class="text-3xs italic text-fg-muted">na fila</span>
               )}
             </div>
             <div class="flex items-center gap-2 mt-0.5">
@@ -1108,7 +1101,7 @@ function TicketRow({
                 ? <span class="text-xs text-fg-muted truncate flex-1">{preview}</span>
                 : <span class="flex-1" />}
               {ticket.unreadMessages > 0 && (
-                <span class="text-[0.625rem] font-semibold px-1.5 py-px rounded-full bg-accent text-fg-on-brand shrink-0">
+                <span class="text-3xs font-semibold px-1.5 py-px rounded-full bg-accent text-fg-on-brand shrink-0">
                   {ticket.unreadMessages}
                 </span>
               )}
@@ -1134,7 +1127,7 @@ function TicketRow({
           aria-label={fixada ? 'Desafixar conversa' : 'Fixar conversa no topo'}
           aria-pressed={fixada}
         >
-          {fixada ? <PinOff size={13} /> : <Pin size={13} />}
+          {fixada ? <PinOff size={ICON_SIZE.xs} /> : <Pin size={ICON_SIZE.xs} />}
         </button>
       )}
       {/* Leitura: um botão só, nas duas direções.
@@ -1165,7 +1158,7 @@ function TicketRow({
           title={ticket.unreadMessages > 0 ? 'Marcar como lida' : 'Marcar como não lida'}
           aria-label={ticket.unreadMessages > 0 ? 'Marcar como lida' : 'Marcar como não lida'}
         >
-          {ticket.unreadMessages > 0 ? <MailOpen size={13} /> : <MailQuestion size={13} />}
+          {ticket.unreadMessages > 0 ? <MailOpen size={ICON_SIZE.xs} /> : <MailQuestion size={ICON_SIZE.xs} />}
         </button>
       )}
       {showStar && (
@@ -1179,7 +1172,7 @@ function TicketRow({
           title="Promover a Lead"
           aria-label="Promover a Lead"
         >
-          <Star size={13} />
+          <Star size={ICON_SIZE.xs} />
         </button>
       )}
     </li>
@@ -1839,7 +1832,7 @@ function ChatPanel({
       {!cabeAcaoPrincipal && (
         isRaw && !isAssigned ? (
           <ItemAcao
-            icone={<Hand size={14} />}
+            icone={<Hand size={ICON_SIZE.sm} />}
             onClick={() => {
               setMenuAcoesOpen(false)
               claim.mutate(leadId, {
@@ -1855,7 +1848,7 @@ function ChatPanel({
           </ItemAcao>
         ) : isResolved ? (
           <ItemAcao
-            icone={<Inbox size={14} />}
+            icone={<Inbox size={ICON_SIZE.sm} />}
             onClick={() => {
               setMenuAcoesOpen(false)
               openConv.mutate(leadId, {
@@ -1868,7 +1861,7 @@ function ChatPanel({
           </ItemAcao>
         ) : (
           <ItemAcao
-            icone={<CheckCircle size={14} />}
+            icone={<CheckCircle size={ICON_SIZE.sm} />}
             onClick={() => {
               setMenuAcoesOpen(false)
               closeConv.mutate(leadId, {
@@ -1882,13 +1875,13 @@ function ChatPanel({
         )
       )}
       {!cabeAcaoPrincipal && (
-        <ItemAcao icone={<Info size={14} />} onClick={() => { setMenuAcoesOpen(false); onToggleInfo() }}>
+        <ItemAcao icone={<Info size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); onToggleInfo() }}>
           Informações do lead
         </ItemAcao>
       )}
       {assignedToMe && !isResolved && !isRaw && (
         <ItemAcao
-          icone={<UserMinus size={14} />}
+          icone={<UserMinus size={ICON_SIZE.sm} />}
           onClick={() => {
             setMenuAcoesOpen(false)
             release.mutate(leadId, {
@@ -1901,7 +1894,7 @@ function ChatPanel({
         </ItemAcao>
       )}
       {!isResolved && (
-        <ItemAcao icone={<ArrowRightLeft size={14} />} onClick={() => { setMenuAcoesOpen(false); setTransferOpen(true) }}>
+        <ItemAcao icone={<ArrowRightLeft size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); setTransferOpen(true) }}>
           Transferir para operador ou setor
         </ItemAcao>
       )}
@@ -1911,21 +1904,21 @@ function ChatPanel({
       {!isResolved && !isRaw && !isSnoozed && (
         <>
           <div class="my-1 border-t border-border" />
-          <div class="px-3 py-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Adormecer até</div>
-          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(1) }}>
+          <div class="px-3 py-1 text-2xs uppercase tracking-wider text-fg-muted">Adormecer até</div>
+          <ItemAcao icone={<Clock size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(1) }}>
             Daqui a 1 hora
           </ItemAcao>
-          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(4) }}>
+          <ItemAcao icone={<Clock size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); snoozeRelative(4) }}>
             Daqui a 4 horas
           </ItemAcao>
-          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeTomorrowAt9h() }}>
+          <ItemAcao icone={<Clock size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); snoozeTomorrowAt9h() }}>
             Amanhã às 9h
           </ItemAcao>
-          <ItemAcao icone={<Clock size={14} />} onClick={() => { setMenuAcoesOpen(false); snoozeNextMonday() }}>
+          <ItemAcao icone={<Clock size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); snoozeNextMonday() }}>
             Segunda-feira às 9h
           </ItemAcao>
           <div class="px-3 pb-2 pt-1">
-            <label class="mb-1 block text-[0.6875rem] text-fg-subtle" for="snooze-custom">Outra data e hora</label>
+            <label class="mb-1 block text-2xs text-fg-muted" for="snooze-custom">Outra data e hora</label>
             <input
               id="snooze-custom"
               type="datetime-local"
@@ -1949,12 +1942,12 @@ function ChatPanel({
           grupo: a conversa de grupo é um lead como outro qualquer (isGroup) e
           recebe o histórico do aparelho pelo mesmo caminho. */}
       <div class="my-1 border-t border-border" />
-      <ItemAcao icone={<RefreshCw size={14} />} onClick={() => { setMenuAcoesOpen(false); setSyncOpen(true) }}>
+      <ItemAcao icone={<RefreshCw size={ICON_SIZE.sm} />} onClick={() => { setMenuAcoesOpen(false); setSyncOpen(true) }}>
         {isGroupChat ? 'Sincronizar grupo' : 'Sincronizar do celular'}
       </ItemAcao>
 
       <div class="my-1 border-t border-border" />
-      <ItemAcao icone={<Trash2 size={14} />} perigo onClick={() => { setMenuAcoesOpen(false); setDeleteOpen(true) }}>
+      <ItemAcao icone={<Trash2 size={ICON_SIZE.sm} />} perigo onClick={() => { setMenuAcoesOpen(false); setDeleteOpen(true) }}>
         Excluir conversa
       </ItemAcao>
     </>
@@ -1980,14 +1973,14 @@ function ChatPanel({
           onClick={onClose}
           aria-label="Voltar para a lista de conversas"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={ICON_SIZE.md} />
         </button>
 
         <div class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full bg-surface-3 text-sm font-semibold text-fg-muted sm:size-10">
           {lead?.profilePicUrl
             ? <img src={lead.profilePicUrl} alt="" class="h-full w-full object-cover" />
             : isGroupChat
-            ? <Users size={16} />
+            ? <Users size={ICON_SIZE.md} />
             : (nomeDoContato ?? '?')[0]?.toUpperCase()}
         </div>
 
@@ -2009,7 +2002,7 @@ function ChatPanel({
             </span>
             {isSnoozed && (
               <span class="shrink-0 text-warning" title="Atendimento adormecido">
-                <Clock size={12} />
+                <Clock size={ICON_SIZE.xs} />
               </span>
             )}
           </div>
@@ -2018,7 +2011,7 @@ function ChatPanel({
               em vez de somar mais uma linha — é o que evita o cabeçalho pular
               de altura a cada tecla do outro lado. */}
           {typing ? (
-            <div class="mt-0.5 flex items-center gap-1 text-[0.6875rem] text-accent">
+            <div class="mt-0.5 flex items-center gap-1 text-2xs text-accent">
               <span class="inline-flex gap-0.5" aria-hidden>
                 <span class="size-1 animate-pulse rounded-full bg-current" style={{ animationDelay: '0ms' }} />
                 <span class="size-1 animate-pulse rounded-full bg-current" style={{ animationDelay: '150ms' }} />
@@ -2032,13 +2025,13 @@ function ChatPanel({
                   ninguém — o selo avisa também que o bot não atua aqui. */}
               {isGroupChat ? (
                 <span class="inline-flex shrink-0 items-center gap-1 text-accent" title="Grupo de WhatsApp — o chatbot não responde aqui">
-                  <Users size={11} /> Grupo
+                  <Users size={ICON_SIZE.xxs} /> Grupo
                 </span>
               ) : ticket?.whatsapp ? (
                 // No painel estreito o DDI sai: "+55 " são quatro caracteres que
                 // roubam do que identifica de fato, o DDD e o número.
                 <span class="inline-flex shrink-0 items-center gap-1" title={`Telefone: ${ticket.whatsapp}`}>
-                  <Phone size={11} class="shrink-0" />
+                  <Phone size={ICON_SIZE.xxs} class="shrink-0" />
                   <span class="@sm:hidden">{formatarTelefone(ticket.whatsapp, 'curto')}</span>
                   <span class="hidden @sm:inline">{formatarTelefone(ticket.whatsapp)}</span>
                 </span>
@@ -2090,12 +2083,12 @@ function ChatPanel({
                           title={`${lead.assignedUser.name ?? lead.assignedUser.email} · ${p.label}`}
                           aria-label={p.label}
                         />
-                      ) : <UserIcon size={11} />
+                      ) : <UserIcon size={ICON_SIZE.xxs} />
                     })()}
                     <span class="max-w-32 truncate">{lead.assignedUser.name ?? lead.assignedUser.email}</span>
                   </>
                 ) : (
-                  <span class="italic text-fg-subtle">sem operador</span>
+                  <span class="italic text-fg-muted">sem operador</span>
                 )}
               </span>
             </div>
@@ -2121,7 +2114,7 @@ function ChatPanel({
             aria-pressed={chatSearch !== null}
             title="Buscar nesta conversa (Ctrl+F)"
           >
-            <Search size={16} />
+            <Search size={ICON_SIZE.md} />
           </button>
 
           <button
@@ -2136,7 +2129,7 @@ function ChatPanel({
             aria-pressed={showInfo}
             title="Informações do lead"
           >
-            <Info size={16} />
+            <Info size={ICON_SIZE.md} />
           </button>
 
           {/* Ação principal do momento: uma só, e sempre no mesmo lugar. Em
@@ -2158,7 +2151,7 @@ function ChatPanel({
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })}
             >
-              <Hand size={13} />
+              <Hand size={ICON_SIZE.xs} />
               <span class="hidden xs:inline">{claim.isPending ? 'Assumindo…' : 'Assumir'}</span>
             </Button>
           ) : isResolved ? (
@@ -2171,7 +2164,7 @@ function ChatPanel({
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })}
             >
-              <Inbox size={13} />
+              <Inbox size={ICON_SIZE.xs} />
               <span class="hidden xs:inline">Reabrir</span>
             </Button>
           ) : (
@@ -2185,7 +2178,7 @@ function ChatPanel({
               })}
               title={isRaw ? 'Descartar lead da Caixa (sem assumir)' : 'Encerrar atendimento'}
             >
-              <CheckCircle size={13} />
+              <CheckCircle size={ICON_SIZE.xs} />
               <span class="hidden xs:inline">Resolver</span>
             </Button>
           )}
@@ -2203,7 +2196,7 @@ function ChatPanel({
               aria-haspopup="menu"
               title="Mais ações"
             >
-              <MoreVertical size={16} />
+              <MoreVertical size={ICON_SIZE.md} />
             </button>
 
             {menuAcoesOpen && (
@@ -2231,7 +2224,7 @@ function ChatPanel({
 
       {isSnoozed && snoozedUntil && (
         <div class="px-3 py-2 border-b border-border bg-warning/10 text-warning flex items-center gap-2 text-xs">
-          <Clock size={12} class="shrink-0" />
+          <Clock size={ICON_SIZE.xs} class="shrink-0" />
           <span class="flex-1">Adormecido até {formatSnoozeLabel(snoozedUntil)} · não aparece em Atendimento até lá.</span>
           <button
             type="button"
@@ -2242,14 +2235,14 @@ function ChatPanel({
               onError: (e: unknown) => toast((e as Error).message, 'danger'),
             })}
           >
-            <AlarmClockOff size={11} /> Acordar
+            <AlarmClockOff size={ICON_SIZE.xxs} /> Acordar
           </button>
         </div>
       )}
 
       {botPaused && (
         <div class="px-3 py-2 border-b border-border bg-info/10 text-info flex items-center gap-2 text-xs">
-          <BotOff size={12} class="shrink-0" />
+          <BotOff size={ICON_SIZE.xs} class="shrink-0" />
           <span class="flex-1">
             Chatbot pausado nesta conversa{botPaused.byName ? ` — ${botPaused.byName} assumiu o atendimento` : ' — atendimento assumido por um humano'}.
           </span>
@@ -2262,14 +2255,14 @@ function ChatPanel({
               onError: (e: unknown) => toast((e as Error).message, 'danger'),
             })}
           >
-            <PlayCircle size={11} /> Devolver ao bot
+            <PlayCircle size={ICON_SIZE.xxs} /> Devolver ao bot
           </button>
         </div>
       )}
 
       {chatSearch !== null && (
         <div class="px-3 py-2 border-b border-border bg-surface-2 flex items-center gap-2">
-          <Search size={12} class="text-fg-subtle shrink-0" />
+          <Search size={ICON_SIZE.xs} class="text-fg-muted shrink-0" />
           <input
             ref={searchInputRef}
             type="text"
@@ -2277,7 +2270,7 @@ function ChatPanel({
             onInput={(e) => setChatSearch((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setChatSearch(null) } }}
             placeholder="Buscar nesta conversa…"
-            class="flex-1 bg-transparent border-0 outline-none text-xs text-fg placeholder:text-fg-subtle"
+            class="flex-1 bg-transparent border-0 outline-none text-xs text-fg placeholder:text-fg-muted"
           />
           <button
             type="button"
@@ -2286,7 +2279,7 @@ function ChatPanel({
             aria-label="Fechar busca"
             title="Fechar busca (Esc)"
           >
-            <XIcon size={12} />
+            <XIcon size={ICON_SIZE.xs} />
           </button>
         </div>
       )}
@@ -2370,7 +2363,7 @@ function ChatPanel({
           </div>
         )}
         {!isLoading && data?.messages.length === 0 && (
-          <div class="text-center text-xs text-fg-subtle py-8">Nenhuma mensagem ainda. Envie a primeira!</div>
+          <div class="text-center text-xs text-fg-muted py-8">Nenhuma mensagem ainda. Envie a primeira!</div>
         )}
         {(() => {
           if (isLoading || !data) return null
@@ -2385,7 +2378,7 @@ function ChatPanel({
             ? visiveis.filter((m) => (m.body ?? '').toLowerCase().includes(q) || (m.senderName ?? '').toLowerCase().includes(q))
             : [...visiveis, ...pendentes]
           if (q && filtered.length === 0) {
-            return <div class="text-center text-xs text-fg-subtle py-8">Nenhuma mensagem encontrada para "{chatSearch}".</div>
+            return <div class="text-center text-xs text-fg-muted py-8">Nenhuma mensagem encontrada para "{chatSearch}".</div>
           }
           // Lookup por id interno (quotedMsgId é FK ao Message.id local).
           const byId = new Map<number, ChatMessage>()
@@ -2398,7 +2391,7 @@ function ChatPanel({
               <div key={m.id} id={`msg-${m.id}`} class={cn(destacada === m.id && 'rounded-lg ring-2 ring-accent/70 transition-[box-shadow] duration-500')}>
                 {showDivider && (
                   <div class="flex items-center justify-center my-2">
-                    <span class="text-[0.625rem] uppercase tracking-wider px-2 py-0.5 rounded bg-surface-2 text-fg-subtle border border-border">
+                    <span class="text-3xs uppercase tracking-wider px-2 py-0.5 rounded bg-surface-2 text-fg-muted border border-border">
                       {formatDayLabel(m.timestamp)}
                     </span>
                   </div>
@@ -2447,7 +2440,7 @@ function ChatPanel({
           {semWhatsApp && (
             <div class="px-3 pt-2">
               <div class="flex items-start gap-2 p-2 rounded-md bg-danger/10 border-l-2 border-danger">
-                <AlertTriangle size={14} class="shrink-0 mt-0.5 text-danger" />
+                <AlertTriangle size={ICON_SIZE.sm} class="shrink-0 mt-0.5 text-danger" />
                 <div class="flex-1 min-w-0 text-xs">
                   <div class="font-medium text-danger">Este número não tem WhatsApp</div>
                   <div class="text-fg-muted">
@@ -2463,8 +2456,8 @@ function ChatPanel({
             <div class="px-3 pt-2">
               <div class="flex items-stretch gap-2 p-2 rounded-md bg-warning/10 border-l-2 border-warning">
                 <div class="flex-1 min-w-0">
-                  <div class="text-[0.625rem] font-medium text-warning flex items-center gap-1">
-                    <Pencil size={10} /> Editando mensagem enviada
+                  <div class="text-3xs font-medium text-warning flex items-center gap-1">
+                    <Pencil size={ICON_SIZE.xxs} /> Editando mensagem enviada
                   </div>
                   <div class="text-xs text-fg-muted truncate">{editando.body}</div>
                 </div>
@@ -2475,7 +2468,7 @@ function ChatPanel({
                   aria-label="Cancelar edição"
                   title="Cancelar edição"
                 >
-                  <XIcon size={14} />
+                  <XIcon size={ICON_SIZE.sm} />
                 </button>
               </div>
             </div>
@@ -2484,7 +2477,7 @@ function ChatPanel({
             <div class="px-3 pt-2">
               <div class="flex items-stretch gap-2 p-2 rounded-md bg-surface-3 border-l-2 border-accent">
                 <div class="flex-1 min-w-0">
-                  <div class="text-[0.625rem] font-medium text-accent">
+                  <div class="text-3xs font-medium text-accent">
                     Respondendo {quotedMsg.fromMe ? 'sua mensagem' : (quotedMsg.senderName ?? 'mensagem')}
                   </div>
                   <div class="text-xs text-fg-muted truncate">
@@ -2498,7 +2491,7 @@ function ChatPanel({
                   aria-label="Cancelar citação"
                   title="Cancelar citação"
                 >
-                  <XIcon size={14} />
+                  <XIcon size={ICON_SIZE.sm} />
                 </button>
               </div>
             </div>
@@ -2510,12 +2503,12 @@ function ChatPanel({
                   <img src={pendingPreviewUrl} alt="" class="size-10 rounded object-cover shrink-0" />
                 ) : (
                   <div class="size-10 rounded bg-surface-2 grid place-items-center text-fg-muted shrink-0">
-                    <FileText size={18} />
+                    <FileText size={ICON_SIZE.md} />
                   </div>
                 )}
                 <div class="flex-1 min-w-0">
                   <div class="text-xs text-fg truncate">{pendingFile.name}</div>
-                  <div class="text-[0.625rem] text-fg-subtle">{formatFileSize(pendingFile.size)}</div>
+                  <div class="text-3xs text-fg-muted">{formatFileSize(pendingFile.size)}</div>
                 </div>
                 <button
                   type="button"
@@ -2524,7 +2517,7 @@ function ChatPanel({
                   aria-label="Remover anexo"
                   title="Remover anexo"
                 >
-                  <XIcon size={14} />
+                  <XIcon size={ICON_SIZE.sm} />
                 </button>
               </div>
             </div>
@@ -2533,11 +2526,11 @@ function ChatPanel({
             <div class="px-3 pt-2">
               <div class="flex items-center gap-2 p-2 rounded-md bg-surface-3 border border-border">
                 <div class="size-10 rounded bg-surface-2 grid place-items-center text-fg-muted shrink-0">
-                  <FileText size={18} />
+                  <FileText size={ICON_SIZE.md} />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="text-xs text-fg truncate">{pendingTplAttachment.mediaName}</div>
-                  <div class="text-[0.625rem] text-fg-subtle">Anexo do modelo</div>
+                  <div class="text-3xs text-fg-muted">Anexo do modelo</div>
                 </div>
                 <button
                   type="button"
@@ -2546,7 +2539,7 @@ function ChatPanel({
                   aria-label="Remover anexo"
                   title="Remover anexo"
                 >
-                  <XIcon size={14} />
+                  <XIcon size={ICON_SIZE.sm} />
                 </button>
               </div>
             </div>
@@ -2573,11 +2566,11 @@ function ChatPanel({
               const SelIcon = selected?.provider === 'cloud_api' ? Cloud : Smartphone
               return (
                 <div class="mb-2 flex flex-wrap items-center gap-1.5">
-                  <span class="text-[0.625rem] font-medium text-fg-subtle">Enviar por:</span>
+                  <span class="text-3xs font-medium text-fg-muted">Enviar por:</span>
                   {selected && (
                     <span
                       class={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-semibold',
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-semibold',
                         // Cor aqui só quando ela significa alguma coisa: número
                         // fora do da conversa é aviso. No caso normal o chip usa a
                         // cor do sistema — a identificação por cor do canal vive na
@@ -2592,10 +2585,10 @@ function ChatPanel({
                           ? `Atenção: ${chanLabel(selected)} não é o número desta conversa${conversationLabel ? ` (${chanLabel(conversationLabel)})` : ''}. O contato vai receber de um número que ele não conhece.`
                           : `Número escolhido: ${chanLabel(selected)}`}
                     >
-                      {locked ? <Lock size={11} /> : offConversation ? <AlertTriangle size={11} /> : <SelIcon size={11} />}
+                      {locked ? <Lock size={ICON_SIZE.xxs} /> : offConversation ? <AlertTriangle size={ICON_SIZE.xxs} /> : <SelIcon size={ICON_SIZE.xxs} />}
                       {chanLabel(selected)}
                       {isConversationChannel && (
-                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-[0.5625rem] font-medium uppercase tracking-wide">da conversa</span>
+                        <span class="ml-0.5 rounded-full bg-black/10 px-1 text-3xs font-medium uppercase tracking-wide">da conversa</span>
                       )}
                     </span>
                   )}
@@ -2605,7 +2598,7 @@ function ChatPanel({
                         type="button"
                         onClick={() => setNumMenuOpen((v) => !v)}
                         class={cn(
-                          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium transition-colors',
+                          'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors',
                           selected
                             ? 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
                             : 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20',
@@ -2614,7 +2607,7 @@ function ChatPanel({
                         aria-haspopup="listbox"
                         title={selected ? 'Trocar número de envio' : 'Escolha o número da primeira mensagem'}
                       >
-                        <ChevronDown size={11} />
+                        <ChevronDown size={ICON_SIZE.xxs} />
                         {selected ? 'Trocar' : 'Escolher número'}
                       </button>
                       {numMenuOpen && (
@@ -2624,7 +2617,7 @@ function ChatPanel({
                             role="listbox"
                             class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
                           >
-                            <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+                            <div class="px-3 py-1 text-3xs uppercase tracking-wider text-fg-muted">Números disponíveis</div>
                             {channels.map((c) => {
                               const active = c.id === channelId
                               const isCloud = c.provider === 'cloud_api'
@@ -2641,12 +2634,12 @@ function ChatPanel({
                                     active ? 'text-fg font-semibold' : 'text-fg-muted',
                                   )}
                                 >
-                                  <Icon size={12} class="text-fg-subtle" />
+                                  <Icon size={ICON_SIZE.xs} class="text-fg-muted" />
                                   <span class="flex-1 truncate">{chanLabel(c)}</span>
                                   {c.id === conversationChannelId && (
-                                    <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">da conversa</span>
+                                    <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-3xs uppercase tracking-wide text-fg-muted">da conversa</span>
                                   )}
-                                  {active && <Check size={12} class="text-accent shrink-0" />}
+                                  {active && <Check size={ICON_SIZE.xs} class="text-accent shrink-0" />}
                                 </button>
                               )
                             })}
@@ -2656,10 +2649,10 @@ function ChatPanel({
                     </div>
                   )}
                   {offConversation && (
-                    <span class="text-[0.625rem] text-warning">Este não é o número desta conversa — o contato vai receber de um número que não conhece.</span>
+                    <span class="text-3xs text-warning">Este não é o número desta conversa — o contato vai receber de um número que não conhece.</span>
                   )}
                   {!locked && !selected && (
-                    <span class="text-[0.625rem] text-fg-subtle">Primeira mensagem: escolha por qual número falar com este contato.</span>
+                    <span class="text-3xs text-fg-muted">Primeira mensagem: escolha por qual número falar com este contato.</span>
                   )}
                 </div>
               )
@@ -2670,7 +2663,7 @@ function ChatPanel({
               <div class="relative flex items-end gap-2">
                 {slashOpen && (
                   <div role="listbox" class="absolute left-0 right-0 bottom-full mb-1 z-40 max-h-60 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
-                    <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Atalhos — Enter para inserir</div>
+                    <div class="px-3 py-1 text-3xs uppercase tracking-wider text-fg-muted">Atalhos — Enter para inserir</div>
                     {slashMatches.map((t, i) => (
                       <button
                         type="button"
@@ -2686,7 +2679,7 @@ function ChatPanel({
                       >
                         <span class="font-semibold text-accent shrink-0">/{t.shortcut}</span>
                         <span class="flex-1 min-w-0 truncate">{t.name}</span>
-                        {t.attachmentUrl && <Paperclip size={12} class="shrink-0 text-fg-subtle" />}
+                        {t.attachmentUrl && <Paperclip size={ICON_SIZE.xs} class="shrink-0 text-fg-muted" />}
                       </button>
                     ))}
                   </div>
@@ -2706,13 +2699,13 @@ function ChatPanel({
                   aria-label="Anexar arquivo"
                   title="Anexar arquivo"
                 >
-                  {upload.isPending ? <Loader2 size={16} class="animate-spin" /> : <Paperclip size={16} />}
+                  {upload.isPending ? <Loader2 size={ICON_SIZE.md} class="animate-spin" /> : <Paperclip size={ICON_SIZE.md} />}
                 </button>
                 <EmojiPicker onSelect={handleEmoji} />
                 <textarea
                   ref={textareaRef}
                   class={cn(
-                    'flex-1 min-h-[2.25rem] px-3 py-2 rounded-md border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-y',
+                    'flex-1 min-h-[2.25rem] px-3 py-2 rounded-md border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent resize-y',
                     isInternalNote
                       ? 'bg-warning/10 border-warning/40'
                       : 'bg-surface border-border',
@@ -2778,7 +2771,7 @@ function ChatPanel({
                   aria-pressed={isInternalNote}
                   title={isInternalNote ? 'Voltar a mensagem normal' : 'Nota interna (não enviada ao cliente)'}
                 >
-                  <StickyNote size={16} />
+                  <StickyNote size={ICON_SIZE.md} />
                 </button>
                 {podeEnviarHsm && (
                   <button
@@ -2789,7 +2782,7 @@ function ChatPanel({
                     aria-label="Enviar modelo aprovado"
                     title="Modelo aprovado (com cabeçalho, mídia e botões)"
                   >
-                    <LayoutTemplate size={16} />
+                    <LayoutTemplate size={ICON_SIZE.md} />
                   </button>
                 )}
                 <button
@@ -2800,7 +2793,7 @@ function ChatPanel({
                   aria-label="Agendar mensagem"
                   title={isInternalNote ? 'Nota interna não pode ser agendada' : 'Agendar mensagem para depois'}
                 >
-                  <ClockIcon size={16} />
+                  <ClockIcon size={ICON_SIZE.md} />
                 </button>
                 {draft.trim() || pendingFile || pendingTplAttachment ? (
                   <Button
@@ -2813,7 +2806,7 @@ function ChatPanel({
                     aria-label="Enviar mensagem"
                     title="Enviar mensagem"
                   >
-                    <Send size={14} />
+                    <Send size={ICON_SIZE.md} />
                   </Button>
                 ) : (
                   <button
@@ -2824,7 +2817,7 @@ function ChatPanel({
                     aria-label="Gravar áudio"
                     title="Gravar áudio"
                   >
-                    <Mic size={16} />
+                    <Mic size={ICON_SIZE.md} />
                   </button>
                 )}
               </div>
@@ -2917,7 +2910,7 @@ function MediaContent({
     return (
       <div class="mb-1 rounded-md border border-border bg-surface-2 px-3 py-2">
         <div class="flex items-center gap-2">
-          <UserRound size={15} class="shrink-0 text-fg-muted" />
+          <UserRound size={ICON_SIZE.sm} class="shrink-0 text-fg-muted" />
           <span class="truncate font-medium">{linhas.join(', ') || 'Contato'}</span>
         </div>
         {telefones.map((t) => (
@@ -2958,7 +2951,7 @@ function MediaContent({
           class={cn('max-w-full rounded', blur)}
           style={{ maxHeight: '18rem' }}
         />
-        <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[0.625rem] font-semibold text-white">
+        <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-3xs font-semibold text-white">
           GIF
         </span>
       </div>
@@ -2985,7 +2978,7 @@ function MediaContent({
       rel="noreferrer"
       class="mb-1 inline-flex items-center gap-2 rounded-md bg-surface-3 px-2 py-1.5 text-xs text-fg hover:underline"
     >
-      <FileText size={14} />
+      <FileText size={ICON_SIZE.sm} />
       <span class="max-w-[14rem] truncate">{name ?? 'Anexo'}</span>
     </a>
   )
@@ -3025,7 +3018,7 @@ function AudioPlayer({ url, speed }: { url: string; speed: number }) {
       <button
         type="button"
         onClick={cycle}
-        class="shrink-0 h-7 px-1.5 rounded border border-border bg-surface text-[0.6875rem] font-semibold text-fg-muted hover:text-fg hover:bg-surface-3"
+        class="shrink-0 h-7 px-1.5 rounded border border-border bg-surface text-2xs font-semibold text-fg-muted hover:text-fg hover:bg-surface-3"
         title="Velocidade de reprodução (clique para alternar)"
         aria-label={`Velocidade ${String(rate).replace('.', ',')}x — clique para alternar`}
       >
@@ -3057,7 +3050,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
   }
   if (!lead) {
     return (
-      <div class="p-3 text-xs text-fg-subtle">Sem dados.</div>
+      <div class="p-3 text-xs text-fg-muted">Sem dados.</div>
     )
   }
 
@@ -3077,7 +3070,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           onClick={onClose}
           aria-label="Fechar"
         >
-          <XIcon size={14} />
+          <XIcon size={ICON_SIZE.sm} />
         </button>
       </header>
 
@@ -3085,21 +3078,21 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
         {/* Banner qualificação */}
         <div
           class={cn(
-            'flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border text-[0.6875rem]',
+            'flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border text-2xs',
             isQualified ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning',
           )}
         >
           <span class="inline-flex items-start gap-1.5 min-w-0 flex-1">
             {isQualified ? (
-              <><Target size={11} class="shrink-0 mt-px" /> <span class="break-words">Lead qualificado{lead.qualificationSource ? ` · ${lead.qualificationSource}` : ''}</span></>
+              <><Target size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Lead qualificado{lead.qualificationSource ? ` · ${lead.qualificationSource}` : ''}</span></>
             ) : (
-              <><MessageSquare size={11} class="shrink-0 mt-px" /> <span class="break-words">Apenas conversa — não conta em métricas</span></>
+              <><MessageSquare size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Apenas conversa — não conta em métricas</span></>
             )}
           </span>
           {isQualified ? (
             <button
               type="button"
-              class="shrink-0 px-2 py-0.5 rounded border border-current bg-surface-2 text-[0.6875rem] hover:bg-surface-3"
+              class="shrink-0 px-2 py-0.5 rounded border border-current bg-surface-2 text-2xs hover:bg-surface-3"
               disabled={unqualify.isPending}
               onClick={() => {
                 unqualify.mutate(leadId, {
@@ -3113,7 +3106,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           ) : (
             <button
               type="button"
-              class="shrink-0 px-2 py-0.5 rounded bg-success text-white text-[0.6875rem] hover:opacity-90"
+              class="shrink-0 px-2 py-0.5 rounded bg-success text-fg-on-brand text-2xs hover:opacity-90"
               onClick={() => setPromoteOpen(true)}
             >
               Promover a Lead
@@ -3129,21 +3122,21 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
         {/* Banner atendimento */}
         <div
           class={cn(
-            'flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border text-[0.6875rem]',
+            'flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border text-2xs',
             convOpen && 'bg-accent/10 text-accent',
             convClosed && 'bg-surface-3 text-fg-muted',
             convNever && 'bg-surface-3 text-fg-muted',
           )}
         >
           <span class="inline-flex items-start gap-1.5 min-w-0 flex-1">
-            {convOpen && <><MessageSquare size={11} class="shrink-0 mt-px" /> <span class="break-words">Atendimento ativo</span></>}
-            {convClosed && <><CheckCircle size={11} class="shrink-0 mt-px" /> <span class="break-words">Atendimento encerrado</span></>}
-            {convNever && <><Inbox size={11} class="shrink-0 mt-px" /> <span class="break-words">Sem atendimento aberto</span></>}
+            {convOpen && <><MessageSquare size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Atendimento ativo</span></>}
+            {convClosed && <><CheckCircle size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Atendimento encerrado</span></>}
+            {convNever && <><Inbox size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Sem atendimento aberto</span></>}
           </span>
           {convOpen ? (
             <button
               type="button"
-              class="shrink-0 px-2 py-0.5 rounded border border-current bg-surface-2 text-[0.6875rem] hover:bg-surface-3"
+              class="shrink-0 px-2 py-0.5 rounded border border-current bg-surface-2 text-2xs hover:bg-surface-3"
               disabled={closeConv.isPending}
               onClick={() => {
                 closeConv.mutate(leadId, {
@@ -3157,7 +3150,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           ) : (
             <button
               type="button"
-              class="shrink-0 px-2 py-0.5 rounded bg-accent text-white text-[0.6875rem] hover:opacity-90 inline-flex items-center gap-1"
+              class="shrink-0 px-2 py-0.5 rounded bg-accent text-fg-on-brand text-2xs hover:opacity-90 inline-flex items-center gap-1"
               disabled={openConv.isPending}
               onClick={() => {
                 openConv.mutate(leadId, {
@@ -3166,7 +3159,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
                 })
               }}
             >
-              <PlayCircle size={11} />
+              <PlayCircle size={ICON_SIZE.xxs} />
               {convClosed ? 'Reabrir' : 'Iniciar'}
             </button>
           )}
@@ -3185,27 +3178,27 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
                 <div class="text-sm font-medium text-fg truncate">{lead.nome ?? 'Sem nome'}</div>
                 {lead.empresa && (
                   <div class="text-xs text-fg-muted truncate inline-flex items-center gap-1">
-                    <Building2 size={10} />{lead.empresa}
+                    <Building2 size={ICON_SIZE.xxs} />{lead.empresa}
                   </div>
                 )}
               </div>
               <button
                 type="button"
-                class="px-2 py-1 rounded border border-border text-[0.6875rem] text-fg-muted hover:text-fg hover:bg-surface-3 inline-flex items-center gap-1"
+                class="px-2 py-1 rounded border border-border text-2xs text-fg-muted hover:text-fg hover:bg-surface-3 inline-flex items-center gap-1"
                 onClick={() => { setEditFocus('nome'); setEditOpen(true) }}
                 aria-label="Editar dados do contato"
                 title="Editar dados do contato"
               >
-                <Pencil size={10} /> Editar
+                <Pencil size={ICON_SIZE.xxs} /> Editar
               </button>
             </div>
           </section>
 
           {/* Contato */}
           <section>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Contato</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Contato</div>
             <dl class="text-xs space-y-1">
-              <InfoRow label="WhatsApp" value={lead.whatsapp} icon={<Phone size={10} />} />
+              <InfoRow label="WhatsApp" value={lead.whatsapp} icon={<Phone size={ICON_SIZE.xxs} />} />
               {/* Referências de nome. Ficam aqui, e não na lista nem na bolha:
                   ajudam o operador a reconhecer a pessoa sem que o apelido dela
                   vire a identidade que a empresa vê. */}
@@ -3215,9 +3208,9 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
               {lead.pushName && lead.pushName !== lead.nome && (
                 <InfoRow label="Como ele se identifica" value={lead.pushName} />
               )}
-              <InfoRow label="Email" value={lead.email} icon={<Mail size={10} />} />
+              <InfoRow label="Email" value={lead.email} icon={<Mail size={ICON_SIZE.xxs} />} />
               <InfoRow label="Segmento" value={lead.segmento} />
-              <InfoRow label="Cidade" value={lead.cidade} icon={<MapPin size={10} />} />
+              <InfoRow label="Cidade" value={lead.cidade} icon={<MapPin size={ICON_SIZE.xxs} />} />
             </dl>
           </section>
 
@@ -3231,7 +3224,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
 
           {/* Status */}
           <section>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Status</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Status</div>
             <dl class="text-xs space-y-1">
               <InfoRow label="Status" value={lead.completed ? 'Resolvido' : 'Aberto'} />
               <InfoRow label="Maturidade" value={lead.maturidade} />
@@ -3254,10 +3247,10 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           {/* Anotação interna */}
           <section>
             <div class="flex items-center justify-between mb-1">
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Anotação interna</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted">Anotação interna</div>
               <button
                 type="button"
-                class="text-[0.6875rem] px-2 py-0.5 rounded border border-accent bg-accent/10 text-accent hover:bg-accent/20"
+                class="text-2xs px-2 py-0.5 rounded border border-accent bg-accent/10 text-accent hover:bg-accent/20"
                 onClick={() => { setEditFocus('annotation'); setEditOpen(true) }}
               >
                 Editar
@@ -3266,7 +3259,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
             <div
               class={cn(
                 'text-xs whitespace-pre-wrap break-words',
-                lead.annotation ? 'text-fg' : 'italic text-fg-subtle',
+                lead.annotation ? 'text-fg' : 'italic text-fg-muted',
               )}
             >
               {lead.annotation ?? 'Sem anotações — clique em Editar para adicionar'}
@@ -3279,7 +3272,7 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           {/* Scores por pilar */}
           {scores && (
             <section>
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-2">Scores</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Scores</div>
               <ScoreByPillar scores={scores} compact />
             </section>
           )}
@@ -3312,11 +3305,11 @@ function InfoRow({
   const hasValue = valueNode != null || (value != null && value !== '')
   return (
     <div class="flex items-baseline justify-between gap-2">
-      <dt class="text-fg-subtle inline-flex items-center gap-1 shrink-0">
+      <dt class="text-fg-muted inline-flex items-center gap-1 shrink-0">
         {icon}
         {label}
       </dt>
-      <dd class={cn('text-right truncate', hasValue ? 'text-fg' : 'text-fg-subtle')}>
+      <dd class={cn('text-right truncate', hasValue ? 'text-fg' : 'text-fg-muted')}>
         {valueNode ?? value ?? '-'}
       </dd>
     </div>
@@ -3335,25 +3328,25 @@ function TagsSection({ leadId, tags }: { leadId: number; tags: TicketLeadInfo['t
   return (
     <section>
       <div class="flex items-center justify-between mb-1">
-        <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Etiquetas</div>
+        <div class="text-2xs uppercase tracking-wider text-fg-muted">Etiquetas</div>
         {available.length > 0 && (
           <button
             type="button"
-            class="text-[0.6875rem] text-accent hover:underline inline-flex items-center gap-1"
+            class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
             onClick={() => setPickerOpen(true)}
           >
-            <Plus size={10} /> Tag
+            <Plus size={ICON_SIZE.xxs} /> Tag
           </button>
         )}
       </div>
       {tags.length === 0 ? (
-        <div class="text-xs text-fg-subtle">Sem tags.</div>
+        <div class="text-xs text-fg-muted">Sem tags.</div>
       ) : (
         <div class="flex flex-wrap gap-1">
           {tags.map(({ tag }) => (
             <span
               key={tag.id}
-              class="text-[0.6875rem] px-1.5 py-0.5 rounded inline-flex items-center gap-1 group"
+              class="text-2xs px-1.5 py-0.5 rounded inline-flex items-center gap-1 group"
               style={{ background: `${tag.color ?? '#6b7280'}22`, color: tag.color ?? undefined }}
             >
               {tag.name}
@@ -3367,7 +3360,7 @@ function TagsSection({ leadId, tags }: { leadId: number; tags: TicketLeadInfo['t
                 }}
                 aria-label={`Remover tag ${tag.name}`}
               >
-                <XIcon size={8} />
+                <XIcon size={ICON_SIZE.xxs} />
               </button>
             </span>
           ))}
@@ -3383,7 +3376,7 @@ function TagsSection({ leadId, tags }: { leadId: number; tags: TicketLeadInfo['t
         >
           <div class="space-y-1 max-h-72 overflow-y-auto">
             {available.length === 0 ? (
-              <div class="text-xs text-fg-subtle">Todas as tags já aplicadas.</div>
+              <div class="text-xs text-fg-muted">Todas as tags já aplicadas.</div>
             ) : available.map((t) => (
               <button
                 key={t.id}
@@ -3413,13 +3406,13 @@ function TransferHistorySection({ leadId }: { leadId: number }) {
 
   return (
     <section>
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1 inline-flex items-center gap-1">
-        <History size={10} /> Histórico de atribuições
+      <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1 inline-flex items-center gap-1">
+        <History size={ICON_SIZE.xxs} /> Histórico de atribuições
       </div>
       {isLoading ? (
-        <div class="text-[0.6875rem] text-fg-subtle">Carregando…</div>
+        <div class="text-2xs text-fg-muted">Carregando…</div>
       ) : events.length === 0 ? (
-        <div class="text-[0.6875rem] text-fg-subtle">Sem transferências registradas.</div>
+        <div class="text-2xs text-fg-muted">Sem transferências registradas.</div>
       ) : (
         <ul class="space-y-1.5">
           {events.map((e) => (
@@ -3427,23 +3420,23 @@ function TransferHistorySection({ leadId }: { leadId: number }) {
               key={e.id}
               class="border-l-2 border-accent pl-2 py-1 bg-surface-3/40 rounded-r"
             >
-              <div class="text-[0.6875rem] text-fg font-medium">{e.title || 'Atribuição alterada'}</div>
+              <div class="text-2xs text-fg font-medium">{e.title || 'Atribuição alterada'}</div>
               {(e.oldValue ?? e.newValue) && (
-                <div class="text-[0.625rem] mt-0.5 inline-flex flex-wrap items-center gap-1">
+                <div class="text-3xs mt-0.5 inline-flex flex-wrap items-center gap-1">
                   {e.oldValue && (
                     <span class="px-1 py-0.5 rounded bg-danger/15 text-danger">{e.oldValue}</span>
                   )}
-                  {e.oldValue && e.newValue && <span class="text-fg-subtle">→</span>}
+                  {e.oldValue && e.newValue && <span class="text-fg-muted">→</span>}
                   {e.newValue && (
                     <span class="px-1 py-0.5 rounded bg-success/15 text-success">{e.newValue}</span>
                   )}
                 </div>
               )}
-              <div class="text-[0.625rem] text-fg-subtle mt-0.5">
+              <div class="text-3xs text-fg-muted mt-0.5">
                 por <span title={e.ipAddress ? `IP ${e.ipAddress}` : undefined}>{eventAuthorLabel(e)}</span> · {formatRelative(e.createdAt)}
               </div>
               {e.description && (
-                <div class="text-[0.625rem] text-fg-subtle italic mt-0.5">"{e.description}"</div>
+                <div class="text-3xs text-fg-muted italic mt-0.5">"{e.description}"</div>
               )}
             </li>
           ))}
@@ -3524,7 +3517,7 @@ function EditContactModal({
       <div class="space-y-3">
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Nome</label>
+            <label class="text-2xs text-fg-muted block mb-1">Nome</label>
             <Input
               ref={nomeRef}
               value={form.nome}
@@ -3532,7 +3525,7 @@ function EditContactModal({
             />
           </div>
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Empresa</label>
+            <label class="text-2xs text-fg-muted block mb-1">Empresa</label>
             <Input
               value={form.empresa}
               onInput={(e) => update_('empresa', (e.target as HTMLInputElement).value)}
@@ -3541,14 +3534,14 @@ function EditContactModal({
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">WhatsApp</label>
+            <label class="text-2xs text-fg-muted block mb-1">WhatsApp</label>
             <Input
               value={form.whatsapp}
               onInput={(e) => update_('whatsapp', (e.target as HTMLInputElement).value)}
             />
           </div>
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Email</label>
+            <label class="text-2xs text-fg-muted block mb-1">Email</label>
             <Input
               type="email"
               value={form.email}
@@ -3558,14 +3551,14 @@ function EditContactModal({
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Segmento</label>
+            <label class="text-2xs text-fg-muted block mb-1">Segmento</label>
             <Input
               value={form.segmento}
               onInput={(e) => update_('segmento', (e.target as HTMLInputElement).value)}
             />
           </div>
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Cidade</label>
+            <label class="text-2xs text-fg-muted block mb-1">Cidade</label>
             <Input
               value={form.cidade}
               onInput={(e) => update_('cidade', (e.target as HTMLInputElement).value)}
@@ -3574,14 +3567,14 @@ function EditContactModal({
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Maturidade</label>
+            <label class="text-2xs text-fg-muted block mb-1">Maturidade</label>
             <Input
               value={form.maturidade}
               onInput={(e) => update_('maturidade', (e.target as HTMLInputElement).value)}
             />
           </div>
           <div>
-            <label class="text-[0.6875rem] text-fg-subtle block mb-1">Solução</label>
+            <label class="text-2xs text-fg-muted block mb-1">Solução</label>
             <Input
               value={form.solucaoNome}
               onInput={(e) => update_('solucaoNome', (e.target as HTMLInputElement).value)}
@@ -3589,7 +3582,7 @@ function EditContactModal({
           </div>
         </div>
         <div>
-          <label class="text-[0.6875rem] text-fg-subtle block mb-1">
+          <label class="text-2xs text-fg-muted block mb-1">
             Anotação interna (visível apenas à equipe)
           </label>
           <Textarea
@@ -3776,7 +3769,7 @@ function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | n
   if (ack < 0) {
     return (
       <AlertTriangle
-        size={12}
+        size={ICON_SIZE.xs}
         class="inline-block shrink-0 align-middle text-danger ml-1"
         title={error?.message || 'O WhatsApp não entregou esta mensagem.'}
       />
@@ -3785,7 +3778,7 @@ function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | n
   if (ack === 0) {
     // Pending — clock
     return (
-      <svg viewBox="0 0 12 12" width={12} height={12} fill="currentColor" class="inline-block align-middle text-fg-subtle ml-1">
+      <svg viewBox="0 0 12 12" width={12} height={12} fill="currentColor" class="inline-block align-middle text-fg-muted ml-1">
         <path d="M6 0a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm2.8 8.3L5.5 6.6V3h1v3.1l2.8 1.4z" />
       </svg>
     )
@@ -3793,7 +3786,7 @@ function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | n
   if (ack === 1) {
     // Single tick
     return (
-      <svg viewBox="0 0 16 11" width={14} height={11} fill="currentColor" class="inline-block align-middle text-fg-subtle ml-1">
+      <svg viewBox="0 0 16 11" width={14} height={11} fill="currentColor" class="inline-block align-middle text-fg-muted ml-1">
         <path d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.011-2.095a.434.434 0 0 0-.329-.156.47.47 0 0 0-.354.153.441.441 0 0 0-.123.332.466.466 0 0 0 .148.33l2.35 2.45a.462.462 0 0 0 .334.15.464.464 0 0 0 .348-.164l6.55-8.076a.477.477 0 0 0 .107-.312.467.467 0 0 0-.145-.324z" />
       </svg>
     )
@@ -3801,7 +3794,7 @@ function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | n
   // Double tick — read (>=3) is blue, delivered (==2) is grey
   const isRead = ack >= 3
   return (
-    <svg viewBox="0 0 16 11" width={14} height={11} fill="currentColor" class={cn('inline-block align-middle ml-1', isRead ? 'text-info' : 'text-fg-subtle')}>
+    <svg viewBox="0 0 16 11" width={14} height={11} fill="currentColor" class={cn('inline-block align-middle ml-1', isRead ? 'text-info' : 'text-fg-muted')}>
       <path d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.011-2.095a.434.434 0 0 0-.329-.156.47.47 0 0 0-.354.153.441.441 0 0 0-.123.332.466.466 0 0 0 .148.33l2.35 2.45a.462.462 0 0 0 .334.15.464.464 0 0 0 .348-.164l6.55-8.076a.477.477 0 0 0 .107-.312.467.467 0 0 0-.145-.324z" />
       <path d="M15.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-1.2-1.25-.758.94 1.62 1.69a.462.462 0 0 0 .334.15.464.464 0 0 0 .348-.164l6.55-8.076a.477.477 0 0 0 .107-.312.467.467 0 0 0-.126-.69z" />
     </svg>
@@ -3877,7 +3870,7 @@ function ForwardMessageModal({ leadId, msg, onClose }: {
     >
       <div class="space-y-3">
         <div class="rounded-md border border-border bg-surface-2 px-3 py-2">
-          <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">Mensagem</div>
+          <div class="text-3xs uppercase tracking-wider text-fg-muted">Mensagem</div>
           <div class="mt-0.5 line-clamp-3 text-sm text-fg-muted">{preview}</div>
         </div>
 
@@ -3888,9 +3881,9 @@ function ForwardMessageModal({ leadId, msg, onClose }: {
         />
 
         <div class="max-h-72 overflow-y-auto rounded-md border border-border divide-y divide-border">
-          {isLoading && <div class="p-3 text-xs text-fg-subtle">Carregando conversas…</div>}
+          {isLoading && <div class="p-3 text-xs text-fg-muted">Carregando conversas…</div>}
           {!isLoading && destinos.length === 0 && (
-            <div class="p-3 text-xs text-fg-subtle">Nenhuma conversa encontrada.</div>
+            <div class="p-3 text-xs text-fg-muted">Nenhuma conversa encontrada.</div>
           )}
           {destinos.map((t) => {
             const marcado = escolhidos.includes(t.id)
@@ -3901,19 +3894,19 @@ function ForwardMessageModal({ leadId, msg, onClose }: {
                 class={cn('flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2', marcado && 'bg-accent/10')}
                 onClick={() => setEscolhidos((a) => marcado ? a.filter((x) => x !== t.id) : [...a, t.id])}
               >
-                {marcado ? <CheckSquare size={14} class="text-accent" /> : <Square size={14} class="text-fg-subtle" />}
-                {t.isGroup ? <Users size={13} class="text-fg-subtle" /> : <UserIcon size={13} class="text-fg-subtle" />}
+                {marcado ? <CheckSquare size={ICON_SIZE.sm} class="text-accent" /> : <Square size={ICON_SIZE.sm} class="text-fg-muted" />}
+                {t.isGroup ? <Users size={ICON_SIZE.xs} class="text-fg-muted" /> : <UserIcon size={ICON_SIZE.xs} class="text-fg-muted" />}
                 <span class="min-w-0 flex-1 truncate text-sm text-fg">
                   {t.nome || t.empresa || t.whatsapp || `#${t.id}`}
                 </span>
                 {t.channel?.label && (
-                  <span class="shrink-0 text-[0.625rem] text-fg-subtle">{t.channel.label}</span>
+                  <span class="shrink-0 text-3xs text-fg-muted">{t.channel.label}</span>
                 )}
               </button>
             )
           })}
         </div>
-        <p class="text-[0.6875rem] text-fg-subtle">
+        <p class="text-2xs text-fg-muted">
           Até 20 conversas por vez. Em número da API Oficial, o destino precisa ter falado com você
           nas últimas 24 horas — fora disso a Meta só aceita modelo aprovado.
         </p>
@@ -3966,9 +3959,9 @@ function MessageBubble({
   if (msg.deletedForAll) {
     return (
       <div class={cn('flex', msg.fromMe ? 'justify-end' : 'justify-start')}>
-        <div class="max-w-[75%] rounded-lg border border-dashed border-border bg-surface-2 px-3 py-2 text-fg-subtle italic flex items-center gap-1.5"
+        <div class="max-w-[75%] rounded-lg border border-dashed border-border bg-surface-2 px-3 py-2 text-fg-muted italic flex items-center gap-1.5"
           style={{ fontSize: 'var(--conv-msg-font, 0.875rem)' }}>
-          <Ban size={13} />
+          <Ban size={ICON_SIZE.xs} />
           {msg.fromMe ? 'Você apagou esta mensagem' : 'Esta mensagem foi apagada'}
           <span class="not-italic opacity-70" style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}>
             {formatHourMinute(msg.timestamp)}
@@ -4059,7 +4052,7 @@ function MessageBubble({
         )}
         {msg.isForwarded && (
           <div class="mb-0.5 flex items-center gap-1 italic opacity-70" style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}>
-            <Forward size={10} /> Encaminhada
+            <Forward size={ICON_SIZE.xxs} /> Encaminhada
           </div>
         )}
         {/* Trecho citado. Vale para as DUAS direções: quando o cliente responde
@@ -4079,7 +4072,7 @@ function MessageBubble({
             onClick={() => onIrParaCitada?.(citado.id)}
             title={onIrParaCitada ? 'Ir para a mensagem citada' : undefined}
           >
-            <CornerUpLeft size={11} class="mt-0.5 shrink-0 opacity-70" />
+            <CornerUpLeft size={ICON_SIZE.xxs} class="mt-0.5 shrink-0 opacity-70" />
             <span class="min-w-0 flex-1">
               <span class="block font-medium opacity-80">
                 {citado.fromMe ? 'Você' : (citado.senderName ?? 'Contato')}
@@ -4109,7 +4102,7 @@ function MessageBubble({
           />
         )}
         <div
-          class={cn('mt-1 flex items-center gap-1', msg.fromMe ? 'opacity-80' : 'text-fg-subtle')}
+          class={cn('mt-1 flex items-center gap-1', msg.fromMe ? 'opacity-80' : 'text-fg-muted')}
           style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
         >
           {formatHourMinute(msg.timestamp)}
@@ -4128,7 +4121,7 @@ function MessageBubble({
             style={{ fontSize: 'var(--conv-meta-font, 0.625rem)' }}
             title={msg.deliveryError?.title ? `Meta: ${msg.deliveryError.title}${msg.deliveryError.code ? ` (${msg.deliveryError.code})` : ''}` : undefined}
           >
-            <AlertTriangle size={12} class="mt-px shrink-0" />
+            <AlertTriangle size={ICON_SIZE.xs} class="mt-px shrink-0" />
             <span class="whitespace-pre-wrap break-words">
               <span class="font-medium">Não entregue.</span>{' '}
               {msg.deliveryError?.message || 'O WhatsApp não entregou esta mensagem.'}
@@ -4203,7 +4196,7 @@ function MessageActions({
       {/* Responder e reagir também entram no menu do celular: lá o atalho de
           emoji flutuante fica pequeno demais para o dedo. */}
       {toque && onReply && (
-        <ItemAcao icone={<Reply size={15} />} onClick={() => { setAberto(false); onReply() }}>
+        <ItemAcao icone={<Reply size={ICON_SIZE.sm} />} onClick={() => { setAberto(false); onReply() }}>
           Responder
         </ItemAcao>
       )}
@@ -4223,13 +4216,13 @@ function MessageActions({
         </div>
       )}
       {onEncaminhar && (
-        <ItemAcao icone={<Forward size={13} />} onClick={() => { setAberto(false); onEncaminhar() }}>
+        <ItemAcao icone={<Forward size={ICON_SIZE.xs} />} onClick={() => { setAberto(false); onEncaminhar() }}>
           Encaminhar
         </ItemAcao>
       )}
       {!!msg.body && (
         <ItemAcao
-          icone={<Copy size={13} />}
+          icone={<Copy size={ICON_SIZE.xs} />}
           onClick={() => {
             void navigator.clipboard.writeText(msg.body ?? '')
             toast('Texto copiado', 'success')
@@ -4240,18 +4233,18 @@ function MessageActions({
         </ItemAcao>
       )}
       {podeEditar && onEditar && (
-        <ItemAcao icone={<Pencil size={13} />} onClick={() => { setAberto(false); onEditar() }}>
+        <ItemAcao icone={<Pencil size={ICON_SIZE.xs} />} onClick={() => { setAberto(false); onEditar() }}>
           Editar
         </ItemAcao>
       )}
       {onApagar && (
         <>
           <div class="my-1 border-t border-border" />
-          <ItemAcao icone={<Trash2 size={13} />} onClick={() => { setAberto(false); onApagar('me') }}>
+          <ItemAcao icone={<Trash2 size={ICON_SIZE.xs} />} onClick={() => { setAberto(false); onApagar('me') }}>
             Apagar para mim
           </ItemAcao>
           {msg.fromMe && (
-            <ItemAcao icone={<Ban size={13} />} perigo onClick={() => { setAberto(false); onApagar('all') }}>
+            <ItemAcao icone={<Ban size={ICON_SIZE.xs} />} perigo onClick={() => { setAberto(false); onApagar('all') }}>
               Apagar para todos
             </ItemAcao>
           )}
@@ -4270,7 +4263,7 @@ function MessageActions({
           aria-label="Responder"
           title="Responder"
         >
-          <Reply size={12} />
+          <Reply size={ICON_SIZE.xs} />
         </button>
       )}
       {reagivel && !toque && (
@@ -4282,7 +4275,7 @@ function MessageActions({
           aria-label="Reagir"
           title="Reagir"
         >
-          <SmilePlus size={12} />
+          <SmilePlus size={ICON_SIZE.xs} />
         </button>
       )}
       <button
@@ -4293,7 +4286,7 @@ function MessageActions({
         aria-label="Mais ações"
         title="Mais ações"
       >
-        <ChevronDown size={13} />
+        <ChevronDown size={ICON_SIZE.xs} />
       </button>
 
       {mostrarEmojis && (
@@ -4355,7 +4348,7 @@ function FolhaDeAcoes({ titulo, onFechar, children }: {
       />
       <div class="relative w-full rounded-t-2xl border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] shadow-2xl">
         <div class="mx-auto my-2 h-1 w-10 rounded-full bg-border" />
-        <div class="px-4 pb-1 text-xs uppercase tracking-wider text-fg-subtle">{titulo}</div>
+        <div class="px-4 pb-1 text-xs uppercase tracking-wider text-fg-muted">{titulo}</div>
         <div class="pb-2">{children}</div>
       </div>
     </div>
@@ -4380,7 +4373,7 @@ function formatarTelefone(bruto: string, forma: 'completo' | 'curto' = 'completo
 }
 
 function SeparadorMeta({ class: className }: { class?: string }) {
-  return <span class={cn('shrink-0 text-fg-subtle/60', className)} aria-hidden>·</span>
+  return <span class={cn('shrink-0 text-fg-muted/60', className)} aria-hidden>·</span>
 }
 
 function ItemAcao({ icone, children, onClick, perigo = false }: {

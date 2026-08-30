@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-preact'
+import { Plus, Trash2, ArrowUp, ArrowDown } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -132,7 +132,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
               <p class="text-xs text-fg-muted mb-3">
                 Comece adicionando o primeiro contato. O "Dias após anterior" do primeiro passo conta a partir do momento em que o lead é inscrito na cadência.
               </p>
-              <div class="text-left bg-surface-3/40 rounded p-3 text-[0.6875rem] text-fg-muted">
+              <div class="text-left bg-surface-3/40 rounded p-3 text-2xs text-fg-muted">
                 <span class="font-semibold text-fg">Dica:</span> não use intervalos curtos demais (1 hora entre WhatsApps soa como spam). Padrão recomendado: 2-3 dias entre toques no mesmo canal.
               </div>
             </div>
@@ -172,7 +172,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
 
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>
-                  <label class="text-[0.6875rem] font-medium text-fg" title="Por onde o contato será feito">Canal</label>
+                  <label class="text-2xs font-medium text-fg" title="Por onde o contato será feito">Canal</label>
                   <Select
                     value={s.channel}
                     onChange={(e: any) => update(idx, { channel: e.currentTarget.value })}
@@ -183,7 +183,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
                   </Select>
                 </div>
                 <div>
-                  <label class="text-[0.6875rem] font-medium text-fg" title="Quantos dias esperar antes de executar">Esperar (dias)</label>
+                  <label class="text-2xs font-medium text-fg" title="Quantos dias esperar antes de executar">Esperar (dias)</label>
                   <Input
                     type="number"
                     min={0}
@@ -194,7 +194,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
                   />
                 </div>
                 <div>
-                  <label class="text-[0.6875rem] font-medium text-fg" title="Horas adicionais ao tempo de espera">+ horas</label>
+                  <label class="text-2xs font-medium text-fg" title="Horas adicionais ao tempo de espera">+ horas</label>
                   <Input
                     type="number"
                     min={0}
@@ -205,7 +205,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
                   />
                 </div>
                 <div>
-                  <label class="text-[0.6875rem] font-medium text-fg" title="Modelo de mensagem pronto, com variáveis tipo {{nome}}">Mensagem</label>
+                  <label class="text-2xs font-medium text-fg" title="Modelo de mensagem pronto, com variáveis tipo {{nome}}">Mensagem</label>
                   <Select
                     value={s.templateId == null ? '' : String(s.templateId)}
                     onChange={(e: any) =>
@@ -234,7 +234,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
                   />
                   <span>
                     <span class="font-medium">Tarefa manual</span>
-                    <span class="block text-fg-muted text-[0.6875rem]">Em vez de enviar sozinho, cria uma tarefa pra você executar (aparece em "Hoje").</span>
+                    <span class="block text-fg-muted text-2xs">Em vez de enviar sozinho, cria uma tarefa pra você executar (aparece em "Hoje").</span>
                   </span>
                 </label>
                 <label class="flex items-start gap-2 text-xs text-fg">
@@ -246,7 +246,7 @@ export function SalesCadenceStepsEditor({ cadenceId, cadenceName, onOpenChange }
                   />
                   <span>
                     <span class="font-medium">Mensagem final (despedida)</span>
-                    <span class="block text-fg-muted text-[0.6875rem]">Marca este como o último step. Depois de enviado, a cadência encerra e o lead sai dela.</span>
+                    <span class="block text-fg-muted text-2xs">Marca este como o último step. Depois de enviado, a cadência encerra e o lead sai dela.</span>
                   </span>
                 </label>
               </div>

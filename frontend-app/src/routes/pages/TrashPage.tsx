@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Trash2, Undo2, AlertTriangle, ChevronDown, HelpCircle } from 'lucide-preact'
+import { Trash2, Undo2, AlertTriangle, ChevronDown, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTrashItems,
@@ -444,7 +444,7 @@ function TrashRow({
         >
           {item.entityLabel}
         </button>
-        <div class="text-[0.6875rem] text-fg-subtle">ID original: {item.entityId}</div>
+        <div class="text-2xs text-fg-muted">ID original: {item.entityId}</div>
       </td>
       <td class="px-3 py-2 text-fg-muted">{item.deletedByName ?? '—'}</td>
       <td class="px-3 py-2 text-fg-muted text-xs whitespace-nowrap">
@@ -578,7 +578,7 @@ function TrashItemDetailBody({ item }: { item: { entityType: string; entityLabel
           <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-fg-muted hover:text-fg">
             Ver snapshot completo (JSON)
           </summary>
-          <pre class="text-[0.6875rem] font-mono text-fg-muted p-3 overflow-auto max-h-80 border-t border-border">{JSON.stringify(item.snapshot, null, 2)}</pre>
+          <pre class="text-2xs font-mono text-fg-muted p-3 overflow-auto max-h-80 border-t border-border">{JSON.stringify(item.snapshot, null, 2)}</pre>
         </details>
       )}
     </div>

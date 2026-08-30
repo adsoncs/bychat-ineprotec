@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
-import { Plus, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Layers, AlignLeft, Mail, Phone, Hash, ListChecks, ListPlus, Calendar, MapPin, IdCard, Building2 } from 'lucide-preact'
+import { Plus, Trash2, Pencil, Check, X, ArrowUp, ArrowDown, Layers, AlignLeft, Mail, Phone, Hash, ListChecks, ListPlus, Calendar, MapPin, IdCard, Building2 } from '@/components/ui/icon-set'
 import {
   useChatQuestions,
   useCreateChatQuestion,
@@ -209,7 +209,7 @@ function StageBlock({
         <div class="flex items-center gap-2">
           <Layers size={12} class="text-fg-muted" />
           <span class="text-sm font-medium text-fg">Etapa {stage + 1}</span>
-          <span class="text-[0.6875rem] text-fg-subtle tabular-nums">· {items.length} pergunta{items.length === 1 ? '' : 's'}</span>
+          <span class="text-2xs text-fg-muted tabular-nums">· {items.length} pergunta{items.length === 1 ? '' : 's'}</span>
         </div>
         <Button size="sm" variant="ghost" onClick={onAddInStage}>
           <Plus size={11} /> Adicionar nesta etapa
@@ -232,20 +232,20 @@ function StageBlock({
               </div>
             ) : (
               <div class="px-2 py-2 flex items-start gap-2 group rounded hover:bg-surface-2 transition-colors">
-                <span class="text-xs text-fg-subtle tabular-nums w-6 mt-0.5">{idxInStage + 1}.</span>
+                <span class="text-xs text-fg-muted tabular-nums w-6 mt-0.5">{idxInStage + 1}.</span>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm text-fg truncate">{q.text}</span>
-                    <code class="text-[0.625rem] text-fg-subtle">{q.fieldKey}</code>
-                    <span class="text-[0.625rem] uppercase tracking-wider text-fg-subtle inline-flex items-center gap-1">
+                    <code class="text-3xs text-fg-muted">{q.fieldKey}</code>
+                    <span class="text-3xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-1">
                       {TYPES.find((t) => t.value === q.type)?.icon}
                       {typeLabel(q.type)}
                     </span>
-                    {q.required && <span class="text-[0.625rem] uppercase text-warning">obrigatória</span>}
-                    {!q.active && <span class="text-[0.625rem] uppercase text-fg-subtle">inativa</span>}
+                    {q.required && <span class="text-3xs uppercase text-warning">obrigatória</span>}
+                    {!q.active && <span class="text-3xs uppercase text-fg-muted">inativa</span>}
                   </div>
                   {Array.isArray(q.options) && q.options.length > 0 && (
-                    <div class="text-[0.6875rem] text-fg-subtle mt-0.5 truncate">
+                    <div class="text-2xs text-fg-muted mt-0.5 truncate">
                       Opções: {(q.options as string[]).slice(0, 6).join(', ')}{(q.options as string[]).length > 6 ? '…' : ''}
                     </div>
                   )}
@@ -423,7 +423,7 @@ function QuestionForm({
             placeholder={'Opção 1\nOpção 2\nOpção 3'}
             spellcheck={false}
           />
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             {options.length} opção(ões) detectada(s).
           </div>
         </div>

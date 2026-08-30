@@ -4,7 +4,7 @@
 // Os campos *_html são opcionais: vazios = usa o texto-modelo embutido.
 
 import { useEffect, useState } from 'preact/hooks'
-import { Scale, ExternalLink, Inbox, AlertTriangle, Mic, ShieldCheck } from 'lucide-preact'
+import { Scale, ExternalLink, Inbox, AlertTriangle, Mic, ShieldCheck } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -82,7 +82,7 @@ function DsarInbox() {
       {isLoading ? (
         <Skeleton class="h-40 w-full" />
       ) : rows.length === 0 ? (
-        <p class="text-sm text-fg-subtle py-6 text-center">Nenhuma requisição{filter === 'open' ? ' em aberto' : ''}.</p>
+        <p class="text-sm text-fg-muted py-6 text-center">Nenhuma requisição{filter === 'open' ? ' em aberto' : ''}.</p>
       ) : (
         <div class="flex flex-col gap-3">
           {rows.map((r) => {
@@ -92,14 +92,14 @@ function DsarInbox() {
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-surface-2">{DSAR_TYPE_LABEL[r.type] || r.type}</span>
                   <span class={`text-xs px-2 py-0.5 rounded-full ${DSAR_STATUS_CLASS[r.status] || 'bg-surface-2'}`}>{DSAR_STATUS_LABEL[r.status]}</span>
-                  <span class="text-sm font-medium text-fg">{r.name || '(sem nome)'} {r.leadId ? <span class="text-fg-subtle font-normal">· lead #{r.leadId}</span> : null}</span>
+                  <span class="text-sm font-medium text-fg">{r.name || '(sem nome)'} {r.leadId ? <span class="text-fg-muted font-normal">· lead #{r.leadId}</span> : null}</span>
                   {isOverdue ? <span class="inline-flex items-center gap-1 text-xs text-danger font-medium"><AlertTriangle size={12} /> em atraso</span> : null}
                 </div>
                 <div class="text-xs text-fg-muted mt-1">
                   {r.email || '—'} · {r.whatsapp || '—'} · prazo {new Date(r.dueAt).toLocaleDateString('pt-BR')}
                 </div>
                 {r.details?.message ? <div class="text-sm text-fg mt-2 bg-surface-2 rounded p-2">{r.details.message}</div> : null}
-                {r.response ? <div class="text-xs text-fg-subtle mt-2">Resposta: {r.response}</div> : null}
+                {r.response ? <div class="text-xs text-fg-muted mt-2">Resposta: {r.response}</div> : null}
                 {['pending', 'in_progress'].includes(r.status) ? (
                   <div class="flex flex-wrap gap-2 mt-3">
                     {r.status === 'pending' ? <Button size="sm" variant="ghost" onClick={() => setStatus(r, 'in_progress')} disabled={update.isPending}>Em andamento</Button> : null}
@@ -177,7 +177,7 @@ function MeetingsRecordingCard() {
             participantes — só ative com base legal e consentimento adequados.
           </p>
           {data?.enabled && data.legalAcceptedBy ? (
-            <p class="text-xs text-fg-subtle mt-1">
+            <p class="text-xs text-fg-muted mt-1">
               Responsabilidade aceita por <strong>{data.legalAcceptedBy}</strong>
               {data.legalAcceptedAt ? <> em {new Date(data.legalAcceptedAt).toLocaleString('pt-BR')}</> : null}.
             </p>

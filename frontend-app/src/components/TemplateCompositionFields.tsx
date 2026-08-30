@@ -1,4 +1,4 @@
-import { Plus, X, Info } from 'lucide-preact'
+import { Plus, X, Info } from '@/components/ui/icon-set'
 import { Input } from '@/components/ui/Input'
 
 interface Props {
@@ -71,14 +71,14 @@ export function TemplateCompositionFields({
         </div>
 
         {options.length === 0 ? (
-          <p class="text-xs text-fg-subtle">
+          <p class="text-xs text-fg-muted">
             Ex.: "Sim" e "Não" — viram uma lista numerada que o contato responde com o número.
           </p>
         ) : (
           <div class="space-y-2">
             {options.map((o, i) => (
               <div key={i} class="flex items-center gap-2">
-                <span class="w-5 shrink-0 text-sm text-fg-subtle">{i + 1})</span>
+                <span class="w-5 shrink-0 text-sm text-fg-muted">{i + 1})</span>
                 <Input
                   value={o}
                   maxLength={60}
@@ -91,7 +91,7 @@ export function TemplateCompositionFields({
                 />
                 <button
                   type="button"
-                  class="shrink-0 rounded p-1 text-fg-subtle hover:bg-surface-3 hover:text-danger"
+                  class="shrink-0 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-danger"
                   onClick={() => setOptions(options.filter((_, j) => j !== i))}
                   aria-label={`Remover opção ${i + 1}`}
                 >
@@ -114,7 +114,7 @@ export function TemplateCompositionFields({
 
       {(header.trim() || footer.trim() || options.some((o) => o.trim())) && (
         <div class="rounded-md border border-border bg-surface-2 p-3">
-          <div class="mb-1 text-xs uppercase tracking-wider text-fg-subtle">Como o contato vê</div>
+          <div class="mb-1 text-xs uppercase tracking-wider text-fg-muted">Como o contato vê</div>
           <div class="whitespace-pre-wrap rounded-md bg-surface p-3 text-sm">{preview}</div>
         </div>
       )}

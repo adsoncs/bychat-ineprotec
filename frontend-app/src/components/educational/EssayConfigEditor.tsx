@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Save, RotateCcw, Sparkles, Shield } from 'lucide-preact'
+import { Save, RotateCcw, Sparkles, Shield } from '@/components/ui/icon-set'
 import {
   useUpdateSelectionProcess,
   DEFAULT_ESSAY_AI_CRITERIA,
@@ -123,7 +123,7 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
               onInput={(e) => setDuration((e.target as HTMLInputElement).value)}
               placeholder="Ex: 90"
             />
-            <div class="text-[0.6875rem] text-fg-subtle mt-1">Vazio = sem timer</div>
+            <div class="text-2xs text-fg-muted mt-1">Vazio = sem timer</div>
           </div>
           <Input
             label="Tentativas"
@@ -211,7 +211,7 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
             <div key={c.key} class="grid grid-cols-[1fr_5rem] gap-3 items-center py-2">
               <div class="min-w-0">
                 <div class="text-sm font-medium text-fg truncate">{c.label}</div>
-                <code class="text-[0.625rem] text-fg-subtle font-mono">{c.key}</code>
+                <code class="text-3xs text-fg-muted font-mono">{c.key}</code>
               </div>
               <Input
                 type="number"
@@ -264,7 +264,7 @@ function VerdictOption({
         <div class="min-w-0 flex-1">
           <div class="text-sm font-semibold text-fg">
             {title}
-            {badge && <span class="ml-2 text-[0.6875rem] font-normal text-fg-subtle">({badge})</span>}
+            {badge && <span class="ml-2 text-2xs font-normal text-fg-muted">({badge})</span>}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">{description}</div>
         </div>

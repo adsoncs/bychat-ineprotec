@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'preact/hooks'
 import {
   Mail, Save, CheckCircle, AlertCircle, Send, Eye, EyeOff, Info, ExternalLink, Power,
   AtSign,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useSettings, useUpdateSettings, useTestSmtp, useTestEmail } from '@/hooks/useSettings'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -200,18 +200,18 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <ProviderCard
           title="Resend"
-          icon={<Mail size={16} class="text-fg-subtle" />}
+          icon={<Mail size={16} class="text-fg-muted" />}
           active={provider === 'resend'}
           complete={resendComplete}
           onActivate={() => activateProvider('resend')}
           activating={update.isPending}
         >
-          <div class="text-[0.6875rem] text-fg-subtle leading-relaxed">
+          <div class="text-2xs text-fg-muted leading-relaxed">
             API de e-mail transacional. Requer configuração de DNS (SPF, DKIM, DMARC) no provedor
             de domínio.
           </div>
 
-          <div class="flex items-start gap-2 rounded-md border border-accent/30 bg-accent/10 p-2.5 text-[0.6875rem] text-fg-muted">
+          <div class="flex items-start gap-2 rounded-md border border-accent/30 bg-accent/10 p-2.5 text-2xs text-fg-muted">
             <Info size={12} class="mt-0.5 shrink-0 text-accent" />
             <span class="flex-1">
               O domínio precisa estar verificado no Resend.{' '}
@@ -237,7 +237,7 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
                 value={draft['notification.resend_api_key'] ?? ''}
                 onInput={(e) => patch('notification.resend_api_key', (e.target as HTMLInputElement).value)}
                 placeholder="re_..."
-                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
               />
               <Button
                 type="button"
@@ -282,14 +282,14 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
 
         <ProviderCard
           title="SMTP / Hospedagem"
-          icon={<Mail size={16} class="text-fg-subtle" />}
+          icon={<Mail size={16} class="text-fg-muted" />}
           active={provider === 'smtp'}
           complete={smtpComplete}
           onActivate={() => activateProvider('smtp')}
           activating={update.isPending}
           extraHeader={smtpTest ? <SmtpTestBadge result={smtpTest} /> : undefined}
         >
-          <div class="text-[0.6875rem] text-fg-subtle leading-relaxed">
+          <div class="text-2xs text-fg-muted leading-relaxed">
             Servidor SMTP da hospedagem ou domínio. Use os dados fornecidos pelo seu provedor
             (cPanel, Hostgator, Locaweb, etc).
           </div>
@@ -304,7 +304,7 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
                 value={draft['smtp.host'] ?? ''}
                 onInput={(e) => patch('smtp.host', (e.target as HTMLInputElement).value)}
                 placeholder="mail.seudominio.com.br"
-                class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+                class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
               />
             </div>
             <Input
@@ -338,7 +338,7 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
               onInput={(e) => patch('smtp.user', (e.target as HTMLInputElement).value)}
               placeholder="contato@seudominio.com.br"
               autoComplete="off"
-              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
             />
           </div>
 
@@ -353,7 +353,7 @@ export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } 
                 onInput={(e) => patch('smtp.pass', (e.target as HTMLInputElement).value)}
                 placeholder="Senha do e-mail"
                 autoComplete="new-password"
-                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+                class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
               />
               <Button
                 type="button"
@@ -460,10 +460,10 @@ function ProviderCard({
 
 function FromPreview({ from }: { from: string }) {
   return (
-    <div class="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-2 text-[0.6875rem] text-fg-muted">
-      <AtSign size={12} class="shrink-0 text-fg-subtle" />
+    <div class="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-2.5 py-2 text-2xs text-fg-muted">
+      <AtSign size={12} class="shrink-0 text-fg-muted" />
       <span class="shrink-0">Remetente final:</span>
-      <code class="flex-1 truncate text-[0.6875rem] text-fg font-mono">{from}</code>
+      <code class="flex-1 truncate text-2xs text-fg font-mono">{from}</code>
     </div>
   )
 }
@@ -473,7 +473,7 @@ function SmtpTestBadge({ result }: { result: SmtpTestResult }) {
   if (result.ok) {
     return (
       <span
-        class="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-fg-on-brand"
+        class="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-fg-on-brand"
         title={`Verificado em ${new Date(result.at).toLocaleString('pt-BR')}`}
       >
         <CheckCircle size={10} /> Verificado {ago}
@@ -482,7 +482,7 @@ function SmtpTestBadge({ result }: { result: SmtpTestResult }) {
   }
   return (
     <span
-      class="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-white"
+      class="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-white"
       title={result.error ?? 'Falha no último teste'}
     >
       <AlertCircle size={10} /> Falhou {ago}

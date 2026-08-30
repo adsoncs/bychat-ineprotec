@@ -103,7 +103,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
             value={displayName}
             onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
           />
-          <p class="mt-1 text-xs text-fg-subtle">
+          <p class="mt-1 text-xs text-fg-muted">
             Aparece nas mensagens quando a identificação do operador está ligada em Cadastros ›
             Atendimento. Em branco, usa o seu primeiro nome.
           </p>

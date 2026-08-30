@@ -4,7 +4,7 @@ import {
   Cloud, Trash2, RefreshCw, Send, Plug, AlertCircle, CheckCircle,
   Copy, Webhook, AlertTriangle, HelpCircle, FileText, BarChart3, Smartphone,
   IdCard,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useCloudApiConnections,
@@ -116,15 +116,15 @@ export function CloudApiPage() {
       {/* Webhook URL — sempre visível para fácil cópia ao configurar no app Meta */}
       <Card class="mb-3">
         <div class="flex items-start gap-2">
-          <Webhook size={16} class="text-fg-subtle shrink-0 mt-0.5" />
+          <Webhook size={16} class="text-fg-muted shrink-0 mt-0.5" />
           <div class="flex-1 min-w-0">
-            <div class="text-xs uppercase tracking-wider text-fg-subtle">URL do webhook</div>
-            <div class="text-[0.6875rem] text-fg-muted mb-2">
+            <div class="text-xs uppercase tracking-wider text-fg-muted">URL do webhook</div>
+            <div class="text-2xs text-fg-muted mb-2">
               Configure esta URL no app Meta → WhatsApp → Configuration → Webhook.
               Verify token: gerado no signup.
             </div>
             <div class="flex gap-2 items-center">
-              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-[0.6875rem] font-mono text-fg break-all">
+              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-2xs font-mono text-fg break-all">
                 {webhookUrl}
               </code>
               <Button size="sm" variant="secondary" onClick={handleCopyWebhook}>
@@ -334,7 +334,7 @@ function ConnectionCard({
       <CardHeader>
         <CardTitle>
           <span class="inline-flex items-center gap-2">
-            <Cloud size={16} class="text-fg-subtle" />
+            <Cloud size={16} class="text-fg-muted" />
             {c.displayName ?? c.displayPhone}
           </span>
         </CardTitle>
@@ -436,7 +436,7 @@ function ConnectionCard({
               />
             ))}
           </div>
-          <p class="mt-1 text-xs text-fg-subtle">
+          <p class="mt-1 text-xs text-fg-muted">
             Marca a origem das conversas deste número na lista de atendimento.
           </p>
         </div>
@@ -542,7 +542,7 @@ function ConnectionCard({
             {agents.map((u) => <option key={u.id} value={u.id}>{u.name || `Usuário #${u.id}`} ({u.role})</option>)}
           </Select>
         )}
-        <p class="text-xs text-fg-subtle mt-1">
+        <p class="text-xs text-fg-muted mt-1">
           {donoTipo === 'agent'
             ? 'Leads que chegarem por este número são atribuídos direto ao agente.'
             : donoTipo === 'team'
@@ -588,8 +588,8 @@ function ConnectionCard({
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <div class="text-[0.625rem] text-fg-subtle uppercase tracking-wider">{label}</div>
-      <div class={`text-fg ${mono ? 'font-mono text-[0.6875rem]' : 'text-sm'} truncate`}>{value}</div>
+      <div class="text-3xs text-fg-muted uppercase tracking-wider">{label}</div>
+      <div class={`text-fg ${mono ? 'font-mono text-2xs' : 'text-sm'} truncate`}>{value}</div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks'
 import * as Popover from '@radix-ui/react-popover'
-import { Smile, Search } from 'lucide-preact'
+import { Smile, Search } from '@/components/ui/icon-set'
 import { cn } from '@/lib/cn'
 
 interface EmojiPickerProps {
@@ -130,24 +130,24 @@ export function EmojiPicker({ onSelect }: EmojiPickerProps) {
           <div class="relative mb-2">
             <Search
               size={12}
-              class="absolute left-2 top-1/2 -translate-y-1/2 text-fg-subtle"
+              class="absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted"
             />
             <input
               type="text"
               autoFocus
               placeholder="Buscar emoji…"
-              class="h-8 w-full rounded-md border border-border bg-surface pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
+              class="h-8 w-full rounded-md border border-border bg-surface pl-7 pr-2 text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none"
               value={search}
               onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             />
           </div>
           <div class="max-h-64 overflow-y-auto">
             {filtered.length === 0 && (
-              <p class="py-4 text-center text-[0.6875rem] text-fg-subtle">Nenhum emoji</p>
+              <p class="py-4 text-center text-2xs text-fg-muted">Nenhum emoji</p>
             )}
             {filtered.map((s) => (
               <div key={s.label} class="mb-2">
-                <div class="mb-1 px-1 text-[0.6875rem] font-medium text-fg-muted">{s.label}</div>
+                <div class="mb-1 px-1 text-2xs font-medium text-fg-muted">{s.label}</div>
                 <div class="grid grid-cols-8 gap-0.5">
                   {s.emojis.map((it) => (
                     <button

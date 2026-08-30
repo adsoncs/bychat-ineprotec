@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Mail, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-preact'
+import { Mail, AlertCircle, CheckCircle2, ArrowLeft } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { api, ApiError } from '@/lib/apiClient'

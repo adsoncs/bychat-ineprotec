@@ -5,7 +5,7 @@ import { Section, Segmented, Switch } from '@/components/ui/PrefControls'
 import { useAccountPrefs, DEFAULT_ACCOUNT_PREFS } from '@/hooks/useAccountPrefs'
 import { useSidebarStore } from '@/stores/sidebar'
 import { playNotificationSound, NOTIFICATION_SOUNDS } from '@/lib/notificationSound'
-import { Play } from 'lucide-preact'
+import { Play } from '@/components/ui/icon-set'
 import {
   notificationSupport,
   requestNotificationPermission,

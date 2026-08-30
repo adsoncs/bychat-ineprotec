@@ -4,7 +4,7 @@ import {
   Calendar, AlertCircle, ListChecks, Check, X as XIcon, Trash2, Plus,
   Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle, Pencil,
   ArrowDownLeft, ArrowUpRight, ChevronDown, User as UserIcon,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useActivities,
@@ -205,7 +205,7 @@ export function ActivitiesPage() {
             aria-disabled={dateRangeDisabled}
           >
             <div class="flex flex-col gap-1">
-              <label class="text-[0.6875rem] font-medium text-fg-muted">Filtrar por</label>
+              <label class="text-2xs font-medium text-fg-muted">Filtrar por</label>
               <select
                 value={dateField}
                 onChange={(e) => setDateField((e.target as HTMLSelectElement).value as 'scheduledAt' | 'createdAt')}
@@ -216,7 +216,7 @@ export function ActivitiesPage() {
               </select>
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[0.6875rem] font-medium text-fg-muted">De</label>
+              <label class="text-2xs font-medium text-fg-muted">De</label>
               <input
                 type="date"
                 value={dateFrom}
@@ -226,7 +226,7 @@ export function ActivitiesPage() {
               />
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[0.6875rem] font-medium text-fg-muted">Até</label>
+              <label class="text-2xs font-medium text-fg-muted">Até</label>
               <input
                 type="date"
                 value={dateTo}
@@ -246,7 +246,7 @@ export function ActivitiesPage() {
               </button>
             )}
             {dateRangeDisabled && (
-              <span class="text-[0.6875rem] text-fg-subtle self-center">
+              <span class="text-2xs text-fg-muted self-center">
                 Período fixo nesta aba — selecione Atrasadas, Concluídas ou Total para filtrar por data.
               </span>
             )}
@@ -254,7 +254,7 @@ export function ActivitiesPage() {
           {summaryActive && (
             <div class="flex flex-wrap items-end gap-2 text-xs">
               <div class="flex flex-col gap-1">
-                <label class="text-[0.6875rem] font-medium text-fg-muted">Responsável</label>
+                <label class="text-2xs font-medium text-fg-muted">Responsável</label>
                 <select
                   value={ownerFilter}
                   onChange={(e) => setOwnerFilter((e.target as HTMLSelectElement).value)}
@@ -269,7 +269,7 @@ export function ActivitiesPage() {
                 </select>
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-[0.6875rem] font-medium text-fg-muted">Setor</label>
+                <label class="text-2xs font-medium text-fg-muted">Setor</label>
                 <select
                   value={teamFilter === '' ? '' : String(teamFilter)}
                   onChange={(e) => {
@@ -438,25 +438,25 @@ function ActivityEmailBody({ activity }: { activity: Activity }) {
           class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-3 transition-colors"
         >
           <span class={cn(
-            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[0.625rem] font-semibold shrink-0',
+            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-3xs font-semibold shrink-0',
             inbound ? 'bg-info/15 text-info' : 'bg-success/15 text-success',
           )}>
             {inbound ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
             {inbound ? 'Recebido' : 'Enviado'}
           </span>
           <span class="font-medium text-fg truncate flex-1 min-w-0">{subject}</span>
-          <ChevronDown size={14} class={cn('text-fg-subtle shrink-0 transition-transform', open && 'rotate-180')} />
+          <ChevronDown size={14} class={cn('text-fg-muted shrink-0 transition-transform', open && 'rotate-180')} />
         </button>
         {open && (
           <div class="px-3 pb-3 pt-1 border-t border-border">
             {activity.recipientEmail && (
-              <div class="text-fg-subtle mb-1.5 truncate">
+              <div class="text-fg-muted mb-1.5 truncate">
                 {inbound ? 'de/para' : 'para'} {activity.recipientEmail}
               </div>
             )}
             {text
               ? <div class="whitespace-pre-wrap break-words text-fg-muted leading-relaxed">{text}</div>
-              : <div class="text-fg-subtle italic">(sem conteúdo)</div>}
+              : <div class="text-fg-muted italic">(sem conteúdo)</div>}
           </div>
         )}
       </div>
@@ -505,19 +505,19 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
             <span class="text-sm font-medium text-fg truncate">{activity.title}</span>
             <Badge tone={STATUS_TONE[activity.status]}>{STATUS_LABEL[activity.status]}</Badge>
             <span
-              class="text-[0.625rem] font-semibold px-2 py-0.5 rounded-full"
+              class="text-3xs font-semibold px-2 py-0.5 rounded-full"
               style={{ background: meta.bg, color: meta.color }}
             >
               {meta.label}
             </span>
-            {activity.templateId && <Sparkles size={10} class="text-fg-subtle" aria-label="Usa modelo" />}
-            {activity.userName && <span class="text-[0.6875rem] text-fg-subtle">por {activity.userName}</span>}
+            {activity.templateId && <Sparkles size={10} class="text-fg-muted" aria-label="Usa modelo" />}
+            {activity.userName && <span class="text-2xs text-fg-muted">por {activity.userName}</span>}
           </div>
           {/* Módulo Resumo: quem EXECUTA. Sem dono e com setor = fila do setor,
               esperando alguém puxar — é o estado que o gestor precisa enxergar. */}
           {(activity.assignedUser || activity.assignedTeam) && (
-            <div class="flex items-center gap-1.5 mt-0.5 text-[0.6875rem] flex-wrap">
-              <UserIcon size={10} class="text-fg-subtle" />
+            <div class="flex items-center gap-1.5 mt-0.5 text-2xs flex-wrap">
+              <UserIcon size={10} class="text-fg-muted" />
               {activity.assignedUser ? (
                 <span class="text-fg-muted">
                   {activity.assignedUser.name || activity.assignedUser.email}
@@ -541,11 +541,11 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
           {activity.lead && (
             <div class="text-xs text-fg-muted truncate mt-0.5">
               Lead: {activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}
-              {activity.lead.empresa && activity.lead.nome && <span class="text-fg-subtle"> · {activity.lead.empresa}</span>}
+              {activity.lead.empresa && activity.lead.nome && <span class="text-fg-muted"> · {activity.lead.empresa}</span>}
             </div>
           )}
           {activity.description && (
-            <div class="text-[0.6875rem] text-fg-subtle truncate mt-0.5">{activity.description}</div>
+            <div class="text-2xs text-fg-muted truncate mt-0.5">{activity.description}</div>
           )}
         </div>
         <div class="text-xs whitespace-nowrap text-right shrink-0">
@@ -553,7 +553,7 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
             {formatDateTime(activity.scheduledAt)}
           </div>
           {activity.reminderAt && (
-            <div class="text-[0.6875rem] text-fg-subtle inline-flex items-center gap-1 justify-end">
+            <div class="text-2xs text-fg-muted inline-flex items-center gap-1 justify-end">
               <Bell size={10} /> {formatRelative(activity.reminderAt)}
             </div>
           )}
@@ -651,7 +651,7 @@ function ActivityRowMenu({
             </>
           ) : (
             <>
-              <div class="px-3 py-2 text-xs text-fg-subtle inline-flex items-center gap-2">
+              <div class="px-3 py-2 text-xs text-fg-muted inline-flex items-center gap-2">
                 <Lock size={12} /> Atividade finalizada
               </div>
               <DropdownMenu.Separator class="my-1 h-px bg-border" />
@@ -729,7 +729,7 @@ function KpiButton({
       aria-pressed={active}
     >
       <div class="flex items-center justify-between gap-2">
-        <span class="text-xs uppercase tracking-wider font-medium" style={{ color: active ? color : 'var(--color-fg-subtle)' }}>{label}</span>
+        <span class="text-xs uppercase tracking-wider font-medium" style={{ color: active ? color : 'var(--color-fg-muted)' }}>{label}</span>
         <span style={{ color }}>{icon}</span>
       </div>
       {loading
@@ -875,7 +875,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
         <TabButton active={tab === 'general'} onClick={() => setTab('general')}>Geral</TabButton>
         {showMessageTab && <TabButton active={tab === 'message'} onClick={() => setTab('message')}>Mensagem</TabButton>}
         <TabButton active={tab === 'attachment'} onClick={() => setTab('attachment')}>
-          Anexos{pendingFiles.length > 0 && <span class="ml-1 text-fg-subtle">({pendingFiles.length})</span>}
+          Anexos{pendingFiles.length > 0 && <span class="ml-1 text-fg-muted">({pendingFiles.length})</span>}
         </TabButton>
       </nav>
 
@@ -920,7 +920,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
                       }}
                     >
                       <div class="font-medium">{l.nome ?? l.empresa ?? `Lead #${l.id}`}</div>
-                      <div class="text-fg-subtle">{l.empresa ?? '—'} · {l.whatsapp ?? '—'} {l.email ? `· ${l.email}` : ''}</div>
+                      <div class="text-fg-muted">{l.empresa ?? '—'} · {l.whatsapp ?? '—'} {l.email ? `· ${l.email}` : ''}</div>
                     </button>
                   </li>
                 ))}
@@ -1032,7 +1032,7 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
                 key={v}
                 type="button"
                 onClick={() => insertVar(v)}
-                class="h-6 px-2 rounded-full text-[0.6875rem] font-mono bg-surface text-fg-muted border border-border hover:bg-surface-3 hover:text-fg"
+                class="h-6 px-2 rounded-full text-2xs font-mono bg-surface text-fg-muted border border-border hover:bg-surface-3 hover:text-fg"
               >
                 {`{{${v}}}`}
               </button>
@@ -1168,7 +1168,7 @@ function EditActivityModal({ activity, onClose }: { activity: Activity; onClose:
           </>
         )}
         {syncsGoogle && (
-          <p class="text-[0.6875rem] text-fg-subtle">Alterar o título ou o horário também atualiza o evento no Google Calendar (não reenvia convite ao lead).</p>
+          <p class="text-2xs text-fg-muted">Alterar o título ou o horário também atualiza o evento no Google Calendar (não reenvia convite ao lead).</p>
         )}
       </div>
     </Modal>

@@ -15,7 +15,7 @@
 
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft, Lock } from 'lucide-preact'
+import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft, Lock } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -274,7 +274,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       {/* PASSO 1 — escolher número de origem (só na primeira interação) */}
       {!channelId && (
         <div class="space-y-2">
-          <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">Número de origem</div>
+          <div class="text-2xs text-fg-muted uppercase tracking-wider">Número de origem</div>
           {chLoading ? (
             <div class="text-xs text-fg-muted text-center py-4">Carregando números…</div>
           ) : channels.length === 0 ? (
@@ -328,12 +328,12 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
               <div class="text-xs text-fg-muted text-center py-4">Nenhum modelo aprovado pela Meta. Crie e aprove em <strong>WhatsApp Oficial</strong>.</div>
             ) : (
               <>
-                <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider pt-2">Modelos aprovados (Meta)</div>
+                <div class="text-2xs text-fg-muted uppercase tracking-wider pt-2">Modelos aprovados (Meta)</div>
                 {cloudTemplates.map((t) => {
                   const p = parseTemplateComponents(t.components)
                   return (
                     <button key={t.id} type="button" class="w-full text-left rounded-md border border-border bg-surface hover:bg-surface-2 p-3 transition-colors disabled:opacity-50" onClick={() => pickCloudTemplate(t)} disabled={noPhone}>
-                      <div class="text-sm font-medium text-fg flex items-center gap-2">{t.name} <span class="text-[0.625rem] font-normal text-fg-subtle uppercase">{t.language}</span></div>
+                      <div class="text-sm font-medium text-fg flex items-center gap-2">{t.name} <span class="text-3xs font-normal text-fg-muted uppercase">{t.language}</span></div>
                       <div class="text-xs text-fg-muted line-clamp-2">{p.body}</div>
                     </button>
                   )
@@ -345,7 +345,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
               <div class="text-xs text-fg-muted text-center py-4">Nenhum modelo de WhatsApp cadastrado. Crie em <strong>Modelos</strong>.</div>
             ) : (
               <>
-                <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider pt-2">Modelos</div>
+                <div class="text-2xs text-fg-muted uppercase tracking-wider pt-2">Modelos</div>
                 {evoTemplates.map((t) => (
                   <button key={t.id} type="button" class="w-full text-left rounded-md border border-border bg-surface hover:bg-surface-2 p-3 transition-colors disabled:opacity-50" onClick={() => pickEvoTemplate(t)} disabled={noPhone}>
                     <div class="text-sm font-medium text-fg">{t.name}</div>
@@ -364,12 +364,12 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
           {/* Template HSM Cloud: variáveis + preview */}
           {selectedCloud && cloudParsed && cloudForm ? (
             <>
-              <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">Modelo HSM: {selectedCloud.name}</div>
+              <div class="text-2xs text-fg-muted uppercase tracking-wider">Modelo HSM: {selectedCloud.name}</div>
               {cloudForm.fields.length > 0 ? (
                 <div class="space-y-2">
                   {cloudForm.fields.map((f) => (
                     <div key={f.key}>
-                      <label class="text-[0.6875rem] text-fg-subtle">{f.label}</label>
+                      <label class="text-2xs text-fg-muted">{f.label}</label>
                       <Input
                         value={tplVars[f.key] ?? ''}
                         onInput={(e) => setTplVars({ ...tplVars, [f.key]: (e.target as HTMLInputElement).value })}
@@ -379,20 +379,20 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
                   ))}
                 </div>
               ) : (
-                <div class="text-[0.6875rem] text-fg-subtle">Este modelo não tem variáveis.</div>
+                <div class="text-2xs text-fg-muted">Este modelo não tem variáveis.</div>
               )}
-              <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider pt-1">Pré-visualização</div>
+              <div class="text-2xs text-fg-muted uppercase tracking-wider pt-1">Pré-visualização</div>
               <div class="rounded-md border border-border bg-surface-2 p-3 text-sm text-fg whitespace-pre-wrap">
                 {renderCloudHeaderPreview() && <div class="font-semibold mb-1">{renderCloudHeaderPreview()}</div>}
                 {renderCloudPreview()}
               </div>
-              {cloudParsed.footer && <div class="text-xs text-fg-subtle">{cloudParsed.footer}</div>}
+              {cloudParsed.footer && <div class="text-xs text-fg-muted">{cloudParsed.footer}</div>}
             </>
           ) : (
             <>
-              <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">{selectedEvo ? `Modelo: ${selectedEvo.name}` : 'Mensagem livre'}</div>
+              <div class="text-2xs text-fg-muted uppercase tracking-wider">{selectedEvo ? `Modelo: ${selectedEvo.name}` : 'Mensagem livre'}</div>
               <Textarea rows={8} value={draft} onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} placeholder="Digite ou edite a mensagem antes de enviar…" autoFocus />
-              <div class="text-[0.6875rem] text-fg-subtle">
+              <div class="text-2xs text-fg-muted">
                 Variáveis suportadas: <code>{'{{nome}}'}</code>, <code>{'{{empresa}}'}</code>, <code>{'{{whatsapp}}'}</code>, <code>{'{{email}}'}</code>, <code>{'{{segmento}}'}</code>, <code>{'{{cidade}}'}</code>.
               </div>
             </>
@@ -416,11 +416,11 @@ function ChannelRow({ channel, onPick, disabled }: { channel: SenderChannel; onP
         <div class="text-xs text-fg-muted">{channel.number ?? '—'} · {isCloud ? 'WhatsApp Oficial' : 'WhatsApp comum'}</div>
       </div>
       {isCloud && channel.window && (
-        <span class={cn('text-[0.625rem] font-medium rounded px-1.5 py-0.5 shrink-0', channel.window.open ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning')}>
+        <span class={cn('text-3xs font-medium rounded px-1.5 py-0.5 shrink-0', channel.window.open ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning')}>
           {channel.window.open ? 'Janela aberta' : 'Fora da janela'}
         </span>
       )}
-      <ChevronRight size={14} class="text-fg-subtle shrink-0" />
+      <ChevronRight size={14} class="text-fg-muted shrink-0" />
     </button>
   )
 }
@@ -452,7 +452,7 @@ function ChannelHeader({ channels, channelId, locked, conversationChannelId, onS
           <span class="text-fg-muted"> · {channel.number ?? '—'}</span>
           {isConversationChannel && (
             <span
-              class="ml-1.5 inline-flex items-center gap-0.5 text-[0.5625rem] font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info"
+              class="ml-1.5 inline-flex items-center gap-0.5 text-3xs font-semibold uppercase rounded px-1 py-0.5 bg-info/15 text-info"
               title="Foi por este número que o contato falou — a resposta sai por ele."
             >
               {locked && <Lock size={9} />} da conversa
@@ -460,13 +460,13 @@ function ChannelHeader({ channels, channelId, locked, conversationChannelId, onS
           )}
         </div>
         {canSwitch && (
-          <button type="button" onClick={() => setOpen((v) => !v)} class="inline-flex items-center gap-1 text-[0.6875rem] text-info hover:underline shrink-0" aria-expanded={open} aria-haspopup="listbox">
+          <button type="button" onClick={() => setOpen((v) => !v)} class="inline-flex items-center gap-1 text-2xs text-info hover:underline shrink-0" aria-expanded={open} aria-haspopup="listbox">
             <ChevronDown size={12} /> Trocar número
           </button>
         )}
       </div>
       {offConversation && (
-        <div class="mt-1 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.6875rem] text-fg">
+        <div class="mt-1 rounded-md border border-warning/40 bg-warning/10 p-2 text-2xs text-fg">
           Esta conversa veio pelo {conversationChannel ? `${conversationChannel.label}${conversationChannel.number ? ` · ${conversationChannel.number}` : ''}` : 'outro número'}.
           Enviando por aqui, o contato recebe de um número que ele não conhece.
         </div>
@@ -475,7 +475,7 @@ function ChannelHeader({ channels, channelId, locked, conversationChannelId, onS
         <>
           <div class="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div role="listbox" class="absolute right-0 top-full mt-1 z-50 w-72 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
-            <div class="px-3 py-1 text-[0.5625rem] uppercase tracking-wider text-fg-subtle">Números disponíveis</div>
+            <div class="px-3 py-1 text-3xs uppercase tracking-wider text-fg-muted">Números disponíveis</div>
             {channels.map((c) => {
               const active = c.id === channelId
               const cloud = c.provider === 'cloud_api'
@@ -492,7 +492,7 @@ function ChannelHeader({ channels, channelId, locked, conversationChannelId, onS
                     {cloud ? <Cloud size={11} /> : <Smartphone size={11} />}
                   </span>
                   <span class="flex-1 truncate">{c.label}{c.number ? ` · ${c.number}` : ''}</span>
-                  {c.id === conversationChannelId && <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.5625rem] uppercase tracking-wide text-fg-subtle">da conversa</span>}
+                  {c.id === conversationChannelId && <span class="rounded-full bg-surface-3 px-1.5 py-0.5 text-3xs uppercase tracking-wide text-fg-muted">da conversa</span>}
                   {active && <Check size={12} class="text-accent shrink-0" />}
                 </button>
               )

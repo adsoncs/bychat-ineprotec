@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { GraduationCap, Plus, Pencil, Trash2 } from 'lucide-preact'
+import { GraduationCap, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useEducationalLevels,
   useCreateEducationalLevel,
@@ -109,7 +109,7 @@ export function EducationalLevelsPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -120,32 +120,32 @@ export function EducationalLevelsPage() {
                 onReorder={handleReorder}
                 renderItem={(l) => (
                   <div class="flex items-center gap-3 py-1.5 group">
-                    <span class="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-md bg-accent/15 text-accent text-[0.6875rem] font-bold tabular-nums shrink-0">
+                    <span class="inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-md bg-accent/15 text-accent text-2xs font-bold tabular-nums shrink-0">
                       {l.ordem ?? 0}
                     </span>
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-medium text-fg truncate">{l.nome}</span>
                         {l.codigo && (
-                          <span class="font-mono text-[0.6875rem] text-fg-subtle">{l.codigo}</span>
+                          <span class="font-mono text-2xs text-fg-muted">{l.codigo}</span>
                         )}
                         <span
                           class={
-                            'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                            'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                             (l.active !== false
                               ? 'bg-accent text-fg-on-brand'
-                              : 'bg-surface-3 text-fg-subtle')
+                              : 'bg-surface-3 text-fg-muted')
                           }
                         >
                           {l.active !== false ? '● Ativo' : '○ Inativo'}
                         </span>
                       </div>
                       {l.descricao && (
-                        <div class="text-xs text-fg-subtle truncate mt-0.5">{l.descricao}</div>
+                        <div class="text-xs text-fg-muted truncate mt-0.5">{l.descricao}</div>
                       )}
                     </div>
                     {l._count && (
-                      <div class="hidden sm:flex items-center gap-3 text-[0.6875rem] text-fg-muted tabular-nums shrink-0">
+                      <div class="hidden sm:flex items-center gap-3 text-2xs text-fg-muted tabular-nums shrink-0">
                         <EduCountPill label="Cursos" n={l._count.courses} />
                         <EduCountPill label="Ofertas" n={l._count.offerings} />
                         <EduCountPill label="Processos" n={l._count.selectionProcesses} />

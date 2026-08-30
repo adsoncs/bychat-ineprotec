@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Plus, Pencil, Trash2, Sparkles, Eye, EyeOff, Hand, FileText } from 'lucide-preact'
+import { Plus, Pencil, Trash2, Sparkles, Eye, EyeOff, Hand, FileText } from '@/components/ui/icon-set'
 import {
   useEssayTopics,
   useCreateEssayTopic,
@@ -58,7 +58,7 @@ function SourceBadge({
     },
     manual: {
       label: 'Criado manual',
-      cls: 'bg-fg-subtle/15 text-fg-muted border-fg-subtle/30',
+      cls: 'bg-fg-muted/15 text-fg-muted border-fg-muted/30',
       Icon: Hand,
     },
   }
@@ -67,7 +67,7 @@ function SourceBadge({
 
   if (!onChange) {
     return (
-      <span class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] font-medium border ${cur.cls}`}>
+      <span class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-3xs font-medium border ${cur.cls}`}>
         <CurIcon size={10} /> {cur.label}
       </span>
     )
@@ -78,7 +78,7 @@ function SourceBadge({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
-        class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.625rem] font-medium border hover:opacity-80 ${cur.cls}`}
+        class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-3xs font-medium border hover:opacity-80 ${cur.cls}`}
         title="Clique para alterar a origem"
       >
         <CurIcon size={10} /> {cur.label}
@@ -99,7 +99,7 @@ function SourceBadge({
                   onClick={(e) => { e.stopPropagation(); setOpen(false); if (!active) onChange(s) }}
                 >
                   <Icon size={11} /> {v.label}
-                  {active && <span class="ml-auto text-[0.625rem] text-fg-subtle">atual</span>}
+                  {active && <span class="ml-auto text-3xs text-fg-muted">atual</span>}
                 </button>
               )
             })}
@@ -155,7 +155,7 @@ export function EssayTopicsEditor({ selectionProcessId }: { selectionProcessId: 
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div class="text-xs text-fg-muted">
           O sistema sorteia um tema ativo a cada nova tentativa do candidato.{' '}
-          <span class="text-fg-subtle">{activeCount}/{topics.length} ativos</span>
+          <span class="text-fg-muted">{activeCount}/{topics.length} ativos</span>
         </div>
         <div class="flex gap-2 flex-wrap">
           <Button size="sm" variant="secondary" onClick={() => setGeneratingAi(true)}>
@@ -187,7 +187,7 @@ export function EssayTopicsEditor({ selectionProcessId }: { selectionProcessId: 
             onReorder={handleReorder}
             renderItem={(t) => (
               <div class="px-2 py-2 flex items-start gap-3 group">
-                <span class="text-xs text-fg-subtle tabular-nums w-6 mt-0.5">{t.ordem}</span>
+                <span class="text-xs text-fg-muted tabular-nums w-6 mt-0.5">{t.ordem}</span>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium text-fg truncate">{t.title ?? 'Sem título'}</span>
@@ -206,7 +206,7 @@ export function EssayTopicsEditor({ selectionProcessId }: { selectionProcessId: 
                   </div>
                   <div class="text-xs text-fg-muted mt-0.5 line-clamp-2">{t.prompt}</div>
                   {t.supportTexts && (
-                    <div class="text-[0.6875rem] text-fg-subtle mt-0.5">+ textos motivadores</div>
+                    <div class="text-2xs text-fg-muted mt-0.5">+ textos motivadores</div>
                   )}
                 </div>
                 <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -479,7 +479,7 @@ function ImportEnemModal({
                 <div class="flex items-center gap-2">
                   <Badge tone="info">ENEM {t.year}</Badge>
                   <span class="text-sm text-fg truncate">{t.title}</span>
-                  {dup && <span class="text-[0.625rem] uppercase text-fg-subtle">já adicionado</span>}
+                  {dup && <span class="text-3xs uppercase text-fg-muted">já adicionado</span>}
                 </div>
                 <div class="text-xs text-fg-muted line-clamp-2 mt-1">{t.prompt}</div>
               </div>
@@ -601,18 +601,18 @@ function AiGenerateModal({
           </div>
           <div class="rounded-md border border-border bg-surface p-3 space-y-3 max-h-[55vh] overflow-y-auto">
             <div>
-              <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-1">Título</div>
+              <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-1">Título</div>
               <div class="text-sm font-semibold text-fg">{result.topic.title ?? '—'}</div>
             </div>
             <div>
-              <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-1">Enunciado</div>
+              <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-1">Enunciado</div>
               <div class="text-sm text-fg whitespace-pre-wrap font-serif border-l-2 border-accent bg-surface-3 px-3 py-2 rounded">
                 {result.topic.prompt}
               </div>
             </div>
             {result.topic.supportTexts && (
               <div>
-                <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-1">Textos motivadores</div>
+                <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-1">Textos motivadores</div>
                 <div class="text-xs text-fg whitespace-pre-wrap border-l-2 border-warning bg-surface-3 px-3 py-2 rounded">
                   {result.topic.supportTexts}
                 </div>

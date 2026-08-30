@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Save, ExternalLink } from 'lucide-preact'
+import { Save, ExternalLink } from '@/components/ui/icon-set'
 import { useAuth } from '@/hooks/useAuth'
 import { useLandingContact, useSaveLandingContact } from '@/hooks/useLandingContact'
 import { Button } from '@/components/ui/Button'
@@ -89,7 +89,7 @@ function LandingInstitucionalBody() {
         </div>
         <div class="p-4 grid gap-3.5">
           <div>
-            <label class="text-[0.6875rem] font-medium text-fg-muted block mb-1">
+            <label class="text-2xs font-medium text-fg-muted block mb-1">
               Número (formato internacional, só dígitos)
             </label>
             <input
@@ -100,13 +100,13 @@ function LandingInstitucionalBody() {
               onInput={(e) => setWhatsappNumber((e.target as HTMLInputElement).value)}
               class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
             />
-            <div class="text-[0.6875rem] text-fg-muted mt-1">
+            <div class="text-2xs text-fg-muted mt-1">
               Ex.: 55 + DDD + número = <code>5511944742843</code>. Alimenta todos os botões
               "Falar no WhatsApp" e "Agende uma demonstração".
             </div>
           </div>
           <div>
-            <label class="text-[0.6875rem] font-medium text-fg-muted block mb-1">
+            <label class="text-2xs font-medium text-fg-muted block mb-1">
               Mensagem inicial pré-preenchida
             </label>
             <textarea
@@ -132,7 +132,7 @@ function LandingInstitucionalBody() {
           <div class="text-sm font-semibold text-fg">Botão "Entrar"</div>
         </div>
         <div class="p-4">
-          <label class="text-[0.6875rem] font-medium text-fg-muted block mb-1">
+          <label class="text-2xs font-medium text-fg-muted block mb-1">
             Destino do botão Entrar
           </label>
           <input
@@ -142,7 +142,7 @@ function LandingInstitucionalBody() {
             onInput={(e) => setLoginUrl((e.target as HTMLInputElement).value)}
             class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
           />
-          <div class="text-[0.6875rem] text-fg-muted mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             Padrão <code>/app</code>. Só altere se o login do sistema mudar de endereço.
           </div>
         </div>

@@ -12,7 +12,7 @@ interface BrandLogoProps {
   iconSize?: 'sm' | 'md' | 'lg'
 }
 
-const ICON_SIZES = { sm: 'size-6 text-[0.625rem]', md: 'size-7 text-xs', lg: 'size-9 text-sm' }
+const ICON_SIZES = { sm: 'size-6 text-3xs', md: 'size-7 text-xs', lg: 'size-9 text-sm' }
 
 function getInitials(name: string, accent: string): string {
   const cleaned = (name || '').trim()

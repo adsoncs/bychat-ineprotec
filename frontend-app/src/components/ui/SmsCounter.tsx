@@ -51,7 +51,7 @@ export function SmsCounter({ text }: { text: string }) {
   return (
     <div
       class={cn(
-        'flex items-center justify-between gap-2 text-[0.6875rem] px-2 py-1 rounded-md',
+        'flex items-center justify-between gap-2 text-2xs px-2 py-1 rounded-md',
         overLimit ? 'bg-danger/10 text-danger' : warning ? 'bg-warning/10 text-warning' : 'bg-surface-2 text-fg-muted',
       )}
     >

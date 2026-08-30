@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks'
 import {
   Link2, Plus, Copy, Check, Archive, ArchiveRestore, Pencil, Trash2,
   Settings as SettingsIcon, Tag, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useUtms,
@@ -285,13 +285,13 @@ function UtmRow({ utm, onEdit, onDelete, onArchive }: {
             {utm.archived && <Badge tone="warning">arquivada</Badge>}
             {!utm.active && <Badge tone="danger">inativa</Badge>}
           </div>
-          <code class="block text-[0.6875rem] font-mono text-fg-muted break-all bg-surface-2 rounded px-2 py-1 mt-1">
+          <code class="block text-2xs font-mono text-fg-muted break-all bg-surface-2 rounded px-2 py-1 mt-1">
             {utm.fullUrl}
           </code>
-          {utm.notes && <div class="text-xs text-fg-subtle mt-1">{utm.notes}</div>}
+          {utm.notes && <div class="text-xs text-fg-muted mt-1">{utm.notes}</div>}
           {Array.isArray(utm.tags) && utm.tags.length > 0 && (
             <div class="flex items-center gap-1 mt-1 flex-wrap">
-              <Tag size={10} class="text-fg-subtle" />
+              <Tag size={10} class="text-fg-muted" />
               {utm.tags.map(t => <Badge key={t} tone="neutral">{t}</Badge>)}
             </div>
           )}
@@ -516,7 +516,7 @@ function UtmFormModal({ utm, conv, suggestions, onClose }: {
 
         {/* Preview da URL final */}
         <div class="rounded-md border border-accent/30 bg-accent/10 p-3">
-          <div class="text-[0.6875rem] uppercase tracking-wider text-accent font-semibold mb-1 flex items-center gap-1">
+          <div class="text-2xs uppercase tracking-wider text-accent font-semibold mb-1 flex items-center gap-1">
             <Link2 size={11} /> URL final (preview)
           </div>
           {fullUrl ? (
@@ -551,7 +551,7 @@ function AutocompleteInput({ label, hint, value, onInput, options }: {
       <datalist id={listId}>
         {options.slice(0, 100).map(o => <option key={o} value={o} />)}
       </datalist>
-      {hint && <div class="text-[0.6875rem] text-fg-subtle mt-0.5">{hint}</div>}
+      {hint && <div class="text-2xs text-fg-muted mt-0.5">{hint}</div>}
     </div>
   )
 }

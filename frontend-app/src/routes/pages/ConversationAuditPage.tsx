@@ -3,7 +3,7 @@ import { Link } from 'wouter-preact'
 import {
   Bot, Activity, Trophy, AlertTriangle, Clock, ChevronRight,
   MessageSquare, Sparkles, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -116,7 +116,7 @@ export function ConversationAuditPage() {
       {/* Tom predominante */}
       {overview.data && overview.data.toneBreakdown.length > 0 && (
         <Card class="p-3 mt-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
             <MessageSquare size={11} /> Tom predominante das auditorias
           </div>
           <div class="flex flex-wrap gap-2">
@@ -134,7 +134,7 @@ export function ConversationAuditPage() {
 
       {/* Ranking por operador */}
       <Card class="p-3 mt-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
           <Trophy size={11} /> Ranking de operadores no período
         </div>
         {ranking.isLoading && <Skeleton class="h-32 w-full" />}
@@ -159,7 +159,7 @@ export function ConversationAuditPage() {
               <tbody class="divide-y divide-border">
                 {ranking.data.data.map((r, i) => (
                   <tr key={r.operatorId}>
-                    <td class="py-1.5 text-fg-subtle tabular-nums">{i + 1}</td>
+                    <td class="py-1.5 text-fg-muted tabular-nums">{i + 1}</td>
                     <td class="py-1.5 text-fg">{r.operatorName || `#${r.operatorId}`}</td>
                     <td class="py-1.5 text-right tabular-nums text-fg-muted">{intf.format(r.audits)}</td>
                     <td class="py-1.5 text-right tabular-nums">
@@ -169,7 +169,7 @@ export function ConversationAuditPage() {
                     <td class="py-1.5 text-right tabular-nums text-fg-muted">{r.maxScore ?? '—'}</td>
                     <td class="py-1.5 text-right tabular-nums text-fg-muted">{formatSec(r.avgResponseTimeSec)}</td>
                     <td class="py-1.5 pl-2">
-                      {r.dominantTone ? <Badge tone={TONE_TONES[r.dominantTone] ?? 'neutral'}>{TONE_LABELS[r.dominantTone] ?? r.dominantTone}</Badge> : <span class="text-fg-subtle">—</span>}
+                      {r.dominantTone ? <Badge tone={TONE_TONES[r.dominantTone] ?? 'neutral'}>{TONE_LABELS[r.dominantTone] ?? r.dominantTone}</Badge> : <span class="text-fg-muted">—</span>}
                     </td>
                   </tr>
                 ))}
@@ -181,7 +181,7 @@ export function ConversationAuditPage() {
 
       {/* Lista de auditorias recentes */}
       <Card class="p-3 mt-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
           <Activity size={11} /> Auditorias recentes ({recent.data?.total ?? 0})
         </div>
         {recent.isLoading && Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} class="h-16 w-full mb-2" />)}
@@ -269,14 +269,14 @@ function AuditRow({ audit }: { audit: ConversationAudit }) {
         {audit.status === 'failed' && audit.errorMessage && (
           <p class="text-xs text-danger mt-0.5 line-clamp-2">{audit.errorMessage}</p>
         )}
-        <div class="text-[0.6875rem] text-fg-subtle mt-1 flex gap-3">
+        <div class="text-2xs text-fg-muted mt-1 flex gap-3">
           <span>{new Date(audit.createdAt).toLocaleString('pt-BR')}</span>
           <span>{audit.messageCount} mensagens</span>
           {audit.responseTimeAvgSec !== null && <span>resposta média {formatSec(audit.responseTimeAvgSec)}</span>}
           {audit.modelUsed && <span>{audit.modelUsed}</span>}
         </div>
       </div>
-      <ChevronRight size={14} class="text-fg-subtle mt-2" />
+      <ChevronRight size={14} class="text-fg-muted mt-2" />
     </li>
   )
 }

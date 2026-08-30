@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Ticket, Plus, Pencil, Trash2 } from 'lucide-preact'
+import { Ticket, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Badge } from '@/components/ui/Badge'
@@ -68,7 +68,7 @@ export function CouponsTab() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-subtle border-b border-border">
+                <tr class="text-left text-xs text-fg-muted border-b border-border">
                   <th class="py-2 pr-3">Código</th>
                   <th class="py-2 pr-3">Tipo / Valor</th>
                   <th class="py-2 pr-3">Validade</th>
@@ -120,11 +120,11 @@ function CouponRow({ c, onEdit, onDelete }: { c: Coupon; onEdit: () => void; onD
     <tr class="border-b border-border/40">
       <td class="py-2 pr-3">
         <code class="text-sm font-mono font-medium text-fg">{c.code}</code>
-        {c.description && <div class="text-[0.6875rem] text-fg-subtle">{c.description}</div>}
+        {c.description && <div class="text-2xs text-fg-muted">{c.description}</div>}
       </td>
       <td class="py-2 pr-3">
         <div class="text-sm text-fg">{valueLabel}</div>
-        <div class="text-[0.6875rem] text-fg-subtle">
+        <div class="text-2xs text-fg-muted">
           {c.type === 'percent' ? 'Percentual' : 'Valor fixo'}
           {c.minAmount && ` · mín ${fmt(c.minAmount)}`}
         </div>
@@ -132,7 +132,7 @@ function CouponRow({ c, onEdit, onDelete }: { c: Coupon; onEdit: () => void; onD
       <td class="py-2 pr-3 text-xs text-fg-muted">{validity}</td>
       <td class="py-2 pr-3 text-xs">
         <div class="tabular-nums">{c.usageCount} / {c.usageLimit ?? '∞'}</div>
-        <div class="text-[0.6875rem] text-fg-subtle">{c.perUserLimit} por candidato</div>
+        <div class="text-2xs text-fg-muted">{c.perUserLimit} por candidato</div>
       </td>
       <td class="py-2 pr-3">
         <Badge tone={c.active ? 'success' : 'info'}>{c.active ? 'Ativo' : 'Inativo'}</Badge>
@@ -286,7 +286,7 @@ function CouponModal({ coupon, onClose }: { coupon: Coupon | null; onClose: () =
           <Input label="Válido a partir de" type="date" value={validFrom} onInput={(e) => setValidFrom((e.target as HTMLInputElement).value)} />
           <Input label="Válido até" type="date" value={validUntil} onInput={(e) => setValidUntil((e.target as HTMLInputElement).value)} />
         </div>
-        <div class="text-[0.6875rem] text-fg-subtle bg-info/10 border border-info/30 rounded-md p-2.5">
+        <div class="text-2xs text-fg-muted bg-info/10 border border-info/30 rounded-md p-2.5">
           ⓘ A estrutura está pronta, mas o cupom <strong>ainda não é aplicado no checkout</strong>. Use esta tela para organizar campanhas; a integração entra em fase futura.
         </div>
       </div>

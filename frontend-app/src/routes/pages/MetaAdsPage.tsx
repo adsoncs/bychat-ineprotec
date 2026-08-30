@@ -14,7 +14,7 @@ import {
   ScrollText,
   HelpCircle,
   Plus,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCreateCustomField } from '@/hooks/useCustomFields'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
@@ -193,7 +193,7 @@ function IntegrationCard({ integ, onAskDelete }: IntegrationCardProps) {
       <CardHeader>
         <CardTitle>
           <span class="inline-flex items-center gap-2">
-            <Megaphone size={16} class="text-fg-subtle" />
+            <Megaphone size={16} class="text-fg-muted" />
             {integ.pageName}
           </span>
         </CardTitle>
@@ -238,7 +238,7 @@ function IntegrationCard({ integ, onAskDelete }: IntegrationCardProps) {
       ) : (
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
-            <thead class="bg-surface-3 text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+            <thead class="bg-surface-3 text-3xs uppercase tracking-wider text-fg-muted">
               <tr>
                 <th class="px-3 py-1.5 text-left font-medium">Formulário</th>
                 <th class="px-3 py-1.5 text-left font-medium">Status</th>
@@ -543,12 +543,12 @@ function MetaFormMappingModal({ form, onClose }: { form: MetaForm; onClose: () =
               {unmapped} campo(s) sem destino. Clique em "Aplicar sugestões" ou ajuste manualmente.
             </div>
           )}
-          <div class="text-[0.6875rem] text-fg-subtle flex items-center gap-1">
+          <div class="text-2xs text-fg-muted flex items-center gap-1">
             <Plus size={12} class="shrink-0" />
             Sem destino na lista? Use o botão ao lado do campo para criar um campo personalizado com o mesmo nome e já mapear.
           </div>
           <table class="w-full text-sm">
-            <thead class="bg-surface-3 text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+            <thead class="bg-surface-3 text-3xs uppercase tracking-wider text-fg-muted">
               <tr>
                 <th class="px-3 py-2 text-left font-medium">Campo do Meta</th>
                 <th class="px-3 py-2 text-left font-medium">Tipo</th>
@@ -700,7 +700,7 @@ function MetaLogsModal({ onClose }: { onClose: () => void }) {
         {!isLoading && data && data.logs.length > 0 && (
           <div class="overflow-x-auto -mx-4 max-h-[60dvh]">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-[0.625rem] uppercase tracking-wider text-fg-subtle sticky top-0">
+              <thead class="bg-surface-3 text-3xs uppercase tracking-wider text-fg-muted sticky top-0">
                 <tr>
                   <th class="px-3 py-2 text-left font-medium">Status</th>
                   <th class="px-3 py-2 text-left font-medium">Meta lead ID</th>
@@ -737,7 +737,7 @@ function LogRow({ log }: { log: MetaLeadLog }) {
       <td class="px-3 py-1.5 text-xs text-danger truncate max-w-48" title={log.errorMessage ?? undefined}>
         {log.errorMessage ?? '—'}
       </td>
-      <td class="px-3 py-1.5 text-xs text-fg-subtle whitespace-nowrap">{formatDateTime(log.createdAt)}</td>
+      <td class="px-3 py-1.5 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(log.createdAt)}</td>
     </tr>
   )
 }

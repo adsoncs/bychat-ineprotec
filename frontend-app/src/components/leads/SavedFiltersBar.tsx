@@ -7,7 +7,7 @@ import { useState, useMemo } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Bookmark, BookmarkPlus, ChevronDown, RotateCcw, Lock, Globe, Trash2, Pencil,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -114,7 +114,7 @@ export function SavedFiltersBar({
             >
               <Bookmark size={12} />
               {appliedFilter ? appliedFilter.name : 'Filtros salvos'}
-              <ChevronDown size={11} class="text-fg-subtle" />
+              <ChevronDown size={11} class="text-fg-muted" />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -124,14 +124,14 @@ export function SavedFiltersBar({
               class="z-50 min-w-[260px] max-h-[400px] overflow-y-auto rounded-md border border-border bg-surface-2 shadow-lg p-1"
             >
               {filters.length === 0 && (
-                <div class="px-3 py-4 text-xs text-fg-subtle text-center">
+                <div class="px-3 py-4 text-xs text-fg-muted text-center">
                   Nenhum filtro salvo ainda. Configure os filtros abaixo e clique em <strong>Salvar</strong>.
                 </div>
               )}
 
               {mine.length > 0 && (
                 <>
-                  <div class="px-2 pt-1 pb-0.5 text-[0.625rem] font-semibold text-fg-subtle uppercase">
+                  <div class="px-2 pt-1 pb-0.5 text-3xs font-semibold text-fg-muted uppercase">
                     Meus filtros
                   </div>
                   {mine.map((f) => (
@@ -150,7 +150,7 @@ export function SavedFiltersBar({
               {others.length > 0 && (
                 <>
                   {mine.length > 0 && <div class="my-1 h-px bg-border" />}
-                  <div class="px-2 pt-1 pb-0.5 text-[0.625rem] font-semibold text-fg-subtle uppercase">
+                  <div class="px-2 pt-1 pb-0.5 text-3xs font-semibold text-fg-muted uppercase">
                     Filtros públicos do time
                   </div>
                   {others.map((f) => (
@@ -249,15 +249,15 @@ function SavedFilterRow({
         onClick={onApply}
       >
         {filter.visibility === 'public' ? (
-          <Globe size={10} class="text-fg-subtle shrink-0" />
+          <Globe size={10} class="text-fg-muted shrink-0" />
         ) : (
-          <Lock size={10} class="text-fg-subtle shrink-0" />
+          <Lock size={10} class="text-fg-muted shrink-0" />
         )}
         <span class={cn('text-xs truncate', isApplied ? 'font-semibold text-accent' : 'text-fg')}>
           {filter.name}
         </span>
         {filter.createdByName && (
-          <span class="text-[0.625rem] text-fg-subtle truncate hidden sm:inline">
+          <span class="text-3xs text-fg-muted truncate hidden sm:inline">
             · {filter.createdByName}
           </span>
         )}
@@ -266,7 +266,7 @@ function SavedFilterRow({
         <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             type="button"
-            class="size-6 grid place-items-center rounded text-fg-subtle hover:text-fg hover:bg-surface-2"
+            class="size-6 grid place-items-center rounded text-fg-muted hover:text-fg hover:bg-surface-2"
             onClick={(e) => { e.stopPropagation(); onEdit() }}
             title="Renomear / mudar visibilidade"
             aria-label="Editar"
@@ -275,7 +275,7 @@ function SavedFilterRow({
           </button>
           <button
             type="button"
-            class="size-6 grid place-items-center rounded text-fg-subtle hover:text-danger hover:bg-surface-2"
+            class="size-6 grid place-items-center rounded text-fg-muted hover:text-danger hover:bg-surface-2"
             onClick={(e) => { e.stopPropagation(); onDelete() }}
             title="Excluir filtro"
             aria-label="Excluir"
@@ -338,7 +338,7 @@ function SaveFilterModal({
                 'flex items-start gap-2 p-2.5 rounded-md border text-left',
                 visibility === 'private'
                   ? 'border-accent bg-accent/5'
-                  : 'border-border bg-surface hover:border-fg-subtle',
+                  : 'border-border bg-surface hover:border-fg-muted',
               )}
             >
               <Lock size={14} class={visibility === 'private' ? 'text-accent mt-0.5' : 'text-fg-muted mt-0.5'} />
@@ -346,7 +346,7 @@ function SaveFilterModal({
                 <div class={cn('text-xs font-medium', visibility === 'private' ? 'text-accent' : 'text-fg')}>
                   Privado
                 </div>
-                <div class="text-[0.6875rem] text-fg-muted">Só você vê</div>
+                <div class="text-2xs text-fg-muted">Só você vê</div>
               </div>
             </button>
             <button
@@ -356,7 +356,7 @@ function SaveFilterModal({
                 'flex items-start gap-2 p-2.5 rounded-md border text-left',
                 visibility === 'public'
                   ? 'border-accent bg-accent/5'
-                  : 'border-border bg-surface hover:border-fg-subtle',
+                  : 'border-border bg-surface hover:border-fg-muted',
               )}
             >
               <Globe size={14} class={visibility === 'public' ? 'text-accent mt-0.5' : 'text-fg-muted mt-0.5'} />
@@ -364,7 +364,7 @@ function SaveFilterModal({
                 <div class={cn('text-xs font-medium', visibility === 'public' ? 'text-accent' : 'text-fg')}>
                   Público
                 </div>
-                <div class="text-[0.6875rem] text-fg-muted">Todos do time veem</div>
+                <div class="text-2xs text-fg-muted">Todos do time veem</div>
               </div>
             </button>
           </div>

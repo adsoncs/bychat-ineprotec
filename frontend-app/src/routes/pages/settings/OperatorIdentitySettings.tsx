@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Save, UserCircle } from 'lucide-preact'
+import { Save, UserCircle } from '@/components/ui/icon-set'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
@@ -104,7 +104,7 @@ export function OperatorIdentitySettings() {
           />
           <span>
             Identificar quem está atendendo
-            <span class="block text-xs text-fg-subtle">
+            <span class="block text-xs text-fg-muted">
               O nome entra na primeira linha da mensagem — o WhatsApp não tem cabeçalho de remetente
               dentro da conversa.
             </span>
@@ -122,7 +122,7 @@ export function OperatorIdentitySettings() {
                 <option value="ao_mudar">Só quando o operador muda</option>
                 <option value="sempre">Em todas as mensagens</option>
               </Select>
-              <p class="mt-1 text-xs text-fg-subtle">
+              <p class="mt-1 text-xs text-fg-muted">
                 {cfg.identificarModo === 'ao_mudar'
                   ? 'O nome aparece na primeira mensagem e sempre que outra pessoa assumir a conversa.'
                   : 'O nome aparece em toda mensagem enviada. Pode ficar repetitivo numa conversa longa com a mesma pessoa.'}
@@ -140,7 +140,7 @@ export function OperatorIdentitySettings() {
             </label>
 
             <div class="rounded-md border border-border bg-surface-2 p-3">
-              <div class="mb-1 text-xs font-medium text-fg-subtle">Como o contato vê</div>
+              <div class="mb-1 text-xs font-medium text-fg-muted">Como o contato vê</div>
               <div class="text-sm">
                 <strong>{exemplo.replace(/\*/g, '')}</strong>
                 <br />
@@ -148,7 +148,7 @@ export function OperatorIdentitySettings() {
               </div>
             </div>
 
-            <p class="text-xs text-fg-subtle">
+            <p class="text-xs text-fg-muted">
               O nome exibido vem de <strong>Nome de exibição</strong>, no perfil de cada operador.
               Sem ele, usa o primeiro nome do cadastro. Áudios e figurinhas não são identificados —
               não têm legenda onde escrever.
@@ -168,7 +168,7 @@ export function OperatorIdentitySettings() {
           />
           <span>
             Avisar o contato quando outra pessoa assumir a conversa
-            <span class="block text-xs text-fg-subtle">
+            <span class="block text-xs text-fg-muted">
               Enviado só em conversa já em andamento e dentro do horário de atendimento. Atribuir um
               lead novo da fila não dispara aviso.
             </span>
@@ -186,7 +186,7 @@ export function OperatorIdentitySettings() {
               <option value="agente_setor">Nome e equipe</option>
               <option value="setor">Só a equipe (sem expor o nome)</option>
             </Select>
-            <p class="mb-3 mt-1 text-xs text-fg-subtle">
+            <p class="mb-3 mt-1 text-xs text-fg-muted">
               {cfg.avisarTransferenciaModo === 'setor'
                 ? 'Nenhum nome de operador é enviado ao contato — útil em operação com muita gente ou quando a relação é com a empresa, não com a pessoa.'
                 : cfg.avisarTransferenciaModo === 'agente'
@@ -200,19 +200,19 @@ export function OperatorIdentitySettings() {
               value={cfg.avisarTransferenciaTexto}
               onInput={(e) => setCfg({ ...cfg, avisarTransferenciaTexto: (e.target as HTMLTextAreaElement).value })}
             />
-            <p class="mt-1 text-xs text-fg-subtle">
+            <p class="mt-1 text-xs text-fg-muted">
               <code>{'{quem}'}</code> preenche conforme a opção acima. Para controle fino, use
               <code>{' {agente}'}</code> e <code>{'{setor}'}</code> — quando o operador não tem
               equipe, o trecho do setor sai da frase sem deixar vírgula solta.
             </p>
 
             <div class="mt-3 rounded-md border border-border bg-surface-2 p-3">
-              <div class="mb-1 text-xs uppercase tracking-wider text-fg-subtle">Como o contato vê</div>
+              <div class="mb-1 text-xs uppercase tracking-wider text-fg-muted">Como o contato vê</div>
               <div class="rounded-md bg-surface p-3 text-sm">{previewAviso(cfg)}</div>
             </div>
 
             <div class="mt-2">
-              <div class="mb-1 text-xs text-fg-subtle">Sugestões:</div>
+              <div class="mb-1 text-xs text-fg-muted">Sugestões:</div>
               <div class="flex flex-wrap gap-1.5">
                 {[
                   ['Padrão', '{quem} vai continuar o seu atendimento a partir de agora. Todo o histórico da conversa já foi repassado.'],

@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
-import { Loader2, RotateCcw } from 'lucide-preact'
+import { Loader2, RotateCcw } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
@@ -100,7 +100,7 @@ export function ConversationPrefsModal({
                 ]}
                 onChange={(v) => setNotifPref({ notifyEvents: v as 'incoming' | 'both' })}
               />
-              <p class="text-[0.6875rem] text-fg-subtle">
+              <p class="text-2xs text-fg-muted">
                 Timbre, volume e aviso na área de trabalho ficam em “Minhas preferências”, no menu do seu usuário.
               </p>
             </>
@@ -251,7 +251,7 @@ function TemaDoConversas() {
     >
       <div class="rounded-md border border-border bg-surface-3/50 p-3">
         <div class="mb-2 flex items-center gap-2">
-          <span class="rounded bg-accent/10 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wider text-accent">
+          <span class="rounded bg-accent/10 px-1.5 py-px text-3xs font-semibold uppercase tracking-wider text-accent">
             Toda a equipe
           </span>
           {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
@@ -286,9 +286,9 @@ function TemaDoConversas() {
                 </span>
                 <span class="flex items-center gap-1 text-xs font-medium text-fg">
                   {t.nome}
-                  {ativo && <span class="text-[0.625rem] font-normal text-accent">· em uso</span>}
+                  {ativo && <span class="text-3xs font-normal text-accent">· em uso</span>}
                 </span>
-                <span class="mt-0.5 block text-[0.6875rem] leading-snug text-fg-subtle">{t.resumo}</span>
+                <span class="mt-0.5 block text-2xs leading-snug text-fg-muted">{t.resumo}</span>
               </button>
             )
           })}
@@ -349,7 +349,7 @@ function NomesDasAbas() {
     >
       <div class="rounded-md border border-border bg-surface-3/50 p-3">
         <div class="mb-2 flex items-center gap-2">
-          <span class="rounded bg-accent/10 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wider text-accent">
+          <span class="rounded bg-accent/10 px-1.5 py-px text-3xs font-semibold uppercase tracking-wider text-accent">
             Toda a equipe
           </span>
           {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
@@ -360,9 +360,9 @@ function NomesDasAbas() {
             const padrao = (LABELS_PADRAO as any)[c.grupo][c.id] as string
             return (
               <label key={`${c.grupo}.${c.id}`} class="block">
-                <span class="mb-0.5 block text-[0.6875rem] text-fg-muted">
+                <span class="mb-0.5 block text-2xs text-fg-muted">
                   {padrao}
-                  <span class="ml-1 text-fg-subtle">· {c.ajuda}</span>
+                  <span class="ml-1 text-fg-muted">· {c.ajuda}</span>
                 </span>
                 <Input
                   value={(atual as any)[c.grupo][c.id]}
@@ -377,7 +377,7 @@ function NomesDasAbas() {
         </div>
 
         <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <span class="text-[0.6875rem] text-fg-subtle">
+          <span class="text-2xs text-fg-muted">
             {mudou ? 'Alterações ainda não salvas.' : 'Em dia com o que a equipe vê.'}
           </span>
           <div class="flex gap-2">
@@ -431,7 +431,7 @@ function TranscriptionSetting() {
   return (
     <div class="rounded-md border border-border bg-surface-3/50 p-3">
       <div class="flex items-center gap-2 mb-1.5">
-        <span class="text-[0.625rem] font-semibold uppercase tracking-wider px-1.5 py-px rounded bg-accent/10 text-accent">
+        <span class="text-3xs font-semibold uppercase tracking-wider px-1.5 py-px rounded bg-accent/10 text-accent">
           Toda a equipe
         </span>
         {(settingsQ.isLoading || pending) && <Loader2 size={12} class="animate-spin text-fg-muted" />}
@@ -472,7 +472,7 @@ function Preview({ messageFont, contactFont, bubbleMetaFont, nameBold, nameColor
         <div class="max-w-[75%] rounded-lg rounded-bl-sm border border-border bg-surface-2 px-3 py-2 text-fg" style={{ fontSize: msg }}>
           <div class="font-medium text-fg-muted mb-0.5" style={{ fontSize: meta, ...destaque }}>Maria Fernandes</div>
           Bom dia! Ainda dá tempo de visitar o apartamento hoje?
-          <div class="text-fg-subtle mt-1" style={{ fontSize: meta }}>09:12</div>
+          <div class="text-fg-muted mt-1" style={{ fontSize: meta }}>09:12</div>
         </div>
       </div>
       <div class="flex justify-end">
@@ -508,7 +508,7 @@ function Swatches({ label, help, value, onChange }: {
               title={c.label}
               aria-label={c.label}
               class={cn(
-                'size-7 rounded-full border grid place-items-center text-[0.5625rem] font-semibold',
+                'size-7 rounded-full border grid place-items-center text-3xs font-semibold',
                 active ? 'border-accent ring-2 ring-accent/40' : 'border-border',
                 c.value ? '' : 'bg-surface-3 text-fg-muted',
               )}
@@ -519,7 +519,7 @@ function Swatches({ label, help, value, onChange }: {
           )
         })}
       </div>
-      {help && <p class="text-[0.6875rem] text-fg-subtle mt-1">{help}</p>}
+      {help && <p class="text-2xs text-fg-muted mt-1">{help}</p>}
     </div>
   )
 }
@@ -555,7 +555,7 @@ function NumeroPadraoSemWhatsapp() {
   return (
     <div class="space-y-1.5 rounded-md border border-border bg-surface-2 p-3">
       <span class="text-sm font-medium text-fg">Número padrão para leads sem WhatsApp</span>
-      <p class="text-[0.6875rem] text-fg-subtle">
+      <p class="text-2xs text-fg-muted">
         Vale para lead que entrou por formulário, importação ou API. Quem chegou por
         WhatsApp continua atendido pelo número por onde escreveu. Qualquer pessoa pode
         trocar o número na hora de enviar.

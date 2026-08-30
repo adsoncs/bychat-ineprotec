@@ -26,7 +26,7 @@ export function LeadDetailToc({ items, leadId, active }: Props) {
       class="sticky self-start space-y-0.5"
       style={{ top: 'calc(var(--topbar-h) + 1rem)' }}
     >
-      <p class="text-[0.6875rem] font-medium uppercase tracking-wider text-fg-subtle px-2 mb-1.5">
+      <p class="text-2xs font-medium uppercase tracking-wider text-fg-muted px-2 mb-1.5">
         Seções
       </p>
       {items.map((item) => {
@@ -54,8 +54,8 @@ export function LeadDetailToc({ items, leadId, active }: Props) {
             {item.count !== undefined && item.count !== null && (
               <span
                 class={cn(
-                  'min-w-[1.25rem] h-4 px-1 rounded text-[0.625rem] font-medium grid place-items-center',
-                  isActive ? 'bg-accent/20 text-fg' : 'bg-surface-3 text-fg-subtle',
+                  'min-w-[1.25rem] h-4 px-1 rounded text-3xs font-medium grid place-items-center',
+                  isActive ? 'bg-accent/20 text-fg' : 'bg-surface-3 text-fg-muted',
                 )}
               >
                 {item.count}

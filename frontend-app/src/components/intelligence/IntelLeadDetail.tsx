@@ -3,7 +3,7 @@ import type { ComponentChildren } from 'preact'
 import {
   Sparkles, ShieldCheck, FileText, Download, RefreshCw,
   Trash2, Flag, Undo2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useIntelLead,
   useDossier,
@@ -84,13 +84,13 @@ export function IntelLeadDetail({ leadId }: { leadId: number }) {
           <div class="flex items-center gap-2 text-xs flex-wrap">
             <LgpdBadge consent={data.lead.lgpdConsent} source={data.lead.lgpdConsentSource ?? null} />
             {data.lead.lgpdConsent && (
-              <span class="text-fg-subtle">{lgpdSourceLabel(data.lead.lgpdConsentSource ?? null)}</span>
+              <span class="text-fg-muted">{lgpdSourceLabel(data.lead.lgpdConsentSource ?? null)}</span>
             )}
             {data.lead.lgpdConsent && data.lead.lgpdConsentAt && (
-              <span class="text-fg-subtle">· {formatDateTime(data.lead.lgpdConsentAt)}</span>
+              <span class="text-fg-muted">· {formatDateTime(data.lead.lgpdConsentAt)}</span>
             )}
             {data.lead.enrichedAt && (
-              <span class="text-fg-subtle">· enriquecido em {formatDateTime(data.lead.enrichedAt)}</span>
+              <span class="text-fg-muted">· enriquecido em {formatDateTime(data.lead.enrichedAt)}</span>
             )}
           </div>
           <div class="flex-1" />
@@ -148,7 +148,7 @@ export function IntelLeadDetail({ leadId }: { leadId: number }) {
           Resumo
         </TabButton>
         <TabButton active={tab === 'facts'} onClick={() => setTab('facts')}>
-          Fatos brutos {totalFacts > 0 && <span class="text-fg-subtle">({totalFacts})</span>}
+          Fatos brutos {totalFacts > 0 && <span class="text-fg-muted">({totalFacts})</span>}
         </TabButton>
       </div>
 
@@ -201,7 +201,7 @@ export function IntelLeadDetail({ leadId }: { leadId: number }) {
                             isDisputed && 'opacity-60 line-through decoration-danger/60',
                           )}
                         >
-                          <code class="font-mono text-fg-subtle w-32 shrink-0 truncate">{f.field}</code>
+                          <code class="font-mono text-fg-muted w-32 shrink-0 truncate">{f.field}</code>
                           <span class="text-fg flex-1 truncate">{f.value}</span>
                           {isDisputed && <Badge tone="danger">Contestado</Badge>}
                           {f.confidence !== null && (

@@ -19,7 +19,7 @@ import {
   type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { LayoutGrid, Download, Upload, AlertTriangle, Search, X as XIcon, Activity, Users, Save, Trash2 } from 'lucide-preact'
+import { LayoutGrid, Download, Upload, AlertTriangle, Search, X as XIcon, Activity, Users, Save, Trash2 } from '@/components/ui/icon-set'
 import {
   type WorkflowStep,
   useWorkflowExecutionStats,
@@ -146,7 +146,7 @@ function StepNode({ id, data, selected }: NodeProps) {
     >
       {executionMode && leadsHere > 0 && (
         <span
-          class="absolute -top-2 -right-2 inline-flex items-center gap-1 px-1.5 h-5 rounded-full text-[0.625rem] font-semibold shadow-md"
+          class="absolute -top-2 -right-2 inline-flex items-center gap-1 px-1.5 h-5 rounded-full text-3xs font-semibold shadow-md"
           style={{ background: '#f59e0b', color: '#fff' }}
           title={`${leadsHere} lead${leadsHere === 1 ? '' : 's'} parado${leadsHere === 1 ? '' : 's'} aqui agora`}
         >
@@ -157,7 +157,7 @@ function StepNode({ id, data, selected }: NodeProps) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onRequestDelete(Number(id)) }}
-          class="absolute -top-2 -left-2 size-5 grid place-items-center rounded-full bg-danger text-white shadow-md opacity-0 group-hover:opacity-100 hover:bg-danger/90 transition-opacity z-10"
+          class="absolute -top-2 -left-2 size-5 grid place-items-center rounded-full bg-danger text-fg-on-brand shadow-md opacity-0 group-hover:opacity-100 hover:bg-danger/90 transition-opacity z-10"
           title="Remover passo (do buffer — clique em Salvar pra confirmar)"
           aria-label="Remover passo"
         >
@@ -166,7 +166,7 @@ function StepNode({ id, data, selected }: NodeProps) {
       )}
       {(isNew || isDirty) && !executionMode && (
         <span
-          class="absolute -top-1.5 -right-1.5 inline-flex items-center px-1 h-4 rounded text-[0.5625rem] font-bold shadow-sm"
+          class="absolute -top-1.5 -right-1.5 inline-flex items-center px-1 h-4 rounded text-3xs font-bold shadow-sm"
           style={{ background: isNew ? '#0ea5e9' : '#f59e0b', color: '#fff' }}
           title={isNew ? 'Novo passo (não salvo)' : 'Modificado'}
         >
@@ -184,7 +184,7 @@ function StepNode({ id, data, selected }: NodeProps) {
       <div class="flex items-center gap-2 mb-1">
         <span class="text-base">{meta.icon}</span>
         <span
-          class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[0.6875rem] font-medium"
+          class="inline-flex items-center px-1.5 py-0.5 rounded-full text-2xs font-medium"
           style={{ background: `${meta.color}15`, color: meta.color }}
         >
           {meta.label}
@@ -202,10 +202,10 @@ function StepNode({ id, data, selected }: NodeProps) {
       <div class="text-sm font-medium text-fg break-words">{String(data.name)}</div>
 
       {executionMode && totalPassed > 0 && (
-        <div class="text-[0.6875rem] text-fg-muted mt-1 tabular-nums flex items-center gap-1">
-          <span class="text-fg-subtle">↗</span>
+        <div class="text-2xs text-fg-muted mt-1 tabular-nums flex items-center gap-1">
+          <span class="text-fg-muted">↗</span>
           <span>{totalPassed.toLocaleString('pt-BR')}</span>
-          <span class="text-fg-subtle">passaram aqui</span>
+          <span class="text-fg-muted">passaram aqui</span>
         </div>
       )}
 
@@ -969,7 +969,7 @@ function CanvasInner({
             {editable && searchOpen && (
               <Panel position="top-left">
                 <div class="flex items-center gap-1.5 bg-surface border border-border rounded-md px-2 py-1.5 shadow-md">
-                  <Search size={12} class="text-fg-subtle" />
+                  <Search size={12} class="text-fg-muted" />
                   <input
                     ref={searchInputRef}
                     type="text"
@@ -977,10 +977,10 @@ function CanvasInner({
                     onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
                     onKeyDown={handleSearchEnter as unknown as preact.JSX.KeyboardEventHandler<HTMLInputElement>}
                     placeholder="Buscar passos…"
-                    class="bg-transparent outline-none text-sm text-fg w-44 placeholder:text-fg-subtle"
+                    class="bg-transparent outline-none text-sm text-fg w-44 placeholder:text-fg-muted"
                   />
                   {searchQuery && (
-                    <span class="text-[0.6875rem] text-fg-subtle tabular-nums">
+                    <span class="text-2xs text-fg-muted tabular-nums">
                       {nodes.filter((n) => n.data.matched).length}
                     </span>
                   )}
@@ -1125,10 +1125,10 @@ function CanvasInner({
           </ReactFlow>
         </div>
         {showLegend && (
-          <div class="px-3 py-2 border-t border-border text-[0.6875rem] text-fg-muted flex items-center gap-3 flex-wrap">
-            <span><span class="inline-block w-3 h-0.5 bg-fg-subtle align-middle mr-1" /> próximo passo</span>
+          <div class="px-3 py-2 border-t border-border text-2xs text-fg-muted flex items-center gap-3 flex-wrap">
+            <span><span class="inline-block w-3 h-0.5 bg-fg-muted align-middle mr-1" /> próximo passo</span>
             <span><span class="inline-block w-3 h-0.5 align-middle mr-1" style={{ background: '#e37400', borderTop: '1px dashed #e37400' }} /> caminho alternativo (senão)</span>
-            {editable && <span class="text-fg-subtle">· paleta cria · clique edita · Del remove · Ctrl+Z desfaz · Ctrl+F busca · botão "Execução" mostra leads em tempo real</span>}
+            {editable && <span class="text-fg-muted">· paleta cria · clique edita · Del remove · Ctrl+Z desfaz · Ctrl+F busca · botão "Execução" mostra leads em tempo real</span>}
             <span class="ml-auto">{nodes.length} passos · {edges.length} conexões</span>
           </div>
         )}
@@ -1167,7 +1167,7 @@ function Palette() {
     >
       <button
         type="button"
-        class="text-[0.6875rem] text-fg-muted hover:text-fg p-2 border-b border-border text-left"
+        class="text-2xs text-fg-muted hover:text-fg p-2 border-b border-border text-left"
         onClick={() => setCollapsed((v) => !v)}
         title={collapsed ? 'Expandir paleta' : 'Recolher paleta'}
       >
@@ -1175,7 +1175,7 @@ function Palette() {
       </button>
       {!collapsed && (
         <>
-          <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-semibold px-3 pt-3 pb-1">
+          <div class="text-3xs uppercase tracking-wider text-fg-muted font-semibold px-3 pt-3 pb-1">
             Arraste para o canvas
           </div>
           <div class="flex flex-col gap-1.5 p-2">

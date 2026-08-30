@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import {
   User, Plus, Pencil, Trash2, Archive, ArchiveRestore, Star,
   Briefcase, MapPin, AlertTriangle, ShieldQuestion, Sparkles, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   usePersonas,
@@ -181,7 +181,7 @@ function PersonaRow({ persona, onEdit, onDelete, onArchive, onSetDefault }: {
             {persona.location && <span class="text-xs text-fg-muted flex items-center gap-1"><MapPin size={10} /> {persona.location}</span>}
           </div>
           {persona.description && <p class="text-xs text-fg-muted mb-2 line-clamp-2">{persona.description}</p>}
-          <div class="grid gap-2 grid-cols-1 sm:grid-cols-3 text-[0.6875rem]">
+          <div class="grid gap-2 grid-cols-1 sm:grid-cols-3 text-2xs">
             <Slot icon={<AlertTriangle size={10} class="text-danger" />} label="Dores" items={persona.painPoints} />
             <Slot icon={<ShieldQuestion size={10} class="text-warning" />} label="Objeções" items={persona.objections} />
             <Slot icon={<Sparkles size={10} class="text-success" />} label="Gatilhos" items={persona.triggers} />
@@ -194,7 +194,7 @@ function PersonaRow({ persona, onEdit, onDelete, onArchive, onSetDefault }: {
             </Button>
           )}
           {persona.isDefault && (
-            <div class="text-[0.6875rem] text-fg-subtle text-right">Em uso pela IA</div>
+            <div class="text-2xs text-fg-muted text-right">Em uso pela IA</div>
           )}
           <div class="flex gap-1 justify-end">
             <button
@@ -232,8 +232,8 @@ function Slot({ icon, label, items }: { icon: any; label: string; items: string[
   return (
     <div>
       <div class="text-fg-muted flex items-center gap-1 mb-0.5">{icon} {label}</div>
-      {list.length === 0 ? <em class="text-fg-subtle">—</em>
-        : <ul class="text-fg space-y-0.5">{list.slice(0, 3).map(i => <li class="truncate" title={i}>• {i}</li>)}{list.length > 3 && <li class="text-fg-subtle">+ {list.length - 3} mais</li>}</ul>}
+      {list.length === 0 ? <em class="text-fg-muted">—</em>
+        : <ul class="text-fg space-y-0.5">{list.slice(0, 3).map(i => <li class="truncate" title={i}>• {i}</li>)}{list.length > 3 && <li class="text-fg-muted">+ {list.length - 3} mais</li>}</ul>}
     </div>
   )
 }
@@ -401,7 +401,7 @@ function PersonaFormModal({ persona, onClose }: { persona: Persona | null; onClo
           />
           <div>
             <div class="text-sm font-medium text-fg flex items-center gap-1"><Star size={12} class="text-accent" /> Definir como persona padrão da IA</div>
-            <div class="text-[0.6875rem] text-fg-muted">Esta persona será injetada como contexto base no chatbot, Sales AI e cadências. Só uma persona pode ser padrão por vez — marcar aqui desmarca a anterior.</div>
+            <div class="text-2xs text-fg-muted">Esta persona será injetada como contexto base no chatbot, Sales AI e cadências. Só uma persona pode ser padrão por vez — marcar aqui desmarca a anterior.</div>
           </div>
         </label>
       </div>
@@ -420,7 +420,7 @@ function ListField({ label, value, onInput, placeholder }: {
     <div>
       <label class="text-xs text-fg-muted block mb-1 flex items-center justify-between">
         <span>{label}</span>
-        <span class="text-fg-subtle">{count} item{count === 1 ? '' : 's'}</span>
+        <span class="text-fg-muted">{count} item{count === 1 ? '' : 's'}</span>
       </label>
       <textarea
         value={value}

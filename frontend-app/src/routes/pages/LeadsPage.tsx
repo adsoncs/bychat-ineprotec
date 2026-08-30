@@ -7,7 +7,7 @@ import {
   Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap, Send,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
   Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
 import { useTeams, useTeamMembers } from '@/hooks/useTeams'
@@ -15,6 +15,10 @@ import { TransferLeadModal } from '@/components/routing/TransferLeadModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
+import { Avatar } from '@/components/ui/Avatar'
+import { SourceDot } from '@/components/ui/SourceDot'
+import { ScoreBar } from '@/components/ui/ScoreBar'
+import { StageRail } from '@/components/ui/StageRail'
 import { useBulkMarkWon, useBulkMarkLost, useLossReasons } from '@/hooks/useLeadOutcome'
 import {
   useLeads,
@@ -50,7 +54,7 @@ import {
   type LeadContactInput,
 } from '@/hooks/useLeads'
 import { WhatsappChoiceModal, SendWhatsAppButton } from '@/components/WhatsappSend'
-import { useFunnel, useFunnels, useFunnels as useFunnelsQuery, useStages } from '@/hooks/useFunnels'
+import { useFunnel, useFunnels, useFunnels as useFunnelsQuery, useStages, useStagesByFunnels } from '@/hooks/useFunnels'
 import { useLeadActivities, type Activity, type ActivityType } from '@/hooks/useActivities'
 import { useAppliedFilter, useSetAppliedFilter, useResetAppliedFilter } from '@/hooks/useSavedFilters'
 import { useUserStore } from '@/stores/user'
@@ -905,7 +909,7 @@ function BulkOutcomeModal({
       <div class="space-y-3">
         {kind === 'won' && (
           <div>
-            <label class="block text-xs font-medium text-fg mb-1">Valor da venda <span class="text-fg-subtle">(opcional, aplicado a todos)</span></label>
+            <label class="block text-xs font-medium text-fg mb-1">Valor da venda <span class="text-fg-muted">(opcional, aplicado a todos)</span></label>
             <Input
               type="text"
               inputMode="decimal"
@@ -923,7 +927,7 @@ function BulkOutcomeModal({
                 href="/app/settings"
                 target="_blank"
                 rel="noreferrer"
-                class="text-[0.6875rem] text-accent hover:underline"
+                class="text-2xs text-accent hover:underline"
                 title="Abre Configurações > Objeções em nova aba"
               >
                 Gerenciar objeções
@@ -945,7 +949,7 @@ function BulkOutcomeModal({
           </div>
         )}
         <div>
-          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-subtle">(opcional)</span></label>
+          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-muted">(opcional)</span></label>
           <Textarea
             value={note}
             onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
@@ -990,7 +994,7 @@ function AssigneeQuickFilters({
         class={cn(
           'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
           unassigned
-            ? 'bg-warning text-white border-warning'
+            ? 'bg-warning text-fg-on-brand border-warning'
             : 'bg-surface-3/60 text-fg-muted border-border hover:bg-surface-3',
         )}
         onClick={() => onChange({
@@ -1125,13 +1129,13 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
       {/* Responsável (multi) */}
       <div class="mt-4 pt-4 border-t border-border">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">
+          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">
             Responsável
           </span>
           {assignedUserIds.length > 0 && (
             <button
               type="button"
-              class="text-[0.6875rem] text-fg-muted hover:text-fg"
+              class="text-2xs text-fg-muted hover:text-fg"
               onClick={() => onChange({ assignedUserIds: undefined })}
             >
               Limpar
@@ -1156,7 +1160,7 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
             )
           })}
           {(!agentsData || agentsData.agents.length === 0) && (
-            <span class="text-xs text-fg-subtle">Sem operadores cadastrados</span>
+            <span class="text-xs text-fg-muted">Sem operadores cadastrados</span>
           )}
         </div>
       </div>
@@ -1164,13 +1168,13 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
       {/* Origem (multi) */}
       <div class="mt-4 pt-4 border-t border-border">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">
+          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">
             Origem
           </span>
           {sources.length > 0 && (
             <button
               type="button"
-              class="text-[0.6875rem] text-fg-muted hover:text-fg"
+              class="text-2xs text-fg-muted hover:text-fg"
               onClick={() => onChange({ sources: undefined })}
             >
               Limpar
@@ -1179,7 +1183,7 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
         </div>
         <div class="flex flex-wrap gap-1.5">
           {availableSources.length === 0 ? (
-            <span class="text-xs text-fg-subtle italic">Nenhuma origem encontrada</span>
+            <span class="text-xs text-fg-muted italic">Nenhuma origem encontrada</span>
           ) : availableSources.map((src) => {
             const key = src.value ?? ''
             const active = sources.includes(key)
@@ -1194,7 +1198,7 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
                 )}
               >
                 {leadSourceLabel(src.value)}
-                <span class="text-fg-subtle text-[0.625rem]">{src.count}</span>
+                <span class="text-fg-muted text-3xs">{src.count}</span>
               </button>
             )
           })}
@@ -1203,7 +1207,7 @@ function FiltersPanel({ filters, onChange }: { filters: LeadsListFilters; onChan
 
       {/* Sub-bloco: Data de entrada na etapa */}
       <div class="mt-4 pt-4 border-t border-border">
-        <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">
+        <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">
           Data de entrada na etapa
         </div>
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
@@ -1342,7 +1346,7 @@ function LeadsFooter({
           aria-label="Página anterior"
         >‹</button>
         {items.map((it, i) => it.kind === 'gap'
-          ? <span key={`gap-${i}`} class="px-1 text-fg-subtle">…</span>
+          ? <span key={`gap-${i}`} class="px-1 text-fg-muted">…</span>
           : (
             <button
               key={`p-${it.n}`}
@@ -1406,6 +1410,17 @@ function LeadsTable({
   onAction: (action: LeadRowAction, lead: LeadListItem) => void
 }) {
   const visible = useLeadsColumnsStore((s) => s.visible)
+  // Etapas para o trilho da coluna "status".
+  //
+  // Um lead pode estar em vários funis e a lista mistura funis, então o trilho
+  // não pode usar "as etapas do funil filtrado": desenharia a posição do lead
+  // num funil que não é o dele. Carregamos as etapas DE CADA funil presente na
+  // página (quase sempre um ou dois) e cada célula pega as do seu próprio lead.
+  const funnelIdsDaPagina = useMemo(
+    () => rows.map((l) => l.funnelId).filter((id): id is number => id != null),
+    [rows],
+  )
+  const stagesByFunnel = useStagesByFunnels(funnelIdsDaPagina)
   // Rótulos dos campos personalizados exibidos como coluna (`cf:<key>`).
   const { data: cfData } = useCustomFields()
   const cfLabels = Object.fromEntries((cfData?.fields ?? []).map((f) => [f.key, f.label]))
@@ -1413,8 +1428,12 @@ function LeadsTable({
   const someSelected = rows.some((l) => selected.has(l.id)) && !allSelected
   return (
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+      {/* `data-table` traz o filete de acento no hover e `tabular-nums` para a
+          tabela inteira (ver .data-table em styles/global.css). O padding das
+          células continua vindo dos utilitários de cada uma — esta tela tem
+          colunas configuráveis e cada tipo tem o seu recuo. */}
+      <table class="data-table w-full text-sm">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="w-10 px-4 py-2">
               <input
@@ -1459,7 +1478,7 @@ function LeadsTable({
                 class={cn('hover:bg-surface-3 cursor-pointer', isSelected && 'bg-accent/10 hover:bg-accent/15')}
                 onClick={() => onOpen(l.id)}
               >
-                <td class="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                <td class="px-4 py-1.5" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -1467,8 +1486,10 @@ function LeadsTable({
                     aria-label={`Selecionar lead ${l.empresa ?? l.id}`}
                   />
                 </td>
-                {visible.map((col) => <LeadCell key={col} col={col} lead={l} />)}
-                <td class="px-1 py-2" onClick={(e) => e.stopPropagation()}>
+                {visible.map((col) => (
+                  <LeadCell key={col} col={col} lead={l} stagesByFunnel={stagesByFunnel} />
+                ))}
+                <td class="px-1 py-1.5" onClick={(e) => e.stopPropagation()}>
                   <LeadRowActionsMenu lead={l} onAction={onAction} />
                 </td>
               </tr>
@@ -1572,82 +1593,129 @@ function LeadRowActionsMenu({
   )
 }
 
-function LeadCell({ col, lead }: { col: LeadColumnKey; lead: LeadListItem }) {
+function LeadCell({
+  col,
+  lead,
+  stagesByFunnel,
+}: {
+  col: LeadColumnKey
+  lead: LeadListItem
+  stagesByFunnel: Map<number, { key: string; name: string; color: string | null; terminalKind: 'won' | 'lost' | null }[]>
+}) {
   switch (col) {
     case 'empresa':
       return (
-        <td class="px-4 py-2">
-          <div class="text-fg truncate max-w-[16rem]">{lead.empresa ?? '—'}</div>
+        <td class="px-4 py-1.5">
+          <span class="text-fg truncate max-w-[14rem] block">{lead.empresa ?? '—'}</span>
         </td>
       )
     case 'nome':
+      // O avatar mora AQUI, e não na coluna `empresa`, porque `nome` é uma das
+      // seis colunas visíveis por padrão (ver DEFAULT_VISIBLE em
+      // stores/leadsColumns.ts) e `empresa` não é — inclusive há uma migração
+      // que a remove de quem já usava. Marcador de identidade em coluna
+      // desligada é trabalho que ninguém vê.
+      //
+      // A cor vem do `id`, não do nome: o contato se identifica depois e o nome
+      // muda; se a cor viesse dele, a mesma pessoa trocaria de cor no meio da
+      // lista e o reconhecimento de relance se perderia.
       return (
-        <td class="px-4 py-2">
-          <div class="text-fg truncate max-w-[12rem]">{lead.nome ?? '—'}</div>
+        <td class="px-4 py-1.5">
+          <div class="flex items-center gap-2 min-w-0">
+            <Avatar seed={lead.id} name={lead.nome ?? lead.empresa} size="sm" />
+            <span class="text-fg truncate max-w-[12rem]">{lead.nome ?? '—'}</span>
+          </div>
         </td>
       )
     case 'whatsapp':
-      return <td class="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{lead.whatsapp ?? '—'}</td>
+      return <td class="px-4 py-1.5 text-xs text-fg-muted whitespace-nowrap">{lead.whatsapp ?? '—'}</td>
     case 'email':
-      return <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-[14rem]">{lead.email ?? '—'}</td>
+      return <td class="px-4 py-1.5 text-xs text-fg-muted truncate max-w-[14rem]">{lead.email ?? '—'}</td>
     case 'segmento':
-      return <td class="px-4 py-2 text-xs text-fg-muted">{lead.segmento ?? '—'}</td>
+      return <td class="px-4 py-1.5 text-xs text-fg-muted">{lead.segmento ?? '—'}</td>
     case 'cidade':
-      return <td class="px-4 py-2 text-xs text-fg-muted">{lead.cidade ?? '—'}</td>
-    case 'status':
+      return <td class="px-4 py-1.5 text-xs text-fg-muted">{lead.cidade ?? '—'}</td>
+    case 'status': {
+      // As etapas vêm do funil DESTE lead. Lead sem funil, ou funil cujas etapas
+      // ainda não chegaram, cai no badge de sempre: ele diz a etapa sem afirmar
+      // posição nenhuma, que é a resposta honesta enquanto não se sabe a régua.
+      const stages = lead.funnelId != null ? stagesByFunnel.get(lead.funnelId) ?? [] : []
+      const railOk = stages.length > 0
       return (
-        <td class="px-4 py-2">
+        <td class="px-4 py-1.5">
           <div class="inline-flex items-center gap-1.5 flex-wrap">
-            {lead.status ? <LeadStatusBadge status={lead.status} label={lead.statusLabel} /> : <span class="text-fg-subtle">—</span>}
+            {railOk ? (
+              <StageRail stages={stages} current={lead.status} />
+            ) : lead.status ? (
+              <LeadStatusBadge status={lead.status} label={lead.statusLabel} />
+            ) : (
+              <span class="text-fg-muted">—</span>
+            )}
             <StatusSummaryBadge summary={lead.statusSummary} />
             {lead.outcome && <OutcomeBadge outcome={lead.outcome} />}
           </div>
         </td>
       )
+    }
     case 'score':
-      return <td class="px-4 py-2 tabular-nums text-fg-muted">{lead.scores?.geral ?? '—'}</td>
+      return (
+        <td class="px-4 py-1.5">
+          {lead.scores?.geral == null ? (
+            <span class="text-fg-muted">—</span>
+          ) : (
+            <span class="inline-flex items-center gap-2">
+              <ScoreBar value={lead.scores.geral} />
+              <span class="tabular-nums text-fg-muted">{lead.scores.geral}</span>
+            </span>
+          )}
+        </td>
+      )
     case 'aiScore':
       return (
-        <td class="px-4 py-2">
-          <AiScoreBadge score={lead.aiScore ?? null} label={lead.aiScoreLabel ?? null} />
+        <td class="px-4 py-1.5">
+          <AiScoreValue score={lead.aiScore ?? null} label={lead.aiScoreLabel ?? null} />
         </td>
       )
     case 'tags':
       return (
-        <td class="px-4 py-2">
+        <td class="px-4 py-1.5">
           {lead.tags && lead.tags.length > 0 ? (
             <div class="flex flex-wrap gap-1 max-w-[14rem]">
               {lead.tags.slice(0, 3).map(({ tag }) => (
                 <span
                   key={tag.id}
-                  class="text-[0.625rem] px-1.5 py-0.5 rounded-full font-medium"
+                  class="text-3xs px-1.5 py-0.5 rounded-full font-medium"
                   style={{ background: `${tag.color}22`, color: tag.color }}
                 >
                   {tag.name}
                 </span>
               ))}
-              {lead.tags.length > 3 && <span class="text-[0.625rem] text-fg-subtle">+{lead.tags.length - 3}</span>}
+              {lead.tags.length > 3 && <span class="text-3xs text-fg-muted">+{lead.tags.length - 3}</span>}
             </div>
-          ) : <span class="text-fg-subtle">—</span>}
+          ) : <span class="text-fg-muted">—</span>}
         </td>
       )
     case 'funil':
-      return <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-[10rem]">{lead.funnel?.name ?? '—'}</td>
+      return <td class="px-4 py-1.5 text-xs text-fg-muted truncate max-w-[10rem]">{lead.funnel?.name ?? '—'}</td>
     case 'origem':
-      return <td class="px-4 py-2 text-xs text-fg-muted">{leadSourceLabel(lead.source)}</td>
+      return (
+        <td class="px-4 py-1.5">
+          <SourceDot source={lead.source} />
+        </td>
+      )
     case 'data':
-      return <td class="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(lead.createdAt)}</td>
+      return <td class="px-4 py-1.5 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(lead.createdAt)}</td>
     case 'uid':
-      return <td class="px-4 py-2 font-mono text-[0.6875rem] text-fg-subtle truncate max-w-[8rem]">{lead.uid ?? '—'}</td>
+      return <td class="px-4 py-1.5 font-mono text-2xs text-fg-muted truncate max-w-[8rem]">{lead.uid ?? '—'}</td>
     case 'assignee':
       return (
-        <td class="px-4 py-2 text-xs">
+        <td class="px-4 py-1.5 text-xs">
           {lead.assignedUser ? (
             <span class="text-fg" title={lead.assignedUser.email ?? lead.assignedUser.name}>
               {lead.assignedUser.name}
             </span>
           ) : (
-            <span class="text-fg-subtle italic">Sem responsável</span>
+            <span class="text-fg-muted italic">Sem responsável</span>
           )}
         </td>
       )
@@ -1656,12 +1724,12 @@ function LeadCell({ col, lead }: { col: LeadColumnKey; lead: LeadListItem }) {
       // necessário — listas viram "a, b" e objetos caem para JSON.
       if (isCustomColumn(col)) {
         return (
-          <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-[14rem]" title={customCellText(lead, col)}>
+          <td class="px-4 py-1.5 text-xs text-fg-muted truncate max-w-[14rem]" title={customCellText(lead, col)}>
             {customCellText(lead, col)}
           </td>
         )
       }
-      return <td class="px-4 py-2 text-fg-subtle">—</td>
+      return <td class="px-4 py-1.5 text-fg-muted">—</td>
   }
 }
 
@@ -2040,7 +2108,7 @@ function LeadStagePicker({
     return (
       <div>
         <span class="text-xs font-medium text-fg-muted block mb-1.5">Status (etapa do funil)</span>
-        <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-subtle">
+        <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-muted">
           Lead sem funil definido. Atribua um funil para escolher a etapa.
         </div>
       </div>
@@ -2052,7 +2120,7 @@ function LeadStagePicker({
       <span class="text-xs font-medium text-fg-muted block mb-1.5">Status (etapa do funil)</span>
       {isLoading && <Skeleton class="h-9 w-full" />}
       {!isLoading && stages.length === 0 && (
-        <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-subtle">
+        <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-muted">
           Este funil não tem etapas ativas. Configure em Funis → Etapas.
         </div>
       )}
@@ -2078,14 +2146,14 @@ function LeadStagePicker({
               >
                 <span class="size-2 rounded-full" style={{ background: color }} />
                 {s.name}
-                {loading && <span class="text-[0.6875rem]">…</span>}
+                {loading && <span class="text-2xs">…</span>}
               </button>
             )
           })}
         </div>
       )}
       {isOrphan && (
-        <div class="mt-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.6875rem] text-fg-muted">
+        <div class="mt-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-2xs text-fg-muted">
           Status atual <strong class="text-fg">{currentStatus}</strong> não corresponde a nenhuma etapa ativa do funil. Selecione uma das etapas acima para corrigir.
         </div>
       )}
@@ -2122,7 +2190,7 @@ function LeadNotesSection({ leadId }: { leadId: number }) {
           disabled={create.isPending}
         />
         <div class="mt-2 flex items-center justify-between gap-2">
-          <span class="text-[0.6875rem] text-fg-subtle">
+          <span class="text-2xs text-fg-muted">
             Toda anotação fica salva como histórico, com autor e data/hora — visível a todos os operadores.
           </span>
           <Button
@@ -2137,12 +2205,12 @@ function LeadNotesSection({ leadId }: { leadId: number }) {
       </div>
 
       <div>
-        <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">
+        <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-2">
           Histórico de anotações {notes.length > 0 && <span class="text-fg-muted normal-case tracking-normal">({notes.length})</span>}
         </div>
         {isLoading && <Skeleton class="h-20 w-full" />}
         {!isLoading && notes.length === 0 && (
-          <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-subtle">
+          <div class="rounded-md border border-dashed border-border p-3 text-xs text-fg-muted">
             Nenhuma anotação registrada ainda.
           </div>
         )}
@@ -2152,8 +2220,8 @@ function LeadNotesSection({ leadId }: { leadId: number }) {
               const isLegacy = !n.userName
               return (
                 <li key={n.id} class="rounded-md border border-border bg-surface-2 p-3">
-                  <div class="flex items-center justify-between gap-2 text-[0.6875rem] text-fg-subtle">
-                    <span class={cn('font-medium', isLegacy ? 'italic text-fg-subtle' : 'text-fg-muted')}>
+                  <div class="flex items-center justify-between gap-2 text-2xs text-fg-muted">
+                    <span class={cn('font-medium', isLegacy ? 'italic text-fg-muted' : 'text-fg-muted')}>
                       {isLegacy ? 'Autor desconhecido (anotação legada)' : n.userName}
                     </span>
                     <span>{formatDateTime(n.createdAt)}</span>
@@ -2234,7 +2302,7 @@ function LeadTagsInline({ lead }: { lead: NonNullable<ReturnType<typeof useLead>
             </div>
           )}
           {picking && available.length === 0 && (
-            <div class="absolute left-0 top-7 z-10 rounded-md border border-border bg-surface-2 shadow-lg p-2 min-w-48 text-xs text-fg-subtle">
+            <div class="absolute left-0 top-7 z-10 rounded-md border border-border bg-surface-2 shadow-lg p-2 min-w-48 text-xs text-fg-muted">
               Todas as tags já estão aplicadas.
             </div>
           )}
@@ -2445,7 +2513,7 @@ function ActivitiesTab({ leadId }: { leadId: number }) {
               aria-pressed={active}
             >
               {chip.label}
-              <span class={cn('tabular-nums', active ? 'opacity-80' : 'text-fg-subtle')}>
+              <span class={cn('tabular-nums', active ? 'opacity-80' : 'text-fg-muted')}>
                 {n}
               </span>
             </button>
@@ -2587,7 +2655,7 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
     <button
       type="button"
       onClick={onClick}
-      class={`px-2.5 py-1 rounded-full text-[0.6875rem] font-medium border ${
+      class={`px-2.5 py-1 rounded-full text-2xs font-medium border ${
         active ? 'border-accent bg-accent/10 text-accent' : 'border-border text-fg-muted hover:bg-surface-3'
       }`}
     >
@@ -2613,11 +2681,11 @@ function TimelineEvent({ event }: { event: LeadHistoryEvent }) {
         {event.oldValue !== null && event.newValue !== null && (
           <div class="text-xs mt-1">
             <span class="text-danger line-through">{event.oldValue}</span>
-            <span class="text-fg-subtle mx-1">→</span>
+            <span class="text-fg-muted mx-1">→</span>
             <span class="text-success">{event.newValue}</span>
           </div>
         )}
-        <div class="text-[0.6875rem] text-fg-subtle mt-1">
+        <div class="text-2xs text-fg-muted mt-1">
           {/* Autoria sempre visível: toda ação da timeline é rastreável. O IP,
               quando registrado, fica no tooltip para não poluir a linha. */}
           <span
@@ -2662,7 +2730,7 @@ function FieldsTab({ customFields }: { leadId: number; customFields: Record<stri
     <div class="space-y-4">
       {Object.entries(grouped).map(([group, fields]) => (
         <div key={group}>
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">{group}</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-2">{group}</div>
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
             {fields.map((f) => (
               <Field key={f.id} label={f.label} value={readValue(f.key)} />
@@ -2677,32 +2745,42 @@ function FieldsTab({ customFields }: { leadId: number; customFields: Record<stri
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
-      <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">{label}</div>
+      <div class="text-2xs text-fg-muted uppercase tracking-wider">{label}</div>
       <div class="text-sm text-fg truncate">{value ?? '—'}</div>
     </div>
   )
 }
 
 const AI_SCORE_TONE = {
-  hot: { bg: 'bg-success/15', fg: 'text-success', txt: 'Quente' },
-  warm: { bg: 'bg-warning/15', fg: 'text-warning', txt: 'Morno' },
-  cold: { bg: 'bg-fg-subtle/15', fg: 'text-fg-muted', txt: 'Frio' },
+  hot: { bg: 'bg-success/15', fg: 'text-success', txt: 'Quente', bar: 'var(--data-success)' },
+  warm: { bg: 'bg-warning/15', fg: 'text-warning', txt: 'Morno', bar: 'var(--data-warning)' },
+  cold: { bg: 'bg-fg-muted/15', fg: 'text-fg-muted', txt: 'Frio', bar: 'var(--data-muted)' },
 } as const
 
-function aiScoreTone(label: string | null): { bg: string; fg: string; txt: string } {
+function aiScoreTone(label: string | null): { bg: string; fg: string; txt: string; bar: string } {
   if (label === 'hot') return AI_SCORE_TONE.hot
   if (label === 'warm') return AI_SCORE_TONE.warm
   return AI_SCORE_TONE.cold
 }
 
-function AiScoreBadge({ score, label }: { score: number | null; label: string | null }) {
+/**
+ * Score da IA NA LISTA: barra + número.
+ *
+ * O comprimento dá a magnitude de relance — numa coluna de oito linhas é o que
+ * deixa ver quem está na frente sem ler número por número. A cor vem do rótulo
+ * da IA (quente/morno/frio), não da faixa numérica, senão a barra poderia
+ * contradizer, na mesma célula, o veredito que a própria IA deu.
+ *
+ */
+function AiScoreValue({ score, label }: { score: number | null; label: string | null }) {
   if (score === null || score === undefined) {
-    return <span class="text-fg-subtle text-xs">—</span>
+    return <span class="text-fg-muted text-xs">—</span>
   }
   const tone = aiScoreTone(label)
   return (
-    <span class={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${tone.bg} ${tone.fg}`} title={`Lead Score por IA: ${score} (${tone.txt})`}>
-      <Sparkles size={11} /> {score}
+    <span class="inline-flex items-center gap-2" title={`Lead Score por IA: ${score} (${tone.txt})`}>
+      <ScoreBar value={score} color={tone.bar} title={`Lead Score por IA: ${score} (${tone.txt})`} />
+      <span class={`tabular text-xs font-semibold ${tone.fg}`}>{score}</span>
     </span>
   )
 }
@@ -2737,7 +2815,7 @@ function AiSummaryPanel({ lead }: { lead: { id: number; aiScoreReason: AiScoreRe
         <>
           <p class="mt-3 text-sm leading-relaxed text-fg">{resumo}</p>
           {lead.aiScoredAt && (
-            <div class="mt-2 text-[0.6875rem] text-fg-subtle">
+            <div class="mt-2 text-2xs text-fg-muted">
               Síntese das respostas dos campos personalizados · {formatDateTime(lead.aiScoredAt)}
             </div>
           )}
@@ -2796,7 +2874,7 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
                 </div>
               )}
               {lead.aiScoredAt && (
-                <div class="text-[0.6875rem] text-fg-subtle">
+                <div class="text-2xs text-fg-muted">
                   Atualizado {formatDateTime(lead.aiScoredAt)}{r ? ` · ${r.phase === 'definitive' ? 'definitivo' : r.phase === 'manual' ? 'manual' : 'provisório'}` : ''}
                 </div>
               )}
@@ -2809,7 +2887,7 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
             <div class="grid gap-3 sm:grid-cols-2">
               {r.positives?.length > 0 && (
                 <div>
-                  <div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-success mb-1">Sinais a favor</div>
+                  <div class="text-2xs font-semibold uppercase tracking-wider text-success mb-1">Sinais a favor</div>
                   <ul class="space-y-1 text-xs text-fg-muted">
                     {r.positives.map((p, i) => <li key={i}>• {p}</li>)}
                   </ul>
@@ -2817,7 +2895,7 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
               )}
               {r.risks?.length > 0 && (
                 <div>
-                  <div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-danger mb-1">Riscos</div>
+                  <div class="text-2xs font-semibold uppercase tracking-wider text-danger mb-1">Riscos</div>
                   <ul class="space-y-1 text-xs text-fg-muted">
                     {r.risks.map((p, i) => <li key={i}>• {p}</li>)}
                   </ul>
@@ -2827,7 +2905,7 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
           )}
 
           {r && (
-            <div class="text-[0.6875rem] text-fg-subtle border-t border-border pt-2">
+            <div class="text-2xs text-fg-muted border-t border-border pt-2">
               {r.provider}/{r.model} · ~US$ {Number(r.costUsd ?? 0).toFixed(5)}
             </div>
           )}
@@ -2974,7 +3052,7 @@ export function EditLeadModal({ id, onClose }: { id: number; onClose: () => void
 
           {editableCustom.length > 0 && (
             <div>
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">Campos personalizados</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-2">Campos personalizados</div>
               <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
                 {editableCustom.map((f) => (
                   <CustomFieldEditInput key={f.id} field={f} value={cf[f.key] ?? ''} onChange={(v) => setCustom(f.key, v)} />
@@ -3067,7 +3145,7 @@ const ANSWER_MAP: AnswerSection[] = [
 
 function formatAnswer(field: AnswerField, val: unknown): preact.ComponentChildren {
   if (val === undefined || val === null || val === '') {
-    return <span class="text-fg-subtle italic">Não respondido</span>
+    return <span class="text-fg-muted italic">Não respondido</span>
   }
   if (field.array && Array.isArray(val)) {
     return (
@@ -3075,7 +3153,7 @@ function formatAnswer(field: AnswerField, val: unknown): preact.ComponentChildre
         {val.map((v) => {
           const k = typeof v === 'string' || typeof v === 'number' ? String(v) : ''
           return (
-            <span key={k} class="inline-flex px-2 py-0.5 rounded-full text-[0.6875rem] bg-surface-3 text-fg">
+            <span key={k} class="inline-flex px-2 py-0.5 rounded-full text-2xs bg-surface-3 text-fg">
               {field.values?.[k] ?? k}
             </span>
           )
@@ -3149,7 +3227,7 @@ function LeadAnswersModal({ id, onClose }: { id: number; onClose: () => void }) 
                   <span class="text-base">{sec.icon}</span>
                   <span class="text-xs font-medium text-accent uppercase tracking-wider">{sec.section}</span>
                   {!reached && (
-                    <span class="ml-auto text-[0.6875rem] text-fg-subtle bg-surface-3 px-2 py-0.5 rounded">Não preenchido</span>
+                    <span class="ml-auto text-2xs text-fg-muted bg-surface-3 px-2 py-0.5 rounded">Não preenchido</span>
                   )}
                 </div>
                 <div class="grid gap-2 grid-cols-1 sm:grid-cols-2">
@@ -3164,9 +3242,9 @@ function LeadAnswersModal({ id, onClose }: { id: number; onClose: () => void }) 
                           isLong && 'sm:col-span-2',
                         )}
                       >
-                        <div class="text-[0.6875rem] text-fg-muted font-medium mb-1">{f.label}</div>
+                        <div class="text-2xs text-fg-muted font-medium mb-1">{f.label}</div>
                         <div class="text-sm text-fg whitespace-pre-wrap">
-                          {reached ? formatAnswer(f, val) : <span class="text-fg-subtle italic">Etapa não alcançada</span>}
+                          {reached ? formatAnswer(f, val) : <span class="text-fg-muted italic">Etapa não alcançada</span>}
                         </div>
                       </div>
                     )
@@ -3354,7 +3432,7 @@ function BulkAssignAgentModal({
                       <div class="text-sm flex items-center gap-2">
                         {a.name}
                         {selected && (
-                          <span class="text-[0.625rem] bg-accent/15 text-accent font-bold px-1.5 py-0.5 rounded">
+                          <span class="text-3xs bg-accent/15 text-accent font-bold px-1.5 py-0.5 rounded">
                             #{idx + 1}
                           </span>
                         )}

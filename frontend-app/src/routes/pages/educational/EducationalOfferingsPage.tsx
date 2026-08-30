@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
-import { Ticket, BookOpen, Plus, Pencil, Trash2 } from 'lucide-preact'
+import { Ticket, BookOpen, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useOfferings,
   useCreateOffering,
@@ -156,7 +156,7 @@ export function EducationalOfferingsPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -227,21 +227,21 @@ function OfferingCard({
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate">{o.nome}</span>
             {o.codigo && (
-              <code class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+              <code class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
                 {o.codigo}
               </code>
             )}
             {o.modality?.nome && (
-              <span class="bg-accent/15 text-accent text-[0.625rem] font-semibold px-2 py-0.5 rounded-full">
+              <span class="bg-accent/15 text-accent text-3xs font-semibold px-2 py-0.5 rounded-full">
                 {o.modality.nome}
               </span>
             )}
             <span
               class={
-                'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                 (o.active !== false
                   ? 'bg-accent text-fg-on-brand'
-                  : 'bg-surface-3 text-fg-subtle')
+                  : 'bg-surface-3 text-fg-muted')
               }
             >
               {o.active !== false ? '● Ativa' : '○ Inativa'}
@@ -249,7 +249,7 @@ function OfferingCard({
           </div>
 
           {o.complemento && (
-            <div class="text-xs text-fg-subtle mt-0.5 truncate">{o.complemento}</div>
+            <div class="text-xs text-fg-muted mt-0.5 truncate">{o.complemento}</div>
           )}
 
           {o.course?.nome && (
@@ -260,12 +260,12 @@ function OfferingCard({
           )}
 
           {(o.selectionProcess ?? o.turno ?? campusText) && (
-            <div class="text-xs text-fg-subtle mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+            <div class="text-xs text-fg-muted mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
               {o.selectionProcess?.nome && (
                 <span>
                   {o.selectionProcess.nome}
                   {o.selectionProcess.periodoLetivo && (
-                    <span class="text-fg-subtle"> · {o.selectionProcess.periodoLetivo}</span>
+                    <span class="text-fg-muted"> · {o.selectionProcess.periodoLetivo}</span>
                   )}
                 </span>
               )}
@@ -278,27 +278,27 @@ function OfferingCard({
 
           <div class="flex flex-wrap items-center gap-3 mt-2">
             {o.valorMensalidade != null && (
-              <div class="text-[0.6875rem]">
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Mensalidade</span>
+              <div class="text-2xs">
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Mensalidade</span>
                 <span class="text-fg font-semibold tabular-nums">{fmtBrl(o.valorMensalidade)}</span>
               </div>
             )}
             {vagasMax > 0 ? (
-              <div class="text-[0.6875rem] tabular-nums">
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Vagas</span>
+              <div class="text-2xs tabular-nums">
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Vagas</span>
                 <span class="text-fg font-semibold">{ocupadas}/{vagasMax}</span>
                 {ocupacao != null && <span class={`ml-1 ${ocupacaoTone}`}>({ocupacao}%)</span>}
                 <span class="text-fg-muted ml-2">{inscricoes} inscriç{inscricoes === 1 ? 'ão' : 'ões'}</span>
               </div>
             ) : inscricoes > 0 ? (
-              <div class="text-[0.6875rem] tabular-nums">
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Inscrições</span>
+              <div class="text-2xs tabular-nums">
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Inscrições</span>
                 <span class="text-fg font-semibold">{inscricoes}</span>
               </div>
             ) : null}
             {o.notaCorte != null && (
-              <div class="text-[0.6875rem]">
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Nota corte</span>
+              <div class="text-2xs">
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Nota corte</span>
                 <span class="text-fg font-semibold tabular-nums">{o.notaCorte}</span>
               </div>
             )}
@@ -337,10 +337,10 @@ function DateRanges({ o }: { o: CourseOffering }) {
   ].filter((r) => r.from ?? r.to)
   if (ranges.length === 0) return null
   return (
-    <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[0.6875rem] text-fg-muted tabular-nums">
+    <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-2xs text-fg-muted tabular-nums">
       {ranges.map((r) => (
         <span key={r.label}>
-          <span class="text-fg-subtle">{r.label}:</span> {fmtDate(r.from)} → {fmtDate(r.to)}
+          <span class="text-fg-muted">{r.label}:</span> {fmtDate(r.from)} → {fmtDate(r.to)}
         </span>
       ))}
     </div>
@@ -542,7 +542,7 @@ function OfferingFormModal({
             <option value="">—</option>
             {TURNOS.map((t) => <option key={t} value={t}>{t}</option>)}
           </Select>
-          <div class="text-[0.625rem] text-fg-subtle mt-1">
+          <div class="text-3xs text-fg-muted mt-1">
             💡 Período letivo é definido no Processo Seletivo
           </div>
         </div>
@@ -553,7 +553,7 @@ function OfferingFormModal({
           </label>
           <div class="bg-surface border border-border rounded-md p-2.5 max-h-40 overflow-y-auto">
             {campuses.length === 0 ? (
-              <span class="text-xs text-fg-subtle">Nenhum campus cadastrado</span>
+              <span class="text-xs text-fg-muted">Nenhum campus cadastrado</span>
             ) : (
               campuses.map((c) => (
                 <label
@@ -567,7 +567,7 @@ function OfferingFormModal({
                   />
                   <span class="text-fg">{c.nome}</span>
                   {c.cidade && (
-                    <span class="text-fg-subtle text-[0.6875rem]">
+                    <span class="text-fg-muted text-2xs">
                       · {c.cidade}{c.estado ? `/${c.estado}` : ''}
                     </span>
                   )}

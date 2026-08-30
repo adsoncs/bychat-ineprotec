@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Clock, AlertTriangle } from 'lucide-preact'
+import { Clock, AlertTriangle } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -147,9 +147,9 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
             <div class="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm">
               <span class="font-medium">{nomeDoCanal(canal)}</span>
               {canal?.number && nomeDoCanal(canal) !== canal.number && (
-                <span class="ml-2 text-xs text-fg-subtle">{canal.number}</span>
+                <span class="ml-2 text-xs text-fg-muted">{canal.number}</span>
               )}
-              <span class="mt-0.5 block text-xs text-fg-subtle">
+              <span class="mt-0.5 block text-xs text-fg-muted">
                 Esta conversa já está em andamento por este número — é o que o contato conhece.
               </span>
             </div>
@@ -221,7 +221,7 @@ export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial,
           />
           <span>
             Cancelar se o contato responder antes
-            <span class="block text-xs text-fg-subtle">
+            <span class="block text-xs text-fg-muted">
               Evita mandar um follow-up para quem já voltou a falar com você.
             </span>
           </span>

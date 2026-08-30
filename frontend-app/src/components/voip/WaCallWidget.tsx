@@ -1,7 +1,7 @@
 // Widget de chamada de voz WhatsApp (WebRTC). Diferente do CallWidget (FaleMais),
 // aqui o áudio roda no navegador — então o widget controla atender/recusar/mudo/desligar.
 import { useEffect, useState } from 'preact/hooks'
-import { Phone, PhoneOff, Mic, MicOff } from 'lucide-preact'
+import { Phone, PhoneOff, Mic, MicOff } from '@/components/ui/icon-set'
 import { useWaCall } from '@/stores/waCall'
 import { acceptIncoming, rejectIncoming, hangup, toggleMute, retryPermission, cancelCall } from '@/lib/waCallManager'
 import { cn } from '@/lib/cn'
@@ -51,7 +51,7 @@ export function WaCallWidget() {
         </span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-semibold truncate">{title}</div>
-          <div class="text-[11px] opacity-90">
+          <div class="text-2xs opacity-90">
             {STATUS_LABEL[call.status] || call.status}
             {call.direction === 'outgoing' && call.status === 'connecting' ? ' (saída)' : ''}
           </div>

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-preact'
+import { ChevronLeft, ChevronRight } from '@/components/ui/icon-set'
 
 interface PaginationProps {
   total: number
@@ -15,8 +15,10 @@ export function Pagination({ total, limit, offset, onChange }: PaginationProps) 
 
   return (
     <div class="flex items-center justify-between gap-3 text-xs text-fg-muted">
-      <span>
-        {from}–{to} de <span class="text-fg tabular-nums">{total}</span>
+      {/* A faixa inteira é tabular: sem isso o "12–24" muda de largura ao virar
+          para "13–25" e o bloco todo se desloca a cada página. */}
+      <span class="tabular-nums">
+        {from}–{to} de <span class="font-semibold text-fg">{total}</span>
       </span>
       <div class="flex items-center gap-1">
         <button

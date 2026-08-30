@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, FileCheck2, FileText, ScrollText, Settings2 } from 'lucide-preact'
+import { ChevronLeft, FileCheck2, FileText, ScrollText, Settings2 } from '@/components/ui/icon-set'
 import {
   useSelectionProcess,
   useUpdateSelectionProcess,
@@ -121,7 +121,7 @@ function OverviewTab({ process: p }: { process: SelectionProcess }) {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
           {meta.map((m) => (
             <div key={m.label} class="flex items-center gap-2 text-sm">
-              <span class="text-fg-subtle text-xs w-32 shrink-0">{m.label}</span>
+              <span class="text-fg-muted text-xs w-32 shrink-0">{m.label}</span>
               <span class="text-fg truncate">{m.value}</span>
             </div>
           ))}
@@ -130,14 +130,14 @@ function OverviewTab({ process: p }: { process: SelectionProcess }) {
 
       {p.descricao && (
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Descrição</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-1">Descrição</div>
           <div class="text-sm text-fg whitespace-pre-wrap">{p.descricao}</div>
         </Card>
       )}
 
       {p.editalUrl && (
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Edital</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-1">Edital</div>
           <a href={p.editalUrl} class="text-sm text-accent hover:underline" target="_blank" rel="noopener noreferrer">
             {p.editalUrl}
           </a>
@@ -145,7 +145,7 @@ function OverviewTab({ process: p }: { process: SelectionProcess }) {
       )}
 
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Datas</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Datas</div>
         <div class="space-y-1 text-sm">
           <DateLine label="Inscrições" from={p.inicioInscricao} to={p.terminoInscricao} />
           <DateLine label="Matrículas" from={p.inicioMatricula} to={p.terminoMatricula} />
@@ -154,7 +154,7 @@ function OverviewTab({ process: p }: { process: SelectionProcess }) {
 
       {p._count && (
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Atividade</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Atividade</div>
           <div class="grid grid-cols-2 gap-3">
             <Stat label="Ofertas vinculadas" value={p._count.offerings} />
             <Stat label="Inscrições" value={p._count.registrations} />
@@ -173,7 +173,7 @@ function fmtDate(iso: string | null): string {
 function DateLine({ label, from, to }: { label: string; from: string | null; to: string | null }) {
   return (
     <div class="flex items-center gap-3">
-      <span class="text-fg-subtle text-xs w-24">{label}</span>
+      <span class="text-fg-muted text-xs w-24">{label}</span>
       <span class="text-fg tabular-nums">{fmtDate(from)} → {fmtDate(to)}</span>
     </div>
   )
@@ -182,7 +182,7 @@ function DateLine({ label, from, to }: { label: string; from: string | null; to:
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <div class="text-xs text-fg-subtle">{label}</div>
+      <div class="text-xs text-fg-muted">{label}</div>
       <div class="text-2xl font-semibold text-fg tabular-nums">{value}</div>
     </div>
   )
@@ -221,7 +221,7 @@ function DocumentsTab({ process: p }: { process: SelectionProcess }) {
             <div class="text-sm font-medium text-fg">
               {useCustom ? 'Lista customizada para este processo' : `Herdando do modo "${p.entryMode?.name ?? '—'}"`}
             </div>
-            <div class="text-xs text-fg-subtle mt-0.5">
+            <div class="text-xs text-fg-muted mt-0.5">
               {useCustom
                 ? 'Os candidatos veem os documentos abaixo, ignorando o default do modo de ingresso.'
                 : 'Os candidatos veem os documentos default do modo. Ative o toggle para sobrescrever.'}

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
-import { BookOpen, Plus, Pencil, Trash2 } from 'lucide-preact'
+import { BookOpen, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useCourses,
   useCreateCourse,
@@ -115,7 +115,7 @@ export function EducationalCoursesPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -131,34 +131,34 @@ export function EducationalCoursesPage() {
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-medium text-fg truncate">{c.nome}</span>
                         {c.codigo && (
-                          <code class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+                          <code class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
                             {c.codigo}
                           </code>
                         )}
                         {c.level?.nome && (
-                          <span class="bg-accent/15 text-accent text-[0.625rem] font-semibold px-2 py-0.5 rounded-full">
+                          <span class="bg-accent/15 text-accent text-3xs font-semibold px-2 py-0.5 rounded-full">
                             {c.level.nome}
                           </span>
                         )}
                         <span
                           class={
-                            'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                            'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                             (c.active !== false
                               ? 'bg-accent text-fg-on-brand'
-                              : 'bg-surface-3 text-fg-subtle')
+                              : 'bg-surface-3 text-fg-muted')
                           }
                         >
                           {c.active !== false ? '● Ativo' : '○ Inativo'}
                         </span>
                       </div>
                       {c.unit && (
-                        <div class="text-xs text-fg-subtle mt-0.5">{c.unit.nome}</div>
+                        <div class="text-xs text-fg-muted mt-0.5">{c.unit.nome}</div>
                       )}
                       <CourseMeta c={c} />
                       {c.descricao && <div class="text-xs text-fg-muted truncate mt-1">{c.descricao}</div>}
                       {c._count != null && (
                         <div class="mt-2">
-                          <span class="bg-warning/15 text-warning text-[0.6875rem] font-semibold px-2 py-0.5 rounded-full tabular-nums">
+                          <span class="bg-warning/15 text-warning text-2xs font-semibold px-2 py-0.5 rounded-full tabular-nums">
                             {c._count.offerings} oferta(s)
                           </span>
                         </div>
@@ -216,7 +216,7 @@ function CourseMeta({ c }: { c: Course }) {
   if (c.duracaoMeses) parts.push(`${c.duracaoMeses}m`)
   if (c.cargaHoraria) parts.push(`${c.cargaHoraria}h`)
   if (parts.length === 0) return null
-  return <div class="text-[0.6875rem] text-fg-muted tabular-nums mt-0.5">Duração {parts.join(' · ')}</div>
+  return <div class="text-2xs text-fg-muted tabular-nums mt-0.5">Duração {parts.join(' · ')}</div>
 }
 
 function CourseFormModal({

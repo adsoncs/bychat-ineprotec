@@ -6,7 +6,7 @@
 // some para quem não pode ver, e KPI vem recortado pelo escopo do usuário.
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { ArrowDown, ArrowUp, Home, Info, Plus, Trash2, X } from 'lucide-preact'
+import { ArrowDown, ArrowUp, Home, Info, Plus, Trash2, X } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'

@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { Fragment } from 'preact'
 import type { ComponentChildren } from 'preact'
-import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Settings2, Copy, Clock, Timer, Zap, BookOpen, Eye, Star, Smile, Building2, BarChart3, Download, Sparkles, List, Columns } from 'lucide-preact'
+import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Settings2, Copy, Clock, Timer, Zap, BookOpen, Eye, Star, Smile, Building2, BarChart3, Download, Sparkles, List, Columns } from '@/components/ui/icon-set'
 import { env } from '@/lib/env'
 import { useLocation } from 'wouter-preact'
 import { Page } from '@/components/ui/Page'
@@ -349,14 +349,14 @@ function KanbanBoard({ tickets, counters, loading, agents, onOpen, onMove }: {
             </div>
             <div class="flex-1 overflow-y-auto p-2 space-y-2">
               {items.length === 0 ? (
-                <p class="text-xs text-fg-subtle text-center py-6">{dragging ? (droppable ? 'Solte aqui' : '—') : 'Vazio'}</p>
+                <p class="text-xs text-fg-muted text-center py-6">{dragging ? (droppable ? 'Solte aqui' : '—') : 'Vazio'}</p>
               ) : (
                 <>
                   {items.slice(0, COLUMN_CAP).map((t) => (
                     <KanbanCard key={t.id} t={t} assignee={agentName(t.assignedUserId)} onOpen={onOpen} onDragStart={() => setDragging({ id: t.id, from: t.status })} onDragEnd={() => { setDragging(null); setOverCol(null) }} />
                   ))}
                   {total > Math.min(items.length, COLUMN_CAP) && (
-                    <p class="text-[11px] text-fg-muted text-center py-1">+{total - Math.min(items.length, COLUMN_CAP)} a mais — refine os filtros para ver</p>
+                    <p class="text-2xs text-fg-muted text-center py-1">+{total - Math.min(items.length, COLUMN_CAP)} a mais — refine os filtros para ver</p>
                   )}
                 </>
               )}
@@ -369,7 +369,7 @@ function KanbanBoard({ tickets, counters, loading, agents, onOpen, onMove }: {
 }
 
 const STATUS_DOT: Record<TicketStatus, string> = {
-  new: 'bg-info', open: 'bg-accent', pending: 'bg-warning', on_hold: 'bg-warning', solved: 'bg-success', closed: 'bg-fg-subtle',
+  new: 'bg-info', open: 'bg-accent', pending: 'bg-warning', on_hold: 'bg-warning', solved: 'bg-success', closed: 'bg-fg-muted',
 }
 
 function KanbanCard({ t, assignee, onOpen, onDragStart, onDragEnd }: { t: Ticket; assignee: string | null; onOpen: (id: number) => void; onDragStart: () => void; onDragEnd: () => void }) {
@@ -381,16 +381,16 @@ function KanbanCard({ t, assignee, onOpen, onDragStart, onDragEnd }: { t: Ticket
       onClick={() => onOpen(t.id)}
       class="rounded-md border border-border bg-surface p-2.5 cursor-grab active:cursor-grabbing hover:border-accent/60 hover:shadow-sm space-y-1.5"
     >
-      <div class="flex items-center gap-1.5 text-[11px] text-fg-muted">
+      <div class="flex items-center gap-1.5 text-2xs text-fg-muted">
         <Hash size={10} />{t.number}
         <span class="ml-auto"><Badge tone={PRIORITY_TONE[t.priority]}>{PRIORITY_LABEL[t.priority]}</Badge></span>
       </div>
       <div class="text-sm text-fg font-medium line-clamp-2 leading-snug">{t.subject}</div>
-      <div class="flex items-center gap-2 text-[11px] text-fg-muted">
+      <div class="flex items-center gap-2 text-2xs text-fg-muted">
         <span class="truncate flex-1">{t.requesterName || t.requesterEmail || 'Sem solicitante'}</span>
         <SlaBadge status={t.slaResolutionStatus} target={t.targetResolutionAt} />
       </div>
-      <div class="flex items-center gap-1.5 text-[11px] text-fg-subtle">
+      <div class="flex items-center gap-1.5 text-2xs text-fg-muted">
         <span>{CHANNEL_LABEL[t.channel] || t.channel}</span>
         <span class="ml-auto truncate max-w-[8rem]">{assignee ? <span class="inline-flex items-center gap-1"><UserPlus size={10} /> {assignee}</span> : 'sem dono'}</span>
       </div>
@@ -713,7 +713,7 @@ export function HelpdeskKbPage() {
             <div class="flex flex-wrap gap-1.5 mb-2">
               {cats.map((c: KbCategory) => (
                 <span key={c.id} class="inline-flex items-center gap-1 text-xs rounded-full border border-border px-2 py-1 text-fg">
-                  {c.name} <span class="text-fg-subtle">({c._count?.articles ?? 0})</span>
+                  {c.name} <span class="text-fg-muted">({c._count?.articles ?? 0})</span>
                   <button class="text-fg-muted hover:text-danger" onClick={() => delCat.mutate(c.id)}><X size={11} /></button>
                 </span>
               ))}
@@ -1008,7 +1008,7 @@ export function HelpdeskSlaPage() {
                 </Fragment>
               ))}
             </div>
-            <p class="text-[11px] text-fg-subtle">"Próxima resposta": prazo para o agente responder após cada nova mensagem do cliente (0 = sem meta).</p>
+            <p class="text-2xs text-fg-muted">"Próxima resposta": prazo para o agente responder após cada nova mensagem do cliente (0 = sem meta).</p>
             <label class="flex items-center gap-2 text-xs text-fg cursor-pointer">
               <input type="checkbox" checked={useBH} onChange={(e) => setUseBH((e.target as HTMLInputElement).checked)} />
               Respeitar horário comercial (calendário)
@@ -1447,7 +1447,7 @@ function TicketDetail({ id, onBack }: { id: number; onBack: () => void }) {
               <SectionCard title="Satisfação (CSAT)">
                 <div class="flex items-center gap-1 text-lg">
                   {[1, 2, 3, 4, 5].map((i) => (
-                    <Star key={i} size={16} class={i <= (detail.data?.survey?.rating ?? 0) ? 'text-warning fill-warning' : 'text-fg-subtle'} />
+                    <Star key={i} size={16} class={i <= (detail.data?.survey?.rating ?? 0) ? 'text-warning fill-warning' : 'text-fg-muted'} />
                   ))}
                   <span class="text-sm text-fg-muted ml-1">{detail.data?.survey?.rating}/5</span>
                 </div>
@@ -1489,7 +1489,7 @@ function TicketDetail({ id, onBack }: { id: number; onBack: () => void }) {
               <ol class="space-y-2 max-h-72 overflow-auto">
                 {events.slice().reverse().map((ev) => (
                   <li key={ev.id} class="text-xs text-fg-muted flex gap-2">
-                    <span class="text-fg-subtle shrink-0">{fmt(ev.createdAt)}</span>
+                    <span class="text-fg-muted shrink-0">{fmt(ev.createdAt)}</span>
                     <span class="text-fg">{ev.title}</span>
                   </li>
                 ))}
@@ -1719,7 +1719,7 @@ function SideConversationsSection({ ticketId }: { ticketId: number }) {
 
   return (
     <SectionCard title="Conversas paralelas">
-      <p class="text-[11px] text-fg-subtle">Thread com um terceiro (fornecedor, especialista) sem expor ao solicitante.</p>
+      <p class="text-2xs text-fg-muted">Thread com um terceiro (fornecedor, especialista) sem expor ao solicitante.</p>
       {convs.map((c) => <SideConvCard key={c.id} conv={c} act={act} />)}
       {!creating ? (
         <button class="text-xs text-accent hover:underline" onClick={() => setCreating(true)}>+ Nova conversa paralela</button>
@@ -1757,7 +1757,7 @@ function SideConvCard({ conv, act }: { conv: SideConversation; act: ReturnType<t
       <div class="space-y-1 max-h-40 overflow-auto">
         {conv.messages.map((m) => (
           <div key={m.id} class={`text-xs rounded p-1.5 ${m.direction === 'outbound' ? 'bg-accent/10' : 'bg-surface-2'}`}>
-            <span class="text-fg-subtle">{m.direction === 'outbound' ? '→ ' : '← '}{m.authorName || ''}</span>
+            <span class="text-fg-muted">{m.direction === 'outbound' ? '→ ' : '← '}{m.authorName || ''}</span>
             <div class="text-fg whitespace-pre-wrap">{m.body}</div>
           </div>
         ))}
@@ -1771,7 +1771,7 @@ function SideConvCard({ conv, act }: { conv: SideConversation; act: ReturnType<t
             <Input value={inbound} onInput={(e) => setInbound((e.target as HTMLInputElement).value)} placeholder="Registrar resposta recebida…" />
             <Button variant="ghost" size="sm" disabled={!inbound.trim()} onClick={() => act.inbound.mutate({ scid: conv.id, body: inbound.trim() }, { onSuccess: () => setInbound('') })}>+</Button>
           </div>
-          <button class="text-[11px] text-fg-muted hover:text-danger" onClick={() => act.close.mutate(conv.id)}>Encerrar conversa</button>
+          <button class="text-2xs text-fg-muted hover:text-danger" onClick={() => act.close.mutate(conv.id)}>Encerrar conversa</button>
         </div>
       )}
     </div>
@@ -1820,7 +1820,7 @@ function AttachmentsSection({ ticketId: _ticketId, attachments, actions }: { tic
             <div key={a.id} class="flex items-center gap-2 text-xs">
               <Paperclip size={12} class="text-fg-muted shrink-0" />
               <a href={a.url} target="_blank" rel="noreferrer" class="flex-1 truncate text-accent hover:underline">{a.fileName}</a>
-              <span class="text-fg-subtle shrink-0">{fmtBytes(a.fileSize)}</span>
+              <span class="text-fg-muted shrink-0">{fmtBytes(a.fileSize)}</span>
               <button class="text-fg-muted hover:text-danger" onClick={() => actions.deleteAttachment.mutate(a.id)}><Trash2 size={12} /></button>
             </div>
           ))}
@@ -2045,9 +2045,9 @@ export function HelpdeskImportPage() {
 function ImportStat({ label, create, skip, extra }: { label: string; create: number; skip: number; extra?: string }) {
   return (
     <div class="rounded-lg bg-surface-2 px-3 py-2">
-      <div class="text-xs text-fg-subtle">{label}</div>
+      <div class="text-xs text-fg-muted">{label}</div>
       <div class="text-lg font-light text-fg tabular-nums">{create} <span class="text-xs text-success">criar</span></div>
-      <div class="text-[11px] text-fg-muted">{skip} ignorar{extra ? ` · ${extra}` : ''}</div>
+      <div class="text-2xs text-fg-muted">{skip} ignorar{extra ? ` · ${extra}` : ''}</div>
     </div>
   )
 }

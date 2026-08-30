@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { X as XIcon } from 'lucide-preact'
+import { X as XIcon } from '@/components/ui/icon-set'
 import { type WorkflowStep } from '@/hooks/useWorkflows'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -80,7 +80,7 @@ export function WorkflowStepEditPanel({ step, steps, onPatch, onClose }: Props) 
           <span class="text-base">{meta.icon}</span>
           <div class="min-w-0">
             <div
-              class="text-[0.6875rem] font-medium uppercase tracking-wide"
+              class="text-2xs font-medium uppercase tracking-wide"
               style={{ color: meta.color }}
             >
               {meta.label}
@@ -133,7 +133,7 @@ export function WorkflowStepEditPanel({ step, steps, onPatch, onClose }: Props) 
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-            <p class="text-[0.6875rem] text-fg-subtle mt-1">Para onde ir após este passo</p>
+            <p class="text-2xs text-fg-muted mt-1">Para onde ir após este passo</p>
           </div>
 
           {isCondition && (
@@ -155,7 +155,7 @@ export function WorkflowStepEditPanel({ step, steps, onPatch, onClose }: Props) 
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              <p class="text-[0.6875rem] text-fg-subtle mt-1">
+              <p class="text-2xs text-fg-muted mt-1">
                 Caminho alternativo quando a condição não é atendida
               </p>
             </div>

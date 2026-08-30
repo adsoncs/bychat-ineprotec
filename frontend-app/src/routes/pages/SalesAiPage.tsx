@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   TrendingUp, Check, X as XIcon, DollarSign, Save, Settings, RotateCcw, Receipt, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useSales,
   useSalesDashboard,
@@ -193,7 +193,7 @@ function DashboardTab({
         <Card>
           <CardHeader>
             <CardTitle>Vendas por Dia</CardTitle>
-            <span class="text-xs text-fg-subtle">{dashboard?.salesByDay.length ?? 0} dias</span>
+            <span class="text-xs text-fg-muted">{dashboard?.salesByDay.length ?? 0} dias</span>
           </CardHeader>
           {loading ? (
             <Skeleton class="h-44 w-full" />
@@ -207,7 +207,7 @@ function DashboardTab({
         <Card>
           <CardHeader>
             <CardTitle>Vendas por Origem</CardTitle>
-            <span class="text-xs text-fg-subtle">{dashboard?.salesByOrigin.length ?? 0} origens</span>
+            <span class="text-xs text-fg-muted">{dashboard?.salesByOrigin.length ?? 0} origens</span>
           </CardHeader>
           {loading ? (
             <Skeleton class="h-44 w-full" />
@@ -222,7 +222,7 @@ function DashboardTab({
       <Card class="p-0 overflow-hidden">
         <div class="px-4 pt-4 pb-3 flex items-center justify-between gap-3">
           <CardTitle>Vendas por Campanha</CardTitle>
-          <span class="text-xs text-fg-subtle">{dashboard?.salesByCampaign.length ?? 0} campanha(s)</span>
+          <span class="text-xs text-fg-muted">{dashboard?.salesByCampaign.length ?? 0} campanha(s)</span>
         </div>
         {loading && <div class="px-4 pb-4"><Skeleton class="h-32 w-full" /></div>}
         {!loading && (!dashboard || dashboard.salesByCampaign.length === 0) && (
@@ -232,7 +232,7 @@ function DashboardTab({
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-3 py-2 font-medium">Campanha</th>
                   <th class="text-center px-3 py-2 font-medium">Vendas</th>
                   <th class="text-right px-3 py-2 font-medium">Valor Total</th>
@@ -273,7 +273,7 @@ function SalesByDayChart({ data }: { data: { date: string; count: number; totalV
                   style={{ height: `${pct}%` }}
                 />
               </div>
-              <div class="text-[0.5625rem] text-fg-subtle mt-1 truncate w-full text-center">{fmt}</div>
+              <div class="text-3xs text-fg-muted mt-1 truncate w-full text-center">{fmt}</div>
             </div>
           )
         })}
@@ -295,7 +295,7 @@ function SalesByOriginChart({ data }: { data: { originType: string; count: numbe
             <span class="size-3 rounded-full shrink-0" style={{ background: color }} />
             <span class="text-xs text-fg-muted flex-1 truncate" title={label}>{label}</span>
             <span class="text-xs text-fg tabular-nums w-10 text-right">{o.count}</span>
-            <span class="text-[0.6875rem] text-fg-subtle tabular-nums w-10 text-right">{pct}%</span>
+            <span class="text-2xs text-fg-muted tabular-nums w-10 text-right">{pct}%</span>
             <span class="text-xs text-fg-muted tabular-nums w-24 text-right truncate" title={brl.format(Number(o.totalValue))}>
               {brl.format(Number(o.totalValue))}
             </span>
@@ -374,7 +374,7 @@ function QueueTab() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-3 py-2 font-medium">Lead</th>
                   <th class="text-right px-3 py-2 font-medium">Valor</th>
                   <th class="text-left px-3 py-2 font-medium">Produto</th>
@@ -396,7 +396,7 @@ function QueueTab() {
                     <tr key={s.id}>
                       <td class="px-3 py-2 min-w-0">
                         <div class="text-fg font-medium break-words">{leadName}</div>
-                        {empresa && <div class="text-[0.6875rem] text-fg-subtle break-words">{empresa}</div>}
+                        {empresa && <div class="text-2xs text-fg-muted break-words">{empresa}</div>}
                       </td>
                       <td class="px-3 py-2 text-right tabular-nums font-semibold text-success whitespace-nowrap">
                         {s.value !== null ? brl.format(s.value) : '—'}
@@ -656,7 +656,7 @@ function SettingsTab() {
               <span class={cn('size-2 rounded-full', enabled ? 'bg-success' : 'bg-danger')} />
               {enabled ? 'Ativada' : 'Desativada'}
             </button>
-            <p class="text-[0.6875rem] text-fg-subtle mt-1.5">
+            <p class="text-2xs text-fg-muted mt-1.5">
               Quando ativada, a IA analisa conversas automaticamente a cada intervalo configurado.
             </p>
           </div>
@@ -704,7 +704,7 @@ function SettingsTab() {
                 )
               })}
             </select>
-            <p class="text-[0.6875rem] text-fg-subtle mt-1.5">
+            <p class="text-2xs text-fg-muted mt-1.5">
               Quando a IA detectar uma venda, o lead será movido automaticamente para esta etapa do funil.
             </p>
           </div>
@@ -726,7 +726,7 @@ function SettingsTab() {
               placeholder={DEFAULT_PROMPT}
               class="font-mono text-xs leading-relaxed"
             />
-            <p class="text-[0.6875rem] text-fg-subtle mt-1.5">
+            <p class="text-2xs text-fg-muted mt-1.5">
               Instruções enviadas para a IA analisar as conversas. Edite livremente para adaptar ao seu nicho. O prompt deve instruir a IA a responder em JSON com os campos:{' '}
               <code class="font-mono">sale</code>, <code class="font-mono">value</code>, <code class="font-mono">product</code>,{' '}
               <code class="font-mono">confidence</code>, <code class="font-mono">explanation</code>, <code class="font-mono">snippet</code>.

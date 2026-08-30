@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Plus, Save, Trash2, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from 'lucide-preact'
+import { Plus, Save, Trash2, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from '@/components/ui/icon-set'
 import { useMeetingTypes } from '@/hooks/useScheduling'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -321,7 +321,7 @@ export function AddFieldPalette({ usedKeys, onClose, onPick }: {
       {tab === 'common' && (
         <div class="space-y-3">
           <div>
-            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5">Dados do lead (mapeados)</div>
+            <div class="text-2xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">Dados do lead (mapeados)</div>
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {FIELD_PRESETS.map((p) => (
                 <PresetButton key={p.label} preset={p} disabled={!!p.key && used.has(p.key)} onClick={() => pickPreset(p)} />
@@ -329,7 +329,7 @@ export function AddFieldPalette({ usedKeys, onClose, onPick }: {
             </div>
           </div>
           <div>
-            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5">Campos genéricos</div>
+            <div class="text-2xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">Campos genéricos</div>
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {GENERIC_PRESETS.map((p) => (
                 <PresetButton key={p.label} preset={p} onClick={() => pickPreset(p)} />
@@ -337,7 +337,7 @@ export function AddFieldPalette({ usedKeys, onClose, onPick }: {
             </div>
           </div>
           <div>
-            <div class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle mb-1.5">Conteúdo (sem coletar dado)</div>
+            <div class="text-2xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">Conteúdo (sem coletar dado)</div>
             <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {CONTENT_PRESETS.map((p) => (
                 <PresetButton key={p.label} preset={p} onClick={() => pickPreset(p)} />
@@ -363,7 +363,7 @@ export function AddFieldPalette({ usedKeys, onClose, onPick }: {
                     <span class="flex-1 truncate text-sm font-medium text-fg">{cf.label}</span>
                     <Badge tone="info">{cf.type}</Badge>
                   </div>
-                  <div class="mt-0.5 truncate text-[0.6875rem] text-fg-subtle"><code>cf_{cf.key}</code>{already ? ' · já adicionado' : ''}</div>
+                  <div class="mt-0.5 truncate text-2xs text-fg-muted"><code>cf_{cf.key}</code>{already ? ' · já adicionado' : ''}</div>
                 </button>
               )
             })}
@@ -373,7 +373,7 @@ export function AddFieldPalette({ usedKeys, onClose, onPick }: {
 
       {tab === 'new' && (
         <div class="space-y-3">
-          <p class="text-[0.6875rem] text-fg-subtle">O campo é salvo no catálogo global e fica disponível em todo o sistema (leads, kanban, outros formulários).</p>
+          <p class="text-2xs text-fg-muted">O campo é salvo no catálogo global e fica disponível em todo o sistema (leads, kanban, outros formulários).</p>
           <div class="grid gap-3 sm:grid-cols-2">
             <Input label="Nome do campo" value={nLabel} onInput={(e) => setNLabel((e.target as HTMLInputElement).value)} placeholder="Ex.: Cargo, CNPJ, Faturamento" />
             <Select label="Tipo" value={nType} onChange={(e) => setNType((e.target as HTMLSelectElement).value)}>
@@ -439,7 +439,7 @@ function FieldsListColumn({ fields, activeId, onSelect, onAdd, onReorder }: Fiel
         </Button>
       </div>
       {fields.length === 0 ? (
-        <p class="text-xs text-fg-subtle">Nenhum campo. Clique em "Adicionar" para começar.</p>
+        <p class="text-xs text-fg-muted">Nenhum campo. Clique em "Adicionar" para começar.</p>
       ) : (
         <SortableList
           items={fields}
@@ -457,9 +457,9 @@ function FieldsListColumn({ fields, activeId, onSelect, onAdd, onReorder }: Fiel
               <div class="flex items-center gap-2">
                 <span class="flex-1 truncate text-sm text-fg">{stripHtml(f.label) || (f.type === 'statement' ? '(bloco de conteúdo)' : '(sem rótulo)')}</span>
                 {f.required && <Badge tone="info">obrig.</Badge>}
-                {f.type === 'hidden' && <EyeOff size={12} class="text-fg-subtle" />}
+                {f.type === 'hidden' && <EyeOff size={12} class="text-fg-muted" />}
               </div>
-              <div class="mt-0.5 truncate text-[0.6875rem] text-fg-subtle">
+              <div class="mt-0.5 truncate text-2xs text-fg-muted">
                 <code>{f.key || '—'}</code> · {labelForType(f.type)}
               </div>
             </button>
@@ -608,7 +608,7 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
         <div class="space-y-2 rounded-md border border-warning/40 bg-warning/10 p-3">
           <div class="flex items-start gap-2">
             <AlertTriangle size={14} class="mt-0.5 shrink-0 text-warning" />
-            <p class="text-[0.6875rem] leading-relaxed text-fg-muted">
+            <p class="text-2xs leading-relaxed text-fg-muted">
               Este campo <strong>não está vinculado ao CRM</strong>. As respostas ficam só no histórico do formulário e <strong>não aparecem na ficha do lead</strong>. Crie um campo personalizado para nunca perder esse dado.
             </p>
           </div>
@@ -620,8 +620,8 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
       {isInput && linkedCustom && (
         <div class="flex items-center gap-2 rounded-md border border-success/40 bg-success/10 p-2.5">
           <CheckCircle2 size={14} class="shrink-0 text-success" />
-          <p class="text-[0.6875rem] text-fg-muted">
-            Vinculado ao campo personalizado <strong>{linkedCustom.label}</strong> — as respostas vão para a ficha do lead. <code class="text-fg-subtle">cf_{linkedCustom.key}</code>
+          <p class="text-2xs text-fg-muted">
+            Vinculado ao campo personalizado <strong>{linkedCustom.label}</strong> — as respostas vão para a ficha do lead. <code class="text-fg-muted">cf_{linkedCustom.key}</code>
           </p>
         </div>
       )}
@@ -638,8 +638,8 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
             <option value="">— selecione —</option>
             {mtItems.map((m) => <option key={m.id} value={m.slug}>{m.name}</option>)}
           </Select>
-          {mtItems.length === 0 && <p class="text-[0.6875rem] text-fg-subtle">Nenhum tipo de reunião ativo. <a href="/app/scheduling" target="_blank" rel="noreferrer" class="text-accent hover:underline">Criar um →</a></p>}
-          <p class="text-[0.6875rem] text-fg-subtle">A etapa de destino ao concluir o agendamento e o disparo de conversão são configurados na aba <strong>Agendamento</strong>.</p>
+          {mtItems.length === 0 && <p class="text-2xs text-fg-muted">Nenhum tipo de reunião ativo. <a href="/app/scheduling" target="_blank" rel="noreferrer" class="text-accent hover:underline">Criar um →</a></p>}
+          <p class="text-2xs text-fg-muted">A etapa de destino ao concluir o agendamento e o disparo de conversão são configurados na aba <strong>Agendamento</strong>.</p>
         </div>
       )}
 
@@ -652,7 +652,7 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
               {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([a, Ico]) => (
                 <button key={a} type="button" title={a}
                   onClick={() => onPatch({ align: a })}
-                  class={`size-8 grid place-items-center ${(field.align ?? 'center') === a ? 'bg-accent text-white' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>
+                  class={`size-8 grid place-items-center ${(field.align ?? 'center') === a ? 'bg-accent text-fg-on-brand' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>
                   <Ico size={14} />
                 </button>
               ))}
@@ -743,14 +743,14 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
               onInput={(e) => onPatch({ isQualifier: (e.target as HTMLInputElement).checked })} />
             <span>
               <span class="block text-sm font-medium text-fg">Usar como pergunta de qualificação</span>
-              <span class="block text-[0.6875rem] text-fg-subtle mt-0.5">Marque as respostas "positivas"; ao responder, o lead vai pra etapa positiva ou negativa (definidas em Destino &amp; Conversão).</span>
+              <span class="block text-2xs text-fg-muted mt-0.5">Marque as respostas "positivas"; ao responder, o lead vai pra etapa positiva ou negativa (definidas em Destino &amp; Conversão).</span>
             </span>
           </label>
           {field.isQualifier && (
             <div class="space-y-3 pt-1">
               <div class="space-y-1">
-                <span class="text-[0.6875rem] font-medium text-fg-muted">Respostas positivas</span>
-                {(field.options ?? []).length === 0 && <p class="text-[0.6875rem] text-fg-subtle">Adicione opções acima primeiro.</p>}
+                <span class="text-2xs font-medium text-fg-muted">Respostas positivas</span>
+                {(field.options ?? []).length === 0 && <p class="text-2xs text-fg-muted">Adicione opções acima primeiro.</p>}
                 {(field.options ?? []).map((o, i) => {
                   const pos = field.positiveValues ?? []
                   const checked = pos.includes(o.value)
@@ -762,7 +762,7 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
                           const next = on ? [...pos.filter((v) => v !== o.value), o.value] : pos.filter((v) => v !== o.value)
                           onPatch({ positiveValues: next })
                         }} />
-                      {o.label || o.value || '(sem rótulo)'} {checked && <span class="text-[0.625rem] text-success">positiva</span>}
+                      {o.label || o.value || '(sem rótulo)'} {checked && <span class="text-3xs text-success">positiva</span>}
                     </label>
                   )
                 })}
@@ -772,7 +772,7 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
                 value={field.qualifyPositive ?? {}} onChange={(o) => onPatch({ qualifyPositive: o })} />
               <QualifyOutcomeEditor title="Se NEGATIVO" tone="negative" funnels={funnels}
                 value={field.qualifyNegative ?? {}} onChange={(o) => onPatch({ qualifyNegative: o })} />
-              <p class="text-[0.625rem] text-fg-subtle">Com várias perguntas de qualificação, vale a regra <strong>"negativo vence"</strong>: a primeira resposta negativa decide funil e finalização.</p>
+              <p class="text-3xs text-fg-muted">Com várias perguntas de qualificação, vale a regra <strong>"negativo vence"</strong>: a primeira resposta negativa decide funil e finalização.</p>
             </div>
           )}
         </div>
@@ -799,7 +799,7 @@ function QualifyOutcomeEditor({ title, tone, funnels, value, onChange }: {
   const accent = tone === 'positive' ? 'border-success/40' : 'border-danger/40'
   return (
     <div class={`rounded-md border ${accent} bg-surface p-3 space-y-2`}>
-      <span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-muted">{title}</span>
+      <span class="text-2xs font-semibold uppercase tracking-wider text-fg-muted">{title}</span>
       <div class="grid gap-2 sm:grid-cols-2">
         <Select label="Funil de destino" value={funnelId == null ? '' : String(funnelId)}
           onChange={(e) => { const v = (e.target as HTMLSelectElement).value; set({ funnelId: v ? Number(v) : null, stageKey: null }) }}>
@@ -863,11 +863,11 @@ function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
         </Button>
       </div>
       {options.length === 0 && (
-        <p class="text-xs text-fg-subtle">Nenhuma opção. Adicione ao menos uma.</p>
+        <p class="text-xs text-fg-muted">Nenhuma opção. Adicione ao menos uma.</p>
       )}
       <div class="space-y-2">
         {options.length > 0 && (
-          <div class="grid grid-cols-[1fr_1fr_2rem] gap-2 text-[0.6875rem] text-fg-subtle">
+          <div class="grid grid-cols-[1fr_1fr_2rem] gap-2 text-2xs text-fg-muted">
             <span>Rótulo</span>
             <span>Valor</span>
             <span class="sr-only">Ações</span>

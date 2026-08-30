@@ -34,7 +34,7 @@ function Destaque({ label, value, loading, color }: { label: string; value: numb
       <div class="text-xl font-bold tabular-nums leading-none" style={{ color }}>
         {loading ? '—' : value}
       </div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mt-1">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted mt-1">{label}</div>
     </div>
   )
 }
@@ -87,7 +87,7 @@ export function PainelEducacionalHome({ titulo }: { titulo?: string }) {
         <div class="flex items-center justify-between mb-2">
           <div>
             <h2 class="text-sm font-semibold text-fg">Desempenho do período</h2>
-            <p class="text-[11px] text-fg-subtle">Cada card compara com o período anterior de mesma duração (▲/▼).</p>
+            <p class="text-2xs text-fg-muted">Cada card compara com o período anterior de mesma duração (▲/▼).</p>
           </div>
           <PeriodPicker
             preset={preset}

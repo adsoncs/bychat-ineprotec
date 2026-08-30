@@ -5,7 +5,7 @@ import {
   Folder, Upload, ExternalLink, FileText as FileIcon, X as XIcon,
   BarChart3, LineChart as LineChartIcon, Copy, ScrollText, CheckCircle2, XCircle,
   Sparkles, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useGoogleConfig, useUpdateGoogleConfig, useResetGoogleCredentials,
@@ -204,7 +204,7 @@ function Ga4Tab() {
             <span class={`size-2.5 rounded-full ${c.active ? 'bg-accent' : 'bg-danger'}`} />
             <div class="min-w-0 flex-1">
               <div class="font-mono text-sm text-fg">{c.measurementId}</div>
-              <div class="text-[0.6875rem] text-fg-subtle">
+              <div class="text-2xs text-fg-muted">
                 Enviados: <span class="text-fg tabular-nums">{c.totalSent}</span> ·{' '}
                 Falhas: <span class={c.totalFailed > 0 ? 'text-danger tabular-nums' : 'text-fg-muted tabular-nums'}>{c.totalFailed}</span>
                 {c.lastSentAt && <> · Último: {new Date(c.lastSentAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</>}
@@ -319,7 +319,7 @@ function LookerTab() {
         </div>
       </Card>
 
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium">Endpoints disponíveis</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-medium">Endpoints disponíveis</div>
 
       {endpoints.map((ep, idx) => {
         const url = `${baseUrl}${ep.path}?days=90`
@@ -331,7 +331,7 @@ function LookerTab() {
             </div>
             <p class="text-xs text-fg-muted mb-2">{ep.desc}</p>
             <div class="flex items-center gap-2">
-              <code class="flex-1 text-[0.6875rem] bg-surface-2 border border-border rounded px-2 py-1.5 truncate">{url}</code>
+              <code class="flex-1 text-2xs bg-surface-2 border border-border rounded px-2 py-1.5 truncate">{url}</code>
               <Button size="sm" variant="secondary" onClick={() => copyUrl(idx, url)}>
                 <Copy size={12} /> {copiedIdx === idx ? 'Copiado!' : 'Copiar'}
               </Button>
@@ -346,8 +346,8 @@ function LookerTab() {
           <ol class="mt-1.5 ml-4 list-decimal space-y-0.5">
             <li>Crie uma API Key em <strong>Configurações → API Keys</strong> com permissão de leitura</li>
             <li>No Looker Studio, adicione fonte de dados tipo <em>JSON/CSV by URL</em></li>
-            <li>Cole a URL do endpoint + header <code class="text-[0.6875rem]">X-API-Key: byc_sua_chave</code></li>
-            <li>O parâmetro <code class="text-[0.6875rem]">?days=90</code> controla o período (padrão 90 dias)</li>
+            <li>Cole a URL do endpoint + header <code class="text-2xs">X-API-Key: byc_sua_chave</code></li>
+            <li>O parâmetro <code class="text-2xs">?days=90</code> controla o período (padrão 90 dias)</li>
           </ol>
         </div>
       </Card>
@@ -380,9 +380,9 @@ function CredentialsCard() {
             )}
           </div>
           <div class="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-fg-muted">
-            <div><span class="text-fg-subtle">Client ID:</span> <span class="font-mono text-fg">{data.clientId || '—'}</span></div>
-            <div><span class="text-fg-subtle">Client Secret:</span> {data.hasSecret ? <span class="text-fg">••••••</span> : <span>—</span>}</div>
-            <div class="sm:col-span-2 truncate"><span class="text-fg-subtle">Redirect URI:</span> <span class="font-mono text-fg">{data.redirectUri || '—'}</span></div>
+            <div><span class="text-fg-muted">Client ID:</span> <span class="font-mono text-fg">{data.clientId || '—'}</span></div>
+            <div><span class="text-fg-muted">Client Secret:</span> {data.hasSecret ? <span class="text-fg">••••••</span> : <span>—</span>}</div>
+            <div class="sm:col-span-2 truncate"><span class="text-fg-muted">Redirect URI:</span> <span class="font-mono text-fg">{data.redirectUri || '—'}</span></div>
           </div>
         </div>
         <div class="flex gap-2">
@@ -503,7 +503,7 @@ function ConnectionsCard() {
   function renderRow(c: GoogleConnection) {
     return (
       <li key={c.id} class="flex items-center gap-3 py-2 text-sm">
-        <Mail size={14} class="text-fg-subtle" />
+        <Mail size={14} class="text-fg-muted" />
         <span class="text-fg flex-1 truncate">{c.email}</span>
         {c.active ? <Badge tone="accent">Ativa</Badge> : <Badge tone="neutral">Inativa</Badge>}
         <button
@@ -718,7 +718,7 @@ function SheetsTab() {
                 <div class="text-xs text-fg-muted mt-0.5 truncate">
                   {i.spreadsheetName} · aba {i.sheetName} · {i.events.length} evento(s) · {i.fieldMapping.length} campo(s)
                 </div>
-                <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+                <div class="text-2xs text-fg-muted mt-0.5">
                   {i.totalSynced} sincronizada(s) · {i.totalFailed} falha(s) {i.connection?.email ? `· ${i.connection.email}` : ''}
                 </div>
               </div>
@@ -801,7 +801,7 @@ function SheetLogsModal({ integration, onClose }: { integration: GoogleSheetInte
       {!isLoading && logs.length > 0 && (
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead class="bg-surface-3 text-fg-subtle text-[0.625rem] uppercase tracking-wider">
+            <thead class="bg-surface-3 text-fg-muted text-3xs uppercase tracking-wider">
               <tr>
                 <th class="text-left px-3 py-2 font-medium">Evento</th>
                 <th class="text-left px-3 py-2 font-medium">Status</th>
@@ -814,7 +814,7 @@ function SheetLogsModal({ integration, onClose }: { integration: GoogleSheetInte
               {logs.map((l) => (
                 <tr key={l.id} class="hover:bg-surface-3">
                   <td class="px-3 py-1.5">
-                    <code class="font-mono text-[0.6875rem] bg-surface-3 px-1.5 py-0.5 rounded">{l.event}</code>
+                    <code class="font-mono text-2xs bg-surface-3 px-1.5 py-0.5 rounded">{l.event}</code>
                   </td>
                   <td class="px-3 py-1.5">
                     {l.success ? (
@@ -1016,7 +1016,7 @@ function SheetIntegrationModal({ integration, onClose }: { integration: GoogleSh
                       <Plus size={12} /> Nova planilha
                     </Button>
                   </div>
-                  {sheetsQ.isLoading && <span class="text-xs text-fg-subtle">Buscando planilhas…</span>}
+                  {sheetsQ.isLoading && <span class="text-xs text-fg-muted">Buscando planilhas…</span>}
                 </div>
 
                 {showCreateSheet && (
@@ -1112,7 +1112,7 @@ function SheetEventsPicker({ value, onChange }: { value: string[]; onChange: (v:
           <label key={ev} class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer p-1.5 rounded hover:bg-surface-3">
             <input type="checkbox" checked={value.includes(ev)} onChange={() => toggle(ev)} disabled={allSelected} />
             <span class="text-fg">{labels[ev] ?? ev}</span>
-            <code class="font-mono text-fg-subtle ml-auto">{ev}</code>
+            <code class="font-mono text-fg-muted ml-auto">{ev}</code>
           </label>
         ))}
       </div>
@@ -1159,8 +1159,8 @@ function SheetMappingEditor({ value, onChange }: { value: SheetFieldMapping[]; o
         {value.map((m, idx) => (
           <li key={idx} class="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2 p-2 rounded-md border border-border bg-surface">
             <div class="flex flex-col">
-              <button type="button" class="size-5 grid place-items-center text-fg-subtle hover:text-fg" onClick={() => move(idx, idx - 1)} aria-label="Subir">▲</button>
-              <button type="button" class="size-5 grid place-items-center text-fg-subtle hover:text-fg" onClick={() => move(idx, idx + 1)} aria-label="Descer">▼</button>
+              <button type="button" class="size-5 grid place-items-center text-fg-muted hover:text-fg" onClick={() => move(idx, idx - 1)} aria-label="Subir">▲</button>
+              <button type="button" class="size-5 grid place-items-center text-fg-muted hover:text-fg" onClick={() => move(idx, idx + 1)} aria-label="Descer">▼</button>
             </div>
             <Input
               value={m.header}
@@ -1390,7 +1390,7 @@ function DriveTab() {
       {!isLoading && config && (
         <div class="space-y-3">
           <div class="text-xs text-fg-muted">
-            <span class="text-fg-subtle">Pasta-raiz:</span>{' '}
+            <span class="text-fg-muted">Pasta-raiz:</span>{' '}
             {config.rootFolderLink ? (
               <a href={config.rootFolderLink} target="_blank" rel="noreferrer" class="text-accent hover:underline font-mono">
                 {config.rootFolderId}
@@ -1547,7 +1547,7 @@ function DriveLeadFolderCard() {
                     onClick={() => pickLead(l.id, l.nome ?? l.empresa ?? l.whatsapp ?? `Lead #${l.id}`)}
                   >
                     <div class="font-medium">{l.nome ?? l.empresa ?? `Lead #${l.id}`}</div>
-                    <div class="text-fg-subtle">
+                    <div class="text-fg-muted">
                       {l.empresa ?? '—'} · {l.whatsapp ?? '—'} {l.email ? `· ${l.email}` : ''}
                     </div>
                   </button>
@@ -1584,7 +1584,7 @@ function DriveLeadFolderCard() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
             >
-              <Upload size={24} class="mx-auto text-fg-subtle mb-2" />
+              <Upload size={24} class="mx-auto text-fg-muted mb-2" />
               <p class="text-xs text-fg-muted mb-3">Arraste arquivos aqui ou</p>
               <input
                 ref={fileInputRef}
@@ -1601,7 +1601,7 @@ function DriveLeadFolderCard() {
 
             <div>
               <div class="flex items-center justify-between mb-2">
-                <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium">Arquivos na pasta</div>
+                <div class="text-xs uppercase tracking-wider text-fg-muted font-medium">Arquivos na pasta</div>
                 <Button variant="secondary" size="sm" onClick={() => void filesQ.refetch()} disabled={filesQ.isFetching}>
                   <RefreshCw size={10} class={filesQ.isFetching ? 'animate-spin' : ''} />
                 </Button>
@@ -1614,7 +1614,7 @@ function DriveLeadFolderCard() {
                 <ul class="divide-y divide-border bg-surface rounded-md border border-border">
                   {filesQ.data.data.map((f: DriveFile) => (
                     <li key={f.id} class="px-3 py-2 flex items-center gap-2 text-xs">
-                      <FileIcon size={12} class="text-fg-subtle shrink-0" />
+                      <FileIcon size={12} class="text-fg-muted shrink-0" />
                       <a
                         href={f.webViewLink ?? '#'}
                         target="_blank"
@@ -1623,7 +1623,7 @@ function DriveLeadFolderCard() {
                       >
                         {f.name}
                       </a>
-                      <span class="text-fg-subtle whitespace-nowrap">{f.mimeType.replace('application/', '').slice(0, 24)}</span>
+                      <span class="text-fg-muted whitespace-nowrap">{f.mimeType.replace('application/', '').slice(0, 24)}</span>
                     </li>
                   ))}
                 </ul>
@@ -1940,9 +1940,9 @@ function GmailReceiveControls({ config }: { config: GmailConfig }) {
 
   if (config.syncReplies) {
     return (
-      <div class="flex items-center gap-2 flex-wrap text-[0.6875rem]">
+      <div class="flex items-center gap-2 flex-wrap text-2xs">
         <span class="inline-flex items-center gap-1 text-success font-medium"><Check size={11} /> Recebendo respostas</span>
-        {config.lastSyncAt && <span class="text-fg-subtle">últ. sync {new Date(config.lastSyncAt).toLocaleString('pt-BR')}</span>}
+        {config.lastSyncAt && <span class="text-fg-muted">últ. sync {new Date(config.lastSyncAt).toLocaleString('pt-BR')}</span>}
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => sync.mutate(config.id, {
           onSuccess: (r: any) => toast(`Sincronizado (${r?.ingested ?? 0} nova(s))`, 'success'),
           onError: (e: unknown) => toast((e as Error).message, 'danger'),

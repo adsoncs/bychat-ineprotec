@@ -12,7 +12,7 @@ import { useMemo, useState } from 'preact/hooks'
 import {
   Inbox, Headphones, Clock, CheckCircle2, Bot, User as UserIcon, AlertTriangle,
   RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -92,7 +92,7 @@ function BotCell({ bot }: { bot: BotState }) {
         <Badge tone="accent" title={bot.pausedBy ? `Assumido por ${bot.pausedBy}` : 'Bot pausado por atendimento humano'}>
           <UserIcon size={11} class="inline mr-1" />Humano
         </Badge>
-        {bot.pausedBy && <span class="text-[0.6875rem] text-fg-subtle truncate">por {bot.pausedBy}</span>}
+        {bot.pausedBy && <span class="text-2xs text-fg-muted truncate">por {bot.pausedBy}</span>}
       </div>
     )
   }
@@ -103,11 +103,11 @@ function BotCell({ bot }: { bot: BotState }) {
     return (
       <div class="flex flex-col gap-0.5">
         <Badge tone="info"><Bot size={11} class="inline mr-1" />Chatbot</Badge>
-        <span class="text-[0.6875rem] text-fg-subtle truncate">{detail}</span>
+        <span class="text-2xs text-fg-muted truncate">{detail}</span>
       </div>
     )
   }
-  return <span class="text-xs text-fg-subtle">—</span>
+  return <span class="text-xs text-fg-muted">—</span>
 }
 
 /**
@@ -149,7 +149,7 @@ function Toggle({ label, checked, onChange, hint }: {
 /** Barra proporcional para as distribuições (operador, setor, funil, canal). */
 function DistBar({ rows, empty }: { rows: Array<{ key: string; label: string; total: number; color?: string | null }>; empty: string }) {
   const max = rows.reduce((m, r) => Math.max(m, r.total), 0)
-  if (!rows.length) return <p class="text-xs text-fg-subtle">{empty}</p>
+  if (!rows.length) return <p class="text-xs text-fg-muted">{empty}</p>
   return (
     <div class="space-y-2">
       {rows.slice(0, 8).map((r) => (
@@ -533,7 +533,7 @@ export function SupervisionPage() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-subtle border-b border-border">
+                <tr class="text-left text-xs text-fg-muted border-b border-border">
                   <th class="p-2 w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Selecionar todas" /></th>
                   <th class="p-2">Contato</th>
                   <th class="p-2">Estado</th>
@@ -559,11 +559,11 @@ export function SupervisionPage() {
                             {c.nome || c.whatsapp}
                             {c.isGroup && <Badge tone="neutral" class="ml-1">grupo</Badge>}
                           </div>
-                          <div class="text-xs text-fg-subtle truncate max-w-[16rem]">
+                          <div class="text-xs text-fg-muted truncate max-w-[16rem]">
                             {c.empresa || c.whatsapp}
                           </div>
                           {c.lastMessage && (
-                            <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[18rem] mt-0.5">
+                            <div class="text-2xs text-fg-muted truncate max-w-[18rem] mt-0.5">
                               {c.lastMessage.fromMe ? '↩ ' : '→ '}{c.lastMessage.body}
                             </div>
                           )}
@@ -576,25 +576,25 @@ export function SupervisionPage() {
                         <div class="mt-1"><Badge tone="danger">{c.unreadMessages} não lida(s)</Badge></div>
                       )}
                       {c.snoozedUntil && new Date(c.snoozedUntil) > new Date() && (
-                        <div class="text-[0.6875rem] text-fg-subtle mt-0.5">até {fmtWhen(c.snoozedUntil)}</div>
+                        <div class="text-2xs text-fg-muted mt-0.5">até {fmtWhen(c.snoozedUntil)}</div>
                       )}
                     </td>
                     <td class="p-2 align-top"><BotCell bot={c.bot} /></td>
                     <td class="p-2 align-top">
                       <div class="text-fg truncate max-w-[10rem]">{c.assignedUser?.name ?? <span class="text-warning">Sem responsável</span>}</div>
-                      {c.team && <div class="text-xs text-fg-subtle truncate max-w-[10rem]">{c.team.name}</div>}
+                      {c.team && <div class="text-xs text-fg-muted truncate max-w-[10rem]">{c.team.name}</div>}
                     </td>
                     <td class="p-2 align-top">
-                      <div class="text-fg truncate max-w-[10rem]">{c.funnel?.name ?? <span class="text-fg-subtle">Sem funil</span>}</div>
-                      <div class="text-xs text-fg-subtle truncate max-w-[10rem]">{c.stageName}</div>
+                      <div class="text-fg truncate max-w-[10rem]">{c.funnel?.name ?? <span class="text-fg-muted">Sem funil</span>}</div>
+                      <div class="text-xs text-fg-muted truncate max-w-[10rem]">{c.stageName}</div>
                     </td>
                     <td class="p-2 align-top">
                       <div class="text-xs text-fg truncate max-w-[9rem]">{c.channel?.label ?? '—'}</div>
-                      {c.source && <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[9rem]">{c.source}</div>}
+                      {c.source && <div class="text-2xs text-fg-muted truncate max-w-[9rem]">{c.source}</div>}
                     </td>
                     <td class="p-2 align-top whitespace-nowrap">
                       {c.waitingSinceMin === null
-                        ? <span class="text-fg-subtle text-xs">—</span>
+                        ? <span class="text-fg-muted text-xs">—</span>
                         : <span class={c.waitingSinceMin > 60 ? 'text-danger' : c.waitingSinceMin > 15 ? 'text-warning' : 'text-fg'}>
                             {fmtDuration(c.waitingSinceMin)}
                           </span>}

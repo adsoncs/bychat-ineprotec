@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks'
-import { Upload, Trash2, ImageIcon, Link as LinkIcon } from 'lucide-preact'
+import { Upload, Trash2, ImageIcon, Link as LinkIcon } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -128,7 +128,7 @@ export function PageImageUploader({
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
         ) : (
-          <span class="flex items-center gap-2 text-xs text-fg-subtle">
+          <span class="flex items-center gap-2 text-xs text-fg-muted">
             <ImageIcon size={16} /> sem arquivo
           </span>
         )}
@@ -143,7 +143,7 @@ export function PageImageUploader({
         />
       )}
 
-      {hint && <span class="text-[0.6875rem] text-fg-subtle">{hint}</span>}
+      {hint && <span class="text-2xs text-fg-muted">{hint}</span>}
 
       <input
         ref={inputRef}

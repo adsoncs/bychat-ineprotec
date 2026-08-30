@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { Cloud } from 'lucide-preact'
+import { Cloud } from '@/components/ui/icon-set'
 import {
   useCloudApiConnections,
   useCloudApiDispatchReport,
@@ -86,7 +86,7 @@ export function WhatsappDispatchPage() {
               {/* KPIs do escopo selecionado */}
               <div>
                 {multi && (
-                  <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider mb-1">
+                  <div class="text-2xs text-fg-muted uppercase tracking-wider mb-1">
                     {selected === null ? 'Todos os números' : nameOf(selected)}
                   </div>
                 )}
@@ -103,12 +103,12 @@ export function WhatsappDispatchPage() {
               {/* Comparativo por número (só quando vendo todos e há mais de um) */}
               {multi && selected === null && r.byConnection.length > 0 && (
                 <Card class="p-0 overflow-hidden">
-                  <div class="p-3 border-b border-border text-[0.6875rem] text-fg-subtle uppercase tracking-wider">
+                  <div class="p-3 border-b border-border text-2xs text-fg-muted uppercase tracking-wider">
                     Por número
                   </div>
                   <div class="overflow-x-auto">
                     <table class="w-full text-sm">
-                      <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+                      <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                         <tr>
                           <th class="text-left px-4 py-2 font-medium">Número</th>
                           <th class="text-right px-4 py-2 font-medium">Enviadas</th>
@@ -134,7 +134,7 @@ export function WhatsappDispatchPage() {
                               {b.connectionId != null && (
                                 <button
                                   type="button"
-                                  class="text-[0.6875rem] text-accent hover:underline"
+                                  class="text-2xs text-accent hover:underline"
                                   onClick={() => setSelected(b.connectionId)}
                                 >
                                   Detalhar
@@ -152,7 +152,7 @@ export function WhatsappDispatchPage() {
               {/* Por categoria */}
               {r.byCategory.length > 0 && (
                 <Card>
-                  <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider mb-2">Por categoria</div>
+                  <div class="text-2xs text-fg-muted uppercase tracking-wider mb-2">Por categoria</div>
                   <div class="space-y-1">
                     {r.byCategory.map((c) => (
                       <div key={c.category} class="flex items-center justify-between text-xs rounded-md bg-surface-2 px-3 py-1.5">
@@ -167,7 +167,7 @@ export function WhatsappDispatchPage() {
               {/* Qualidade/limite por número (Meta) */}
               {reportConns.length > 0 && (
                 <Card>
-                  <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider mb-2">Saúde dos números (qualidade e limite Meta)</div>
+                  <div class="text-2xs text-fg-muted uppercase tracking-wider mb-2">Saúde dos números (qualidade e limite Meta)</div>
                   <div class="space-y-1">
                     {(selectedConn ? [selectedConn] : reportConns).map((c) => (
                       <div key={c.id} class="flex items-center justify-between text-xs rounded-md bg-surface-2 px-3 py-1.5">
@@ -185,7 +185,7 @@ export function WhatsappDispatchPage() {
               {/* Recentes */}
               {r.recent.length > 0 && (
                 <Card>
-                  <div class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider mb-2">Disparos recentes</div>
+                  <div class="text-2xs text-fg-muted uppercase tracking-wider mb-2">Disparos recentes</div>
                   <div class="space-y-1 max-h-96 overflow-auto">
                     {r.recent.map((m) => (
                       <div key={m.wamid} class="flex items-center justify-between text-xs rounded-md bg-surface px-3 py-1.5 border border-border">
@@ -211,7 +211,7 @@ function NumChip({ label, active, onClick }: { label: string; active: boolean; o
   return (
     <button
       type="button"
-      class={`text-[0.6875rem] px-2.5 py-1 rounded-full border transition-colors ${
+      class={`text-2xs px-2.5 py-1 rounded-full border transition-colors ${
         active ? 'bg-accent/15 text-accent border-accent/40' : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3'
       }`}
       onClick={onClick}
@@ -226,7 +226,7 @@ function DKpi({ label, value, tone = 'neutral' }: { label: string; value: number
   return (
     <div class="rounded-md border border-border bg-surface-2 p-2.5">
       <div class={`text-lg font-semibold leading-tight ${color}`}>{value}</div>
-      <div class="text-[0.6875rem] text-fg-muted">{label}</div>
+      <div class="text-2xs text-fg-muted">{label}</div>
     </div>
   )
 }

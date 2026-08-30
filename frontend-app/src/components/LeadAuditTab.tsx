@@ -1,4 +1,4 @@
-import { Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Trash2 } from 'lucide-preact'
+import { Bot, RefreshCw, AlertTriangle, CheckCircle2, Clock, Trash2 } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -111,8 +111,8 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
           <AlertTriangle size={14} class="text-danger shrink-0 mt-0.5" />
           <div class="flex-1 min-w-0">
             <div class="text-sm text-fg">Falha na auditoria</div>
-            <code class="text-[0.6875rem] font-mono text-fg-muted break-all">{audit.errorMessage}</code>
-            <div class="text-[0.6875rem] text-fg-subtle mt-1">{new Date(audit.createdAt).toLocaleString('pt-BR')}</div>
+            <code class="text-2xs font-mono text-fg-muted break-all">{audit.errorMessage}</code>
+            <div class="text-2xs text-fg-muted mt-1">{new Date(audit.createdAt).toLocaleString('pt-BR')}</div>
           </div>
           <button
             type="button"
@@ -131,14 +131,14 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-3">
           <div>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Score</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Score</div>
             <Badge tone={scoreTone(audit.score)} solid>
               <span class="text-base font-semibold">{audit.score ?? '—'}</span>
             </Badge>
           </div>
           {audit.tone && (
             <div>
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Tom</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted">Tom</div>
               <Badge tone={audit.tone === 'cordial' ? 'success' : audit.tone === 'agressivo' ? 'danger' : audit.tone === 'frio' ? 'warning' : 'neutral'}>
                 {TONE_LABELS[audit.tone] ?? audit.tone}
               </Badge>
@@ -146,18 +146,18 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
           )}
           {audit.scriptAdherence !== null && (
             <div>
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Roteiro</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted">Roteiro</div>
               <div class="text-sm tabular-nums text-fg">{audit.scriptAdherence}%</div>
             </div>
           )}
           {audit.responseTimeAvgSec !== null && (
             <div>
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Tempo médio</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted">Tempo médio</div>
               <div class="text-sm tabular-nums text-fg flex items-center gap-1"><Clock size={11} /> {formatSec(audit.responseTimeAvgSec)}</div>
             </div>
           )}
         </div>
-        <div class="text-[0.6875rem] text-fg-subtle text-right shrink-0">
+        <div class="text-2xs text-fg-muted text-right shrink-0">
           {new Date(audit.createdAt).toLocaleString('pt-BR')}
           <div class="mt-0.5">{audit.messageCount} msgs · {audit.modelUsed}</div>
           <button
@@ -177,7 +177,7 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
       <div class="grid gap-2 sm:grid-cols-3 mt-3 text-xs">
         {audit.strengths && audit.strengths.length > 0 && (
           <div>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-success font-semibold mb-1 flex items-center gap-1">
+            <div class="text-2xs uppercase tracking-wider text-success font-semibold mb-1 flex items-center gap-1">
               <CheckCircle2 size={10} /> Pontos fortes
             </div>
             <ul class="space-y-0.5 text-fg-muted">
@@ -187,7 +187,7 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
         )}
         {audit.weaknesses && audit.weaknesses.length > 0 && (
           <div>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-warning font-semibold mb-1 flex items-center gap-1">
+            <div class="text-2xs uppercase tracking-wider text-warning font-semibold mb-1 flex items-center gap-1">
               <AlertTriangle size={10} /> Pontos fracos
             </div>
             <ul class="space-y-0.5 text-fg-muted">
@@ -197,7 +197,7 @@ function AuditCard({ audit, onDelete }: { audit: ConversationAudit; onDelete: ()
         )}
         {audit.missedOpportunities && audit.missedOpportunities.length > 0 && (
           <div>
-            <div class="text-[0.6875rem] uppercase tracking-wider text-danger font-semibold mb-1 flex items-center gap-1">
+            <div class="text-2xs uppercase tracking-wider text-danger font-semibold mb-1 flex items-center gap-1">
               <AlertTriangle size={10} /> Oportunidades perdidas
             </div>
             <ul class="space-y-0.5 text-fg-muted">

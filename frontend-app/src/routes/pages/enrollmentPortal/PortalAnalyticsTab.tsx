@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Eye, Send, Trophy, Banknote } from 'lucide-preact'
+import { Eye, Send, Trophy, Banknote } from '@/components/ui/icon-set'
 import {
   usePortalAnalytics,
   type EnrollmentPortal,
@@ -27,7 +27,7 @@ export function PortalAnalyticsTab({ portal }: { portal: EnrollmentPortal }) {
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div class="text-sm font-medium text-fg">Analytics do portal</div>
-            <div class="text-xs text-fg-subtle mt-0.5">
+            <div class="text-xs text-fg-muted mt-0.5">
               KPIs e atividade do portal em {presetLabel(mes)}.
             </div>
           </div>
@@ -75,10 +75,10 @@ function KpiRow({ data }: { data: PortalAnalytics }) {
         <Card key={t.label}>
           <div class="flex items-center gap-2 text-fg-muted">
             <span class="size-7 rounded-md bg-surface-3 grid place-items-center">{t.icon}</span>
-            <span class="text-xs uppercase tracking-wider text-fg-subtle">{t.label}</span>
+            <span class="text-xs uppercase tracking-wider text-fg-muted">{t.label}</span>
           </div>
           <div class="text-2xl font-semibold text-fg tabular-nums mt-2">{t.value}</div>
-          <div class="text-[0.6875rem] text-fg-subtle">{t.sub}</div>
+          <div class="text-2xs text-fg-muted">{t.sub}</div>
         </Card>
       ))}
     </div>
@@ -102,14 +102,14 @@ function ByDayChart({ data }: { data: PortalAnalytics }) {
   }))
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Inscrições por dia</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Inscrições por dia</div>
       <LineChart data={points} height={200} />
-      <div class="flex items-center gap-3 text-[0.6875rem] text-fg-subtle mt-2">
+      <div class="flex items-center gap-3 text-2xs text-fg-muted mt-2">
         <span class="inline-flex items-center gap-1">
           <span class="size-2 rounded-full bg-accent" />
           Total
         </span>
-        <span class="text-fg-subtle">
+        <span class="text-fg-muted">
           Pagas:{' '}
           <span class="text-fg tabular-nums">
             {data.byDay.reduce((acc, d) => acc + d.paid, 0)}
@@ -121,14 +121,14 @@ function ByDayChart({ data }: { data: PortalAnalytics }) {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  draft: 'var(--color-fg-subtle)',
+  draft: 'var(--color-fg-muted)',
   submitted: 'var(--color-info)',
   reviewing: 'var(--color-warning)',
   approved: 'var(--color-success)',
   enrolled: 'var(--color-success)',
   rejected: 'var(--color-danger)',
-  cancelled: 'var(--color-fg-subtle)',
-  expired: 'var(--color-fg-subtle)',
+  cancelled: 'var(--color-fg-muted)',
+  expired: 'var(--color-fg-muted)',
   pending: 'var(--color-warning)',
 }
 
@@ -148,7 +148,7 @@ function ByStatus({ data }: { data: PortalAnalytics }) {
   if (data.byStatus.length === 0) {
     return (
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Por status</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Por status</div>
         <div class="text-sm text-fg-muted text-center py-4">Sem dados</div>
       </Card>
     )
@@ -156,7 +156,7 @@ function ByStatus({ data }: { data: PortalAnalytics }) {
   const total = data.byStatus.reduce((acc, s) => acc + s.count, 0)
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Por status</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Por status</div>
       <ul class="space-y-2">
         {[...data.byStatus].sort((a, b) => b.count - a.count).map((s) => {
           const pct = total > 0 ? Math.max(2, Math.round((s.count / total) * 100)) : 0
@@ -184,7 +184,7 @@ function BySource({ data }: { data: PortalAnalytics }) {
   if (data.bySource.length === 0) {
     return (
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Origens (UTM)</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Origens (UTM)</div>
         <div class="text-sm text-fg-muted text-center py-4">Sem dados</div>
       </Card>
     )
@@ -192,7 +192,7 @@ function BySource({ data }: { data: PortalAnalytics }) {
   const total = data.bySource.reduce((acc, s) => acc + s.count, 0)
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Origens (UTM)</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Origens (UTM)</div>
       <ul class="space-y-2">
         {data.bySource.map((s) => {
           const pct = total > 0 ? Math.max(2, Math.round((s.count / total) * 100)) : 0

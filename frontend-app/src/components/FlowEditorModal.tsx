@@ -5,7 +5,7 @@
 // Meta" republica o Flow (necessário ao mudar rótulos/campos/título).
 
 import { useEffect, useState } from 'preact/hooks'
-import { ChevronDown } from 'lucide-preact'
+import { ChevronDown } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -18,7 +18,7 @@ const TITLE_MAX = 30
 const LABEL_MAX = 80
 
 function Counter({ value, max }: { value: number; max: number }) {
-  return <span class={`text-[0.625rem] ${value > max ? 'text-danger' : 'text-fg-subtle'}`}>{value}/{max}</span>
+  return <span class={`text-3xs ${value > max ? 'text-danger' : 'text-fg-muted'}`}>{value}/{max}</span>
 }
 
 export function FlowEditorModal({ formId, onClose }: { formId: number; onClose: () => void }) {
@@ -126,8 +126,8 @@ export function FlowEditorModal({ formId, onClose }: { formId: number; onClose: 
                         <input type="checkbox" checked={f.include} onChange={(e) => patchField(i, { include: (e.target as HTMLInputElement).checked })} />
                         Incluir
                       </label>
-                      <span class="text-[0.625rem] px-1.5 py-0.5 rounded bg-surface-2 text-fg-subtle shrink-0">{f.type}{f.hasOptions ? ' • opções' : ''}</span>
-                      <span class="text-[0.625rem] text-fg-subtle font-mono truncate">{f.key}</span>
+                      <span class="text-3xs px-1.5 py-0.5 rounded bg-surface-2 text-fg-muted shrink-0">{f.type}{f.hasOptions ? ' • opções' : ''}</span>
+                      <span class="text-3xs text-fg-muted font-mono truncate">{f.key}</span>
                     </div>
                     {f.include && (
                       <div class="mt-2">
@@ -142,7 +142,7 @@ export function FlowEditorModal({ formId, onClose }: { formId: number; onClose: 
                             Obrigatório
                           </label>
                           <span class="flex items-center gap-2">
-                            {f.label.length > 30 && <span class="text-[0.625rem] text-warning">vira subtítulo</span>}
+                            {f.label.length > 30 && <span class="text-3xs text-warning">vira subtítulo</span>}
                             <Counter value={f.label.length} max={LABEL_MAX} />
                           </span>
                         </div>
@@ -171,8 +171,8 @@ export function FlowEditorModal({ formId, onClose }: { formId: number; onClose: 
                     <div class="text-xs text-gray-400">Nenhum campo ativo.</div>
                   ) : activeFields.map((f) => (
                     <div key={f.key}>
-                      {f.label.length > 30 && <div class="text-[0.8125rem] font-semibold text-gray-800 mb-1">{f.label}</div>}
-                      <label class="block text-[0.6875rem] text-gray-500 mb-1">
+                      {f.label.length > 30 && <div class="text-xs font-semibold text-gray-800 mb-1">{f.label}</div>}
+                      <label class="block text-2xs text-gray-500 mb-1">
                         {f.label.length > 30 ? (f.hasOptions ? 'Selecione' : 'Sua resposta') : f.label}{f.required ? ' *' : ''}
                       </label>
                       {f.hasOptions ? (
@@ -190,7 +190,7 @@ export function FlowEditorModal({ formId, onClose }: { formId: number; onClose: 
               <div class="text-xs text-danger mt-2 bg-danger/10 rounded px-2 py-1.5">Último erro ao publicar: {data.lastError}</div>
             )}
             {data.metaFlowId && (
-              <div class="text-[0.6875rem] text-fg-subtle mt-2">Publicado na Meta (id {data.metaFlowId}). Mudanças em rótulos/campos/título exigem "Publicar".</div>
+              <div class="text-2xs text-fg-muted mt-2">Publicado na Meta (id {data.metaFlowId}). Mudanças em rótulos/campos/título exigem "Publicar".</div>
             )}
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { QrCode, Download, Copy, Check, RefreshCw, HelpCircle } from 'lucide-preact'
+import { QrCode, Download, Copy, Check, RefreshCw, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -130,7 +130,7 @@ export function QrCodePage() {
                   <button
                     type="button"
                     onClick={copyData}
-                    class="text-[0.6875rem] text-info hover:underline flex items-center gap-1"
+                    class="text-2xs text-info hover:underline flex items-center gap-1"
                   >
                     {copied ? <Check size={10} /> : <Copy size={10} />} {copied ? 'copiado' : 'copiar'}
                   </button>
@@ -144,7 +144,7 @@ export function QrCodePage() {
                 class="w-full text-sm font-mono rounded-md border border-border bg-surface px-2 py-1.5 focus:outline-none focus:border-accent"
                 maxLength={2048}
               />
-              <div class="text-[0.6875rem] text-fg-subtle mt-0.5">{dataLen}/2048 caracteres</div>
+              <div class="text-2xs text-fg-muted mt-0.5">{dataLen}/2048 caracteres</div>
             </div>
 
             <div class="grid grid-cols-2 gap-2">
@@ -214,13 +214,13 @@ export function QrCodePage() {
               </div>
             </div>
 
-            <div class="text-[0.6875rem] text-fg-subtle">
+            <div class="text-2xs text-fg-muted">
               <strong>Dica:</strong> contraste alto é importante — preto/branco é o mais legível pra scanners de qualquer celular. Se quiser cor da marca, garanta que o frente seja escuro e o fundo seja claro (ou inverso).
             </div>
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-1 flex items-center gap-1">
+            <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-1 flex items-center gap-1">
               <QrCode size={11} /> Preview
               {loading && <RefreshCw size={10} class="animate-spin ml-auto" />}
             </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Plus, Pencil, Check, X as XIcon, ChevronLeft, ChevronRight, Trash2, HelpCircle } from 'lucide-preact'
+import { Plus, Pencil, Check, X as XIcon, ChevronLeft, ChevronRight, Trash2, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useUserDashboards,
@@ -247,7 +247,7 @@ function DashboardPageInner(props: DashboardPageProps = {}) {
                   <div class="flex items-center gap-0.5 shrink-0">
                     <button
                       type="button"
-                      class="size-6 rounded grid place-items-center text-fg-subtle hover:text-accent hover:bg-surface-3"
+                      class="size-6 rounded grid place-items-center text-fg-muted hover:text-accent hover:bg-surface-3"
                       onClick={() => setEditingWidget(w)}
                       aria-label="Editar"
                       title="Editar"
@@ -256,7 +256,7 @@ function DashboardPageInner(props: DashboardPageProps = {}) {
                     </button>
                     <button
                       type="button"
-                      class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:opacity-30"
+                      class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 disabled:opacity-30"
                       onClick={() => moveWidget(idx, -1)}
                       disabled={idx === 0}
                       aria-label="Mover esquerda"
@@ -266,7 +266,7 @@ function DashboardPageInner(props: DashboardPageProps = {}) {
                     </button>
                     <button
                       type="button"
-                      class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:opacity-30"
+                      class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 disabled:opacity-30"
                       onClick={() => moveWidget(idx, 1)}
                       disabled={idx === widgets.length - 1}
                       aria-label="Mover direita"
@@ -276,7 +276,7 @@ function DashboardPageInner(props: DashboardPageProps = {}) {
                     </button>
                     <button
                       type="button"
-                      class="size-6 rounded grid place-items-center text-fg-subtle hover:text-danger hover:bg-surface-3"
+                      class="size-6 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-3"
                       onClick={() => removeWidget(w.id)}
                       aria-label="Remover"
                       title="Remover"

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Bot, Plus, Pencil, Trash2, ListChecks, Play, Code, Sparkles, Download, Upload, FileJson, Copy, Power, HelpCircle } from 'lucide-preact'
+import { Bot, Plus, Pencil, Trash2, ListChecks, Play, Code, Sparkles, Download, Upload, FileJson, Copy, Power, HelpCircle } from '@/components/ui/icon-set'
 import {
   useChatbots,
   useCreateChatbot,
@@ -163,7 +163,7 @@ export function ChatbotsPage() {
                     <span class="text-2xl shrink-0" aria-hidden="true">{ch.emoji}</span>
                     <div class="min-w-0">
                       <div class="text-sm font-semibold text-fg truncate">{b.name}</div>
-                      <div class="text-[0.6875rem] text-fg-subtle truncate">
+                      <div class="text-2xs text-fg-muted truncate">
                         {ch.label} · {b._count.questions} {b._count.questions === 1 ? 'pergunta' : 'perguntas'}
                       </div>
                     </div>
@@ -377,14 +377,14 @@ function ImportChatbotModal({ onClose }: { onClose: () => void }) {
         <label class="block">
           <span class="text-xs font-medium text-fg-muted block mb-1.5">Arquivo JSON</span>
           <div class="rounded-md border-2 border-dashed border-border bg-surface-2 p-4 text-center cursor-pointer hover:border-accent transition-colors">
-            <FileJson size={28} class="mx-auto text-fg-subtle mb-2" />
+            <FileJson size={28} class="mx-auto text-fg-muted mb-2" />
             <input
               type="file"
               accept="application/json,.json"
               onChange={onFile}
               class="block mx-auto text-xs text-fg-muted"
             />
-            {fileName && <div class="text-[0.6875rem] text-fg-subtle mt-1.5">{fileName}</div>}
+            {fileName && <div class="text-2xs text-fg-muted mt-1.5">{fileName}</div>}
           </div>
         </label>
 
@@ -400,18 +400,18 @@ function ImportChatbotModal({ onClose }: { onClose: () => void }) {
               <div class="text-fg-muted">
                 Original: <strong class="text-fg">{String(payload.chatbot.name ?? '—')}</strong>
               </div>
-              <div class="text-fg-subtle">
+              <div class="text-fg-muted">
                 Canal: {String(payload.chatbot.channel ?? '—')} · {questionCount} pergunta{questionCount === 1 ? '' : 's'}
               </div>
               {(refs.funnel || refs.team) && (
-                <div class="text-[0.6875rem] text-fg-subtle pt-1 border-t border-border mt-1.5">
+                <div class="text-2xs text-fg-muted pt-1 border-t border-border mt-1.5">
                   Referências:{' '}
                   {refs.funnel?.name && <span>funil <strong class="text-fg-muted">{refs.funnel.name}</strong> · </span>}
                   {refs.team?.name   && <span>equipe <strong class="text-fg-muted">{refs.team.name}</strong></span>}
                 </div>
               )}
               {payload.exportedAt && (
-                <div class="text-[0.6875rem] text-fg-subtle">
+                <div class="text-2xs text-fg-muted">
                   Exportado em: {new Date(payload.exportedAt).toLocaleString('pt-BR')}
                 </div>
               )}
@@ -469,11 +469,11 @@ function EmbedCodeModal({ chatbot, onClose }: { chatbot: ChatbotItem; onClose: (
             <button
               type="button"
               onClick={() => copy(data.snippet)}
-              class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-[0.6875rem] font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-2xs font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors"
             >
               <Code size={10} /> {copied ? 'Copiado!' : 'Copiar'}
             </button>
-            <pre class="text-[0.75rem] font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">
+            <pre class="text-xs font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">
               {data.snippet}
             </pre>
           </div>
@@ -811,7 +811,7 @@ function ChatbotFormModal({ chatbot, template, onClose }: { chatbot: ChatbotItem
           {form.mode === 'scripted' && (
             <details class="rounded-md border border-border bg-surface-2 p-3">
               <summary class="cursor-pointer text-sm font-medium text-fg">Mensagens da conversa (editáveis)</summary>
-              <p class="mt-1 mb-3 text-[0.6875rem] text-fg-muted">Deixe em branco para usar o texto padrão. Use as variáveis indicadas entre chaves.</p>
+              <p class="mt-1 mb-3 text-2xs text-fg-muted">Deixe em branco para usar o texto padrão. Use as variáveis indicadas entre chaves.</p>
               <div class="space-y-3">
                 {SCRIPTED_MSG_FIELDS.map((m) => (
                   <Textarea

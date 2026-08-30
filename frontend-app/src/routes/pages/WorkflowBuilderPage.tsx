@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, Pause, Play, ExternalLink } from 'lucide-preact'
+import { ArrowLeft, Pause, Play, ExternalLink } from '@/components/ui/icon-set'
 import {
   useWorkflow,
   useToggleWorkflow,

@@ -14,7 +14,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-preact'
+import { GripVertical } from '@/components/ui/icon-set'
 import { cn } from '@/lib/cn'
 
 type SortableId = string | number
@@ -89,7 +89,7 @@ function SortableItem({
     <div ref={setNodeRef} style={style} class="flex items-center gap-2">
       <button
         type="button"
-        class="size-6 grid place-items-center rounded text-fg-subtle hover:text-fg cursor-grab touch-none shrink-0"
+        class="size-6 grid place-items-center rounded text-fg-muted hover:text-fg cursor-grab touch-none shrink-0"
         {...(listeners as unknown as Record<string, unknown>)}
         {...(attributes as unknown as Record<string, unknown>)}
         aria-label="Arrastar"

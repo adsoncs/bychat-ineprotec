@@ -7,7 +7,7 @@
 //   POST /admin/kommo/test     POST /admin/kommo/sync   GET /admin/kommo/status
 
 import { useState, useEffect, useCallback } from 'preact/hooks'
-import { Plug, Save, Eye, EyeOff, RefreshCw, DownloadCloud, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-preact'
+import { Plug, Save, Eye, EyeOff, RefreshCw, DownloadCloud, CheckCircle2, AlertTriangle, Loader2 } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -243,12 +243,12 @@ export function KommoIntegration() {
           {COUNT_LABELS.map(([key, label]) => (
             <div key={key} class="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-center">
               <div class="text-lg font-semibold text-fg tabular-nums">{status?.counts?.[key] ?? 0}</div>
-              <div class="text-[11px] text-fg-muted">{label}</div>
+              <div class="text-2xs text-fg-muted">{label}</div>
             </div>
           ))}
         </div>
         {(status && (status.queue.waiting > 0 || status.queue.active > 0)) && (
-          <div class="mt-2 text-[11px] text-fg-muted">Fila: {status.queue.active} ativo(s), {status.queue.waiting} aguardando.</div>
+          <div class="mt-2 text-2xs text-fg-muted">Fila: {status.queue.active} ativo(s), {status.queue.waiting} aguardando.</div>
         )}
       </Card>
 

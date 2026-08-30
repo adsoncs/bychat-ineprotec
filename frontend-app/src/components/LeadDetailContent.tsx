@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { ShieldBan } from 'lucide-preact'
+import { ShieldBan } from '@/components/ui/icon-set'
 import {
   useLead,
   useDeleteLead,

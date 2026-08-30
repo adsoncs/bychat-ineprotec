@@ -3,7 +3,7 @@
 // "duplicado pendente" roda (always_new) ou fica muda (update_existing).
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Copy } from 'lucide-preact'
+import { Copy } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -98,7 +98,7 @@ export function DedupSettings() {
                 <div key={c.key} class="grid grid-cols-1 md:grid-cols-[16rem_1fr_18rem] gap-3 items-start py-2 border-b border-border last:border-b-0">
                   <div>
                     <div class="text-sm font-medium text-fg">{c.label}</div>
-                    <p class="text-[0.6875rem] text-fg-subtle mt-0.5">{c.help}</p>
+                    <p class="text-2xs text-fg-muted mt-0.5">{c.help}</p>
                   </div>
                   <div class="text-xs text-fg-muted">
                     {MODE_OPTIONS.find(o => o.value === value)?.description}

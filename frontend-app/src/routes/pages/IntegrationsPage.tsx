@@ -23,7 +23,7 @@ import {
   Clock,
   HelpCircle,
   Database,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import type { JSX } from 'preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -470,7 +470,7 @@ export function IntegrationsPage() {
     >
       <div class="flex flex-col sm:flex-row gap-2 mb-3">
         <div class="flex-1 relative">
-          <SearchIcon size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none" />
+          <SearchIcon size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
           <Input
             value={search}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
@@ -558,7 +558,7 @@ function CategorySection({
 }) {
   return (
     <section class="mb-5">
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-2">{label}</div>
+      <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">{label}</div>
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((it) => (
           <IntegrationCard key={it.id} integration={it} stateFilter={stateFilter} onOpen={onOpen} />
@@ -601,10 +601,10 @@ function IntegrationCard({
           <h3 class="truncate text-sm font-semibold text-fg">{it.name}</h3>
           <p class="mt-1 line-clamp-2 text-xs text-fg-muted">{it.description}</p>
           {status.detail && (
-            <div class="text-[0.6875rem] text-fg-subtle mt-1.5 truncate">{status.detail}</div>
+            <div class="text-2xs text-fg-muted mt-1.5 truncate">{status.detail}</div>
           )}
           {status.error && (
-            <div class="text-[0.6875rem] text-danger mt-1 truncate">{status.error}</div>
+            <div class="text-2xs text-danger mt-1 truncate">{status.error}</div>
           )}
         </div>
       </div>
@@ -613,7 +613,7 @@ function IntegrationCard({
           <StateIcon size={10} class="mr-0.5 inline" /> {meta.label}
         </Badge>
         {interactive && (
-          <span class="text-[0.6875rem] text-fg-subtle group-hover:text-fg">Abrir →</span>
+          <span class="text-2xs text-fg-muted group-hover:text-fg">Abrir →</span>
         )}
       </div>
     </Card>
@@ -630,14 +630,14 @@ function FilterChip({
 }): JSX.Element {
   const activeCls =
     tone === 'success' ? 'bg-accent text-fg-on-brand border-accent' :
-    tone === 'warning' ? 'bg-warning text-white border-warning' :
-    tone === 'danger' ? 'bg-danger text-white border-danger' :
+    tone === 'warning' ? 'bg-warning text-fg-on-brand border-warning' :
+    tone === 'danger' ? 'bg-danger text-fg-on-brand border-danger' :
     'bg-accent text-fg-on-brand border-accent'
   return (
     <button
       type="button"
       class={cn(
-        'text-[0.6875rem] px-2.5 py-1 rounded-full border transition-colors',
+        'text-2xs px-2.5 py-1 rounded-full border transition-colors',
         active ? activeCls : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3',
       )}
       onClick={onClick}

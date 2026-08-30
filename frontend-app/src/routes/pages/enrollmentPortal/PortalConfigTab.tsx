@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks'
-import { Save, AlertCircle, ExternalLink } from 'lucide-preact'
+import { Save, AlertCircle, ExternalLink } from '@/components/ui/icon-set'
 import {
   useUpdateEnrollmentPortal,
   type EnrollmentPortal,
@@ -167,7 +167,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div class="text-sm font-medium text-fg">Configuração avançada</div>
-            <div class="text-xs text-fg-subtle mt-0.5">
+            <div class="text-xs text-fg-muted mt-0.5">
               Pagamento, captcha, filtros, funil, tracking e custom code. Salva todas as seções de uma vez.
             </div>
           </div>
@@ -222,7 +222,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
             />
           </div>
           {requirePayment && paymentConnections.length === 0 && !loadingConnections && (
-            <div class="text-[0.6875rem] text-warning flex items-center gap-1.5">
+            <div class="text-2xs text-warning flex items-center gap-1.5">
               <AlertCircle size={12} />
               <span>
                 Nenhuma conexão de pagamento ativa.{' '}
@@ -249,7 +249,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
             <option value="link">Link de pagamento (redirect ao provedor)</option>
             <option value="transparent">Checkout no portal (transparente)</option>
           </Select>
-          <div class="text-[0.6875rem] text-fg-subtle">
+          <div class="text-2xs text-fg-muted">
             Conexões são gerenciadas em <a href="/app/payments" class="underline">Pagamentos</a>.
             O valor da taxa vem do processo seletivo (`taxaInscricao`).
           </div>
@@ -297,7 +297,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
       <Card>
         <SectionTitle>Filtros (o que aparece no portal)</SectionTitle>
-        <div class="text-xs text-fg-subtle mb-3">
+        <div class="text-xs text-fg-muted mb-3">
           Restringe níveis/cursos/campus/modalidades visíveis. <strong>Vazio = mostra todos</strong>.
         </div>
         <div class="space-y-3">
@@ -380,7 +380,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
             />
           </div>
           {funnelId && stages.length === 0 && (
-            <div class="text-[0.6875rem] text-warning">
+            <div class="text-2xs text-warning">
               Funil sem etapas. Cadastre etapas em <a href="/app/funnels" class="underline">Funis</a>.
             </div>
           )}
@@ -398,7 +398,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
             hint="Configurar SSL via DNS é responsabilidade do operador"
           />
           {portal.sslStatus && (
-            <div class="text-[0.6875rem] text-fg-subtle">
+            <div class="text-2xs text-fg-muted">
               SSL: <code class="text-fg">{portal.sslStatus}</code>
             </div>
           )}
@@ -415,7 +415,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
       <Card>
         <SectionTitle>Tracking · Pixels</SectionTitle>
-        <div class="text-xs text-fg-subtle mb-3">
+        <div class="text-xs text-fg-muted mb-3">
           IDs disparam scripts oficiais no portal público (server-rendered). Deixe vazio para desativar.
           Para tags customizadas use o campo <strong>JS no &lt;head&gt;</strong> abaixo.
         </div>
@@ -458,7 +458,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
       <Card>
         <SectionTitle>Código personalizado (avançado)</SectionTitle>
-        <div class="text-[0.6875rem] text-warning mb-3">
+        <div class="text-2xs text-warning mb-3">
           ⚠ Conteúdo injetado é executado no navegador do candidato. Não cole código de fontes
           desconhecidas — risco de XSS, vazamento de dados ou manipulação do formulário.
         </div>
@@ -488,7 +488,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 }
 
 function SectionTitle({ children }: { children: preact.ComponentChildren }) {
-  return <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">{children}</div>
+  return <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">{children}</div>
 }
 
 interface FilterableItem {
@@ -521,7 +521,7 @@ function FilterPicker({
     <details class="rounded-md border border-border bg-surface">
       <summary class="cursor-pointer px-3 py-2 text-sm flex items-center justify-between gap-2">
         <span class="text-fg-muted">{label}</span>
-        <span class="text-xs text-fg-subtle">{summary}</span>
+        <span class="text-xs text-fg-muted">{summary}</span>
       </summary>
       <div class="px-3 py-2 border-t border-border space-y-2">
         <label class="flex items-center gap-2 text-xs text-fg-muted">
@@ -534,7 +534,7 @@ function FilterPicker({
         </label>
         {!allOpen && (
           items.length === 0 ? (
-            <div class="text-xs text-fg-subtle">Nada cadastrado.</div>
+            <div class="text-xs text-fg-muted">Nada cadastrado.</div>
           ) : (
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
               {items.map((it) => (

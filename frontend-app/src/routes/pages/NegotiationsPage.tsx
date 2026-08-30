@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { Handshake, Download, RefreshCw, ExternalLink, HelpCircle } from 'lucide-preact'
+import { Handshake, Download, RefreshCw, ExternalLink, HelpCircle } from '@/components/ui/icon-set'
 import {
   useNegotiationsOverview, negotiationsOverviewQuery,
   type NegotiationRow, type NegotiationsOverviewParams,
@@ -87,7 +87,7 @@ function StageCell({ n }: { n: NegotiationRow }) {
           <span class="size-2 rounded-full shrink-0" style={{ background: n.lead?.stageColor || 'var(--color-accent)' }} />
           <span class="text-xs text-fg-muted truncate">{stage}</span>
         </span>
-      ) : <span class="text-xs text-fg-subtle">—</span>}
+      ) : <span class="text-xs text-fg-muted">—</span>}
       {outcome ? <Badge tone={outcome === 'won' ? 'success' : 'danger'}>{outcome === 'won' ? 'Ganho' : 'Perdido'}</Badge> : null}
     </div>
   )
@@ -139,7 +139,7 @@ function TableFooter({ total, limit, page, onChangePage, onChangeLimit }: {
         <button type="button" class={navBtn} onClick={() => onChangePage(1)} disabled={page <= 1} aria-label="Primeira página">«</button>
         <button type="button" class={navBtn} onClick={() => onChangePage(page - 1)} disabled={page <= 1} aria-label="Página anterior">‹</button>
         {items.map((it, i) => it.kind === 'gap'
-          ? <span key={`gap-${i}`} class="px-1 text-fg-subtle">…</span>
+          ? <span key={`gap-${i}`} class="px-1 text-fg-muted">…</span>
           : (
             <button
               key={`p-${it.n}`}
@@ -316,7 +316,7 @@ export function NegotiationsPage() {
           <div class="flex items-center gap-1">
             <input type="date" value={dateFrom} max={dateTo || undefined} onInput={(e) => setDateFrom((e.target as HTMLInputElement).value)}
               class="h-8 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent" aria-label="Data inicial" />
-            <span class="text-xs text-fg-subtle">até</span>
+            <span class="text-xs text-fg-muted">até</span>
             <input type="date" value={dateTo} min={dateFrom || undefined} onInput={(e) => setDateTo((e.target as HTMLInputElement).value)}
               class="h-8 px-2 rounded border border-border bg-surface text-xs text-fg focus:outline-none focus:border-accent" aria-label="Data final" />
           </div>
@@ -333,7 +333,7 @@ export function NegotiationsPage() {
             }}>Limpar filtros</Button>
           ) : null}
         </div>
-        <p class="text-[11px] text-fg-subtle mt-2">
+        <p class="text-2xs text-fg-muted mt-2">
           O período considera a data de <strong>fechamento</strong> nas propostas fechadas e a de <strong>criação</strong> nas que seguem em aberto.
         </p>
       </Card>
@@ -353,7 +353,7 @@ export function NegotiationsPage() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
                   <th class="text-left font-medium px-3 py-2">Lead</th>
                   <th class="text-left font-medium px-3 py-2">Proposta</th>
                   <th class="text-left font-medium px-3 py-2">Etapa do funil</th>
@@ -368,11 +368,11 @@ export function NegotiationsPage() {
                     <tr key={n.id} class="border-b border-border/60 last:border-0 hover:bg-surface-2/50 cursor-pointer" onClick={() => setEditing(n)}>
                       <td class="px-3 py-2">
                         <div class="text-fg font-medium truncate max-w-48">{leadLabel(n)}</div>
-                        {n.lead?.whatsapp ? <div class="text-[11px] text-fg-subtle">{n.lead.whatsapp}</div> : null}
+                        {n.lead?.whatsapp ? <div class="text-2xs text-fg-muted">{n.lead.whatsapp}</div> : null}
                       </td>
                       <td class="px-3 py-2">
                         <div class="text-fg-muted truncate max-w-56">{n.titulo}</div>
-                        <div class="text-[11px] text-fg-subtle">
+                        <div class="text-2xs text-fg-muted">
                           {n._count?.items ?? 0} item(ns){n._count?.attachments ? ` · ${n._count.attachments} anexo(s)` : ''}
                         </div>
                       </td>
@@ -387,7 +387,7 @@ export function NegotiationsPage() {
                       <td class="px-3 py-2 text-right">
                         <button
                           type="button"
-                          class="text-fg-subtle hover:text-fg"
+                          class="text-fg-muted hover:text-fg"
                           title="Abrir o lead"
                           onClick={(e) => { e.stopPropagation(); navigate(`/leads/${n.leadId}`) }}
                         >

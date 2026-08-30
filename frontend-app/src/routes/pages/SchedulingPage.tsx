@@ -1,6 +1,6 @@
 // Módulo de Agendamento — Fase 1: CRUD de Tipos de Reunião.
 import { useState } from 'preact/hooks'
-import { Plus, Pencil, Trash2, CalendarRange, Clock, MapPin, User } from 'lucide-preact'
+import { Plus, Pencil, Trash2, CalendarRange, Clock, MapPin, User } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -33,8 +33,8 @@ export function SchedulingPage() {
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-xl font-semibold flex items-center gap-2"><CalendarRange size={20} /> Agenda</h1>
         <div class="inline-flex rounded-lg border border-border overflow-hidden">
-          <button onClick={() => setTab('calendar')} class={`px-3 py-1.5 text-sm ${tab === 'calendar' ? 'bg-accent text-white' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>Calendário</button>
-          <button onClick={() => setTab('types')} class={`px-3 py-1.5 text-sm ${tab === 'types' ? 'bg-accent text-white' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>Tipos de reunião</button>
+          <button onClick={() => setTab('calendar')} class={`px-3 py-1.5 text-sm ${tab === 'calendar' ? 'bg-accent text-fg-on-brand' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>Calendário</button>
+          <button onClick={() => setTab('types')} class={`px-3 py-1.5 text-sm ${tab === 'types' ? 'bg-accent text-fg-on-brand' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>Tipos de reunião</button>
         </div>
       </div>
       {tab === 'calendar' ? <CalendarPanel /> : <MeetingTypesPanel />}
@@ -97,11 +97,11 @@ export function MeetingTypesPanel() {
                   <span class="size-3 rounded-full shrink-0" style={{ background: m.color || '#1a73e8' }} />
                   <div class="min-w-0">
                     <div class="font-semibold truncate">{m.name}</div>
-                    <div class="text-[0.6875rem] text-fg-subtle truncate">/agendar/{m.slug}</div>
+                    <div class="text-2xs text-fg-muted truncate">/agendar/{m.slug}</div>
                   </div>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
-                  {!m.active && <span class="text-[0.625rem] px-1.5 py-0.5 rounded-full bg-surface-3 text-fg-muted">inativo</span>}
+                  {!m.active && <span class="text-3xs px-1.5 py-0.5 rounded-full bg-surface-3 text-fg-muted">inativo</span>}
                   <button class="p-1 text-fg-muted hover:text-accent" title="Disponibilidade" onClick={() => setAvailFor(m)}><Clock size={14} /></button>
                   <button class="p-1 text-fg-muted hover:text-fg" title="Editar" onClick={() => openEdit(m)}><Pencil size={14} /></button>
                   <button class="p-1 text-fg-muted hover:text-danger" title="Excluir" onClick={() => setDeleteId(m.id)}><Trash2 size={14} /></button>
@@ -194,7 +194,7 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
 
         {/* Regras de tempo */}
         <div class="pt-2 border-t border-border">
-          <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Duração & slots</div>
+          <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Duração & slots</div>
           <div class="grid gap-3 sm:grid-cols-3">
             <Input label="Duração (min)" type="number" value={String(form.durationMin ?? 30)} onInput={(e) => set({ durationMin: numInput((e.target as HTMLInputElement).value) ?? 30 })} />
             <Input label="Intervalo entre slots (min)" type="number" value={String(form.slotIncrementMin ?? 30)} onInput={(e) => set({ slotIncrementMin: numInput((e.target as HTMLInputElement).value) ?? 30 })} />
@@ -206,7 +206,7 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
 
         {/* Regras de reserva */}
         <div class="pt-2 border-t border-border">
-          <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Regras de reserva</div>
+          <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Regras de reserva</div>
           <div class="grid gap-3 sm:grid-cols-2">
             <Input label="Antecedência mínima (horas)" type="number" value={String(Math.round((form.minNoticeMin ?? 240) / 60))} onInput={(e) => set({ minNoticeMin: (numInput((e.target as HTMLInputElement).value) ?? 4) * 60 })} hint="Quanto antes do horário o lead ainda pode reservar" />
             <Input label="Janela de reserva (dias)" type="number" value={String(form.bookingWindowDays ?? 60)} onInput={(e) => set({ bookingWindowDays: numInput((e.target as HTMLInputElement).value) ?? 60 })} hint="Até quantos dias à frente pode agendar" />
@@ -217,7 +217,7 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
 
         {/* Local + dono */}
         <div class="pt-2 border-t border-border">
-          <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Local & responsável</div>
+          <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Local & responsável</div>
           <div class="grid gap-3 sm:grid-cols-2">
             <Select label="Local" value={form.locationType ?? 'google_meet'} onChange={(e) => set({ locationType: (e.target as HTMLSelectElement).value })}>
               {Object.entries(LOCATION_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -265,7 +265,7 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
 
         {/* CRM: funil + etapa */}
         <div class="pt-2 border-t border-border">
-          <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Integração com o funil (ao agendar)</div>
+          <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Integração com o funil (ao agendar)</div>
           <div class="grid gap-3 sm:grid-cols-2">
             <Select label="Funil" value={form.funnelId == null ? '' : String(form.funnelId)} onChange={(e) => set({ funnelId: numInput((e.target as HTMLSelectElement).value), stageKey: null })}>
               <option value="">— nenhum —</option>
@@ -279,7 +279,7 @@ function MeetingTypeEditor({ form, onChange, onClose, onSave, saving }: {
         </div>
 
         {form.id && (
-          <p class="text-[0.6875rem] text-fg-subtle">URL pública (Fase 3): <code>/agendar/{(form as MeetingType).slug}</code></p>
+          <p class="text-2xs text-fg-muted">URL pública (Fase 3): <code>/agendar/{(form as MeetingType).slug}</code></p>
         )}
       </div>
     </Modal>

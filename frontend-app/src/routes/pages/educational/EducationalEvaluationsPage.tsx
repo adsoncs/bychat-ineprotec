@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
-import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, ExternalLink, AlertTriangle } from 'lucide-preact'
+import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, ExternalLink, AlertTriangle } from '@/components/ui/icon-set'
 import {
   useEnemImports,
   useEnemImport,
@@ -161,7 +161,7 @@ function OverviewKpi({
 }) {
   return (
     <Card>
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div class="text-2xs uppercase tracking-wider text-fg-muted">{label}</div>
       <div
         class="text-2xl font-bold tabular-nums mt-1"
         style={{ color }}
@@ -198,7 +198,7 @@ function OverviewCard({
         <button
           type="button"
           onClick={onOpen}
-          class="text-[0.6875rem] text-accent hover:underline"
+          class="text-2xs text-accent hover:underline"
         >
           Abrir →
         </button>
@@ -211,15 +211,15 @@ function OverviewCard({
           <div class="grid grid-cols-3 gap-2 text-center mb-3">
             <div>
               <div class="text-lg font-bold text-warning tabular-nums">{pending}</div>
-              <div class="text-[0.625rem] text-fg-subtle uppercase">Pend.</div>
+              <div class="text-3xs text-fg-muted uppercase">Pend.</div>
             </div>
             <div>
               <div class="text-lg font-bold text-success tabular-nums">{approved}</div>
-              <div class="text-[0.625rem] text-fg-subtle uppercase">Aprov.</div>
+              <div class="text-3xs text-fg-muted uppercase">Aprov.</div>
             </div>
             <div>
               <div class="text-lg font-bold text-danger tabular-nums">{rejected}</div>
-              <div class="text-[0.625rem] text-fg-subtle uppercase">Rejeit.</div>
+              <div class="text-3xs text-fg-muted uppercase">Rejeit.</div>
             </div>
           </div>
 
@@ -230,7 +230,7 @@ function OverviewCard({
               <div class="h-full bg-danger" style={{ width: `${rejPct}%` }} />
             </div>
           )}
-          {total === 0 && <div class="text-xs text-fg-subtle text-center py-2">Sem dados ainda</div>}
+          {total === 0 && <div class="text-xs text-fg-muted text-center py-2">Sem dados ainda</div>}
         </>
       )}
     </Card>
@@ -328,8 +328,8 @@ function EnemRow({ item: it, onOpen, onValidate, onReject }: { item: EnemImport;
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate">{it.nome ?? lead?.nome ?? '—'}</span>
-            {reg?.candidateCode && <code class="text-[0.6875rem] text-fg-subtle font-mono">{reg.candidateCode}</code>}
-            {it.inscricao && <span class="text-[0.6875rem] text-fg-subtle">insc: <code>{it.inscricao}</code></span>}
+            {reg?.candidateCode && <code class="text-2xs text-fg-muted font-mono">{reg.candidateCode}</code>}
+            {it.inscricao && <span class="text-2xs text-fg-muted">insc: <code>{it.inscricao}</code></span>}
             {it.ano !== null && <Badge tone="neutral">ENEM {it.ano}</Badge>}
             {it.passed === true && <Badge tone="success">Aprovado</Badge>}
             {it.passed === false && <Badge tone="danger">Rejeitado</Badge>}
@@ -338,29 +338,29 @@ function EnemRow({ item: it, onOpen, onValidate, onReject }: { item: EnemImport;
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {(off?.course?.nome ?? off?.nome) && <span>📚 {off?.course?.nome ?? off?.nome}</span>}
-            {sp?.nome && <span class="text-fg-subtle"> · {sp.nome}</span>}
-            {reg?.portal?.nome && <span class="text-fg-subtle"> · 🌐 {reg.portal.nome}</span>}
+            {sp?.nome && <span class="text-fg-muted"> · {sp.nome}</span>}
+            {reg?.portal?.nome && <span class="text-fg-muted"> · 🌐 {reg.portal.nome}</span>}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             Média: <strong class="text-fg">{it.mediaSimples?.toFixed(1) ?? '—'}</strong>
-            {it.cutoffScore !== null && <span class="text-fg-subtle"> · corte oferta: {it.cutoffScore}</span>}
-            {it.aiConfidence !== null && <span class="text-fg-subtle"> · IA {Math.round(it.aiConfidence * 100)}%</span>}
-            {it.source && <span class="text-fg-subtle"> · {it.source === 'ai_extracted' ? 'extraído IA' : it.source}</span>}
+            {it.cutoffScore !== null && <span class="text-fg-muted"> · corte oferta: {it.cutoffScore}</span>}
+            {it.aiConfidence !== null && <span class="text-fg-muted"> · IA {Math.round(it.aiConfidence * 100)}%</span>}
+            {it.source && <span class="text-fg-muted"> · {it.source === 'ai_extracted' ? 'extraído IA' : it.source}</span>}
           </div>
-          <div class="text-[0.6875rem] text-fg-subtle mt-0.5 font-mono">
+          <div class="text-2xs text-fg-muted mt-0.5 font-mono">
             CN {it.cienciasNatureza ?? '—'} · CH {it.cienciasHumanas ?? '—'} · LG {it.linguagens ?? '—'} · MT {it.matematica ?? '—'} · RD {it.redacao ?? '—'}
           </div>
           {(it.nomeBateComForm === false || it.inscricaoBateComForm === false || it.anoBateComForm === false) && (
-            <div class="text-[0.6875rem] text-warning mt-0.5">⚠ divergência com formulário</div>
+            <div class="text-2xs text-warning mt-0.5">⚠ divergência com formulário</div>
           )}
           {(lead?.email ?? lead?.whatsapp) && (
-            <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+            <div class="text-2xs text-fg-muted mt-0.5">
               {lead?.email && <span>✉ {lead.email}</span>}
               {lead?.whatsapp && <span class="ml-2">📱 {lead.whatsapp}</span>}
             </div>
           )}
           {it.validationNote && (
-            <div class="text-[0.6875rem] text-fg-muted mt-1 italic">"{it.validationNote}"</div>
+            <div class="text-2xs text-fg-muted mt-1 italic">"{it.validationNote}"</div>
           )}
         </div>
         {!it.validatedAt && (
@@ -374,7 +374,7 @@ function EnemRow({ item: it, onOpen, onValidate, onReject }: { item: EnemImport;
           </div>
         )}
         {it.validatedAt && (
-          <span class="text-xs text-fg-subtle whitespace-nowrap">{formatRelative(it.validatedAt)}</span>
+          <span class="text-xs text-fg-muted whitespace-nowrap">{formatRelative(it.validatedAt)}</span>
         )}
       </button>
     </li>
@@ -433,7 +433,7 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
       <div class="rounded-md border border-accent/30 bg-accent/5 p-3 space-y-2">
         <div class="flex items-baseline gap-3 flex-wrap">
           <Sparkles size={14} class="text-accent shrink-0" />
-          <span class="text-[0.625rem] uppercase tracking-wider font-semibold text-accent">Análise da IA</span>
+          <span class="text-3xs uppercase tracking-wider font-semibold text-accent">Análise da IA</span>
           {item.aiConfidence !== null && (
             <span class="text-xs text-fg-muted">Confiança: <strong class="text-fg">{Math.round(item.aiConfidence * 100)}%</strong></span>
           )}
@@ -452,7 +452,7 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
         </div>
 
         {cutoff !== null && (
-          <div class="text-[0.6875rem] text-fg-muted">
+          <div class="text-2xs text-fg-muted">
             Nota de corte aplicada: <strong class="text-fg">{cutoff}</strong>
             {item.mediaSimples !== null && (
               <span class={item.mediaSimples >= cutoff ? 'text-success' : 'text-danger'}>
@@ -479,7 +479,7 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
       {/* Observação do revisor */}
       {item.validationNote && (
         <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs">
-          <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-info mb-1">Observação do revisor</div>
+          <div class="text-3xs uppercase tracking-wider font-semibold text-info mb-1">Observação do revisor</div>
           <div class="text-fg whitespace-pre-line">{item.validationNote}</div>
         </div>
       )}
@@ -490,7 +490,7 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
           <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
             <span class="text-fg-muted truncate">
               📄 {doc.fileName ?? 'boletim.pdf'}
-              {doc.sizeBytes !== null && <span class="ml-1 text-fg-subtle">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
+              {doc.sizeBytes !== null && <span class="ml-1 text-fg-muted">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
             </span>
             <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
               Abrir em nova aba <ExternalLink size={10} />
@@ -511,7 +511,7 @@ function EnemReviewView({ item }: { item: EnemImportDetail }) {
           </div>
         </div>
       ) : (
-        <div class="rounded-md border border-fg-subtle/20 bg-surface p-3 text-xs text-fg-subtle italic">
+        <div class="rounded-md border border-fg-muted/20 bg-surface p-3 text-xs text-fg-muted italic">
           📄 Nenhum boletim foi anexado a este registro (notas inseridas manualmente ou via integração).
         </div>
       )}
@@ -546,7 +546,7 @@ function EnemDetailModal({
       footer={
         item ? (
           <div class="flex items-center justify-between w-full gap-2 flex-wrap">
-            <div class="text-[0.6875rem] text-fg-subtle">
+            <div class="text-2xs text-fg-muted">
               {item.validatedAt
                 ? <>Validado {formatRelative(item.validatedAt)}{item.validatedBy ? ` por usuário #${item.validatedBy}` : ''}</>
                 : 'Aguardando validação'}
@@ -585,7 +585,7 @@ function ScoreCell({ label, value, highlight = false }: { label: string; value: 
       'rounded-md border p-2',
       highlight ? 'border-accent/30 bg-accent/10' : 'border-border bg-surface',
     )}>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted">{label}</div>
       <div class={cn('text-base font-semibold tabular-nums mt-0.5', highlight ? 'text-accent' : 'text-fg')}>
         {value !== null ? value.toFixed(1) : '—'}
       </div>
@@ -825,7 +825,7 @@ function PresencialRow({ item: it, onOpen }: { item: PresencialExam; onOpen: () 
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg">{lead?.nome ?? '—'}</span>
-            {reg?.candidateCode && <code class="text-[0.6875rem] text-fg-subtle font-mono">{reg.candidateCode}</code>}
+            {reg?.candidateCode && <code class="text-2xs text-fg-muted font-mono">{reg.candidateCode}</code>}
             <Badge tone={it.verdict === 'approved' ? 'success' : it.verdict === 'rejected' ? 'danger' : 'warning'}>
               {it.verdict === 'approved' ? 'Aprovado' : it.verdict === 'rejected' ? 'Rejeitado' : 'Pendente'}
             </Badge>
@@ -835,24 +835,24 @@ function PresencialRow({ item: it, onOpen }: { item: PresencialExam; onOpen: () 
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {(off?.course?.nome ?? off?.nome) && <span>📚 {off?.course?.nome ?? off?.nome}</span>}
-            {sp?.nome && <span class="text-fg-subtle"> · {sp.nome}</span>}
-            {reg?.portal?.nome && <span class="text-fg-subtle"> · 🌐 {reg.portal.nome}</span>}
+            {sp?.nome && <span class="text-fg-muted"> · {sp.nome}</span>}
+            {reg?.portal?.nome && <span class="text-fg-muted"> · 🌐 {reg.portal.nome}</span>}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
-            {it.scheduledAt ? `🕒 ${formatDateTime(it.scheduledAt)}` : <span class="italic text-fg-subtle">Sem agendamento</span>}
+            {it.scheduledAt ? `🕒 ${formatDateTime(it.scheduledAt)}` : <span class="italic text-fg-muted">Sem agendamento</span>}
             {it.location && ` · ${it.location}`}
             {it.room && ` · sala ${it.room}`}
             {it.seatNumber && ` · carteira ${it.seatNumber}`}
             {it.score !== null && <span class="text-fg"> · nota <strong>{it.score}</strong>{it.maxScore !== null ? `/${it.maxScore}` : ''}</span>}
           </div>
           {(lead?.email ?? lead?.whatsapp) && (
-            <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+            <div class="text-2xs text-fg-muted mt-0.5">
               {lead?.email && <span>✉ {lead.email}</span>}
               {lead?.whatsapp && <span class="ml-2">📱 {lead.whatsapp}</span>}
             </div>
           )}
           {it.verdictReason && (
-            <div class="text-[0.6875rem] text-fg-muted mt-1 italic">"{it.verdictReason}"</div>
+            <div class="text-2xs text-fg-muted mt-1 italic">"{it.verdictReason}"</div>
           )}
         </div>
       </button>
@@ -1040,7 +1040,7 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg">{lead?.nome ?? '—'}</span>
-            {reg?.candidateCode && <code class="text-[0.6875rem] text-fg-subtle font-mono">{reg.candidateCode}</code>}
+            {reg?.candidateCode && <code class="text-2xs text-fg-muted font-mono">{reg.candidateCode}</code>}
             <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
             {it.passed === true && <Badge tone="success">✓ Aprovado</Badge>}
             {it.passed === false && <Badge tone="danger">✕ Reprovado</Badge>}
@@ -1048,22 +1048,22 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {(off?.course?.nome ?? off?.nome) && <span>📚 {off?.course?.nome ?? off?.nome}</span>}
-            {sp?.nome && <span class="text-fg-subtle"> · {sp.nome}</span>}
-            {reg?.portal?.nome && <span class="text-fg-subtle"> · 🌐 {reg.portal.nome}</span>}
+            {sp?.nome && <span class="text-fg-muted"> · {sp.nome}</span>}
+            {reg?.portal?.nome && <span class="text-fg-muted"> · 🌐 {reg.portal.nome}</span>}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {it.wordCount > 0 && <span>{it.wordCount} palavras</span>}
             {score !== null && <span class="text-fg ml-2">nota <strong>{score.toFixed(1)}</strong>{cutoff !== null ? `/100 · corte ${cutoff}` : '/100'}</span>}
             {it.aiScore !== null && it.humanScore === null && it.finalScore === null && (
-              <span class="text-fg-subtle ml-2"><Sparkles size={10} class="inline" /> IA: {it.aiScore.toFixed(1)}{it.aiConfidence !== null ? ` (${Math.round(it.aiConfidence * 100)}%)` : ''}</span>
+              <span class="text-fg-muted ml-2"><Sparkles size={10} class="inline" /> IA: {it.aiScore.toFixed(1)}{it.aiConfidence !== null ? ` (${Math.round(it.aiConfidence * 100)}%)` : ''}</span>
             )}
             {(it.pasteAttempts > 0 || it.visibilityChanges > 0) && (
               <span class="text-warning ml-2">⚠ {it.pasteAttempts} colagem(ns) · {it.visibilityChanges} mudança(s) de aba</span>
             )}
           </div>
-          {it.submittedAt && <div class="text-[0.6875rem] text-fg-subtle mt-0.5">Enviada {formatRelative(it.submittedAt)}</div>}
+          {it.submittedAt && <div class="text-2xs text-fg-muted mt-0.5">Enviada {formatRelative(it.submittedAt)}</div>}
           {(lead?.email) && (
-            <div class="text-[0.6875rem] text-fg-subtle mt-0.5">✉ {lead.email}</div>
+            <div class="text-2xs text-fg-muted mt-0.5">✉ {lead.email}</div>
           )}
         </div>
       </button>
@@ -1171,20 +1171,20 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
             {/* Tema (prompt snapshotado) */}
             {item.prompt && (
               <div class="rounded-md border border-info/30 bg-info/10 p-3">
-                <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-info mb-1">📄 Tema sorteado para esta tentativa</div>
+                <div class="text-3xs uppercase tracking-wider font-semibold text-info mb-1">📄 Tema sorteado para esta tentativa</div>
                 <div class="text-xs text-fg whitespace-pre-wrap font-serif leading-relaxed">{item.prompt}</div>
               </div>
             )}
 
             {/* Texto da redação */}
             <div>
-              <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle mb-1">
+              <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted mb-1">
                 ✍ Redação · {item.wordCount} palavras
                 {item.pasteAttempts > 0 && <span class="text-warning ml-2">⚠ {item.pasteAttempts} tentativa(s) de colar</span>}
                 {item.visibilityChanges > 0 && <span class="text-warning ml-2">⚠ {item.visibilityChanges} mudança(s) de aba</span>}
               </div>
               <pre class="whitespace-pre-wrap text-sm text-fg bg-surface border border-border rounded-md p-4 max-h-80 overflow-y-auto font-serif leading-relaxed">
-                {item.essayText ?? <span class="italic text-fg-subtle">(redação vazia)</span>}
+                {item.essayText ?? <span class="italic text-fg-muted">(redação vazia)</span>}
               </pre>
             </div>
 
@@ -1193,7 +1193,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
               <div class="rounded-md border border-accent/30 bg-accent/5 p-3 space-y-2">
                 <div class="flex items-baseline gap-3 flex-wrap">
                   <Sparkles size={14} class="text-accent shrink-0" />
-                  <span class="text-[0.625rem] uppercase tracking-wider font-semibold text-accent">Análise da IA</span>
+                  <span class="text-3xs uppercase tracking-wider font-semibold text-accent">Análise da IA</span>
                   {item.aiScore !== null && (
                     <span class="text-base font-semibold text-fg">{item.aiScore.toFixed(1)}/100</span>
                   )}
@@ -1201,7 +1201,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
                     <span class="text-xs text-fg-muted">Confiança: {Math.round(item.aiConfidence * 100)}%</span>
                   )}
                   {item.aiCostUsd !== null && (
-                    <span class="text-[0.6875rem] text-fg-subtle">${item.aiCostUsd.toFixed(4)}</span>
+                    <span class="text-2xs text-fg-muted">${item.aiCostUsd.toFixed(4)}</span>
                   )}
                 </div>
 
@@ -1213,7 +1213,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
                           <span class="text-xs font-medium text-fg">{c.label || c.key}</span>
                           <span class="text-xs font-semibold tabular-nums text-fg">{c.score.toFixed(1)}</span>
                         </div>
-                        {c.comment && <div class="text-[0.6875rem] text-fg-muted">{c.comment}</div>}
+                        {c.comment && <div class="text-2xs text-fg-muted">{c.comment}</div>}
                       </div>
                     ))}
                   </div>
@@ -1225,7 +1225,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
 
                 {Array.isArray(item.aiAnalysis?.suggestions) && item.aiAnalysis.suggestions.length > 0 && (
                   <div>
-                    <div class="text-[0.6875rem] font-medium text-fg-muted mb-1">Sugestões:</div>
+                    <div class="text-2xs font-medium text-fg-muted mb-1">Sugestões:</div>
                     <ul class="text-xs text-fg-muted list-disc pl-4 space-y-0.5">
                       {item.aiAnalysis.suggestions.map((s, i) => <li key={i}>{s}</li>)}
                     </ul>
@@ -1236,7 +1236,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
 
             {/* Decisão humana — formulário */}
             <div class="rounded-md border border-border bg-surface p-3 space-y-2">
-              <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle">
+              <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted">
                 Decisão humana
                 {item.humanScore !== null && <span class="ml-2 text-fg">(nota anterior: {item.humanScore})</span>}
               </div>
@@ -1312,7 +1312,7 @@ function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose:
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span class="text-fg-subtle">{label}:</span>{' '}
+      <span class="text-fg-muted">{label}:</span>{' '}
       <span class="text-fg">{value}</span>
     </div>
   )
@@ -1345,7 +1345,7 @@ function StatusPill({
     >
       {children}
       {count !== undefined && (
-        <span class={cn('px-1.5 rounded-full text-[0.625rem] font-bold', active ? 'bg-fg-on-brand/25' : 'bg-surface-3 text-fg-muted')}>{count}</span>
+        <span class={cn('px-1.5 rounded-full text-3xs font-bold', active ? 'bg-fg-on-brand/25' : 'bg-surface-3 text-fg-muted')}>{count}</span>
       )}
     </button>
   )

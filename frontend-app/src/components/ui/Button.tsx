@@ -14,12 +14,16 @@ export interface ButtonProps extends NativeButtonAttrs {
   children?: ComponentChildren
 }
 
+/* Preenchido = `fill-raised` (fio de luz forte no topo + sombra curta): o botão
+ * lê como uma tecla acima da superfície, não como um retângulo colorido.
+ * `secondary` é uma superfície, então usa `surface-raised` como o <Card>.
+ * `ghost` continua sem corpo — é o único que não é objeto. */
 const variantClasses: Record<Variant, string> = {
-  primary: 'bg-accent text-fg-on-brand hover:bg-accent-hover active:bg-accent-active',
-  secondary: 'bg-surface-2 text-fg border border-border hover:bg-surface-3',
+  primary: 'bg-accent text-fg-on-brand hover:bg-accent-hover active:bg-accent-active fill-raised',
+  secondary: 'bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised',
   ghost: 'bg-transparent text-fg hover:bg-surface-2',
-  danger: 'bg-danger text-fg-on-brand hover:opacity-90',
-  success: 'bg-success text-fg-on-brand hover:opacity-90',
+  danger: 'bg-danger text-fg-on-brand hover:opacity-90 fill-raised',
+  success: 'bg-success text-fg-on-brand hover:opacity-90 fill-raised',
 }
 
 const sizeClasses: Record<Size, string> = {
@@ -48,9 +52,17 @@ export function Button({
     <button
       type={type}
       class={cn(
-        'inline-flex items-center justify-center rounded-md font-medium select-none',
-        'transition-colors duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
+        'inline-flex items-center justify-center rounded-md font-semibold select-none',
+        /* A transição saiu do utilitário `transition-colors` e foi para o CSS
+           (`.btn-motion`): o utilitário só anima COR, e o botão preenchido
+           precisa animar também a sombra e o deslocamento de 1px do hover.
+           Como utilitários do Tailwind vencem a @layer base, deixá-lo aqui
+           anularia silenciosamente as outras duas propriedades. */
+        'btn-motion',
+        /* O foco era `ring` com `ring-offset-surface`, e `surface` passou a ser o
+           FUNDO da janela: dentro do painel isso desenhava um halo preto em volta
+           do botão. `outline` compõe sobre o que estiver atrás, seja qual for. */
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
         'disabled:opacity-50 disabled:pointer-events-none',
         variantClasses[variant],
         sizeClasses[size],

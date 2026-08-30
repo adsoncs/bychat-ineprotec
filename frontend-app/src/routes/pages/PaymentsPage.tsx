@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { CreditCard, Plus, Pencil, Trash2, Plug, Copy, Check, BarChart3, ListChecks, Webhook, Ticket, Plug as PlugIcon, HelpCircle } from 'lucide-preact'
+import { CreditCard, Plus, Pencil, Trash2, Plug, Copy, Check, BarChart3, ListChecks, Webhook, Ticket, Plug as PlugIcon, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   usePaymentConnections,
@@ -164,7 +164,7 @@ function PaymentConnectionsTab() {
               >
                 {providerLabel(p)}
                 <span class={`ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full text-xs ${
-                  active ? 'bg-accent text-white' : 'bg-surface-3 text-fg-muted'
+                  active ? 'bg-accent text-fg-on-brand' : 'bg-surface-3 text-fg-muted'
                 }`}>
                   {counts[p]}
                 </span>
@@ -298,7 +298,7 @@ function ConnectionCard({
 
 function TestStatus({ connection }: { connection: PaymentConnection }) {
   if (!connection.lastTestStatus) {
-    return <div class="text-xs text-fg-subtle">○ Nunca testado</div>
+    return <div class="text-xs text-fg-muted">○ Nunca testado</div>
   }
   const ok = connection.lastTestStatus === 'ok'
   const tone = ok ? 'text-accent' : 'text-danger'
@@ -308,7 +308,7 @@ function TestStatus({ connection }: { connection: PaymentConnection }) {
     <div class={`text-xs ${tone}`}>
       <span>{ok ? '✓' : '✕'} </span>
       <span class="break-words">{label}</span>
-      {when && <div class="text-fg-subtle mt-0.5">{when}</div>}
+      {when && <div class="text-fg-muted mt-0.5">{when}</div>}
     </div>
   )
 }

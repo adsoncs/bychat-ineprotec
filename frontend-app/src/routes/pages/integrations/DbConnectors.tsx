@@ -3,7 +3,7 @@
 // por nome de coluna.
 
 import { useState } from 'preact/hooks'
-import { Database, Play, RefreshCw, Trash2, Pencil, History, AlertCircle, CheckCircle, Loader2 } from 'lucide-preact'
+import { Database, Play, RefreshCw, Trash2, Pencil, History, AlertCircle, CheckCircle, Loader2 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -78,11 +78,11 @@ export function DbConnectorsPage() {
       }
     >
       {isLoading ? (
-        <Card class="p-6 text-center text-fg-subtle">
+        <Card class="p-6 text-center text-fg-muted">
           <Loader2 size={20} class="inline animate-spin mr-2" /> Carregando…
         </Card>
       ) : !data?.items.length ? (
-        <Card class="p-8 text-center text-fg-subtle">
+        <Card class="p-8 text-center text-fg-muted">
           Nenhum conector cadastrado. Clique em "Novo conector" pra começar.
         </Card>
       ) : (
@@ -90,7 +90,7 @@ export function DbConnectorsPage() {
           {data.items.map((c) => (
             <Card key={c.id} class="p-4">
               <div class="flex items-start gap-3">
-                <div class="mt-1"><Database size={20} class="text-fg-subtle" /></div>
+                <div class="mt-1"><Database size={20} class="text-fg-muted" /></div>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="font-medium">{c.name}</span>
@@ -102,7 +102,7 @@ export function DbConnectorsPage() {
                     {c.lastRunStatus === 'error' && <Badge tone="danger"><AlertCircle size={12} class="inline mr-1" />Erro</Badge>}
                     {c.lastRunStatus === 'running' && <Badge tone="info"><Loader2 size={12} class="inline mr-1 animate-spin" />Rodando</Badge>}
                   </div>
-                  <div class="text-sm text-fg-subtle mt-1">
+                  <div class="text-sm text-fg-muted mt-1">
                     {c.description || `${c.host}:${c.port}/${c.dbName} • a cada ${c.intervalMinutes}min`}
                   </div>
                   <div class="text-xs text-fg-muted mt-1">
@@ -299,7 +299,7 @@ function ConnectorEditModal({ connector, onClose }: { connector: DbConnector | n
         {/* === QUERY === */}
         <section class="space-y-2">
           <h3 class="font-medium">Query SQL (apenas SELECT/WITH)</h3>
-          <p class="text-xs text-fg-subtle">
+          <p class="text-xs text-fg-muted">
             Use <code>:cursor</code> como placeholder do último valor sincronizado.
             Ex: <code>WHERE id &gt; :cursor</code>. Limite com <code>LIMIT 100</code>.
           </p>
@@ -314,7 +314,7 @@ function ConnectorEditModal({ connector, onClose }: { connector: DbConnector | n
               {preview.isPending ? <Loader2 size={14} class="animate-spin mr-1" /> : null}
               Detectar colunas (preview)
             </Button>
-            {!isEdit && <span class="text-xs text-fg-subtle">Salve o conector primeiro</span>}
+            {!isEdit && <span class="text-xs text-fg-muted">Salve o conector primeiro</span>}
           </div>
         </section>
 
@@ -322,7 +322,7 @@ function ConnectorEditModal({ connector, onClose }: { connector: DbConnector | n
         <section class="space-y-2">
           <h3 class="font-medium">Mapping (coluna SQL → campo Lead)</h3>
           {previewCols.length === 0 && Object.keys(form.mapping).length === 0 ? (
-            <p class="text-xs text-fg-subtle">Use "Detectar colunas" pra preencher automaticamente. Você ainda pode adicionar manualmente abaixo.</p>
+            <p class="text-xs text-fg-muted">Use "Detectar colunas" pra preencher automaticamente. Você ainda pode adicionar manualmente abaixo.</p>
           ) : null}
           <div class="space-y-2">
             {Array.from(new Set([...previewCols, ...Object.keys(form.mapping)])).map((col) => (
@@ -400,7 +400,7 @@ function RunsHistoryModal({ connector, onClose }: { connector: DbConnector; onCl
     <Modal open={true} onOpenChange={(o) => !o && onClose()} title={`Histórico: ${connector.name}`} size="xl">
       {isLoading ? <Loader2 class="animate-spin" /> : (
         <div class="space-y-2 max-h-[60vh] overflow-auto">
-          {!data?.items.length && <p class="text-fg-subtle">Sem runs ainda.</p>}
+          {!data?.items.length && <p class="text-fg-muted">Sem runs ainda.</p>}
           {data?.items.map((r) => (
             <Card key={r.id} class="p-3 text-sm">
               <div class="flex items-center justify-between flex-wrap gap-2">
@@ -408,11 +408,11 @@ function RunsHistoryModal({ connector, onClose }: { connector: DbConnector; onCl
                   <Badge tone={r.status === 'ok' ? 'accent' : r.status === 'error' ? 'danger' : r.status === 'partial' ? 'warning' : 'info'}>
                     {r.status}
                   </Badge>
-                  <span class="ml-2 text-xs text-fg-subtle">{r.triggeredBy}</span>
+                  <span class="ml-2 text-xs text-fg-muted">{r.triggeredBy}</span>
                 </div>
-                <span class="text-xs text-fg-subtle">{new Date(r.startedAt).toLocaleString('pt-BR')}</span>
+                <span class="text-xs text-fg-muted">{new Date(r.startedAt).toLocaleString('pt-BR')}</span>
               </div>
-              <div class="text-xs text-fg-subtle mt-1">
+              <div class="text-xs text-fg-muted mt-1">
                 {r.rowsRead} linhas • <strong>{r.leadsCreated}</strong> criados • {r.leadsSkipped} pulados • {r.errorCount} erros
                 {r.cursorBefore && r.cursorAfter && r.cursorBefore !== r.cursorAfter && (
                   <> • cursor {r.cursorBefore} → {r.cursorAfter}</>

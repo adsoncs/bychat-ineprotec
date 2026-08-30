@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck, LogIn, Puzzle, Copy, Trash2 } from 'lucide-preact'
+import { Mic, ChevronDown, ChevronRight, FileText, Sparkles, StopCircle, ExternalLink, Users, ListVideo, Settings, Target, GraduationCap, SlidersHorizontal, Mail, MessageSquare, Search, BarChart3, Video, ClipboardCheck, Scissors, Radio, Upload, ShieldCheck, LogIn, Puzzle, Copy, Trash2 } from '@/components/ui/icon-set'
 import {
   useMeetingRecordings, useStopMeetingBot, type MeetingRecording,
   useMeetingSeats, useUpdateMeetingSeat, type MeetingSeat,
@@ -83,9 +83,9 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
           <div class="flex items-center gap-2 flex-wrap">
             <Badge tone={st.tone}>{st.label}</Badge>
             <span class="text-sm font-medium text-fg">{rec.title || PLATFORM_LABEL[rec.platform] || rec.platform}</span>
-            <span class="text-xs text-fg-subtle">· {PLATFORM_LABEL[rec.platform] || rec.platform}</span>
-            {rec.platform !== 'presencial' ? <span class="text-xs text-fg-subtle">· {rec.nativeMeetingId}</span> : null}
-            {rec.leadId ? <span class="text-xs text-fg-subtle">· Lead #{rec.leadId}</span> : null}
+            <span class="text-xs text-fg-muted">· {PLATFORM_LABEL[rec.platform] || rec.platform}</span>
+            {rec.platform !== 'presencial' ? <span class="text-xs text-fg-muted">· {rec.nativeMeetingId}</span> : null}
+            {rec.leadId ? <span class="text-xs text-fg-muted">· Lead #{rec.leadId}</span> : null}
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {formatDateTime(rec.createdAt)}
@@ -166,7 +166,7 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
               ) : null}
             </div>
           ) : rec.status === 'completed' ? (
-            <div class="text-xs text-fg-subtle">Análise por IA em processamento…</div>
+            <div class="text-xs text-fg-muted">Análise por IA em processamento…</div>
           ) : null}
 
           {/* Transcrição */}
@@ -216,8 +216,8 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
                 <div class="mt-2">
                   {rec.transcriptPolished ? (
                     <div class="inline-flex rounded-md border border-border overflow-hidden mb-2 text-xs">
-                      <button type="button" onClick={() => setShowOriginal(false)} class={cn('px-2 py-1', !showOriginal ? 'bg-info text-white' : 'text-fg-muted')}>Revisada</button>
-                      <button type="button" onClick={() => setShowOriginal(true)} class={cn('px-2 py-1', showOriginal ? 'bg-info text-white' : 'text-fg-muted')}>Fiel</button>
+                      <button type="button" onClick={() => setShowOriginal(false)} class={cn('px-2 py-1', !showOriginal ? 'bg-info text-fg-on-brand' : 'text-fg-muted')}>Revisada</button>
+                      <button type="button" onClick={() => setShowOriginal(true)} class={cn('px-2 py-1', showOriginal ? 'bg-info text-fg-on-brand' : 'text-fg-muted')}>Fiel</button>
                     </div>
                   ) : null}
                   <pre class="text-xs text-fg-muted whitespace-pre-wrap bg-surface-2 rounded-lg p-3 max-h-80 overflow-auto">
@@ -227,7 +227,7 @@ function RecordingCard({ rec }: { rec: MeetingRecording }) {
               ) : null}
             </div>
           ) : (
-            <div class="text-xs text-fg-subtle">Sem transcrição disponível.</div>
+            <div class="text-xs text-fg-muted">Sem transcrição disponível.</div>
           )}
         </div>
       ) : null}
@@ -371,13 +371,13 @@ function PresencialMeetingModal({ onClose }: { onClose: () => void }) {
               <Users size={15} class="text-info shrink-0" />
               <div class="min-w-0 flex-1">
                 <div class="text-sm text-fg truncate">{selectedLead.nome || `Lead #${selectedLead.id}`}{selectedLead.empresa ? ` · ${selectedLead.empresa}` : ''}</div>
-                <div class="text-xs text-fg-subtle truncate">{selectedLead.whatsapp || selectedLead.email || `#${selectedLead.id}`}</div>
+                <div class="text-xs text-fg-muted truncate">{selectedLead.whatsapp || selectedLead.email || `#${selectedLead.id}`}</div>
               </div>
               <Button variant="ghost" size="sm" onClick={() => { setSelectedLead(null); setLeadQuery('') }}>Trocar</Button>
             </div>
           ) : (
             <div class="relative">
-              <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+              <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
               <input
                 value={leadQuery}
                 onInput={(e) => setLeadQuery((e.target as HTMLInputElement).value)}
@@ -387,9 +387,9 @@ function PresencialMeetingModal({ onClose }: { onClose: () => void }) {
               {leadQuery.trim().length >= 2 && (
                 <div class="absolute z-10 mt-1 w-full rounded-md border border-border bg-surface shadow-lg max-h-56 overflow-y-auto">
                   {leadSearch.isLoading ? (
-                    <div class="px-3 py-2 text-sm text-fg-subtle">Buscando…</div>
+                    <div class="px-3 py-2 text-sm text-fg-muted">Buscando…</div>
                   ) : leadResults.length === 0 ? (
-                    <div class="px-3 py-2 text-sm text-fg-subtle">Nenhum lead encontrado.</div>
+                    <div class="px-3 py-2 text-sm text-fg-muted">Nenhum lead encontrado.</div>
                   ) : (
                     leadResults.map((l) => (
                       <button
@@ -399,7 +399,7 @@ function PresencialMeetingModal({ onClose }: { onClose: () => void }) {
                         onClick={() => { setSelectedLead(l); setLeadQuery('') }}
                       >
                         <div class="text-sm text-fg truncate">{l.nome || `Lead #${l.id}`}{l.empresa ? ` · ${l.empresa}` : ''}</div>
-                        <div class="text-xs text-fg-subtle truncate">{[l.whatsapp, l.email].filter(Boolean).join(' · ') || `#${l.id}`}</div>
+                        <div class="text-xs text-fg-muted truncate">{[l.whatsapp, l.email].filter(Boolean).join(' · ') || `#${l.id}`}</div>
                       </button>
                     ))
                   )}
@@ -455,7 +455,7 @@ function JoinNowModal({ onClose }: { onClose: () => void }) {
           onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
           placeholder="https://meet.google.com/abc-defg-hij"
         />
-        <p class="text-xs text-fg-subtle">
+        <p class="text-xs text-fg-muted">
           A gravação respeita o consentimento (Config › LGPD/Legal) e a sua licença de bot.
         </p>
       </div>
@@ -478,7 +478,7 @@ function RecordingsTab() {
       {joinNowOpen && <JoinNowModal onClose={() => setJoinNowOpen(false)} />}
       <div class="flex items-center gap-2">
         <div class="relative flex-1 min-w-0">
-          <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          <Search size={15} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
           <input
             value={q}
             onInput={(e) => setQ((e.target as HTMLInputElement).value)}
@@ -505,12 +505,12 @@ function RecordingsTab() {
           <div class="space-y-2">
             {search.data.results.map((r) => (
               <Card key={r.id}>
-                <div class="text-xs text-fg-subtle">{PLATFORM_LABEL[r.platform] || r.platform} · {formatDateTime(r.createdAt)}{r.leadId ? ` · Lead #${r.leadId}` : ''}</div>
+                <div class="text-xs text-fg-muted">{PLATFORM_LABEL[r.platform] || r.platform} · {formatDateTime(r.createdAt)}{r.leadId ? ` · Lead #${r.leadId}` : ''}</div>
                 <div class="text-sm text-fg-muted mt-1">{r.snippet}</div>
               </Card>
             ))}
           </div>
-        ) : <p class="text-sm text-fg-subtle py-6 text-center">Nenhum resultado para "{q}".</p>)
+        ) : <p class="text-sm text-fg-muted py-6 text-center">Nenhum resultado para "{q}".</p>)
       ) : isLoading ? (
         <div class="space-y-3"><Skeleton class="h-20 w-full" /><Skeleton class="h-20 w-full" /></div>
       ) : recordings.length === 0 ? (
@@ -554,7 +554,7 @@ function ReportsTab() {
           </div>
           {report.resumo ? <p class="text-sm text-fg-muted mb-3">{report.resumo}</p> : null}
           {report.meetingCount === 0 ? (
-            <p class="text-sm text-fg-subtle">Nenhuma reunião analisada no período selecionado.</p>
+            <p class="text-sm text-fg-muted">Nenhuma reunião analisada no período selecionado.</p>
           ) : (
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <AnalysisList title="Objeções recorrentes" items={report.objecoesComuns} />
@@ -580,7 +580,7 @@ function SeatRow({ seat }: { seat: MeetingSeat }) {
     <div class="flex items-center gap-3 border border-border rounded-lg p-3">
       <div class="min-w-0 flex-1">
         <div class="text-sm font-medium text-fg truncate">{seat.name || seat.email || `Usuário #${seat.userId}`}</div>
-        <div class="text-xs text-fg-subtle truncate">
+        <div class="text-xs text-fg-muted truncate">
           {seat.email} · {seat.role}
           {seat.enabled && seat.activatedAt ? <> · ativo desde {formatDateTime(seat.activatedAt)}</> : null}
         </div>
@@ -690,7 +690,7 @@ function MeetingsSettingsCard() {
             <option value="fiel">Fiel à fala dos participantes</option>
             <option value="corrigida">Revisada pela IA (mais profissional)</option>
           </Select>
-          <p class="text-xs text-fg-subtle mt-1">"Revisada" corrige erros de transcrição e vícios de fala sem mudar o sentido.</p>
+          <p class="text-xs text-fg-muted mt-1">"Revisada" corrige erros de transcrição e vícios de fala sem mudar o sentido.</p>
         </div>
 
         <label class="flex items-center gap-2 cursor-pointer select-none">
@@ -960,7 +960,7 @@ export function MeetingsPage() {
               type="button"
               onClick={() => setTab(t.id)}
               class={cn(
-                'flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-2 px-1 sm:px-4 py-2 text-[11px] sm:text-sm font-medium leading-tight text-center border-b-2 -mb-px transition-colors',
+                'flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-1 sm:gap-2 px-1 sm:px-4 py-2 text-2xs sm:text-sm font-medium leading-tight text-center border-b-2 -mb-px transition-colors',
                 tab === t.id ? 'border-primary text-primary' : 'border-transparent text-fg-muted hover:text-fg',
               )}
             >

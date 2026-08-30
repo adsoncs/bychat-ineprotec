@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
-import { Plus, Eye, Pencil, Trash2, Send, Upload, X as XIcon, CheckCircle, HelpCircle, RefreshCw, Cloud } from 'lucide-preact'
+import { Plus, Eye, Pencil, Trash2, Send, Upload, X as XIcon, CheckCircle, HelpCircle, RefreshCw, Cloud } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useCloudApiConnections,
@@ -206,7 +206,7 @@ export function WhatsappTemplatesPage() {
           {tpl && tpl.templates.length > 0 ? (
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
-                <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+                <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                   <tr>
                     <th class="text-left px-4 py-2 font-medium">Nome</th>
                     <th class="text-left px-4 py-2 font-medium">Idioma</th>
@@ -233,7 +233,7 @@ export function WhatsappTemplatesPage() {
                           {cloudApiTemplateStatusLabel(t.status)}
                         </Badge>
                         {t.statusReason && t.status !== 'APPROVED' && (
-                          <div class="mt-0.5 text-[11px] leading-tight text-danger" title={t.statusReason}>
+                          <div class="mt-0.5 text-2xs leading-tight text-danger" title={t.statusReason}>
                             {cloudApiTemplateReasonLabel(t.statusReason)}
                           </div>
                         )}
@@ -337,7 +337,7 @@ function TplKpi({ label, value, tone = 'neutral' }: { label: string; value: numb
     tone === 'danger' ? 'text-danger' : 'text-fg'
   return (
     <div class="rounded-md border border-border bg-surface-2 px-3 py-2">
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted">{label}</div>
       <div class={`text-xl font-semibold tabular-nums ${toneCls}`}>{value}</div>
     </div>
   )
@@ -359,7 +359,7 @@ function FilterChip({
   return (
     <button
       type="button"
-      class={`text-[0.6875rem] px-2.5 py-1 rounded-full border transition-colors ${
+      class={`text-2xs px-2.5 py-1 rounded-full border transition-colors ${
         active ? activeCls : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3'
       }`}
       onClick={onClick}
@@ -402,7 +402,7 @@ function PreviewTemplateModal({ template, onClose }: { template: CloudApiTemplat
         )}
       </div>
       {parsed.variables.length > 0 && (
-        <div class="text-[0.6875rem] text-fg-subtle mt-3">
+        <div class="text-2xs text-fg-muted mt-3">
           Variáveis no body: <code>{parsed.variables.join(', ')}</code>
         </div>
       )}
@@ -464,7 +464,7 @@ function SendTemplateModal({ template, onClose }: { template: CloudApiTemplate; 
         />
         {parsed.variables.length > 0 && (
           <div class="space-y-2">
-            <div class="text-xs uppercase tracking-wider text-fg-subtle">Variáveis do body</div>
+            <div class="text-xs uppercase tracking-wider text-fg-muted">Variáveis do body</div>
             {parsed.variables.map((v, i) => (
               <Input
                 key={v}
@@ -480,12 +480,12 @@ function SendTemplateModal({ template, onClose }: { template: CloudApiTemplate; 
           </div>
         )}
         <div class="rounded-md border border-border p-3 bg-surface text-xs text-fg-muted whitespace-pre-wrap">
-          <div class="text-fg-subtle text-[0.625rem] uppercase tracking-wider mb-1">Pré-visualização</div>
+          <div class="text-fg-muted text-3xs uppercase tracking-wider mb-1">Pré-visualização</div>
           {parsed.header?.format === 'TEXT' && parsed.header.text && (
             <div class="font-semibold text-fg mb-1">{interpolatePreview(parsed.header.text, bodyVars, parsed.variables)}</div>
           )}
           <div class="text-fg">{interpolatePreview(parsed.body, bodyVars, parsed.variables)}</div>
-          {parsed.footer && <div class="text-[0.6875rem] mt-1">{parsed.footer}</div>}
+          {parsed.footer && <div class="text-2xs mt-1">{parsed.footer}</div>}
         </div>
       </div>
     </Modal>
@@ -764,11 +764,11 @@ function TemplateFormModal({
                     <Upload size={12} /> {headerUploading ? 'Enviando…' : 'Enviar mídia'}
                   </Button>
                   {headerHandle && (
-                    <span class="inline-flex items-center gap-1 text-[0.6875rem] text-success">
+                    <span class="inline-flex items-center gap-1 text-2xs text-success">
                       <CheckCircle size={12} /> {headerHandleName || 'mídia carregada'}
                       <button
                         type="button"
-                        class="text-fg-subtle hover:text-danger"
+                        class="text-fg-muted hover:text-danger"
                         onClick={clearHeaderHandle}
                         aria-label="Remover mídia"
                       >
@@ -777,7 +777,7 @@ function TemplateFormModal({
                     </span>
                   )}
                 </div>
-                <div class="text-[0.6875rem] text-fg-subtle">
+                <div class="text-2xs text-fg-muted">
                   A Meta exige uma mídia de exemplo para a aprovação do modelo. Em produção, cada envio pode usar uma mídia diferente.
                 </div>
               </div>
@@ -786,7 +786,7 @@ function TemplateFormModal({
 
           <Section title="Corpo (obrigatório)">
             <div class="flex items-center justify-between">
-              <span class="text-[0.6875rem] text-fg-subtle">
+              <span class="text-2xs text-fg-muted">
                 Use <code>{'{{1}}'}</code>, <code>{'{{2}}'}</code>… para personalização.
               </span>
               <Button size="sm" variant="ghost" onClick={insertVariable}>
@@ -800,17 +800,17 @@ function TemplateFormModal({
               onInput={(e) => setBodyText((e.target as HTMLTextAreaElement).value)}
               rows={5}
               placeholder="Olá {{1}}, seu pedido {{2}} foi confirmado!"
-              class="min-h-[5rem] w-full px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-y"
+              class="min-h-[5rem] w-full px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent resize-y"
             />
-            <div class="text-[0.6875rem] text-fg-subtle">{bodyText.length}/1024 caracteres</div>
+            <div class="text-2xs text-fg-muted">{bodyText.length}/1024 caracteres</div>
             {bodyVars.length > 0 && (
               <div class="space-y-2 mt-2">
-                <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">
+                <div class="text-2xs uppercase tracking-wider text-fg-muted">
                   Exemplos para revisão (obrigatório)
                 </div>
                 {bodyVars.map((v, i) => (
                   <div key={v} class="flex items-center gap-2">
-                    <span class="text-[0.6875rem] font-mono text-accent w-12 shrink-0">{v}</span>
+                    <span class="text-2xs font-mono text-accent w-12 shrink-0">{v}</span>
                     <Input
                       class="flex-1"
                       value={bodyExamples[i] ?? ''}
@@ -849,10 +849,10 @@ function TemplateFormModal({
               {buttons.map((b, i) => (
                 <div key={i} class="rounded-md border border-border p-2 bg-surface">
                   <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">{b.type}</span>
+                    <span class="text-2xs uppercase tracking-wider text-fg-muted">{b.type}</span>
                     <button
                       type="button"
-                      class="text-[0.6875rem] text-danger hover:underline"
+                      class="text-2xs text-danger hover:underline"
                       onClick={() => removeButton(i)}
                     >
                       Remover
@@ -898,7 +898,7 @@ function TemplateFormModal({
           </Section>
 
           {isEdit && (
-            <div class="text-[0.6875rem] text-warning">
+            <div class="text-2xs text-warning">
               Editar reenvia o modelo para revisão na Meta — pode ficar Pendente por algumas horas.
             </div>
           )}
@@ -906,7 +906,7 @@ function TemplateFormModal({
 
         {/* Pré-visualização */}
         <div class="lg:sticky lg:top-0 self-start">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Pré-visualização</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Pré-visualização</div>
           <div class="rounded-md p-3 text-sm" style={{ background: '#dcf8c6', color: '#111' }}>
             {headerFormat === 'TEXT' && headerText && <div class="font-semibold mb-2">{headerText}</div>}
             {headerFormat !== 'NONE' && headerFormat !== 'TEXT' && (
@@ -935,7 +935,7 @@ function TemplateFormModal({
 function Section({ title, children }: { title: string; children: ComponentChildren }) {
   return (
     <div>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">{title}</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">{title}</div>
       <div class="space-y-2">{children}</div>
     </div>
   )

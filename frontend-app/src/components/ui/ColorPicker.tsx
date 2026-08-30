@@ -18,7 +18,7 @@
 import { useState, useEffect, useId } from 'preact/hooks'
 import * as Popover from '@radix-ui/react-popover'
 import { HexAlphaColorPicker, HexColorPicker } from 'react-colorful'
-import { Pipette } from 'lucide-preact'
+import { Pipette } from '@/components/ui/icon-set'
 import { cn } from '@/lib/cn'
 
 const PRESET_COLORS = [
@@ -105,7 +105,7 @@ export function ColorPicker({ value, onChange, label = 'Cor', hint, alpha, side 
             id={fieldId}
             type="button"
             class={cn(
-              'inline-flex items-center gap-2 h-8 px-2 rounded-md border border-border bg-surface',
+              'inline-flex items-center gap-2 h-8 px-2 rounded-md border border-border bg-surface-2 surface-raised',
               'hover:border-accent focus:border-accent focus:outline-none transition-colors',
               'text-xs font-mono text-fg w-full',
             )}
@@ -136,7 +136,7 @@ export function ColorPicker({ value, onChange, label = 'Cor', hint, alpha, side 
             side={side}
             align="start"
             sideOffset={6}
-            class="z-50 w-[18rem] rounded-lg border border-border bg-surface-2 shadow-xl p-3 space-y-3"
+            class="z-50 w-[18rem] rounded-panel border border-border bg-surface-2 shadow-xl surface-raised p-3 space-y-3"
             style={{ zIndex: 'var(--z-popover)' }}
           >
             {useAlpha
@@ -153,11 +153,11 @@ export function ColorPicker({ value, onChange, label = 'Cor', hint, alpha, side 
                 onInput={(e) => setHexDraft((e.target as HTMLInputElement).value)}
                 onBlur={commitHexInput}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitHexInput() } }}
-                class="flex-1 h-8 rounded-md border border-border bg-surface px-2 text-xs font-mono text-fg focus:border-accent focus:outline-none"
+                class="flex-1 h-8 rounded-md border border-border bg-surface-inset surface-inset px-2 text-xs font-mono text-fg focus:border-accent focus:outline-none"
                 placeholder="#RRGGBB"
               />
               <label
-                class="size-8 grid place-items-center rounded-md border border-border bg-surface hover:border-accent cursor-pointer text-fg-muted hover:text-fg overflow-hidden relative"
+                class="size-8 grid place-items-center rounded-md border border-border bg-surface-2 surface-raised hover:border-accent cursor-pointer text-fg-muted hover:text-fg overflow-hidden relative"
                 title="Pegar do navegador / eyedropper"
               >
                 <Pipette size={14} />
@@ -182,7 +182,7 @@ export function ColorPicker({ value, onChange, label = 'Cor', hint, alpha, side 
 
             {/* Presets */}
             <div>
-              <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mb-1.5">Presets</div>
+              <div class="text-3xs uppercase tracking-wider text-fg-muted mb-1.5">Presets</div>
               <div class="grid grid-cols-10 gap-1">
                 {PRESET_COLORS.map((c) => (
                   <button
@@ -205,7 +205,7 @@ export function ColorPicker({ value, onChange, label = 'Cor', hint, alpha, side 
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-      {hint && <span class="text-[0.6875rem] text-fg-subtle">{hint}</span>}
+      {hint && <span class="text-2xs text-fg-muted">{hint}</span>}
     </div>
   )
 }
@@ -215,7 +215,7 @@ function RgbSlider({ channel, value, onChange }: { channel: 'r' | 'g' | 'b'; val
   const colorMap = { r: 'var(--color-danger,#dc2626)', g: 'var(--color-success,#16a34a)', b: 'var(--color-info,#2563eb)' }
   return (
     <div class="flex items-center gap-2">
-      <span class="text-[0.625rem] font-mono text-fg-muted w-3 shrink-0" style={{ color: colorMap[channel] }}>
+      <span class="text-3xs font-mono text-fg-muted w-3 shrink-0" style={{ color: colorMap[channel] }}>
         {labelMap[channel]}
       </span>
       <input
@@ -227,7 +227,7 @@ function RgbSlider({ channel, value, onChange }: { channel: 'r' | 'g' | 'b'; val
         class="flex-1 accent-accent"
         aria-label={`Canal ${labelMap[channel]}`}
       />
-      <span class="text-[0.625rem] font-mono text-fg-muted tabular-nums w-7 text-right">{value}</span>
+      <span class="text-3xs font-mono text-fg-muted tabular-nums w-7 text-right">{value}</span>
     </div>
   )
 }

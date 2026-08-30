@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Megaphone, Send, Pause, Play, X as XIcon, Trash2, Download, Upload, ArrowLeft, ArrowRight, Users, FileSpreadsheet, Clock, Pencil } from 'lucide-preact'
+import { Megaphone, Send, Pause, Play, X as XIcon, Trash2, Download, Upload, ArrowLeft, ArrowRight, Users, FileSpreadsheet, Clock, Pencil } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -83,7 +83,7 @@ function CampaignList({ onNew, onEdit, onOpen }: { onNew: () => void; onEdit: (i
               </div>
               <div class="text-xs text-fg-muted shrink-0 text-right">
                 <div>✅ {c.sentCount} · ❌ {c.failedCount}</div>
-                <div class="text-fg-subtle">{new Date(c.createdAt).toLocaleDateString('pt-BR')}</div>
+                <div class="text-fg-muted">{new Date(c.createdAt).toLocaleDateString('pt-BR')}</div>
               </div>
               {/* Rascunho nunca foi enviado — pode voltar ao wizard e ser alterado. */}
               {c.status === 'draft' && (
@@ -272,7 +272,7 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
             </Select>
             {templates.length === 0 && <p class="text-xs text-warning">Nenhum template aprovado. Crie e aprove um em WhatsApp Oficial antes de disparar.</p>}
             <div>
-              <label class="text-[0.6875rem] text-fg-subtle uppercase tracking-wider">Audiência</label>
+              <label class="text-2xs text-fg-muted uppercase tracking-wider">Audiência</label>
               <div class="grid gap-2 mt-1 sm:grid-cols-2">
                 <AudienceCard active={audienceType === 'leads'} onClick={() => setAudienceType('leads')} icon={<Users size={16} />} title="Leads do sistema" desc="Selecionar leads existentes" />
                 <AudienceCard active={audienceType === 'import'} onClick={() => setAudienceType('import')} icon={<FileSpreadsheet size={16} />} title="Importar base" desc="Planilha CSV/Excel" />
@@ -322,16 +322,16 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
               )}
             </Card>
             <Card class="p-4 space-y-3">
-              <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Planilha</div>
+              <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Planilha</div>
               {sheetHeaders.length === 0 ? (
-                <p class="text-xs text-fg-subtle">Envie um arquivo para ver o resumo aqui.</p>
+                <p class="text-xs text-fg-muted">Envie um arquivo para ver o resumo aqui.</p>
               ) : (
                 <>
                   <Stat label="Linhas lidas" value={sheetTotal} tone="success" />
                   <div>
-                    <div class="text-[0.6875rem] text-fg-muted mb-1">Colunas encontradas</div>
+                    <div class="text-2xs text-fg-muted mb-1">Colunas encontradas</div>
                     <div class="flex flex-wrap gap-1">
-                      {sheetHeaders.map((h) => <span key={h} class="inline-flex h-6 items-center px-2 rounded-full border border-border text-[0.6875rem] text-fg-muted">{h}</span>)}
+                      {sheetHeaders.map((h) => <span key={h} class="inline-flex h-6 items-center px-2 rounded-full border border-border text-2xs text-fg-muted">{h}</span>)}
                     </div>
                   </div>
                 </>
@@ -446,9 +446,9 @@ function WizardSteps({ current }: { current: number }) {
             <div class={cn('flex items-center gap-2 h-9 px-3 rounded-full border text-xs font-medium transition-colors',
               active ? 'bg-accent/15 text-accent border-accent'
                 : done ? 'bg-surface-2 text-fg border-border'
-                  : 'bg-surface text-fg-subtle border-border')}>
-              <span class={cn('grid place-items-center size-5 rounded-full text-[0.625rem] font-semibold',
-                active ? 'bg-accent text-white' : done ? 'bg-success/20 text-success' : 'bg-surface-3 text-fg-subtle')}>
+                  : 'bg-surface text-fg-muted border-border')}>
+              <span class={cn('grid place-items-center size-5 rounded-full text-3xs font-semibold',
+                active ? 'bg-accent text-fg-on-brand' : done ? 'bg-success/20 text-success' : 'bg-surface-3 text-fg-muted')}>
                 {done ? '✓' : n}
               </span>
               {label}
@@ -474,24 +474,24 @@ function TemplatePreview({ template, connectionLabel }: { template: { name: stri
   const body = template ? templateBodyText(template.components) : null
   return (
     <Card class="p-4 space-y-3 lg:sticky lg:top-4">
-      <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Prévia da mensagem</div>
+      <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Prévia da mensagem</div>
       {!template ? (
-        <p class="text-xs text-fg-subtle">Selecione um template para ver a prévia.</p>
+        <p class="text-xs text-fg-muted">Selecione um template para ver a prévia.</p>
       ) : (
         <>
           <div class="text-xs text-fg">
             <div class="font-medium truncate">{template.name}</div>
-            <div class="text-fg-subtle">{template.language} · {template.category}</div>
-            {connectionLabel && <div class="text-fg-subtle mt-0.5">Envio por {connectionLabel}</div>}
+            <div class="text-fg-muted">{template.language} · {template.category}</div>
+            {connectionLabel && <div class="text-fg-muted mt-0.5">Envio por {connectionLabel}</div>}
           </div>
           <div class="rounded-lg bg-surface-2 p-3">
             {body ? (
               <p class="text-xs text-fg whitespace-pre-wrap break-words">{body}</p>
             ) : (
-              <p class="text-xs text-fg-subtle italic">Sem corpo de texto neste template.</p>
+              <p class="text-xs text-fg-muted italic">Sem corpo de texto neste template.</p>
             )}
           </div>
-          <p class="text-[0.625rem] text-fg-subtle">
+          <p class="text-3xs text-fg-muted">
             Os campos <span class="font-mono">{'{{n}}'}</span> são substituídos por destinatário conforme o passo 3.
           </p>
         </>
@@ -561,14 +561,14 @@ function CampaignDetail({ id, onBack }: { id: number; onBack: () => void }) {
                 ) : recipients.map((r) => (
                   <tr key={r.id} class="hover:bg-surface-2">
                     <td class="px-3 py-2 text-fg truncate max-w-[16rem]">{r.name || '—'}</td>
-                    <td class="px-3 py-2 text-fg-subtle hidden sm:table-cell">{r.phone}</td>
+                    <td class="px-3 py-2 text-fg-muted hidden sm:table-cell">{r.phone}</td>
                     <td class="px-3 py-2">
                       <Badge tone={r.status === 'read' ? 'success' : r.status === 'failed' ? 'danger' : r.status === 'delivered' ? 'info' : r.status === 'skipped' ? 'warning' : 'neutral'}>{r.status}</Badge>
                     </td>
                     <td class="px-3 py-2">
                       {r.error && <span class="text-danger" title={r.error}>{r.error}</span>}
                       {r.skipReason && <span class="text-warning">{r.skipReason}</span>}
-                      {!r.error && !r.skipReason && <span class="text-fg-subtle">—</span>}
+                      {!r.error && !r.skipReason && <span class="text-fg-muted">—</span>}
                     </td>
                   </tr>
                 ))}

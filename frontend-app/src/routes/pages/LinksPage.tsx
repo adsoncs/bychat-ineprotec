@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   Link2, Plus, Pencil, Trash2, Copy, Check, ExternalLink, BarChart3,
   Download, QrCode, FileText, HelpCircle, Pin, MessageCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useTrackableLinks,
   useTrackableLink,
@@ -135,7 +135,7 @@ export function LinksPage() {
         <Card>
           <CardHeader>
             <CardTitle>Principais links</CardTitle>
-            <span class="text-xs text-fg-subtle">por cliques</span>
+            <span class="text-xs text-fg-muted">por cliques</span>
           </CardHeader>
           <ul class="divide-y divide-border">
             {overview.topLinks.slice(0, 5).map((t) => (
@@ -143,8 +143,8 @@ export function LinksPage() {
                 <span class="text-fg flex-1 truncate" title={t.name}>{t.name}</span>
                 <code class="font-mono text-fg-muted hidden sm:inline">/r/{t.slug}</code>
                 <span class="text-fg tabular-nums">{t.totalClicks} cl</span>
-                <span class="text-fg-subtle tabular-nums">· {t.leadsGenerated} leads</span>
-                <span class="text-fg-subtle tabular-nums">· {brl.format(t.totalRevenue)}</span>
+                <span class="text-fg-muted tabular-nums">· {t.leadsGenerated} leads</span>
+                <span class="text-fg-muted tabular-nums">· {brl.format(t.totalRevenue)}</span>
               </li>
             ))}
           </ul>
@@ -167,7 +167,7 @@ export function LinksPage() {
         {!isLoading && list && list.links.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-4 py-2 font-medium">Nome</th>
                   <th class="text-left px-4 py-2 font-medium">Slug / URL</th>
@@ -200,8 +200,8 @@ export function LinksPage() {
                       <td class="px-4 py-2 min-w-[18rem]">
                         <div class="flex flex-col gap-1">
                           <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="text-[0.625rem] text-fg-subtle shrink-0 w-10">Direto:</span>
-                            <code class="text-[0.6875rem] bg-surface-3 px-1.5 py-0.5 rounded text-info truncate flex-1 min-w-0" title={rUrl}>{rUrl}</code>
+                            <span class="text-3xs text-fg-muted shrink-0 w-10">Direto:</span>
+                            <code class="text-2xs bg-surface-3 px-1.5 py-0.5 rounded text-info truncate flex-1 min-w-0" title={rUrl}>{rUrl}</code>
                             <button
                               type="button"
                               class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3 shrink-0"
@@ -212,9 +212,9 @@ export function LinksPage() {
                             </button>
                           </div>
                           <div class="flex items-center gap-1.5 min-w-0">
-                            <span class="text-[0.625rem] text-fg-subtle shrink-0 w-10">Ads:</span>
+                            <span class="text-3xs text-fg-muted shrink-0 w-10">Ads:</span>
                             <code
-                              class="text-[0.6875rem] bg-warning/15 text-warning px-1.5 py-0.5 rounded truncate flex-1 min-w-0"
+                              class="text-2xs bg-warning/15 text-warning px-1.5 py-0.5 rounded truncate flex-1 min-w-0"
                               title="Com delay + pixel — use no Meta Ads"
                             >
                               {lUrl}
@@ -653,7 +653,7 @@ function UrlRow({ label, url, onCopy, disabled }: { label: string; url: string; 
 function KvPair({ label, value }: { label: string; value: string }) {
   return (
     <div class="flex gap-2">
-      <span class="text-fg-subtle">{label}:</span>
+      <span class="text-fg-muted">{label}:</span>
       <code class="font-mono text-fg truncate flex-1">{value}</code>
     </div>
   )
@@ -685,7 +685,7 @@ function DetailClicks({ linkId, slug }: { linkId: number; slug: string }) {
       {!isLoading && clicks.length > 0 && (
         <div class="overflow-x-auto rounded-md border border-border">
           <table class="w-full text-xs">
-            <thead class="bg-surface-3 text-fg-subtle text-[0.625rem] uppercase tracking-wider">
+            <thead class="bg-surface-3 text-fg-muted text-3xs uppercase tracking-wider">
               <tr>
                 <th class="text-left px-2 py-1.5 font-medium">Quando</th>
                 <th class="text-left px-2 py-1.5 font-medium">IP</th>
@@ -713,7 +713,7 @@ function DetailClicks({ linkId, slug }: { linkId: number; slug: string }) {
                     {!c.fbclid && !c.gclid && !c.ctwaClid && '—'}
                   </td>
                   <td class="px-2 py-1.5">
-                    {c.capiSent ? <Check size={12} class="text-success" /> : <span class="text-fg-subtle">—</span>}
+                    {c.capiSent ? <Check size={12} class="text-success" /> : <span class="text-fg-muted">—</span>}
                   </td>
                 </tr>
               ))}
@@ -1073,7 +1073,7 @@ function FloaterModal({ link, onClose }: { link: TrackableLink; onClose: () => v
 
           <div>
             <span class="text-xs font-medium text-fg-muted block mb-1.5">HTML para colar no site</span>
-            <Textarea readOnly value={html} rows={6} class="font-mono text-[10px]" />
+            <Textarea readOnly value={html} rows={6} class="font-mono text-3xs" />
           </div>
 
           <Button variant="primary" size="sm" onClick={handleCopy} class="w-full">
@@ -1099,11 +1099,11 @@ function CopyableCode({ code, rows = 3 }: { code: string; rows?: number }) {
   }
   return (
     <div class="relative">
-      <Textarea readOnly value={code} rows={rows} class="font-mono text-[11px] bg-surface-3" />
+      <Textarea readOnly value={code} rows={rows} class="font-mono text-2xs bg-surface-3" />
       <button
         type="button"
         onClick={handleCopy}
-        class="absolute top-2 right-2 px-2 py-1 text-[10px] rounded bg-accent text-fg-on-brand hover:opacity-90"
+        class="absolute top-2 right-2 px-2 py-1 text-3xs rounded bg-accent text-fg-on-brand hover:opacity-90"
       >
         {copied ? 'Copiado' : 'Copiar'}
       </button>
@@ -1160,7 +1160,7 @@ function PixelInstallModal({ onClose }: { onClose: () => void }) {
 
         <div>
           <h3 class="font-semibold text-fg mb-2">4. API JavaScript disponível</h3>
-          <div class="rounded-md border border-border bg-surface-3 p-3 font-mono text-[11px] text-fg leading-relaxed space-y-1">
+          <div class="rounded-md border border-border bg-surface-3 p-3 font-mono text-2xs text-fg leading-relaxed space-y-1">
             <div><strong>window.bychat.visitorId</strong> — UUID do visitante</div>
             <div><strong>window.bychat.track('evento', data)</strong> — evento custom</div>
             <div><strong>window.bychat.trackableHref(href)</strong> — retorna URL com sid</div>

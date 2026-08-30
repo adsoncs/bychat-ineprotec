@@ -33,7 +33,7 @@ import {
   Camera,
   Film,
   Building,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
@@ -514,7 +514,7 @@ export function PageSectionsEditor({ pageId, pageTitle, onClose }: PageSectionsE
             />
             {showPreview && data?.slug && (
               <div class="rounded-md border border-border bg-surface overflow-hidden flex flex-col min-h-[36rem]">
-                <div class="flex items-center justify-between border-b border-border px-2 py-1.5 text-[0.6875rem] text-fg-muted">
+                <div class="flex items-center justify-between border-b border-border px-2 py-1.5 text-2xs text-fg-muted">
                   <span class="truncate">/p/{data.slug}?preview=true{dirty ? ' · alterações não salvas' : ''}</span>
                   <button
                     type="button"
@@ -592,7 +592,7 @@ export function SectionsListColumn({
                 <Icon size={14} class="mt-0.5 shrink-0 text-fg-muted" />
                 <div class="min-w-0">
                   <div class="text-sm text-fg">{t.label}</div>
-                  <div class="text-[0.6875rem] text-fg-subtle">{t.description}</div>
+                  <div class="text-2xs text-fg-muted">{t.description}</div>
                 </div>
               </button>
             )
@@ -601,7 +601,7 @@ export function SectionsListColumn({
       )}
 
       {sections.length === 0 ? (
-        <p class="text-xs text-fg-subtle">Nenhum bloco. Clique em "Adicionar" para começar.</p>
+        <p class="text-xs text-fg-muted">Nenhum bloco. Clique em "Adicionar" para começar.</p>
       ) : (
         <SortableList
           items={sections}
@@ -768,7 +768,7 @@ function SpacingQuickControl({
             type="button"
             onClick={() => onChange(p.value)}
             class={cn(
-              'h-6 rounded border px-2 text-[0.6875rem] transition-colors',
+              'h-6 rounded border px-2 text-2xs transition-colors',
               value === p.value
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-3'
@@ -807,7 +807,7 @@ function SectionStyleEditor({ pageId, style, onPatch }: SectionStyleEditorProps)
     <div class="space-y-4">
       {/* Animação & efeito (Fase 2 — camada FX) */}
       <fieldset class="rounded-md border border-border p-3 space-y-2">
-        <legend class="px-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Animação &amp; efeito</legend>
+        <legend class="px-1 text-2xs uppercase tracking-wider text-fg-muted">Animação &amp; efeito</legend>
         <Select
           label="Animação de entrada"
           value={style.animation ?? ''}
@@ -839,12 +839,12 @@ function SectionStyleEditor({ pageId, style, onPatch }: SectionStyleEditorProps)
           <option value="">Nenhum</option>
           <option value="parallax">Parallax</option>
         </Select>
-        <p class="text-[0.625rem] text-fg-muted">Aparece na página publicada (respeita "reduzir movimento"). O preview do editor não reproduz a animação.</p>
+        <p class="text-3xs text-fg-muted">Aparece na página publicada (respeita "reduzir movimento"). O preview do editor não reproduz a animação.</p>
       </fieldset>
 
       {/* Fundo */}
       <fieldset class="rounded-md border border-border p-3 space-y-2">
-        <legend class="px-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Fundo da seção</legend>
+        <legend class="px-1 text-2xs uppercase tracking-wider text-fg-muted">Fundo da seção</legend>
         <div class="inline-flex items-center rounded-md border border-border overflow-hidden text-xs">
           {(['none', 'color', 'image', 'gradient'] as BgMode[]).map((m) => (
             <button
@@ -923,7 +923,7 @@ function SectionStyleEditor({ pageId, style, onPatch }: SectionStyleEditorProps)
 
       {/* Texto e alinhamento */}
       <fieldset class="rounded-md border border-border p-3 space-y-2">
-        <legend class="px-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Texto</legend>
+        <legend class="px-1 text-2xs uppercase tracking-wider text-fg-muted">Texto</legend>
         <div class="grid gap-2 sm:grid-cols-2">
           <ColorPicker
             label="Cor do texto (opcional)"
@@ -945,7 +945,7 @@ function SectionStyleEditor({ pageId, style, onPatch }: SectionStyleEditorProps)
 
       {/* Espaçamento e bordas */}
       <fieldset class="rounded-md border border-border p-3 space-y-2">
-        <legend class="px-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Espaçamento e formato</legend>
+        <legend class="px-1 text-2xs uppercase tracking-wider text-fg-muted">Espaçamento e formato</legend>
 
         {/* Respiro rápido — atalho amigável para dar espaço no topo/base da seção */}
         <SpacingQuickControl
@@ -958,7 +958,7 @@ function SectionStyleEditor({ pageId, style, onPatch }: SectionStyleEditorProps)
           value={style.paddingBottom ?? ''}
           onChange={(v) => onPatch({ paddingBottom: v })}
         />
-        <p class="text-[0.625rem] text-fg-muted">Use os atalhos acima para afastar os elementos das bordas. Os campos avançados abaixo continuam disponíveis.</p>
+        <p class="text-3xs text-fg-muted">Use os atalhos acima para afastar os elementos das bordas. Os campos avançados abaixo continuam disponíveis.</p>
 
         <div class="grid gap-2 sm:grid-cols-2">
           <Input
@@ -1106,12 +1106,12 @@ function SectionPropsForm({
           )}
           {heroVariant === 'gradient' && (
             <fieldset class="rounded-md border border-border p-3 space-y-2">
-              <legend class="px-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Cores do gradiente do hero</legend>
+              <legend class="px-1 text-2xs uppercase tracking-wider text-fg-muted">Cores do gradiente do hero</legend>
               <div class="grid gap-2 sm:grid-cols-2">
                 <ColorPicker label="Cor inicial" value={get('gradientFrom') || '#1a73e8'} onChange={(c) => onPatch({ gradientFrom: c })} />
                 <ColorPicker label="Cor final" value={get('gradientTo') || '#7c3aed'} onChange={(c) => onPatch({ gradientTo: c })} />
               </div>
-              <p class="text-[0.625rem] text-fg-muted">Estas são as cores do gradiente do hero. O "Fundo da seção" na aba Aparência não afeta o hero quando o estilo é Gradiente.</p>
+              <p class="text-3xs text-fg-muted">Estas são as cores do gradiente do hero. O "Fundo da seção" na aba Aparência não afeta o hero quando o estilo é Gradiente.</p>
             </fieldset>
           )}
         </div>
@@ -1332,7 +1332,7 @@ function SectionPropsForm({
         <Textarea
           label="Conteúdo (HTML aceito)"
           rows={8}
-          class="font-mono text-[0.75rem]"
+          class="font-mono text-xs"
           value={decodeIfEscaped(get('content'))}
           onInput={(e) => onPatch({ content: (e.target as HTMLTextAreaElement).value })}
           hint="Aceita HTML: <p>, <ul>/<li>, <strong>, <a href>, <br>, style inline, etc."
@@ -1381,7 +1381,7 @@ function SectionPropsForm({
             renderRow={(item, patch) => (
               <div class="space-y-2">
                 <Input value={str(item.title)} onInput={(e) => patch({ title: (e.target as HTMLInputElement).value })} placeholder="Título" />
-                <Textarea rows={4} class="font-mono text-[0.75rem]" value={decodeIfEscaped(str(item.content))} onInput={(e) => patch({ content: (e.target as HTMLTextAreaElement).value })} placeholder="Conteúdo (HTML aceito)" />
+                <Textarea rows={4} class="font-mono text-xs" value={decodeIfEscaped(str(item.content))} onInput={(e) => patch({ content: (e.target as HTMLTextAreaElement).value })} placeholder="Conteúdo (HTML aceito)" />
               </div>
             )}
           />
@@ -1670,7 +1670,7 @@ function SectionPropsForm({
             onChange={(columns) => onPatch({ columns })}
             template={{ content: '<p>Conteúdo da coluna…</p>' }}
             renderRow={(item, patch) => (
-              <Textarea rows={4} class="font-mono text-[0.75rem]" value={decodeIfEscaped(str(item.content))} onInput={(e) => patch({ content: (e.target as HTMLTextAreaElement).value })} placeholder="HTML da coluna" />
+              <Textarea rows={4} class="font-mono text-xs" value={decodeIfEscaped(str(item.content))} onInput={(e) => patch({ content: (e.target as HTMLTextAreaElement).value })} placeholder="HTML da coluna" />
             )}
           />
         </div>
@@ -1698,8 +1698,8 @@ function SectionPropsForm({
             {items.map((m) => <option key={m.id} value={m.slug}>{m.name}</option>)}
           </Select>
           {meetingTypes.isLoading
-            ? <p class="text-xs text-fg-subtle">Carregando tipos…</p>
-            : items.length === 0 && <p class="text-xs text-fg-subtle">Nenhum tipo de reunião ativo. Crie um em Agendamentos.</p>}
+            ? <p class="text-xs text-fg-muted">Carregando tipos…</p>
+            : items.length === 0 && <p class="text-xs text-fg-muted">Nenhum tipo de reunião ativo. Crie um em Agendamentos.</p>}
           <Input label="Altura (px)" value={get('height', '760')} onInput={(e) => onPatch({ height: (e.target as HTMLInputElement).value })} />
         </div>
       )
@@ -1710,7 +1710,7 @@ function SectionPropsForm({
         <Textarea
           label="HTML personalizado"
           rows={12}
-          class="font-mono text-[0.75rem]"
+          class="font-mono text-xs"
           value={get('html')}
           onInput={(e) => onPatch({ html: (e.target as HTMLTextAreaElement).value })}
           hint="O HTML é sanitizado: tags como <script>, <iframe> de domínios não-permitidos, eventos JS inline e CSS perigoso são removidos."
@@ -1816,12 +1816,12 @@ function ItemsEditor({ label, items, onChange, template, renderRow }: ItemsEdito
           <Plus size={12} /> Adicionar
         </Button>
       </div>
-      {items.length === 0 && <p class="text-xs text-fg-subtle">Nenhum item ainda.</p>}
+      {items.length === 0 && <p class="text-xs text-fg-muted">Nenhum item ainda.</p>}
       <div class="space-y-3">
         {items.map((it, i) => (
           <div key={i} class="rounded-md border border-border bg-surface p-2">
             <div class="mb-2 flex items-center justify-between">
-              <span class="text-[0.6875rem] text-fg-subtle">#{i + 1}</span>
+              <span class="text-2xs text-fg-muted">#{i + 1}</span>
               <div class="flex gap-0.5">
                 <button
                   type="button"

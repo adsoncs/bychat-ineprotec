@@ -4,7 +4,7 @@ import {
   Phone, Plus, Trash2, RefreshCw, Power, Wifi, WifiOff, AlertCircle,
   Pencil, User, Image as ImageIcon, Upload, X as XIcon, RotateCcw, CheckCircle2, HelpCircle,
   BookUser,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useInstances,
@@ -368,7 +368,7 @@ function InstanceCard({
           <div class="text-sm font-medium text-fg truncate">{inst.name}</div>
           <div class="text-xs text-fg-muted font-mono truncate">
             {inst.instanceName}
-            {phone && <span class="text-fg-subtle"> · {phone}</span>}
+            {phone && <span class="text-fg-muted"> · {phone}</span>}
           </div>
         </div>
         <div class="flex flex-col items-end gap-1 shrink-0">
@@ -377,7 +377,7 @@ function InstanceCard({
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-2 text-[0.6875rem] text-fg-subtle mt-2 mb-2">
+      <div class="grid grid-cols-2 gap-2 text-2xs text-fg-muted mt-2 mb-2">
         <div>
           <div class="uppercase tracking-wider">Chatbot</div>
           <div class="text-fg-muted truncate">{chatbotName}</div>
@@ -473,7 +473,7 @@ function QrInline({ qrFlow, onCancel, onRetry }: { qrFlow: QrFlow; onCancel: () 
         <div class="text-xs text-fg-muted mt-2">
           Abra o WhatsApp → Aparelhos conectados → Conectar aparelho
         </div>
-        <div class="text-[0.6875rem] text-fg-subtle mt-1">
+        <div class="text-2xs text-fg-muted mt-1">
           Aguardando leitura… <CountdownLabel startedAt={qrFlow.startedAt} />
         </div>
         <div class="flex gap-2 justify-center mt-2">
@@ -493,7 +493,7 @@ function QrInline({ qrFlow, onCancel, onRetry }: { qrFlow: QrFlow; onCancel: () 
       <div class="rounded-md border border-border bg-surface p-3 my-2 text-center">
         <div class="text-xs text-fg-muted mb-2">Código de pareamento</div>
         <div class="font-mono text-2xl tracking-widest text-fg">{qrFlow.pairingCode}</div>
-        <div class="text-[0.6875rem] text-fg-subtle mt-2">
+        <div class="text-2xs text-fg-muted mt-2">
           No WhatsApp → Aparelhos conectados → Conectar com código
         </div>
         <div class="flex gap-2 justify-center mt-2">
@@ -705,7 +705,7 @@ function EditInstanceModal({ instance, onClose }: { instance: WhatsAppInstance; 
               />
             ))}
           </div>
-          <p class="mt-1 text-xs text-fg-subtle">
+          <p class="mt-1 text-xs text-fg-muted">
             Marca a origem das conversas deste número na lista de atendimento. Sem cor escolhida,
             usa a cor padrão do tipo de conexão.
           </p>
@@ -935,13 +935,13 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
               <div class="size-20 rounded-full bg-surface-3 overflow-hidden grid place-items-center shrink-0 border border-border">
                 {data.profilePicUrl
                   ? <img src={data.profilePicUrl} alt="" class="w-full h-full object-cover" />
-                  : <ImageIcon size={28} class="text-fg-subtle" />}
+                  : <ImageIcon size={28} class="text-fg-muted" />}
               </div>
               <div class="min-w-0 flex-1">
                 <div class="text-base font-semibold text-fg truncate">{data.name ?? 'Sem nome'}</div>
                 <div class="text-xs text-fg-muted font-mono">{phone || '—'}</div>
-                <div class="text-xs text-fg-subtle italic mt-0.5 truncate">{data.status ?? 'Sem recado'}</div>
-                <div class="text-[0.6875rem] text-fg-subtle mt-1">
+                <div class="text-xs text-fg-muted italic mt-0.5 truncate">{data.status ?? 'Sem recado'}</div>
+                <div class="text-2xs text-fg-muted mt-1">
                   Tipo: {data.isBusiness ? <span class="text-accent font-medium">Business</span> : <span class="text-fg">Pessoal</span>}
                 </div>
               </div>
@@ -949,7 +949,7 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
 
             {/* Nome do perfil */}
             <section>
-              <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Nome do perfil</div>
+              <div class="text-xs uppercase tracking-wider text-fg-muted mb-1">Nome do perfil</div>
               <div class="flex gap-2">
                 <Input
                   value={name}
@@ -967,7 +967,7 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
 
             {/* Recado/status */}
             <section>
-              <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Recado (status)</div>
+              <div class="text-xs uppercase tracking-wider text-fg-muted mb-1">Recado (status)</div>
               <Textarea
                 value={status}
                 maxLength={139}
@@ -985,7 +985,7 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
 
             {/* Foto */}
             <section>
-              <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1">Foto do perfil</div>
+              <div class="text-xs uppercase tracking-wider text-fg-muted mb-1">Foto do perfil</div>
 
               {/* Upload de arquivo */}
               <div class="flex items-center gap-2 mb-2">
@@ -1005,7 +1005,7 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
                 >
                   <Upload size={12} /> {uploading ? 'Enviando…' : 'Enviar arquivo'}
                 </Button>
-                <span class="text-[0.6875rem] text-fg-subtle">JPG, PNG ou WebP. Máx 25 MB.</span>
+                <span class="text-2xs text-fg-muted">JPG, PNG ou WebP. Máx 25 MB.</span>
               </div>
 
               {/* URL alternativa */}
@@ -1025,7 +1025,7 @@ function BusinessProfileModal({ instance, onClose }: { instance: WhatsAppInstanc
                 <div class="mt-2">
                   <button
                     type="button"
-                    class="text-[0.6875rem] text-danger hover:underline"
+                    class="text-2xs text-danger hover:underline"
                     onClick={removePicture}
                     disabled={remPic.isPending}
                   >

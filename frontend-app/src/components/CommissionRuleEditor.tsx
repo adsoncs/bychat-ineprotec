@@ -5,7 +5,7 @@
 // a proposta separa os dois) e SE a taxa melhora quando o agente bate a meta.
 
 import { useEffect, useState } from 'preact/hooks'
-import { Plus, Trash2 } from 'lucide-preact'
+import { Plus, Trash2 } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -75,7 +75,7 @@ function RateFields({ titulo, ajuda, tipo, taxa, onTipo, onTaxa }: {
     <div class="rounded-lg border border-border p-3 space-y-2">
       <div>
         <div class="text-sm font-medium text-fg">{titulo}</div>
-        <div class="text-[11px] text-fg-subtle">{ajuda}</div>
+        <div class="text-2xs text-fg-muted">{ajuda}</div>
       </div>
       <div class="flex items-end gap-2">
         <Select label="Forma" value={tipo} onChange={(e) => onTipo((e.target as HTMLSelectElement).value as RateType)} class="w-40">
@@ -183,7 +183,7 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
         <div class="rounded-lg border border-border p-3 space-y-2">
           <div>
             <div class="text-sm font-medium text-fg">Agentes</div>
-            <div class="text-[11px] text-fg-subtle">
+            <div class="text-2xs text-fg-muted">
               Nenhum marcado = vale para todo agente. Marcar alguém cria a exceção dessa pessoa,
               que passa na frente da regra geral do funil.
             </div>
@@ -253,7 +253,7 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
             <input type="checkbox" checked={d.aceleradorAtivo} onChange={(e) => patch({ aceleradorAtivo: (e.target as HTMLInputElement).checked })} class="mt-1" />
             <span>
               <span class="text-sm font-medium text-fg">Acelerador por meta</span>
-              <span class="block text-[11px] text-fg-subtle">
+              <span class="block text-2xs text-fg-muted">
                 A taxa muda conforme o quanto o agente atingiu da meta no mês. A faixa alcançada vale
                 para <strong>tudo o que ele fechou no período</strong>, não só para a venda que passou do alvo.
               </span>
@@ -275,7 +275,7 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
 
               <div class="space-y-2">
                 {d.tiers.length === 0 ? (
-                  <p class="text-xs text-fg-subtle">Sem faixas, vale sempre a taxa acima.</p>
+                  <p class="text-xs text-fg-muted">Sem faixas, vale sempre a taxa acima.</p>
                 ) : null}
                 {d.tiers.map((t, i) => (
                   <div key={i} class="flex flex-wrap items-end gap-2 rounded-md border border-border/70 p-2">

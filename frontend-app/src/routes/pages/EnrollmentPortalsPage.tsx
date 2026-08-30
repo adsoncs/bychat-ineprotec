@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle } from 'lucide-preact'
+import { School, Plus, Pencil, Trash2, Copy, ExternalLink, MoreHorizontal, Code, Users as UsersIcon, CheckCircle2, AlertCircle, Loader2, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useEnrollmentPortals,
@@ -191,15 +191,15 @@ function PortalCard({
         <button type="button" class="min-w-0 flex-1 text-left" onClick={onOpen}>
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate hover:text-accent">{p.nome}</span>
-            <code class="text-[0.625rem] text-fg-subtle">{p.slug}</code>
-            {!p.active && <span class="text-[0.625rem] uppercase text-fg-subtle">Inativo</span>}
+            <code class="text-3xs text-fg-muted">{p.slug}</code>
+            {!p.active && <span class="text-3xs uppercase text-fg-muted">Inativo</span>}
           </div>
-          <div class="text-xs text-fg-subtle">
+          <div class="text-xs text-fg-muted">
             {p.unit?.nome ?? '—'} · {formModeLabel}
             {p.team && <> · {p.team.name}</>}
           </div>
           {p._count && (
-            <div class="text-[0.6875rem] text-fg-muted tabular-nums mt-1">
+            <div class="text-2xs text-fg-muted tabular-nums mt-1">
               {p._count.registrations} inscrição(ões)
               {p.requirePayment && <> · pagamento obrigatório</>}
               {p.formMode === 'interest' && <> · TTL link {p.magicLinkTtlDays}d</>}
@@ -459,7 +459,7 @@ function PortalFormModal({
                 onChange={() => setFormMode('full')}
               />
               <span class="text-sm font-medium text-fg">Inscrição completa</span>
-              <div class="text-xs text-fg-subtle mt-1">Formulário completo com escolha de oferta, dados e documentos.</div>
+              <div class="text-xs text-fg-muted mt-1">Formulário completo com escolha de oferta, dados e documentos.</div>
             </label>
             <label class={`rounded-md border p-3 cursor-pointer ${formMode === 'interest' ? 'border-accent bg-accent/5' : 'border-border'}`}>
               <input
@@ -469,7 +469,7 @@ function PortalFormModal({
                 onChange={() => setFormMode('interest')}
               />
               <span class="text-sm font-medium text-fg">Captura de interesse</span>
-              <div class="text-xs text-fg-subtle mt-1">Formulário curto que envia magic link p/ continuar em outro portal.</div>
+              <div class="text-xs text-fg-muted mt-1">Formulário curto que envia magic link p/ continuar em outro portal.</div>
             </label>
           </div>
           {formMode === 'interest' && (
@@ -607,7 +607,7 @@ function SlugCheckHint({
   if (!slug) return null
   if (status === 'checking') {
     return (
-      <div class="mt-1 text-[0.6875rem] text-fg-subtle inline-flex items-center gap-1">
+      <div class="mt-1 text-2xs text-fg-muted inline-flex items-center gap-1">
         <Loader2 size={10} class="animate-spin" /> Verificando…
       </div>
     )
@@ -616,7 +616,7 @@ function SlugCheckHint({
 
   if (result.available) {
     return (
-      <div class="mt-1 text-[0.6875rem] text-success inline-flex items-center gap-1">
+      <div class="mt-1 text-2xs text-success inline-flex items-center gap-1">
         <CheckCircle2 size={10} /> Disponível
         {result.normalized && result.normalized !== slug && <> (será salvo como <code>{result.normalized}</code>)</>}
       </div>
@@ -625,7 +625,7 @@ function SlugCheckHint({
 
   if (result.reason === 'too-short') {
     return (
-      <div class="mt-1 text-[0.6875rem] text-danger inline-flex items-center gap-1">
+      <div class="mt-1 text-2xs text-danger inline-flex items-center gap-1">
         <AlertCircle size={10} /> Muito curto (mínimo 3 caracteres)
       </div>
     )
@@ -633,7 +633,7 @@ function SlugCheckHint({
 
   if (result.reason === 'taken') {
     return (
-      <div class="mt-1 text-[0.6875rem] text-danger inline-flex items-center gap-1 flex-wrap">
+      <div class="mt-1 text-2xs text-danger inline-flex items-center gap-1 flex-wrap">
         <AlertCircle size={10} /> Em uso por outro portal
         {result.suggestion && (
           <button
@@ -654,7 +654,7 @@ function SlugCheckHint({
 function Section({ title, children }: { title: string; children: preact.ComponentChildren }) {
   return (
     <div>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">{title}</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">{title}</div>
       <div class="space-y-3">{children}</div>
     </div>
   )

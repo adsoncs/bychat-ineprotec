@@ -33,7 +33,6 @@
 
   --color-fg: #e9edef;
   --color-fg-muted: #8696a0;
-  --color-fg-subtle: #667781;
   --color-fg-on-brand: #e9edef;
 
   --color-border: rgb(134 150 160 / 0.15);
@@ -67,7 +66,6 @@
      tela é lida oito horas por dia. */
   --color-fg: #111b21;
   --color-fg-muted: #54656f;
-  --color-fg-subtle: #667781;
   --color-fg-on-brand: #ffffff;
 
   --color-border: rgb(17 27 33 / 0.1);

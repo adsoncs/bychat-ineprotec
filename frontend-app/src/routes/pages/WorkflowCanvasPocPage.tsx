@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft } from 'lucide-preact'
+import { ArrowLeft } from '@/components/ui/icon-set'
 import { useWorkflow } from '@/hooks/useWorkflows'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'

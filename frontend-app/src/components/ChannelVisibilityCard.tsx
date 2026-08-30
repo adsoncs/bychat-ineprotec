@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-preact'
+import { Eye, EyeOff, Loader2, ShieldCheck } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
@@ -90,7 +90,7 @@ export function ChannelVisibilityCard({
       <div class="mb-2 flex items-center gap-2">
         <ShieldCheck size={13} class="shrink-0 text-accent" />
         <span class="text-xs font-medium text-fg">Quem vê as conversas deste número</span>
-        <span class="rounded bg-accent/10 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wider text-accent">
+        <span class="rounded bg-accent/10 px-1.5 py-px text-3xs font-semibold uppercase tracking-wider text-accent">
           Só superadmin
         </span>
         {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
@@ -129,7 +129,7 @@ export function ChannelVisibilityCard({
               <span class="flex items-center gap-1.5 text-xs font-medium text-fg">
                 <op.Icone size={12} /> {op.titulo}
               </span>
-              <span class="mt-0.5 block text-[0.6875rem] leading-snug text-fg-subtle">{op.ajuda}</span>
+              <span class="mt-0.5 block text-2xs leading-snug text-fg-muted">{op.ajuda}</span>
             </span>
           </label>
         ))}
@@ -137,7 +137,7 @@ export function ChannelVisibilityCard({
 
       {modo === 'restricted' && (
         <div class="mt-2.5">
-          <p class="mb-1.5 text-[0.6875rem] leading-relaxed text-fg-subtle">
+          <p class="mb-1.5 text-2xs leading-relaxed text-fg-muted">
             Marque quem pode acompanhar. Você (superadmin) e o agente dono do número entram sempre,
             sem precisar marcar.
           </p>
@@ -151,7 +151,7 @@ export function ChannelVisibilityCard({
                     onChange={() => alternar(u.id)}
                   />
                   <span class="min-w-0 flex-1 truncate text-fg">{u.name || u.email}</span>
-                  <span class="shrink-0 text-[0.625rem] uppercase tracking-wider text-fg-subtle">{u.role}</span>
+                  <span class="shrink-0 text-3xs uppercase tracking-wider text-fg-muted">{u.role}</span>
                 </label>
               </li>
             ))}
@@ -160,7 +160,7 @@ export function ChannelVisibilityCard({
       )}
 
       <div class="mt-2.5 flex items-center justify-between gap-2">
-        <span class="text-[0.6875rem] text-fg-subtle">
+        <span class="text-2xs text-fg-muted">
           {modo === 'restricted'
             ? `${escolhidos.length} pessoa(s) marcada(s)`
             : 'Nenhuma restrição neste número'}

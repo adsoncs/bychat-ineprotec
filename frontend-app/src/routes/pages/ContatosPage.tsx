@@ -18,7 +18,7 @@ import { useLocation } from 'wouter-preact'
 import {
   BookUser, Search, MessageSquare, Star, Users as UsersIcon, X,
   CheckSquare, Square, Phone, Mail, HelpCircle, Plus, Pencil, Trash2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -184,7 +184,7 @@ export function ContatosPage() {
       <div class="flex flex-wrap items-center gap-2 mb-3">
         <form onSubmit={aplicarBusca} class="flex items-center gap-2">
           <div class="relative">
-            <Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-fg-subtle" />
+            <Search size={14} class="absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted" />
             <Input
               value={busca}
               onInput={(e) => setBusca((e.target as HTMLInputElement).value)}
@@ -277,7 +277,7 @@ export function ContatosPage() {
 
       {!isLoading && contatos.length > 0 && (
         <div class="rounded-md border border-border overflow-hidden">
-          <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-2 text-[0.6875rem] text-fg-muted">
+          <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface-2 text-2xs text-fg-muted">
             <button
               type="button"
               onClick={alternarTodos}
@@ -287,7 +287,7 @@ export function ContatosPage() {
               {todosMarcados ? <CheckSquare size={13} class="text-accent" /> : <Square size={13} />}
               <span>{todosMarcados ? 'Desmarcar' : 'Selecionar'} os desta página</span>
             </button>
-            <span class="text-fg-subtle">·</span>
+            <span class="text-fg-muted">·</span>
             <span>{total} no total</span>
           </div>
           <ul>
@@ -413,7 +413,7 @@ export function ContatosPage() {
 function Resumo({ rotulo, valor, destaque, alerta }: { rotulo: string; valor?: number | undefined; destaque?: boolean | undefined; alerta?: boolean | undefined }) {
   return (
     <div class={cn('rounded-md border p-3', destaque ? 'border-accent/40 bg-accent/5' : 'border-border bg-surface-2')}>
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">{rotulo}</div>
+      <div class="text-2xs uppercase tracking-wider text-fg-muted">{rotulo}</div>
       <div class={cn('text-xl font-semibold tabular-nums mt-0.5', alerta ? 'text-warning' : 'text-fg')}>
         {valor == null ? '—' : valor.toLocaleString('pt-BR')}
       </div>
@@ -465,20 +465,20 @@ function LinhaContato({
         <div class="flex items-center gap-2.5 text-xs text-fg-muted flex-wrap mt-0.5">
           {contato.whatsapp && !contato.isGroup && (
             <span class="inline-flex items-center gap-1 tabular-nums">
-              <Phone size={10} class="text-fg-subtle shrink-0" /> {contato.whatsapp}
+              <Phone size={10} class="text-fg-muted shrink-0" /> {contato.whatsapp}
             </span>
           )}
           {contato.email && (
             <span class="inline-flex items-center gap-1 max-w-[16rem] truncate">
-              <Mail size={10} class="text-fg-subtle shrink-0" /> <span class="truncate">{contato.email}</span>
+              <Mail size={10} class="text-fg-muted shrink-0" /> <span class="truncate">{contato.email}</span>
             </span>
           )}
-          <span class="text-fg-subtle">{origemLabel(contato.source)}</span>
-          {contato.assignedUser && <span class="text-fg-subtle">· {contato.assignedUser.name}</span>}
+          <span class="text-fg-muted">{origemLabel(contato.source)}</span>
+          {contato.assignedUser && <span class="text-fg-muted">· {contato.assignedUser.name}</span>}
         </div>
       </div>
 
-      <span class="text-xs text-fg-subtle tabular-nums shrink-0 hidden sm:block">
+      <span class="text-xs text-fg-muted tabular-nums shrink-0 hidden sm:block">
         {quandoFoi(contato.lastMessageAt)}
       </span>
 
@@ -615,8 +615,8 @@ function ContatoFormModal({ alvo, onClose }: { alvo: Contato | 'novo' | null; on
 function Campo({ rotulo, opcional, children }: { rotulo: string; opcional?: boolean; children: ComponentChildren }) {
   return (
     <label class="block">
-      <span class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">
-        {rotulo}{opcional && <span class="text-fg-subtle/70 normal-case tracking-normal"> · opcional</span>}
+      <span class="text-2xs uppercase tracking-wider text-fg-muted">
+        {rotulo}{opcional && <span class="text-fg-muted/70 normal-case tracking-normal"> · opcional</span>}
       </span>
       <div class="mt-1">{children}</div>
     </label>

@@ -1,4 +1,4 @@
-import { ShieldCheck, ShieldAlert, ShieldX } from 'lucide-preact'
+import { ShieldCheck, ShieldAlert, ShieldX } from '@/components/ui/icon-set'
 import { Badge } from '@/components/ui/Badge'
 import type { LgpdConsentSource } from '@/hooks/useIntelligence'
 

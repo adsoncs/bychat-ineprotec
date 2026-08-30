@@ -173,7 +173,7 @@ export function PeriodPicker({ preset, customFrom, customTo, onPreset, onCustom,
               'h-7 shrink-0 whitespace-nowrap rounded px-2.5 text-xs font-medium transition-colors',
               // O mês atual é o padrão e o mais usado: fica com o rótulo
               // completo, os anteriores abreviam para a barra caber no notebook.
-              preset === p ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+              preset === p ? 'bg-surface-2 text-fg surface-raised' : 'text-fg-muted hover:text-fg',
             )}
           >
             {p === 'custom' ? (
@@ -194,16 +194,16 @@ export function PeriodPicker({ preset, customFrom, customTo, onPreset, onCustom,
         <div class="flex flex-wrap items-center gap-1.5">
           <input
             type="date"
-            class="h-7 rounded border border-border bg-surface px-2 text-xs text-fg focus:border-accent focus:outline-none"
+            class="h-7 rounded-md border border-border bg-surface-inset surface-inset px-2 text-xs text-fg focus:border-accent focus:outline-none"
             value={customFrom}
             max={customTo || hoje()}
             onInput={(e) => onCustom('from', (e.target as HTMLInputElement).value)}
             aria-label="Data inicial"
           />
-          <span class="text-xs text-fg-subtle">até</span>
+          <span class="text-xs text-fg-muted">até</span>
           <input
             type="date"
-            class="h-7 rounded border border-border bg-surface px-2 text-xs text-fg focus:border-accent focus:outline-none"
+            class="h-7 rounded-md border border-border bg-surface-inset surface-inset px-2 text-xs text-fg focus:border-accent focus:outline-none"
             value={customTo}
             min={customFrom || undefined}
             max={hoje()}
@@ -241,7 +241,7 @@ export function periodLabel(r: PeriodRange): string {
 export function PeriodIncompleteHint({ show }: { show: boolean }) {
   if (!show) return null
   return (
-    <p class="-mt-1 text-[11px] text-fg-subtle">
+    <p class="-mt-1 text-2xs text-fg-muted">
       Escolha as duas datas para aplicar o período personalizado — exibindo o mês atual.
     </p>
   )

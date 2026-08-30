@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
-import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, RotateCcw, Boxes, Link2Off, PencilLine } from 'lucide-preact'
+import { Handshake, Plus, Trash2, Paperclip, Download, Search, ChevronLeft, RotateCcw, Boxes, Link2Off, PencilLine } from '@/components/ui/icon-set'
 import {
   useNegotiations, useNegotiation, useSaveNegotiation, useDeleteNegotiation,
   useCloseNegotiation, useReopenNegotiation, useUploadNegotiationAttachment, useDeleteNegotiationAttachment,
@@ -96,7 +96,7 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
   return (
     <div class="relative">
       <div class="relative">
-        <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+        <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
         <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Buscar item no catálogo…" class="w-full pl-8 pr-2 py-1.5 rounded-md bg-surface border border-border text-sm text-fg" />
       </div>
       {q.trim().length >= 2 && data?.products?.length ? (
@@ -104,7 +104,7 @@ function CatalogSearch({ onPick }: { onPick: (r: Row) => void }) {
           {data.products.map((p) => (
             <button key={p.id} type="button" class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 flex justify-between gap-2"
               onClick={() => { onPick(rowFromProduct(p)); setQ('') }}>
-              <span class="truncate">{p.nome} <span class="text-fg-subtle">· {p.categoria}</span></span>
+              <span class="truncate">{p.nome} <span class="text-fg-muted">· {p.categoria}</span></span>
               <span class="text-fg-muted shrink-0">{money(p.preco)}{p.cobranca === 'recorrente' ? '/mês' : ''}</span>
             </button>
           ))}
@@ -154,7 +154,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
       <div class="space-y-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="relative flex-1 min-w-48">
-            <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+            <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
             <input value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} placeholder="Filtrar por nome, categoria ou código…"
               class="w-full pl-8 pr-2 py-1.5 rounded-md bg-surface border border-border text-sm text-fg" />
           </div>
@@ -182,7 +182,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
                       {p.cobranca === 'recorrente' ? <Badge tone="info" class="ml-2">Mensalidade</Badge> : null}
                       {p.disponivel === false ? <Badge tone="danger" class="ml-2">Esgotado</Badge> : null}
                     </span>
-                    <span class="block text-[11px] text-fg-subtle truncate">{p.categoria}{p.sku ? ` · ${p.sku}` : ''}</span>
+                    <span class="block text-2xs text-fg-muted truncate">{p.categoria}{p.sku ? ` · ${p.sku}` : ''}</span>
                   </span>
                   {marcado ? (
                     <input type="number" min={1} value={String(sel.get(p.id) ?? 1)} onClick={(e) => e.preventDefault()}
@@ -217,7 +217,7 @@ function BillingToggle({ value, disabled, onChange }: { value: 'unico' | 'recorr
       disabled={disabled}
       aria-pressed={value === v}
       onClick={() => onChange(v)}
-      class={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors disabled:opacity-60 ${value === v ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'}`}
+      class={`px-2 py-0.5 rounded text-2xs font-medium transition-colors disabled:opacity-60 ${value === v ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'}`}
     >
       {label}
     </button>
@@ -480,7 +480,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             <div>
               <label class="block text-xs font-medium text-fg mb-1">
                 Funil da venda
-                {closed && <span class="ml-1 font-normal text-fg-subtle">· fechada, não muda</span>}
+                {closed && <span class="ml-1 font-normal text-fg-muted">· fechada, não muda</span>}
               </label>
               <Select
                 value={f.funnelId || String(opcoesDeFunil.find((o) => o.principal)?.id ?? '')}
@@ -504,10 +504,10 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
         <div class="text-sm font-semibold text-fg mb-2">Itens</div>
         {!closed ? <div class="mb-3"><CatalogSearch onPick={(r) => patch({ rows: [...f.rows, r] })} /></div> : null}
         <CatalogPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} onAdd={(rows) => patch({ rows: [...f.rows, ...rows] })} />
-        {f.rows.length === 0 ? <p class="text-xs text-fg-subtle">Nenhum item ainda. Busque no catálogo acima ou clique em "Adicionar item".</p> : (
+        {f.rows.length === 0 ? <p class="text-xs text-fg-muted">Nenhum item ainda. Busque no catálogo acima ou clique em "Adicionar item".</p> : (
           <div class="space-y-2">
             {/* Cabeçalho das colunas — evita adivinhar o que é cada campo */}
-            <div class="grid grid-cols-12 gap-2 text-[11px] font-medium text-fg-subtle px-0.5">
+            <div class="grid grid-cols-12 gap-2 text-2xs font-medium text-fg-muted px-0.5">
               <span class={hasItemDesc ? 'col-span-4' : 'col-span-5'}>Item</span>
               <span class="col-span-1 text-center">Qtd</span>
               <span class="col-span-2">Valor unit. (R$)</span>
@@ -524,7 +524,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                   <span class={`${hasItemDesc ? 'col-span-2' : 'col-span-3'} text-sm text-fg tabular-nums text-right`}>
                     {money(rowSubtotal(r))}{isRec(r) ? <span class="text-xs text-fg-muted">/mês</span> : null}
                   </span>
-                  {!closed ? <button type="button" class="col-span-1 text-fg-subtle hover:text-danger justify-self-end" title="Remover item" onClick={() => patch({ rows: f.rows.filter((_, idx) => idx !== i) })}><Trash2 size={14} /></button> : <span class="col-span-1" />}
+                  {!closed ? <button type="button" class="col-span-1 text-fg-muted hover:text-danger justify-self-end" title="Remover item" onClick={() => patch({ rows: f.rows.filter((_, idx) => idx !== i) })}><Trash2 size={14} /></button> : <span class="col-span-1" />}
                 </div>
                 {/* Como este item é cobrado — o que separa MRR de venda avulsa nos relatórios */}
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
@@ -533,14 +533,14 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                     <span class="inline-flex items-center gap-1">
                       <Badge tone="neutral">Catálogo</Badge>
                       {!closed ? (
-                        <button type="button" class="text-fg-subtle hover:text-fg inline-flex items-center gap-0.5"
+                        <button type="button" class="text-fg-muted hover:text-fg inline-flex items-center gap-0.5"
                           title="Desvincular do catálogo e editar livremente"
                           onClick={() => setRow(i, { productId: null, precoTabela: null })}>
                           <Link2Off size={12} /> desvincular
                         </button>
                       ) : null}
                       {r.precoTabela != null && Math.abs(r.precoTabela - r.precoUnit) > 0.009 ? (
-                        <span class="text-fg-subtle">· tabela {money(r.precoTabela)}</span>
+                        <span class="text-fg-muted">· tabela {money(r.precoTabela)}</span>
                       ) : null}
                     </span>
                   ) : (
@@ -553,8 +553,8 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                       <input class="w-14 px-1.5 py-1 rounded bg-surface border border-border text-xs text-center disabled:opacity-60" type="number" min={0} placeholder="—" disabled={closed}
                         value={r.recorrenciaMeses ? String(r.recorrenciaMeses) : ''}
                         onInput={(e) => setRow(i, { recorrenciaMeses: Math.max(0, parseInt((e.target as HTMLInputElement).value, 10) || 0) })} />
-                      meses <span class="text-fg-subtle">(opcional)</span>
-                      {r.recorrenciaMeses > 0 ? <span class="text-fg-subtle">· {money(rowSubtotal(r) * r.recorrenciaMeses)} no contrato</span> : null}
+                      meses <span class="text-fg-muted">(opcional)</span>
+                      {r.recorrenciaMeses > 0 ? <span class="text-fg-muted">· {money(rowSubtotal(r) * r.recorrenciaMeses)} no contrato</span> : null}
                     </span>
                   ) : (
                     <span class="inline-flex items-center gap-1">
@@ -562,7 +562,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                       <input class="w-12 px-1.5 py-1 rounded bg-surface border border-border text-xs text-center disabled:opacity-60" type="number" min={1} placeholder="1" disabled={closed}
                         value={r.parcelas > 1 ? String(r.parcelas) : ''}
                         onInput={(e) => setRow(i, { parcelas: Math.max(0, parseInt((e.target as HTMLInputElement).value, 10) || 0) })} />
-                      {r.parcelas > 1 ? <>× de {money(rowSubtotal(r) / r.parcelas)}</> : <>× <span class="text-fg-subtle">(vazio = à vista)</span></>}
+                      {r.parcelas > 1 ? <>× de {money(rowSubtotal(r) / r.parcelas)}</> : <>× <span class="text-fg-muted">(vazio = à vista)</span></>}
                     </span>
                   )}
                 </div>
@@ -574,7 +574,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
           <div class="flex flex-wrap items-center gap-2 mt-2">
             <Button size="sm" variant="ghost" onClick={() => setPickerOpen(true)}><Boxes size={13} /> Adicionar do catálogo</Button>
             <Button size="sm" variant="ghost" onClick={() => patch({ rows: [...f.rows, { ...NEW_ROW }] })}><PencilLine size={13} /> Digitar item</Button>
-            <span class="text-[11px] text-fg-subtle">Pode misturar os dois na mesma proposta.</span>
+            <span class="text-2xs text-fg-muted">Pode misturar os dois na mesma proposta.</span>
           </div>
         ) : null}
       </Card>
@@ -583,7 +583,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card class="lg:col-span-2">
           <div class="text-sm font-semibold text-fg mb-1">Valores e pagamento</div>
-          <p class="text-[11px] text-fg-subtle mb-3">
+          <p class="text-2xs text-fg-muted mb-3">
             Desconto e condições são <strong>de cada bloco</strong>: dá para ceder no que é cobrado uma vez só
             sem mexer no valor que se repete todo mês — e o contrário também.
           </p>
@@ -591,7 +591,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
           {/* ── Pagamento único ── */}
           {temUnico ? (
             <div class="rounded-md border border-border/60 p-3">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-2">Pagamento único</div>
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted mb-2">Pagamento único</div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-fg mb-1">Desconto no único</label>
@@ -616,7 +616,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
           {/* ── Mensalidade — só quando a proposta tem recorrência ── */}
           {temRecorrente ? (
             <div class={`rounded-md border border-border/60 p-3 ${temUnico ? 'mt-3' : ''}`}>
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-2">Mensalidade</div>
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted mb-2">Mensalidade</div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-fg mb-1">Desconto na mensalidade</label>
@@ -651,7 +651,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
 
           {mostraUnico ? (
           <div class="space-y-1.5">
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Pagamento único</div>
+            <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted">Pagamento único</div>
             <SummaryRow label="Subtotal" value={money(subUnico)} />
             {descUnico > 0 ? <SummaryRow label={`Desconto${f.descontoTipo === 'percent' ? ` (${num(f.descontoValor)}%)` : ''}`} value={money(descUnico)} sign="−" /> : null}
             {acrescimos > 0 ? <SummaryRow label="Acréscimos" value={money(acrescimos)} sign="+" /> : null}
@@ -660,7 +660,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
               <>
                 <SummaryRow label="Entrada" value={money(entrada)} sign="−" />
                 <SummaryRow label={nParcelas > 0 ? `Saldo em ${nParcelas}× de ${money(valorParcela)}` : 'Saldo'} value={money(saldo)} />
-                {entrada > totalUnico ? <p class="text-[11px] text-danger">⚠ Entrada maior que o pagamento único.</p> : null}
+                {entrada > totalUnico ? <p class="text-2xs text-danger">⚠ Entrada maior que o pagamento único.</p> : null}
               </>
             ) : nParcelas > 0 && totalUnico > 0 ? (
               <SummaryRow label={`${nParcelas}× de ${money(valorParcela)}`} value={money(totalUnico)} />
@@ -668,7 +668,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             {parceladosPorItem.length > 0 ? (
               <div class="pt-1 space-y-0.5">
                 {parceladosPorItem.map((r, i) => (
-                  <div key={i} class="flex items-baseline justify-between gap-2 text-[11px] text-fg-subtle">
+                  <div key={i} class="flex items-baseline justify-between gap-2 text-2xs text-fg-muted">
                     <span class="truncate">{r.nome || 'Item'}</span>
                     <span class="tabular-nums shrink-0">{r.parcelas}× {money(rowSubtotal(r) / r.parcelas)}</span>
                   </div>
@@ -680,14 +680,14 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
 
           {temRecorrente ? (
             <div class={`space-y-1.5 ${mostraUnico ? 'mt-4 pt-3 border-t border-border' : ''}`}>
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">Recorrente</div>
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted">Recorrente</div>
               <SummaryRow label="Subtotal mensal" value={money(subRecorrente)} />
               {descRecorrente > 0 ? <SummaryRow label={`Desconto${f.descontoRecTipo === 'percent' ? ` (${num(f.descontoRecValor)}%)` : ''}`} value={money(descRecorrente)} sign="−" /> : null}
               <SummaryRow label="Mensalidade" value={`${money(mrr)}/mês`} strong />
               {mesesContrato > 0 ? (
                 <SummaryRow label={`Contrato de ${mesesContrato} meses`} value={money(valorContrato)} />
               ) : null}
-              {f.vencimentoDiaRec ? <p class="text-[11px] text-fg-subtle">Vence todo dia {Math.round(num(f.vencimentoDiaRec))}.</p> : null}
+              {f.vencimentoDiaRec ? <p class="text-2xs text-fg-muted">Vence todo dia {Math.round(num(f.vencimentoDiaRec))}.</p> : null}
             </div>
           ) : null}
 
@@ -697,7 +697,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
               value={money(total)}
               strong
             />
-            {temRecorrente ? <p class="text-[11px] text-fg-subtle mt-1">É este valor que vai para o card de venda do lead ao fechar como ganha. A mensalidade entra separada nos indicadores de recorrência.</p> : null}
+            {temRecorrente ? <p class="text-2xs text-fg-muted mt-1">É este valor que vai para o card de venda do lead ao fechar como ganha. A mensalidade entra separada nos indicadores de recorrência.</p> : null}
           </div>
 
           {/* Comissão desta proposta — o vendedor vê na hora quanto um desconto
@@ -705,7 +705,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
               mesmo que grava o lançamento ao fechar. */}
           {comissao?.preview?.aplicavel ? (
             <div class="mt-4 pt-3 border-t border-border">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted mb-1.5">
                 Comissão {closed ? 'desta venda' : 'estimada'}
               </div>
               <SummaryRow label="Total" value={money(comissao.preview.valorTotal)} strong />
@@ -716,7 +716,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                   value={money(comissao.preview.valorRecorrente)}
                 />
               ) : null}
-              <p class="text-[11px] text-fg-subtle mt-1">
+              <p class="text-2xs text-fg-muted mt-1">
                 Regra “{comissao.preview.rule?.nome}”
                 {comissao.preview.tierLabel ? <> · faixa {comissao.preview.tierLabel}</> : null}
                 {comissao.entry?.status === 'paga' ? <> · já paga ao agente</> : null}
@@ -735,12 +735,12 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
             <Button size="sm" variant="ghost" onClick={() => fileRef.current?.click()} disabled={upload.isPending}>{upload.isPending ? 'Enviando…' : 'Anexar arquivo'}</Button>
             <input ref={fileRef} type="file" class="hidden" onChange={(e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (file) upload.mutate({ id: id as number, file }, { onSuccess: () => toast('Anexado', 'success'), onError: (er: unknown) => toast((er as Error).message, 'danger') }); if (fileRef.current) fileRef.current.value = '' }} />
           </div>
-          {(n?.attachments || []).length === 0 ? <p class="text-xs text-fg-subtle">Nenhum anexo. Anexe a proposta enviada ao cliente.</p> : (
+          {(n?.attachments || []).length === 0 ? <p class="text-xs text-fg-muted">Nenhum anexo. Anexe a proposta enviada ao cliente.</p> : (
             <div class="space-y-1">
               {n!.attachments!.map((a) => (
                 <div key={a.id} class="flex items-center gap-2 text-sm">
                   <a href={a.url} target="_blank" rel="noopener" class="text-info hover:underline inline-flex items-center gap-1 flex-1 truncate"><Download size={13} /> {a.fileName}</a>
-                  <button type="button" class="text-fg-subtle hover:text-danger" onClick={() => delAtt.mutate(a.id)}><Trash2 size={13} /></button>
+                  <button type="button" class="text-fg-muted hover:text-danger" onClick={() => delAtt.mutate(a.id)}><Trash2 size={13} /></button>
                 </div>
               ))}
             </div>
@@ -778,7 +778,7 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
                 {temRecorrente ? 'Único:' : 'Total:'} <span class="text-base font-semibold text-fg tabular-nums">{money(temRecorrente ? totalUnico : total)}</span>
                 {temRecorrente ? <> · Mensal: <span class="text-base font-semibold text-fg tabular-nums">{money(mrr)}</span>/mês</> : null}
               </div>
-              {dirty ? <Badge tone="warning">alterações não salvas</Badge> : !isNew ? <span class="text-xs text-fg-subtle">tudo salvo</span> : null}
+              {dirty ? <Badge tone="warning">alterações não salvas</Badge> : !isNew ? <span class="text-xs text-fg-muted">tudo salvo</span> : null}
               <div class="flex-1" />
               <Button variant="primary" size="sm" onClick={submit} disabled={save.isPending}>{save.isPending ? 'Salvando…' : isNew ? 'Criar negociação' : 'Salvar alterações'}</Button>
             </div>
@@ -815,7 +815,7 @@ export function LeadNegotiationTab({ leadId }: { leadId: number }) {
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="text-sm font-medium text-fg truncate">{neg.titulo}</span>
                       <Badge tone={st.tone}>{st.label}</Badge>
-                      {neg.probabilidade != null && !neg.resultado ? <span class="text-xs text-fg-subtle">{neg.probabilidade}% de chance</span> : null}
+                      {neg.probabilidade != null && !neg.resultado ? <span class="text-xs text-fg-muted">{neg.probabilidade}% de chance</span> : null}
                     </div>
                     <div class="text-xs text-fg-muted mt-0.5">
                       {neg._count?.items ? <>{neg._count.items} item(ns)</> : 'sem itens'}

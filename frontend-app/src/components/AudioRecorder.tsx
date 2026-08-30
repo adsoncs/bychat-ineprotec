@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { Mic, X, Send } from 'lucide-preact'
+import { Mic, X, Send } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   Smartphone, Users, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Search, X,
   BookUser, MessagesSquare, Ban, Trash2, ChevronDown, Download, CircleSlash,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Modal } from '@/components/ui/Modal'
@@ -514,7 +514,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                       <span class={
                         j.status === 'done' ? 'w-24 shrink-0 text-success'
                           : j.status === 'failed' ? 'w-24 shrink-0 text-danger'
-                            : j.status === 'canceled' ? 'w-24 shrink-0 text-fg-subtle'
+                            : j.status === 'canceled' ? 'w-24 shrink-0 text-fg-muted'
                               : 'w-24 shrink-0 text-fg-muted'
                       }>
                         {j.status === 'done' ? 'concluída'
@@ -528,7 +528,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                           <div class="h-full rounded-full bg-accent transition-[width]" style={{ width: `${Math.max(pct, 3)}%` }} />
                         </div>
                       )}
-                      <span class="min-w-0 flex-1 truncate text-fg-subtle">
+                      <span class="min-w-0 flex-1 truncate text-fg-muted">
                         {j.importadas > 0 && `+${j.importadas} nova(s)`}
                         {j.jaExistiam > 0 && ` · ${j.jaExistiam} já existia(m)`}
                         {j.midiasPendentes > 0 && ` · ${j.midiasPendentes} mídia(s)`}
@@ -565,7 +565,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
               onClick={() => { setAba(t.v); setLimite(PAGINA) }}
             >
               {t.icone}{t.rotulo}
-              {typeof t.n === 'number' && <span class="text-xs text-fg-subtle">({t.n})</span>}
+              {typeof t.n === 'number' && <span class="text-xs text-fg-muted">({t.n})</span>}
             </button>
           ))}
           <button
@@ -609,7 +609,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                 </Select>
               )}
               <div class="relative min-w-48 flex-1">
-                <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+                <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
                 <Input
                   class="pl-8"
                   placeholder="Buscar por nome, telefone ou lead…"
@@ -661,7 +661,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                     <input type="checkbox" checked={todosMarcados} onChange={alternarTodos} />
                     <span>
                       Marcar as {selecionaveis.length} conversas deste recorte
-                      <span class="text-fg-subtle"> (não só as visíveis)</span>
+                      <span class="text-fg-muted"> (não só as visíveis)</span>
                     </span>
                   </label>
                   {marcados.size > 0 && (
@@ -714,7 +714,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                           <div class="truncate text-xs text-fg-muted">{c.previa || '—'}</div>
                         </div>
                         <div class="w-40 shrink-0 text-right">
-                          <div class="text-[0.6875rem] text-fg-subtle">
+                          <div class="text-2xs text-fg-muted">
                             {quando(c.ultimaMensagemEm)}
                             {(() => { const d = diasAtras(c.ultimaMensagemEm); return d !== null && d > 0 ? ` · ${d}d` : '' })()}
                           </div>
@@ -750,7 +750,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                 )}
 
                 {situacao !== 'nao-importaveis' && !!resumo && resumo.semTelefone > 0 && (
-                  <p class="flex items-start gap-1.5 text-xs text-fg-subtle">
+                  <p class="flex items-start gap-1.5 text-xs text-fg-muted">
                     <CircleSlash size={12} class="mt-0.5 shrink-0" />
                     {resumo.semTelefone} contato(s) sem telefone ficam de fora: sem número não há como criar o lead. O
                     WhatsApp esconde o telefone atrás de um identificador de privacidade quando o contato nunca escreveu
@@ -783,7 +783,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
               </p>
 
               <div class="relative">
-                <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle" />
+                <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
                 <Input
                   class="pl-8"
                   placeholder="Buscar contato por nome ou telefone…"
@@ -832,7 +832,7 @@ export function ImportChatsModal({ open, onOpenChange }: Props) {
                           ? <img src={c.fotoUrl} alt="" class="size-8 shrink-0 rounded-full object-cover" />
                           : <div class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-3 text-fg-muted"><Smartphone size={14} /></div>}
                         <span class="min-w-0 flex-1 truncate text-sm">{c.nome || c.telefone}</span>
-                        <span class="shrink-0 text-xs text-fg-subtle">{c.telefone}</span>
+                        <span class="shrink-0 text-xs text-fg-muted">{c.telefone}</span>
                       </li>
                     ))}
                   </ul>
@@ -880,7 +880,7 @@ function Cartao({ rotulo, valor, tom = 'neutral', ativo, onClick }: {
       } ${onClick ? 'hover:border-accent/60' : ''}`}
     >
       <div class={`text-lg font-semibold tabular-nums ${cor}`}>{valor.toLocaleString('pt-BR')}</div>
-      <div class="text-[0.6875rem] leading-tight text-fg-subtle">{rotulo}</div>
+      <div class="text-2xs leading-tight text-fg-muted">{rotulo}</div>
     </button>
   )
 }

@@ -6,7 +6,7 @@
 // um botão que "faz coisas" sem avisar.
 
 import { useMemo, useState } from 'preact/hooks'
-import { Tag, ArrowRight, ListChecks, Trophy, XCircle, CheckCircle2 } from 'lucide-preact'
+import { Tag, ArrowRight, ListChecks, Trophy, XCircle, CheckCircle2 } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
@@ -45,7 +45,7 @@ export function StatusSummaryBadge({
   const color = summary.color || '#94a3b8'
   return (
     <span
-      class={`inline-flex items-center gap-1 text-[0.625rem] font-medium px-1.5 py-0.5 rounded shrink-0 ${className ?? ''}`}
+      class={`inline-flex items-center gap-1 text-3xs font-medium px-1.5 py-0.5 rounded shrink-0 ${className ?? ''}`}
       style={{ background: `${color}22`, color }}
       title={`${summary.code} — ${summary.name}`}
     >
@@ -260,7 +260,7 @@ function SummaryModal({
 
         <div>
           <label class="text-xs font-medium text-fg-muted block mb-1">
-            Observação <span class="font-normal text-fg-subtle">(opcional)</span>
+            Observação <span class="font-normal text-fg-muted">(opcional)</span>
           </label>
           <textarea
             value={note}

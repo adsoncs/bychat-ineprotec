@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'preact/hooks'
-import { Bot, Send, RotateCcw, User as UserIcon, AlertCircle, CheckCircle } from 'lucide-preact'
+import { Bot, Send, RotateCcw, User as UserIcon, AlertCircle, CheckCircle } from '@/components/ui/icon-set'
 import { useChatQuestions, useChatbot, type ChatQuestion } from '@/hooks/useChatbots'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -200,7 +200,7 @@ export function ChatbotTester({ chatbotId }: Props) {
   if (!isAiBot && questions.length === 0) {
     return (
       <div class="rounded-md border border-dashed border-border p-6 text-center">
-        <Bot size={20} class="text-fg-subtle mx-auto mb-2" />
+        <Bot size={20} class="text-fg-muted mx-auto mb-2" />
         <div class="text-sm text-fg-muted">Adicione perguntas antes de testar.</div>
       </div>
     )
@@ -229,7 +229,7 @@ export function ChatbotTester({ chatbotId }: Props) {
           <Bubble key={i} msg={m} />
         ))}
         {aiLoading && (
-          <div class="text-xs text-fg-subtle inline-flex items-center gap-1.5">
+          <div class="text-xs text-fg-muted inline-flex items-center gap-1.5">
             <Bot size={11} class="text-accent" /> digitando…
           </div>
         )}
@@ -258,7 +258,7 @@ export function ChatbotTester({ chatbotId }: Props) {
                 <button
                   key={o}
                   type="button"
-                  class="text-[0.6875rem] px-2 py-1 rounded border border-border bg-surface hover:border-accent hover:text-accent transition-colors"
+                  class="text-2xs px-2 py-1 rounded border border-border bg-surface hover:border-accent hover:text-accent transition-colors"
                   onClick={() => pickOption(o)}
                 >
                   {o}
@@ -268,7 +268,7 @@ export function ChatbotTester({ chatbotId }: Props) {
           )}
           <div class="flex items-end gap-2">
             <textarea
-              class="flex-1 min-h-[2.25rem] max-h-24 px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-none"
+              class="flex-1 min-h-[2.25rem] max-h-24 px-3 py-2 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent resize-none"
               placeholder={isAiBot ? 'Escreva como se fosse o cliente…' : 'Digite sua resposta…'}
               value={draft}
               disabled={isAiBot && aiLoading}
@@ -290,10 +290,10 @@ export function ChatbotTester({ chatbotId }: Props) {
 
       {done && Object.keys(answers).length > 0 && (
         <details class="border-t border-border p-2 bg-surface">
-          <summary class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle cursor-pointer">
+          <summary class="text-2xs uppercase tracking-wider text-fg-muted cursor-pointer">
             Respostas capturadas (debug)
           </summary>
-          <pre class="text-[0.6875rem] text-fg-muted mt-1 overflow-x-auto">{JSON.stringify(answers, null, 2)}</pre>
+          <pre class="text-2xs text-fg-muted mt-1 overflow-x-auto">{JSON.stringify(answers, null, 2)}</pre>
         </details>
       )}
     </div>
@@ -303,7 +303,7 @@ export function ChatbotTester({ chatbotId }: Props) {
 function Bubble({ msg }: { msg: Msg }) {
   if (msg.speaker === 'system') {
     return (
-      <div class="text-[0.6875rem] text-danger inline-flex items-center gap-1 px-2">
+      <div class="text-2xs text-danger inline-flex items-center gap-1 px-2">
         <AlertCircle size={11} /> {msg.text}
       </div>
     )

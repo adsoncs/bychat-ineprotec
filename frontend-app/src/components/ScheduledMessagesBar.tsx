@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Clock, X, ChevronDown, ChevronUp } from 'lucide-preact'
+import { Clock, X, ChevronDown, ChevronUp } from '@/components/ui/icon-set'
 import { toast } from '@/lib/toast'
 import { useScheduledMessages, useCancelScheduledMessage } from '@/hooks/useScheduledMessages'
 
@@ -53,7 +53,7 @@ export function ScheduledMessagesBar({ leadId }: { leadId: number }) {
               </span>
               <button
                 type="button"
-                class="shrink-0 rounded p-0.5 text-fg-subtle hover:bg-surface-3 hover:text-danger disabled:opacity-50"
+                class="shrink-0 rounded p-0.5 text-fg-muted hover:bg-surface-3 hover:text-danger disabled:opacity-50"
                 title="Cancelar agendamento"
                 aria-label="Cancelar agendamento"
                 disabled={cancelar.isPending}

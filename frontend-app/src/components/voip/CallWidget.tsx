@@ -4,7 +4,7 @@
 // API não expõe hangup/hold/mute. Mostra: ramal, destino, status, cronômetro,
 // resultado e player da gravação.
 import { useEffect, useState } from 'preact/hooks'
-import { Phone, X, PhoneOff } from 'lucide-preact'
+import { Phone, X, PhoneOff } from '@/components/ui/icon-set'
 import { useActiveCall } from '@/stores/voipCall'
 import { useVoipCall, VOIP_TERMINAL_STATUS } from '@/hooks/useVoip'
 import { cn } from '@/lib/cn'
@@ -58,7 +58,7 @@ export function CallWidget() {
         </span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-semibold truncate">{title}</div>
-          <div class="text-[0.6875rem] text-white/80 truncate">{call?.phone}</div>
+          <div class="text-2xs text-white/80 truncate">{call?.phone}</div>
         </div>
         <button type="button" aria-label="Fechar" class="text-white/80 hover:text-white" onClick={clear}>
           <X size={16} />
@@ -82,7 +82,7 @@ export function CallWidget() {
           <audio controls src={call.recordingUrl} class="w-full h-9" />
         )}
         {isTerminal && !call?.recordingUrl && call?.status === 'completed' && (
-          <div class="text-[0.6875rem] text-fg-subtle italic">A gravação aparece aqui após a sincronização.</div>
+          <div class="text-2xs text-fg-muted italic">A gravação aparece aqui após a sincronização.</div>
         )}
 
         {isTerminal && (

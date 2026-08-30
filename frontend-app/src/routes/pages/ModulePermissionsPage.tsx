@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { ShieldCheck, Save, HelpCircle } from 'lucide-preact'
+import { ShieldCheck, Save, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useModulePermissions,
@@ -14,7 +14,7 @@ import {
 import { useUsers, ROLE_LABELS } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
 import { useSystemModules, useToggleSystemModule } from '@/hooks/useRouting'
-import { Power, Lock } from 'lucide-preact'
+import { Power, Lock } from '@/components/ui/icon-set'
 import { Badge } from '@/components/ui/Badge'
 import { ApiError } from '@/lib/apiClient'
 import { Page } from '@/components/ui/Page'
@@ -31,7 +31,7 @@ const EDITABLE_ROLES: EditableRole[] = ['VIEWER', 'AGENT', 'MANAGER', 'ADMIN']
 
 // Cores espelhando o legado, via tokens semânticos do app (light/dark-safe).
 const ROLE_TONE: Record<EditableRole, { fg: string; bg: string }> = {
-  VIEWER: { fg: 'var(--color-fg-on-brand)', bg: 'var(--color-fg-subtle)' },
+  VIEWER: { fg: 'var(--color-fg-on-brand)', bg: 'var(--color-fg-muted)' },
   AGENT: { fg: 'var(--color-fg-on-brand)', bg: 'var(--color-success)' },
   MANAGER: { fg: 'var(--color-fg-on-brand)', bg: 'var(--color-warning)' },
   ADMIN: { fg: 'var(--color-fg-on-brand)', bg: 'var(--color-info)' },
@@ -308,7 +308,7 @@ function BulkButton({
     <button
       type="button"
       onClick={onClick}
-      class="h-7 px-3 rounded text-[0.6875rem] font-medium transition-opacity hover:opacity-80"
+      class="h-7 px-3 rounded text-2xs font-medium transition-opacity hover:opacity-80"
       style={{
         background: `color-mix(in oklch, var(${colorVar}) 14%, transparent)`,
         color: `var(${colorVar})`,
@@ -341,7 +341,7 @@ function CategoryGroup({
         const perm = getPerm(m.id)
         return (
           <tr key={m.id} class="border-b border-border last:border-b-0">
-            <td class="px-4 py-2.5 text-fg text-[0.8125rem]">
+            <td class="px-4 py-2.5 text-fg text-xs">
               <span class="mr-1.5">{m.icon}</span>
               {m.name}
             </td>
@@ -541,7 +541,7 @@ function OverrideCategoryGroup({
         const rp = rolePerms.get(m.id)
         return (
           <tr key={m.id} class="border-b border-border last:border-b-0">
-            <td class="px-4 py-2 text-fg text-[0.8125rem]">
+            <td class="px-4 py-2 text-fg text-xs">
               <span class="mr-1.5">{m.icon}</span>
               {m.name}
             </td>
@@ -591,7 +591,7 @@ function TriStateButton({
       : state === 'deny' ? 'var(--color-danger)'
         : 'var(--color-border)'
   const borderColor = colorVar
-  const textColor = state === 'inherit' ? 'var(--color-fg-subtle)' : colorVar
+  const textColor = state === 'inherit' ? 'var(--color-fg-muted)' : colorVar
   const bg = state === 'inherit'
     ? 'var(--color-surface)'
     : `color-mix(in oklch, ${colorVar} 14%, transparent)`
@@ -601,7 +601,7 @@ function TriStateButton({
       type="button"
       onClick={onClick}
       class={cn(
-        'inline-flex items-center justify-center rounded-full text-[0.625rem] font-semibold cursor-pointer',
+        'inline-flex items-center justify-center rounded-full text-3xs font-semibold cursor-pointer',
       )}
       style={{
         width: '32px',
@@ -704,7 +704,7 @@ function SystemModulesCard() {
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                           <span class="font-medium text-sm">{m.name}</span>
-                          <code class="text-[0.6875rem] text-fg-subtle">{m.id}</code>
+                          <code class="text-2xs text-fg-muted">{m.id}</code>
                           {m.core && (
                             <Badge tone="info" title="Módulo core — não pode ser desligado">
                               <Lock size={10} class="mr-0.5" /> CORE
@@ -718,7 +718,7 @@ function SystemModulesCard() {
                           )}
                         </div>
                         {m.pages.length > 0 && (
-                          <div class="text-xs text-fg-subtle truncate mt-0.5">
+                          <div class="text-xs text-fg-muted truncate mt-0.5">
                             {m.pages.slice(0, 4).join(' · ')}
                             {m.pages.length > 4 && ` +${m.pages.length - 4}`}
                           </div>

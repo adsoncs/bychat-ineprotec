@@ -1,4 +1,4 @@
-import { MessageCircle, Mail, RefreshCw, MessageSquareDashed } from 'lucide-preact'
+import { MessageCircle, Mail, RefreshCw, MessageSquareDashed } from '@/components/ui/icon-set'
 import type { IntelLead, ScanMode } from '@/hooks/useIntelligence'
 
 interface Suggestion {
@@ -111,7 +111,7 @@ export function SuggestedAction({ lead, onRun }: SuggestedActionProps) {
   const suggestion = pickSuggestion(lead, onRun)
   if (!suggestion) {
     return (
-      <span class="inline-flex items-center gap-1 text-[0.6875rem] text-fg-subtle">
+      <span class="inline-flex items-center gap-1 text-2xs text-fg-muted">
         <MessageSquareDashed size={10} /> —
       </span>
     )
@@ -122,7 +122,7 @@ export function SuggestedAction({ lead, onRun }: SuggestedActionProps) {
       type="button"
       onClick={suggestion.onClick}
       title={suggestion.title}
-      class={`inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border transition-colors ${TONE_CLASSES[suggestion.tone]}`}
+      class={`inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium border transition-colors ${TONE_CLASSES[suggestion.tone]}`}
     >
       <Icon size={10} /> {suggestion.label}
     </button>

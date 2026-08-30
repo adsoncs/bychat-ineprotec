@@ -35,7 +35,7 @@ import {
   Trophy,
   Users as UsersIcon,
   XCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { MarkWonModal, MarkLostModal, OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
 import {
@@ -203,7 +203,7 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
       )
     default:
       return (
-        <svg {...common} fill="currentColor" class="text-fg-subtle" aria-label={title}>
+        <svg {...common} fill="currentColor" class="text-fg-muted" aria-label={title}>
           <title>{title}</title>
           <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
         </svg>
@@ -683,7 +683,7 @@ function FunnelCard({ funnel, onPick }: { funnel: KanbanFunnelSummary; onPick: (
               <span class="text-fg tabular-nums font-medium">{s.leadCount}</span>
             </div>
           ))}
-          {moreStages > 0 && <div class="text-[0.6875rem] text-fg-subtle">+{moreStages} etapas</div>}
+          {moreStages > 0 && <div class="text-2xs text-fg-muted">+{moreStages} etapas</div>}
         </div>
       )}
     </button>
@@ -731,7 +731,7 @@ function KanbanColumn({
               overWip ? 'bg-danger/15 text-danger font-medium' : 'text-fg-muted',
             )}
           >
-            {cards.length}{cards.length !== totalAll && <span class="text-fg-subtle">/{totalAll}</span>}
+            {cards.length}{cards.length !== totalAll && <span class="text-fg-muted">/{totalAll}</span>}
           </span>
         </div>
         <div class="mt-2 h-1 rounded-full bg-surface-3 overflow-hidden">
@@ -740,7 +740,7 @@ function KanbanColumn({
       </header>
       <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
         {cards.length === 0 ? (
-          <div class="text-xs text-fg-subtle text-center py-4">
+          <div class="text-xs text-fg-muted text-center py-4">
             {totalAll > 0 ? 'Nenhum lead nesta busca' : 'Nenhum lead nesta etapa'}
           </div>
         ) : (
@@ -862,7 +862,7 @@ function AssigneeChip({ name }: { name: string | null }) {
   const firstName = name.split(/\s+/)[0] ?? name
   return (
     <span class="inline-flex items-center gap-1" title={name}>
-      <span class="size-4 rounded-full bg-accent/15 text-accent text-[0.5rem] font-bold flex items-center justify-center">
+      <span class="size-4 rounded-full bg-accent/15 text-accent text-3xs font-bold flex items-center justify-center">
         {initials}
       </span>
       <span class="truncate max-w-[5rem]">{firstName}</span>
@@ -912,7 +912,7 @@ function LeadCard({
             * andamento que está sendo tocado em outro lugar. */}
           {lead._funilAdicional && (
             <span
-              class="shrink-0 text-fg-subtle"
+              class="shrink-0 text-fg-muted"
               title="Também está em outro funil, que é o processo principal deste lead"
             >
               <GitFork size={11} />
@@ -922,7 +922,7 @@ function LeadCard({
         <div class="flex items-center gap-1 shrink-0">
           {score !== null && (
             <span class={cn(
-              'text-[0.625rem] font-semibold tabular-nums px-1.5 py-0.5 rounded',
+              'text-3xs font-semibold tabular-nums px-1.5 py-0.5 rounded',
               score >= 70 ? 'bg-success/15 text-success' : score <= 39 ? 'bg-danger/15 text-danger' : 'bg-warning/15 text-warning',
             )}>{Math.round(score)}</span>
           )}
@@ -948,7 +948,7 @@ function LeadCard({
       {!compact && (
         <>
           {lead.empresa && lead.nome && (
-            <div class="text-xs text-fg-subtle truncate mt-0.5">{lead.empresa}</div>
+            <div class="text-xs text-fg-muted truncate mt-0.5">{lead.empresa}</div>
           )}
           <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
             {lead.whatsapp && (
@@ -978,14 +978,14 @@ function LeadCard({
               {lead.tags.slice(0, 3).map(({ tag }) => (
                 <span
                   key={tag.id}
-                  class="text-[0.625rem] px-1.5 py-0.5 rounded-full font-medium"
+                  class="text-3xs px-1.5 py-0.5 rounded-full font-medium"
                   style={{ background: `${tag.color}22`, color: tag.color }}
                 >
                   {tag.name}
                 </span>
               ))}
               {lead.tags.length > 3 && (
-                <span class="text-[0.625rem] px-1.5 py-0.5 rounded-full font-medium bg-surface-3 text-fg-muted">
+                <span class="text-3xs px-1.5 py-0.5 rounded-full font-medium bg-surface-3 text-fg-muted">
                   +{lead.tags.length - 3}
                 </span>
               )}
@@ -994,8 +994,8 @@ function LeadCard({
           {kanbanFields.length > 0 && (
             <div class="mt-2 space-y-0.5">
               {kanbanFields.map((f) => (
-                <div key={f.key} class="flex items-baseline gap-1.5 text-[0.6875rem] leading-snug">
-                  <span class="text-fg-subtle shrink-0">{f.label}:</span>
+                <div key={f.key} class="flex items-baseline gap-1.5 text-2xs leading-snug">
+                  <span class="text-fg-muted shrink-0">{f.label}:</span>
                   <span class="text-fg-muted truncate" title={f.value}>{f.value}</span>
                 </div>
               ))}
@@ -1003,14 +1003,14 @@ function LeadCard({
           )}
           {lead.annotation && (
             <div
-              class="mt-2 p-1.5 rounded border border-warning/40 bg-warning/10 text-[0.6875rem] text-warning leading-snug line-clamp-2 inline-flex items-start gap-1"
+              class="mt-2 p-1.5 rounded border border-warning/40 bg-warning/10 text-2xs text-warning leading-snug line-clamp-2 inline-flex items-start gap-1"
               title={lead.annotation}
             >
               <StickyNote size={10} class="shrink-0 mt-0.5" />
               <span class="line-clamp-2">{lead.annotation}</span>
             </div>
           )}
-          <div class="flex items-center justify-between mt-2 text-[0.6875rem] text-fg-subtle">
+          <div class="flex items-center justify-between mt-2 text-2xs text-fg-muted">
             <AssigneeChip name={lead.assignedUser?.name ?? null} />
             <span class={stale ? 'text-danger font-medium' : ''} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
               {timeAgo(lead.createdAt)}
@@ -1019,7 +1019,7 @@ function LeadCard({
         </>
       )}
       {stale && compact && (
-        <div class="text-[0.625rem] text-danger mt-1 font-medium">
+        <div class="text-3xs text-danger mt-1 font-medium">
           {daysSince(lead.updatedAt)}d parado
         </div>
       )}
@@ -1159,7 +1159,7 @@ function KanbanListSection({
             'text-xs tabular-nums px-1.5 py-0.5 rounded',
             overWip ? 'bg-danger/15 text-danger font-medium' : 'bg-surface-3 text-fg-muted',
           )}>
-            {cards.length}{cards.length !== totalAll && <span class="text-fg-subtle">/{totalAll}</span>}
+            {cards.length}{cards.length !== totalAll && <span class="text-fg-muted">/{totalAll}</span>}
             {overWip && ' ⚠'}
           </span>
         </span>
@@ -1168,7 +1168,7 @@ function KanbanListSection({
       {open && (
         <div class="border-t border-border">
           {cards.length === 0 ? (
-            <div class="text-xs text-fg-subtle text-center py-4">Nenhum lead nesta etapa</div>
+            <div class="text-xs text-fg-muted text-center py-4">Nenhum lead nesta etapa</div>
           ) : (
             <ul class="divide-y divide-border">
               {cards.map((l) => (
@@ -1222,10 +1222,10 @@ function KanbanListRow({
               <Sparkles size={10} /> {lead._metaFormName}
             </span>
           )}
-          <span class="text-[0.625rem]"><AssigneeChip name={lead.assignedUser?.name ?? null} /></span>
+          <span class="text-3xs"><AssigneeChip name={lead.assignedUser?.name ?? null} /></span>
         </div>
       </div>
-      <div class={cn('text-[0.6875rem] whitespace-nowrap', stale ? 'text-danger font-medium' : 'text-fg-subtle')} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
+      <div class={cn('text-2xs whitespace-nowrap', stale ? 'text-danger font-medium' : 'text-fg-muted')} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
         {timeAgo(lead.createdAt)}
       </div>
       <div class="flex items-center gap-1 shrink-0">

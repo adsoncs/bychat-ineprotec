@@ -2,7 +2,7 @@
 // IA a partir das conversas deste lead. Aplicar = move o lead de etapa; Rejeitar
 // = descarta. (Diferente de "Auditoria de Conversas", que avalia a QUALIDADE do
 // atendimento.) Reusa os mesmos endpoints da página Jornada IA.
-import { Bot, CheckCircle2, XCircle, ChevronRight } from 'lucide-preact'
+import { Bot, CheckCircle2, XCircle, ChevronRight } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -80,12 +80,12 @@ function SuggestionRow({ s, onApply, onReject }: { s: StageSuggestion; onApply: 
             ) : (
               <>
                 <code class="font-mono">{fromName}</code> <ChevronRight size={11} class="inline" /> <strong class="text-fg">{toName}</strong>
-                {s.funnel?.name ? <span class="text-fg-subtle">{' · '}{s.funnel.name}</span> : null}
+                {s.funnel?.name ? <span class="text-fg-muted">{' · '}{s.funnel.name}</span> : null}
               </>
             )}
           </div>
           {s.reasoning && <p class="text-xs text-fg leading-relaxed">{s.reasoning}</p>}
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             {new Date(s.createdAt).toLocaleString('pt-BR')}
             {s.modelUsed ? ` · ${s.modelUsed}` : ''}
             {s.decisionNote ? ` · "${s.decisionNote}"` : ''}

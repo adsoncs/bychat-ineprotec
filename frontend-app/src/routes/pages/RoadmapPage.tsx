@@ -1,4 +1,4 @@
-import { Check } from 'lucide-preact'
+import { Check } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 
 interface RoadmapItem {
@@ -412,7 +412,7 @@ function EffortBadge({ effort }: { effort?: string }) {
   const c = EFFORT_STYLES[effort] ?? EFFORT_STYLES.Médio!
   return (
     <span
-      class="inline-flex items-center px-2 py-0.5 rounded text-[0.625rem] font-medium shrink-0"
+      class="inline-flex items-center px-2 py-0.5 rounded text-3xs font-medium shrink-0"
       style={{ background: c.bg, color: c.color }}
     >
       {effort}
@@ -437,10 +437,10 @@ export function RoadmapPage() {
           <div class="flex items-center justify-between px-4 py-3 border-b" style={{ background: 'color-mix(in srgb, #fbbc04 18%, transparent)', borderColor: 'color-mix(in srgb, #fbbc04 30%, transparent)' }}>
             <div>
               <div class="text-sm font-semibold text-fg">🔥 Top 5 Urgente — Próximos Passos</div>
-              <div class="text-[0.6875rem] text-fg-muted mt-0.5">Revisão 2026-04-12 — itens já implementados removidos</div>
+              <div class="text-2xs text-fg-muted mt-0.5">Revisão 2026-04-12 — itens já implementados removidos</div>
             </div>
             <span
-              class="inline-flex items-center px-2.5 py-0.5 rounded text-[0.6875rem] font-semibold"
+              class="inline-flex items-center px-2.5 py-0.5 rounded text-2xs font-semibold"
               style={{ background: '#fbbc04', color: '#202124' }}
             >
               5 pendentes
@@ -462,8 +462,8 @@ export function RoadmapPage() {
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2 mb-1">
                     <span class="text-sm font-semibold text-fg">{t.name}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[0.625rem] font-medium" style={{ background: 'color-mix(in srgb, var(--color-info) 15%, transparent)', color: 'var(--color-info)' }}>{t.phase}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[0.625rem] font-medium bg-surface-3 text-fg-muted">Complexidade: {t.complexity}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-3xs font-medium" style={{ background: 'color-mix(in srgb, var(--color-info) 15%, transparent)', color: 'var(--color-info)' }}>{t.phase}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-3xs font-medium bg-surface-3 text-fg-muted">Complexidade: {t.complexity}</span>
                   </div>
                   <div class="text-xs text-fg-muted leading-relaxed">{t.impact}</div>
                 </div>
@@ -476,7 +476,7 @@ export function RoadmapPage() {
         <section class="rounded-lg border border-border overflow-hidden bg-surface">
           <div class="flex items-center justify-between px-4 py-3 border-b border-border">
             <div class="text-sm font-semibold text-fg">✅ Funcionalidades Implementadas</div>
-            <span class="inline-flex items-center px-2.5 py-0.5 rounded text-[0.6875rem] font-medium" style={{ background: '#e6f4ea', color: '#137333' }}>
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded text-2xs font-medium" style={{ background: '#e6f4ea', color: '#137333' }}>
               {totalFeatures} features
             </span>
           </div>
@@ -485,8 +485,8 @@ export function RoadmapPage() {
               <div key={f.name} class="flex gap-2.5 p-3 rounded-lg border border-border bg-surface-2">
                 <span class="text-xl leading-none shrink-0" aria-hidden>{f.icon}</span>
                 <div class="min-w-0">
-                  <div class="text-[0.8125rem] font-medium text-fg">{f.name}</div>
-                  <div class="text-[0.6875rem] text-fg-muted leading-relaxed mt-0.5">{f.desc}</div>
+                  <div class="text-xs font-medium text-fg">{f.name}</div>
+                  <div class="text-2xs text-fg-muted leading-relaxed mt-0.5">{f.desc}</div>
                 </div>
               </div>
             ))}
@@ -505,14 +505,14 @@ export function RoadmapPage() {
               >
                 <div>
                   <div class="text-sm font-semibold text-fg">Fase {p.phase}: {p.title}</div>
-                  <div class="text-[0.6875rem] text-fg-muted mt-0.5">{total} funcionalidades planejadas</div>
+                  <div class="text-2xs text-fg-muted mt-0.5">{total} funcionalidades planejadas</div>
                 </div>
                 {doneCount > 0 ? (
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded text-[0.6875rem] font-medium shrink-0" style={{ background: '#e6f4ea', color: '#137333' }}>
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded text-2xs font-medium shrink-0" style={{ background: '#e6f4ea', color: '#137333' }}>
                     {doneCount}/{total} implementados
                   </span>
                 ) : (
-                  <span class="inline-flex items-center px-2.5 py-0.5 rounded text-[0.6875rem] font-medium shrink-0 bg-surface-3 text-fg-muted">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded text-2xs font-medium shrink-0 bg-surface-3 text-fg-muted">
                     Planejado
                   </span>
                 )}
@@ -542,16 +542,16 @@ export function RoadmapPage() {
                     )}
                     <div class="flex-1 min-w-0">
                       <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-[0.8125rem] font-medium" style={{ color: item.done ? '#137333' : 'var(--color-fg)' }}>
+                        <span class="text-xs font-medium" style={{ color: item.done ? '#137333' : 'var(--color-fg)' }}>
                           {item.name}
                         </span>
                         {item.done && (
-                          <span class="inline-flex items-center px-2 py-0.5 rounded text-[0.625rem] font-medium" style={{ background: '#e6f4ea', color: '#137333' }}>
+                          <span class="inline-flex items-center px-2 py-0.5 rounded text-3xs font-medium" style={{ background: '#e6f4ea', color: '#137333' }}>
                             Implementado
                           </span>
                         )}
                       </div>
-                      <div class="text-[0.6875rem] text-fg-muted leading-relaxed mt-0.5">{item.desc}</div>
+                      <div class="text-2xs text-fg-muted leading-relaxed mt-0.5">{item.desc}</div>
                     </div>
                     <EffortBadge {...(item.effort ? { effort: item.effort } : {})} />
                   </div>
@@ -563,7 +563,7 @@ export function RoadmapPage() {
 
         {/* Legenda de esforço */}
         <section class="rounded-lg border border-border bg-surface-2 p-4">
-          <div class="text-[0.8125rem] font-medium text-fg mb-2">Legenda de esforço</div>
+          <div class="text-xs font-medium text-fg mb-2">Legenda de esforço</div>
           <div class="flex flex-wrap gap-4 text-xs text-fg-muted items-center">
             <span class="inline-flex items-center gap-2"><EffortBadge effort="Baixo" /> 1-3 dias</span>
             <span class="inline-flex items-center gap-2"><EffortBadge effort="Médio" /> 1-2 semanas</span>

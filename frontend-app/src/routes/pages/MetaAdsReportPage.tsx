@@ -5,7 +5,7 @@ import {
   Eye, Megaphone, Radar, Activity, AlertCircle,
   Target, Coins, ShoppingBag, XCircle, Percent, Filter as FilterIcon,
   FileDown, HelpCircle, Settings2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useMetaAdsReportDashboard,
@@ -362,7 +362,7 @@ export function MetaAdsReportPage() {
         <Card class="p-0 overflow-hidden">
           <div class="p-4 border-b border-border flex items-center justify-between">
             <h3 class="text-sm font-semibold text-fg">Análise temporal</h3>
-            <span class="text-[0.6875rem] text-fg-subtle">heatmap por valor da coluna</span>
+            <span class="text-2xs text-fg-muted">heatmap por valor da coluna</span>
           </div>
           <div class="grid lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
             <div class="p-4">
@@ -567,7 +567,7 @@ function TrendChart({ daily }: { daily: MetaAdsReportDaily[] }) {
       <div class="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h3 class="text-sm font-semibold text-fg">Tendência temporal</h3>
-          <p class="text-[0.6875rem] text-fg-subtle">{cfg.label} por dia · {series.length} pontos · clique em um ponto para ver os leads do dia</p>
+          <p class="text-2xs text-fg-muted">{cfg.label} por dia · {series.length} pontos · clique em um ponto para ver os leads do dia</p>
         </div>
         <div class="flex items-center gap-1 bg-surface-3 rounded-md p-0.5 flex-wrap">
           {TREND_METRICS.map(m => (
@@ -681,10 +681,10 @@ function TrendTooltip({
   const left = flip ? Math.max(8, px - 220) : Math.min(cw - 220, px + 16)
   return (
     <div
-      class="pointer-events-none absolute z-30 top-3 rounded-md border border-border bg-surface shadow-lg p-2.5 text-[11px] w-[200px]"
+      class="pointer-events-none absolute z-30 top-3 rounded-md border border-border bg-surface shadow-lg p-2.5 text-2xs w-[200px]"
       style={{ left: `${left}px` }}
     >
-      <div class="text-fg-muted text-[10px] uppercase tracking-wide mb-1">{dateLabel}</div>
+      <div class="text-fg-muted text-3xs uppercase tracking-wide mb-1">{dateLabel}</div>
       <ul class="flex flex-col gap-0.5">
         {TREND_METRICS.map(m => {
           const v = dailyMetric(day, m.key)
@@ -729,7 +729,7 @@ function FunnelDetailed({ funnel }: { funnel: MetaAdsReportFunnel }) {
       <div class="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h3 class="text-sm font-semibold text-fg">Funil detalhado · {funnel.name}</h3>
-          <p class="text-[0.6875rem] text-fg-subtle">{intf.format(top)} leads no topo do funil · clique em uma etapa para ver os leads</p>
+          <p class="text-2xs text-fg-muted">{intf.format(top)} leads no topo do funil · clique em uma etapa para ver os leads</p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <div class="flex items-center gap-1 bg-surface-3 rounded-md p-0.5">
@@ -834,12 +834,12 @@ function FunnelVisual({
                 {intf.format(s.count)}
               </span>
               <span class={cn(
-                'text-[0.6875rem] font-semibold tabular-nums mt-0.5',
+                'text-2xs font-semibold tabular-nums mt-0.5',
                 conv >= 50 ? 'text-success' : conv >= 20 ? 'text-fg-muted' : 'text-warning',
               )}>
                 {convLabel}
               </span>
-              <span class="text-[0.625rem] text-fg-subtle">{mode === 'top' ? 'do topo' : 'da anterior'}</span>
+              <span class="text-3xs text-fg-muted">{mode === 'top' ? 'do topo' : 'da anterior'}</span>
             </div>
             {/* Centro: faixa centralizada */}
             <div class="flex justify-center items-center">
@@ -867,15 +867,15 @@ function FunnelVisual({
                   {brl.format(s.revenue)}
                 </span>
               ) : (
-                <span class="text-xs text-fg-subtle">—</span>
+                <span class="text-xs text-fg-muted">—</span>
               )}
               {s.ticketAvg > 0 && (
-                <span class="text-[0.625rem] text-fg-subtle tabular-nums">
+                <span class="text-3xs text-fg-muted tabular-nums">
                   ticket {brl.format(s.ticketAvg)}
                 </span>
               )}
               {s.sales > 0 && (
-                <span class="text-[0.625rem] text-fg-muted tabular-nums">
+                <span class="text-3xs text-fg-muted tabular-nums">
                   {intf.format(s.sales)} venda{s.sales === 1 ? '' : 's'}
                 </span>
               )}
@@ -910,7 +910,7 @@ function FunnelStageTooltip({
              : 'text-fg'
   return (
     <div
-      class="pointer-events-none absolute right-2 top-2 z-30 rounded-md border border-border bg-surface shadow-lg p-3 text-[11px] w-[220px]"
+      class="pointer-events-none absolute right-2 top-2 z-30 rounded-md border border-border bg-surface shadow-lg p-3 text-2xs w-[220px]"
     >
       <div class="flex items-center gap-2 mb-1.5">
         <span class="size-2.5 rounded-sm shrink-0" style={{ background: stage.color || '#4f46e5' }} />
@@ -923,7 +923,7 @@ function FunnelStageTooltip({
         </li>
         <li class="flex items-center justify-between gap-2">
           <span class="text-fg-muted">% do topo</span>
-          <span class="text-fg tabular-nums">{convTop.toFixed(2)}% <span class="text-fg-subtle">de {intf.format(top)}</span></span>
+          <span class="text-fg tabular-nums">{convTop.toFixed(2)}% <span class="text-fg-muted">de {intf.format(top)}</span></span>
         </li>
         <li class="flex items-center justify-between gap-2">
           <span class="text-fg-muted">% etapa anterior</span>
@@ -948,7 +948,7 @@ function FunnelStageTooltip({
           </li>
         )}
       </ul>
-      <div class="mt-2 pt-2 border-t border-border text-[10px] text-fg-subtle">
+      <div class="mt-2 pt-2 border-t border-border text-3xs text-fg-muted">
         Clique para ver os leads desta etapa
       </div>
     </div>
@@ -999,12 +999,12 @@ function FunnelStageRow({
         <div class="absolute inset-0 flex items-center px-2 text-xs font-semibold tabular-nums" style={{ color: 'var(--fg)' }}>
           <span class={cn('font-bold', tone)}>{intf.format(stage.count)}</span>
           {stage.ticketAvg > 0 && (
-            <span class="ml-2 text-fg-subtle text-[0.6875rem]">
+            <span class="ml-2 text-fg-muted text-2xs">
               ticket {brl.format(stage.ticketAvg)}
             </span>
           )}
           {stage.revenue > 0 && (
-            <span class="ml-2 text-success text-[0.6875rem] font-medium">
+            <span class="ml-2 text-success text-2xs font-medium">
               {brl.format(stage.revenue)}
             </span>
           )}
@@ -1014,7 +1014,7 @@ function FunnelStageRow({
         <div class={cn('text-sm font-semibold', conv >= 50 ? 'text-success' : conv >= 20 ? 'text-fg' : 'text-warning')}>
           {convLabel}
         </div>
-        <div class="text-[0.625rem] text-fg-subtle">{mode === 'top' ? 'do topo' : 'da anterior'}</div>
+        <div class="text-3xs text-fg-muted">{mode === 'top' ? 'do topo' : 'da anterior'}</div>
       </div>
     </div>
   )
@@ -1053,7 +1053,7 @@ function HeatCell({ value, max, tone, format = 'int', emphasize = false }: {
     : intf.format(value)
   return (
     <td
-      class={cn('px-2 py-1 text-right tabular-nums text-[0.6875rem]', emphasize && 'font-semibold')}
+      class={cn('px-2 py-1 text-right tabular-nums text-2xs', emphasize && 'font-semibold')}
       style={{ background: bg }}
     >
       {display}
@@ -1070,12 +1070,12 @@ function DailyHeatmapTable({ daily }: { daily: MetaAdsReportDaily[] }) {
     lost: Math.max(...daily.map(d => d.lost), 0),
   }), [daily])
 
-  if (daily.length === 0) return <p class="text-xs text-fg-subtle">Sem dados no período.</p>
+  if (daily.length === 0) return <p class="text-xs text-fg-muted">Sem dados no período.</p>
 
   return (
     <div class="overflow-auto max-h-96 border border-border rounded-md">
       <table class="w-full text-xs">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.625rem] uppercase tracking-wider sticky top-0">
+        <thead class="bg-surface-3 text-fg-muted text-3xs uppercase tracking-wider sticky top-0">
           <tr>
             <th class="text-left px-2 py-1.5 font-medium">Data</th>
             <th class="text-right px-2 py-1.5 font-medium">Invest.</th>
@@ -1091,7 +1091,7 @@ function DailyHeatmapTable({ daily }: { daily: MetaAdsReportDaily[] }) {
             const label = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
             return (
               <tr key={d.date} class="hover:bg-surface-3/40">
-                <td class="px-2 py-1 text-fg-muted text-[0.6875rem]">{label}</td>
+                <td class="px-2 py-1 text-fg-muted text-2xs">{label}</td>
                 <HeatCell value={d.spend} max={max.spend} tone="spend" format="brl" />
                 <HeatCell value={d.leads} max={max.leads} tone="lead" emphasize />
                 <HeatCell value={d.sales} max={max.sales} tone="sale" />
@@ -1115,7 +1115,7 @@ function WeeklyHeatmapTable({ weekly }: { weekly: MetaAdsReportWeekly[] }) {
     lost: Math.max(...weekly.map(w => w.lost), 0),
   }), [weekly])
 
-  if (weekly.length === 0) return <p class="text-xs text-fg-subtle">Sem dados no período.</p>
+  if (weekly.length === 0) return <p class="text-xs text-fg-muted">Sem dados no período.</p>
 
   function fmtRange(start: string, end: string): string {
     const s = new Date(start + 'T12:00:00')
@@ -1126,7 +1126,7 @@ function WeeklyHeatmapTable({ weekly }: { weekly: MetaAdsReportWeekly[] }) {
   return (
     <div class="overflow-auto max-h-96 border border-border rounded-md">
       <table class="w-full text-xs">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.625rem] uppercase tracking-wider sticky top-0">
+        <thead class="bg-surface-3 text-fg-muted text-3xs uppercase tracking-wider sticky top-0">
           <tr>
             <th class="text-left px-2 py-1.5 font-medium">Semana</th>
             <th class="text-right px-2 py-1.5 font-medium">Invest.</th>
@@ -1139,9 +1139,9 @@ function WeeklyHeatmapTable({ weekly }: { weekly: MetaAdsReportWeekly[] }) {
         <tbody class="divide-y divide-border">
           {[...weekly].reverse().map((w) => (
             <tr key={w.weekKey} class="hover:bg-surface-3/40">
-              <td class="px-2 py-1 text-fg-muted text-[0.6875rem]">
+              <td class="px-2 py-1 text-fg-muted text-2xs">
                 <div class="text-fg font-medium">{w.weekKey}</div>
-                <div class="text-fg-subtle text-[0.625rem]">{fmtRange(w.weekStart, w.weekEnd)}</div>
+                <div class="text-fg-muted text-3xs">{fmtRange(w.weekStart, w.weekEnd)}</div>
               </td>
               <HeatCell value={w.spend} max={max.spend} tone="spend" format="brl" />
               <HeatCell value={w.leads} max={max.leads} tone="lead" emphasize />
@@ -1179,7 +1179,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
   return (
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="text-left px-3 py-2 font-medium">Campanha</th>
             <th class="text-right px-3 py-2 font-medium">Invest.</th>
@@ -1200,7 +1200,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
               <tr key={c.id} class="hover:bg-surface-3/40">
                 <td class="px-3 py-2 max-w-[20rem]">
                   <div class="text-fg font-medium truncate" title={c.name}>{c.name}</div>
-                  <div class="text-[0.625rem] text-fg-subtle font-mono truncate">
+                  <div class="text-3xs text-fg-muted font-mono truncate">
                     {c.id.length > 18 ? c.id.slice(0, 18) + '…' : c.id}
                   </div>
                 </td>
@@ -1210,19 +1210,19 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
                 <td class="px-3 py-2 text-center tabular-nums">
                   <span class="text-info text-base font-bold">{c.leads}</span>
                   {c.metaLeads > c.leads && (
-                    <div class="text-[0.625rem] text-fg-subtle" title={`Meta reporta ${c.metaLeads} leads`}>
+                    <div class="text-3xs text-fg-muted" title={`Meta reporta ${c.metaLeads} leads`}>
                       {c.metaLeads} Meta
                     </div>
                   )}
                 </td>
                 <td class="px-3 py-2 text-center tabular-nums">
-                  {c.sales > 0 ? <span class="text-success font-semibold">{c.sales}</span> : <span class="text-fg-subtle">–</span>}
+                  {c.sales > 0 ? <span class="text-success font-semibold">{c.sales}</span> : <span class="text-fg-muted">–</span>}
                   {c.conversionRate > 0 && (
-                    <div class="text-[0.625rem] text-fg-subtle">{c.conversionRate.toFixed(1)}%</div>
+                    <div class="text-3xs text-fg-muted">{c.conversionRate.toFixed(1)}%</div>
                   )}
                 </td>
                 <td class="px-3 py-2 text-right tabular-nums">
-                  {c.revenue > 0 ? <span class="text-success font-medium">{brl.format(c.revenue)}</span> : <span class="text-fg-subtle">–</span>}
+                  {c.revenue > 0 ? <span class="text-success font-medium">{brl.format(c.revenue)}</span> : <span class="text-fg-muted">–</span>}
                 </td>
                 <td class="px-3 py-2 text-right tabular-nums">
                   {c.spend > 0 ? (
@@ -1243,7 +1243,7 @@ function CampaignsTable({ rows }: { rows: MetaAdsReportCampaign[] }) {
                 </td>
                 <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{ctr}</td>
                 <td class="px-3 py-2 text-center tabular-nums">
-                  {c.lost > 0 ? <span class="text-danger font-medium">{c.lost}</span> : <span class="text-fg-subtle">–</span>}
+                  {c.lost > 0 ? <span class="text-danger font-medium">{c.lost}</span> : <span class="text-fg-muted">–</span>}
                 </td>
               </tr>
             )
@@ -1291,7 +1291,7 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
   return (
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="text-left px-3 py-2 font-medium">Conjunto</th>
             <th class="text-left px-3 py-2 font-medium">Campanha</th>
@@ -1310,25 +1310,25 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
             <tr key={`${a.campaignId}-${a.id ?? '_'}-${i}`} class="hover:bg-surface-3/40">
               <td class="px-3 py-2 max-w-[18rem]">
                 <div class="text-fg font-medium truncate" title={a.name}>{a.name}</div>
-                {a.id && <div class="text-[0.625rem] text-fg-subtle font-mono truncate">{a.id}</div>}
+                {a.id && <div class="text-3xs text-fg-muted font-mono truncate">{a.id}</div>}
               </td>
               <td class="px-3 py-2 text-fg-muted truncate max-w-[14rem]" title={a.campaignName}>{a.campaignName}</td>
               <td class="px-3 py-2 text-right tabular-nums">
                 {a.spend > 0 ? (
                   <span class={cn(a.spendKind === 'real' ? 'text-fg' : 'text-fg-muted italic')} title={a.spendKind === 'estimated' ? 'estimativa proporcional ao share de leads na campanha (sync level=adset não disponível)' : a.spendKind === 'real' ? 'gasto real do conjunto (sync Meta level=adset)' : ''}>
                     {brl.format(a.spend)}
-                    {a.spendKind === 'estimated' && <span class="text-[0.625rem] ml-1 opacity-60">est.</span>}
+                    {a.spendKind === 'estimated' && <span class="text-3xs ml-1 opacity-60">est.</span>}
                   </span>
-                ) : <span class="text-fg-subtle">–</span>}
+                ) : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
                 <span class="text-info font-semibold">{a.leads}</span>
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
-                {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-subtle">–</span>}
+                {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">
-                {a.revenue > 0 ? <span class="text-success font-medium">{brl.format(a.revenue)}</span> : <span class="text-fg-subtle">–</span>}
+                {a.revenue > 0 ? <span class="text-success font-medium">{brl.format(a.revenue)}</span> : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">
                 {a.spend > 0 ? (
@@ -1344,7 +1344,7 @@ function AdsetsTable({ rows }: { rows: MetaAdsReportAdsetFlat[] }) {
                 {a.conversionRate > 0 ? `${a.conversionRate.toFixed(1)}%` : '–'}
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
-                {a.lost > 0 ? <span class="text-danger font-medium">{a.lost}</span> : <span class="text-fg-subtle">–</span>}
+                {a.lost > 0 ? <span class="text-danger font-medium">{a.lost}</span> : <span class="text-fg-muted">–</span>}
               </td>
             </tr>
           ))}
@@ -1384,7 +1384,7 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
   return (
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="text-left px-3 py-2 font-medium">Anúncio</th>
             <th class="text-left px-3 py-2 font-medium">Conjunto</th>
@@ -1404,7 +1404,7 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
             <tr key={`${a.campaignId}-${a.adsetId ?? '_'}-${a.id ?? '_'}-${i}`} class="hover:bg-surface-3/40">
               <td class="px-3 py-2 max-w-[16rem]">
                 <div class="text-fg font-medium truncate" title={a.name}>{a.name}</div>
-                {a.id && <div class="text-[0.625rem] text-fg-subtle font-mono truncate">{a.id}</div>}
+                {a.id && <div class="text-3xs text-fg-muted font-mono truncate">{a.id}</div>}
               </td>
               <td class="px-3 py-2 text-fg-muted truncate max-w-[12rem]" title={a.adsetName}>{a.adsetName}</td>
               <td class="px-3 py-2 text-fg-muted truncate max-w-[12rem]" title={a.campaignName}>{a.campaignName}</td>
@@ -1412,18 +1412,18 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
                 {a.spend > 0 ? (
                   <span class={cn(a.spendKind === 'real' ? 'text-fg' : 'text-fg-muted italic')} title={a.spendKind === 'estimated' ? 'estimativa proporcional ao share de leads' : a.spendKind === 'real' ? 'gasto real do anúncio (sync Meta level=ad)' : ''}>
                     {brl.format(a.spend)}
-                    {a.spendKind === 'estimated' && <span class="text-[0.625rem] ml-1 opacity-60">est.</span>}
+                    {a.spendKind === 'estimated' && <span class="text-3xs ml-1 opacity-60">est.</span>}
                   </span>
-                ) : <span class="text-fg-subtle">–</span>}
+                ) : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
                 <span class="text-info font-semibold">{a.leads}</span>
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
-                {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-subtle">–</span>}
+                {a.sales > 0 ? <span class="text-success font-semibold">{a.sales}</span> : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">
-                {a.revenue > 0 ? <span class="text-success font-medium">{brl.format(a.revenue)}</span> : <span class="text-fg-subtle">–</span>}
+                {a.revenue > 0 ? <span class="text-success font-medium">{brl.format(a.revenue)}</span> : <span class="text-fg-muted">–</span>}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">
                 {a.spend > 0 ? (
@@ -1439,7 +1439,7 @@ function AdsTable({ rows }: { rows: MetaAdsReportAdFlat[] }) {
                 {a.conversionRate > 0 ? `${a.conversionRate.toFixed(1)}%` : '–'}
               </td>
               <td class="px-3 py-2 text-center tabular-nums">
-                {a.lost > 0 ? <span class="text-danger font-medium">{a.lost}</span> : <span class="text-fg-subtle">–</span>}
+                {a.lost > 0 ? <span class="text-danger font-medium">{a.lost}</span> : <span class="text-fg-muted">–</span>}
               </td>
             </tr>
           ))}
@@ -1565,7 +1565,7 @@ function StagesBreakdownTable({
   return (
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="text-left px-3 py-2 font-medium">
               {kind === 'campaigns' ? 'Campanha' : kind === 'adsets' ? 'Conjunto' : 'Anúncio'}
@@ -1591,7 +1591,7 @@ function StagesBreakdownTable({
             <tr key={r.key} class="hover:bg-surface-3/40">
               <td class="px-3 py-2 max-w-[18rem]">
                 <div class="text-fg font-medium truncate" title={r.name}>{r.name}</div>
-                {r.id && <div class="text-[0.625rem] text-fg-subtle font-mono truncate">{r.id.length > 18 ? r.id.slice(0, 18) + '…' : r.id}</div>}
+                {r.id && <div class="text-3xs text-fg-muted font-mono truncate">{r.id.length > 18 ? r.id.slice(0, 18) + '…' : r.id}</div>}
               </td>
               {kind === 'ads' && (
                 <td class="px-3 py-2 text-fg-muted truncate max-w-[10rem]" title={r.adsetName}>{r.adsetName ?? '–'}</td>
@@ -1604,9 +1604,9 @@ function StagesBreakdownTable({
                   <span class={cn(r.spendKind === 'real' || kind === 'campaigns' ? 'text-fg' : 'text-fg-muted italic')}
                         title={r.spendKind === 'estimated' ? 'estimativa proporcional ao share de leads' : ''}>
                     {brl.format(r.spend)}
-                    {r.spendKind === 'estimated' && <span class="text-[0.625rem] ml-1 opacity-60">est.</span>}
+                    {r.spendKind === 'estimated' && <span class="text-3xs ml-1 opacity-60">est.</span>}
                   </span>
-                ) : <span class="text-fg-subtle">–</span>}
+                ) : <span class="text-fg-muted">–</span>}
               </td>
               {stages.map(s => {
                 const v = r.stageCounts[s.key] || 0
@@ -1622,12 +1622,12 @@ function StagesBreakdownTable({
                     style={{ background: bg }}
                     title={`${s.name}: ${v} lead${v === 1 ? '' : 's'}${intensity > 0 ? ` (${(intensity * 100).toFixed(0)}% do máx.)` : ''}`}
                   >
-                    {v > 0 ? intf.format(v) : <span class="text-fg-subtle font-normal">–</span>}
+                    {v > 0 ? intf.format(v) : <span class="text-fg-muted font-normal">–</span>}
                   </td>
                 )
               })}
               <td class="px-3 py-2 text-center tabular-nums">
-                {r.lost > 0 ? <span class="text-danger font-semibold">{intf.format(r.lost)}</span> : <span class="text-fg-subtle">–</span>}
+                {r.lost > 0 ? <span class="text-danger font-semibold">{intf.format(r.lost)}</span> : <span class="text-fg-muted">–</span>}
               </td>
             </tr>
           ))}
@@ -1667,7 +1667,7 @@ function TabBtn({ active, onClick, small, children }: {
       onClick={onClick}
       class={cn(
         'rounded-md font-medium transition-colors',
-        small ? 'px-2 py-1 text-[0.6875rem]' : 'px-3 py-1.5 text-xs',
+        small ? 'px-2 py-1 text-2xs' : 'px-3 py-1.5 text-xs',
         active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
       )}
     >
@@ -1678,7 +1678,7 @@ function TabBtn({ active, onClick, small, children }: {
 
 function Pill({ children }: { children: any }) {
   return (
-    <span class="ml-1 inline-flex items-center px-1.5 py-0 rounded-sm bg-surface-3 text-fg-subtle text-[0.625rem] font-mono">
+    <span class="ml-1 inline-flex items-center px-1.5 py-0 rounded-sm bg-surface-3 text-fg-muted text-3xs font-mono">
       {children}
     </span>
   )
@@ -1772,11 +1772,11 @@ function AdAccountConfigModal({ onClose }: { onClose: () => void }) {
                         onChange={() => toggle(it.integrationId, a.id)}
                       />
                       <span class="flex-1 min-w-0 truncate">{a.name}</span>
-                      <span class="font-mono text-[0.625rem] text-fg-subtle shrink-0">{a.id}</span>
+                      <span class="font-mono text-3xs text-fg-muted shrink-0">{a.id}</span>
                       <span
                         class={cn(
-                          'text-[0.625rem] px-1.5 rounded shrink-0',
-                          a.status === 1 ? 'bg-success/15 text-success' : 'bg-surface-3 text-fg-subtle',
+                          'text-3xs px-1.5 rounded shrink-0',
+                          a.status === 1 ? 'bg-success/15 text-success' : 'bg-surface-3 text-fg-muted',
                         )}
                       >
                         {a.status === 1 ? 'ativa' : `st${a.status}`}

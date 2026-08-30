@@ -5,7 +5,7 @@
 // tudo que aconteceu; aqui só interessa a sequência de situações e seus efeitos
 // (foi para qual etapa, quantas atividades nasceram, virou ganho/perdido).
 
-import { Tag, ArrowRight, ListChecks, CheckCircle2, Trophy, XCircle, Bot, User } from 'lucide-preact'
+import { Tag, ArrowRight, ListChecks, CheckCircle2, Trophy, XCircle, Bot, User } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -65,8 +65,8 @@ function HistoryRow({ entry }: { entry: LeadStatusHistoryEntry }) {
         <div class="flex items-center gap-2 flex-wrap">
           {entry.fromCode && (
             <>
-              <code class="text-xs font-mono text-fg-subtle">{entry.fromCode}</code>
-              <ArrowRight size={11} class="text-fg-subtle" />
+              <code class="text-xs font-mono text-fg-muted">{entry.fromCode}</code>
+              <ArrowRight size={11} class="text-fg-muted" />
             </>
           )}
           <code class="text-xs font-mono px-1.5 py-0.5 rounded bg-surface-2 text-fg">{entry.toCode}</code>
@@ -103,7 +103,7 @@ function HistoryRow({ entry }: { entry: LeadStatusHistoryEntry }) {
 
         {entry.note && <p class="mt-1.5 text-xs text-fg-muted italic">"{entry.note}"</p>}
 
-        <div class="mt-1.5 flex items-center gap-2 text-xs text-fg-subtle flex-wrap">
+        <div class="mt-1.5 flex items-center gap-2 text-xs text-fg-muted flex-wrap">
           <span>{fmt(entry.changedAt)}</span>
           <span>·</span>
           <span class="inline-flex items-center gap-1">

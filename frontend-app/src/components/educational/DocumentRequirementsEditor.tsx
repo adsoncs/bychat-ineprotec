@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Plus, Trash2, GripVertical, Pencil, Check, X } from 'lucide-preact'
+import { Plus, Trash2, GripVertical, Pencil, Check, X } from '@/components/ui/icon-set'
 import {
   useDocumentTypes,
   useCreateDocRequirement,
@@ -73,17 +73,17 @@ export function DocumentRequirementsEditor({
         <ul class="divide-y divide-border rounded-md border border-border">
           {reqs.map((r) => (
             <li key={r.id} class="p-2.5 flex items-start gap-3 bg-surface">
-              <GripVertical size={14} class="text-fg-subtle mt-1 shrink-0" />
-              <span class="text-xs text-fg-subtle tabular-nums w-6 mt-1">{r.ordem}</span>
+              <GripVertical size={14} class="text-fg-muted mt-1 shrink-0" />
+              <span class="text-xs text-fg-muted tabular-nums w-6 mt-1">{r.ordem}</span>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm text-fg truncate">
                     {r.documentType?.name ?? `#${r.documentTypeId}`}
                   </span>
                   {r.documentType?.code && (
-                    <code class="text-[0.625rem] text-fg-subtle">{r.documentType.code}</code>
+                    <code class="text-3xs text-fg-muted">{r.documentType.code}</code>
                   )}
-                  {r.required && <span class="text-[0.625rem] uppercase text-warning">obrigatório</span>}
+                  {r.required && <span class="text-3xs uppercase text-warning">obrigatório</span>}
                 </div>
                 {editingId === r.id ? (
                   <EditRow
@@ -99,7 +99,7 @@ export function DocumentRequirementsEditor({
                   />
                 ) : (
                   r.helpText && (
-                    <div class="text-xs text-fg-subtle mt-0.5 truncate">{r.helpText}</div>
+                    <div class="text-xs text-fg-muted mt-0.5 truncate">{r.helpText}</div>
                   )
                 )}
               </div>
@@ -134,7 +134,7 @@ export function DocumentRequirementsEditor({
             <Plus size={12} /> Adicionar documento
           </Button>
           {availableTypes.length === 0 && (
-            <span class="text-[0.6875rem] text-fg-subtle ml-2">
+            <span class="text-2xs text-fg-muted ml-2">
               Todos os tipos do catálogo já foram adicionados.
             </span>
           )}

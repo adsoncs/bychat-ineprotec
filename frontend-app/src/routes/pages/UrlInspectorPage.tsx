@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import {
   Search, Link2, ShieldCheck, Tag as TagIcon, AlertCircle, ArrowRight, CheckCircle2, Image as ImageIcon,
   Clock, Server, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -136,11 +136,11 @@ function StatusCard({ data }: { data: UrlInspectResponse }) {
             <Badge tone={ok ? 'success' : 'warning'} solid>HTTP {data.finalStatus}</Badge>
             <span class="text-xs text-fg-muted flex items-center gap-1"><Clock size={11} /> {data.elapsedMs}ms</span>
             {data.headers.strictTransport && <Badge tone="success">HSTS</Badge>}
-            {data.headers.server && <span class="text-xs text-fg-subtle flex items-center gap-1"><Server size={11} /> {data.headers.server}</span>}
+            {data.headers.server && <span class="text-xs text-fg-muted flex items-center gap-1"><Server size={11} /> {data.headers.server}</span>}
           </div>
           <div class="text-xs text-fg-muted">URL final:</div>
           <code class="block text-xs font-mono text-fg break-all">{data.finalUrl}</code>
-          {data.headers.contentType && <div class="text-[0.6875rem] text-fg-subtle mt-1">Content-Type: <code class="font-mono">{data.headers.contentType}</code></div>}
+          {data.headers.contentType && <div class="text-2xs text-fg-muted mt-1">Content-Type: <code class="font-mono">{data.headers.contentType}</code></div>}
         </div>
       </div>
     </Card>
@@ -151,7 +151,7 @@ function RedirectsCard({ data }: { data: UrlInspectResponse }) {
   if (data.redirects.length === 0) return null
   return (
     <Card class="p-3">
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
         <ArrowRight size={11} /> Redirecionamentos ({data.redirects.length})
       </div>
       <ol class="space-y-1.5 text-xs">
@@ -160,14 +160,14 @@ function RedirectsCard({ data }: { data: UrlInspectResponse }) {
             <Badge tone={r.status === 301 ? 'success' : 'warning'}>{r.status}</Badge>
             <div class="flex-1 min-w-0">
               <code class="block font-mono text-fg-muted break-all">{r.from}</code>
-              <div class="text-fg-subtle pl-2">↳</div>
+              <div class="text-fg-muted pl-2">↳</div>
               <code class="block font-mono text-fg break-all pl-2">{r.to}</code>
             </div>
           </li>
         ))}
       </ol>
       {data.redirects.length > 3 && (
-        <div class="text-[0.6875rem] text-warning mt-2">
+        <div class="text-2xs text-warning mt-2">
           ⚠ Muitos redirects (perde tempo de carregamento e pode invalidar tracking — Meta/Google podem perder UTM em chains longas).
         </div>
       )}
@@ -181,7 +181,7 @@ function UtmsAndClickIdsCard({ data }: { data: UrlInspectResponse }) {
   const hasNone = utmEntries.length === 0 && clickEntries.length === 0
   return (
     <Card class="p-3">
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
         <TagIcon size={11} /> UTMs &amp; Click IDs
       </div>
       {hasNone && (
@@ -189,7 +189,7 @@ function UtmsAndClickIdsCard({ data }: { data: UrlInspectResponse }) {
       )}
       {utmEntries.length > 0 && (
         <div class="mb-2">
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">UTMs</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">UTMs</div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
             {utmEntries.map(([k, v]) => (
               <div key={k} class="text-xs flex items-center gap-2">
@@ -202,7 +202,7 @@ function UtmsAndClickIdsCard({ data }: { data: UrlInspectResponse }) {
       )}
       {clickEntries.length > 0 && (
         <div>
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Click IDs (atribuição cross-device)</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Click IDs (atribuição cross-device)</div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
             {clickEntries.map(([k, v]) => (
               <div key={k} class="text-xs flex items-center gap-2">
@@ -220,7 +220,7 @@ function UtmsAndClickIdsCard({ data }: { data: UrlInspectResponse }) {
 function TrackersCard({ data }: { data: UrlInspectResponse }) {
   return (
     <Card class="p-3">
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
         <ShieldCheck size={11} /> Tags &amp; Pixels detectados ({data.trackers.length})
       </div>
       {data.trackers.length === 0 && (
@@ -247,12 +247,12 @@ function TrackersCard({ data }: { data: UrlInspectResponse }) {
 function SeoOgCard({ data }: { data: UrlInspectResponse }) {
   return (
     <Card class="p-3">
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
         <Link2 size={11} /> SEO &amp; Social Preview
       </div>
       <div class="grid gap-3 md:grid-cols-2">
         <div>
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Meta tags</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Meta tags</div>
           <KV k="Título" v={data.seo.title} />
           <KV k="Descrição" v={data.seo.description} />
           <KV k="Idioma" v={data.seo.lang} />
@@ -261,21 +261,21 @@ function SeoOgCard({ data }: { data: UrlInspectResponse }) {
           <KV k="Theme color" v={data.seo.themeColor} />
         </div>
         <div>
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mb-1">Open Graph (Facebook/WhatsApp)</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Open Graph (Facebook/WhatsApp)</div>
           <KV k="og:title" v={data.og.title} />
           <KV k="og:description" v={data.og.description} />
           <KV k="og:type" v={data.og.type} />
           <KV k="og:site_name" v={data.og.siteName} />
           {data.og.image && (
             <div class="mt-2">
-              <div class="text-[0.6875rem] text-fg-subtle mb-1">og:image</div>
+              <div class="text-2xs text-fg-muted mb-1">og:image</div>
               <img src={data.og.image} alt="og:image preview" class="rounded border border-border max-h-32 object-cover" />
             </div>
           )}
         </div>
       </div>
       {!data.og.image && (
-        <div class="text-[0.6875rem] text-warning mt-2 flex items-center gap-1">
+        <div class="text-2xs text-warning mt-2 flex items-center gap-1">
           <AlertCircle size={11} /> Sem <code class="font-mono">og:image</code> — link vai aparecer sem prévia no WhatsApp/Facebook.
         </div>
       )}
@@ -286,12 +286,12 @@ function SeoOgCard({ data }: { data: UrlInspectResponse }) {
 function JsonLdCard({ data }: { data: UrlInspectResponse }) {
   return (
     <Card class="p-3">
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
         <ImageIcon size={11} /> Schema.org / JSON-LD ({data.jsonLd.length})
       </div>
       <details>
         <summary class="text-xs cursor-pointer text-fg-muted">Ver blocos detectados</summary>
-        <pre class="text-[0.6875rem] font-mono bg-surface-2 rounded p-2 mt-2 overflow-auto max-h-64">
+        <pre class="text-2xs font-mono bg-surface-2 rounded p-2 mt-2 overflow-auto max-h-64">
 {JSON.stringify(data.jsonLd, null, 2)}
         </pre>
       </details>
@@ -303,7 +303,7 @@ function KV({ k, v }: { k: string; v: string | null }) {
   return (
     <div class="text-xs flex items-start gap-2 py-0.5">
       <span class="text-fg-muted shrink-0 w-24">{k}</span>
-      <span class={v ? 'text-fg break-all' : 'text-fg-subtle italic'}>{v || '—'}</span>
+      <span class={v ? 'text-fg break-all' : 'text-fg-muted italic'}>{v || '—'}</span>
     </div>
   )
 }

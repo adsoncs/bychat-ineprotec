@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
   useRegistrationFull,
@@ -128,7 +128,7 @@ function EnemBlock({ registrationId }: { registrationId: number }) {
   return (
     <Card>
       <div class="flex items-center justify-between mb-3">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle inline-flex items-center gap-2">
+        <div class="text-xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-2">
           <Award size={12} /> ENEM ({imports.length})
         </div>
       </div>
@@ -139,8 +139,8 @@ function EnemBlock({ registrationId }: { registrationId: number }) {
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap mb-1">
                   <span class="text-sm font-medium text-fg">{imp.nome ?? '—'}</span>
-                  {imp.inscricao && <code class="text-[0.6875rem] text-fg-subtle font-mono">{imp.inscricao}</code>}
-                  {imp.ano && <span class="text-[0.6875rem] text-fg-muted">ENEM {imp.ano}</span>}
+                  {imp.inscricao && <code class="text-2xs text-fg-muted font-mono">{imp.inscricao}</code>}
+                  {imp.ano && <span class="text-2xs text-fg-muted">ENEM {imp.ano}</span>}
                   {imp.treineiro && <Badge tone="info">Treineiro</Badge>}
                   {imp.passed === true && <Badge tone="success">Aprovado</Badge>}
                   {imp.passed === false && <Badge tone="danger">Reprovado</Badge>}
@@ -148,14 +148,14 @@ function EnemBlock({ registrationId }: { registrationId: number }) {
                 </div>
                 <div class="text-xs text-fg-muted">
                   Média: <strong class="text-fg">{imp.mediaSimples?.toFixed(1) ?? '—'}</strong>
-                  {imp.cutoffScore !== null && <span class="text-fg-subtle"> · corte {imp.cutoffScore}</span>}
-                  {imp.aiConfidence !== null && <span class="text-fg-subtle"> · IA {Math.round(imp.aiConfidence * 100)}%</span>}
+                  {imp.cutoffScore !== null && <span class="text-fg-muted"> · corte {imp.cutoffScore}</span>}
+                  {imp.aiConfidence !== null && <span class="text-fg-muted"> · IA {Math.round(imp.aiConfidence * 100)}%</span>}
                 </div>
-                <div class="text-[0.6875rem] text-fg-subtle mt-1">
+                <div class="text-2xs text-fg-muted mt-1">
                   CN {imp.cienciasNatureza ?? '—'} · CH {imp.cienciasHumanas ?? '—'} · LG {imp.linguagens ?? '—'} · MT {imp.matematica ?? '—'} · RD {imp.redacao ?? '—'}
                 </div>
                 {imp.validationNote && (
-                  <div class="text-[0.6875rem] text-fg-muted mt-1 italic">"{imp.validationNote}"</div>
+                  <div class="text-2xs text-fg-muted mt-1 italic">"{imp.validationNote}"</div>
                 )}
               </div>
               <Button variant="secondary" size="sm" onClick={() => setEditing(imp)}>
@@ -205,7 +205,7 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
   return (
     <Card>
       <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <div class="text-xs uppercase tracking-wider text-fg-subtle inline-flex items-center gap-2">
+        <div class="text-xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-2">
           <CreditCard size={12} /> Cobranças ({methods.length})
         </div>
         {hasPending && (
@@ -222,7 +222,7 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
         )}
       </div>
       {methods.length === 0 && (
-        <div class="text-xs text-fg-subtle py-2">
+        <div class="text-xs text-fg-muted py-2">
           Sem histórico de cobrança transparente.
           {data?.registration.paymentUrl && (
             <> Modo link: <a href={data.registration.paymentUrl} target="_blank" rel="noopener noreferrer" class="text-accent underline">abrir link de pagamento ↗</a></>
@@ -236,10 +236,10 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap mb-1">
                   <span class="text-sm font-medium text-fg">{methodLabel(m.method)}</span>
-                  <span class="text-[0.6875rem] text-fg-subtle">via {providerLabel(m.provider)}</span>
+                  <span class="text-2xs text-fg-muted">via {providerLabel(m.provider)}</span>
                   <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
                   {m.externalId && (
-                    <code class="text-[0.6875rem] text-fg-subtle font-mono truncate max-w-[180px]" title={m.externalId}>
+                    <code class="text-2xs text-fg-muted font-mono truncate max-w-[180px]" title={m.externalId}>
                       {m.externalId}
                     </code>
                   )}
@@ -247,24 +247,24 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
                 <div class="text-xs text-fg-muted">
                   Valor: <strong class="text-fg">R$ {Number(m.amount ?? 0).toFixed(2)}</strong>
                   {m.expiresAt && (
-                    <span class="text-fg-subtle"> · expira {formatRelative(m.expiresAt)}</span>
+                    <span class="text-fg-muted"> · expira {formatRelative(m.expiresAt)}</span>
                   )}
                   {m.paidAt && (
                     <span class="text-success"> · pago {formatRelative(m.paidAt)}</span>
                   )}
                 </div>
                 {m.method === 'credit_card' && (m.cardBrand || m.cardLastDigits) && (
-                  <div class="text-[0.6875rem] text-fg-muted mt-1">
+                  <div class="text-2xs text-fg-muted mt-1">
                     {m.cardBrand || 'Cartão'} •••• {m.cardLastDigits || '????'}
                   </div>
                 )}
                 {m.method === 'boleto' && m.boletoLine && (
-                  <div class="text-[0.6875rem] text-fg-muted mt-1 font-mono truncate" title={m.boletoLine}>
+                  <div class="text-2xs text-fg-muted mt-1 font-mono truncate" title={m.boletoLine}>
                     {m.boletoLine}
                   </div>
                 )}
                 {m.lastErrorMessage && (
-                  <div class="text-[0.6875rem] text-danger mt-1 italic">
+                  <div class="text-2xs text-danger mt-1 italic">
                     {m.lastErrorMessage}
                   </div>
                 )}
@@ -274,7 +274,7 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
                   href={m.boletoPdfUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-[0.6875rem] text-accent underline inline-flex items-center gap-1"
+                  class="text-2xs text-accent underline inline-flex items-center gap-1"
                 >
                   <ExternalLink size={10} /> PDF
                 </a>
@@ -402,7 +402,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
     <Card>
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div class="min-w-0 flex-1">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle">Portal do candidato</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted">Portal do candidato</div>
           <a
             href={candidateUrl}
             target="_blank"
@@ -411,7 +411,7 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
           >
             {candidateUrl} <ExternalLink size={12} />
           </a>
-          <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+          <div class="text-2xs text-fg-muted mt-0.5">
             URL pública onde o candidato faz login com email/WhatsApp para enviar documentos.
           </div>
         </div>
@@ -484,7 +484,7 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
             </span>
           </Badge>
         )}
-        <span class="text-[0.6875rem] text-fg-subtle ml-auto">
+        <span class="text-2xs text-fg-muted ml-auto">
           Criada {formatRelative(review.registration.createdAt)}
         </span>
       </div>
@@ -516,7 +516,7 @@ function CandidateCard({ review }: { review: RegistrationReview }) {
 
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Candidato</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Candidato</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
         <Field label="Nome" value={review.lead.nome ?? '—'} />
         {cpf && <Field label="CPF" value={cpf} />}
@@ -540,7 +540,7 @@ function RegistrationCard({ review }: { review: RegistrationReview }) {
 
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Inscrição</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Inscrição</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
         <Field label="Portal" value={portal?.nome ?? '—'} />
         <Field label="Slug" value={portal?.slug ? <code class="text-xs">{portal.slug}</code> : '—'} />
@@ -586,7 +586,7 @@ function SlotsCard({ review }: { review: RegistrationReview }) {
   if (review.slots.length === 0) {
     return (
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Documentos esperados</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Documentos esperados</div>
         <div class="text-sm text-fg-muted text-center py-4">
           Nenhum documento foi configurado para este modo de ingresso.
         </div>
@@ -596,7 +596,7 @@ function SlotsCard({ review }: { review: RegistrationReview }) {
 
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">
         Documentos esperados ({review.slots.length})
       </div>
       <ul class="space-y-2">
@@ -622,20 +622,20 @@ function SlotRow({ slot, registrationId }: { slot: DocumentSlot; registrationId:
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate">{dt?.name ?? '—'}</span>
-            {dt?.code && <code class="text-[0.625rem] text-fg-subtle">{dt.code}</code>}
-            <span class={`text-[0.625rem] uppercase ${slot.required ? 'text-warning' : 'text-fg-subtle'}`}>
+            {dt?.code && <code class="text-3xs text-fg-muted">{dt.code}</code>}
+            <span class={`text-3xs uppercase ${slot.required ? 'text-warning' : 'text-fg-muted'}`}>
               {reqLabel}
             </span>
           </div>
           {slot.helpText && (
-            <div class="text-xs text-fg-subtle mt-0.5">{slot.helpText}</div>
+            <div class="text-xs text-fg-muted mt-0.5">{slot.helpText}</div>
           )}
         </div>
         <DocStatusBadge doc={doc} />
       </div>
       {doc && <DocBody doc={doc} registrationId={registrationId} />}
       {!doc && (
-        <div class="ml-11 mt-2 text-[0.6875rem] text-fg-subtle">
+        <div class="ml-11 mt-2 text-2xs text-fg-muted">
           Candidato ainda não enviou este documento.
         </div>
       )}
@@ -648,10 +648,10 @@ function ExtrasCard({
 }: { extras: EnrollmentDocument[]; registrationId: number }) {
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">
         Documentos extras ({extras.length})
       </div>
-      <div class="text-[0.6875rem] text-fg-subtle mb-2">
+      <div class="text-2xs text-fg-muted mb-2">
         Documentos enviados pelo candidato que não correspondem a nenhum requisito esperado.
       </div>
       <ul class="space-y-2">
@@ -666,7 +666,7 @@ function ExtrasCard({
                   <span class="text-sm font-medium text-fg truncate">
                     {d.label ?? d.type?.name ?? d.fileName ?? `Doc #${d.id}`}
                   </span>
-                  {d.typeCode && <code class="text-[0.625rem] text-fg-subtle">{d.typeCode}</code>}
+                  {d.typeCode && <code class="text-3xs text-fg-muted">{d.typeCode}</code>}
                 </div>
               </div>
               <DocStatusBadge doc={d} />
@@ -682,7 +682,7 @@ function ExtrasCard({
 function DocStatusBadge({ doc }: { doc: EnrollmentDocument | null }) {
   if (!doc) {
     return (
-      <span class="text-[0.625rem] uppercase tracking-wider text-fg-subtle shrink-0">
+      <span class="text-3xs uppercase tracking-wider text-fg-muted shrink-0">
         Não enviado
       </span>
     )
@@ -693,7 +693,7 @@ function DocStatusBadge({ doc }: { doc: EnrollmentDocument | null }) {
     rejected: { label: 'Rejeitado', color: 'text-danger' },
   }[doc.status]
   return (
-    <span class={`text-[0.625rem] uppercase tracking-wider font-medium shrink-0 ${cfg.color}`}>
+    <span class={`text-3xs uppercase tracking-wider font-medium shrink-0 ${cfg.color}`}>
       {cfg.label}
     </span>
   )
@@ -709,7 +709,7 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
 
   return (
     <div class="ml-11 mt-2 space-y-2">
-      <div class="flex flex-wrap items-center gap-2 text-[0.6875rem] text-fg-muted">
+      <div class="flex flex-wrap items-center gap-2 text-2xs text-fg-muted">
         {doc.fileName && <span class="truncate max-w-48" title={doc.fileName}>{doc.fileName}</span>}
         {sizeKb != null && <span class="tabular-nums">{sizeKb} KB</span>}
         <span>· enviado {formatRelative(doc.uploadedAt)}</span>
@@ -728,12 +728,12 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
       {doc.aiSuggestion && <AiSummary doc={doc} />}
 
       {doc.status === 'rejected' && doc.reviewNote && (
-        <div class="text-[0.6875rem] text-danger">
+        <div class="text-2xs text-danger">
           <strong>Motivo da rejeição:</strong> {doc.reviewNote}
         </div>
       )}
       {doc.reviewedAt && (
-        <div class="text-[0.6875rem] text-fg-subtle">
+        <div class="text-2xs text-fg-muted">
           {STATUS_LABELS[doc.status]} por {doc.reviewerName ?? `User #${doc.reviewedBy}`} em {formatRelative(doc.reviewedAt)}
         </div>
       )}
@@ -818,11 +818,11 @@ function AiSummary({ doc }: { doc: EnrollmentDocument }) {
       ? { color: 'text-danger',  label: 'IA sugere rejeitar' }
       : { color: 'text-warning', label: 'IA sugere revisão humana' }
   return (
-    <div class="flex items-center gap-2 text-[0.6875rem]">
+    <div class="flex items-center gap-2 text-2xs">
       <Bot size={11} class={cfg.color} />
       <span class={cfg.color}>{cfg.label}</span>
       {conf != null && (
-        <span class="text-fg-subtle">· confiança {Math.round(conf * 100)}%</span>
+        <span class="text-fg-muted">· confiança {Math.round(conf * 100)}%</span>
       )}
       {doc.aiStatus === 'analyzing' && <span class="text-info">· analisando…</span>}
       {doc.aiStatus === 'failed' && <span class="text-danger">· falhou</span>}
@@ -891,7 +891,7 @@ function BulkActionsCard({ registrationId }: { registrationId: number }) {
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div class="min-w-0">
           <div class="text-sm font-medium text-fg">Aprovação em lote por IA</div>
-          <div class="text-xs text-fg-subtle mt-0.5">
+          <div class="text-xs text-fg-muted mt-0.5">
             Aprova todos os documentos pendentes com IA sugerindo "aprovar" e confiança ≥ 85%.
           </div>
         </div>
@@ -906,7 +906,7 @@ function BulkActionsCard({ registrationId }: { registrationId: number }) {
 function Field({ label, value }: { label: string; value: preact.ComponentChildren }) {
   return (
     <div class="flex items-center gap-2">
-      <span class="text-fg-subtle text-xs w-32 shrink-0">{label}</span>
+      <span class="text-fg-muted text-xs w-32 shrink-0">{label}</span>
       <span class="text-fg truncate">{value}</span>
     </div>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'preact/hooks'
-import { Check, CheckCheck } from 'lucide-preact'
+import { Check, CheckCheck } from '@/components/ui/icon-set'
 
 type Channel = 'whatsapp' | 'sms' | 'email'
 
@@ -59,14 +59,14 @@ export function PhonePreview({ channel, text, subject, sampleValues }: PhonePrev
 
   if (channel === 'email') {
     return (
-      <div class="rounded-lg border border-border bg-surface overflow-hidden">
-        <div class="px-3 py-2 border-b border-border bg-surface-2 text-[0.6875rem] text-fg-muted">
+      <div class="rounded-xl border border-border bg-surface overflow-hidden surface-raised">
+        <div class="px-3 py-2 border-b border-border bg-surface-2 text-2xs text-fg-muted">
           <div class="flex justify-between">
             <span class="font-medium text-fg">Para: maria@empresa.com</span>
             <span>{timeLabel}</span>
           </div>
           <div class="font-semibold text-fg mt-0.5 text-xs">
-            {filledSubject || <span class="text-fg-subtle italic">(sem assunto)</span>}
+            {filledSubject || <span class="text-fg-muted italic">(sem assunto)</span>}
           </div>
         </div>
         <EmailRenderedBody html={filled} />

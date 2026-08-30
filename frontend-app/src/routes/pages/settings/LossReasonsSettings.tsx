@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Plus, Trash2, Pencil, Power } from 'lucide-preact'
+import { Plus, Trash2, Pencil, Power } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'

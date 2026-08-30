@@ -17,7 +17,7 @@ import {
   PanelLeft,
   Eye,
   LogIn,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useAppearance,
   useUpdateAppearance,
@@ -57,7 +57,7 @@ function OptionalColorPicker({ label, hint, value, onChange, fallbackHex }: Opti
           }
         />
         <span>{label}</span>
-        {!enabled && <span class="text-fg-subtle">(usando cor do tema)</span>}
+        {!enabled && <span class="text-fg-muted">(usando cor do tema)</span>}
       </label>
       {enabled && <ColorPicker value={value} onChange={onChange} label="" {...(hint ? { hint } : {})} />}
     </div>
@@ -164,7 +164,7 @@ export function AppearanceSettings() {
             onClick={() => setTab('admin')}
             class={cn(
               'flex flex-1 items-center justify-center gap-2 rounded px-3 py-1.5 text-sm transition-colors',
-              tab === 'admin' ? 'bg-accent text-white' : 'text-fg-muted hover:bg-surface-3',
+              tab === 'admin' ? 'bg-accent text-fg-on-brand' : 'text-fg-muted hover:bg-surface-3',
             )}
             aria-pressed={tab === 'admin'}
           >
@@ -175,7 +175,7 @@ export function AppearanceSettings() {
             onClick={() => setTab('lp')}
             class={cn(
               'flex flex-1 items-center justify-center gap-2 rounded px-3 py-1.5 text-sm transition-colors',
-              tab === 'lp' ? 'bg-accent text-white' : 'text-fg-muted hover:bg-surface-3',
+              tab === 'lp' ? 'bg-accent text-fg-on-brand' : 'text-fg-muted hover:bg-surface-3',
             )}
             aria-pressed={tab === 'lp'}
           >
@@ -757,19 +757,19 @@ function AdminPreview({ draft }: { draft: Draft }) {
           )}
         </div>
         <div
-          class="rounded px-2 py-1 text-[0.625rem] font-medium"
+          class="rounded px-2 py-1 text-3xs font-medium"
           style={{ background: sidebarActiveBg, color: sidebarActiveText, borderRadius: radius }}
         >
           Dashboard
         </div>
-        <div class="px-2 py-1 text-[0.625rem]">Leads</div>
-        <div class="px-2 py-1 text-[0.625rem]">Kanban</div>
-        <div class="px-2 py-1 text-[0.625rem]">WhatsApp</div>
+        <div class="px-2 py-1 text-3xs">Leads</div>
+        <div class="px-2 py-1 text-3xs">Kanban</div>
+        <div class="px-2 py-1 text-3xs">WhatsApp</div>
       </div>
       {/* main */}
       <div class="flex flex-1 flex-col" style={{ background: bodyBg }}>
         <div
-          class="flex items-center justify-between border-b px-2 py-1.5 text-[0.625rem]"
+          class="flex items-center justify-between border-b px-2 py-1.5 text-3xs"
           style={{ background: topbarBg, color: topbarText, borderColor: cardBorder }}
         >
           <span>Dashboard</span>
@@ -783,7 +783,7 @@ function AdminPreview({ draft }: { draft: Draft }) {
             class="border p-1.5"
             style={{ background: cardBg, borderColor: cardBorder, borderRadius: radius }}
           >
-            <div class="text-[0.5625rem]" style={{ color: textSecondary }}>
+            <div class="text-3xs" style={{ color: textSecondary }}>
               Leads este mês
             </div>
             <div class="text-base font-semibold" style={{ color: textPrimary }}>
@@ -794,7 +794,7 @@ function AdminPreview({ draft }: { draft: Draft }) {
             class="border p-1.5"
             style={{ background: cardBg, borderColor: cardBorder, borderRadius: radius }}
           >
-            <div class="text-[0.5625rem]" style={{ color: textSecondary }}>
+            <div class="text-3xs" style={{ color: textSecondary }}>
               Conversão
             </div>
             <div class="text-sm font-semibold" style={{ color: textPrimary }}>
@@ -803,7 +803,7 @@ function AdminPreview({ draft }: { draft: Draft }) {
           </div>
           <button
             type="button"
-            class="px-2 py-1 text-[0.625rem] font-medium"
+            class="px-2 py-1 text-3xs font-medium"
             style={{
               background: primary,
               color: btnTextColor,
@@ -859,7 +859,7 @@ function RangeField({ label, min, max, step = 1, unit = '', value, onChange, hin
         onInput={(e) => onChange((e.target as HTMLInputElement).value)}
         class="h-5 w-full accent-accent"
       />
-      {hint && <span class="text-[0.6875rem] text-fg-subtle">{hint}</span>}
+      {hint && <span class="text-2xs text-fg-muted">{hint}</span>}
     </label>
   )
 }
@@ -953,7 +953,7 @@ function BooleanToggle({
         </span>
         <span>{isOn ? labelOn : labelOff}</span>
       </button>
-      {hint && <span class="text-[0.6875rem] text-fg-subtle">{hint}</span>}
+      {hint && <span class="text-2xs text-fg-muted">{hint}</span>}
     </div>
   )
 }
@@ -995,9 +995,9 @@ function ThemeCard() {
               <div class="flex items-center gap-2">
                 <Icon size={14} class={active ? 'text-accent' : 'text-fg-muted'} />
                 <span class={cn('text-sm', active ? 'font-semibold text-fg' : 'text-fg')}>{it.label}</span>
-                {active && <span class="ml-auto text-[0.6875rem] text-accent">Ativo</span>}
+                {active && <span class="ml-auto text-2xs text-accent">Ativo</span>}
               </div>
-              <span class="text-[0.6875rem] text-fg-subtle">{it.description}</span>
+              <span class="text-2xs text-fg-muted">{it.description}</span>
             </button>
           )
         })}
@@ -1065,14 +1065,14 @@ function AccessibilityCard() {
                   {it.preview}
                 </span>
                 <span class={cn('text-sm', active ? 'font-semibold text-fg' : 'text-fg')}>{it.label}</span>
-                {active && <span class="ml-auto text-[0.6875rem] text-accent">Ativo</span>}
+                {active && <span class="ml-auto text-2xs text-accent">Ativo</span>}
               </div>
-              <span class="text-[0.6875rem] text-fg-subtle">{it.description}</span>
+              <span class="text-2xs text-fg-muted">{it.description}</span>
             </button>
           )
         })}
       </div>
-      <p class="mt-2 text-[0.6875rem] text-fg-subtle">
+      <p class="mt-2 text-2xs text-fg-muted">
         Atalho rápido: o botão <strong>Aa</strong> no topo direito também troca o tamanho. WCAG AA
         garantido (contraste ≥ 4.5:1, focus visível, áreas clicáveis ≥ 44px no modo Maior).
       </p>
@@ -1100,7 +1100,7 @@ function CustomCodeCard({ title, description, headKey, bodyKey, draft, onPatch }
         </CardTitle>
       </CardHeader>
       <p class="mb-3 text-xs text-fg-muted">{description}</p>
-      <div class="mb-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-[0.6875rem] text-fg-muted">
+      <div class="mb-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-2xs text-fg-muted">
         <AlertTriangle size={14} class="mt-0.5 shrink-0 text-warning" />
         <span>
           O conteúdo é injetado <strong>sem sanitização</strong> no DOM. Cole apenas códigos de fontes
@@ -1112,7 +1112,7 @@ function CustomCodeCard({ title, description, headKey, bodyKey, draft, onPatch }
           label="<head> — antes do fechamento"
           rows={6}
           spellcheck={false}
-          class="font-mono text-[0.75rem]"
+          class="font-mono text-xs"
           placeholder={'<!-- Google Analytics -->\n<script>...</script>'}
           value={draft[headKey] ?? ''}
           onInput={(e) => onPatch(headKey, (e.target as HTMLTextAreaElement).value)}
@@ -1121,7 +1121,7 @@ function CustomCodeCard({ title, description, headKey, bodyKey, draft, onPatch }
           label="<body> — antes do fechamento"
           rows={6}
           spellcheck={false}
-          class="font-mono text-[0.75rem]"
+          class="font-mono text-xs"
           placeholder={'<!-- Hotjar / Pixel / etc -->\n<script>...</script>'}
           value={draft[bodyKey] ?? ''}
           onInput={(e) => onPatch(bodyKey, (e.target as HTMLTextAreaElement).value)}

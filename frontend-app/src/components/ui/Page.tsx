@@ -13,7 +13,10 @@ interface PageProps {
  */
 export function Page({ title, description, actions, children }: PageProps) {
   return (
-    <div class="space-y-6">
+    // `stagger`: os blocos da página entram em sequência de 40ms (ver
+    // styles/global.css). Como o <Page> remonta a cada rota, a sequência roda
+    // na navegação — é ela que confirma "a tela mudou" sem um spinner.
+    <div class="space-y-6 stagger">
       <header class="flex items-end justify-between gap-4 flex-wrap">
         <div class="min-w-0">
           <h1 class="text-2xl font-semibold tracking-tight text-fg truncate">{title}</h1>

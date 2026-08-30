@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Webhook, Eye } from 'lucide-preact'
+import { Webhook, Eye } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Badge } from '@/components/ui/Badge'
@@ -69,7 +69,7 @@ export function WebhookHitsTab() {
             </Select>
           </div>
           {data?.statusCounts && (
-            <div class="text-xs text-fg-subtle inline-flex items-center gap-3">
+            <div class="text-xs text-fg-muted inline-flex items-center gap-3">
               {Object.entries(data.statusCounts).map(([s, n]) => (
                 <span key={s} class="inline-flex items-center gap-1">
                   <Badge tone={STATUS_TONE[s] || 'info'}>{STATUS_LABEL[s] || s}</Badge>
@@ -86,7 +86,7 @@ export function WebhookHitsTab() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-subtle border-b border-border">
+                <tr class="text-left text-xs text-fg-muted border-b border-border">
                   <th class="py-2 pr-3">Recebido</th>
                   <th class="py-2 pr-3">Provedor</th>
                   <th class="py-2 pr-3">Evento</th>
@@ -100,7 +100,7 @@ export function WebhookHitsTab() {
                 {(data?.items ?? []).map((h) => <HitRow key={h.id} h={h} onView={() => setDetail(h.id)} />)}
                 {(data?.items ?? []).length === 0 && (
                   <tr>
-                    <td colspan={7} class="py-8 text-center text-xs text-fg-subtle">
+                    <td colspan={7} class="py-8 text-center text-xs text-fg-muted">
                       <Webhook size={24} class="mx-auto mb-2 opacity-40" />
                       Nenhum webhook recebido no período.
                     </td>
@@ -131,29 +131,29 @@ export function WebhookHitsTab() {
 function HitRow({ h, onView }: { h: WebhookHitRow; onView: () => void }) {
   return (
     <tr class="border-b border-border/40 hover:bg-surface-2 cursor-pointer" onClick={onView}>
-      <td class="py-2 pr-3 text-xs text-fg-subtle whitespace-nowrap">{formatRelative(h.receivedAt)}</td>
+      <td class="py-2 pr-3 text-xs text-fg-muted whitespace-nowrap">{formatRelative(h.receivedAt)}</td>
       <td class="py-2 pr-3">
         <span class="text-xs text-fg">{h.provider === 'pagarme' ? 'Pagar.me' : 'Asaas'}</span>
         {h.connection && (
-          <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[150px]" title={h.connection.name}>
+          <div class="text-2xs text-fg-muted truncate max-w-[150px]" title={h.connection.name}>
             {h.connection.name}
           </div>
         )}
       </td>
       <td class="py-2 pr-3"><code class="text-xs text-fg-muted">{h.eventType}</code></td>
       <td class="py-2 pr-3">
-        {h.externalId && <code class="text-[0.6875rem] text-fg-muted font-mono">{h.externalId}</code>}
+        {h.externalId && <code class="text-2xs text-fg-muted font-mono">{h.externalId}</code>}
       </td>
       <td class="py-2 pr-3">
         <Badge tone={STATUS_TONE[h.status] || 'info'}>{STATUS_LABEL[h.status] || h.status}</Badge>
         {h.errorMessage && (
-          <div class="text-[0.6875rem] text-danger mt-0.5 truncate max-w-[200px]" title={h.errorMessage}>
+          <div class="text-2xs text-danger mt-0.5 truncate max-w-[200px]" title={h.errorMessage}>
             {h.errorMessage}
           </div>
         )}
       </td>
-      <td class="py-2 pr-3 text-[0.6875rem] text-fg-subtle font-mono">{h.remoteIp}</td>
-      <td class="py-2 pr-3"><Eye size={12} class="text-fg-subtle" /></td>
+      <td class="py-2 pr-3 text-2xs text-fg-muted font-mono">{h.remoteIp}</td>
+      <td class="py-2 pr-3"><Eye size={12} class="text-fg-muted" /></td>
     </tr>
   )
 }
@@ -170,27 +170,27 @@ function HitDetailModal({ id, onClose }: { id: number; onClose: () => void }) {
         <div class="space-y-3 text-sm">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <div class="text-xs text-fg-subtle">Provedor</div>
+              <div class="text-xs text-fg-muted">Provedor</div>
               <div class="text-fg">{h.provider}</div>
             </div>
             <div>
-              <div class="text-xs text-fg-subtle">Status</div>
+              <div class="text-xs text-fg-muted">Status</div>
               <Badge tone={STATUS_TONE[h.status] || 'info'}>{STATUS_LABEL[h.status] || h.status}</Badge>
             </div>
             <div>
-              <div class="text-xs text-fg-subtle">Evento</div>
+              <div class="text-xs text-fg-muted">Evento</div>
               <code class="text-xs">{h.eventType}</code>
             </div>
             <div>
-              <div class="text-xs text-fg-subtle">Charge/Payment ID</div>
+              <div class="text-xs text-fg-muted">Charge/Payment ID</div>
               <code class="text-xs">{h.externalId ?? '—'}</code>
             </div>
             <div>
-              <div class="text-xs text-fg-subtle">IP</div>
+              <div class="text-xs text-fg-muted">IP</div>
               <code class="text-xs">{h.remoteIp ?? '—'}</code>
             </div>
             <div>
-              <div class="text-xs text-fg-subtle">User-Agent</div>
+              <div class="text-xs text-fg-muted">User-Agent</div>
               <code class="text-xs truncate" title={h.userAgent ?? ''}>{h.userAgent ?? '—'}</code>
             </div>
           </div>
@@ -201,8 +201,8 @@ function HitDetailModal({ id, onClose }: { id: number; onClose: () => void }) {
             </div>
           )}
           <div>
-            <div class="text-xs text-fg-subtle mb-1">Payload</div>
-            <pre class="text-[0.6875rem] font-mono bg-surface-3 p-3 rounded-md overflow-auto max-h-80">{JSON.stringify(h.payload, null, 2)}</pre>
+            <div class="text-xs text-fg-muted mb-1">Payload</div>
+            <pre class="text-2xs font-mono bg-surface-3 p-3 rounded-md overflow-auto max-h-80">{JSON.stringify(h.payload, null, 2)}</pre>
           </div>
         </div>
       )}

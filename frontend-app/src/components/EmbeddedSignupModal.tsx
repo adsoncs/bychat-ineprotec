@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { LogIn, AlertCircle, Loader2, ExternalLink, CheckCircle } from 'lucide-preact'
+import { LogIn, AlertCircle, Loader2, ExternalLink, CheckCircle } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -176,7 +176,7 @@ export function EmbeddedSignupModal({ open, onOpenChange }: EmbeddedSignupModalP
             </div>
           </div>
           {!result.webhookSubscribed && (
-            <p class="text-xs text-fg-subtle">
+            <p class="text-xs text-fg-muted">
               A inscrição automática do webhook falhou. Verifique nas configurações da WABA do Meta
               Developers se o callback está apontando para a URL exibida no painel.
             </p>

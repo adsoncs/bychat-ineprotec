@@ -85,9 +85,9 @@ export function KanbanFiltersPanel({
       {/* Responsável (multi) */}
       <div class="mt-4 pt-4 border-t border-border">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Responsável</span>
+          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Responsável</span>
           {assignedUserIds.length > 0 && (
-            <button type="button" class="text-[0.6875rem] text-fg-muted hover:text-fg" onClick={() => onChange({ assignedUserIds: undefined })}>Limpar</button>
+            <button type="button" class="text-2xs text-fg-muted hover:text-fg" onClick={() => onChange({ assignedUserIds: undefined })}>Limpar</button>
           )}
         </div>
         <div class="flex flex-wrap gap-1.5">
@@ -97,7 +97,7 @@ export function KanbanFiltersPanel({
             </button>
           ))}
           {(!agentsData || agentsData.agents.length === 0) && (
-            <span class="text-xs text-fg-subtle">Sem operadores cadastrados</span>
+            <span class="text-xs text-fg-muted">Sem operadores cadastrados</span>
           )}
         </div>
       </div>
@@ -105,20 +105,20 @@ export function KanbanFiltersPanel({
       {/* Origem (multi) */}
       <div class="mt-4 pt-4 border-t border-border">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Origem</span>
+          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Origem</span>
           {sources.length > 0 && (
-            <button type="button" class="text-[0.6875rem] text-fg-muted hover:text-fg" onClick={() => onChange({ sources: undefined })}>Limpar</button>
+            <button type="button" class="text-2xs text-fg-muted hover:text-fg" onClick={() => onChange({ sources: undefined })}>Limpar</button>
           )}
         </div>
         <div class="flex flex-wrap gap-1.5">
           {availableSources.length === 0 ? (
-            <span class="text-xs text-fg-subtle italic">Nenhuma origem encontrada</span>
+            <span class="text-xs text-fg-muted italic">Nenhuma origem encontrada</span>
           ) : availableSources.map((src) => {
             const key = src.value ?? ''
             return (
               <button key={key || 'null'} type="button" onClick={() => toggleSource(key)} class={chipCls(sources.includes(key))}>
                 {leadSourceLabel(src.value)}
-                <span class="text-fg-subtle text-[0.625rem]">{src.count}</span>
+                <span class="text-fg-muted text-3xs">{src.count}</span>
               </button>
             )
           })}
@@ -128,7 +128,7 @@ export function KanbanFiltersPanel({
       {/* Etiquetas */}
       {tagsData && tagsData.tags.length > 0 && (
         <div class="mt-4 pt-4 border-t border-border">
-          <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider block mb-2">Etiquetas</span>
+          <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider block mb-2">Etiquetas</span>
           <div class="flex flex-wrap gap-1.5">
             {tagsData.tags.map((t) => (
               <button key={t.id} type="button" onClick={() => toggleTag(t.id)}

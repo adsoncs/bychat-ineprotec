@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Plus, Trash2 } from 'lucide-preact'
+import { Plus, Trash2 } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'

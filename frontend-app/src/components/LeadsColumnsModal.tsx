@@ -13,7 +13,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Eye, EyeOff, RotateCcw } from 'lucide-preact'
+import { GripVertical, Eye, EyeOff, RotateCcw } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import {
@@ -84,7 +84,7 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
             </SortableContext>
           </DndContext>
           {visible.length === 0 && (
-            <p class="text-xs text-fg-subtle text-center py-3">Nenhuma coluna visível.</p>
+            <p class="text-xs text-fg-muted text-center py-3">Nenhuma coluna visível.</p>
           )}
         </div>
 
@@ -103,7 +103,7 @@ export function LeadsColumnsModal({ open, onClose }: LeadsColumnsModalProps) {
                   <span class="flex-1">{leadColumnLabel(col, cfLabels)}</span>
                   <button
                     type="button"
-                    class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg"
+                    class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg"
                     onClick={() => toggle(col)}
                     aria-label="Mostrar"
                   >
@@ -136,7 +136,7 @@ function SortableColumn({ col, label, onToggle }: { col: LeadColumnKey; label: s
     >
       <button
         type="button"
-        class="size-4 grid place-items-center text-fg-subtle hover:text-fg cursor-grab touch-none"
+        class="size-4 grid place-items-center text-fg-muted hover:text-fg cursor-grab touch-none"
         {...(listeners as unknown as Record<string, unknown>)}
         {...(attributes as unknown as Record<string, unknown>)}
         aria-label="Arrastar"
@@ -146,7 +146,7 @@ function SortableColumn({ col, label, onToggle }: { col: LeadColumnKey; label: s
       <span class="flex-1">{label}</span>
       <button
         type="button"
-        class="size-6 rounded grid place-items-center text-fg-subtle hover:text-fg"
+        class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg"
         onClick={onToggle}
         aria-label="Ocultar"
       >

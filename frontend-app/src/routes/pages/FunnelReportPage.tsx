@@ -8,7 +8,7 @@ import { useLocation } from 'wouter-preact'
 import {
   Workflow, TrendingUp, TrendingDown, Minus, Wallet, Users, Target,
   CalendarCheck, Handshake, Trophy, DollarSign, RefreshCw, Settings2, AlertTriangle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useAuth } from '@/hooks/useAuth'
 import { presetRange, presetLabel, type RangePreset } from '@/components/ui/PeriodPicker'
 import { useFunnelReport, type Kpi, type FunnelStage, type BreakdownRow, type DailyRow } from '@/hooks/useFunnelReport'
@@ -55,11 +55,11 @@ function useReveal() {
 }
 
 function DeltaBadge({ d }: { d: number | null }) {
-  if (d === null) return <span class="text-[0.6875rem] font-medium text-fg-subtle">N/A</span>
+  if (d === null) return <span class="text-2xs font-medium text-fg-muted">N/A</span>
   const up = d > 0, flat = d === 0
   const Icon = flat ? Minus : up ? TrendingUp : TrendingDown
-  const cls = flat ? 'text-fg-subtle' : up ? 'text-success' : 'text-danger'
-  return <span class={`inline-flex items-center gap-0.5 text-[0.6875rem] font-semibold tabular-nums ${cls}`}><Icon size={11} />{fmtPct(d)}</span>
+  const cls = flat ? 'text-fg-muted' : up ? 'text-success' : 'text-danger'
+  return <span class={`inline-flex items-center gap-0.5 text-2xs font-semibold tabular-nums ${cls}`}><Icon size={11} />{fmtPct(d)}</span>
 }
 
 const KPI_ICONS: Record<string, typeof Wallet> = { investimento: Wallet, mql: Users, sql: Target, ra: CalendarCheck, rr: Handshake, fechamento: Trophy, faturamento: DollarSign }
@@ -78,13 +78,13 @@ function KpiCard({ k, label, kpiKey }: { k: Kpi; label: string; kpiKey: string }
     >
       <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <div class="flex items-center justify-between">
-        <span class="text-[0.6875rem] font-medium uppercase tracking-wider text-fg-subtle">{label}</span>
+        <span class="text-2xs font-medium uppercase tracking-wider text-fg-muted">{label}</span>
         <Icon size={14} class={semDefinicao ? 'text-warning/70' : 'text-accent/70'} />
       </div>
       {semDefinicao ? (
         <>
-          <div class="mt-2 font-mono text-2xl font-bold text-fg-subtle">—</div>
-          <div class="mt-1 text-[0.625rem] leading-snug text-warning">não configurado</div>
+          <div class="mt-2 font-mono text-2xl font-bold text-fg-muted">—</div>
+          <div class="mt-1 text-3xs leading-snug text-warning">não configurado</div>
         </>
       ) : (
         <>
@@ -93,7 +93,7 @@ function KpiCard({ k, label, kpiKey }: { k: Kpi; label: string; kpiKey: string }
             <DeltaBadge d={k.deltaPct} />
           </div>
           {k.origem && (
-            <div class="mt-1 truncate text-[0.625rem] text-fg-subtle" title={k.origem}>{k.origem}</div>
+            <div class="mt-1 truncate text-3xs text-fg-muted" title={k.origem}>{k.origem}</div>
           )}
         </>
       )}
@@ -179,7 +179,7 @@ export function FunnelReportPage() {
       {/* Header */}
       <div class="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div class="flex items-center gap-2 text-accent"><Workflow size={18} /><span class="text-[0.6875rem] font-semibold uppercase tracking-[0.2em] text-fg-subtle">Relatório</span></div>
+          <div class="flex items-center gap-2 text-accent"><Workflow size={18} /><span class="text-2xs font-semibold uppercase tracking-[0.2em] text-fg-muted">Relatório</span></div>
           <h1 class="mt-1 font-mono text-2xl font-bold tracking-tight text-fg">Funil de Vendas</h1>
           {data && <p class="mt-1 text-sm text-fg-muted">{data.period.from.split('-').reverse().join('/')} — {data.period.to.split('-').reverse().join('/')} · vs. período anterior</p>}
         </div>
@@ -225,7 +225,7 @@ export function FunnelReportPage() {
         <div ref={revealRef} class="mt-6 space-y-8">
           {/* Como o relatório foi apurado. Sem isto o número é opaco: quem lê não
               sabe se "RR = 0" é ausência de reunião ou ausência de configuração. */}
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-[0.6875rem] text-fg-muted">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-2xs text-fg-muted">
             <span>
               Leads: <strong class="text-fg">{data.apuracao.escopo === 'pago' ? 'só campanha paga' : 'todos (inclui orgânicos)'}</strong>
             </span>
@@ -262,7 +262,7 @@ export function FunnelReportPage() {
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
             {sparkDefs.map((s) => (
               <div data-reveal key={s.key as string} class="rounded-xl border border-border bg-surface-2/40 p-3">
-                <div class="mb-1 flex items-center gap-1.5"><span class="size-2 rounded-full" style={{ background: s.color }} /><span class="text-[0.625rem] font-medium uppercase tracking-wider text-fg-subtle">{s.label}</span></div>
+                <div class="mb-1 flex items-center gap-1.5"><span class="size-2 rounded-full" style={{ background: s.color }} /><span class="text-3xs font-medium uppercase tracking-wider text-fg-muted">{s.label}</span></div>
                 <Sparkline data={data.daily} accessor={(r) => Number(r[s.key] ?? 0)} color={s.color} />
               </div>
             ))}
@@ -315,11 +315,11 @@ function FunnelCascade({ stages, extra }: { stages: FunnelStage[]; extra: { cpm:
           <div key={s.key} class={`grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center ${i > 0 ? 'border-t border-border/60' : ''}`}>
             <div class="min-w-0">
               <div class="flex items-baseline justify-between gap-3">
-                <span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-fg-subtle" title={s.origem ?? undefined}>
+                <span class="text-2xs font-semibold uppercase tracking-wider text-fg-muted" title={s.origem ?? undefined}>
                   {s.label}
-                  {s.origem && <span class="ml-2 normal-case tracking-normal text-fg-subtle/70">· {s.origem}</span>}
+                  {s.origem && <span class="ml-2 normal-case tracking-normal text-fg-muted/70">· {s.origem}</span>}
                 </span>
-                <span class={`font-mono text-lg font-bold tabular-nums ${semDefinicao ? 'text-fg-subtle' : 'text-fg'}`}>
+                <span class={`font-mono text-lg font-bold tabular-nums ${semDefinicao ? 'text-fg-muted' : 'text-fg'}`}>
                   {semDefinicao ? '—' : fmtInt(s.value ?? 0)}
                 </span>
               </div>
@@ -328,8 +328,8 @@ function FunnelCascade({ stages, extra }: { stages: FunnelStage[]; extra: { cpm:
               </div>
             </div>
             <div class="flex items-center gap-4 sm:pl-6">
-              {s.rate && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.rate.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-info">{s.rate.value === null ? '—' : `${s.rate.value.toFixed(2)}%`}</div></div>}
-              {s.cost && <div class="text-right"><div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{s.cost.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-warning">{s.cost.value === null ? '—' : fmtMoney(s.cost.value)}</div></div>}
+              {s.rate && <div class="text-right"><div class="text-3xs uppercase tracking-wider text-fg-muted">{s.rate.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-info">{s.rate.value === null ? '—' : `${s.rate.value.toFixed(2)}%`}</div></div>}
+              {s.cost && <div class="text-right"><div class="text-3xs uppercase tracking-wider text-fg-muted">{s.cost.label}</div><div class="font-mono text-sm font-semibold tabular-nums text-warning">{s.cost.value === null ? '—' : fmtMoney(s.cost.value)}</div></div>}
               <DeltaBadge d={s.deltaPct} />
             </div>
           </div>
@@ -366,7 +366,7 @@ function WeekdayTable({ rows }: { rows: any[] }) {
   return (
     <div class="overflow-x-auto rounded-xl border border-border">
       <table class="w-full border-collapse text-sm">
-        <thead><tr class="bg-surface-3/40 text-left text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+        <thead><tr class="bg-surface-3/40 text-left text-3xs uppercase tracking-wider text-fg-muted">
           <th class="px-3 py-2 font-medium">Dia</th>{HEAT_COLS.map((c) => <th class="px-3 py-2 text-right font-medium">{c.label}</th>)}
         </tr></thead>
         <tbody>
@@ -386,7 +386,7 @@ function DailyTable({ rows }: { rows: DailyRow[] }) {
   return (
     <div class="max-h-[420px] overflow-auto rounded-xl border border-border">
       <table class="w-full border-collapse text-sm">
-        <thead class="sticky top-0 z-10"><tr class="bg-surface-3 text-left text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+        <thead class="sticky top-0 z-10"><tr class="bg-surface-3 text-left text-3xs uppercase tracking-wider text-fg-muted">
           <th class="px-3 py-2 font-medium">Data</th>{HEAT_COLS.map((c) => <th class="px-3 py-2 text-right font-medium">{c.label}</th>)}
         </tr></thead>
         <tbody>
@@ -416,11 +416,11 @@ const BD_COLS: { key: keyof BreakdownRow; label: string; fmt: (n: number) => str
 function BreakdownTable({ rows, dim }: { rows: BreakdownRow[]; dim: string }) {
   const maxes: Record<string, number> = {}
   for (const c of BD_COLS) if (c.heatKey) maxes[c.heatKey] = Math.max(0, ...rows.map((r) => Number(r[c.key] ?? 0)))
-  if (!rows.length) return <div class="rounded-xl border border-border bg-surface-2/40 px-4 py-6 text-center text-sm text-fg-subtle">Sem dados no período.</div>
+  if (!rows.length) return <div class="rounded-xl border border-border bg-surface-2/40 px-4 py-6 text-center text-sm text-fg-muted">Sem dados no período.</div>
   return (
     <div class="max-h-[460px] overflow-auto rounded-xl border border-border">
       <table class="w-full border-collapse text-sm">
-        <thead class="sticky top-0 z-10"><tr class="bg-surface-3 text-left text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+        <thead class="sticky top-0 z-10"><tr class="bg-surface-3 text-left text-3xs uppercase tracking-wider text-fg-muted">
           <th class="px-3 py-2 font-medium">{dim}</th>{BD_COLS.map((c) => <th class="px-3 py-2 text-right font-medium">{c.label}</th>)}
         </tr></thead>
         <tbody>

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Send, AlertCircle, CheckCircle, Plug, Trash2, ExternalLink, HelpCircle } from 'lucide-preact'
+import { Send, AlertCircle, CheckCircle, Plug, Trash2, ExternalLink, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -58,7 +58,7 @@ export function TelegramPage() {
           <CardHeader>
             <CardTitle>
               <span class="inline-flex items-center gap-2">
-                <Send size={16} class="text-fg-subtle" />
+                <Send size={16} class="text-fg-muted" />
                 @{data.botUsername}
               </span>
             </CardTitle>
@@ -171,8 +171,8 @@ export function TelegramPage() {
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{label}</div>
-      <div class={`truncate text-fg ${mono ? 'font-mono text-[0.6875rem]' : 'text-sm'}`}>{value}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted">{label}</div>
+      <div class={`truncate text-fg ${mono ? 'font-mono text-2xs' : 'text-sm'}`}>{value}</div>
     </div>
   )
 }

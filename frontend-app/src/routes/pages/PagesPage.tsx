@@ -5,7 +5,7 @@ import {
   Globe, Plus, Pencil, Trash2, Copy, ExternalLink, Eye, ListTree, BarChart3,
   LayoutTemplate, FileText, Power, PowerOff, Archive, Palette,
   Settings as SettingsIcon, Search, Code, Image as ImageIcon, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   usePages,
@@ -363,7 +363,7 @@ function TemplatePickerModal({ onClose, onCreated }: { onClose: () => void; onCr
                   <img src={t.thumbnailUrl} alt="" class="w-full aspect-video object-cover rounded mb-2" />
                 )}
                 <div class="text-sm font-medium text-fg">{t.name}</div>
-                {t.category && <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mt-0.5">{t.category}</div>}
+                {t.category && <div class="text-2xs uppercase tracking-wider text-fg-muted mt-0.5">{t.category}</div>}
                 {t.description && <div class="text-xs text-fg-muted mt-1 line-clamp-2">{t.description}</div>}
               </button>
             ))}
@@ -424,7 +424,7 @@ function ConversionsModal({ page, onClose }: { page: LandingPageItem; onClose: (
       {!isLoading && data && data.conversions.length > 0 && (
         <div class="overflow-x-auto -mx-4">
           <table class="w-full text-sm">
-            <thead class="text-fg-subtle text-[0.6875rem] uppercase tracking-wider border-b border-border">
+            <thead class="text-fg-muted text-2xs uppercase tracking-wider border-b border-border">
               <tr>
                 <th class="text-left px-4 py-2 font-medium">Lead</th>
                 <th class="text-left px-4 py-2 font-medium">Contato</th>
@@ -453,11 +453,11 @@ function ConversionRow({ c }: { c: PageConversion }) {
     <tr class="hover:bg-surface-3">
       <td class="px-4 py-2">
         <div class="text-fg truncate">{nome}</div>
-        {empresa && <div class="text-xs text-fg-subtle truncate">{empresa}</div>}
+        {empresa && <div class="text-xs text-fg-muted truncate">{empresa}</div>}
       </td>
       <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-48">{contact || '—'}</td>
       <td class="px-4 py-2 text-xs text-fg-muted truncate max-w-48">{utm || '(direto)'}</td>
-      <td class="px-4 py-2 text-xs text-fg-subtle whitespace-nowrap">{formatDateTime(c.createdAt)}</td>
+      <td class="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(c.createdAt)}</td>
     </tr>
   )
 }
@@ -466,7 +466,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <div class="text-sm text-fg tabular-nums font-medium">{value}</div>
-      <div class="text-[0.625rem] text-fg-subtle uppercase">{label}</div>
+      <div class="text-3xs text-fg-muted uppercase">{label}</div>
     </div>
   )
 }
@@ -679,7 +679,7 @@ function PageFormModal({ page, onClose }: { page: LandingPageItem | null; onClos
                 />
                 <div class="flex-1">
                   <div class="text-sm text-fg">Tracking de visitantes habilitado</div>
-                  <div class="text-xs text-fg-subtle mt-0.5">
+                  <div class="text-xs text-fg-muted mt-0.5">
                     Conta visitas, sessões, eventos e atribui leads ao tráfego que gerou. Desligue só se a página for puramente institucional.
                   </div>
                 </div>

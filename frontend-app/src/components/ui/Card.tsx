@@ -8,12 +8,16 @@ type CardProps = JSX.IntrinsicElements['div'] & {
 /**
  * Container base de superfície elevada.
  * Usado por KpiCard, listagens, painéis de detalhe.
+ *
+ * A elevação vem de `.surface-raised` (fio de luz + sombra), não de uma borda
+ * visível — ver o comentário da classe em styles/global.css. A largura de borda
+ * continua lá, então `<Card class="border-warning/40">` segue funcionando.
  */
 export function Card({ children, class: className, className: classNameAlt, ...rest }: CardProps) {
   return (
     <div
       class={cn(
-        'rounded-lg border border-border bg-surface-2 p-4',
+        'rounded-lg bg-surface-2 p-4 surface-raised',
         className,
         classNameAlt,
       )}
@@ -34,7 +38,7 @@ export function CardHeader({ children, class: className, ...rest }: CardProps) {
 
 export function CardTitle({ children, class: className, ...rest }: CardProps) {
   return (
-    <h3 class={cn('text-sm font-semibold text-fg', className)} {...rest}>
+    <h3 class={cn('text-sm font-semibold tracking-tight text-fg', className)} {...rest}>
       {children}
     </h3>
   )

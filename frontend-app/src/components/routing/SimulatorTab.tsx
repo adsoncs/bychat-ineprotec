@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Check, X as XIcon, ArrowRight, AlertTriangle } from 'lucide-preact'
+import { Check, X as XIcon, ArrowRight, AlertTriangle } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -127,7 +127,7 @@ export function SimulatorTab() {
                   >
                     <div class="flex items-center justify-between gap-2 mb-2">
                       <div class="flex items-center gap-2">
-                        <span class="text-fg-subtle tabular-nums">#{r.order + 1}</span>
+                        <span class="text-fg-muted tabular-nums">#{r.order + 1}</span>
                         <span class="font-medium">{r.name}</span>
                         {r.matched && <Badge tone="success">VENCEDORA</Badge>}
                         {r.skipped === 'disabled' && <Badge tone="neutral">Desabilitada</Badge>}
@@ -150,7 +150,7 @@ export function SimulatorTab() {
                               <code class="text-fg">
                                 {Array.isArray(c.expected) ? `[${c.expected.join(', ')}]` : JSON.stringify(c.expected ?? null)}
                               </code>
-                              <span class="text-fg-subtle ml-2">(valor: {JSON.stringify(c.fieldValue ?? null)})</span>
+                              <span class="text-fg-muted ml-2">(valor: {JSON.stringify(c.fieldValue ?? null)})</span>
                             </span>
                           </li>
                         ))}

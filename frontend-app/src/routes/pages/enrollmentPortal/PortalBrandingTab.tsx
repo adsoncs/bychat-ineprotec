@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { ImagePlus, Trash2, Save, AlertCircle } from 'lucide-preact'
+import { ImagePlus, Trash2, Save, AlertCircle } from '@/components/ui/icon-set'
 import {
   useUpdatePortalBranding,
   useUploadPortalAsset,
@@ -122,7 +122,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <div class="text-sm font-medium text-fg">Identidade visual</div>
-            <div class="text-xs text-fg-subtle mt-0.5">
+            <div class="text-xs text-fg-muted mt-0.5">
               Logo, favicon e hero são salvos imediatamente ao enviar. Demais campos exigem clicar em Salvar.
             </div>
           </div>
@@ -157,7 +157,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
       </div>
 
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Cores e tipografia</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Cores e tipografia</div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <ColorPicker
             label="Cor primária"
@@ -186,7 +186,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
       </Card>
 
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Hero (capa do portal)</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Hero (capa do portal)</div>
         <label class="flex items-center gap-2 text-sm text-fg-muted mb-3">
           <input
             type="checkbox"
@@ -225,7 +225,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
       </Card>
 
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Logo + rodapé</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Logo + rodapé</div>
         <div class="space-y-3">
           <Input
             label="Link do logo"
@@ -274,17 +274,17 @@ function AssetUploader({
 
   return (
     <Card>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">{label}</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">{label}</div>
       <div class="rounded-md border border-dashed border-border bg-surface aspect-video grid place-items-center overflow-hidden">
         {currentUrl ? (
           <img src={currentUrl} alt={label} class="max-w-full max-h-full object-contain" />
         ) : (
-          <div class="text-xs text-fg-subtle text-center px-3">
+          <div class="text-xs text-fg-muted text-center px-3">
             Nenhum {label.toLowerCase()} enviado
           </div>
         )}
       </div>
-      <div class="text-[0.6875rem] text-fg-subtle mt-1.5">{hint}</div>
+      <div class="text-2xs text-fg-muted mt-1.5">{hint}</div>
       <div class="flex gap-2 mt-2">
         <label class="flex-1">
           <input
@@ -303,8 +303,8 @@ function AssetUploader({
           <span
             class={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded text-xs cursor-pointer w-full justify-center ${
               upload.isPending
-                ? 'bg-surface-3 text-fg-subtle'
-                : 'bg-accent text-white hover:bg-accent/90'
+                ? 'bg-surface-3 text-fg-muted'
+                : 'bg-accent text-fg-on-brand hover:bg-accent/90'
             }`}
           >
             <ImagePlus size={12} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Phone, PlugZap, Users, History, Save, Loader2, Check, X } from 'lucide-preact'
+import { Phone, PlugZap, Users, History, Save, Loader2, Check, X } from '@/components/ui/icon-set'
 import {
   useVoipConfig,
   useUpdateVoipConfig,

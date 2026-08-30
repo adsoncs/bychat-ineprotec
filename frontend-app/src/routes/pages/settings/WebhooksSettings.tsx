@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Plus, Info, Pencil, Send, ScrollText, Trash2, MoreHorizontal, AlertTriangle, Copy, Check } from 'lucide-preact'
+import { Plus, Info, Pencil, Send, ScrollText, Trash2, MoreHorizontal, AlertTriangle, Copy, Check } from '@/components/ui/icon-set'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   useWebhooks,
@@ -357,14 +357,14 @@ function WebhookFormModal({
             <button
               type="button"
               onClick={selectAll}
-              class="px-2.5 py-1 rounded border border-border bg-transparent text-[0.6875rem] text-accent cursor-pointer"
+              class="px-2.5 py-1 rounded border border-border bg-transparent text-2xs text-accent cursor-pointer"
             >
               Todos
             </button>
             <button
               type="button"
               onClick={selectNone}
-              class="px-2.5 py-1 rounded border border-border bg-transparent text-[0.6875rem] text-fg-muted cursor-pointer"
+              class="px-2.5 py-1 rounded border border-border bg-transparent text-2xs text-fg-muted cursor-pointer"
             >
               Nenhum
             </button>
@@ -378,7 +378,7 @@ function WebhookFormModal({
                   onChange={() => toggleEvent(ev)}
                 />
                 <span class="flex-1 truncate">{eventLabels[ev] ?? ev}</span>
-                <span class="text-[0.625rem] text-fg-subtle font-mono">{ev}</span>
+                <span class="text-3xs text-fg-muted font-mono">{ev}</span>
               </label>
             ))}
           </div>
@@ -445,7 +445,7 @@ function WebhookLogsModal({ webhook, onClose }: { webhook: Webhook; onClose: () 
               </tbody>
             </table>
           </div>
-          <div class="text-center text-[0.6875rem] text-fg-subtle mt-2.5">
+          <div class="text-center text-2xs text-fg-muted mt-2.5">
             {logs.length} de {total} registros
           </div>
         </>
@@ -460,7 +460,7 @@ function LogRow({ log }: { log: WebhookLog }) {
   return (
     <tr>
       <td class="px-2.5 py-2">
-        <code class="px-1.5 py-0.5 rounded bg-surface text-[0.6875rem] text-fg">{log.event}</code>
+        <code class="px-1.5 py-0.5 rounded bg-surface text-2xs text-fg">{log.event}</code>
       </td>
       <td class={`px-2.5 py-2 font-semibold ${log.success ? 'text-success' : 'text-danger'}`}>
         {statusText}

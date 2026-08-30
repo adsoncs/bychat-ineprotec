@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
-import { MapPin, Plus, Pencil, Trash2, Mail, Phone } from 'lucide-preact'
+import { MapPin, Plus, Pencil, Trash2, Mail, Phone } from '@/components/ui/icon-set'
 import {
   useCampuses,
   useCreateCampus,
@@ -118,7 +118,7 @@ export function EducationalCampusesPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -134,23 +134,23 @@ export function EducationalCampusesPage() {
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-medium text-fg truncate">{c.nome}</span>
                         {c.codigo && (
-                          <code class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+                          <code class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
                             {c.codigo}
                           </code>
                         )}
                         <span
                           class={
-                            'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                            'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                             (c.active !== false
                               ? 'bg-accent text-fg-on-brand'
-                              : 'bg-surface-3 text-fg-subtle')
+                              : 'bg-surface-3 text-fg-muted')
                           }
                         >
                           {c.active !== false ? '● Ativo' : '○ Inativo'}
                         </span>
                       </div>
                       {c.unit && (
-                        <div class="text-xs text-fg-subtle mt-0.5">{c.unit.nome}</div>
+                        <div class="text-xs text-fg-muted mt-0.5">{c.unit.nome}</div>
                       )}
                       <CampusAddress c={c} />
                       <CampusContacts c={c} />
@@ -220,7 +220,7 @@ function CampusAddress({ c }: { c: Campus }) {
 function CampusContacts({ c }: { c: Campus }) {
   if (!c.telefone && !c.email) return null
   return (
-    <div class="flex flex-wrap items-center gap-3 text-xs text-fg-subtle mt-1">
+    <div class="flex flex-wrap items-center gap-3 text-xs text-fg-muted mt-1">
       {c.telefone && (
         <span class="inline-flex items-center gap-1">
           <Phone size={11} /> {c.telefone}

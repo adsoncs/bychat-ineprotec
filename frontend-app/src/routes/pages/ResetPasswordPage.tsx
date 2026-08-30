@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { KeyRound, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-preact'
+import { KeyRound, AlertCircle, CheckCircle2, ArrowLeft } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { api, ApiError } from '@/lib/apiClient'

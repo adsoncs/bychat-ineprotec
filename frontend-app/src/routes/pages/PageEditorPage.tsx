@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, Save, ExternalLink, Monitor, Tablet, Smartphone } from 'lucide-preact'
+import { ArrowLeft, Save, ExternalLink, Monitor, Tablet, Smartphone } from '@/components/ui/icon-set'
 import {
   usePage,
   useUpdatePageSections,
@@ -165,7 +165,7 @@ export function PageEditorPage({ params }: { params: { id: string } }) {
           <div class="text-sm font-semibold text-fg truncate">
             {data?.title ?? 'Landing Page'}{dirty ? ' •' : ''}
           </div>
-          <div class="text-[0.6875rem] text-fg-muted truncate">/p/{data?.slug ?? ''}</div>
+          <div class="text-2xs text-fg-muted truncate">/p/{data?.slug ?? ''}</div>
         </div>
 
         {/* Toggle de dispositivo */}

@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock, Info, Trophy, Users } from 'lucide-preact'
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock, Info, Trophy, Users } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -118,7 +118,7 @@ function KpisBlock({ block }: { block: HomeBlock }) {
           return <WidgetRenderer key={widget.id} widget={widget} />
         })}
       </div>
-      <p class="mt-2 text-[11px] text-fg-muted">
+      <p class="mt-2 text-2xs text-fg-muted">
         Números do período de {block.config.period || 30} dias, limitados ao que o seu acesso permite ver.
       </p>
     </div>

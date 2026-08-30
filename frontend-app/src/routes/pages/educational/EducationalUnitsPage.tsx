@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Building2, Plus, Pencil, Trash2 } from 'lucide-preact'
+import { Building2, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useEducationalUnits,
   useCreateEducationalUnit,
@@ -98,7 +98,7 @@ export function EducationalUnitsPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -114,25 +114,25 @@ export function EducationalUnitsPage() {
                       <div class="flex items-center gap-2 flex-wrap">
                         <span class="text-sm font-medium text-fg truncate">{u.nome}</span>
                         {u.codigo && (
-                          <span class="font-mono text-[0.6875rem] text-fg-subtle">{u.codigo}</span>
+                          <span class="font-mono text-2xs text-fg-muted">{u.codigo}</span>
                         )}
                         <span
                           class={
-                            'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                            'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                             (u.active !== false
                               ? 'bg-accent text-fg-on-brand'
-                              : 'bg-surface-3 text-fg-subtle')
+                              : 'bg-surface-3 text-fg-muted')
                           }
                         >
                           {u.active !== false ? '● Ativa' : '○ Inativa'}
                         </span>
                       </div>
                       {u.descricao && (
-                        <div class="text-xs text-fg-subtle truncate mt-0.5">{u.descricao}</div>
+                        <div class="text-xs text-fg-muted truncate mt-0.5">{u.descricao}</div>
                       )}
                     </div>
                     {u._count && (
-                      <div class="hidden sm:flex items-center gap-3 text-[0.6875rem] text-fg-muted tabular-nums shrink-0">
+                      <div class="hidden sm:flex items-center gap-3 text-2xs text-fg-muted tabular-nums shrink-0">
                         <EduCountPill label="Campi" n={u._count.campuses} />
                         <EduCountPill label="Cursos" n={u._count.courses} />
                         <EduCountPill label="Ofertas" n={u._count.offerings} />

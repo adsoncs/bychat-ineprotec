@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { RefreshCw, ExternalLink } from 'lucide-preact'
+import { RefreshCw, ExternalLink } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Badge } from '@/components/ui/Badge'
@@ -70,7 +70,7 @@ export function PaymentMethodsTab() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-subtle border-b border-border">
+                <tr class="text-left text-xs text-fg-muted border-b border-border">
                   <th class="py-2 pr-3">Inscrição</th>
                   <th class="py-2 pr-3">Lead</th>
                   <th class="py-2 pr-3">Método</th>
@@ -83,7 +83,7 @@ export function PaymentMethodsTab() {
               <tbody>
                 {(data?.items ?? []).map((m) => <MethodRow key={m.id} m={m} />)}
                 {(data?.items ?? []).length === 0 && (
-                  <tr><td colspan={7} class="py-6 text-center text-xs text-fg-subtle">Nenhuma cobrança encontrada</td></tr>
+                  <tr><td colspan={7} class="py-6 text-center text-xs text-fg-muted">Nenhuma cobrança encontrada</td></tr>
                 )}
               </tbody>
             </table>
@@ -136,20 +136,20 @@ function MethodRow({ m }: { m: PaymentMethodRow }) {
           <span class="text-fg-muted font-mono text-xs">{m.registration?.candidateCode ?? '—'}</span>
         )}
         {m.registration?.portal && (
-          <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[200px]" title={m.registration.portal.nome}>
+          <div class="text-2xs text-fg-muted truncate max-w-[200px]" title={m.registration.portal.nome}>
             {m.registration.portal.nome}
           </div>
         )}
       </td>
       <td class="py-2 pr-3 text-xs">
         <div class="text-fg truncate max-w-[180px]">{m.registration?.lead?.nome ?? '—'}</div>
-        <div class="text-fg-subtle truncate max-w-[180px]">{m.registration?.lead?.email ?? '—'}</div>
+        <div class="text-fg-muted truncate max-w-[180px]">{m.registration?.lead?.email ?? '—'}</div>
       </td>
       <td class="py-2 pr-3">
         <div class="text-sm text-fg">{methodFullLabel}</div>
-        <div class="text-[0.6875rem] text-fg-subtle">via {providerName}</div>
+        <div class="text-2xs text-fg-muted">via {providerName}</div>
         {(m.cardBrand || m.cardLastDigits) && (
-          <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+          <div class="text-2xs text-fg-muted mt-0.5">
             {m.cardBrand} •••• {m.cardLastDigits}
           </div>
         )}
@@ -158,12 +158,12 @@ function MethodRow({ m }: { m: PaymentMethodRow }) {
       <td class="py-2 pr-3">
         <Badge tone={paymentStatusTone(m.status)}>{paymentStatusLabel(m.status)}</Badge>
         {m.lastErrorMessage && (
-          <div class="text-[0.6875rem] text-danger mt-1 italic max-w-[220px] truncate" title={m.lastErrorMessage}>
+          <div class="text-2xs text-danger mt-1 italic max-w-[220px] truncate" title={m.lastErrorMessage}>
             {m.lastErrorMessage}
           </div>
         )}
       </td>
-      <td class="py-2 pr-3 text-xs text-fg-subtle">{formatRelative(m.createdAt)}</td>
+      <td class="py-2 pr-3 text-xs text-fg-muted">{formatRelative(m.createdAt)}</td>
       <td class="py-2 pr-3">
         <div class="flex items-center gap-1">
           {m.boletoPdfUrl && (
@@ -171,7 +171,7 @@ function MethodRow({ m }: { m: PaymentMethodRow }) {
               href={m.boletoPdfUrl}
               target="_blank"
               rel="noopener noreferrer"
-              class="text-fg-subtle hover:text-accent"
+              class="text-fg-muted hover:text-accent"
               title="Baixar boleto"
             >
               <ExternalLink size={12} />

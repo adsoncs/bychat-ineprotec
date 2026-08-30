@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock } from 'lucide-preact'
+import { Plus, Pencil, Trash2, History, Users as UsersIcon, UserPlus, Crown, X as XIcon, ChevronDown, ArrowRight, HelpCircle, CalendarClock } from '@/components/ui/icon-set'
 import { AvailabilityModal } from '@/components/scheduling/AvailabilityModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
@@ -64,7 +64,7 @@ function PresenceDot({ lastSeenAt }: { lastSeenAt: string | null }) {
   return (
     <span
       class="inline-block size-2 rounded-full mr-1.5 align-middle"
-      style={{ background: online ? 'var(--color-success)' : 'var(--color-fg-subtle)' }}
+      style={{ background: online ? 'var(--color-success)' : 'var(--color-fg-muted)' }}
       title={online ? 'Online' : 'Offline'}
       aria-label={online ? 'Online' : 'Offline'}
     />
@@ -121,12 +121,12 @@ export function UsersPage() {
         <Card class="p-0 overflow-hidden">
           <div class="px-4 py-3 border-b border-border flex items-center gap-2">
             <span class="text-sm font-semibold text-fg">Todos os usuários</span>
-            <span class="text-xs text-fg-subtle">·</span>
-            <span class="text-xs text-fg-subtle">{users.length} registros</span>
+            <span class="text-xs text-fg-muted">·</span>
+            <span class="text-xs text-fg-muted">{users.length} registros</span>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-4 py-2 font-medium">Usuário</th>
                   <th class="text-left px-4 py-2 font-medium">Perfil</th>
@@ -142,7 +142,7 @@ export function UsersPage() {
                     <td class="px-4 py-2">
                       <PresenceDot lastSeenAt={u.lastSeenAt} />
                       <strong class="text-fg font-semibold">{u.name ?? u.email}</strong>
-                      {u.name && <span class="text-fg-subtle text-[0.6875rem] ml-1">· {u.email}</span>}
+                      {u.name && <span class="text-fg-muted text-2xs ml-1">· {u.email}</span>}
                     </td>
                     <td class="px-4 py-2">
                       <Badge tone={ROLE_TONES[u.role]}>{ROLE_LABELS[u.role]}</Badge>
@@ -680,7 +680,7 @@ function UserAuditModal({ user, onClose }: { user: AdminUser; onClose: () => voi
       {isLoading && <Skeleton class="h-32 w-full" />}
       {!isLoading && audits.length === 0 && (
         <div class="text-center py-10">
-          <History size={48} class="mx-auto text-fg-subtle opacity-40 mb-3" />
+          <History size={48} class="mx-auto text-fg-muted opacity-40 mb-3" />
           <div class="text-sm font-medium text-fg">Nenhum registro ainda</div>
           <div class="text-xs text-fg-muted mt-1">O histórico começa a ser registrado a partir de agora.</div>
         </div>
@@ -690,7 +690,7 @@ function UserAuditModal({ user, onClose }: { user: AdminUser; onClose: () => voi
           <div class="max-h-[450px] overflow-y-auto pr-1 space-y-2.5">
             {audits.map((a) => <AuditCard key={a.id} entry={a} />)}
           </div>
-          <div class="text-center text-[0.6875rem] text-fg-subtle mt-2">
+          <div class="text-center text-2xs text-fg-muted mt-2">
             {audits.length} registro{audits.length > 1 ? 's' : ''}
           </div>
         </>
@@ -729,17 +729,17 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div class="flex items-center gap-2 flex-wrap">
           <span
-            class="px-2.5 py-0.5 rounded-full text-[0.6875rem] font-semibold"
+            class="px-2.5 py-0.5 rounded-full text-2xs font-semibold"
             style={{ background: tone.bg, color: tone.color }}
           >
             {label}
           </span>
-          <span class="text-[0.8125rem] font-medium text-fg">{entry.actorName ?? 'Sistema'}</span>
+          <span class="text-xs font-medium text-fg">{entry.actorName ?? 'Sistema'}</span>
           {!entry.viewerIsActor && (
-            <span class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">recebida</span>
+            <span class="text-3xs uppercase tracking-wider text-fg-muted">recebida</span>
           )}
         </div>
-        <span class="text-[0.6875rem] text-fg-subtle whitespace-nowrap">{date}</span>
+        <span class="text-2xs text-fg-muted whitespace-nowrap">{date}</span>
       </div>
 
       {entry.targetLabel && (
@@ -756,16 +756,16 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
             const fieldLabel = AUDIT_FIELD_LABELS[k] ?? k
             return (
               <div key={k} class="text-xs text-fg flex items-center gap-1.5 flex-wrap">
-                <span class="text-fg-subtle min-w-[3.25rem]">{fieldLabel}:</span>
+                <span class="text-fg-muted min-w-[3.25rem]">{fieldLabel}:</span>
                 <span
-                  class="px-1.5 py-0.5 rounded text-[0.6875rem] line-through"
+                  class="px-1.5 py-0.5 rounded text-2xs line-through"
                   style={{ background: 'color-mix(in oklch, var(--color-danger) 14%, transparent)', color: 'var(--color-danger)' }}
                 >
                   {formatAuditValue(k, obj.from)}
                 </span>
-                <ArrowRight size={12} class="text-fg-subtle" />
+                <ArrowRight size={12} class="text-fg-muted" />
                 <span
-                  class="px-1.5 py-0.5 rounded text-[0.6875rem]"
+                  class="px-1.5 py-0.5 rounded text-2xs"
                   style={{ background: 'color-mix(in oklch, var(--color-success) 14%, transparent)', color: 'var(--color-success)' }}
                 >
                   {formatAuditValue(k, obj.to)}
@@ -781,7 +781,7 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
         <div class="mt-1.5 flex flex-col gap-0.5">
           {plainKeys.map((k) => (
             <div key={k} class="text-xs text-fg-muted">
-              <span class="text-fg-subtle">{AUDIT_FIELD_LABELS[k] ?? k}:</span>{' '}
+              <span class="text-fg-muted">{AUDIT_FIELD_LABELS[k] ?? k}:</span>{' '}
               <span class="text-fg">{formatGenericValue(changes[k])}</span>
             </div>
           ))}
@@ -789,7 +789,7 @@ function AuditCard({ entry }: { entry: UserAuditEntry }) {
       )}
 
       {entry.ipAddress && (
-        <div class="text-[0.625rem] text-fg-subtle mt-1.5">IP: {entry.ipAddress}</div>
+        <div class="text-3xs text-fg-muted mt-1.5">IP: {entry.ipAddress}</div>
       )}
     </div>
   )

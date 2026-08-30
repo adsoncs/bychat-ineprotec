@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import {
   Plus, Info, ExternalLink, Pencil, ScrollText, Trash2, MoreHorizontal,
   AlertTriangle, Copy, Check,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   useApiKeys,
@@ -229,9 +229,9 @@ function PermissionsPicker({
   return (
     <div>
       <div class="flex gap-1 mb-2">
-        <button type="button" onClick={all} class="px-2.5 py-1 rounded border border-border bg-transparent text-[0.6875rem] text-accent cursor-pointer">Todas</button>
-        <button type="button" onClick={none} class="px-2.5 py-1 rounded border border-border bg-transparent text-[0.6875rem] text-fg-muted cursor-pointer">Nenhuma</button>
-        <button type="button" onClick={readOnly} class="px-2.5 py-1 rounded border border-border bg-transparent text-[0.6875rem] text-fg-muted cursor-pointer">Somente leitura</button>
+        <button type="button" onClick={all} class="px-2.5 py-1 rounded border border-border bg-transparent text-2xs text-accent cursor-pointer">Todas</button>
+        <button type="button" onClick={none} class="px-2.5 py-1 rounded border border-border bg-transparent text-2xs text-fg-muted cursor-pointer">Nenhuma</button>
+        <button type="button" onClick={readOnly} class="px-2.5 py-1 rounded border border-border bg-transparent text-2xs text-fg-muted cursor-pointer">Somente leitura</button>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 bg-surface border border-border rounded-md p-2.5">
         {ALL_PERMS.map((p) => (
@@ -357,7 +357,7 @@ function ApiKeyFormModal(props: {
           )}
           <div>
             <label class="text-xs font-medium text-fg-muted block mb-1">
-              Expiração <span class="font-normal text-fg-subtle">(opcional)</span>
+              Expiração <span class="font-normal text-fg-muted">(opcional)</span>
             </label>
             <input
               type="date"
@@ -434,7 +434,7 @@ function ApiKeyLogsModal({ apiKey, onClose }: { apiKey: ApiKey; onClose: () => v
               </tbody>
             </table>
           </div>
-          <div class="text-center text-[0.6875rem] text-fg-subtle mt-2.5">
+          <div class="text-center text-2xs text-fg-muted mt-2.5">
             Exibindo {logs.length} de {total} registros
           </div>
         </>
@@ -450,14 +450,14 @@ function ApiKeyLogRow({ log }: { log: ApiKeyLog }) {
   return (
     <tr>
       <td class="px-2.5 py-2">
-        <code class="px-1.5 py-0.5 rounded bg-surface text-[0.6875rem] font-semibold text-fg">{log.method}</code>
+        <code class="px-1.5 py-0.5 rounded bg-surface text-2xs font-semibold text-fg">{log.method}</code>
       </td>
       <td class="px-2.5 py-2 text-fg-muted max-w-[12.5rem] overflow-hidden text-ellipsis whitespace-nowrap" title={log.path}>
         {log.path}
       </td>
       <td class={`px-2.5 py-2 font-semibold ${statusColor}`}>{log.statusCode}</td>
       <td class="px-2.5 py-2 text-fg-muted">{log.duration}ms</td>
-      <td class="px-2.5 py-2 text-fg-muted text-[0.6875rem]">{log.ip}</td>
+      <td class="px-2.5 py-2 text-fg-muted text-2xs">{log.ip}</td>
       <td class="px-2.5 py-2 text-fg-muted whitespace-nowrap">{formatLogDateTime(log.createdAt)}</td>
     </tr>
   )

@@ -1,8 +1,8 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { useLocation } from 'wouter-preact'
 import { isItemActive, type SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
-import { SidebarIcon } from './SidebarIcon'
-import { cn } from '@/lib/cn'
+import { Icon } from '@/components/ui/Icon'
+import { IconTile } from '@/components/ui/IconTile'
 
 interface SidebarItemProps {
   item: SidebarItemType
@@ -33,7 +33,10 @@ export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
       aria-label={iconOnly ? item.label : undefined}
       aria-current={isActive ? 'page' : undefined}
     >
-      <SidebarIcon name={item.icon} size={18} />
+      {/* O ícone desceu de 20px para 14px e ganhou uma pastilha de 22px em
+        * volta: a área ocupada é praticamente a mesma, mas agora existe um
+        * elemento que pode acender quando o item é o atual (ver shell.css). */}
+      <IconTile><Icon name={item.icon} size="sm" /></IconTile>
       {/* No rail o rótulo desaparece por opacidade (ver shell.css) em vez de
         * `sr-only`: com `sr-only` ele saía do fluxo no mesmo instante e o texto
         * piscava fora durante a animação. Quem lê tela usa o aria-label do link
@@ -57,7 +60,7 @@ export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
           <Tooltip.Content
             side="right"
             sideOffset={8}
-            class="z-tooltip rounded-md bg-surface-3 text-fg px-2 py-1 text-xs shadow-md border border-border"
+            class="z-tooltip rounded-md bg-surface-3 text-fg px-2 py-1 text-xs shadow-md border border-border surface-raised"
             style={{ zIndex: 'var(--z-tooltip)' }}
           >
             {item.label}

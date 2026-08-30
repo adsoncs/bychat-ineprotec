@@ -12,7 +12,7 @@ import {
   Activity,
   TriangleAlert,
   HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { useWebhooks, useDeleteWebhook } from '@/hooks/useWebhooks'
 import { useMakeAppDefinition } from '@/hooks/useMake'
@@ -160,11 +160,11 @@ export function MakePage() {
               Configurações &gt; API Keys
             </a>{' '}
             com as permissões{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">leads:read</code>,{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">leads:write</code>,{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">tags:read</code>,{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">tags:write</code>,{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>.
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">leads:read</code>,{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">leads:write</code>,{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">tags:read</code>,{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">tags:write</code>,{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>.
           </li>
           <li>
             Acesse o{' '}
@@ -187,17 +187,17 @@ export function MakePage() {
             <ul class="list-disc pl-5 mt-1 space-y-0.5">
               <li>
                 <strong class="text-fg">URL:</strong>{' '}
-                <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">{origin}</code>
+                <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">{origin}</code>
               </li>
               <li>
                 <strong class="text-fg">API Key:</strong> a chave gerada no passo 1 (começa com{' '}
-                <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">byc_</code>).
+                <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">byc_</code>).
               </li>
             </ul>
           </li>
           <li>
             O Make valida via{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">GET /api/make/ping</code>
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">GET /api/make/ping</code>
             . Pronto.
           </li>
         </ol>
@@ -236,7 +236,7 @@ export function MakePage() {
         <CardHeader>
           <CardTitle>
             Hooks registrados pelo Make ·{' '}
-            <span class="text-fg-subtle font-normal">{makeHooks.length} ativos</span>
+            <span class="text-fg-muted font-normal">{makeHooks.length} ativos</span>
           </CardTitle>
         </CardHeader>
 
@@ -262,7 +262,7 @@ export function MakePage() {
         {!isLoading && makeHooks.length > 0 && (
           <div class="overflow-x-auto -mx-4">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+              <thead class="bg-surface-3 text-3xs uppercase tracking-wider text-fg-muted">
                 <tr>
                   <th class="px-3 py-2 text-left font-medium">Eventos</th>
                   <th class="px-3 py-2 text-left font-medium">URL</th>
@@ -285,7 +285,7 @@ export function MakePage() {
                       </div>
                     </td>
                     <td
-                      class="px-3 py-1.5 font-mono text-[0.6875rem] text-fg-muted truncate max-w-[20rem]"
+                      class="px-3 py-1.5 font-mono text-2xs text-fg-muted truncate max-w-[20rem]"
                       title={h.url}
                     >
                       {h.url}
@@ -318,7 +318,7 @@ export function MakePage() {
         )}
         <div class="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 flex items-start gap-2">
           <TriangleAlert size={14} class="text-warning shrink-0 mt-0.5" />
-          <p class="text-[0.6875rem] text-fg leading-relaxed">
+          <p class="text-2xs text-fg leading-relaxed">
             <strong>Dica:</strong> os hooks desta lista são criados automaticamente pelo Make
             quando você adiciona um trigger num cenário. Não edite aqui manualmente — para
             webhooks de outros sistemas use{' '}
@@ -374,17 +374,17 @@ export function MakePage() {
               Baixe o pacote oficial e use <strong class="text-fg">Import app definition</strong> para colar tudo de uma vez,
               ou cole JSON por JSON nas abas:
               <ul class="list-disc pl-5 mt-1 space-y-0.5">
-                <li><strong class="text-fg">General</strong> → <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">app.iml.json</code></li>
-                <li><strong class="text-fg">Base</strong> → <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">base.iml.json</code></li>
-                <li><strong class="text-fg">Connections</strong> → <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">connection.iml.json</code> (tipo "API Key auth")</li>
-                <li><strong class="text-fg">Modules → Triggers</strong> → JSONs em <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">triggers/</code></li>
-                <li><strong class="text-fg">Modules → Actions</strong> → JSONs em <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">actions/</code></li>
-                <li><strong class="text-fg">Modules → Searches</strong> → <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">find-lead.iml.json</code></li>
+                <li><strong class="text-fg">General</strong> → <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">app.iml.json</code></li>
+                <li><strong class="text-fg">Base</strong> → <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">base.iml.json</code></li>
+                <li><strong class="text-fg">Connections</strong> → <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">connection.iml.json</code> (tipo "API Key auth")</li>
+                <li><strong class="text-fg">Modules → Triggers</strong> → JSONs em <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">triggers/</code></li>
+                <li><strong class="text-fg">Modules → Actions</strong> → JSONs em <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">actions/</code></li>
+                <li><strong class="text-fg">Modules → Searches</strong> → <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">find-lead.iml.json</code></li>
               </ul>
             </li>
             <li>
               Em <strong class="text-fg">Collaborators → Invite</strong>, o Make gera um link estilo{' '}
-              <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">make.com/en/hq/apps/bychat-beyond?invite=…</code>.
+              <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">make.com/en/hq/apps/bychat-beyond?invite=…</code>.
             </li>
             <li>
               Cada cliente que abrir esse link vê o app na lista. Ao criar cenário, ele só preenche
@@ -414,7 +414,7 @@ export function MakePage() {
         <details class="mt-4 rounded-md border border-border bg-surface">
           <summary class="cursor-pointer px-3 py-2 text-xs font-semibold text-fg flex items-center justify-between">
             <span>Requisitos para publicação pública (Modo 2 — Marketplace)</span>
-            <span class="text-fg-subtle font-normal text-[0.6875rem]">expandir</span>
+            <span class="text-fg-muted font-normal text-2xs">expandir</span>
           </summary>
           <ul class="px-5 py-3 list-disc space-y-1 text-xs text-fg-muted leading-relaxed">
             <li>App testado com 5+ cenários reais por ≥1 semana</li>
@@ -500,9 +500,9 @@ function ApiKeyStatusBanner({
           <div class="flex-1 min-w-0 text-xs text-fg leading-relaxed">
             <strong class="text-fg">Nenhuma API Key criada.</strong>{' '}
             O Make precisa de uma API Key com permissões{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">leads:*</code>,{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">tags:*</code> e{' '}
-            <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>.
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">leads:*</code>,{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">tags:*</code> e{' '}
+            <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>.
             <a href="/app/settings#api-keys" class="ml-1 text-accent hover:underline inline-flex items-center gap-0.5">
               <KeyRound size={10} /> Criar API Key
             </a>
@@ -517,11 +517,11 @@ function ApiKeyStatusBanner({
         <AlertTriangle size={14} class="text-warning shrink-0 mt-0.5" />
         <div class="flex-1 min-w-0 text-xs text-fg leading-relaxed">
           Há {totalCount} API Key(s), mas <strong class="text-fg">nenhuma com todas as permissões</strong> que o Make exige
-          (<code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">leads:read</code>,{' '}
-          <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">leads:write</code>,{' '}
-          <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">tags:read</code>,{' '}
-          <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">tags:write</code>,{' '}
-          <code class="text-[0.6875rem] bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>).
+          (<code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">leads:read</code>,{' '}
+          <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">leads:write</code>,{' '}
+          <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">tags:read</code>,{' '}
+          <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">tags:write</code>,{' '}
+          <code class="text-2xs bg-surface-3 px-1 py-0.5 rounded">webhooks:manage</code>).
           Edite uma key existente ou crie uma nova:
           <a href="/app/settings#api-keys" class="ml-1 text-accent hover:underline inline-flex items-center gap-0.5">
             <KeyRound size={10} /> API Keys <ExternalLink size={10} />
@@ -541,7 +541,7 @@ function KpiCell({
     tone === 'danger' ? 'text-danger' : 'text-fg'
   return (
     <div class="rounded-md border border-border bg-surface px-3 py-2">
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle flex items-center gap-1">
+      <div class="text-3xs uppercase tracking-wider text-fg-muted flex items-center gap-1">
         <Activity size={10} class="opacity-60" />
         {label}
       </div>
@@ -566,10 +566,10 @@ function ModeCard({
         ? 'border-info/30 bg-info/5'
         : 'border-border bg-surface'
   const titleColor =
-    tone === 'accent' ? 'text-accent' : tone === 'info' ? 'text-info' : 'text-fg-subtle'
+    tone === 'accent' ? 'text-accent' : tone === 'info' ? 'text-info' : 'text-fg-muted'
   return (
     <div class={`rounded-md border p-3 ${ring}`}>
-      <div class={`text-[0.6875rem] uppercase tracking-wider font-semibold mb-1 ${titleColor}`}>
+      <div class={`text-2xs uppercase tracking-wider font-semibold mb-1 ${titleColor}`}>
         {title}
       </div>
       <div class="text-xs text-fg-muted leading-relaxed">{text}</div>
@@ -634,13 +634,13 @@ function JsonSection({ title, data }: { title: string; data: unknown }) {
     <details class="rounded-md border border-border bg-surface">
       <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-fg flex items-center justify-between">
         <span>{title}</span>
-        <span class="text-fg-subtle">{json.length.toLocaleString()} chars</span>
+        <span class="text-fg-muted">{json.length.toLocaleString()} chars</span>
       </summary>
       <div class="p-2 space-y-2">
         <Button variant="ghost" size="sm" onClick={copy}>
           {copied ? 'Copiado!' : 'Copiar JSON'}
         </Button>
-        <pre class="bg-surface-3 p-3 rounded-md text-[0.6875rem] font-mono text-fg overflow-x-auto max-h-96">
+        <pre class="bg-surface-3 p-3 rounded-md text-2xs font-mono text-fg overflow-x-auto max-h-96">
           {json}
         </pre>
       </div>

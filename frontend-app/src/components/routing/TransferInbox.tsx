@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { ArrowRightLeft, Check, X as XIcon } from 'lucide-preact'
+import { ArrowRightLeft, Check, X as XIcon } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 import { ApiError } from '@/lib/apiClient'
@@ -29,7 +29,7 @@ export function TransferInbox() {
         >
           <ArrowRightLeft size={18} />
           {count > 0 && (
-            <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center">
+            <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-fg-on-brand text-3xs font-bold flex items-center justify-center">
               {count > 99 ? '99+' : count}
             </span>
           )}
@@ -116,7 +116,7 @@ function TransferRow({ request }: { request: TransferRequest }) {
           {request.reason && (
             <div class="text-xs text-fg mt-1 italic">"{request.reason}"</div>
           )}
-          <div class="text-[10px] text-fg-subtle mt-1">
+          <div class="text-3xs text-fg-muted mt-1">
             Solicitado {requested.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
             {' · '}
             Expira em {hoursLeft}h

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'preact/hooks'
-import { Globe, Plus, Pencil, Trash2, Copy, Check, Info } from 'lucide-preact'
+import { Globe, Plus, Pencil, Trash2, Copy, Check, Info } from '@/components/ui/icon-set'
 import {
   useSettings, useCreateDns, useUpdateDns, useDeleteDns,
   type DnsRecord,
@@ -122,10 +122,10 @@ export function DnsSettings() {
         <CardHeader>
           <CardTitle>
             <span class="inline-flex items-center gap-2">
-              <Globe size={16} class="text-fg-subtle" /> Registros publicáveis
+              <Globe size={16} class="text-fg-muted" /> Registros publicáveis
             </span>
           </CardTitle>
-          <span class="text-xs text-fg-subtle">{entries.length} registro(s)</span>
+          <span class="text-xs text-fg-muted">{entries.length} registro(s)</span>
         </CardHeader>
 
         {isLoading && <Skeleton class="h-32 w-full" />}
@@ -189,12 +189,12 @@ function DnsCard({
   return (
     <div class="rounded-md border border-border bg-surface overflow-hidden">
       <div class="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span class={`inline-flex items-center justify-center rounded px-2 py-0.5 text-[0.625rem] font-bold tracking-wide ${tone?.bg} ${tone?.fg}`}>
+        <span class={`inline-flex items-center justify-center rounded px-2 py-0.5 text-3xs font-bold tracking-wide ${tone?.bg} ${tone?.fg}`}>
           {type}
         </span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium text-fg truncate">{entry.label}</div>
-          {desc && <div class="text-[0.6875rem] text-fg-subtle truncate">{desc}</div>}
+          {desc && <div class="text-2xs text-fg-muted truncate">{desc}</div>}
         </div>
         <div class="flex gap-1.5 shrink-0 flex-wrap">
           <Button variant="secondary" size="sm" onClick={onEdit} aria-label="Editar registro DNS" title="Editar">
@@ -237,7 +237,7 @@ function CopyField({ label, value, mono }: { label: string; value: string; mono?
   const display = value !== '' ? value : '—'
   return (
     <div>
-      <div class="text-[0.625rem] uppercase tracking-wide text-fg-subtle font-semibold mb-0.5">{label}</div>
+      <div class="text-3xs uppercase tracking-wide text-fg-muted font-semibold mb-0.5">{label}</div>
       <div class="flex items-stretch gap-1.5">
         <code class={`flex-1 min-w-0 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-fg break-all ${mono ? 'font-mono' : ''}`}>
           {display}
@@ -361,7 +361,7 @@ function DnsFormModal({ entry, onClose }: { entry: DnsEntry | null; onClose: () 
               value={label}
               onInput={(e) => setLabel((e.target as HTMLInputElement).value)}
               placeholder="Ex: SPF (TXT)"
-              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
             />
           </div>
         </div>
@@ -384,13 +384,13 @@ function DnsFormModal({ entry, onClose }: { entry: DnsEntry | null; onClose: () 
         </div>
 
         <div class="rounded-md border border-border bg-surface-2 p-2.5">
-          <div class="text-[0.6875rem] font-medium text-fg-muted mb-1.5">Modelos rápidos</div>
+          <div class="text-2xs font-medium text-fg-muted mb-1.5">Modelos rápidos</div>
           <div class="flex flex-wrap gap-1.5">
             {DNS_TEMPLATES.map((tpl) => (
               <button
                 key={tpl.id}
                 type="button"
-                class="px-2 py-1 rounded-md border border-border bg-surface text-[0.6875rem] hover:bg-surface-3 hover:border-accent text-fg-muted hover:text-fg"
+                class="px-2 py-1 rounded-md border border-border bg-surface text-2xs hover:bg-surface-3 hover:border-accent text-fg-muted hover:text-fg"
                 title={tpl.description}
                 onClick={() => applyTemplate(tpl)}
               >

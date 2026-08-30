@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { FileCheck2, Plus, Pencil, Trash2, Copy, Clock, AlertCircle, Settings2 } from 'lucide-preact'
+import { FileCheck2, Plus, Pencil, Trash2, Copy, Clock, AlertCircle, Settings2 } from '@/components/ui/icon-set'
 import {
   useSelectionProcesses,
   useCreateSelectionProcess,
@@ -172,7 +172,7 @@ export function EducationalSelectionProcessesPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -241,16 +241,16 @@ function ProcessCard({
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate hover:text-accent">{p.nome}</span>
             {p.codigo && (
-              <code class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+              <code class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
                 {p.codigo}
               </code>
             )}
             <span
               class={
-                'text-[0.625rem] font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
+                'text-3xs font-semibold px-2 py-0.5 rounded-full tabular-nums ' +
                 (p.active !== false
                   ? 'bg-accent text-fg-on-brand'
-                  : 'bg-surface-3 text-fg-subtle')
+                  : 'bg-surface-3 text-fg-muted')
               }
             >
               {p.active !== false ? '● Ativo' : '○ Inativo'}
@@ -259,7 +259,7 @@ function ProcessCard({
 
           {p.slug && (
             <div class="flex items-center gap-1.5 mt-1">
-              <code class="bg-surface-3 text-fg-muted px-1.5 py-0.5 rounded text-[0.625rem] font-mono truncate">
+              <code class="bg-surface-3 text-fg-muted px-1.5 py-0.5 rounded text-3xs font-mono truncate">
                 {p.slug}
               </code>
               <button
@@ -276,19 +276,19 @@ function ProcessCard({
 
           <div class="flex items-center gap-2 mt-1.5 flex-wrap">
             {p.entryMode ? (
-              <span class="bg-accent/15 text-accent text-[0.6875rem] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+              <span class="bg-accent/15 text-accent text-2xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                 {p.entryMode.icon && <span>{p.entryMode.icon}</span>}
                 {p.entryMode.name}
               </span>
             ) : (
-              <span class="bg-danger/15 text-danger text-[0.6875rem] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+              <span class="bg-danger/15 text-danger text-2xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                 <AlertCircle size={10} /> Sem modo
               </span>
             )}
             {phase && <PhasePill phase={phase} />}
           </div>
 
-          <div class="text-xs text-fg-subtle mt-1.5 flex flex-wrap gap-x-2">
+          <div class="text-xs text-fg-muted mt-1.5 flex flex-wrap gap-x-2">
             {p.periodoLetivo && <span>{p.periodoLetivo}</span>}
             {p.unit?.nome && <span>· {p.unit.nome}</span>}
             {p.level?.nome && <span>· {p.level.nome}</span>}
@@ -296,27 +296,27 @@ function ProcessCard({
 
           <DateRanges p={p} />
 
-          <div class="flex flex-wrap items-center gap-3 mt-2 text-[0.6875rem] tabular-nums">
+          <div class="flex flex-wrap items-center gap-3 mt-2 text-2xs tabular-nums">
             {p.taxaInscricao != null && (
               <span>
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Taxa</span>
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Taxa</span>
                 <span class="text-fg font-semibold">{fmtBrl(p.taxaInscricao)}</span>
               </span>
             )}
             {p.notaCorte != null && (
               <span>
-                <span class="text-fg-subtle uppercase tracking-wider mr-1">Nota corte</span>
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Nota corte</span>
                 <span class="text-fg font-semibold">{p.notaCorte}</span>
               </span>
             )}
             {p._count && (
               <>
                 <span>
-                  <span class="text-fg-subtle uppercase tracking-wider mr-1">Ofertas</span>
+                  <span class="text-fg-muted uppercase tracking-wider mr-1">Ofertas</span>
                   <span class="text-fg-muted">{p._count.offerings}</span>
                 </span>
                 <span>
-                  <span class="text-fg-subtle uppercase tracking-wider mr-1">Candidatos</span>
+                  <span class="text-fg-muted uppercase tracking-wider mr-1">Candidatos</span>
                   <span class="text-fg-muted">{p._count.registrations}</span>
                 </span>
               </>
@@ -361,10 +361,10 @@ function ProcessCard({
 function PhasePill({ phase }: { phase: Phase }) {
   const cls =
     phase.tone === 'success' ? 'bg-accent text-fg-on-brand'
-    : phase.tone === 'warning' ? 'bg-warning text-white'
+    : phase.tone === 'warning' ? 'bg-warning text-fg-on-brand'
     : 'bg-surface-3 text-fg-muted'
   return (
-    <span class={`text-[0.6875rem] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${cls}`}>
+    <span class={`text-2xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${cls}`}>
       <Clock size={10} /> {phase.label}
     </span>
   )
@@ -377,10 +377,10 @@ function DateRanges({ p }: { p: SelectionProcess }) {
   ].filter((r) => r.from ?? r.to)
   if (ranges.length === 0) return null
   return (
-    <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[0.6875rem] text-fg-muted tabular-nums">
+    <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-2xs text-fg-muted tabular-nums">
       {ranges.map((r) => (
         <span key={r.label}>
-          <span class="text-fg-subtle">{r.label}:</span> {fmtDate(r.from)} → {fmtDate(r.to)}
+          <span class="text-fg-muted">{r.label}:</span> {fmtDate(r.from)} → {fmtDate(r.to)}
         </span>
       ))}
     </div>
@@ -620,7 +620,7 @@ function ProcessFormModal({
 function Section({ title, children }: { title: string; children: preact.ComponentChildren }) {
   return (
     <div>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">{title}</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">{title}</div>
       <div class="space-y-3">{children}</div>
     </div>
   )

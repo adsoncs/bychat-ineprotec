@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Lock, Smartphone } from 'lucide-preact'
+import { Check, Loader2, Lock, Smartphone } from '@/components/ui/icon-set'
 import { api, ApiError } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useUserStore } from '@/stores/user'
@@ -128,14 +128,14 @@ export function GroupChannelCard({ leadId }: { leadId: number }) {
                     <span class={cn('block truncate text-xs', atual ? 'font-medium text-fg' : 'text-fg-muted')}>
                       {o.label}
                     </span>
-                    <span class="block truncate text-[0.625rem] text-fg-subtle">
+                    <span class="block truncate text-3xs text-fg-muted">
                       {o.phone ? `${o.phone} · ` : ''}
                       {o.mensagens} {o.mensagens === 1 ? 'mensagem' : 'mensagens'} neste grupo
                     </span>
                   </span>
 
                   {atual && (
-                    <span class="shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-accent">
+                    <span class="shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-3xs font-medium text-accent">
                       atende
                     </span>
                   )}
@@ -146,7 +146,7 @@ export function GroupChannelCard({ leadId }: { leadId: number }) {
         </ul>
       </div>
 
-      <p class="mt-1.5 flex items-start gap-1 text-[0.6875rem] leading-relaxed text-fg-subtle">
+      <p class="mt-1.5 flex items-start gap-1 text-2xs leading-relaxed text-fg-muted">
         {podeTrocar && !umaSo
           ? <><Smartphone size={10} class="mt-0.5 shrink-0" /> As duas linhas estão no grupo e recebem as mesmas mensagens. O número escolhido é o que aparece na lista e o que responde.</>
           : <><Lock size={10} class="mt-0.5 shrink-0" /> {umaSo ? 'Só este número da empresa está neste grupo.' : 'Só admin ou superadmin troca o número de um grupo.'}</>}
@@ -156,5 +156,5 @@ export function GroupChannelCard({ leadId }: { leadId: number }) {
 }
 
 function Titulo() {
-  return <div class="mb-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Número do grupo</div>
+  return <div class="mb-1 text-2xs uppercase tracking-wider text-fg-muted">Número do grupo</div>
 }

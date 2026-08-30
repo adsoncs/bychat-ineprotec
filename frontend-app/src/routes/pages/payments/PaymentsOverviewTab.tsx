@@ -1,4 +1,4 @@
-import { TrendingUp, TrendingDown, DollarSign, Activity, CheckCircle } from 'lucide-preact'
+import { TrendingUp, TrendingDown, DollarSign, Activity, CheckCircle } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { PeriodPicker, PeriodIncompleteHint, usePeriod } from '@/components/ui/PeriodPicker'
@@ -61,7 +61,7 @@ export function PaymentsOverviewTab() {
       {/* Breakdown numérico simples */}
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Status</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Status</div>
           {overview.isLoading ? <Skeleton class="h-24 w-full" /> : (
             <div class="space-y-2">
               <StatusRow color="bg-success" label="Pagos" count={o?.totals.paid ?? 0} total={o?.totals.all ?? 0} />
@@ -75,14 +75,14 @@ export function PaymentsOverviewTab() {
         </Card>
 
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Por método</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Por método</div>
           {bd.isLoading ? <Skeleton class="h-24 w-full" /> : (
             <div class="space-y-2">
               {(bd.data?.byMethod ?? []).map((m) => (
                 <MethodRow key={m.name} method={m} />
               ))}
               {(bd.data?.byMethod ?? []).length === 0 && (
-                <div class="text-xs text-fg-subtle">Nenhuma cobrança no período.</div>
+                <div class="text-xs text-fg-muted">Nenhuma cobrança no período.</div>
               )}
             </div>
           )}
@@ -91,7 +91,7 @@ export function PaymentsOverviewTab() {
 
       {/* Timeseries — linhas paid/pending/failed por dia */}
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Cobranças por dia</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Cobranças por dia</div>
         {ts.isLoading ? <Skeleton class="h-40 w-full" /> : (
           <TimeseriesChart series={ts.data?.series ?? []} />
         )}
@@ -99,12 +99,12 @@ export function PaymentsOverviewTab() {
 
       {/* Top portais */}
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-3">Top portais</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Top portais</div>
         {bd.isLoading ? <Skeleton class="h-24 w-full" /> : (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-subtle border-b border-border">
+                <tr class="text-left text-xs text-fg-muted border-b border-border">
                   <th class="py-2 pr-3">Portal</th>
                   <th class="py-2 pr-3 text-right">Pagos</th>
                   <th class="py-2 pr-3 text-right">Total cobranças</th>
@@ -121,7 +121,7 @@ export function PaymentsOverviewTab() {
                   </tr>
                 ))}
                 {(bd.data?.byPortal ?? []).length === 0 && (
-                  <tr><td colspan={4} class="py-4 text-center text-fg-subtle text-xs">Sem dados</td></tr>
+                  <tr><td colspan={4} class="py-4 text-center text-fg-muted text-xs">Sem dados</td></tr>
                 )}
               </tbody>
             </table>
@@ -132,9 +132,9 @@ export function PaymentsOverviewTab() {
       <Card>
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <div class="text-xs uppercase tracking-wider text-fg-subtle">Webhooks recebidos</div>
+            <div class="text-xs uppercase tracking-wider text-fg-muted">Webhooks recebidos</div>
             <div class="text-2xl font-semibold text-fg mt-1 tabular-nums">{o ? intf.format(o.webhookCount) : '—'}</div>
-            <div class="text-xs text-fg-subtle mt-1">eventos do provedor no período</div>
+            <div class="text-xs text-fg-muted mt-1">eventos do provedor no período</div>
           </div>
           <a href="#" class="text-xs text-accent hover:underline">Ver detalhes na aba Webhooks →</a>
         </div>
@@ -154,7 +154,7 @@ function Kpi({ icon, label, value, hint, trend, loading }: {
   return (
     <Card>
       <div class="flex items-start justify-between gap-2">
-        <div class="text-fg-subtle">{icon}</div>
+        <div class="text-fg-muted">{icon}</div>
         {trend === 'up' && <TrendingUp size={12} class="text-success" />}
         {trend === 'down' && <TrendingDown size={12} class="text-danger" />}
       </div>
@@ -164,7 +164,7 @@ function Kpi({ icon, label, value, hint, trend, loading }: {
       ) : (
         <div class="text-xl font-semibold text-fg tabular-nums mt-0.5">{value}</div>
       )}
-      {hint && <div class="text-[0.6875rem] text-fg-subtle mt-1">{hint}</div>}
+      {hint && <div class="text-2xs text-fg-muted mt-1">{hint}</div>}
     </Card>
   )
 }
@@ -200,7 +200,7 @@ function MethodRow({ method }: { method: { name: string; paid: number; pending: 
 
 function TimeseriesChart({ series }: { series: { day: string; paid: number; pending: number; failed: number; revenue: number }[] }) {
   if (series.length === 0) {
-    return <div class="text-xs text-fg-subtle py-6 text-center">Sem dados no período.</div>
+    return <div class="text-xs text-fg-muted py-6 text-center">Sem dados no período.</div>
   }
   const maxCount = Math.max(1, ...series.map(s => s.paid + s.pending + s.failed))
   return (
@@ -215,13 +215,13 @@ function TimeseriesChart({ series }: { series: { day: string; paid: number; pend
         const monthPart = s.day.slice(5, 7)
         return (
           <div key={s.day} class="flex-1 min-w-[18px] flex flex-col items-center gap-1 group">
-            <div class="text-[0.5625rem] text-fg-subtle opacity-0 group-hover:opacity-100 tabular-nums">{total}</div>
+            <div class="text-3xs text-fg-muted opacity-0 group-hover:opacity-100 tabular-nums">{total}</div>
             <div class="w-full flex flex-col-reverse" style={{ height: '100px' }}>
               <div class="bg-success/80" style={{ height: `${paidH}%` }} title={`Pagos: ${s.paid}`} />
               <div class="bg-warning/80" style={{ height: `${pendingH}%` }} title={`Pendentes: ${s.pending}`} />
               <div class="bg-danger/80" style={{ height: `${failedH}%` }} title={`Falhas: ${s.failed}`} />
             </div>
-            {showLabel && <div class="text-[0.5625rem] text-fg-subtle tabular-nums">{dayPart}/{monthPart}</div>}
+            {showLabel && <div class="text-3xs text-fg-muted tabular-nums">{dayPart}/{monthPart}</div>}
           </div>
         )
       })}

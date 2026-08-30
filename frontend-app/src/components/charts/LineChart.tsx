@@ -45,7 +45,7 @@ export function LineChart({ data, height = 180, color = 'var(--color-accent)' }:
 
   if (data.length === 0) {
     return (
-      <div class="flex items-center justify-center text-xs text-fg-subtle" style={{ height: `${H}px` }}>
+      <div class="flex items-center justify-center text-xs text-fg-muted" style={{ height: `${H}px` }}>
         Sem dados no período
       </div>
     )
@@ -71,7 +71,7 @@ export function LineChart({ data, height = 180, color = 'var(--color-accent)' }:
           return (
             <g key={t}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="var(--color-border)" stroke-dasharray="2 4" />
-              <text x={padL - 6} y={y + 3} text-anchor="end" font-size="9" fill="var(--color-fg-subtle)">{t}</text>
+              <text x={padL - 6} y={y + 3} text-anchor="end" font-size="9" fill="var(--color-fg-muted)">{t}</text>
             </g>
           )
         })}
@@ -97,7 +97,7 @@ export function LineChart({ data, height = 180, color = 'var(--color-accent)' }:
         {labelIndices.map((i) => {
           const p = points[i]!
           return (
-            <text key={i} x={p.x} y={H - 8} text-anchor="middle" font-size="9" fill="var(--color-fg-subtle)">
+            <text key={i} x={p.x} y={H - 8} text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">
               {p.data.label}
             </text>
           )
@@ -125,7 +125,7 @@ export function LineChart({ data, height = 180, color = 'var(--color-accent)' }:
           }}
         >
           <div class="text-fg font-medium tabular-nums">{points[hover].data.value}</div>
-          <div class="text-fg-subtle">{points[hover].data.label}</div>
+          <div class="text-fg-muted">{points[hover].data.label}</div>
         </div>
       )}
     </div>

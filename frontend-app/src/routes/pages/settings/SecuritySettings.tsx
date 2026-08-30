@@ -136,7 +136,7 @@ function LeadBlocklistSection() {
         </div>
         {!form ? <Button size="sm" variant="primary" onClick={() => setForm({ ...EMPTY_RULE })}>Novo bloqueio</Button> : null}
       </div>
-      <p class="text-[11px] text-fg-subtle mb-4">
+      <p class="text-2xs text-fg-muted mb-4">
         Quem é bloqueado vê a mensagem normal de "enviado com sucesso" e não descobre o bloqueio — assim não tenta
         com outro e-mail. Mensagem recebida no WhatsApp e cadastro feito à mão pelo operador continuam passando.
       </p>
@@ -153,7 +153,7 @@ function LeadBlocklistSection() {
             <Input label="Motivo (interno)" placeholder="Por que está bloqueado" value={form.reason ?? ''} onInput={(e) => set('reason', (e.target as HTMLInputElement).value)} />
           </div>
           {(form.ip ?? '').trim() ? (
-            <p class="text-[11px] text-warning">
+            <p class="text-2xs text-warning">
               ⚠ Bloquear por IP pode barrar gente demais: numa empresa ou operadora, muitas pessoas
               compartilham o mesmo IP. Prefira e-mail ou WhatsApp quando der.
             </p>
@@ -168,7 +168,7 @@ function LeadBlocklistSection() {
       {isLoading ? (
         <Skeleton class="h-20 w-full" />
       ) : rules.length === 0 ? (
-        <p class="text-xs text-fg-subtle">Nenhum bloqueio criado. Enquanto a lista estiver vazia, tudo entra normalmente.</p>
+        <p class="text-xs text-fg-muted">Nenhum bloqueio criado. Enquanto a lista estiver vazia, tudo entra normalmente.</p>
       ) : (
         <div class="space-y-2">
           {rules.map((r) => (
@@ -177,20 +177,20 @@ function LeadBlocklistSection() {
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium text-fg">{r.label || 'Sem nome'}</span>
-                    {!r.active ? <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">desligado</span> : null}
+                    {!r.active ? <span class="text-2xs px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">desligado</span> : null}
                   </div>
                   <div class="flex items-center gap-1.5 flex-wrap mt-1">
                     {criterios(r).map((c) => (
-                      <span key={c.tipo} class="text-[11px] px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">
+                      <span key={c.tipo} class="text-2xs px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">
                         {c.tipo}: <span class="text-fg">{c.valor}</span>
                       </span>
                     ))}
                   </div>
-                  {r.reason ? <div class="text-[11px] text-fg-subtle mt-1">{r.reason}</div> : null}
+                  {r.reason ? <div class="text-2xs text-fg-muted mt-1">{r.reason}</div> : null}
                 </div>
                 <div class="text-right shrink-0">
                   <div class="text-sm font-semibold text-fg tabular-nums">{r.hits}</div>
-                  <div class="text-[11px] text-fg-subtle">
+                  <div class="text-2xs text-fg-muted">
                     {r.hits === 1 ? 'entrada barrada' : 'entradas barradas'}
                     {r.lastHitAt ? <> · {new Date(r.lastHitAt).toLocaleDateString('pt-BR')}</> : null}
                   </div>
@@ -244,7 +244,7 @@ function Kpi({ label, value, tone }: { label: string; value: number | string; to
     : 'text-fg'
   return (
     <div class="rounded-xl border border-border bg-surface-2 p-5">
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-muted mb-1.5">{label}</div>
+      <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1.5">{label}</div>
       <div class={`text-2xl font-bold tabular-nums ${colorClass}`}>{value}</div>
     </div>
   )
@@ -298,7 +298,7 @@ function TopIpsAndManualBlock() {
                 <div key={t.ip} class="flex items-center justify-between px-3 py-2 rounded-lg bg-surface">
                   <div class="flex items-center gap-2">
                     <code class="text-sm text-fg font-mono">{t.ip}</code>
-                    {isSelf && <span class="text-[0.625rem] uppercase tracking-wider text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10">você</span>}
+                    {isSelf && <span class="text-3xs uppercase tracking-wider text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10">você</span>}
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs text-fg-muted">{t.count} eventos</span>
@@ -438,12 +438,12 @@ function ActiveBlocksSection() {
                     <td class="px-3 py-2.5">
                       <div class="flex items-center gap-2">
                         <code class="px-2 py-0.5 rounded bg-surface text-fg text-xs">{b.ip}</code>
-                        {b.ip === myIp && <span class="text-[0.625rem] uppercase tracking-wider text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10">você</span>}
+                        {b.ip === myIp && <span class="text-3xs uppercase tracking-wider text-accent font-semibold px-1.5 py-0.5 rounded bg-accent/10">você</span>}
                       </div>
                     </td>
                     <td class="px-3 py-2.5 text-fg">{REASON_LABEL[b.reason] ?? b.reason}</td>
                     <td class="px-3 py-2.5">
-                      <span class={`inline-block px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold ${b.auto ? 'bg-warning/15 text-warning' : 'bg-accent/15 text-accent'}`}>
+                      <span class={`inline-block px-2 py-0.5 rounded-full text-2xs font-semibold ${b.auto ? 'bg-warning/15 text-warning' : 'bg-accent/15 text-accent'}`}>
                         {b.auto ? 'Auto' : 'Manual'}
                       </span>
                     </td>
@@ -458,7 +458,7 @@ function ActiveBlocksSection() {
                       <button
                         type="button"
                         onClick={() => setTarget(b)}
-                        class="px-3 py-1 rounded bg-success text-white text-[0.6875rem] font-semibold cursor-pointer"
+                        class="px-3 py-1 rounded bg-success text-fg-on-brand text-2xs font-semibold cursor-pointer"
                       >
                         Desbloquear
                       </button>
@@ -579,13 +579,13 @@ function EventsSection() {
                 <tr key={e.id} class="border-b border-border">
                   <td class="px-2.5 py-2 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(e.createdAt)}</td>
                   <td class="px-2.5 py-2">
-                    <span class={`inline-block px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold bg-surface ${SEV_COLOR[e.severity] ?? 'text-fg-muted'}`}>
+                    <span class={`inline-block px-2 py-0.5 rounded-full text-2xs font-semibold bg-surface ${SEV_COLOR[e.severity] ?? 'text-fg-muted'}`}>
                       {SEV_LABEL[e.severity] ?? e.severity}
                     </span>
                   </td>
                   <td class="px-2.5 py-2 font-medium text-fg">{TYPE_LABEL[e.type] ?? e.type}</td>
                   <td class="px-2.5 py-2">
-                    {e.ip ? <code class="px-1.5 py-0.5 rounded bg-surface text-xs text-fg">{e.ip}</code> : <span class="text-fg-subtle">-</span>}
+                    {e.ip ? <code class="px-1.5 py-0.5 rounded bg-surface text-xs text-fg">{e.ip}</code> : <span class="text-fg-muted">-</span>}
                   </td>
                   <td class="px-2.5 py-2 text-xs text-fg-muted">{e.email ?? '-'}</td>
                   <td class="px-2.5 py-2 text-xs text-fg-muted max-w-[18.75rem] overflow-hidden text-ellipsis whitespace-nowrap" title={e.details ?? undefined}>
@@ -639,7 +639,7 @@ function UsersSection() {
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-border text-fg-muted text-[0.6875rem]">
+              <tr class="border-b border-border text-fg-muted text-2xs">
                 <th class="text-left px-3 py-2 font-medium">Usuário</th>
                 <th class="text-left px-3 py-2 font-medium">Role</th>
                 <th class="text-center px-3 py-2 font-medium">Tentativas</th>
@@ -661,7 +661,7 @@ function UsersSection() {
                       <div class="text-fg font-medium">{u.name ?? u.email}</div>
                       {u.name && <div class="text-xs text-fg-muted">{u.email}</div>}
                       {isLocked && u.lockReason && (
-                        <div class="text-[0.6875rem] text-danger mt-0.5">{u.lockReason}</div>
+                        <div class="text-2xs text-danger mt-0.5">{u.lockReason}</div>
                       )}
                     </td>
                     <td class="px-3 py-2.5 text-xs text-fg-muted">{u.role}</td>
@@ -671,11 +671,11 @@ function UsersSection() {
                     <td class="px-3 py-2.5 text-xs text-fg-muted">{lastLogin}</td>
                     <td class="px-3 py-2.5 text-center">
                       {isLocked ? (
-                        <span class="inline-block px-2.5 py-1 rounded-full text-[0.625rem] font-semibold bg-danger/15 text-danger">Bloqueado</span>
+                        <span class="inline-block px-2.5 py-1 rounded-full text-3xs font-semibold bg-danger/15 text-danger">Bloqueado</span>
                       ) : isInactive ? (
-                        <span class="inline-block px-2.5 py-1 rounded-full text-[0.625rem] font-semibold bg-surface text-fg-muted">Inativo</span>
+                        <span class="inline-block px-2.5 py-1 rounded-full text-3xs font-semibold bg-surface text-fg-muted">Inativo</span>
                       ) : (
-                        <span class="inline-block px-2.5 py-1 rounded-full text-[0.625rem] font-semibold bg-success/15 text-success">Ativo</span>
+                        <span class="inline-block px-2.5 py-1 rounded-full text-3xs font-semibold bg-success/15 text-success">Ativo</span>
                       )}
                     </td>
                     <td class="px-3 py-2.5 text-right whitespace-nowrap">
@@ -683,7 +683,7 @@ function UsersSection() {
                         <button
                           type="button"
                           onClick={() => setUnlocking(u)}
-                          class="px-3 py-1 rounded border border-success bg-success/10 text-success text-[0.6875rem] font-medium cursor-pointer"
+                          class="px-3 py-1 rounded border border-success bg-success/10 text-success text-2xs font-medium cursor-pointer"
                         >
                           Desbloquear
                         </button>
@@ -691,7 +691,7 @@ function UsersSection() {
                         <button
                           type="button"
                           onClick={() => setLocking(u)}
-                          class="px-3 py-1 rounded border border-danger bg-danger/10 text-danger text-[0.6875rem] font-medium cursor-pointer"
+                          class="px-3 py-1 rounded border border-danger bg-danger/10 text-danger text-2xs font-medium cursor-pointer"
                         >
                           Bloquear
                         </button>
@@ -701,7 +701,7 @@ function UsersSection() {
                           type="button"
                           onClick={() => handleReset(u)}
                           disabled={reset.isPending}
-                          class="ml-1 px-3 py-1 rounded border border-border bg-surface text-fg-muted text-[0.6875rem] cursor-pointer disabled:opacity-60"
+                          class="ml-1 px-3 py-1 rounded border border-border bg-surface text-fg-muted text-2xs cursor-pointer disabled:opacity-60"
                           title="Zerar tentativas"
                         >
                           Resetar

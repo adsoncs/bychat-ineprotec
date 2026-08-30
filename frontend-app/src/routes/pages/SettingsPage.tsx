@@ -6,7 +6,7 @@ import {
   Palette, Shield, Package, Home,
   Mail, Copy,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'

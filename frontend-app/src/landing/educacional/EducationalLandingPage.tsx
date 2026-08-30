@@ -22,7 +22,7 @@ import {
   Sparkles,
   Users,
   Wallet,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { CONTACT } from '../landing.copy'
 
 /**
@@ -281,7 +281,7 @@ function Hero() {
             Falar no WhatsApp
           </a>
         </div>
-        <p class="mt-4 text-sm text-fg-subtle">
+        <p class="mt-4 text-sm text-fg-muted">
           Onboarding assistido · Suporte em português · Conforme a LGPD
         </p>
       </div>
@@ -582,7 +582,7 @@ function StackMapEdu() {
         </div>
 
         <div class="mt-12 overflow-hidden rounded-card border border-line bg-surface">
-          <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-subtle sm:grid">
+          <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-muted sm:grid">
             <span>O que a instituição contrataria separado</span>
             <span aria-hidden="true" class="w-5" />
             <span>No ByChat Edu é</span>
@@ -603,7 +603,7 @@ function StackMapEdu() {
                     </span>
                   ))}
                 </div>
-                <ChevronDown aria-hidden="true" class="size-5 shrink-0 -rotate-90 text-fg-subtle" />
+                <ChevronDown aria-hidden="true" class="size-5 shrink-0 -rotate-90 text-fg-muted" />
                 <div class="flex items-start gap-2">
                   <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-brand" />
                   <span class="font-semibold text-ink">{row.module}</span>
@@ -622,7 +622,7 @@ function StackMapEdu() {
           </p>
         </div>
 
-        <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-subtle">
+        <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-muted">
           Marcas citadas pertencem aos respectivos titulares. Comparativo por função equivalente, com
           base em informação pública de cada fabricante.
         </p>
@@ -655,7 +655,7 @@ function Faq() {
                 >
                   <span class="font-semibold text-ink">{item.q}</span>
                   <ChevronDown
-                    class={`size-5 shrink-0 text-fg-subtle transition-transform ${
+                    class={`size-5 shrink-0 text-fg-muted transition-transform ${
                       isOpen ? 'rotate-180' : ''
                     }`}
                   />
@@ -753,7 +753,7 @@ function Footer() {
         </div>
       </div>
       <div class="border-t border-line">
-        <div class="mx-auto max-w-6xl px-5 py-6 text-sm text-fg-subtle">
+        <div class="mx-auto max-w-6xl px-5 py-6 text-sm text-fg-muted">
           © {new Date().getFullYear()} ByChat. Todos os direitos reservados.
         </div>
       </div>

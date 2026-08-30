@@ -3,7 +3,7 @@ import { useParams } from 'wouter-preact'
 import {
   TrendingDown, Users, Trophy, AlertTriangle, Clock, Filter as FilterIcon,
   Percent, ChevronRight, ChevronDown, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
@@ -131,7 +131,7 @@ export function FunnelConversionPage() {
 
           {/* Funil visual */}
           <Card class="p-3 mt-3">
-            <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-3 flex items-center gap-1">
+            <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-3 flex items-center gap-1">
               <TrendingDown size={11} /> Funil — leads e tempo por etapa
             </div>
             {stages.length === 0 && (
@@ -146,16 +146,16 @@ export function FunnelConversionPage() {
                   <div key={s.key}>
                     <div class="flex items-center justify-between gap-2 mb-1 text-xs">
                       <div class="flex items-center gap-2">
-                        <span class="text-fg-subtle tabular-nums">#{i + 1}</span>
+                        <span class="text-fg-muted tabular-nums">#{i + 1}</span>
                         <span class="font-medium text-fg">{s.name}</span>
                         {isTerminal && <Badge tone={s.terminalKind === 'won' ? 'success' : 'danger'}>{s.terminalKind === 'won' ? 'GANHO' : 'PERDIDO'}</Badge>}
                       </div>
                       <div class="flex items-center gap-3 text-fg-muted">
                         <span title="Leads atualmente nesta etapa">
-                          {intf.format(s.currentCount)} <span class="text-fg-subtle">agora</span>
+                          {intf.format(s.currentCount)} <span class="text-fg-muted">agora</span>
                         </span>
                         <span title="Entradas durante o período">
-                          {intf.format(s.entriesInPeriod)} <span class="text-fg-subtle">no período</span>
+                          {intf.format(s.entriesInPeriod)} <span class="text-fg-muted">no período</span>
                         </span>
                         <span title="Tempo médio que leads ficam nesta etapa" class="flex items-center gap-0.5">
                           <Clock size={10} /> {formatDuration(s.avgTimeInStageSec)}
@@ -175,7 +175,7 @@ export function FunnelConversionPage() {
                       const conv = report.data!.conversions.find(c => c.fromKey === s.key)
                       if (!conv) return null
                       return (
-                        <div class={`flex items-center gap-2 pl-6 mt-1 mb-1 text-[0.6875rem] ${conv.bottleneck ? 'text-danger' : 'text-fg-subtle'}`}>
+                        <div class={`flex items-center gap-2 pl-6 mt-1 mb-1 text-2xs ${conv.bottleneck ? 'text-danger' : 'text-fg-muted'}`}>
                           <ChevronDown size={11} />
                           <span>{intf.format(conv.count)} avançaram para "{conv.toName}"</span>
                           <Badge tone={conv.bottleneck ? 'danger' : conv.rate >= 0.5 ? 'success' : conv.rate >= 0.2 ? 'warning' : 'neutral'}>
@@ -194,7 +194,7 @@ export function FunnelConversionPage() {
           {/* Tabela de conversões pares */}
           {report.data.conversions.length > 0 && (
             <Card class="p-3 mt-3">
-              <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+              <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
                 <ChevronRight size={11} /> Taxa de conversão entre etapas
               </div>
               <div class="overflow-x-auto">
@@ -213,7 +213,7 @@ export function FunnelConversionPage() {
                     {report.data.conversions.map(p => (
                       <tr key={`${p.fromKey}::${p.toKey}`}>
                         <td class="py-1.5 text-fg">{p.fromName}</td>
-                        <td class="py-1.5 text-fg-subtle"><ChevronRight size={11} /></td>
+                        <td class="py-1.5 text-fg-muted"><ChevronRight size={11} /></td>
                         <td class="py-1.5 text-fg">{p.toName}</td>
                         <td class="py-1.5 text-right tabular-nums text-fg-muted">{intf.format(p.count)}</td>
                         <td class="py-1.5 text-right tabular-nums">
@@ -222,7 +222,7 @@ export function FunnelConversionPage() {
                           </Badge>
                         </td>
                         <td class="py-1.5 text-right">
-                          {p.bottleneck ? <span class="text-danger">⚠ gargalo</span> : <span class="text-fg-subtle">—</span>}
+                          {p.bottleneck ? <span class="text-danger">⚠ gargalo</span> : <span class="text-fg-muted">—</span>}
                         </td>
                       </tr>
                     ))}
@@ -235,7 +235,7 @@ export function FunnelConversionPage() {
           {/* Origens dos leads */}
           {report.data.sources.length > 0 && (
             <Card class="p-3 mt-3">
-              <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+              <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
                 <FilterIcon size={11} /> Origens dos leads do período
               </div>
               <div class="space-y-1.5">

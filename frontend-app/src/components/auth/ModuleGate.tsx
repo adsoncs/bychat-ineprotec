@@ -13,7 +13,7 @@
 
 import type { ComponentChildren } from 'preact'
 import { useLocation } from 'wouter-preact'
-import { Lock, Package, Loader2, Home } from 'lucide-preact'
+import { Lock, Package, Loader2, Home } from '@/components/ui/icon-set'
 import { useModuleAccess, type PermAction } from '@/hooks/usePermissions'
 import { useAuth } from '@/hooks/useAuth'
 import { Page } from '@/components/ui/Page'

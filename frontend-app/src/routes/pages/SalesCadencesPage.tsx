@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { HelpCircle, Megaphone, Plus, Sparkles } from 'lucide-preact'
+import { HelpCircle, Megaphone, Plus, Sparkles } from '@/components/ui/icon-set'
 import { useLocation } from 'wouter-preact'
 import {
   useSalesCadences,
@@ -24,8 +24,8 @@ import { cn } from '@/lib/cn'
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   draft:    { label: 'Rascunho', cls: 'bg-surface-3 text-fg-muted border-border' },
   active:   { label: 'Ativa',    cls: 'bg-accent text-fg-on-brand border-accent' },
-  paused:   { label: 'Pausada',  cls: 'bg-warning text-white border-warning' },
-  archived: { label: 'Arquivada', cls: 'bg-surface-3 text-fg-subtle border-border' },
+  paused:   { label: 'Pausada',  cls: 'bg-warning text-fg-on-brand border-warning' },
+  archived: { label: 'Arquivada', cls: 'bg-surface-3 text-fg-muted border-border' },
 }
 
 const STATUS_OPTIONS = [
@@ -86,7 +86,7 @@ export function SalesCadencesPage() {
       {!isLoading && items.length === 0 && (
         <Card>
           <div class="text-center py-8 max-w-xl mx-auto">
-            <Megaphone size={32} class="mx-auto text-fg-subtle mb-3" />
+            <Megaphone size={32} class="mx-auto text-fg-muted mb-3" />
             <p class="text-base font-semibold text-fg mb-2">Nenhuma cadência ainda</p>
             <p class="text-sm text-fg-muted mb-4">
               Uma cadência é uma sequência de contatos que o sistema executa em ordem. Você define os passos uma vez; depois é só inscrever leads.
@@ -136,7 +136,7 @@ export function SalesCadencesPage() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-3 py-2 font-medium">Nome</th>
                   <th class="text-left px-3 py-2 font-medium">Equipe</th>
                   <th class="text-center px-3 py-2 font-medium">Passos</th>
@@ -158,18 +158,18 @@ export function SalesCadencesPage() {
                               <span class="w-2 h-2 rounded-full" style={{ background: c.team.color }} />
                               {c.team.name}
                             </span>
-                          : <span class="text-fg-subtle text-xs">—</span>}
+                          : <span class="text-fg-muted text-xs">—</span>}
                       </td>
                       <td class="px-3 py-2 text-center tabular-nums">{c._count.steps}</td>
                       <td class="px-3 py-2 text-center tabular-nums">{c._count.enrollments}</td>
                       <td class="px-3 py-2 text-center">
                         {c.pauseOnReply
                           ? <span class="text-accent font-medium text-xs">Sim</span>
-                          : <span class="text-fg-subtle text-xs">Não</span>}
+                          : <span class="text-fg-muted text-xs">Não</span>}
                       </td>
                       <td class="px-3 py-2 text-center">
                         <span class={cn(
-                          'inline-flex items-center px-2 h-6 rounded-md border text-[0.6875rem] font-medium',
+                          'inline-flex items-center px-2 h-6 rounded-md border text-2xs font-medium',
                           status.cls,
                         )}>
                           {status.label}
@@ -322,7 +322,7 @@ function CadenceFormModal(props: {
             placeholder="Ex: Prospecção Q2 — quentes"
             autoFocus
           />
-          <p class="text-[0.6875rem] text-fg-muted mt-1">Como você vai reconhecer esta cadência na lista.</p>
+          <p class="text-2xs text-fg-muted mt-1">Como você vai reconhecer esta cadência na lista.</p>
         </div>
         <div>
           <label class="text-xs font-medium text-fg">Descrição</label>
@@ -332,7 +332,7 @@ function CadenceFormModal(props: {
             rows={2}
             placeholder="Para que serve, qual público, qual objetivo"
           />
-          <p class="text-[0.6875rem] text-fg-muted mt-1">Opcional — anotação interna para o time.</p>
+          <p class="text-2xs text-fg-muted mt-1">Opcional — anotação interna para o time.</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -348,7 +348,7 @@ function CadenceFormModal(props: {
                 <option key={t.id} value={String(t.id)}>{t.name}</option>
               ))}
             </Select>
-            <p class="text-[0.6875rem] text-fg-muted mt-1">Define limites de envio e quem vê.</p>
+            <p class="text-2xs text-fg-muted mt-1">Define limites de envio e quem vê.</p>
           </div>
           <div>
             <label class="text-xs font-medium text-fg">Status</label>
@@ -360,11 +360,11 @@ function CadenceFormModal(props: {
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </Select>
-            <p class="text-[0.6875rem] text-fg-muted mt-1">"Rascunho" não envia. "Ativa" começa a rodar.</p>
+            <p class="text-2xs text-fg-muted mt-1">"Rascunho" não envia. "Ativa" começa a rodar.</p>
           </div>
         </div>
         <div class="flex flex-col gap-2 pt-2 border-t border-border mt-2">
-          <p class="text-[0.6875rem] text-fg-muted font-medium uppercase tracking-wide">Comportamento</p>
+          <p class="text-2xs text-fg-muted font-medium uppercase tracking-wide">Comportamento</p>
           <label class="flex items-start gap-2 text-xs text-fg">
             <input
               type="checkbox"
@@ -374,7 +374,7 @@ function CadenceFormModal(props: {
             />
             <span>
               <span class="font-medium">Pausar quando o lead responder</span>
-              <span class="block text-fg-muted text-[0.6875rem]">Recomendado. Quando o lead manda mensagem, a cadência para e a IA classifica a resposta para te avisar o que fazer.</span>
+              <span class="block text-fg-muted text-2xs">Recomendado. Quando o lead manda mensagem, a cadência para e a IA classifica a resposta para te avisar o que fazer.</span>
             </span>
           </label>
           <label class="flex items-start gap-2 text-xs text-fg">
@@ -386,7 +386,7 @@ function CadenceFormModal(props: {
             />
             <span>
               <span class="font-medium">Remover quando virar venda</span>
-              <span class="block text-fg-muted text-[0.6875rem]">Se o lead fechar negócio, ele sai da cadência automaticamente — evita continuar prospectando quem já comprou.</span>
+              <span class="block text-fg-muted text-2xs">Se o lead fechar negócio, ele sai da cadência automaticamente — evita continuar prospectando quem já comprou.</span>
             </span>
           </label>
         </div>

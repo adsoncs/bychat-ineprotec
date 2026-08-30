@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { LayoutTemplate, Search, Send } from 'lucide-preact'
+import { LayoutTemplate, Search, Send } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -123,7 +123,7 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
                     >
                       <span class="text-sm font-medium">{t.name}</span>
                       <span class="truncate text-xs text-fg-muted">{p.body.slice(0, 90)}</span>
-                      <span class="text-[0.6875rem] text-fg-subtle">
+                      <span class="text-2xs text-fg-muted">
                         {p.header?.format && p.header.format !== 'NONE' ? `${p.header.format} · ` : ''}
                         {p.buttons.length ? `${p.buttons.length} botão(ões) · ` : ''}
                         {t.language}
@@ -140,11 +140,11 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
           <div class="space-y-3">
             <div>
               <div class="text-sm font-medium">{escolhido.name}</div>
-              <div class="text-xs text-fg-subtle">{escolhido.language}</div>
+              <div class="text-xs text-fg-muted">{escolhido.language}</div>
             </div>
             {parsed?.variables.length ? (
               <div class="space-y-2">
-                <div class="text-xs uppercase tracking-wider text-fg-subtle">Variáveis</div>
+                <div class="text-xs uppercase tracking-wider text-fg-muted">Variáveis</div>
                 {parsed.variables.map((v, i) => (
                   <Input
                     key={v}
@@ -160,23 +160,23 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
                 ))}
               </div>
             ) : (
-              <p class="text-xs text-fg-subtle">Este modelo não tem variáveis para preencher.</p>
+              <p class="text-xs text-fg-muted">Este modelo não tem variáveis para preencher.</p>
             )}
           </div>
 
           <div class="rounded-md border border-border bg-surface-2 p-3">
-            <div class="mb-2 text-xs uppercase tracking-wider text-fg-subtle">Como o contato vê</div>
+            <div class="mb-2 text-xs uppercase tracking-wider text-fg-muted">Como o contato vê</div>
             <div class="rounded-md bg-surface p-3 text-sm">
               {parsed?.header?.format === 'TEXT' && parsed.header.text && (
                 <div class="mb-1 font-semibold">{interpolar(parsed.header.text, vars)}</div>
               )}
               {parsed?.header?.format && !['NONE', 'TEXT'].includes(parsed.header.format) && (
-                <div class="mb-2 grid h-20 place-items-center rounded bg-surface-3 text-xs text-fg-subtle">
+                <div class="mb-2 grid h-20 place-items-center rounded bg-surface-3 text-xs text-fg-muted">
                   [{parsed.header.format}]
                 </div>
               )}
               <div class="whitespace-pre-wrap">{interpolar(parsed?.body ?? '', vars)}</div>
-              {parsed?.footer && <div class="mt-2 text-xs text-fg-subtle">{parsed.footer}</div>}
+              {parsed?.footer && <div class="mt-2 text-xs text-fg-muted">{parsed.footer}</div>}
               {!!parsed?.buttons.length && (
                 <div class="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">
                   {parsed.buttons.map((b, i) => (

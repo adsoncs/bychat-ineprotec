@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Tag as TagIcon, Plus, Pencil, Trash2, HelpCircle } from 'lucide-preact'
+import { Tag as TagIcon, Plus, Pencil, Trash2, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { useTags, useCreateTag, useUpdateTag, useDeleteTag, useReorderTags, type Tag, type TagInput } from '@/hooks/useTags'
 import { SortableList } from '@/components/ui/SortableList'
@@ -135,7 +135,7 @@ function TagsSortableList({
           />
           <div class="min-w-0 flex-1">
             <div class="text-sm font-medium text-fg truncate">{t.name}</div>
-            {t.description && <div class="text-xs text-fg-subtle truncate mt-0.5">{t.description}</div>}
+            {t.description && <div class="text-xs text-fg-muted truncate mt-0.5">{t.description}</div>}
           </div>
           <Badge tone={t.active ? 'success' : 'neutral'}>{t.active ? 'Ativo' : 'Inativo'}</Badge>
           {t._count && (

@@ -5,7 +5,7 @@ import {
   Copy, Check, ExternalLink, Code, AlertTriangle, X, Minus,
   FileText, MapPin, MousePointer2, ArrowDownWideNarrow, ClipboardCheck,
   CircleUser, Gauge, Link as LinkIcon, Monitor, Tablet, Compass, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTrackingStats,
@@ -324,7 +324,7 @@ function OriginsTab({ period }: { period: PeriodRange }) {
           </CardHeader>
           {isLoading && <Skeleton class="h-72 w-full" />}
           {!isLoading && breakdown.length === 0 && (
-            <div class="text-center text-fg-subtle text-sm py-10">Sem dados no período</div>
+            <div class="text-center text-fg-muted text-sm py-10">Sem dados no período</div>
           )}
           {!isLoading && breakdown.length > 0 && (
             <ul class="flex flex-col gap-2.5">
@@ -465,13 +465,13 @@ function OriginsDonutChart({ breakdown, total }: { breakdown: OriginBreakdownIte
             />
           )
         })}
-        <text x={cx} y={cy - 6} text-anchor="middle" dominant-baseline="central" fill="var(--color-fg-subtle)" font-size="9">
+        <text x={cx} y={cy - 6} text-anchor="middle" dominant-baseline="central" fill="var(--color-fg-muted)" font-size="9">
           {centerLabel.length > 18 ? centerLabel.slice(0, 17) + '…' : centerLabel}
         </text>
         <text x={cx} y={cy + 8} text-anchor="middle" dominant-baseline="central" fill="var(--color-fg)" font-size="18" font-weight="700">
           {centerValue}
         </text>
-        <text x={cx} y={cy + 24} text-anchor="middle" dominant-baseline="central" fill="var(--color-fg-subtle)" font-size="9">
+        <text x={cx} y={cy + 24} text-anchor="middle" dominant-baseline="central" fill="var(--color-fg-muted)" font-size="9">
           {centerSub}
         </text>
       </svg>
@@ -496,7 +496,7 @@ function OriginsDonutChart({ breakdown, total }: { breakdown: OriginBreakdownIte
 
       {showFloatingTooltip && hoverSeg && (
         <div
-          class="pointer-events-none absolute z-50 rounded-md border border-border bg-surface shadow-lg px-2.5 py-1.5 text-[11px] whitespace-nowrap"
+          class="pointer-events-none absolute z-50 rounded-md border border-border bg-surface shadow-lg px-2.5 py-1.5 text-2xs whitespace-nowrap"
           style={{ left: `${hover!.x + 12}px`, top: `${hover!.y + 12}px` }}
         >
           <div class="flex items-center gap-2 mb-0.5">
@@ -594,20 +594,20 @@ function RecentLeadsCard({
       <div class="px-4 pt-4 pb-3 flex items-center justify-between gap-3 flex-wrap">
         <div class="min-w-0">
           <CardTitle>Leads Recentes</CardTitle>
-          <p class="text-[0.6875rem] text-fg-subtle mt-0.5">
+          <p class="text-2xs text-fg-muted mt-0.5">
             Todos os leads criados {periodLabel(period)} — independente de origem (Meta Lead Ads, WhatsApp, formulário, API). Use o badge "rastreado" pra saber quais também passaram pelo pixel.
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           {coverage && (
             <span
-              class="text-[0.6875rem] text-fg-muted px-2 py-0.5 rounded bg-surface-3"
+              class="text-2xs text-fg-muted px-2 py-0.5 rounded bg-surface-3"
               title="% dos leads do período com sessão de pixel vinculada"
             >
               Cobertura pixel: {coverage.rate}%
             </span>
           )}
-          <span class="text-xs text-fg-subtle">{coverage?.totalLeads ?? leads.length} leads</span>
+          <span class="text-xs text-fg-muted">{coverage?.totalLeads ?? leads.length} leads</span>
         </div>
       </div>
       {isLoading && <div class="px-4 pb-4"><Skeleton class="h-32 w-full" /></div>}
@@ -620,7 +620,7 @@ function RecentLeadsCard({
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+              <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                 <th class="text-left px-3 py-2 font-medium">Lead</th>
                 <th class="text-left px-3 py-2 font-medium">Contato</th>
                 <th class="text-left px-3 py-2 font-medium">Origem</th>
@@ -644,7 +644,7 @@ function RecentLeadsCard({
                   <tr key={l.id} class="hover:bg-surface-2/30">
                     <td class="px-3 py-2 min-w-0">
                       <div class="font-medium text-fg truncate">{l.nome || `#${l.id}`}</div>
-                      <div class="text-[0.625rem] text-fg-subtle">#{l.id}</div>
+                      <div class="text-3xs text-fg-muted">#{l.id}</div>
                     </td>
                     <td class="px-3 py-2 text-fg-muted text-xs break-words max-w-48">{contact}</td>
                     <td class="px-3 py-2">
@@ -655,18 +655,18 @@ function RecentLeadsCard({
                     </td>
                     <td class="px-3 py-2 text-xs text-fg-muted">
                       {l.status || '—'}
-                      {l.funnel && <div class="text-[0.625rem] text-fg-subtle">{l.funnel.name}</div>}
+                      {l.funnel && <div class="text-3xs text-fg-muted">{l.funnel.name}</div>}
                     </td>
                     <td class="px-3 py-2 text-xs text-fg-muted truncate max-w-32">
                       {l.assignedUser ? (l.assignedUser.name ?? l.assignedUser.email) : '—'}
-                      {l.team && <div class="text-[0.625rem] text-fg-subtle">{l.team.name}</div>}
+                      {l.team && <div class="text-3xs text-fg-muted">{l.team.name}</div>}
                     </td>
                     <td class="px-3 py-2 text-fg-muted text-xs whitespace-nowrap">{formatRelative(l.createdAt)}</td>
                     <td class="px-3 py-2 text-center">
                       {l.hasTrackedSession ? (
                         <Badge tone="success" title="Lead com sessão de pixel vinculada">rastreado</Badge>
                       ) : (
-                        <span class="text-fg-subtle text-xs" title="Sem sessão de pixel — origem não passou pelo site">—</span>
+                        <span class="text-fg-muted text-xs" title="Sem sessão de pixel — origem não passou pelo site">—</span>
                       )}
                     </td>
                     <td class="px-3 py-2 text-right">
@@ -696,20 +696,20 @@ function RecentVisitorsCard({
       <div class="px-4 pt-4 pb-3 flex items-center justify-between gap-3 flex-wrap">
         <div class="min-w-0">
           <CardTitle>Visitantes Recentes</CardTitle>
-          <p class="text-[0.6875rem] text-fg-subtle mt-0.5">
-            Captados pelo pixel <code class="px-1 py-0.5 rounded bg-surface-3 text-[0.625rem]">bt.js</code>. Leads que vêm de Meta Lead Ads, WhatsApp direto ou API <strong>não</strong> aparecem aqui — instale o pixel nas páginas pra capturar a navegação anônima.
+          <p class="text-2xs text-fg-muted mt-0.5">
+            Captados pelo pixel <code class="px-1 py-0.5 rounded bg-surface-3 text-3xs">bt.js</code>. Leads que vêm de Meta Lead Ads, WhatsApp direto ou API <strong>não</strong> aparecem aqui — instale o pixel nas páginas pra capturar a navegação anônima.
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           {coverage && coverage.totalLeads > 0 && (
             <span
-              class="text-[0.6875rem] text-fg-muted px-2 py-0.5 rounded bg-surface-3"
+              class="text-2xs text-fg-muted px-2 py-0.5 rounded bg-surface-3"
               title={`${coverage.leadsWithTrackedSession} de ${coverage.totalLeads} leads do período passaram pelo pixel antes de virar lead. ${coverage.rate}% de cobertura.`}
             >
               {coverage.leadsWithTrackedSession}/{coverage.totalLeads} leads rastreados
             </span>
           )}
-          <span class="text-xs text-fg-subtle">{visitors.length} visitantes</span>
+          <span class="text-xs text-fg-muted">{visitors.length} visitantes</span>
         </div>
       </div>
       {isLoading && <div class="px-4 pb-4"><Skeleton class="h-32 w-full" /></div>}
@@ -718,7 +718,7 @@ function RecentVisitorsCard({
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+              <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                 <th class="text-left px-3 py-2 font-medium">Visitante</th>
                 <th class="text-left px-3 py-2 font-medium">Contato</th>
                 <th class="text-center px-3 py-2 font-medium">Sessões</th>
@@ -748,7 +748,7 @@ function RecentVisitorsCard({
                         </div>
                         <div class="min-w-0 flex-1">
                           <div class="text-fg truncate font-medium">{name}</div>
-                          <div class="text-[0.625rem] text-fg-subtle truncate">{[browser, os].filter(Boolean).join(' · ') || '—'}</div>
+                          <div class="text-3xs text-fg-muted truncate">{[browser, os].filter(Boolean).join(' · ') || '—'}</div>
                         </div>
                       </div>
                     </td>
@@ -757,7 +757,7 @@ function RecentVisitorsCard({
                     <td class="px-3 py-2 text-center tabular-nums font-medium text-fg">{v.totalPageviews}</td>
                     <td class="px-3 py-2 text-fg-muted text-xs whitespace-nowrap">{formatRelative(v.lastSeenAt)}</td>
                     <td class="px-3 py-2 text-center">
-                      {v.leadId ? <Badge tone="success">#{v.leadId}</Badge> : <span class="text-fg-subtle text-xs">—</span>}
+                      {v.leadId ? <Badge tone="success">#{v.leadId}</Badge> : <span class="text-fg-muted text-xs">—</span>}
                     </td>
                     <td class="px-3 py-2 text-right">
                       <Button variant="secondary" size="sm" onClick={() => onView(v.id)}>Ver</Button>
@@ -836,7 +836,7 @@ function VisitorsTab() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-3 py-2 font-medium">Visitante</th>
                   <th class="text-left px-3 py-2 font-medium">Email</th>
                   <th class="text-left px-3 py-2 font-medium">Telefone</th>
@@ -861,7 +861,7 @@ function VisitorsTab() {
                           <span class={cn('size-2 rounded-full shrink-0', isIdentified ? 'bg-success' : 'bg-surface-3')} />
                           <div class="min-w-0">
                             <div class="text-fg font-medium truncate">{name}</div>
-                            <div class="text-[0.625rem] text-fg-subtle truncate">
+                            <div class="text-3xs text-fg-muted truncate">
                               {[metaGet(meta, 'browser'), metaGet(meta, 'os'), metaGet(meta, 'deviceType')].filter(Boolean).join(' · ') || '—'}
                             </div>
                           </div>
@@ -878,7 +878,7 @@ function VisitorsTab() {
                       </td>
                       <td class="px-3 py-2 text-fg-muted text-xs whitespace-nowrap">{formatRelative(v.lastSeenAt)}</td>
                       <td class="px-3 py-2 text-center">
-                        {v.leadId ? <Badge tone="success">#{v.leadId}</Badge> : <span class="text-fg-subtle text-xs">—</span>}
+                        {v.leadId ? <Badge tone="success">#{v.leadId}</Badge> : <span class="text-fg-muted text-xs">—</span>}
                       </td>
                       <td class="px-3 py-2 text-right">
                         <Button variant="secondary" size="sm" onClick={() => setDetailId(v.id)}>Detalhes</Button>
@@ -976,7 +976,7 @@ function VisitorStats({ visitor }: { visitor: TrackingVisitor }) {
       {stats.map((s) => (
         <div key={s.label} class="bg-surface-3 rounded-md p-3 text-center">
           <div class="text-xl font-bold text-fg tabular-nums">{s.value}</div>
-          <div class="text-[0.6875rem] text-fg-muted uppercase tracking-wider mt-0.5">{s.label}</div>
+          <div class="text-2xs text-fg-muted uppercase tracking-wider mt-0.5">{s.label}</div>
         </div>
       ))}
     </div>
@@ -997,7 +997,7 @@ function DeviceInfo({ visitor }: { visitor: TrackingVisitor }) {
     <div class="rounded-md bg-surface-3 px-4 py-3 text-xs text-fg-muted">
       <strong class="text-fg">Dispositivo:</strong>{' '}
       {[browser ?? '?', os ?? '?', device, screen ?? '?', lang ?? '?'].filter(Boolean).join(' · ')}
-      <div class="text-[0.625rem] text-fg-subtle mt-1 font-mono">Visitor ID: {visitor.visitorId}</div>
+      <div class="text-3xs text-fg-muted mt-1 font-mono">Visitor ID: {visitor.visitorId}</div>
     </div>
   )
 }
@@ -1024,7 +1024,7 @@ function SessionsList({ visitor }: { visitor: TrackingVisitor & { sessions?: unk
 
   return (
     <div>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium mb-2">Sessões ({sessions.length})</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">Sessões ({sessions.length})</div>
       <ul class="space-y-2">
         {sessions.map((s) => {
           const utm = [s.utmSource, s.utmMedium, s.utmCampaign].filter(Boolean).join(' / ')
@@ -1039,17 +1039,17 @@ function SessionsList({ visitor }: { visitor: TrackingVisitor & { sessions?: unk
               </div>
               {s.entryUrl && (
                 <div class="text-fg-muted truncate">
-                  <span class="text-fg-subtle">Entrada:</span> {s.entryUrl}
+                  <span class="text-fg-muted">Entrada:</span> {s.entryUrl}
                 </div>
               )}
               {s.referrer && (
                 <div class="text-fg-muted truncate">
-                  <span class="text-fg-subtle">Referrer:</span> {s.referrer}
+                  <span class="text-fg-muted">Referrer:</span> {s.referrer}
                 </div>
               )}
               {utm && (
                 <div class="text-info truncate">
-                  <span class="text-fg-subtle">UTM:</span> {utm}
+                  <span class="text-fg-muted">UTM:</span> {utm}
                 </div>
               )}
             </li>
@@ -1092,7 +1092,7 @@ function shortPath(url: string | null): string {
 function TimelineSection({ events, loading }: { events: TrackingEvent[]; loading: boolean }) {
   return (
     <div>
-      <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium mb-2">Timeline de Eventos ({events.length})</div>
+      <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">Timeline de Eventos ({events.length})</div>
       {loading ? (
         <Skeleton class="h-32 w-full" />
       ) : events.length === 0 ? (
@@ -1118,12 +1118,12 @@ function TimelineSection({ events, loading }: { events: TrackingEvent[]; loading
                 <div class="flex-1 min-w-0">
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <span class="font-medium text-fg capitalize">{e.type.replace(/_/g, ' ')}</span>
-                    <span class="text-[0.625rem] text-fg-subtle whitespace-nowrap">
+                    <span class="text-3xs text-fg-muted whitespace-nowrap">
                       {new Date(e.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </span>
                   </div>
                   {detail && <div class="text-fg-muted truncate mt-0.5">{detail}</div>}
-                  {path && <div class="text-fg-subtle text-[0.625rem] truncate mt-0.5">{path}</div>}
+                  {path && <div class="text-fg-muted text-3xs truncate mt-0.5">{path}</div>}
                 </div>
               </li>
             )
@@ -1246,7 +1246,7 @@ function PagesTab({ period }: { period: PeriodRange }) {
           <div class="overflow-x-auto -mx-2">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-2 py-2 font-medium">#</th>
                   <th class="text-left px-2 py-2 font-medium">Página</th>
                   <th class="text-right px-2 py-2 font-medium">Visualizações</th>
@@ -1267,12 +1267,12 @@ function PagesTab({ period }: { period: PeriodRange }) {
                     : r.hasTracking ? 'active' : 'inactive'
                   return (
                     <tr key={p.url} class={status === 'inactive' ? 'opacity-60' : ''}>
-                      <td class="px-2 py-2 text-fg-subtle tabular-nums">{i + 1}</td>
+                      <td class="px-2 py-2 text-fg-muted tabular-nums">{i + 1}</td>
                       <td class="px-2 py-2 min-w-0">
                         <a href={p.url} target="_blank" rel="noreferrer" class="text-accent hover:underline truncate block max-w-[20rem]">
                           {shortUrl}
                         </a>
-                        <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[20rem]">{p.url}</div>
+                        <div class="text-2xs text-fg-muted truncate max-w-[20rem]">{p.url}</div>
                       </td>
                       <td class="px-2 py-2 text-right tabular-nums font-semibold">{p.views.toLocaleString('pt-BR')}</td>
                       <td class="px-2 py-2 text-right tabular-nums text-fg-muted">{(p.visitors ?? 0).toLocaleString('pt-BR')}</td>
@@ -1280,7 +1280,7 @@ function PagesTab({ period }: { period: PeriodRange }) {
                         {p.lastSeen ? new Date(p.lastSeen).toLocaleDateString('pt-BR') : '—'}
                       </td>
                       <td class="px-2 py-2 text-center">
-                        {status === 'unknown' && <span class="text-[0.6875rem] text-fg-subtle">—</span>}
+                        {status === 'unknown' && <span class="text-2xs text-fg-muted">—</span>}
                         {status === 'active' && <Badge tone="success">Ativo</Badge>}
                         {status === 'inactive' && <Badge tone="danger">Sem tracking</Badge>}
                       </td>
@@ -1410,11 +1410,11 @@ function ValidateTab({ seedUrl, clearSeed }: { seedUrl: string | null; clearSeed
             <div class="grid grid-cols-2 gap-3">
               <div class="rounded-md bg-surface-3 p-4 text-center">
                 <div class="text-2xl font-bold text-accent tabular-nums">{result.recentPageviews24h ?? 0}</div>
-                <div class="text-[0.6875rem] text-fg-muted mt-1">Pageviews últimas 24h</div>
+                <div class="text-2xs text-fg-muted mt-1">Pageviews últimas 24h</div>
               </div>
               <div class="rounded-md bg-surface-3 p-4 text-center">
                 <div class="text-2xl font-bold text-success tabular-nums">{result.totalSessions ?? 0}</div>
-                <div class="text-[0.6875rem] text-fg-muted mt-1">Sessões totais</div>
+                <div class="text-2xs text-fg-muted mt-1">Sessões totais</div>
               </div>
             </div>
 
@@ -1451,7 +1451,7 @@ function ChecklistItem({ ok, required, label }: { ok: boolean; required: boolean
         'inline-flex items-center justify-center size-5 rounded-full shrink-0',
         tone === 'success' && 'bg-success/20 text-success',
         tone === 'danger' && 'bg-danger/20 text-danger',
-        tone === 'neutral' && 'bg-surface text-fg-subtle',
+        tone === 'neutral' && 'bg-surface text-fg-muted',
       )}>
         <Icon size={12} />
       </span>
@@ -1459,10 +1459,10 @@ function ChecklistItem({ ok, required, label }: { ok: boolean; required: boolean
         'text-xs',
         tone === 'success' && 'text-success font-medium',
         tone === 'danger' && 'text-danger font-medium',
-        tone === 'neutral' && 'text-fg-subtle',
+        tone === 'neutral' && 'text-fg-muted',
       )}>
         {label}
-        {!ok && !required && <span class="text-fg-subtle font-normal ml-1">(opcional)</span>}
+        {!ok && !required && <span class="text-fg-muted font-normal ml-1">(opcional)</span>}
       </span>
     </div>
   )
@@ -1480,7 +1480,7 @@ function SitesTab({ onValidate }: { onValidate: (url: string) => void }) {
       <Card>
         <CardHeader>
           <CardTitle>Sites monitorados (últimos 30 dias)</CardTitle>
-          <span class="text-xs text-fg-subtle">{urls.length} domínio{urls.length !== 1 ? 's' : ''}</span>
+          <span class="text-xs text-fg-muted">{urls.length} domínio{urls.length !== 1 ? 's' : ''}</span>
         </CardHeader>
 
         {isLoading && <Skeleton class="h-32 w-full" />}
@@ -1497,7 +1497,7 @@ function SitesTab({ onValidate }: { onValidate: (url: string) => void }) {
           <div class="overflow-x-auto -mx-2">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-2 py-2 font-medium">Domínio</th>
                   <th class="text-right px-2 py-2 font-medium">Pageviews</th>
                   <th class="text-right px-2 py-2 font-medium">Visitantes</th>
@@ -1598,7 +1598,7 @@ function InstallationModal({ onClose }: { onClose: () => void }) {
           <Skeleton class="h-32 w-full" />
         ) : data ? (
           <div class="relative">
-            <pre class="text-[0.6875rem] font-mono text-fg-muted bg-surface-3 border border-border rounded-md p-4 pr-24 overflow-auto whitespace-pre-wrap break-all max-h-72">
+            <pre class="text-2xs font-mono text-fg-muted bg-surface-3 border border-border rounded-md p-4 pr-24 overflow-auto whitespace-pre-wrap break-all max-h-72">
               {data.snippet}
             </pre>
             <Button
@@ -1634,8 +1634,8 @@ function InstallationModal({ onClose }: { onClose: () => void }) {
           <p class="text-xs text-fg-muted mb-2">
             Quando o visitante preencher um formulário ou se identificar, chame:
           </p>
-          <pre class="text-[0.6875rem] font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto">{IDENTIFY_SNIPPET}</pre>
-          <p class="text-[0.6875rem] text-fg-subtle mt-2">
+          <pre class="text-2xs font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto">{IDENTIFY_SNIPPET}</pre>
+          <p class="text-2xs text-fg-muted mt-2">
             Isso vincula automaticamente o histórico anônimo ao lead quando ele entrar no sistema.
           </p>
         </div>
@@ -1647,10 +1647,10 @@ function InstallationModal({ onClose }: { onClose: () => void }) {
           <p class="text-xs text-fg-muted mb-2">
             Dispare eventos custom em qualquer ponto do código:
           </p>
-          <pre class="text-[0.6875rem] font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto">{TRACK_SNIPPET}</pre>
+          <pre class="text-2xs font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto">{TRACK_SNIPPET}</pre>
         </div>
 
-        <div class="text-[0.6875rem] text-fg-subtle text-center">
+        <div class="text-2xs text-fg-muted text-center">
           <Globe size={10} class="inline-block mr-1" /> Suporta sites externos via snippet loader.
         </div>
       </div>

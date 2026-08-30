@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Send, AlertCircle, CheckCircle, Plug, Trash2, ExternalLink, Webhook, Copy, Clock, Settings, HelpCircle } from 'lucide-preact'
+import { Send, AlertCircle, CheckCircle, Plug, Trash2, ExternalLink, Webhook, Copy, Clock, Settings, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -178,10 +178,10 @@ export function InstagramPage() {
           </div>
           {isV2 && data.scopes && data.scopes.length > 0 && (
             <div class="mt-3 pt-3 border-t border-border">
-              <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mb-1">Permissões concedidas</div>
+              <div class="text-3xs uppercase tracking-wider text-fg-muted mb-1">Permissões concedidas</div>
               <div class="flex flex-wrap gap-1">
                 {data.scopes.map((s) => (
-                  <code key={s} class="text-[0.625rem] px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">{s}</code>
+                  <code key={s} class="text-3xs px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted">{s}</code>
                 ))}
               </div>
             </div>
@@ -231,7 +231,7 @@ export function InstagramPage() {
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <h3 class="text-sm font-semibold text-fg">Conectar via Facebook (legado)</h3>
-                  <p class="text-[0.6875rem] text-fg-muted mt-0.5">
+                  <p class="text-2xs text-fg-muted mt-0.5">
                     Para contas que precisam permanecer vinculadas a uma Página do Facebook ou usar token de System User.
                   </p>
                 </div>
@@ -337,8 +337,8 @@ export function InstagramPage() {
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{label}</div>
-      <div class={`truncate text-fg ${mono ? 'font-mono text-[0.6875rem]' : 'text-sm'}`}>{value}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted">{label}</div>
+      <div class={`truncate text-fg ${mono ? 'font-mono text-2xs' : 'text-sm'}`}>{value}</div>
     </div>
   )
 }
@@ -356,7 +356,7 @@ function TokenExpiryAlert({
   if (!tokenExpiresAt) {
     if (tokenType === 'SYSTEM') {
       return (
-        <div class="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 p-2 text-[0.6875rem] text-fg-muted my-2">
+        <div class="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 p-2 text-2xs text-fg-muted my-2">
           <CheckCircle size={12} class="text-success shrink-0" />
           Token permanente (System User) — não expira.
         </div>
@@ -399,7 +399,7 @@ function TokenExpiryAlert({
   }
 
   return (
-    <div class="flex items-center gap-2 rounded-md border border-border bg-surface p-2 text-[0.6875rem] text-fg-muted my-2">
+    <div class="flex items-center gap-2 rounded-md border border-border bg-surface p-2 text-2xs text-fg-muted my-2">
       <Clock size={12} class="shrink-0" />
       Token expira em {days} dias ({new Date(tokenExpiresAt).toLocaleDateString()}).
     </div>
@@ -418,7 +418,7 @@ function OAuthConfigCard({ onConfigure }: { onConfigure: () => void }) {
             <CheckCircle size={16} class="text-success shrink-0 mt-0.5" />
             <div class="min-w-0">
               <div class="text-sm font-medium text-fg">App Meta configurado</div>
-              <div class="text-[0.6875rem] text-fg-muted mt-0.5 truncate">
+              <div class="text-2xs text-fg-muted mt-0.5 truncate">
                 App ID: <code class="font-mono">{data.appId}</code>
               </div>
             </div>
@@ -438,7 +438,7 @@ function OAuthConfigCard({ onConfigure }: { onConfigure: () => void }) {
           <AlertCircle size={16} class="text-warning shrink-0 mt-0.5" />
           <div class="min-w-0">
             <div class="text-sm font-medium text-fg">App Meta ainda não configurado</div>
-            <div class="text-[0.6875rem] text-fg-muted mt-0.5">
+            <div class="text-2xs text-fg-muted mt-0.5">
               Cole o App ID + App Secret do produto <strong>"API setup with Instagram login"</strong> pra liberar o botão de conectar.
             </div>
           </div>
@@ -524,7 +524,7 @@ function OAuthConfigModal({ onClose }: { onClose: () => void }) {
         />
 
         <div class="pt-2 border-t border-border space-y-2">
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">
+          <div class="text-2xs uppercase tracking-wider text-fg-muted">
             Cadastrar no painel do Meta
           </div>
           <ConfigCopyRow label="OAuth Redirect URI" value={redirectUri} onCopy={() => copy(redirectUri, 'Redirect URI')} />
@@ -543,9 +543,9 @@ function OAuthConfigModal({ onClose }: { onClose: () => void }) {
 function ConfigCopyRow({ label, value, onCopy }: { label: string; value: string; onCopy: () => void }) {
   return (
     <div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mb-0.5">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted mb-0.5">{label}</div>
       <div class="flex gap-2 items-center">
-        <code class="flex-1 px-2 py-1 rounded-md bg-surface border border-border text-[0.6875rem] font-mono text-fg break-all">
+        <code class="flex-1 px-2 py-1 rounded-md bg-surface border border-border text-2xs font-mono text-fg break-all">
           {value}
         </code>
         <Button size="sm" variant="secondary" onClick={onCopy}>
@@ -565,19 +565,19 @@ function WebhookInfoCard() {
   return (
     <Card class="mb-3">
       <div class="flex items-start gap-2">
-        <Webhook size={16} class="text-fg-subtle shrink-0 mt-0.5" />
+        <Webhook size={16} class="text-fg-muted shrink-0 mt-0.5" />
         <div class="flex-1 min-w-0 space-y-3">
           <div>
             <div class="text-sm font-medium text-fg">Configuração do webhook</div>
-            <div class="text-[0.6875rem] text-fg-muted mt-0.5">
+            <div class="text-2xs text-fg-muted mt-0.5">
               Cole estes dois valores no painel do Meta App em <strong>Webhooks → Instagram</strong>{' '}
               antes de conectar a conta.
             </div>
           </div>
           <div>
-            <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mb-1">Callback URL</div>
+            <div class="text-3xs uppercase tracking-wider text-fg-muted mb-1">Callback URL</div>
             <div class="flex gap-2 items-center">
-              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-[0.6875rem] font-mono text-fg break-all">
+              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-2xs font-mono text-fg break-all">
                 {data.webhookUrl}
               </code>
               <Button size="sm" variant="secondary" onClick={() => copy(data.webhookUrl, 'URL')}>
@@ -586,9 +586,9 @@ function WebhookInfoCard() {
             </div>
           </div>
           <div>
-            <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mb-1">Verify Token</div>
+            <div class="text-3xs uppercase tracking-wider text-fg-muted mb-1">Verify Token</div>
             <div class="flex gap-2 items-center">
-              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-[0.6875rem] font-mono text-fg break-all">
+              <code class="flex-1 px-2 py-1.5 rounded-md bg-surface border border-border text-2xs font-mono text-fg break-all">
                 {data.verifyToken}
               </code>
               <Button size="sm" variant="secondary" onClick={() => copy(data.verifyToken, 'Verify token')}>

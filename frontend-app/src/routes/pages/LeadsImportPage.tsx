@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Upload, Check, X as XIcon, AlertTriangle, ArrowRight, ArrowLeft, History, FileSpreadsheet } from 'lucide-preact'
+import { Upload, Check, X as XIcon, AlertTriangle, ArrowRight, ArrowLeft, History, FileSpreadsheet } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -274,7 +274,7 @@ function UploadStep({
                       {h.totals.created || 0} criados · {h.totals.updated || 0} atualizados · {h.totals.skipped || 0} pulados
                     </div>
                   )}
-                  <div class="text-fg-subtle text-[10px] mt-1">
+                  <div class="text-fg-muted text-3xs mt-1">
                     {new Date(h.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
                     {h.importedBy && ` • ${h.importedBy.name}`}
                   </div>
@@ -542,7 +542,7 @@ function KpiCard({ label, value, tone }: { label: string; value: number; tone?: 
     <Card>
       <div class="p-3 text-center">
         <div class={`text-2xl font-bold ${cls}`}>{value}</div>
-        <div class="text-[10px] uppercase tracking-wide text-fg-muted">{label}</div>
+        <div class="text-3xs uppercase tracking-wide text-fg-muted">{label}</div>
       </div>
     </Card>
   )
@@ -593,15 +593,15 @@ function PlanRow({ row, rejected, onToggle }: { row: any; rejected: boolean; onT
                 {row.diff.slice(0, 10).map((d: any, i: number) => (
                   <div key={i} class="flex items-center gap-2">
                     {d.action === 'fill' && <Check size={10} class="text-success" />}
-                    {d.action === 'skip-already-set' && <XIcon size={10} class="text-fg-subtle" />}
+                    {d.action === 'skip-already-set' && <XIcon size={10} class="text-fg-muted" />}
                     {d.action === 'override' && <AlertTriangle size={10} class="text-warning" />}
                     <code class="text-fg-muted">{d.field}</code>:
-                    <span class="text-fg-subtle line-through">{String(d.oldValue ?? '∅')}</span>
+                    <span class="text-fg-muted line-through">{String(d.oldValue ?? '∅')}</span>
                     →
                     <span>{String(d.newValue ?? '∅')}</span>
                   </div>
                 ))}
-                {row.diff.length > 10 && <div class="text-fg-subtle">+{row.diff.length - 10} campos…</div>}
+                {row.diff.length > 10 && <div class="text-fg-muted">+{row.diff.length - 10} campos…</div>}
               </div>
             </details>
           )}

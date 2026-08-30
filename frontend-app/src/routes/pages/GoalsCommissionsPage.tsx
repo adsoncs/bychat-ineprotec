@@ -13,7 +13,7 @@ import { useLocation } from 'wouter-preact'
 import {
   Target, HelpCircle, RefreshCw, Download, Plus, Pencil, Trash2,
   ExternalLink, ShieldCheck, AlertTriangle, Check,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -70,7 +70,7 @@ function GoalBar({ metric, p }: { metric: GoalMetric; p: MetricProgress }) {
     return (
       <div class="text-xs">
         <div class="text-fg tabular-nums">{metricValue(metric, p.atual)}</div>
-        <div class="text-[10px] text-fg-subtle">sem meta</div>
+        <div class="text-3xs text-fg-muted">sem meta</div>
       </div>
     )
   }
@@ -80,12 +80,12 @@ function GoalBar({ metric, p }: { metric: GoalMetric; p: MetricProgress }) {
     <div class="min-w-32">
       <div class="flex items-baseline justify-between gap-2 text-xs">
         <span class="text-fg tabular-nums">{metricValue(metric, p.atual)}</span>
-        <span class="text-[10px] text-fg-subtle tabular-nums">/ {metricValue(metric, p.target)}</span>
+        <span class="text-3xs text-fg-muted tabular-nums">/ {metricValue(metric, p.target)}</span>
       </div>
       <div class="mt-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
         <div class={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
       </div>
-      <div class={cn('text-[10px] tabular-nums mt-0.5', pct >= 100 ? 'text-success' : 'text-fg-subtle')}>{pct.toFixed(0)}%</div>
+      <div class={cn('text-3xs tabular-nums mt-0.5', pct >= 100 ? 'text-success' : 'text-fg-muted')}>{pct.toFixed(0)}%</div>
     </div>
   )
 }
@@ -166,7 +166,7 @@ export function GoalsCommissionsPage() {
           </Select>
           {panel.data?.escopoProprio ? <Badge tone="info">Você vê apenas os seus números</Badge> : null}
         </div>
-        <p class="text-[11px] text-fg-subtle mt-2">
+        <p class="text-2xs text-fg-muted mt-2">
           A venda pertence ao mês em que a proposta foi <strong>fechada como ganha</strong> — é a mesma data que o módulo Negociações usa.
         </p>
       </Card>
@@ -255,7 +255,7 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
+              <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
                 <th class="text-left font-medium px-3 py-2">Agente</th>
                 <th class="text-left font-medium px-3 py-2">Regra</th>
                 {METRICS.map((m) => <th key={m} class="text-left font-medium px-3 py-2">{METRIC_LABEL[m]}</th>)}
@@ -274,21 +274,21 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
                       ? <span class="text-xs text-fg-muted" title={a.regra.aceleradorAtivo ? 'Com acelerador por meta' : undefined}>
                           {a.regra.nome}{a.regra.aceleradorAtivo ? ' ⚡' : ''}
                         </span>
-                      : <span class="text-xs text-fg-subtle">sem regra</span>}
+                      : <span class="text-xs text-fg-muted">sem regra</span>}
                   </td>
                   {METRICS.map((m) => (
                     <td key={m} class="px-3 py-2"><GoalBar metric={m} p={a.metas[m]} /></td>
                   ))}
                   <td class="px-3 py-2 text-right tabular-nums">
                     <div class="text-fg">{moneyExact(a.comissao.prevista)}</div>
-                    {a.comissao.paga > 0 ? <div class="text-[11px] text-success">{moneyExact(a.comissao.paga)} paga</div> : null}
+                    {a.comissao.paga > 0 ? <div class="text-2xs text-success">{moneyExact(a.comissao.paga)} paga</div> : null}
                   </td>
                 </tr>
               ))}
               {op ? (
                 <tr class="bg-surface-2/50 font-medium">
                   <td class="px-3 py-2 text-fg">Operação</td>
-                  <td class="px-3 py-2 text-xs text-fg-subtle">meta da empresa</td>
+                  <td class="px-3 py-2 text-xs text-fg-muted">meta da empresa</td>
                   {METRICS.map((m) => <td key={m} class="px-3 py-2"><GoalBar metric={m} p={op.metas[m]} /></td>)}
                   <td class="px-3 py-2 text-right tabular-nums text-fg">{moneyExact(op.comissao.prevista)}</td>
                 </tr>
@@ -380,12 +380,12 @@ function MetasTab({ period, funnelId, users }: { period: string; funnelId: numbe
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
+              <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
                 <th class="text-left font-medium px-3 py-2">Agente</th>
                 {METRICS.map((m) => (
                   <th key={m} class="text-left font-medium px-3 py-2">
                     {METRIC_LABEL[m]}
-                    <span class="block normal-case text-[10px] text-fg-subtle">
+                    <span class="block normal-case text-3xs text-fg-muted">
                       {METRIC_UNIT[m] === 'currency' ? 'R$' : METRIC_UNIT[m] === 'percent' ? '%' : 'quantidade'}
                     </span>
                   </th>
@@ -446,7 +446,7 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
                   <th class="text-left font-medium px-3 py-2">Regra</th>
                   <th class="text-left font-medium px-3 py-2">Vale para</th>
                   <th class="text-left font-medium px-3 py-2">Pagamento único</th>
@@ -460,7 +460,7 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
                   <tr key={r.id} class="border-b border-border/60 last:border-0">
                     <td class="px-3 py-2">
                       <div class="text-fg font-medium">{r.nome}</div>
-                      <div class="text-[11px] text-fg-subtle">
+                      <div class="text-2xs text-fg-muted">
                         base {r.base === 'bruto' ? 'de tabela' : 'negociada'}
                         {r.prioridade ? ` · prioridade ${r.prioridade}` : ''}
                       </div>
@@ -468,7 +468,7 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
                     </td>
                     <td class="px-3 py-2 text-xs text-fg-muted">
                       <div>{r.funnelName ?? 'Qualquer funil'}</div>
-                      <div class="text-fg-subtle">
+                      <div class="text-fg-muted">
                         {r.agentNames.length ? r.agentNames.join(', ') : 'Todos os agentes'}
                       </div>
                     </td>
@@ -477,11 +477,11 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
                     <td class="px-3 py-2 text-xs">
                       {r.aceleradorAtivo && r.aceleradorMetrica
                         ? <span class="text-fg-muted">{METRIC_LABEL[r.aceleradorMetrica]} · {r.tiers.length} faixa(s)</span>
-                        : <span class="text-fg-subtle">—</span>}
+                        : <span class="text-fg-muted">—</span>}
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                      <button type="button" class="text-fg-subtle hover:text-fg mr-2" title="Editar" onClick={() => { setCreating(false); setEditing(r) }}><Pencil size={14} /></button>
-                      <button type="button" class="text-fg-subtle hover:text-danger" title="Excluir" onClick={() => setConfirmDel(r)}><Trash2 size={14} /></button>
+                      <button type="button" class="text-fg-muted hover:text-fg mr-2" title="Editar" onClick={() => { setCreating(false); setEditing(r) }}><Pencil size={14} /></button>
+                      <button type="button" class="text-fg-muted hover:text-danger" title="Excluir" onClick={() => setConfirmDel(r)}><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 ))}
@@ -639,7 +639,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[11px] uppercase tracking-wide text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wide text-fg-muted border-b border-border">
                   {isManager ? <th class="px-3 py-2 w-8" /> : null}
                   <th class="text-left font-medium px-3 py-2">Fechada</th>
                   <th class="text-left font-medium px-3 py-2">Agente</th>
@@ -663,16 +663,16 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
                     <td class="px-3 py-2 text-fg truncate max-w-36">{e.agenteNome ?? '—'}</td>
                     <td class="px-3 py-2">
                       <div class="text-fg-muted truncate max-w-52">{e.negociacaoTitulo ?? `Negociação #${e.negotiationId}`}</div>
-                      <div class="text-[11px] text-fg-subtle truncate max-w-52">{e.leadNome}</div>
+                      <div class="text-2xs text-fg-muted truncate max-w-52">{e.leadNome}</div>
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums">
                       <div class="text-xs text-fg">{num(e.baseUnico) > 0 ? moneyExact(e.baseUnico) : '—'}</div>
-                      {num(e.baseRecorrente) > 0 ? <div class="text-[11px] text-accent">+ {moneyExact(e.baseRecorrente)}/mês</div> : null}
+                      {num(e.baseRecorrente) > 0 ? <div class="text-2xs text-accent">+ {moneyExact(e.baseRecorrente)}/mês</div> : null}
                     </td>
                     <td class="px-3 py-2 text-xs text-fg-muted whitespace-nowrap">
                       <div>{rateLabel(e.tipoUnico, e.taxaUnico)}</div>
                       {num(e.baseRecorrente) > 0 ? <div>{rateLabel(e.tipoRecorrente, e.taxaRecorrente, e.mesesRecorrente)}</div> : null}
-                      {e.atingimento != null ? <div class="text-[10px] text-fg-subtle">faixa a {num(e.atingimento).toFixed(0)}% da meta</div> : null}
+                      {e.atingimento != null ? <div class="text-3xs text-fg-muted">faixa a {num(e.atingimento).toFixed(0)}% da meta</div> : null}
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums text-fg font-medium">{moneyExact(e.valorTotal)}</td>
                     <td class="px-3 py-2">
@@ -691,7 +691,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
                           })}
                         >{e.status === 'paga' ? 'Desfazer' : 'Marcar paga'}</button>
                       ) : null}
-                      <button type="button" class="text-fg-subtle hover:text-fg" title="Abrir o lead" onClick={() => onOpenLead(e.leadId)}>
+                      <button type="button" class="text-fg-muted hover:text-fg" title="Abrir o lead" onClick={() => onOpenLead(e.leadId)}>
                         <ExternalLink size={14} />
                       </button>
                     </td>

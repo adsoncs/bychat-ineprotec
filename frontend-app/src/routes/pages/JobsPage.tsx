@@ -3,7 +3,7 @@ import {
   GanttChart, RefreshCw, Pause, Play, Trash2, X as XIcon,
   AlertTriangle, CheckCircle, Send, Mail, MessageSquare, Webhook, Clock,
   TrendingUp, ShoppingBag, DollarSign, Target, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useQueues,
@@ -95,7 +95,7 @@ function counterColor(value: number, kind: 'waiting' | 'active' | 'delayed' | 'c
   if (kind === 'active' && value > 0) return 'text-info'
   if (kind === 'delayed' && value > 0) return 'text-warning'
   if (kind === 'completed') return 'text-success'
-  return 'text-fg-subtle'
+  return 'text-fg-muted'
 }
 
 type Tab = 'overview' | 'sends' | 'sales' | 'jobs'
@@ -223,17 +223,17 @@ function OverviewTab() {
                 <div class="grid grid-cols-3 gap-1 text-center">
                   <div>
                     <div class="text-lg font-semibold text-success tabular-nums">{intf.format(data?.sent ?? 0)}</div>
-                    <div class="text-[0.625rem] text-fg-subtle">Enviados</div>
+                    <div class="text-3xs text-fg-muted">Enviados</div>
                   </div>
                   <div>
                     <div class="text-lg font-semibold text-danger tabular-nums">{intf.format(data?.failed ?? 0)}</div>
-                    <div class="text-[0.625rem] text-fg-subtle">Falhas</div>
+                    <div class="text-3xs text-fg-muted">Falhas</div>
                   </div>
                   <div>
                     <div class="text-lg font-semibold text-fg-muted tabular-nums">
                       {data?.avgLatencyMs != null ? `${(data.avgLatencyMs / 1000).toFixed(1)}s` : '–'}
                     </div>
-                    <div class="text-[0.625rem] text-fg-subtle">Latência</div>
+                    <div class="text-3xs text-fg-muted">Latência</div>
                   </div>
                 </div>
               )}
@@ -322,11 +322,11 @@ function QueueCard({ q, onTogglePause }: { q: QueueStats; onTogglePause: () => v
         {counters.map((c) => (
           <div key={c.kind}>
             <div class={cn('text-base font-semibold tabular-nums', counterColor(c.value, c.kind))}>{c.value}</div>
-            <div class="text-[0.625rem] text-fg-subtle mt-0.5">{c.label}</div>
+            <div class="text-3xs text-fg-muted mt-0.5">{c.label}</div>
           </div>
         ))}
       </div>
-      <div class="text-[0.625rem] text-fg-subtle font-mono mt-2 truncate">queue:{q.name}</div>
+      <div class="text-3xs text-fg-muted font-mono mt-2 truncate">queue:{q.name}</div>
     </div>
   )
 }
@@ -399,7 +399,7 @@ function SendsTab({ onOpenSend }: { onOpenSend: (id: number) => void }) {
         {!isLoading && data && data.sends.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">Canal</th>
                   <th class="text-left px-3 py-2 font-medium">Destinatário</th>
@@ -417,7 +417,7 @@ function SendsTab({ onOpenSend }: { onOpenSend: (id: number) => void }) {
           </div>
         )}
         {data && data.total > data.sends.length && (
-          <div class="p-3 text-xs text-fg-subtle text-center">
+          <div class="p-3 text-xs text-fg-muted text-center">
             Mostrando {data.sends.length} de {data.total} —
             <button type="button" class="ml-1 text-info hover:underline" onClick={() => setFilters((f) => ({ ...f, limit: (f.limit ?? 50) + 50 }))}>
               carregar mais
@@ -456,7 +456,7 @@ function SendRow({ send, onClick }: { send: OutboundSend; onClick: () => void })
       <td class="px-3 py-2 text-xs text-fg-muted text-right tabular-nums">
         {send.latencyMs != null ? `${(send.latencyMs / 1000).toFixed(1)}s` : '–'}
       </td>
-      <td class="px-3 py-2 text-xs text-fg-subtle text-right">
+      <td class="px-3 py-2 text-xs text-fg-muted text-right">
         {new Date(send.createdAt).toLocaleString('pt-BR')}
       </td>
     </tr>
@@ -538,7 +538,7 @@ function SalesTab() {
         {!list.isLoading && list.data && list.data.sales.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">Lead</th>
                   <th class="text-left px-3 py-2 font-medium">Produto</th>
@@ -580,9 +580,9 @@ function SaleRow({ sale }: { sale: DetectedSale }) {
       <td class="px-3 py-2 text-xs text-right tabular-nums font-medium text-fg">
         {sale.value != null ? brl.format(Number(sale.value)) : '–'}
       </td>
-      <td class="px-3 py-2 text-xs text-fg-subtle">{sale.originType ?? '–'}</td>
+      <td class="px-3 py-2 text-xs text-fg-muted">{sale.originType ?? '–'}</td>
       <td class="px-3 py-2"><Badge tone={tone as any}>{sale.status}</Badge></td>
-      <td class="px-3 py-2 text-xs text-fg-subtle">{new Date(sale.detectedAt).toLocaleString('pt-BR')}</td>
+      <td class="px-3 py-2 text-xs text-fg-muted">{new Date(sale.detectedAt).toLocaleString('pt-BR')}</td>
       <td class="px-3 py-2 text-right">
         {sale.status === 'detected' && (
           <div class="inline-flex gap-1">
@@ -662,7 +662,7 @@ function JobsAdvancedTab({ onOpenJob }: { onOpenJob: (name: string, id: string |
                 </span>
                 {q.failed > 0 && <Badge tone="danger">{q.failed}</Badge>}
               </div>
-              <div class="text-[0.6875rem] text-fg-subtle">
+              <div class="text-2xs text-fg-muted">
                 {q.waiting} aguard · {q.active} ativo · {q.delayed} atrasado
               </div>
             </button>
@@ -749,7 +749,7 @@ function JobsTable({ queueName, status, onOpenJob }: { queueName: string; status
   return (
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+        <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
           <tr>
             <th class="text-left px-4 py-2 font-medium">ID</th>
             <th class="text-left px-3 py-2 font-medium">Dados</th>
@@ -769,7 +769,7 @@ function JobsTable({ queueName, status, onOpenJob }: { queueName: string; status
               <td class="px-3 py-2 text-xs text-danger max-w-[200px] truncate" title={j.failedReason ?? undefined}>
                 {j.failedReason ?? '-'}
               </td>
-              <td class="px-3 py-2 text-xs text-fg-subtle">
+              <td class="px-3 py-2 text-xs text-fg-muted">
                 {j.timestamp ? new Date(j.timestamp).toLocaleString('pt-BR') : '-'}
               </td>
             </tr>
@@ -812,24 +812,24 @@ function JobDetailDrawer({ queue, jobId, onClose }: { queue: string; jobId: stri
               </div>
               <div>
                 <h4 class="text-xs font-semibold text-fg-muted uppercase mb-1">Dados</h4>
-                <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(data.job.data, null, 2)}</pre>
+                <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(data.job.data, null, 2)}</pre>
               </div>
               {data.job.failedReason && (
                 <div>
                   <h4 class="text-xs font-semibold text-danger uppercase mb-1">Erro</h4>
-                  <pre class="text-[0.6875rem] bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{data.job.failedReason}</pre>
+                  <pre class="text-2xs bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{data.job.failedReason}</pre>
                 </div>
               )}
               {data.job.stacktrace && data.job.stacktrace.length > 0 && (
                 <div>
                   <h4 class="text-xs font-semibold text-fg-muted uppercase mb-1">Stack trace ({data.job.stacktrace.length})</h4>
-                  <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto max-h-64">{data.job.stacktrace.join('\n\n')}</pre>
+                  <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto max-h-64">{data.job.stacktrace.join('\n\n')}</pre>
                 </div>
               )}
               {data.job.returnvalue && (
                 <div>
                   <h4 class="text-xs font-semibold text-success uppercase mb-1">Retorno</h4>
-                  <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(data.job.returnvalue, null, 2)}</pre>
+                  <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(data.job.returnvalue, null, 2)}</pre>
                 </div>
               )}
               <div class="flex gap-2 pt-2 border-t border-border">
@@ -904,7 +904,7 @@ function SendDetailDrawer({ sendId, onClose }: { sendId: number; onClose: () => 
               {send.bodyPreview && (
                 <div>
                   <h4 class="text-xs font-semibold text-fg-muted uppercase mb-1">Conteúdo (prévia)</h4>
-                  <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto whitespace-pre-wrap">{send.bodyPreview}</pre>
+                  <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto whitespace-pre-wrap">{send.bodyPreview}</pre>
                 </div>
               )}
               <div>
@@ -921,18 +921,18 @@ function SendDetailDrawer({ sendId, onClose }: { sendId: number; onClose: () => 
               {send.error && (
                 <div>
                   <h4 class="text-xs font-semibold text-danger uppercase mb-1">Erro</h4>
-                  <pre class="text-[0.6875rem] bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{send.error}</pre>
+                  <pre class="text-2xs bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{send.error}</pre>
                 </div>
               )}
-              {send.externalId && <DetailRow label="ID externo" value={<code class="font-mono text-[0.6875rem]">{send.externalId}</code>} />}
+              {send.externalId && <DetailRow label="ID externo" value={<code class="font-mono text-2xs">{send.externalId}</code>} />}
               {send.metadata && (
                 <div>
                   <h4 class="text-xs font-semibold text-fg-muted uppercase mb-1">Metadata</h4>
-                  <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(send.metadata, null, 2)}</pre>
+                  <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(send.metadata, null, 2)}</pre>
                 </div>
               )}
               <DetailRow label="Origem" value={send.source ? `${send.source}${send.sourceId ? ` #${send.sourceId}` : ''}` : '–'} />
-              {send.jobId && <DetailRow label="Job ID" value={<code class="font-mono text-[0.6875rem]">{send.jobId}</code>} />}
+              {send.jobId && <DetailRow label="Job ID" value={<code class="font-mono text-2xs">{send.jobId}</code>} />}
             </>
           )}
         </div>
@@ -955,10 +955,10 @@ function TimelineRow({ label, at, done = false, fail = false }: { label: string;
     <div class="flex items-center gap-2">
       <span class={cn(
         'size-1.5 rounded-full',
-        fail ? 'bg-danger' : done ? 'bg-success' : at ? 'bg-info' : 'bg-fg-subtle/30',
+        fail ? 'bg-danger' : done ? 'bg-success' : at ? 'bg-info' : 'bg-fg-muted/30',
       )} />
-      <span class={cn('w-24', at ? 'text-fg' : 'text-fg-subtle')}>{label}</span>
-      <span class="text-fg-subtle">{at ? new Date(at).toLocaleString('pt-BR') : '—'}</span>
+      <span class={cn('w-24', at ? 'text-fg' : 'text-fg-muted')}>{label}</span>
+      <span class="text-fg-muted">{at ? new Date(at).toLocaleString('pt-BR') : '—'}</span>
     </div>
   )
 }

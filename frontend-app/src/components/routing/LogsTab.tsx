@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { ScrollText } from 'lucide-preact'
+import { ScrollText } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -96,7 +96,7 @@ function LogRow({ log }: { log: RoutingLogEntry }) {
             {log.lead.empresa || log.lead.nome || `Lead #${log.lead.id}`}
           </a>
         ) : (
-          <span class="text-fg-subtle">#{log.leadId}</span>
+          <span class="text-fg-muted">#{log.leadId}</span>
         )}
       </td>
       <td class="px-3 py-3 text-xs">

@@ -1,10 +1,11 @@
-import { X, PanelLeftClose, PanelLeftOpen } from 'lucide-preact'
+import { X, PanelLeftClose, PanelLeftOpen } from '@/components/ui/icon-set'
 import { useLocation } from 'wouter-preact'
 import { cn } from '@/lib/cn'
 import { BrandLogo } from '@/components/BrandLogo'
 import { useSidebarStore } from '@/stores/sidebar'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useT } from '@/i18n'
+import { ICON_SIZE } from '@/components/ui/Icon'
 
 interface SidebarHeaderProps {
   iconOnly: boolean
@@ -47,7 +48,7 @@ export function SidebarCollapseButton({ iconOnly, class: className }: { iconOnly
       aria-controls="app-sidebar-nav"
       title={`${label} (Ctrl+B)`}
     >
-      {iconOnly ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+      {iconOnly ? <PanelLeftOpen size={ICON_SIZE.md} /> : <PanelLeftClose size={ICON_SIZE.md} />}
     </button>
   )
 }
@@ -87,7 +88,7 @@ export function SidebarHeader({ iconOnly, showCloseButton = false, onClose, show
           onClick={onClose}
           aria-label="Fechar menu"
         >
-          <X size={18} />
+          <X size={ICON_SIZE.md} />
         </button>
       )}
       {/* Expandido, o botão de recolher cabe ao lado do logo; recolhido, ele vai

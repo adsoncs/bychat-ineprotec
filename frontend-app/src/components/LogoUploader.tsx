@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks'
-import { Upload, Trash2, ImageIcon } from 'lucide-preact'
+import { Upload, Trash2, ImageIcon } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useUploadLogo, useDeleteLogo, type LogoSlot } from '@/hooks/useSettings'
@@ -95,13 +95,13 @@ export function LogoUploader({ slot, label, hint, currentUrl, allowVector = fals
             }}
           />
         ) : (
-          <span class="flex items-center gap-2 text-xs text-fg-subtle">
+          <span class="flex items-center gap-2 text-xs text-fg-muted">
             <ImageIcon size={16} /> sem arquivo
           </span>
         )}
       </div>
 
-      {hint && <span class="text-[0.6875rem] text-fg-subtle">{hint}</span>}
+      {hint && <span class="text-2xs text-fg-muted">{hint}</span>}
 
       <input
         ref={inputRef}

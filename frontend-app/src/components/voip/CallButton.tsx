@@ -1,4 +1,4 @@
-import { Phone, Loader2 } from 'lucide-preact'
+import { Phone, Loader2 } from '@/components/ui/icon-set'
 import { useDialLead } from '@/hooks/useVoip'
 import { useModuleAccess } from '@/hooks/usePermissions'
 import { useActiveCall } from '@/stores/voipCall'

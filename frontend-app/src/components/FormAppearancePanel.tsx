@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Palette, Type, Square, RotateCcw, Eye, Settings as SettingsIcon } from 'lucide-preact'
+import { Palette, Type, Square, RotateCcw, Eye, Settings as SettingsIcon } from '@/components/ui/icon-set'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -186,7 +186,7 @@ export function FormAppearancePanel({ value, onChange, fields, settings }: Props
 
         {/* Presets */}
         <div>
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-1.5">Presets</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-1.5">Presets</div>
           <div class="flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button
@@ -281,7 +281,7 @@ export function FormAppearancePanel({ value, onChange, fields, settings }: Props
       {/* ────── coluna direita: preview ────── */}
       <div class="min-w-0">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium inline-flex items-center gap-1">
+          <span class="text-2xs uppercase tracking-wider text-fg-muted font-medium inline-flex items-center gap-1">
             <Eye size={12} /> Preview ao vivo
           </span>
         </div>

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'preact/hooks'
-import { FileText, Plus, HelpCircle, Search, X, Bold, Italic, Strikethrough, Code } from 'lucide-preact'
+import { FileText, Plus, HelpCircle, Search, X, Bold, Italic, Strikethrough, Code } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useTemplates,
@@ -118,19 +118,19 @@ export function TemplatesPage() {
     >
       <div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
         <div class="relative flex-1 min-w-0">
-          <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none" />
+          <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
           <input
             type="text"
             value={search}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             placeholder="Buscar por nome, assunto, conteúdo…"
-            class="w-full h-8 pl-8 pr-8 rounded-md border border-border bg-surface-2 text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
+            class="w-full h-8 pl-8 pr-8 rounded-md border border-border bg-surface-2 text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-subtle hover:text-fg"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
               aria-label="Limpar busca"
             >
               <X size={14} />
@@ -165,7 +165,7 @@ export function TemplatesPage() {
           )
         })}
         {!isLoading && data && (
-          <span class="ml-auto text-[0.6875rem] text-fg-subtle">
+          <span class="ml-auto text-2xs text-fg-muted">
             {hasActiveFilter ? `${filteredCount} de ${totalCount}` : `${totalCount} ${totalCount === 1 ? 'modelo' : 'modelos'}`}
           </span>
         )}
@@ -205,16 +205,16 @@ export function TemplatesPage() {
                 <div class="flex items-center gap-2 mb-2">
                   <Badge tone={tone}>{channelLabel}</Badge>
                   {t.category && <Badge tone="neutral">{CATEGORY_LABEL[t.category] ?? t.category}</Badge>}
-                  <span class="text-[0.625rem] text-fg-subtle ml-auto">Usado {t.usageCount}x</span>
+                  <span class="text-3xs text-fg-muted ml-auto">Usado {t.usageCount}x</span>
                 </div>
                 <div class="text-sm font-medium text-fg mb-1">{t.name}</div>
                 {t.key && (
                   <div class="mb-1.5" title="Identificador fixo usado pelo sistema. Você pode renomear o modelo acima à vontade — isto não muda.">
-                    <span class="inline-flex items-center gap-1 text-[0.625rem] font-mono text-fg-subtle bg-surface-2 border border-border rounded px-1.5 py-0.5">🔑 {t.key}</span>
+                    <span class="inline-flex items-center gap-1 text-3xs font-mono text-fg-muted bg-surface-2 border border-border rounded px-1.5 py-0.5">🔑 {t.key}</span>
                   </div>
                 )}
                 {t.subject && <div class="text-xs text-fg-muted mb-1 truncate">Assunto: {t.subject}</div>}
-                <p class="text-xs text-fg-subtle line-clamp-3 whitespace-pre-line">{t.body}</p>
+                <p class="text-xs text-fg-muted line-clamp-3 whitespace-pre-line">{t.body}</p>
                 <div class="flex gap-1.5 mt-3">
                   <Button variant="secondary" size="sm" onClick={() => setEditing(t)}>Editar</Button>
                   <Button variant="ghost" size="sm" class="text-danger hover:text-danger" onClick={() => setDeleting(t)}>Excluir</Button>
@@ -460,7 +460,7 @@ function EmailPanel({
               type="button"
               onClick={() => setTab('visual')}
               class={cn(
-                'h-6 px-2.5 text-[0.6875rem] font-medium rounded transition-colors',
+                'h-6 px-2.5 text-2xs font-medium rounded transition-colors',
                 tab === 'visual' ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
               )}
             >
@@ -470,7 +470,7 @@ function EmailPanel({
               type="button"
               onClick={() => setTab('html')}
               class={cn(
-                'h-6 px-2.5 text-[0.6875rem] font-medium rounded transition-colors',
+                'h-6 px-2.5 text-2xs font-medium rounded transition-colors',
                 tab === 'html' ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
               )}
             >
@@ -495,9 +495,9 @@ function EmailPanel({
               rows={14}
               placeholder="<p>Olá {{nome}},</p>…"
               spellcheck={false}
-              class="w-full px-3 py-2 text-[0.75rem] font-mono bg-surface text-fg outline-none resize-y min-h-[260px]"
+              class="w-full px-3 py-2 text-xs font-mono bg-surface text-fg outline-none resize-y min-h-[260px]"
             />
-            <div class="px-2 py-1.5 border-t border-border text-[0.625rem] text-fg-subtle">
+            <div class="px-2 py-1.5 border-t border-border text-3xs text-fg-muted">
               Edite o HTML diretamente. Mudanças refletem na aba <strong>Visual</strong> e na pré-visualização.
             </div>
           </div>
@@ -507,7 +507,7 @@ function EmailPanel({
       <div class="mt-3">
         <span class="text-xs font-medium text-fg-muted block mb-1.5">Pré-visualização</span>
         <PhonePreview channel="email" text={bodyHtml} subject={subject} />
-        <p class="text-[0.625rem] text-fg-subtle mt-1.5 text-center">
+        <p class="text-3xs text-fg-muted mt-1.5 text-center">
           Variáveis exibidas com valores de exemplo.
         </p>
       </div>
@@ -541,7 +541,7 @@ function ChatPanel({
       <div class="lg:sticky lg:top-0">
         <span class="text-xs font-medium text-fg-muted block mb-1.5">Pré-visualização</span>
         <PhonePreview channel={kind} text={body} />
-        <p class="text-[0.625rem] text-fg-subtle mt-1.5 text-center">
+        <p class="text-3xs text-fg-muted mt-1.5 text-center">
           Variáveis exibidas com valores de exemplo.
         </p>
       </div>
@@ -623,18 +623,18 @@ function WhatsAppEditor({
           type="button"
           onClick={insertQuebra}
           title="Quebrar em duas mensagens — isola um código que o cliente vai copiar (PIX, cupom)"
-          class="inline-flex h-5 items-center rounded border border-border px-2 text-[0.625rem] text-fg-muted hover:bg-surface-3 hover:text-fg"
+          class="inline-flex h-5 items-center rounded border border-border px-2 text-3xs text-fg-muted hover:bg-surface-3 hover:text-fg"
         >
           nova mensagem
         </button>
         <span class="w-px h-4 bg-border mx-0.5" />
-        <span class="text-[0.625rem] text-fg-subtle uppercase tracking-wide ml-1">Variáveis:</span>
+        <span class="text-3xs text-fg-muted uppercase tracking-wide ml-1">Variáveis:</span>
         {varKeys.map((k) => (
           <button
             key={k}
             type="button"
             onClick={() => insertVar(k)}
-            class="inline-flex items-center h-5 px-2 rounded-full text-[0.625rem] font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
+            class="inline-flex items-center h-5 px-2 rounded-full text-3xs font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
           >
             {`{{${k}}}`}
           </button>
@@ -693,13 +693,13 @@ function SmsEditor({
   return (
     <div class="rounded-md border border-border bg-surface overflow-hidden">
       <div class="flex flex-wrap items-center gap-1 px-1.5 py-1 border-b border-border bg-surface-2">
-        <span class="text-[0.625rem] text-fg-subtle uppercase tracking-wide ml-1">Variáveis:</span>
+        <span class="text-3xs text-fg-muted uppercase tracking-wide ml-1">Variáveis:</span>
         {varKeys.map((k) => (
           <button
             key={k}
             type="button"
             onClick={() => insertVar(k)}
-            class="inline-flex items-center h-5 px-2 rounded-full text-[0.625rem] font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
+            class="inline-flex items-center h-5 px-2 rounded-full text-3xs font-mono border border-info/40 bg-info/10 text-info hover:bg-info/20 transition-colors"
           >
             {`{{${k}}}`}
           </button>

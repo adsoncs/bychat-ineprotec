@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ImageDown, Loader2 } from 'lucide-preact'
+import { ImageDown, Loader2 } from '@/components/ui/icon-set'
 import { api, ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 

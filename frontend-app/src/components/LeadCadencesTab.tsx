@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Plus, Megaphone } from 'lucide-preact'
+import { Plus, Megaphone } from '@/components/ui/icon-set'
 import {
   useLeadCadenceEnrollments,
   useSalesCadences,
@@ -90,7 +90,7 @@ export function LeadCadencesTab({ leadId }: { leadId: number }) {
 
       {!enrollmentsQuery.isLoading && enrollments.length === 0 && (
         <div class="border border-dashed border-border rounded-md p-6 text-center">
-          <Megaphone size={24} class="mx-auto text-fg-subtle mb-2" />
+          <Megaphone size={24} class="mx-auto text-fg-muted mb-2" />
           <p class="text-sm text-fg mb-1">Lead não está em nenhuma cadência</p>
           <p class="text-xs text-fg-muted">Inscreva manualmente em uma cadência ativa para iniciar contatos automáticos.</p>
         </div>
@@ -100,7 +100,7 @@ export function LeadCadencesTab({ leadId }: { leadId: number }) {
         <div class="overflow-x-auto border border-border rounded-md">
           <table class="w-full text-sm">
             <thead>
-              <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+              <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                 <th class="text-left px-3 py-2 font-medium">Cadência</th>
                 <th class="text-center px-3 py-2 font-medium">Passo</th>
                 <th class="text-center px-3 py-2 font-medium">Status</th>
@@ -172,7 +172,7 @@ export function LeadCadencesTab({ leadId }: { leadId: number }) {
                 ))}
               </Select>
               {available.some((a) => a.reenroll) && (
-                <p class="text-[0.6875rem] text-fg-subtle mt-1">
+                <p class="text-2xs text-fg-muted mt-1">
                   Cadências marcadas como "reinscrever" substituem o enrollment anterior (que estava concluído ou encerrado). O histórico do enrollment antigo é apagado.
                 </p>
               )}
@@ -191,7 +191,7 @@ function EnrollmentRow({ enrollment: e }: { enrollment: LeadCadenceEnrollment })
       <td class="px-3 py-2 font-medium text-fg">{e.cadence.name}</td>
       <td class="px-3 py-2 text-center tabular-nums">{e.currentStep + 1}</td>
       <td class="px-3 py-2 text-center">
-        <span class={cn('inline-flex items-center px-2 h-6 rounded-md border text-[0.6875rem] font-medium', status.cls)}>
+        <span class={cn('inline-flex items-center px-2 h-6 rounded-md border text-2xs font-medium', status.cls)}>
           {status.label}
         </span>
       </td>
@@ -201,7 +201,7 @@ function EnrollmentRow({ enrollment: e }: { enrollment: LeadCadenceEnrollment })
         {e.exitReason && <span class="text-fg-muted">Saída: {cadenceExitReasonLabel(e.exitReason)}</span>}
         {e.pauseReason && !e.exitReason && <span class="text-warning">Pausa: {cadencePauseReasonLabel(e.pauseReason)}</span>}
         {e.lastReplyClass && (
-          <span class="ml-2 text-fg-subtle">Resposta: {cadenceReplyClassLabel(e.lastReplyClass)}</span>
+          <span class="ml-2 text-fg-muted">Resposta: {cadenceReplyClassLabel(e.lastReplyClass)}</span>
         )}
       </td>
     </tr>

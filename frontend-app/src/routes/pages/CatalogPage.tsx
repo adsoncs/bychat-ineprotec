@@ -1,5 +1,5 @@
 import { useState, useRef } from 'preact/hooks'
-import { Boxes, Plus, Upload, Download, Pencil, Trash2 } from 'lucide-preact'
+import { Boxes, Plus, Upload, Download, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useCatalog, useCatalogCategories, useSaveProduct, useDeleteProduct, useImportCatalog,
   downloadCatalogTemplate, type Product, type ProductInput,
@@ -133,7 +133,7 @@ export function CatalogPage() {
                     {p.estoque != null ? <> · estoque {p.estoque}</> : null}
                     {p.sku ? <> · {p.sku}</> : null}
                   </div>
-                  {p.descricao ? <div class="text-xs text-fg-subtle mt-0.5 truncate">{p.descricao}</div> : null}
+                  {p.descricao ? <div class="text-xs text-fg-muted mt-0.5 truncate">{p.descricao}</div> : null}
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => setEditing({ id: p.id, categoria: p.categoria, nome: p.nome, marca: p.marca || '', descricao: p.descricao || '', preco: p.preco ?? '', estoque: p.estoque, disponivel: p.disponivel, sku: p.sku || '', cobranca: p.cobranca ?? 'unico' })}><Pencil size={14} /></Button>
                 <Button size="sm" variant="ghost" onClick={() => remove(p)} disabled={del.isPending}><Trash2 size={14} /></Button>

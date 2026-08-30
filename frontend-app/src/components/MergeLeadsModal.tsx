@@ -80,19 +80,19 @@ export function MergeLeadsModal({ masterId, masterName, onClose, onMerged }: Pro
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm text-fg truncate">{d.empresa ?? d.nome ?? `Lead #${d.id}`}</span>
-                  <code class="text-[0.625rem] text-fg-subtle">#{d.id}</code>
+                  <code class="text-3xs text-fg-muted">#{d.id}</code>
                   {d.status && <LeadStatusBadge status={d.status} />}
                 </div>
                 <div class="text-xs text-fg-muted truncate">
                   {d.whatsapp ?? '—'} · {d.email ?? '—'}
                 </div>
                 {d.matchedBy.length > 0 && (
-                  <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+                  <div class="text-2xs text-fg-muted mt-0.5">
                     Casou por: {d.matchedBy.join(', ')}
                   </div>
                 )}
               </div>
-              <span class="text-[0.6875rem] text-fg-subtle whitespace-nowrap">{formatDateTime(d.createdAt)}</span>
+              <span class="text-2xs text-fg-muted whitespace-nowrap">{formatDateTime(d.createdAt)}</span>
             </li>
           ))}
         </ul>

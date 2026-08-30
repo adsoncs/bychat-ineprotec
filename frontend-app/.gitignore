@@ -9,3 +9,7 @@ playwright/.cache
 .DS_Store
 .env
 .env.local
+
+# cache do Python dos scripts utilitários
+__pycache__/
+*.pyc

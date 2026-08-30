@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, Plus, Pencil, Trash2, Star, GitFork, MessageSquare, Brain, Save } from 'lucide-preact'
+import { ArrowLeft, Plus, Pencil, Trash2, Star, GitFork, MessageSquare, Brain, Save } from '@/components/ui/icon-set'
 import {
   useFunnel,
   useCreateStage,
@@ -162,7 +162,7 @@ function StageRow({
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-sm font-medium text-fg truncate">{stage.name}</span>
-          <code class="text-[0.6875rem] text-fg-subtle font-mono">{stage.key}</code>
+          <code class="text-2xs text-fg-muted font-mono">{stage.key}</code>
           {!stage.active && <Badge tone="neutral">Inativa</Badge>}
           {stage.consumesSlot && (
             <span title="Leads aqui ocupam vaga das ofertas" class="inline-flex">

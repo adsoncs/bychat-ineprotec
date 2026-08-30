@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Mail, Save, RotateCcw, Send, Eye, AlertTriangle, ChevronRight } from 'lucide-preact'
+import { Mail, Save, RotateCcw, Send, Eye, AlertTriangle, ChevronRight } from '@/components/ui/icon-set'
 import {
   useSystemEmails,
   useUpdateSystemEmail,
@@ -89,7 +89,7 @@ function SystemEmailsBody() {
 
       {categories.map((cat) => (
         <div key={cat} class="space-y-2">
-          <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium">{CATEGORY_LABELS[cat] ?? cat}</div>
+          <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium">{CATEGORY_LABELS[cat] ?? cat}</div>
           <Card class="p-0 overflow-hidden">
             <ul class="divide-y divide-border">
               {grouped[cat]!.map((t) => (
@@ -105,10 +105,10 @@ function SystemEmailsBody() {
                         <span class="text-sm font-medium text-fg truncate">{t.name}</span>
                         <Badge tone={t.enabled ? 'accent' : 'neutral'}>{t.enabled ? 'Ativo' : 'Desativado'}</Badge>
                       </div>
-                      {t.description && <div class="text-[0.6875rem] text-fg-muted mt-0.5">{t.description}</div>}
-                      <div class="text-[0.625rem] text-fg-subtle mt-1 font-mono truncate">{t.key}</div>
+                      {t.description && <div class="text-2xs text-fg-muted mt-0.5">{t.description}</div>}
+                      <div class="text-3xs text-fg-muted mt-1 font-mono truncate">{t.key}</div>
                     </div>
-                    <ChevronRight size={14} class="mt-1 text-fg-subtle" />
+                    <ChevronRight size={14} class="mt-1 text-fg-muted" />
                   </button>
                 </li>
               ))}
@@ -212,7 +212,7 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
       footer={
         <>
           <div class="flex-1 flex items-center gap-2 text-xs text-fg-muted">
-            <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-[0.6875rem]">{template.key}</code>
+            <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-2xs">{template.key}</code>
             <span>·</span>
             <span>Atualizado em {new Date(template.updatedAt).toLocaleString('pt-BR')}</span>
           </div>
@@ -275,7 +275,7 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
                 value={htmlBody}
                 onInput={(e) => setHtmlBody((e.target as HTMLTextAreaElement).value)}
                 rows={20}
-                class="!font-mono !text-[0.75rem]"
+                class="!font-mono !text-xs"
               />
 
               <div class="rounded-md border border-border bg-surface-2 p-3 space-y-2">
@@ -294,7 +294,7 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
                     {sendTest.isPending ? 'Enviando…' : 'Enviar'}
                   </Button>
                 </div>
-                <p class="text-[0.6875rem] text-fg-subtle">Renderiza com dados de exemplo realistas e envia pro seu email pra você ver no cliente real.</p>
+                <p class="text-2xs text-fg-muted">Renderiza com dados de exemplo realistas e envia pro seu email pra você ver no cliente real.</p>
               </div>
             </div>
 
@@ -302,9 +302,9 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
               <div class="text-xs font-medium text-fg">Variáveis disponíveis</div>
               <div class="rounded-md border border-border bg-surface-2 p-2 max-h-[28rem] overflow-y-auto">
                 {(template.variables ?? []).length === 0 && (
-                  <div class="text-xs text-fg-subtle p-2">Nenhuma variável documentada.</div>
+                  <div class="text-xs text-fg-muted p-2">Nenhuma variável documentada.</div>
                 )}
-                <ul class="space-y-1 text-[0.6875rem]">
+                <ul class="space-y-1 text-2xs">
                   {(template.variables ?? []).map((v) => (
                     <li key={v.name} class="flex flex-col gap-0.5 p-1.5 rounded hover:bg-surface-3 cursor-pointer" onClick={() => navigator.clipboard.writeText(`{{${v.name}}}`)}>
                       <code class="font-mono text-accent">{`{{${v.name}}}`}</code>
@@ -313,7 +313,7 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
                   ))}
                 </ul>
               </div>
-              <p class="text-[0.6875rem] text-fg-subtle">Clique numa variável pra copiar.</p>
+              <p class="text-2xs text-fg-muted">Clique numa variável pra copiar.</p>
             </aside>
           </div>
         )}
@@ -321,7 +321,7 @@ function TemplateEditorModal({ template, onClose }: { template: SystemEmailTempl
         {tab === 'preview' && previewHtml && (
           <div class="space-y-3">
             <div class="rounded-md border border-border bg-surface-2 p-3">
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Assunto</div>
+              <div class="text-2xs uppercase tracking-wider text-fg-muted">Assunto</div>
               <div class="text-sm font-semibold text-fg mt-0.5">{previewSubject}</div>
             </div>
             <div class="rounded-md border border-border bg-white overflow-hidden">

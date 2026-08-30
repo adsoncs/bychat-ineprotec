@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   FileCheck2, Sparkles, AlertTriangle, ExternalLink, Check, X as XIcon, Clock, RefreshCw, FileText,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useDocReviews,
   useDocReviewDetail,
@@ -157,14 +157,14 @@ function DocReviewRow({ item, onOpen }: { item: DocReviewItem; onOpen: () => voi
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg">{item.candidate.name || '—'}</span>
-            <code class="text-[0.6875rem] text-fg-subtle font-mono">{item.candidateCode}</code>
+            <code class="text-2xs text-fg-muted font-mono">{item.candidateCode}</code>
             <Badge tone={tone} solid>{label}</Badge>
             {item.siblingCount > 0 && <Badge tone="info" solid>+{item.siblingCount} inscrição(ões)</Badge>}
           </div>
           <div class="text-xs text-fg-muted mt-0.5 truncate">
             {item.portal?.nome ?? '—'} · {item.course || '—'}
           </div>
-          <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+          <div class="text-2xs text-fg-muted mt-0.5">
             {item.approvedCount}/{item.requiredTotal} aprovados · {item.pendingCount} pendentes · {item.rejectedCount} rejeitados · {item.missingCount} faltando
             {item.aiSummary.length > 0 && (
               <span class="ml-2 font-mono text-fg-muted">[{item.aiSummary.join(' ')}]</span>
@@ -247,11 +247,11 @@ function DocReviewDetailModal({ registrationId, onClose }: { registrationId: num
             </div>
 
             <div>
-              <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium mb-2">
-                Documentos esperados {slots.length > 0 && <span class="text-fg-subtle normal-case">({slots.length})</span>}
+              <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">
+                Documentos esperados {slots.length > 0 && <span class="text-fg-muted normal-case">({slots.length})</span>}
               </div>
               {slots.length === 0 ? (
-                <div class="text-xs text-fg-subtle italic p-3 rounded-md border border-border bg-surface">
+                <div class="text-xs text-fg-muted italic p-3 rounded-md border border-border bg-surface">
                   Este processo não tem requisitos documentais configurados.
                 </div>
               ) : (
@@ -269,7 +269,7 @@ function DocReviewDetailModal({ registrationId, onClose }: { registrationId: num
                         </span>
                         {doc?.aiSuggestion && (
                           <span class={cn(
-                            'text-[0.6875rem]',
+                            'text-2xs',
                             doc.aiSuggestion === 'approve' ? 'text-success'
                               : doc.aiSuggestion === 'reject' ? 'text-danger'
                               : 'text-warning',
@@ -282,7 +282,7 @@ function DocReviewDetailModal({ registrationId, onClose }: { registrationId: num
                           <button
                             type="button"
                             onClick={() => setOpenDocId(doc.id)}
-                            class="text-accent hover:underline text-[0.6875rem] inline-flex items-center gap-1"
+                            class="text-accent hover:underline text-2xs inline-flex items-center gap-1"
                           >
                             Revisar <ExternalLink size={10} />
                           </button>
@@ -296,8 +296,8 @@ function DocReviewDetailModal({ registrationId, onClose }: { registrationId: num
 
             {extras.length > 0 && (
               <div>
-                <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium mb-2">
-                  Outros arquivos enviados <span class="text-fg-subtle normal-case">({extras.length})</span>
+                <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">
+                  Outros arquivos enviados <span class="text-fg-muted normal-case">({extras.length})</span>
                 </div>
                 <ul class="space-y-1.5">
                   {extras.map((d) => (
@@ -400,14 +400,14 @@ function BulkApproveModal({
             onInput={(e) => setConfidence(Number((e.target as HTMLInputElement).value))}
             class="w-full accent-success"
           />
-          <div class="flex justify-between text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="flex justify-between text-2xs text-fg-muted mt-1">
             <span>50% (ousado)</span>
             <span>75%</span>
             <span>100% (conservador)</span>
           </div>
         </div>
 
-        <div class="rounded-md border border-info/30 bg-info/10 p-3 text-[0.6875rem] text-fg-muted flex items-start gap-2">
+        <div class="rounded-md border border-info/30 bg-info/10 p-3 text-2xs text-fg-muted flex items-start gap-2">
           <AlertTriangle size={12} class="mt-0.5 shrink-0 text-info" />
           <span>
             Recomendado: <strong>85%</strong>. Documentos rejeitados pela IA <em>nunca</em> são
@@ -422,7 +422,7 @@ function BulkApproveModal({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span class="text-fg-subtle">{label}:</span>{' '}
+      <span class="text-fg-muted">{label}:</span>{' '}
       <span class="text-fg">{value}</span>
     </div>
   )
@@ -541,7 +541,7 @@ function StatusPill({
     >
       {children}
       {count !== undefined && (
-        <span class={cn('px-1.5 rounded-full text-[0.625rem] font-bold', active ? 'bg-fg-on-brand/25' : 'bg-surface-3 text-fg-muted')}>{count}</span>
+        <span class={cn('px-1.5 rounded-full text-3xs font-bold', active ? 'bg-fg-on-brand/25' : 'bg-surface-3 text-fg-muted')}>{count}</span>
       )}
     </button>
   )
@@ -567,15 +567,15 @@ function DocItemRow({ item, onOpen }: { item: DocItem; onOpen: () => void }) {
       >
         <div class="col-span-4 sm:col-span-3 min-w-0">
           <div class="text-sm font-medium text-fg truncate">{lead?.nome ?? '—'}</div>
-          <code class="text-[0.625rem] text-fg-subtle font-mono">{reg?.candidateCode ?? ''}</code>
+          <code class="text-3xs text-fg-muted font-mono">{reg?.candidateCode ?? ''}</code>
         </div>
         <div class="col-span-4 sm:col-span-3 min-w-0">
           <div class="text-sm text-fg truncate">{docLabel}</div>
-          {item.type?.category && <div class="text-[0.6875rem] text-fg-subtle truncate">{item.type.category}</div>}
+          {item.type?.category && <div class="text-2xs text-fg-muted truncate">{item.type.category}</div>}
         </div>
         <div class="hidden sm:block col-span-2 min-w-0 text-xs text-fg-muted">
           <div class="truncate">{off?.course?.nome ?? off?.nome ?? '—'}</div>
-          {sp?.nome && <div class="truncate text-fg-subtle">{sp.nome}</div>}
+          {sp?.nome && <div class="truncate text-fg-muted">{sp.nome}</div>}
         </div>
         <div class="col-span-2 sm:col-span-2 text-center">
           <AiChip suggestion={item.aiSuggestion} status={item.aiStatus} confidence={item.aiConfidence} />
@@ -599,7 +599,7 @@ function AiChip({
   if (suggestion === 'approve') return <Badge tone="success" solid>🤖 Aprovar{conf}</Badge>
   if (suggestion === 'reject')  return <Badge tone="danger" solid>🤖 Rejeitar{conf}</Badge>
   if (suggestion === 'review')  return <Badge tone="warning" solid>🤖 Revisar{conf}</Badge>
-  return <span class="text-[0.6875rem] text-fg-subtle italic">—</span>
+  return <span class="text-2xs text-fg-muted italic">—</span>
 }
 
 function StatusBadge({ status }: { status: 'pending' | 'approved' | 'rejected' }) {
@@ -733,7 +733,7 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
           <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-surface-2 text-xs">
             <span class="text-fg-muted truncate">
               {doc.fileName ?? 'arquivo'}
-              {doc.sizeBytes != null && <span class="ml-1 text-fg-subtle">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
+              {doc.sizeBytes != null && <span class="ml-1 text-fg-muted">· {(doc.sizeBytes / 1024).toFixed(0)} KB</span>}
             </span>
             <a href={doc.fileUrl} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-accent hover:underline">
               Abrir em nova aba <ExternalLink size={10} />
@@ -756,13 +756,13 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
 
         {doc.status === 'rejected' && doc.reviewNote && (
           <div class="rounded-md border border-danger/30 bg-danger/10 p-3 text-xs">
-            <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-danger mb-1">Motivo da rejeição (já enviado)</div>
+            <div class="text-3xs uppercase tracking-wider font-semibold text-danger mb-1">Motivo da rejeição (já enviado)</div>
             <div class="text-fg whitespace-pre-line">{doc.reviewNote}</div>
           </div>
         )}
 
         <div class="rounded-md border border-border bg-surface p-3 space-y-2">
-          <div class="text-[0.625rem] uppercase tracking-wider font-semibold text-fg-subtle">Veredito</div>
+          <div class="text-3xs uppercase tracking-wider font-semibold text-fg-muted">Veredito</div>
           <Textarea
             value={reviewNote}
             onInput={(e) => setReviewNote((e.target as HTMLTextAreaElement).value)}
@@ -809,16 +809,16 @@ function AiBlock({
   }[suggestion]
 
   const toneCls = {
-    success: 'border-success bg-success text-white',
-    danger:  'border-danger bg-danger text-white',
-    warning: 'border-warning bg-warning text-white',
+    success: 'border-success bg-success text-fg-on-brand',
+    danger:  'border-danger bg-danger text-fg-on-brand',
+    warning: 'border-warning bg-warning text-fg-on-brand',
   }[palette.tone]
 
   return (
     <div class={cn('rounded-md border p-3 space-y-2', toneCls)}>
       <div class="flex items-baseline gap-3 flex-wrap">
         <Sparkles size={14} class="shrink-0" />
-        <span class="text-[0.625rem] uppercase tracking-wider font-semibold">Sugestão da IA</span>
+        <span class="text-3xs uppercase tracking-wider font-semibold">Sugestão da IA</span>
         <span class="text-base font-semibold">{palette.emoji} {palette.label}</span>
         {confidence !== null && (
           <span class="text-xs">Confiança: <strong>{Math.round(confidence * 100)}%</strong></span>
@@ -828,13 +828,13 @@ function AiBlock({
         <button
           type="button"
           onClick={onToggle}
-          class="text-[0.6875rem] underline hover:no-underline"
+          class="text-2xs underline hover:no-underline"
         >
           {open ? 'Ocultar dados extraídos' : 'Ver dados extraídos'}
         </button>
       )}
       {open && analysisStr && (
-        <pre class="bg-surface text-fg p-2 rounded text-[0.625rem] overflow-x-auto max-h-48">{analysisStr}</pre>
+        <pre class="bg-surface text-fg p-2 rounded text-3xs overflow-x-auto max-h-48">{analysisStr}</pre>
       )}
     </div>
   )

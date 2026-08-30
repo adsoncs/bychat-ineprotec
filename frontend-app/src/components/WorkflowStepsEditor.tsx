@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'preact/hooks'
-import { List, Network } from 'lucide-preact'
+import { List, Network } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
@@ -308,7 +308,7 @@ export function WorkflowStepsBody({ workflowId, defaultView = 'canvas', canvasHe
           </button>
         </div>
         {viewMode === 'canvas' && (
-          <span class="text-[0.6875rem] text-fg-subtle">
+          <span class="text-2xs text-fg-muted">
             Arraste da paleta · Conecte handles · Clique no nó para editar
           </span>
         )}
@@ -436,11 +436,11 @@ function StepRow({
       style={{ borderLeft: `4px solid ${meta.color}` }}
     >
       <div class="px-4 py-3 flex items-center gap-3 flex-wrap">
-        <span class="text-[0.6875rem] text-fg-subtle font-semibold min-w-6">#{index + 1}</span>
+        <span class="text-2xs text-fg-muted font-semibold min-w-6">#{index + 1}</span>
         <span class="text-lg shrink-0">{meta.icon}</span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium text-fg break-words">{step.name}</div>
-          <div class="text-[0.6875rem] text-fg-subtle break-words mt-0.5">
+          <div class="text-2xs text-fg-muted break-words mt-0.5">
             <span
               class="inline-block px-1.5 py-0.5 rounded-full font-medium mr-1"
               style={{ background: `${meta.color}15`, color: meta.color }}
@@ -536,7 +536,7 @@ function StepEditModal({
 
         <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
           {isBranch ? (
-            <div class="text-[0.6875rem] text-fg-subtle self-center">
+            <div class="text-2xs text-fg-muted self-center">
               Cada condição acima aponta o próprio destino. Quem não casar nenhuma
               condição sai pelo caminho "senão" ao lado — se ele estiver vazio, o
               fluxo termina sem executar mais nada.
@@ -558,7 +558,7 @@ function StepEditModal({
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
-            <p class="text-[0.6875rem] text-fg-subtle mt-1">Para onde ir após este passo</p>
+            <p class="text-2xs text-fg-muted mt-1">Para onde ir após este passo</p>
           </div>
           )}
           {isCondition ? (
@@ -580,7 +580,7 @@ function StepEditModal({
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              <p class="text-[0.6875rem] text-fg-subtle mt-1">Caminho alternativo quando a condição não é atendida</p>
+              <p class="text-2xs text-fg-muted mt-1">Caminho alternativo quando a condição não é atendida</p>
             </div>
           ) : <div />}
         </div>
@@ -1009,17 +1009,17 @@ function LossReasonsConditionField({
           href="/app/settings"
           target="_blank"
           rel="noreferrer"
-          class="text-[0.6875rem] text-accent hover:underline"
+          class="text-2xs text-accent hover:underline"
           title="Cadastrar objeções"
         >
           Gerenciar
         </a>
       </div>
-      {hint && <p class="text-[0.6875rem] text-fg-subtle mb-2">{hint}</p>}
+      {hint && <p class="text-2xs text-fg-muted mb-2">{hint}</p>}
       {isLoading ? (
-        <div class="text-xs text-fg-subtle">Carregando…</div>
+        <div class="text-xs text-fg-muted">Carregando…</div>
       ) : items.length === 0 ? (
-        <div class="text-xs text-fg-subtle">Nenhuma objeção cadastrada.</div>
+        <div class="text-xs text-fg-muted">Nenhuma objeção cadastrada.</div>
       ) : (
         <div class="flex flex-wrap gap-1.5">
           {items.map((r) => {
@@ -1066,7 +1066,7 @@ function TemplateSelector({ channel, value, onChange }: { channel: string; value
         <option value="">— sem modelo (usar texto inline abaixo) —</option>
         {items.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
-      <p class="text-[0.6875rem] text-fg-muted">
+      <p class="text-2xs text-fg-muted">
         Selecione um modelo salvo. Editáveis em <strong>Captação → Modelos</strong>. Se vazio, usa o texto manual.
       </p>
     </div>

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { LogIn, AlertCircle, Loader2, CheckCircle } from 'lucide-preact'
+import { LogIn, AlertCircle, Loader2, CheckCircle } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'

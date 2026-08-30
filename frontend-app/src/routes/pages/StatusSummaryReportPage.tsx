@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Tag, Users, ArrowRight, Flame, Snowflake, Thermometer } from 'lucide-preact'
+import { Tag, Users, ArrowRight, Flame, Snowflake, Thermometer } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -163,7 +163,7 @@ export function StatusSummaryReportPage() {
                       <td class="py-2.5 px-3 text-right tabular-nums text-fg-muted">{intf.format(r.stillHere)}</td>
                       <td class="py-2.5 pl-3">
                         {r.nextSummaries.length === 0 ? (
-                          <span class="text-xs text-fg-subtle">—</span>
+                          <span class="text-xs text-fg-muted">—</span>
                         ) : (
                           <div class="flex flex-wrap gap-1.5">
                             {r.nextSummaries.slice(0, 5).map((n) => (
@@ -173,7 +173,7 @@ export function StatusSummaryReportPage() {
                                 title={`${n.count} de ${left} saídas`}
                               >
                                 <code class="font-mono">{n.code}</code>
-                                <span class="text-fg-subtle">{pctf.format(n.count / left)}</span>
+                                <span class="text-fg-muted">{pctf.format(n.count / left)}</span>
                               </span>
                             ))}
                           </div>
@@ -186,7 +186,7 @@ export function StatusSummaryReportPage() {
             </table>
           </Card>
 
-          <p class="text-xs text-fg-subtle mt-2">
+          <p class="text-xs text-fg-muted mt-2">
             "Ainda no resumo" é o que foi aplicado no período menos o que já saiu. Leads que
             entraram antes do recorte contam em "Parados hoje", mas não em "Aplicado".
           </p>

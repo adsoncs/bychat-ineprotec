@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback, useRef } from 'preact/hooks'
 import {
   GraduationCap, Save, Eye, EyeOff, PlugZap, DownloadCloud, CheckCircle2,
   AlertTriangle, Loader2, Users, Info,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -268,15 +268,15 @@ export function CrmEducacionalIntegration() {
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <div class="rounded-md border border-border bg-surface-2 p-3">
             <div class="text-lg font-semibold text-fg tabular-nums">{importados.toLocaleString('pt-BR')}</div>
-            <div class="text-[0.6875rem] text-fg-muted">Leads já importados</div>
+            <div class="text-2xs text-fg-muted">Leads já importados</div>
           </div>
           <div class="rounded-md border border-border bg-surface-2 p-3">
             <div class="text-sm font-semibold text-fg">{dataBr(ultima)}</div>
-            <div class="text-[0.6875rem] text-fg-muted">Último lead gravado</div>
+            <div class="text-2xs text-fg-muted">Último lead gravado</div>
           </div>
           <div class="rounded-md border border-border bg-surface-2 p-3">
             <div class="text-sm font-semibold text-fg">{rodando ? 'Importando…' : dataBr(ultimaVerificacao)}</div>
-            <div class="text-[0.6875rem] text-fg-muted">Última verificação</div>
+            <div class="text-2xs text-fg-muted">Última verificação</div>
           </div>
         </div>
 
@@ -324,7 +324,7 @@ export function CrmEducacionalIntegration() {
               ] as Array<[string, number, string]>).map(([rot, val, cor]) => (
                 <div key={rot} class="rounded-md border border-border bg-surface-2 p-2">
                   <div class={`text-sm font-semibold tabular-nums ${cor}`}>{val.toLocaleString('pt-BR')}</div>
-                  <div class="text-[0.625rem] text-fg-muted">{rot}</div>
+                  <div class="text-3xs text-fg-muted">{rot}</div>
                 </div>
               ))}
             </div>

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   CalendarDays, ChevronLeft, ChevronRight, Plus, X, Trash2, MapPin,
   Video, User as UserIcon, ExternalLink, Ban, Clock, BadgeCheck, CalendarClock,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -142,7 +142,7 @@ export function CalendarPanel() {
           <div class="flex w-full overflow-hidden rounded-lg border border-border sm:w-auto">
             {(['month', 'week', 'day'] as View[]).map((v) => (
               <button key={v} onClick={() => setView(v)}
-                class={`flex-1 px-3 py-1.5 text-sm sm:flex-none ${view === v ? 'bg-accent text-white' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>
+                class={`flex-1 px-3 py-1.5 text-sm sm:flex-none ${view === v ? 'bg-accent text-fg-on-brand' : 'bg-surface text-fg-muted hover:bg-surface-2'}`}>
                 {v === 'month' ? 'Mês' : v === 'week' ? 'Semana' : 'Dia'}
               </button>
             ))}
@@ -230,7 +230,7 @@ function MonthGrid({ days, cursor, events, onPick, onEvent, onAdd }: {
   return (
     <div class="rounded-lg border border-border overflow-hidden">
       <div class="grid grid-cols-7 bg-surface-2 border-b border-border">
-        {WD.map((w) => <div key={w} class="px-2 py-1.5 text-[0.6875rem] font-semibold text-fg-muted uppercase text-center">{w}</div>)}
+        {WD.map((w) => <div key={w} class="px-2 py-1.5 text-2xs font-semibold text-fg-muted uppercase text-center">{w}</div>)}
       </div>
       <div class="grid grid-cols-7">
         {days.map((d) => {
@@ -241,7 +241,7 @@ function MonthGrid({ days, cursor, events, onPick, onEvent, onAdd }: {
             <div key={ymd(d)} class={`min-h-[104px] border-b border-r border-border p-1 ${other ? 'bg-surface-2/40' : 'bg-surface'} group relative`}>
               <div class="flex items-center justify-between px-0.5">
                 <button onClick={() => onPick(d)}
-                  class={`text-xs font-medium leading-5 w-6 h-6 rounded-full flex items-center justify-center ${isToday ? 'bg-accent text-white' : other ? 'text-fg-subtle' : 'text-fg'} hover:bg-surface-3`}>
+                  class={`text-xs font-medium leading-5 w-6 h-6 rounded-full flex items-center justify-center ${isToday ? 'bg-accent text-fg-on-brand' : other ? 'text-fg-muted' : 'text-fg'} hover:bg-surface-3`}>
                   {d.getDate()}
                 </button>
                 <button onClick={() => onAdd(d)} class="opacity-0 group-hover:opacity-100 text-fg-muted hover:text-accent" title="Adicionar"><Plus size={13} /></button>
@@ -249,12 +249,12 @@ function MonthGrid({ days, cursor, events, onPick, onEvent, onAdd }: {
               <div class="mt-0.5 space-y-0.5">
                 {list.slice(0, 3).map((ev) => (
                   <button key={ev.id} onClick={() => onEvent(ev)}
-                    class="block w-full text-left truncate rounded px-1 py-0.5 text-[0.6875rem] text-white"
+                    class="block w-full text-left truncate rounded px-1 py-0.5 text-2xs text-white"
                     style={`background:${ev.color};${ev.status === 'cancelled' || ev.status === 'no_show' ? 'opacity:.5;text-decoration:line-through' : ''}`}>
                     {ev.allDay ? '' : hm(new Date(ev.startAt)) + ' '}{ev.title}
                   </button>
                 ))}
-                {list.length > 3 && <button onClick={() => onPick(d)} class="text-[0.625rem] text-accent hover:underline px-1">+{list.length - 3} mais</button>}
+                {list.length > 3 && <button onClick={() => onPick(d)} class="text-3xs text-accent hover:underline px-1">+{list.length - 3} mais</button>}
               </div>
             </div>
           )
@@ -292,8 +292,8 @@ function TimeGrid({ days, events, onEvent, onAddAt }: {
           const isToday = sameDay(d, today)
           return (
             <div key={ymd(d)} class="flex-1 text-center py-2 border-r border-border last:border-r-0">
-              <div class="text-[0.6875rem] text-fg-muted uppercase">{wdShort(d.getDay())}</div>
-              <div class={`text-sm font-semibold inline-flex items-center justify-center w-7 h-7 rounded-full ${isToday ? 'bg-accent text-white' : 'text-fg'}`}>{d.getDate()}</div>
+              <div class="text-2xs text-fg-muted uppercase">{wdShort(d.getDay())}</div>
+              <div class={`text-sm font-semibold inline-flex items-center justify-center w-7 h-7 rounded-full ${isToday ? 'bg-accent text-fg-on-brand' : 'text-fg'}`}>{d.getDate()}</div>
             </div>
           )
         })}
@@ -302,11 +302,11 @@ function TimeGrid({ days, events, onEvent, onAddAt }: {
       {/* Faixa "dia inteiro" */}
       {hasAllDay && (
         <div class="flex border-b border-border bg-surface-2/40">
-          <div class="w-14 shrink-0 border-r border-border text-[0.625rem] text-fg-subtle px-1 py-1 text-right">dia todo</div>
+          <div class="w-14 shrink-0 border-r border-border text-3xs text-fg-muted px-1 py-1 text-right">dia todo</div>
           {days.map((d) => (
             <div key={ymd(d)} class="flex-1 border-r border-border last:border-r-0 p-1 space-y-0.5 min-h-[28px]">
               {(allDayByDay.get(ymd(d)) ?? []).map((ev) => (
-                <button key={ev.id} onClick={() => onEvent(ev)} class="block w-full text-left truncate rounded px-1 py-0.5 text-[0.6875rem] text-white" style={`background:${ev.color}`}>{ev.title}</button>
+                <button key={ev.id} onClick={() => onEvent(ev)} class="block w-full text-left truncate rounded px-1 py-0.5 text-2xs text-white" style={`background:${ev.color}`}>{ev.title}</button>
               ))}
             </div>
           ))}
@@ -319,7 +319,7 @@ function TimeGrid({ days, events, onEvent, onAddAt }: {
           {/* Coluna de horas */}
           <div class="w-14 shrink-0 border-r border-border relative">
             {hours.map((h) => (
-              <div key={h} class="absolute right-1 -translate-y-1/2 text-[0.625rem] text-fg-subtle" style={`top:${h * HOUR_PX}px`}>{h === 0 ? '' : pad(h) + ':00'}</div>
+              <div key={h} class="absolute right-1 -translate-y-1/2 text-3xs text-fg-muted" style={`top:${h * HOUR_PX}px`}>{h === 0 ? '' : pad(h) + ':00'}</div>
             ))}
           </div>
           {/* Colunas de dias */}
@@ -351,12 +351,12 @@ function TimeGrid({ days, events, onEvent, onAddAt }: {
                     <button key={ev.id} onClick={() => onEvent(ev)}
                       class="absolute rounded-md px-1.5 py-0.5 text-left text-white overflow-hidden border border-white/20 shadow-sm"
                       style={`top:${top}px;height:${dur}px;left:calc(${lane * w}% + 1px);width:calc(${w}% - 2px);background:${ev.color};${struck ? 'opacity:.55' : ''}`}>
-                      <div class={`flex items-center gap-1 text-[0.6875rem] font-medium leading-tight ${struck ? 'line-through' : ''}`}>
+                      <div class={`flex items-center gap-1 text-2xs font-medium leading-tight ${struck ? 'line-through' : ''}`}>
                         {ev.kind === 'booking' && (ev.status === 'confirmed' || ev.confirmedAt) && <BadgeCheck size={11} class="shrink-0" />}
                         {ev.kind === 'booking' && ev.status !== 'confirmed' && !ev.confirmedAt && ev.confirmRequestedAt && <Clock size={11} class="shrink-0 opacity-80" />}
                         <span class="truncate">{ev.title}</span>
                       </div>
-                      <div class="text-[0.625rem] opacity-90 truncate">{hm(s)}–{hm(e)}</div>
+                      <div class="text-3xs opacity-90 truncate">{hm(s)}–{hm(e)}</div>
                     </button>
                   )
                 })}
@@ -486,7 +486,7 @@ function EventDetail({ event, onClose, onEditBlock }: {
         {event.meetingTypeName && <div class="flex items-center gap-2"><CalendarDays size={15} class="text-fg-muted" /> {event.meetingTypeName}</div>}
         {event.locationType && <div class="flex items-center gap-2"><MapPin size={15} class="text-fg-muted" /> {LOC_ICON[event.locationType] ?? event.locationType}</div>}
         {event.meetLink && <a href={event.meetLink} target="_blank" rel="noreferrer" class="flex items-center gap-2 text-accent hover:underline"><Video size={15} /> Entrar na reunião</a>}
-        {event.kind === 'google' && <div class="text-xs text-fg-subtle">Evento do seu Google Calendar (somente leitura). Esse horário fica indisponível para novos agendamentos.</div>}
+        {event.kind === 'google' && <div class="text-xs text-fg-muted">Evento do seu Google Calendar (somente leitura). Esse horário fica indisponível para novos agendamentos.</div>}
         {event.kind === 'google' && event.htmlLink && <a href={event.htmlLink} target="_blank" rel="noreferrer" class="flex items-center gap-2 text-accent hover:underline"><ExternalLink size={15} /> Abrir no Google Calendar</a>}
         {(event.inviteeName || event.inviteeEmail || event.inviteePhone) && (
           <div class="rounded-md bg-surface-2 p-2 space-y-0.5">

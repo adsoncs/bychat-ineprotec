@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle } from 'lucide-preact'
+import { AlertTriangle, CheckCircle } from '@/components/ui/icon-set'
 import {
   useDefaultTeam, useSetDefaultTeam, useTeams,
   useTeamsOrphans, useApplyFallbackToOrphans,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Save } from 'lucide-preact'
+import { Save } from '@/components/ui/icon-set'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
@@ -153,12 +153,12 @@ export function BusinessHoursSettings() {
             />
             Ativar auto-resposta fora do horário
           </label>
-          <div class="text-[0.6875rem] text-fg-muted -mt-2 ml-6">
+          <div class="text-2xs text-fg-muted -mt-2 ml-6">
             Quando desativado, nenhuma mensagem automática é enviada — leads chegam normalmente em qualquer horário.
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             <div>
-              <label class="text-[0.6875rem] font-medium text-fg-muted block mb-1">Fuso horário</label>
+              <label class="text-2xs font-medium text-fg-muted block mb-1">Fuso horário</label>
               <select
                 value={timezone}
                 onChange={(e) => setTimezone((e.target as HTMLSelectElement).value)}
@@ -170,7 +170,7 @@ export function BusinessHoursSettings() {
               </select>
             </div>
             <div>
-              <label class="text-[0.6875rem] font-medium text-fg-muted block mb-1">
+              <label class="text-2xs font-medium text-fg-muted block mb-1">
                 Não reenviar pra mesmo lead nas próximas (h)
               </label>
               <input
@@ -192,7 +192,7 @@ export function BusinessHoursSettings() {
           <div class="text-sm font-semibold text-fg">Dias e horários do expediente</div>
         </div>
         <div class="p-4">
-          <div class="grid grid-cols-[120px_80px_1fr_1fr] gap-3 text-[0.6875rem] text-fg-muted font-medium uppercase tracking-wider pb-1.5 border-b border-border">
+          <div class="grid grid-cols-[120px_80px_1fr_1fr] gap-3 text-2xs text-fg-muted font-medium uppercase tracking-wider pb-1.5 border-b border-border">
             <div>Dia</div>
             <div>Aberto?</div>
             <div>Início</div>
@@ -237,7 +237,7 @@ export function BusinessHoursSettings() {
           <div class="text-sm font-semibold text-fg">Mensagem automática</div>
         </div>
         <div class="p-4">
-          <div class="text-[0.6875rem] text-fg-muted mb-1.5">
+          <div class="text-2xs text-fg-muted mb-1.5">
             Enviada via WhatsApp quando lead escreve fora do horário (e nenhum chatbot está vinculado à instância)
           </div>
           <textarea

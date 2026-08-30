@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { Image as ImageIcon, Loader2, MessageSquarePlus, Plus, ShieldCheck, Trash2, Upload } from 'lucide-preact'
+import { Image as ImageIcon, Loader2, MessageSquarePlus, Plus, ShieldCheck, Trash2, Upload } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -220,7 +220,7 @@ export function CloudApiProfileModal({
               separado do app do celular: campo vazio aqui é campo vazio lá. */}
           {preenchidos && (
             <div class="rounded-md border border-border bg-surface px-3 py-2">
-              <div class="text-xs uppercase tracking-wider text-fg-subtle mb-1.5">Já configurado nesta conta</div>
+              <div class="text-xs uppercase tracking-wider text-fg-muted mb-1.5">Já configurado nesta conta</div>
               <div class="flex flex-wrap gap-1.5">
                 <Preenchido on={preenchidos.profilePicture} label="Foto" />
                 <Preenchido on={preenchidos.about} label="Recado" />
@@ -240,7 +240,7 @@ export function CloudApiProfileModal({
             <div class="size-20 shrink-0 overflow-hidden rounded-full border border-border bg-surface-3 grid place-items-center">
               {foto
                 ? <img src={foto} alt="Foto do perfil" class="size-full object-cover" />
-                : <ImageIcon size={22} class="text-fg-subtle" />}
+                : <ImageIcon size={22} class="text-fg-muted" />}
             </div>
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-fg">Foto do perfil</div>
@@ -323,7 +323,7 @@ export function CloudApiProfileModal({
           {/* Automação conversacional — aparece na conversa antes de o cliente escrever */}
           <div class="border-t border-border pt-4">
             <div class="flex items-center gap-2 mb-2">
-              <MessageSquarePlus size={15} class="text-fg-subtle" />
+              <MessageSquarePlus size={15} class="text-fg-muted" />
               <div class="text-sm font-medium text-fg">Atalhos na abertura da conversa</div>
             </div>
 
@@ -335,7 +335,7 @@ export function CloudApiProfileModal({
               />
               Avisar quando um cliente abre a conversa pela primeira vez
             </label>
-            <p class="-mt-2 mb-3 text-xs text-fg-subtle">
+            <p class="-mt-2 mb-3 text-xs text-fg-muted">
               Com isso ligado, a Meta manda um evento de boas-vindas no webhook — quem responde é o
               chatbot ou o fluxo vinculado a esta conexão.
             </p>
@@ -379,7 +379,7 @@ export function CloudApiProfileModal({
                   <ReadOnly label="Webhook em uso na Meta" value={num.webhookUrl} />
                 </div>
               )}
-              <p class="mt-2 text-xs text-fg-subtle">
+              <p class="mt-2 text-xs text-fg-muted">
                 O nome de exibição e o selo verde não mudam por aqui: são pedidos no
                 Gerenciador do WhatsApp da Meta e passam por revisão.
               </p>
@@ -407,7 +407,7 @@ function Preenchido({ on, label }: { on: boolean; label: string }) {
 function ReadOnly({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted">{label}</div>
       <div class="truncate text-sm text-fg" title={value}>{value}</div>
     </div>
   )
@@ -427,7 +427,7 @@ function ListaEditavel({
   return (
     <div class="mb-4">
       <div class="text-sm font-medium text-fg">{titulo}</div>
-      <p class="mb-2 text-xs text-fg-subtle">{descricao}</p>
+      <p class="mb-2 text-xs text-fg-muted">{descricao}</p>
       <div class="space-y-2">
         {itens.map((item, i) => (
           <div key={i} class="flex items-center gap-2">
@@ -475,7 +475,7 @@ function ListaComandos({
   return (
     <div>
       <div class="text-sm font-medium text-fg">Comandos</div>
-      <p class="mb-2 text-xs text-fg-subtle">
+      <p class="mb-2 text-xs text-fg-muted">
         O cliente digita "/" e vê a lista. Até {max} comandos; a resposta é do chatbot ou do fluxo.
       </p>
       <div class="space-y-2">
@@ -535,7 +535,7 @@ function TwoStepPin({ connectionId }: { connectionId: number }) {
   return (
     <div class="border-t border-border pt-4">
       <div class="flex items-center gap-2 mb-2">
-        <ShieldCheck size={15} class="text-fg-subtle" />
+        <ShieldCheck size={15} class="text-fg-muted" />
         <div class="text-sm font-medium text-fg">Verificação em duas etapas</div>
         <Badge tone="neutral">Opcional</Badge>
       </div>
@@ -562,7 +562,7 @@ function TwoStepPin({ connectionId }: { connectionId: number }) {
           {salvar.isPending ? 'Salvando…' : 'Definir PIN'}
         </Button>
       </div>
-      <p class="mt-1 text-xs text-fg-subtle">
+      <p class="mt-1 text-xs text-fg-muted">
         Guarde o PIN fora do sistema: ele é exigido para registrar o número de novo na Meta
         e não fica salvo aqui.
       </p>

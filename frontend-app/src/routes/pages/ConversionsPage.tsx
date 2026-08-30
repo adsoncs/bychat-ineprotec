@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   Send, Settings, ListChecks, Activity, RefreshCw, Eye, EyeOff, AlertTriangle,
   CheckCircle, XCircle, Clock, Sparkles, X as XIcon, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useCapiConfig,
@@ -214,7 +214,7 @@ function ConfigTab() {
                     <span class="flex-1">Token configurado · clique em editar para substituir</span>
                     <button
                       type="button"
-                      class="text-info hover:underline text-[0.6875rem]"
+                      class="text-info hover:underline text-2xs"
                       onClick={() => setTokenChanged(true)}
                     >
                       Editar
@@ -248,7 +248,7 @@ function ConfigTab() {
                     )}
                   </div>
                 )}
-                <p class="text-[0.6875rem] text-fg-subtle">
+                <p class="text-2xs text-fg-muted">
                   Gerado em Meta Business Suite &gt; Configurações da conta &gt; Eventos do site &gt; Configurar &gt; Conversions API.
                 </p>
               </div>
@@ -347,7 +347,7 @@ function LeadQualityCard() {
         </Badge>
       </div>
 
-      <div class="rounded-md border border-border bg-surface-2/40 p-3 text-[0.6875rem] text-fg-muted space-y-1">
+      <div class="rounded-md border border-border bg-surface-2/40 p-3 text-2xs text-fg-muted space-y-1">
         <div class="font-medium text-fg mb-1">Disparos automáticos quando ativo:</div>
         <ul class="list-disc pl-4 space-y-0.5">
           <li><strong class="text-fg">INTERESTED</strong> — quando o lead vira qualificado</li>
@@ -360,11 +360,11 @@ function LeadQualityCard() {
       {data && (
         <div class="grid grid-cols-2 gap-3 text-xs">
           <div class="rounded-md border border-border bg-surface-2/40 p-3">
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Enviados (30d)</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Enviados (30d)</div>
             <div class="text-xl font-semibold text-accent tabular-nums mt-0.5">{data.stats.sent}</div>
           </div>
           <div class="rounded-md border border-border bg-surface-2/40 p-3">
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Falhas (30d)</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Falhas (30d)</div>
             <div class={`text-xl font-semibold tabular-nums mt-0.5 ${data.stats.failed > 0 ? 'text-danger' : 'text-fg-muted'}`}>
               {data.stats.failed}
             </div>
@@ -383,7 +383,7 @@ function LeadQualityCard() {
           <summary class="cursor-pointer text-fg-muted hover:text-fg">Últimos envios ({data.recent.length})</summary>
           <ul class="mt-2 divide-y divide-border rounded-md border border-border overflow-hidden">
             {data.recent.map((r) => (
-              <li key={r.id} class="px-3 py-2 flex items-center gap-3 text-[0.6875rem]">
+              <li key={r.id} class="px-3 py-2 flex items-center gap-3 text-2xs">
                 {r.status === 'quality_feedback_sent' ? (
                   <CheckCircle size={12} class="text-accent shrink-0" />
                 ) : (
@@ -391,7 +391,7 @@ function LeadQualityCard() {
                 )}
                 <span class="font-mono text-fg-muted shrink-0">#{r.leadId ?? '?'}</span>
                 <span class="flex-1 truncate text-fg">{r.errorMessage}</span>
-                <span class="text-fg-subtle shrink-0">{new Date(r.createdAt).toLocaleString('pt-BR')}</span>
+                <span class="text-fg-muted shrink-0">{new Date(r.createdAt).toLocaleString('pt-BR')}</span>
               </li>
             ))}
           </ul>
@@ -519,7 +519,7 @@ function MappingTab() {
         <span class="flex-1">
           Quando um lead chega numa etapa abaixo, o evento CAPI mapeado é disparado para o Meta. Use isso para informar à
           plataforma quando um lead vira qualificado, agenda, fecha venda etc. Etapas sem mapeamento são ignoradas.
-          {' '}<span class="text-fg-subtle">Os nomes técnicos em inglês após o "·" são exigidos pelo Meta — escolha o que mais se aproxima da sua etapa.</span>
+          {' '}<span class="text-fg-muted">Os nomes técnicos em inglês após o "·" são exigidos pelo Meta — escolha o que mais se aproxima da sua etapa.</span>
         </span>
         <Button
           variant="ghost"
@@ -549,7 +549,7 @@ function MappingTab() {
         <Card key={f.id} class="p-0 overflow-hidden">
           <div class="p-3 border-b border-border flex items-center justify-between">
             <h4 class="text-sm font-semibold text-fg">{f.name}</h4>
-            <span class="text-[0.6875rem] text-fg-subtle">{f.stages.length} etapas</span>
+            <span class="text-2xs text-fg-muted">{f.stages.length} etapas</span>
           </div>
           <div class="divide-y divide-border">
             {f.stages.map((s) => {
@@ -559,9 +559,9 @@ function MappingTab() {
                 <div key={s.key} class="flex items-start gap-3 px-3 py-2.5 hover:bg-surface-2">
                   <div class="flex-1 min-w-0">
                     <div class="text-sm text-fg">{s.name}</div>
-                    <div class="text-[0.625rem] text-fg-subtle font-mono truncate">{s.key}</div>
+                    <div class="text-3xs text-fg-muted font-mono truncate">{s.key}</div>
                     {evtMeta && (
-                      <div class="text-[0.6875rem] text-fg-muted mt-1 leading-relaxed">{evtMeta.description}</div>
+                      <div class="text-2xs text-fg-muted mt-1 leading-relaxed">{evtMeta.description}</div>
                     )}
                   </div>
                   <Select
@@ -688,7 +688,7 @@ function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => voi
             <h4 class="text-sm font-semibold text-fg">Por evento ({PRESET_LABELS[preset]})</h4>
           </div>
           <table class="w-full text-sm">
-            <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+            <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
               <tr>
                 <th class="text-left px-3 py-2 font-medium">Evento</th>
                 <th class="text-left px-3 py-2 font-medium">Plataforma</th>
@@ -736,7 +736,7 @@ function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => voi
         {!events.isLoading && events.data && events.data.events.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="bg-surface-3 text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+              <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                 <tr>
                   <th class="text-left px-3 py-2 font-medium">Evento</th>
                   <th class="text-left px-3 py-2 font-medium">Lead</th>
@@ -760,7 +760,7 @@ function EventsTab({ onOpenDetail }: { onOpenDetail: (e: ConversionEvent) => voi
                     <td class="px-3 py-2 text-xs text-right tabular-nums">
                       {e.value != null && Number(e.value) > 0 ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: e.currency || 'BRL' }).format(Number(e.value)) : '–'}
                     </td>
-                    <td class="px-3 py-2 text-xs text-fg-subtle text-right">
+                    <td class="px-3 py-2 text-xs text-fg-muted text-right">
                       {e.sentAt ? new Date(e.sentAt).toLocaleString('pt-BR') : new Date(e.createdAt).toLocaleString('pt-BR')}
                     </td>
                   </tr>
@@ -809,10 +809,10 @@ function EventDetailDrawer({ event, onClose }: { event: ConversionEvent; onClose
           {event.value != null && Number(event.value) > 0 && (
             <Row label="Valor" value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: event.currency || 'BRL' }).format(Number(event.value))} />
           )}
-          <Row label="Event ID" value={<code class="font-mono text-[0.6875rem]">{event.eventId}</code>} />
-          {event.pixelId && <Row label="Pixel ID" value={<code class="font-mono text-[0.6875rem]">{event.pixelId}</code>} />}
-          {event.gclid && <Row label="GCLID" value={<code class="font-mono text-[0.6875rem]">{event.gclid}</code>} />}
-          {event.fbclid && <Row label="FBCLID" value={<code class="font-mono text-[0.6875rem]">{event.fbclid}</code>} />}
+          <Row label="Event ID" value={<code class="font-mono text-2xs">{event.eventId}</code>} />
+          {event.pixelId && <Row label="Pixel ID" value={<code class="font-mono text-2xs">{event.pixelId}</code>} />}
+          {event.gclid && <Row label="GCLID" value={<code class="font-mono text-2xs">{event.gclid}</code>} />}
+          {event.fbclid && <Row label="FBCLID" value={<code class="font-mono text-2xs">{event.fbclid}</code>} />}
 
           <div class="space-y-1">
             <h4 class="text-xs font-semibold text-fg-muted uppercase">Timeline</h4>
@@ -825,14 +825,14 @@ function EventDetailDrawer({ event, onClose }: { event: ConversionEvent; onClose
           {event.errorMessage && (
             <div>
               <h4 class="text-xs font-semibold text-danger uppercase mb-1">Erro</h4>
-              <pre class="text-[0.6875rem] bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{event.errorMessage}</pre>
+              <pre class="text-2xs bg-danger/10 text-danger p-2 rounded overflow-x-auto whitespace-pre-wrap">{event.errorMessage}</pre>
             </div>
           )}
 
           {event.response && (
             <div>
               <h4 class="text-xs font-semibold text-fg-muted uppercase mb-1">Resposta da API</h4>
-              <pre class="text-[0.6875rem] bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(event.response, null, 2)}</pre>
+              <pre class="text-2xs bg-surface-3 p-2 rounded overflow-x-auto">{JSON.stringify(event.response, null, 2)}</pre>
             </div>
           )}
         </div>
@@ -855,10 +855,10 @@ function TimelineRow({ label, at, done = false, fail = false }: { label: string;
     <div class="flex min-w-0 flex-wrap items-center gap-2">
       <span class={cn(
         'size-1.5 rounded-full',
-        fail ? 'bg-danger' : done ? 'bg-success' : at ? 'bg-info' : 'bg-fg-subtle/30',
+        fail ? 'bg-danger' : done ? 'bg-success' : at ? 'bg-info' : 'bg-fg-muted/30',
       )} />
-      <span class={cn('w-24', at ? 'text-fg' : 'text-fg-subtle')}>{label}</span>
-      <span class="text-fg-subtle">{at ? new Date(at).toLocaleString('pt-BR') : '—'}</span>
+      <span class={cn('w-24', at ? 'text-fg' : 'text-fg-muted')}>{label}</span>
+      <span class="text-fg-muted">{at ? new Date(at).toLocaleString('pt-BR') : '—'}</span>
     </div>
   )
 }

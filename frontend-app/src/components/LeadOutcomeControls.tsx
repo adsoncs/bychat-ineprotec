@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Trophy, XCircle, RotateCcw, Settings as SettingsIcon } from 'lucide-preact'
+import { Trophy, XCircle, RotateCcw, Settings as SettingsIcon } from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -47,7 +47,7 @@ export function LeadOutcomeControls({
         <OutcomeBadge outcome={outcome} lostReason={lostReason} note={outcomeNote} />
         {closedAt && (
           <span
-            class="text-[0.6875rem] text-fg-subtle whitespace-nowrap"
+            class="text-2xs text-fg-muted whitespace-nowrap"
             title={`Data em que o negócio foi encerrado — é ela que define o período nos relatórios${closedBy ? ` · classificado por ${closedBy}` : ''}`}
           >
             em {closedAt}{closedBy ? <> · por {closedBy}</> : null}
@@ -181,7 +181,7 @@ export function MarkWonModal({
     >
       <div class="space-y-3">
         <div>
-          <label class="block text-xs font-medium text-fg mb-1">Valor da venda <span class="text-fg-subtle">(opcional)</span></label>
+          <label class="block text-xs font-medium text-fg mb-1">Valor da venda <span class="text-fg-muted">(opcional)</span></label>
           <Input
             type="text"
             inputMode="decimal"
@@ -189,12 +189,12 @@ export function MarkWonModal({
             value={value}
             onInput={(e) => setValue((e.target as HTMLInputElement).value)}
           />
-          <p class="text-[0.6875rem] text-fg-subtle mt-1">
+          <p class="text-2xs text-fg-muted mt-1">
             Se informado, atualiza saleValue e marca venda como confirmada (DetectedSale).
           </p>
         </div>
         <div>
-          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-subtle">(opcional)</span></label>
+          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-muted">(opcional)</span></label>
           <textarea
             class="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-fg resize-y min-h-[60px]"
             placeholder="Ex: Fechou plano Pro 12 meses"
@@ -264,7 +264,7 @@ export function MarkLostModal({
                 href="/app/settings"
                 target="_blank"
                 rel="noreferrer"
-                class="text-[0.6875rem] text-accent hover:underline inline-flex items-center gap-1"
+                class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
                 title="Abre Configurações > Objeções em nova aba"
               >
                 <SettingsIcon size={10} /> Gerenciar objeções
@@ -285,7 +285,7 @@ export function MarkLostModal({
             ))}
           </select>
           {items.length === 0 && !reasons.isLoading && (
-            <p class="text-[0.6875rem] text-fg-subtle mt-1">
+            <p class="text-2xs text-fg-muted mt-1">
               {canManage
                 ? <>Nenhuma objeção cadastrada. <a href="/app/settings" target="_blank" rel="noreferrer" class="text-accent hover:underline">Cadastre em Configurações → Objeções</a>.</>
                 : <>Nenhuma objeção cadastrada. Peça ao administrador para configurar em <span class="font-mono">Configurações → Objeções</span>.</>}
@@ -293,7 +293,7 @@ export function MarkLostModal({
           )}
         </div>
         <div>
-          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-subtle">(opcional)</span></label>
+          <label class="block text-xs font-medium text-fg mb-1">Observação <span class="text-fg-muted">(opcional)</span></label>
           <textarea
             class="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-fg resize-y min-h-[60px]"
             placeholder="Detalhes do que aconteceu"

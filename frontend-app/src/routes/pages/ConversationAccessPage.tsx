@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { MessagesSquare, Save, HelpCircle, RotateCcw, Users as UsersIcon, User as UserIcon } from 'lucide-preact'
+import { MessagesSquare, Save, HelpCircle, RotateCcw, Users as UsersIcon, User as UserIcon } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useConversationAccess,
@@ -133,7 +133,7 @@ export function ConversationAccessPage() {
           <Card>
             <div class="flex flex-wrap items-end gap-3">
               <div class="min-w-[180px]">
-                <label class="block text-xs text-fg-subtle mb-1">Configurar para</label>
+                <label class="block text-xs text-fg-muted mb-1">Configurar para</label>
                 <Select
                   value={sujeitoTipo}
                   onChange={(e) => {
@@ -147,7 +147,7 @@ export function ConversationAccessPage() {
                 </Select>
               </div>
               <div class="min-w-[220px]">
-                <label class="block text-xs text-fg-subtle mb-1">
+                <label class="block text-xs text-fg-muted mb-1">
                   {sujeitoTipo === 'role' ? 'Papel' : 'Pessoa'}
                 </label>
                 <Select value={sujeitoId} onChange={(e) => setSujeitoId((e.target as HTMLSelectElement).value)}>
@@ -173,7 +173,7 @@ export function ConversationAccessPage() {
               </div>
             </div>
 
-            <p class="mt-3 text-sm text-fg-subtle">
+            <p class="mt-3 text-sm text-fg-muted">
               {regrasDoSujeito.length === 0 ? (
                 <>
                   <strong>Nada configurado.</strong> Este sujeito segue exatamente o comportamento
@@ -334,7 +334,7 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
               {ACOES.map((a) => (
                 <th key={a} class="py-2 px-2 font-medium text-center min-w-[74px]">
                   <div>{ACAO_LABEL[a]}</div>
-                  <div class="text-[10px] font-normal text-fg-subtle leading-tight mt-0.5">
+                  <div class="text-3xs font-normal text-fg-muted leading-tight mt-0.5">
                     {ACAO_HINT[a]}
                   </div>
                 </th>
@@ -367,8 +367,8 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
                           )}
                           <span class="font-medium">{c.label}</span>
                         </div>
-                        {c.number && <div class="text-xs text-fg-subtle">{c.number}</div>}
-                        {c.hint && <div class="text-xs text-fg-subtle italic mt-0.5">{c.hint}</div>}
+                        {c.number && <div class="text-xs text-fg-muted">{c.number}</div>}
+                        {c.hint && <div class="text-xs text-fg-muted italic mt-0.5">{c.hint}</div>}
                         {c.key === CANAL_QUALQUER && (
                           <Badge tone="neutral" class="mt-1">coringa</Badge>
                         )}
@@ -377,7 +377,7 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
                     <td class="py-2 px-3 whitespace-nowrap">
                       {TIPO_LABEL[kind]}
                       {indisponivel && (
-                        <div class="text-[10px] text-fg-subtle leading-tight">não recebe grupos</div>
+                        <div class="text-3xs text-fg-muted leading-tight">não recebe grupos</div>
                       )}
                     </td>
                     {ACOES.map((a) => (
@@ -397,7 +397,7 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
                       {!indisponivel && (
                         <button
                           type="button"
-                          class="text-xs text-fg-subtle hover:text-fg underline underline-offset-2"
+                          class="text-xs text-fg-muted hover:text-fg underline underline-offset-2"
                           onClick={() => alternarTudo(c.key, kind)}
                         >
                           {linha.canView && linha.canCreate && linha.canEdit && linha.canDelete
@@ -415,7 +415,7 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
       </div>
 
       {atual.length === 0 && (
-        <p class="mt-3 text-sm text-fg-subtle">
+        <p class="mt-3 text-sm text-fg-muted">
           Sem nenhuma marca, salvar apaga as regras deste sujeito e o devolve ao comportamento
           padrão do sistema.
         </p>

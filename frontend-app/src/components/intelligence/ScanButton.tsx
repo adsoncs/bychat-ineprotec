@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { Zap, Layers3, ChevronDown, RefreshCw } from 'lucide-preact'
+import { Zap, Layers3, ChevronDown, RefreshCw } from '@/components/ui/icon-set'
 import type { ScanMode } from '@/hooks/useIntelligence'
 
 interface ScanButtonProps {
@@ -55,7 +55,7 @@ export function ScanButton({ onScan, disabled, label = 'Enriquecer', size = 'sm'
               <Zap size={14} class="text-warning mt-0.5 shrink-0" />
               <div class="min-w-0">
                 <div class="text-fg font-medium">Scan rápido</div>
-                <div class="text-fg-subtle text-[0.6875rem] leading-relaxed">
+                <div class="text-fg-muted text-2xs leading-relaxed">
                   ~2s. Só APIs oficiais (Gravatar, BrasilAPI, ViaCEP, validação de telefone).
                 </div>
               </div>
@@ -67,7 +67,7 @@ export function ScanButton({ onScan, disabled, label = 'Enriquecer', size = 'sm'
               <Layers3 size={14} class="text-accent mt-0.5 shrink-0" />
               <div class="min-w-0">
                 <div class="text-fg font-medium">Scan completo</div>
-                <div class="text-fg-subtle text-[0.6875rem] leading-relaxed">
+                <div class="text-fg-muted text-2xs leading-relaxed">
                   ~15s. Inclui Google CSE, GitHub, scraping leve e redes sociais. Padrão.
                 </div>
               </div>
@@ -80,7 +80,7 @@ export function ScanButton({ onScan, disabled, label = 'Enriquecer', size = 'sm'
               <RefreshCw size={14} class="text-fg-muted mt-0.5 shrink-0" />
               <div class="min-w-0">
                 <div class="text-fg font-medium">Forçar reprocessamento</div>
-                <div class="text-fg-subtle text-[0.6875rem] leading-relaxed">
+                <div class="text-fg-muted text-2xs leading-relaxed">
                   Ignora cache e refaz tudo. Use quando dados públicos podem ter mudado.
                 </div>
               </div>

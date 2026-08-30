@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Radar, RefreshCw, TrendingUp, TrendingDown, Building2, Flame, ExternalLink, Search, Globe, Swords, AlertTriangle, GraduationCap } from 'lucide-preact'
+import { Radar, RefreshCw, TrendingUp, TrendingDown, Building2, Flame, ExternalLink, Search, Globe, Swords, AlertTriangle, GraduationCap } from '@/components/ui/icon-set'
 import {
   useReputationCompanies, useReputationCompany, useReputationSegments, useReputationImports,
   useUpdateReputationCompany, useRunReputationImport,
@@ -62,7 +62,7 @@ function MonthlyBars({ snapshots }: { snapshots: ReputationSnapshot[] }) {
           const unansweredH = s.complaints > 0 ? Math.round((s.unanswered / s.complaints) * h) : 0
           return (
             <div key={s.period} class="flex-1 flex flex-col items-center gap-1 min-w-0">
-              <span class="text-[0.625rem] tabular-nums text-fg-subtle">{num(s.complaints)}</span>
+              <span class="text-3xs tabular-nums text-fg-muted">{num(s.complaints)}</span>
               <div
                 class="w-full flex flex-col justify-end rounded-t"
                 style={{ height: `${h}%` }}
@@ -79,10 +79,10 @@ function MonthlyBars({ snapshots }: { snapshots: ReputationSnapshot[] }) {
       </div>
       <div class="flex gap-1.5 mt-1">
         {series.map((s) => (
-          <span key={s.period} class="flex-1 text-center text-[0.625rem] text-fg-subtle truncate">{monthLabel(s.period)}</span>
+          <span key={s.period} class="flex-1 text-center text-3xs text-fg-muted truncate">{monthLabel(s.period)}</span>
         ))}
       </div>
-      <div class="flex items-center gap-4 mt-3 text-[0.6875rem] text-fg-muted">
+      <div class="flex items-center gap-4 mt-3 text-2xs text-fg-muted">
         <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-danger inline-block" /> Sem resposta</span>
         <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-accent/70 inline-block" /> Respondidas</span>
       </div>
@@ -140,7 +140,7 @@ function CompanyDossier({ id, onClose }: { id: number; onClose: () => void }) {
             <Badge tone={scoreTone(c.opportunityScore)} solid>Score {c.opportunityScore}</Badge>
             {c.segment && <Badge tone="neutral">{c.segment}</Badge>}
             <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
-            {c.lastPeriod && <span class="text-xs text-fg-subtle">dados de {monthLabel(c.lastPeriod)}</span>}
+            {c.lastPeriod && <span class="text-xs text-fg-muted">dados de {monthLabel(c.lastPeriod)}</span>}
           </div>
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -151,9 +151,9 @@ function CompanyDossier({ id, onClose }: { id: number; onClose: () => void }) {
               { label: 'Nota do consumidor', value: c.avgScore ? c.avgScore.toFixed(2) : '—', hint: 'de 1 a 5' },
             ].map((k) => (
               <div key={k.label} class="rounded-lg bg-surface-2 p-3">
-                <div class="text-[0.6875rem] text-fg-muted">{k.label}</div>
+                <div class="text-2xs text-fg-muted">{k.label}</div>
                 <div class="text-lg font-semibold text-fg tabular-nums mt-0.5">{k.value}</div>
-                {k.hint && <div class="text-[0.625rem] text-fg-subtle">{k.hint}</div>}
+                {k.hint && <div class="text-3xs text-fg-muted">{k.hint}</div>}
               </div>
             ))}
           </div>
@@ -334,8 +334,8 @@ function StackTab() {
                       <a href={s.finalUrl || `https://${s.domain}`} target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">
                         {s.domain}
                       </a>
-                      {!s.tlsValid && <span class="ml-1 text-[0.625rem] text-warning">TLS inválido</span>}
-                      {s.error && <div class="text-[0.625rem] text-fg-subtle">{s.error}</div>}
+                      {!s.tlsValid && <span class="ml-1 text-3xs text-warning">TLS inválido</span>}
+                      {s.error && <div class="text-3xs text-fg-muted">{s.error}</div>}
                     </td>
                     <td class="py-2 pr-3">
                       {s.hasMetaPixel || s.hasGoogleAds
@@ -393,7 +393,7 @@ function CompetitorsTab() {
             <Badge tone="danger">Apify não configurado</Badge>
           ) : c ? (
             <div class="text-right">
-              <div class="text-[0.6875rem] text-fg-muted">crédito Apify ({c.plan})</div>
+              <div class="text-2xs text-fg-muted">crédito Apify ({c.plan})</div>
               <div class="text-sm font-semibold text-fg tabular-nums">US$ {c.remainingUsd ?? '—'}</div>
             </div>
           ) : null}
@@ -476,7 +476,7 @@ function CompetitorsTab() {
                 </div>
 
                 {a.stack && (
-                  <div class="text-[0.6875rem] text-fg-subtle mt-2">
+                  <div class="text-2xs text-fg-muted mt-2">
                     Stack do próprio site: {(a.stack.detected || []).map((d) => d.name).join(', ') || 'nada detectado'}
                   </div>
                 )}
@@ -485,7 +485,7 @@ function CompetitorsTab() {
                   <div class="mt-3 space-y-2">
                     {a.reviews.map((r) => (
                       <div key={r.id} class="rounded bg-surface-2 p-2">
-                        <div class="flex items-center gap-2 text-[0.6875rem] text-fg-muted">
+                        <div class="flex items-center gap-2 text-2xs text-fg-muted">
                           <span class="text-danger font-semibold">{r.stars}★</span>
                           {r.publishedAt && <span>{new Date(r.publishedAt).toLocaleDateString('pt-BR')}</span>}
                           {r.ownerReplied && <Badge tone="neutral">agência respondeu</Badge>}
@@ -493,7 +493,7 @@ function CompetitorsTab() {
                         <p class="text-xs text-fg mt-1">{r.text}</p>
                       </div>
                     ))}
-                    <p class="text-[0.625rem] text-fg-subtle flex items-center gap-1">
+                    <p class="text-3xs text-fg-muted flex items-center gap-1">
                       <AlertTriangle size={11} />
                       Use para escolher quem abordar — não cite a reclamação no primeiro contato.
                     </p>
@@ -623,7 +623,7 @@ function SchoolsTab() {
                     <td class="py-2 pr-3"><Badge tone={scoreTone(s.opportunityScore)} solid>{s.opportunityScore}</Badge></td>
                     <td class="py-2 pr-3 min-w-0">
                       <div class="font-medium text-fg truncate max-w-[280px]" title={s.name}>{s.name}</div>
-                      <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[280px]">
+                      <div class="text-2xs text-fg-muted truncate max-w-[280px]">
                         {s.city || '—'}/{s.uf || '—'}
                         {s.district && ` · ${s.district}`}
                         {s.privateCategory && ` · ${PRIVATE_CATEGORY[s.privateCategory] || ''}`}
@@ -631,14 +631,14 @@ function SchoolsTab() {
                     </td>
                     <td class="py-2 pr-3 text-right tabular-nums text-fg">
                       {s.classes}
-                      <div class="text-[0.625rem] text-fg-subtle">
+                      <div class="text-3xs text-fg-muted">
                         {[s.classesInf && `${s.classesInf} inf`, s.classesFund && `${s.classesFund} fund`, s.classesMed && `${s.classesMed} médio`]
                           .filter(Boolean).join(' · ') || '—'}
                       </div>
                     </td>
                     <td class="py-2 pr-3 text-right tabular-nums">
                       {s.classesDelta === null ? (
-                        <span class="text-fg-subtle">—</span>
+                        <span class="text-fg-muted">—</span>
                       ) : (
                         <span class={s.classesDelta < 0 ? 'text-danger' : 'text-success'}>
                           {s.classesDelta < 0 ? <TrendingDown size={11} class="inline" /> : <TrendingUp size={11} class="inline" />}
@@ -659,7 +659,7 @@ function SchoolsTab() {
               </tbody>
             </table>
           </div>
-          <p class="text-[0.6875rem] text-fg-subtle mt-3">
+          <p class="text-2xs text-fg-muted mt-3">
             Mostrando {schools.length} de {num(data?.total ?? 0)} escolas. Score = queda de turmas × porte × lacuna digital declarada no censo.
           </p>
         </Card>
@@ -750,7 +750,7 @@ export function ReputationPage() {
           <Card key={k.label}>
             <div class="flex items-center gap-2 text-fg-muted text-xs">{k.icon}{k.label}</div>
             <div class="text-2xl font-semibold text-fg tabular-nums mt-1">{k.value}</div>
-            {'hint' in k && k.hint && <div class="text-[0.625rem] text-fg-subtle">{k.hint}</div>}
+            {'hint' in k && k.hint && <div class="text-3xs text-fg-muted">{k.hint}</div>}
           </Card>
         ))}
       </div>
@@ -815,12 +815,12 @@ export function ReputationPage() {
                     <td class="py-2 pr-3"><Badge tone={scoreTone(c.opportunityScore)} solid>{c.opportunityScore}</Badge></td>
                     <td class="py-2 pr-3 min-w-0">
                       <div class="font-medium text-fg truncate max-w-[260px]" title={c.name}>{c.name}</div>
-                      <div class="text-[0.6875rem] text-fg-subtle truncate max-w-[260px]">{c.segment || '—'}</div>
+                      <div class="text-2xs text-fg-muted truncate max-w-[260px]">{c.segment || '—'}</div>
                     </td>
                     <td class="py-2 pr-3 text-right tabular-nums text-fg">
                       {num(c.complaints)}
                       {c.complaintsDelta !== null && (
-                        <span class={`ml-1 text-[0.6875rem] ${c.complaintsDelta > 0 ? 'text-danger' : 'text-success'}`}>
+                        <span class={`ml-1 text-2xs ${c.complaintsDelta > 0 ? 'text-danger' : 'text-success'}`}>
                           {c.complaintsDelta > 0 ? <TrendingUp size={11} class="inline" /> : <TrendingDown size={11} class="inline" />}
                           {' '}{c.complaintsDelta > 0 ? '+' : ''}{(c.complaintsDelta * 100).toFixed(0)}%
                         </span>
@@ -837,7 +837,7 @@ export function ReputationPage() {
               </tbody>
             </table>
           </div>
-          <p class="text-[0.6875rem] text-fg-subtle mt-3">
+          <p class="text-2xs text-fg-muted mt-3">
             Ordenado por {ORDER_OPTIONS.find((o) => o.value === orderBy)?.label.toLowerCase()} ({dir === 'asc' ? 'crescente' : 'decrescente'}).
             Mostrando até 100 empresas de {num(data?.total ?? 0)}.
           </p>

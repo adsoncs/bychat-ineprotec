@@ -5,7 +5,7 @@
 
 import { useMemo, useState } from 'preact/hooks'
 import { Link } from 'wouter-preact'
-import { Copy, GitMerge, Split, Mail, Phone, ExternalLink, HelpCircle } from 'lucide-preact'
+import { Copy, GitMerge, Split, Mail, Phone, ExternalLink, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -226,7 +226,7 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
             </Link>
           </span>
           {group.latestFlaggedAt && (
-            <span class="text-[0.6875rem] text-fg-subtle">
+            <span class="text-2xs text-fg-muted">
               · sinalizado {formatDateTime(group.latestFlaggedAt)}
             </span>
           )}
@@ -252,7 +252,7 @@ function DuplicateGroupCard({ group }: { group: DuplicateGroup }) {
 
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="text-fg-subtle text-[0.6875rem] uppercase tracking-wider">
+          <thead class="text-fg-muted text-2xs uppercase tracking-wider">
             <tr class="border-b border-border">
               <th class="text-left px-3 py-2 font-medium w-10">Master</th>
               <th class="text-left px-3 py-2 font-medium w-10">Mesclar</th>
@@ -336,7 +336,7 @@ function DuplicateLeadRow({
           {isMaster && <Badge tone="info">Master</Badge>}
           {matchedByLabel && !isMaster && <Badge tone="warning">Casou por {matchedByLabel}</Badge>}
         </div>
-        <div class="text-[0.625rem] text-fg-subtle font-mono truncate">
+        <div class="text-3xs text-fg-muted font-mono truncate">
           #{lead.id}{lead.uid ? ` · ${lead.uid}` : ''}
         </div>
       </td>
@@ -355,12 +355,12 @@ function DuplicateLeadRow({
       <td class="px-3 py-2 text-xs">
         <div class="text-fg-muted truncate">{lead.source || lead.originType || '—'}</div>
         {lead.campaignName && (
-          <div class="text-[0.625rem] text-fg-subtle truncate" title={lead.campaignName}>
+          <div class="text-3xs text-fg-muted truncate" title={lead.campaignName}>
             {lead.campaignName}
           </div>
         )}
         {lead.utmSource && (
-          <div class="text-[0.625rem] text-fg-subtle truncate">
+          <div class="text-3xs text-fg-muted truncate">
             utm: {lead.utmSource}{lead.utmCampaign ? ` / ${lead.utmCampaign}` : ''}
           </div>
         )}
@@ -368,7 +368,7 @@ function DuplicateLeadRow({
       <td class="px-3 py-2">
         {lead.status && <LeadStatusBadge status={lead.status} label={lead.statusLabel} />}
       </td>
-      <td class="px-3 py-2 text-[0.6875rem] text-fg-subtle whitespace-nowrap">
+      <td class="px-3 py-2 text-2xs text-fg-muted whitespace-nowrap">
         {formatDateTime(lead.createdAt)}
       </td>
       <td class="px-3 py-2 text-right">

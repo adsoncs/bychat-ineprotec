@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { LogIn, AlertCircle, Loader2, ExternalLink } from 'lucide-preact'
+import { LogIn, AlertCircle, Loader2, ExternalLink } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -154,7 +154,7 @@ export function ConnectMetaModal({ open, onOpenChange }: ConnectMetaModalProps) 
             formulários de Lead Ads. Aceite todas as permissões para que os leads cheguem em tempo real.
           </p>
           {config?.configId && (
-            <p class="text-xs text-fg-subtle">
+            <p class="text-xs text-fg-muted">
               Usando <strong>Facebook Login for Business</strong> — token permanente, sem renovação.
             </p>
           )}
@@ -182,7 +182,7 @@ export function ConnectMetaModal({ open, onOpenChange }: ConnectMetaModalProps) 
             Encontramos <strong>{pages.length}</strong> página{pages.length === 1 ? '' : 's'}.
             Selecione qual deseja conectar.
             {tokenType && (
-              <span class="ml-1 text-fg-subtle">
+              <span class="ml-1 text-fg-muted">
                 (token: {tokenType === 'bisu' ? 'BISU permanente' : tokenType})
               </span>
             )}
@@ -200,7 +200,7 @@ export function ConnectMetaModal({ open, onOpenChange }: ConnectMetaModalProps) 
               >
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium text-fg">{p.name}</p>
-                  <p class="truncate text-[0.6875rem] text-fg-subtle">
+                  <p class="truncate text-2xs text-fg-muted">
                     ID {p.id} · {p.category}
                   </p>
                 </div>

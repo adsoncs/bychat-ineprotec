@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { Workflow as WorkflowIcon, Plus, HelpCircle } from 'lucide-preact'
+import { Workflow as WorkflowIcon, Plus, HelpCircle } from '@/components/ui/icon-set'
 import {
   useWorkflows,
   useCreateWorkflow,
@@ -131,7 +131,7 @@ export function WorkflowsPage() {
       {!isLoading && data?.workflows.length === 0 && (
         <Card>
           <div class="text-center py-6">
-            <WorkflowIcon size={28} class="mx-auto text-fg-subtle mb-3" />
+            <WorkflowIcon size={28} class="mx-auto text-fg-muted mb-3" />
             <p class="text-sm text-fg mb-1">Nenhum fluxo criado</p>
             <p class="text-xs text-fg-muted mb-4 max-w-md mx-auto">
               Os fluxos automatizam ações com base em eventos do CRM — envio de mensagens, mudança de etapa, etiquetas e mais.
@@ -148,7 +148,7 @@ export function WorkflowsPage() {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle border-b border-border">
+                <tr class="text-2xs uppercase tracking-wider text-fg-muted border-b border-border">
                   <th class="text-left px-3 py-2 font-medium">Nome</th>
                   <th class="text-left px-3 py-2 font-medium">Gatilho</th>
                   <th class="text-center px-3 py-2 font-medium">Passos</th>
@@ -163,7 +163,7 @@ export function WorkflowsPage() {
                   <tr key={w.id}>
                     <td class="px-3 py-2 font-medium text-fg break-words">{w.name}</td>
                     <td class="px-3 py-2">
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-info text-white text-[0.6875rem] font-medium">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-info text-fg-on-brand text-2xs font-medium">
                         {triggerLabel(w.triggerEvent)}
                       </span>
                     </td>
@@ -172,7 +172,7 @@ export function WorkflowsPage() {
                     <td class="px-3 py-2 text-center">
                       {w.pauseOnReply
                         ? <span class="text-accent font-medium">Sim</span>
-                        : <span class="text-fg-subtle">Não</span>}
+                        : <span class="text-fg-muted">Não</span>}
                     </td>
                     <td class="px-3 py-2 text-center">
                       <button
@@ -407,7 +407,7 @@ function WorkflowFormModal({
         <div class="rounded-md border border-border bg-surface-3 p-3 space-y-2">
           <div>
             <span class="text-xs font-semibold text-info">Filtros do gatilho</span>
-            <span class="text-[0.6875rem] text-fg-subtle ml-2">Quando exatamente este fluxo deve disparar?</span>
+            <span class="text-2xs text-fg-muted ml-2">Quando exatamente este fluxo deve disparar?</span>
           </div>
           <TriggerFiltersEditor
             triggerEvent={form.triggerEvent}
@@ -595,7 +595,7 @@ function TriggerFiltersEditor({
   }
 
   return (
-    <div class="text-xs text-fg-subtle">
+    <div class="text-xs text-fg-muted">
       Nenhum filtro adicional disponível para este gatilho.
     </div>
   )
@@ -626,19 +626,19 @@ function LossReasonsTriggerEditor({
           href="/app/settings"
           target="_blank"
           rel="noreferrer"
-          class="text-[0.6875rem] text-accent hover:underline"
+          class="text-2xs text-accent hover:underline"
           title="Cadastrar/gerenciar objeções"
         >
           Gerenciar objeções
         </a>
       </div>
-      <p class="text-[0.6875rem] text-fg-subtle mb-2">
+      <p class="text-2xs text-fg-muted mb-2">
         Sem seleção = dispara para qualquer objeção. Com seleção = dispara só para as marcadas.
       </p>
       {isLoading ? (
-        <div class="text-xs text-fg-subtle">Carregando…</div>
+        <div class="text-xs text-fg-muted">Carregando…</div>
       ) : items.length === 0 ? (
-        <div class="text-xs text-fg-subtle">Nenhuma objeção cadastrada.</div>
+        <div class="text-xs text-fg-muted">Nenhuma objeção cadastrada.</div>
       ) : (
         <div class="flex flex-wrap gap-1.5">
           {items.map((r) => {
@@ -697,19 +697,19 @@ function MeetingFormsTriggerEditor({
           href="/app/forms"
           target="_blank"
           rel="noreferrer"
-          class="text-[0.6875rem] text-accent hover:underline"
+          class="text-2xs text-accent hover:underline"
           title="Abrir formulários"
         >
           Gerenciar formulários
         </a>
       </div>
-      <p class="text-[0.6875rem] text-fg-subtle mb-2">
+      <p class="text-2xs text-fg-muted mb-2">
         Sem seleção = avisa em qualquer agendamento. Com seleção = só quando o lead veio de um dos formulários marcados.
       </p>
       {isLoading ? (
-        <div class="text-xs text-fg-subtle">Carregando…</div>
+        <div class="text-xs text-fg-muted">Carregando…</div>
       ) : items.length === 0 ? (
-        <div class="text-xs text-fg-subtle">Nenhum formulário cadastrado.</div>
+        <div class="text-xs text-fg-muted">Nenhum formulário cadastrado.</div>
       ) : (
         <div class="flex flex-wrap gap-1.5">
           {items.map((f) => {

@@ -3,7 +3,7 @@
 // novas integrações precisarem de credenciais globais, elas entram aqui.
 
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { ExternalLink, KeyRound, Eye, EyeOff } from 'lucide-preact'
+import { ExternalLink, KeyRound, Eye, EyeOff } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -73,7 +73,7 @@ export function IntegrationsSettings() {
             <p class="text-xs text-fg-muted mt-1">
               Token único da aplicação que dá acesso à <strong>Google Ads API</strong>. Cadastrado UMA VEZ por aqui (admin) — operadores leigos só fazem login Google e escolhem a conta. Sem isso, ninguém consegue conectar Google Ads.
             </p>
-            <p class="text-[0.6875rem] text-fg-subtle mt-2">
+            <p class="text-2xs text-fg-muted mt-2">
               Como obter: <a href="https://ads.google.com/aw/apicenter" target="_blank" rel="noreferrer" class="text-info hover:underline inline-flex items-center gap-1">Google Ads &gt; Ferramentas &gt; API Center <ExternalLink size={10} /></a> (logado na conta MCC) → "Apply for Basic Access" → Google aprova em ~1-3 dias úteis → o token aparece nessa página.
             </p>
           </div>

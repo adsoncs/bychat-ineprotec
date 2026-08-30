@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Sun, CheckCircle2, MessageSquare, Mail, Phone, Calendar, FileText, Megaphone, Sparkles, HelpCircle, Clock, AlertCircle, User, Users, Building2 } from 'lucide-preact'
+import { Sun, CheckCircle2, MessageSquare, Mail, Phone, Calendar, FileText, Megaphone, Sparkles, HelpCircle, Clock, AlertCircle, User, Users, Building2 } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useActivities,
@@ -46,7 +46,7 @@ const REPLY_CLASS_BADGE_CLS: Record<string, string> = {
   duvida:       'bg-info/15 text-info border-info/40',
   objecao:      'bg-warning/15 text-warning border-warning/40',
   desinteresse: 'bg-danger/15 text-danger border-danger/40',
-  fora_fit:     'bg-surface-3 text-fg-subtle border-border',
+  fora_fit:     'bg-surface-3 text-fg-muted border-border',
 }
 
 const hourFmt = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -162,7 +162,7 @@ export function TodayPage() {
       {!isLoading && groups.length === 0 && (
         <Card>
           <div class="text-center py-8">
-            <Sun size={32} class="mx-auto text-fg-subtle mb-3" />
+            <Sun size={32} class="mx-auto text-fg-muted mb-3" />
             <p class="text-sm text-fg mb-1">Nada pendente para hoje</p>
             <p class="text-xs text-fg-muted max-w-md mx-auto">
               Quando uma cadência criar uma tarefa manual, ou a IA gerar um follow-up depois de uma resposta, ela aparece aqui.
@@ -192,13 +192,13 @@ export function TodayPage() {
                 <span class="inline-flex items-center gap-1.5 text-fg-muted">
                   <Clock size={14} />
                   Próxima às <strong class="text-fg">{hourOf(nextUp) ?? '—'}</strong>
-                  <span class="text-fg-subtle">· {TYPE_LABEL[nextUp.type] ?? nextUp.type} com {nextUp.lead?.nome || nextUp.lead?.empresa || `Lead #${nextUp.leadId}`}</span>
+                  <span class="text-fg-muted">· {TYPE_LABEL[nextUp.type] ?? nextUp.type} com {nextUp.lead?.nome || nextUp.lead?.empresa || `Lead #${nextUp.leadId}`}</span>
                 </span>
               )}
             </div>
           </Card>
 
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.6875rem] text-fg-muted mb-3 px-1">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-fg-muted mb-3 px-1">
             <span class="font-semibold uppercase tracking-wide">Legenda:</span>
             <span class="inline-flex items-center gap-1">
               <span class="font-semibold text-danger tabular-nums">09:00</span>
@@ -230,7 +230,7 @@ export function TodayPage() {
                 )}
                 <span class="text-xs text-fg-muted">· {g.activities.length} {g.activities.length === 1 ? 'tarefa' : 'tarefas'}</span>
                 {g.overdue > 0 && (
-                  <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-danger/40 bg-danger/10 text-danger text-[0.6875rem] font-medium">
+                  <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-danger/40 bg-danger/10 text-danger text-2xs font-medium">
                     <AlertCircle size={10} /> {g.overdue} {g.overdue === 1 ? 'atrasada' : 'atrasadas'}
                   </span>
                 )}
@@ -242,7 +242,7 @@ export function TodayPage() {
                   const fromCadence = typeof meta.cadenceEnrollmentId === 'number'
                   const replyClass = typeof meta.replyClass === 'string' ? meta.replyClass : null
                   const replyBadge = replyClass
-                    ? { label: cadenceReplyClassLabel(replyClass), cls: REPLY_CLASS_BADGE_CLS[replyClass] ?? 'bg-surface-3 text-fg-subtle border-border' }
+                    ? { label: cadenceReplyClassLabel(replyClass), cls: REPLY_CLASS_BADGE_CLS[replyClass] ?? 'bg-surface-3 text-fg-muted border-border' }
                     : null
                   const urgency = urgencyOf(a, now)
                   const hour = hourOf(a)
@@ -255,32 +255,32 @@ export function TodayPage() {
                           {hour ?? '--:--'}
                         </div>
                         {urgency === 'overdue' && (
-                          <div class="text-[0.625rem] font-medium text-danger uppercase tracking-wide">atrasada</div>
+                          <div class="text-3xs font-medium text-danger uppercase tracking-wide">atrasada</div>
                         )}
                         {urgency === 'now' && (
-                          <div class="text-[0.625rem] font-medium text-warning uppercase tracking-wide">agora</div>
+                          <div class="text-3xs font-medium text-warning uppercase tracking-wide">agora</div>
                         )}
                       </div>
                       <Icon size={18} class="text-fg-muted mt-0.5 shrink-0" />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
-                          <span class="inline-flex items-center px-1.5 h-5 rounded bg-surface-3 text-fg-muted text-[0.6875rem] font-medium">
+                          <span class="inline-flex items-center px-1.5 h-5 rounded bg-surface-3 text-fg-muted text-2xs font-medium">
                             {TYPE_LABEL[a.type] ?? a.type}
                           </span>
                           <span class="text-sm font-medium text-fg">{a.title}</span>
                           {fromCadence && (
-                            <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-info/40 bg-info/10 text-info text-[0.6875rem]">
+                            <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded border border-info/40 bg-info/10 text-info text-2xs">
                               <Megaphone size={10} /> cadência
                             </span>
                           )}
                           {replyBadge && (
-                            <span class={`inline-flex items-center px-1.5 h-5 rounded border text-[0.6875rem] ${replyBadge.cls}`}>
+                            <span class={`inline-flex items-center px-1.5 h-5 rounded border text-2xs ${replyBadge.cls}`}>
                               {replyBadge.label}
                             </span>
                           )}
                         </div>
                         {(assignee || contact || a.templateCode) && (
-                          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[0.6875rem] text-fg-muted">
+                          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-2xs text-fg-muted">
                             {assignee && (
                               <span class="inline-flex items-center gap-1" title={assignee.team ? 'Setor responsável' : 'Responsável'}>
                                 {assignee.team ? <Users size={11} /> : <User size={11} />}
@@ -294,7 +294,7 @@ export function TodayPage() {
                               </span>
                             )}
                             {a.templateCode && (
-                              <span class="text-fg-subtle" title="Código da atividade padrão">{a.templateCode}</span>
+                              <span class="text-fg-muted" title="Código da atividade padrão">{a.templateCode}</span>
                             )}
                           </div>
                         )}
@@ -302,7 +302,7 @@ export function TodayPage() {
                           <p class="text-xs text-fg-muted mt-0.5 break-words">{a.description}</p>
                         )}
                         {a.messageBody && (
-                          <p class="text-xs text-fg-subtle mt-1 line-clamp-2 italic">"{a.messageBody}"</p>
+                          <p class="text-xs text-fg-muted mt-1 line-clamp-2 italic">"{a.messageBody}"</p>
                         )}
                       </div>
                       <Button

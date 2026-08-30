@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, Loader2, Target, Lock, History, Plus, X } from 'lucide-preact'
+import { Check, ChevronDown, Loader2, Target, Lock, History, Plus, X } from '@/components/ui/icon-set'
 import { api, ApiError } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { toast } from '@/lib/toast'
@@ -174,7 +174,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                   )}
                 >
                   <span class="min-w-0 truncate font-medium">{f.name}</span>
-                  <span class="shrink-0 text-[0.6875rem] text-fg-subtle">
+                  <span class="shrink-0 text-2xs text-fg-muted">
                     {movendo === f.stages[0]?.key && mover.isPending
                       ? <Loader2 size={11} class="animate-spin" />
                       : `entrar em ${f.stages[0]?.name ?? '—'}`}
@@ -184,7 +184,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
             </div>
           )}
           {!permissoes.podeAvancar && (
-            <p class="mt-2 flex items-center gap-1 text-[0.6875rem] text-fg-subtle">
+            <p class="mt-2 flex items-center gap-1 text-2xs text-fg-muted">
               <Lock size={10} /> Seu perfil não move leads de etapa.
             </p>
           )}
@@ -196,12 +196,12 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   return (
     <section>
       <div class="mb-1 flex items-center justify-between gap-2">
-        <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Funil</div>
+        <div class="text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
         {outrosFunis.length > 0 && (
           <button
             type="button"
             class={cn(
-              'inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem]',
+              'inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-2xs',
               'text-fg-muted transition-colors duration-200 hover:bg-surface-3 hover:text-fg',
               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
             )}
@@ -217,11 +217,11 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
       <div class="overflow-hidden rounded-md border border-border bg-surface">
         {/* Cabeçalho: em que processo o lead está e onde ele parou. */}
         <div class="flex items-center gap-2 border-b border-border px-2.5 py-2">
-          <Target size={12} class="shrink-0 text-fg-subtle" />
+          <Target size={12} class="shrink-0 text-fg-muted" />
           <span class="min-w-0 flex-1 truncate text-xs font-medium text-fg" title={funilAtual.name}>
             {funilAtual.name}
           </span>
-          <span class="shrink-0 text-[0.6875rem] tabular-nums text-fg-subtle">
+          <span class="shrink-0 text-2xs tabular-nums text-fg-muted">
             {posAtual >= 0 ? `${posAtual + 1}/${etapas.length}` : `—/${etapas.length}`}
           </span>
         </div>
@@ -277,14 +277,14 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                   </span>
 
                   {ehAtual && (
-                    <span class="shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-accent">
+                    <span class="shrink-0 rounded-full bg-accent/15 px-1.5 py-0.5 text-3xs font-medium text-accent">
                       atual
                     </span>
                   )}
                   {!ehAtual && e.terminalKind && (
                     <span
                       class={cn(
-                        'shrink-0 rounded-full px-1.5 py-0.5 text-[0.625rem]',
+                        'shrink-0 rounded-full px-1.5 py-0.5 text-3xs',
                         e.terminalKind === 'won' ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger',
                       )}
                     >
@@ -300,7 +300,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
         {/* Trocar de funil: some por padrão porque é a exceção, não o dia a dia. */}
         {trocaAberta && outrosFunis.length > 0 && (
           <div class="border-t border-border bg-surface-2 p-2.5">
-            <p class="mb-1.5 text-[0.6875rem] leading-relaxed text-fg-subtle">
+            <p class="mb-1.5 text-2xs leading-relaxed text-fg-muted">
               O lead sai de <strong class="font-medium text-fg-muted">{funilAtual.name}</strong> e entra na
               primeira etapa do funil escolhido. O histórico fica registrado.
             </p>
@@ -320,7 +320,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                   )}
                 >
                   <span class="min-w-0 truncate">{f.name}</span>
-                  <span class="shrink-0 text-[0.6875rem] text-fg-subtle">
+                  <span class="shrink-0 text-2xs text-fg-muted">
                     {mover.isPending && movendo === f.stages[0]?.key
                       ? <Loader2 size={11} class="animate-spin" />
                       : f.stages[0]?.name ?? 'sem etapas'}
@@ -343,8 +343,8 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
             <ul class="space-y-1">
               {adicionais.map((a) => (
                 <li key={a.funnelId} class="group flex items-center gap-1.5 rounded-md bg-surface-2 px-2 py-1.5">
-                  <Target size={10} class="shrink-0 text-fg-subtle" />
-                  <span class="min-w-0 flex-1 text-[0.6875rem]">
+                  <Target size={10} class="shrink-0 text-fg-muted" />
+                  <span class="min-w-0 flex-1 text-2xs">
                     <span class="text-fg">{a.nome}</span>
                     {a.etapaNome && <span class="text-fg-muted"> · {a.etapaNome}</span>}
                   </span>
@@ -353,7 +353,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                       type="button"
                       onClick={() => tirar.mutate(a.funnelId)}
                       disabled={tirar.isPending}
-                      class="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-fg-subtle hover:text-danger transition-opacity"
+                      class="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-fg-muted hover:text-danger transition-opacity"
                       title={`Tirar do funil ${a.nome}`}
                       aria-label={`Tirar do funil ${a.nome}`}
                     >
@@ -370,7 +370,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
               <button
                 type="button"
                 onClick={() => setSomaAberta((v) => !v)}
-                class="mt-1 inline-flex items-center gap-1 text-[0.6875rem] text-fg-muted hover:text-fg"
+                class="mt-1 inline-flex items-center gap-1 text-2xs text-fg-muted hover:text-fg"
               >
                 <Plus size={10} /> Colocar também em outro funil
               </button>
@@ -382,11 +382,11 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                       type="button"
                       onClick={() => somar.mutate(f.id)}
                       disabled={somar.isPending}
-                      class="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[0.6875rem] hover:bg-surface-3 disabled:opacity-50"
+                      class="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-2xs hover:bg-surface-3 disabled:opacity-50"
                     >
-                      <Target size={10} class="shrink-0 text-fg-subtle" />
+                      <Target size={10} class="shrink-0 text-fg-muted" />
                       <span class="min-w-0 flex-1 truncate text-fg">{f.name}</span>
-                      <span class="shrink-0 text-fg-subtle">
+                      <span class="shrink-0 text-fg-muted">
                         {somar.isPending ? <Loader2 size={10} class="animate-spin" /> : (f.stages[0]?.name ?? 'sem etapas')}
                       </span>
                     </button>
@@ -402,7 +402,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
       {passagens.length > 0 && (
         <ul class="mt-1.5 space-y-1">
           {passagens.slice(0, 3).map((p) => (
-            <li key={p.funnelId} class="flex items-start gap-1.5 text-[0.6875rem] text-fg-subtle">
+            <li key={p.funnelId} class="flex items-start gap-1.5 text-2xs text-fg-muted">
               <History size={10} class="mt-0.5 shrink-0" />
               <span class="min-w-0">
                 Já passou por <span class="text-fg-muted">{p.nome}</span>
@@ -416,7 +416,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
       )}
 
       {!permissoes.podeAvancar && !permissoes.podeRetroceder && (
-        <p class="mt-1.5 flex items-center gap-1 text-[0.6875rem] text-fg-subtle">
+        <p class="mt-1.5 flex items-center gap-1 text-2xs text-fg-muted">
           <Lock size={10} /> Seu perfil só consulta o funil.
         </p>
       )}
@@ -425,5 +425,5 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
 }
 
 function TituloSecao() {
-  return <div class="mb-1 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Funil</div>
+  return <div class="mb-1 text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
 }

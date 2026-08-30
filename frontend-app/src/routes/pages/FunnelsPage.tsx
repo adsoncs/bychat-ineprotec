@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { GitFork, Plus, Pencil, Trash2, ListTree, Users, MessageSquare, HelpCircle, Star } from 'lucide-preact'
+import { GitFork, Plus, Pencil, Trash2, ListTree, Users, MessageSquare, HelpCircle, Star } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useFunnels,
@@ -143,11 +143,11 @@ function FunnelCard({
           </span>
           <div class="min-w-0">
             <div class="text-sm font-semibold text-fg truncate">{funnel.name}</div>
-            <div class="text-xs text-fg-subtle truncate">{funnel.description ?? 'Sem descrição'}</div>
+            <div class="text-xs text-fg-muted truncate">{funnel.description ?? 'Sem descrição'}</div>
           </div>
         </div>
         {funnel.isDefault && (
-          <span class="text-[0.625rem] font-bold tracking-wider px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">
+          <span class="text-3xs font-bold tracking-wider px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0">
             PADRÃO
           </span>
         )}
@@ -226,10 +226,10 @@ function SetDefaultFunnelDialog({ funnel, current, onClose }: {
 
 function Pill({ icon, children, tone = 'default' }: { icon?: preact.ComponentChildren; children: preact.ComponentChildren; tone?: 'default' | 'muted' }) {
   const cls = tone === 'muted'
-    ? 'bg-surface-3 text-fg-subtle'
+    ? 'bg-surface-3 text-fg-muted'
     : 'bg-surface-3 text-fg-muted'
   return (
-    <span class={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[0.6875rem] font-medium ${cls}`}>
+    <span class={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-2xs font-medium ${cls}`}>
       {icon}
       {children}
     </span>

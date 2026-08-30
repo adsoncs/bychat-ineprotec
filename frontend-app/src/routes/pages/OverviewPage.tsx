@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ArrowRight, GraduationCap, HelpCircle } from 'lucide-preact'
+import { ArrowRight, GraduationCap, HelpCircle } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -157,7 +157,7 @@ export function OverviewPage() {
           <div class="mb-2 flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h2 class="text-sm font-semibold text-fg">Negociações</h2>
-              <p class="text-[11px] text-fg-subtle">
+              <p class="text-2xs text-fg-muted">
                 Mensalidade e pagamento único separados — venda avulsa não vira "crescimento de recorrência".
                 "Em negociação" é o que foi aberto no período e ainda não teve desfecho; os demais
                 contam pela data de fechamento.
@@ -178,7 +178,7 @@ export function OverviewPage() {
           </div>
           <div class="space-y-3">
             <div>
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">Recorrência (mensal)</div>
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted mb-1.5">Recorrência (mensal)</div>
               <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
                 {NEGOTIATION_MRR_KPIS.map((w) => (
                   <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
@@ -186,7 +186,7 @@ export function OverviewPage() {
               </div>
             </div>
             <div>
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle mb-1.5">Pagamento único</div>
+              <div class="text-2xs font-semibold uppercase tracking-wide text-fg-muted mb-1.5">Pagamento único</div>
               <div class="grid gap-3 grid-cols-1 sm:grid-cols-3">
                 {NEGOTIATION_ONETIME_KPIS.map((w) => (
                   <WidgetRenderer key={w.id} widget={w} filters={negotiationFilters} />
@@ -227,7 +227,7 @@ export function OverviewPage() {
         <div class="flex items-center justify-between mb-2">
           <div>
             <h2 class="text-sm font-semibold text-fg">Precisa de atenção</h2>
-            <p class="text-[11px] text-fg-subtle">
+            <p class="text-2xs text-fg-muted">
               Pendências dentro do período selecionado — leads sem contato, atividades
               já vencidas e duplicados aguardando decisão.
             </p>

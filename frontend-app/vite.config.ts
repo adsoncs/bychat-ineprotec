@@ -62,7 +62,20 @@ function toKebab(name: string): string {
     .toLowerCase()
 }
 
-const LUCIDE_DIRECT_PREFIX = 'lucide-preact/dist/esm/icons/'
+const LUCIDE_DIRECT_PREFIX = 'lucide-preact/dist/esm/'
+
+/**
+ * Exports do barrel que NÃO são ícones. Sem esta lista o transform abaixo
+ * reescreveria `LucideProvider` para `icons/lucide-provider.mjs` — arquivo que
+ * não existe — e o build quebraria com um erro de resolução obscuro.
+ * Valor = módulo real dentro de dist/esm.
+ */
+const LUCIDE_NON_ICON_EXPORTS: Record<string, string> = {
+  LucideProvider: 'context',
+  useLucideContext: 'context',
+  createLucideIcon: 'createLucideIcon',
+  Icon: 'Icon',
+}
 
 function lucideTreeShake(): Plugin {
   return {
@@ -90,6 +103,11 @@ function lucideTreeShake(): Plugin {
             const [original, alias] = item.split(/\s+as\s+/).map((s) => s.trim())
             if (!original) return ''
             const localName = alias ?? original
+            const nonIcon = LUCIDE_NON_ICON_EXPORTS[original]
+            if (nonIcon) {
+              // Export nomeado (não default) nos módulos utilitários.
+              return `import { ${original}${alias ? ` as ${alias}` : ''} } from 'lucide-preact/dist/esm/${nonIcon}.mjs'`
+            }
             const file = ICON_FILE_OVERRIDES[original] ?? toKebab(original)
             return `import ${localName} from 'lucide-preact/dist/esm/icons/${file}.mjs'`
           })

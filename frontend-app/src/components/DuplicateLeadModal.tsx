@@ -102,7 +102,7 @@ export function DuplicateLeadModal({ leadId, onClose, onDuplicated }: Props) {
       <div class="space-y-5">
         {/* ── Destino ─────────────────────────── */}
         <section class="space-y-3">
-          <h3 class="text-xs font-medium uppercase tracking-wider text-fg-subtle">Destino</h3>
+          <h3 class="text-xs font-medium uppercase tracking-wider text-fg-muted">Destino</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="block">
               <span class="text-xs text-fg-muted">Funil</span>
@@ -143,7 +143,7 @@ export function DuplicateLeadModal({ leadId, onClose, onDuplicated }: Props) {
 
         {/* ── Atribuição ──────────────────────── */}
         <section class="space-y-3">
-          <h3 class="text-xs font-medium uppercase tracking-wider text-fg-subtle">Atribuição</h3>
+          <h3 class="text-xs font-medium uppercase tracking-wider text-fg-muted">Atribuição</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="block">
               <span class="text-xs text-fg-muted">Operador</span>
@@ -186,7 +186,7 @@ export function DuplicateLeadModal({ leadId, onClose, onDuplicated }: Props) {
         {/* ── O que copiar ────────────────────── */}
         <section class="space-y-2">
           <div class="flex items-center justify-between">
-            <h3 class="text-xs font-medium uppercase tracking-wider text-fg-subtle">Dados a copiar</h3>
+            <h3 class="text-xs font-medium uppercase tracking-wider text-fg-muted">Dados a copiar</h3>
             <button
               type="button"
               class="text-xs text-primary hover:underline"
@@ -209,13 +209,13 @@ export function DuplicateLeadModal({ leadId, onClose, onDuplicated }: Props) {
                 />
                 <span class="min-w-0 flex-1">
                   <span class="block text-sm text-fg">{label}</span>
-                  <span class="block text-[0.6875rem] text-fg-subtle">{hint}</span>
+                  <span class="block text-2xs text-fg-muted">{hint}</span>
                 </span>
               </label>
             ))}
           </div>
           {allOff && (
-            <p class="text-[0.6875rem] text-warning">
+            <p class="text-2xs text-warning">
               Nenhum dado será copiado — apenas dados básicos (nome, contato, empresa) e o destino escolhido.
             </p>
           )}

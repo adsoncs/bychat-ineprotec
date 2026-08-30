@@ -1,10 +1,13 @@
 import { useState, useMemo, useRef } from 'preact/hooks'
 import { lazy, Suspense } from 'preact/compat'
 import { useLocation } from 'wouter-preact'
-import { Filter as FilterIcon, Download } from 'lucide-preact'
+import { Filter as FilterIcon, Download } from '@/components/ui/icon-set'
 import { useUpdateDashboard, useWidgetData, type Widget } from '@/hooks/useWidgets'
 import { useFunnels } from '@/hooks/useFunnels'
 import { Card } from '@/components/ui/Card'
+import { Icon } from '@/components/ui/Icon'
+import { IconTile, type IconTileTone } from '@/components/ui/IconTile'
+import type { IconName } from '@/components/ui/icons'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { FUNNEL_AWARE_METRICS } from './WidgetCatalog'
@@ -46,7 +49,14 @@ export function WidgetRenderer({ widget, filters, actions, dashboardId, allWidge
   return (
     <Card>
       <div class="flex items-start justify-between gap-2 mb-2">
-        <div class="text-sm font-medium text-fg truncate">{widget.title}</div>
+        <div class="flex items-center gap-2 min-w-0">
+          {widget.type === 'kpi' && (
+            <IconTile tone={KPI_APARENCIA[widget.metric]?.tone ?? 'neutral'} size="sm">
+              <Icon name={KPI_APARENCIA[widget.metric]?.icon ?? 'BarChart3'} size="sm" />
+            </IconTile>
+          )}
+          <div class="text-sm font-medium text-fg truncate">{widget.title}</div>
+        </div>
         {actions}
       </div>
 
@@ -58,10 +68,45 @@ export function WidgetRenderer({ widget, filters, actions, dashboardId, allWidge
       {/* Métrica sem histórico datado (só contador acumulado): avisa em vez de
           deixar o número parado sem explicação quando o período muda. */}
       {!isLoading && !error && (data as any)?.periodScoped === false && (filters?.dateFrom || filters?.dateTo) && (
-        <div class="mt-2 text-[10px] text-fg-subtle">Total acumulado — esta métrica não tem histórico por data.</div>
+        <div class="mt-2 text-3xs text-fg-muted">Total acumulado — esta métrica não tem histórico por data.</div>
       )}
     </Card>
   )
+}
+
+/**
+ * Ícone e cor de cada KPI.
+ *
+ * Sem isto os cards são quinze retângulos brancos com um número dentro, e o
+ * olho tem de LER cada rótulo para achar o que procura. A cor separa as
+ * famílias e o ícone dá ponto de fixação.
+ *
+ * `accent`/`violet`/`orange` são cores de CATEGORIA — recorrência é roxo,
+ * avulso é laranja, entrada é o acento. `success`/`warning`/`danger` só entram
+ * onde o número é mesmo bom, de alerta ou ruim; usados como decoração, o painel
+ * passa a gritar e o alarme perde o efeito.
+ */
+const KPI_APARENCIA: Record<string, { icon: IconName; tone: IconTileTone }> = {
+  leads_total: { icon: 'Users', tone: 'accent' },
+  leads_won: { icon: 'Award', tone: 'success' },
+  leads_won_revenue: { icon: 'CreditCard', tone: 'orange' },
+  leads_lost: { icon: 'XCircle', tone: 'danger' },
+  leads_conversion_rate: { icon: 'Target', tone: 'violet' },
+  leads_uncontacted: { icon: 'Clock', tone: 'warning' },
+  leads_duplicates_pending: { icon: 'Copy', tone: 'info' },
+  activities_summary: { icon: 'ListChecks', tone: 'warning' },
+  negotiations_won_count: { icon: 'Award', tone: 'success' },
+  negotiations_won_revenue: { icon: 'CreditCard', tone: 'orange' },
+  negotiations_conversion_rate: { icon: 'Target', tone: 'violet' },
+  negotiations_avg_ticket: { icon: 'BarChart3', tone: 'accent' },
+  negotiations_mrr_open: { icon: 'CalendarRange', tone: 'violet' },
+  negotiations_mrr_won: { icon: 'CalendarRange', tone: 'success' },
+  negotiations_mrr_avg_ticket: { icon: 'BarChart3', tone: 'accent' },
+  negotiations_onetime_open: { icon: 'Handshake', tone: 'orange' },
+  negotiations_onetime_won: { icon: 'Handshake', tone: 'success' },
+  negotiations_onetime_avg_ticket: { icon: 'BarChart3', tone: 'accent' },
+  helpdesk_volume: { icon: 'LifeBuoy', tone: 'accent' },
+  helpdesk_csat: { icon: 'Sparkles', tone: 'accent' },
 }
 
 function WidgetBody({
@@ -102,7 +147,7 @@ function WidgetBody({
     case 'chart': return <LineAreaBody data={normalizedData} chartType="line" widget={widget} />
     case 'list': return <ListBody metric={widget.metric} data={normalizedData} />
     case 'breakdown': return <BreakdownBody data={normalizedData} />
-    default: return <pre class="text-xs text-fg-subtle">{JSON.stringify(data, null, 2)}</pre>
+    default: return <pre class="text-xs text-fg-muted">{JSON.stringify(data, null, 2)}</pre>
   }
 }
 
@@ -205,16 +250,16 @@ function normalizeWidgetData(widget: Widget, data: unknown): unknown {
 function DeltaBadge({ curr, prev, invert = false }: { curr: number; prev: unknown; invert?: boolean }) {
   const p = Number(prev)
   if (prev === null || prev === undefined || !Number.isFinite(p)) return null
-  if (p === 0 && curr === 0) return <span class="text-fg-subtle">sem movimento nos 2 períodos</span>
+  if (p === 0 && curr === 0) return <span class="text-fg-muted">sem movimento nos 2 períodos</span>
   if (p === 0) {
     return <span class={invert ? 'text-danger' : 'text-success'}>▲ anterior era 0</span>
   }
   const pct = Math.round(((curr - p) / p) * 100)
-  if (pct === 0) return <span class="text-fg-subtle">= período anterior</span>
+  if (pct === 0) return <span class="text-fg-muted">= período anterior</span>
   const up = pct > 0
   const good = invert ? !up : up
   return (
-    <span class={good ? 'text-success' : 'text-danger'}>
+    <span class="delta-chip" data-dir={good ? 'up' : 'down'}>
       {up ? '▲' : '▼'} {Math.abs(pct)}% vs anterior
     </span>
   )
@@ -449,9 +494,12 @@ function KpiBody({ metric, data, config }: { metric: string; data: unknown; conf
 
   return (
     <div>
-      <div class="text-3xl font-light text-fg tabular-nums leading-tight">{val}</div>
+      {/* Peso 800 e tracking apertado: o número é o herói do card. Em `font-light`
+        * ele tinha o mesmo peso visual do rótulo e da legenda, e um painel de
+        * quinze cards virava uma parede cinza uniforme. */}
+      <div class="text-[1.75rem] font-extrabold tracking-[-0.035em] text-fg tabular-nums leading-none">{val}</div>
       <div class="text-xs text-fg-muted mt-1">{sub}</div>
-      {basis && <div class="text-[10px] text-fg-subtle mt-0.5">{basis}</div>}
+      {basis && <div class="text-3xs text-fg-muted mt-0.5">{basis}</div>}
     </div>
   )
 }
@@ -550,7 +598,7 @@ function StatGridBody({ metric, data }: { metric: string; data: unknown }) {
       {items.map((it, i) => (
         <div key={i} class="text-center px-2 py-2.5 rounded-lg bg-surface-2" style={{ borderLeft: `3px solid ${it.color}` }}>
           <div class="text-xl font-light text-fg tabular-nums">{it.value}{it.suffix ?? ''}</div>
-          <div class="text-[10px] text-fg-subtle font-medium mt-0.5">{it.label}</div>
+          <div class="text-3xs text-fg-muted font-medium mt-0.5">{it.label}</div>
         </div>
       ))}
     </div>
@@ -590,16 +638,16 @@ function BarChartBody({
           const pct = value > 0 ? Math.max(2, Math.round((value / max) * 100)) : 0
           return (
             <li key={i} class="flex items-center gap-2">
-              <span class="text-[11px] text-fg-muted w-24 truncate text-right" title={label}>{label}</span>
+              <span class="text-2xs text-fg-muted w-24 truncate text-right" title={label}>{label}</span>
               <div class="flex-1 h-5 rounded bg-surface-3 overflow-hidden">
                 <div
-                  class="h-full rounded flex items-center justify-end pr-1.5 text-[10px] font-medium text-white"
+                  class="h-full rounded flex items-center justify-end pr-1.5 text-3xs font-medium text-white"
                   style={{ width: `${pct}%`, background: color }}
                 >
                   {value > 0 && pct >= 12 ? value : ''}
                 </div>
               </div>
-              <span class="text-[11px] text-fg tabular-nums w-8 text-right">{value}</span>
+              <span class="text-2xs text-fg tabular-nums w-8 text-right">{value}</span>
             </li>
           )
         })}
@@ -618,7 +666,7 @@ function BarChartBody({
           const label = formatLabel(it.label ?? it.name ?? '')
           return (
             <div key={i} class="flex-1 flex flex-col items-center justify-end gap-1 group min-w-0">
-              <span class="text-[9px] text-fg-subtle tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">{value}</span>
+              <span class="text-3xs text-fg-muted tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">{value}</span>
               <div
                 class="w-full rounded-t transition-all"
                 style={{ height: `${pct}%`, minHeight: value > 0 ? '4px' : '0', background: color }}
@@ -628,7 +676,7 @@ function BarChartBody({
           )
         })}
       </div>
-      <div class="flex gap-1 mt-1.5 text-[9px] text-fg-subtle">
+      <div class="flex gap-1 mt-1.5 text-3xs text-fg-muted">
         {items.map((it, i) => (
           <div key={i} class="flex-1 text-center truncate" title={it.label ?? ''}>
             {formatLabel(it.label ?? it.name ?? '', 8)}
@@ -651,7 +699,7 @@ function BarStackedSentReceived({
       <ul class="flex flex-col gap-1.5">
         {items.map((it, i) => (
           <li key={i} class="flex items-center gap-2">
-            <span class="text-[11px] text-fg-muted w-16 truncate text-right">{formatLabel(it.label ?? '')}</span>
+            <span class="text-2xs text-fg-muted w-16 truncate text-right">{formatLabel(it.label ?? '')}</span>
             <div class="flex-1 grid gap-0.5">
               <div class="h-2 rounded bg-surface-3 overflow-hidden">
                 <div class="h-full bg-[#1a73e8]" style={{ width: `${(Number(it.sent ?? 0) / max) * 100}%` }} />
@@ -679,12 +727,12 @@ function BarStackedSentReceived({
           )
         })}
       </div>
-      <div class="flex gap-1 mt-1.5 text-[9px] text-fg-subtle">
+      <div class="flex gap-1 mt-1.5 text-3xs text-fg-muted">
         {items.map((it, i) => (
           <div key={i} class="flex-1 text-center truncate">{formatLabel(it.label ?? '', 6)}</div>
         ))}
       </div>
-      <div class="flex justify-center gap-3 mt-2 text-[10px] text-fg-muted">
+      <div class="flex justify-center gap-3 mt-2 text-3xs text-fg-muted">
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#1a73e8]" /> Enviadas</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#34a853]" /> Recebidas</span>
       </div>
@@ -719,7 +767,7 @@ function LineAreaBody({
           a: Number((it as any).created ?? 0),
           b: Number((it as any).solved ?? 0),
         }))} max={max} chartType={chartType} colorA="#1a73e8" colorB="#34a853" />
-        <div class="flex justify-center gap-3 mt-2 text-[10px] text-fg-muted">
+        <div class="flex justify-center gap-3 mt-2 text-3xs text-fg-muted">
           <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#1a73e8]" /> Criados</span>
           <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#34a853]" /> Resolvidos</span>
         </div>
@@ -738,7 +786,7 @@ function LineAreaBody({
           a: Number(it.sent ?? 0),
           b: Number(it.received ?? 0),
         }))} max={max} chartType={chartType} colorA="#1a73e8" colorB="#34a853" />
-        <div class="flex justify-center gap-3 mt-2 text-[10px] text-fg-muted">
+        <div class="flex justify-center gap-3 mt-2 text-3xs text-fg-muted">
           <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#1a73e8]" /> Enviadas</span>
           <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-[#34a853]" /> Recebidas</span>
         </div>
@@ -904,10 +952,10 @@ function SparkTooltip({
   const left = flip ? Math.max(8, px - 180) : Math.min(cw - 180, px + 16)
   return (
     <div
-      class="pointer-events-none absolute z-30 top-3 rounded-md border border-border bg-surface shadow-lg p-2.5 text-[11px] w-[160px]"
+      class="pointer-events-none absolute z-30 top-3 rounded-md border border-border bg-surface shadow-lg p-2.5 text-2xs w-[160px]"
       style={{ left: `${left}px` }}
     >
-      <div class="text-fg-muted text-[10px] uppercase tracking-wide mb-1">{dateLabel}</div>
+      <div class="text-fg-muted text-3xs uppercase tracking-wide mb-1">{dateLabel}</div>
       <div class="flex items-center justify-between gap-2">
         <span class="flex items-center gap-1.5">
           <span class="size-1.5 rounded-full shrink-0" style={{ background: '#1a73e8' }} />
@@ -1172,7 +1220,7 @@ function PieChartBody({
             </text>
             <text
               x={cx} y={cy + 20} text-anchor="middle"
-              style={{ fill: 'var(--color-fg-subtle)', fontSize: '10px' }}
+              style={{ fill: 'var(--color-fg-muted)', fontSize: '10px' }}
               class="tabular-nums"
             >
               {centerPct}
@@ -1208,7 +1256,7 @@ function renderSliceTooltip({
   const valueStr = value.toLocaleString('pt-BR')
   return (
     <div
-      class="pointer-events-none absolute z-50 rounded-md border border-border bg-surface shadow-lg px-2.5 py-1.5 text-[11px] whitespace-nowrap"
+      class="pointer-events-none absolute z-50 rounded-md border border-border bg-surface shadow-lg px-2.5 py-1.5 text-2xs whitespace-nowrap"
       style={{ left: `${x + 12}px`, top: `${y + 12}px` }}
     >
       <div class="flex items-center gap-2 mb-0.5">
@@ -1236,7 +1284,7 @@ function PieLegend({
   onItemClick: (i: number) => void
 }) {
   return (
-    <ul class="flex-1 min-w-0 flex flex-col gap-0.5 text-[11px]">
+    <ul class="flex-1 min-w-0 flex flex-col gap-0.5 text-2xs">
       {items.slice(0, 8).map((it, i) => {
         const v = Number(it.value ?? it.count ?? 0)
         const pct = total > 0 ? Math.round((v / total) * 100) : 0
@@ -1259,7 +1307,7 @@ function PieLegend({
             <span class="size-2.5 rounded-sm shrink-0" style={{ background: colors[i] }} />
             <span class="text-fg-muted truncate flex-1" title={it.label ?? ''}>{it.label ?? '—'}</span>
             <span class={`tabular-nums ${isActive ? 'text-fg font-medium' : 'text-fg'}`}>{v}</span>
-            <span class="text-fg-subtle tabular-nums w-9 text-right">{pct}%</span>
+            <span class="text-fg-muted tabular-nums w-9 text-right">{pct}%</span>
           </li>
         )
       })}
@@ -1301,7 +1349,7 @@ function FunnelBody({
             <span class="text-fg-muted w-24 truncate text-right" title={it.label ?? ''}>{it.label ?? '—'}</span>
             <div class="flex-1 h-7 rounded bg-surface-3 overflow-hidden">
               <div
-                class="h-full flex items-center px-2 text-[11px] font-medium text-white"
+                class="h-full flex items-center px-2 text-2xs font-medium text-white"
                 style={{ width: `${pct}%`, background: color }}
               >
                 {value > 0 && pct >= 12 ? value : ''}
@@ -1361,7 +1409,7 @@ function FunnelByFunnelBody({
             <option key={f.id} value={f.id}>{f.name}{f.isDefault ? ' (padrão)' : ''}</option>
           ))}
         </select>
-        <span class="text-[10px] text-fg-subtle">{items.length} funil(is)</span>
+        <span class="text-3xs text-fg-muted">{items.length} funil(is)</span>
       </div>
       {items.length === 0 && <NoData />}
       <div class="flex flex-col gap-3">
@@ -1369,9 +1417,9 @@ function FunnelByFunnelBody({
           const totalF = (f.stages ?? []).reduce((a, s) => a + s.count, 0)
           return (
             <div key={idx} class="rounded-lg bg-surface-2 p-3">
-              <div class="text-[13px] font-medium text-fg mb-2">
+              <div class="text-xs font-medium text-fg mb-2">
                 {f.label}
-                {f.isDefault && <span class="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-accent/15 text-accent text-[10px] font-medium">Padrão</span>}
+                {f.isDefault && <span class="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-accent/15 text-accent text-3xs font-medium">Padrão</span>}
                 <span class="ml-2 text-fg-muted text-xs font-normal">· {totalF} leads</span>
               </div>
               {totalF > 0 && (
@@ -1385,7 +1433,7 @@ function FunnelByFunnelBody({
               )}
               <div class="flex flex-wrap gap-1.5">
                 {(f.stages ?? []).map((s, i) => (
-                  <span key={i} class="inline-flex items-center gap-1 text-[11px] text-fg-muted">
+                  <span key={i} class="inline-flex items-center gap-1 text-2xs text-fg-muted">
                     <span class="size-2 rounded-full" style={{ background: s.color }} />
                     {s.name}: <strong class="text-fg">{s.count}</strong>
                   </span>
@@ -1497,7 +1545,7 @@ function GaugeBody({ metric, data }: { metric: string; data: unknown }) {
         <text x="100" y="92" text-anchor="middle" class="fill-fg" style={{ fontSize: '28px', fontWeight: 500 }}>
           {value}
         </text>
-        <text x="100" y="110" text-anchor="middle" class="fill-fg-subtle" style={{ fontSize: '11px' }}>
+        <text x="100" y="110" text-anchor="middle" class="fill-fg-muted" style={{ fontSize: '11px' }}>
           {label}
         </text>
       </svg>
@@ -1623,7 +1671,7 @@ function LeadsRecentTable({ items }: { items: TableItem[] }) {
   return (
     <>
       <div class="flex items-center gap-2 flex-wrap mb-2 text-xs">
-        <FilterIcon size={12} class="text-fg-subtle" />
+        <FilterIcon size={12} class="text-fg-muted" />
         <select
           class="h-7 px-2 rounded-md bg-surface border border-border text-fg cursor-pointer focus:outline-none focus:border-accent"
           value={statusFilter}
@@ -1642,7 +1690,7 @@ function LeadsRecentTable({ items }: { items: TableItem[] }) {
           <option value="">Todos os segmentos</option>
           {segmentOptions.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <span class="text-fg-subtle">{filtered.length} de {items.length}</span>
+        <span class="text-fg-muted">{filtered.length} de {items.length}</span>
         <button
           type="button"
           class="ml-auto h-7 px-2 rounded-md text-xs font-medium border border-border text-accent hover:bg-accent/10 inline-flex items-center gap-1"
@@ -1654,7 +1702,7 @@ function LeadsRecentTable({ items }: { items: TableItem[] }) {
 
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Nome</th>
               <th class="text-left p-1.5 font-medium">Empresa</th>
@@ -1679,11 +1727,11 @@ function LeadsRecentTable({ items }: { items: TableItem[] }) {
                 >
                   <td class="p-1.5 font-medium text-fg truncate max-w-[8rem]">{(l.nome as string) ?? '—'}</td>
                   <td class="p-1.5 text-fg-muted truncate max-w-[8rem]">{(l.empresa as string) ?? '—'}</td>
-                  <td class="p-1.5 text-fg-subtle truncate max-w-[8rem]">{(l.segmento as string) ?? '—'}</td>
+                  <td class="p-1.5 text-fg-muted truncate max-w-[8rem]">{(l.segmento as string) ?? '—'}</td>
                   <td class={`p-1.5 text-right tabular-nums font-semibold ${tone}`}>{score}</td>
                   <td class="p-1.5 text-fg-muted">{(l.status as string) ?? '—'}</td>
-                  <td class="p-1.5 text-fg-subtle">{src}</td>
-                  <td class="p-1.5 text-right text-fg-subtle">{created}</td>
+                  <td class="p-1.5 text-fg-muted">{src}</td>
+                  <td class="p-1.5 text-right text-fg-muted">{created}</td>
                 </tr>
               )
             })}
@@ -1714,7 +1762,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Página</th>
               <th class="text-left p-1.5 font-medium">Status</th>
@@ -1731,7 +1779,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
               return (
                 <tr key={p.id ?? i} class="hover:bg-surface-2">
                   <td class="p-1.5 font-medium text-fg truncate max-w-[10rem]">{(p.title as string) ?? (p.slug as string) ?? '—'}</td>
-                  <td class="p-1.5 text-fg-subtle">{p.status === 'PUBLISHED' ? 'Publicada' : 'Rascunho'}</td>
+                  <td class="p-1.5 text-fg-muted">{p.status === 'PUBLISHED' ? 'Publicada' : 'Rascunho'}</td>
                   <td class="p-1.5 text-right tabular-nums">{views}</td>
                   <td class="p-1.5 text-right tabular-nums">{subs}</td>
                   <td class="p-1.5 text-right tabular-nums text-fg-muted">{rate}%</td>
@@ -1748,7 +1796,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Formulário</th>
               <th class="text-left p-1.5 font-medium">Status</th>
@@ -1759,7 +1807,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
             {items.slice(0, 12).map((f, i) => (
               <tr key={f.id ?? i} class="hover:bg-surface-2">
                 <td class="p-1.5 font-medium text-fg truncate max-w-[12rem]">{(f.name as string) ?? '—'}</td>
-                <td class="p-1.5 text-fg-subtle">{f.active ? 'Ativo' : 'Inativo'}</td>
+                <td class="p-1.5 text-fg-muted">{f.active ? 'Ativo' : 'Inativo'}</td>
                 <td class="p-1.5 text-right tabular-nums">{Number(f.submissions ?? 0)}</td>
               </tr>
             ))}
@@ -1773,7 +1821,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Modelo</th>
               <th class="text-left p-1.5 font-medium">Canal</th>
@@ -1784,7 +1832,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
             {items.slice(0, 12).map((t, i) => (
               <tr key={t.id ?? i} class="hover:bg-surface-2">
                 <td class="p-1.5 font-medium text-fg truncate max-w-[12rem]">{(t.name as string) ?? '—'}</td>
-                <td class="p-1.5"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-accent/15 text-accent">{(t.channel as string) ?? '—'}</span></td>
+                <td class="p-1.5"><span class="inline-block px-1.5 py-0.5 rounded text-3xs font-medium bg-accent/15 text-accent">{(t.channel as string) ?? '—'}</span></td>
                 <td class="p-1.5 text-right tabular-nums">{Number(t.usageCount ?? 0)}</td>
               </tr>
             ))}
@@ -1798,7 +1846,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Funil</th>
               <th class="text-right p-1.5 font-medium">Leads</th>
@@ -1810,10 +1858,10 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
               <tr key={i} class="hover:bg-surface-2">
                 <td class="p-1.5 font-medium text-fg">
                   {f.label}
-                  {f.isDefault && <span class="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-accent/15 text-accent text-[10px]">Padrão</span>}
+                  {f.isDefault && <span class="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-accent/15 text-accent text-3xs">Padrão</span>}
                 </td>
                 <td class="p-1.5 text-right tabular-nums">{f.value}</td>
-                <td class="p-1.5 text-[11px] text-fg-muted">
+                <td class="p-1.5 text-2xs text-fg-muted">
                   {(f.stages ?? []).map((s, si) => (
                     <span key={si} style={{ color: s.color }}>{s.name}: {s.count}{si < (f.stages ?? []).length - 1 ? ' · ' : ''}</span>
                   ))}
@@ -1835,7 +1883,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Código</th>
               <th class="text-left p-1.5 font-medium">Candidato</th>
@@ -1854,17 +1902,17 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
               const payLabel = payStatus === 'paid' ? 'Pago' : payStatus === 'pending' ? 'Pendente' : payStatus
               return (
                 <tr key={r.id ?? i} class="hover:bg-surface-2">
-                  <td class="p-1.5 font-mono text-[11px]">{(r.candidateCode as string) ?? '–'}</td>
+                  <td class="p-1.5 font-mono text-2xs">{(r.candidateCode as string) ?? '–'}</td>
                   <td class="p-1.5 font-medium text-fg">{(r.nome as string) ?? '–'}</td>
                   <td class="p-1.5 text-fg-muted">{(r.portal as string) ?? '–'}</td>
                   <td class="p-1.5 text-fg">{statusNames[r.status as string] ?? (r.status as string) ?? '–'}</td>
                   <td class="p-1.5">
                     {payStatus
-                      ? <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${payTone}`}>{payLabel}</span>
+                      ? <span class={`inline-block px-1.5 py-0.5 rounded text-3xs ${payTone}`}>{payLabel}</span>
                       : '–'}
                   </td>
-                  <td class="p-1.5 text-right tabular-nums text-[11px]">{val}</td>
-                  <td class="p-1.5 text-right text-fg-subtle">
+                  <td class="p-1.5 text-right tabular-nums text-2xs">{val}</td>
+                  <td class="p-1.5 text-right text-fg-muted">
                     {r.createdAt ? new Date(r.createdAt as string).toLocaleDateString('pt-BR') : '–'}
                   </td>
                 </tr>
@@ -1880,7 +1928,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
     return (
       <div class="overflow-x-auto -mx-2">
         <table class="w-full text-xs">
-          <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+          <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
             <tr>
               <th class="text-left p-1.5 font-medium">Agente</th>
               <th class="text-right p-1.5 font-medium">Atribuídos</th>
@@ -1913,7 +1961,7 @@ function TableBody({ metric, data }: { metric: string; data: unknown }) {
   return (
     <div class="overflow-x-auto -mx-2">
       <table class="w-full text-xs">
-        <thead class="text-fg-subtle text-[10px] uppercase tracking-wider border-b border-border">
+        <thead class="text-fg-muted text-3xs uppercase tracking-wider border-b border-border">
           <tr>{keys.map((k) => <th key={k} class="text-left p-1.5 font-medium">{k}</th>)}</tr>
         </thead>
         <tbody class="divide-y divide-border">
@@ -1954,7 +2002,7 @@ function BreakdownBody({ data }: { data: unknown }) {
 // ───────────────────────────────────────────────
 
 function NoData() {
-  return <div class="text-xs text-fg-subtle text-center py-4">Sem dados</div>
+  return <div class="text-xs text-fg-muted text-center py-4">Sem dados</div>
 }
 
 function formatLabel(s: string, max = 15): string {

@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { useFunnels, useFunnel } from '@/hooks/useFunnels'
 import { useQualifyLead, useBulkQualifyLeads, type BulkQualifyResult } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
-import { Target, Users } from 'lucide-preact'
+import { Target, Users } from '@/components/ui/icon-set'
 
 type Mode =
   | { kind: 'single'; leadId: number; leadName?: string | null | undefined }

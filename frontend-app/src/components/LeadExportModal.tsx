@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { FileSpreadsheet, FileText, FileCode, FileType, Loader2 } from 'lucide-preact'
+import { FileSpreadsheet, FileText, FileCode, FileType, Loader2 } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
@@ -99,7 +99,7 @@ export function LeadExportModal({
                 >
                   <Icon size={18} class={on ? 'text-primary' : 'text-fg-muted'} />
                   <span class="text-sm font-medium text-fg">{f.label}</span>
-                  <span class="text-[11px] text-fg-muted leading-tight">{f.hint}</span>
+                  <span class="text-2xs text-fg-muted leading-tight">{f.hint}</span>
                 </button>
               )
             })}

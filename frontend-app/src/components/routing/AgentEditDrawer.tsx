@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Trash2, Plus, CalendarClock } from 'lucide-preact'
+import { Trash2, Plus, CalendarClock } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'

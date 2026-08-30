@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   GraduationCap, Layers, Building2, MapPin, BookOpen, CalendarRange, FileCheck2,
   ClipboardList, Award, School, BarChart3, Lightbulb, ListTodo, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { WidgetRenderer } from '@/components/widgets/WidgetRenderer'
 import { PeriodPicker, PeriodIncompleteHint, usePeriod } from '@/components/ui/PeriodPicker'
@@ -146,7 +146,7 @@ export function EducationalDashboardPage() {
         <div class="flex items-center justify-between mb-2">
           <div>
             <h2 class="text-sm font-semibold text-fg">Desempenho do período</h2>
-            <p class="text-[11px] text-fg-subtle">Cada card compara com o período anterior de mesma duração (▲/▼).</p>
+            <p class="text-2xs text-fg-muted">Cada card compara com o período anterior de mesma duração (▲/▼).</p>
           </div>
           <PeriodPicker
             preset={preset}
@@ -197,7 +197,7 @@ export function EducationalDashboardPage() {
           {statsLoading ? (
             <Skeleton class="h-32 w-full" />
           ) : (stats?.byStatus ?? []).length === 0 ? (
-            <div class="text-xs text-fg-subtle text-center py-8">Sem inscrições ainda</div>
+            <div class="text-xs text-fg-muted text-center py-8">Sem inscrições ainda</div>
           ) : (
             <div class="space-y-2.5">
               {(stats?.byStatus ?? []).map((s) => {
@@ -230,11 +230,11 @@ export function EducationalDashboardPage() {
           {statsLoading ? (
             <Skeleton class="h-32 w-full" />
           ) : (stats?.topOfferings ?? []).length === 0 ? (
-            <div class="text-xs text-fg-subtle text-center py-8">Sem ofertas com inscrições</div>
+            <div class="text-xs text-fg-muted text-center py-8">Sem ofertas com inscrições</div>
           ) : (
             <div class="overflow-x-auto -mx-1">
               <table class="w-full text-xs">
-                <thead class="text-fg-subtle text-[0.6875rem] uppercase tracking-wider border-b border-border">
+                <thead class="text-fg-muted text-2xs uppercase tracking-wider border-b border-border">
                   <tr>
                     <th class="text-left px-2 py-2 font-medium">Oferta</th>
                     <th class="text-right px-2 py-2 font-medium">Inscritos</th>
@@ -277,7 +277,7 @@ export function EducationalDashboardPage() {
 
       {/* Tiles de navegação */}
       <div>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium mb-2">Catálogo</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">Catálogo</div>
         <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           {tiles.map((t) => (
             <button
@@ -293,10 +293,10 @@ export function EducationalDashboardPage() {
                   {t.icon}
                 </span>
                 {t.comingSoon && (
-                  <span class="text-[0.625rem] uppercase tracking-wider text-fg-subtle">em breve</span>
+                  <span class="text-3xs uppercase tracking-wider text-fg-muted">em breve</span>
                 )}
               </div>
-              <div class="mt-2 text-[0.6875rem] uppercase tracking-wider text-fg-subtle">{t.label}</div>
+              <div class="mt-2 text-2xs uppercase tracking-wider text-fg-muted">{t.label}</div>
               <div class="mt-0.5 text-xl font-semibold text-fg tabular-nums">
                 {isLoading ? <Skeleton class="h-6 w-10" /> : t.count}
               </div>
@@ -363,7 +363,7 @@ function HeroStat({ label, value, loading, color }: { label: string; value: numb
       <div class="text-xl font-bold tabular-nums leading-none" style={{ color }}>
         {loading ? '—' : value}
       </div>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mt-1">{label}</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted mt-1">{label}</div>
     </div>
   )
 }
@@ -385,14 +385,14 @@ function KpiCard({
   }
   return (
     <Card>
-      <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div class="text-2xs uppercase tracking-wider text-fg-muted">{label}</div>
       <div
         class="text-2xl font-bold tabular-nums mt-1"
         style={{ color: colors[tone] }}
       >
         {loading ? '—' : value}
       </div>
-      {sub && <div class="text-[0.6875rem] text-fg-muted mt-0.5">{sub}</div>}
+      {sub && <div class="text-2xs text-fg-muted mt-0.5">{sub}</div>}
     </Card>
   )
 }

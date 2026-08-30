@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, Save, Wand2, AlertTriangle, Info, Workflow } from 'lucide-preact'
+import { ChevronLeft, Save, Wand2, AlertTriangle, Info, Workflow } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -130,7 +130,7 @@ export function FunnelReportConfigPage() {
             >
               {Object.entries(ROTULO_ESCOPO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
-            <p class="text-[0.6875rem] text-fg-muted mt-1 leading-relaxed">
+            <p class="text-2xs text-fg-muted mt-1 leading-relaxed">
               "Somente campanha paga" faz o relatório bater com o Relatório Meta Ads, mas deixa de
               fora os leads orgânicos. Custo por etapa (CPL, CMQL) só é interpretável nesse modo.
             </p>
@@ -143,7 +143,7 @@ export function FunnelReportConfigPage() {
             >
               {Object.entries(ROTULO_CONTAGEM).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
-            <p class="text-[0.6875rem] text-fg-muted mt-1 leading-relaxed">
+            <p class="text-2xs text-fg-muted mt-1 leading-relaxed">
               Por histórico, um lead que fez reunião e depois foi perdido continua contando na
               reunião. Pela situação atual, ele desaparece dessa etapa — o que subestima o meio do
               funil e infla as taxas de conversão.
@@ -164,7 +164,7 @@ export function FunnelReportConfigPage() {
               onClick={() => setFunilSel(f.id)}
             >
               {f.name}
-              <span class={`ml-1.5 text-[10px] rounded-full px-1.5 py-0.5 ${qtd === 6 ? 'bg-success/15 text-success' : qtd > 0 ? 'bg-warning/15 text-warning' : 'bg-surface-3 text-fg-subtle'}`}>
+              <span class={`ml-1.5 text-3xs rounded-full px-1.5 py-0.5 ${qtd === 6 ? 'bg-success/15 text-success' : qtd > 0 ? 'bg-warning/15 text-warning' : 'bg-surface-3 text-fg-muted'}`}>
                 {qtd}/6
               </span>
             </button>
@@ -177,10 +177,10 @@ export function FunnelReportConfigPage() {
           <Card class="!p-3">
             <div class="flex items-start justify-between gap-3 flex-wrap">
               <div class="min-w-0">
-                <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Etapas reais deste funil</div>
+                <div class="text-2xs uppercase tracking-wider text-fg-muted">Etapas reais deste funil</div>
                 <div class="flex flex-wrap gap-1 mt-1.5">
                   {funil.stages.map((s) => (
-                    <code key={s.key} class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+                    <code key={s.key} class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
                       {s.key}
                     </code>
                   ))}
@@ -277,7 +277,7 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
           <button
             key={o.valor}
             type="button"
-            class={`text-[0.6875rem] px-2 py-1 rounded-md border transition-colors ${on ? 'border-accent bg-accent/15 text-accent font-medium' : 'border-border text-fg-muted hover:text-fg'}`}
+            class={`text-2xs px-2 py-1 rounded-md border transition-colors ${on ? 'border-accent bg-accent/15 text-accent font-medium' : 'border-border text-fg-muted hover:text-fg'}`}
             onClick={() => onToggle(o.valor)}
           >
             {o.rotulo}
@@ -295,7 +295,7 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
           <span class="text-sm font-semibold text-fg">{label}</span>
         </div>
         {!def && (
-          <span class="text-[0.625rem] font-medium px-2 py-0.5 rounded-full bg-warning/15 text-warning">
+          <span class="text-3xs font-medium px-2 py-0.5 rounded-full bg-warning/15 text-warning">
             sem definição
           </span>
         )}
@@ -310,7 +310,7 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
         {fontes.map((f) => <option key={f.tipo} value={f.tipo}>{f.rotulo}</option>)}
       </Select>
       {fonteAtual && (
-        <p class="text-[0.6875rem] text-fg-muted leading-relaxed">{fonteAtual.descricao}</p>
+        <p class="text-2xs text-fg-muted leading-relaxed">{fonteAtual.descricao}</p>
       )}
 
       {/* Parâmetros da fonte escolhida */}
@@ -331,7 +331,7 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
         <div>
           <label class="block text-xs font-medium text-fg-muted mb-1.5">Campos qualificadores</label>
           {catalogo.catalogos.qualificadores.length === 0 ? (
-            <p class="text-[0.6875rem] text-fg-subtle italic">
+            <p class="text-2xs text-fg-muted italic">
               Nenhum campo marcado como qualificador nos formulários.
             </p>
           ) : (
@@ -342,18 +342,18 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
                   <button
                     key={q.key}
                     type="button"
-                    class={`w-full text-left rounded-md border p-2 transition-colors ${on ? 'border-accent bg-accent/10' : 'border-border hover:border-fg-subtle'}`}
+                    class={`w-full text-left rounded-md border p-2 transition-colors ${on ? 'border-accent bg-accent/10' : 'border-border hover:border-fg-muted'}`}
                     onClick={() => atualizar({
                       fieldKeys: on ? def.fieldKeys.filter((k) => k !== q.key) : [...def.fieldKeys, q.key],
                     })}
                   >
                     <div class="text-xs font-medium text-fg">{q.label}</div>
-                    <div class="text-[0.625rem] text-fg-muted mt-0.5">
+                    <div class="text-3xs text-fg-muted mt-0.5">
                       {q.positiveValues.length
                         ? <>Conta como positivo: <strong class="text-fg">{q.positiveValues.join(', ')}</strong></>
                         : 'Sem valores positivos declarados — qualquer resposta preenchida conta'}
                     </div>
-                    <div class="text-[0.625rem] text-fg-subtle mt-0.5">{q.forms.join(' · ')}</div>
+                    <div class="text-3xs text-fg-muted mt-0.5">{q.forms.join(' · ')}</div>
                   </button>
                 )
               })}
@@ -457,7 +457,7 @@ function EditorPapel({ papel, label, def, stages, catalogo, onChange }: {
             })}
           />
           {papel === 'rr' && def.statuses.length === 1 && def.statuses[0] === 'completed' && (
-            <p class="text-[0.6875rem] text-warning mt-1.5 leading-relaxed flex items-start gap-1.5">
+            <p class="text-2xs text-warning mt-1.5 leading-relaxed flex items-start gap-1.5">
               <AlertTriangle size={11} class="mt-0.5 shrink-0" />
               Só "completed" é o critério mais rigoroso: exige que a equipe marque o compromisso como
               concluído após a reunião. Se isso não for rotina, o KPI ficará zerado mesmo havendo

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'preact/hooks'
 import {
   Database, Plus, Pencil, Trash2, Copy, Check, Eye, KanbanSquare, FormInput,
   Info, AlertTriangle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useCustomFields,
   useCreateCustomField,
@@ -166,9 +166,9 @@ export function CustomFieldsSettings() {
           <strong class="text-fg">Código de Integração (API Key)</strong> — cada campo tem um código
           único usado em <strong class="text-fg">API</strong>, <strong class="text-fg">webhooks</strong>,{' '}
           <strong class="text-fg">Meta Ads</strong> e mapeamento de formulários. Exemplo:{' '}
-          <code class="rounded bg-surface-2 px-1 py-0.5 text-[0.6875rem] font-mono">PUT /api/leads/{`{id}`}/custom-fields</code>{' '}
+          <code class="rounded bg-surface-2 px-1 py-0.5 text-2xs font-mono">PUT /api/leads/{`{id}`}/custom-fields</code>{' '}
           com body{' '}
-          <code class="rounded bg-surface-2 px-1 py-0.5 text-[0.6875rem] font-mono">{'{ "codigo_do_campo": "valor" }'}</code>.
+          <code class="rounded bg-surface-2 px-1 py-0.5 text-2xs font-mono">{'{ "codigo_do_campo": "valor" }'}</code>.
         </div>
       </div>
 
@@ -190,8 +190,8 @@ export function CustomFieldsSettings() {
       {!isLoading && visibleGroups.map((g) => (
         <Card key={g.id}>
           <div class="flex items-center justify-between mb-2">
-            <div class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{g.label}</div>
-            <div class="text-[0.6875rem] text-fg-subtle">{(grouped[g.id] ?? []).length} campo(s)</div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">{g.label}</div>
+            <div class="text-2xs text-fg-muted">{(grouped[g.id] ?? []).length} campo(s)</div>
           </div>
           <CustomFieldsSortable
             fields={grouped[g.id] ?? []}
@@ -234,7 +234,7 @@ function CustomFieldsSortable({
               <Badge tone={f.active ? 'accent' : 'neutral'}>{f.active ? 'Ativo' : 'Inativo'}</Badge>
             </div>
             {f.description && (
-              <div class="text-[0.6875rem] text-fg-subtle">{f.description}</div>
+              <div class="text-2xs text-fg-muted">{f.description}</div>
             )}
             <div class="flex items-center gap-2 flex-wrap text-xs text-fg-muted">
               <KeyChip value={f.key} />
@@ -242,7 +242,7 @@ function CustomFieldsSortable({
               <span>{typeLabel(f.type)}</span>
             </div>
           </div>
-          <div class="flex items-center gap-1.5 text-fg-subtle pt-1">
+          <div class="flex items-center gap-1.5 text-fg-muted pt-1">
             {f.showInList !== false && <span title="Visível na listagem"><Eye size={12} /></span>}
             {f.showInKanban && <span title="Visível no Kanban"><KanbanSquare size={12} /></span>}
             {f.showInForm !== false && <span title="Visível em formulários públicos"><FormInput size={12} /></span>}
@@ -280,7 +280,7 @@ function KeyChip({ value }: { value: string }) {
   }
   return (
     <span class="inline-flex items-center gap-1 rounded bg-info/10 border border-info/30 pl-1.5 pr-0.5 py-0.5 text-info">
-      <code class="font-mono text-[0.6875rem]">{value}</code>
+      <code class="font-mono text-2xs">{value}</code>
       <button
         type="button"
         onClick={copy}
@@ -418,7 +418,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
                 if (!isEdit && !keyTouched) patch('key', autoKeyFromLabel(v))
               }}
               placeholder="Ex: CNPJ, Cargo, Valor do contrato"
-              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+              class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
             />
           </div>
           <Select
@@ -438,7 +438,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
           <div class="flex items-center gap-2 text-xs font-semibold text-fg mb-2">
             {isEdit ? null : <AlertTriangle size={12} class="text-warning" />}
             Código de Integração (API Key)
-            <span class="font-normal text-[0.6875rem] text-fg-muted">
+            <span class="font-normal text-2xs text-fg-muted">
               {isEdit ? '— não editável após a criação' : '— defina antes de criar, não pode ser alterado depois'}
             </span>
           </div>
@@ -459,9 +459,9 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
                   patch('key', (e.target as HTMLInputElement).value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
                 }}
                 placeholder="auto-gerado do nome (ou digite manualmente)"
-                class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-info font-mono placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+                class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-info font-mono placeholder:text-fg-muted focus:outline-none focus:border-accent"
               />
-              <div class="text-[0.6875rem] text-fg-muted mt-1">
+              <div class="text-2xs text-fg-muted mt-1">
                 Apenas letras minúsculas, números e underscores. Será usado como identificador em APIs e
                 integrações. Ex: <code class="rounded bg-surface px-1 py-0.5 font-mono">cnpj</code>,{' '}
                 <code class="rounded bg-surface px-1 py-0.5 font-mono">valor_contrato</code>,{' '}
@@ -510,7 +510,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
               placeholder={'opcao_1\nopcao_2\nvalor_3|Label visível 3'}
               class="font-mono"
             />
-            <div class="text-[0.6875rem] text-fg-subtle mt-1">
+            <div class="text-2xs text-fg-muted mt-1">
               Formato: uma opção por linha. Ou{' '}
               <code class="rounded bg-surface-2 px-1 py-0.5 font-mono">valor|Label</code>{' '}
               para diferenciar o valor técnico do label exibido.

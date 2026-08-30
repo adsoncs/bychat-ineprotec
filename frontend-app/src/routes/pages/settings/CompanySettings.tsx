@@ -5,7 +5,7 @@
 // aba LGPD (mesmos campos legal.company_name / legal.cnpj).
 
 import { useEffect, useState } from 'preact/hooks'
-import { Building2, Bell, Mail, Plus, Trash2, MessageCircle, Users } from 'lucide-preact'
+import { Building2, Bell, Mail, Plus, Trash2, MessageCircle, Users } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -80,7 +80,7 @@ function ListEditor(props: {
                   {props.groupNames?.[v]
                     ?? (props.groupsLoading ? 'Carregando nome do grupo…' : 'Grupo do WhatsApp')}
                 </span>
-                <span class="text-[0.6875rem] text-fg-subtle shrink-0">grupo</span>
+                <span class="text-2xs text-fg-muted shrink-0">grupo</span>
               </div>
             ) : (
               <Input
@@ -163,9 +163,9 @@ function GroupPickerModal(props: {
               <div class="flex items-center gap-2 min-w-0">
                 <Users size={15} class="text-fg-muted shrink-0" />
                 <span class="text-sm text-fg truncate">{g.subject}</span>
-                {already && <span class="text-[0.6875rem] text-fg-subtle shrink-0">já é destino</span>}
+                {already && <span class="text-2xs text-fg-muted shrink-0">já é destino</span>}
               </div>
-              <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+              <div class="text-2xs text-fg-muted mt-0.5">
                 {g.size} participante{g.size === 1 ? '' : 's'}
                 {g.announce && ' · só admins publicam — o número conectado precisa ser admin'}
               </div>

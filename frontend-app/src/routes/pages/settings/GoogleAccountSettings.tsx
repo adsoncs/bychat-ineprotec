@@ -1,5 +1,5 @@
 import { useEffect } from 'preact/hooks'
-import { Mail, Plug, Unplug, Calendar, ListTodo, Send, Folder, Sheet } from 'lucide-preact'
+import { Mail, Plug, Unplug, Calendar, ListTodo, Send, Folder, Sheet } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -88,7 +88,7 @@ export function GoogleAccountSettings() {
 
         {conn?.active ? (
           <div class="flex items-center gap-3 text-sm">
-            <Mail size={14} class="text-fg-subtle" />
+            <Mail size={14} class="text-fg-muted" />
             <span class="text-fg flex-1 truncate">{conn.email}</span>
             <Badge tone="accent">Conectada</Badge>
           </div>
@@ -132,7 +132,7 @@ export function GoogleAccountSettings() {
         </ul>
 
         {company && (
-          <div class="mt-4 text-xs text-fg-subtle">
+          <div class="mt-4 text-xs text-fg-muted">
             Conta da empresa: <span class="font-mono">{company.email}</span>
           </div>
         )}

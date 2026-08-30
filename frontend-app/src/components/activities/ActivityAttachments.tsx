@@ -14,7 +14,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Plus, Trash2, Download, FileImage, FileText, File as FileIcon, X,
   Loader2, AlertCircle, Paperclip, ClipboardPaste, MoreVertical, Eye, RefreshCw,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -242,7 +242,7 @@ export function ActivityAttachments({
           />
           <button
             type="button"
-            class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border border-dashed border-border text-fg-subtle hover:text-fg hover:border-accent hover:bg-accent/5"
+            class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium border border-dashed border-border text-fg-muted hover:text-fg hover:border-accent hover:bg-accent/5"
             onClick={() => inputRef.current?.click()}
             disabled={isUploading}
           >
@@ -251,7 +251,7 @@ export function ActivityAttachments({
           </button>
           <button
             type="button"
-            class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium text-fg-subtle hover:text-accent hover:bg-accent/5 disabled:opacity-40"
+            class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium text-fg-muted hover:text-accent hover:bg-accent/5 disabled:opacity-40"
             onClick={pasteFromClipboardApi}
             disabled={isUploading}
             title="Cola a última imagem copiada"
@@ -310,7 +310,7 @@ export function ActivityAttachments({
           />
           <button
             type="button"
-            class="size-12 rounded-md border border-dashed border-border bg-surface text-fg-subtle hover:text-fg hover:border-accent hover:bg-accent/5 grid place-items-center"
+            class="size-12 rounded-md border border-dashed border-border bg-surface text-fg-muted hover:text-fg hover:border-accent hover:bg-accent/5 grid place-items-center"
             onClick={() => inputRef.current?.click()}
             disabled={isUploading}
             title="Anexar mais"
@@ -320,7 +320,7 @@ export function ActivityAttachments({
           </button>
           <button
             type="button"
-            class="size-12 rounded-md border border-dashed border-border bg-surface text-fg-subtle hover:text-accent hover:border-accent hover:bg-accent/5 grid place-items-center"
+            class="size-12 rounded-md border border-dashed border-border bg-surface text-fg-muted hover:text-accent hover:border-accent hover:bg-accent/5 grid place-items-center"
             onClick={pasteFromClipboardApi}
             disabled={isUploading}
             title="Colar imagem do clipboard"
@@ -330,10 +330,10 @@ export function ActivityAttachments({
           </button>
         </div>
         {!compact && (
-          <div class="text-[0.625rem] text-fg-subtle mt-1.5 px-0.5">
+          <div class="text-3xs text-fg-muted mt-1.5 px-0.5">
             {attachments.length} anexo{attachments.length === 1 ? '' : 's'} · arraste, clique em
             <Plus size={9} class="inline mx-0.5" />
-            ou <kbd class="px-1 rounded border border-border bg-surface text-[0.625rem] font-mono">Ctrl+V</kbd> com a área em foco
+            ou <kbd class="px-1 rounded border border-border bg-surface text-3xs font-mono">Ctrl+V</kbd> com a área em foco
           </div>
         )}
       </div>
@@ -391,7 +391,7 @@ function AttachmentChip({
         )}
       </button>
       {!img && (
-        <div class="absolute inset-x-0 bottom-0 px-1 py-0.5 text-[0.5625rem] text-white bg-black/55 truncate pointer-events-none">
+        <div class="absolute inset-x-0 bottom-0 px-1 py-0.5 text-3xs text-white bg-black/55 truncate pointer-events-none">
           {attachment.fileName}
         </div>
       )}
@@ -663,7 +663,7 @@ export function PendingAttachmentsPicker({
           >
             <Paperclip size={14} /> Anexar arquivos
           </button>
-          <span class="text-fg-subtle text-xs">·</span>
+          <span class="text-fg-muted text-xs">·</span>
           <button
             type="button"
             class="inline-flex items-center gap-1.5 text-sm font-medium text-fg-muted hover:text-accent hover:underline disabled:opacity-50"
@@ -675,7 +675,7 @@ export function PendingAttachmentsPicker({
           </button>
         </div>
         <div class="text-xs text-fg-muted mt-1">
-          Arraste aqui, clique para escolher ou <kbd class="px-1 py-0.5 rounded border border-border bg-surface text-[0.6875rem] font-mono">Ctrl+V</kbd> para colar um print (até 25 MB cada)
+          Arraste aqui, clique para escolher ou <kbd class="px-1 py-0.5 rounded border border-border bg-surface text-2xs font-mono">Ctrl+V</kbd> para colar um print (até 25 MB cada)
         </div>
       </div>
 
@@ -711,7 +711,7 @@ export function PendingAttachmentsPicker({
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="text-xs font-medium text-fg truncate">{f.name}</div>
-                  <div class="text-[0.6875rem] text-fg-subtle">{formatSize(f.size)} · {f.type || 'tipo desconhecido'}</div>
+                  <div class="text-2xs text-fg-muted">{formatSize(f.size)} · {f.type || 'tipo desconhecido'}</div>
                 </div>
                 <button
                   type="button"

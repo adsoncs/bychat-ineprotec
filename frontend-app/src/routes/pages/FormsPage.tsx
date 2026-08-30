@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'preact/compat'
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { FormInput, Plus, Pencil, Trash2, Code, BarChart3, Eye, Copy, HelpCircle, LayoutTemplate } from 'lucide-preact'
+import { FormInput, Plus, Pencil, Trash2, Code, BarChart3, Eye, Copy, HelpCircle, LayoutTemplate } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useForms, useCreateForm, useUpdateForm, useDeleteForm, useDuplicateForm,
@@ -103,7 +103,7 @@ export function FormsPage() {
                       <Badge tone={f.active ? 'accent' : 'neutral'}>{f.active ? 'Ativo' : 'Inativo'}</Badge>
                     </button>
                   </div>
-                  <div class="text-[0.6875rem] text-fg-subtle mt-0.5 flex items-center gap-3 flex-wrap">
+                  <div class="text-2xs text-fg-muted mt-0.5 flex items-center gap-3 flex-wrap">
                     <span class="font-mono">ID: {f.id}</span>
                     <span>Criado em {formatDateTime(f.createdAt)}</span>
                   </div>
@@ -256,9 +256,9 @@ function FormTemplatePickerModal({ onClose, onCreated }: { onClose: () => void; 
                 onClick={() => { setPicked(t); if (!name) setName(t.name) }}
               >
                 <div class="text-sm font-medium text-fg">{t.name}</div>
-                {t.category && <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle mt-0.5">{t.category}</div>}
+                {t.category && <div class="text-2xs uppercase tracking-wider text-fg-muted mt-0.5">{t.category}</div>}
                 {t.description && <div class="text-xs text-fg-muted mt-1 line-clamp-2">{t.description}</div>}
-                <div class="text-[0.6875rem] text-fg-subtle mt-1.5">{t.fields.length} campos · {t.settings.displayMode === 'conversational' ? 'Conversacional' : 'Clássico'}</div>
+                <div class="text-2xs text-fg-muted mt-1.5">{t.fields.length} campos · {t.settings.displayMode === 'conversational' ? 'Conversacional' : 'Clássico'}</div>
               </button>
             ))}
           </div>
@@ -303,22 +303,22 @@ function FormEmbedModal({ form, onClose }: { form: FormItem; onClose: () => void
       {data && data.displayMode === 'conversational' && (
         <div class="space-y-4">
           <div class="space-y-2">
-            <div class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Link hospedado (recomendado)</div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Link hospedado (recomendado)</div>
             <div class="flex items-center gap-2">
               <Input value={data.hostedUrl} readOnly class="flex-1 font-mono text-xs" onFocusCapture={(e) => (e.target as HTMLInputElement).select()} />
               <Button variant="secondary" size="sm" class="shrink-0" onClick={() => copy(data.hostedUrl)}>{copied ? 'Copiado!' : 'Copiar'}</Button>
-              <a href={data.hostedUrl} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-md text-xs font-medium bg-accent text-white hover:bg-accent-hover">Abrir</a>
+              <a href={data.hostedUrl} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-md text-xs font-medium bg-accent text-fg-on-brand hover:bg-accent-hover">Abrir</a>
             </div>
-            <p class="text-[0.6875rem] text-fg-subtle">Página full-screen, uma pergunta por vez. Compartilhe o link direto ou em campanhas.</p>
+            <p class="text-2xs text-fg-muted">Página full-screen, uma pergunta por vez. Compartilhe o link direto ou em campanhas.</p>
           </div>
           <div class="space-y-2">
-            <div class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Ou embuta por iframe</div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Ou embuta por iframe</div>
             <div class="relative rounded-md bg-zinc-900 border border-zinc-800 p-4">
               <button type="button" onClick={() => copy(data.iframeSnippet)}
-                class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-[0.6875rem] font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors">
+                class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-2xs font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors">
                 <Code size={10} /> Copiar
               </button>
-              <pre class="text-[0.75rem] font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">{data.iframeSnippet}</pre>
+              <pre class="text-xs font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">{data.iframeSnippet}</pre>
             </div>
           </div>
         </div>
@@ -329,11 +329,11 @@ function FormEmbedModal({ form, onClose }: { form: FormItem; onClose: () => void
             <button
               type="button"
               onClick={() => copy(data.snippet)}
-              class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-[0.6875rem] font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors"
+              class="absolute top-2 right-2 inline-flex items-center gap-1 h-7 px-3 rounded-md text-2xs font-medium bg-zinc-800 text-zinc-100 border border-zinc-700 hover:bg-zinc-700 transition-colors"
             >
               <Code size={10} /> {copied ? 'Copiado!' : 'Copiar'}
             </button>
-            <pre class="text-[0.75rem] font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">
+            <pre class="text-xs font-mono text-zinc-100 whitespace-pre-wrap break-all m-0 pr-20">
               {data.snippet}
             </pre>
           </div>
@@ -367,7 +367,7 @@ function FormSubmissionsModal({ form, onClose }: { form: FormItem; onClose: () =
         {!isLoading && data && data.submissions.length > 0 && (
           <div class="overflow-x-auto -mx-4">
             <table class="w-full text-sm">
-              <thead class="text-fg-subtle text-[0.6875rem] uppercase tracking-wider border-b border-border">
+              <thead class="text-fg-muted text-2xs uppercase tracking-wider border-b border-border">
                 <tr>
                   <th class="text-left px-4 py-2 font-medium">Lead</th>
                   <th class="text-left px-4 py-2 font-medium">Contato</th>
@@ -406,18 +406,18 @@ function SubmissionRow({ s, onView }: { s: FormSubmission; onView: (leadId: numb
     <tr class="hover:bg-surface-3">
       <td class="px-4 py-2">
         <div class="text-fg font-medium truncate">{nome}</div>
-        {empresa && <div class="text-[0.6875rem] text-fg-subtle truncate">{empresa}</div>}
+        {empresa && <div class="text-2xs text-fg-muted truncate">{empresa}</div>}
       </td>
       <td class="px-4 py-2 text-xs">
         {email && <div class="text-fg-muted truncate">{email}</div>}
         {whatsapp && <div class="text-success truncate">{whatsapp}</div>}
-        {!email && !whatsapp && <span class="text-fg-subtle">—</span>}
+        {!email && !whatsapp && <span class="text-fg-muted">—</span>}
       </td>
       <td class="px-4 py-2 text-xs">
         <div class="text-fg-muted truncate max-w-48">{s.pageSlug ? <span class="text-accent">/p/{s.pageSlug}</span> : 'Embed externo'}</div>
-        {utm && <div class="text-fg-subtle truncate max-w-48">{utm}</div>}
+        {utm && <div class="text-fg-muted truncate max-w-48">{utm}</div>}
       </td>
-      <td class="px-4 py-2 text-xs text-fg-subtle whitespace-nowrap">{formatDateTime(s.createdAt)}</td>
+      <td class="px-4 py-2 text-xs text-fg-muted whitespace-nowrap">{formatDateTime(s.createdAt)}</td>
       <td class="px-4 py-2 text-right whitespace-nowrap">
         {s.leadId ? (
           <button
@@ -428,7 +428,7 @@ function SubmissionRow({ s, onView }: { s: FormSubmission; onView: (leadId: numb
             <Eye size={10} /> Ver Lead #{s.leadId}
           </button>
         ) : (
-          <span class="text-[0.6875rem] text-fg-subtle">Sem lead</span>
+          <span class="text-2xs text-fg-muted">Sem lead</span>
         )}
       </td>
     </tr>

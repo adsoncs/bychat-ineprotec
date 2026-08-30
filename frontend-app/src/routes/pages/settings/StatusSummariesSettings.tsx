@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Plus, Pencil, Power, ListChecks, ArrowRight, Trophy, XCircle } from 'lucide-preact'
+import { Plus, Pencil, Power, ListChecks, ArrowRight, Trophy, XCircle } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -280,7 +280,7 @@ function SummaryModal({ summary, onClose }: { summary: StatusSummary | null; onC
 
         <div>
           <label class="text-xs font-medium text-fg-muted block mb-1">
-            Quando usar <span class="font-normal text-fg-subtle">(vira dica para o operador)</span>
+            Quando usar <span class="font-normal text-fg-muted">(vira dica para o operador)</span>
           </label>
           <textarea
             value={helpText}
@@ -467,7 +467,7 @@ function LinkActivitiesModal({ summary, onClose }: { summary: StatusSummary; onC
                 <input type="checkbox" checked={!!sel} onChange={() => toggle(t.id)} />
                 <code class="text-xs font-mono px-1.5 py-0.5 rounded bg-surface-2">{t.code}</code>
                 <span class="truncate">{t.name}</span>
-                <span class="text-xs text-fg-subtle ml-auto shrink-0">{DUE_MODE_LABELS[t.dueMode]} {t.dueValue || ''}</span>
+                <span class="text-xs text-fg-muted ml-auto shrink-0">{DUE_MODE_LABELS[t.dueMode]} {t.dueValue || ''}</span>
               </label>
               {sel && (
                 <div class="grid grid-cols-3 gap-2 mt-2 pl-6">

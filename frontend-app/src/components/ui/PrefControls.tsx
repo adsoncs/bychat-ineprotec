@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact'
 import { cn } from '@/lib/cn'
+import { Switch as SwitchBase } from '@/components/ui/Input'
 
 /**
  * Controles de painel de preferências — usados pelo modal de Conversas e pelo
@@ -12,7 +13,7 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
     <section class="space-y-3">
       <div>
         <h3 class="text-xs font-semibold uppercase tracking-wider text-fg-muted">{title}</h3>
-        {hint && <p class="text-[0.6875rem] text-fg-subtle mt-0.5">{hint}</p>}
+        {hint && <p class="text-2xs text-fg-muted mt-0.5">{hint}</p>}
       </div>
       {children}
     </section>
@@ -41,7 +42,7 @@ export function Segmented({
               aria-pressed={active}
               class={cn(
                 'h-7 px-2.5 rounded text-xs font-medium transition-colors',
-                active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+                active ? 'bg-surface-2 text-fg surface-raised' : 'text-fg-muted hover:text-fg',
               )}
             >
               {o.label}
@@ -49,10 +50,18 @@ export function Segmented({
           )
         })}
       </div>
-      {help && <p class="text-[0.6875rem] text-fg-subtle mt-1">{help}</p>}
+      {help && <p class="text-2xs text-fg-muted mt-1">{help}</p>}
     </div>
   )
 }
+/**
+ * Chave liga/desliga das preferências.
+ *
+ * Chamava-se Switch e desenhava uma CAIXA DE MARCAÇÃO — e as duas não dizem a
+ * mesma coisa: a caixa marca uma escolha que só vale quando o formulário é
+ * enviado; aqui o efeito é imediato. A API local (`label`, `help`) fica de pé
+ * para os dois modais que já usam; o desenho vem da primitiva.
+ */
 export function Switch({
   checked, onChange, label, help, disabled = false,
 }: {
@@ -63,18 +72,12 @@ export function Switch({
   disabled?: boolean
 }) {
   return (
-    <label class={cn('flex items-start gap-2', disabled ? 'opacity-60' : 'cursor-pointer')}>
-      <input
-        type="checkbox"
-        class="mt-1"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
-      />
-      <span class="text-sm text-fg">
-        {label}
-        {help && <span class="block text-xs text-fg-muted">{help}</span>}
-      </span>
-    </label>
+    <SwitchBase
+      checked={checked}
+      onChange={onChange}
+      label={label}
+      {...(help !== undefined ? { hint: help } : {})}
+      disabled={disabled}
+    />
   )
 }

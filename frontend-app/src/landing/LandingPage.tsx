@@ -144,7 +144,7 @@ function Hero() {
               {HERO.secondaryCta}
             </a>
           </div>
-          <p class="mt-4 text-sm text-fg-subtle">{HERO.reassurance}</p>
+          <p class="mt-4 text-sm text-fg-muted">{HERO.reassurance}</p>
         </div>
         <div class="relative">
           <DashboardMock />
@@ -175,7 +175,7 @@ function Footer() {
         </div>
         {FOOTER.columns.map((col) => (
           <div key={col.title}>
-            <h3 class="text-sm font-bold uppercase tracking-wide text-fg-subtle">
+            <h3 class="text-sm font-bold uppercase tracking-wide text-fg-muted">
               {col.title}
             </h3>
             <ul class="mt-4 space-y-2.5">
@@ -194,7 +194,7 @@ function Footer() {
         ))}
       </div>
       <div class="border-t border-line">
-        <div class="mx-auto max-w-6xl px-5 py-6 text-sm text-fg-subtle">
+        <div class="mx-auto max-w-6xl px-5 py-6 text-sm text-fg-muted">
           {FOOTER.legal}
         </div>
       </div>

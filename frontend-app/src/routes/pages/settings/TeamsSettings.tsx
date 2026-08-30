@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown } from 'lucide-preact'
+import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown } from '@/components/ui/icon-set'
 import {
   useTeams,
   useCreateTeam,
@@ -43,7 +43,7 @@ export function TeamsSettings() {
   return (
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-2">
-        <div class="text-xs text-fg-subtle">
+        <div class="text-xs text-fg-muted">
           {isLoading ? '…' : `${totalCount} equipe${totalCount === 1 ? '' : 's'}`}
         </div>
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
@@ -114,7 +114,7 @@ function TeamsSortable({
         const chatbotCount = t.chatbotCount ?? 0
         return (
           <div class="flex items-center gap-3 rounded-md border border-border p-3 group bg-surface">
-            <span class="size-7 rounded-md shrink-0 grid place-items-center text-fg-on-brand text-[0.6875rem] font-bold" style={{ background: t.color ?? 'var(--color-accent)' }}>
+            <span class="size-7 rounded-md shrink-0 grid place-items-center text-fg-on-brand text-2xs font-bold" style={{ background: t.color ?? 'var(--color-accent)' }}>
               {(t.name?.[0] ?? '?').toUpperCase()}
             </span>
             <div class="min-w-0 flex-1">
@@ -123,9 +123,9 @@ function TeamsSortable({
                 <Badge tone={t.active ? 'accent' : 'neutral'}>{t.active ? 'Ativa' : 'Inativa'}</Badge>
               </div>
               {t.description && <div class="text-xs text-fg-muted truncate">{t.description}</div>}
-              <div class="text-[0.6875rem] text-fg-subtle mt-0.5 flex items-center gap-2 flex-wrap">
+              <div class="text-2xs text-fg-muted mt-0.5 flex items-center gap-2 flex-wrap">
                 {t.slug && (
-                  <code class="font-mono rounded bg-surface-2 px-1 py-0.5 text-[0.625rem]">{t.slug}</code>
+                  <code class="font-mono rounded bg-surface-2 px-1 py-0.5 text-3xs">{t.slug}</code>
                 )}
                 <button
                   type="button"
@@ -234,7 +234,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
             value={name}
             onInput={(e) => setName((e.target as HTMLInputElement).value)}
             placeholder="Ex: Comercial"
-            class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+            class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
           />
         </div>
 
@@ -274,7 +274,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
             value={color}
             onInput={(e) => setColor((e.target as HTMLInputElement).value)}
             placeholder="#1a73e8"
-            class="mt-2 w-full h-8 px-3 rounded-md bg-surface border border-border text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent font-mono"
+            class="mt-2 w-full h-8 px-3 rounded-md bg-surface border border-border text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent font-mono"
           />
         </div>
 
@@ -297,7 +297,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
-          <p class="text-[0.6875rem] text-fg-subtle mt-1">
+          <p class="text-2xs text-fg-muted mt-1">
             {ROUTING_MODE_OPTIONS.find((m) => m.value === routingMode)?.hint}
             {' Operadores fora de "Disponível" são pulados. O limite simultâneo é configurado por operador em '}
             <em>Usuários</em>{'.'}
@@ -440,7 +440,7 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
             {isLoading && <Skeleton class="h-24 w-full" />}
 
             {!isLoading && members.length === 0 && (
-              <div class="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-fg-subtle">
+              <div class="rounded-md border border-border bg-surface-2 p-4 text-center text-xs text-fg-muted">
                 Nenhum membro nesta equipe ainda.
               </div>
             )}
@@ -463,11 +463,11 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
                             <Badge tone="warning" solid><Star size={10} class="inline mr-0.5" />Líder</Badge>
                           )}
                         </div>
-                        <div class="text-[0.6875rem] text-fg-subtle truncate">
+                        <div class="text-2xs text-fg-muted truncate">
                           {m.user.email} · {m.user.role}
                         </div>
                       </div>
-                      <span class="text-[0.6875rem]" style={{ color: presence.color }}>
+                      <span class="text-2xs" style={{ color: presence.color }}>
                         {presence.label}
                       </span>
                       <label class="flex items-center gap-1 text-xs text-fg-muted cursor-pointer">
@@ -514,7 +514,7 @@ function TeamMembersModal({ team, onClose }: { team: Team; onClose: () => void }
 }
 
 function userPresenceLabel(lastSeenAt: string | null): { label: string; color: string } {
-  if (!lastSeenAt) return { label: 'Nunca', color: 'var(--color-fg-subtle)' }
+  if (!lastSeenAt) return { label: 'Nunca', color: 'var(--color-fg-muted)' }
   const ms = Date.now() - new Date(lastSeenAt).getTime()
   if (ms < 5 * 60_000) return { label: 'Online', color: 'var(--color-success)' }
   if (ms < 30 * 60_000) return { label: 'Ausente', color: 'var(--color-warning)' }
@@ -523,5 +523,5 @@ function userPresenceLabel(lastSeenAt: string | null): { label: string; color: s
     if (min < 60) return { label: `há ${min}min`, color: 'var(--color-fg-muted)' }
     return { label: `há ${Math.floor(min / 60)}h`, color: 'var(--color-fg-muted)' }
   }
-  return { label: `há ${Math.floor(ms / (24 * 3600_000))}d`, color: 'var(--color-fg-subtle)' }
+  return { label: `há ${Math.floor(ms / (24 * 3600_000))}d`, color: 'var(--color-fg-muted)' }
 }

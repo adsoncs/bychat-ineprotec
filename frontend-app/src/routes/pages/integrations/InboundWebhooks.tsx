@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   Plus, Info, Pencil, ScrollText, Trash2, MoreHorizontal,
   Copy, Check, RefreshCw, X, Wand2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   useInboundWebhooks,
@@ -366,7 +366,7 @@ function InboundWebhookFormModal({
       <div class="grid gap-4">
         {isEdit && webhook && (
           <div class="rounded-md border border-border bg-surface px-3 py-2.5">
-            <div class="text-[0.6875rem] uppercase tracking-wide text-fg-muted mb-1">URL do webhook</div>
+            <div class="text-2xs uppercase tracking-wide text-fg-muted mb-1">URL do webhook</div>
             <div class="flex items-center gap-2">
               <code class="flex-1 text-xs font-mono text-fg truncate" title={buildUrl(webhook.token)}>
                 {buildUrl(webhook.token)}
@@ -477,7 +477,7 @@ function InboundWebhookFormModal({
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <label class="text-xs font-medium text-fg-muted">
-              Mapeamento <span class="text-fg-subtle">(JSONPath do payload → Campo do Lead)</span>
+              Mapeamento <span class="text-fg-muted">(JSONPath do payload → Campo do Lead)</span>
             </label>
             <div class="flex gap-1.5">
               {isEdit && (
@@ -502,7 +502,7 @@ function InboundWebhookFormModal({
                   list={`inbound-keys-${webhook?.id ?? 'new'}`}
                   class="h-9 px-3 rounded-md bg-surface border border-border text-xs font-mono text-fg focus:outline-none focus:border-accent"
                 />
-                <span class="text-fg-subtle text-xs">→</span>
+                <span class="text-fg-muted text-xs">→</span>
                 <select
                   value={rule.target}
                   onChange={(e) => updateRule(idx, { target: (e.target as HTMLSelectElement).value })}
@@ -541,7 +541,7 @@ function InboundWebhookFormModal({
             </datalist>
           )}
 
-          <p class="text-[0.6875rem] text-fg-subtle mt-2">
+          <p class="text-2xs text-fg-muted mt-2">
             Pelo menos um dos campos <strong>nome, email ou whatsapp</strong> precisa ser mapeado pra que o Lead seja criado.
             {allFields.length === 0 && ' (Carregando campos…)'}
           </p>
@@ -573,21 +573,21 @@ function LastPayloadPanel({ webhookId }: { webhookId: number }) {
         <span>
           Último payload recebido
           {data?.receivedAt && (
-            <span class="text-fg-subtle ml-2">({formatBrDateTime(data.receivedAt)})</span>
+            <span class="text-fg-muted ml-2">({formatBrDateTime(data.receivedAt)})</span>
           )}
         </span>
-        <span class="text-[0.625rem] uppercase tracking-wide">{expanded ? 'Ocultar' : 'Mostrar'}</span>
+        <span class="text-3xs uppercase tracking-wide">{expanded ? 'Ocultar' : 'Mostrar'}</span>
       </button>
       {expanded && (
         <div class="border-t border-border p-3 max-h-72 overflow-auto">
           {isLoading && <Skeleton class="h-20 w-full" />}
           {!isLoading && !hasPayload && (
-            <div class="text-xs text-fg-subtle">
+            <div class="text-xs text-fg-muted">
               Nenhum payload recebido ainda. Mande uma requisição POST pro endpoint pra ver o conteúdo aqui e configurar o mapeamento.
             </div>
           )}
           {!isLoading && hasPayload && (
-            <pre class="text-[0.6875rem] font-mono text-fg whitespace-pre-wrap break-all">
+            <pre class="text-2xs font-mono text-fg whitespace-pre-wrap break-all">
               {JSON.stringify(data!.payload, null, 2)}
             </pre>
           )}
@@ -666,10 +666,10 @@ function HitsModal({ webhook, onClose }: { webhook: InboundWebhook; onClose: () 
                     {h.success ? 'OK' : 'Erro'}
                     {h.leadId && <span class="text-fg-muted">· Lead #{h.leadId}</span>}
                   </span>
-                  <span class="text-fg-subtle text-[0.625rem]">{formatBrDateTime(h.receivedAt)}</span>
+                  <span class="text-fg-muted text-3xs">{formatBrDateTime(h.receivedAt)}</span>
                 </div>
-                {h.error && <div class="text-danger text-[0.625rem] truncate">{h.error}</div>}
-                {!h.error && h.ip && <div class="text-fg-subtle text-[0.625rem]">{h.ip}</div>}
+                {h.error && <div class="text-danger text-3xs truncate">{h.error}</div>}
+                {!h.error && h.ip && <div class="text-fg-muted text-3xs">{h.ip}</div>}
               </button>
             ))}
           </div>
@@ -688,7 +688,7 @@ function HitsModal({ webhook, onClose }: { webhook: InboundWebhook; onClose: () 
             {selectedHit && (
               <>
                 <div>
-                  <div class="text-[0.625rem] uppercase tracking-wide text-fg-muted mb-1">Resultado</div>
+                  <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Resultado</div>
                   {selectedHit.success ? (
                     <div class="text-success">Lead #{selectedHit.leadId} criado</div>
                   ) : (
@@ -696,14 +696,14 @@ function HitsModal({ webhook, onClose }: { webhook: InboundWebhook; onClose: () 
                   )}
                 </div>
                 <div>
-                  <div class="text-[0.625rem] uppercase tracking-wide text-fg-muted mb-1">Campos mapeados</div>
-                  <pre class="bg-surface-2 border border-border rounded p-2 text-[0.6875rem] font-mono whitespace-pre-wrap break-all">
+                  <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Campos mapeados</div>
+                  <pre class="bg-surface-2 border border-border rounded p-2 text-2xs font-mono whitespace-pre-wrap break-all">
                     {JSON.stringify(selectedHit.mappedData ?? {}, null, 2)}
                   </pre>
                 </div>
                 <div>
-                  <div class="text-[0.625rem] uppercase tracking-wide text-fg-muted mb-1">Payload bruto</div>
-                  <pre class="bg-surface-2 border border-border rounded p-2 text-[0.6875rem] font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto">
+                  <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Payload bruto</div>
+                  <pre class="bg-surface-2 border border-border rounded p-2 text-2xs font-mono whitespace-pre-wrap break-all max-h-64 overflow-auto">
                     {JSON.stringify(selectedHit.payload, null, 2)}
                   </pre>
                 </div>

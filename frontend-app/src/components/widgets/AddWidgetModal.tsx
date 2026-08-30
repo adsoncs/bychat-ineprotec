@@ -114,7 +114,7 @@ export function AddWidgetModal({ open, onClose, onAdd }: AddWidgetModalProps) {
                   {cat.label}
                 </span>
                 {cat.domainBadge && (
-                  <span class="text-[0.625rem] px-1.5 py-0.5 rounded bg-accent/15 text-accent font-medium uppercase tracking-wider">
+                  <span class="text-3xs px-1.5 py-0.5 rounded bg-accent/15 text-accent font-medium uppercase tracking-wider">
                     {cat.domainBadge}
                   </span>
                 )}
@@ -135,7 +135,7 @@ export function AddWidgetModal({ open, onClose, onAdd }: AddWidgetModalProps) {
                       <span class="text-xl leading-none">{m.icon}</span>
                       <div class="flex-1 min-w-0">
                         <div class="text-sm font-medium text-fg">{m.title}</div>
-                        <div class="text-[11px] text-fg-muted leading-snug mt-0.5">{m.description}</div>
+                        <div class="text-2xs text-fg-muted leading-snug mt-0.5">{m.description}</div>
                       </div>
                     </div>
                   </button>

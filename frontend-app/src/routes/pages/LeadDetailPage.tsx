@@ -5,7 +5,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan} from 'lucide-preact'
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan} from '@/components/ui/icon-set'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
@@ -172,7 +172,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           </div>
 
           <div class="flex items-center gap-2 flex-wrap text-xs">
-            <code class="text-fg-subtle">{lead.uid ?? `#${id}`}</code>
+            <code class="text-fg-muted">{lead.uid ?? `#${id}`}</code>
             <span class="inline-flex items-center px-2 h-5 rounded-md border border-info/40 bg-info/15 text-info font-medium">
               {lead.status ?? 'NOVO'}
             </span>
@@ -183,9 +183,9 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
             )}
             <OutcomeBadge outcome={lead.outcome} lostReason={lead.lostReason ?? null} note={lead.outcomeNote} />
             <LeadOwnerBadge leadId={id} assignedUser={lead.assignedUser} />
-            <span class="text-fg-subtle">·</span>
+            <span class="text-fg-muted">·</span>
             <span class="text-fg-muted">{leadSourceLabel(lead.source)}</span>
-            <span class="text-fg-subtle">·</span>
+            <span class="text-fg-muted">·</span>
             <span class="text-fg-muted">criado {formatDateTime(lead.createdAt)}</span>
           </div>
 
@@ -201,7 +201,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
               {tags.map(({ tag }) => (
                 <span
                   key={tag.id}
-                  class="inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[0.6875rem] font-medium"
+                  class="inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-2xs font-medium"
                   style={{ background: `${tag.color}22`, color: tag.color }}
                 >
                   <span class="size-1.5 rounded-full" style={{ background: tag.color }} />
@@ -214,7 +214,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         {score !== undefined && score !== null && (
           <div class="shrink-0 text-right">
-            <p class="text-[0.625rem] font-medium uppercase tracking-wider text-fg-subtle">Score</p>
+            <p class="text-3xs font-medium uppercase tracking-wider text-fg-muted">Score</p>
             <div class="flex items-baseline gap-1 justify-end">
               <span class="text-3xl font-semibold text-fg tabular-nums leading-none">{Math.round(score)}</span>
               <span class="text-xs text-fg-muted">/100</span>
@@ -391,16 +391,16 @@ function SendEmailButton({ leadId, email }: { leadId: number; email: string | nu
                   {files.map((f, i) => (
                     <li key={`${f.name}:${f.size}:${i}`} class="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-subtle px-2 py-1 text-xs">
                       <span class="flex items-center gap-1.5 min-w-0">
-                        <Paperclip size={12} class="text-fg-subtle shrink-0" />
+                        <Paperclip size={12} class="text-fg-muted shrink-0" />
                         <span class="truncate">{f.name}</span>
-                        <span class="text-fg-subtle shrink-0">({fmtBytes(f.size)})</span>
+                        <span class="text-fg-muted shrink-0">({fmtBytes(f.size)})</span>
                       </span>
-                      <button type="button" class="text-fg-subtle hover:text-danger shrink-0" onClick={() => removeFile(i)} title="Remover">
+                      <button type="button" class="text-fg-muted hover:text-danger shrink-0" onClick={() => removeFile(i)} title="Remover">
                         <XIcon size={13} />
                       </button>
                     </li>
                   ))}
-                  <li class="text-right text-[0.6875rem] text-fg-subtle">Total: {fmtBytes(totalBytes)} / 18 MB</li>
+                  <li class="text-right text-2xs text-fg-muted">Total: {fmtBytes(totalBytes)} / 18 MB</li>
                 </ul>
               )}
             </div>
@@ -423,7 +423,7 @@ function ContactChip({
   if (!copyable) {
     return (
       <span class="inline-flex items-center gap-1.5 text-fg">
-        <Icon size={12} class="text-fg-subtle shrink-0" />
+        <Icon size={12} class="text-fg-muted shrink-0" />
         <span class="truncate max-w-[16rem]">{value}</span>
       </span>
     )
@@ -435,7 +435,7 @@ function ContactChip({
       onClick={() => { navigator.clipboard.writeText(value).catch(() => {}) }}
       title={`Copiar ${label}`}
     >
-      <Icon size={12} class="text-fg-subtle shrink-0" />
+      <Icon size={12} class="text-fg-muted shrink-0" />
       <span class="truncate max-w-[16rem]">{value}</span>
     </button>
   )
@@ -603,7 +603,7 @@ function LeadOwnerPicker({
           class="min-w-[18rem] max-h-[22rem] overflow-y-auto rounded-lg bg-surface-2 border border-border shadow-xl p-1"
           style={{ zIndex: 'var(--z-popover)' }}
         >
-          <div class="px-2 py-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-fg-subtle">
+          <div class="px-2 py-1.5 text-3xs font-medium uppercase tracking-wider text-fg-muted">
             Atribuir responsável
           </div>
           {isLoading && (
@@ -628,10 +628,10 @@ function LeadOwnerPicker({
                   if (!isCurrent) void handleAssign(a.id)
                 }}
               >
-                <UserIcon size={12} class="text-fg-subtle shrink-0" />
+                <UserIcon size={12} class="text-fg-muted shrink-0" />
                 <span class="flex-1 truncate">{a.name}</span>
-                <span class="text-[0.625rem] text-fg-subtle uppercase tracking-wider">{a.role}</span>
-                {isCurrent && <span class="text-[0.625rem] text-accent font-medium">atual</span>}
+                <span class="text-3xs text-fg-muted uppercase tracking-wider">{a.role}</span>
+                {isCurrent && <span class="text-3xs text-accent font-medium">atual</span>}
               </DropdownMenu.Item>
             )
           })}
@@ -680,7 +680,7 @@ function MenuItem({
       )}
       onSelect={() => { if (!disabled) onSelect() }}
     >
-      <Icon size={14} class={destructive ? 'text-danger' : 'text-fg-subtle'} />
+      <Icon size={14} class={destructive ? 'text-danger' : 'text-fg-muted'} />
       {children}
     </DropdownMenu.Item>
   )

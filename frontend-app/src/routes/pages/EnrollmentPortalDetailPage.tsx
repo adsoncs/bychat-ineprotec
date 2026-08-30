@@ -4,7 +4,7 @@ import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
   QrCode, Code, UserPlus, Plus, Pencil, Trash2,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useEnrollmentPortal,
   usePortalRegistrations,
@@ -61,7 +61,7 @@ const STATUS_LABELS: Record<RegistrationStatus, string> = {
 }
 
 const STATUS_COLORS: Record<RegistrationStatus, string> = {
-  draft: 'text-fg-subtle',
+  draft: 'text-fg-muted',
   pending: 'text-warning',
   submitted: 'text-info',
   paid: 'text-success',
@@ -73,8 +73,8 @@ const STATUS_COLORS: Record<RegistrationStatus, string> = {
   approved: 'text-success',
   enrolled: 'text-success',
   rejected: 'text-danger',
-  cancelled: 'text-fg-subtle',
-  expired: 'text-fg-subtle',
+  cancelled: 'text-fg-muted',
+  expired: 'text-fg-muted',
 }
 
 const PAYMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -185,7 +185,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
       label: 'Publicado em',
       value: p.publishedAt
         ? new Date(p.publishedAt).toLocaleString('pt-BR')
-        : <span class="text-fg-subtle">— (sitemap não indexa)</span>,
+        : <span class="text-fg-muted">— (sitemap não indexa)</span>,
     },
   ]
 
@@ -208,7 +208,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
       <Card>
         <div class="flex items-center justify-between gap-4 flex-wrap">
           <div class="min-w-0">
-            <div class="text-xs uppercase tracking-wider text-fg-subtle">URL pública</div>
+            <div class="text-xs uppercase tracking-wider text-fg-muted">URL pública</div>
             <a
               href={publicUrl}
               target="_blank"
@@ -217,7 +217,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
             >
               {publicUrl} <ExternalLink size={12} />
             </a>
-            <div class="text-[0.6875rem] text-fg-subtle mt-1">
+            <div class="text-2xs text-fg-muted mt-1">
               {p.active
                 ? 'O portal já está acessível na URL acima.'
                 : 'Portal inativo — a URL retorna 404. Reative em "Configuração".'}
@@ -310,7 +310,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
       </Card>
 
       <Card>
-        <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">Atalhos</div>
+        <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">Atalhos</div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <ShortcutButton label="Branding" icon={<Palette size={14} />} onClick={() => onTabChange('branding')} />
           <ShortcutButton label="Configuração" icon={<Settings size={14} />} onClick={() => onTabChange('config')} />
@@ -323,7 +323,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
           {meta.map((m) => (
             <div key={m.label} class="flex items-center gap-2 text-sm">
-              <span class="text-fg-subtle text-xs w-40 shrink-0">{m.label}</span>
+              <span class="text-fg-muted text-xs w-40 shrink-0">{m.label}</span>
               <span class="text-fg truncate">{m.value}</span>
             </div>
           ))}
@@ -332,7 +332,7 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
 
       {(p.metaTitle ?? p.metaDescription) && (
         <Card>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle mb-2">SEO</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted mb-2">SEO</div>
           {p.metaTitle && <div class="text-sm text-fg">{p.metaTitle}</div>}
           {p.metaDescription && <div class="text-xs text-fg-muted mt-1">{p.metaDescription}</div>}
         </Card>
@@ -382,9 +382,9 @@ function KpiOverviewRow({
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {tiles.map((t) => (
         <Card key={t.label}>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle">{t.label}</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted">{t.label}</div>
           <div class="text-2xl font-semibold text-fg tabular-nums">{t.value}</div>
-          {t.sub && <div class="text-[0.6875rem] text-fg-subtle">{t.sub}</div>}
+          {t.sub && <div class="text-2xs text-fg-muted">{t.sub}</div>}
         </Card>
       ))}
     </div>
@@ -577,7 +577,7 @@ function EmbedModal({ portal: p, onClose }: { portal: EnrollmentPortal; onClose:
         class="w-full font-mono text-xs px-2 py-2 rounded-md bg-surface border border-border text-fg min-h-32"
         value={snippet}
       />
-      <div class="text-[0.6875rem] text-fg-subtle mt-2">
+      <div class="text-2xs text-fg-muted mt-2">
         O servidor envia <code>frame-ancestors *</code> para portais públicos, então o iframe funciona em qualquer domínio.
       </div>
     </Modal>
@@ -750,7 +750,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
       {!isLoading && items.length === 0 && (
         <Card>
           <div class="text-sm text-fg-muted text-center py-6">
-            <Search size={20} class="mx-auto mb-2 text-fg-subtle" />
+            <Search size={20} class="mx-auto mb-2 text-fg-muted" />
             Nenhuma inscrição encontrada com esses filtros.
           </div>
         </Card>
@@ -761,7 +761,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="text-left border-b border-border text-xs uppercase tracking-wider text-fg-subtle">
+                <tr class="text-left border-b border-border text-xs uppercase tracking-wider text-fg-muted">
                   <th class="py-2 px-2 font-medium">Código</th>
                   <th class="py-2 px-2 font-medium">Candidato</th>
                   <th class="py-2 px-2 font-medium">Oferta</th>
@@ -856,7 +856,7 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {tiles.map((t) => (
         <Card key={t.label}>
-          <div class="text-xs uppercase tracking-wider text-fg-subtle">{t.label}</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted">{t.label}</div>
           <div class="text-2xl font-semibold text-fg tabular-nums">{t.value}</div>
         </Card>
       ))}
@@ -897,7 +897,7 @@ function RegistrationRow({
       <td class="py-2 px-2">
         <div class="min-w-0">
           <div class="text-fg truncate">{nome}</div>
-          {contact && <div class="text-xs text-fg-subtle truncate">{contact}</div>}
+          {contact && <div class="text-xs text-fg-muted truncate">{contact}</div>}
         </div>
       </td>
       <td class="py-2 px-2 text-xs text-fg-muted truncate max-w-48" title={offering}>{offering}</td>
@@ -912,14 +912,14 @@ function RegistrationRow({
               <div class={`font-medium ${paymentStatusTone(r.paymentStatus) === 'success' ? 'text-success' : paymentStatusTone(r.paymentStatus) === 'danger' ? 'text-danger' : paymentStatusTone(r.paymentStatus) === 'warning' ? 'text-warning' : 'text-fg'}`}>
                 {paymentStatusLabel(r.paymentStatus)}
               </div>
-              {amount != null && <div class="text-fg-subtle tabular-nums">R$ {amount.toFixed(2)}</div>}
+              {amount != null && <div class="text-fg-muted tabular-nums">R$ {amount.toFixed(2)}</div>}
             </>
-          : <span class="text-fg-subtle">—</span>}
+          : <span class="text-fg-muted">—</span>}
       </td>
       <td class="py-2 px-2 text-xs text-fg-muted tabular-nums">
         {r._count?.documents ?? 0}
       </td>
-      <td class="py-2 px-2 text-xs text-fg-subtle truncate max-w-24" title={[r.utmSource, r.utmMedium].filter(Boolean).join(' · ') || ''}>
+      <td class="py-2 px-2 text-xs text-fg-muted truncate max-w-24" title={[r.utmSource, r.utmMedium].filter(Boolean).join(' · ') || ''}>
         {r.utmSource ?? '—'}
       </td>
       <td class="py-2 px-2 text-xs text-fg-muted whitespace-nowrap">
@@ -1050,7 +1050,7 @@ function MenuButton({
       class={cn(
         'w-full text-left px-3 py-1.5 text-xs inline-flex items-center gap-2',
         disabled
-          ? 'text-fg-subtle cursor-not-allowed'
+          ? 'text-fg-muted cursor-not-allowed'
           : destructive
             ? 'text-danger hover:bg-surface-3'
             : 'text-fg hover:bg-surface-3',

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks'
 import {
   DollarSign, Users, MousePointerClick, RefreshCw, Eye, Target,
   Coins, ShoppingBag, Percent, TrendingUp, AlertCircle, HelpCircle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useGoogleAdsReportDashboard,
@@ -148,7 +148,7 @@ export function GoogleAdsReportPage() {
               <div class="font-semibold text-fg">Developer Token em modo Teste</div>
               <p class="text-xs text-fg-muted mt-1">
                 O Google rejeitou a sincronização porque o seu <strong>Developer Token</strong> ainda não tem acesso a contas de produção
-                (ele responde <code class="font-mono text-[0.6875rem]">DEVELOPER_TOKEN_NOT_APPROVED</code>).
+                (ele responde <code class="font-mono text-2xs">DEVELOPER_TOKEN_NOT_APPROVED</code>).
                 Para usar com contas reais é preciso solicitar promoção para <strong>Basic access</strong> dentro do Google Ads:
               </p>
               <ol class="text-xs text-fg-muted mt-2 ml-4 list-decimal space-y-1">
@@ -158,7 +158,7 @@ export function GoogleAdsReportPage() {
                 <li>Preencha o formulário (uso pretendido, volume, descrição) — aprovação demora 1–3 dias</li>
                 <li>Depois de aprovado, o mesmo token aqui passa a funcionar. Não precisa reconectar nada.</li>
               </ol>
-              <p class="text-[0.6875rem] text-fg-subtle mt-2">
+              <p class="text-2xs text-fg-muted mt-2">
                 Para testar enquanto a aprovação não sai, crie uma <strong>conta de teste</strong> no Google Ads (Conta → Criar conta de teste) e conecte ela.
               </p>
             </div>
@@ -173,7 +173,7 @@ export function GoogleAdsReportPage() {
             <div class="flex-1 text-sm">
               <div class="font-semibold text-fg">Conta Google Ads não habilitada</div>
               <p class="text-xs text-fg-muted mt-1">
-                O Google retornou <code class="font-mono text-[0.6875rem]">CUSTOMER_NOT_ENABLED</code> para o customer ID selecionado —
+                O Google retornou <code class="font-mono text-2xs">CUSTOMER_NOT_ENABLED</code> para o customer ID selecionado —
                 a conta está pausada, sem método de pagamento configurado, ou ainda em criação.
                 Acesse o Google Ads, conclua a configuração da conta (incluindo billing) e tente novamente.
               </p>
@@ -276,7 +276,7 @@ export function GoogleAdsReportPage() {
             }`}
           >
             {v === 'campaigns' ? 'Campanhas' : v === 'adGroups' ? 'Grupos de anúncios' : v === 'keywords' ? 'Palavras-chave' : 'Anúncios'}
-            <span class="ml-1 text-fg-subtle">({dashboardQ.data ? (v === 'campaigns' ? dashboardQ.data.campaigns.length : v === 'adGroups' ? dashboardQ.data.adGroups.length : v === 'keywords' ? dashboardQ.data.keywords.length : dashboardQ.data.ads.length) : 0})</span>
+            <span class="ml-1 text-fg-muted">({dashboardQ.data ? (v === 'campaigns' ? dashboardQ.data.campaigns.length : v === 'adGroups' ? dashboardQ.data.adGroups.length : v === 'keywords' ? dashboardQ.data.keywords.length : dashboardQ.data.ads.length) : 0})</span>
           </button>
         ))}
       </div>
@@ -372,7 +372,7 @@ export function GoogleAdsReportPage() {
       {/* Daily breakdown como barras simples */}
       {dashboardQ.data && dashboardQ.data.daily.length > 0 && (
         <Card class="p-3 mt-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2">
             Investimento por dia
           </div>
           <div class="flex items-end gap-1 h-32">
@@ -384,7 +384,7 @@ export function GoogleAdsReportPage() {
                   <div class="w-full bg-surface-3 rounded-t" style={{ height: `${Math.max(4, pct)}%` }}>
                     <div class="h-full bg-info rounded-t" />
                   </div>
-                  <div class="text-[0.625rem] text-fg-subtle tabular-nums">{d.date.slice(5)}</div>
+                  <div class="text-3xs text-fg-muted tabular-nums">{d.date.slice(5)}</div>
                 </div>
               )
             })}

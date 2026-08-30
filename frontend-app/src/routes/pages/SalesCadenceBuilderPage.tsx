@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, Pause, Play, BarChart3 } from 'lucide-preact'
+import { ArrowLeft, Pause, Play, BarChart3 } from '@/components/ui/icon-set'
 import {
   useSalesCadence,
   useUpdateSalesCadence,

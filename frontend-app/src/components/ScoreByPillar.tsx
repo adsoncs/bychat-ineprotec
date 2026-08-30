@@ -40,7 +40,7 @@ export function ScoreByPillar({
           return (
             <div key={key} class="flex items-center gap-3">
               <span
-                class={compact ? 'text-[0.6875rem] text-fg w-20 truncate' : 'text-xs text-fg w-24 truncate'}
+                class={compact ? 'text-2xs text-fg w-20 truncate' : 'text-xs text-fg w-24 truncate'}
                 title={meta.label}
               >
                 {meta.label}
@@ -54,7 +54,7 @@ export function ScoreByPillar({
               <span
                 class={
                   compact
-                    ? 'text-[0.6875rem] text-fg w-8 text-right tabular-nums font-semibold'
+                    ? 'text-2xs text-fg w-8 text-right tabular-nums font-semibold'
                     : 'text-xs text-fg w-10 text-right tabular-nums font-semibold'
                 }
               >

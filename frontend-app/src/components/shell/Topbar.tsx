@@ -1,4 +1,4 @@
-import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, ChevronDown, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Copy, Headphones } from 'lucide-preact'
+import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, ChevronDown, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Copy, Headphones } from '@/components/ui/icon-set'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
@@ -15,6 +15,7 @@ import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { TransferInbox } from '@/components/routing/TransferInbox'
 import { cn } from '@/lib/cn'
+import { ICON_SIZE } from '@/components/ui/Icon'
 
 // Palette para avatar — gradients suaves derivados do nome (determinístico)
 const AVATAR_PALETTE: [string, string][] = [
@@ -82,10 +83,10 @@ function RoleBadge({ role, size = 'sm' }: { role: UserRole; size?: 'xs' | 'sm' }
     : role === 'MANAGER'
       ? 'bg-info/15 text-info ring-info/30'
       : 'bg-surface-3 text-fg-muted ring-border'
-  const padding = size === 'xs' ? 'h-5 px-1.5 text-[0.625rem] gap-1' : 'h-6 px-2 text-[0.6875rem] gap-1.5'
+  const padding = size === 'xs' ? 'h-5 px-1.5 text-3xs gap-1' : 'h-6 px-2 text-2xs gap-1.5'
   return (
     <span class={cn('inline-flex items-center rounded-full font-medium ring-1', tone, padding)}>
-      <Icon size={size === 'xs' ? 10 : 12} />
+      <Icon size={ICON_SIZE.xs} />
       {ROLE_LABELS[role]}
     </span>
   )
@@ -120,7 +121,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
           onClick={openDrawer}
           aria-label={t('shell.menu.open')}
         >
-          <Menu size={18} />
+          <Menu size={ICON_SIZE.md} />
         </button>
       )}
 
@@ -134,7 +135,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
           class="size-9 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
           aria-label={t('shell.search.aria')}
         >
-          <Search size={18} />
+          <Search size={ICON_SIZE.md} />
         </button>
       ) : (
         <button
@@ -142,14 +143,14 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
           onClick={onOpenCommandPalette}
           class={cn(
             'flex flex-1 min-w-0 items-center gap-2 h-9 px-3 rounded-md text-sm',
-            'bg-surface text-fg-muted border border-border hover:bg-surface-inset',
+            'bg-surface-2 text-fg-muted border border-border surface-raised hover:bg-surface-3',
             'max-w-md',
           )}
           aria-label={t('shell.search.aria')}
         >
-          <Search size={16} class="shrink-0" />
+          <Search size={ICON_SIZE.md} class="shrink-0" />
           <span class="flex-1 text-left truncate">{t('shell.search.placeholder')}</span>
-          <kbd class="hidden sm:inline-flex items-center gap-0.5 px-1.5 h-5 rounded border border-border text-[0.6875rem] text-fg-subtle font-mono shrink-0">
+          <kbd class="hidden sm:inline-flex items-center gap-0.5 px-1.5 h-5 rounded border border-border text-2xs text-fg-muted font-mono shrink-0">
             <span>⌘</span>K
           </kbd>
         </button>
@@ -170,7 +171,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
               aria-label={t('shell.user.menu')}
             >
               <span
-                class="size-7 rounded-full grid place-items-center text-[0.6875rem] font-semibold text-white shadow-sm ring-1 ring-white/10"
+                class="size-7 rounded-full grid place-items-center text-2xs font-semibold text-white shadow-sm ring-1 ring-white/10"
                 style={avatarStyle}
               >
                 {initials}
@@ -178,14 +179,14 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
               <span class="hidden sm:inline text-xs font-semibold text-fg truncate max-w-[10rem]">
                 {displayName}
               </span>
-              <ChevronDown size={14} class="text-fg-subtle hidden sm:inline" />
+              <ChevronDown size={ICON_SIZE.sm} class="text-fg-muted hidden sm:inline" />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content
               align="end"
               sideOffset={8}
-              class="min-w-[18rem] rounded-lg bg-surface-2 border border-border shadow-xl p-0 overflow-hidden"
+              class="min-w-[18rem] rounded-panel bg-surface-2 border border-border shadow-xl surface-raised p-0 overflow-hidden"
               style={{ zIndex: 'var(--z-popover)' }}
             >
               {/* Header card com avatar grande */}
@@ -198,7 +199,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
                 </span>
                 <div class="min-w-0 flex-1 space-y-1">
                   <div class="text-sm font-semibold text-fg truncate">{displayName}</div>
-                  <div class="text-[0.6875rem] text-fg-subtle truncate">{user?.email ?? ''}</div>
+                  <div class="text-2xs text-fg-muted truncate">{user?.email ?? ''}</div>
                   {role && <div class="pt-0.5"><RoleBadge role={role} size="xs" /></div>}
                 </div>
               </div>
@@ -207,7 +208,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
               {(lastLoginRel || memberSinceRel) && (
                 <>
                   <DropdownMenu.Separator class="h-px bg-border" />
-                  <div class="px-3 py-2 space-y-0.5 text-[0.6875rem] text-fg-subtle">
+                  <div class="px-3 py-2 space-y-0.5 text-2xs text-fg-muted">
                     {lastLoginRel && (
                       <div class="flex items-center justify-between">
                         <span>Último acesso</span>
@@ -231,21 +232,21 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
                   class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
                   onSelect={() => setProfileOpen(true)}
                 >
-                  <UserIcon size={14} class="text-fg-muted" />
+                  <UserIcon size={ICON_SIZE.sm} class="text-fg-muted" />
                   Meu perfil
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
                   onSelect={() => setPrefsOpen(true)}
                 >
-                  <SlidersHorizontal size={14} class="text-fg-muted" />
+                  <SlidersHorizontal size={ICON_SIZE.sm} class="text-fg-muted" />
                   Minhas preferências
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
                   class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
                   onSelect={() => { window.location.assign('/app/settings') }}
                 >
-                  <SettingsIcon size={14} class="text-fg-muted" />
+                  <SettingsIcon size={ICON_SIZE.sm} class="text-fg-muted" />
                   Configurações
                 </DropdownMenu.Item>
               </div>
@@ -257,7 +258,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
                   class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-danger/10 text-danger outline-none"
                   onSelect={logout}
                 >
-                  <LogOut size={14} />
+                  <LogOut size={ICON_SIZE.sm} />
                   {t('shell.user.logout')}
                 </DropdownMenu.Item>
               </div>
@@ -288,8 +289,8 @@ function DuplicatesBadge() {
       aria-label={`${count} lead(s) duplicado(s) pendente(s) de revisão`}
       title={`${count} duplicado(s) pendente(s) — clique pra revisar`}
     >
-      <Copy size={16} />
-      <span class="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 inline-flex items-center justify-center rounded-full bg-warning text-[0.625rem] font-bold text-white shadow-sm ring-2 ring-surface">
+      <Copy size={ICON_SIZE.md} />
+      <span class="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 inline-flex items-center justify-center rounded-full bg-warning text-3xs font-bold text-fg-on-brand shadow-sm ring-2 ring-surface">
         {display}
       </span>
     </button>
@@ -335,7 +336,7 @@ function WorkStatusMenu() {
             class="size-2.5 rounded-full ring-2 ring-surface"
             style={{ background: WORK_STATUS_COLORS[status] }}
           />
-          <span class="hidden md:inline text-[0.6875rem] font-medium">
+          <span class="hidden md:inline text-2xs font-medium">
             {WORK_STATUS_LABELS[status]}
           </span>
         </button>
@@ -344,10 +345,10 @@ function WorkStatusMenu() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="min-w-[14rem] rounded-md bg-surface-2 border border-border shadow-lg p-1"
+          class="min-w-[14rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
           style={{ zIndex: 'var(--z-popover)' }}
         >
-          <div class="px-2 py-1.5 text-[0.625rem] uppercase tracking-wider text-fg-subtle font-semibold">
+          <div class="px-2 py-1.5 text-3xs uppercase tracking-wider text-fg-muted font-semibold">
             Status de trabalho
           </div>
           {items.map((s) => {
@@ -368,7 +369,7 @@ function WorkStatusMenu() {
                 />
                 <span class="flex-1 min-w-0">
                   <span class="block text-fg font-medium">{WORK_STATUS_LABELS[s]}</span>
-                  <span class="block text-[0.6875rem] text-fg-subtle leading-tight">{WORK_STATUS_HINTS[s]}</span>
+                  <span class="block text-2xs text-fg-muted leading-tight">{WORK_STATUS_HINTS[s]}</span>
                 </span>
                 {isCurrent && <span class="text-accent text-xs mt-1">●</span>}
               </DropdownMenu.Item>
@@ -397,14 +398,14 @@ function FontSizeMenu() {
           aria-label="Tamanho da fonte"
           title="Tamanho da fonte"
         >
-          <Type size={16} />
+          <Type size={ICON_SIZE.md} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="min-w-[10rem] rounded-md bg-surface-2 border border-border shadow-lg p-1"
+          class="min-w-[10rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
           style={{ zIndex: 'var(--z-popover)' }}
         >
           {items.map((it) => {
@@ -456,7 +457,7 @@ function LocaleMenu() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="min-w-[10rem] rounded-md bg-surface-2 border border-border shadow-lg p-1"
+          class="min-w-[10rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
           style={{ zIndex: 'var(--z-popover)' }}
         >
           {items.map((it) => {
@@ -501,14 +502,14 @@ function ThemeMenu() {
           aria-label={t('shell.theme.label')}
           title={t('shell.theme.label')}
         >
-          <Icon size={16} />
+          <Icon size={ICON_SIZE.md} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="min-w-[10rem] rounded-md bg-surface-2 border border-border shadow-lg p-1"
+          class="min-w-[10rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
           style={{ zIndex: 'var(--z-popover)' }}
         >
           {items.map((it) => {
@@ -523,7 +524,7 @@ function ThemeMenu() {
                 )}
                 onSelect={() => setTheme(it.value)}
               >
-                <Active size={14} />
+                <Active size={ICON_SIZE.sm} />
                 <span class="flex-1">{it.label}</span>
                 {isCurrent && <span class="text-accent">●</span>}
               </DropdownMenu.Item>

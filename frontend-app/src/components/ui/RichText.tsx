@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   Bold, Italic, Underline, Strikethrough, List, ListOrdered, Link2, Eraser,
   Smile, AlignLeft, AlignCenter, AlignRight, Pilcrow, Heading1, Heading2, Heading3, Baseline, Palette,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 
 interface RichTextProps {
   value: string
@@ -82,7 +82,7 @@ export function RichText({ value, onChange, label, placeholder, minHeight = '2.5
   return (
     <div class="flex flex-col gap-1">
       {label && <span class="text-xs font-medium text-fg-muted">{label}</span>}
-      <div class="rounded-md border border-border bg-surface overflow-visible focus-within:border-accent">
+      <div class="rounded-md border border-border bg-surface-inset surface-inset overflow-visible focus-within:border-accent">
         <div class="relative flex flex-wrap items-center gap-0.5 border-b border-border bg-surface-2 px-1 py-1">
           {/* Estilos de bloco */}
           <ToolBtn title="Parágrafo" icon={Pilcrow} onClick={keep(() => exec('formatBlock', '<p>'))} />
@@ -100,7 +100,7 @@ export function RichText({ value, onChange, label, placeholder, minHeight = '2.5
           <div class="relative">
             <ToolBtn title="Tamanho da fonte" icon={Baseline} onMouseDown={keep(() => setSizeOpen((v) => !v))} />
             {sizeOpen && (
-              <div class="absolute left-0 top-full z-20 mt-1 w-32 rounded-md border border-border bg-surface shadow-lg p-1">
+              <div class="absolute left-0 top-full z-20 mt-1 w-32 rounded-md border border-border bg-surface-2 shadow-lg surface-raised p-1">
                 {SIZES.map((s) => (
                   <button key={s.value} type="button" class="block w-full rounded px-2 py-1 text-left text-sm hover:bg-surface-3"
                     onMouseDown={keep(() => { exec('fontSize', s.value); setSizeOpen(false) })}>{s.label}</button>
@@ -128,7 +128,7 @@ export function RichText({ value, onChange, label, placeholder, minHeight = '2.5
           <div class="relative">
             <ToolBtn title="Emoji" icon={Smile} onMouseDown={keep(() => setEmojiOpen((v) => !v))} />
             {emojiOpen && (
-              <div class="absolute left-0 top-full z-20 mt-1 w-[15rem] rounded-md border border-border bg-surface shadow-lg p-2 grid grid-cols-10 gap-0.5">
+              <div class="absolute left-0 top-full z-20 mt-1 w-[15rem] rounded-md border border-border bg-surface-2 shadow-lg surface-raised p-2 grid grid-cols-10 gap-0.5">
                 {EMOJIS.map((em) => (
                   <button key={em} type="button" class="size-5 grid place-items-center rounded text-base leading-none hover:bg-surface-3"
                     onMouseDown={keep(() => { exec('insertText', em); setEmojiOpen(false) })}>{em}</button>
@@ -147,7 +147,7 @@ export function RichText({ value, onChange, label, placeholder, minHeight = '2.5
           onFocus={() => { focused.current = true }}
           onBlur={() => { focused.current = false; emit() }}
           data-placeholder={placeholder ?? ''}
-          class="rt-editor px-3 py-2 text-sm text-fg outline-none [&_a]:text-accent [&_a]:underline [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-1 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-fg-subtle"
+          class="rt-editor px-3 py-2 text-sm text-fg outline-none [&_a]:text-accent [&_a]:underline [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:my-1 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:my-1 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:my-0.5 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-fg-muted"
           style={{ minHeight }}
         />
       </div>

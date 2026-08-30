@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { Save, Copy, Check, MapPin, QrCode, Download } from 'lucide-preact'
+import { Save, Copy, Check, MapPin, QrCode, Download } from '@/components/ui/icon-set'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
@@ -176,7 +176,7 @@ export function CompanyIdentitySettings() {
 
         {codigo ? (
           <div class="mt-4 rounded-md border border-border bg-surface-2 p-3">
-            <div class="mb-2 text-xs uppercase tracking-wider text-fg-subtle">PIX copia e cola</div>
+            <div class="mb-2 text-xs uppercase tracking-wider text-fg-muted">PIX copia e cola</div>
             <div class="flex flex-wrap items-start gap-3">
               <code class="min-w-0 flex-1 break-all rounded bg-surface p-2 text-xs">{codigo}</code>
               <div class="flex shrink-0 gap-2">
@@ -199,13 +199,13 @@ export function CompanyIdentitySettings() {
               </div>
             )}
 
-            <p class="mt-2 text-xs text-fg-subtle">
+            <p class="mt-2 text-xs text-fg-muted">
               Código sem valor definido: o cliente escolhe quanto pagar. Nas mensagens, use a
               variável <code>{'{{pix_copia_cola}}'}</code>.
             </p>
           </div>
         ) : (
-          <p class="mt-3 text-xs text-fg-subtle">Preencha a chave para gerar o código copia e cola.</p>
+          <p class="mt-3 text-xs text-fg-muted">Preencha a chave para gerar o código copia e cola.</p>
         )}
       </section>
 

@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Server, Plus, Play, Square, RefreshCw, FileText, ExternalLink, Trash2, Lock, Copy, Check, MoreHorizontal,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useInstallations,
   useProvisionInstallation,
@@ -153,7 +153,7 @@ function InstallationCard({
             {inst.ssl ? <Badge tone="success">SSL</Badge> : (
               <button
                 type="button"
-                class="inline-flex items-center h-5 px-2 rounded-full text-[0.6875rem] font-medium bg-danger/15 text-danger hover:bg-danger/25"
+                class="inline-flex items-center h-5 px-2 rounded-full text-2xs font-medium bg-danger/15 text-danger hover:bg-danger/25"
                 onClick={handleSSL}
                 disabled={ssl.isPending}
               >
@@ -166,7 +166,7 @@ function InstallationCard({
             <span>App: <code class="font-mono text-fg">{inst.appPort || '—'}</code></span>
             <span>MySQL: <code class="font-mono text-fg">{inst.mysqlPort || '—'}</code></span>
             <span class="truncate">PM2: <code class="font-mono text-fg">{inst.pm2Name}</code></span>
-            {inst.createdAt && <span class="text-fg-subtle">Criado: {inst.createdAt}</span>}
+            {inst.createdAt && <span class="text-fg-muted">Criado: {inst.createdAt}</span>}
           </div>
         </div>
         <div class="flex flex-wrap gap-1.5">
@@ -298,7 +298,7 @@ function NewInstallationModal({
               .bychat.ia.br
             </span>
           </div>
-          <span class="text-[0.6875rem] text-fg-subtle">Apenas letras, números e hífen.</span>
+          <span class="text-2xs text-fg-muted">Apenas letras, números e hífen.</span>
         </div>
 
         <button
@@ -418,14 +418,14 @@ function ProvisionResultModal({
         </div>
 
         <div class="space-y-1.5">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium">Acesso</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-medium">Acesso</div>
           <CopyRow label="URL" value={c.url} />
           <CopyRow label="Admin email" value={c.adminEmail} />
           <CopyRow label="Admin senha" value={c.adminPass} secret />
         </div>
 
         <div class="space-y-1.5">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium">Banco de dados</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-medium">Banco de dados</div>
           <CopyRow label="MySQL host" value="127.0.0.1" />
           <CopyRow label="MySQL porta" value={String(c.mysqlPort)} />
           <CopyRow label="MySQL user" value={c.mysqlUser} />
@@ -434,7 +434,7 @@ function ProvisionResultModal({
         </div>
 
         <div class="space-y-1.5">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-medium">Infra</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-medium">Infra</div>
           <CopyRow label="Diretório" value={c.dir} />
           <CopyRow label="App porta" value={String(c.appPort)} />
           <CopyRow label="PM2 name" value={c.pm2Name} />
@@ -445,7 +445,7 @@ function ProvisionResultModal({
         {result.logs.length > 0 && (
           <details class="rounded-md border border-border bg-surface">
             <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-fg-muted">Logs do provisionamento</summary>
-            <pre class="text-[0.6875rem] font-mono text-fg-muted p-3 overflow-auto max-h-60 border-t border-border">
+            <pre class="text-2xs font-mono text-fg-muted p-3 overflow-auto max-h-60 border-t border-border">
               {result.logs.join('\n')}
             </pre>
           </details>
@@ -476,7 +476,7 @@ function LogsModal({ subdomain, onClose }: { subdomain: string; onClose: () => v
       {isLoading ? (
         <Skeleton class="h-64 w-full" />
       ) : (
-        <pre class="text-[0.6875rem] font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">
+        <pre class="text-2xs font-mono text-fg-muted bg-surface border border-border rounded-md p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">
           {data?.logs ?? 'Sem logs.'}
         </pre>
       )}

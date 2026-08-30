@@ -3,7 +3,7 @@ import {
   Briefcase as BriefcaseIcon, Camera, Users as UsersAlt, AtSign, Video, Code,
   MessageCircle, Copy, MessageSquareQuote, Send, Sparkles, AlertTriangle,
   Settings, RefreshCw, Loader2, Search, Check, X, ExternalLink,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { toast } from '@/lib/toast'
@@ -123,12 +123,12 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             )}
           </div>
           <div class="text-right shrink-0">
-            <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle">Score</div>
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Score</div>
             <div class="text-2xl font-semibold text-fg tabular-nums">
               {data.lead.enrichmentScore ?? '—'}
               <span class="text-xs text-fg-muted">/100</span>
             </div>
-            <div class="text-[0.6875rem] text-fg-subtle">{data.totalFacts} fatos</div>
+            <div class="text-2xs text-fg-muted">{data.totalFacts} fatos</div>
           </div>
         </div>
       </Card>
@@ -146,7 +146,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
           {hasSuggestions && (
             <button
               type="button"
-              class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-2 disabled:opacity-40"
+              class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium border border-border bg-surface text-fg-muted hover:text-fg hover:bg-surface-2 disabled:opacity-40"
               onClick={handleGenerate}
               disabled={isGenerating || hasContextGap}
               title="Regenerar com IA"
@@ -173,7 +173,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             <div class="flex items-center gap-2 pt-1">
               <a
                 href="/app/settings?tab=intelligence"
-                class="inline-flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium bg-warning text-white hover:bg-warning/90"
+                class="inline-flex items-center gap-1 h-7 px-2.5 rounded text-xs font-medium bg-warning text-fg-on-brand hover:bg-warning/90"
               >
                 <Settings size={12} /> Preencher contexto
               </a>
@@ -197,14 +197,14 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
                 <div class="flex items-center gap-1.5">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border border-border bg-surface-2 text-fg-muted hover:text-fg hover:bg-surface-3"
+                    class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium border border-border bg-surface-2 text-fg-muted hover:text-fg hover:bg-surface-3"
                     onClick={() => copy(ib, 'Mensagem copiada')}
                   >
                     <Copy size={10} /> Copiar
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium bg-success text-white hover:bg-success/90 disabled:opacity-40"
+                    class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium bg-success text-fg-on-brand hover:bg-success/90 disabled:opacity-40"
                     onClick={() => sendIceBreaker(ib)}
                     disabled={!primaryPhone}
                     title={primaryPhone ? `Enviar para ${primaryPhone}` : 'Sem telefone validado'}
@@ -215,7 +215,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
               </div>
             ))}
             {generatedLabel && (
-              <div class="text-[0.6875rem] text-fg-subtle pt-1">
+              <div class="text-2xs text-fg-muted pt-1">
                 Gerado por IA em {generatedLabel}
               </div>
             )}
@@ -229,7 +229,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             </p>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-40"
+              class="inline-flex items-center gap-1.5 h-8 px-3 rounded text-xs font-medium bg-accent text-fg-on-brand hover:bg-accent/90 disabled:opacity-40"
               onClick={handleGenerate}
               disabled={isGenerating}
             >
@@ -243,14 +243,14 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
       {/* Contato */}
       {(contact.phones.length > 0 || contact.emails.length > 0 || contact.addresses.length > 0) && (
         <Card class="p-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2">Contato</div>
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2">Contato</div>
           <div class="space-y-1.5">
             {contact.phones.map((p, i) => (
               <div key={`p-${i}`} class="flex items-center gap-2 text-xs">
-                <Phone size={12} class="text-fg-subtle shrink-0" />
+                <Phone size={12} class="text-fg-muted shrink-0" />
                 <span class="text-fg font-mono">{p.value}</span>
                 {p.type && <Badge tone="neutral">{p.type}</Badge>}
-                {p.region && <span class="text-fg-subtle">· {p.region}</span>}
+                {p.region && <span class="text-fg-muted">· {p.region}</span>}
                 <div class="flex-1" />
                 <button
                   type="button"
@@ -274,7 +274,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             ))}
             {contact.emails.map((e, i) => (
               <div key={`e-${i}`} class="flex items-center gap-2 text-xs">
-                <Mail size={12} class="text-fg-subtle shrink-0" />
+                <Mail size={12} class="text-fg-muted shrink-0" />
                 <a href={`mailto:${e}`} class="text-fg hover:text-accent truncate">{e}</a>
                 <div class="flex-1" />
                 <button
@@ -290,7 +290,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             ))}
             {contact.addresses.map((a, i) => (
               <div key={`a-${i}`} class="flex items-start gap-2 text-xs">
-                <MapPin size={12} class="text-fg-subtle shrink-0 mt-0.5" />
+                <MapPin size={12} class="text-fg-muted shrink-0 mt-0.5" />
                 <span class="text-fg flex-1">{a}</span>
                 <button
                   type="button"
@@ -310,7 +310,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
       {/* Empresa */}
       {(company.name ?? company.cnpj ?? company.sector ?? company.partners?.length) && (
         <Card class="p-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2 flex items-center gap-1">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2 flex items-center gap-1">
             <Building2 size={11} /> Empresa
           </div>
           <div class="grid gap-2 grid-cols-1 sm:grid-cols-2 text-xs">
@@ -322,7 +322,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
             <KV label="Cidade/UF" value={[company.city, company.state].filter(Boolean).join(' / ') || undefined} />
             {company.website && (
               <div class="sm:col-span-2 flex items-center gap-2 min-w-0">
-                <span class="text-fg-subtle shrink-0">Site:</span>
+                <span class="text-fg-muted shrink-0">Site:</span>
                 <a
                   href={company.website.startsWith('http') ? company.website : `https://${company.website}`}
                   target="_blank"
@@ -336,7 +336,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
           </div>
           {company.partners && company.partners.length > 0 && (
             <div class="mt-3 pt-3 border-t border-border">
-              <div class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle font-medium mb-1.5 flex items-center gap-1">
+              <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-1.5 flex items-center gap-1">
                 <Users size={11} /> Sócios ({company.partners.length})
               </div>
               <div class="flex flex-wrap gap-1.5">
@@ -352,7 +352,7 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
       {/* Redes sociais */}
       {socials.length > 0 && (
         <Card class="p-3">
-          <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-2">
+          <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-2">
             Presença digital ({socials.length})
           </div>
           <div class="grid gap-2 grid-cols-1 sm:grid-cols-2">
@@ -375,8 +375,8 @@ export function DossierPanel({ data }: { data: DossierResponse }) {
                         {Math.round(s.confidence * 100)}%
                       </Badge>
                     </div>
-                    {s.title && <div class="text-[0.6875rem] text-fg-muted truncate">{s.title}</div>}
-                    <div class="text-[0.6875rem] text-fg-subtle truncate">{s.url.replace(/^https?:\/\//, '')}</div>
+                    {s.title && <div class="text-2xs text-fg-muted truncate">{s.title}</div>}
+                    <div class="text-2xs text-fg-muted truncate">{s.url.replace(/^https?:\/\//, '')}</div>
                   </div>
                 </a>
               )
@@ -405,7 +405,7 @@ function CandidatesSection({ leadId, candidates }: { leadId: number; candidates:
       <div class="text-xs uppercase tracking-wider text-warning font-semibold mb-1 flex items-center gap-1">
         <Search size={11} /> Possíveis perfis — confirme se é a pessoa ({candidates.length})
       </div>
-      <p class="text-[0.6875rem] text-fg-muted mb-2 leading-relaxed">
+      <p class="text-2xs text-fg-muted mb-2 leading-relaxed">
         Encontrados por <strong>nome</strong> em buscadores. Como nome não identifica alguém com certeza,
         eles <strong>não entram</strong> no dossiê nem no score. Verifique e confirme só os corretos.
       </p>
@@ -429,17 +429,17 @@ function CandidatesSection({ leadId, candidates }: { leadId: number; candidates:
                     <span class="text-xs font-medium text-fg">{label}</span>
                     <Badge tone="warning">{Math.round(c.confidence * 100)}% · verificar</Badge>
                   </div>
-                  {c.title && <div class="text-[0.6875rem] text-fg-muted truncate">{c.title}</div>}
+                  {c.title && <div class="text-2xs text-fg-muted truncate">{c.title}</div>}
                   <a href={c.url} target="_blank" rel="noopener"
-                    class="text-[0.6875rem] text-accent hover:underline flex items-center gap-1 truncate">
+                    class="text-2xs text-accent hover:underline flex items-center gap-1 truncate">
                     <ExternalLink size={9} class="shrink-0" /> <span class="truncate">{c.url.replace(/^https?:\/\//, '')}</span>
                   </a>
-                  {c.reason && <div class="text-[0.625rem] text-fg-subtle mt-0.5">{c.reason}</div>}
+                  {c.reason && <div class="text-3xs text-fg-muted mt-0.5">{c.reason}</div>}
                 </div>
               </div>
               <div class="flex items-center gap-1.5 mt-2">
                 <button type="button" disabled={busy}
-                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium bg-success text-white hover:bg-success/90 disabled:opacity-40"
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium bg-success text-fg-on-brand hover:bg-success/90 disabled:opacity-40"
                   onClick={() => confirm.mutate({ leadId, factId: c.id }, {
                     onSuccess: () => toast('Perfil confirmado', 'success'),
                     onError: () => toast('Falha ao confirmar', 'danger'),
@@ -447,7 +447,7 @@ function CandidatesSection({ leadId, candidates }: { leadId: number; candidates:
                   <Check size={10} /> É a pessoa
                 </button>
                 <button type="button" disabled={busy}
-                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-[0.6875rem] font-medium border border-border bg-surface-2 text-fg-muted hover:text-danger hover:bg-surface-3 disabled:opacity-40"
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-2xs font-medium border border-border bg-surface-2 text-fg-muted hover:text-danger hover:bg-surface-3 disabled:opacity-40"
                   onClick={() => dismiss.mutate({ leadId, factId: c.id }, {
                     onSuccess: () => toast('Descartado', 'info'),
                     onError: () => toast('Falha ao descartar', 'danger'),
@@ -474,7 +474,7 @@ function KV({
   if (!value) return null
   return (
     <div class="flex items-baseline gap-2 min-w-0">
-      <span class="text-fg-subtle shrink-0">{label}:</span>
+      <span class="text-fg-muted shrink-0">{label}:</span>
       <span class={`text-fg flex-1 truncate ${mono ? 'font-mono' : ''}`}>{value}</span>
       {onCopy && (
         <button

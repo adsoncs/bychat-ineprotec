@@ -1,7 +1,7 @@
 // Editor de disponibilidade de um tipo de reunião: horários semanais + exceções,
 // com preview dos próximos slots. Fase 2 do módulo de Agendamento.
 import { useEffect, useState } from 'preact/hooks'
-import { Plus, X, Trash2 } from 'lucide-preact'
+import { Plus, X, Trash2 } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
@@ -96,7 +96,7 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
         <div class="space-y-4">
           {/* Horários semanais */}
           <div>
-            <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Horários da semana</div>
+            <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Horários da semana</div>
             <div class="space-y-2">
               {WEEK_ORDER.map((wd) => {
                 const dayRules = rules.map((r, i) => ({ r, i })).filter((x) => x.r.weekday === wd)
@@ -104,12 +104,12 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
                   <div key={wd} class="flex items-start gap-3">
                     <div class="w-10 text-sm font-medium text-fg pt-1.5">{WEEKDAY_LABELS[wd]}</div>
                     <div class="flex-1 space-y-1.5">
-                      {dayRules.length === 0 && <div class="text-xs text-fg-subtle pt-1.5">Indisponível</div>}
+                      {dayRules.length === 0 && <div class="text-xs text-fg-muted pt-1.5">Indisponível</div>}
                       {dayRules.map(({ r, i }) => (
                         <div key={i} class="flex items-center gap-1.5">
                           <input type="time" value={r.start} onInput={(e) => updateRange(i, { start: (e.target as HTMLInputElement).value })}
                             class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg" />
-                          <span class="text-fg-subtle text-xs">até</span>
+                          <span class="text-fg-muted text-xs">até</span>
                           <input type="time" value={r.end} onInput={(e) => updateRange(i, { end: (e.target as HTMLInputElement).value })}
                             class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg" />
                           <button class="p-1 text-fg-muted hover:text-danger" onClick={() => removeRange(i)} title="Remover"><X size={14} /></button>
@@ -126,10 +126,10 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
           {/* Exceções */}
           <div class="pt-3 border-t border-border">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Exceções (feriados / dias especiais)</span>
+              <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Exceções (feriados / dias especiais)</span>
               <button class="text-xs text-accent hover:underline" onClick={addException}><Plus size={12} class="inline" /> adicionar</button>
             </div>
-            {exceptions.length === 0 ? <div class="text-xs text-fg-subtle">Nenhuma exceção.</div> : (
+            {exceptions.length === 0 ? <div class="text-xs text-fg-muted">Nenhuma exceção.</div> : (
               <div class="space-y-1.5">
                 {exceptions.map((ex, i) => (
                   <div key={i} class="flex items-center gap-2 flex-wrap">
@@ -141,7 +141,7 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
                     {!ex.unavailable && (
                       <>
                         <input type="time" value={ex.startTime || '09:00'} onInput={(e) => updateException(i, { startTime: (e.target as HTMLInputElement).value })} class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg" />
-                        <span class="text-fg-subtle text-xs">até</span>
+                        <span class="text-fg-muted text-xs">até</span>
                         <input type="time" value={ex.endTime || '18:00'} onInput={(e) => updateException(i, { endTime: (e.target as HTMLInputElement).value })} class="h-8 px-2 rounded-md bg-surface border border-border text-xs text-fg" />
                       </>
                     )}
@@ -155,21 +155,21 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
           {/* Preview de slots (só no modo por-tipo) */}
           {!isPersonal && (
           <div class="pt-3 border-t border-border">
-            <div class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider mb-2">Próximos horários disponíveis (preview)</div>
-            {slots.isLoading ? <div class="text-xs text-fg-subtle">Calculando…</div> : (slots.data?.days?.length ? (
+            <div class="text-2xs font-semibold text-fg-muted uppercase tracking-wider mb-2">Próximos horários disponíveis (preview)</div>
+            {slots.isLoading ? <div class="text-xs text-fg-muted">Calculando…</div> : (slots.data?.days?.length ? (
               <div class="flex gap-3 overflow-x-auto pb-1">
                 {slots.data.days.slice(0, 7).map((d) => (
                   <div key={d.date} class="shrink-0 w-28">
-                    <div class="text-[0.6875rem] font-medium text-fg-muted mb-1">{WEEKDAY_LABELS[d.weekday]} {d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
+                    <div class="text-2xs font-medium text-fg-muted mb-1">{WEEKDAY_LABELS[d.weekday]} {d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
                     <div class="flex flex-col gap-1">
                       {d.slots.slice(0, 6).map((s) => <span key={s.startAt} class="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent text-center">{s.label}</span>)}
-                      {d.slots.length > 6 && <span class="text-[0.625rem] text-fg-subtle text-center">+{d.slots.length - 6}</span>}
+                      {d.slots.length > 6 && <span class="text-3xs text-fg-muted text-center">+{d.slots.length - 6}</span>}
                     </div>
                   </div>
                 ))}
               </div>
-            ) : <div class="text-xs text-fg-subtle">Nenhum horário disponível com as regras atuais. Salve a disponibilidade e ajuste se necessário.</div>)}
-            <p class="text-[0.625rem] text-fg-subtle mt-1">O preview reflete a disponibilidade salva. Salve para atualizar.</p>
+            ) : <div class="text-xs text-fg-muted">Nenhum horário disponível com as regras atuais. Salve a disponibilidade e ajuste se necessário.</div>)}
+            <p class="text-3xs text-fg-muted mt-1">O preview reflete a disponibilidade salva. Salve para atualizar.</p>
           </div>
           )}
         </div>

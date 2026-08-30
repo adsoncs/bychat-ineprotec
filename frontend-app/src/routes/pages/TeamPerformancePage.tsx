@@ -4,7 +4,7 @@ import {
   Users, Trophy, Clock, Timer, Target, BarChart3, MessageSquare,
   CheckCircle2, AlertTriangle, ListChecks, DollarSign, Star, Activity, Zap,
   TrendingUp, ArrowRightLeft, HelpCircle, Pencil, Check, X as XIcon,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
@@ -303,7 +303,7 @@ export function TeamPerformancePage() {
             <Activity size={14} class="text-fg-muted" />
             <h2 class="text-sm font-semibold text-fg">Carga de trabalho agora</h2>
             <span
-              class="text-[0.6875rem] text-fg-subtle ml-auto"
+              class="text-2xs text-fg-muted ml-auto"
               title="Esta seção mostra o estado neste instante: leads em aberto que cada operador está carregando agora. Não responde ao filtro de período acima."
             >
               Snapshot agora · independe do filtro de período
@@ -311,7 +311,7 @@ export function TeamPerformancePage() {
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle bg-surface-2/50">
+              <thead class="text-2xs uppercase tracking-wider text-fg-muted bg-surface-2/50">
                 <tr>
                   <th class="text-left px-4 py-2 font-semibold">Operador</th>
                   <th class="text-left px-4 py-2 font-semibold">Status</th>
@@ -342,7 +342,7 @@ export function TeamPerformancePage() {
                   <tr key={w.userId} class="border-t border-border hover:bg-surface-2/30">
                     <td class="px-4 py-2 font-medium text-fg">{w.name ?? w.email ?? `#${w.userId}`}</td>
                     <td class="px-4 py-2">
-                      <span class="inline-flex items-center gap-1.5 text-[0.6875rem] text-fg-muted">
+                      <span class="inline-flex items-center gap-1.5 text-2xs text-fg-muted">
                         <span class="size-2 rounded-full" style={{ background: STATUS_COLORS[w.workStatus] }} />
                         {STATUS_LABELS[w.workStatus]}
                       </span>
@@ -386,7 +386,7 @@ export function TeamPerformancePage() {
                       {w.activitiesOverdue > 0 ? (
                         <span class="text-danger font-semibold">{w.activitiesOverdue}</span>
                       ) : (
-                        <span class="text-fg-subtle">0</span>
+                        <span class="text-fg-muted">0</span>
                       )}
                     </td>
                   </tr>
@@ -403,7 +403,7 @@ export function TeamPerformancePage() {
           <h2 class="text-sm font-semibold text-fg flex items-center gap-2">
             <BarChart3 size={14} class="text-fg-muted" /> Ranking por operador
           </h2>
-          <span class="text-[0.6875rem] text-fg-subtle">
+          <span class="text-2xs text-fg-muted">
             Ordenado por leads atendidos · empate desempata por receita
           </span>
         </div>
@@ -424,7 +424,7 @@ export function TeamPerformancePage() {
         {!isLoading && operators.length > 0 && (
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="text-[0.6875rem] uppercase tracking-wider text-fg-subtle bg-surface-2/50">
+              <thead class="text-2xs uppercase tracking-wider text-fg-muted bg-surface-2/50">
                 <tr>
                   <th class="text-left px-3 py-2 font-semibold">#</th>
                   <th class="text-left px-3 py-2 font-semibold">Operador</th>
@@ -448,21 +448,21 @@ export function TeamPerformancePage() {
               <tbody>
                 {operators.map((op, idx) => (
                   <tr key={op.userId} class="border-t border-border hover:bg-surface-2/30">
-                    <td class="px-3 py-2 text-fg-subtle tabular-nums">{idx + 1}</td>
+                    <td class="px-3 py-2 text-fg-muted tabular-nums">{idx + 1}</td>
                     <td class="px-3 py-2">
                       <div class="font-medium text-fg">{op.name ?? op.email ?? `#${op.userId}`}</div>
-                      {op.name && <div class="text-[0.6875rem] text-fg-subtle truncate">{op.email}</div>}
+                      {op.name && <div class="text-2xs text-fg-muted truncate">{op.email}</div>}
                     </td>
                     <td class="px-3 py-2">
-                      <span class="inline-flex items-center gap-1.5 text-[0.6875rem] text-fg-muted">
+                      <span class="inline-flex items-center gap-1.5 text-2xs text-fg-muted">
                         <span class="size-2 rounded-full" style={{ background: STATUS_COLORS[op.workStatus] }} />
                         {STATUS_LABELS[op.workStatus]}
                       </span>
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums font-semibold">{op.leadsAttended}</td>
-                    <td class="px-3 py-2 text-right tabular-nums text-[0.75rem]">
+                    <td class="px-3 py-2 text-right tabular-nums text-xs">
                       <span class="text-success">{op.leadsWon}↑</span>
-                      <span class="text-fg-subtle mx-1">/</span>
+                      <span class="text-fg-muted mx-1">/</span>
                       <span class="text-danger">{op.leadsLost}↓</span>
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums">{op.winRate.toFixed(1)}%</td>
@@ -473,13 +473,13 @@ export function TeamPerformancePage() {
                       {op.avgTicket > 0 ? formatBRL(op.avgTicket) : '—'}
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums">{op.messagesSent}</td>
-                    <td class="px-3 py-2 text-right tabular-nums text-[0.75rem]">
+                    <td class="px-3 py-2 text-right tabular-nums text-xs">
                       <span class="text-success">{op.activitiesCompleted}</span>
-                      <span class="text-fg-subtle mx-1">/</span>
+                      <span class="text-fg-muted mx-1">/</span>
                       <span class="text-fg-muted">{op.activitiesCreated}</span>
                       {op.activitiesOverdue > 0 && (
                         <>
-                          <span class="text-fg-subtle mx-1">·</span>
+                          <span class="text-fg-muted mx-1">·</span>
                           <span class="text-danger" title="Em atraso">{op.activitiesOverdue}</span>
                         </>
                       )}
@@ -496,12 +496,12 @@ export function TeamPerformancePage() {
                         </span>
                       ) : '—'}
                     </td>
-                    <td class="px-3 py-2 text-right tabular-nums text-fg-subtle">{op.capacity}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-fg-muted">{op.capacity}</td>
                     <td class="px-3 py-2">
                       <button
                         type="button"
                         onClick={() => setDrillUserId(op.userId)}
-                        class="text-[0.6875rem] text-info hover:underline"
+                        class="text-2xs text-info hover:underline"
                       >
                         Ver detalhes
                       </button>
@@ -608,13 +608,13 @@ function OperatorDrillModal({
         <div>
           <h3 class="text-xs font-semibold text-fg-muted uppercase tracking-wide mb-2">Distribuição de outcomes</h3>
           {totalOutcome === 0 ? (
-            <p class="text-sm text-fg-subtle">Sem dados de outcome no período.</p>
+            <p class="text-sm text-fg-muted">Sem dados de outcome no período.</p>
           ) : (
             <>
               <div class="flex h-6 rounded-md overflow-hidden border border-border bg-surface-2">
                 {wonPct > 0 && (
                   <div
-                    class="flex items-center justify-center text-[0.6875rem] text-white font-semibold"
+                    class="flex items-center justify-center text-2xs text-white font-semibold"
                     style={{ width: `${wonPct}%`, background: '#22c55e' }}
                     title={`Ganhos: ${data?.outcomes.won}`}
                   >
@@ -623,7 +623,7 @@ function OperatorDrillModal({
                 )}
                 {lostPct > 0 && (
                   <div
-                    class="flex items-center justify-center text-[0.6875rem] text-white font-semibold"
+                    class="flex items-center justify-center text-2xs text-white font-semibold"
                     style={{ width: `${lostPct}%`, background: '#dc2626' }}
                     title={`Perdidos: ${data?.outcomes.lost}`}
                   >
@@ -632,7 +632,7 @@ function OperatorDrillModal({
                 )}
                 {openPct > 0 && (
                   <div
-                    class="flex items-center justify-center text-[0.6875rem] text-fg font-semibold"
+                    class="flex items-center justify-center text-2xs text-fg font-semibold"
                     style={{ width: `${openPct}%`, background: '#9ca3af' }}
                     title={`Em andamento: ${data?.outcomes.open}`}
                   >
@@ -640,7 +640,7 @@ function OperatorDrillModal({
                   </div>
                 )}
               </div>
-              <div class="flex gap-3 mt-2 text-[0.6875rem] text-fg-muted">
+              <div class="flex gap-3 mt-2 text-2xs text-fg-muted">
                 <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-success" /> Ganhos: {data?.outcomes.won ?? 0}</span>
                 <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full bg-danger" /> Perdidos: {data?.outcomes.lost ?? 0}</span>
                 <span class="inline-flex items-center gap-1"><span class="size-2 rounded-full" style={{ background: '#9ca3af' }} /> Em andamento: {data?.outcomes.open ?? 0}</span>
@@ -657,7 +657,7 @@ function OperatorDrillModal({
           {isLoading ? (
             <Skeleton class="h-16 w-full" />
           ) : (data?.lossReasons ?? []).length === 0 ? (
-            <p class="text-sm text-fg-subtle">Sem leads marcados como perdidos no período.</p>
+            <p class="text-sm text-fg-muted">Sem leads marcados como perdidos no período.</p>
           ) : (
             <div class="space-y-1.5">
               {data!.lossReasons.map((r) => {
@@ -686,7 +686,7 @@ function OperatorDrillModal({
           {isLoading ? (
             <Skeleton class="h-12 w-full" />
           ) : (data?.qualificationSources ?? []).length === 0 ? (
-            <p class="text-sm text-fg-subtle">Sem origem registrada.</p>
+            <p class="text-sm text-fg-muted">Sem origem registrada.</p>
           ) : (
             <div class="flex flex-wrap gap-1.5">
               {data!.qualificationSources.slice(0, 8).map((s) => (
@@ -706,7 +706,7 @@ function OperatorDrillModal({
           {isLoading ? (
             <Skeleton class="h-20 w-full" />
           ) : (data?.revenueTimeline ?? []).length === 0 ? (
-            <p class="text-sm text-fg-subtle">Sem vendas detectadas no período.</p>
+            <p class="text-sm text-fg-muted">Sem vendas detectadas no período.</p>
           ) : (
             <div class="flex items-end gap-0.5 h-20">
               {data!.revenueTimeline.map((d) => {
@@ -956,7 +956,7 @@ function SlaSection({ from, to }: { from: string; to: string }) {
                     <td class="px-4 py-3 text-right tabular-nums text-danger">{a.slaMissed}</td>
                     <td class="px-4 py-3 text-right">
                       {a.slaPercent == null ? (
-                        <span class="text-fg-subtle">—</span>
+                        <span class="text-fg-muted">—</span>
                       ) : (
                         <Badge tone={a.slaPercent >= 80 ? 'success' : a.slaPercent >= 50 ? 'warning' : 'danger'}>
                           {a.slaPercent}%

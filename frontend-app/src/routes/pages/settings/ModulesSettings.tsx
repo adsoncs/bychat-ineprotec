@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Search } from 'lucide-preact'
+import { Search } from '@/components/ui/icon-set'
 import { useModules, useModuleUsage, useToggleModule, type SystemModule } from '@/hooks/useModules'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
@@ -101,17 +101,17 @@ export function ModulesSettings() {
         <div class="flex items-center">
           <div class="text-center px-3.5">
             <div class="text-2xl font-bold leading-none text-accent">{totalEnabled}</div>
-            <div class="text-[0.625rem] text-fg-muted uppercase tracking-wider mt-1">Ativos</div>
+            <div class="text-3xs text-fg-muted uppercase tracking-wider mt-1">Ativos</div>
           </div>
           <div class="w-px h-8 bg-border" />
           <div class="text-center px-3.5">
             <div class="text-2xl font-bold leading-none text-info">{totalCore}</div>
-            <div class="text-[0.625rem] text-fg-muted uppercase tracking-wider mt-1">Nativos</div>
+            <div class="text-3xs text-fg-muted uppercase tracking-wider mt-1">Nativos</div>
           </div>
           <div class="w-px h-8 bg-border" />
           <div class="text-center px-3.5">
             <div class="text-2xl font-bold leading-none text-warning">{totalInactive}</div>
-            <div class="text-[0.625rem] text-fg-muted uppercase tracking-wider mt-1">Inativos</div>
+            <div class="text-3xs text-fg-muted uppercase tracking-wider mt-1">Inativos</div>
           </div>
         </div>
       </div>
@@ -119,7 +119,7 @@ export function ModulesSettings() {
       {/* Filtros */}
       <div class="flex items-center gap-2.5 flex-wrap">
         <div class="relative flex-1 min-w-60">
-          <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle pointer-events-none" />
+          <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
           <input
             type="search"
             value={search}
@@ -151,7 +151,7 @@ export function ModulesSettings() {
           <option value="inactive">Inativos</option>
           <option value="core">Essenciais</option>
         </select>
-        <span class="text-[0.6875rem] text-fg-muted whitespace-nowrap">
+        <span class="text-2xs text-fg-muted whitespace-nowrap">
           {filtered.length} de {all.length}
         </span>
       </div>
@@ -162,7 +162,7 @@ export function ModulesSettings() {
         <div class="rounded-xl border border-border bg-surface-2 overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm" style={{ minWidth: '48.75rem' }}>
-              <thead class="bg-surface text-fg-muted text-[0.6875rem]">
+              <thead class="bg-surface text-fg-muted text-2xs">
                 <tr class="border-b border-border">
                   <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Módulo</th>
                   <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Identificador</th>
@@ -249,27 +249,27 @@ function ModuleRow({
   const dimmed = !isActive && !isCore
 
   const statusBadge = isCore ? (
-    <span class="inline-block text-[0.625rem] font-semibold px-2.5 py-[3px] rounded-full bg-accent text-fg-on-brand">
+    <span class="inline-block text-3xs font-semibold px-2.5 py-[3px] rounded-full bg-accent text-fg-on-brand">
       🔒 Nativo
     </span>
   ) : isActive ? (
-    <span class="inline-block text-[0.625rem] font-semibold px-2.5 py-[3px] rounded-full bg-accent text-fg-on-brand">
+    <span class="inline-block text-3xs font-semibold px-2.5 py-[3px] rounded-full bg-accent text-fg-on-brand">
       ● Ativo
     </span>
   ) : (
-    <span class="inline-block text-[0.625rem] font-semibold px-2.5 py-[3px] rounded-full bg-surface text-fg-muted">
+    <span class="inline-block text-3xs font-semibold px-2.5 py-[3px] rounded-full bg-surface text-fg-muted">
       ○ Inativo
     </span>
   )
 
   const actionCell = isCore ? (
-    <span class="text-fg-subtle text-[0.6875rem] italic">sempre ativo</span>
+    <span class="text-fg-muted text-2xs italic">sempre ativo</span>
   ) : isActive ? (
     <button
       type="button"
       onClick={onToggle}
       disabled={disabled}
-      class="px-3 py-1.5 rounded border border-danger/40 bg-transparent text-danger text-[0.6875rem] font-medium cursor-pointer hover:bg-danger/10 disabled:opacity-60"
+      class="px-3 py-1.5 rounded border border-danger/40 bg-transparent text-danger text-2xs font-medium cursor-pointer hover:bg-danger/10 disabled:opacity-60"
     >
       Desativar
     </button>
@@ -278,7 +278,7 @@ function ModuleRow({
       type="button"
       onClick={onToggle}
       disabled={disabled}
-      class="px-3 py-1.5 rounded bg-accent text-fg-on-brand text-[0.6875rem] font-medium cursor-pointer hover:opacity-90 disabled:opacity-60"
+      class="px-3 py-1.5 rounded bg-accent text-fg-on-brand text-2xs font-medium cursor-pointer hover:opacity-90 disabled:opacity-60"
     >
       Ativar
     </button>
@@ -298,12 +298,12 @@ function ModuleRow({
           <div class="min-w-0">
             <div class="font-medium text-fg">{m.name}</div>
             {m.description && (
-              <div class="text-[0.6875rem] text-fg-muted mt-0.5 line-clamp-1">{m.description}</div>
+              <div class="text-2xs text-fg-muted mt-0.5 line-clamp-1">{m.description}</div>
             )}
           </div>
         </div>
       </td>
-      <td class="px-3 py-2.5 font-mono text-[0.6875rem] text-fg-muted">{m.id}</td>
+      <td class="px-3 py-2.5 font-mono text-2xs text-fg-muted">{m.id}</td>
       <td class="px-3 py-2.5 text-fg-muted">{CATEGORY_LABELS[m.category] ?? m.category ?? '—'}</td>
       <td class="px-3 py-2.5 text-center">{statusBadge}</td>
       <td class="px-3 py-2.5 text-right">{actionCell}</td>
@@ -345,7 +345,7 @@ function DangerousDeactivateModal({
             onClick={() => matches && onConfirm(m.name)}
             disabled={!matches || loading}
             class={`px-4 py-2 rounded-lg text-white text-sm font-semibold cursor-pointer disabled:cursor-not-allowed ${
-              matches ? 'bg-danger hover:opacity-90' : 'bg-fg-subtle/50'
+              matches ? 'bg-danger hover:opacity-90' : 'bg-fg-muted/50'
             }`}
           >
             {loading ? 'Desativando…' : 'Desativar módulo'}

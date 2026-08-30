@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { ArrowLeft, AlertTriangle, TrendingUp, Users, Megaphone } from 'lucide-preact'
+import { ArrowLeft, AlertTriangle, TrendingUp, Users, Megaphone } from '@/components/ui/icon-set'
 import { useCadenceMetrics, useSalesCadence, type OperatorBreakdown } from '@/hooks/useSalesCadences'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -123,7 +123,7 @@ export function SalesCadenceDashboardPage({ params }: Props) {
                         </span>
                       </div>
                       {isDead && (
-                        <span class="text-[0.6875rem] text-warning font-medium">queda &gt; 50%</span>
+                        <span class="text-2xs text-warning font-medium">queda &gt; 50%</span>
                       )}
                     </div>
                   )
@@ -187,11 +187,11 @@ function KpiCard({
   return (
     <Card>
       <div class="flex items-start gap-3">
-        <Icon size={20} class="text-fg-subtle mt-0.5" />
+        <Icon size={20} class="text-fg-muted mt-0.5" />
         <div class="flex-1">
           <div class="text-xs text-fg-muted">{label}</div>
           <div class="text-xl font-semibold text-fg tabular-nums">{value}</div>
-          {hint && <div class="text-[0.6875rem] text-fg-subtle mt-0.5">{hint}</div>}
+          {hint && <div class="text-2xs text-fg-muted mt-0.5">{hint}</div>}
         </div>
       </div>
     </Card>
@@ -214,7 +214,7 @@ function BreakdownCard({
   return (
     <Card>
       <h3 class="text-sm font-semibold text-fg">{title}</h3>
-      {hint && <p class="text-[0.6875rem] text-fg-muted mb-3">{hint}</p>}
+      {hint && <p class="text-2xs text-fg-muted mb-3">{hint}</p>}
       {!hint && <div class="mb-3" />}
       {entries.length === 0 && <p class="text-xs text-fg-muted">Sem dados.</p>}
       {entries.length > 0 && (
@@ -225,7 +225,7 @@ function BreakdownCard({
               <li key={key} class="flex items-center justify-between text-xs">
                 <span class="text-fg">{labelMap[key] ?? key}</span>
                 <span class="text-fg-muted tabular-nums">
-                  {count} <span class="text-fg-subtle">({pct.toFixed(0)}%)</span>
+                  {count} <span class="text-fg-muted">({pct.toFixed(0)}%)</span>
                 </span>
               </li>
             )
@@ -241,7 +241,7 @@ function OperatorBreakdownCard({ data }: { data: OperatorBreakdown[] }) {
   return (
     <Card>
       <h3 class="text-sm font-semibold text-fg">Por operador</h3>
-      <p class="text-[0.6875rem] text-fg-muted mb-3">
+      <p class="text-2xs text-fg-muted mb-3">
         Quantas tarefas de cadência cada pessoa do time já completou.
       </p>
       {data.length === 0 && (
@@ -258,7 +258,7 @@ function OperatorBreakdownCard({ data }: { data: OperatorBreakdown[] }) {
               <li key={op.userId} class="flex items-center justify-between text-xs">
                 <span class="text-fg truncate" title={op.email ?? undefined}>{label}</span>
                 <span class="text-fg-muted tabular-nums whitespace-nowrap">
-                  {op.count} <span class="text-fg-subtle">({pct.toFixed(0)}%)</span>
+                  {op.count} <span class="text-fg-muted">({pct.toFixed(0)}%)</span>
                 </span>
               </li>
             )

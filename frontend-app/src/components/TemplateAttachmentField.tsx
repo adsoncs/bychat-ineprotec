@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks'
-import { Paperclip, X, Loader2, FileText, Image as ImageIcon, Video, Music } from 'lucide-preact'
+import { Paperclip, X, Loader2, FileText, Image as ImageIcon, Video, Music } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 
@@ -102,14 +102,14 @@ export function TemplateAttachmentField({ value, onChange, channel }: Props) {
           )}
           <div class="min-w-0 flex-1">
             <div class="truncate text-sm">{value.name}</div>
-            <div class="text-xs text-fg-subtle">
+            <div class="text-xs text-fg-muted">
               {value.type === 'image' ? 'Imagem' : value.type === 'video' ? 'Vídeo' : value.type === 'audio' ? 'Áudio' : 'Documento'}
               {' · vai junto com o texto ao usar o modelo'}
             </div>
           </div>
           <button
             type="button"
-            class="shrink-0 rounded p-1 text-fg-subtle hover:bg-surface-3 hover:text-danger"
+            class="shrink-0 rounded p-1 text-fg-muted hover:bg-surface-3 hover:text-danger"
             onClick={() => onChange(null)}
             aria-label="Remover anexo"
             title="Remover anexo"
@@ -141,7 +141,7 @@ export function TemplateAttachmentField({ value, onChange, channel }: Props) {
         }}
       />
 
-      <p class="mt-1 text-xs text-fg-subtle">
+      <p class="mt-1 text-xs text-fg-muted">
         Enviado junto com o texto sempre que o modelo for usado. Limites do WhatsApp: imagem 5 MB,
         vídeo 16 MB (MP4), documento 100 MB.
       </p>

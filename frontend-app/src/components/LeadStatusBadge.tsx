@@ -117,7 +117,7 @@ export function LeadStatusBadge({ status, label, class: className }: Props) {
   return (
     <span
       class={cn(
-        'inline-flex items-center h-5 px-2 rounded-full text-[0.6875rem] font-medium tabular-nums whitespace-nowrap',
+        'inline-flex items-center h-5 px-2 rounded-full text-2xs font-medium tabular-nums whitespace-nowrap',
         leadStatusClass(status),
         className,
       )}

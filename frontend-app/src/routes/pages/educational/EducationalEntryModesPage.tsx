@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3, Landmark, AlertTriangle } from 'lucide-preact'
+import { Plus, Pencil, Trash2, Award, Paperclip, Info, BarChart3, Landmark, AlertTriangle } from '@/components/ui/icon-set'
 import {
   useEntryModes,
   useCreateEntryMode,
@@ -156,7 +156,7 @@ export function EducationalEntryModesPage() {
 
           {filtered.length === 0 ? (
             <Card>
-              <div class="text-xs text-fg-subtle italic text-center py-8">
+              <div class="text-xs text-fg-muted italic text-center py-8">
                 Nenhum resultado para "{search}"
               </div>
             </Card>
@@ -255,21 +255,21 @@ function EntryModeCard({
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm font-medium text-fg truncate">{m.name}</span>
-            <code class="bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] text-fg-muted font-mono">
+            <code class="bg-surface-3 px-1.5 py-0.5 rounded text-3xs text-fg-muted font-mono">
               {m.code}
             </code>
             {inactive && (
-              <span class="text-[0.625rem] font-bold tracking-wider px-2 py-0.5 rounded-full bg-danger/15 text-danger">
+              <span class="text-3xs font-bold tracking-wider px-2 py-0.5 rounded-full bg-danger/15 text-danger">
                 INATIVO
               </span>
             )}
             {m.requiresClassification && (
-              <span class="bg-accent/15 text-accent text-[0.625rem] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+              <span class="bg-accent/15 text-accent text-3xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
                 <BarChart3 size={10} /> Classificatório
               </span>
             )}
           </div>
-          <div class="text-xs text-fg-subtle mt-0.5">
+          <div class="text-xs text-fg-muted mt-0.5">
             {evalLabel} · ordem {m.ordem}
           </div>
           <div class="mt-1">
@@ -286,18 +286,18 @@ function EntryModeCard({
           {m.description && (
             <div class="text-xs text-fg-muted truncate mt-0.5">{m.description}</div>
           )}
-          <div class="flex flex-wrap items-center gap-3 mt-1.5 text-[0.6875rem] text-fg-muted tabular-nums">
+          <div class="flex flex-wrap items-center gap-3 mt-1.5 text-2xs text-fg-muted tabular-nums">
             <span>
-              <span class="text-fg-subtle uppercase tracking-wider mr-1">Docs</span>
+              <span class="text-fg-muted uppercase tracking-wider mr-1">Docs</span>
               {reqs.length}
               {reqs.length > 0 && (
-                <span class="text-fg-subtle ml-1">
+                <span class="text-fg-muted ml-1">
                   ({requiredCount}*{optionalCount > 0 ? ` +${optionalCount}` : ''})
                 </span>
               )}
             </span>
             <span>
-              <span class="text-fg-subtle uppercase tracking-wider mr-1">Processos</span>
+              <span class="text-fg-muted uppercase tracking-wider mr-1">Processos</span>
               {m._count?.selectionProcesses ?? 0}
             </span>
           </div>
@@ -583,7 +583,7 @@ function EntryModeFormModal({ mode, onClose, catalogo }: {
             Campos extras do formulário (JSON)
           </label>
           <textarea
-            class="w-full font-mono text-[0.6875rem] px-2 py-2 rounded-md bg-surface border border-border text-fg focus:outline-none focus:border-accent min-h-32 resize-y"
+            class="w-full font-mono text-2xs px-2 py-2 rounded-md bg-surface border border-border text-fg focus:outline-none focus:border-accent min-h-32 resize-y"
             value={extrasJson}
             rows={6}
             onInput={(e) => { setExtrasJson((e.target as HTMLTextAreaElement).value); setExtrasError(null) }}
@@ -591,9 +591,9 @@ function EntryModeFormModal({ mode, onClose, catalogo }: {
             spellcheck={false}
           />
           {extrasError ? (
-            <span class="text-[0.6875rem] text-danger">{extrasError}</span>
+            <span class="text-2xs text-danger">{extrasError}</span>
           ) : (
-            <span class="text-[0.6875rem] text-fg-subtle">
+            <span class="text-2xs text-fg-muted">
               Array de campos que aparecem no portal do candidato quando este modo for selecionado. Cada item
               precisa ao menos de <code class="font-mono">name</code> e <code class="font-mono">type</code>{' '}
               (text, number, checkbox, textarea, date, select). Deixe vazio para nenhum extra.

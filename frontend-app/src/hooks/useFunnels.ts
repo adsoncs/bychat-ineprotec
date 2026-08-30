@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'preact/hooks'
 import { api } from '@/lib/apiClient'
 
 export interface FunnelListItem {
@@ -71,6 +72,48 @@ export function useStages(funnelId?: number | null) {
       ),
     staleTime: 60_000,
   })
+}
+
+/**
+ * Etapas de VÁRIOS funis de uma vez, indexadas por funil.
+ *
+ * Existe porque a lista de leads mistura funis: para desenhar o trilho de
+ * etapas de cada linha é preciso ter as etapas DO FUNIL DAQUELE LEAD, não as de
+ * um funil filtrado. `GET /admin/stages` sem `funnelId` devolve só o funil
+ * padrão, então é uma consulta por id — e a chave de cache é a mesma do
+ * `useStages`, de modo que funil já carregado em outra tela não vira
+ * requisição nova.
+ *
+ * Passe só os funis presentes na página (tipicamente um ou dois), nunca a
+ * lista inteira de funis do tenant.
+ */
+export function useStagesByFunnels(funnelIds: number[]) {
+  // Ordenado e sem repetição: a identidade do array entra na lista de queries,
+  // e sem isso a mesma página remontaria as consultas a cada render.
+  const ids = useMemo(
+    () => [...new Set(funnelIds)].sort((a, b) => a - b),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- comparação por conteúdo, não por referência
+    [funnelIds.join(',')],
+  )
+
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['stages', id],
+      queryFn: () => api.get<{ stages: FunnelStage[] }>(`/admin/stages?funnelId=${id}`),
+      staleTime: 60_000,
+    })),
+  })
+
+  const prontos = results.map((r) => r.data?.stages).filter(Boolean).length
+  return useMemo(() => {
+    const porFunil = new Map<number, FunnelStage[]>()
+    ids.forEach((id, i) => {
+      const stages = results[i]?.data?.stages
+      if (stages) porFunil.set(id, stages.filter((st) => st.active))
+    })
+    return porFunil
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `results` é array novo a cada render; o que muda o mapa é quantas queries responderam
+  }, [ids, prontos])
 }
 
 export function useCreateFunnel() {

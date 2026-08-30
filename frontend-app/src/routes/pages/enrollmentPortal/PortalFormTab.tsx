@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
   ListChecks, Plus, Trash2, Save, AlertCircle, GripVertical, ChevronUp, ChevronDown, Eye, EyeOff,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useUpdateEnrollmentPortal,
   type EnrollmentPortal,
@@ -336,7 +336,7 @@ function AdvancedSection({
       {modes.length > 0 && (
         <Card>
           <div class="flex items-center gap-3 flex-wrap">
-            <div class="text-xs uppercase tracking-wider text-fg-subtle inline-flex items-center gap-1">
+            <div class="text-xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-1">
               {previewMode ? <Eye size={12} /> : <EyeOff size={12} />}
               Preview do modo
             </div>
@@ -346,7 +346,7 @@ function AdvancedSection({
                 <option key={m.code} value={m.code}>{m.icon ?? ''} {m.name}</option>
               ))}
             </Select>
-            <span class="text-[0.6875rem] text-fg-subtle">
+            <span class="text-2xs text-fg-muted">
               Campos com regra de visibilidade são marcados como ocultos quando o modo selecionado não corresponde.
             </span>
           </div>
@@ -455,7 +455,7 @@ function StepCard({
       </div>
 
       {step.fields.length === 0 && (
-        <div class="text-xs text-fg-subtle text-center py-3 border border-dashed border-border rounded-md">
+        <div class="text-xs text-fg-muted text-center py-3 border border-dashed border-border rounded-md">
           Sem campos. Clique em "Adicionar campo" abaixo.
         </div>
       )}
@@ -522,7 +522,7 @@ function FieldRow({
       hidden && 'opacity-40',
     )}>
       {hidden && (
-        <div class="px-3 py-1 text-[0.6875rem] text-fg-subtle bg-surface-3 border-b border-border inline-flex items-center gap-1 rounded-t-md">
+        <div class="px-3 py-1 text-2xs text-fg-muted bg-surface-3 border-b border-border inline-flex items-center gap-1 rounded-t-md">
           <EyeOff size={10} /> Oculto no preview do modo selecionado
         </div>
       )}
@@ -532,20 +532,20 @@ function FieldRow({
           {index > 0 && (
             <button
               type="button"
-              class="size-5 grid place-items-center text-fg-subtle hover:text-fg"
+              class="size-5 grid place-items-center text-fg-muted hover:text-fg"
               onClick={onMoveUp}
               aria-label="Subir"
             ><ChevronUp size={10} /></button>
           )}
           {index === 0 && index < total - 1 && (
-            <span class="size-5 grid place-items-center text-fg-subtle/40">
+            <span class="size-5 grid place-items-center text-fg-muted/40">
               <GripVertical size={10} />
             </span>
           )}
           {index < total - 1 && (
             <button
               type="button"
-              class="size-5 grid place-items-center text-fg-subtle hover:text-fg"
+              class="size-5 grid place-items-center text-fg-muted hover:text-fg"
               onClick={onMoveDown}
               aria-label="Descer"
             ><ChevronDown size={10} /></button>
@@ -587,7 +587,7 @@ function FieldRow({
 
         {isOfferingPicker ? (
           <span
-            class="text-[0.6875rem] text-fg-subtle px-2 py-1 rounded border border-border bg-surface-3 shrink-0"
+            class="text-2xs text-fg-muted px-2 py-1 rounded border border-border bg-surface-3 shrink-0"
             title="O seletor de curso já define o modo de ingresso, então não aceita regra de visibilidade por modo (dependência circular)"
           >
             🎯 —
@@ -597,7 +597,7 @@ function FieldRow({
             type="button"
             onClick={() => setShowRules((v) => !v)}
             class={cn(
-              'inline-flex items-center gap-1 h-7 px-2 rounded border text-[0.6875rem] font-medium shrink-0',
+              'inline-flex items-center gap-1 h-7 px-2 rounded border text-2xs font-medium shrink-0',
               hasRule
                 ? 'border-accent bg-accent/10 text-accent'
                 : 'border-border text-fg-muted hover:text-fg',
@@ -619,11 +619,11 @@ function FieldRow({
 
       {showRules && !isOfferingPicker && (
         <div class="px-3 py-2 border-t border-border bg-surface-3/50">
-          <div class="text-[0.6875rem] text-fg-muted mb-1.5">
+          <div class="text-2xs text-fg-muted mb-1.5">
             Visível apenas quando o modo de ingresso for:
           </div>
           {modes.length === 0 ? (
-            <span class="text-[0.6875rem] text-fg-subtle italic">Nenhum modo de ingresso cadastrado</span>
+            <span class="text-2xs text-fg-muted italic">Nenhum modo de ingresso cadastrado</span>
           ) : (
             <div class="flex flex-wrap gap-1.5">
               {modes.map((m) => {
@@ -634,7 +634,7 @@ function FieldRow({
                     type="button"
                     onClick={() => onToggleVisibleMode(m.code)}
                     class={cn(
-                      'h-7 px-3 rounded-full border text-[0.6875rem] font-medium',
+                      'h-7 px-3 rounded-full border text-2xs font-medium',
                       on
                         ? 'bg-accent text-fg-on-brand border-accent'
                         : 'bg-surface text-fg-muted border-border hover:text-fg',
@@ -646,7 +646,7 @@ function FieldRow({
               })}
             </div>
           )}
-          <div class="text-[0.625rem] text-fg-subtle mt-2">
+          <div class="text-3xs text-fg-muted mt-2">
             {hasRule
               ? `Visível em ${rule.length} modo(s)`
               : 'Nenhum selecionado = sempre visível'}

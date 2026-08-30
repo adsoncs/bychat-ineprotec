@@ -23,20 +23,27 @@ const toneClasses: Record<Tone, string> = {
   info: 'bg-info/15 text-info',
 }
 
+/* `text-white` era um bug de contraste, não uma escolha: no tema escuro os tons
+ * de estado são CLAROS (success em L=0.78, warning em L=0.80), e branco por cima
+ * deles dava 1,69:1 a 3,15:1 — muito abaixo do mínimo de 4,5:1. `fg-on-brand` é
+ * exatamente o token para "texto sobre preenchimento sólido" e resolve nos dois
+ * temas de uma vez: escuro no tema escuro (5,4:1 a 10,0:1), branco no claro
+ * (5,4:1 a 6,2:1). */
 const solidClasses: Record<Tone, string> = {
-  neutral: 'bg-fg-muted text-white',
+  neutral: 'bg-fg-muted text-fg-on-brand',
   accent: 'bg-accent text-fg-on-brand',
-  success: 'bg-success text-white',
-  warning: 'bg-warning text-white',
-  danger: 'bg-danger text-white',
-  info: 'bg-info text-white',
+  success: 'bg-success text-fg-on-brand',
+  warning: 'bg-warning text-fg-on-brand',
+  danger: 'bg-danger text-fg-on-brand',
+  info: 'bg-info text-fg-on-brand',
 }
 
 export function Badge({ tone = 'neutral', solid = false, children, class: className, style, title }: BadgeProps) {
   return (
     <span
       class={cn(
-        'inline-flex items-center h-5 px-2 rounded-full text-[0.6875rem] font-medium tabular-nums',
+        'inline-flex items-center h-5 px-2 rounded-full text-2xs font-semibold tabular-nums',
+        solid && 'fill-raised',
         (solid ? solidClasses : toneClasses)[tone],
         className,
       )}

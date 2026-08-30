@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2, Info, RefreshCw,
   Wifi, WifiOff, Webhook as WebhookIcon, ExternalLink,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   useEvolutionHealth,
   useEvolutionVersion,
@@ -217,7 +217,7 @@ function ApiStatusCard({ health }: { health: NonNullable<ReturnType<typeof useEv
 
   return (
     <Card>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">Evolution API</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted font-medium mb-2">Evolution API</div>
       <div class="flex items-center gap-2 mb-2">
         <Icon size={18} class={cn(
           tone === 'accent' && 'text-accent',
@@ -230,9 +230,9 @@ function ApiStatusCard({ health }: { health: NonNullable<ReturnType<typeof useEv
       {health.api.version && (
         <div class="text-xs text-fg-muted mt-0.5">Versão: <strong class="text-fg">{health.api.version}</strong></div>
       )}
-      <div class="text-[0.6875rem] text-fg-subtle mt-1 break-all font-mono">{health.api.url}</div>
+      <div class="text-2xs text-fg-muted mt-1 break-all font-mono">{health.api.url}</div>
       {health.api.error && (
-        <div class="text-[0.6875rem] text-danger mt-1">{health.api.error}</div>
+        <div class="text-2xs text-danger mt-1">{health.api.error}</div>
       )}
     </Card>
   )
@@ -249,7 +249,7 @@ function WebhookStatusCard({ health }: { health: NonNullable<ReturnType<typeof u
 
   return (
     <Card>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">Webhook</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted font-medium mb-2">Webhook</div>
       <div class="flex items-center gap-2 mb-2">
         <WebhookIcon size={18} class={cn(
           tone === 'accent' && 'text-accent',
@@ -258,16 +258,16 @@ function WebhookStatusCard({ health }: { health: NonNullable<ReturnType<typeof u
         )} />
         <Badge tone={tone} solid>{label}</Badge>
       </div>
-      <div class="text-[0.6875rem] text-fg-muted mt-1">
-        Esperado: <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem] break-all">{health.webhook.expected}</code>
+      <div class="text-2xs text-fg-muted mt-1">
+        Esperado: <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-3xs break-all">{health.webhook.expected}</code>
       </div>
       {health.webhook.current && health.webhook.current !== health.webhook.expected && (
-        <div class="text-[0.6875rem] text-danger mt-1">
-          Atual: <code class="font-mono bg-danger/10 px-1.5 py-0.5 rounded text-[0.625rem] break-all">{health.webhook.current}</code>
+        <div class="text-2xs text-danger mt-1">
+          Atual: <code class="font-mono bg-danger/10 px-1.5 py-0.5 rounded text-3xs break-all">{health.webhook.current}</code>
         </div>
       )}
       {health.webhook.events.length > 0 && (
-        <div class="text-[0.6875rem] text-fg-subtle mt-1">Eventos: {health.webhook.events.join(', ')}</div>
+        <div class="text-2xs text-fg-muted mt-1">Eventos: {health.webhook.events.join(', ')}</div>
       )}
     </Card>
   )
@@ -276,13 +276,13 @@ function WebhookStatusCard({ health }: { health: NonNullable<ReturnType<typeof u
 function MonitorCard({ lastCheck, onForce, forcing }: { lastCheck: string; onForce: () => void; forcing: boolean }) {
   return (
     <Card>
-      <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-medium mb-2">Monitor</div>
+      <div class="text-3xs uppercase tracking-wider text-fg-muted font-medium mb-2">Monitor</div>
       <div class="flex items-center gap-2 mb-2">
         <Activity size={18} class="text-fg-muted" />
         <span class="text-sm text-fg font-medium">Última verificação</span>
       </div>
       <div class="text-xs text-fg">{new Date(lastCheck).toLocaleString('pt-BR')}</div>
-      <div class="text-[0.6875rem] text-fg-subtle mt-1">Verifica automaticamente a cada 2 minutos</div>
+      <div class="text-2xs text-fg-muted mt-1">Verifica automaticamente a cada 2 minutos</div>
       <Button variant="secondary" size="sm" class="mt-3" onClick={onForce} disabled={forcing}>
         <RefreshCw size={12} class={forcing ? 'animate-spin' : ''} />
         {forcing ? 'Verificando…' : 'Verificar agora'}
@@ -331,14 +331,14 @@ function VersionCard({ onOpenUpgrade, onOpenLogs }: { onOpenUpgrade: (tag: strin
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
         <div>
-          <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-medium mb-1">Instalada</div>
+          <div class="text-3xs uppercase tracking-wider text-fg-muted font-medium mb-1">Instalada</div>
           <div class="text-base font-semibold text-fg tabular-nums">v{installed}</div>
         </div>
         <div>
-          <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle font-medium mb-1">Última disponível</div>
+          <div class="text-3xs uppercase tracking-wider text-fg-muted font-medium mb-1">Última disponível</div>
           <div class="text-base font-semibold text-fg tabular-nums">{latest}</div>
           {v.latestPublished && (
-            <div class="text-[0.6875rem] text-fg-subtle">publicada {new Date(v.latestPublished).toLocaleDateString('pt-BR')}</div>
+            <div class="text-2xs text-fg-muted">publicada {new Date(v.latestPublished).toLocaleDateString('pt-BR')}</div>
           )}
         </div>
         <div class="flex flex-col items-start gap-2">
@@ -361,10 +361,10 @@ function VersionCard({ onOpenUpgrade, onOpenLogs }: { onOpenUpgrade: (tag: strin
       </div>
 
       {!v.upToDate && !isSuperadmin && (
-        <div class="mt-3 text-[0.6875rem] text-fg-muted">Apenas SUPERADMIN pode atualizar.</div>
+        <div class="mt-3 text-2xs text-fg-muted">Apenas SUPERADMIN pode atualizar.</div>
       )}
       {v.guardReason && (
-        <div class="mt-3 text-[0.6875rem] text-warning">
+        <div class="mt-3 text-2xs text-warning">
           {v.guardReason}{v.waitSeconds ? ` (aguarde ${Math.ceil(v.waitSeconds / 60)}min)` : ''}
         </div>
       )}
@@ -374,7 +374,7 @@ function VersionCard({ onOpenUpgrade, onOpenLogs }: { onOpenUpgrade: (tag: strin
           <div class="font-medium text-fg flex items-center gap-1.5 mb-1">
             <RefreshCw size={12} class="text-accent animate-spin" /> Upgrade em andamento: {active.targetTag}
           </div>
-          <div class="text-[0.6875rem] text-fg-muted">
+          <div class="text-2xs text-fg-muted">
             Iniciado por {active.triggeredBy.email} em {new Date(active.startedAt).toLocaleTimeString('pt-BR')}
           </div>
           <Button variant="secondary" size="sm" class="mt-2" onClick={onOpenLogs}>
@@ -401,10 +401,10 @@ function VersionCard({ onOpenUpgrade, onOpenLogs }: { onOpenUpgrade: (tag: strin
             {last.status === 'failed' && <AlertCircle size={12} />}
             Último upgrade: {last.targetTag} — {last.status === 'success' ? 'sucesso' : last.status === 'rolled_back' ? 'rollback automático' : 'falha'}
           </div>
-          <div class="text-[0.6875rem] text-fg-muted mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             {new Date(last.startedAt).toLocaleString('pt-BR')} — por {last.triggeredBy.email}
           </div>
-          {last.error && <div class="text-[0.6875rem] text-danger mt-1">{last.error}</div>}
+          {last.error && <div class="text-2xs text-danger mt-1">{last.error}</div>}
           <Button variant="secondary" size="sm" class="mt-2" onClick={onOpenLogs}>Ver logs</Button>
         </div>
       )}
@@ -422,7 +422,7 @@ function InstancesTable({ instances }: { instances: EvolutionInstance[] }) {
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
-          <thead class="bg-surface-3 text-[0.625rem] uppercase tracking-wider text-fg-subtle">
+          <thead class="bg-surface-3 text-3xs uppercase tracking-wider text-fg-muted">
             <tr>
               <th class="px-3 py-2 text-left font-medium">Nome</th>
               <th class="px-3 py-2 text-left font-medium">ID</th>
@@ -451,15 +451,15 @@ function InstancesTable({ instances }: { instances: EvolutionInstance[] }) {
               return (
                 <tr key={inst.instanceName}>
                   <td class="px-3 py-2 font-medium text-fg">{inst.name}</td>
-                  <td class="px-3 py-2 font-mono text-[0.6875rem] text-fg-muted">{inst.instanceName}</td>
+                  <td class="px-3 py-2 font-mono text-2xs text-fg-muted">{inst.instanceName}</td>
                   <td class="px-3 py-2"><Badge tone={tone} solid>{label}</Badge></td>
-                  <td class="px-3 py-2 text-fg">{inst.phone ? `+${inst.phone}` : <span class="text-fg-subtle">—</span>}</td>
-                  <td class="px-3 py-2 text-fg">{inst.profileName || <span class="text-fg-subtle">—</span>}</td>
+                  <td class="px-3 py-2 text-fg">{inst.phone ? `+${inst.phone}` : <span class="text-fg-muted">—</span>}</td>
+                  <td class="px-3 py-2 text-fg">{inst.profileName || <span class="text-fg-muted">—</span>}</td>
                   <td class="px-3 py-2">
-                    {inst.chatbotLinked ? <span class="text-accent font-medium">{inst.chatbotName}</span> : <span class="text-fg-subtle">Nenhum</span>}
+                    {inst.chatbotLinked ? <span class="text-accent font-medium">{inst.chatbotName}</span> : <span class="text-fg-muted">Nenhum</span>}
                   </td>
                   <td class="px-3 py-2 text-center">
-                    {inst.dbActive ? <span class="text-accent font-medium">Sim</span> : <span class="text-fg-subtle">Não</span>}
+                    {inst.dbActive ? <span class="text-accent font-medium">Sim</span> : <span class="text-fg-muted">Não</span>}
                   </td>
                 </tr>
               )
@@ -601,7 +601,7 @@ function UpgradeConfirmModal({
             onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
             placeholder="Senha atual"
           />
-          {error && <div class="text-[0.6875rem] text-danger mt-1">{error}</div>}
+          {error && <div class="text-2xs text-danger mt-1">{error}</div>}
         </div>
       </div>
     </Modal>
@@ -651,12 +651,12 @@ function UpgradeLogsModal({ onClose }: { onClose: () => void }) {
           <div class="text-xs text-fg-muted mb-2 flex items-center gap-2 flex-wrap">
             <span class="font-medium text-fg">{statusLabel[job.status] ?? job.status}</span>
             {job.backupPath && (
-              <span class="text-[0.6875rem]">
-                · Backup: <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-[0.625rem]">{job.backupPath}</code>
+              <span class="text-2xs">
+                · Backup: <code class="font-mono bg-surface-3 px-1.5 py-0.5 rounded text-3xs">{job.backupPath}</code>
               </span>
             )}
           </div>
-          <pre class="bg-zinc-900 text-zinc-100 p-3 rounded-md text-[0.6875rem] font-mono leading-relaxed max-h-96 overflow-auto whitespace-pre-wrap break-all m-0">
+          <pre class="bg-zinc-900 text-zinc-100 p-3 rounded-md text-2xs font-mono leading-relaxed max-h-96 overflow-auto whitespace-pre-wrap break-all m-0">
             {(job.logs ?? accumulated).join('\n') || '(aguardando logs…)'}
           </pre>
         </>

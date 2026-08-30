@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'preact/hooks'
 import {
   Brain, Save, CheckCircle, AlertCircle, Bot, Eye, EyeOff, Sliders, Info,
   ExternalLink, Power, AlertTriangle,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useSettings, useUpdateSettings, useTestAi } from '@/hooks/useSettings'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -234,7 +234,7 @@ export function AiSettings() {
         <CardHeader>
           <CardTitle>
             <span class="inline-flex items-center gap-2">
-              <Brain size={16} class="text-fg-subtle" /> Provedor padrão
+              <Brain size={16} class="text-fg-muted" /> Provedor padrão
             </span>
           </CardTitle>
         </CardHeader>
@@ -292,7 +292,7 @@ export function AiSettings() {
         <CardHeader>
           <CardTitle>
             <span class="inline-flex items-center gap-2">
-              <Sliders size={16} class="text-fg-subtle" /> Parâmetros de geração
+              <Sliders size={16} class="text-fg-muted" /> Parâmetros de geração
             </span>
           </CardTitle>
         </CardHeader>
@@ -345,7 +345,7 @@ function DescribedSelect({
           <option key={o.id} value={o.id}>{o.name}</option>
         ))}
       </Select>
-      <div class="text-[0.6875rem] text-fg-subtle mt-1">{cur?.desc ?? fallback}</div>
+      <div class="text-2xs text-fg-muted mt-1">{cur?.desc ?? fallback}</div>
     </div>
   )
 }
@@ -420,7 +420,7 @@ function ProviderCard({
               value={keyValue}
               onInput={(e) => onKeyChange((e.target as HTMLInputElement).value)}
               placeholder={placeholder}
-              class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent"
+              class="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
             />
             <Button
               type="button"
@@ -433,7 +433,7 @@ function ProviderCard({
               {revealed ? 'Ocultar' : 'Mostrar'}
             </Button>
           </div>
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">
+          <div class="text-2xs text-fg-muted mt-1">
             {keyValue
               ? <>Chave configurada: <span class="font-mono">{masked}</span></>
               : hint}
@@ -450,7 +450,7 @@ function ProviderCard({
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </Select>
-          <div class="text-[0.6875rem] text-fg-subtle mt-1">{curModel?.desc ?? ''}</div>
+          <div class="text-2xs text-fg-muted mt-1">{curModel?.desc ?? ''}</div>
         </div>
 
         {testResult?.ok && (
@@ -473,7 +473,7 @@ function AiTestBadge({ result }: { result: AiTestResult }) {
   if (result.ok) {
     return (
       <span
-        class="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-fg-on-brand"
+        class="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-fg-on-brand"
         title={`Verificado em ${new Date(result.at).toLocaleString('pt-BR')}`}
       >
         <CheckCircle size={10} /> Verificado {ago}
@@ -482,7 +482,7 @@ function AiTestBadge({ result }: { result: AiTestResult }) {
   }
   return (
     <span
-      class="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-white"
+      class="inline-flex items-center gap-1 rounded-md bg-danger px-2 py-0.5 text-3xs font-semibold uppercase tracking-wide text-white"
       title={result.error ?? 'Falha no último teste'}
     >
       <AlertCircle size={10} /> Falhou {ago}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Briefcase, Phone, Save, Sparkles } from 'lucide-preact'
+import { Briefcase, Phone, Save, Sparkles } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -162,7 +162,7 @@ function AiScoreCalibrationCard() {
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
-              <tr class="text-fg-subtle text-left border-b border-border">
+              <tr class="text-fg-muted text-left border-b border-border">
                 <th class="py-1.5 pr-3 font-medium">Faixa</th>
                 <th class="py-1.5 px-3 font-medium">Total</th>
                 <th class="py-1.5 px-3 font-medium">Ganhos</th>
@@ -186,7 +186,7 @@ function AiScoreCalibrationCard() {
               ))}
             </tbody>
           </table>
-          <div class="text-[0.6875rem] text-fg-subtle mt-2">{data.scored} leads pontuados pela IA.</div>
+          <div class="text-2xs text-fg-muted mt-2">{data.scored} leads pontuados pela IA.</div>
         </div>
       )}
     </Card>
@@ -316,13 +316,13 @@ function PhoneIdentityCard() {
               class="w-full text-sm rounded-md border border-border bg-surface px-2 py-1.5 focus:outline-none focus:border-accent"
               maxLength={500}
             />
-            <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+            <div class="text-2xs text-fg-muted mt-0.5">
               Registrado em cada consulta para auditoria. {purpose.length}/500.
             </div>
           </div>
 
           <div class="flex items-center justify-between pt-1">
-            <div class="text-[0.6875rem] text-fg-subtle">
+            <div class="text-2xs text-fg-muted">
               {data?.tokenConfigured ? '✓ Token gravado (criptografado)' : '○ Sem token configurado'}
             </div>
             <Button variant="primary" size="sm" onClick={handleSave} disabled={update.isPending}>

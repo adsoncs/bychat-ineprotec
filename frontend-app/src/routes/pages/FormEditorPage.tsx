@@ -8,7 +8,7 @@ import {
   ArrowLeft, Save, ExternalLink, Plus, GripVertical, EyeOff, Trash2,
   Monitor, Tablet, Smartphone, Settings, X, Sparkles, CheckCircle2,
   CalendarClock, Target, Megaphone, MessageSquare, Palette, Share2, MousePointerClick,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -354,16 +354,16 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
             <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)}><Plus size={12} /> Adicionar</Button>
           </div>
           {fields.length === 0 ? (
-            <p class="text-xs text-fg-subtle">Nenhum campo. Clique em "Adicionar" para começar.</p>
+            <p class="text-xs text-fg-muted">Nenhum campo. Clique em "Adicionar" para começar.</p>
           ) : (
             <SortableList items={fields} onReorder={(n) => { setFields(n); touch() }} renderItem={(f) => (
               <div class={`group rounded-md border px-2 py-1.5 transition-colors ${activeId === f.id ? 'border-accent bg-accent/10' : 'border-border bg-surface hover:bg-surface-3'}`}>
                 <div class="flex items-center gap-2">
-                  <GripVertical size={12} class="text-fg-subtle shrink-0" />
+                  <GripVertical size={12} class="text-fg-muted shrink-0" />
                   <button type="button" class="flex flex-1 items-center gap-2 text-left min-w-0" onClick={() => selectBlock(f.id)}>
                     <span class="flex-1 truncate text-sm text-fg">{stripHtml(f.label) || (f.type === 'statement' ? '(conteúdo)' : '(sem rótulo)')}</span>
                     {f.required && <Badge tone="info">obrig.</Badge>}
-                    {f.type === 'hidden' && <EyeOff size={12} class="text-fg-subtle" />}
+                    {f.type === 'hidden' && <EyeOff size={12} class="text-fg-muted" />}
                   </button>
                   <button type="button" class="size-6 grid place-items-center rounded text-fg-muted hover:text-danger hover:bg-surface-3"
                     onClick={() => removeField(f.id)} title="Remover" aria-label="Remover"><Trash2 size={12} /></button>
@@ -378,7 +378,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
 
         {/* Centro: canvas */}
         <div class="min-h-0 min-w-0 bg-surface-2 overflow-auto p-4">
-          <div class="mx-auto mb-3 max-w-[640px] rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-[0.6875rem] text-amber-800">
+          <div class="mx-auto mb-3 max-w-[640px] rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-2xs text-amber-800">
             Visualização de edição — todos os campos empilhados. No modo conversacional publicado, o formulário mostra uma pergunta por vez.
           </div>
           <div class="bg-white shadow-lg rounded-md overflow-hidden mx-auto transition-[width] duration-200" style={{ width: DEVICE_WIDTH[device], maxWidth: '100%' }}>
@@ -458,7 +458,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                 {section === 'destination' && (
                   <section class="space-y-3 max-w-xl">
                     <SectionTitle>Destino do lead (ao enviar)</SectionTitle>
-                    <p class="text-xs text-fg-subtle">Para onde vai o lead criado quando alguém envia o formulário.</p>
+                    <p class="text-xs text-fg-muted">Para onde vai o lead criado quando alguém envia o formulário.</p>
                     <div class="grid gap-3 sm:grid-cols-2">
                       <Select label="Funil" value={funnelId} onChange={(e) => { setFunnelId((e.target as HTMLSelectElement).value); setStageKey(''); touch() }}>
                         <option value="">Funil padrão</option>
@@ -474,15 +474,15 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                       {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </Select>
                     <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
-                      <span class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Jornada no funil</span>
+                      <span class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Jornada no funil</span>
                       <label class="flex items-start gap-2 cursor-pointer">
                         <input type="checkbox" class="size-4 mt-0.5 accent-accent shrink-0" checked={partialCapture} onChange={(e) => { setPartialCapture((e.target as HTMLInputElement).checked); touch() }} />
                         <span>
                           <span class="block text-sm font-medium text-fg">Captura parcial (entra na etapa inicial ao digitar nome+telefone)</span>
-                          <span class="block text-[0.6875rem] text-fg-subtle mt-0.5">Cria o lead já no início e move conforme avança. Captura quem abandona. Só no modo conversacional.</span>
+                          <span class="block text-2xs text-fg-muted mt-0.5">Cria o lead já no início e move conforme avança. Captura quem abandona. Só no modo conversacional.</span>
                         </span>
                       </label>
-                      <p class="text-[0.6875rem] text-fg-subtle">Ramificação por qualificação: marque uma pergunta de <strong>seleção</strong> como qualificadora (no campo) e escolha as etapas abaixo.</p>
+                      <p class="text-2xs text-fg-muted">Ramificação por qualificação: marque uma pergunta de <strong>seleção</strong> como qualificadora (no campo) e escolha as etapas abaixo.</p>
                       <div class="grid gap-3 sm:grid-cols-2">
                         <Select label="Etapa se positivo (qualificado)" value={qualifyPositiveStage} onChange={(e) => { setQualifyPositiveStage((e.target as HTMLSelectElement).value); touch() }} disabled={!funnelId}>
                           <option value="">— manter etapa —</option>
@@ -520,7 +520,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                     <SectionTitle>Conversão (ao enviar)</SectionTitle>
                     <label class="flex items-start gap-3 cursor-pointer rounded-md border border-border bg-surface-2 p-3">
                       <input type="checkbox" class="size-4 mt-0.5 accent-accent" checked={fireConversions} onChange={(e) => { setFireConversions((e.target as HTMLInputElement).checked); touch() }} />
-                      <span><span class="block text-sm font-medium text-fg">Disparar conversão ao enviar</span><span class="block text-[0.6875rem] text-fg-subtle mt-0.5">Server-side: Meta CAPI + Google Ads ao criar o lead (usa a config global de Conversões).</span></span>
+                      <span><span class="block text-sm font-medium text-fg">Disparar conversão ao enviar</span><span class="block text-2xs text-fg-muted mt-0.5">Server-side: Meta CAPI + Google Ads ao criar o lead (usa a config global de Conversões).</span></span>
                     </label>
                     <div>
                       <SectionTitle>Pixels client-side (página hospedada)</SectionTitle>
@@ -542,7 +542,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                 {section === 'messages' && (
                   <section class="space-y-3 max-w-xl">
                     <SectionTitle>Mensagens</SectionTitle>
-                    <p class="text-xs text-fg-subtle">A tela de sucesso também pode ser editada como bloco no canvas.</p>
+                    <p class="text-xs text-fg-muted">A tela de sucesso também pode ser editada como bloco no canvas.</p>
                     <SuccessBlockEditor
                       mode={successMode} onMode={(v) => { setSuccessMode(v); touch() }}
                       title={successTitle} onTitle={(v) => { setSuccessTitle(v); touch() }}
@@ -563,7 +563,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                         <label class="flex items-center gap-2 text-sm text-fg"><input type="checkbox" class="size-4 accent-accent" checked={showProgress} onChange={(e) => { setShowProgress((e.target as HTMLInputElement).checked); touch() }} /> Mostrar barra de progresso</label>
                       </>
                     ) : (
-                      <p class="text-xs text-fg-subtle">No modo clássico só há o botão de envio. Mude para conversacional para controlar avançar/progresso/início.</p>
+                      <p class="text-xs text-fg-muted">No modo clássico só há o botão de envio. Mude para conversacional para controlar avançar/progresso/início.</p>
                     )}
                   </section>
                 )}
@@ -600,7 +600,7 @@ function BlockRow({ icon: Icon, label, active, badge, onClick }: { icon: any; la
 }
 
 function SectionTitle({ children }: { children: any }) {
-  return <h3 class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{children}</h3>
+  return <h3 class="text-xs font-semibold uppercase tracking-wider text-fg-muted">{children}</h3>
 }
 
 // ── Editor do bloco Boas-vindas (props da tela inicial conversacional) ──
@@ -619,7 +619,7 @@ function WelcomeBlockEditor(props: {
     <div class="space-y-3 rounded-md border border-border bg-surface p-4">
       <h4 class="text-sm font-semibold text-fg">Tela de boas-vindas</h4>
       {props.displayMode !== 'conversational' && (
-        <p class="text-[0.6875rem] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">A tela de boas-vindas só aparece no modo <strong>Conversacional</strong>.</p>
+        <p class="text-2xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">A tela de boas-vindas só aparece no modo <strong>Conversacional</strong>.</p>
       )}
       <label class="flex items-center gap-2 text-sm text-fg">
         <input type="checkbox" class="size-4 accent-accent" checked={props.enabled} onChange={(e) => props.onEnabled((e.target as HTMLInputElement).checked)} />
@@ -655,12 +655,12 @@ function SuccessBlockEditor(props: {
         <button type="button" onClick={() => props.onMode('message')}
           class={`rounded-md border p-2.5 text-left text-sm ${props.mode === 'message' ? 'border-accent bg-accent/5 ring-1 ring-accent' : 'border-border bg-surface hover:bg-surface-2'}`}>
           <span class="block font-medium text-fg">Mensagem</span>
-          <span class="block text-[0.6875rem] text-fg-subtle mt-0.5">Tela de agradecimento (HTML livre).</span>
+          <span class="block text-2xs text-fg-muted mt-0.5">Tela de agradecimento (HTML livre).</span>
         </button>
         <button type="button" onClick={() => props.onMode('redirect')}
           class={`rounded-md border p-2.5 text-left text-sm ${props.mode === 'redirect' ? 'border-accent bg-accent/5 ring-1 ring-accent' : 'border-border bg-surface hover:bg-surface-2'}`}>
           <span class="block font-medium text-fg">Redirecionar</span>
-          <span class="block text-[0.6875rem] text-fg-subtle mt-0.5">Leva o lead para uma URL.</span>
+          <span class="block text-2xs text-fg-muted mt-0.5">Leva o lead para uma URL.</span>
         </button>
       </div>
       {props.mode === 'message' ? (
@@ -693,14 +693,14 @@ function SchedulingSection({ schedulingOn, hasField, fieldHasMeeting, selectedMt
   return (
     <section class="space-y-3 max-w-xl">
       <SectionTitle>Agendamento</SectionTitle>
-      <p class="text-xs text-fg-subtle">O agendamento é um <strong>campo do formulário</strong>. Adicione um campo do tipo <strong>Agendamento</strong> e escolha o tipo de reunião nele. Aqui você define o que acontece <strong>ao concluir</strong>.</p>
+      <p class="text-xs text-fg-muted">O agendamento é um <strong>campo do formulário</strong>. Adicione um campo do tipo <strong>Agendamento</strong> e escolha o tipo de reunião nele. Aqui você define o que acontece <strong>ao concluir</strong>.</p>
       {!hasField && <Card class="p-4 text-sm text-fg-muted">Nenhum campo de agendamento ainda. Adicione um campo do tipo <strong>Agendamento</strong>.</Card>}
       {hasField && !fieldHasMeeting && <Card class="p-4 text-sm text-fg-muted">O campo de agendamento existe, mas falta escolher o <strong>tipo de reunião</strong> nele.</Card>}
 
       {selectedMt && (
         <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
-          <span class="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Ao concluir o agendamento</span>
-          <p class="text-[0.6875rem] text-fg-subtle">Estas regras valem para o tipo <strong>{selectedMt.name}</strong> e refletem no módulo de Agenda.</p>
+          <span class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Ao concluir o agendamento</span>
+          <p class="text-2xs text-fg-muted">Estas regras valem para o tipo <strong>{selectedMt.name}</strong> e refletem no módulo de Agenda.</p>
           <div class="grid gap-3 sm:grid-cols-2">
             <Select label="Funil" value={mtFunnelId == null ? '' : String(mtFunnelId)} disabled={saving}
               onChange={(e) => { const v = (e.target as HTMLSelectElement).value; onSaveMt({ funnelId: v ? Number(v) : null, stageKey: null }) }}>
@@ -718,7 +718,7 @@ function SchedulingSection({ schedulingOn, hasField, fieldHasMeeting, selectedMt
               onChange={(e) => { const fire = (e.target as HTMLInputElement).checked; const prev = (selectedMt.pixelConfig as any) ?? {}; onSaveMt({ pixelConfig: { ...prev, fireConversions: fire } }) }} />
             Disparar conversão (Meta CAPI + Google Ads) ao agendar
           </label>
-          <p class="text-[0.6875rem] text-fg-subtle">O lead também é atribuído ao time/operador do tipo de reunião. <a href="/app/scheduling" target="_blank" rel="noreferrer" class="text-accent hover:underline">Gerenciar tipos →</a></p>
+          <p class="text-2xs text-fg-muted">O lead também é atribuído ao time/operador do tipo de reunião. <a href="/app/scheduling" target="_blank" rel="noreferrer" class="text-accent hover:underline">Gerenciar tipos →</a></p>
         </div>
       )}
     </section>
@@ -740,15 +740,15 @@ function ShareSection({ slug, formId, displayMode }: { slug: string; formId: num
         <div class="flex items-center gap-2">
           <Input value={hosted} readOnly class="flex-1 font-mono text-xs" />
           <Button size="sm" variant="secondary" onClick={() => copy(hosted)}>Copiar</Button>
-          <a href={hosted} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-accent text-white">Abrir</a>
+          <a href={hosted} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-accent text-fg-on-brand">Abrir</a>
         </div>
       </div>
       {displayMode === 'conversational' ? (
-        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (iframe)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-[0.7rem] p-3 whitespace-pre-wrap break-all" onClick={() => copy(iframe)}>{iframe}</pre></div>
+        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (iframe)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(iframe)}>{iframe}</pre></div>
       ) : (
-        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (web component)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-[0.7rem] p-3 whitespace-pre-wrap break-all" onClick={() => copy(embed)}>{embed}</pre></div>
+        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (web component)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(embed)}>{embed}</pre></div>
       )}
-      <p class="text-[0.6875rem] text-fg-subtle">Clique no bloco de código para copiar.</p>
+      <p class="text-2xs text-fg-muted">Clique no bloco de código para copiar.</p>
     </section>
   )
 }

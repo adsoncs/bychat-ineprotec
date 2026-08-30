@@ -41,7 +41,7 @@ export function EduListHero({
               >
                 {k.value}
               </div>
-              <div class="text-[0.625rem] uppercase tracking-wider text-fg-subtle mt-1">
+              <div class="text-3xs uppercase tracking-wider text-fg-muted mt-1">
                 {k.label}
               </div>
             </div>
@@ -55,7 +55,7 @@ export function EduListHero({
 export function EduCountPill({ label, n }: { label: string; n: number }) {
   return (
     <div class="flex flex-col items-end">
-      <span class="text-fg-subtle text-[0.625rem] uppercase tracking-wider">{label}</span>
+      <span class="text-fg-muted text-3xs uppercase tracking-wider">{label}</span>
       <span class="text-fg-muted">{n}</span>
     </div>
   )

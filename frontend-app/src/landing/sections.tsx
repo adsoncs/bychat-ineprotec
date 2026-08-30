@@ -28,7 +28,7 @@ import {
   Video,
   Workflow,
   Zap,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import {
   AI,
   AI_JOURNEY,
@@ -80,14 +80,14 @@ export function SocialProof() {
     <div class="border-b border-line bg-surface-2">
       <div class="mx-auto max-w-6xl px-5 py-10">
         {/* Oculto: ainda não vamos exibir marcas/clientes na prova social.
-        <p class="text-center text-sm font-medium text-fg-subtle">
+        <p class="text-center text-sm font-medium text-fg-muted">
           {SOCIAL_PROOF.intro}
         </p>
         <div class="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
           {SOCIAL_PROOF.logos.map((l) => (
             <span
               key={l}
-              class="text-lg font-extrabold tracking-tight text-fg-subtle/60"
+              class="text-lg font-extrabold tracking-tight text-fg-muted/60"
             >
               {l}
             </span>
@@ -186,7 +186,7 @@ export function Pillars() {
                   return <Icon class="size-8" />
                 })()}
               </div>
-              <p class="mt-4 text-center text-sm font-medium text-fg-subtle">
+              <p class="mt-4 text-center text-sm font-medium text-fg-muted">
                 {p.tab}
               </p>
             </div>
@@ -262,7 +262,7 @@ export function ModuleExplorer() {
                   class={`ml-auto hidden rounded-full px-2 py-0.5 text-xs font-bold lg:inline ${
                     isActive
                       ? 'bg-brand-fg/20 text-brand-fg'
-                      : 'bg-surface-3 text-fg-subtle'
+                      : 'bg-surface-3 text-fg-muted'
                   }`}
                 >
                   {g.items.length}
@@ -406,7 +406,7 @@ export function Segments() {
             }`}
           >
             {s.highlight ? (
-              <span class="inline-block rounded-full bg-brand px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-fg">
+              <span class="inline-block rounded-full bg-brand px-2.5 py-0.5 text-2xs font-bold uppercase tracking-wide text-brand-fg">
                 Diferencial exclusivo
               </span>
             ) : null}
@@ -466,7 +466,7 @@ export function Cases() {
             <blockquote class="mt-4 flex-1 text-fg">“{c.quote}”</blockquote>
             <figcaption class="mt-5 border-t border-line pt-4">
               <div class="font-bold text-ink">{c.name}</div>
-              <div class="text-sm text-fg-subtle">{c.role}</div>
+              <div class="text-sm text-fg-muted">{c.role}</div>
             </figcaption>
           </figure>
         ))}
@@ -520,7 +520,7 @@ export function StackMap() {
       </div>
 
       <div class="mt-12 overflow-hidden rounded-2xl border border-line bg-surface">
-        <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-subtle sm:grid">
+        <div class="hidden grid-cols-[1fr_auto_1fr] gap-4 border-b border-line bg-surface-2 px-6 py-3 text-xs font-bold uppercase tracking-wide text-fg-muted sm:grid">
           <span>{STACK_MAP.columns.from}</span>
           <span aria-hidden="true" class="w-5" />
           <span>{STACK_MAP.columns.to}</span>
@@ -545,7 +545,7 @@ export function StackMap() {
                 </div>
                 <ArrowUpRight
                   aria-hidden="true"
-                  class="size-5 shrink-0 rotate-45 text-fg-subtle sm:rotate-0"
+                  class="size-5 shrink-0 rotate-45 text-fg-muted sm:rotate-0"
                 />
                 <div class="flex items-start gap-2">
                   <Icon class="mt-0.5 size-5 shrink-0 text-cta" />
@@ -577,7 +577,7 @@ export function StackMap() {
         ))}
       </div>
 
-      <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-subtle">
+      <p class="mx-auto mt-8 max-w-3xl text-center text-xs text-fg-muted">
         {STACK_MAP.disclaimer}
       </p>
     </Section>
@@ -602,7 +602,7 @@ export function Faq() {
             >
               <summary class="flex cursor-pointer items-center justify-between gap-4 font-semibold text-ink">
                 {f.q}
-                <ChevronDown class="size-5 shrink-0 text-fg-subtle transition-transform group-open:rotate-180" />
+                <ChevronDown class="size-5 shrink-0 text-fg-muted transition-transform group-open:rotate-180" />
               </summary>
               <p class="mt-3 text-fg-muted">{f.a}</p>
             </details>
@@ -630,7 +630,7 @@ export function NativeWhatsApp() {
           {/* Card grande: Ligações por voz — com mini-UI de chamada */}
           <div class="lp-card flex flex-col justify-between rounded-2xl border border-line bg-surface p-7 lg:row-span-2">
             <div>
-              <span class="inline-flex items-center gap-1.5 rounded-full bg-cta/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-cta">
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-cta/10 px-2.5 py-1 text-2xs font-bold uppercase tracking-wide text-cta">
                 {NATIVE_WA.features[0]!.tag}
               </span>
               <h3 class="mt-4 text-xl font-extrabold text-ink">
@@ -670,7 +670,7 @@ export function NativeWhatsApp() {
           <div class="lp-card rounded-2xl border border-line bg-surface p-7 lg:col-span-2">
             <div class="grid gap-6 sm:grid-cols-2 sm:items-center">
               <div>
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-brand">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-2xs font-bold uppercase tracking-wide text-brand">
                   <MousePointerClick class="size-3.5" />
                   {NATIVE_WA.features[1]!.tag}
                 </span>
@@ -701,7 +701,7 @@ export function NativeWhatsApp() {
           <div class="lp-card rounded-2xl border border-line bg-surface p-7 lg:col-span-2">
             <div class="grid gap-6 sm:grid-cols-2 sm:items-center">
               <div>
-                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-brand">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-2xs font-bold uppercase tracking-wide text-brand">
                   <ListChecks class="size-3.5" />
                   {NATIVE_WA.features[2]!.tag}
                 </span>
@@ -713,14 +713,14 @@ export function NativeWhatsApp() {
               <div class="rounded-2xl border border-line bg-surface-2 p-4">
                 <div class="space-y-3">
                   <div>
-                    <div class="text-[11px] font-semibold text-fg-subtle">Nome completo</div>
+                    <div class="text-2xs font-semibold text-fg-muted">Nome completo</div>
                     <div class="mt-1 h-8 rounded-lg border border-line bg-surface" />
                   </div>
                   <div>
-                    <div class="text-[11px] font-semibold text-fg-subtle">Melhor horário</div>
+                    <div class="text-2xs font-semibold text-fg-muted">Melhor horário</div>
                     <div class="mt-1 flex gap-2">
                       <span class="flex h-8 flex-1 items-center rounded-lg border border-brand bg-brand-soft px-2 text-xs font-semibold text-brand">Manhã</span>
-                      <span class="flex h-8 flex-1 items-center rounded-lg border border-line bg-surface px-2 text-xs text-fg-subtle">Tarde</span>
+                      <span class="flex h-8 flex-1 items-center rounded-lg border border-line bg-surface px-2 text-xs text-fg-muted">Tarde</span>
                     </div>
                   </div>
                   <div class="flex h-9 items-center justify-center rounded-lg bg-brand text-sm font-semibold text-brand-fg">
@@ -886,25 +886,25 @@ export function Helpdesk() {
               </span>
               <div>
                 <div class="text-sm font-bold text-ink">Chamado #1042</div>
-                <div class="text-xs text-fg-subtle">Cliente · Financeiro</div>
+                <div class="text-xs text-fg-muted">Cliente · Financeiro</div>
               </div>
             </div>
-            <span class="rounded-full bg-cta/10 px-2.5 py-1 text-[11px] font-bold text-cta">
+            <span class="rounded-full bg-cta/10 px-2.5 py-1 text-2xs font-bold text-cta">
               SLA no prazo
             </span>
           </div>
           <div class="mt-4 space-y-2 text-sm">
-            <div class="flex justify-between"><span class="text-fg-subtle">Prioridade</span><span class="font-semibold text-ink">Alta</span></div>
-            <div class="flex justify-between"><span class="text-fg-subtle">Responsável</span><span class="font-semibold text-ink">Equipe Suporte</span></div>
-            <div class="flex justify-between"><span class="text-fg-subtle">1ª resposta</span><span class="font-semibold text-cta">em 12 min</span></div>
-            <div class="flex justify-between"><span class="text-fg-subtle">Canal</span><span class="font-semibold text-ink">WhatsApp</span></div>
+            <div class="flex justify-between"><span class="text-fg-muted">Prioridade</span><span class="font-semibold text-ink">Alta</span></div>
+            <div class="flex justify-between"><span class="text-fg-muted">Responsável</span><span class="font-semibold text-ink">Equipe Suporte</span></div>
+            <div class="flex justify-between"><span class="text-fg-muted">1ª resposta</span><span class="font-semibold text-cta">em 12 min</span></div>
+            <div class="flex justify-between"><span class="text-fg-muted">Canal</span><span class="font-semibold text-ink">WhatsApp</span></div>
           </div>
           <div class="mt-4 flex gap-2 border-t border-line pt-4">
             {['Novo', 'Em andamento', 'Resolvido'].map((s, i) => (
               <span
                 key={s}
-                class={`flex-1 rounded-lg px-2 py-1.5 text-center text-[11px] font-semibold ${
-                  i === 1 ? 'bg-brand text-brand-fg' : 'bg-surface-2 text-fg-subtle'
+                class={`flex-1 rounded-lg px-2 py-1.5 text-center text-2xs font-semibold ${
+                  i === 1 ? 'bg-brand text-brand-fg' : 'bg-surface-2 text-fg-muted'
                 }`}
               >
                 {s}

@@ -3,7 +3,7 @@ import {
   Sparkles, Target, Users, MessageSquare, ChevronLeft, ChevronRight, Loader2,
   Mail, Phone, Briefcase, Smartphone, ListChecks, RefreshCw, Save,
   Zap, Check, Edit2, X as XIcon, ArrowRight, Wand2, Clock,
-} from 'lucide-preact'
+} from '@/components/ui/icon-set'
 import { useLocation } from 'wouter-preact'
 import {
   useAiCadenceGenerate,
@@ -270,7 +270,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
       size="xl"
       footer={
         <div class="flex items-center justify-between w-full gap-2">
-          <div class="text-[0.6875rem] text-fg-subtle">
+          <div class="text-2xs text-fg-muted">
             {meta && (
               <span>
                 {meta.provider === 'anthropic' ? 'Claude' : 'OpenAI'} {meta.model} ·{' '}
@@ -306,7 +306,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
       }
     >
       {/* Stepper */}
-      <ol class="flex items-center gap-1 mb-5 text-[0.6875rem]">
+      <ol class="flex items-center gap-1 mb-5 text-2xs">
         {STEP_ORDER.map((s, i) => {
           const done = i < currentIdx
           const active = i === currentIdx
@@ -317,7 +317,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                   'inline-flex items-center justify-center size-6 rounded-full border font-semibold tabular-nums',
                   done && 'bg-success text-fg-on-brand border-success',
                   active && !done && 'bg-accent text-fg-on-brand border-accent',
-                  !done && !active && 'bg-surface text-fg-subtle border-border',
+                  !done && !active && 'bg-surface text-fg-muted border-border',
                 )}
               >
                 {done ? <Check size={12} /> : i + 1}
@@ -354,7 +354,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                     <Icon size={14} class={active ? 'text-accent' : 'text-fg-muted'} />
                     <span class="text-sm font-medium text-fg">{g.label}</span>
                   </div>
-                  <p class="text-[0.6875rem] text-fg-subtle leading-snug">{g.description}</p>
+                  <p class="text-2xs text-fg-muted leading-snug">{g.description}</p>
                 </button>
               )
             })}
@@ -441,7 +441,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                     aria-pressed={active}
                   >
                     <div class="text-sm font-medium text-fg">{t.label}</div>
-                    <div class="text-[0.6875rem] text-fg-subtle">{t.hint}</div>
+                    <div class="text-2xs text-fg-muted">{t.hint}</div>
                   </button>
                 )
               })}
@@ -450,7 +450,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
 
           <div>
             <label class="text-xs font-medium text-fg-muted block mb-1.5">
-              Canais permitidos <span class="text-fg-subtle">({channels.size} selecionado{channels.size === 1 ? '' : 's'})</span>
+              Canais permitidos <span class="text-fg-muted">({channels.size} selecionado{channels.size === 1 ? '' : 's'})</span>
             </label>
             <div class="grid gap-1.5 grid-cols-2 sm:grid-cols-3">
               {CHANNELS.map((c) => {
@@ -495,7 +495,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                       aria-pressed={active}
                     >
                       <div class="text-sm font-medium text-fg">{d.label}</div>
-                      <div class="text-[0.6875rem] text-fg-subtle">{d.hint}</div>
+                      <div class="text-2xs text-fg-muted">{d.hint}</div>
                     </button>
                   )
                 })}
@@ -518,7 +518,7 @@ export function AiCadenceWizard({ open, onClose, teamId }: Props) {
                       aria-pressed={active}
                     >
                       <div class="text-sm font-medium text-fg">{i.label}</div>
-                      <div class="text-[0.6875rem] text-fg-subtle">{i.hint}</div>
+                      <div class="text-2xs text-fg-muted">{i.hint}</div>
                     </button>
                   )
                 })}
@@ -598,7 +598,7 @@ function PreviewPanel({
             <p class="text-xs text-fg-muted leading-relaxed mt-0.5">{cadence.description}</p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-1.5 mt-2 text-[0.6875rem]">
+        <div class="flex flex-wrap gap-1.5 mt-2 text-2xs">
           {cadence.pauseOnReply && <Badge tone="info">Pausa ao responder</Badge>}
           {cadence.exitOnConversion && <Badge tone="success">Sai na conversão</Badge>}
           {cadence.exitOnStatuses?.length > 0 && (
@@ -623,7 +623,7 @@ function PreviewPanel({
             </ul>
           )}
           {reasoning.recommendedNext && (
-            <div class="text-fg-subtle italic border-t border-border pt-2 mt-2">
+            <div class="text-fg-muted italic border-t border-border pt-2 mt-2">
               <span class="text-fg-muted not-italic font-medium">Próximo passo:</span> {reasoning.recommendedNext}
             </div>
           )}
@@ -634,7 +634,7 @@ function PreviewPanel({
       <div>
         <div class="flex items-center justify-between mb-2">
           <h4 class="text-sm font-semibold text-fg">Sequência de passos</h4>
-          <span class="text-[0.6875rem] text-fg-subtle">Clique no lápis para editar a mensagem</span>
+          <span class="text-2xs text-fg-muted">Clique no lápis para editar a mensagem</span>
         </div>
         <ol class="space-y-2">
           {steps.map((s, idx) => (
@@ -654,7 +654,7 @@ function PreviewPanel({
           <Wand2 size={14} class="text-accent" />
           <span class="text-sm font-medium text-fg">Refinar com IA</span>
         </div>
-        <p class="text-[0.6875rem] text-fg-subtle">
+        <p class="text-2xs text-fg-muted">
           Ex.: "torne mais consultivo", "encurte para 5 passos", "use mais WhatsApp", "tom mais urgente".
         </p>
         <div class="flex gap-2">
@@ -710,12 +710,12 @@ function StepCard({
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs font-semibold text-fg-muted tabular-nums">#{step.order + 1}</span>
             <span
-              class="text-[0.6875rem] font-semibold px-2 py-0.5 rounded-full"
+              class="text-2xs font-semibold px-2 py-0.5 rounded-full"
               style={{ background: meta.bg, color: meta.color }}
             >
               {meta.label}
             </span>
-            <span class="text-[0.6875rem] text-fg-subtle inline-flex items-center gap-1">
+            <span class="text-2xs text-fg-muted inline-flex items-center gap-1">
               <Clock size={10} /> {dayLabel}{hourLabel}
             </span>
             {step.isManual && <Badge tone="warning">Manual</Badge>}
@@ -732,14 +732,14 @@ function StepCard({
             </button>
           </div>
           {step.rationale && (
-            <p class="text-[0.6875rem] text-fg-subtle italic mt-1">{step.rationale}</p>
+            <p class="text-2xs text-fg-muted italic mt-1">{step.rationale}</p>
           )}
 
           {!editing && step.template?.body && (
             <>
               {step.channel === 'email' && step.template.subject && (
                 <div class="text-xs text-fg-muted mt-2">
-                  <span class="text-fg-subtle">Assunto:</span> <span class="text-fg">{step.template.subject}</span>
+                  <span class="text-fg-muted">Assunto:</span> <span class="text-fg">{step.template.subject}</span>
                 </div>
               )}
               <pre class="text-xs text-fg whitespace-pre-wrap font-sans bg-surface-2 rounded p-2 mt-2 leading-relaxed">
@@ -750,7 +750,7 @@ function StepCard({
                   {step.template.variables.map((v) => (
                     <span
                       key={v.key}
-                      class="text-[0.6875rem] font-mono text-fg-subtle bg-surface-3 px-1.5 py-0.5 rounded"
+                      class="text-2xs font-mono text-fg-muted bg-surface-3 px-1.5 py-0.5 rounded"
                       title={`${v.label}${v.default ? ` · default: ${v.default}` : ''}`}
                     >
                       {`{{${v.key}}}`}

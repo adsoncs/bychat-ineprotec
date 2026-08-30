@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { Phone, Copy, Check, Link2, QrCode, MessageSquare, HelpCircle } from 'lucide-preact'
+import { Phone, Copy, Check, Link2, QrCode, MessageSquare, HelpCircle } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -103,7 +103,7 @@ export function WhatsappLinkPage() {
                 class="w-full text-sm rounded-md border border-border bg-surface px-2 py-1.5 focus:outline-none focus:border-accent"
                 maxLength={1024}
               />
-              <div class="text-[0.6875rem] text-fg-subtle mt-0.5">{message.length}/1024</div>
+              <div class="text-2xs text-fg-muted mt-0.5">{message.length}/1024</div>
             </div>
 
             <div>
@@ -123,30 +123,30 @@ export function WhatsappLinkPage() {
                   <option key={u.id} value={u.id}>{u.name} ({u.utmCampaign})</option>
                 ))}
               </select>
-              <div class="text-[0.6875rem] text-fg-subtle mt-0.5">
+              <div class="text-2xs text-fg-muted mt-0.5">
                 A URL taggeada será anexada ao final da mensagem. Crie novas em <strong>Ferramentas → UTMs</strong>.
               </div>
             </div>
           </div>
 
           <div>
-            <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-1 flex items-center gap-1">
+            <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-1 flex items-center gap-1">
               <MessageSquare size={11} /> Preview
             </div>
             <Card class="p-3 bg-success/5 border-success/30">
               <div class="text-xs text-fg-muted mb-1">Para: <code class="font-mono text-fg">{phoneValid ? `+${phoneDigits}` : '—'}</code></div>
               <div class="text-sm text-fg whitespace-pre-wrap min-h-[3rem]">
-                {message || <em class="text-fg-subtle">(sem mensagem)</em>}
+                {message || <em class="text-fg-muted">(sem mensagem)</em>}
                 {attachedUtm && <>{'\n\n'}<a href="#" class="text-info underline break-all">{attachedUtm.fullUrl}</a></>}
               </div>
             </Card>
 
             <div class="mt-3">
-              <div class="text-xs uppercase tracking-wider text-fg-subtle font-semibold mb-1 flex items-center gap-1">
+              <div class="text-xs uppercase tracking-wider text-fg-muted font-semibold mb-1 flex items-center gap-1">
                 <Link2 size={11} /> Link gerado
               </div>
               <code class="block text-xs font-mono bg-surface-2 rounded px-2 py-1.5 break-all">
-                {link || <em class="text-fg-subtle font-sans">(informe um telefone válido)</em>}
+                {link || <em class="text-fg-muted font-sans">(informe um telefone válido)</em>}
               </code>
             </div>
 

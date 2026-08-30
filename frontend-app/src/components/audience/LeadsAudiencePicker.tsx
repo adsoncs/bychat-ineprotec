@@ -4,7 +4,7 @@
 // mesmo comportamento (filtros + seleção em massa + contagem de elegíveis).
 
 import { useMemo, useState } from 'preact/hooks'
-import { AlertTriangle, CheckSquare, Filter, Square } from 'lucide-preact'
+import { AlertTriangle, CheckSquare, Filter, Square } from '@/components/ui/icon-set'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -28,7 +28,7 @@ function isEligible(l: LeadListItem): boolean {
 
 export function Stat({ label, value, tone = 'neutral' }: { label: string; value: number | string; tone?: 'neutral' | 'info' | 'warning' | 'success' | 'danger' }) {
   const color = { neutral: 'text-fg', info: 'text-info', warning: 'text-warning', success: 'text-success', danger: 'text-danger' }[tone]
-  return <div class="rounded-md border border-border bg-surface-2 p-3"><div class={`text-lg font-semibold ${color}`}>{value}</div><div class="text-[0.6875rem] text-fg-muted">{label}</div></div>
+  return <div class="rounded-md border border-border bg-surface-2 p-3"><div class={`text-lg font-semibold ${color}`}>{value}</div><div class="text-2xs text-fg-muted">{label}</div></div>
 }
 
 export function AudienceCard({ active, onClick, icon, title, desc }: { active: boolean; onClick: () => void; icon: any; title: string; desc: string }) {
@@ -112,11 +112,11 @@ export function LeadsAudiencePicker({ selected, onChange }: { selected: Set<numb
       {/* ── Coluna esquerda: filtros ── */}
       <Card class="p-3 space-y-3 lg:sticky lg:top-4">
         <div class="flex items-center justify-between">
-          <span class="inline-flex items-center gap-1.5 text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">
+          <span class="inline-flex items-center gap-1.5 text-2xs font-semibold text-fg-muted uppercase tracking-wider">
             <Filter size={12} /> Filtros{activeFilters > 0 ? ` (${activeFilters})` : ''}
           </span>
           {activeFilters > 0 && (
-            <button type="button" class="text-[0.6875rem] text-fg-muted hover:text-fg" onClick={() => setFilters({})}>
+            <button type="button" class="text-2xs text-fg-muted hover:text-fg" onClick={() => setFilters({})}>
               Limpar filtros
             </button>
           )}
@@ -162,9 +162,9 @@ export function LeadsAudiencePicker({ selected, onChange }: { selected: Set<numb
         {/* Responsável (multi) */}
         <div class="pt-3 border-t border-border">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Responsável</span>
+            <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Responsável</span>
             {assignedUserIds.length > 0 && (
-              <button type="button" class="text-[0.6875rem] text-fg-muted hover:text-fg" onClick={() => patch({ assignedUserIds: undefined })}>Limpar</button>
+              <button type="button" class="text-2xs text-fg-muted hover:text-fg" onClick={() => patch({ assignedUserIds: undefined })}>Limpar</button>
             )}
           </div>
           <div class="flex flex-wrap gap-1.5">
@@ -175,21 +175,21 @@ export function LeadsAudiencePicker({ selected, onChange }: { selected: Set<numb
                 {a.name || a.email}
               </button>
             ))}
-            {(agentsData?.agents ?? []).length === 0 && <span class="text-xs text-fg-subtle">Sem operadores cadastrados</span>}
+            {(agentsData?.agents ?? []).length === 0 && <span class="text-xs text-fg-muted">Sem operadores cadastrados</span>}
           </div>
         </div>
 
         {/* Origem (multi) */}
         <div class="pt-3 border-t border-border">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-[0.6875rem] font-semibold text-fg-muted uppercase tracking-wider">Origem</span>
+            <span class="text-2xs font-semibold text-fg-muted uppercase tracking-wider">Origem</span>
             {sources.length > 0 && (
-              <button type="button" class="text-[0.6875rem] text-fg-muted hover:text-fg" onClick={() => patch({ sources: undefined })}>Limpar</button>
+              <button type="button" class="text-2xs text-fg-muted hover:text-fg" onClick={() => patch({ sources: undefined })}>Limpar</button>
             )}
           </div>
           <div class="flex flex-wrap gap-1.5">
             {(sourcesData?.sources ?? []).length === 0 ? (
-              <span class="text-xs text-fg-subtle italic">Nenhuma origem encontrada</span>
+              <span class="text-xs text-fg-muted italic">Nenhuma origem encontrada</span>
             ) : (sourcesData?.sources ?? []).map((src) => {
               const key = src.value ?? ''
               return (
@@ -197,7 +197,7 @@ export function LeadsAudiencePicker({ selected, onChange }: { selected: Set<numb
                   class={cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-xs font-medium transition-colors',
                     sources.includes(key) ? 'bg-accent/15 text-accent border-accent' : 'bg-surface text-fg-muted border-border hover:text-fg')}>
                   {leadSourceLabel(src.value)}
-                  <span class="text-fg-subtle text-[0.625rem]">{src.count}</span>
+                  <span class="text-fg-muted text-3xs">{src.count}</span>
                 </button>
               )
             })}
@@ -251,11 +251,11 @@ export function LeadsAudiencePicker({ selected, onChange }: { selected: Set<numb
                 <input type="checkbox" checked={selected.has(l.id)} disabled={!ok}
                   onChange={(e) => toggleLead(l.id, (e.target as HTMLInputElement).checked)} />
                 <span class="text-fg truncate">{l.nome || l.empresa || '(sem nome)'}</span>
-                <span class={cn('text-xs shrink-0', ok ? 'text-fg-subtle' : 'text-warning')}>{l.whatsapp || 'sem WhatsApp'}</span>
+                <span class={cn('text-xs shrink-0', ok ? 'text-fg-muted' : 'text-warning')}>{l.whatsapp || 'sem WhatsApp'}</span>
                 <span class="ml-auto flex items-center gap-1.5 shrink-0">
                   {l.outcome === 'won' && <Badge tone="success">Ganho</Badge>}
                   {l.outcome === 'lost' && <Badge tone="danger">Perdido</Badge>}
-                  {l.statusLabel && <span class="text-[0.625rem] text-fg-subtle truncate max-w-[120px]">{l.statusLabel}</span>}
+                  {l.statusLabel && <span class="text-3xs text-fg-muted truncate max-w-[120px]">{l.statusLabel}</span>}
                 </span>
               </label>
             )
