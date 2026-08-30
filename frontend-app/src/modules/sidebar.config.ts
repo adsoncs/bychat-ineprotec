@@ -411,3 +411,41 @@ export function flattenItems(schema: SidebarSchema = sidebarSchema): SidebarItem
 export function findItem(idOrHref: string, schema: SidebarSchema = sidebarSchema): SidebarItem | undefined {
   return flattenItems(schema).find((i) => i.id === idOrHref || i.href === idOrHref)
 }
+
+/** A rota está dentro deste href? (exato ou como pai de uma sub-rota) */
+function matchesHref(location: string, href: string): boolean {
+  // A barra no fim evita que `/app/leads` case com `/app/leads-import`.
+  return location === href || location.startsWith(`${href}/`)
+}
+
+// Uma varredura por rota, não uma por item do menu: sem isto cada um dos ~120
+// itens percorreria a lista inteira a cada render.
+let activeHrefCache: { location: string; href: string | null } | null = null
+
+/**
+ * Href do item que "possui" a rota atual — o match mais específico.
+ *
+ * `/app/leads/duplicates` casa por prefixo tanto com Leads quanto com
+ * Duplicados; quem vence é o href mais longo, senão os dois acendem juntos.
+ * Já `/app/leads/482` (detalhe do lead, fora do menu) não casa com nenhum
+ * href mais longo e continua acendendo Leads, que é o certo.
+ */
+export function activeHref(location: string, schema: SidebarSchema = sidebarSchema): string | null {
+  const cacheable = schema === sidebarSchema
+  if (cacheable && activeHrefCache?.location === location) return activeHrefCache.href
+
+  let best: string | null = null
+  for (const item of flattenItems(schema)) {
+    if (matchesHref(location, item.href) && (best === null || item.href.length > best.length)) {
+      best = item.href
+    }
+  }
+
+  if (cacheable) activeHrefCache = { location, href: best }
+  return best
+}
+
+/** O item é o dono da rota atual? Usado pelo destaque do menu. */
+export function isItemActive(location: string, href: string, schema: SidebarSchema = sidebarSchema): boolean {
+  return activeHref(location, schema) === href
+}

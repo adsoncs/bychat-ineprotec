@@ -1,6 +1,6 @@
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { useLocation } from 'wouter-preact'
-import type { SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
+import { isItemActive, type SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
 import { SidebarIcon } from './SidebarIcon'
 import { cn } from '@/lib/cn'
 
@@ -13,7 +13,9 @@ interface SidebarItemProps {
 
 export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
   const [location, navigate] = useLocation()
-  const isActive = location === item.href || location.startsWith(`${item.href}/`)
+  // Match do item mais específico: `/app/leads/duplicates` acende só Duplicados,
+  // não Leads junto (ver `isItemActive` em sidebar.config).
+  const isActive = isItemActive(location, item.href)
 
   function handleClick(e: MouseEvent) {
     e.preventDefault()
