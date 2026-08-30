@@ -9,9 +9,10 @@
 // refetchInterval dos hooks é só a rede de segurança para telão parado.
 
 import { useMemo, useState } from 'preact/hooks'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Inbox, Headphones, Clock, CheckCircle2, Bot, User as UserIcon, AlertTriangle,
-  RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X,
+  RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X, MoreHorizontal,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -85,6 +86,57 @@ function prettyChannel(raw: string): string {
 }
 
 /** Quem conduz + em que ponto do chatbot. */
+/**
+ * Ações da linha num menu suspenso.
+ *
+ * Eram um link e um botão de texto ocupando ~110px em TODA linha — e é o que
+ * empurrava a tabela para além da tela, obrigando a rolagem horizontal. Numa
+ * lista de supervisão o operador escaneia estado e espera; a ação é o segundo
+ * passo, e cabe atrás de um clique.
+ */
+function LinhaAcoes({
+  conversa, onEncerrar, onReabrir,
+}: { conversa: SupervisionConversation; onEncerrar: () => void; onReabrir: () => void }) {
+  const resolvida = conversa.bucket === 'resolved'
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          class="size-8 grid place-items-center rounded-md text-fg-muted hover:text-fg hover:bg-surface-3"
+          aria-label={`Opções da conversa com ${conversa.nome || conversa.whatsapp}`}
+          title="Opções"
+        >
+          <MoreHorizontal size={16} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          class="min-w-[12rem] rounded-md bg-surface-2 border border-border shadow-lg p-1 surface-raised"
+          style={{ zIndex: 'var(--z-popover)' }}
+        >
+          <DropdownMenu.Item asChild>
+            <a
+              href={`/app/conversations?leadId=${conversa.id}`}
+              class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+            >
+              <ExternalLink size={14} /> Abrir no Conversas
+            </a>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
+            onSelect={() => (resolvida ? onReabrir() : onEncerrar())}
+          >
+            {resolvida ? <><RefreshCw size={14} /> Reabrir conversa</> : <><CheckCircle2 size={14} /> Encerrar conversa</>}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  )
+}
+
 function BotCell({ bot }: { bot: BotState }) {
   if (bot.driver === 'human') {
     return (
@@ -531,19 +583,35 @@ export function SupervisionPage() {
           />
         ) : (
           <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            {/* Rótulos curtos de propósito: "Conduzido por" e "Funil / etapa"
+              * sozinhos empurravam a tabela para além da largura útil em 1280px,
+              * e o cabeçalho é justamente o texto que pode encolher sem custo —
+              * quem lê a coluna já tem o dado embaixo. */}
+            {/* `table-fixed` + larguras em %: com layout automático a tabela soma
+              * a largura NATURAL de cada coluna e estoura a tela — foi o que
+              * obrigava a rolagem. Em layout fixo as colunas repartem os 100%
+              * disponíveis e o conteúdo trunca dentro delas, então não existe
+              * largura de tela em que isto role. */}
+            <table class="data-table w-full table-fixed text-sm">
               <thead>
-                <tr class="text-left text-xs text-fg-muted border-b border-border">
-                  <th class="p-2 w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Selecionar todas" /></th>
-                  <th class="p-2">Contato</th>
-                  <th class="p-2">Estado</th>
-                  <th class="p-2">Conduzido por</th>
-                  <th class="p-2">Responsável</th>
-                  <th class="p-2">Funil / etapa</th>
-                  <th class="p-2">Canal</th>
-                  <th class="p-2 whitespace-nowrap">Aguardando</th>
-                  <th class="p-2 whitespace-nowrap">Última msg</th>
-                  <th class="p-2 text-right">Ações</th>
+                {/* `[&>th]:truncate`: sem isso o rótulo de uma coluna estreita
+                  * transborda por cima da vizinha ("CONDUZIDORESPONSÁVEL"), que
+                  * é como o cabeçalho quebra quando a tabela tem largura fixa. */}
+                <tr class="text-left text-xs text-fg-muted border-b border-border [&>th]:truncate">
+                  <th class="w-9"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Selecionar todas" /></th>
+                  {/* As larguras saíram da medição do cabeçalho renderizado, não
+                    * de palpite: em versalete com tracking, "RESPONSÁVEL" ocupa
+                    * ~85px e "ESPERA" ~55px. Coluna estreita demais faz o próprio
+                    * rótulo truncar, que é pior que a rolagem que viemos tirar. */}
+                  <th class="w-[23%]">Contato</th>
+                  <th class="w-[10%]">Estado</th>
+                  <th class="w-[6%]" title="Conduzido por: chatbot ou operador">Bot</th>
+                  <th class="w-[14%]">Responsável</th>
+                  <th class="w-[14%]">Funil</th>
+                  <th class="w-[10%]">Canal</th>
+                  <th class="w-[11%] whitespace-nowrap">Espera</th>
+                  <th class="w-[10%] whitespace-nowrap">Última</th>
+                  <th class="w-11"><span class="sr-only">Ações</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -555,15 +623,15 @@ export function SupervisionPage() {
                     <td class="p-2 align-top">
                       <div class="flex items-center gap-2 min-w-0">
                         <div class="min-w-0">
-                          <div class="font-medium text-fg truncate max-w-[16rem]">
+                          <div class="font-medium text-fg truncate" title={c.nome || c.whatsapp}>
                             {c.nome || c.whatsapp}
                             {c.isGroup && <Badge tone="neutral" class="ml-1">grupo</Badge>}
                           </div>
-                          <div class="text-xs text-fg-muted truncate max-w-[16rem]">
+                          <div class="text-xs text-fg-muted truncate" title={c.empresa || c.whatsapp}>
                             {c.empresa || c.whatsapp}
                           </div>
                           {c.lastMessage && (
-                            <div class="text-2xs text-fg-muted truncate max-w-[18rem] mt-0.5">
+                            <div class="text-2xs text-fg-muted truncate mt-0.5">
                               {c.lastMessage.fromMe ? '↩ ' : '→ '}{c.lastMessage.body}
                             </div>
                           )}
@@ -573,7 +641,7 @@ export function SupervisionPage() {
                     <td class="p-2 align-top">
                       <Badge tone={BUCKET_LABEL[c.bucket]?.tone ?? 'neutral'}>{BUCKET_LABEL[c.bucket]?.label ?? c.bucket}</Badge>
                       {c.unreadMessages > 0 && (
-                        <div class="mt-1"><Badge tone="danger">{c.unreadMessages} não lida(s)</Badge></div>
+                        <div class="mt-1"><Badge tone="danger" class="whitespace-nowrap">{c.unreadMessages} não lidas</Badge></div>
                       )}
                       {c.snoozedUntil && new Date(c.snoozedUntil) > new Date() && (
                         <div class="text-2xs text-fg-muted mt-0.5">até {fmtWhen(c.snoozedUntil)}</div>
@@ -581,16 +649,16 @@ export function SupervisionPage() {
                     </td>
                     <td class="p-2 align-top"><BotCell bot={c.bot} /></td>
                     <td class="p-2 align-top">
-                      <div class="text-fg truncate max-w-[10rem]">{c.assignedUser?.name ?? <span class="text-warning">Sem responsável</span>}</div>
-                      {c.team && <div class="text-xs text-fg-muted truncate max-w-[10rem]">{c.team.name}</div>}
+                      <div class="text-fg truncate" title={c.assignedUser?.name ?? 'Sem responsável'}>{c.assignedUser?.name ?? <span class="text-warning">Sem responsável</span>}</div>
+                      {c.team && <div class="text-xs text-fg-muted truncate" title={c.team.name}>{c.team.name}</div>}
                     </td>
                     <td class="p-2 align-top">
-                      <div class="text-fg truncate max-w-[10rem]">{c.funnel?.name ?? <span class="text-fg-muted">Sem funil</span>}</div>
-                      <div class="text-xs text-fg-muted truncate max-w-[10rem]">{c.stageName}</div>
+                      <div class="text-fg truncate" title={c.funnel?.name ?? 'Sem funil'}>{c.funnel?.name ?? <span class="text-fg-muted">Sem funil</span>}</div>
+                      <div class="text-xs text-fg-muted truncate" title={c.stageName}>{c.stageName}</div>
                     </td>
                     <td class="p-2 align-top">
-                      <div class="text-xs text-fg truncate max-w-[9rem]">{c.channel?.label ?? '—'}</div>
-                      {c.source && <div class="text-2xs text-fg-muted truncate max-w-[9rem]">{c.source}</div>}
+                      <div class="text-xs text-fg truncate" title={c.channel?.label ?? ''}>{c.channel?.label ?? '—'}</div>
+                      {c.source && <div class="text-2xs text-fg-muted truncate">{c.source}</div>}
                     </td>
                     <td class="p-2 align-top whitespace-nowrap">
                       {c.waitingSinceMin === null
@@ -600,25 +668,12 @@ export function SupervisionPage() {
                           </span>}
                     </td>
                     <td class="p-2 align-top whitespace-nowrap text-xs text-fg-muted">{fmtWhen(c.lastMessageAt)}</td>
-                    <td class="p-2 align-top">
-                      <div class="flex items-center justify-end gap-1">
-                        <a
-                          href={`/app/conversations?leadId=${c.id}`}
-                          class="inline-flex items-center rounded-md px-2 py-1 text-xs text-fg-muted hover:bg-surface-3"
-                          title="Abrir no Conversas"
-                        >
-                          <ExternalLink size={13} />
-                        </a>
-                        {c.bucket === 'resolved' ? (
-                          <Button variant="ghost" size="sm" onClick={() => runAction(reopen, [c.id], {}, () => 'Conversa reaberta')}>
-                            Reabrir
-                          </Button>
-                        ) : (
-                          <Button variant="ghost" size="sm" onClick={() => runAction(close, [c.id], {}, () => 'Conversa encerrada')}>
-                            Encerrar
-                          </Button>
-                        )}
-                      </div>
+                    <td class="align-top">
+                      <LinhaAcoes
+                        conversa={c}
+                        onEncerrar={() => runAction(close, [c.id], {}, () => 'Conversa encerrada')}
+                        onReabrir={() => runAction(reopen, [c.id], {}, () => 'Conversa reaberta')}
+                      />
                     </td>
                   </tr>
                 ))}
