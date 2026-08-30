@@ -158,10 +158,13 @@ interface PeriodPickerProps {
 
 export function PeriodPicker({ preset, customFrom, customTo, onPreset, onCustom, label }: PeriodPickerProps) {
   return (
-    <div class="flex flex-wrap items-center gap-2" role="group" aria-label={label ?? 'Período'}>
+    <div class="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label={label ?? 'Período'}>
       {/* max-w-full + overflow-x-auto: em tela estreita a barra ROLA em vez de
-          quebrar linha e empurrar o resto do cabeçalho. */}
-      <div class="flex max-w-full items-center gap-1 overflow-x-auto rounded-md bg-surface-3 p-0.5">
+          quebrar linha e empurrar o resto do cabeçalho. A rolagem é DESTA barra
+          e só dela — sem o `min-w-0` (aqui e no pai) o `max-w-full` resolvia
+          contra um pai que já havia crescido, e quem passava a rolar era a
+          página inteira. */}
+      <div class="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-md bg-surface-3 p-0.5">
         {PRESETS.map((p) => (
           <button
             key={p}

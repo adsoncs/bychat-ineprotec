@@ -18,7 +18,12 @@
   background: var(--color-surface);
   color: var(--color-fg);
   grid-template-rows: var(--topbar-h) 1fr;
-  grid-template-columns: 1fr;
+  /* `minmax(0, 1fr)` e não `1fr`: `1fr` é `minmax(auto, 1fr)`, e o mínimo
+     automático é o CONTEÚDO — então um filho que não encolhe (a topbar, cujos
+     controles somavam 377px) estica a coluna além da janela e o app inteiro
+     passa a rolar na horizontal no celular. Com mínimo 0 a coluna respeita a
+     tela e quem tem de encolher é o conteúdo. */
+  grid-template-columns: minmax(0, 1fr);
   /* `isolation` — e não `z-index` — porque as camadas de luz abaixo usam
      `z-index: -1`, e sem um contexto de empilhamento aqui elas escapariam para
      trás do <body> e sumiriam. `isolation` cria o contexto SEM alterar a ordem
@@ -291,6 +296,8 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0 0.75rem;
+  /* Sem isto o conteúdo interno volta a definir a largura mínima da barra. */
+  min-width: 0;
   /* Opaca e da cor do fundo: o conteúdo do painel passa por baixo dela ao
      rolar, então transparente vazaria texto. Sem borda — a separação visível
      é a folga até o topo do painel, não uma linha. */

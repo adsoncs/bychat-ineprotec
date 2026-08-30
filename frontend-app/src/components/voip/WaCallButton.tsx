@@ -55,12 +55,13 @@ export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null
       disabled={busy || inCall}
       title="Ligar via WhatsApp"
       class={cn(
-        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors shadow-sm h-9 px-3 text-xs',
-        'bg-[#25D366] hover:bg-[#1fb855] text-white disabled:opacity-50 disabled:cursor-not-allowed',
+        'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors h-8 px-3 text-xs',
+        'bg-surface-2 text-fg border border-border surface-raised hover:bg-surface-3',
+        'disabled:opacity-50 disabled:cursor-not-allowed',
         className
       )}
     >
-      <WhatsappIcon size={14} />
+      <WhatsappIcon size={13} />
       {label ?? 'Ligar'}
     </button>
   )

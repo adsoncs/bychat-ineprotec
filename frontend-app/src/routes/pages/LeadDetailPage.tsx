@@ -183,13 +183,13 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
               * ("Formulário"), e a qualidade quem responde é o Lead Score. */}
             <OutcomeBadge outcome={lead.outcome} lostReason={lead.lostReason ?? null} note={lead.outcomeNote} />
             <LeadOwnerBadge leadId={id} assignedUser={lead.assignedUser} />
-            <span class="text-fg-muted">·</span>
+            <span class="hidden sm:inline text-fg-muted">·</span>
             <span class="text-fg-muted">{leadSourceLabel(lead.source)}</span>
-            <span class="text-fg-muted">·</span>
+            <span class="hidden sm:inline text-fg-muted">·</span>
             <span class="text-fg-muted">criado {formatDateTime(lead.createdAt)}</span>
           </div>
 
-          <div class="flex items-center gap-3 flex-wrap text-xs">
+          <div class="flex items-center gap-1 flex-wrap text-xs -mx-2">
             <ContactChip icon={MessageSquare} value={lead.whatsapp} label="WhatsApp" />
             <ContactChip icon={Mail} value={lead.email} label="E-mail" />
             <ContactChip icon={Building2} value={lead.empresa} label="Empresa" copyable={false} />
@@ -223,7 +223,10 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         )}
       </div>
 
-      <div class="flex items-center gap-2 px-5 py-2.5 border-t border-border bg-surface-2/30 flex-wrap">
+      {/* Barra de ações. `gap-1.5` porque os botões já têm ar interno; os
+        * separadores somem no celular, onde a barra quebra em várias linhas e
+        * uma barrinha vertical solta no fim da linha só suja. */}
+      <div class="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 border-t border-border bg-surface-2/30 flex-wrap">
         {/* O selo "Lead qualificado" saiu daqui. `qualifiedAt` só diz que o
           * registro entrou como LEAD e não como conversa solta (form, ads,
           * portal, manual) — 96% dos leads o têm. Numa tela de lead isso é
@@ -242,7 +245,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
             >
               <Star size={12} /> Qualificar
             </Button>
-            <span class="h-5 w-px bg-border mx-1" />
+            <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" />
           </>
         )}
 
@@ -253,7 +256,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           currentSummary={lead.statusSummary ?? null}
         />
 
-        <span class="h-5 w-px bg-border mx-1" />
+        <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" />
 
         <LeadOutcomeControls
           leadId={id}
@@ -264,7 +267,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           lostReason={lead.lostReason ?? null}
         />
 
-        <span class="h-5 w-px bg-border mx-1" />
+        <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" />
 
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
@@ -279,7 +282,7 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           <DownloadIcon size={14} /> Exportar
         </Button>
 
-        <div class="ml-auto">
+        <div class="sm:ml-auto">
           <ActionsMenu actions={actions} />
         </div>
       </div>
@@ -427,21 +430,21 @@ function ContactChip({
   if (!value) return null
   if (!copyable) {
     return (
-      <span class="inline-flex items-center gap-1.5 text-fg">
+      <span class="inline-flex items-center gap-1.5 px-2 h-6 text-fg min-w-0 max-w-full">
         <Icon size={12} class="text-fg-muted shrink-0" />
-        <span class="truncate max-w-[16rem]">{value}</span>
+        <span class="truncate">{value}</span>
       </span>
     )
   }
   return (
     <button
       type="button"
-      class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md hover:bg-surface-3 transition-colors text-fg"
+      class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md hover:bg-surface-3 transition-colors text-fg min-w-0 max-w-full"
       onClick={() => { navigator.clipboard.writeText(value).catch(() => {}) }}
       title={`Copiar ${label}`}
     >
       <Icon size={12} class="text-fg-muted shrink-0" />
-      <span class="truncate max-w-[16rem]">{value}</span>
+      <span class="truncate">{value}</span>
     </button>
   )
 }

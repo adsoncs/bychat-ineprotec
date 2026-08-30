@@ -56,14 +56,20 @@ export function SendWhatsAppButton({ leadId, whatsapp, compact, class: className
         title={noPhone ? 'Lead sem WhatsApp cadastrado' : 'Enviar mensagem WhatsApp via Conversas'}
         aria-label="Enviar WhatsApp"
         class={cn(
-          'inline-flex items-center justify-center gap-2 rounded-md text-white font-medium transition-colors shadow-sm',
-          WPP_BG, WPP_HOVER,
+          'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors',
+          // O verde do WhatsApp fica só no modo ícone (Kanban, listas): ali ele
+          // é o que identifica o canal. No modo completo o botão entra numa
+          // barra ao lado de "Ganho" e "Perdido" — e cor ali é significado, não
+          // marca de fornecedor. Então usa a superfície padrão dos secundários,
+          // com a mesma altura (h-8) do Button do sistema.
+          compact
+            ? cn('text-white shadow-sm h-8 w-8 p-0', WPP_BG, WPP_HOVER)
+            : 'h-8 px-3 text-xs bg-surface-2 text-fg border border-border surface-raised hover:bg-surface-3',
           'disabled:opacity-50 disabled:cursor-not-allowed',
-          compact ? 'h-8 w-8 p-0' : 'h-9 px-3 text-xs',
           className,
         )}
       >
-        <WhatsappIcon size={compact ? 16 : 14} />
+        <WhatsappIcon size={compact ? 16 : 13} />
         {!compact && 'Enviar WhatsApp'}
       </button>
       {open && (

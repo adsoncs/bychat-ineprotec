@@ -50,14 +50,16 @@ export function CallButton({ leadId, phone, compact, class: className, label }: 
       title={noPhone ? 'Lead sem telefone cadastrado' : 'Ligar via ramal VoIP'}
       aria-label={label ?? 'Ligar'}
       class={cn(
-        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors shadow-sm',
-        'bg-[#1a73e8] hover:bg-[#1666cc] text-white',
+        'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors',
+        // Era um azul fixo (#1a73e8), fora da paleta e mais alto que os vizinhos.
+        compact
+          ? 'h-8 w-8 p-0 bg-accent text-fg-on-brand shadow-sm'
+          : 'h-8 px-3 text-xs bg-surface-2 text-fg border border-border surface-raised hover:bg-surface-3',
         'disabled:opacity-50 disabled:cursor-not-allowed',
-        compact ? 'h-8 w-8 p-0' : 'h-9 px-3 text-xs',
         className,
       )}
     >
-      {dial.isPending ? <Loader2 size={compact ? 16 : 14} class="animate-spin" /> : <Phone size={compact ? 16 : 14} />}
+      {dial.isPending ? <Loader2 size={compact ? 16 : 13} class="animate-spin" /> : <Phone size={compact ? 16 : 13} />}
       {!compact && (label ?? 'Ligar')}
     </button>
   )
