@@ -6,7 +6,7 @@ import {
   Plus, Users, Filter as FilterIcon, X as XIcon, Columns3, Trash2, ArrowRight,
   Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap, Send,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
-  Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon,
+  Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon, ChevronDown,
 } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
@@ -2785,6 +2785,53 @@ function AiScoreValue({ score, label }: { score: number | null; label: string | 
   )
 }
 
+/**
+ * Bloco de IA que abre e recolhe.
+ *
+ * Os dois painéis (Resumo e Lead Score) ocupavam quase uma tela inteira acima
+ * do conteúdo do lead, e na maior parte das visitas ninguém os lê — o operador
+ * veio ver telefone, etapa ou histórico. Nascem FECHADOS.
+ *
+ * O cabeçalho não é um <button> inteiro porque a ação (Atualizar/Recalcular)
+ * mora nele: botão dentro de botão é HTML inválido e o clique fica ambíguo.
+ * Então quem alterna é só a área do título, e a ação fica fora dela.
+ *
+ * `pista` é o que aparece FECHADO, à direita do título: sem ela, recolher o
+ * score esconderia justamente o número que se quer ver de relance.
+ */
+function PainelIa({
+  titulo, acao, pista, children,
+}: {
+  titulo: string
+  acao: preact.ComponentChildren
+  pista?: preact.ComponentChildren
+  children: preact.ComponentChildren
+}) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div class="rounded-lg border border-border bg-surface">
+      <div class="flex items-center justify-between gap-3 p-4">
+        <button
+          type="button"
+          onClick={() => setAberto((v) => !v)}
+          aria-expanded={aberto}
+          class="flex min-w-0 flex-1 items-center gap-2 text-left text-sm font-semibold text-fg"
+        >
+          <Sparkles size={15} class="text-accent shrink-0" />
+          <span class="truncate">{titulo}</span>
+          {!aberto && pista}
+          <ChevronDown
+            size={14}
+            class={cn('shrink-0 text-fg-muted transition-transform duration-200', aberto && 'rotate-180')}
+          />
+        </button>
+        {acao}
+      </div>
+      {aberto && <div class="px-4 pb-4">{children}</div>}
+    </div>
+  )
+}
+
 // Card "Resumo do Lead (IA)" — resumo em linguagem natural das RESPOSTAS dos
 // campos personalizados (no contexto do negócio/funil). Vem ACIMA do score e é
 // gerado na MESMA chamada de IA (campo aiScoreReason.resumoRespostas) — custo zero.
@@ -2800,20 +2847,19 @@ function AiSummaryPanel({ lead }: { lead: { id: number; aiScoreReason: AiScoreRe
   }
 
   return (
-    <div class="rounded-lg border border-border bg-surface p-4">
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
-          <Sparkles size={15} class="text-accent" /> Resumo do Lead (IA)
-        </div>
+    <PainelIa
+      titulo="Resumo do Lead (IA)"
+      pista={!resumo ? <span class="text-2xs font-normal text-fg-muted">sem resumo</span> : undefined}
+      acao={
         <Button size="sm" variant="secondary" onClick={handleRefresh} disabled={rescore.isPending}>
           <RefreshCw size={12} class={rescore.isPending ? 'animate-spin' : ''} />
           {rescore.isPending ? 'Gerando…' : 'Atualizar'}
         </Button>
-      </div>
-
+      }
+    >
       {resumo ? (
         <>
-          <p class="mt-3 text-sm leading-relaxed text-fg">{resumo}</p>
+          <p class="text-sm leading-relaxed text-fg">{resumo}</p>
           {lead.aiScoredAt && (
             <div class="mt-2 text-2xs text-fg-muted">
               Síntese das respostas dos campos personalizados · {formatDateTime(lead.aiScoredAt)}
@@ -2821,12 +2867,12 @@ function AiSummaryPanel({ lead }: { lead: { id: number; aiScoreReason: AiScoreRe
           )}
         </>
       ) : (
-        <div class="mt-3 text-sm text-fg-muted">
+        <div class="text-sm text-fg-muted">
           Sem resumo ainda. Ele é gerado junto com o Lead Score quando o lead tem respostas de
           campos personalizados. Use <strong>Atualizar</strong> ou aguarde a análise automática.
         </div>
       )}
-    </div>
+    </PainelIa>
   )
 }
 
@@ -2844,24 +2890,34 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
   }
 
   return (
-    <div class="rounded-lg border border-border bg-surface p-4">
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
-          <Sparkles size={15} class="text-accent" /> Lead Score preditivo (IA)
-        </div>
+    <PainelIa
+      titulo="Lead Score preditivo (IA)"
+      // Fechado, o cabeçalho mostra o número e o veredito: recolher não pode
+      // custar a informação que se olha de relance.
+      pista={
+        lead.aiScore == null
+          ? <span class="text-2xs font-normal text-fg-muted">sem score</span>
+          : (
+            <span class="inline-flex items-center gap-1.5 shrink-0">
+              <ScoreBar value={lead.aiScore} color={tone.bar} />
+              <span class={`tabular text-xs ${tone.fg}`}>{lead.aiScore} · {tone.txt}</span>
+            </span>
+          )
+      }
+      acao={
         <Button size="sm" variant="secondary" onClick={handleRescore} disabled={rescore.isPending}>
           <RefreshCw size={12} class={rescore.isPending ? 'animate-spin' : ''} />
           {rescore.isPending ? 'Calculando…' : 'Recalcular'}
         </Button>
-      </div>
-
+      }
+    >
       {lead.aiScore === null || lead.aiScore === undefined ? (
-        <div class="mt-3 text-sm text-fg-muted">
+        <div class="text-sm text-fg-muted">
           Ainda sem score da IA. Use <strong>Recalcular</strong> ou aguarde a análise automática na entrada do lead.
           {' '}Configure o <strong>Contexto do Negócio</strong> em Configurações &gt; Inteligência para análises melhores.
         </div>
       ) : (
-        <div class="mt-3 space-y-3">
+        <div class="space-y-3">
           <div class="flex items-center gap-3">
             <div class={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-bold ${tone.bg} ${tone.fg}`}>
               {lead.aiScore}
@@ -2911,7 +2967,7 @@ function AiScorePanel({ lead }: { lead: { id: number; aiScore: number | null; ai
           )}
         </div>
       )}
-    </div>
+    </PainelIa>
   )
 }
 
