@@ -269,12 +269,14 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
 
         <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" />
 
+        {/* Ordem por CANAL, não por tipo de ação: o que é WhatsApp fica junto
+          * (mandar e ligar), depois o e-mail, e o VoIP por último — é a ordem em
+          * que o operador decide o meio antes de decidir o gesto. */}
         <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
 
-        <SendEmailButton leadId={id} email={lead.email} />
-
-
         <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
+
+        <SendEmailButton leadId={id} email={lead.email} />
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
 
