@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
-import { Loader2, RotateCcw } from '@/components/ui/icon-set'
+import { ChevronDown, ChevronUp, Loader2, RotateCcw } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
@@ -14,7 +14,7 @@ import { Section, Segmented, Switch } from '@/components/ui/PrefControls'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
 import {
-  CAIXAS, ESCOPOS, LABELS_PADRAO, TEMAS, useTabLabels, useUpdateTabLabels,
+  CAIXAS, ESCOPOS, LABELS_PADRAO, TEMAS, moverNaOrdem, useTabLabels, useUpdateTabLabels,
   useConversationTheme, useUpdateConversationTheme, type TabLabels, type TemaConversas,
 } from '@/hooks/useTabLabels'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -298,15 +298,31 @@ function TemaDoConversas() {
   )
 }
 
-// ── Nomes das abas (toda a equipe) ─────────────────────────────────────
+// ── Abas: nomes e ordem (toda a equipe) ────────────────────────────────
+
+/** A explicação de cada aba, para o admin saber o que está renomeando/movendo. */
+const AJUDA_ESCOPO: Record<string, string> = {
+  mine: 'Conversas atribuídas ao próprio operador.',
+  team: 'Fila dos setores de que ele participa.',
+  all: 'Tudo que o acesso dele alcança.',
+}
+
+const AJUDA_CAIXA: Record<string, string> = {
+  inbox: 'Conversa aberta e em andamento.',
+  raw: 'Chegou mensagem e ninguém assumiu.',
+  snoozed: 'Adormecida ou atribuída sem atendimento iniciado.',
+  resolved: 'Atendimento encerrado.',
+  all: 'Ignora a situação e mostra todas juntas.',
+}
 
 /**
- * O vocabulário da tela, definido pela empresa.
+ * O vocabulário e a arrumação da tela, definidos pela empresa.
  *
  * "Caixa", "Atendimento", "Setor" descrevem UM jeito de trabalhar. Escola fala
  * em "Secretaria", clínica em "Recepção", agência em "Prospecção" — e a equipe
  * passa o dia relendo um rótulo que não é o dela. Aqui o administrador troca a
- * palavra; nenhuma regra muda junto.
+ * palavra e escolhe a posição de cada aba; nenhuma regra muda junto — a única
+ * consequência combinada é que a primeira aba é a que abre.
  */
 function NomesDasAbas() {
   const { labels } = useTabLabels()
@@ -320,32 +336,29 @@ function NomesDasAbas() {
     setRascunho({ ...atual, [grupo]: { ...atual[grupo], [id]: valor } } as TabLabels)
   }
 
+  function mover(grupo: 'scope' | 'bucket', indice: number, direcao: -1 | 1) {
+    const ordem = atual.order[grupo] as string[]
+    const nova = moverNaOrdem(ordem, indice, direcao)
+    if (nova === ordem) return
+    setRascunho({ ...atual, order: { ...atual.order, [grupo]: nova } } as TabLabels)
+  }
+
   function aplicar(valores: TabLabels) {
     salvar.mutate(valores, {
-      onSuccess: () => { setRascunho(null); toast('Nomes das abas atualizados para toda a equipe', 'success') },
+      onSuccess: () => { setRascunho(null); toast('Abas atualizadas para toda a equipe', 'success') },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
   }
 
-  const campos: Array<{ grupo: 'scope' | 'bucket'; id: string; ajuda: string }> = [
-    ...ESCOPOS.map((id) => ({ grupo: 'scope' as const, id, ajuda: {
-      mine: 'Conversas atribuídas ao próprio operador.',
-      team: 'Fila dos setores de que ele participa.',
-      all: 'Tudo que o acesso dele alcança.',
-    }[id] })),
-    ...CAIXAS.map((id) => ({ grupo: 'bucket' as const, id, ajuda: {
-      inbox: 'Conversa aberta e em andamento.',
-      raw: 'Chegou mensagem e ninguém assumiu.',
-      snoozed: 'Adormecida ou atribuída sem atendimento iniciado.',
-      resolved: 'Atendimento encerrado.',
-      all: 'Ignora a situação e mostra todas juntas.',
-    }[id] })),
+  const grupos: Array<{ grupo: 'scope' | 'bucket'; titulo: string; ordem: string[]; ajuda: Record<string, string> }> = [
+    { grupo: 'scope', titulo: 'Barra de escopo', ordem: atual.order?.scope ?? [...ESCOPOS], ajuda: AJUDA_ESCOPO },
+    { grupo: 'bucket', titulo: 'Barra de situação', ordem: atual.order?.bucket ?? [...CAIXAS], ajuda: AJUDA_CAIXA },
   ]
 
   return (
     <Section
-      title="Nomes das abas"
-      hint="Como o Conversas chama cada aba para TODA a equipe. Só os nomes mudam — o que cada aba mostra continua igual."
+      title="Abas: nomes e ordem"
+      hint="Como o Conversas chama cada aba e em que posição ela aparece, para TODA a equipe. O que cada aba mostra continua igual — a primeira de cada barra é a que abre ao entrar na tela."
     >
       <div class="rounded-md border border-border bg-surface-3/50 p-3">
         <div class="mb-2 flex items-center gap-2">
@@ -355,25 +368,59 @@ function NomesDasAbas() {
           {salvar.isPending && <Loader2 size={12} class="animate-spin text-fg-muted" />}
         </div>
 
-        <div class="grid gap-2 sm:grid-cols-2">
-          {campos.map((c) => {
-            const padrao = (LABELS_PADRAO as any)[c.grupo][c.id] as string
-            return (
-              <label key={`${c.grupo}.${c.id}`} class="block">
-                <span class="mb-0.5 block text-2xs text-fg-muted">
-                  {padrao}
-                  <span class="ml-1 text-fg-muted">· {c.ajuda}</span>
-                </span>
-                <Input
-                  value={(atual as any)[c.grupo][c.id]}
-                  maxLength={24}
-                  placeholder={padrao}
-                  aria-label={`Nome da aba ${padrao}`}
-                  onInput={(e) => editar(c.grupo, c.id, (e.target as HTMLInputElement).value)}
-                />
-              </label>
-            )
-          })}
+        <div class="grid gap-3 sm:grid-cols-2">
+          {grupos.map((g) => (
+            <div key={g.grupo}>
+              <span class="mb-1 block text-2xs font-medium text-fg">{g.titulo}</span>
+              <div class="space-y-1.5">
+                {g.ordem.map((id, i) => {
+                  const padrao = (LABELS_PADRAO as any)[g.grupo][id] as string
+                  return (
+                    <div key={`${g.grupo}.${id}`}>
+                      <span class="mb-0.5 block text-2xs text-fg-muted">
+                        {padrao}
+                        {i === 0 && (
+                          <span class="ml-1 rounded bg-surface-2 px-1 py-px text-3xs text-fg-muted">abre aqui</span>
+                        )}
+                        <span class="ml-1">· {g.ajuda[id]}</span>
+                      </span>
+                      <div class="flex items-center gap-1">
+                        {/* Setas em vez de arrastar: funcionam no celular, no
+                          * teclado e no leitor de tela, e são cinco itens. */}
+                        <div class="flex shrink-0 flex-col">
+                          <button
+                            type="button"
+                            disabled={i === 0}
+                            onClick={() => mover(g.grupo, i, -1)}
+                            aria-label={`Subir ${padrao}`}
+                            class="rounded px-1 text-fg-muted hover:text-fg disabled:opacity-30 disabled:hover:text-fg-muted"
+                          >
+                            <ChevronUp size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={i === g.ordem.length - 1}
+                            onClick={() => mover(g.grupo, i, 1)}
+                            aria-label={`Descer ${padrao}`}
+                            class="rounded px-1 text-fg-muted hover:text-fg disabled:opacity-30 disabled:hover:text-fg-muted"
+                          >
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+                        <Input
+                          value={(atual as any)[g.grupo][id]}
+                          maxLength={24}
+                          placeholder={padrao}
+                          aria-label={`Nome da aba ${padrao}`}
+                          onInput={(e) => editar(g.grupo, id, (e.target as HTMLInputElement).value)}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -387,7 +434,7 @@ function NomesDasAbas() {
               disabled={salvar.isPending}
               onClick={() => aplicar(LABELS_PADRAO)}
             >
-              <RotateCcw size={13} /> Nomes padrão
+              <RotateCcw size={13} /> Restaurar padrão
             </Button>
             <Button
               variant="primary"
@@ -395,7 +442,7 @@ function NomesDasAbas() {
               disabled={!mudou || salvar.isPending}
               onClick={() => aplicar(atual)}
             >
-              Salvar nomes
+              Salvar abas
             </Button>
           </div>
         </div>

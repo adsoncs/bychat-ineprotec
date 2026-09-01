@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact'
-import { useEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
@@ -136,7 +136,7 @@ import { PendingMediaBar } from '@/components/PendingMediaBar'
 import { ChatSyncModal } from '@/components/ChatSyncModal'
 import { LeadFunnelCard } from '@/components/LeadFunnelCard'
 import { GroupChannelCard } from '@/components/GroupChannelCard'
-import { useTabLabels, useConversationTheme } from '@/hooks/useTabLabels'
+import { useTabLabels, useConversationTheme, ordenarAbas } from '@/hooks/useTabLabels'
 
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
@@ -156,7 +156,8 @@ import { leadSourceLabel } from '@/lib/leadSourceLabels'
 
 // As abas. O rótulo aqui é só o de fábrica: o nome exibido vem de
 // `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
-// muda junto, só a palavra.
+// muda junto, só a palavra. A ORDEM da barra também vem de lá; a listagem
+// abaixo é a de fábrica e vale enquanto a preferência não chegou.
 const bucketMeta: { id: Bucket; shortLabel: string; counterKey: keyof TicketCountersShape; Icon: typeof MessageSquare }[] = [
   { id: 'inbox', shortLabel: 'Atend.', counterKey: 'inbox', Icon: MessageSquare },
   { id: 'raw', shortLabel: 'Caixa', counterKey: 'raw', Icon: Inbox },
@@ -301,11 +302,27 @@ export function ConversationsPage() {
 
 function ConversationsScreen() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
-  // Nomes das abas definidos pela empresa (Preferências › Nomes das abas).
-  const { labels } = useTabLabels()
+  // Nomes e ordem das abas definidos pela empresa (Preferências › Abas).
+  const { labels, order: ordemAbas, carregando: carregandoAbas } = useTabLabels()
   // Tema escolhido pela empresa (Preferências › Tema). Vale só neste módulo.
   const { theme: temaConversas } = useConversationTheme()
   const [scope, setScope] = useState<Scope>('mine')
+  // As barras seguem a ordem da empresa. Reordenar não muda o que cada botão
+  // faz: o `id` viaja junto e é ele que a lista e os contadores usam.
+  const caixasVisiveis = useMemo(() => ordenarAbas(bucketMeta, ordemAbas.bucket), [ordemAbas.bucket])
+  const escoposVisiveis = useMemo(() => ordenarAbas(scopeMeta, ordemAbas.scope), [ordemAbas.scope])
+  // A primeira aba de cada barra é a que abre. O alinhamento acontece uma vez,
+  // quando a preferência chega — e nunca por cima de um clique do operador, que
+  // pode ter escolhido outra aba antes de a requisição voltar.
+  const tocouNasAbas = useRef(false)
+  const alinhouAbaInicial = useRef(false)
+  useEffect(() => {
+    if (alinhouAbaInicial.current || carregandoAbas) return
+    alinhouAbaInicial.current = true
+    if (tocouNasAbas.current) return
+    if (caixasVisiveis[0]) setBucket(caixasVisiveis[0].id)
+    if (escoposVisiveis[0]) setScope(escoposVisiveis[0].id)
+  }, [carregandoAbas, caixasVisiveis, escoposVisiveis])
   const [search, setSearch] = useState('')
   // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
   const [senderChannel, setSenderChannel] = useState('')
@@ -552,14 +569,14 @@ function ConversationsScreen() {
               )}
             </div>
             <nav class="flex gap-1 p-0.5 rounded-md bg-surface-3" aria-label="Escopo">
-              {scopeMeta.map((s) => {
+              {escoposVisiveis.map((s) => {
                 const count = s.counterKey && counters ? counters[s.counterKey] : null
                 const active = scope === s.id
                 return (
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => setScope(s.id)}
+                    onClick={() => { tocouNasAbas.current = true; setScope(s.id) }}
                     class={cn(
                       'flex-1 min-w-0 h-7 px-2 rounded text-2xs font-medium transition-colors inline-flex items-center justify-center gap-1',
                       active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
@@ -577,7 +594,7 @@ function ConversationsScreen() {
               })}
             </nav>
             <nav class="grid grid-cols-5 gap-1" aria-label="Tipo">
-              {bucketMeta.map((b) => {
+              {caixasVisiveis.map((b) => {
                 const count = counters ? counters[b.counterKey] : null
                 const active = bucket === b.id
                 const Icon = b.Icon
@@ -585,7 +602,7 @@ function ConversationsScreen() {
                   <button
                     key={b.id}
                     type="button"
-                    onClick={() => setBucket(b.id)}
+                    onClick={() => { tocouNasAbas.current = true; setBucket(b.id) }}
                     title={labels.bucket[b.id]}
                     class={cn(
                       'min-w-0 h-9 px-1.5 rounded-md text-2xs font-medium transition-colors',
