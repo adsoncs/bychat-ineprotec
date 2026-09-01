@@ -329,6 +329,9 @@ function ConversationsScreen() {
   const [funnelFilter, setFunnelFilter] = useState('')
   // Tipo de conversa: '' = contatos e grupos juntos, 'contacts', 'groups'.
   const [kindFilter, setKindFilter] = useState('')
+  // Só o que ainda não foi lido. É filtro, não aba: atravessa a caixa
+  // escolhida, e com a aba "Todos" mostra tudo que espera resposta.
+  const [unreadOnly, setUnreadOnly] = useState(false)
   const numbersQ = useSenderNumbers()
   const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
@@ -362,6 +365,7 @@ function ConversationsScreen() {
     senderChannel: senderChannel || undefined,
     funnelId: funnelFilter || undefined,
     kind: kindFilter || undefined,
+    unread: unreadOnly || undefined,
   })
   // As páginas viram uma lista só: quem rola não deve perceber que existem
   // páginas. Contadores e total vêm da primeira (valem para o recorte inteiro).
@@ -549,6 +553,16 @@ function ConversationsScreen() {
                   <option value="">Todos os funis</option>
                   <option value="none">Sem funil</option>
                   {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+                </Select>
+              </div>
+              <div class="flex-1 min-w-0">
+                <Select
+                  value={unreadOnly ? 'unread' : ''}
+                  onChange={(e) => setUnreadOnly((e.target as HTMLSelectElement).value === 'unread')}
+                  aria-label="Filtrar por mensagens não lidas"
+                >
+                  <option value="">Lidas e não lidas</option>
+                  <option value="unread">Só não lidas</option>
                 </Select>
               </div>
               {/* Tipo de conversa: só aparece se esta instalação recebe grupos
@@ -908,11 +922,11 @@ function ConversationsScreen() {
         steps={[
           {
             title: '📥 As 4 caixas (abas)',
-            body: <><strong>Caixa</strong>: chegou mensagem e ninguém pegou — inclusive o contato que voltou a falar depois de a conversa ter sido resolvida. <strong>Atendimento</strong>: conversa aberta, em curso. <strong>Aguardando</strong>: adiada para mais tarde, ou já atribuída a alguém que ainda não abriu o atendimento. <strong>Resolvidos</strong>: encerradas por alguém da equipe. A aba não olha quem mandou a última mensagem — olha em que ponto do atendimento a conversa está.</>,
+            body: <><strong>Caixa</strong>: chegou mensagem e não há responsável — é a fila de quem pega. <strong>Atendimento</strong>: conversa aberta, em curso. <strong>Aguardando</strong>: tem responsável e o atendimento não está aberto — adiada para mais tarde, atribuída a quem ainda não começou, ou cliente que voltou a falar depois de resolvida. <strong>Resolvidos</strong>: encerradas por alguém da equipe. A aba não olha quem mandou a última mensagem — olha em que ponto do atendimento a conversa está.</>,
           },
           {
             title: '👤 Pegar (claim) ou transferir',
-            body: <>Clique em uma conversa da Caixa — vira sua automaticamente. Pra passar pra outro vendedor, use <strong>Transferir</strong>. <strong>Liberar</strong> tira o seu nome e devolve à fila do setor; a conversa continua aberta em Atendimento, agora sem responsável.</>,
+            body: <><strong>Responder já assume</strong>: mandar mensagem numa conversa sem responsável põe o seu nome nela, sem clicar em nada. O botão <strong>Assumir</strong> continua para quando você quer pegar a conversa antes de escrever. Quem já tem responsável não troca de mãos por uma resposta sua — para isso existe <strong>Transferir</strong>. <strong>Liberar</strong> tira o seu nome e devolve à fila do setor; a conversa continua aberta em Atendimento, agora sem responsável.</>,
           },
           {
             title: '💬 Responder',
@@ -930,7 +944,7 @@ function ConversationsScreen() {
         tip={{
           tone: 'info',
           title: '💡 Notificações + Snooze',
-          body: <>Ative o sino pra tocar quando chegar mensagem. Use <strong>Snooze</strong> pra esconder a conversa até uma hora futura ("trazer de volta amanhã às 9h") — útil quando o cliente pede pra falar depois.</>,
+          body: <>Ative o sino pra tocar quando chegar mensagem. Use <strong>Snooze</strong> pra esconder a conversa até uma hora futura ("trazer de volta amanhã às 9h") — útil quando o cliente pede pra falar depois. O filtro <strong>Só não lidas</strong> atravessa a aba escolhida: junto da aba "Todos", é a lista do que espera resposta na casa inteira.</>,
         }}
       />
     </Page>
@@ -1308,10 +1322,11 @@ function ChatPanel({
   // Menu de troca de número de envio (mantém visível só o número padrão/atual;
   // os demais ficam neste dropdown — evita o rodapé poluído com muitos números).
   const [numMenuOpen, setNumMenuOpen] = useState(false)
-  // Modal de promoção pós-Assumir: aberto após claim quando o lead ainda não
-  // está qualificado (qualifiedAt == null) — convida o operador a colocar
-  // o contato em um funil/etapa. Se já é lead qualificado, modal não aparece.
-  const [promoteAfterClaimOpen, setPromoteAfterClaimOpen] = useState(false)
+  // Diálogo de promoção (funil + etapa). Abre por dois caminhos, sempre com o
+  // lead ainda não qualificado: logo depois do "Assumir", e pelo aviso discreto
+  // "Ainda é contato" no cabeçalho — que é o que sobrou desde que responder
+  // passou a assumir a conversa sem passar pelo botão.
+  const [promoverAberto, setPromoverAberto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -1803,9 +1818,19 @@ function ChatPanel({
   const isGroupChat = (lead?.isGroup ?? ticket?.isGroup) === true
   const convOpenedAt = lead?.conversationOpenedAt ?? ticket?.conversationOpenedAt ?? null
   const convClosedAt = lead?.conversationClosedAt ?? ticket?.conversationClosedAt ?? null
-  const isResolved = !!convClosedAt
+  // O contato voltou a falar: o encerramento continua de pé (é ele que guarda
+  // que houve um atendimento e que ele terminou), mas para a tela a conversa
+  // não está mais resolvida — quem reabriu foi o cliente, e pedir que o
+  // operador clicasse em "Reabrir" antes de digitar era mandá-lo repetir um
+  // gesto que já tinha sido feito do outro lado.
+  const convReopenedAt = lead?.conversationReopenedAt ?? ticket?.conversationReopenedAt ?? null
+  const isResolved = !!convClosedAt && !convReopenedAt
   const isRaw = !convOpenedAt && !convClosedAt
   const isAssigned = lead?.assignedUserId != null
+  // "Assumir" também na conversa que o contato reabriu e que ninguém pegou:
+  // ela está na Caixa como qualquer outra, e sem isto o único jeito de pôr o
+  // nome nela seria responder.
+  const podeAssumir = !isAssigned && (isRaw || !!convReopenedAt)
   const snoozedUntil = lead?.snoozedUntil ?? ticket?.snoozedUntil ?? null
   const isSnoozed = snoozedUntil ? new Date(snoozedUntil).getTime() > Date.now() : false
   // Takeover humano: o chatbot para de responder assim que um operador escreve
@@ -1847,7 +1872,7 @@ function ChatPanel({
     <>
       {/* Onde a barra não comporta os botões (celular), eles encabeçam o menu. */}
       {!cabeAcaoPrincipal && (
-        isRaw && !isAssigned ? (
+        podeAssumir ? (
           <ItemAcao
             icone={<Hand size={ICON_SIZE.sm} />}
             onClick={() => {
@@ -1855,7 +1880,7 @@ function ChatPanel({
               claim.mutate(leadId, {
                 onSuccess: () => {
                   toast('Lead assumido — atendimento iniciado', 'success')
-                  if (!(lead?.qualifiedAt ?? ticket?.qualifiedAt)) setPromoteAfterClaimOpen(true)
+                  if (!(lead?.qualifiedAt ?? ticket?.qualifiedAt)) setPromoverAberto(true)
                 },
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })
@@ -2108,6 +2133,29 @@ function ChatPanel({
                   <span class="italic text-fg-muted">sem operador</span>
                 )}
               </span>
+
+              {/* Ainda é contato, não Lead em funil.
+                *
+                * O convite para promover só existia no modal que abre depois do
+                * "Assumir" — e com a resposta assumindo a conversa sozinha esse
+                * modal deixou de aparecer no caminho mais usado. Aqui ele vira
+                * uma marca na régua de dados: informa sem interromper quem está
+                * no meio de uma frase, e clicar abre o mesmo diálogo (funil +
+                * etapa). Grupo não promove — é conversa de equipe, não pessoa. */}
+              {!(lead?.qualifiedAt ?? ticket?.qualifiedAt) && !isGroupChat && (
+                <>
+                  <SeparadorMeta />
+                  <button
+                    type="button"
+                    onClick={() => setPromoverAberto(true)}
+                    class="inline-flex shrink-0 items-center gap-1 rounded px-1 text-fg-muted hover:bg-surface-3 hover:text-accent"
+                    title="Este contato ainda não é Lead em nenhum funil — clique para promover"
+                  >
+                    <Star size={ICON_SIZE.xxs} />
+                    <span>Ainda é contato</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -2152,7 +2200,7 @@ function ChatPanel({
           {/* Ação principal do momento: uma só, e sempre no mesmo lugar. Em
               tela estreita ela encabeça o menu, para o nome do contato e o
               número caberem inteiros. */}
-          {!cabeAcaoPrincipal ? null : isRaw && !isAssigned ? (
+          {!cabeAcaoPrincipal ? null : podeAssumir ? (
             <Button
               variant="primary"
               size="sm"
@@ -2163,7 +2211,7 @@ function ChatPanel({
                   // Contato ainda não é Lead em funil → oferece promoção (funil + etapa).
                   // Já qualificado: não interrompe o operador.
                   const alreadyQualified = !!(lead?.qualifiedAt ?? ticket?.qualifiedAt)
-                  if (!alreadyQualified) setPromoteAfterClaimOpen(true)
+                  if (!alreadyQualified) setPromoverAberto(true)
                 },
                 onError: (e: unknown) => toast((e as Error).message, 'danger'),
               })}
@@ -2848,9 +2896,9 @@ function ChatPanel({
       )}
 
       <PromoteLeadDialog
-        open={promoteAfterClaimOpen}
+        open={promoverAberto}
         mode={{ kind: 'single', leadId, leadName: nomeDoContato }}
-        onOpenChange={setPromoteAfterClaimOpen}
+        onOpenChange={setPromoverAberto}
       />
 
       <HsmTemplatePicker

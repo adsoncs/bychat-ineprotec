@@ -83,6 +83,8 @@ export interface TicketsFilters {
   funnelId?: string | undefined
   // Tipo de conversa: 'contacts' | 'groups' (vazio = os dois, misturados).
   kind?: string | undefined
+  // Só conversas com mensagem não lida. Filtro, não caixa: atravessa a aba.
+  unread?: boolean | undefined
   limit?: number | undefined
   offset?: number | undefined
 }
@@ -96,6 +98,7 @@ function buildQuery(f: TicketsFilters): string {
   if (f.senderChannel) p.set('senderChannel', f.senderChannel)
   if (f.funnelId) p.set('funnelId', f.funnelId)
   if (f.kind) p.set('kind', f.kind)
+  if (f.unread) p.set('unread', '1')
   if (f.limit !== undefined) p.set('limit', String(f.limit))
   if (f.offset !== undefined) p.set('offset', String(f.offset))
   const qs = p.toString()
@@ -610,6 +613,9 @@ export interface TicketLeadInfo {
   qualificationSource: string | null
   conversationOpenedAt: string | null
   conversationClosedAt: string | null
+  /** O CONTATO voltou a falar depois de resolvida — o encerramento continua de
+   *  pé, mas responder já está liberado. */
+  conversationReopenedAt: string | null
   snoozedUntil: string | null
   /** Takeover humano: setado quando um operador respondeu → o chatbot está pausado
    *  nesta conversa até alguém devolvê-la ao bot. null = bot ativo. */
