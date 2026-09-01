@@ -3,6 +3,23 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 
+/**
+ * Fatia uma lista de ids para caber numa prepared statement.
+ *
+ * O MySQL recusa mais de 65.535 marcadores por consulta, e o quadro monta
+ * `leadId: { in: [...] }` com um id por lead exibido. Passou disso, a consulta
+ * inteira falha com "Prepared statement contains too many placeholders" e o
+ * Kanban devolve 500 — foi o que derrubou o unialfa, que tem 118 mil leads
+ * qualificados e nenhum funil marcado como padrão, então o quadro tentava
+ * carregar todos de uma vez. Em lotes, cada consulta cabe e o resultado é o
+ * mesmo.
+ */
+function emLotes<T>(itens: T[], tamanho = 2000): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < itens.length; i += tamanho) out.push(itens.slice(i, i + tamanho))
+  return out
+}
+
 export async function kanbanRoutes(app: FastifyInstance) {
 
   // ── GET /api/admin/kanban/funnels-summary ──
@@ -52,7 +69,23 @@ export async function kanbanRoutes(app: FastifyInstance) {
     if (qFunnelId) {
       funnelId = Number(qFunnelId)
     } else {
-      const def = await prisma.funnel.findFirst({ where: { isDefault: true } })
+      // Sem funil escolhido, vale o padrão da casa. E se NENHUM funil está
+      // marcado como padrão, cai no primeiro ativo — na mesma ordem do seletor
+      // da tela, para o quadro abrir onde o operador espera.
+      //
+      // Sem esse segundo passo o `funnelId` ficava indefinido e o quadro
+      // deixava de filtrar por funil: no unialfa isso significava montar os
+      // 118 mil leads qualificados numa resposta só, que estourava o limite de
+      // parâmetros do MySQL e, depois de loteado, viraria uma resposta que o
+      // navegador não abre. Kanban é sempre o quadro de UM funil.
+      const def = await prisma.funnel.findFirst({
+        where: { isDefault: true, active: true },
+        select: { id: true },
+      }) ?? await prisma.funnel.findFirst({
+        where: { active: true },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+        select: { id: true },
+      })
       funnelId = def?.id
     }
 
@@ -138,6 +171,11 @@ export async function kanbanRoutes(app: FastifyInstance) {
       prisma.stage.findMany({ where: stageWhere, orderBy: { position: 'asc' } }),
       prisma.lead.findMany({ where: leadWhere, orderBy: { createdAt: 'desc' },
         select: { id: true, empresa: true, nome: true, whatsapp: true, email: true, scores: true, status: true, source: true, metaFormId: true, completed: true, createdAt: true, updatedAt: true, annotation: true, outcome: true, outcomeAt: true,
+          // Conversa em curso: é o que decide se o card oferece o atalho para o
+          // módulo Conversas. Sem mensagem trocada não há para onde ir — o
+          // atalho apareceria e abriria uma tela vazia.
+          lastMessageAt: true, unreadMessages: true,
+          conversationOpenedAt: true, conversationClosedAt: true, conversationReopenedAt: true,
           // O card exibe os campos personalizados marcados showInKanban.
           customFields: true,
           assignedUserId: true, assignedAt: true, teamId: true,
@@ -158,13 +196,53 @@ export async function kanbanRoutes(app: FastifyInstance) {
 
     // Count pending activities per lead
     const leadIds = leads.map(l => l.id)
-    const actCounts = leadIds.length > 0 ? await prisma.activity.groupBy({
-      by: ['leadId'],
-      where: { leadId: { in: leadIds }, status: { in: ['pending', 'overdue'] } },
-      _count: true,
-    }) : []
     const actMap: Record<number, number> = {}
-    actCounts.forEach(a => { actMap[a.leadId] = a._count })
+    for (const lote of emLotes(leadIds)) {
+      const parcial = await prisma.activity.groupBy({
+        by: ['leadId'],
+        where: { leadId: { in: lote }, status: { in: ['pending', 'overdue'] } },
+        _count: true,
+      })
+      parcial.forEach(a => { actMap[a.leadId] = a._count })
+    }
+
+    // Negociação do card: valor, título e prazo.
+    //
+    // Qual mostrar quando há várias: a ABERTA de maior valor, preferindo a
+    // deste funil (uma negociação pertence a um funil — é dele a meta e a
+    // comissão). Sem nenhuma aberta, vale a última fechada, que é o que
+    // explica um lead marcado como Ganho.
+    const negocMap: Record<number, { titulo: string; valor: number | null; moeda: string; prazo: string | null; aberta: boolean }> = {}
+    for (const lote of emLotes(leadIds)) {
+      const negocs = await prisma.negotiation.findMany({
+        where: { leadId: { in: lote } },
+        select: {
+          leadId: true, titulo: true, valorFinal: true, moeda: true,
+          fechamentoPrevisto: true, resultado: true, funnelId: true, updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      })
+      const peso = (n: (typeof negocs)[number]) => {
+        const aberta = !n.resultado
+        const doFunil = funnelId != null && n.funnelId === funnelId
+        return (aberta ? 4 : 0) + (doFunil ? 2 : 0)
+      }
+      for (const n of negocs) {
+        const atual = negocMap[n.leadId]
+        const valor = n.valorFinal != null ? Number(n.valorFinal) : null
+        const candidato = {
+          titulo: n.titulo,
+          valor,
+          moeda: n.moeda || 'BRL',
+          prazo: n.fechamentoPrevisto ? n.fechamentoPrevisto.toISOString() : null,
+          aberta: !n.resultado,
+          _peso: peso(n),
+          _valor: valor ?? 0,
+        }
+        const anterior = atual ? (atual as any)._peso * 1e12 + ((atual as any)._valor || 0) : -1
+        if (candidato._peso * 1e12 + candidato._valor > anterior) negocMap[n.leadId] = candidato as any
+      }
+    }
 
     // Lookup Meta form names
     const metaFormIds = [...new Set(leads.map(l => l.metaFormId).filter(Boolean))] as string[]
@@ -184,8 +262,17 @@ export async function kanbanRoutes(app: FastifyInstance) {
       const vinculo = (l as any).leadFunnels?.[0] ?? null
       const adicional = !!vinculo && (l as any).funnelId !== funnelId
       const etapaAqui = adicional ? (vinculo.stageKey ?? l.status) : l.status
+      // O atalho para Conversas só existe quando houve conversa de verdade, e
+      // avisa quando ela está ABERTA (em atendimento ou retorno do contato) —
+      // o resto é histórico, que também vale abrir, mas sem chamar atenção.
+      const temConversa = !!l.lastMessageAt
+      const conversaAberta = (!!l.conversationOpenedAt && !l.conversationClosedAt) || !!l.conversationReopenedAt
       const enriched = {
         ...l,
+        _negociacao: negocMap[l.id] ?? null,
+        _temConversa: temConversa,
+        _conversaAberta: temConversa && conversaAberta,
+        _naoLidas: l.unreadMessages ?? 0,
         _activityCount: actMap[l.id] || 0,
         _metaFormName: l.metaFormId ? metaFormNames[l.metaFormId] || null : null,
         // O card precisa dizer que este não é o processo principal da pessoa —
