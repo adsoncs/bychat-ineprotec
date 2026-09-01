@@ -126,10 +126,16 @@ export async function ensureConversationOpen(leadId: number, opts: OpenOpts = {}
  * retorno cai na CAIXA, que é justamente a fila de "chegou e ninguém pegou".
  *
  * O encerramento fica de pé (conversationClosedAt intacto) e quem marca o
- * retorno é conversationReopenedAt — é ele que move o lead de Resolvidos para a
- * Caixa. Assim o dono não é mexido: assignedUserId é o responsável no funil
- * inteiro, não só na conversa, e zerá-lo a cada retorno tiraria o lead da
- * carteira do vendedor, das metas e das comissões.
+ * retorno é conversationReopenedAt — é ele que tira o lead de Resolvidos. Para
+ * ONDE ele vai depende de haver responsável: com dono, para Aguardando (a fila
+ * de quem responde); sem dono, para a Caixa (a fila de quem pega). Assim o dono
+ * não é mexido: assignedUserId é o responsável no funil inteiro, não só na
+ * conversa, e zerá-lo a cada retorno tiraria o lead da carteira do vendedor,
+ * das metas e das comissões.
+ *
+ * A marca também LIBERA a resposta no painel: quem reabriu foi o contato, e
+ * exigir que o operador clicasse em "Reabrir" antes de digitar era pedir que
+ * ele repetisse um gesto que o cliente já tinha feito.
  *
  * Idempotente e sem renovar: a segunda mensagem seguida preserva o instante da
  * primeira. Renovar faria o lead rejuvenescer na fila a cada mensagem e passar
@@ -167,14 +173,15 @@ export async function markConversationReopened(leadId: number, opts: OpenOpts = 
 // escrito curto, e mudar um sem o outro é o que faz o contador discordar da lista.
 // inbox    = atendimento ativo (ticket aberto agora). openConversation sempre
 //            zera closedAt, então closedAt == null + openedAt != null garante "aberto".
-// raw      = lead que nunca teve ticket aberto, MAIS o que voltou a falar depois
-//            de resolvido e ainda espera alguém pegar.
+// raw      = lead que nunca teve ticket aberto, MAIS o retorno SEM dono. O
+//            retorno de quem TEM dono é Aguardando: fila do responsável, não
+//            fila pública.
 // resolved = ticket fechado e sem retorno pendente do contato.
 export const conversationFilters = {
   inbox:    { conversationOpenedAt: { not: null }, conversationClosedAt: null },
   resolved: { conversationClosedAt: { not: null }, conversationReopenedAt: null },
   raw:      { OR: [
     { conversationOpenedAt: null, lastMessageAt: { not: null } },
-    { conversationReopenedAt: { not: null } },
+    { conversationReopenedAt: { not: null }, assignedUserId: null },
   ] },
 } as const

@@ -127,15 +127,16 @@ function uniaoDasCaixas(now: Date) {
   return [
     // Atendimento — inclusive o que estiver adormecido, que na aba própria sai.
     { conversationOpenedAt: { not: null }, conversationClosedAt: null },
-    // Caixa — as duas formas: nunca atendido, e o que voltou a falar depois de
-    // resolvido. A segunda tem closedAt preenchido, então já entrava na união
-    // pela cláusula de Resolvidos; escrever as duas mantém a união igual ao que
-    // as abas somam, que é a razão de esta função existir.
+    // Caixa — as duas formas: nunca atendido, e o retorno SEM dono. O retorno
+    // COM dono não é fila pública: está logo abaixo, em Aguardando. As duas têm
+    // closedAt preenchido, então já entravam na união pela cláusula de
+    // Resolvidos; escrever cada uma mantém a união igual ao que as abas somam,
+    // que é a razão de esta função existir.
     { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
-    { conversationReopenedAt: { not: null } },
+    { conversationReopenedAt: { not: null }, assignedUserId: null },
     // Resolvidos
     { conversationClosedAt: { not: null }, conversationReopenedAt: null },
-    // Aguardando (as duas formas)
+    // Aguardando (as três formas)
     { snoozedUntil: { gt: now } },
     {
       assignedUserId: { not: null },
@@ -143,6 +144,7 @@ function uniaoDasCaixas(now: Date) {
       conversationClosedAt: null,
       lastMessageAt: { not: null },
     },
+    { conversationReopenedAt: { not: null }, assignedUserId: { not: null } },
   ]
 }
 
@@ -162,18 +164,20 @@ function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] }
       // Atendimento: conversa aberta, não fechada, não adormecida.
       return { campos: { conversationOpenedAt: { not: null }, conversationClosedAt: null }, and: [naoAdormecido] }
     case 'raw':
-      // Caixa: chegou mensagem e ninguém assumiu. São dois casos —
-      //  1) lead que nunca teve atendimento aberto e está sem dono;
-      //  2) contato que voltou a falar depois de resolvido (conversationReopenedAt).
-      // O caso (2) IGNORA o dono de propósito: o responsável no funil continua
-      // sendo dele, mas a conversa está sem atendente e precisa ser pega. Sai da
-      // Caixa quando alguém assume ou responde — aí o atendimento abre de novo.
+      // Caixa: chegou mensagem e ninguém assumiu, e não há a quem cobrar. São
+      // dois casos, os dois SEM responsável —
+      //  1) lead que nunca teve atendimento aberto;
+      //  2) contato SEM DONO que voltou a falar depois de resolvido.
+      // O retorno de quem TEM dono não entra aqui: ele vai para Aguardando, na
+      // fila do responsável. Fila pública é para conversa que não é de ninguém;
+      // jogar na Caixa o retorno de um cliente que já tem vendedor faz a casa
+      // inteira disputar o que já tinha destinatário.
       return {
         campos: {},
         and: [naoAdormecido, {
           OR: [
             { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
-            { conversationReopenedAt: { not: null } },
+            { conversationReopenedAt: { not: null }, assignedUserId: null },
           ],
         }],
       }
@@ -182,7 +186,10 @@ function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] }
       // duas abas faria a soma passar do total da aba "Todos".
       return { campos: { conversationClosedAt: { not: null }, conversationReopenedAt: null }, and: [] }
     case 'snoozed':
-      // Aguardando: adormecido OU atribuído sem atendimento iniciado.
+      // Aguardando: adormecido, atribuído sem atendimento iniciado, OU o
+      // contato COM dono que voltou a falar depois de resolvido. As três dizem
+      // a mesma coisa — tem responsável e o atendimento não está aberto —, e é
+      // a fila de quem responde, não a fila de quem pega.
       return {
         campos: {},
         and: [{
@@ -194,6 +201,7 @@ function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] }
               conversationClosedAt: null,
               lastMessageAt: { not: null },
             },
+            { conversationReopenedAt: { not: null }, assignedUserId: { not: null } },
           ],
         }],
       }
@@ -333,8 +341,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       //   2) Operador clica "Assumir" → 'inbox' (Atendimento)
       //   3) Adormece OU é atribuído sem conversa aberta → 'snoozed' (Aguardando)
       //   4) Operador encerra → 'resolved' (Resolvidos)
-      //   Mensagem nova em conversa fechada devolve para 'raw' (Caixa): o
-      //   contato voltou e ninguém pegou esse retorno ainda.
+      //   Mensagem nova em conversa fechada devolve o contato para a fila de
+      //   quem tem de responder: 'snoozed' (Aguardando) quando o lead tem
+      //   responsável, 'raw' (Caixa) quando não tem.
       const bucket = (query.bucket || 'inbox').toString()
       const now = new Date()
 
@@ -357,6 +366,15 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         filtros.unreadMessages = { gt: 0 }
       } else if (status === 'attending') {
         filtros.unreadMessages = 0
+      }
+
+      // Só não lidas. É filtro, não caixa: atravessa a aba escolhida em vez de
+      // criar uma quinta caixa que apareceria em duas somas ao mesmo tempo.
+      // Combinado com a aba "Todos", é a lista de tudo que espera resposta —
+      // e, por entrar em `filtros`, o número das abas passa a contar o mesmo
+      // que a lista mostra, em vez de discordar dela.
+      if (String(query.unread || '') === '1') {
+        filtros.unreadMessages = { gt: 0 }
       }
 
       if (search) {
@@ -2485,6 +2503,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           qualificationSource: true,
           conversationOpenedAt: true,
           conversationClosedAt: true,
+          // O painel precisa saber que o CONTATO reabriu: é o que libera o
+          // compositor numa conversa cujo encerramento continua de pé.
+          conversationReopenedAt: true,
           snoozedUntil: true,
           formData: true,
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } }

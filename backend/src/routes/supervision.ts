@@ -94,7 +94,7 @@ function bucketWhere(bucket: Bucket, now: Date): Record<string, unknown> {
         AND: [notSnoozed, {
           OR: [
             { conversationOpenedAt: null, lastMessageAt: { not: null }, assignedUserId: null },
-            { conversationReopenedAt: { not: null } },
+            { conversationReopenedAt: { not: null }, assignedUserId: null },
           ],
         }],
       }
@@ -106,6 +106,7 @@ function bucketWhere(bucket: Bucket, now: Date): Record<string, unknown> {
           OR: [
             { snoozedUntil: { gt: now } },
             { assignedUserId: { not: null }, conversationOpenedAt: null, conversationClosedAt: null, lastMessageAt: { not: null } },
+            { conversationReopenedAt: { not: null }, assignedUserId: { not: null } },
           ],
         }],
       }
@@ -244,8 +245,10 @@ function resolveBucket(lead: {
   assignedUserId: number | null
   lastMessageAt: Date | null
 }, now: Date): Bucket {
-  // Antes do teste de encerrada: com retorno pendente a conversa está na Caixa.
-  if (lead.conversationReopenedAt) return 'raw'
+  // Antes do teste de encerrada: com retorno pendente a conversa saiu de
+  // Resolvidos. Vai para a fila de quem tem de responder — Aguardando quando há
+  // responsável, Caixa quando não há.
+  if (lead.conversationReopenedAt) return lead.assignedUserId ? 'snoozed' : 'raw'
   if (lead.conversationClosedAt) return 'resolved'
   if (lead.snoozedUntil && lead.snoozedUntil > now) return 'snoozed'
   if (lead.conversationOpenedAt) return 'inbox'
