@@ -2,7 +2,7 @@
 //
 // São escolhas de leitura/escrita do operador — tamanho de fonte, densidade,
 // velocidade do áudio, o que aparece na lista. Ficam no navegador (mesmo padrão
-// do resto da tela: `conversas.composerHeight`, `bh_atd_notif`) e são separadas
+// do resto da tela: `bh_atd_notif`) e são separadas
 // por usuário, porque o mesmo computador costuma ser dividido entre operadores.
 //
 // O que mexe no SERVIDOR não mora aqui: a transcrição de áudio é uma Setting

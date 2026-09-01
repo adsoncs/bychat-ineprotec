@@ -1332,30 +1332,45 @@ function ChatPanel({
 
   // Altura do compositor.
   //
-  // Antes era uma linha fixa que NÃO crescia: passando da primeira linha o texto
-  // rolava dentro da caixa e quem escrevia cinco linhas só enxergava a última.
-  // Agora a caixa acompanha o que está sendo digitado e, se o operador arrastar
-  // a borda, aquela altura vira o piso e fica lembrada para as próximas vezes.
-  const [alturaFixada, setAlturaFixada] = useState<number>(() => {
-    const v = Number(localStorage.getItem('conversas.composerHeight') || '')
-    return Number.isFinite(v) && v >= 36 ? v : 0
-  })
+  // A caixa cresce com o que está sendo escrito e **volta ao tamanho de uma
+  // linha assim que a mensagem sai**. Nada de altura lembrada.
+  //
+  // Antes o arrasto da borda virava um piso permanente, salvo no navegador — e
+  // o piso era gravado no `mouseup` do textarea, que dispara em QUALQUER clique
+  // dentro dele, não só ao arrastar a borda. Bastava escrever uma mensagem
+  // longa e clicar no meio do texto para a caixa ficar grande para sempre, em
+  // todas as conversas e em todas as sessões seguintes. O operador só via o
+  // sintoma: "ela cresce e nunca mais volta".
+  const ALTURA_MINIMA = 36
 
-  /** Ajusta a altura ao conteúdo, respeitando o piso arrastado e o teto da tela. */
+  /** Ajusta a altura ao conteúdo, entre uma linha e o teto da tela. */
   function ajustarAltura(el: HTMLTextAreaElement | null) {
     if (!el) return
     // Teto por viewport: em notebook, uma caixa "grande" não pode engolir o
     // histórico da conversa.
     const teto = Math.min(224, Math.round(window.innerHeight * 0.4))
-    const piso = Math.max(36, alturaFixada)
     el.style.height = 'auto'
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, piso), teto)}px`
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, ALTURA_MINIMA), teto)}px`
     el.style.overflowY = el.scrollHeight > teto ? 'auto' : 'hidden'
+  }
+
+  /**
+   * Devolve a caixa ao tamanho de uma linha.
+   *
+   * O efeito abaixo já faria isso quando o rascunho esvazia, mas só na próxima
+   * renderização — e se a pessoa tinha arrastado a borda no meio da escrita, o
+   * navegador deixou uma altura fixa no style que precisa ser desfeita na mão.
+   */
+  function encolherCaixa() {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = `${ALTURA_MINIMA}px`
+    el.style.overflowY = 'hidden'
   }
 
   // Reajusta quando o texto muda por fora da digitação (modelo inserido, emoji,
   // rascunho limpo após enviar).
-  useEffect(() => { ajustarAltura(textareaRef.current) }, [draft, alturaFixada])
+  useEffect(() => { ajustarAltura(textareaRef.current) }, [draft])
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -1541,6 +1556,10 @@ function ChatPanel({
 
   /** O cursor volta para a caixa: quem envia costuma enviar de novo em seguida. */
   function focarCaixa() {
+    // Encolher junto com o foco cobre os três caminhos que esvaziam a caixa —
+    // envio simples, sequência com [[quebra]] e edição salva — sem espalhar a
+    // chamada por cada um deles.
+    encolherCaixa()
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
@@ -2529,7 +2548,7 @@ function ChatPanel({
                 <button
                   type="button"
                   class="size-7 shrink-0 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-2"
-                  onClick={() => { setEditando(null); setDraft('') }}
+                  onClick={() => { setEditando(null); setDraft(''); encolherCaixa() }}
                   aria-label="Cancelar edição"
                   title="Cancelar edição"
                 >
@@ -2775,7 +2794,7 @@ function ChatPanel({
                       ? 'bg-warning/10 border-warning/40'
                       : 'bg-surface border-border',
                   )}
-                  title={`Arraste a borda de baixo para deixar a caixa maior — o tamanho fica salvo. ${prefsConversa.sendOnEnter ? 'Enter envia, Shift+Enter quebra linha.' : 'Ctrl+Enter envia, Enter quebra linha.'}`}
+                  title={`A caixa cresce com o texto e volta ao normal depois de enviar. ${prefsConversa.sendOnEnter ? 'Enter envia, Shift+Enter quebra linha.' : 'Ctrl+Enter envia, Enter quebra linha.'}`}
                   placeholder={isInternalNote ? 'Nota interna (não enviada ao cliente)…' : 'Digite uma mensagem…'}
                   value={draft}
                   onInput={(e) => {
@@ -2783,17 +2802,6 @@ function ChatPanel({
                     ajustarAltura(e.target as HTMLTextAreaElement)
                   }}
                   onPaste={handlePaste}
-                  onMouseUp={(e) => {
-                    // Soltou depois de arrastar a borda: guarda a altura como o
-                    // novo piso. Sem isso o próximo ajuste automático desfaria o
-                    // que a pessoa acabou de escolher.
-                    const el = e.target as HTMLTextAreaElement
-                    const h = Math.round(el.getBoundingClientRect().height)
-                    if (Math.abs(h - Math.max(36, alturaFixada)) > 8) {
-                      setAlturaFixada(h)
-                      try { localStorage.setItem('conversas.composerHeight', String(h)) } catch { /* modo privado */ }
-                    }
-                  }}
                   onKeyDown={(e) => {
                     if (slashOpen) {
                       const n = slashMatches.length
@@ -2930,7 +2938,7 @@ function ChatPanel({
         leadId={leadId}
         textoInicial={draft}
         channelId={channelId ?? undefined}
-        onAgendado={() => setDraft('')}
+        onAgendado={() => { setDraft(''); encolherCaixa() }}
       />
     </>
   )
