@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  CalendarClock,
   ChevronDown,
   ChevronUp,
   Copy as CopyIcon,
@@ -26,6 +27,7 @@ import {
   ListChecks,
   List as ListIcon,
   Mail,
+  MessageSquare,
   MoreHorizontal,
   Phone,
   Plus,
@@ -36,8 +38,8 @@ import {
   Users as UsersIcon,
   XCircle,
 } from '@/components/ui/icon-set'
-import { MarkWonModal, MarkLostModal, OutcomeBadge } from '@/components/LeadOutcomeControls'
-import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
+import { MarkWonModal, MarkLostModal } from '@/components/LeadOutcomeControls'
+import { ScoreBar } from '@/components/ui/ScoreBar'
 import {
   useKanbanBoard,
   useMoveLeadStage,
@@ -101,6 +103,14 @@ function loadHideLost(): boolean {
   try { return localStorage.getItem('bh_kanban_hide_lost') !== '0' } catch { return true }
 }
 
+/**
+ * O canal de origem, no card.
+ *
+ * A FORMA continua sendo a da marca — é ela que o operador reconhece de
+ * relance —, mas a cor sai: seis logotipos em cor cheia num card de 288px
+ * competiam com o único vermelho que importa ali, o do lead parado. Herda a
+ * cor de quem chama (`currentColor`), que no card é o texto secundário.
+ */
 function ChannelIcon({ source, size = 12 }: { source: string | null; size?: number }) {
   if (!source) return null
   const title = leadSourceLabel(source)
@@ -108,7 +118,7 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
   switch (source) {
     case 'whatsapp':
       return (
-        <svg {...common} fill="#25D366" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
           <path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z" />
@@ -116,21 +126,21 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
       )
     case 'instagram':
       return (
-        <svg {...common} fill="#E4405F" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919C8.416 2.175 8.796 2.163 12 2.163zm0-2.163C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
         </svg>
       )
     case 'telegram':
       return (
-        <svg {...common} fill="#229ED9" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 7.06l-1.55 7.32c-.12.52-.42.65-.85.4l-2.35-1.73-1.13 1.09c-.13.13-.23.23-.46.23l.16-2.32 4.21-3.81c.18-.16-.04-.25-.28-.09L9.18 13.5l-2.24-.7c-.49-.15-.5-.49.1-.72l8.76-3.38c.41-.15.77.1.64.66z" />
         </svg>
       )
     case 'meta_lead_ads':
       return (
-        <svg {...common} fill="#1877F2" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
         </svg>
@@ -138,7 +148,7 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
     case 'web_chat':
     case 'portal_chat':
       return (
-        <svg {...common} fill="#1a73e8" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
         </svg>
@@ -146,7 +156,7 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
     case 'web_form':
     case 'form':
       return (
-        <svg {...common} fill="#7c4dff" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zM6 20V4h7v5h5v11H6zm2-6h8v2H8v-2zm0-3h8v2H8v-2z" />
         </svg>
@@ -154,49 +164,49 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
     case 'enrollment_portal':
     case 'enrollment_portal_interest':
       return (
-        <svg {...common} fill="#0d9488" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zm-6.82 9.97L12 16.72l6.82-3.75L20 13.61v3.5c-2.08 1.78-4.93 2.89-8 2.89s-5.92-1.11-8-2.89v-3.5l1.18-.64z" />
         </svg>
       )
     case 'landing_page':
       return (
-        <svg {...common} fill="#f59e0b" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M3 3h18a1 1 0 011 1v16a1 1 0 01-1 1H3a1 1 0 01-1-1V4a1 1 0 011-1zm1 6v10h16V9H4zm0-2h16V5H4v2zm3 4h6v2H7v-2zm0 4h10v2H7v-2z" />
         </svg>
       )
     case 'scheduling':
       return (
-        <svg {...common} fill="#0ea5e9" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 18H5V9h14v12zm0-14H5V5h14v2zM7 11h5v5H7v-5z" />
         </svg>
       )
     case 'chatbot':
       return (
-        <svg {...common} fill="#8b5cf6" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M12 2a2 2 0 012 2v1h4a3 3 0 013 3v9a3 3 0 01-3 3H6a3 3 0 01-3-3V8a3 3 0 013-3h4V4a2 2 0 012-2zM8.5 11a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zM2 12a1 1 0 011 1v3a1 1 0 11-2 0v-3a1 1 0 011-1zm20 0a1 1 0 011 1v3a1 1 0 11-2 0v-3a1 1 0 011-1z" />
         </svg>
       )
     case 'api':
       return (
-        <svg {...common} fill="#475569" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z" />
         </svg>
       )
     case 'manual':
       return (
-        <svg {...common} fill="#6b7280" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
         </svg>
       )
     case 'direto':
       return (
-        <svg {...common} fill="#64748b" aria-label={title}>
+        <svg {...common} fill="currentColor" aria-label={title}>
           <title>{title}</title>
           <path d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2z" />
         </svg>
@@ -484,10 +494,14 @@ export function KanbanPage() {
                 currentUserId={currentUserId}
               />
               <Badge tone="neutral">{totalLeads} {totalLeads === 1 ? 'lead' : 'leads'}</Badge>
-              <span title="Atualiza a cada 30s" class="inline-flex">
-                <Badge tone="success">
-                  {isFetching && !isLoading ? 'Atualizando…' : 'Auto-refresh ON'}
-                </Badge>
+              {/* Estado normal não é conquista: verde permanente aqui competia
+                * com o verde que significa "ganho" dentro do quadro. */}
+              <span
+                title="O quadro se atualiza sozinho a cada 30 segundos"
+                class="inline-flex items-center gap-1.5 text-2xs text-fg-muted"
+              >
+                <span class={cn('size-1.5 rounded-full', isFetching && !isLoading ? 'bg-accent' : 'bg-fg-muted/50')} />
+                {isFetching && !isLoading ? 'Atualizando…' : 'Atualiza sozinho'}
               </span>
             </div>
           </Card>
@@ -659,7 +673,7 @@ function FunnelCard({ funnel, onPick }: { funnel: KanbanFunnelSummary; onPick: (
         </span>
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium text-fg truncate">{funnel.name}</div>
-          {funnel.isDefault && <Badge tone="warning">Padrão</Badge>}
+          {funnel.isDefault && <Badge tone="neutral">Padrão</Badge>}
         </div>
       </div>
       <div class="flex items-center gap-4 text-xs text-fg-muted">
@@ -718,12 +732,20 @@ function KanbanColumn({
       )}
       data-stage={stage.key}
     >
-      <header class="p-3 border-b border-border" style={{ borderBottomColor: stage.color || undefined }}>
+      {/* A cor da etapa é dado do funil e continua aqui — como um trilho de 2px
+        * no topo, não pintando o nome. Nome de etapa é texto: colorido, ele
+        * disputava atenção com o único vermelho que precisa ser visto no
+        * quadro, o do lead parado. */}
+      <header class="relative p-3 pt-3.5 border-b border-border">
+        <span
+          class="absolute inset-x-0 top-0 h-0.5"
+          style={{ background: stage.color || 'var(--color-accent)' }}
+          aria-hidden
+        />
         <div class="flex items-center justify-between gap-2">
           <span class="flex items-center gap-2 min-w-0">
-            <span class="size-2 rounded-full shrink-0" style={{ background: stage.color || 'var(--color-accent)' }} />
-            <span class="text-sm font-medium truncate" style={{ color: stage.color || 'var(--color-fg)' }}>{stage.name}</span>
-            {overWip && <AlertTriangle size={12} class="text-danger shrink-0" aria-label="Acima do WIP" />}
+            <span class="text-sm font-semibold text-fg truncate">{stage.name}</span>
+            {overWip && <AlertTriangle size={12} class="text-danger shrink-0" aria-label="Acima do limite de trabalho em curso" />}
           </span>
           <span
             class={cn(
@@ -734,9 +756,14 @@ function KanbanColumn({
             {cards.length}{cards.length !== totalAll && <span class="text-fg-muted">/{totalAll}</span>}
           </span>
         </div>
-        <div class="mt-2 h-1 rounded-full bg-surface-3 overflow-hidden">
-          <div class="h-full transition-all" style={{ width: `${wipPct}%`, background: wipColor }} />
-        </div>
+        {/* A barra de carga só aparece quando há o que avisar. Verde o tempo
+          * todo ensinava o olho a ignorá-la justamente antes de ela ficar
+          * vermelha. */}
+        {wipPct > 75 && (
+          <div class="mt-2 h-1 rounded-full bg-surface-3 overflow-hidden" title={`${totalAll} de ${WIP_DEFAULT} no limite desta etapa`}>
+            <div class="h-full transition-all" style={{ width: `${wipPct}%`, background: wipColor }} />
+          </div>
+        )}
       </header>
       <div class="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
         {cards.length === 0 ? (
@@ -870,6 +897,57 @@ function AssigneeChip({ name }: { name: string | null }) {
   )
 }
 
+/** Valor da negociação, curto o bastante para caber num card de 288px. */
+function formatarValor(valor: number, moeda: string): string {
+  const casas = Math.abs(valor) >= 1000 ? 0 : 2
+  try {
+    return valor.toLocaleString('pt-BR', {
+      style: 'currency', currency: moeda || 'BRL',
+      minimumFractionDigits: casas, maximumFractionDigits: casas,
+    })
+  } catch {
+    return `R$ ${valor.toLocaleString('pt-BR', { maximumFractionDigits: casas })}`
+  }
+}
+
+/** "12 set" — dia e mês bastam; o ano só quando não é este. */
+function formatarPrazo(iso: string): string {
+  const d = new Date(iso)
+  const opts: Intl.DateTimeFormatOptions = d.getFullYear() === new Date().getFullYear()
+    ? { day: '2-digit', month: 'short' }
+    : { day: '2-digit', month: 'short', year: '2-digit' }
+  return d.toLocaleDateString('pt-BR', opts).replace('.', '')
+}
+
+/** Prazo no passado: o fechamento previsto passou e ninguém fechou nem remarcou. */
+function prazoVencido(iso: string): boolean {
+  const d = new Date(iso)
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  return d.getTime() < hoje.getTime()
+}
+
+/** Divisor da régua de sinais: separa sem pesar como uma vírgula pesaria. */
+function Sep() {
+  return <span class="w-px h-3 bg-border shrink-0" aria-hidden />
+}
+
+/**
+ * O card do quadro.
+ *
+ * A régua desta versão, decidida com o usuário: COR É DECISÃO. A faixa da
+ * esquerda fica reservada ao que exige ação (ganho, perdido, parado) e nada
+ * mais pinta fundo — canal virou forma monocromática, score virou barra, tag
+ * virou ponto, anotação virou marca. Antes um card podia acender onze cores ao
+ * mesmo tempo, e como verde era WhatsApp E ganho E score alto, nenhuma delas
+ * informava: o operador voltava a ler tudo, palavra por palavra, que é o
+ * trabalho que o quadro existe para poupar.
+ *
+ * A ordem também mudou. Primeiro QUEM é (disco, canal, nome, empresa), depois
+ * o que PEDE ATENÇÃO (a régua de sinais), e no rodapé o que só se consulta
+ * (responsável, marcadores, data). Telefone e e-mail saíram do corpo: ninguém
+ * lê um telefone no quadro — clica.
+ */
 function LeadCard({
   lead, dragging = false, compact = false, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost,
 }: {
@@ -887,51 +965,64 @@ function LeadCard({
   const score = typeof lead.scores?.geral === 'number' ? lead.scores.geral : null
   const kanbanFields = useKanbanCardFields(lead)
   const showActions = onView ?? onActivity ?? onDuplicate ?? onMove ?? onMarkWon ?? onMarkLost
-  const outcomeBorder = lead.outcome === 'won'
-    ? 'border-l-2 border-l-success'
+  const titulo = lead.nome ?? lead.empresa ?? '—'
+  const responsavel = lead.assignedUser?.name ?? null
+  const tags = lead.tags ?? []
+  // A faixa é UMA: desfecho vence "parado", porque lead classificado não está
+  // parado — está terminado.
+  const trilho = lead.outcome === 'won'
+    ? 'border-l-success'
     : lead.outcome === 'lost'
-    ? 'border-l-2 border-l-danger'
+    ? 'border-l-danger'
     : stale
-    ? 'border-l-2 border-l-danger'
-    : 'border-border'
+    ? 'border-l-danger/60'
+    : 'border-l-transparent'
 
   return (
     <div
       class={cn(
-        'relative block rounded-md bg-surface border p-2.5 select-none',
+        'relative block rounded-md border border-border border-l-2 p-2.5 select-none',
+        trilho,
         dragging ? 'shadow-xl border-accent rotate-1 cursor-grabbing' : 'cursor-grab hover:border-accent transition-colors',
-        outcomeBorder,
       )}
+      // Um véu da cor da casa, do canto superior esquerdo para o centro. Serve
+      // ao que a versão só-cinza perdeu: o card volta a ter matéria e a se
+      // destacar do fundo da coluna, sem que nenhuma informação ganhe cor por
+      // isso. Sai de `--color-accent`, que o white-label troca por tenant
+      // (lib/applyAppearance.ts) — aqui azul, em outra casa o que ela for.
+      style={{
+        background:
+          'linear-gradient(155deg, color-mix(in oklch, var(--color-accent) 7%, var(--color-surface)) 0%, var(--color-surface) 62%)',
+      }}
     >
-      <div class="flex items-center justify-between gap-2">
-        <span class="text-sm text-fg truncate flex-1 min-w-0 inline-flex items-center gap-1.5">
-          <ChannelIcon source={lead.source} />
-          <span class="truncate">{lead.nome ?? lead.empresa ?? '—'}</span>
-          {/* Este lead está aqui como funil ADICIONAL: o processo principal
-            * dele é outro. Sem dizer isso, o operador cobra neste quadro um
-            * andamento que está sendo tocado em outro lugar. */}
-          {lead._funilAdicional && (
-            <span
-              class="shrink-0 text-fg-muted"
-              title="Também está em outro funil, que é o processo principal deste lead"
-            >
-              <GitFork size={11} />
+      <div class="flex items-start justify-between gap-2">
+        <span class="flex items-start gap-2 min-w-0 flex-1">
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-1.5 min-w-0">
+              <span class="text-fg-muted shrink-0 inline-flex"><ChannelIcon source={lead.source} /></span>
+              <span class="text-sm font-semibold text-fg truncate">{titulo}</span>
+              {/* Este lead está aqui como funil ADICIONAL: o processo principal
+                * dele é outro. Sem dizer isso, o operador cobra neste quadro um
+                * andamento que está sendo tocado em outro lugar. */}
+              {lead._funilAdicional && (
+                <span
+                  class="shrink-0 text-fg-muted"
+                  title="Também está em outro funil, que é o processo principal deste lead"
+                >
+                  <GitFork size={11} />
+                </span>
+              )}
             </span>
-          )}
+            {!compact && lead.empresa && lead.nome && (
+              <span class="block text-2xs text-fg-muted truncate leading-tight">{lead.empresa}</span>
+            )}
+          </span>
         </span>
-        <div class="flex items-center gap-1 shrink-0">
-          {score !== null && (
-            <span class={cn(
-              'text-3xs font-semibold tabular-nums px-1.5 py-0.5 rounded',
-              score >= 70 ? 'bg-success/15 text-success' : score <= 39 ? 'bg-danger/15 text-danger' : 'bg-warning/15 text-warning',
-            )}>{Math.round(score)}</span>
-          )}
-          {lead._activityCount > 0 && <Badge tone="warning">{lead._activityCount}</Badge>}
-          <StatusSummaryBadge summary={lead.statusSummary} />
-          {lead.outcome && <OutcomeBadge outcome={lead.outcome} />}
+        <div class="flex items-center gap-0.5 shrink-0">
           {lead.whatsapp && (
-            <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact class="!h-7 !w-7" />
+            <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact tone="neutral" />
           )}
+          <AbrirNoConversas lead={lead} />
           {showActions && (
             <CardActions
               onView={onView}
@@ -945,85 +1036,221 @@ function LeadCard({
           )}
         </div>
       </div>
+
       {!compact && (
         <>
-          {lead.empresa && lead.nome && (
-            <div class="text-xs text-fg-muted truncate mt-0.5">{lead.empresa}</div>
+          {/* A régua de sinais. Cada item só existe quando é verdade — régua
+            * vazia é card sem nada a cobrar, e isso também é informação. */}
+          {(score !== null || lead._activityCount > 0 || lead.statusSummary || lead.outcome || stale) && (
+            <div class="flex items-center gap-2 mt-2 text-2xs text-fg-muted">
+              {score !== null && (
+                <>
+                  <ScoreBar value={score} class="w-11 !h-1" />
+                  <span class="tabular-nums">{Math.round(score)}</span>
+                </>
+              )}
+              {lead._activityCount > 0 && (
+                <>
+                  {score !== null && <Sep />}
+                  <span class="inline-flex items-center gap-1" title={`${lead._activityCount} atividade(s) pendente(s)`}>
+                    <ListChecks size={10} /> {lead._activityCount}
+                  </span>
+                </>
+              )}
+              {lead.statusSummary && (
+                <>
+                  <Sep />
+                  <span
+                    class="inline-flex items-center gap-1 min-w-0"
+                    title={`${lead.statusSummary.code} — ${lead.statusSummary.name}`}
+                  >
+                    <span
+                      class="size-1.5 rounded-full shrink-0"
+                      style={{ background: lead.statusSummary.color || 'currentColor' }}
+                    />
+                    <span class="font-mono truncate">{lead.statusSummary.code}</span>
+                  </span>
+                </>
+              )}
+              {lead.outcome && (
+                <>
+                  <Sep />
+                  <span class={lead.outcome === 'won' ? 'text-success font-medium' : 'text-danger font-medium'}>
+                    {lead.outcome === 'won' ? 'Ganho' : 'Perdido'}
+                  </span>
+                </>
+              )}
+              {stale && !lead.outcome && (
+                <>
+                  <Sep />
+                  <span class="text-danger">{daysSince(lead.updatedAt)}d parado</span>
+                </>
+              )}
+            </div>
           )}
-          <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap">
-            {lead.whatsapp && (
-              <span
-                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted font-medium"
-                title={lead.whatsapp}
-              >
-                <Phone size={10} /> {lead.whatsapp}
-              </span>
-            )}
-            {lead.email && (
-              <span
-                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-3 text-fg-muted max-w-[160px] truncate"
-                title={lead.email}
-              >
-                <Mail size={10} /> <span class="truncate">{lead.email}</span>
-              </span>
-            )}
-            {lead._metaFormName && (
-              <span class="inline-flex items-center gap-1 truncate text-fg-muted" title={lead._metaFormName}>
-                <Sparkles size={10} class="text-info" /> {lead._metaFormName}
-              </span>
-            )}
-          </div>
-          {lead.tags && lead.tags.length > 0 && (
-            <div class="flex flex-wrap gap-1 mt-2">
-              {lead.tags.slice(0, 3).map(({ tag }) => (
-                <span
-                  key={tag.id}
-                  class="text-3xs px-1.5 py-0.5 rounded-full font-medium"
-                  style={{ background: `${tag.color}22`, color: tag.color }}
-                >
-                  {tag.name}
+
+          {/* Contato à vista. Voltou ao corpo por decisão do usuário: no dia a
+            * dia o operador confere o número e o e-mail sem abrir o lead, e
+            * escondê-los atrás de um ícone obrigava um clique a mais para uma
+            * conferência que é constante. Segue discreto — texto secundário,
+            * sem pastilha colorida. */}
+          {(lead.whatsapp || lead.email) && (
+            <div class="flex items-center gap-2 mt-1.5 text-2xs text-fg-muted flex-wrap">
+              {lead.whatsapp && (
+                <span class="inline-flex items-center gap-1 min-w-0" title={lead.whatsapp}>
+                  <Phone size={10} class="shrink-0" />
+                  <span class="truncate">{lead.whatsapp}</span>
                 </span>
-              ))}
-              {lead.tags.length > 3 && (
-                <span class="text-3xs px-1.5 py-0.5 rounded-full font-medium bg-surface-3 text-fg-muted">
-                  +{lead.tags.length - 3}
+              )}
+              {lead.email && (
+                <a
+                  href={`mailto:${lead.email}`}
+                  class="inline-flex items-center gap-1 min-w-0 hover:text-fg"
+                  title={lead.email}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <Mail size={10} class="shrink-0" />
+                  <span class="truncate max-w-[10rem]">{lead.email}</span>
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* A negociação. É o dado pelo qual o funil existe, então o VALOR tem
+            * peso tipográfico — não cor. Prazo vencido é a exceção: aí vira
+            * decisão, e decisão pode acender. */}
+          {lead._negociacao && (
+            <div class="flex items-baseline gap-1.5 mt-1.5 text-2xs min-w-0">
+              <span class="text-fg-muted truncate" title={lead._negociacao.titulo}>
+                {lead._negociacao.titulo}
+              </span>
+              {lead._negociacao.valor != null && (
+                <span class="text-accent font-semibold tabular-nums shrink-0">
+                  {formatarValor(lead._negociacao.valor, lead._negociacao.moeda)}
+                </span>
+              )}
+              {lead._negociacao.prazo && (
+                <span
+                  class={cn('shrink-0 inline-flex items-center gap-1', prazoVencido(lead._negociacao.prazo) ? 'text-danger' : 'text-fg-muted')}
+                  title={`Fechamento previsto para ${new Date(lead._negociacao.prazo).toLocaleDateString('pt-BR')}`}
+                >
+                  <CalendarClock size={10} /> {formatarPrazo(lead._negociacao.prazo)}
                 </span>
               )}
             </div>
           )}
+
+          {/* Campos que a casa escolheu mostrar (showInKanban): continuam por
+            * inteiro — são dado de negócio, não enfeite. */}
           {kanbanFields.length > 0 && (
-            <div class="mt-2 space-y-0.5">
+            <div class="mt-1.5 space-y-0.5">
               {kanbanFields.map((f) => (
-                <div key={f.key} class="flex items-baseline gap-1.5 text-2xs leading-snug">
-                  <span class="text-fg-muted shrink-0">{f.label}:</span>
-                  <span class="text-fg-muted truncate" title={f.value}>{f.value}</span>
+                <div key={f.key} class="flex items-baseline gap-1.5 text-2xs leading-snug text-fg-muted">
+                  <span class="shrink-0">{f.label}:</span>
+                  <span class="truncate" title={f.value}>{f.value}</span>
                 </div>
               ))}
             </div>
           )}
-          {lead.annotation && (
-            <div
-              class="mt-2 p-1.5 rounded border border-warning/40 bg-warning/10 text-2xs text-warning leading-snug line-clamp-2 inline-flex items-start gap-1"
-              title={lead.annotation}
+
+          <div class="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-border text-2xs text-fg-muted">
+            <span class="flex items-center gap-1.5 min-w-0">
+              {responsavel ? (
+                <span class="truncate max-w-[6rem]" title={responsavel}>{responsavel.split(/\s+/)[0]}</span>
+              ) : (
+                <span class="italic" title="Sem responsável">Fila</span>
+              )}
+              {tags.length > 0 && (
+                <>
+                  <Sep />
+                  <span
+                    class="inline-flex items-center gap-0.5 shrink-0"
+                    title={tags.map(({ tag }) => tag.name).join(' · ')}
+                  >
+                    {tags.slice(0, 4).map(({ tag }) => (
+                      <span key={tag.id} class="size-1.5 rounded-full" style={{ background: tag.color }} />
+                    ))}
+                    {tags.length > 4 && <span class="ml-0.5">+{tags.length - 4}</span>}
+                  </span>
+                </>
+              )}
+              {lead.annotation && (
+                <>
+                  <Sep />
+                  <span class="inline-flex items-center gap-1 shrink-0" title={lead.annotation}>
+                    <StickyNote size={10} /> nota
+                  </span>
+                </>
+              )}
+              {lead._metaFormName && (
+                <>
+                  <Sep />
+                  <span class="inline-flex items-center gap-1 min-w-0" title={`Veio do formulário ${lead._metaFormName}`}>
+                    <Sparkles size={10} class="shrink-0" />
+                    <span class="truncate max-w-[6rem]">{lead._metaFormName}</span>
+                  </span>
+                </>
+              )}
+            </span>
+            <span
+              class={cn('shrink-0', stale && !lead.outcome && 'text-danger')}
+              title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}
             >
-              <StickyNote size={10} class="shrink-0 mt-0.5" />
-              <span class="line-clamp-2">{lead.annotation}</span>
-            </div>
-          )}
-          <div class="flex items-center justify-between mt-2 text-2xs text-fg-muted">
-            <AssigneeChip name={lead.assignedUser?.name ?? null} />
-            <span class={stale ? 'text-danger font-medium' : ''} title={new Date(lead.createdAt).toLocaleDateString('pt-BR')}>
               {timeAgo(lead.createdAt)}
             </span>
           </div>
         </>
       )}
       {stale && compact && (
-        <div class="text-3xs text-danger mt-1 font-medium">
-          {daysSince(lead.updatedAt)}d parado
-        </div>
+        <div class="text-3xs text-danger mt-1">{daysSince(lead.updatedAt)}d parado</div>
       )}
     </div>
+  )
+}
+
+/**
+ * Atalho para a conversa deste lead.
+ *
+ * Ao lado do botão de WhatsApp, que ABRE uma conversa nova; este continua a que
+ * já existe, dentro do painel. Só aparece quando houve mensagem trocada — sem
+ * isso levaria o operador a uma tela vazia e ensinaria a não clicar.
+ *
+ * Três estados, e nenhum deles inventa cor nova: histórico (conversa encerrada)
+ * é discreto; conversa aberta ganha o acento; não lida mostra o número, que é o
+ * mesmo sinal que o módulo Conversas usa.
+ */
+function AbrirNoConversas({ lead }: { lead: KanbanLead }) {
+  const [, navigate] = useLocation()
+  if (!lead._temConversa) return null
+  const naoLidas = lead._naoLidas ?? 0
+  const aberta = !!lead._conversaAberta
+  const titulo = naoLidas > 0
+    ? `Abrir no Conversas — ${naoLidas} não lida${naoLidas > 1 ? 's' : ''}`
+    : aberta
+      ? 'Abrir no Conversas — atendimento em aberto'
+      : 'Abrir no Conversas — histórico da conversa'
+  return (
+    <button
+      type="button"
+      class={cn(
+        'relative h-7 w-7 grid place-items-center rounded shrink-0 transition-colors',
+        aberta ? 'text-accent hover:bg-accent/10' : 'text-fg-muted hover:text-fg hover:bg-surface-3',
+      )}
+      title={titulo}
+      aria-label={titulo}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); navigate(`/conversations?leadId=${lead.id}`) }}
+    >
+      <MessageSquare size={13} />
+      {naoLidas > 0 && (
+        <span
+          class="absolute -top-0.5 -right-0.5 min-w-3 h-3 px-0.5 rounded-full bg-accent text-fg-on-brand text-[9px] leading-3 font-semibold tabular-nums text-center"
+        >
+          {naoLidas > 9 ? '9+' : naoLidas}
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -1057,9 +1284,16 @@ function CardActions({
       >
         <MoreHorizontal size={12} />
       </button>
+      {/* O menu é a continuação do card, então usa o mesmo material: o véu da
+        * cor da casa sobre a mesma superfície. Com `bg-surface-2` ele aparecia
+        * como uma segunda folha, de outro tom, saindo de dentro do card. */}
       {open && (
         <div
-          class="absolute right-0 top-full mt-1 w-44 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20"
+          class="absolute right-0 top-full mt-1 w-44 rounded-md border border-border shadow-lg py-1 z-20"
+          style={{
+            background:
+              'linear-gradient(155deg, color-mix(in oklch, var(--color-accent) 7%, var(--color-surface)) 0%, var(--color-surface) 62%)',
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {onView && (
@@ -1085,12 +1319,12 @@ function CardActions({
           )}
           {(onDuplicate ?? onMove) && <div class="my-1 border-t border-border" />}
           {onMove && (
-            <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-accent hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onMove() }}>
+            <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onMove() }}>
               <ArrowRight size={12} /> Mover para Funil
             </button>
           )}
           {onDuplicate && (
-            <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-success hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDuplicate() }}>
+            <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDuplicate() }}>
               <CopyIcon size={12} /> Duplicar lead
             </button>
           )}
@@ -1206,9 +1440,13 @@ function KanbanListRow({
     )}>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
-          <ChannelIcon source={lead.source} />
+          <span class="text-fg-muted inline-flex shrink-0"><ChannelIcon source={lead.source} /></span>
           <span class="text-sm text-fg truncate">{lead.nome ?? '—'}</span>
-          {lead._activityCount > 0 && <Badge tone="warning">{lead._activityCount}</Badge>}
+          {lead._activityCount > 0 && (
+            <span class="inline-flex items-center gap-1 text-2xs text-fg-muted" title={`${lead._activityCount} atividade(s) pendente(s)`}>
+              <ListChecks size={10} /> {lead._activityCount}
+            </span>
+          )}
         </div>
         <div class="text-xs text-fg-muted truncate flex items-center gap-2 flex-wrap mt-0.5">
           <span>{lead.empresa ?? '—'}</span>
@@ -1218,7 +1456,7 @@ function KanbanListRow({
             </span>
           )}
           {lead._metaFormName && (
-            <span class="text-info inline-flex items-center gap-1 truncate max-w-[140px]" title={lead._metaFormName}>
+            <span class="inline-flex items-center gap-1 truncate max-w-[140px]" title={`Veio do formulário ${lead._metaFormName}`}>
               <Sparkles size={10} /> {lead._metaFormName}
             </span>
           )}
@@ -1229,7 +1467,8 @@ function KanbanListRow({
         {timeAgo(lead.createdAt)}
       </div>
       <div class="flex items-center gap-1 shrink-0">
-        {lead.whatsapp && <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact />}
+        {lead.whatsapp && <SendWhatsAppButton leadId={lead.id} whatsapp={lead.whatsapp} compact tone="neutral" />}
+        <AbrirNoConversas lead={lead} />
         <Button variant="secondary" size="sm" onClick={onView}>Ver</Button>
         <Button variant="secondary" size="sm" onClick={onActivity}><Plus size={12} />Ativ</Button>
         <Button variant="secondary" size="sm" onClick={onMove}><ArrowRight size={12} />Funil</Button>

@@ -79,6 +79,14 @@ export interface KanbanLead {
   tags?: { tag: { id: number; name: string; color: string } }[]
   _activityCount: number
   _metaFormName: string | null
+  /** A negociação que o card mostra: aberta de maior valor, preferindo a deste funil. */
+  _negociacao?: { titulo: string; valor: number | null; moeda: string; prazo: string | null; aberta: boolean } | null
+  /** Já houve mensagem trocada — é o que autoriza o atalho para o Conversas. */
+  _temConversa?: boolean
+  /** A conversa está aberta agora (em atendimento, ou o contato voltou a falar). */
+  _conversaAberta?: boolean
+  /** Mensagens ainda não lidas nessa conversa. */
+  _naoLidas?: number
   /** Está neste quadro como funil ADICIONAL — o processo principal dele é outro. */
   _funilAdicional?: boolean
   // Lead Routing F6
