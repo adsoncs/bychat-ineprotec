@@ -13,6 +13,40 @@ interface CustomIconProps {
   class?: string
 }
 
+/**
+ * WhatsApp em CONTORNO — para ficar ao lado dos ícones de ação.
+ *
+ * O logo oficial é um glifo sólido numa grade de 32. Encolhido para 13px e
+ * pintado de cinza, ele lê mais leve que os vizinhos: os ícones do painel são
+ * contorno de 1,5px absoluto na grade 24, e o glifo não tem traço nenhum para
+ * casar com isso. Este desenho é o `brand-whatsapp` do Tabler — a mesma fonte
+ * do resto do set —, então o peso bate exatamente.
+ *
+ * O glifo sólido continua existindo em `WhatsappSend.WhatsappIcon`: no botão
+ * verde ele é branco sobre cor cheia, e ali a silhueta é o que se reconhece.
+ */
+export function WhatsappOutline(props: CustomIconProps): JSX.Element {
+  const { size = 24, class: className } = props
+  return (
+    <svg
+      data-icon=""
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width={props.strokeWidth ?? 1.5}
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9" />
+      <path d="M9 10a.5 .5 0 0 0 1 0v-1a.5 .5 0 0 0 -1 0v1a5 5 0 0 0 5 5h1a.5 .5 0 0 0 0 -1h-1a.5 .5 0 0 0 0 1" />
+    </svg>
+  )
+}
+
 /** Instagram — logo de marca, não existe no lucide. */
 export function Instagram(props: CustomIconProps): JSX.Element {
   const { size = 24, class: className } = props

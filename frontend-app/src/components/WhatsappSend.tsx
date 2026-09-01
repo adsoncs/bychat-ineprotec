@@ -25,6 +25,7 @@ import { useSendMessage, useSenderChannels, type SenderChannel } from '@/hooks/u
 import { useCloudApiTemplates, parseTemplateComponents, type CloudApiTemplate, type ParsedTemplate } from '@/hooks/useCloudApi'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { WhatsappOutline } from '@/components/ui/icons.custom'
 import { nomeDoCanal } from '@/lib/channelColors'
 
 // Cor oficial WhatsApp = #25d366
@@ -38,11 +39,21 @@ interface SendWhatsAppButtonProps {
   compact?: boolean
   /** customização adicional de classes (ex.: para alterar tamanho, posição) */
   class?: string
+  /**
+   * Peso visual do modo ícone.
+   *
+   * `brand` (padrão) é o botão verde de sempre. `neutral` desliga a cor de
+   * marca e iguala o botão aos vizinhos — no card do Kanban ele fica lado a
+   * lado com o atalho do Conversas, e dois ícones que fazem a mesma classe de
+   * coisa (falar com a pessoa) não podem ter pesos diferentes: o verde puxava
+   * o olho para o canal em vez de para o lead.
+   */
+  tone?: 'brand' | 'neutral'
   /** callback após envio bem-sucedido (opcional) */
   onSent?: () => void
 }
 
-export function SendWhatsAppButton({ leadId, whatsapp, compact, class: className, onSent }: SendWhatsAppButtonProps) {
+export function SendWhatsAppButton({ leadId, whatsapp, compact, tone = 'brand', class: className, onSent }: SendWhatsAppButtonProps) {
   const [open, setOpen] = useState(false)
   const noPhone = !whatsapp || !whatsapp.replace(/\D/g, '')
 
@@ -63,13 +74,19 @@ export function SendWhatsAppButton({ leadId, whatsapp, compact, class: className
           // marca de fornecedor. Então usa a superfície padrão dos secundários,
           // com a mesma altura (h-8) do Button do sistema.
           compact
-            ? cn('text-white shadow-sm h-8 w-8 p-0', WPP_BG, WPP_HOVER)
+            ? tone === 'neutral'
+              ? 'h-7 w-7 p-0 text-fg-muted hover:text-fg hover:bg-surface-3'
+              : cn('text-white shadow-sm h-8 w-8 p-0', WPP_BG, WPP_HOVER)
             : 'h-8 px-3 text-xs bg-surface-2 text-fg border border-border surface-raised hover:bg-surface-3',
           'disabled:opacity-50 disabled:cursor-not-allowed',
           className,
         )}
       >
-        <WhatsappIcon size={compact ? 16 : 13} />
+        {/* Contorno quando o botão é neutro (mesmo peso dos ícones vizinhos);
+          * glifo cheio quando é o botão verde, onde a silhueta é a marca. */}
+        {compact && tone === 'neutral'
+          ? <WhatsappOutline size={13} />
+          : <WhatsappIcon size={compact ? 16 : 13} />}
         {!compact && 'Enviar WhatsApp'}
       </button>
       {open && (
