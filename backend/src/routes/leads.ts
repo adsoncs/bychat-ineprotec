@@ -30,6 +30,14 @@ export async function leadsRoutes(app: FastifyInstance) {
     if (!user) { reply.code(401).send({ error: 'Não autenticado' }); return false }
     const ok = await canUserAccessLead(user.userId, user.role as AccessRole, leadId)
     if (!ok) { reply.code(403).send({ error: 'Sem permissão sobre este lead' }); return false }
+    // Número reservado vale para a FICHA também: a conversa estava protegida e a
+    // ficha do mesmo contato abria por URL, com telefone, histórico de eventos e
+    // anotações. Meia proteção não protege.
+    const { podeVerConversa } = await import('../services/channelVisibility.js')
+    if (!await podeVerConversa(leadId, user.userId, user.role)) {
+      reply.code(403).send({ error: 'Este contato pertence a um número reservado.' })
+      return false
+    }
     return true
   }
 
@@ -309,6 +317,11 @@ export async function leadsRoutes(app: FastifyInstance) {
     const where: any = {}
     const whereAnd: any[] = []
     if (Object.keys(scopeWhere).length > 0) whereAnd.push(scopeWhere)
+    // Contato que só existe por causa de um número reservado não aparece na
+    // lista de quem não acompanha esse número — nem para ser exportado depois.
+    const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+    const semReservados = await filtroDeCanaisVisiveis(user.userId, user.role)
+    if (semReservados) whereAnd.push(semReservados)
     if (q.status) where.status = q.status
     if (q.segmento) where.segmento = q.segmento
     // Filtro por funil (pipeline). Sem isto o filtro da tela de Leads era ignorado

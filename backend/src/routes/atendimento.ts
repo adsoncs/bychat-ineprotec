@@ -37,9 +37,24 @@ type AcessoTicket = { ok: true } | { ok: false; status: number; error: string; a
  *  LOTE precisam separar o que a pessoa pode fazer do que não pode, em vez de
  *  recusar o lote inteiro por causa de uma conversa fora do alcance dela. */
 async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao = 'view'): Promise<AcessoTicket> {
-  // Gerenciador do Conversas: quando há matriz para este usuário, ela responde
-  // sozinha — escopo do lead e reserva de número saem de cena, senão a regra
-  // mais restritiva venceria sempre e a marcação não valeria de nada.
+  // NÚMERO RESERVADO VENCE TUDO — inclusive a matriz do gerenciador.
+  //
+  // Antes a matriz "respondia sozinha" e a reserva saía de cena. Na prática o
+  // superadmin marcava a linha como privada, a matriz dava o canal ao time, e
+  // os agentes liam e RESPONDIAM as conversas dela: foi o que o kobogo relatou
+  // e o que o teste ponta a ponta confirmou. Reservado é reservado: só o dono,
+  // os observadores e o SUPERADMIN.
+  //
+  // Isto é teto, não permissão: quem passa aqui ainda precisa da matriz (ou do
+  // escopo, no caminho antigo) para chegar à conversa.
+  const { podeVerConversa } = await import('../services/channelVisibility.js')
+  if (!await podeVerConversa(leadId, user.userId, user.role)) {
+    return { ok: false, status: 403, error: 'Esta conversa pertence a um número reservado.' }
+  }
+
+  // Gerenciador do Conversas: quando há matriz para este usuário, é ela que
+  // decide o resto — escopo do lead sai de cena, senão a regra mais restritiva
+  // venceria sempre e a marcação não valeria de nada.
   const mapa = await mapaDeAcesso(user.userId, user.role)
   if (mapa.configurado) {
     const perms = await permissoesNaConversa(mapa, leadId)
@@ -52,13 +67,19 @@ async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao =
   if (!await canUserAccessLead(user.userId, user.role, leadId)) {
     return { ok: false, status: 403, error: 'Sem permissão sobre este lead' }
   }
-  // Número reservado: esconder da lista e deixar abrir pela URL seria uma
-  // proteção que não protege — o id da conversa é adivinhável.
-  const { podeVerConversa } = await import('../services/channelVisibility.js')
-  if (!await podeVerConversa(leadId, user.userId, user.role)) {
-    return { ok: false, status: 403, error: 'Esta conversa pertence a um número reservado.' }
-  }
   return { ok: true }
+}
+
+/**
+ * Teto de número reservado para AÇÕES que não passam por assertTicketAccess.
+ *
+ * `claim`, `assign` e `release` sempre checaram escopo e matriz, e nunca a
+ * reserva: dava para assumir, transferir e liberar a conversa de uma linha
+ * privada sabendo só o id dela. Ver e agir têm o mesmo teto.
+ */
+async function podeVerConversaReservada(user: JwtPayload, leadId: number): Promise<boolean> {
+  const { podeVerConversa } = await import('../services/channelVisibility.js')
+  return podeVerConversa(leadId, user.userId, user.role)
 }
 
 async function assertTicketAccess(
@@ -420,16 +441,19 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // um número que este operador não acompanha. Entra junto dos filtros
       // porque precisa valer igualmente para a lista e para os badges.
       //
-      // Sob a matriz do gerenciador esta regra não roda: as duas responderiam a
-      // mesma pergunta e a reserva, por ser sempre mais restritiva, anularia o
-      // que o superadmin marcou. Foi assim que um grupo corporativo sumiu da
-      // gerência inteira por ter recebido duas mensagens da linha pessoal.
-      let semCanaisOcultos: any = null
-      if (!filtroMatriz) {
-        const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
-        semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
-        if (semCanaisOcultos) filtrosAnd.push(semCanaisOcultos)
-      }
+      // Vale SEMPRE, inclusive sob a matriz do gerenciador. Antes a matriz
+      // desligava esta regra — e era por isso que a linha marcada como privada
+      // continuava sendo lida e RESPONDIDA pelos agentes: o superadmin marcava
+      // a reserva num lugar e a matriz devolvia o canal no outro. A reserva é
+      // teto, a matriz reparte o que sobra.
+      //
+      // O preço, conhecido e aceito: uma conversa corporativa que recebeu
+      // qualquer mensagem pela linha pessoal some para quem não acompanha essa
+      // linha. É a mesma regra de sempre — "tudo que PASSOU pelo número" —, e
+      // esconder metade de um histórico não protegeria nada.
+      const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+      const semCanaisOcultos = await filtroDeCanaisVisiveis(user.userId, user.role)
+      if (semCanaisOcultos) filtrosAnd.push(semCanaisOcultos)
 
       // Filtro por NÚMERO: conversas que PERTENCEM a este canal.
       //
@@ -1757,6 +1781,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const user = (req as any).user as JwtPayload
       const lid = parseInt(leadId)
 
+      // Reserva de número é teto também para AÇÃO: transferir uma conversa que
+      // não se pode ver é mexer no que é de outro.
+      if (!await podeVerConversaReservada(user, lid)) {
+        return reply.code(403).send({ error: 'Esta conversa pertence a um número reservado.' })
+      }
+
       const lead = await prisma.lead.findUnique({
         where: { id: lid },
         select: {
@@ -1899,6 +1929,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const user = (req as any).user as JwtPayload
       const lid = parseInt(leadId)
 
+      // Sem isto, quem soubesse o id ASSUMIA a conversa de um número reservado
+      // — e assumir é o primeiro passo para responder por ele.
+      if (!await podeVerConversaReservada(user, lid)) {
+        return reply.code(403).send({ error: 'Esta conversa pertence a um número reservado.' })
+      }
+
       const lead = await prisma.lead.findUnique({
         where: { id: lid },
         select: {
@@ -2023,6 +2059,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     try {
       const { leadId } = req.params as any
       const user = (req as any).user as JwtPayload
+      const lidRel = parseInt((req.params as any).leadId)
+      if (!await podeVerConversaReservada(user, lidRel)) {
+        return reply.code(403).send({ error: 'Esta conversa pertence a um número reservado.' })
+      }
       const lid = parseInt(leadId)
 
       const lead = await prisma.lead.findUnique({
