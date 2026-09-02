@@ -16,6 +16,7 @@ import { getIp, logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
 import { pickOperatorForTeam, resolveRoutingFromContext } from '../services/teamRouting.js'
 import { deriveLeadOrigin } from '../lib/leadOrigin.js'
+import { extrairTracking, ALVOS_TRACKING, COLUNAS_TRACKING, limitarTracking } from '../lib/trackingPayload.js'
 
 // ── Mapping engine ─────────────────────────────────────
 //
@@ -41,6 +42,12 @@ const LEAD_NATIVE_FIELDS = new Set([
   'nome', 'email', 'whatsapp', 'empresa', 'segmento', 'cidade',
   'annotation', 'status',
 ])
+
+// Campos de origem (utm_source, gclid, fbclid…) também são alvo de mapeamento.
+// Quem tem formulário próprio no site precisa entregar a campanha junto do
+// lead; sem isto o lead entrava sem origem e a atribuição perdia a campanha
+// que pagou por ele. Ver lib/trackingPayload.ts.
+const LEAD_TRACKING_FIELDS = COLUNAS_TRACKING
 
 function resolveJsonPath(path: string, payload: any): unknown {
   if (!path || typeof path !== 'string') return undefined
@@ -109,9 +116,10 @@ function coerceToString(v: unknown): string {
 function applyMapping(
   rules: MappingRule[],
   payload: any,
-): { fields: Record<string, string>; customFields: Record<string, any> } {
+): { fields: Record<string, string>; customFields: Record<string, any>; tracking: Record<string, string> } {
   const fields: Record<string, string> = {}
   const customFields: Record<string, any> = {}
+  const tracking: Record<string, string> = {}
   for (const rule of rules) {
     if (!rule || !rule.source || !rule.target) continue
     const value = resolveJsonPath(rule.source, payload)
@@ -121,9 +129,12 @@ function applyMapping(
       customFields[target.slice(3)] = value
     } else if (LEAD_NATIVE_FIELDS.has(target)) {
       fields[target] = coerceToString(value)
+    } else if (LEAD_TRACKING_FIELDS.has(target)) {
+      const v = limitarTracking(target, value)
+      if (v) tracking[target] = v
     }
   }
-  return { fields, customFields }
+  return { fields, customFields, tracking }
 }
 
 // ── Routes ─────────────────────────────────────────────
@@ -188,7 +199,14 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
     }).catch(() => {})
 
     const rules: MappingRule[] = Array.isArray(webhook.mapping) ? webhook.mapping as any : []
-    const { fields, customFields } = applyMapping(rules, payload)
+    const { fields, customFields, tracking: trackingMapeado } = applyMapping(rules, payload)
+
+    // Além do mapeamento explícito, lê os nomes canônicos direto do payload
+    // (utm_source, gclid, fbclid, visitor_id…). Um formulário de site manda
+    // esses campos com o nome de sempre, e obrigar o cliente a criar uma regra
+    // para cada um seria burocracia sem ganho. O mapeamento vence quando os dois
+    // existem — quem escreveu a regra sabe o que quer.
+    const tracking: Record<string, string> = { ...extrairTracking(payload), ...trackingMapeado }
 
     // Precisa ter pelo menos um identificador para criar Lead
     const nome = fields.nome || ''
@@ -202,7 +220,7 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
         data: {
           webhookId: webhook.id,
           ip, userAgent, payload,
-          mappedData: { fields, customFields },
+          mappedData: { fields, customFields, tracking },
           success: false, error: errMsg,
         },
       })
@@ -241,17 +259,20 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
     if (routedTeamId) {
       routedUserId = await pickOperatorForTeam(routedTeamId)
     } else {
+      // As UTMs vêm de `tracking`. Antes este bloco lia `fields.utmSource`, que
+      // NUNCA existia (o mapeamento descartava alvo fora dos 8 campos nativos) —
+      // ou seja, regra de roteamento por campanha jamais disparou por aqui.
       const decision = await resolveRoutingFromContext({
         source: 'inbound',
-        utmSource: (fields.utmSource as string | undefined) || null,
-        utmMedium: (fields.utmMedium as string | undefined) || null,
-        utmCampaign: (fields.utmCampaign as string | undefined) || null,
+        utmSource: tracking.utmSource || null,
+        utmMedium: tracking.utmMedium || null,
+        utmCampaign: tracking.utmCampaign || null,
       })
       routedTeamId = decision.teamId
       routedUserId = decision.userId
       routedRuleId = decision.ruleId
     }
-    const source = webhook.defaultSource || 'inbound_webhook'
+    const source = tracking.source || webhook.defaultSource || 'inbound_webhook'
 
     // Lista de bloqueio: responde ok (o provedor do outro lado não deve
     // retentar) e não cria o lead.
@@ -284,11 +305,15 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
           assignedUserId: routedUserId,
           assignedAt: routedUserId ? new Date() : null,
           source,
+          // Campos de origem que a integração mandou (utm_*, gclid, fbclid,
+          // visitor_id, ids de campanha). `source` já foi consumido acima.
+          ...(() => { const { source: _s, ...colunas } = tracking; return colunas })(),
           originType: deriveLeadOrigin({
             source,
             qualificationSource: 'inbound_webhook',
-            utmSource: null,
-            gclid: null,
+            utmSource: tracking.utmSource || null,
+            gclid: tracking.gclid || null,
+            ctwaClid: tracking.ctwaClid || null,
             trackableLinkId: null,
           }),
           customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
@@ -398,6 +423,9 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
       customFields: cfs.map(cf => ({
         target: `cf_${cf.key}`, label: cf.label, type: cf.type,
       })),
+      // Campos de origem. Mapear é opcional: quando o payload traz os nomes
+      // canônicos (utm_source, gclid, fbclid…), eles entram sozinhos.
+      tracking: ALVOS_TRACKING,
     }
   })
 

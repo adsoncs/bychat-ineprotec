@@ -345,6 +345,7 @@ function InboundWebhookFormModal({
 
   const allFields: LeadFieldOption[] = [
     ...(fields?.native ?? []),
+    ...(fields?.tracking ?? []),
     ...(fields?.customFields ?? []),
   ]
 
@@ -514,6 +515,13 @@ function InboundWebhookFormModal({
                       <option key={f.target} value={f.target}>{f.label}</option>
                     ))}
                   </optgroup>
+                  {fields?.tracking && fields.tracking.length > 0 && (
+                    <optgroup label="Origem do lead (opcional — nomes padrão entram sozinhos)">
+                      {fields.tracking.map((f) => (
+                        <option key={f.target} value={f.target}>{f.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
                   {fields?.customFields && fields.customFields.length > 0 && (
                     <optgroup label="Campos personalizados">
                       {fields.customFields.map((f) => (

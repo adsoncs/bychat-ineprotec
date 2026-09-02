@@ -4,6 +4,8 @@ import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { requireApiKey, logApiCall } from '../lib/apiKey.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { flagDuplicate } from '../services/dedup.js'
+import { extrairTracking } from '../lib/trackingPayload.js'
+import { deriveLeadOrigin } from '../lib/leadOrigin.js'
 
 export async function publicApiRoutes(app: FastifyInstance) {
   // ── Logging hook for all /api/v1 routes ──────
@@ -104,6 +106,14 @@ export async function publicApiRoutes(app: FastifyInstance) {
     }
 
     const teamId = body.teamId ? parseInt(body.teamId) : await resolveDefaultTeamId()
+
+    // Origem: aceita `utm_source`/`utmSource`, gclid, fbclid, ids de campanha —
+    // na raiz do corpo ou dentro de `tracking`. Antes isto era ignorado e todo
+    // lead da API nascia com `source: 'api'`, sem a campanha que o trouxe.
+    const tracking = extrairTracking(body)
+    const { source: sourceDeclarado, ...colunasTracking } = tracking
+    const source = sourceDeclarado || 'api'
+
     const lead = await prisma.lead.create({
       data: {
         nome: body.nome,
@@ -117,8 +127,19 @@ export async function publicApiRoutes(app: FastifyInstance) {
         teamId,
         assignedUserId: body.assignedUserId ? parseInt(body.assignedUserId) : null,
         assignedAt: body.assignedUserId || teamId ? new Date() : null,
-        source: 'api',
-        originType: 'api',
+        source,
+        ...colunasTracking,
+        originType: deriveLeadOrigin({
+          source,
+          qualificationSource: 'api',
+          utmSource: tracking.utmSource || null,
+          gclid: tracking.gclid || null,
+          ctwaClid: tracking.ctwaClid || null,
+          // 'api' é o meio de entrada, não a origem de marketing: com gclid ou
+          // utm no corpo, a atribuição real (google_ads, meta_ctwa, organic…)
+          // vence. Sem pista nenhuma, aí sim o lead é "veio pela API".
+          explicit: (tracking.gclid || tracking.ctwaClid || tracking.utmSource || sourceDeclarado) ? null : 'api',
+        }),
         formData: body.formData || {},
         scores: body.scores || {},
         customFields: body.customFields,

@@ -66,7 +66,7 @@ export function useInboundWebhooks() {
 export function useInboundWebhookLeadFields() {
   return useQuery({
     queryKey: ['inbound-webhook-lead-fields'],
-    queryFn: () => api.get<{ native: LeadFieldOption[]; customFields: LeadFieldOption[] }>(
+    queryFn: () => api.get<{ native: LeadFieldOption[]; customFields: LeadFieldOption[]; tracking?: LeadFieldOption[] }>(
       '/admin/inbound-webhooks/lead-fields',
     ),
     staleTime: 5 * 60_000,
