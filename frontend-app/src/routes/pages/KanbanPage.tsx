@@ -981,21 +981,24 @@ function LeadCard({
   return (
     <div
       class={cn(
-        'relative block rounded-md border border-border border-l-2 p-2.5 select-none',
+        'relative block overflow-hidden rounded-md bg-surface border border-border border-l-2 select-none',
         trilho,
         dragging ? 'shadow-xl border-accent rotate-1 cursor-grabbing' : 'cursor-grab hover:border-accent transition-colors',
       )}
-      // Um véu da cor da casa, do canto superior esquerdo para o centro. Serve
-      // ao que a versão só-cinza perdeu: o card volta a ter matéria e a se
-      // destacar do fundo da coluna, sem que nenhuma informação ganhe cor por
-      // isso. Sai de `--color-accent`, que o white-label troca por tenant
-      // (lib/applyAppearance.ts) — aqui azul, em outra casa o que ela for.
-      style={{
-        background:
-          'linear-gradient(155deg, color-mix(in oklch, var(--color-accent) 7%, var(--color-surface)) 0%, var(--color-surface) 62%)',
-      }}
     >
-      <div class="flex items-start justify-between gap-2">
+      {/* Cabeçalho tingido com a cor da casa (9%): ele separa fisicamente QUEM
+        * É — nome, empresa, canal e as ações da pessoa — de COMO VAI, que é
+        * tudo o que vem abaixo. A versão só-cinza tinha resolvido o ruído e
+        * apagado a hierarquia junto: todo dado passou a ter o mesmo peso.
+        * A cor sai de `--color-accent`, que o white-label troca por tenant
+        * (lib/applyAppearance.ts) — aqui azul, em cada casa a dela. */}
+      <div
+        class="flex items-start justify-between gap-2 px-2.5 py-2"
+        style={{
+          background: 'color-mix(in oklch, var(--color-accent) 9%, var(--color-surface))',
+          borderBottom: '1px solid color-mix(in oklch, var(--color-accent) 18%, transparent)',
+        }}
+      >
         <span class="flex items-start gap-2 min-w-0 flex-1">
           <span class="min-w-0 flex-1">
             <span class="flex items-center gap-1.5 min-w-0">
@@ -1038,11 +1041,11 @@ function LeadCard({
       </div>
 
       {!compact && (
-        <>
+        <div class="px-2.5 pb-2 pt-2">
           {/* A régua de sinais. Cada item só existe quando é verdade — régua
             * vazia é card sem nada a cobrar, e isso também é informação. */}
           {(score !== null || lead._activityCount > 0 || lead.statusSummary || lead.outcome || stale) && (
-            <div class="flex items-center gap-2 mt-2 text-2xs text-fg-muted">
+            <div class="flex items-center gap-2 text-2xs text-fg-muted">
               {score !== null && (
                 <>
                   <ScoreBar value={score} class="w-11 !h-1" />
@@ -1126,7 +1129,7 @@ function LeadCard({
                 {lead._negociacao.titulo}
               </span>
               {lead._negociacao.valor != null && (
-                <span class="text-accent font-semibold tabular-nums shrink-0">
+                <span class="text-fg font-semibold tabular-nums shrink-0">
                   {formatarValor(lead._negociacao.valor, lead._negociacao.moeda)}
                 </span>
               )}
@@ -1200,10 +1203,10 @@ function LeadCard({
               {timeAgo(lead.createdAt)}
             </span>
           </div>
-        </>
+        </div>
       )}
       {stale && compact && (
-        <div class="text-3xs text-danger mt-1">{daysSince(lead.updatedAt)}d parado</div>
+        <div class="px-2.5 py-1.5 text-3xs text-danger">{daysSince(lead.updatedAt)}d parado</div>
       )}
     </div>
   )
@@ -1284,16 +1287,12 @@ function CardActions({
       >
         <MoreHorizontal size={12} />
       </button>
-      {/* O menu é a continuação do card, então usa o mesmo material: o véu da
-        * cor da casa sobre a mesma superfície. Com `bg-surface-2` ele aparecia
-        * como uma segunda folha, de outro tom, saindo de dentro do card. */}
+      {/* O menu é a continuação do card, então usa a mesma superfície dele.
+        * Com `bg-surface-2` aparecia como uma segunda folha, de outro tom,
+        * saindo de dentro do card. */}
       {open && (
         <div
-          class="absolute right-0 top-full mt-1 w-44 rounded-md border border-border shadow-lg py-1 z-20"
-          style={{
-            background:
-              'linear-gradient(155deg, color-mix(in oklch, var(--color-accent) 7%, var(--color-surface)) 0%, var(--color-surface) 62%)',
-          }}
+          class="absolute right-0 top-full mt-1 w-44 rounded-md border border-border bg-surface shadow-lg py-1 z-20"
           onClick={(e) => e.stopPropagation()}
         >
           {onView && (
