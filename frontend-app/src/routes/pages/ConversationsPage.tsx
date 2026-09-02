@@ -1456,7 +1456,15 @@ function ChatPanel({
   // Modelo com cabeçalho/mídia/botões só existe na Cloud API — a Evolution
   // lança erro em mensagem interativa. Sem canal Cloud, o botão nem aparece.
   const canalAtual = channels.find((c) => c.id === (channelId ?? senderChannels?.suggestedChannelId))
-  const podeEnviarHsm = (canalAtual?.provider ?? '') === 'cloud_api'
+  // Modelo aprovado é a ÚNICA forma de falar com quem está fora da janela de
+  // 24h — some com o botão e a conversa fica sem saída. Por isso ele não exige
+  // um canal já selecionado: basta a instalação ter um número Cloud disponível.
+  // (Antes, lead sem canal de entrada — todo o histórico importado — ficava com
+  // `canalAtual` indefinido e o botão sumia justamente de quem mais precisa.)
+  const temCanalCloud = channels.some((c) => c.provider === 'cloud_api')
+  const podeEnviarHsm = canalAtual
+    ? canalAtual.provider === 'cloud_api'
+    : temCanalCloud
   // A janela é do NÚMERO: quem manda é a última mensagem que o contato enviou
   // para este canal, pela Cloud API. Mensagem importada (Kommo, celular) não
   // abre janela nenhuma — a Meta só conhece o que passou por ela.

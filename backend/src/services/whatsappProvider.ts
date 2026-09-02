@@ -1135,17 +1135,40 @@ export async function suggestChannelForLead(
   return { channelId: padrao, locked: false }
 }
 
-/** Número padrão para leads que não entraram por WhatsApp.
- *  Definido por admin/superadmin em Configurações; nulo enquanto não escolherem
- *  (aí o operador escolhe na hora, como antes). */
+/** Número padrão para leads que não entraram por WhatsApp (formulário,
+ *  importação, API).
+ *
+ *  Ordem: o canal escolhido em Configurações; senão o número marcado como
+ *  PADRÃO DE ENVIO na tela de números; senão, se só existe um canal, esse.
+ *
+ *  Os dois últimos degraus foram a correção de um buraco que só apareceu com a
+ *  base importada: sem a setting (que quase ninguém preenche) o lead ficava sem
+ *  canal nenhum selecionado, e a tela some com o botão de MODELO quando não há
+ *  canal Cloud atual. Resultado no ineprotec: 4.127 leads vindos da Kommo, que
+ *  estão fora da janela de 24h por definição, sem o único caminho que a Meta
+ *  permite para falar com eles. */
 export async function canalPadraoSemWhatsapp(): Promise<string | null> {
-  const s = await prisma.setting.findUnique({ where: { key: 'conversations.default_channel_id' } }).catch(() => null)
-  if (!s?.value) return null
-  const id = typeof s.value === 'string' ? s.value.replace(/^"|"$/g, '') : String(s.value)
-  if (!id) return null
-  // some se o canal foi apagado/desativado depois de escolhido
   const canais = await resolveSenderChannels({ userId: 0, role: 'superadmin' }).catch(() => [])
-  return canais.some((c: any) => c.id === id) ? id : null
+  if (!canais.length) return null
+
+  const s = await prisma.setting.findUnique({ where: { key: 'conversations.default_channel_id' } }).catch(() => null)
+  const escolhido = s?.value
+    ? (typeof s.value === 'string' ? s.value.replace(/^"|"$/g, '') : String(s.value))
+    : ''
+  // some se o canal foi apagado/desativado depois de escolhido
+  if (escolhido && canais.some((c: any) => c.id === escolhido)) return escolhido
+
+  const padraoCloud = await prisma.cloudApiConnection.findFirst({
+    where: { active: true, isDefault: true },
+    select: { id: true },
+  })
+  if (padraoCloud) {
+    const id = cloudChannelId(padraoCloud.id)
+    if (canais.some((c: any) => c.id === id)) return id
+  }
+
+  // Um canal só: não há o que escolher, e exigir a escolha só esconde o botão.
+  return canais.length === 1 ? (canais[0] as any).id : null
 }
 
 // ─── Janela de atendimento de 24h (Cloud API) ──────────
