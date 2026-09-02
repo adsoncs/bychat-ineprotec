@@ -275,19 +275,33 @@ await app.register(staticFiles, {
 
 // ── STATIC FILES (uploads) ──────────────────
 // Defesa contra XSS armazenado (A8): arquivos de usuário servidos do domínio
-// principal. nosniff impede MIME confusion; a CSP `default-src 'none'; sandbox`
-// neutraliza qualquer script embutido (ex.: SVG/HTML) mesmo se o arquivo for
-// aberto como documento de topo; para tipos que o browser renderiza como
-// documento (svg/html/xml) força download em navegação direta — sem afetar o
-// uso legítimo via <img>/CSS, que ignora Content-Disposition.
+// principal. `nosniff` impede MIME confusion e vale para TUDO.
+//
+// A CSP com `sandbox`, porém, vale só para o que o navegador renderiza como
+// documento executável — SVG, HTML, XML —, que são os formatos capazes de
+// carregar script. Esses continuam com a política mais dura E com download
+// forçado na navegação direta.
+//
+// Por que ela NÃO vale para o resto: `sandbox` sem parâmetros é a restrição
+// máxima, e o visualizador de PDF do Chrome é uma extensão interna do próprio
+// navegador. Sob essa CSP ele é impedido de carregar, e o Chrome reporta
+// `ERR_BLOCKED_BY_CLIENT` — literalmente "bloqueado pelo cliente", o que manda
+// quem investiga procurar bloqueador de anúncio e permissão de usuário, quando
+// o culpado é este cabeçalho. Foi a queixa do severiano: um agente não
+// conseguia abrir o PDF que o cliente anexou, e o arquivo estava íntegro e
+// sendo servido com 200.
+//
+// PDF, imagem, áudio, vídeo e documentos são inertes para o DOM da página: o
+// que os protege é o `nosniff` acima, não a sandbox.
+const ARQUIVO_EXECUTAVEL = /\.(svgz?|html?|xht|xhtml|xml)$/i
 await app.register(staticFiles, {
   root: join(__dirname, '../../uploads'),
   prefix: '/uploads/',
   decorateReply: false,
   setHeaders: (res: any, filePath: string) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
-    if (/\.(svgz?|html?|xht|xhtml|xml)$/i.test(filePath)) {
+    if (ARQUIVO_EXECUTAVEL.test(filePath)) {
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
       res.setHeader('Content-Disposition', 'attachment')
     }
   },
