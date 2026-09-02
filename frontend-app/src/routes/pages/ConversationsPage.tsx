@@ -565,6 +565,16 @@ function ConversationsScreen() {
                   <option value="unread">Só não lidas</option>
                 </Select>
               </div>
+              <div class="flex-1 min-w-0">
+                <Select
+                  value={unreadOnly ? 'unread' : ''}
+                  onChange={(e) => setUnreadOnly((e.target as HTMLSelectElement).value === 'unread')}
+                  aria-label="Filtrar por mensagens não lidas"
+                >
+                  <option value="">Lidas e não lidas</option>
+                  <option value="unread">Só não lidas</option>
+                </Select>
+              </div>
               {/* Tipo de conversa: só aparece se esta instalação recebe grupos
                   (toggle da conexão OFF por padrão) — filtro inútil não polui a
                   caixa de quem só atende contato individual. */}
@@ -1436,6 +1446,7 @@ function ChatPanel({
     })
   }, [leadId])
 
+
   // Número de envio. `conversationChannelId` é o canal por onde o contato falou:
   // é sempre o padrão. Para quem não é SUPERADMIN ele vem também como
   // `lockedChannelId` e o seletor some — o número não se troca no meio do fio.
@@ -1446,6 +1457,13 @@ function ChatPanel({
   // lança erro em mensagem interativa. Sem canal Cloud, o botão nem aparece.
   const canalAtual = channels.find((c) => c.id === (channelId ?? senderChannels?.suggestedChannelId))
   const podeEnviarHsm = (canalAtual?.provider ?? '') === 'cloud_api'
+  // A janela é do NÚMERO: quem manda é a última mensagem que o contato enviou
+  // para este canal, pela Cloud API. Mensagem importada (Kommo, celular) não
+  // abre janela nenhuma — a Meta só conhece o que passou por ela.
+  const janelaFechada = podeEnviarHsm && canalAtual?.window?.open === false
+  const ultimaEntradaCloud = canalAtual?.window?.lastInboundAt
+    ? new Date(canalAtual.window.lastInboundAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    : null
   const lockedChannelId = senderChannels?.lockedChannelId ?? null
   useEffect(() => {
     const preset = lockedChannelId ?? conversationChannelId
@@ -2787,6 +2805,35 @@ function ChatPanel({
             {recording ? (
               <AudioRecorder onComplete={handleAudio} onCancel={() => setRecording(false)} />
             ) : (
+              <>
+              {/* Janela de 24h da Meta: fora dela o WhatsApp Oficial só aceita
+                  modelo aprovado. O aviso vem ANTES de digitar — antes disto o
+                  operador escrevia a resposta inteira e só descobria no envio,
+                  com um erro que parecia falha do sistema. */}
+              {janelaFechada && !isInternalNote && (
+                <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs">
+                  <span class="flex items-center gap-1.5 text-fg">
+                    <AlertTriangle size={ICON_SIZE.xs} class="text-warning shrink-0" />
+                    <span>
+                      <b>Fora da janela de 24h.</b>{' '}
+                      {ultimaEntradaCloud
+                        ? `O contato não escreve por este número desde ${ultimaEntradaCloud}.`
+                        : 'O contato ainda não escreveu por este número.'}{' '}
+                      Só um modelo aprovado pela Meta chega agora.
+                    </span>
+                  </span>
+                  {podeEnviarHsm && (
+                    <button
+                      type="button"
+                      class="ml-auto rounded-md bg-surface-3 px-2.5 py-1 font-medium text-fg hover:bg-surface"
+                      onClick={() => setHsmOpen(true)}
+                    >
+                      Escolher modelo
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div class="relative flex items-end gap-2">
                 {slashOpen && (
                   <div role="listbox" class="absolute left-0 right-0 bottom-full mb-1 z-40 max-h-60 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs">
@@ -2937,6 +2984,7 @@ function ChatPanel({
                   </button>
                 )}
               </div>
+              </>
             )}
           </div>
         </div>

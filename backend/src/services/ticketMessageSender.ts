@@ -186,6 +186,51 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
     }
   }
 
+  // Responder É assumir.
+  //
+  // Abrir a conversa sem gravar o dono deixava a conversa sendo atendida e
+  // parada na fila do setor ao mesmo tempo: não aparecia em "Meus" de quem
+  // estava atendendo, outro operador podia responder o mesmo contato sem saber,
+  // e o lead não entrava na carteira de ninguém para meta e comissão. Medido
+  // antes desta mudança: 536 conversas em atendimento sem responsável no
+  // elementus (contra 2 com), 198 no kobogo.
+  //
+  // Quatro guardas, porque `assignedUserId` é o responsável no FUNIL inteiro:
+  //  - só quando está vazio: quem já tem dono não muda de mãos porque um
+  //    supervisor respondeu uma vez;
+  //  - só mensagem que chega ao contato (nota interna não é atendimento);
+  //  - só o que o operador digitou agora no painel: envio agendado e disparo
+  //    em massa não escolhem dono para ninguém;
+  //  - grupo NÃO tem dono por resposta: numa casa com muitos grupos, o primeiro
+  //    que responde carimbaria o nome dele em dezenas deles, e grupo é da
+  //    equipe. Para pôr dono num grupo existe o botão Assumir;
+  //  - falha aqui não derruba o envio — a mensagem é o que importa.
+  if (!isInternal && !lead.isGroup && (input.origin ?? 'panel') === 'panel' && lead.assignedUserId == null) {
+    try {
+      const assumido = await prisma.lead.updateMany({
+        // A condição no WHERE fecha a corrida: dois operadores respondendo ao
+        // mesmo tempo, o segundo não sobrescreve o dono que o primeiro gravou.
+        where: { id: lead.id, assignedUserId: null },
+        data: { assignedUserId: user.userId, assignedAt: new Date() },
+      })
+      if (assumido.count > 0) {
+        logEvent({
+          leadId: lead.id,
+          type: EVENT_TYPES.OPERATOR_ASSIGNED,
+          category: 'lifecycle',
+          title: `Assumido por ${user.name || user.email || 'operador'} ao responder`,
+          source: 'panel',
+          actorType: 'operator',
+          userId: user.userId,
+          userName: user.name || user.email || undefined,
+          description: 'Responder a uma conversa sem responsável assume o atendimento.',
+        })
+      }
+    } catch (e: any) {
+      input.log?.error(`[ticketMessageSender] auto-assumir falhou: ${e?.message || e}`)
+    }
+  }
+
   let sentExternalId: string | null = null
   let sentProvider: string = 'evolution'
   let sentInstance: string | null = null
@@ -306,7 +351,9 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
 
         // Janela de 24h (Cloud API): fora dela, só template HSM aprovado.
         if (provider.providerName === 'cloud_api' && mType !== 'template') {
-          const win = await wp.getCloudWindowState(lid)
+          // Pela conexão que VAI enviar: a janela é por número. Ter conversado
+          // ontem no número do Comercial não libera texto livre pelo Suporte.
+          const win = await wp.getCloudWindowState(lid, cloudConnId)
           if (!win.open) {
             return {
               ok: false,

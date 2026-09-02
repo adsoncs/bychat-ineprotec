@@ -1161,9 +1161,20 @@ export interface WindowState {
 
 const WINDOW_MS = 24 * 60 * 60 * 1000
 
-export async function getCloudWindowState(leadId: number): Promise<WindowState> {
+export async function getCloudWindowState(leadId: number, connectionId?: number | null): Promise<WindowState> {
+  // Só conta mensagem que chegou PELA CLOUD API. Quem abre a janela é a Meta,
+  // e ela só sabe do que passou por ela: mensagem importada (Kommo, celular) ou
+  // recebida pela Evolution não abre janela nenhuma. Sem este filtro, um
+  // contato que responde no outro canal fazia a tela dizer "janela aberta", o
+  // operador escrevia à vontade e a Meta recusava na hora do envio (131047) —
+  // com o painel tendo prometido que dava.
   const lastInbound = await prisma.message.findFirst({
-    where: { leadId, fromMe: false },
+    where: {
+      leadId,
+      fromMe: false,
+      provider: 'cloud_api',
+      ...(connectionId ? { cloudApiConnectionId: connectionId } : {}),
+    },
     orderBy: { timestamp: 'desc' },
     select: { timestamp: true },
   })
