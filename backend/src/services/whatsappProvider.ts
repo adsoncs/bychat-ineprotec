@@ -1001,10 +1001,23 @@ function cloudChannelId(connectionId: number): string { return `cloud:${connecti
  *  - Admins (SUPERADMIN/ADMIN/MANAGER) veem todos os canais ativos.
  */
 export async function resolveSenderChannels(sender: { userId: number; role: string }): Promise<SenderChannel[]> {
-  const [instances, connections, meusTimes] = await Promise.all([
+  const [todasInstances, todasConnections, meusTimes] = await Promise.all([
     prisma.whatsAppInstance.findMany({ where: { active: true }, orderBy: { id: 'asc' }, include: { teams: { select: { teamId: true } } } }),
     prisma.cloudApiConnection.findMany({ where: { active: true }, orderBy: { id: 'asc' }, include: { teams: { select: { teamId: true } } } }),
     userTeamIds(sender.userId),
+  ])
+
+  // Número RESERVADO sai daqui antes de qualquer política de papel, setor ou
+  // matriz — e é isto que o cliente viu quebrado: a linha pessoal marcada como
+  // reservada continuava listada no filtro de números do Conversas e no seletor
+  // de envio para quem não é dono dela, porque a política abaixo trata
+  // "admin-like vê tudo" e nunca consultou a reserva. Esconder a conversa e
+  // deixar o número à mostra não esconde nada: o nome e o telefone estavam ali,
+  // e dava para mandar mensagem por ele.
+  const { podarCanaisReservados } = await import('./channelVisibility.js')
+  const [instances, connections] = await Promise.all([
+    podarCanaisReservados(todasInstances, sender.userId, sender.role, (i) => ({ instanceName: i.instanceName })),
+    podarCanaisReservados(todasConnections, sender.userId, sender.role, (c) => ({ conexaoId: c.id })),
   ])
   // Um canal "do meu setor" é o que tem algum setor dono em comum comigo.
   const doMeuSetor = (teams: { teamId: number }[], defaultTeamId: number | null) => {

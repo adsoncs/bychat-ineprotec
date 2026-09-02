@@ -19,12 +19,17 @@ import {
 export async function smartBroadcastRoutes(app: FastifyInstance) {
 
   // ─── Números disponíveis + saúde ──────────────────────
-  app.get('/api/admin/smart-broadcast/senders', { preHandler: authMiddleware }, async () => {
-    const instances = await prisma.whatsAppInstance.findMany({
+  app.get('/api/admin/smart-broadcast/senders', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user
+    const todas = await prisma.whatsAppInstance.findMany({
       where: { active: true },
       select: { id: true, name: true, instanceName: true, phone: true },
       orderBy: { id: 'asc' },
     })
+    // Disparo por número reservado de outra pessoa: a linha aparecia no seletor
+    // com nome e telefone, e a campanha sairia por ela.
+    const { podarCanaisReservados } = await import('../services/channelVisibility.js')
+    const instances = await podarCanaisReservados(todas, user.userId, user.role, (i) => ({ instanceName: i.instanceName }))
     const pool = await poolStatus(instances.map((i) => ({ id: i.id, instanceName: i.instanceName })))
     const byId = new Map(pool.map((p) => [p.instanceId, p.health]))
     return {

@@ -86,6 +86,37 @@ export async function filtroDeCanaisVisiveis(userId: number, role: string): Prom
   return clausulaDeOcultacao(await canaisOcultosPara(userId, role))
 }
 
+/**
+ * Poda uma lista de canais, tirando os reservados que este usuário não vê.
+ *
+ * Existe porque esconder as CONVERSAS não bastava: o número reservado continuava
+ * aparecendo pelo nome e pelo telefone no filtro do Conversas, nos filtros da
+ * Supervisão, na lista de instâncias e no seletor de disparo. Saber que a linha
+ * existe, de quem é o número e poder mandar mensagem por ela já é ver o que não
+ * se deveria — reservado é reservado em todo lugar, não só na caixa de entrada.
+ *
+ * Genérica de propósito: cada lista tem o seu formato (umas trazem
+ * `instanceName`, outras o id da conexão), então quem chama diz como ler o
+ * canal de cada item.
+ */
+export async function podarCanaisReservados<T>(
+  itens: T[],
+  userId: number,
+  role: string,
+  ler: (item: T) => { instanceName?: string | null; conexaoId?: number | null },
+): Promise<T[]> {
+  const ocultos = await canaisOcultosPara(userId, role)
+  if (!ocultos.instancias.length && !ocultos.conexoes.length) return itens
+  const instancias = new Set(ocultos.instancias)
+  const conexoes = new Set(ocultos.conexoes)
+  return itens.filter((item) => {
+    const { instanceName, conexaoId } = ler(item)
+    if (instanceName && instancias.has(instanceName)) return false
+    if (conexaoId != null && conexoes.has(conexaoId)) return false
+    return true
+  })
+}
+
 /** Este usuário pode abrir ESTA conversa? Usado no acesso direto por URL. */
 export async function podeVerConversa(leadId: number, userId: number, role: string): Promise<boolean> {
   const ocultos = await canaisOcultosPara(userId, role)

@@ -100,7 +100,7 @@ export async function instancesRoutes(app: FastifyInstance) {
   app.get('/api/admin/instances', { preHandler: authMiddleware }, async (req) => {
     const user = (req as any).user as JwtPayload
     const where = isAdminRole(user.role) ? {} : { ownerUserId: user.userId }
-    const instances = await prisma.whatsAppInstance.findMany({
+    const todasInstances = await prisma.whatsAppInstance.findMany({
       where, orderBy: { createdAt: 'asc' },
       // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
       include: {
@@ -109,6 +109,15 @@ export async function instancesRoutes(app: FastifyInstance) {
         viewers: { select: { userId: true, user: { select: { name: true, email: true } } }, orderBy: { id: 'asc' } },
       },
     })
+
+    // O ADMIN via `where: {}` enxergava as instâncias RESERVADAS de outras
+    // pessoas — com nome, telefone e a lista de quem as acompanha. Reservado
+    // vale contra o painel inteiro menos o SUPERADMIN, que é quem configura a
+    // própria regra; o dono e os observadores seguem vendo a sua.
+    const { podarCanaisReservados } = await import('../services/channelVisibility.js')
+    const instances = await podarCanaisReservados(
+      todasInstances, user.userId, user.role, (i) => ({ instanceName: i.instanceName }),
+    )
 
     // Batch fetch: 1 chamada à Evolution retorna todas as instâncias com ownerJid
     let evoMap = new Map<string, { connectionStatus?: string; ownerJid?: string }>()

@@ -44,6 +44,22 @@ async function recorteDaMatriz(req: any): Promise<Record<string, any>> {
 }
 
 /**
+ * O recorte dos números RESERVADOS, do mesmo jeito que a tela de Conversas faz.
+ *
+ * Some qualquer conversa que tenha PASSADO por um número reservado ao qual este
+ * usuário não tem acesso — e não só as que hoje pertencem a ele: metade de um
+ * histórico visível não protege nada.
+ *
+ * Devolve `{}` quando não há canal reservado, que é o caso de toda instalação
+ * que nunca mexeu nisso.
+ */
+async function recorteDeCanaisReservados(req: any): Promise<Record<string, any>> {
+  const user = req.user as JwtPayload
+  const { filtroDeCanaisVisiveis } = await import('../services/channelVisibility.js')
+  return (await filtroDeCanaisVisiveis(user.userId, user.role)) ?? {}
+}
+
+/**
  * Das conversas pedidas, as que este supervisor pode de fato EDITAR.
  *
  * As ações do painel são em lote. Recusar o lote inteiro porque uma conversa
@@ -278,7 +294,9 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // Aceita `from`/`to` (intervalo personalizado da tela) e `range`/`days`.
       const { from: since, to: until, days } = resolvePeriod(q, 7)
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const base = { AND: [filtersToWhere({ ...q, bucket: 'all' }, now), await recorteDaMatriz(req)] }
+      // As métricas somavam as conversas do número reservado mesmo quando a
+      // lista as escondia: o total denunciava o que a linha protegia.
+      const base = { AND: [filtersToWhere({ ...q, bucket: 'all' }, now), await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
       const withBase = (extra: Record<string, unknown>) => ({ AND: [base, extra] })
 
       const [raw, inbox, snoozed, resolvedNow, unassigned, unread, resolvedToday, resolvedPeriod, groups] =
@@ -438,7 +456,11 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const now = new Date()
       const limit = Math.min(parseInt(q.limit) || 50, 200)
       const offset = parseInt(q.offset) || 0
-      const where = { AND: [filtersToWhere(q, now), await recorteDaMatriz(req)] }
+      // A Supervisão nasceu antes dos números reservados e nunca aplicou o
+      // recorte deles: as conversas que passaram pela linha pessoal apareciam
+      // inteiras para qualquer supervisor. É o mesmo filtro que a tela de
+      // Conversas usa — aqui faltava.
+      const where = { AND: [filtersToWhere(q, now), await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
 
       const sort = (q.sort || 'recent').toString()
       const orderBy =
@@ -542,12 +564,20 @@ export async function supervisionRoutes(app: FastifyInstance) {
   app.get('/api/supervision/filters', { preHandler: authMiddleware }, async (req, reply) => {
     if (!requireSupervisor(req, reply)) return
     try {
-      const [users, teams, funnels, instances, connections] = await Promise.all([
+      const user = (req as any).user as JwtPayload
+      const [users, teams, funnels, todasInstances, todasConnections] = await Promise.all([
         prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } }),
         prisma.team.findMany({ where: { active: true }, select: { id: true, name: true, color: true }, orderBy: { name: 'asc' } }),
         prisma.funnel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
         prisma.whatsAppInstance.findMany({ select: { instanceName: true, phone: true } }).catch(() => []),
         prisma.cloudApiConnection.findMany({ where: { active: true }, select: { id: true, displayName: true, displayPhone: true } }).catch(() => []),
+      ])
+      // O filtro por número listava TODOS os canais, reservados inclusive: o
+      // nome e o telefone da linha pessoal apareciam para qualquer supervisor.
+      const { podarCanaisReservados } = await import('../services/channelVisibility.js')
+      const [instances, connections] = await Promise.all([
+        podarCanaisReservados(todasInstances as any[], user.userId, user.role, (i: any) => ({ instanceName: i.instanceName })),
+        podarCanaisReservados(todasConnections as any[], user.userId, user.role, (c: any) => ({ conexaoId: c.id })),
       ])
       return {
         users: users.map((u) => ({ id: u.id, name: u.name || u.email })),
