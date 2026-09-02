@@ -1393,6 +1393,49 @@ function ChatPanel({
     setSlashDismissed(false)
   }, [leadId])
 
+  /**
+   * O rascunho é DE CADA CONVERSA.
+   *
+   * O painel não é remontado ao trocar de contato (não há `key={leadId}`), e o
+   * texto ficava na caixa: quem começava a escrever para um e pulava para
+   * outro levava o texto junto — e podia mandá-lo para a pessoa errada sem
+   * perceber. A caixa também continuava alta, porque o conteúdo continuava lá:
+   * era o sintoma visível de um problema mais sério que o tamanho.
+   *
+   * Agora o texto de cada conversa fica guardado em memória (só nesta sessão,
+   * de propósito: rascunho não é mensagem, e persistir isso no navegador faria
+   * um texto de semana passada reaparecer sem contexto). Voltando à conversa,
+   * ele volta com ela; entrando numa vazia, a caixa está vazia — e pequena.
+   */
+  const rascunhosRef = useRef<Map<number, string>>(new Map())
+  const leadAnteriorRef = useRef<number | null>(null)
+  const draftRef = useRef(draft)
+  const editandoRef = useRef(editando)
+  useEffect(() => { draftRef.current = draft }, [draft])
+  useEffect(() => { editandoRef.current = editando }, [editando])
+
+  useEffect(() => {
+    const anterior = leadAnteriorRef.current
+    if (anterior != null && anterior !== leadId) {
+      // Texto de uma EDIÇÃO em curso não é rascunho da conversa: guardá-lo
+      // faria a próxima visita abrir com o corpo de uma mensagem já enviada.
+      const texto = editandoRef.current ? '' : draftRef.current
+      if (texto.trim()) rascunhosRef.current.set(anterior, texto)
+      else rascunhosRef.current.delete(anterior)
+    }
+    leadAnteriorRef.current = leadId
+    // Edição pendente não atravessa conversa.
+    setEditando(null)
+    const salvo = rascunhosRef.current.get(leadId) ?? ''
+    setDraft(salvo)
+    // A altura acompanha o texto que acabou de entrar. Sem isto a caixa
+    // manteria a altura da conversa anterior até a próxima tecla.
+    requestAnimationFrame(() => {
+      if (salvo) ajustarAltura(textareaRef.current)
+      else encolherCaixa()
+    })
+  }, [leadId])
+
   // Número de envio. `conversationChannelId` é o canal por onde o contato falou:
   // é sempre o padrão. Para quem não é SUPERADMIN ele vem também como
   // `lockedChannelId` e o seletor some — o número não se troca no meio do fio.
