@@ -3171,8 +3171,19 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
   }
 
   const isQualified = !!lead.qualifiedAt
+  // Quatro estados, não três.
+  //
+  // O contato que volta a falar depois de resolvido mantém o
+  // `conversationClosedAt` de propósito — é ele que guarda que houve um
+  // atendimento e que ele terminou. Só que este banner lia esse campo sozinho e
+  // anunciava "Atendimento encerrado" para uma conversa que já estava viva de
+  // novo: fora da aba Resolvidos, com o compositor liberado e contada como
+  // ATIVA na Supervisão. Foi a queixa do severiano — "diz encerrada e continua
+  // aberta na supervisão" —, e os dois lados estavam certos: o retorno é um
+  // estado próprio, e faltava dizê-lo aqui.
+  const convReopened = !!lead.conversationReopenedAt
   const convOpen = !!lead.conversationOpenedAt && !lead.conversationClosedAt
-  const convClosed = !!lead.conversationClosedAt
+  const convClosed = !!lead.conversationClosedAt && !convReopened
   const convNever = !lead.conversationOpenedAt && !lead.conversationClosedAt
   const scores = (lead.scores as Record<string, number> | null) ?? null
 
@@ -3240,12 +3251,14 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           class={cn(
             'flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-3 py-2 border-b border-border text-2xs',
             convOpen && 'bg-accent/10 text-accent',
+            convReopened && 'bg-warning/10 text-warning',
             convClosed && 'bg-surface-3 text-fg-muted',
             convNever && 'bg-surface-3 text-fg-muted',
           )}
         >
           <span class="inline-flex items-start gap-1.5 min-w-0 flex-1">
             {convOpen && <><MessageSquare size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Atendimento ativo</span></>}
+            {convReopened && <><CornerUpLeft size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Contato voltou a falar — esperando quem atenda</span></>}
             {convClosed && <><CheckCircle size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Atendimento encerrado</span></>}
             {convNever && <><Inbox size={ICON_SIZE.xxs} class="shrink-0 mt-px" /> <span class="break-words">Sem atendimento aberto</span></>}
           </span>
@@ -3270,13 +3283,16 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
               disabled={openConv.isPending}
               onClick={() => {
                 openConv.mutate(leadId, {
-                  onSuccess: () => toast(convClosed ? 'Atendimento reaberto' : 'Atendimento iniciado', 'success'),
+                  onSuccess: () => toast(
+                    convReopened ? 'Atendimento retomado' : convClosed ? 'Atendimento reaberto' : 'Atendimento iniciado',
+                    'success',
+                  ),
                   onError: (e) => toast(e.message, 'danger'),
                 })
               }}
             >
               <PlayCircle size={ICON_SIZE.xxs} />
-              {convClosed ? 'Reabrir' : 'Iniciar'}
+              {convReopened ? 'Atender' : convClosed ? 'Reabrir' : 'Iniciar'}
             </button>
           )}
         </div>

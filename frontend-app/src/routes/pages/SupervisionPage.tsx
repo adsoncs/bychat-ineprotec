@@ -11,6 +11,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
+  CornerUpLeft,
   Inbox, Headphones, Clock, CheckCircle2, Bot, User as UserIcon, AlertTriangle,
   RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X, MoreHorizontal,
 } from '@/components/ui/icon-set'
@@ -626,6 +627,20 @@ export function SupervisionPage() {
                           <div class="font-medium text-fg truncate" title={c.nome || c.whatsapp}>
                             {c.nome || c.whatsapp}
                             {c.isGroup && <Badge tone="neutral" class="ml-1">grupo</Badge>}
+                            {/* Sem esta marca, o supervisor vê uma conversa
+                              * ENCERRADA aparecendo entre as ativas e conclui
+                              * que o quadro está errado. Ela está viva porque o
+                              * contato voltou a falar — e é isso que precisa
+                              * estar escrito, na mesma marca que a lista de
+                              * Conversas já usa. */}
+                            {c.conversationReopenedAt && (
+                              <span
+                                class="ml-1 inline-flex align-middle text-warning"
+                                title="O contato voltou a falar depois de a conversa ter sido resolvida"
+                              >
+                                <CornerUpLeft size={11} />
+                              </span>
+                            )}
                           </div>
                           <div class="text-xs text-fg-muted truncate" title={c.empresa || c.whatsapp}>
                             {c.empresa || c.whatsapp}
