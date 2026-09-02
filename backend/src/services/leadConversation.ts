@@ -92,9 +92,18 @@ export async function closeConversation(leadId: number, opts: OpenOpts = {}): Pr
   // webhook reabre a conversa e volta a contar.
   // conversationReopenedAt volta a NULL: encerrar é a resposta ao retorno do
   // contato, e sem zerar o lead ficaria preso na Caixa depois de resolvido.
+  //
+  // snoozedUntil também: adormecer é "some daqui e volte às 9h", e encerrar é
+  // "terminei com isto". Encerrada COM soneca pendente, a conversa continuava
+  // batendo na cláusula `snoozedUntil > now` de Aguardando — em Conversas e na
+  // Supervisão — e reaparecia entre as vivas depois de resolvida, com a tela
+  // dizendo que estava encerrada. É o mesmo defeito que o retorno do contato
+  // causou três vezes, por um caminho diferente. Hoje não há um caso sequer nas
+  // 12 instalações (medido antes de mexer, inclusive o histórico); isto fecha a
+  // porta antes de alguém entrar por ela.
   const data = cur.conversationOpenedAt
-    ? { conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null }
-    : { conversationOpenedAt: now, conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null }
+    ? { conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null, snoozedUntil: null }
+    : { conversationOpenedAt: now, conversationClosedAt: now, unreadMessages: 0, conversationReopenedAt: null, snoozedUntil: null }
 
   await prisma.lead.update({ where: { id: leadId }, data })
   logEvent({
