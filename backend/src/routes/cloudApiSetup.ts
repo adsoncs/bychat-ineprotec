@@ -4,6 +4,7 @@
 import { FastifyInstance } from 'fastify'
 import { randomBytes } from 'crypto'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
 import { setChannelTeams } from '../services/channelTeams.js'
 import { authMiddleware, adminOnly, superadminOnly } from '../lib/auth.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -27,6 +28,9 @@ import {
   BUSINESS_VERTICALS,
 } from '../services/cloudApi.js'
 // Ciclo de vida centralizado (sync + detecção de mudança + notificação).
+// Mesma ordem que o envio usa para achar "o número padrão" — importada em vez de
+// repetida para a tela e o disparo nunca discordarem sobre qual número é o padrão.
+import { ORDEM_CONEXAO_PADRAO } from '../services/whatsappProvider.js'
 import { syncTemplatesFromMeta, isSendableStatus } from '../services/cloudApiTemplates.js'
 import { requestSync } from '../services/cloudApiCoexistence.js'
 
@@ -51,6 +55,12 @@ function templateUsesNamedParams(components: unknown): boolean {
 // ─── Routes ─────────────────────────────────────────────
 
 export async function cloudApiSetupRoutes(app: FastifyInstance) {
+
+  /** Descarta o cache de token/perfil da conexão (ver GET /api/cloud-api/connection).
+   *  Chamado por quem muda algo que aquele cache afirma — perfil, foto, remoção. */
+  async function limparCacheDaConexao(id: number) {
+    await redis.del(`cloudapi:conn-probe:${id}`).catch(() => {})
+  }
 
   // ══════════════════════════════════════════════════════
   //  CONFIG — App ID e Config ID para o JS SDK (frontend)
@@ -221,12 +231,24 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         },
       })
 
-      // 7. Subscribir webhook
+      // 7. Subscribir webhook — com Alternate Callback URL apontando para ESTE tenant
+      // (o App da Meta é compartilhado; sem o override os eventos iriam para a URL global).
+      //
+      // Sem APP_URL não se inscreve: o fallback que estava aqui era o domínio
+      // anterior à migração, e inscrevê-lo na Meta mandaria as mensagens deste
+      // cliente para um endereço que pode não ser mais nosso.
+      const tenantWebhookUrl = process.env.APP_URL
+        ? `${process.env.APP_URL.replace(/\/$/, '')}/api/cloud-api/webhook`
+        : null
       let webhookSubscribed = false
-      try {
-        webhookSubscribed = await subscribeWebhook(wabaId, finalToken)
-      } catch (subErr: any) {
-        app.log.warn(`[CloudAPI] Webhook subscription failed: ${subErr.message}`)
+      if (!tenantWebhookUrl) {
+        app.log.warn('[CloudAPI] APP_URL não configurada — webhook NÃO inscrito na Meta.')
+      } else {
+        try {
+          webhookSubscribed = await subscribeWebhook(wabaId, finalToken, tenantWebhookUrl, verifyToken)
+        } catch (subErr: any) {
+          app.log.warn(`[CloudAPI] Webhook subscription failed: ${subErr.message}`)
+        }
       }
 
       // 8. Sincronizar templates existentes
@@ -240,9 +262,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       // Este endereço é o que a tela manda cadastrar na Meta. Um fallback com o
       // domínio anterior à migração faria o cliente cadastrar o endereço errado
       // e as mensagens nunca chegariam — melhor mostrar vazio e a tela cobrar.
-      const webhookUrl = process.env.APP_URL
-        ? `${process.env.APP_URL.replace(/\/$/, '')}/api/cloud-api/webhook`
-        : null
+      const webhookUrl = tenantWebhookUrl
 
       return {
         ok: true,
@@ -301,7 +321,15 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   })
 
   // GET /api/cloud-api/connection — Status da conexao Cloud API
-  app.get('/api/cloud-api/connection', { preHandler: authMiddleware }, async () => {
+  //
+  // A checagem do token e o perfil da empresa são DUAS chamadas à Graph POR
+  // NÚMERO, e esta rota é aberta por três telas (WhatsApp API, Disparos,
+  // Modelos). Com um número só isso passava despercebido; com cinco são dez
+  // idas à Meta a cada abertura, e um token ruim segura a tela inteira. O
+  // resultado dessas duas consultas fica em cache curto no Redis, por conexão.
+  // `?refresh=1` ignora o cache — é o que o botão de reconsultar usa.
+  app.get('/api/cloud-api/connection', { preHandler: authMiddleware }, async (req) => {
+    const semCache = String((req.query as any)?.refresh || '') === '1'
     const connections = await prisma.cloudApiConnection.findMany({
       orderBy: { createdAt: 'desc' },
       // Setores donos (vários) — a UI mostra todos e o envio usa a lista.
@@ -313,23 +341,64 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     })
 
     const results = await Promise.all(connections.map(async (conn) => {
+      const cacheKey = `cloudapi:conn-probe:${conn.id}`
       let tokenStatus = 'unknown'
       let tokenError = ''
       let businessProfile: any = null
 
-      try {
-        const token = decryptToken(conn.systemUserToken)
-        // Testar token fazendo chamada simples
-        await cloudApiFetch(`/${conn.phoneNumberId}?fields=id`, token)
-        tokenStatus = 'valid'
+      // Para onde a Meta entrega as mensagens desta conta. O app é compartilhado
+      // entre os tenants e tem UMA callback global, então cada WABA precisa do
+      // override apontando para este painel; sem ele as mensagens chegam noutro
+      // lugar sem erro nenhum. Estado: 'ok' | 'outro' (assinado para outra URL)
+      // | 'ausente' (nenhum app assinado) | 'desconhecido' (não deu para ler).
+      let webhook: { estado: string; url: string | null } = { estado: 'desconhecido', url: null }
 
-        // Obter business profile
+      const emCache = semCache ? null : await redis.get(cacheKey).catch(() => null)
+      if (emCache) {
         try {
-          businessProfile = await getBusinessProfile(conn.phoneNumberId, token)
-        } catch {}
-      } catch (err: any) {
-        tokenStatus = 'expired'
-        tokenError = err.message
+          const c = JSON.parse(emCache)
+          tokenStatus = c.tokenStatus
+          tokenError = c.tokenError
+          businessProfile = c.businessProfile
+          if (c.webhook) webhook = c.webhook
+        } catch { /* cache corrompido: refaz a consulta abaixo */ }
+      }
+
+      if (tokenStatus === 'unknown') {
+        try {
+          const token = decryptToken(conn.systemUserToken)
+          // Testar token fazendo chamada simples
+          await cloudApiFetch(`/${conn.phoneNumberId}?fields=id`, token)
+          tokenStatus = 'valid'
+
+          // Obter business profile
+          try {
+            businessProfile = await getBusinessProfile(conn.phoneNumberId, token)
+          } catch {}
+
+          try {
+            const assinaturas = await cloudApiFetch(`/${conn.wabaId}/subscribed_apps`, token)
+            const nossa = process.env.APP_URL
+              ? `${process.env.APP_URL.replace(/\/$/, '')}/api/cloud-api/webhook`
+              : null
+            const inscritos: any[] = assinaturas?.data ?? []
+            const url = inscritos[0]?.override_callback_uri ?? null
+            webhook = {
+              url,
+              estado: !inscritos.length ? 'ausente'
+                : !nossa ? 'desconhecido'
+                : url === nossa ? 'ok'
+                : 'outro',
+            }
+          } catch { /* sem permissão de leitura: fica 'desconhecido' */ }
+        } catch (err: any) {
+          tokenStatus = 'expired'
+          tokenError = err.message
+        }
+        // Token expirado tem cache mais curto: é o estado que o operador vai
+        // corrigir em seguida e vai querer ver mudar sem esperar.
+        const ttl = tokenStatus === 'valid' ? 300 : 60
+        await redis.set(cacheKey, JSON.stringify({ tokenStatus, tokenError, businessProfile, webhook }), 'EX', ttl).catch(() => {})
       }
 
       const meta = (conn.metadata || {}) as any
@@ -350,6 +419,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         funnelId: conn.funnelId,
         stageKey: conn.stageKey,
         active: conn.active,
+        // Quem envia quando ninguém escolheu número (fluxo, cadência, agenda).
+        isDefault: conn.isDefault,
+        // Para onde a Meta entrega o que chega neste número.
+        webhook,
         tokenStatus,
         tokenError,
         tokenType: meta.tokenType || 'unknown',
@@ -434,7 +507,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // (chatbotId, active, defaultTeamId, ownerUserId — paridade com a instância Evolution)
   app.put('/api/cloud-api/connection/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey, displayName, color } = req.body as any
+    const { chatbotId, active, defaultTeamId, ownerUserId, funnelId, stageKey, displayName, color, isDefault } = req.body as any
     // `teamIds` = setores donos (vários). `defaultTeamId` segue aceito para
     // quem manda um setor só.
     const teamIds: number[] | undefined = Array.isArray((req.body as any)?.teamIds)
@@ -480,10 +553,37 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       data.ownerUserId = owner
     }
 
-    const conn = await prisma.cloudApiConnection.update({
-      where: { id: parseInt(id) },
-      data,
-    })
+    // Número padrão de envio: é exclusivo, então marcar um desmarca os outros na
+    // mesma transação. Desmarcar o padrão sem eleger outro é permitido — nesse
+    // caso o envio cai na conexão ativa mais antiga (ver getDefaultCloudApiConnection).
+    const marcarPadrao = isDefault !== undefined ? !!isDefault : undefined
+    if (marcarPadrao !== undefined) data.isDefault = marcarPadrao
+    // Pausar a conexão tira dela o posto de padrão: número pausado não envia, e
+    // deixar a marca ali faria a tela mostrar um padrão que não vale.
+    if (data.active === false) data.isDefault = false
+    if (marcarPadrao && data.active !== true) {
+      const atual = await prisma.cloudApiConnection.findUnique({
+        where: { id: parseInt(id) },
+        select: { active: true },
+      })
+      if (!atual) return reply.code(404).send({ error: 'Conexão não encontrada' })
+      if (!atual.active) {
+        return reply.code(400).send({ error: 'Um número pausado não pode ser o padrão de envio. Ative a conexão antes.' })
+      }
+    }
+
+    const conn = marcarPadrao
+      ? await prisma.$transaction(async (tx) => {
+          await tx.cloudApiConnection.updateMany({
+            where: { id: { not: parseInt(id) }, isDefault: true },
+            data: { isDefault: false },
+          })
+          return tx.cloudApiConnection.update({ where: { id: parseInt(id) }, data })
+        })
+      : await prisma.cloudApiConnection.update({
+          where: { id: parseInt(id) },
+          data,
+        })
     // Última palavra: sincroniza `defaultTeamId` (um setor → preenchido, vários
     // → nulo) e limpa o agente quando há setores.
     if (teamIds !== undefined) await setChannelTeams('cloud', conn.id, teamIds)
@@ -506,6 +606,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       select: { displayName: true, phoneNumberId: true, wabaId: true },
     })
     await prisma.cloudApiConnection.delete({ where: { id: parseInt(id) } })
+    await limparCacheDaConexao(parseInt(id))
     void logUserAudit({
       action: 'cloudapi.disconnected',
       targetType: 'cloud_api',
@@ -534,6 +635,37 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       const result = await sendTextMessage(conn.phoneNumberId, token, phone, message || `Teste de conexao Cloud API - ${brand.brandName}`)
 
       return { ok: true, messageId: result.messageId }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // POST /api/cloud-api/connection/:id/resubscribe — Re-inscrever o webhook da WABA
+  // apontando para a URL deste tenant (Alternate Callback URL). É o botão que a tela
+  // oferece quando o número aparece como "sem assinar" ou entregando noutro endereço.
+  app.post('/api/cloud-api/connection/:id/resubscribe', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      const { id } = req.params as any
+      const conn = await prisma.cloudApiConnection.findUnique({ where: { id: parseInt(id) } })
+      if (!conn) return reply.code(404).send({ error: 'Conexao nao encontrada' })
+
+      const token = decryptToken(conn.systemUserToken)
+      // Ver a nota do passo 7: sem APP_URL não há endereço nosso para inscrever.
+      if (!process.env.APP_URL) return reply.code(400).send({ error: 'APP_URL não configurada no .env — sem ela não há endereço de webhook para inscrever na Meta.' })
+      const webhookUrl = `${process.env.APP_URL.replace(/\/$/, '')}/api/cloud-api/webhook`
+      const ok = await subscribeWebhook(conn.wabaId, token, webhookUrl, conn.verifyToken)
+      if (!ok) return reply.code(400).send({ error: 'Meta recusou a inscrição do webhook. Confira se a URL responde ao desafio de verificação.' })
+
+      // O estado do webhook mostrado na tela vem do cache desta conexão.
+      await limparCacheDaConexao(conn.id)
+      void logUserAudit({
+        action: 'cloudapi.webhook_resubscribed',
+        targetType: 'cloud_api',
+        targetLabel: conn.displayName || conn.phoneNumberId,
+        changes: { webhookUrl },
+        ...auditActor(req),
+      })
+      return { ok: true, webhookUrl }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
@@ -779,6 +911,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     try {
       await updateBusinessProfile(conn.phoneNumberId, token, fields)
       const profile = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
+      await limparCacheDaConexao(conn.id)
       void logUserAudit({
         action: 'cloudapi.profile_updated',
         targetType: 'cloud_api',
@@ -822,6 +955,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       const handle = await uploadResumable(appId || conn.wabaId, token, buffer, mimeType, conn.wabaId)
       await updateBusinessProfile(conn.phoneNumberId, token, { profile_picture_handle: handle })
       const profile = await getBusinessProfile(conn.phoneNumberId, token).catch(() => null)
+      await limparCacheDaConexao(conn.id)
       void logUserAudit({
         action: 'cloudapi.profile_picture_updated',
         targetType: 'cloud_api',
@@ -889,9 +1023,16 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     const [report, pricing, connections] = await Promise.all([
       buildDispatchReport({ connectionId, from, to }),
       getPricingTable(),
+      // Inclui as pausadas: o relatório olha para trás, e um número pausado hoje
+      // tem envios no período. Filtrando por `active` a tabela ficava com "#7" no
+      // lugar do nome e a linha sumia da saúde dos números. Quem consome usa a
+      // flag para separar o que ainda envia do que só aparece no histórico.
       prisma.cloudApiConnection.findMany({
-        where: { active: true },
-        select: { id: true, displayPhone: true, displayName: true, qualityRating: true, messagingLimit: true },
+        orderBy: ORDEM_CONEXAO_PADRAO,
+        select: {
+          id: true, displayPhone: true, displayName: true, color: true,
+          qualityRating: true, messagingLimit: true, active: true, isDefault: true,
+        },
       }),
     ])
     return { report, pricing, connections }
@@ -900,7 +1041,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // POST /api/cloud-api/templates/sync — Re-sincronizar templates do Meta
   app.post('/api/cloud-api/templates/sync', { preHandler: authMiddleware }, async (req, reply) => {
     try {
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
       const token = decryptToken(conn.systemUserToken)
@@ -1002,7 +1143,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Template precisa de pelo menos um componente (body)' })
       }
 
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
       const token = decryptToken(conn.systemUserToken)
@@ -1058,7 +1199,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       if (!template) return reply.code(404).send({ error: 'Template nao encontrado' })
 
       const conn = await prisma.cloudApiConnection.findFirst({
-        where: { active: true, wabaId: template.wabaId }
+        where: { active: true, wabaId: template.wabaId },
+        orderBy: ORDEM_CONEXAO_PADRAO,
       })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao ativa' })
 
@@ -1104,7 +1246,8 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       if (!template) return reply.code(404).send({ error: 'Template nao encontrado' })
 
       const conn = await prisma.cloudApiConnection.findFirst({
-        where: { active: true, wabaId: template.wabaId }
+        where: { active: true, wabaId: template.wabaId },
+        orderBy: ORDEM_CONEXAO_PADRAO,
       })
 
       if (conn) {
@@ -1126,7 +1269,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // POST /api/cloud-api/templates/upload-media — Upload de mídia para header de template
   app.post('/api/cloud-api/templates/upload-media', { preHandler: adminOnly }, async (req, reply) => {
     try {
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
       const token = decryptToken(conn.systemUserToken)
@@ -1179,7 +1322,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // POST /api/cloud-api/send-template — Enviar template HSM para um numero
   app.post('/api/cloud-api/send-template', { preHandler: authMiddleware }, async (req, reply) => {
     try {
-      const { phone, templateId, components } = req.body as any
+      const { phone, templateId, components, connectionId } = req.body as any
 
       if (!phone || !templateId) {
         return reply.code(400).send({ error: 'phone e templateId obrigatorios' })
@@ -1191,10 +1334,25 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: `Template com status ${template.status} (precisa ser APPROVED)` })
       }
 
-      const conn = await prisma.cloudApiConnection.findFirst({
-        where: { active: true, wabaId: template.wabaId }
-      })
-      if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao ativa para este WABA' })
+      // Quem envia: o número que o chamador escolheu; sem escolha, o padrão da
+      // WABA do modelo. O modelo pertence à WABA, não ao número — com dois
+      // números na mesma WABA, "a primeira conexão ativa" fazia a mensagem sair
+      // por um deles ao acaso, e o contato respondia para o número errado.
+      const conn = connectionId
+        ? await prisma.cloudApiConnection.findFirst({
+            where: { id: Number(connectionId), active: true, wabaId: template.wabaId },
+          })
+        : await prisma.cloudApiConnection.findFirst({
+            where: { active: true, wabaId: template.wabaId },
+            orderBy: ORDEM_CONEXAO_PADRAO,
+          })
+      if (!conn) {
+        return reply.code(400).send({
+          error: connectionId
+            ? 'O número escolhido não está ativo ou não pertence à conta (WABA) deste modelo.'
+            : 'Nenhuma conexao ativa para este WABA',
+        })
+      }
 
       const token = decryptToken(conn.systemUserToken)
       const { sendTemplateMessage } = await import('../services/cloudApi.js')
@@ -1223,7 +1381,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'phone e interactive obrigatorios' })
       }
 
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
       const token = decryptToken(conn.systemUserToken)
@@ -1259,7 +1417,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       if (!formId) return reply.code(400).send({ error: 'formId obrigatório' })
       const form = await prisma.form.findUnique({ where: { id: Number(formId) } })
       if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexão Cloud API ativa' })
 
       const { buildFlowJson, createAndPublishFlow } = await import('../services/whatsappFlows.js')
@@ -1329,7 +1487,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     const formId = Number((req.params as any).formId)
     const form = await prisma.form.findUnique({ where: { id: formId }, select: { id: true, name: true } })
     if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
-    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
     if (!conn) return reply.code(400).send({ error: 'Nenhuma conexão Cloud API ativa' })
     const b = (req.body as any) || {}
     const cta = b.cta != null ? String(b.cta).slice(0, 40) : null
@@ -1351,7 +1509,7 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
       const formId = Number((req.params as any).formId)
       const form = await prisma.form.findUnique({ where: { id: formId } })
       if (!form) return reply.code(404).send({ error: 'Formulário não encontrado' })
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexão Cloud API ativa' })
       const row = await prisma.cloudApiFlow.findFirst({ where: { formId }, orderBy: { id: 'desc' } })
 

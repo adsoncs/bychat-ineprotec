@@ -171,8 +171,14 @@ export function WhatsappDispatchPage() {
                   <div class="space-y-1">
                     {(selectedConn ? [selectedConn] : reportConns).map((c) => (
                       <div key={c.id} class="flex items-center justify-between text-xs rounded-md bg-surface-2 px-3 py-1.5">
-                        <span class="text-fg">{c.displayName || c.displayPhone || `#${c.id}`}</span>
+                        <span class="text-fg">
+                          {c.displayName || c.displayPhone || `#${c.id}`}
+                          {c.isDefault && <span class="ml-1.5 text-2xs text-accent">padrão</span>}
+                        </span>
                         <span class="flex items-center gap-2">
+                          {/* Pausado continua na lista: ele tem envios no período,
+                              e sumir daqui era o que fazia o nome virar "#7". */}
+                          {c.active === false && <Badge tone="neutral">Pausado</Badge>}
                           {c.qualityRating && <Badge tone={c.qualityRating === 'GREEN' ? 'success' : c.qualityRating === 'YELLOW' ? 'warning' : 'danger'}>{cloudApiQualityLabel(c.qualityRating)}</Badge>}
                           {c.messagingLimit && <span class="text-fg-muted">Limite {c.messagingLimit}</span>}
                         </span>
@@ -191,6 +197,11 @@ export function WhatsappDispatchPage() {
                       <div key={m.wamid} class="flex items-center justify-between text-xs rounded-md bg-surface px-3 py-1.5 border border-border">
                         <span class="text-fg truncate">{m.templateName || 'Mensagem'}{m.category ? ` · ${catLabel(m.category)}` : ''}</span>
                         <span class="flex items-center gap-2 shrink-0">
+                          {/* Vendo "todos os números", saber de qual linha saiu cada
+                              envio é o que separa relatório de amontoado. */}
+                          {multi && selected === null && (
+                            <span class="text-fg-muted truncate max-w-[12rem]">{nameOf(m.connectionId)}</span>
+                          )}
                           {m.billable && <span class="text-warning">cobrável</span>}
                           <Badge tone={m.status === 'read' ? 'success' : m.status === 'failed' ? 'danger' : m.status === 'delivered' ? 'info' : 'neutral'}>{cloudApiMessageStatusLabel(m.status)}</Badge>
                         </span>

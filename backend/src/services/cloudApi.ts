@@ -418,10 +418,20 @@ export async function getWabaInfo(wabaId: string, token: string): Promise<any> {
 
 export async function subscribeWebhook(
   wabaId: string,
-  token: string
+  token: string,
+  overrideCallbackUri?: string,
+  verifyToken?: string
 ): Promise<boolean> {
   try {
-    await cloudApiFetch(`/${wabaId}/subscribed_apps`, token, 'POST')
+    // O App da Meta é compartilhado entre os tenants e tem UMA callback URL global.
+    // Para esta WABA cair no webhook DESTE tenant, assinamos com Alternate Callback
+    // URL (override por WABA). A Meta valida a URL com um GET hub.verify_token antes
+    // de aceitar — por isso a conexão precisa estar salva (com verifyToken) antes.
+    let path = `/${wabaId}/subscribed_apps`
+    if (overrideCallbackUri && verifyToken) {
+      path += `?override_callback_uri=${encodeURIComponent(overrideCallbackUri)}&verify_token=${encodeURIComponent(verifyToken)}`
+    }
+    await cloudApiFetch(path, token, 'POST')
     return true
   } catch (err: any) {
     console.error(`[CloudAPI] Webhook subscription failed: ${err.message}`)

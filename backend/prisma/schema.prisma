@@ -1806,6 +1806,13 @@ model CloudApiConnection {
   /// se confunde com a borda, e aí a identificação visual não cumpre o papel.
   color              String?                    @db.VarChar(9)
   active             Boolean                    @default(true)
+  /// Número que envia quando ninguém escolheu um: fluxo, cadência, notificação
+  /// de agenda, resposta a lead sem histórico. Com um número só isso nunca
+  /// importou — o código pegava "a primeira conexão ativa". Com dois ou mais,
+  /// "a primeira" é a ordem que o banco devolver, e o cliente recebe do número
+  /// errado sem erro nenhum. Só uma conexão fica marcada (as rotas desmarcam as
+  /// outras ao salvar); nenhuma marcada = a mais antiga ativa, por id.
+  isDefault          Boolean                    @default(false)
   metadata           Json?                      @db.Json
   messages           Message[]
   messageLogs        CloudApiMessageLog[]
@@ -1815,6 +1822,7 @@ model CloudApiConnection {
   updatedAt          DateTime                   @updatedAt
 
   @@index([active])
+  @@index([isDefault])
   @@index([phoneNumberId])
   @@index([defaultTeamId])
   @@index([ownerUserId])

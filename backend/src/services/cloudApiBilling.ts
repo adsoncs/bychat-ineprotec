@@ -105,7 +105,10 @@ export interface DispatchReport {
   totals: { sent: number; delivered: number; read: number; failed: number; billable: number; estimatedCostUsd: number }
   byCategory: Array<{ category: string; count: number; billable: number; estimatedCostUsd: number }>
   byConnection: Array<{ connectionId: number | null; count: number; sent: number; delivered: number; read: number; failed: number; billable: number; estimatedCostUsd: number }>
-  recent: Array<{ wamid: string; status: string; category: string | null; billable: boolean; templateName: string | null; leadId: number | null; createdAt: string }>
+  // `connectionId`: por qual número saiu. O log sempre soube, mas a serialização
+  // não devolvia — e a lista de recentes, vendo "todos os números", misturava os
+  // envios sem dizer de quem era cada linha.
+  recent: Array<{ wamid: string; status: string; category: string | null; billable: boolean; templateName: string | null; leadId: number | null; connectionId: number | null; createdAt: string }>
 }
 
 /** Relatório agregado de disparos para o painel. */
@@ -161,7 +164,9 @@ export async function buildDispatchReport(opts: { connectionId?: number | null; 
     })).sort((a, b) => b.count - a.count),
     recent: logs.slice(0, 50).map(l => ({
       wamid: l.wamid, status: l.status, category: l.category, billable: l.billable,
-      templateName: l.templateName, leadId: l.leadId, createdAt: l.createdAt.toISOString(),
+      templateName: l.templateName, leadId: l.leadId,
+      connectionId: l.cloudApiConnectionId ?? null,
+      createdAt: l.createdAt.toISOString(),
     })),
   }
 }

@@ -474,6 +474,28 @@ export class CloudApiProvider implements WhatsAppProvider {
 
 // ─── Factory Functions ──────────────────────────────────
 
+/**
+ * A conexão Cloud API que envia quando ninguém escolheu um número.
+ *
+ * Todo lugar que antes fazia `findFirst({ where: { active: true } })` passa por
+ * aqui. Com um número só dava no mesmo; com dois ou mais, `findFirst` sem ordem
+ * devolve o que o banco quiser — e a mensagem sai de um número imprevisível, sem
+ * erro nenhum. A ordem é explícita: o número marcado como padrão na tela e,
+ * quando não há nenhum marcado, o mais antigo ativo (que é o que o findFirst
+ * costumava devolver na prática).
+ */
+export const ORDEM_CONEXAO_PADRAO = [
+  { isDefault: 'desc' as const },
+  { id: 'asc' as const },
+]
+
+export async function getDefaultCloudApiConnection() {
+  return prisma.cloudApiConnection.findFirst({
+    where: { active: true },
+    orderBy: ORDEM_CONEXAO_PADRAO,
+  })
+}
+
 /** Retorna provider padrao baseado na configuracao do sistema */
 export async function getDefaultProvider(): Promise<WhatsAppProvider> {
   // Verificar setting de preferencia
@@ -481,7 +503,7 @@ export async function getDefaultProvider(): Promise<WhatsAppProvider> {
   const pref = setting ? String(setting.value).replace(/"/g, '') : 'auto'
 
   if (pref === 'cloud_api' || pref === 'auto') {
-    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    const conn = await getDefaultCloudApiConnection()
     if (conn) {
       return new CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
     }
@@ -504,7 +526,7 @@ export async function getProviderForLead(lead: { id: number; whatsapp: string })
   })
 
   if (cloudMsg) {
-    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    const conn = await getDefaultCloudApiConnection()
     if (conn) {
       return new CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
     }
@@ -567,7 +589,7 @@ export async function getProviderForLeadOwner(lead: { id: number; whatsapp: stri
     select: { id: true },
   })
   if (openWindow) {
-    const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    const cloudConn = await getDefaultCloudApiConnection()
     if (cloudConn) {
       return { provider: new CloudApiProvider(cloudConn.phoneNumberId, cloudConn.systemUserToken), instanceName: null }
     }
@@ -924,7 +946,7 @@ export async function getProviderForSender(
       (channelMsg.cloudApiConnectionId
         ? await prisma.cloudApiConnection.findFirst({ where: { id: channelMsg.cloudApiConnectionId, active: true } })
         : null)
-      ?? await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+      ?? await getDefaultCloudApiConnection()
     if (cloudConn) {
       return {
         provider: new CloudApiProvider(cloudConn.phoneNumberId, cloudConn.systemUserToken),
@@ -963,7 +985,7 @@ export async function getProviderForSender(
   if (provider instanceof EvolutionProvider) {
     return { provider, instanceName: provider.instanceName, cloudApiConnectionId: null }
   }
-  const cloudConn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, select: { id: true } })
+  const cloudConn = await getDefaultCloudApiConnection()
   return { provider, instanceName: null, cloudApiConnectionId: cloudConn?.id ?? null }
 }
 
@@ -1176,5 +1198,5 @@ export async function getProviderForChannel(channelId: string): Promise<{ provid
 
 /** Retorna conexao Cloud API ativa (ou null) */
 export async function getActiveCloudApiConnection() {
-  return prisma.cloudApiConnection.findFirst({ where: { active: true } })
+  return getDefaultCloudApiConnection()
 }

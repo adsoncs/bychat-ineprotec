@@ -20,6 +20,11 @@ export interface CloudApiConnection {
   funnelId: number | null
   stageKey: string | null
   active: boolean
+  /** Número que envia quando ninguém escolheu um (fluxo, cadência, agenda). */
+  isDefault?: boolean
+  /** Para onde a Meta entrega o que chega neste número. 'outro' = está caindo
+   *  no painel errado (o app da Meta é compartilhado entre os tenants). */
+  webhook?: { estado: 'ok' | 'outro' | 'ausente' | 'desconhecido'; url: string | null }
   tokenStatus: 'valid' | 'expired' | 'unknown'
   tokenError?: string
   tokenType: string
@@ -142,12 +147,16 @@ export interface DispatchReport {
   totals: { sent: number; delivered: number; read: number; failed: number; billable: number; estimatedCostUsd: number }
   byCategory: Array<{ category: string; count: number; billable: number; estimatedCostUsd: number }>
   byConnection: Array<{ connectionId: number | null; count: number; sent: number; delivered: number; read: number; failed: number; billable: number; estimatedCostUsd: number }>
-  recent: Array<{ wamid: string; status: string; category: string | null; billable: boolean; templateName: string | null; leadId: number | null; createdAt: string }>
+  /** `connectionId`: por qual número o disparo saiu — sem ele a lista de "todos
+   *  os números" empilha envios de origens diferentes sem dizer de quem é cada um. */
+  recent: Array<{ wamid: string; status: string; category: string | null; billable: boolean; templateName: string | null; leadId: number | null; connectionId: number | null; createdAt: string }>
 }
 export interface DispatchReportResponse {
   report: DispatchReport
   pricing: Record<string, number>
-  connections: Array<{ id: number; displayPhone: string | null; displayName: string | null; qualityRating: string | null; messagingLimit: string | null }>
+  // Inclui os pausados: o relatório olha para trás, e número pausado hoje tem
+  // envio no período — sem ele a tabela mostrava "#7" no lugar do nome.
+  connections: Array<{ id: number; displayPhone: string | null; displayName: string | null; color?: string | null; qualityRating: string | null; messagingLimit: string | null; active?: boolean; isDefault?: boolean }>
 }
 
 export function useCloudApiDispatchReport(connectionId?: number | null, enabled = true) {
@@ -165,7 +174,7 @@ export function useUpdateCloudApiConnection() {
   return useMutation({
     mutationFn: ({ id, ...input }: { id: number; chatbotId?: number | null; active?: boolean; defaultTeamId?: number | null
   teamIds?: number[]; ownerUserId?: number | null; funnelId?: number | null; stageKey?: string | null
-  displayName?: string; color?: string | null }) =>
+  displayName?: string; color?: string | null; isDefault?: boolean }) =>
       api.put<{ ok: true }>(`/cloud-api/connection/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-connections'] }),
   })
@@ -321,6 +330,16 @@ export function useTestCloudApiConnection() {
   return useMutation({
     mutationFn: ({ id, phone, message }: { id: number; phone: string; message?: string | undefined }) =>
       api.post<{ ok: true; messageId: string }>(`/cloud-api/connection/${id}/test`, { phone, message }),
+  })
+}
+
+/** Reinscreve o webhook da WABA apontando para este painel. */
+export function useResubscribeWebhook() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: true; webhookUrl: string }>(`/cloud-api/connection/${id}/resubscribe`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-connections'] }),
   })
 }
 
