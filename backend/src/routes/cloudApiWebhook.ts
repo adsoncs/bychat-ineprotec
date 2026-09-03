@@ -613,18 +613,18 @@ async function processIncomingMessage(
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
       const { processAiJourneyMessage } = await import('../services/aiJourneyEngine.js')
-      await processAiJourneyMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, conn.funnelId ?? null, conn.stageKey ?? null, contactName)
+      await processAiJourneyMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, conn.funnelId ?? null, conn.stageKey ?? null, contactName, conn.id)
       return
     }
   }
   if (chatbot?.mode === 'scripted' && chatbot.formId) {
     const form = await prisma.form.findUnique({ where: { id: chatbot.formId } })
     if (form?.active) {
-      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, conn.funnelId ?? null, conn.stageKey ?? null)
+      await processScriptedChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, chatbot, form, sendInteractiveFn, interactiveReplyId, flowResponse, conn.funnelId ?? null, conn.stageKey ?? null, conn.id)
       return
     }
   }
-  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, sendInteractiveFn, interactiveReplyId, conn.funnelId ?? null, conn.stageKey ?? null)
+  await processChatbotMessage(phone, cleanMsg, app, msgId, sendFn, 'cloud_api', originData, conn.chatbotId, null, sendInteractiveFn, interactiveReplyId, conn.funnelId ?? null, conn.stageKey ?? null, conn.id)
 }
 
 // ─── Process Status Update ──────────────────────────────

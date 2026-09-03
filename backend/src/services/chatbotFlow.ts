@@ -226,8 +226,9 @@ async function extractDataWithAI(conversation: Array<{role: string, content: str
 export async function postJourneyAiReply(params: {
   lead: any; text: string; phone: string; sendFn: SendFn; provider: ProviderType;
   instanceName?: string | null; chatbot: any; app: FastifyInstance;
+  cloudApiConnectionId?: number | null;
 }): Promise<void> {
-  const { lead, text, phone, sendFn, provider, instanceName, chatbot, app } = params
+  const { lead, text, phone, sendFn, provider, instanceName, chatbot, app, cloudApiConnectionId } = params
   try {
     const brand = await getBranding()
     const nome = lead?.nome || ''
@@ -258,6 +259,7 @@ export async function postJourneyAiReply(params: {
     await prisma.message.create({ data: {
       leadId: lead.id, fromMe: true, body: reply, mediaType: 'text', provider,
       ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
       senderName: chatbot?.name || 'IA', isInternal: false, externalId: r.messageId, ack: r.messageId ? 1 : 0, timestamp: new Date(),
     } }).catch(() => {})
     await prisma.lead.update({ where: { id: lead.id }, data: { formData: { ...fd, _postChat: history.slice(-20) }, lastMessageAt: new Date() } }).catch(() => {})
@@ -375,6 +377,11 @@ export async function processChatbotMessage(
   // do chatbot de IA nasce promovido a este funil/etapa; senão continua cru.
   promoteFunnelId?: number | null,
   promoteStageKey?: string | null,
+  // Conexão Cloud API por onde a mensagem entrou. A janela de 24h da Meta é
+  // POR NÚMERO e quem consulta o estado dela filtra por esta coluna: gravar
+  // `provider: 'cloud_api'` sem dizer QUAL conexão faz a janela parecer
+  // fechada com o contato acabando de escrever.
+  cloudApiConnectionId?: number | null,
 ): Promise<void> {
   // Lista de bloqueio: o motor do chatbot também é chamado por caminhos que não
   // passam pelo webhook (preview, reprocessamento, fila). Barrar aqui garante que
@@ -544,6 +551,7 @@ Para começar, qual é o seu *nome*?`
           mediaType: 'text',
           provider,
           ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+          ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
           senderName: attendantName || 'Beyond AI',
           isInternal: false,
           externalId: greetMsgId,
@@ -653,6 +661,7 @@ Para começar, qual é o seu *nome*?`
             mediaType: 'text',
             provider,
             ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+            ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
             senderName: lead.nome || phone,
             externalId: messageId || null,
             timestamp: new Date()
@@ -688,6 +697,7 @@ Para começar, qual é o seu *nome*?`
             mediaType: 'text',
             provider,
             ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+            ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
             senderName: attendantName || 'Beyond AI',
             isInternal: false,
             externalId: compAiMsgId,
@@ -798,6 +808,7 @@ ${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
         mediaType: 'text',
         provider,
         ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+        ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
         senderName: lead.nome || phone,
         externalId: messageId || null,
         timestamp: new Date()
@@ -835,6 +846,7 @@ ${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
         mediaType: 'text',
         provider,
         ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+        ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
         senderName: attendantName || 'Beyond AI',
         isInternal: false,
         externalId: aiMsgId,

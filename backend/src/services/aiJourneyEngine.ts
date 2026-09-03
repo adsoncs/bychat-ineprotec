@@ -565,10 +565,15 @@ export async function processAiJourneyMessage(
   sendInteractiveFn?: SendInteractiveFn | null,
   promoteFunnelId?: number | null, promoteStageKey?: string | null,
   contactName?: string | null,
+  // Conexão Cloud API por onde a mensagem entrou. A janela de 24h da Meta é
+  // POR NÚMERO e quem consulta o estado dela filtra por esta coluna: gravar
+  // `provider: 'cloud_api'` sem dizer QUAL conexão faz a janela parecer
+  // fechada com o contato acabando de escrever.
+  cloudApiConnectionId?: number | null,
 ): Promise<void> {
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
-    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName)
+    _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName, cloudApiConnectionId)
       .catch((e) => app.log.error(`[aiJourney] erro: ${e?.stack || e}`)),
   )
   locks.set(phone, run.then(() => undefined))
@@ -582,6 +587,7 @@ async function _process(
   chatbot: any, form: any, sendInteractiveFn: SendInteractiveFn | null | undefined,
   promoteFunnelId: number | null | undefined, promoteStageKey: string | null | undefined,
   contactName?: string | null,
+  cloudApiConnectionId?: number | null,
 ): Promise<void> {
   if (!form || !Array.isArray(form.fields)) { app.log.warn('[aiJourney] form sem fields'); return }
   const attendantName = chatbot?.name || 'Atendimento'
@@ -595,6 +601,7 @@ async function _process(
     await prisma.message.create({ data: {
       leadId, fromMe: true, body, mediaType: 'text', provider,
       ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
       senderName: attendantName, isInternal: false, externalId: extId, ack: extId ? 1 : 0, timestamp: new Date(),
     } }).catch((e) => app.log.warn(`[aiJourney] save out: ${e}`))
     await prisma.lead.update({ where: { id: leadId }, data: { lastMessageAt: new Date() } }).catch(() => {})
@@ -603,6 +610,7 @@ async function _process(
     await prisma.message.create({ data: {
       leadId, fromMe: false, body, mediaType: 'text', provider,
       ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
+      ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
       senderName: body ? body.slice(0, 60) : phone, externalId: messageId || null, timestamp: new Date(),
     } }).catch((e) => app.log.warn(`[aiJourney] save in: ${e}`))
     await prisma.lead.update({ where: { id: leadId }, data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date() } }).catch(() => {})
@@ -685,7 +693,7 @@ async function _process(
     await saveIncoming(leadId, text)
     if (chatbot?.postChatAi) {
       const { postJourneyAiReply } = await import('./chatbotFlow.js')
-      await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app }).catch((e: any) => app.log.warn(`[aiJourney] postChatAi: ${e?.message || e}`))
+      await postJourneyAiReply({ lead, text, phone, sendFn, provider, instanceName, chatbot, app, cloudApiConnectionId }).catch((e: any) => app.log.warn(`[aiJourney] postChatAi: ${e?.message || e}`))
     }
     return
   }
