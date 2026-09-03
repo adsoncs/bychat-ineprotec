@@ -1242,6 +1242,11 @@ import('./services/profilePictureSync.js')
     .then(m => m.startVoipRecordingSync())
     .catch(err => console.error('[voipRecordingSync] init falhou:', err))
   startEvolutionMonitor()
+  // Erro de CONTA na Cloud API (pagamento, bloqueio). No severiano, 105 recusas
+  // 131042 passaram seis semanas em silêncio antes de alguém notar.
+  import('./services/cloudApiErrorWatch.js')
+    .then((m) => m.startCloudApiErrorWatch())
+    .catch((e) => console.error('[cloudApiErrorWatch] init falhou:', e))
   startTrashPurgeScheduler()
   startMeetingRetentionPurge()   // F0.6 — expurgo de gravações de reunião por retenção (LGPD)
   startMeetingTranscriptPoll()   // F1.3 — poller de status/transcrição das reuniões
