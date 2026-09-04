@@ -21,7 +21,7 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import {
-  Bell, AlertTriangle, AlertCircle, Info, Check, ExternalLink, Archive, Users, Inbox,
+  Bell, AlertTriangle, AlertCircle, Info, Check, Clock, ExternalLink, Archive, Users, Inbox,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -35,7 +35,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 import {
-  useAlertList, useAlertKinds, useAcervoItens, useAlertAction, useMarkAlertRead,
+  useAlertList, useAlertKinds, useAcervoItens, useAlertAction, useMarkAlertRead, useAckAlert,
   type AlertaDaLista, type AlertSeverity, type EscopoDaLista,
 } from '@/hooks/useAlerts'
 
@@ -83,8 +83,15 @@ export function AlertsPage() {
   const [tipoAcervo, setTipoAcervo] = useState('')
 
   const kinds = useAlertKinds()
+  // Resolvido só vale por poucos dias: "o que eu fechei esta semana". Depois
+  // vira histórico que ninguém lê, e alerta não é arquivo. A janela é da TELA;
+  // o banco guarda 30 dias, porque a saúde do sino mede nessa janela.
+  const DIAS_RESOLVIDO = 7
+  const desde = status === 'resolved'
+    ? new Date(Date.now() - DIAS_RESOLVIDO * 86400_000).toISOString()
+    : undefined
   const lista = useAlertList(
-    { escopo: aba === 'acervo' ? 'minha' : aba, status, kind, severity, busca, limit: POR_PAGINA, offset },
+    { escopo: aba === 'acervo' ? 'minha' : aba, status, kind, severity, busca, desde, limit: POR_PAGINA, offset },
     aba !== 'acervo',
   )
   const acervo = useAcervoItens(tipoAcervo || undefined, offset, aba === 'acervo')
@@ -167,7 +174,7 @@ export function AlertsPage() {
             <Campo rotulo="Situação">
               <Select value={status} onChange={(e) => trocar(setStatus)((e.target as HTMLSelectElement).value)}>
                 <option value="open">Em aberto</option>
-                <option value="resolved">Resolvidos</option>
+                <option value="resolved">Resolvidos (7 dias)</option>
                 <option value="todos">Todos</option>
               </Select>
             </Campo>
@@ -199,7 +206,7 @@ export function AlertsPage() {
           ) : !lista.data?.itens.length ? (
             <EmptyState
               icon={<Bell size={22} />}
-              title={status === 'resolved' ? 'Nada resolvido neste recorte' : 'Nada pedindo atenção'}
+              title={status === 'resolved' ? 'Nada resolvido nos últimos 7 dias' : 'Nada pedindo atenção'}
               description={aba === 'empresa'
                 ? 'Nenhuma condição aberta na empresa com esses filtros.'
                 : 'Sua caixa está limpa com esses filtros.'}
@@ -240,6 +247,7 @@ function LinhaDeAlerta({ alerta, mostrarDono }: { alerta: AlertaDaLista; mostrar
   const [, navigate] = useLocation()
   const acao = useAlertAction()
   const marcarLido = useMarkAlertRead()
+  const ciente = useAckAlert()
   const Icone = ICONE[alerta.severity] ?? Info
   const resolvido = alerta.status === 'resolved'
 
@@ -299,6 +307,26 @@ function LinhaDeAlerta({ alerta, mostrarDono }: { alerta: AlertaDaLista; mostrar
             onClick={() => marcarLido.mutate(alerta.id)}
           >
             <Check size={14} />
+          </button>
+        )}
+        {/*
+          "Ciente por hoje" existe em TODO alerta aberto, inclusive nos seis
+          tipos que não têm botão de ação — proposta parada, lead sem resposta,
+          linha caída, integração, gravação falhada. Sem isso a única saída
+          deles era não fazer nada, e o aviso ficava na caixa até alguém
+          resolver o problema lá fora.
+        */}
+        {!resolvido && (
+          <button
+            class="p-1 text-fg-muted hover:text-fg"
+            title="Ciente por hoje — sai da sua caixa e volta amanhã se o problema continuar"
+            disabled={ciente.isPending}
+            onClick={() => ciente.mutate(alerta.id, {
+              onSuccess: () => toast('Ciente. Volta amanhã se o problema continuar.', 'success'),
+              onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            })}
+          >
+            <Clock size={14} />
           </button>
         )}
         {alerta.link && (

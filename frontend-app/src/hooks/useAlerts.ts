@@ -70,10 +70,18 @@ export function useMarkAlertRead() {
   })
 }
 
-export function useDismissAlert() {
+/**
+ * "Ciente por hoje": tira da minha caixa por um prazo.
+ *
+ * Substituiu o descarte, que era definitivo — quem descartava não via aquele
+ * alerta nunca mais, nem com o problema de pé, nem quando ele reabria. Aqui o
+ * alerta volta quando o prazo vence, e só se a condição ainda existir.
+ */
+export function useAckAlert() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => api.post<{ ok: boolean; unread: number }>(`/alerts/${id}/dismiss`, {}),
+    mutationFn: (id: number) =>
+      api.post<{ ok: boolean; ate: string | null; unread: number }>(`/alerts/${id}/ack`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
   })
 }
@@ -232,6 +240,8 @@ export interface FiltroDaLista {
   status?: string
   kind?: string
   severity?: string
+  /** Recorte por quando a condição apareceu — a janela dos resolvidos. */
+  desde?: string | undefined
   busca?: string
   limit?: number
   offset?: number
@@ -240,7 +250,7 @@ export interface FiltroDaLista {
 function query(f: FiltroDaLista): string {
   const p = new URLSearchParams()
   p.set('escopo', f.escopo)
-  for (const k of ['status', 'kind', 'severity', 'busca'] as const) {
+  for (const k of ['status', 'kind', 'severity', 'busca', 'desde'] as const) {
     const v = f[k]
     if (v) p.set(k, v)
   }

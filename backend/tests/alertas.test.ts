@@ -27,7 +27,7 @@ import assert from 'node:assert/strict'
 import { prisma } from '../src/lib/prisma.js'
 import {
   raiseAlert, resolveAlert, resolverAusentes, resolverDestinatarios,
-  listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
+  listarAlertasDoUsuario, contarNaoLidos, marcarLido, adiarAlerta,
   silenciar, dessilenciar, purgarAlertasAntigos,
 } from '../src/services/alertService.js'
 import { produtorAtivo, definirProdutorAtivo, listarAlertas } from '../src/services/alertService.js'
@@ -160,13 +160,39 @@ describe('caixa individual — ler é de cada um, resolver é do mundo', () => {
     }
   })
 
-  test('descartar tira só da minha caixa e não fecha a condição', async () => {
+  test('ciente por hoje tira só da minha caixa e não fecha a condição', async () => {
     const r = await raiseAlert({ dedupeKey: P + 'desc', kind: KIND, title: 'desc' })
-    await descartar(r.alertId, gestor.id)
+    const ate = await adiarAlerta(r.alertId, gestor.id)
+    assert.ok(ate instanceof Date, 'devolve até quando fica fora')
     const minha = await listarAlertasDoUsuario(gestor.id)
     assert.ok(!minha.some((x) => x.alertId === r.alertId))
     const cond = await prisma.alert.findUnique({ where: { id: r.alertId }, select: { status: true } })
     assert.equal(cond?.status, 'open', 'a condição segue de pé')
+  })
+
+  // Era o defeito: o descarte não tinha volta. A pessoa sumia com um crítico
+  // da própria caixa e nada o trazia de novo — nem a condição de pé por meses,
+  // nem o alerta resolvendo e reabrindo.
+  test('vencido o prazo, o alerta VOLTA para a caixa', async () => {
+    const r = await raiseAlert({ dedupeKey: P + 'volta', kind: KIND, title: 'volta' })
+    await adiarAlerta(r.alertId, gestor.id)
+    assert.ok(!(await listarAlertasDoUsuario(gestor.id)).some((x) => x.alertId === r.alertId),
+      'enquanto o prazo vale, fica fora')
+
+    // Empurra o prazo para trás, como o relógio faria amanhã.
+    await prisma.alertRecipient.updateMany({
+      where: { alertId: r.alertId, userId: gestor.id },
+      data: { snoozedUntil: new Date(Date.now() - 60_000) },
+    })
+    assert.ok((await listarAlertasDoUsuario(gestor.id)).some((x) => x.alertId === r.alertId),
+      'vencido o prazo, volta — este é o conserto')
+  })
+
+  test('o contador do sino respeita o prazo', async () => {
+    const r = await raiseAlert({ dedupeKey: P + 'cont2', kind: KIND, title: 'cont2' })
+    const antes = await contarNaoLidos(gestor.id)
+    await adiarAlerta(r.alertId, gestor.id)
+    assert.equal(await contarNaoLidos(gestor.id), antes - 1, 'adiado sai da conta')
   })
 
   test('resolver fecha para todos de uma vez', async () => {

@@ -112,7 +112,7 @@ export async function saudeDosAlertas(dias = 30): Promise<SaudeDoTipo[]> {
     },
     select: {
       kind: true, status: true, firstSeenAt: true, resolvedAt: true, occurrences: true,
-      recipients: { select: { readAt: true, dismissedAt: true } },
+      recipients: { select: { readAt: true, snoozedUntil: true } },
     },
   })
 
@@ -145,7 +145,7 @@ export async function saudeDosAlertas(dias = 30): Promise<SaudeDoTipo[]> {
     for (const a of lista) {
       for (const r of a.recipients) {
         destinatarios++
-        if (r.dismissedAt) descartes++
+        if (r.snoozedUntil) descartes++
         if (!r.readAt) naoLidos++
       }
       if (a.resolvedAt) {

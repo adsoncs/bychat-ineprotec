@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useLocation } from 'wouter-preact'
-import { Bell, AlertTriangle, AlertCircle, Info, Check, X as XIcon, ExternalLink, BellOff } from '@/components/ui/icon-set'
+import { Bell, AlertTriangle, AlertCircle, Info, Check, Clock, ExternalLink, BellOff } from '@/components/ui/icon-set'
 import { onServerEvent } from '@/lib/realtime'
 import { useQueryClient } from '@tanstack/react-query'
 import { playNotificationSound } from '@/lib/notificationSound'
@@ -9,7 +9,7 @@ import { showDesktopNotification } from '@/lib/desktopNotify'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useT } from '@/i18n'
 import {
-  useAlerts, useUnreadAlertCount, useMarkAlertRead, useDismissAlert, useMarkAllAlertsRead,
+  useAlerts, useUnreadAlertCount, useMarkAlertRead, useAckAlert, useMarkAllAlertsRead,
   useAlertAction, useMuteAlert, useAlertBacklog, type AlertItem, type AlertSeverity,
 } from '@/hooks/useAlerts'
 import { toast } from '@/lib/toast'
@@ -403,7 +403,7 @@ function LinhaDeAlerta({ alerta, onNavegar }: { alerta: AlertItem; onNavegar: ()
   const t = useT()
   const [, navigate] = useLocation()
   const marcarLido = useMarkAlertRead()
-  const descartar = useDismissAlert()
+  const ciente = useAckAlert()
   const desdeQuando = useDesdeQuando()
   const Icone = ICONE[alerta.severity] ?? AlertTriangle
   const naoLido = !alerta.readAt
@@ -479,10 +479,13 @@ function LinhaDeAlerta({ alerta, onNavegar }: { alerta: AlertItem; onNavegar: ()
           class="p-1 rounded text-fg-muted hover:bg-surface-3 hover:text-fg"
           title={t('alerts.dismiss')}
           aria-label={t('alerts.dismiss')}
-          onClick={() => descartar.mutate(alerta.id)}
-          disabled={descartar.isPending}
+          onClick={() => ciente.mutate(alerta.id)}
+          disabled={ciente.isPending}
         >
-          <XIcon size={14} />
+          {/* Relógio, não X: o alerta não está sendo descartado, está sendo
+              adiado. O X prometia "some daqui", que era o comportamento
+              antigo — e o errado. */}
+          <Clock size={14} />
         </button>
       </div>
     </div>

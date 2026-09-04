@@ -17,9 +17,9 @@ import type { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import type { JwtPayload } from '../lib/auth.js'
 import {
-  listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
+  listarAlertasDoUsuario, contarNaoLidos, marcarLido,
   silenciar, dessilenciar, listarSilencios,
-  produtorAtivo, definirProdutorAtivo, listarAlertas, tiposComAlerta,
+  produtorAtivo, definirProdutorAtivo, listarAlertas, tiposComAlerta, adiarAlerta,
 } from '../services/alertService.js'
 import { prisma } from '../lib/prisma.js'
 import { registrarDesfecho } from '../services/meetingOutcome.js'
@@ -104,18 +104,30 @@ export async function alertsRoutes(app: FastifyInstance) {
     }
   })
 
-  // ── POST /api/alerts/:id/dismiss — tira da MINHA caixa ──
-  app.post('/api/alerts/:id/dismiss', { preHandler: authMiddleware }, async (req, reply) => {
+  // ── POST /api/alerts/:id/ack — "ciente por hoje" ──
+  //
+  // Tira da MINHA caixa por um prazo (24h por padrão, `alertas.ciente_horas`)
+  // e devolve quando ele vence, se o produtor ainda encontrar o problema.
+  //
+  // Substituiu o `dismiss`, que era definitivo: quem descartava não via aquele
+  // alerta nunca mais — nem com a condição de pé por meses, nem quando ela
+  // resolvia e reabria. Um crítico podia ser enterrado por uma pessoa, em
+  // silêncio. O caminho antigo segue respondendo, apontando para cá, para não
+  // quebrar aba aberta durante o deploy.
+  const ciente = async (req: any, reply: any) => {
     try {
-      const user = (req as any).user as JwtPayload
-      const id = Number((req.params as any).id)
+      const user = req.user as JwtPayload
+      const id = Number(req.params?.id)
       if (!Number.isFinite(id)) return reply.code(400).send({ error: 'id inválido' })
-      await descartar(id, user.userId)
-      return { ok: true, unread: await contarNaoLidos(user.userId) }
+      const horas = Number(req.body?.horas)
+      const ate = await adiarAlerta(id, user.userId, Number.isFinite(horas) ? horas : undefined)
+      return { ok: true, ate, unread: await contarNaoLidos(user.userId) }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
-  })
+  }
+  app.post('/api/alerts/:id/ack', { preHandler: authMiddleware }, ciente)
+  app.post('/api/alerts/:id/dismiss', { preHandler: authMiddleware }, ciente)
 
   // ── POST /api/alerts/:id/action — resolve a CONDIÇÃO, não o alerta ──
   //
@@ -389,7 +401,10 @@ export async function alertsRoutes(app: FastifyInstance) {
     try {
       const user = (req as any).user as JwtPayload
       const r = await prisma.alertRecipient.updateMany({
-        where: { userId: user.userId, readAt: null, dismissedAt: null, alert: { status: 'open' } },
+        where: {
+          userId: user.userId, readAt: null, alert: { status: 'open' },
+          OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }],
+        },
         data: { readAt: new Date() },
       })
       return { ok: true, marcados: r.count, unread: 0 }

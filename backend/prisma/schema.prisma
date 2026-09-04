@@ -9507,8 +9507,12 @@ model AlertRecipient {
   userId  Int
 
   readAt      DateTime?
-  // Tirar da própria caixa sem fechar a condição para os outros.
-  dismissedAt DateTime?
+  /// "Ciente por hoje": some da caixa DESTA pessoa até esta hora, e volta na
+  /// varredura seguinte se a condição ainda existir. Substituiu o
+  /// `dismissedAt`, que era permanente — quem descartava nunca mais via o
+  /// alerta, nem quando o problema seguia de pé, nem quando ele reabria.
+  /// Null = está na caixa.
+  snoozedUntil DateTime?
   createdAt   DateTime  @default(now())
 
   alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
@@ -9516,6 +9520,7 @@ model AlertRecipient {
 
   @@unique([alertId, userId])
   @@index([userId, readAt])
+  @@index([userId, snoozedUntil])
   @@map("bychat_alert_recipients")
 }
 

@@ -418,7 +418,7 @@ export async function listarAlertasDoUsuario(
   return prisma.alertRecipient.findMany({
     where: {
       userId,
-      dismissedAt: null,
+      ...naCaixa(),
       ...(opts?.apenasNaoLidos ? { readAt: null } : {}),
       alert: { status: 'open', ...(silencio.alert || {}) },
     },
@@ -433,10 +433,20 @@ export async function contarNaoLidos(userId: number): Promise<number> {
   const silencio = await filtroDeSilencio(userId)
   return prisma.alertRecipient.count({
     where: {
-      userId, readAt: null, dismissedAt: null,
+      userId, readAt: null, ...naCaixa(),
       alert: { status: 'open', ...(silencio.alert || {}) },
     },
   })
+}
+
+/**
+ * O recorte "está na minha caixa agora".
+ *
+ * Adiado não é apagado: sai enquanto o prazo vale e volta quando ele vence, se
+ * a condição ainda estiver de pé. Prazo nulo = nunca foi adiado.
+ */
+function naCaixa() {
+  return { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }] }
 }
 
 /** Marca como lido na caixa de quem leu. Não mexe na condição. */
@@ -448,14 +458,42 @@ export async function marcarLido(alertId: number, userId: number): Promise<boole
   return r.count > 0
 }
 
-/** Tira da própria caixa. O alerta continua de pé para os outros. */
-export async function descartar(alertId: number, userId: number): Promise<boolean> {
-  const agora = new Date()
+/** Quantas horas dura o "ciente por hoje". */
+const CIENTE_HORAS_PADRAO = 24
+
+async function horasDeCiencia(): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { key: 'alertas.ciente_horas' } }).catch(() => null)
+  const n = parseInt(String(row?.value ?? '').replace(/"/g, ''), 10)
+  return Number.isFinite(n) && n > 0 ? n : CIENTE_HORAS_PADRAO
+}
+
+/**
+ * "Ciente por hoje": tira da MINHA caixa por um prazo.
+ *
+ * Substituiu o descarte, que era definitivo. A diferença é o que acontece com
+ * um problema que continua: no descarte, nada — a pessoa nunca mais via aquele
+ * alerta, nem se a condição seguisse de pé por meses, nem se ela resolvesse e
+ * reabrisse. Aqui o alerta volta quando o prazo vence, e só se o produtor
+ * ainda encontrar o problema.
+ *
+ * É a saída honesta para "eu vi, estou cuidando": não mente dizendo que
+ * resolveu (isso é do mundo, não da caixa) e não esconde para sempre. Quem
+ * quer parar de ver um TIPO usa o silêncio, que é outra decisão.
+ *
+ * Marca como lido junto: quem adiou tomou conhecimento.
+ */
+export async function adiarAlerta(
+  alertId: number,
+  userId: number,
+  horas?: number,
+): Promise<Date | null> {
+  const h = horas && horas > 0 ? horas : await horasDeCiencia()
+  const ate = new Date(Date.now() + h * 3600_000)
   const r = await prisma.alertRecipient.updateMany({
-    where: { alertId, userId, dismissedAt: null },
-    data: { dismissedAt: agora, readAt: agora },
+    where: { alertId, userId },
+    data: { snoozedUntil: ate, readAt: new Date() },
   })
-  return r.count > 0
+  return r.count > 0 ? ate : null
 }
 
 // ── Retenção ────────────────────────────────────────────────────────────────
@@ -471,7 +509,11 @@ export async function descartar(alertId: number, userId: number): Promise<boolea
 // Só RESOLVIDO é apagado. Alerta aberto fica, por antigo que seja — condição de
 // pé há três meses é exatamente a que não deveria desaparecer sozinha.
 
-const RETENCAO_PADRAO_DIAS = 60
+// 30, não 60. Alerta resolvido vale por poucos dias — "o que eu fechei esta
+// semana" —, e depois é histórico que ninguém lê. O teto ainda cobre a janela
+// de 30 dias da tela de saúde do sino, que é o instrumento que diz se um tipo
+// virou ruído; abaixo disso a medição fica cega.
+const RETENCAO_PADRAO_DIAS = 30
 let handlePurga: ReturnType<typeof setInterval> | null = null
 
 async function diasDeRetencao(): Promise<number> {
@@ -570,7 +612,12 @@ function ondeDoAlerta(f: FiltroDeAlertas) {
   if (f.severity) where.severity = f.severity
   if (f.ownerUserId) where.ownerUserId = f.ownerUserId
   if (f.desde || f.ate) {
-    where.firstSeenAt = { ...(f.desde ? { gte: f.desde } : {}), ...(f.ate ? { lte: f.ate } : {}) }
+    // Vendo resolvidos, a janela é sobre QUANDO FECHOU, não sobre quando
+    // apareceu: uma condição que nasceu há três meses e foi resolvida ontem é
+    // exatamente o que "resolvidos dos últimos 7 dias" tem de mostrar. Por
+    // `firstSeenAt` ela ficaria de fora, e a lista mentiria por omissão.
+    const campo = f.status === 'resolved' ? 'resolvedAt' : 'firstSeenAt'
+    where[campo] = { ...(f.desde ? { gte: f.desde } : {}), ...(f.ate ? { lte: f.ate } : {}) }
   }
   if (f.busca?.trim()) where.title = { contains: f.busca.trim() }
   return where
@@ -620,7 +667,7 @@ export async function listarAlertas(
   const silencio = await filtroDeSilencio(userId)
   const where = {
     userId,
-    dismissedAt: null,
+    ...naCaixa(),
     alert: { ...ondeDoAlerta(f), ...(silencio.alert || {}) },
   }
   const [linhas, total] = await Promise.all([
