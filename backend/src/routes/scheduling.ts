@@ -533,6 +533,10 @@ export async function schedulingRoutes(app: FastifyInstance) {
         import('../services/googleCalendarSync.js').then((m: any) => m.unsyncActivityFromCalendar?.(bk.activityId)).catch(() => {})
       } else if (status === 'completed') {
         await prisma.activity.update({ where: { id: bk.activityId }, data: { status: 'completed', completedAt: new Date() } }).catch(() => {})
+      } else if (status === 'no_show') {
+        // Contato não apareceu: a atividade sai da fila como cancelada. Sem isso
+        // ela fica pendente, vence e cobra uma reunião que já falhou.
+        await prisma.activity.update({ where: { id: bk.activityId }, data: { status: 'cancelled' } }).catch(() => {})
       }
     }
     return { ok: true }
