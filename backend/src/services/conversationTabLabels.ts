@@ -27,6 +27,19 @@ export const CAIXAS = ['inbox', 'raw', 'snoozed', 'resolved', 'all'] as const
 export type Escopo = (typeof ESCOPOS)[number]
 export type Caixa = (typeof CAIXAS)[number]
 
+/**
+ * Os itens que exibem contador na barra.
+ *
+ * `groups` entra aqui e NÃO em `CAIXAS` de propósito: as caixas são estados da
+ * conversa (em atendimento, na fila, aguardando, resolvida) e o servidor as
+ * usa como filtro de `bucket`. Grupos é outro eixo — recorta o TIPO da
+ * conversa. Ele tem contador, então precisa da chave; não tem estado, então
+ * não entra na lista de caixas nem ganha nome e ordem.
+ */
+export const ITENS_CONTADOR = [...CAIXAS, 'groups'] as const
+export type ItemContador = (typeof ITENS_CONTADOR)[number]
+
+
 export interface TabOrder {
   scope: Escopo[]
   bucket: Caixa[]
@@ -36,6 +49,19 @@ export interface TabLabels {
   scope: Record<Escopo, string>
   bucket: Record<Caixa, string>
   order: TabOrder
+  /**
+   * Mostrar o número de conversas — POR ITEM da barra.
+   *
+   * Nasce tudo ligado: o contador é útil e tirá-lo sem pedir mudaria a tela de
+   * quem já a conhece. Mas contador em toda aba tem custo — quando todas têm
+   * número, nenhum número chama atenção — e o que incomoda varia por item: o
+   * total de "Todos" com centenas na frente desanima, enquanto o de
+   * "Atendimento" é o que orienta o dia. Por isso é um por aba, e não um
+   * interruptor só.
+   *
+   * Vale para a equipe toda, como o nome e a ordem: é a mesma barra.
+   */
+  showCounts: Record<ItemContador, boolean>
 }
 
 /** O vocabulário de fábrica — e o que volta quando o admin limpa um campo. */
@@ -43,6 +69,7 @@ export const PADRAO: TabLabels = {
   scope: { mine: 'Meus', team: 'Setor', all: 'Todos' },
   bucket: { inbox: 'Atendimento', raw: 'Caixa', snoozed: 'Aguardando', resolved: 'Resolvidos', all: 'Todos' },
   order: { scope: [...ESCOPOS], bucket: [...CAIXAS] },
+  showCounts: Object.fromEntries(ITENS_CONTADOR.map((k) => [k, true])) as Record<ItemContador, boolean>,
 }
 
 /** Nome de aba é rótulo curto: sem marcação, sem quebra, e cabendo na coluna. */
@@ -81,6 +108,24 @@ function ordenar<T extends string>(bruto: unknown, validos: readonly T[]): T[] {
   return saida
 }
 
+/**
+ * Contadores, item a item.
+ *
+ * Aceita o booleano único da primeira versão desta preferência: quem já tinha
+ * gravado `showCounts: false` não pode ver os números voltarem sozinhos porque
+ * o formato mudou. Fora isso, só `false` explícito desliga — chave ausente é
+ * instalação que sempre viu o contador.
+ */
+function saneiaContadores(bruto: unknown): Record<ItemContador, boolean> {
+  if (typeof bruto === 'boolean') {
+    return Object.fromEntries(ITENS_CONTADOR.map((k) => [k, bruto])) as Record<ItemContador, boolean>
+  }
+  const obj = (bruto && typeof bruto === 'object' ? bruto : {}) as any
+  return Object.fromEntries(
+    ITENS_CONTADOR.map((k) => [k, obj[k] !== false]),
+  ) as Record<ItemContador, boolean>
+}
+
 export function sanear(bruto: unknown): TabLabels {
   const obj = (bruto && typeof bruto === 'object' ? bruto : {}) as any
   const scope = {} as Record<Escopo, string>
@@ -94,6 +139,7 @@ export function sanear(bruto: unknown): TabLabels {
       scope: ordenar(obj?.order?.scope, ESCOPOS),
       bucket: ordenar(obj?.order?.bucket, CAIXAS),
     },
+    showCounts: saneiaContadores(obj?.showCounts),
   }
 }
 
@@ -146,7 +192,15 @@ export async function gravarTabLabels(bruto: unknown): Promise<TabLabels> {
   // painel ainda não atualizado): a ordem já escolhida fica de pé, em vez de
   // voltar para a de fábrica sem ninguém ter pedido.
   const obj = (bruto && typeof bruto === 'object' ? bruto : {}) as any
-  const entrada = obj?.order ? obj : { ...obj, order: (await lerTabLabels()).order }
+  // Campo ausente = "não mexi nisso", e não "volte para o padrão". Um painel
+  // antigo que só manda nomes não pode zerar a ordem nem religar o contador
+  // que a casa desligou.
+  const atual = await lerTabLabels()
+  const entrada = {
+    ...obj,
+    order: obj?.order ?? atual.order,
+    showCounts: obj?.showCounts === undefined ? atual.showCounts : obj.showCounts,
+  }
   const limpo = sanear(entrada)
   await prisma.setting.upsert({
     where: { key: TAB_LABELS_KEY },

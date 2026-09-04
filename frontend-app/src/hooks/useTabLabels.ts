@@ -24,6 +24,16 @@ export const CAIXAS = ['inbox', 'raw', 'snoozed', 'resolved', 'all'] as const
 export type EscopoId = (typeof ESCOPOS)[number]
 export type CaixaId = (typeof CAIXAS)[number]
 
+/**
+ * Os itens que exibem contador. `groups` entra aqui e não em `CAIXAS`: as
+ * caixas são estados da conversa e viram filtro de `bucket` no servidor;
+ * Grupos recorta o TIPO. Tem contador, logo tem chave; não tem estado, logo
+ * não ganha nome nem posição.
+ */
+export const ITENS_CONTADOR = [...CAIXAS, 'groups'] as const
+export type ItemContador = (typeof ITENS_CONTADOR)[number]
+
+
 export interface TabOrder {
   scope: EscopoId[]
   bucket: CaixaId[]
@@ -33,12 +43,21 @@ export interface TabLabels {
   scope: Record<EscopoId, string>
   bucket: Record<CaixaId, string>
   order: TabOrder
+  /**
+   * Mostrar o número de conversas — por item da barra. Nasce tudo ligado.
+   *
+   * É um por aba, e não um interruptor só, porque o que incomoda varia: o
+   * total de "Todos" com centenas na frente desanima, enquanto o de
+   * "Atendimento" é o que orienta o dia.
+   */
+  showCounts: Record<ItemContador, boolean>
 }
 
 export const LABELS_PADRAO: TabLabels = {
   scope: { mine: 'Meus', team: 'Setor', all: 'Todos' },
   bucket: { inbox: 'Atendimento', raw: 'Caixa', snoozed: 'Aguardando', resolved: 'Resolvidos', all: 'Todos' },
   order: { scope: [...ESCOPOS], bucket: [...CAIXAS] },
+  showCounts: Object.fromEntries(ITENS_CONTADOR.map((k) => [k, true])) as Record<ItemContador, boolean>,
 }
 
 /**
@@ -82,6 +101,19 @@ export function useTabLabels() {
     // Instalação que nunca salvou (ou que salvou antes desta versão) não tem
     // `order` no JSON: cair no padrão mantém a barra como sempre foi.
     order: labels.order ?? LABELS_PADRAO.order,
+    /**
+     * Este item mostra contador?
+     *
+     * Aceita o booleano único da primeira versão e a ausência da chave
+     * (instalação anterior a esta preferência): nos dois casos o número
+     * continua aparecendo, porque uma atualização não pode apagar sozinha o
+     * que a equipe sempre viu. Só `false` explícito desliga.
+     */
+    mostrarContador: (id: ItemContador): boolean => {
+      const c = labels.showCounts as unknown
+      if (typeof c === 'boolean') return c
+      return (c as Record<string, boolean> | undefined)?.[id] !== false
+    },
     carregando: q.isLoading,
   }
 }

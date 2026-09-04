@@ -322,7 +322,7 @@ export function ConversationsPage() {
 function ConversationsScreen() {
   const [bucket, setBucket] = useState<Bucket>('inbox')
   // Nomes e ordem das abas definidos pela empresa (Preferências › Abas).
-  const { labels, order: ordemAbas, carregando: carregandoAbas } = useTabLabels()
+  const { labels, order: ordemAbas, mostrarContador, carregando: carregandoAbas } = useTabLabels()
   // Tema escolhido pela empresa (Preferências › Tema). Vale só neste módulo.
   const { theme: temaConversas } = useConversationTheme()
   const [scope, setScope] = useState<Scope>('mine')
@@ -825,7 +825,7 @@ function ConversationsScreen() {
                   >
                     <span class="relative grid place-items-center">
                       <Icon size={ICON_SIZE.md} class="shrink-0" />
-                      {count != null && count > 0 && (
+                      {mostrarContador(b.id) && count != null && count > 0 && (
                         <span class={cn(
                           'absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full text-3xs leading-none grid place-items-center tabular-nums',
                           active ? 'bg-accent text-fg-on-brand' : 'bg-surface-3 text-fg-muted',
@@ -849,7 +849,7 @@ function ConversationsScreen() {
                 >
                   <span class="relative grid place-items-center">
                     <Users size={ICON_SIZE.md} class="shrink-0" />
-                    {(counters?.groups ?? 0) > 0 && (
+                    {mostrarContador('groups') && (counters?.groups ?? 0) > 0 && (
                       <span class={cn(
                         'absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full text-3xs leading-none grid place-items-center tabular-nums',
                         emGrupos ? 'bg-accent text-fg-on-brand' : 'bg-surface-3 text-fg-muted',

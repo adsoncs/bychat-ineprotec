@@ -16,6 +16,7 @@ import { useSettings, useUpdateSettings } from '@/hooks/useSettings'
 import {
   CAIXAS, ESCOPOS, LABELS_PADRAO, TEMAS, moverNaOrdem, useTabLabels, useUpdateTabLabels,
   useConversationTheme, useUpdateConversationTheme, type TabLabels, type TemaConversas,
+  type ItemContador,
 } from '@/hooks/useTabLabels'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
@@ -331,6 +332,19 @@ function NomesDasAbas() {
 
   const atual = rascunho ?? labels
   const mudou = JSON.stringify(atual) !== JSON.stringify(labels)
+  // Os itens seguem a ordem escolhida pela empresa, com Grupos no fim — é onde
+  // ele fica na barra, e a lista tem de espelhar a tela para ser conferível.
+  const itensContador = [...(atual.order?.bucket ?? [...CAIXAS]), 'groups'] as ItemContador[]
+
+  // Aceita o booleano único da primeira versão desta preferência e a ausência
+  // da chave: nos dois casos o número continua aparecendo. Só `false` desliga.
+  const contadoresAtuais: Record<string, boolean> = (() => {
+    const c = atual.showCounts as unknown
+    if (typeof c === 'boolean') return Object.fromEntries(itensContador.map((k) => [k, c]))
+    return { ...(c as Record<string, boolean> | undefined ?? {}) }
+  })()
+  const contadorLigado = (id: ItemContador) => contadoresAtuais[id] !== false
+
 
   function editar(grupo: 'scope' | 'bucket', id: string, valor: string) {
     setRascunho({ ...atual, [grupo]: { ...atual[grupo], [id]: valor } } as TabLabels)
@@ -421,6 +435,38 @@ function NomesDasAbas() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/*
+          Contador POR ITEM, e não um interruptor só: o que incomoda varia de
+          aba para aba. O total de "Todos" com centenas na frente desanima,
+          enquanto o de "Atendimento" é o que orienta o dia.
+
+          Fica aqui, junto do nome e da ordem, e no mesmo "Salvar abas": é a
+          mesma Setting, e dois botões de salvar na mesma caixa confundem.
+
+          "Grupos" aparece na lista mas não tem campo de nome nem setas: ele
+          recorta o TIPO da conversa, não o estado — não é uma caixa, só tem
+          contador.
+        */}
+        <div class="mt-3 border-t border-border pt-3">
+          <span class="mb-1.5 block text-2xs font-medium text-fg">Mostrar o número de conversas</span>
+          <div class="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+            {itensContador.map((id) => (
+              <Switch
+                key={`cont.${id}`}
+                checked={contadorLigado(id)}
+                onChange={(v) => setRascunho({
+                  ...atual,
+                  showCounts: { ...contadoresAtuais, [id]: v },
+                } as TabLabels)}
+                label={id === 'groups' ? 'Grupos' : (atual.bucket as any)[id]}
+              />
+            ))}
+          </div>
+          <p class="mt-1.5 text-2xs text-fg-muted">
+            Desligado, a aba fica só com o nome. Quando toda aba tem número, nenhum número chama atenção.
+          </p>
         </div>
 
         <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
