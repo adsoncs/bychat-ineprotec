@@ -51,6 +51,10 @@ export const sidebarSchema: SidebarSchema = {
     { id: 'conversations', label: 'Conversas', href: '/app/conversations', icon: 'MessageSquare', permission: 'atendimento' },
     // Painel gerencial do Conversas — só gestão tem canView (ver migration 0105).
     { id: 'supervision', label: 'Supervisão', href: '/app/supervision', icon: 'Headphones', permission: 'supervision' },
+    // O sino continua sendo onde se AGE; esta tela responde o que a gaveta não
+    // responde: histórico, a visão da empresa e o acervo. Módulo `alerts`, que
+    // é core — todo mundo tem a própria caixa.
+    { id: 'alerts', label: 'Alertas', href: '/app/alerts', icon: 'Bell', permission: 'alerts' },
     { id: 'intelligence', label: 'Inteligência', href: '/app/intelligence', icon: 'Sparkles', permission: 'intelligence' },
   ],
   groups: [

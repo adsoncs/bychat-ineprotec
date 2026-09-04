@@ -30,7 +30,8 @@ import {
   listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
   silenciar, dessilenciar, purgarAlertasAntigos,
 } from '../src/services/alertService.js'
-import { produtorAtivo, definirProdutorAtivo } from '../src/services/alertService.js'
+import { produtorAtivo, definirProdutorAtivo, listarAlertas } from '../src/services/alertService.js'
+import { listarAcervo } from '../src/services/alertBacklog.js'
 import { destinoDoAlerta } from '../src/services/alertLinks.js'
 import { saudeDosAlertas } from '../src/services/alertHealth.js'
 import { candidatos, textoDoAviso, escalarPendentes } from '../src/services/alertEscalation.js'
@@ -569,6 +570,71 @@ describe('chave liga/desliga por produtor', () => {
   test('religar não reabre nada sozinho — quem reabre é a varredura', async () => {
     await definirProdutorAtivo(KIND_CHAVE, true)
     assert.equal(await produtorAtivo(KIND_CHAVE), true)
+  })
+})
+
+// A tela dedicada responde o que a gaveta não responde. Os dois escopos são
+// dados DIFERENTES — a soma das caixas individuais não é a lista de condições —
+// e a paginação precisa de ordem total, senão item pula de página.
+describe('lista da tela dedicada', () => {
+  test('escopo "empresa" enxerga a condição mesmo sem destinatário', async () => {
+    await prisma.alert.create({
+      data: {
+        dedupeKey: P + 'lista', kind: KIND + '.lista', severity: 'warning',
+        audience: 'management', title: 'condição sem ninguém (teste)',
+        status: 'open', lastSeenAt: new Date(),
+      },
+    })
+    const emp = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.lista' })
+    assert.equal(emp.total, 1, 'a condição existe mesmo sem AlertRecipient')
+
+    const minha = await listarAlertas(gestor.id, { escopo: 'minha', kind: KIND + '.lista' })
+    assert.equal(minha.total, 0, 'sem destinatário, não está na caixa de ninguém')
+    await limpar()
+  })
+
+  test('filtro de status separa aberto de resolvido', async () => {
+    await raiseAlert({ dedupeKey: P + 'st1', kind: KIND + '.st', title: 'aberto' })
+    await raiseAlert({ dedupeKey: P + 'st2', kind: KIND + '.st', title: 'vai resolver' })
+    await resolveAlert(P + 'st2')
+
+    const abertos = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.st', status: 'open' })
+    const resolvidos = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.st', status: 'resolved' })
+    const todos = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.st', status: 'todos' })
+    assert.equal(abertos.total, 1)
+    assert.equal(resolvidos.total, 1, 'histórico é justamente o que o sino não mostra')
+    assert.equal(todos.total, 2)
+    await limpar()
+  })
+
+  test('a paginação não repete nem pula item', async () => {
+    // Todos com o MESMO lastSeenAt: é o empate que faz offset mentir quando a
+    // ordem não é total.
+    const agora = new Date()
+    for (let i = 0; i < 6; i++) {
+      await prisma.alert.create({
+        data: {
+          dedupeKey: `${P}pg${i}`, kind: KIND + '.pg', severity: 'info', audience: 'management',
+          title: `pagina ${i}`, status: 'open', lastSeenAt: agora,
+        },
+      })
+    }
+    const p1 = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.pg', limite: 3, offset: 0 })
+    const p2 = await listarAlertas(gestor.id, { escopo: 'empresa', kind: KIND + '.pg', limite: 3, offset: 3 })
+    const ids = [...p1.itens, ...p2.itens].map((x) => x.id)
+    assert.equal(p1.total, 6)
+    assert.equal(new Set(ids).size, 6, 'com empate no lastSeenAt, o id tem de desempatar')
+    await limpar()
+  })
+
+  test('o acervo devolve item com link, não só contagem', async () => {
+    const r = await listarAcervo({ limite: 5 })
+    assert.ok(Array.isArray(r.itens), 'o acervo virou lista')
+    assert.equal(typeof r.total, 'number')
+    for (const i of r.itens) {
+      assert.ok(i.entityId > 0, 'todo item aponta para uma entidade real')
+      if (i.link) assert.ok(!i.link.startsWith('/app'), 'o Router já tem base — link com /app quebra')
+    }
   })
 })
 

@@ -86,6 +86,7 @@ export const ICON_NAMES = [
   'PenLine',
   'Repeat',
   'ScrollText',
+  'Bell',
   'ShieldAlert',
   'Stethoscope',
   'TrendingDown',

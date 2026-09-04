@@ -19,13 +19,17 @@ import type { JwtPayload } from '../lib/auth.js'
 import {
   listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
   silenciar, dessilenciar, listarSilencios,
-  produtorAtivo, definirProdutorAtivo,
+  produtorAtivo, definirProdutorAtivo, listarAlertas, tiposComAlerta,
 } from '../services/alertService.js'
 import { prisma } from '../lib/prisma.js'
 import { registrarDesfecho } from '../services/meetingOutcome.js'
 import { destinoDoAlerta } from '../services/alertLinks.js'
 import { saudeDosAlertas, recomendacao, TIPOS_CONHECIDOS } from '../services/alertHealth.js'
-import { acervo } from '../services/alertBacklog.js'
+import { acervo, listarAcervo } from '../services/alertBacklog.js'
+
+// Os mesmos papéis da Supervisão: a visão da empresa responde uma pergunta de
+// gestão, e o agregado dos outros não é da conta de quem atende.
+const GESTAO = new Set(['SUPERADMIN', 'ADMIN', 'MANAGER'])
 
 export async function alertsRoutes(app: FastifyInstance) {
   // ── GET /api/alerts — a caixa de quem está logado ──
@@ -243,6 +247,82 @@ export async function alertsRoutes(app: FastifyInstance) {
     try {
       const itens = await acervo()
       return { itens, total: itens.reduce((s, i) => s + i.quantidade, 0) }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ── GET /api/alerts/list — a tela dedicada ──
+  //
+  // Dois escopos sobre a mesma lista. "minha" é a caixa de quem pediu, com o
+  // silêncio dela respeitada — é o sino com filtro, histórico e paginação.
+  // "empresa" é outra pergunta: a CONDIÇÃO, que existe uma vez e chega a várias
+  // pessoas, com de quem é e quantos ainda não leram. A soma das caixas
+  // individuais não responde isso, e por isso não é o mesmo dado.
+  //
+  // O escopo da empresa é de gestão: os mesmos papéis da Supervisão. Quem
+  // atende vê a própria caixa, e o agregado dos outros não é da conta dele.
+  app.get('/api/alerts/list', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const user = (req as any).user as JwtPayload
+      const q = req.query as Record<string, string | undefined>
+      const escopo = q.escopo === 'empresa' ? 'empresa' : 'minha'
+      if (escopo === 'empresa' && !GESTAO.has(String(user.role || ''))) {
+        return reply.code(403).send({ error: 'Visão da empresa é restrita à supervisão' })
+      }
+      const data = await listarAlertas(user.userId, {
+        escopo,
+        status: q.status,
+        kind: q.kind,
+        severity: q.severity,
+        ownerUserId: q.ownerUserId ? Number(q.ownerUserId) : undefined,
+        desde: q.desde ? new Date(q.desde) : undefined,
+        ate: q.ate ? new Date(q.ate) : undefined,
+        busca: q.busca,
+        limite: q.limit ? Number(q.limit) : undefined,
+        offset: q.offset ? Number(q.offset) : undefined,
+      })
+      // O destino e as ações vêm do mesmo lugar do sino: a tela não pode
+      // discordar da gaveta sobre para onde um alerta leva.
+      return {
+        ...data,
+        itens: data.itens.map((a) => {
+          const meta = (a.metadata ?? {}) as Record<string, unknown>
+          const d = destinoDoAlerta({
+            entityType: a.entityType,
+            entityId: a.entityId,
+            leadId: typeof meta.leadId === 'number' ? meta.leadId : null,
+          })
+          return { ...a, link: d.link, acoes: a.status === 'open' ? d.acoes : [] }
+        }),
+      }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ── GET /api/alerts/list/kinds — os tipos que existem, para o filtro ──
+  app.get('/api/alerts/list/kinds', { preHandler: authMiddleware }, async (_req, reply) => {
+    try {
+      return { tipos: await tiposComAlerta() }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ── GET /api/alerts/backlog/items — o acervo como lista ──
+  //
+  // O acervo era só um total no rodapé porque não havia onde listá-lo. Com a
+  // tela, vira fila de trabalho. Sem ação em lote: alerta se resolve porque a
+  // condição acabou, não porque alguém marcou.
+  app.get('/api/alerts/backlog/items', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const q = req.query as Record<string, string | undefined>
+      return await listarAcervo({
+        tipo: q.tipo,
+        limite: q.limit ? Number(q.limit) : undefined,
+        offset: q.offset ? Number(q.offset) : undefined,
+      })
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }

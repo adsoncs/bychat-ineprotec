@@ -66,6 +66,9 @@ const migratedPages: Record<string, ComponentType> = {
   supervision: lazy(() =>
     import('./pages/SupervisionPage').then((m) => ({ default: m.SupervisionPage })),
   ),
+  alerts: lazy(() =>
+    import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })),
+  ),
   'meta-ads-report': lazy(() => import('./pages/MetaAdsReportPage').then((m) => ({ default: m.MetaAdsReportPage }))),
   'funnel-report': lazy(() => import('./pages/FunnelReportPage').then((m) => ({ default: m.FunnelReportPage }))),
   'funnel-report-config': lazy(() => import('./pages/FunnelReportConfigPage').then((m) => ({ default: m.FunnelReportConfigPage }))),

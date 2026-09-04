@@ -509,3 +509,148 @@ export function startAlertRetention(): void {
 export function stopAlertRetention(): void {
   if (handlePurga) { clearInterval(handlePurga); handlePurga = null }
 }
+
+// ── Listagem completa (tela dedicada) ───────────────────────────────────────
+//
+// O sino é a caixa de uma pessoa e mostra só o que está de pé, até 200, sem
+// filtro. Duas perguntas ficavam sem resposta em lugar nenhum do sistema: "o
+// que já foi resolvido, e em quanto tempo?" e "de quem são os alertas abertos
+// da empresa?". A segunda é de gestão e não é a soma das caixas individuais —
+// é a condição em si, que existe uma vez e chega a várias pessoas.
+//
+// Por isso dois escopos sobre a MESMA lista, e não duas telas: os filtros, a
+// paginação e as ações seriam idênticos, e duplicá-los é como as duas ficam
+// diferentes com o tempo.
+
+export type EscopoDaLista = 'minha' | 'empresa'
+
+export interface FiltroDeAlertas {
+  escopo: EscopoDaLista
+  /** open | resolved | todos */
+  status?: string
+  kind?: string
+  severity?: string
+  /** Só no escopo da empresa: alertas de um dono específico. */
+  ownerUserId?: number
+  /** Recorte por quando a condição apareceu. */
+  desde?: Date
+  ate?: Date
+  busca?: string
+  limite?: number
+  offset?: number
+}
+
+export interface LinhaDaLista {
+  id: number
+  kind: string
+  severity: string
+  title: string
+  body: string | null
+  entityType: string | null
+  entityId: number | null
+  metadata: unknown
+  status: string
+  firstSeenAt: Date
+  lastSeenAt: Date
+  resolvedAt: Date | null
+  occurrences: number
+  /** Só no escopo "minha": o estado na caixa de quem pediu. */
+  readAt: Date | null
+  /** Só no escopo "empresa": para quem isto foi. */
+  dono: { id: number; nome: string } | null
+  destinatarios: number
+  naoLidos: number
+}
+
+/** Filtro do Alert em si — a parte comum aos dois escopos. */
+function ondeDoAlerta(f: FiltroDeAlertas) {
+  const where: Record<string, unknown> = {}
+  if (f.status && f.status !== 'todos') where.status = f.status
+  if (f.kind) where.kind = f.kind
+  if (f.severity) where.severity = f.severity
+  if (f.ownerUserId) where.ownerUserId = f.ownerUserId
+  if (f.desde || f.ate) {
+    where.firstSeenAt = { ...(f.desde ? { gte: f.desde } : {}), ...(f.ate ? { lte: f.ate } : {}) }
+  }
+  if (f.busca?.trim()) where.title = { contains: f.busca.trim() }
+  return where
+}
+
+export async function listarAlertas(
+  userId: number,
+  f: FiltroDeAlertas,
+): Promise<{ itens: LinhaDaLista[]; total: number; limite: number; offset: number }> {
+  const limite = Math.min(200, Math.max(1, f.limite ?? 50))
+  const offset = Math.max(0, f.offset ?? 0)
+  // A ordem precisa ser TOTAL: `lastSeenAt` empata entre alertas levantados na
+  // mesma volta do relógio, e empate com offset faz item pular de página ou
+  // aparecer duas vezes. O `id` desempata.
+  const orderBy = [{ lastSeenAt: 'desc' as const }, { id: 'desc' as const }]
+
+  if (f.escopo === 'empresa') {
+    const where = ondeDoAlerta(f)
+    const [linhas, total] = await Promise.all([
+      prisma.alert.findMany({
+        where, orderBy, take: limite, skip: offset,
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+          recipients: { select: { readAt: true } },
+        },
+      }),
+      prisma.alert.count({ where }),
+    ])
+    return {
+      total, limite, offset,
+      itens: linhas.map((a) => ({
+        id: a.id, kind: a.kind, severity: a.severity, title: a.title, body: a.body,
+        entityType: a.entityType, entityId: a.entityId, metadata: a.metadata,
+        status: a.status, firstSeenAt: a.firstSeenAt, lastSeenAt: a.lastSeenAt,
+        resolvedAt: a.resolvedAt, occurrences: a.occurrences,
+        readAt: null,
+        dono: a.owner ? { id: a.owner.id, nome: a.owner.name || a.owner.email || `#${a.owner.id}` } : null,
+        destinatarios: a.recipients.length,
+        naoLidos: a.recipients.filter((r) => !r.readAt).length,
+      })),
+    }
+  }
+
+  // Escopo pessoal: o silêncio de quem pede vale aqui, como no sino. Descartado
+  // continua fora — tirar da caixa é uma decisão, e a tela não pode desfazê-la
+  // pelas costas.
+  const silencio = await filtroDeSilencio(userId)
+  const where = {
+    userId,
+    dismissedAt: null,
+    alert: { ...ondeDoAlerta(f), ...(silencio.alert || {}) },
+  }
+  const [linhas, total] = await Promise.all([
+    prisma.alertRecipient.findMany({
+      where,
+      orderBy: [{ alert: { lastSeenAt: 'desc' } }, { alertId: 'desc' }],
+      take: limite, skip: offset,
+      include: { alert: { include: { owner: { select: { id: true, name: true, email: true } } } } },
+    }),
+    prisma.alertRecipient.count({ where }),
+  ])
+  return {
+    total, limite, offset,
+    itens: linhas.map((r) => {
+      const a = r.alert
+      return {
+        id: a.id, kind: a.kind, severity: a.severity, title: a.title, body: a.body,
+        entityType: a.entityType, entityId: a.entityId, metadata: a.metadata,
+        status: a.status, firstSeenAt: a.firstSeenAt, lastSeenAt: a.lastSeenAt,
+        resolvedAt: a.resolvedAt, occurrences: a.occurrences,
+        readAt: r.readAt,
+        dono: a.owner ? { id: a.owner.id, nome: a.owner.name || a.owner.email || `#${a.owner.id}` } : null,
+        destinatarios: 0, naoLidos: 0,
+      }
+    }),
+  }
+}
+
+/** Os tipos que realmente existem no banco — alimenta o filtro sem inventar opção vazia. */
+export async function tiposComAlerta(): Promise<Array<{ kind: string; total: number }>> {
+  const r = await prisma.alert.groupBy({ by: ['kind'], _count: true })
+  return r.map((x) => ({ kind: x.kind, total: x._count })).sort((a, b) => b.total - a.total)
+}

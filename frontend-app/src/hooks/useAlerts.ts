@@ -212,3 +212,85 @@ export function useToggleAlertProducer() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
   })
 }
+
+// ── Tela dedicada ───────────────────────────────────────────────────────────
+
+export type EscopoDaLista = 'minha' | 'empresa'
+
+export interface AlertaDaLista extends AlertItem {
+  status: string
+  firstSeenAt: string
+  resolvedAt: string | null
+  /** Só na visão da empresa: de quem é a condição e quantos ainda não leram. */
+  dono: { id: number; nome: string } | null
+  destinatarios: number
+  naoLidos: number
+}
+
+export interface FiltroDaLista {
+  escopo: EscopoDaLista
+  status?: string
+  kind?: string
+  severity?: string
+  busca?: string
+  limit?: number
+  offset?: number
+}
+
+function query(f: FiltroDaLista): string {
+  const p = new URLSearchParams()
+  p.set('escopo', f.escopo)
+  for (const k of ['status', 'kind', 'severity', 'busca'] as const) {
+    const v = f[k]
+    if (v) p.set(k, v)
+  }
+  p.set('limit', String(f.limit ?? 50))
+  p.set('offset', String(f.offset ?? 0))
+  return p.toString()
+}
+
+export function useAlertList(f: FiltroDaLista, enabled = true) {
+  return useQuery({
+    queryKey: ['alerts', 'list-page', f],
+    queryFn: () => api.get<{ itens: AlertaDaLista[]; total: number; limite: number; offset: number }>(
+      `/alerts/list?${query(f)}`,
+    ),
+    staleTime: 15_000,
+    enabled,
+  })
+}
+
+export function useAlertKinds() {
+  return useQuery({
+    queryKey: ['alerts', 'kinds'],
+    queryFn: () => api.get<{ tipos: Array<{ kind: string; total: number }> }>('/alerts/list/kinds'),
+    staleTime: 300_000,
+  })
+}
+
+export interface ItemDoAcervo {
+  tipo: string
+  rotulo: string
+  entityId: number
+  entityType: string
+  titulo: string
+  detalhe: string | null
+  dias: number | null
+  link: string | null
+  dono: string | null
+}
+
+export function useAcervoItens(tipo: string | undefined, offset: number, enabled = true) {
+  return useQuery({
+    queryKey: ['alerts', 'acervo-itens', tipo ?? '', offset],
+    queryFn: () => {
+      const p = new URLSearchParams({ limit: '50', offset: String(offset) })
+      if (tipo) p.set('tipo', tipo)
+      return api.get<{ itens: ItemDoAcervo[]; total: number; limite: number; offset: number }>(
+        `/alerts/backlog/items?${p.toString()}`,
+      )
+    },
+    staleTime: 60_000,
+    enabled,
+  })
+}

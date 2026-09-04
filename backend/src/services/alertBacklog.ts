@@ -144,3 +144,196 @@ export async function acervo(): Promise<ItemDoAcervo[]> {
 export async function totalDoAcervo(): Promise<number> {
   return (await acervo()).reduce((s, i) => s + i.quantidade, 0)
 }
+
+// ── O acervo como LISTA ─────────────────────────────────────────────────────
+//
+// Até aqui o acervo era só um total no rodapé do sino, e era assim de propósito:
+// não havia tela onde listá-lo, e contador sem lista pelo menos não finge que
+// dá para agir. Com a tela dedicada isso muda — 442 itens que ninguém abre são
+// um número morto; 442 itens com filtro e paginação são uma fila que o time
+// trabalha aos poucos.
+//
+// Sem ação em lote, de propósito: alerta se resolve porque a condição acabou,
+// não porque alguém marcou. Fechar centenas de uma vez seria varrer para
+// debaixo do tapete com aparência de produtividade.
+
+export interface LinhaDoAcervo {
+  tipo: string
+  rotulo: string
+  /** Id da entidade (lead, atividade, reserva…) — acervo não tem alerta. */
+  entityId: number
+  entityType: string
+  titulo: string
+  detalhe: string | null
+  dias: number | null
+  link: string | null
+  dono: string | null
+}
+
+export async function listarAcervo(opts: {
+  tipo?: string
+  limite?: number
+  offset?: number
+} = {}): Promise<{ itens: LinhaDoAcervo[]; total: number; limite: number; offset: number }> {
+  const limite = Math.min(200, Math.max(1, opts.limite ?? 50))
+  const offset = Math.max(0, opts.offset ?? 0)
+  const agora = Date.now()
+  const setting = async (key: string, padrao: number) => {
+    const row = await prisma.setting.findUnique({ where: { key } }).catch(() => null)
+    const n = Number(String(row?.value ?? '').replace(/"/g, ''))
+    return Number.isFinite(n) && n > 0 ? n : padrao
+  }
+
+  // Booking, Negotiation e MeetingRecording guardam só a CHAVE do dono, sem
+  // relação declarada no schema. Um mapa de gente resolvido uma vez evita N
+  // consultas e mantém o nome consistente entre os tipos.
+  const users = await prisma.user.findMany({ select: { id: true, name: true, email: true } })
+  const nomeUser = new Map(users.map((u) => [u.id, u.name || u.email || `#${u.id}`]))
+
+  const itens: LinhaDoAcervo[] = []
+  const quer = (t: string) => !opts.tipo || opts.tipo === t
+
+  if (quer('activity.overdue')) {
+    const janela = await setting('alertas.atividade_janela_dias', 7)
+    const rows = await prisma.activity.findMany({
+      where: { status: 'overdue', scheduledAt: { lt: new Date(agora - janela * 86400_000) } },
+      select: {
+        id: true, title: true, scheduledAt: true, leadId: true, assignedUserId: true,
+        lead: { select: { nome: true } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    })
+    for (const a of rows) {
+      itens.push({
+        tipo: 'activity.overdue', rotulo: 'Atividades atrasadas',
+        entityId: a.id, entityType: 'activity',
+        titulo: a.title || 'Atividade sem título',
+        detalhe: a.lead?.nome ? `Lead: ${a.lead.nome}` : null,
+        dias: diasDesde(a.scheduledAt),
+        link: a.leadId ? `/leads/${a.leadId}/activities` : null,
+        dono: a.assignedUserId ? nomeUser.get(a.assignedUserId) ?? null : null,
+      })
+    }
+  }
+
+  if (quer('meeting.no_outcome')) {
+    const rows = await prisma.booking.findMany({
+      where: { status: { in: ['scheduled', 'confirmed'] }, endAt: { lt: new Date(agora - 7 * 86400_000) } },
+      select: { id: true, startAt: true, leadId: true, operatorUserId: true, lead: { select: { nome: true } } },
+      orderBy: { startAt: 'asc' },
+    })
+    for (const b of rows) {
+      itens.push({
+        tipo: 'meeting.no_outcome', rotulo: 'Reuniões sem desfecho',
+        entityId: b.id, entityType: 'booking',
+        titulo: b.lead?.nome ? `Reunião com ${b.lead.nome}` : `Reunião #${b.id}`,
+        detalhe: b.startAt ? b.startAt.toISOString().slice(0, 10) : null,
+        dias: diasDesde(b.startAt),
+        link: '/scheduling',
+        dono: b.operatorUserId ? nomeUser.get(b.operatorUserId) ?? null : null,
+      })
+    }
+  }
+
+  if (quer('negotiation.stalled')) {
+    const janela = await setting('alertas.negociacao_janela_dias', 45)
+    const rows = await prisma.negotiation.findMany({
+      where: { status: { in: ['enviada', 'em_negociacao'] }, updatedAt: { lt: new Date(agora - janela * 86400_000) } },
+      select: { id: true, titulo: true, updatedAt: true, leadId: true, responsavelUserId: true },
+      orderBy: { updatedAt: 'asc' },
+    })
+    const nomesLead = new Map(
+      (rows.length
+        ? await prisma.lead.findMany({
+            where: { id: { in: rows.map((n) => n.leadId) } },
+            select: { id: true, nome: true },
+          })
+        : []
+      ).map((l) => [l.id, l.nome]),
+    )
+    for (const n of rows) {
+      itens.push({
+        tipo: 'negotiation.stalled', rotulo: 'Propostas paradas',
+        entityId: n.id, entityType: 'negotiation',
+        titulo: n.titulo || `Proposta #${n.id}`,
+        detalhe: nomesLead.get(n.leadId) ?? null,
+        dias: diasDesde(n.updatedAt),
+        link: `/leads/${n.leadId}/negociacao`,
+        dono: n.responsavelUserId ? nomeUser.get(n.responsavelUserId) ?? null : null,
+      })
+    }
+  }
+
+  if (quer('lead.stale')) {
+    const janela = await setting('alertas.lead_janela_dias', 10)
+    // MESMOS filtros do produtor, menos a janela. Sem isto o acervo contaria
+    // conversa resolvida e lead que sumiu — os falsos positivos que o produtor
+    // deixou de abrir seguiriam sendo cobrados aqui, só com outro nome.
+    const rows = await prisma.lead.findMany({
+      where: {
+        lastActivityAt: { not: null, lt: new Date(agora - janela * 86400_000) },
+        outcome: null, isGroup: false, conversationClosedAt: null,
+      },
+      select: { id: true, nome: true, status: true, funnelId: true, lastActivityAt: true, assignedUserId: true },
+      orderBy: { lastActivityAt: 'asc' },
+      // Teto alto porque o acervo é justamente o passivo grande; sem ele a
+      // consulta de mensagens abaixo cresce sem limite.
+      take: 2000,
+    })
+    const ids = rows.map((l) => l.id)
+    const ultimaNossa = new Set(
+      (ids.length
+        ? await prisma.message.findMany({
+            where: { leadId: { in: ids } },
+            orderBy: { timestamp: 'desc' },
+            distinct: ['leadId'],
+            select: { leadId: true, fromMe: true },
+          }).catch(() => [])
+        : []
+      ).filter((m) => m.fromMe !== false).map((m) => m.leadId as number),
+    )
+    const terminais = new Set(
+      (await prisma.stage.findMany({
+        where: { terminalKind: { not: null } },
+        select: { funnelId: true, key: true },
+      }).catch(() => [])).map((s) => `${s.funnelId}:${s.key}`),
+    )
+    for (const l of rows) {
+      if (ultimaNossa.has(l.id)) continue
+      if (terminais.has(`${l.funnelId}:${l.status}`)) continue
+      itens.push({
+        tipo: 'lead.stale', rotulo: 'Leads sem resposta',
+        entityId: l.id, entityType: 'lead',
+        titulo: l.nome || 'Contato sem nome',
+        detalhe: null,
+        dias: diasDesde(l.lastActivityAt),
+        link: `/leads/${l.id}`,
+        dono: l.assignedUserId ? nomeUser.get(l.assignedUserId) ?? null : null,
+      })
+    }
+  }
+
+  if (quer('meeting.bot_failed')) {
+    const rows = await prisma.meetingRecording.findMany({
+      where: { status: 'failed', createdAt: { lt: new Date(agora - 48 * 3600_000) } },
+      select: { id: true, title: true, createdAt: true, userId: true, userName: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    for (const r of rows) {
+      itens.push({
+        tipo: 'meeting.bot_failed', rotulo: 'Gravações que falharam',
+        entityId: r.id, entityType: 'meeting_recording',
+        titulo: r.title || `Gravação #${r.id}`,
+        detalhe: null,
+        dias: diasDesde(r.createdAt),
+        link: '/meetings',
+        dono: r.userName || (r.userId ? nomeUser.get(r.userId) ?? null : null),
+      })
+    }
+  }
+
+  // Mais antigo primeiro: é o que dimensiona a decisão. `entityId` desempata
+  // para a ordem ser TOTAL — empate com offset faz item pular de página.
+  itens.sort((a, b) => (b.dias ?? 0) - (a.dias ?? 0) || b.entityId - a.entityId)
+  return { itens: itens.slice(offset, offset + limite), total: itens.length, limite, offset }
+}
