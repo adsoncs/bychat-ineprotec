@@ -105,6 +105,9 @@ model User {
   /// Números reservados que este usuário pode acompanhar (ver `visibility`).
   instanceViews    WhatsAppInstanceViewer[]   @relation("WhatsAppInstanceViewerUser")
   cloudViews       CloudApiConnectionViewer[] @relation("CloudApiConnectionViewerUser")
+  alertsOwned     Alert[]          @relation("AlertOwner")
+  alertsReceived  AlertRecipient[]
+  alertMutes      AlertMute[]
 
   @@index([email])
   @@index([role])
@@ -516,6 +519,7 @@ model Team {
   dbConnectors        DbConnector[]
   assignedActivities  Activity[]
   activityTemplates   ActivityTemplate[]
+  alerts Alert[]
 
   @@index([active, position])
   @@map("bychat_teams")
@@ -9415,4 +9419,138 @@ model ChatImportJob {
   /// Cruzar a lista do aparelho com o que já foi sincronizado, e achar job em aberto do chat.
   @@index([instanceName, remoteJid])
   @@map("bychat_chat_import_jobs")
+}
+
+// ─── Alertas (Fase 1) ───────────────────────────────────────────────────────
+//
+// Alerta é ESTADO, não evento. Um token vencido não é uma mensagem que acontece
+// uma vez: é uma condição que dura até alguém arrumar. Tratado como evento, uma
+// negociação parada há 31 dias renderia 31 avisos e o time desligaria o recurso
+// na primeira semana. Por isso `dedupeKey` é único: quem produz o alerta chama
+// `raiseAlert` à vontade, a cada volta do relógio, e a linha é atualizada em vez
+// de duplicada.
+//
+// Quem recebe (decisão do produto): item de gestão vai só para a gestão; item
+// de alguém vai para essa pessoa E para a gestão. A caixa é individual — leitura
+// e descarte são de cada um, em AlertRecipient —, mas a RESOLUÇÃO é do mundo:
+// a condição sumiu, o alerta fecha para todos ao mesmo tempo.
+model Alert {
+  id        Int    @id @default(autoincrement())
+  // Identidade da CONDIÇÃO, não da ocorrência: "token:google:3",
+  // "activity:overdue:1842". É o que impede a duplicação.
+  dedupeKey String @unique @db.VarChar(191)
+  // Família do alerta, para filtro e configuração futura de limiares.
+  kind      String @db.VarChar(60)
+  // info | warning | critical
+  severity  String @default("warning") @db.VarChar(10)
+  // management = só gestão | owner = dono do item + gestão
+  audience  String @default("management") @db.VarChar(20)
+
+  title String  @db.VarChar(191)
+  body  String? @db.Text
+
+  // A que o alerta se refere, para a tela levar direto ao item.
+  entityType String? @db.VarChar(40)
+  entityId   Int?
+
+  // Dono do item quando `audience` é "owner". Sem ele, sobra só a gestão.
+  ownerUserId Int?
+  teamId      Int?
+
+  // Contexto do produtor (limiares, valores medidos) — o que a tela mostra sem
+  // precisar de uma consulta por tipo de alerta.
+  metadata Json?
+
+  // open | resolved
+  status      String    @default("open") @db.VarChar(12)
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime
+  resolvedAt  DateTime?
+  // Quantas voltas do relógio confirmaram a condição. É o que separa "vi uma
+  // vez" de "está assim há dias" sem precisar de uma linha por checagem.
+  occurrences Int       @default(1)
+
+  // Envio externo (Fase 4). Ficam aqui desde já para o produtor não precisar de
+  // outra tabela quando o escalonamento entrar.
+  notifiedAt  DateTime?
+  notifyCount Int       @default(0)
+
+  // Escalonamento unitário (migration 0145). Separado do par acima de
+  // propósito: `notifiedAt` significa "entrou num resumo diário", que é rotina
+  // coletiva; isto aqui significa "interrompeu alguém", que é exceção. Contar
+  // os dois na mesma coluna faria o resumo da manhã estourar o teto do
+  // escalonamento e calar o crítico que ninguém viu.
+  escalatedAt     DateTime?
+  escalationCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner      User?            @relation("AlertOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  team       Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  recipients AlertRecipient[]
+
+  @@index([status, severity])
+  @@index([status, severity, escalatedAt])
+  @@index([kind])
+  @@index([ownerUserId])
+  @@index([entityType, entityId])
+  @@map("bychat_alerts")
+}
+
+// A caixa de cada pessoa. Existe separada do Alert porque o mesmo alerta chega
+// a várias pessoas e cada uma lê no seu tempo: marcar lido no Alert apagaria o
+// aviso de todo mundo junto.
+model AlertRecipient {
+  id      Int @id @default(autoincrement())
+  alertId Int
+  userId  Int
+
+  readAt      DateTime?
+  // Tirar da própria caixa sem fechar a condição para os outros.
+  dismissedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, userId])
+  @@index([userId, readAt])
+  @@map("bychat_alert_recipients")
+}
+
+// Silêncio de alerta, por pessoa.
+//
+// A válvula que protege a confiança no sino. Sem ela, o primeiro alerta que
+// alguém considera irrelevante contamina o hábito de olhar a caixa inteira — e
+// "tirar da minha caixa" não resolve, porque a próxima volta do relógio o traz
+// de volta.
+//
+// O silêncio é SEMPRE de quem pede: cada um decide o que quer ver. Desligar um
+// tipo para toda a empresa é decisão de configuração, não de caixa de entrada,
+// e mora em Setting.
+//
+// Duas formas, e a diferença importa: silenciar o TIPO ("não me avise mais
+// sobre proposta parada") ou o ITEM ("esta proposta específica eu sei, deixe-a
+// em paz"). A segunda é a que evita que a pessoa desligue uma família inteira
+// por causa de um caso chato.
+model AlertMute {
+  id     Int @id @default(autoincrement())
+  userId Int
+
+  /// Família silenciada (ex.: "negotiation.stalled"). Null = silêncio por item.
+  kind String? @db.VarChar(60)
+  /// Condição específica silenciada. Null = silêncio por família.
+  dedupeKey String? @db.VarChar(191)
+
+  /// Quando o silêncio expira. Null = até a pessoa desfazer.
+  until     DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind])
+  @@unique([userId, dedupeKey])
+  @@index([userId])
+  @@map("bychat_alert_mutes")
 }

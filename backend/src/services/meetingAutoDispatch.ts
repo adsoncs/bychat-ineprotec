@@ -16,6 +16,8 @@ export interface DueMeeting {
   activityId: number
   userId: number
   leadId: number | null
+  /** Agendamento de origem, quando a reunião nasceu de uma reserva. */
+  bookingId: number | null
   meetUrl: string
   language: string
 }
@@ -58,7 +60,16 @@ export async function findDueMeetings(nowMs: number = Date.now()): Promise<DueMe
       select: { id: true },
     })
     if (existing) continue                             // dedup
-    due.push({ activityId: a.id, userId: a.userId, leadId: a.leadId ?? null, meetUrl, language: bot.language })
+    // O agendamento de origem já está no metadata da atividade (é de lá que sai
+    // o link do Meet). Levá-lo adiante é o que permite fechar a reserva sozinha
+    // quando a gravação termina: sem isso o bot grava a reunião e o agendamento
+    // continua eternamente "agendado".
+    const bookingId = meta.bookingId ? Number(meta.bookingId) : null
+    due.push({
+      activityId: a.id, userId: a.userId, leadId: a.leadId ?? null,
+      bookingId: Number.isFinite(bookingId) ? bookingId : null,
+      meetUrl, language: bot.language,
+    })
   }
   return due
 }
@@ -72,7 +83,7 @@ export async function autoDispatchDueMeetings(): Promise<number> {
       const d = await dispatchMeetingBot({ meetUrl: m.meetUrl, platform: 'google_meet', language: m.language })
       await prisma.meetingRecording.create({
         data: {
-          leadId: m.leadId, activityId: m.activityId, userId: m.userId,
+          leadId: m.leadId, activityId: m.activityId, bookingId: m.bookingId, userId: m.userId,
           platform: 'google_meet', nativeMeetingId: d.nativeMeetingId,
           meetingUrl: m.meetUrl, language: m.language,
           status: d.status || 'requested', botId: d.id ?? null, botContainerId: d.containerId ?? null,

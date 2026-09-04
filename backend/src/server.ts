@@ -51,6 +51,13 @@ import { paymentsDashboardRoutes } from './routes/paymentsDashboard.js'
 import { couponsRoutes } from './routes/coupons.js'
 import { leadHistoryRoutes } from './routes/leadHistory.js'
 import { activitiesRoutes, startActivityScheduler } from './routes/activities.js'
+import { alertsRoutes } from './routes/alerts.js'
+import { startMeetingOutcomeWatch } from './services/meetingOutcome.js'
+import { startTokenHealthWatch } from './services/tokenHealthWatch.js'
+import { startPendenciaWatch } from './services/pendenciaWatch.js'
+import { startAlertDigest } from './services/alertDigest.js'
+import { startAlertRetention } from './services/alertService.js'
+import { startAlertEscalation } from './services/alertEscalation.js'
 import { leadAttachmentsRoutes } from './routes/leadAttachments.js'
 import { savedFiltersRoutes } from './routes/savedFilters.js'
 import { templatesRoutes } from './routes/templates.js'
@@ -569,6 +576,7 @@ await app.register(paymentsDashboardRoutes)
 await app.register(couponsRoutes)
 await app.register(leadHistoryRoutes)
 await app.register(activitiesRoutes)
+await app.register(alertsRoutes)
 await app.register(leadAttachmentsRoutes)
 await app.register(savedFiltersRoutes)
 await app.register(templatesRoutes)
@@ -1207,6 +1215,24 @@ try {
     .then(m => m.ensureModulesSeeded())
     .catch(err => console.error('[moduleManager] seed init falhou:', err))
   startInactivityChecker()
+  // Reunião que passou e ninguém disse se aconteceu — vira alerta com a
+  // pergunta junto (ver services/meetingOutcome.ts).
+  startMeetingOutcomeWatch()
+  // Integração que morre em silêncio (token vencido, agenda com erro, Gmail que
+  // parou de receber) e trabalho que parou (atividade atrasada, proposta sem
+  // movimento, linha de WhatsApp fora do ar).
+  startTokenHealthWatch()
+  startPendenciaWatch()
+  // Resumo diário das pendências. Nasce DESLIGADO (Setting alertas.digest_ativo):
+  // canal externo é intrusivo e ninguém pediu WhatsApp diário ao ligar o sino.
+  startAlertDigest()
+  // Crítico que passou da carência sem ninguém abrir no painel. Também nasce
+  // DESLIGADO (Setting alertas.escalonamento_ativo): dois avisos no máximo, e
+  // só enquanto ninguém tiver lido.
+  startAlertEscalation()
+  // Alerta resolvido velho só ocupa espaço — mesmo padrão de poda do
+  // meetingRetentionPurge e do trash.
+  startAlertRetention()
   startActivityScheduler()
   startSecurityCleanup()
   startMetaLeadPoller()

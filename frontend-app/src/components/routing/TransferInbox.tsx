@@ -39,8 +39,14 @@ export function TransferInbox() {
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="w-[28rem] max-h-[32rem] overflow-hidden rounded-lg border border-border bg-surface-2 shadow-xl"
-          style={{ zIndex: 'var(--z-dropdown)' }}
+          class="flex flex-col w-[28rem] overflow-hidden rounded-lg border border-border bg-surface-2 shadow-xl"
+          style={{
+            zIndex: 'var(--z-dropdown)',
+            // `max-h` com `overflow-hidden` sobre conteúdo de altura livre não
+            // rola — corta. A altura precisa morar num ancestral flex para o
+            // miolo abaixo ganhar barra de rolagem.
+            maxHeight: 'min(32rem, var(--radix-dropdown-menu-content-available-height, 32rem))',
+          }}
         >
           <TransferList onClose={() => setOpen(false)} />
         </DropdownMenu.Content>
@@ -54,12 +60,12 @@ function TransferList({ onClose: _onClose }: { onClose: () => void }) {
   const list = incomingQuery.data?.requests ?? []
 
   return (
-    <div class="flex flex-col">
-      <div class="p-3 border-b border-border">
+    <div class="flex flex-col min-h-0 flex-1">
+      <div class="shrink-0 p-3 border-b border-border">
         <div class="font-semibold text-sm">Transferências pendentes</div>
         <div class="text-xs text-fg-muted">Solicitações recebidas — você pode aceitar ou recusar.</div>
       </div>
-      <div class="flex-1 overflow-y-auto">
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {incomingQuery.isLoading ? (
           <div class="p-6 text-xs text-fg-muted">Carregando…</div>
         ) : list.length === 0 ? (

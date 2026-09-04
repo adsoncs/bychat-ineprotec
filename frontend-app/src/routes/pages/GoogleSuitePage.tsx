@@ -56,9 +56,22 @@ const TABS: { id: Tab; label: string; icon: typeof FileSpreadsheet }[] = [
   { id: 'looker', label: 'Looker Studio', icon: LineChartIcon },
 ]
 
+/**
+ * Aba pedida na URL (`?tab=gmail`), com queda para Sheets.
+ *
+ * Existe porque os alertas de integração Google apontam para cá: sem isto, o
+ * aviso de "Gmail parou de receber" abria a tela em Sheets e a pessoa tinha de
+ * adivinhar onde clicar.
+ */
+function abaDaUrl(): Tab {
+  if (typeof window === 'undefined') return 'sheets'
+  const v = new URLSearchParams(window.location.search).get('tab')
+  return TABS.some((t) => t.id === v) ? (v as Tab) : 'sheets'
+}
+
 export function GoogleSuitePage() {
   const { user } = useAuth()
-  const [tab, setTab] = useState<Tab>('sheets')
+  const [tab, setTab] = useState<Tab>(abaDaUrl)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
   if (user?.role !== 'SUPERADMIN' && user?.role !== 'ADMIN') {

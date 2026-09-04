@@ -17,6 +17,18 @@ export interface ModuleDefinition {
 
 export const MODULE_REGISTRY: ModuleDefinition[] = [
   {
+    // O sino de alertas. `core` porque desligá-lo cala tudo de uma vez —
+    // integração morta, linha caída, proposta esquecida — e o resto do sistema
+    // conta com ele para não sofrer em silêncio. Quem não quer um TIPO de
+    // alerta silencia aquele tipo, não a caixa inteira.
+    id: 'alerts', name: 'Alertas', icon: '🔔', category: 'overview',
+    description: 'Caixa de alertas do time: integração fora do ar, prazo estourado e trabalho parado.',
+    pages: [],
+    routePrefixes: ['/api/alerts'],
+    actions: ['view', 'edit'],
+    core: true, defaultEnabled: true,
+  },
+  {
     id: 'dashboard', name: 'Dashboard', icon: '📊', category: 'overview',
     description: 'Visão geral consolidada com widgets configuráveis e métricas-chave.',
     pages: ['dashboard'],

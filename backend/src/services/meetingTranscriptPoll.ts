@@ -147,6 +147,17 @@ export async function pollMeetingTranscripts(): Promise<{ updated: number; compl
             transcribedAt: text ? new Date() : rec.transcribedAt,
           },
         })
+
+        // A gravação terminou, logo a reunião aconteceu: fecha o agendamento
+        // sozinho. É o único caminho de desfecho que não pede nada a ninguém.
+        // Best-effort de propósito: a transcrição é o que importa aqui, e uma
+        // falha ao fechar a reserva não pode derrubar o poller.
+        try {
+          const { fecharPelaGravacao } = await import('./meetingOutcome.js')
+          await fecharPelaGravacao(rec.id)
+        } catch (e: any) {
+          console.warn(`[MeetingPoll] #${rec.id} não fechou o agendamento:`, e?.message)
+        }
         completed++
         console.log(`[MeetingPoll] #${rec.id} completed — ${segments.length} segmento(s)`)
       } else if (Date.now() - new Date(rec.createdAt).getTime() > MAX_WAIT_MS) {

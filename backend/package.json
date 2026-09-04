@@ -10,7 +10,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "test": "node --import tsx --test --test-force-exit tests/*.test.ts",
+    "test:alertas": "node --import tsx --test --test-force-exit tests/alertas.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

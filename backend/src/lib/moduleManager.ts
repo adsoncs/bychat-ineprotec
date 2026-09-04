@@ -28,6 +28,15 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   goals_commissions: {
     AGENT: { canView: true, canCreate: false, canEdit: false, canDelete: false },
   },
+  // O alerta de item de usuário vai para o DONO do item — que é justamente o
+  // AGENT. Sem ele aqui, o vendedor não veria a própria atividade atrasada nem
+  // a própria proposta parada, e a regra "item de usuário fica com gestão +
+  // usuário" viraria só "fica com a gestão". VIEWER também entra: cada caixa
+  // mostra apenas o que é de quem está logado, então não há o que vazar.
+  alerts: {
+    AGENT:  { canView: true, canCreate: false, canEdit: true, canDelete: false },
+    VIEWER: { canView: true, canCreate: false, canEdit: true, canDelete: false },
+  },
   // Contatos é a lista de quem já falou com a empresa: quem atende PRECISA
   // enxergar e mexer nela, então o AGENT entra com ver/criar/editar. Apagar
   // fica de fora por padrão nele e no MANAGER — apagar um contato leva junto o

@@ -162,6 +162,11 @@ export async function getAuthenticatedClient(connectionId: number) {
             },
           })
           client.setCredentials(credentials)
+          // Renovou: se havia alerta de credencial recusada, ele se fecha aqui.
+          // Quem sabe que a conta voltou é quem consegue usá-la.
+          import('../services/tokenHealthWatch.js')
+            .then((m) => m.limparFalhaDeIntegracao(`google:${connectionId}`))
+            .catch(() => {})
           return credentials.access_token || safeDecrypt(conn.accessToken)
         } catch (e: any) {
           // invalid_grant = refresh token expirado/revogado (ex.: consentimento OAuth
@@ -174,6 +179,17 @@ export async function getAuthenticatedClient(connectionId: number) {
             )
             err.code = 'GOOGLE_REAUTH_REQUIRED'
             err.account = conn.email
+            // Até aqui esta mensagem só existia para quem estivesse olhando a
+            // tela no instante exato da falha. Sem alerta, a integração morria
+            // em silêncio e a primeira notícia era alguém perguntando por que a
+            // agenda parou de sincronizar.
+            import('../services/tokenHealthWatch.js')
+              .then((m) => m.registrarFalhaDeIntegracao(
+                `google:${connectionId}`,
+                `Google desconectado: ${conn.email}`,
+                'A conexão expirou ou foi revogada. Reconecte em Configurações › Integrações › Google — agenda, Gmail e planilhas param sem isso.',
+              ))
+              .catch(() => {})
             throw err
           }
           throw e

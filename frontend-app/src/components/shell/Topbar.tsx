@@ -14,6 +14,7 @@ import { useDuplicatesCount } from '@/hooks/useLeads'
 import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { TransferInbox } from '@/components/routing/TransferInbox'
+import { AlertInbox } from '@/components/alerts/AlertInbox'
 import { cn } from '@/lib/cn'
 import { ICON_SIZE } from '@/components/ui/Icon'
 
@@ -157,6 +158,7 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
       )}
 
       <div class="ml-auto flex items-center gap-2">
+        <AlertInbox />
         <TransferInbox />
         <DuplicatesBadge />
         <WorkStatusMenu />

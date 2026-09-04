@@ -145,10 +145,21 @@ export async function autoDispatchCalendarMeetings(): Promise<number> {
       if (existing) continue
 
       const d = await dispatchMeetingBot({ meetUrl: m.meetUrl, platform: 'google_meet', language: m.language })
+      // O vigia enxerga o evento do Google, não o CRM: não conhece lead nem
+      // reserva. O link do Meet é o fio comum — amarrar aqui é o que permite a
+      // reunião se fechar sozinha quando a gravação termina, em vez de ficar
+      // eternamente "agendada".
+      let bookingId: number | null = null
+      try {
+        const { resolverBookingPorLink } = await import('./meetingOutcome.js')
+        bookingId = await resolverBookingPorLink(m.meetUrl, new Date())
+      } catch { /* sem reserva casada: segue como reunião solta, que é o normal aqui */ }
+
       await prisma.meetingRecording.create({
         data: {
           userId: m.userId,
           title: m.title,
+          bookingId,
           platform: 'google_meet', nativeMeetingId: d.nativeMeetingId,
           meetingUrl: m.meetUrl, language: m.language,
           status: d.status || 'requested', botId: d.id ?? null, botContainerId: d.containerId ?? null,
