@@ -20,7 +20,7 @@
 //      leva a pergunta até onde a pessoa está, em vez de esperar que ela volte.
 
 import { prisma } from '../lib/prisma.js'
-import { raiseAlert, resolverAusentes } from './alertService.js'
+import { raiseAlert, resolverAusentes, produtorDesligado } from './alertService.js'
 
 /** Status de reunião que ainda esperam desfecho. */
 const SEM_DESFECHO = ['scheduled', 'confirmed'] as const
@@ -135,6 +135,9 @@ export function chaveDoAlerta(bookingId: number): string {
  * ninguém precise limpar nada.
  */
 export async function varrerReunioesSemDesfecho(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_REUNIAO)
+  if (desligado) return desligado
+
   const agora = Date.now()
   const limite = new Date(agora - CARENCIA_MIN * 60_000)
   const desde = new Date(agora - JANELA_DIAS * 86400_000)
@@ -247,6 +250,9 @@ const JANELA_BOT_H = 48
  * aviso.
  */
 export async function varrerBotsQueFalharam(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_BOT)
+  if (desligado) return desligado
+
   const desde = new Date(Date.now() - JANELA_BOT_H * 3600_000)
   const falhas = await prisma.meetingRecording.findMany({
     where: { status: 'failed', createdAt: { gte: desde } },

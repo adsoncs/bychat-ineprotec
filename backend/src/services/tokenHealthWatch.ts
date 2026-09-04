@@ -22,7 +22,7 @@
 // senha da conta, não de quem atende.
 
 import { prisma } from '../lib/prisma.js'
-import { raiseAlert, resolveAlert, resolverAusentes } from './alertService.js'
+import { raiseAlert, resolveAlert, resolverAusentes, produtorDesligado, produtorAtivo } from './alertService.js'
 
 export const KIND_TOKEN = 'integration.token'
 export const KIND_INTEGRACAO = 'integration.error'
@@ -49,15 +49,21 @@ export function registrarFalhaDeIntegracao(
   titulo: string,
   detalhe?: string | null,
 ): void {
-  raiseAlert({
-    dedupeKey: `integration:error:${escopo}`,
-    kind: KIND_INTEGRACAO,
-    severity: 'critical',
-    audience: 'management',
-    title: titulo,
-    body: detalhe ? String(detalhe).slice(0, 500) : 'A integração recusou a credencial.',
-    metadata: { escopo },
-  }).catch(() => { /* aviso é secundário: nunca derruba quem chamou */ })
+  // Também respeita a chave por produtor: um tipo desligado tem de ficar
+  // desligado nos DOIS caminhos, senão a varredura cala e o `catch` continua
+  // falando — e a pessoa que desligou não entende por que o alerta voltou.
+  produtorAtivo(KIND_INTEGRACAO).then((ligado) => {
+    if (!ligado) return
+    raiseAlert({
+      dedupeKey: `integration:error:${escopo}`,
+      kind: KIND_INTEGRACAO,
+      severity: 'critical',
+      audience: 'management',
+      title: titulo,
+      body: detalhe ? String(detalhe).slice(0, 500) : 'A integração recusou a credencial.',
+      metadata: { escopo },
+    }).catch(() => { /* aviso é secundário: nunca derruba quem chamou */ })
+  }).catch(() => {})
 }
 
 /** A integração voltou a funcionar — fecha o alerta que a falha abriu. */
@@ -72,6 +78,9 @@ export function limparFalhaDeIntegracao(escopo: string): void {
  * quando a conexão nasceu, e é ela que permite avisar antes de quebrar.
  */
 export async function varrerTokens(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_TOKEN)
+  if (desligado) return desligado
+
   const vivas: string[] = []
 
   // ── Google: conta conectada por OAuth ──

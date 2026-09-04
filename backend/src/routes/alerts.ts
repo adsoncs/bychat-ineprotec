@@ -19,11 +19,12 @@ import type { JwtPayload } from '../lib/auth.js'
 import {
   listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
   silenciar, dessilenciar, listarSilencios,
+  produtorAtivo, definirProdutorAtivo,
 } from '../services/alertService.js'
 import { prisma } from '../lib/prisma.js'
 import { registrarDesfecho } from '../services/meetingOutcome.js'
 import { destinoDoAlerta } from '../services/alertLinks.js'
-import { saudeDosAlertas, recomendacao } from '../services/alertHealth.js'
+import { saudeDosAlertas, recomendacao, TIPOS_CONHECIDOS } from '../services/alertHealth.js'
 import { acervo } from '../services/alertBacklog.js'
 
 export async function alertsRoutes(app: FastifyInstance) {
@@ -258,10 +259,46 @@ export async function alertsRoutes(app: FastifyInstance) {
       const q = req.query as { dias?: string }
       const dias = Math.min(365, Math.max(1, Number(q.dias) || 30))
       const tipos = await saudeDosAlertas(dias)
+      // Completa com os tipos que nunca abriram nada: "ligado e quieto" é uma
+      // resposta, e sem eles a tela esconde justamente o que se quer perguntar.
+      const vistos = new Set(tipos.map((t) => t.kind))
+      const faltantes = TIPOS_CONHECIDOS.filter((c) => !vistos.has(c.kind)).map((c) => ({
+        kind: c.kind, aguardando: 0, abertos: 0, resolvidos: 0, descartes: 0, naoLidos: 0,
+        destinatarios: 0, taxaDescarte: 0, taxaNaoLido: 0, horasAteResolver: null,
+        ocorrenciasMedia: 0, veredicto: 'sem_amostra' as const,
+      }))
+      const oque = new Map(TIPOS_CONHECIDOS.map((c) => [c.kind, c.oque]))
+      const linhas = [...tipos, ...faltantes]
+      const estados = await Promise.all(linhas.map((t) => produtorAtivo(t.kind)))
       return {
         dias,
-        tipos: tipos.map((t) => ({ ...t, recomendacao: recomendacao(t) })),
+        tipos: linhas.map((t, i) => ({
+          ...t,
+          recomendacao: recomendacao(t),
+          oque: oque.get(t.kind) ?? null,
+          ativo: estados[i],
+        })),
       }
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+
+  // ── POST /api/alerts/producers/:kind — ligar ou desligar um tipo ──
+  //
+  // Vive aqui e não em Setting genérico porque desligar tem uma consequência
+  // que a tela de configuração não saberia executar: o que já estava aberto
+  // precisa FECHAR junto. Sem isso o alerta de ontem fica de pé para sempre,
+  // porque não sobra produtor que o resolva.
+  app.post('/api/alerts/producers/:kind', { preHandler: adminOnly }, async (req, reply) => {
+    try {
+      const kind = String((req.params as any).kind || '')
+      if (!TIPOS_CONHECIDOS.some((t) => t.kind === kind)) {
+        return reply.code(400).send({ error: 'Tipo de alerta desconhecido' })
+      }
+      const ativo = !!(req.body as any)?.ativo
+      const fechados = await definirProdutorAtivo(kind, ativo)
+      return { ok: true, kind, ativo, fechados }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }

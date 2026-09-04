@@ -259,6 +259,63 @@ export async function resolveAlert(dedupeKey: string): Promise<boolean> {
  * linha nenhuma e deixaria todos os alertas abertos justamente quando o
  * problema acabou.
  */
+/**
+ * Este produtor está ligado nesta instalação?
+ *
+ * Nasce LIGADO: a chave ausente significa "sim". Desligar é a exceção, e a
+ * exceção é que precisa de registro.
+ *
+ * Existe porque o mesmo produtor acerta numa casa e erra na outra, e a
+ * diferença não é de código — é de operação. O `lead.stale` mede bem numa
+ * agência que registra desfecho e mede mal numa loja, onde a conversa termina
+ * em "Ok obrigado" e ninguém marca nada: o encerramento é social, não
+ * estrutural, e nenhum filtro razoável distingue os dois. Sem esta chave a
+ * única saída era deformar limiar até a janela ficar vazia — gambiarra que o
+ * próximo a mexer não entenderia.
+ *
+ * Um tipo desligado também FECHA o que já tinha aberto (ver `produtorDesligado`),
+ * senão o alerta de ontem fica de pé para sempre, sem produtor que o resolva.
+ */
+export async function produtorAtivo(kind: string): Promise<boolean> {
+  const row = await prisma.setting
+    .findUnique({ where: { key: `alertas.produtor.${kind}.ativo` } })
+    .catch(() => null)
+  if (!row) return true
+  return String(row.value ?? '').replace(/"/g, '').trim().toLowerCase() !== 'false'
+}
+
+/**
+ * Atalho para o alto de cada varredura: se o tipo está desligado, fecha o que
+ * ficou aberto e devolve o resultado pronto. `null` = siga em frente.
+ */
+export async function produtorDesligado(
+  kind: string,
+): Promise<{ abertos: number; fechados: number } | null> {
+  if (await produtorAtivo(kind)) return null
+  return { abertos: 0, fechados: await resolverAusentes(kind, []) }
+}
+
+/**
+ * Liga ou desliga um produtor e devolve quantos alertas foram fechados junto.
+ *
+ * Fechar ao desligar não é cortesia: o alerta só se resolve porque o produtor
+ * volta e não o encontra mais. Um produtor calado deixaria a condição de pé
+ * para sempre, e a pessoa que desligou veria o sino continuar acusando.
+ */
+export async function definirProdutorAtivo(kind: string, ativo: boolean): Promise<number> {
+  const key = `alertas.produtor.${kind}.ativo`
+  const value = ativo ? 'true' : 'false'
+  const atual = await prisma.setting.findUnique({ where: { key } }).catch(() => null)
+  if (atual) await prisma.setting.update({ where: { key }, data: { value } })
+  else await prisma.setting.create({
+    data: {
+      key, value, grp: 'alertas', fieldType: 'boolean',
+      label: `Produtor de alerta "${kind}" ativo nesta instalação`,
+    },
+  })
+  return ativo ? 0 : resolverAusentes(kind, [])
+}
+
 export async function resolverAusentes(kind: string, chavesVivas: string[]): Promise<number> {
   const r = await prisma.alert.updateMany({
     where: {

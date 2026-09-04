@@ -30,6 +30,7 @@ import {
   listarAlertasDoUsuario, contarNaoLidos, marcarLido, descartar,
   silenciar, dessilenciar, purgarAlertasAntigos,
 } from '../src/services/alertService.js'
+import { produtorAtivo, definirProdutorAtivo } from '../src/services/alertService.js'
 import { destinoDoAlerta } from '../src/services/alertLinks.js'
 import { saudeDosAlertas } from '../src/services/alertHealth.js'
 import { candidatos, textoDoAviso, escalarPendentes } from '../src/services/alertEscalation.js'
@@ -526,6 +527,48 @@ describe('lead parado — só alerta quando a bola está mesmo com a operação'
 
     const fechadas = leads.filter((l) => l.conversationClosedAt)
     assert.equal(fechadas.length, 0, `alerta em ${fechadas.length} conversa(s) já resolvida(s)`)
+  })
+})
+
+// O mesmo produtor acerta numa casa e erra na outra, e a diferença não é de
+// código — é de operação. A chave existe para isso, e o que ela NÃO pode fazer
+// é calar o produtor deixando o alerta de ontem de pé para sempre.
+describe('chave liga/desliga por produtor', () => {
+  const KIND_CHAVE = 'lead.stale'   // tipo real: a chave só vale para os conhecidos
+  let estadoOriginal = true
+
+  before(async () => { estadoOriginal = await produtorAtivo(KIND_CHAVE) })
+  after(async () => { await definirProdutorAtivo(KIND_CHAVE, estadoOriginal) })
+
+  test('chave ausente significa LIGADO', async () => {
+    await prisma.setting.deleteMany({ where: { key: `alertas.produtor.${KIND_CHAVE}.ativo` } })
+    assert.equal(await produtorAtivo(KIND_CHAVE), true, 'sem registro, o produtor roda')
+  })
+
+  test('desligar cala o produtor', async () => {
+    await definirProdutorAtivo(KIND_CHAVE, false)
+    assert.equal(await produtorAtivo(KIND_CHAVE), false)
+    const r = await varrerLeadsSemResposta()
+    assert.equal(r.abertos, 0, 'produtor desligado não abre nada')
+  })
+
+  test('desligar FECHA o que estava aberto', async () => {
+    await definirProdutorAtivo(KIND_CHAVE, true)
+    await prisma.alert.create({
+      data: {
+        dedupeKey: P + 'chave', kind: KIND_CHAVE, severity: 'warning', audience: 'management',
+        title: 'para provar o fechamento (teste)', status: 'open', lastSeenAt: new Date(),
+      },
+    })
+    await definirProdutorAtivo(KIND_CHAVE, false)
+    const depois = await prisma.alert.findUnique({ where: { dedupeKey: P + 'chave' }, select: { status: true } })
+    assert.equal(depois?.status, 'resolved', 'sem isto o alerta ficaria de pé sem produtor que o resolvesse')
+    await limpar()
+  })
+
+  test('religar não reabre nada sozinho — quem reabre é a varredura', async () => {
+    await definirProdutorAtivo(KIND_CHAVE, true)
+    assert.equal(await produtorAtivo(KIND_CHAVE), true)
   })
 })
 

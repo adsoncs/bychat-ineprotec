@@ -4,7 +4,7 @@ import { useLocation } from 'wouter-preact'
 import { usePrimaryInstall } from '@/hooks/usePrimaryInstall'
 import {
   Palette, Shield, Package, Home,
-  Mail, Copy,
+  Mail, Copy, Bell,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
@@ -17,6 +17,7 @@ import { SecuritySettings } from './settings/SecuritySettings'
 import { WebhooksSettings } from './settings/WebhooksSettings'
 import { ApiKeysSettings } from './settings/ApiKeysSettings'
 import { ModulesSettings } from './settings/ModulesSettings'
+import { AlertsHealthSettings } from './settings/AlertsHealthSettings'
 import { EmailSettings } from './settings/EmailSettings'
 import { SmsSettings } from './settings/SmsSettings'
 import { AiSettings } from './settings/AiSettings'
@@ -53,7 +54,7 @@ export type Tab =
   | 'appearance' | 'home-screen' | 'fields' | 'teams' | 'security'
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
-  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company'
+  | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company' | 'alerts-health'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -70,6 +71,7 @@ const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: bo
   { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
   { id: 'security', label: 'Segurança', icon: <Shield size={14} /> },
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
+  { id: 'alerts-health', label: 'Alertas', icon: <Bell size={14} /> },
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
   { id: 'intelligence', label: 'Inteligência', icon: <Sparkles size={14} /> },
   { id: 'system-emails', label: 'Emails do Sistema', icon: <Mail size={14} /> },
@@ -91,7 +93,7 @@ const MIGRATED_TAB_REDIRECTS: Record<string, string> = {
 function readTabFromUrl(): Tab {
   if (typeof window === 'undefined') return 'appearance'
   const v = new URLSearchParams(window.location.search).get('tab')
-  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal']
+  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal', 'alerts-health']
   return (valid as string[]).includes(v ?? '') ? (v as Tab) : 'appearance'
 }
 
@@ -180,6 +182,7 @@ export function SettingsPage() {
           {tab === 'webhooks' && <WebhooksSettings />}
           {tab === 'api-keys' && <ApiKeysSettings />}
           {tab === 'modules' && <ModulesSettings />}
+          {tab === 'alerts-health' && <AlertsHealthSettings />}
           {tab === 'my-google' && <GoogleAccountSettings />}
           {tab === 'dedup' && <DedupSettings />}
           {tab === 'integrations' && <IntegrationsSettings />}

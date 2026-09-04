@@ -19,7 +19,7 @@
 // contam como "parada" não deveria exigir deploy.
 
 import { prisma } from '../lib/prisma.js'
-import { raiseAlert, resolverAusentes } from './alertService.js'
+import { raiseAlert, resolverAusentes, produtorDesligado } from './alertService.js'
 
 export const KIND_ATIVIDADE = 'activity.overdue'
 export const KIND_NEGOCIACAO = 'negotiation.stalled'
@@ -49,6 +49,9 @@ async function setting(key: string, padrao: number): Promise<number> {
  * não é apenas informação.
  */
 export async function varrerAtividadesAtrasadas(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_ATIVIDADE)
+  if (desligado) return desligado
+
   const janelaDias = await setting('alertas.atividade_janela_dias', 7)
   const desde = new Date(Date.now() - janelaDias * 86400_000)
 
@@ -102,6 +105,9 @@ export async function varrerAtividadesAtrasadas(): Promise<{ abertos: number; fe
  * que é o que 31 dias sem movimento significam.
  */
 export async function varrerNegociacoesParadas(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_NEGOCIACAO)
+  if (desligado) return desligado
+
   const diasParada = await setting('alertas.negociacao_parada_dias', 7)
   const janelaDias = await setting('alertas.negociacao_janela_dias', 45)
   const agora = Date.now()
@@ -167,6 +173,9 @@ export async function varrerNegociacoesParadas(): Promise<{ abertos: number; fec
  * Vai para a gestão: reconectar linha não é trabalho de quem atende.
  */
 export async function varrerCanaisCaidos(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_CANAL)
+  if (desligado) return desligado
+
   const { getLastHealth } = await import('./evolutionMonitor.js')
   const health = getLastHealth()
 
@@ -244,6 +253,9 @@ export async function varrerCanaisCaidos(): Promise<{ abertos: number; fechados:
  * aqui é só o aviso ao dono.
  */
 export async function varrerLeadsSemResposta(): Promise<{ abertos: number; fechados: number }> {
+  const desligado = await produtorDesligado(KIND_LEAD_PARADO)
+  if (desligado) return desligado
+
   const diasParado = await setting('alertas.lead_parado_dias', 3)
   const janelaDias = await setting('alertas.lead_janela_dias', 10)
   const agora = Date.now()

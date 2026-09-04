@@ -14,13 +14,32 @@
 //   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --varrer    # roda os vigilantes agora
 //   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --escalonar # o que sairia fora do painel (não envia)
 //   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --saude     # o sino está ajudando ou virando ruído?
+//   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --produtores            # quais tipos estão ligados aqui
+//   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --desligar lead.stale   # cala o tipo E fecha o que ficou aberto
+//   cd backend && npx tsx --env-file=.env scripts/setup-alertas.ts --ligar lead.stale
 
 import { prisma } from '../src/lib/prisma.js'
+import { produtorAtivo, resolverAusentes } from '../src/services/alertService.js'
 
 const APLICAR = process.argv.includes('--aplicar')
 const VARRER = process.argv.includes('--varrer')
 const ESCALONAR = process.argv.includes('--escalonar')
 const SAUDE = process.argv.includes('--saude')
+const PRODUTORES = process.argv.includes('--produtores')
+const DESLIGAR = process.argv.indexOf('--desligar')
+const LIGAR = process.argv.indexOf('--ligar')
+
+/** Todo tipo que algum produtor sabe abrir, com o que ele significa. */
+const TIPOS: Array<[string, string]> = [
+  ['integration.token', 'Token de integração vencido ou vencendo'],
+  ['integration.error', 'Integração recusou a credencial (Google, Meta)'],
+  ['channel.down', 'Linha de WhatsApp fora do ar'],
+  ['meeting.no_outcome', 'Reunião passou e ninguém disse se aconteceu'],
+  ['meeting.bot_failed', 'O bot não conseguiu gravar a reunião'],
+  ['activity.overdue', 'Atividade venceu e continua pendente'],
+  ['negotiation.stalled', 'Proposta parada sem movimento'],
+  ['lead.stale', 'Contato escreveu e não teve resposta'],
+]
 
 /** [chave, padrão, o que faz] */
 const LIMIARES: Array<[string, string, string, string]> = [
@@ -38,6 +57,9 @@ const LIMIARES: Array<[string, string, string, string]> = [
 ]
 
 async function main() {
+  if (PRODUTORES) return produtores()
+  if (DESLIGAR > -1) return chavear(process.argv[DESLIGAR + 1], false)
+  if (LIGAR > -1) return chavear(process.argv[LIGAR + 1], true)
   if (SAUDE) return saude()
   if (VARRER) return varrer()
   if (ESCALONAR) return escalonar()
@@ -121,6 +143,47 @@ async function varrer() {
   console.log('\n── Como o resumo diário sairia ──')
   const texto = await montarDigest()
   console.log(texto ? texto.split('\n').map((l) => '  ' + l).join('\n') : '  (nada a enviar)')
+}
+
+/** O que está ligado nesta instalação, e o que cada tipo significa. */
+async function produtores() {
+  console.log('Produtores de alerta nesta instalação\n')
+  for (const [kind, oque] of TIPOS) {
+    const ligado = await produtorAtivo(kind)
+    const abertos = await prisma.alert.count({ where: { kind, status: 'open' } })
+    const marca = ligado ? 'ligado ' : 'DESLIGADO'
+    console.log(`  ${marca}  ${kind.padEnd(22)} ${String(abertos).padStart(4)} aberto(s)  ${oque}`)
+  }
+  console.log('\nDesligar um tipo fecha o que ele já tinha aberto:')
+  console.log('  --desligar lead.stale')
+}
+
+/**
+ * Liga ou desliga um tipo nesta instalação.
+ *
+ * Desligar FECHA o que estava aberto: sem isso o alerta de ontem fica de pé
+ * para sempre, porque não sobrou produtor que o resolvesse.
+ */
+async function chavear(kind: string | undefined, ligar: boolean) {
+  if (!kind || !TIPOS.some(([k]) => k === kind)) {
+    console.error(`Tipo inválido: ${kind ?? '(nenhum)'}`)
+    console.error('Válidos: ' + TIPOS.map(([k]) => k).join(', '))
+    process.exitCode = 1
+    return
+  }
+  const key = `alertas.produtor.${kind}.ativo`
+  const value = ligar ? 'true' : 'false'
+  const atual = await prisma.setting.findUnique({ where: { key } })
+  if (atual) await prisma.setting.update({ where: { key }, data: { value } })
+  else await prisma.setting.create({
+    data: { key, value, grp: 'alertas', fieldType: 'boolean',
+            label: `Produtor de alerta "${kind}" ativo nesta instalação` },
+  })
+  console.log(`${kind} → ${ligar ? 'LIGADO' : 'DESLIGADO'}`)
+  if (!ligar) {
+    const fechados = await resolverAusentes(kind, [])
+    console.log(`  ${fechados} alerta(s) aberto(s) fechado(s) junto`)
+  }
 }
 
 /**

@@ -44,6 +44,25 @@ const AMOSTRA_MINIMA = 5
  */
 const CARENCIA_H = 24
 
+/**
+ * Todo tipo que algum produtor sabe abrir.
+ *
+ * Escrito à mão de propósito: a saúde tem de mostrar o tipo que NUNCA abriu
+ * nada, que é justamente o caso em que a pessoa quer saber se está ligado e
+ * quieto ou desligado. Uma lista derivada do banco só mostraria o que já
+ * apareceu, escondendo exatamente o que se quer perguntar.
+ */
+export const TIPOS_CONHECIDOS: Array<{ kind: string; oque: string }> = [
+  { kind: 'integration.token', oque: 'Token de integração vencido ou vencendo' },
+  { kind: 'integration.error', oque: 'Integração recusou a credencial (Google, Meta)' },
+  { kind: 'channel.down', oque: 'Linha de WhatsApp fora do ar' },
+  { kind: 'meeting.no_outcome', oque: 'Reunião passou e ninguém disse se aconteceu' },
+  { kind: 'meeting.bot_failed', oque: 'O bot não conseguiu gravar a reunião' },
+  { kind: 'activity.overdue', oque: 'Atividade venceu e continua pendente' },
+  { kind: 'negotiation.stalled', oque: 'Proposta parada sem movimento' },
+  { kind: 'lead.stale', oque: 'Contato escreveu e não teve resposta' },
+]
+
 export interface SaudeDoTipo {
   kind: string
   /** Alertas novos demais para julgar (dentro da carência). */

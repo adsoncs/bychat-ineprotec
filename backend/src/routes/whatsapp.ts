@@ -1060,6 +1060,33 @@ export async function whatsappRoutes(app: FastifyInstance) {
                       where: { id: lead.id },
                       data: { lastMessageAt: new Date(), lastActivityAt: new Date() },
                     }).catch(() => {})
+
+                    // Responder pelo celular É atender — o painel só não sabia.
+                    //
+                    // O envio pelo painel abre a conversa (ticketMessageSender) e
+                    // assume o lead. Este caminho gravava a mensagem e parava aí,
+                    // então quem responde pelo aplicativo continuava, para o
+                    // sistema, sem ter feito nada: a conversa ficava na caixa
+                    // bruta e a Supervisão não enxergava o atendimento em curso.
+                    // Medido no kobogo em 03/09: 181 conversas respondidas pelo
+                    // celular desde 01/09, 123 delas invisíveis assim — enquanto
+                    // alguém conversava com a pessoa do outro lado.
+                    //
+                    // Abre a conversa e NÃO grava dono, de propósito: a mensagem
+                    // do celular é anônima (o WhatsApp não diz quem digitou) e
+                    // numa linha compartilhada não há como saber. Chutar o dono
+                    // faria meta e comissão mentirem com cara de precisão. "Em
+                    // atendimento, sem dono" é a verdade; o botão Assumir segue
+                    // para quem quer a carteira.
+                    //
+                    // Grupo fica de fora pela mesma razão do "responder é
+                    // assumir": grupo é da equipe, não de um atendimento.
+                    if (!isGroupMsg) {
+                      import('../services/leadConversation.js')
+                        .then((m) => m.ensureConversationOpen(lead.id, { reason: 'outbound' }))
+                        .catch(() => { /* o atendimento é secundário: a mensagem é o que importa */ })
+                    }
+
                     // Em grupo, a linha irmã ainda vai entregar esta MESMA
                     // mensagem como recebida. A trava é por conversa (não por
                     // `key.id` solto) porque o id global se repete em conversas

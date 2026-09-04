@@ -165,3 +165,50 @@ export function useAlertBacklog(enabled = true) {
     enabled,
   })
 }
+
+// ── Saúde do próprio sino (Configurações › Alertas) ─────────────────────────
+//
+// Existe para responder uma pergunta de produto, não de operação: "algum tipo
+// de alerta virou ruído e deve ser desligado?". O instrumento vem antes do
+// próximo produtor de propósito — sem ele, cada tipo novo é uma aposta que só
+// o cliente paga.
+
+export interface SaudeDoTipo {
+  kind: string
+  /** O que este tipo significa, em uma linha. */
+  oque: string | null
+  /** Está ligado nesta instalação. */
+  ativo: boolean
+  aguardando: number
+  abertos: number
+  resolvidos: number
+  descartes: number
+  naoLidos: number
+  destinatarios: number
+  taxaDescarte: number
+  taxaNaoLido: number
+  horasAteResolver: number | null
+  ocorrenciasMedia: number
+  veredicto: 'ruido' | 'irrelevante' | 'saudavel' | 'sem_amostra'
+  /** Uma frase dizendo o que fazer. */
+  recomendacao: string
+}
+
+export function useAlertHealth(dias = 30) {
+  return useQuery({
+    queryKey: ['alerts', 'health', dias],
+    queryFn: () => api.get<{ dias: number; tipos: SaudeDoTipo[] }>(`/alerts/health?dias=${dias}`),
+    staleTime: 60_000,
+  })
+}
+
+export function useToggleAlertProducer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ kind, ativo }: { kind: string; ativo: boolean }) =>
+      api.post<{ ok: boolean; kind: string; ativo: boolean; fechados: number }>(
+        `/alerts/producers/${encodeURIComponent(kind)}`, { ativo },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['alerts'] }),
+  })
+}
