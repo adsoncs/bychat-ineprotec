@@ -47,11 +47,8 @@ const ICONE: Record<AlertSeverity, typeof Bell> = {
   warning: AlertTriangle,
   info: Info,
 }
-const COR: Record<AlertSeverity, string> = {
-  critical: 'text-danger',
-  warning: 'text-warning',
-  info: 'text-fg-muted',
-}
+// Sem tinta por severidade — a forma do ícone e o `aria-label` já a dizem.
+// Ver o mesmo comentário em components/alerts/AlertInbox.tsx.
 const ROTULO_TIPO: Record<string, string> = {
   'integration.token': 'Integrações',
   'integration.error': 'Integrações',
@@ -248,7 +245,7 @@ function LinhaDeAlerta({ alerta, mostrarDono }: { alerta: AlertaDaLista; mostrar
 
   return (
     <Card class={cn('flex items-start gap-3', resolvido && 'opacity-70')}>
-      <Icone size={16} class={cn('shrink-0 mt-0.5', COR[alerta.severity])} />
+      <Icone size={16} class="shrink-0 mt-0.5" />
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 flex-wrap">
           <span class={cn('text-sm', !alerta.readAt && !resolvido && 'font-semibold')}>{alerta.title}</span>

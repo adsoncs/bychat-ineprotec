@@ -36,11 +36,13 @@ const ICONE: Record<AlertSeverity, typeof Bell> = {
   warning: AlertTriangle,
   info: Info,
 }
-const COR: Record<AlertSeverity, string> = {
-  critical: 'text-danger',
-  warning: 'text-warning',
-  info: 'text-fg-muted',
-}
+// Sem tinta por severidade: o ícone fica no tom do texto.
+//
+// A severidade continua legível — a FORMA já a diz (círculo para crítico,
+// triângulo para atenção, "i" para informação) e o `aria-label` a diz por
+// extenso para quem usa leitor de tela. Cor era uma terceira via para a mesma
+// informação, e três vermelhos e cinco amarelos numa gaveta de 28rem cansam a
+// vista antes de comunicar urgência.
 
 export function AlertInbox() {
   const [open, setOpen] = useState(false)
@@ -263,7 +265,7 @@ function GrupoDeAlertas({ grupo, onNavegar }: { grupo: Grupo; onNavegar: () => v
         onClick={() => setAberto((v) => !v)}
         aria-expanded={aberto}
       >
-        <IconeGrupo size={16} class={cn('shrink-0', COR[severidade])} />
+        <IconeGrupo size={16} class="shrink-0" />
         <div class="min-w-0 flex-1">
           <div class="text-sm font-medium">
             {nome}
@@ -404,7 +406,6 @@ function LinhaDeAlerta({ alerta, onNavegar }: { alerta: AlertItem; onNavegar: ()
   const descartar = useDismissAlert()
   const desdeQuando = useDesdeQuando()
   const Icone = ICONE[alerta.severity] ?? AlertTriangle
-  const cor = COR[alerta.severity] ?? COR.warning
   const naoLido = !alerta.readAt
   const rotuloSeveridade =
     alerta.severity === 'critical' ? t('alerts.severity.critical')
@@ -439,7 +440,7 @@ function LinhaDeAlerta({ alerta, onNavegar }: { alerta: AlertItem; onNavegar: ()
         naoLido ? 'bg-surface-1' : 'opacity-70',
       )}
     >
-      <Icone size={16} class={cn('mt-0.5 shrink-0', cor)} aria-label={rotuloSeveridade} />
+      <Icone size={16} class="mt-0.5 shrink-0" aria-label={rotuloSeveridade} />
       <div class="min-w-0 flex-1">
         <div class="text-sm font-medium truncate">{alerta.title}</div>
         {alerta.body && <div class="text-xs text-fg-muted mt-0.5 line-clamp-2">{alerta.body}</div>}

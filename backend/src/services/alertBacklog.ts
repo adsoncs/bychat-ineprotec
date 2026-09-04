@@ -307,7 +307,9 @@ export async function listarAcervo(opts: {
         titulo: l.nome || 'Contato sem nome',
         detalhe: null,
         dias: diasDesde(l.lastActivityAt),
-        link: `/leads/${l.id}`,
+        // Mesmo destino do alerta vivo (ver alertLinks.ts): o item é "escreveu
+        // e não teve resposta", e responder só acontece em Conversas.
+        link: `/conversations?leadId=${l.id}`,
         dono: l.assignedUserId ? nomeUser.get(l.assignedUserId) ?? null : null,
       })
     }

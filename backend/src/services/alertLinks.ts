@@ -94,8 +94,19 @@ export function destinoDoAlerta(ctx: Contexto): DestinoDoAlerta {
       // Sem ação, e é decisão: o que resolve um lead parado é falar com ele, e
       // isso não cabe num botão de gaveta. Encerrar o ciclo também não entra —
       // marcar alguém como perdido a partir de um aviso, sem abrir a conversa,
-      // é o tipo de clique de que a pessoa se arrepende. O link leva ao lead.
-      return { link: entityId ? `/leads/${entityId}` : null, acoes: [] }
+      // é o tipo de clique de que a pessoa se arrepende.
+      //
+      // O destino é a CONVERSA, não a ficha. Este alerta só nasce quando a
+      // última mensagem é do contato — logo a conversa existe por construção, e
+      // a providência é responder, o que a ficha do lead não permite fazer. Era
+      // o único destino que não levava ao lugar onde a coisa vive: a atividade
+      // atrasada abre em /activities, a proposta parada em /negociacao.
+      //
+      // `?leadId=` é o mesmo caminho do "Abrir conversa" do menu do lead: a
+      // ConversationsPage varre todos os baldes e escopos até achar o ticket.
+      // Sem acesso àquela conversa a seleção apenas não acontece e a pessoa
+      // cai na lista — degrada sem quebrar.
+      return { link: entityId ? `/conversations?leadId=${entityId}` : null, acoes: [] }
 
     case 'whatsapp_instance':
       // Onde se reconecta e se lê o QR — não a aba de configurações.

@@ -276,7 +276,9 @@ describe('destino e ação por tipo de entidade', () => {
     ['booking', '/scheduling', 2],
     ['activity', '/leads/42/activities', 1],
     ['negotiation', '/leads/42/negociacao', 0],
-    ['lead', '/leads/1', 0],
+    // Conversa, não ficha: o alerta só existe porque o contato escreveu e não
+    // teve resposta, e responder não acontece em /leads.
+    ['lead', '/conversations?leadId=1', 0],
     ['whatsapp_instance', '/whatsapp', 0],
     ['evolution', '/integrations/evolution', 0],
     ['cloud_api_connection', '/cloud-api', 0],
