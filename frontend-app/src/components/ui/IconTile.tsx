@@ -15,7 +15,7 @@ interface IconTileProps {
   children: ComponentChildren
   /** Cor da pastilha. `neutral` fica cinza — use para ícone sem significado próprio. */
   tone?: IconTileTone | undefined
-  size?: 'sm' | 'md' | 'lg' | undefined
+  size?: 'sm' | 'md' | 'lg' | 'xl' | undefined
   class?: string | undefined
 }
 
@@ -28,8 +28,8 @@ interface IconTileProps {
  * desenho de nenhum ícone.
  *
  * Só a MOLDURA vem daqui. O ícone continua sendo o `<Icon>`/`icon-set` de
- * sempre, e o tamanho dele é escolha de quem chama — 14px (`sm`) casa com a
- * pastilha `sm`/`md`, 16px (`md`) com a `lg`.
+ * sempre, e o tamanho dele é escolha de quem chama. A regra é deixar ~3px de
+ * respiro de cada lado: 14px na pastilha `sm`, 16px na `md`/`lg`, 24px na `xl`.
  *
  * O visual do estado ativo da barra lateral NÃO está aqui: quem pinta é o
  * `shell.css`, a partir do `data-active` do item, para que a pastilha não

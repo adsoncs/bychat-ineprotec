@@ -33,10 +33,18 @@ export function SidebarItem({ item, iconOnly, onNavigate }: SidebarItemProps) {
       aria-label={iconOnly ? item.label : undefined}
       aria-current={isActive ? 'page' : undefined}
     >
-      {/* O ícone desceu de 20px para 14px e ganhou uma pastilha de 22px em
-        * volta: a área ocupada é praticamente a mesma, mas agora existe um
-        * elemento que pode acender quando o item é o atual (ver shell.css). */}
-      <IconTile><Icon name={item.icon} size="sm" /></IconTile>
+      {/* A pastilha é quem carrega o ESTADO (acende quando o item é o atual,
+        * ver shell.css); o tamanho do ícone é quem carrega a LEGIBILIDADE.
+        *
+        * Por que 24px e não 20: o que se enxerga não é o `size`, é quanto do
+        * quadro o desenho ocupa. O Tabler desenha 18 das 24 unidades da grade
+        * (medido com parser de path nos 286 ícones), então `size={20}` mostra
+        * 15px de desenho e `size={24}` mostra 18px. Trocar de biblioteca muda
+        * essa conta — o Streamline, por exemplo, ocupa 23 de 24.
+        *
+        * A altura do item NÃO muda: são 2.25rem fixos no .app-sidebar-item e a
+        * pastilha de 30px cabe neles com 3px de folga. */}
+      <IconTile size="xl"><Icon name={item.icon} size="xl" /></IconTile>
       {/* No rail o rótulo desaparece por opacidade (ver shell.css) em vez de
         * `sr-only`: com `sr-only` ele saía do fluxo no mesmo instante e o texto
         * piscava fora durante a animação. Quem lê tela usa o aria-label do link

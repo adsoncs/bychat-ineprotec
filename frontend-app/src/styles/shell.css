@@ -167,8 +167,8 @@
 
 /* No modo faixa o ícone é o único conteúdo do item — a pastilha cresce junto. */
 .app-sidebar[data-mode='rail'] .icon-tile {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2.125rem;
+  height: 2.125rem;
 }
 
 /* Item ativo: superfície ELEVADA, não bloco de cor.

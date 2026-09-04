@@ -324,6 +324,15 @@
     height: 1.75rem;
   }
 
+  /* 30px: o degrau do menu. Um ícone de 24px na pastilha `lg` (28px) fica com
+     2px de respiro e encosta na borda; aqui sobram 3px de cada lado. Cabe nos
+     36px de altura do item da barra (.app-sidebar-item), então a barra não
+     cresce nem muda a densidade. */
+  .icon-tile[data-size='xl'] {
+    width: 1.875rem;
+    height: 1.875rem;
+  }
+
   /* Tingida: fundo em degradê da própria cor, ícone na cor cheia. O degradê é
      o que impede a pastilha de virar um quadrado chapado a mais. */
   .icon-tile[data-tone]:not([data-tone='neutral']) {
