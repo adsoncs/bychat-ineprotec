@@ -306,6 +306,23 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const offset = parseInt(query.offset) || 0
       const user = (req as any).user as JwtPayload
 
+      // Ordenação. Existia sempre — `lastMessageAt desc` fixo — só que ninguém
+      // via nem podia mudar. Agora é escolha, e o desempate por `id` continua
+      // em todas: sem ordem TOTAL, item pula de página ao rolar.
+      //
+      // ⚠️ "antigas" é a fila FIFO por atividade, e NÃO "quem espera há mais
+      // tempo". A fila de espera de verdade exige saber se a ÚLTIMA mensagem
+      // foi do contato, e isso não é coluna — sairia um `orderBy` que o banco
+      // não resolve. Fica para quando houver campo calculado na entrada da
+      // mensagem; rotular esta de "espera" agora seria mentir no rótulo.
+      const sortParam = String(query.sort || 'recent')
+      const ORDENACOES: Record<string, any[]> = {
+        recent: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+        oldest: [{ lastMessageAt: 'asc' }, { id: 'asc' }],
+        name:   [{ nome: 'asc' }, { id: 'asc' }],
+      }
+      const ordem = ORDENACOES[sortParam] ?? ORDENACOES.recent!
+
       const myTeamIds = await getUserTeamIds(user.userId)
 
       // Gerenciador do Conversas. Quando existe matriz para este usuário ela
@@ -394,8 +411,14 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // Combinado com a aba "Todos", é a lista de tudo que espera resposta —
       // e, por entrar em `filtros`, o número das abas passa a contar o mesmo
       // que a lista mostra, em vez de discordar dela.
-      if (String(query.unread || '') === '1') {
+      // Leitura em três estados, como as pílulas da tela: todas (vazio), só as
+      // não lidas, só as lidas. O terceiro não existia — e sem ele a faixa
+      // teria um botão que não faz nada, que é pior que não ter o botão.
+      const leitura = String(query.unread || '')
+      if (leitura === '1' || leitura === 'unread') {
         filtros.unreadMessages = { gt: 0 }
+      } else if (leitura === 'read') {
+        filtros.unreadMessages = { lte: 0 }
       }
 
       if (search) {
@@ -510,7 +533,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             // data, caso das resolvidas antigas) trocam de posição entre uma
             // página e outra — e a rolagem repete umas e pula outras. No terram
             // eram 22 repetidas em 638.
-            orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+            orderBy: ordem,
             take: limit,
             select: SELECAO_TICKET,
           })
@@ -524,7 +547,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const [tickets, total] = await Promise.all([
         prisma.lead.findMany({
           where: whereLista,
-          orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+          orderBy: ordem,
           take: Math.max(0, limit - ticketsFixados.length),
           skip: offset,
           select: SELECAO_TICKET,
@@ -621,7 +644,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       const [
         waitingCount, attendingCount, resolvedCount, mineCount, teamQueueCount,
-        inboxCount, rawCount, snoozedCount, allCount, groupsCount,
+        inboxCount, rawCount, snoozedCount, allCount, groupsCount, unreadCount,
       ] = await Promise.all([
         // waiting/attending: subfiltros legados do Atendimento (não lidas x lidas).
         prisma.lead.count({
@@ -660,6 +683,26 @@ export async function atendimentoRoutes(app: FastifyInstance) {
             ...(semCanaisOcultos ? { AND: [semCanaisOcultos] } : {}),
           },
         }),
+        // Não lidas no MESMO recorte da lista — é o número da pílula "Não
+        // lidas". Contar fora do recorte faria o badge dizer um número e a
+        // lista abrir com outro, que é a forma mais rápida de a pessoa parar de
+        // confiar na tela.
+        //
+        // `montarWhere` já traz escopo, caixa, tags, funil, número, busca E a
+        // visibilidade de canal (`semCanaisOcultos` entra em `filtrosAnd` lá em
+        // cima). Repetir a visibilidade aqui SUBSTITUIRIA o `AND` inteiro e
+        // derrubaria todos esses filtros do contador — sobrescrever chave de
+        // objeto não é somar condição.
+        //
+        // `unreadMessages` vem depois do espalhamento de propósito: quando a
+        // pessoa está vendo "Lidas", o filtro da lista é `lte: 0`, e o badge
+        // precisa continuar dizendo quantas NÃO lidas existem naquele recorte.
+        prisma.lead.count({
+          where: {
+            ...montarWhere(scopeWhere, bucket),
+            unreadMessages: { gt: 0 },
+          },
+        }),
       ])
 
       return {
@@ -676,6 +719,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           raw: rawCount,
           snoozed: snoozedCount,
           groups: groupsCount,
+          unread: unreadCount,
         },
         myTeamIds,
         isAdmin: effectiveScope === 'all',

@@ -63,6 +63,8 @@ export interface TicketsCounters {
   attending: number
   /** Conversas de grupo no escopo — 0 significa "este tenant não usa grupos". */
   groups?: number
+  /** Não lidas DENTRO do recorte da lista — o número da pílula "Não lidas". */
+  unread?: number
 }
 
 export interface TicketsListResponse {
@@ -83,8 +85,15 @@ export interface TicketsFilters {
   funnelId?: string | undefined
   // Tipo de conversa: 'contacts' | 'groups' (vazio = os dois, misturados).
   kind?: string | undefined
-  // Só conversas com mensagem não lida. Filtro, não caixa: atravessa a aba.
-  unread?: boolean | undefined
+  // Leitura, em três estados como as pílulas da tela: undefined = todas,
+  // 'unread' = só as não lidas, 'read' = só as lidas. Filtro, não caixa:
+  // atravessa a aba.
+  unread?: 'unread' | 'read' | undefined
+  // Tags: ids separados por vírgula. O servidor casa com QUALQUER uma delas
+  // (`some`), que é o que as pessoas esperam de um filtro de tag.
+  tagIds?: string | undefined
+  // Ordenação declarada: 'recent' (padrão) | 'oldest' | 'name'.
+  sort?: string | undefined
   limit?: number | undefined
   offset?: number | undefined
 }
@@ -98,7 +107,9 @@ function buildQuery(f: TicketsFilters): string {
   if (f.senderChannel) p.set('senderChannel', f.senderChannel)
   if (f.funnelId) p.set('funnelId', f.funnelId)
   if (f.kind) p.set('kind', f.kind)
-  if (f.unread) p.set('unread', '1')
+  if (f.unread) p.set('unread', f.unread)
+  if (f.tagIds) p.set('tagIds', f.tagIds)
+  if (f.sort && f.sort !== 'recent') p.set('sort', f.sort)
   if (f.limit !== undefined) p.set('limit', String(f.limit))
   if (f.offset !== undefined) p.set('offset', String(f.offset))
   const qs = p.toString()

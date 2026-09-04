@@ -22,8 +22,7 @@ import {
   Trash2,
   ArrowRightLeft,
   UserMinus,
-  Bell,
-  BellOff,
+  Filter,
   Building2,
   MapPin,
   Pencil,
@@ -141,6 +140,7 @@ import { useTabLabels, useConversationTheme, ordenarAbas } from '@/hooks/useTabL
 import { ScheduledMessagesBar } from '@/components/ScheduledMessagesBar'
 import { ScoreByPillar } from '@/components/ScoreByPillar'
 import { Page } from '@/components/ui/Page'
+import * as Popover from '@radix-ui/react-popover'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -158,6 +158,30 @@ import { leadSourceLabel } from '@/lib/leadSourceLabels'
 // `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
 // muda junto, só a palavra. A ORDEM da barra também vem de lá; a listagem
 // abaixo é a de fábrica e vale enquanto a preferência não chegou.
+// A faixa de leitura. Nome, não ícone: um círculo não diz "não lidas" para
+// ninguém — a palavra diz, e continua custando um clique só.
+const LEITURAS: { id: 'unread' | 'read'; label: string; Icon: typeof MessageSquare }[] = [
+  { id: 'unread', label: 'Não lidas', Icon: Mail },
+  { id: 'read', label: 'Lidas', Icon: MailOpen },
+]
+
+// De quem é a conversa. Só dois: "Setor" saiu desta faixa por decisão de
+// produto — quem precisa da fila do setor usa as abas.
+const ESCOPOS: { id: Scope; label: string; Icon: typeof MessageSquare }[] = [
+  { id: 'all', label: 'Todas', Icon: Layers },
+  { id: 'mine', label: 'Meus', Icon: UserIcon },
+]
+
+// Ordenação. Sempre existiu — `lastMessageAt desc`, fixo — só que invisível.
+// ⚠️ "Mais antigas" é fila por ATIVIDADE, não por tempo de espera: a fila de
+// espera de verdade precisa saber se a última mensagem foi do contato, e isso
+// hoje não é coluna. Rotular esta de "quem espera há mais tempo" seria mentir.
+const ORDENACOES: { id: 'recent' | 'oldest' | 'name'; label: string; hint: string }[] = [
+  { id: 'recent', label: 'Atividade recente', hint: 'última mensagem, enviada ou recebida' },
+  { id: 'oldest', label: 'Mais antigas primeiro', hint: 'a fila: quem chegou antes aparece antes' },
+  { id: 'name', label: 'Nome (A–Z)', hint: 'para achar alguém sabendo o nome' },
+]
+
 const bucketMeta: { id: Bucket; shortLabel: string; counterKey: keyof TicketCountersShape; Icon: typeof MessageSquare }[] = [
   { id: 'inbox', shortLabel: 'Atend.', counterKey: 'inbox', Icon: MessageSquare },
   { id: 'raw', shortLabel: 'Caixa', counterKey: 'raw', Icon: Inbox },
@@ -184,12 +208,7 @@ const scopeMeta: { id: Scope; shortLabel: string; counterKey: keyof TicketCounte
  * "Secretaria" virando "Secre.", que ninguém pediu. O `truncate` do CSS corta o
  * que não couber, sem inventar.
  */
-function rotuloCurto(nome: string, curtoPadrao: string, id: string): string {
-  const padroes: Record<string, string> = {
-    inbox: 'Atendimento', raw: 'Caixa', snoozed: 'Aguardando', resolved: 'Resolvidos', all: 'Todos',
-  }
-  return nome === padroes[id] ? curtoPadrao : nome
-}
+
 
 interface TicketCountersShape {
   inbox: number
@@ -321,7 +340,12 @@ function ConversationsScreen() {
     alinhouAbaInicial.current = true
     if (tocouNasAbas.current) return
     if (caixasVisiveis[0]) setBucket(caixasVisiveis[0].id)
-    if (escoposVisiveis[0]) setScope(escoposVisiveis[0].id)
+    // O escopo segue a ordem da empresa, mas só entre os que a faixa OFERECE.
+    // Se a preferência começar por "Setor" — que saiu desta faixa —, nenhuma
+    // pílula ficaria marcada e a lista abriria num recorte invisível. Nesse
+    // caso cai em "Meus", que é onde quem atende trabalha.
+    const primeiroOferecido = escoposVisiveis.find((e) => ESCOPOS.some((x) => x.id === e.id))
+    setScope(primeiroOferecido?.id ?? 'mine')
   }, [carregandoAbas, caixasVisiveis, escoposVisiveis])
   const [search, setSearch] = useState('')
   // Filtros extras: número de envio (id do canal) e funil ('' = todos, 'none' = sem funil).
@@ -329,9 +353,21 @@ function ConversationsScreen() {
   const [funnelFilter, setFunnelFilter] = useState('')
   // Tipo de conversa: '' = contatos e grupos juntos, 'contacts', 'groups'.
   const [kindFilter, setKindFilter] = useState('')
+  const emGrupos = kindFilter === 'groups'
   // Só o que ainda não foi lido. É filtro, não aba: atravessa a caixa
   // escolhida, e com a aba "Todos" mostra tudo que espera resposta.
-  const [unreadOnly, setUnreadOnly] = useState(false)
+  // Leitura em três estados, como as pílulas: '' = todas | 'unread' | 'read'.
+  // Era um booleano com dois estados escondidos num <select>; virou faixa com
+  // NOME, porque ícone solto não diz "não lidas" para ninguém.
+  const [leitura, setLeitura] = useState<'' | 'unread' | 'read'>('')
+  // Tags: o cliente pediu. O servidor casa com QUALQUER uma das escolhidas.
+  const [tagsFiltro, setTagsFiltro] = useState<number[]>([])
+  // Ordenação. Sempre existiu (lastMessageAt desc, fixo) — agora é escolha.
+  const [ordenacao, setOrdenacao] = useState<'recent' | 'oldest' | 'name'>('recent')
+  // Painel de filtros: as listas longas saem do caminho permanente.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  // Catálogo de tags para o filtro. Só as ativas: tag desativada não recorta nada.
+  const tagsQ = useTags()
   const numbersQ = useSenderNumbers()
   const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
@@ -365,8 +401,23 @@ function ConversationsScreen() {
     senderChannel: senderChannel || undefined,
     funnelId: funnelFilter || undefined,
     kind: kindFilter || undefined,
-    unread: unreadOnly || undefined,
+    unread: leitura || undefined,
+    tagIds: tagsFiltro.length ? tagsFiltro.join(',') : undefined,
+    sort: ordenacao,
   })
+
+  // Quantos filtros estão ativos — o número na bolinha do funil. A leitura não
+  // entra: ela tem faixa própria, com nome, à vista de todos.
+  // Escopo e leitura NÃO entram na conta: os dois estão à vista na faixa de
+  // pílulas, com nome. A bolinha do funil conta só o que está escondido.
+  const filtrosAtivos =
+    (senderChannel ? 1 : 0) + (funnelFilter ? 1 : 0) +
+    tagsFiltro.length + (ordenacao !== 'recent' ? 1 : 0)
+
+  function limparFiltros() {
+    setSenderChannel(''); setFunnelFilter('')
+    setTagsFiltro([]); setOrdenacao('recent')
+  }
   // As páginas viram uma lista só: quem rola não deve perceber que existem
   // páginas. Contadores e total vêm da primeira (valem para o recorte inteiro).
   const ticketsCarregados = ticketsQ.data?.pages.flatMap((p) => p.tickets) ?? []
@@ -476,6 +527,9 @@ function ConversationsScreen() {
   }, [selected])
 
   const counters = ticketsQ.data?.pages[0]?.counters
+  // O número da pílula "Não lidas". Vem do MESMO recorte da lista, senão o
+  // badge diz um número e a lista abre com outro.
+  const naoLidasTotal = counters?.unread ?? 0
 
   return (
     <Page
@@ -512,112 +566,247 @@ function ConversationsScreen() {
       >
         {/* Lista de tickets */}
         <aside class={cn('w-full sm:w-80 lg:w-96 xl:w-[26rem] shrink-0 flex flex-col rounded-lg border border-border bg-surface-2', selected !== null && 'hidden sm:flex')}>
+          {/*
+            Cabeçalho da lista, refeito.
+            Antes: busca + quatro menus suspensos (que quebravam em duas linhas)
+            + faixa de escopo + faixa de abas — quatro faixas, ~230px, e a lista
+            começando bem abaixo da dobra. Menu nativo custa sempre dois cliques:
+            um para abrir, outro para escolher.
+            Agora: o que se usa o tempo todo fica à vista COM NOME (leitura, abas);
+            o que é lista longa (escopo, número, funil, tags, ordenação) mora atrás
+            do funil, e a bolinha diz quantos estão ativos.
+          */}
           <div class="p-3 space-y-2 border-b border-border">
+            {/* Linha 1 — busca e as três ações da lista. Nova conversa e
+                Preferências desceram do topo da página para onde a mão já está. */}
             <div class="flex items-center gap-2">
               <div class="flex-1 min-w-0">
-                <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nome, empresa, telefone ou texto das mensagens…" />
+                <SearchInput value={search} onChange={setSearch} placeholder="Pesquisar…" />
               </div>
               <button
                 type="button"
-                onClick={toggleNotif}
+                onClick={() => setNovaConversaOpen(true)}
                 class="size-9 shrink-0 rounded-md border border-border text-fg-muted hover:text-fg hover:bg-surface-3 grid place-items-center"
-                title={notifEnabled ? 'Som de notificação ativo (clique para silenciar)' : 'Notificação silenciada (clique para ativar)'}
-                aria-label={notifEnabled ? 'Silenciar notificações' : 'Ativar notificações'}
+                title="Nova conversa"
+                aria-label="Nova conversa"
               >
-                {notifEnabled ? <Bell size={ICON_SIZE.md} /> : <BellOff size={ICON_SIZE.md} />}
+                <Plus size={ICON_SIZE.md} />
+              </button>
+
+              <Popover.Root open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
+                <Popover.Trigger asChild>
+                  <button
+                    type="button"
+                    class={cn(
+                      'size-9 shrink-0 rounded-md border grid place-items-center relative',
+                      filtrosAtivos > 0
+                        ? 'border-accent text-accent bg-accent/10'
+                        : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3',
+                    )}
+                    title="Filtros e ordenação"
+                    aria-label="Filtros e ordenação"
+                  >
+                    <Filter size={ICON_SIZE.md} />
+                    {filtrosAtivos > 0 && (
+                      <span class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-accent text-fg-on-brand text-3xs grid place-items-center">
+                        {filtrosAtivos}
+                      </span>
+                    )}
+                  </button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content
+                    align="end"
+                    sideOffset={6}
+                    class="w-72 max-h-[26rem] overflow-y-auto rounded-lg border border-border bg-surface-2 shadow-xl p-3 space-y-3"
+                    style={{ zIndex: 'var(--z-dropdown)' }}
+                  >
+                    <div>
+                      <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Número</div>
+                      <Select
+                        value={senderChannel}
+                        onChange={(e) => setSenderChannel((e.target as HTMLSelectElement).value)}
+                        aria-label="Filtrar por número de envio"
+                      >
+                        <option value="">Todos os números</option>
+                        {(numbersQ.data?.channels ?? [])
+                          .filter((c) => c.provider === 'evolution' || c.provider === 'cloud_api')
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {nomeDoCanal(c)}{c.number && nomeDoCanal(c) !== c.number ? ` — ${c.number}` : ''}
+                            </option>
+                          ))}
+                      </Select>
+                    </div>
+
+                    <div>
+                      <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Funil</div>
+                      <Select
+                        value={funnelFilter}
+                        onChange={(e) => setFunnelFilter((e.target as HTMLSelectElement).value)}
+                        aria-label="Filtrar por funil"
+                      >
+                        <option value="">Todos os funis</option>
+                        <option value="none">Sem funil</option>
+                        {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+                      </Select>
+                    </div>
+
+                    {/* Tags: várias ao mesmo tempo, e o servidor casa com
+                        QUALQUER uma delas — é o que as pessoas esperam. */}
+                    {(tagsQ.data?.tags ?? []).length > 0 && (
+                      <div>
+                        <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Tags</div>
+                        <div class="flex flex-wrap gap-1">
+                          {(tagsQ.data?.tags ?? []).map((t) => {
+                            const ativa = tagsFiltro.includes(t.id)
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => setTagsFiltro((cur) =>
+                                  cur.includes(t.id) ? cur.filter((x) => x !== t.id) : [...cur, t.id],
+                                )}
+                                class={cn(
+                                  'h-6 px-2 rounded-full text-2xs font-medium border transition-colors inline-flex items-center gap-1',
+                                  ativa
+                                    ? 'bg-accent border-accent text-fg-on-brand'
+                                    : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3',
+                                )}
+                                aria-pressed={ativa}
+                              >
+                                <span
+                                  class="size-2 rounded-full shrink-0"
+                                  style={{ background: ativa ? 'currentColor' : (t.color || 'var(--color-fg-muted)') }}
+                                />
+                                {t.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div class="border-t border-border pt-3">
+                      <div class="text-3xs uppercase tracking-wide text-fg-muted mb-1">Ordenar por</div>
+                      <div class="space-y-0.5" role="radiogroup" aria-label="Ordenar por">
+                        {ORDENACOES.map((o) => {
+                          const ativa = ordenacao === o.id
+                          return (
+                            <button
+                              key={o.id}
+                              type="button"
+                              role="radio"
+                              aria-checked={ativa}
+                              onClick={() => setOrdenacao(o.id)}
+                              class={cn(
+                                'w-full text-left px-2 py-1.5 rounded-md transition-colors',
+                                ativa ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:bg-surface-3 hover:text-fg',
+                              )}
+                            >
+                              <span class="block text-2xs font-semibold">{o.label}</span>
+                              <span class="block text-3xs opacity-80">{o.hint}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {filtrosAtivos > 0 && (
+                      <button
+                        type="button"
+                        onClick={limparFiltros}
+                        class="text-2xs text-fg-muted hover:text-fg underline"
+                      >
+                        Limpar filtros
+                      </button>
+                    )}
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+
+              <button
+                type="button"
+                onClick={() => setPrefsOpen(true)}
+                class="size-9 shrink-0 rounded-md border border-border text-fg-muted hover:text-fg hover:bg-surface-3 grid place-items-center"
+                title="Preferências das conversas (fonte, áudio, lista)"
+                aria-label="Preferências das conversas"
+              >
+                <SlidersHorizontal size={ICON_SIZE.md} />
               </button>
             </div>
-            <div class="flex gap-2 flex-wrap">
-              <div class="flex-1 min-w-0">
-                <Select
-                  value={senderChannel}
-                  onChange={(e) => setSenderChannel((e.target as HTMLSelectElement).value)}
-                  aria-label="Filtrar por número de envio"
-                >
-                  <option value="">Todos os números</option>
-                  {(numbersQ.data?.channels ?? [])
-                    .filter((c) => c.provider === 'evolution' || c.provider === 'cloud_api')
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {nomeDoCanal(c)}{c.number && nomeDoCanal(c) !== c.number ? ` — ${c.number}` : ''}
-                      </option>
-                    ))}
-                </Select>
-              </div>
-              <div class="flex-1 min-w-0">
-                <Select
-                  value={funnelFilter}
-                  onChange={(e) => setFunnelFilter((e.target as HTMLSelectElement).value)}
-                  aria-label="Filtrar por funil"
-                >
-                  <option value="">Todos os funis</option>
-                  <option value="none">Sem funil</option>
-                  {(funnelsQ.data?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
-                </Select>
-              </div>
-              <div class="flex-1 min-w-0">
-                <Select
-                  value={unreadOnly ? 'unread' : ''}
-                  onChange={(e) => setUnreadOnly((e.target as HTMLSelectElement).value === 'unread')}
-                  aria-label="Filtrar por mensagens não lidas"
-                >
-                  <option value="">Lidas e não lidas</option>
-                  <option value="unread">Só não lidas</option>
-                </Select>
-              </div>
-              <div class="flex-1 min-w-0">
-                <Select
-                  value={unreadOnly ? 'unread' : ''}
-                  onChange={(e) => setUnreadOnly((e.target as HTMLSelectElement).value === 'unread')}
-                  aria-label="Filtrar por mensagens não lidas"
-                >
-                  <option value="">Lidas e não lidas</option>
-                  <option value="unread">Só não lidas</option>
-                </Select>
-              </div>
-              {/* Tipo de conversa: só aparece se esta instalação recebe grupos
-                  (toggle da conexão OFF por padrão) — filtro inútil não polui a
-                  caixa de quem só atende contato individual. */}
-              {(counters?.groups ?? 0) > 0 && (
-                <div class="flex-1 min-w-0 basis-full">
-                  <Select
-                    value={kindFilter}
-                    onChange={(e) => setKindFilter((e.target as HTMLSelectElement).value)}
-                    aria-label="Filtrar contatos ou grupos"
-                  >
-                    <option value="">Contatos e grupos</option>
-                    <option value="contacts">Só contatos</option>
-                    <option value="groups">Só grupos ({counters?.groups})</option>
-                  </Select>
-                </div>
-              )}
-            </div>
-            <nav class="flex gap-1 p-0.5 rounded-md bg-surface-3" aria-label="Escopo">
-              {escoposVisiveis.map((s) => {
-                const count = s.counterKey && counters ? counters[s.counterKey] : null
-                const active = scope === s.id
+
+            {/*
+              Linha 2 — dois recortes na mesma faixa, com NOME em vez de menu.
+
+              São DOIS grupos, não quatro botões soltos, e a divisória diz isso:
+              à esquerda de quem é a conversa, à direita se foi lida. Um grupo só
+              tornaria "minhas não lidas" impossível — e é o recorte que quem
+              atende mais usa.
+
+              Setor ficou de fora desta faixa de propósito (decisão do produto):
+              quem precisa da fila do setor tem as abas, e um quinto botão aqui
+              faria a linha quebrar.
+            */}
+            <div class="flex items-center gap-1.5 flex-wrap">
+              {ESCOPOS.map((e) => {
+                const ativo = scope === e.id
                 return (
                   <button
-                    key={s.id}
+                    key={e.id}
                     type="button"
-                    onClick={() => { tocouNasAbas.current = true; setScope(s.id) }}
+                    onClick={() => { tocouNasAbas.current = true; setScope(e.id) }}
+                    aria-pressed={ativo}
                     class={cn(
-                      'flex-1 min-w-0 h-7 px-2 rounded text-2xs font-medium transition-colors inline-flex items-center justify-center gap-1',
-                      active ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
+                      'h-7 px-2.5 rounded-full border text-2xs font-medium transition-colors inline-flex items-center gap-1.5',
+                      ativo
+                        ? 'bg-accent border-accent text-fg-on-brand'
+                        : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3',
                     )}
                   >
-                    <span class="truncate">{labels.scope[s.id]}</span>
-                    {count != null && count > 0 && (
+                    <e.Icon size={ICON_SIZE.xs} class="shrink-0" />
+                    {labels.scope[e.id] ?? e.label}
+                  </button>
+                )
+              })}
+
+              <span class="w-px h-4 bg-border shrink-0 mx-0.5" aria-hidden="true" />
+
+              {LEITURAS.map((l) => {
+                const ativa = leitura === l.id
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    // Clicar na que já está ligada desliga: volta a mostrar
+                    // lidas e não lidas juntas, sem precisar de um terceiro
+                    // botão "Todas" que competiria com o de escopo.
+                    onClick={() => setLeitura(ativa ? '' : l.id)}
+                    aria-pressed={ativa}
+                    class={cn(
+                      'h-7 px-2.5 rounded-full border text-2xs font-medium transition-colors inline-flex items-center gap-1.5',
+                      ativa
+                        ? 'bg-accent border-accent text-fg-on-brand'
+                        : 'border-border text-fg-muted hover:text-fg hover:bg-surface-3',
+                    )}
+                  >
+                    <l.Icon size={ICON_SIZE.xs} class="shrink-0" />
+                    {l.label}
+                    {l.id === 'unread' && naoLidasTotal > 0 && (
                       <span class={cn(
-                        'text-3xs px-1 rounded shrink-0',
-                        active ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-fg-muted',
-                      )}>{count}</span>
+                        'text-3xs px-1 rounded-full leading-none py-px',
+                        ativa ? 'bg-white/25' : 'bg-surface-3',
+                      )}>{naoLidasTotal}</span>
                     )}
                   </button>
                 )
               })}
-            </nav>
-            <nav class="grid grid-cols-5 gap-1" aria-label="Tipo">
+            </div>
+
+            {/* Linha 3 — as abas, com ícone, contador e o NOME INTEIRO. O
+                rótulo vem de Preferências; se for longo, encurta com
+                reticências e o nome inteiro fica no title. */}
+            <nav class="flex gap-1" aria-label="Tipo">
               {caixasVisiveis.map((b) => {
                 const count = counters ? counters[b.counterKey] : null
                 const active = bucket === b.id
@@ -626,31 +815,50 @@ function ConversationsScreen() {
                   <button
                     key={b.id}
                     type="button"
-                    onClick={() => { tocouNasAbas.current = true; setBucket(b.id) }}
+                    onClick={() => { tocouNasAbas.current = true; setKindFilter(''); setBucket(b.id) }}
                     title={labels.bucket[b.id]}
                     class={cn(
-                      'min-w-0 h-9 px-1.5 rounded-md text-2xs font-medium transition-colors',
-                      'inline-flex flex-col items-center justify-center gap-0.5',
-                      'lg:flex-row lg:gap-1.5 lg:h-8',
-                      active
-                        ? 'bg-accent text-fg-on-brand'
-                        : 'bg-surface-3 text-fg-muted hover:bg-surface hover:text-fg',
+                      'flex-1 min-w-0 h-[3.25rem] px-0.5 rounded-lg transition-colors',
+                      'flex flex-col items-center justify-center gap-1',
+                      active && !emGrupos ? 'bg-accent/12 text-accent' : 'text-fg-muted hover:bg-surface-3 hover:text-fg',
                     )}
                   >
-                    <span class="inline-flex items-center gap-1 min-w-0">
-                      <Icon size={ICON_SIZE.xs} class="shrink-0" />
-                      <span class="truncate hidden lg:inline">{labels.bucket[b.id]}</span>
-                      <span class="truncate lg:hidden">{rotuloCurto(labels.bucket[b.id], b.shortLabel, b.id)}</span>
+                    <span class="relative grid place-items-center">
+                      <Icon size={ICON_SIZE.md} class="shrink-0" />
+                      {count != null && count > 0 && (
+                        <span class={cn(
+                          'absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full text-3xs leading-none grid place-items-center tabular-nums',
+                          active ? 'bg-accent text-fg-on-brand' : 'bg-surface-3 text-fg-muted',
+                        )}>{count}</span>
+                      )}
                     </span>
-                    {count != null && count > 0 && (
-                      <span class={cn(
-                        'text-3xs px-1 rounded shrink-0 leading-none py-px',
-                        active ? 'bg-white/25 text-fg-on-brand' : 'bg-surface-2 text-fg-muted',
-                      )}>{count}</span>
-                    )}
+                    <span class="max-w-full truncate text-3xs font-semibold">{labels.bucket[b.id]}</span>
                   </button>
                 )
               })}
+              {(counters?.groups ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { tocouNasAbas.current = true; setKindFilter('groups'); setBucket('all') }}
+                  title="Grupos"
+                  class={cn(
+                    'flex-1 min-w-0 h-[3.25rem] px-0.5 rounded-lg transition-colors',
+                    'flex flex-col items-center justify-center gap-1',
+                    emGrupos ? 'bg-accent/12 text-accent' : 'text-fg-muted hover:bg-surface-3 hover:text-fg',
+                  )}
+                >
+                  <span class="relative grid place-items-center">
+                    <Users size={ICON_SIZE.md} class="shrink-0" />
+                    {(counters?.groups ?? 0) > 0 && (
+                      <span class={cn(
+                        'absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 rounded-full text-3xs leading-none grid place-items-center tabular-nums',
+                        emGrupos ? 'bg-accent text-fg-on-brand' : 'bg-surface-3 text-fg-muted',
+                      )}>{counters?.groups}</span>
+                    )}
+                  </span>
+                  <span class="max-w-full truncate text-3xs font-semibold">Grupos</span>
+                </button>
+              )}
             </nav>
           </div>
           {selectionEnabled && (
