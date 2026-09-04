@@ -33,7 +33,7 @@ import {
 import { destinoDoAlerta } from '../src/services/alertLinks.js'
 import { saudeDosAlertas } from '../src/services/alertHealth.js'
 import { candidatos, textoDoAviso, escalarPendentes } from '../src/services/alertEscalation.js'
-import { leadsComAlertaAberto, KIND_NEGOCIACAO } from '../src/services/pendenciaWatch.js'
+import { leadsComAlertaAberto, KIND_NEGOCIACAO, varrerLeadsSemResposta, KIND_LEAD_PARADO } from '../src/services/pendenciaWatch.js'
 
 const P = 'test:suite:'
 const KIND = 'test.suite'
@@ -203,7 +203,11 @@ describe('silêncio', () => {
     // desconfiar do sino inteiro.
     await raiseAlert({ dedupeKey: P + 'c1', kind: KIND + '.cont', title: 'c1' })
     await silenciar(gestor.id, { kind: KIND + '.cont' })
-    const lista = await listarAlertasDoUsuario(gestor.id, { apenasNaoLidos: true })
+    // `limite` alto de propósito: o que se prova aqui é que o FILTRO do contador
+    // é o mesmo da lista. Sem isso o teste comparava uma página de 50 com um
+    // total de 109 e falhava em toda instalação com muito alerta — medindo
+    // paginação, não a regra. Ver feedback_contadores_mesmo_where_da_lista.
+    const lista = await listarAlertasDoUsuario(gestor.id, { apenasNaoLidos: true, limite: 100_000 })
     const contador = await contarNaoLidos(gestor.id)
     assert.equal(lista.length, contador)
     await dessilenciar(gestor.id, { kind: KIND + '.cont' })
@@ -427,8 +431,14 @@ describe('escalonamento — o crítico que ninguém viu', () => {
 
 describe('lead parado — não duplica quem já tem alerta', () => {
   test('lead com proposta já alertada não ganha um segundo aviso', async () => {
-    const neg = await prisma.negotiation.findFirst({ select: { id: true, leadId: true } })
-    if (!neg) return // ambiente sem negociação: nada a provar aqui
+    // Precisa de uma negociação cujo lead ainda esteja LIMPO: pegar a primeira
+    // do banco falhava em toda instalação com alerta de proposta parada de
+    // verdade — o teste media o acaso do dado, não a consulta.
+    const candidatas = await prisma.negotiation.findMany({ select: { id: true, leadId: true }, take: 200 })
+    if (!candidatas.length) return // ambiente sem negociação: nada a provar aqui
+    const ocupados = await leadsComAlertaAberto(candidatas.map((n) => n.leadId))
+    const neg = candidatas.find((n) => !ocupados.has(n.leadId))
+    if (!neg) return // toda negociação já tem alerta: sem lead limpo para o ensaio
 
     assert.equal((await leadsComAlertaAberto([neg.leadId])).size, 0, 'sem alerta aberto, o lead está livre')
 
@@ -451,6 +461,71 @@ describe('lead parado — não duplica quem já tem alerta', () => {
 
   test('lista vazia não consulta nada nem inventa bloqueio', async () => {
     assert.equal((await leadsComAlertaAberto([])).size, 0)
+  })
+})
+
+// Estes três filtros nasceram de um dado, não de uma intuição: na severiano o
+// produtor abriu 99 alertas de "Lead sem resposta" e apenas 11 procediam. Os
+// outros 88 acusavam pessoas com nome — 31 para uma, 26 para outra — de
+// abandonar lead que elas já tinham resolvido ou respondido. Um alerta de gestão
+// que erra assim não vira ruído: vira conflito, e o time não volta a confiar no
+// sino. Por isso cada filtro tem teste próprio.
+describe('lead parado — só alerta quando a bola está mesmo com a operação', () => {
+  test('conversa fechada pelo operador não é pendência dele', async () => {
+    const l = await prisma.lead.findFirst({
+      where: { conversationClosedAt: { not: null }, isGroup: false },
+      select: { id: true },
+    })
+    if (!l) return // instalação sem conversa resolvida: nada a provar aqui
+
+    const alertas = await prisma.alert.findMany({
+      where: { kind: KIND_LEAD_PARADO, status: 'open', entityType: 'lead', entityId: l.id },
+      select: { id: true },
+    })
+    assert.equal(alertas.length, 0, 'conversa resolvida não pode gerar alerta de lead parado')
+  })
+
+  test('a varredura nunca alerta lead cuja última mensagem foi nossa', async () => {
+    await varrerLeadsSemResposta()
+    const abertos = await prisma.alert.findMany({
+      where: { kind: KIND_LEAD_PARADO, status: 'open' },
+      select: { entityId: true },
+    })
+    if (!abertos.length) return // sem lead na janela: o filtro não tem o que provar
+
+    const ids = abertos.map((a) => a.entityId!).filter(Boolean)
+    const ultimas = await prisma.message.findMany({
+      where: { leadId: { in: ids } },
+      orderBy: { timestamp: 'desc' },
+      distinct: ['leadId'],
+      select: { leadId: true, fromMe: true },
+    })
+    const nossas = ultimas.filter((m) => m.fromMe !== false)
+    assert.equal(nossas.length, 0,
+      `alerta em ${nossas.length} lead(s) que NÓS respondemos por último — o lead é que sumiu`)
+  })
+
+  test('a varredura nunca alerta lead em etapa de desfecho', async () => {
+    const abertos = await prisma.alert.findMany({
+      where: { kind: KIND_LEAD_PARADO, status: 'open' },
+      select: { entityId: true },
+    })
+    if (!abertos.length) return
+
+    const leads = await prisma.lead.findMany({
+      where: { id: { in: abertos.map((a) => a.entityId!).filter(Boolean) } },
+      select: { id: true, status: true, funnelId: true, conversationClosedAt: true },
+    })
+    const terminais = await prisma.stage.findMany({
+      where: { terminalKind: { not: null } },
+      select: { funnelId: true, key: true },
+    })
+    const chaves = new Set(terminais.map((t) => `${t.funnelId}:${t.key}`))
+    const errados = leads.filter((l) => chaves.has(`${l.funnelId}:${l.status}`))
+    assert.equal(errados.length, 0, `alerta em ${errados.length} lead(s) já em etapa terminal`)
+
+    const fechadas = leads.filter((l) => l.conversationClosedAt)
+    assert.equal(fechadas.length, 0, `alerta em ${fechadas.length} conversa(s) já resolvida(s)`)
   })
 })
 

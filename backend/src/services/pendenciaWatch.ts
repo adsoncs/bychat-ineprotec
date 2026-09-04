@@ -259,10 +259,18 @@ export async function varrerLeadsSemResposta(): Promise<{ abertos: number; fecha
       },
       outcome: null,   // ciclo encerrado (ganho/perdido) não é pendência
       isGroup: false,  // grupo de WhatsApp não é pessoa
+      // Conversa que o operador FECHOU não é pendência dele. Sem este filtro, 87
+      // dos 147 candidatos da severiano eram conversas resolvidas — o sino batia
+      // na porta de quem já tinha feito o trabalho, com nome e sobrenome.
+      conversationClosedAt: null,
     },
     select: { id: true, nome: true, status: true, funnelId: true, lastActivityAt: true, assignedUserId: true },
     orderBy: { lastActivityAt: 'asc' },
-    take: 100,
+    // Teto maior que o dos outros produtores de propósito: aqui a maior parte
+    // dos candidatos é descartada logo abaixo (etapa terminal, lead que sumiu),
+    // então um teto de 100 na consulta esconderia pendência real atrás de
+    // registro que nem vira alerta.
+    take: 500,
   })
 
   const vivas: string[] = []
@@ -290,27 +298,54 @@ export async function varrerLeadsSemResposta(): Promise<{ abertos: number; fecha
     // ganha, porque carrega valor e estágio da proposta.
     const jaAvisados = await leadsComAlertaAberto(ids)
 
+    // `lastActivityAt` sobe com QUALQUER movimento, inclusive mensagem nossa: o
+    // campo não sabe quem falou por último. Sem olhar a última mensagem, o
+    // alerta chamado "Lead sem resposta" cobra do vendedor justamente os casos
+    // em que ele respondeu e o lead é que sumiu — 44 dos 55 na severiano. A
+    // pendência é da operação só quando a última palavra foi do contato.
+    const ultimaFoiNossa = new Set(
+      (await prisma.message.findMany({
+        where: { leadId: { in: ids } },
+        orderBy: { timestamp: 'desc' },
+        distinct: ['leadId'],
+        select: { leadId: true, fromMe: true },
+      }).catch(() => [])).filter((m) => m.fromMe !== false).map((m) => m.leadId as number),
+    )
+    // Lead sem mensagem nenhuma também não entra: não há conversa a retomar.
+    const temMensagem = new Set(
+      (await prisma.message.findMany({
+        where: { leadId: { in: ids } },
+        distinct: ['leadId'],
+        select: { leadId: true },
+      }).catch(() => [])).map((m) => m.leadId as number),
+    )
+
     // A etapa vai pelo nome que aparece no funil: "CONTATADO" é chave de banco,
     // e chave crua no texto do alerta é o que `docs/alertas.md` proíbe.
     const nomeEtapa = new Map(
       (await prisma.stage.findMany({
         where: { funnelId: { in: [...new Set(parados.map((l) => l.funnelId).filter((f): f is number => f != null))] } },
-        select: { funnelId: true, key: true, name: true },
-      }).catch(() => [])).map((s) => [`${s.funnelId}:${s.key}`, s.name]),
+        select: { funnelId: true, key: true, name: true, terminalKind: true },
+      }).catch(() => [])).map((s) => [`${s.funnelId}:${s.key}`, s]),
     )
 
     for (const l of parados) {
       if (comReuniao.has(l.id)) continue
       if (jaAvisados.has(l.id)) continue
+      if (!temMensagem.has(l.id)) continue
+      if (ultimaFoiNossa.has(l.id)) continue
+      // Etapa de desfecho (Matriculado, Perdido) é ciclo encerrado, mesmo quando
+      // `outcome` ficou nulo porque ninguém classificou na mão.
+      if (nomeEtapa.get(`${l.funnelId}:${l.status}`)?.terminalKind) continue
       const chave = `lead:stale:${l.id}`
       vivas.push(chave)
       const dias = Math.floor((agora - (l.lastActivityAt as Date).getTime()) / 86400_000)
-      const etapa = nomeEtapa.get(`${l.funnelId}:${l.status}`) || l.status
+      const etapa = nomeEtapa.get(`${l.funnelId}:${l.status}`)?.name || l.status
       await raiseAlert({
         dedupeKey: chave, kind: KIND_LEAD_PARADO, severity: 'warning', audience: 'owner',
         ownerUserId: l.assignedUserId ?? null,
         title: `Lead sem resposta: ${l.nome || 'contato sem nome'}`,
-        body: `Última interação há ${dias} dias, parado em "${etapa}". Retomar a conversa ou encerrar o ciclo?`,
+        body: `Escreveu há ${dias} dias e ainda não teve resposta. Está em "${etapa}". Retomar a conversa ou encerrar o ciclo?`,
         entityType: 'lead', entityId: l.id,
         metadata: { dias, etapa, leadId: l.id },
       })

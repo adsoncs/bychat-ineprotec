@@ -155,6 +155,17 @@ function ListaDeAlertas(
           </>
         )}
       </div>
+      {/*
+        A rota devolve no máximo 200. Acima disso o badge conta mais do que a
+        gaveta mostra, e um número que não bate com a lista destrói a confiança
+        no sino mais rápido do que qualquer alerta errado. Dizer em voz alta que
+        a lista está cortada é o mínimo honesto.
+      */}
+      {lista.length >= 200 && (
+        <div class="shrink-0 px-3 py-2 border-t border-border text-3xs text-fg-muted">
+          {t('alerts.truncated', { shown: lista.length, total: naoLidos })}
+        </div>
+      )}
       <RodapeDoAcervo aberta={aberta} />
     </div>
   )

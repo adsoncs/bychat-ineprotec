@@ -53,7 +53,10 @@ export function useUnreadAlertCount() {
 export function useAlerts(enabled = true) {
   return useQuery({
     queryKey: ['alerts', 'list'],
-    queryFn: () => api.get<{ alerts: AlertItem[] }>('/alerts'),
+    // 200 é o teto da rota. Com o default de 50 o sino contava 109 e a gaveta
+    // abria com 50 — badge que não bate com a lista é a forma mais rápida de a
+    // pessoa parar de confiar no sino inteiro.
+    queryFn: () => api.get<{ alerts: AlertItem[] }>('/alerts?limit=200'),
     staleTime: 10_000,
     enabled,
   })
