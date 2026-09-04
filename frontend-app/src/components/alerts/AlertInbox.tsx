@@ -14,6 +14,7 @@ import {
 } from '@/hooks/useAlerts'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { env } from '@/lib/env'
 
 // Caixa de alertas — o sino da topbar.
 //
@@ -416,7 +417,19 @@ function LinhaDeAlerta({ alerta, onNavegar }: { alerta: AlertItem; onNavegar: ()
     // resolva o problema e o contador continue cobrando.
     if (naoLido) marcarLido.mutate(alerta.id)
     onNavegar()
-    navigate(alerta.link)
+    // O `base` NÃO se aplica aqui, e é por isso que o prefixo é explícito.
+    //
+    // O sino vive na Topbar, dentro do <AppShell>, e o AppShell ENVOLVE o
+    // <Router> — logo este componente está FORA do <WouterRouter base="/app">.
+    // O `useLocation` cai no roteador padrão, sem base, e `navigate('/leads/9')`
+    // levava a `/leads/9`, que não existe: o cliente da severiano viu 404.
+    // A Topbar já fazia isso certo em outro botão (`/app/leads/duplicates`) —
+    // o sino é que ficou de fora da convenção.
+    //
+    // O backend devolve o caminho relativo à base de propósito (é a rota real
+    // do painel); quem consome de dentro do Router — a tela /app/alerts — usa
+    // `navigate(link)` puro e não pode ganhar este prefixo.
+    navigate(`${env.appBasePath}${alerta.link}`)
   }
 
   return (

@@ -258,11 +258,20 @@ describe('retenção', () => {
 describe('destino e ação por tipo de entidade', () => {
   // Caminho EXATO, não "tem link". A tabela anterior só afirmava
   // `assert.equal(!!d.link, true)` e por isso passou verde durante semanas
-  // sobre destinos quebrados: metade apontava para "/app/…" — prefixo que o
-  // wouter aplica sozinho, virando "/app/app/…" e caindo no NotFound — e dois
-  // pediam abas ("?tab=whatsapp", "?tab=meetings") que a tela de Configurações
-  // não tem, abrindo em "Aparência". Um teste que não diz PARA ONDE não
-  // testa link nenhum.
+  // sobre destinos quebrados: dois pediam abas ("?tab=whatsapp",
+  // "?tab=meetings") que a tela de Configurações não tem, abrindo em
+  // "Aparência". Um teste que não diz PARA ONDE não testa link nenhum.
+  //
+  // O caminho é RELATIVO À BASE do painel — sem "/app". Isso é contrato com o
+  // frontend, e o contrato tem dois lados:
+  //   • quem consome de DENTRO do <WouterRouter base="/app"> (a tela
+  //     /app/alerts) navega com o caminho como está;
+  //   • quem consome de FORA dele — o sino, que vive na Topbar, e a Topbar
+  //     está no <AppShell> que ENVOLVE o <Router> — precisa somar
+  //     `env.appBasePath` na hora de navegar.
+  // O segundo caso foi esquecido e chegou ao cliente: na severiano o alerta
+  // levava a "/leads/791" em vez de "/app/leads/791", e dava 404. Este teste
+  // guarda o lado do servidor; o do cliente está comentado no AlertInbox.
   const esperado: Array<[string, string | null, number]> = [
     ['booking', '/scheduling', 2],
     ['activity', '/leads/42/activities', 1],
