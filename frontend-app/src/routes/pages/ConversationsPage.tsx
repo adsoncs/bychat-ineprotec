@@ -2481,11 +2481,18 @@ function ChatPanel({
             <Search size={ICON_SIZE.md} />
           </button>
 
-          <button
-            type="button"
+          {/* "Informações" é botão com nome, e não mais um ícone solto: ele
+              abre um painel — o mesmo peso de gesto que Resolver/Reabrir ao
+              lado —, e ícone sozinho obriga a passar o mouse para descobrir o
+              que faz. Segue o padrão dos vizinhos: <Button secondary sm>, ícone
+              xs e o rótulo escondido só na tela mais estreita. Quando o painel
+              está aberto o botão fica marcado (bg-surface-3), que é o que o
+              `aria-pressed` já dizia ao leitor de tela. */}
+          <Button
+            variant="secondary"
+            size="sm"
             class={cn(
-              'size-9 place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg',
-              cabeAcaoPrincipal ? 'grid' : 'hidden',
+              cabeAcaoPrincipal ? 'inline-flex' : 'hidden',
               showInfo && 'bg-surface-3 text-fg',
             )}
             onClick={onToggleInfo}
@@ -2493,8 +2500,9 @@ function ChatPanel({
             aria-pressed={showInfo}
             title="Informações do lead"
           >
-            <Info size={ICON_SIZE.md} />
-          </button>
+            <Info size={ICON_SIZE.xs} />
+            <span class="hidden xs:inline">Informações</span>
+          </Button>
 
           {/* Ação principal do momento: uma só, e sempre no mesmo lugar. Em
               tela estreita ela encabeça o menu, para o nome do contato e o
