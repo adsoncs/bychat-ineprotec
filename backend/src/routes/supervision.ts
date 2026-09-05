@@ -337,6 +337,9 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const idsPeriodo = idsPeriodoRows.map((r) => r.id)
       const idList = activeIds.join(',')
 
+      /** Quantas linhas cada gaveta de cartão mostra antes do "ver todas". */
+      const AMOSTRA_GAVETA = 4
+
       // ── Ritmo: tempo de resposta medido pelas MENSAGENS ─────────────────
       //
       // O que estava aqui era `assignedAt → firstResponseAt` e
@@ -386,6 +389,34 @@ export async function supervisionRoutes(app: FastifyInstance) {
       })
       const donoDoLead = new Map(donos.map((d) => [d.id, d.assignedUserId]))
 
+      // Quem falou e nunca foi respondido, do mais antigo para o mais novo. Sai
+      // do mesmo conjunto de turnos já medido — sem consulta nova para o cálculo,
+      // só a busca dos nomes das quatro primeiras linhas.
+      const semRespostaOrdenado = turnos
+        .filter((t) => t.minutos === null)
+        .sort((a, b) => a.pergunta.getTime() - b.pergunta.getTime())
+      const idsSemResposta = [...new Set(semRespostaOrdenado.map((t) => t.leadId))].slice(0, AMOSTRA_GAVETA)
+      const detalhesSemResposta = idsSemResposta.length
+        ? await prisma.lead.findMany({
+            where: { id: { in: idsSemResposta } },
+            select: {
+              id: true, nome: true, empresa: true,
+              assignedUser: { select: { name: true, email: true } },
+            },
+          })
+        : []
+      const semRespostaPorId = new Map(detalhesSemResposta.map((d) => [d.id, d]))
+      const amostraSemResposta = idsSemResposta.map((id) => {
+        const d = semRespostaPorId.get(id)
+        const turno = semRespostaOrdenado.find((t) => t.leadId === id)
+        return {
+          id,
+          nome: d?.nome || d?.empresa || `#${id}`,
+          dono: d?.assignedUser ? (d.assignedUser.name || d.assignedUser.email) : null,
+          desdeMin: turno ? minutesBetween(turno.pergunta, now) : null,
+        }
+      })
+
       // Nomes de TODOS os operadores que aparecem no período, não só dos que
       // têm fila hoje: quem atendeu bem e ficou sem conversa ativa apareceria
       // no comparativo como "#2".
@@ -424,7 +455,6 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // resposta só: o cartão diz "11 esperando" e abre com nome, trecho e
       // tempo sem nova consulta e sem passar pela busca. O número que interessa
       // ao gestor é o nome.
-      const AMOSTRA_GAVETA = 4
       const idsEsperando = esperando.slice(0, AMOSTRA_GAVETA).map((e) => Number(e.id))
       const detalhesEsperando = idsEsperando.length
         ? await prisma.lead.findMany({
@@ -452,6 +482,17 @@ export async function supervisionRoutes(app: FastifyInstance) {
           esperaMin: minutesBetween(new Date(e.desde), now),
         }
       })
+
+      // Sem responsável: as que esperam há mais tempo primeiro — é a fila que o
+      // gestor distribui na segunda de manhã.
+      const amostraSemResponsavel = activeIds.length
+        ? await prisma.lead.findMany({
+            where: { AND: [{ id: { in: activeIds } }, { assignedUserId: null }] },
+            orderBy: { lastMessageAt: 'asc' },
+            take: AMOSTRA_GAVETA,
+            select: { id: true, nome: true, empresa: true, team: { select: { name: true } }, lastMessageAt: true },
+          })
+        : []
 
       const amostraSemNinguem = activeIds.length
         ? await prisma.lead.findMany({
@@ -603,6 +644,13 @@ export async function supervisionRoutes(app: FastifyInstance) {
         // nova consulta.
         amostras: {
           esperando: amostraEsperando,
+          semResponsavel: amostraSemResponsavel.map((l) => ({
+            id: l.id,
+            nome: l.nome || l.empresa || `#${l.id}`,
+            setor: l.team?.name ?? null,
+            paradoDesdeMin: l.lastMessageAt ? minutesBetween(l.lastMessageAt, now) : null,
+          })),
+          semResposta: amostraSemResposta,
           semNinguem: amostraSemNinguem.map((l) => ({
             id: l.id,
             nome: l.nome || l.empresa || `#${l.id}`,
@@ -692,11 +740,29 @@ export async function supervisionRoutes(app: FastifyInstance) {
         where.AND.push({ id: { in: ids.length ? ids : [-1] } })
       }
 
+      // Ordenação da lista. As colunas de Contato, Responsável, Setor e Funil
+      // viraram cabeçalho clicável quando esses filtros saíram da barra: quem
+      // perde o menu precisa de outro jeito de agrupar o que é parecido.
+      //
+      // Canal fica de fora de propósito — ele não é coluna do lead, é derivado
+      // da ÚLTIMA mensagem, e ordenar por isso exigiria resolver a última
+      // mensagem de cada conversa antes de paginar. Prometer uma ordenação que
+      // pagina errado é pior que não ter.
       const sort = (q.sort || 'recent').toString()
-      const orderBy =
-        sort === 'oldest' ? { lastMessageAt: 'asc' as const }
-        : sort === 'unread' ? { unreadMessages: 'desc' as const }
-        : { lastMessageAt: 'desc' as const }
+      const ORDENACOES: Record<string, any> = {
+        recent: { lastMessageAt: 'desc' as const },
+        oldest: { lastMessageAt: 'asc' as const },
+        unread: { unreadMessages: 'desc' as const },
+        name: { nome: 'asc' as const },
+        'name-desc': { nome: 'desc' as const },
+        owner: { assignedUser: { name: 'asc' as const } },
+        'owner-desc': { assignedUser: { name: 'desc' as const } },
+        team: { team: { name: 'asc' as const } },
+        'team-desc': { team: { name: 'desc' as const } },
+        funnel: { funnel: { name: 'asc' as const } },
+        'funnel-desc': { funnel: { name: 'desc' as const } },
+      }
+      const orderBy = ORDENACOES[sort] ?? ORDENACOES.recent
 
       const [rows, total] = await Promise.all([
         prisma.lead.findMany({

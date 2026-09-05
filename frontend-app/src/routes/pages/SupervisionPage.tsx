@@ -231,6 +231,40 @@ function DistBar({ rows, empty }: { rows: Array<{ key: string; label: string; to
 }
 
 /**
+ * Cabeçalho de coluna que ordena a lista.
+ *
+ * Setor, funil e responsável saíram da barra de filtros (foram para o painel
+ * "Filtros") — quem perde o menu precisa de outro jeito de juntar o que é
+ * parecido, e o cabeçalho clicável é o gesto que já se espera de uma tabela.
+ * Um clique ordena; outro inverte.
+ */
+function ColunaOrdenavel({
+  campo, sortAlt, sort, onSort, children,
+}: {
+  campo: string
+  /** Par do campo quando os dois sentidos têm nome próprio no backend (espera). */
+  sortAlt?: string | undefined
+  sort: string
+  onSort: (s: string) => void
+  children: ComponentChildren
+}) {
+  const desc = sortAlt ?? `${campo}-desc`
+  const ativa = sort === campo || sort === desc
+  const proxima = sort === campo ? desc : campo
+  return (
+    <button
+      type="button"
+      class={cn('inline-flex items-center gap-1 max-w-full', ativa ? 'text-fg font-medium' : 'hover:text-fg')}
+      onClick={() => onSort(proxima)}
+      title={`Ordenar por ${String(children)}`}
+    >
+      <span class="truncate">{children}</span>
+      <span class="text-2xs opacity-70">{!ativa ? '↕' : sort === campo ? '↑' : '↓'}</span>
+    </button>
+  )
+}
+
+/**
  * Pílula de filtro com o número dentro.
  *
  * Substitui os menus suspensos pelo mesmo idioma da lista de Conversas: o
@@ -285,7 +319,7 @@ function DivisoriaPilulas() {
  * resposta, e a gaveta abre fechada para a tela caber inteira.
  */
 function CartaoComGaveta({
-  label, value, hint, icon, tone, loading, itens, aoVerTodos, vazio,
+  label, value, hint, icon, tone, loading, itens, aoVerTodos, vazio, trend, menorEhMelhor,
 }: {
   label: string
   value: string | number
@@ -296,6 +330,8 @@ function CartaoComGaveta({
   itens: Array<{ id: number; titulo: string; detalhe: string; direita: string }>
   aoVerTodos?: (() => void) | undefined
   vazio: string
+  trend?: { value: number; label?: string } | undefined
+  menorEhMelhor?: boolean | undefined
 }) {
   const [aberta, setAberta] = useState(false)
   const [, navigate] = useLocation()
@@ -316,6 +352,8 @@ function CartaoComGaveta({
           icon={icon}
           tone={tone}
           loading={loading}
+          trend={trend}
+          menorEhMelhor={menorEhMelhor}
         />
       </button>
       {aberta && (
@@ -435,6 +473,7 @@ export function SupervisionPage() {
   const [waiting, setWaiting] = useState(false)
   // O painel do "Filtros": só o que muda de semana em semana mora aqui.
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const [, navigate] = useLocation()
   const [stale, setStale] = useState('')
   const [sort, setSort] = useState('recent')
   const [page, setPage] = useState(0)
@@ -625,22 +664,45 @@ export function SupervisionPage() {
           aoVerTodos={() => { setWaiting(true); setBucket('active'); setPage(0) }}
           vazio="Ninguém aguardando resposta agora."
         />
-        <KpiCard
-          label="Espera mais antiga"
-          value={fmtDuration(agora?.esperaMaisAntigaMin ?? null)}
-          hint={agora?.esperaMaisAntigaLead?.nome
-            ? `${agora.esperaMaisAntigaLead.nome} aguarda desde então`
-            : 'Ninguém aguardando resposta'}
-          icon={<Clock size={15} />}
-          tone={(agora?.esperaMaisAntigaMin ?? 0) > 60 ? 'danger' : 'neutral'}
-          loading={ovLoading}
-        />
-        <KpiCard
+        {/* Sem gaveta de propósito: a lista das que esperam há mais tempo é a
+          * mesma do cartão ao lado, e repetir seria só ocupar espaço. Aqui o
+          * gesto útil é ir direto à conversa que está esperando há mais tempo. */}
+        <button
+          type="button"
+          class="text-left"
+          disabled={!agora?.esperaMaisAntigaLead}
+          onClick={() => {
+            const id = agora?.esperaMaisAntigaLead?.id
+            if (id) navigate(`/conversations?leadId=${id}`)
+          }}
+          title={agora?.esperaMaisAntigaLead ? 'Abrir esta conversa' : 'Ninguém aguardando'}
+        >
+          <KpiCard
+            label="Espera mais antiga"
+            value={fmtDuration(agora?.esperaMaisAntigaMin ?? null)}
+            hint={agora?.esperaMaisAntigaLead?.nome
+              ? `${agora.esperaMaisAntigaLead.nome} aguarda desde então — abrir`
+              : 'Ninguém aguardando resposta'}
+            icon={<Clock size={15} />}
+            tone={(agora?.esperaMaisAntigaMin ?? 0) > 60 ? 'danger' : 'neutral'}
+            loading={ovLoading}
+          />
+        </button>
+        <CartaoComGaveta
           label="Sem responsável"
           value={agora?.unassigned ?? '—'}
           hint="Conversas ativas que ninguém assumiu"
           icon={<AlertTriangle size={15} />}
+          tone={agora && agora.unassigned > 0 ? 'warning' : 'neutral'}
           loading={ovLoading}
+          itens={(ov?.amostras.semResponsavel ?? []).map((l) => ({
+            id: l.id,
+            titulo: l.nome,
+            detalhe: l.setor ? `setor ${l.setor}` : 'sem setor',
+            direita: fmtDuration(l.paradoDesdeMin),
+          }))}
+          aoVerTodos={() => { setUserId('none'); setBucket('active'); setPage(0) }}
+          vazio="Toda conversa ativa tem responsável."
         />
         <CartaoComGaveta
           label="Sem ninguém"
@@ -699,23 +761,24 @@ export function SupervisionPage() {
           tone={(ritmo?.dentroDaMetaPct ?? 0) >= 80 ? 'success' : 'warning'}
           loading={ovLoading}
         />
-        <button
-          type="button"
-          class="text-left"
-          onClick={() => { setWaiting(true); setBucket('active'); setPage(0) }}
-          title="Ver quem está sem resposta"
-        >
-          <KpiCard
-            label="Sem resposta"
-            value={ritmo?.semResposta ?? '—'}
-            hint={`De ${ritmo?.turnos ?? 0} mensagens do contato no período, seguem sem resposta`}
-            trend={variacao(ritmo?.semResposta, anterior?.semResposta)}
-            menorEhMelhor
-            icon={<AlertTriangle size={15} />}
-            tone={ritmo && ritmo.semResposta > 0 ? 'danger' : 'neutral'}
-            loading={ovLoading}
-          />
-        </button>
+        <CartaoComGaveta
+          label="Sem resposta"
+          value={ritmo?.semResposta ?? '—'}
+          hint={`De ${ritmo?.turnos ?? 0} mensagens do contato no período`}
+          trend={variacao(ritmo?.semResposta, anterior?.semResposta)}
+          menorEhMelhor
+          icon={<AlertTriangle size={15} />}
+          tone={ritmo && ritmo.semResposta > 0 ? 'danger' : 'neutral'}
+          loading={ovLoading}
+          itens={(ov?.amostras.semResposta ?? []).map((l) => ({
+            id: l.id,
+            titulo: l.dono ? `${l.nome} · ${l.dono}` : `${l.nome} · sem dono`,
+            detalhe: 'falou e não teve resposta',
+            direita: fmtDuration(l.desdeMin),
+          }))}
+          aoVerTodos={() => { setWaiting(true); setBucket('active'); setPage(0) }}
+          vazio="Todo mundo que falou foi respondido."
+        />
       </FaixaKpi>
 
       <FaixaKpi
@@ -933,10 +996,18 @@ export function SupervisionPage() {
               <option value="240">Paradas há +4h</option>
               <option value="1440">Paradas há +24h</option>
             </select>
-            <select class={SELECT_CLS} value={sort} onChange={(e) => setSort((e.target as HTMLSelectElement).value)}>
+            <select class={SELECT_CLS} value={sort} onChange={(e) => { setSort((e.target as HTMLSelectElement).value); setPage(0) }}>
               <option value="recent">Mais recentes</option>
               <option value="oldest">Mais antigas</option>
               <option value="unread">Mais não lidas</option>
+              <option value="name">Contato (A→Z)</option>
+              <option value="name-desc">Contato (Z→A)</option>
+              <option value="owner">Responsável (A→Z)</option>
+              <option value="owner-desc">Responsável (Z→A)</option>
+              <option value="team">Setor (A→Z)</option>
+              <option value="team-desc">Setor (Z→A)</option>
+              <option value="funnel">Funil (A→Z)</option>
+              <option value="funnel-desc">Funil (Z→A)</option>
             </select>
             <div class="md:col-span-3 xl:col-span-5">
               <Toggle
@@ -1029,13 +1100,14 @@ export function SupervisionPage() {
                     * de palpite: em versalete com tracking, "RESPONSÁVEL" ocupa
                     * ~85px e "ESPERA" ~55px. Coluna estreita demais faz o próprio
                     * rótulo truncar, que é pior que a rolagem que viemos tirar. */}
-                  <th class="w-[23%]">Contato</th>
-                  <th class="w-[10%]">Estado</th>
-                  <th class="w-[6%]" title="Conduzido por: chatbot ou operador">Bot</th>
-                  <th class="w-[14%]">Responsável</th>
-                  <th class="w-[14%]">Funil</th>
-                  <th class="w-[10%]">Canal</th>
-                  <th class="w-[11%] whitespace-nowrap">Espera</th>
+                  <th class="w-[20%]"><ColunaOrdenavel campo="name" sort={sort} onSort={setSort}>Contato</ColunaOrdenavel></th>
+                  <th class="w-[9%]">Estado</th>
+                  <th class="w-[5%]" title="Conduzido por: chatbot ou operador">Bot</th>
+                  <th class="w-[13%]"><ColunaOrdenavel campo="owner" sort={sort} onSort={setSort}>Responsável</ColunaOrdenavel></th>
+                  <th class="w-[11%]"><ColunaOrdenavel campo="team" sort={sort} onSort={setSort}>Setor</ColunaOrdenavel></th>
+                  <th class="w-[12%]"><ColunaOrdenavel campo="funnel" sort={sort} onSort={setSort}>Funil</ColunaOrdenavel></th>
+                  <th class="w-[9%]" title="Sem ordenação: o canal vem da última mensagem, não do cadastro da conversa">Canal</th>
+                  <th class="w-[11%] whitespace-nowrap"><ColunaOrdenavel campo="oldest" sortAlt="recent" sort={sort} onSort={setSort}>Espera</ColunaOrdenavel></th>
                   <th class="w-[10%] whitespace-nowrap">Última</th>
                   <th class="w-11"><span class="sr-only">Ações</span></th>
                 </tr>
@@ -1090,7 +1162,14 @@ export function SupervisionPage() {
                     <td class="p-2 align-top"><BotCell bot={c.bot} /></td>
                     <td class="p-2 align-top">
                       <div class="text-fg truncate" title={c.assignedUser?.name ?? 'Sem responsável'}>{c.assignedUser?.name ?? <span class="text-warning">Sem responsável</span>}</div>
-                      {c.team && <div class="text-xs text-fg-muted truncate" title={c.team.name}>{c.team.name}</div>}
+                    </td>
+                    {/* O setor era uma segunda linha embaixo do responsável e
+                      * não dava para ordenar por ele. Como o menu de setor saiu
+                      * da barra, virou coluna própria com cabeçalho clicável. */}
+                    <td class="p-2 align-top">
+                      <div class="text-fg truncate" title={c.team?.name ?? 'Sem setor'}>
+                        {c.team?.name ?? <span class="text-fg-muted">Sem setor</span>}
+                      </div>
                     </td>
                     <td class="p-2 align-top">
                       <div class="text-fg truncate" title={c.funnel?.name ?? 'Sem funil'}>{c.funnel?.name ?? <span class="text-fg-muted">Sem funil</span>}</div>

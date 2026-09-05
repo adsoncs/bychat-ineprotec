@@ -125,16 +125,54 @@ function normalizar(linhas: Array<{ weekday: number; startTime: string; endTime:
 }
 
 /**
- * A régua da casa: a jornada cadastrada em Cadastros › Roteamento de Leads.
+ * A régua da casa, na ordem em que a empresa a definiu.
  *
- * Uma régua só para todo o painel, e não uma por conversa. Tempo de resposta é
- * indicador da OPERAÇÃO: se a régua mudasse junto com o dono do lead, a mesma
- * espera valeria números diferentes conforme quem estivesse com ela, e duas
- * transferências mudariam o passado. Equipe vem antes do agente porque é o
- * horário que a empresa combina com o cliente; o agente entra quando ninguém
- * cadastrou horário de equipe.
+ * 1. **Horário Comercial** (Configurações › Horário Comercial) — é o horário
+ *    que a empresa combina com o CLIENTE, o mesmo que o chatbot usa para dizer
+ *    "estamos fora do expediente". Se existe um lugar onde a casa já declarou
+ *    quando atende, é esse.
+ * 2. Jornada das equipes, depois a dos agentes (Cadastros › Roteamento) — são
+ *    escalas de trabalho interno, boas como segunda opção.
+ * 3. Padrão seg-sex 8h-18h, e a tela diz que está usando o padrão.
+ *
+ * Uma régua só para todo o painel, e não uma por conversa: tempo de resposta é
+ * indicador da OPERAÇÃO, e se a régua mudasse junto com o dono do lead a mesma
+ * espera valeria números diferentes conforme quem estivesse com ela — duas
+ * transferências mudariam o passado.
  */
 export async function relogioDaCasa(): Promise<Relogio> {
+  // O `enabled` do Horário Comercial liga o aviso automático fora do
+  // expediente; o SCHEDULE vale como régua mesmo com o aviso desligado — é o
+  // horário declarado da casa, não uma preferência de resposta automática.
+  //
+  // Lido direto da Setting, e não por getBusinessHoursConfig(): aquele devolve
+  // um padrão de 9h-18h quando ninguém configurou, e a tela passaria a dizer
+  // "horário comercial da empresa" para uma casa que nunca preencheu isso.
+  // Sem linha, cai para as jornadas e depois para o padrão — com o rótulo
+  // certo.
+  const bhRow = await prisma.setting.findUnique({ where: { key: 'business_hours' } }).catch(() => null)
+  const bh = bhRow?.value && typeof bhRow.value === 'object' ? (bhRow.value as any) : null
+  if (bh?.schedule) {
+    const faixas: Faixa[] = []
+    for (const [dia, slots] of Object.entries(bh.schedule)) {
+      const weekday = parseInt(dia, 10)
+      if (!Number.isFinite(weekday) || !Array.isArray(slots)) continue
+      for (const s of slots) {
+        if (!s?.start || !s?.end) continue
+        faixas.push(...normalizar([{ weekday, startTime: s.start, endTime: s.end }]))
+      }
+    }
+    if (faixas.length) {
+      return {
+        faixas,
+        timezone: bh.timezone || PADRAO_TZ,
+        origem: 'cadastrada',
+        label: 'horário comercial da empresa',
+        minutosPorDiaUtil: minutosPorDiaUtil(faixas),
+      }
+    }
+  }
+
   const doTime = await prisma.teamWorkingHour.findMany({
     select: { weekday: true, startTime: true, endTime: true, timezone: true },
   }).catch(() => [])
@@ -169,22 +207,48 @@ export async function relogioDaCasa(): Promise<Relogio> {
 /**
  * Deslocamento do fuso, em minutos, no instante dado.
  *
- * Recalculado a cada dia percorrido em vez de uma vez só: é o que mantém a
- * conta certa na virada do horário de verão de fusos que ainda o têm.
+ * Recalculado a cada DIA percorrido, e não uma vez só, para a conta continuar
+ * certa na virada do horário de verão de fusos que ainda o têm.
+ *
+ * Com dois caches, e eles não são luxo: `Intl.DateTimeFormat` é caro de
+ * construir, e este cálculo roda uma vez por dia de cada turno — no kobogo são
+ * ~2.000 turnos por período, vezes dois porque o painel também mede a janela
+ * anterior. Criar o formatador a cada chamada custava segundos de relógio no
+ * carregamento do painel, com as consultas ao banco levando 300ms.
  */
+const formatadores = new Map<string, Intl.DateTimeFormat>()
+const offsets = new Map<string, number>()
+
+function formatador(timezone: string): Intl.DateTimeFormat {
+  let f = formatadores.get(timezone)
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+    formatadores.set(timezone, f)
+  }
+  return f
+}
+
 export function offsetMin(t: Date, timezone: string): number {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone, hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  })
+  // Uma entrada por dia: dentro do mesmo dia o deslocamento só muda na virada
+  // do horário de verão, e nesse dia o erro seria de uma hora em um único
+  // cálculo — contra segundos de CPU em toda requisição do painel.
+  const chave = `${timezone}|${t.toISOString().slice(0, 10)}`
+  const cache = offsets.get(chave)
+  if (cache !== undefined) return cache
+
   const p: Record<string, string> = {}
-  for (const parte of fmt.formatToParts(t)) p[parte.type] = parte.value
+  for (const parte of formatador(timezone).formatToParts(t)) p[parte.type] = parte.value
   const comoUTC = Date.UTC(
     Number(p.year), Number(p.month) - 1, Number(p.day),
     Number(p.hour) % 24, Number(p.minute), Number(p.second),
   )
-  return Math.round((comoUTC - t.getTime()) / 60_000)
+  const min = Math.round((comoUTC - t.getTime()) / 60_000)
+  offsets.set(chave, min)
+  return min
 }
 
 /**

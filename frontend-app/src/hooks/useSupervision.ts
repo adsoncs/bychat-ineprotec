@@ -86,6 +86,8 @@ export interface SupervisionOverview {
   /** As primeiras linhas de cada gaveta, para o cartão abrir sem nova consulta. */
   amostras: {
     esperando: Array<{ id: number; nome: string; dono: string | null; trecho: string; esperaMin: number | null }>
+    semResponsavel: Array<{ id: number; nome: string; setor: string | null; paradoDesdeMin: number | null }>
+    semResposta: Array<{ id: number; nome: string; dono: string | null; desdeMin: number | null }>
     semNinguem: Array<{ id: number; nome: string; origem: string | null; paradoDesdeMin: number | null }>
   }
   serie: {

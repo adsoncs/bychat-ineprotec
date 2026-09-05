@@ -66,7 +66,21 @@ export function BusinessHoursSettings() {
   const [days, setDays] = useState<Record<string, DayState>>({})
   const [message, setMessage] = useState('')
   const [throttleHours, setThrottleHours] = useState(12)
+  // Meta de 1ª resposta: vive numa Setting própria (não no JSON do horário),
+  // porque quem a lê é a Supervisão. Fica NESTA tela porque é a mesma pergunta
+  // — quando atendemos e em quanto tempo prometemos responder —, e config
+  // espalhada em duas telas é config que ninguém acha.
+  const [metaResposta, setMetaResposta] = useState(15)
   const [saveMsg, setSaveMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  useEffect(() => {
+    api.get<{ settings: Record<string, unknown> }>('/admin/settings')
+      .then((r) => {
+        const v = parseInt(String(r?.settings?.['supervision.first_response_target_min'] ?? ''), 10)
+        if (Number.isFinite(v) && v > 0) setMetaResposta(v)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!data) return
@@ -108,6 +122,11 @@ export function BusinessHoursSettings() {
     }
 
     setSaveMsg({ kind: 'ok', text: 'Salvando…' })
+    // A meta vai numa chamada própria: é uma Setting genérica, e o PUT do
+    // horário só aceita o JSON dele. Falha aqui não derruba o salvamento do
+    // horário — são duas coisas independentes na mesma tela.
+    api.put('/admin/settings', { 'supervision.first_response_target_min': String(metaResposta) })
+      .catch(() => toast('Horário salvo, mas a meta de resposta não foi salva', 'warning'))
     save.mutate({
       enabled,
       timezone,
@@ -181,6 +200,23 @@ export function BusinessHoursSettings() {
                 onInput={(e) => setThrottleHours(Number((e.target as HTMLInputElement).value))}
                 class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
               />
+            </div>
+            <div>
+              <label class="text-2xs font-medium text-fg-muted block mb-1">
+                Meta de 1ª resposta (min úteis)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={String(metaResposta)}
+                onInput={(e) => setMetaResposta(Number((e.target as HTMLInputElement).value))}
+                class="w-full h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
+              />
+              <p class="text-3xs text-fg-muted mt-1">
+                Usada na Supervisão para o indicador “Dentro da meta”. Conta só o tempo dentro do
+                expediente definido abaixo.
+              </p>
             </div>
           </div>
         </div>
