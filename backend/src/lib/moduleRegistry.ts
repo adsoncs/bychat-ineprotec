@@ -599,8 +599,34 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
 ]
 
+/**
+ * O módulo que governa uma rota — pelo prefixo MAIS ESPECÍFICO, não pelo
+ * primeiro do arquivo.
+ *
+ * Era um `.find()`, e a ordem de declaração virava regra invisível: como
+ * `marketing` declara `/api/admin/meta` e vem antes de `vendas`, as nove rotas
+ * de `/api/admin/meta-ads-report` eram governadas por marketing — desligar
+ * "Vendas & Anúncios" não desligava o relatório, e desligar "Marketing"
+ * derrubava um relatório que ninguém associava a ele. Reordenar o arquivo
+ * mudava permissão de produção sem que o autor soubesse.
+ *
+ * Com o prefixo mais longo vencendo, quem declara o caminho mais preciso fica
+ * com a rota — que é a única leitura que alguém faz ao ler o registry. Medido
+ * sobre as 1.010 rotas do backend: só as nove do meta-ads-report mudam de dono,
+ * e vão para `vendas`, onde estão declaradas.
+ */
 export function getModuleForRoute(path: string): ModuleDefinition | undefined {
-  return MODULE_REGISTRY.find(m => m.routePrefixes.some(p => path.startsWith(p)))
+  let escolhido: ModuleDefinition | undefined
+  let tamanho = -1
+  for (const m of MODULE_REGISTRY) {
+    for (const p of m.routePrefixes) {
+      if (path.startsWith(p) && p.length > tamanho) {
+        escolhido = m
+        tamanho = p.length
+      }
+    }
+  }
+  return escolhido
 }
 
 export function getModuleForPage(page: string): ModuleDefinition | undefined {
