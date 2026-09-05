@@ -10,6 +10,7 @@ import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
 import { useUserStore } from '@/stores/user'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import { Card } from '@/components/ui/Card'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -144,6 +145,7 @@ interface HeaderProps {
 
 function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false)
+  const qc = useQueryClient()
   if (isLoading || !lead) {
     return <Skeleton class="h-32 w-full" />
   }
@@ -267,12 +269,26 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
           lostReason={lead.lostReason ?? null}
         />
 
+        <OpenConversationButton
+          leadId={id}
+          lastMessageAt={lead.lastMessageAt ?? null}
+          whatsapp={lead.whatsapp}
+        />
+
         <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" />
 
         {/* Ordem por CANAL, não por tipo de ação: o que é WhatsApp fica junto
           * (mandar e ligar), depois o e-mail, e o VoIP por último — é a ordem em
-          * que o operador decide o meio antes de decidir o gesto. */}
-        <SendWhatsAppButton leadId={id} whatsapp={lead.whatsapp} />
+          * que o operador decide o meio antes de decidir o gesto.
+          *
+          * `onSent` existe por causa do "Abrir conversa" acima: quem envia a
+          * PRIMEIRA mensagem cria a conversa, e sem recarregar o lead o botão
+          * continuaria apagado (o GET do lead tem staleTime de 15s). */}
+        <SendWhatsAppButton
+          leadId={id}
+          whatsapp={lead.whatsapp}
+          onSent={() => { void qc.invalidateQueries({ queryKey: ['lead', id] }) }}
+        />
 
         <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
 
@@ -460,6 +476,57 @@ function ContactChip({
  */
 function deferred(fn: () => void) {
   return () => { setTimeout(fn, 0) }
+}
+
+/** Atalho para a conversa deste lead no Conversas.
+ *
+ * Ativo só quando a conversa EXISTE — e existir é ter ao menos uma mensagem
+ * trocada (`lastMessageAt`), que é o mesmo critério das caixas do Conversas:
+ * Caixa e Aguardando exigem `lastMessageAt` não nulo. Levar para lá um contato
+ * sem histórico abriria um painel vazio e faria o botão parecer quebrado; o
+ * caminho para criar a conversa é o botão de WhatsApp ao lado, que manda a
+ * primeira mensagem (e, com "enviar e abrir", já leva para o Conversas).
+ */
+function OpenConversationButton({
+  leadId,
+  lastMessageAt,
+  whatsapp,
+}: {
+  leadId: number
+  lastMessageAt: string | null
+  whatsapp: string | null | undefined
+}) {
+  const [, navigate] = useLocation()
+  // Mesmo gate do item "Conversas" no menu (`permission: 'atendimento'`): quem
+  // não tem o módulo não vê o botão — atalho para uma tela que o usuário não
+  // pode abrir só entrega um 403.
+  const acesso = useModuleAccess('atendimento')
+  const temConversa = !!lastMessageAt
+  const temTelefone = !!whatsapp && !!whatsapp.replace(/\D/g, '')
+  const motivo = temConversa
+    ? 'Abrir esta conversa no Conversas'
+    : temTelefone
+      ? 'Nenhuma mensagem trocada ainda — envie a primeira mensagem pelo WhatsApp para abrir a conversa'
+      : 'Lead sem WhatsApp cadastrado — não há conversa para abrir'
+
+  if (acesso.status !== 'allowed') return null
+
+  // O `title` fica no wrapper porque o Button desabilitado tem
+  // `disabled:pointer-events-none`: no próprio botão o tooltip nunca apareceria,
+  // e é justamente no estado inativo que ele precisa explicar o porquê.
+  return (
+    <span title={motivo} class="inline-flex">
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={!temConversa}
+        aria-label="Abrir conversa no Conversas"
+        onClick={() => navigate(`/conversations?leadId=${leadId}`)}
+      >
+        <MessageSquare size={12} /> Abrir conversa
+      </Button>
+    </span>
+  )
 }
 
 function ActionsMenu({ actions }: { actions: ReturnType<typeof useLeadActions> }) {

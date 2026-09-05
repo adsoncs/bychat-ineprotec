@@ -130,6 +130,10 @@ export interface LeadDetail extends LeadListItem {
   // Módulo Resumo — resumo vigente do lead (detalhe).
   statusSummary?: { id: number; code: string; name: string; color: string | null; sector?: string | null } | null
   statusSummaryAt?: string | null
+  /** Instante da última mensagem trocada com o contato (entrada ou saída).
+   *  É o que diz se EXISTE conversa: sem ele o contato não aparece em nenhuma
+   *  caixa do Conversas — as caixas Caixa/Aguardando exigem `lastMessageAt`. */
+  lastMessageAt?: string | null
   // Outcome (Fase 23)
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
