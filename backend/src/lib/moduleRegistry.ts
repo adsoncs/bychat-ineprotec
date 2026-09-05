@@ -214,13 +214,36 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'whatsapp', name: 'WhatsApp', icon: '📱', category: 'canais',
     description: 'Conexão de instâncias (Evolution/Cloud API), envio em massa e templates oficiais Meta.',
     pages: ['whatsapp', 'cloudapi', 'metatemplates'],
+    // Instagram e Telegram saíram daqui: são canais próprios, com tela própria
+    // e conexão própria, e ficavam reféns do WhatsApp — desligar o WhatsApp
+    // derrubava o Direct do Instagram junto. `/api/oauth` fica: o específico
+    // `/api/oauth/instagram` vai para o módulo do Instagram, e quem decide isso
+    // é o prefixo mais longo, não a ordem deste arquivo.
     routePrefixes: [
       '/api/admin/instances', '/api/admin/cloud-api', '/api/admin/whatsapp',
-      '/api/whatsapp', '/api/cloud-api', '/api/instagram', '/api/telegram',
+      '/api/whatsapp', '/api/cloud-api',
       '/api/oauth',
     ],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+  },
+  {
+    id: 'instagram', name: 'Instagram Direct', icon: '📸', category: 'canais',
+    description: 'Mensagens diretas do Instagram: conexão da conta, recebimento por webhook e resposta pelo Conversas.',
+    pages: ['instagram'],
+    routePrefixes: ['/api/instagram', '/api/oauth/instagram'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'whatsapp',
+  },
+  {
+    id: 'telegram', name: 'Telegram', icon: '✈️', category: 'canais',
+    description: 'Canal do Telegram: conexão do bot, recebimento por webhook e resposta pelo Conversas.',
+    pages: ['telegram'],
+    routePrefixes: ['/api/telegram'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'whatsapp',
   },
   {
     id: 'broadcast', name: 'Disparos em Massa', icon: '🚀', category: 'marketing',

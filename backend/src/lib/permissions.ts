@@ -270,7 +270,14 @@ const HOOK_BYPASS_PREFIXES = [
   '/api/chatbots/embed/',                     // mesmo
   '/api/bychat/chat/',                        // chat público do widget (lead anônimo)
   '/api/emergency-unblock',                   // bypass de emergência
-  '/api/oauth/instagram/callback',            // OAuth Meta callback (sem JWT)
+  '/api/oauth/instagram/callback',
+  // Webhooks de canal: quem chama é a Meta e o Telegram, sem JWT, então o gate
+  // já os deixaria passar (ele só age sobre requisição autenticada). Estão
+  // escritos aqui assim mesmo, junto dos outros webhooks, porque a alternativa
+  // é depender desse detalhe continuar verdadeiro — e o preço de um engano é o
+  // tenant parar de RECEBER mensagem, sem erro em lugar nenhum.
+  '/api/instagram/webhook',
+  '/api/telegram/webhook',            // OAuth Meta callback (sem JWT)
   '/api/meta/oauth/callback',                 // idem
   // Endpoint público de aparência (landing page)
   '/api/appearance',
