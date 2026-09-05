@@ -99,7 +99,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'goals-commissions', label: 'Metas & Comissões', href: '/app/goals-commissions', icon: 'Target', permission: 'goals_commissions' },
         { id: 'workflows', label: 'Fluxos', href: '/app/workflows', icon: 'Workflow', permission: 'workflows' },
         { id: 'sales-cadences', label: 'Cadências', href: '/app/sales-cadences', icon: 'Megaphone', permission: 'sales_engagement' },
-        { id: 'jobs', label: 'Filas & Monitor', href: '/app/jobs', icon: 'GanttChart', permission: 'workflows' },
+        { id: 'jobs', label: 'Filas & Monitor', href: '/app/jobs', icon: 'GanttChart', permission: 'queues' },
       ],
       initiallyCollapsed: true,
     },
@@ -173,9 +173,9 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-sms', label: 'SMS', href: '/app/integrations/sms', icon: 'MessageSquare', permission: 'settings' },
         { id: 'integ-ai', label: 'IA / Tokens', href: '/app/integrations/ai', icon: 'Brain', permission: 'settings' },
         { id: 'integ-dns', label: 'DNS', href: '/app/integrations/dns', icon: 'Globe', permission: 'settings' },
-        { id: 'integ-webhooks', label: 'Webhooks de Saída', href: '/app/integrations/webhooks', icon: 'Webhook', permission: 'apikeys' },
-        { id: 'integ-inbound-webhooks', label: 'Webhooks de Entrada', href: '/app/integrations/inbound-webhooks', icon: 'Webhook', permission: 'apikeys' },
-        { id: 'integ-db-connectors', label: 'Conector de BD', href: '/app/integrations/db-connectors', icon: 'Database', permission: 'apikeys' },
+        { id: 'integ-webhooks', label: 'Webhooks de Saída', href: '/app/integrations/webhooks', icon: 'Webhook', permission: 'webhooks_out' },
+        { id: 'integ-inbound-webhooks', label: 'Webhooks de Entrada', href: '/app/integrations/inbound-webhooks', icon: 'Webhook', permission: 'captacao' },
+        { id: 'integ-db-connectors', label: 'Conector de BD', href: '/app/integrations/db-connectors', icon: 'Database', permission: 'db_connectors' },
         { id: 'integ-api-keys', label: 'API Keys', href: '/app/integrations/api-keys', icon: 'Key', permission: 'apikeys' },
         { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings' },
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings' },
@@ -193,7 +193,7 @@ export const sidebarSchema: SidebarSchema = {
         // por 'leads' (não mais 'captacao') — AGENT já possui leads, evita
         // exigir role administrativo para item de gestão de mensagens.
         { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'leads' },
-        { id: 'personas', label: 'Personas / ICPs', href: '/app/personas', icon: 'Users', permission: 'tools' },
+        { id: 'personas', label: 'Personas / ICPs', href: '/app/personas', icon: 'Users', permission: 'personas' },
         { id: 'cad-teams', label: 'Equipes', href: '/app/cadastros/teams', icon: 'Users', permission: 'settings' },
         { id: 'cad-routing', label: 'Roteamento de Leads', href: '/app/cadastros/routing', icon: 'Map', permission: 'settings' },
         // Importar leads: operação administrativa de carga em massa. Gated por

@@ -239,6 +239,28 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
       ])
     }
 
+    case 'personas': {
+      const [p1] = await Promise.all([safeCount((prisma as any).persona?.count?.() ?? Promise.resolve(0))])
+      return pack([{ label: 'personas cadastradas', count: p1 }])
+    }
+
+    case 'webhooks_out': {
+      const [w] = await Promise.all([safeCount((prisma as any).webhook?.count?.() ?? Promise.resolve(0))])
+      return pack([{ label: 'webhooks de saída configurados', count: w }])
+    }
+
+    case 'db_connectors': {
+      const [c] = await Promise.all([safeCount((prisma as any).dbConnector?.count?.() ?? Promise.resolve(0))])
+      return pack([{ label: 'conexões de banco configuradas', count: c }])
+    }
+
+    case 'activity_templates': {
+      // Quem consome os modelos são os Resumos e as cadências: desligar aqui
+      // deixa os dois sem o molde da tarefa que eles criam.
+      const [t] = await Promise.all([safeCount((prisma as any).activityTemplate?.count?.() ?? Promise.resolve(0))])
+      return pack([{ label: 'modelos de atividade', count: t }])
+    }
+
     case 'payments': {
       const [prov, cupons] = await Promise.all([
         safeCount((prisma as any).paymentProviderConnection?.count?.() ?? Promise.resolve(0)),
