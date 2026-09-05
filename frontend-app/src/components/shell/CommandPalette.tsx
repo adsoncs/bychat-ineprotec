@@ -4,7 +4,7 @@ import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { Command } from 'cmdk'
 import { useLocation } from 'wouter-preact'
 import { Star, Clock, ArrowRight } from '@/components/ui/icon-set'
-import { flattenItems, findItem } from '@/modules/sidebar.config'
+import { itensDeBusca, findItem } from '@/modules/sidebar.config'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useRecentsStore } from '@/stores/recents'
 import { useMyPermissions } from '@/hooks/usePermissions'
@@ -40,7 +40,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     return !!perm?.canView
   }
 
-  const allItems = useMemo(() => flattenItems().filter(canAccessItem), [permsData, role])
+  const allItems = useMemo(() => itensDeBusca().filter(canAccessItem), [permsData, role])
   const favoriteItems = useMemo(
     () => favoriteIds.map((id) => findItem(id)).filter((i): i is NonNullable<typeof i> => !!i).filter(canAccessItem),
     [favoriteIds, permsData, role],

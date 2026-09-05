@@ -55,7 +55,10 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
     <nav id="app-sidebar-nav" class="app-sidebar-nav" aria-label="Navegação principal">
       {pinned.length > 0 && (
         <div class="app-sidebar-section" data-section="pinned">
-          {!iconOnly && <div class="app-sidebar-section-label">Início</div>}
+          {/* Sem rótulo: "Início" era o único título do menu que não abria nem
+            * fechava — parecia um grupo colapsável quebrado. Estes itens são os
+            * atalhos do topo e se explicam sozinhos; um cabeçalho que não faz
+            * nada só ensina que cabeçalho aqui não clica. */}
           {pinned.map((item) => (
             <SidebarItem key={item.id} item={withBadge(item)} iconOnly={iconOnly} onNavigate={onNavigate} />
           ))}

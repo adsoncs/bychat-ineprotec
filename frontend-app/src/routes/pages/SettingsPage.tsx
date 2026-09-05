@@ -6,6 +6,7 @@ import {
   Palette, Shield, Package, Home,
   Mail, Copy, Bell,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
+  ShieldCheck, MessageSquare,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -14,6 +15,9 @@ import { cn } from '@/lib/cn'
 import { AppearanceSettings } from './settings/AppearanceSettings'
 import { HomeScreenSettings } from './settings/HomeScreenSettings'
 import { SecuritySettings } from './settings/SecuritySettings'
+import { ModulePermissionsPage } from './ModulePermissionsPage'
+import { ConversationAccessPage } from './ConversationAccessPage'
+import { useUserStore } from '@/stores/user'
 import { WebhooksSettings } from './settings/WebhooksSettings'
 import { ApiKeysSettings } from './settings/ApiKeysSettings'
 import { ModulesSettings } from './settings/ModulesSettings'
@@ -55,6 +59,7 @@ export type Tab =
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
   | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company' | 'alerts-health'
+  | 'permissions' | 'conversation-access'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -65,12 +70,20 @@ export type Tab =
 // tipo terram, vantari) e só renderiza no tenant principal (bychat.ia.br).
 // Detecção via usePrimaryInstall() → backend isPrimaryInstall() →
 // MARKETING_HOST setado no .env.
-const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean }[] = [
+// `superadminOnly`: quem enxerga a aba. Permissões e Acesso ao Conversas vieram
+// do rodapé do menu principal para cá — as duas decidem QUEM VÊ O QUÊ, então
+// moram junto do resto da configuração de acesso, e não soltas ao lado de
+// "Configurações". A regra de visibilidade que elas tinham no menu (só
+// superadmin) vem junto: perder isso na mudança de lugar seria abrir a matriz
+// de acesso para quem só administra o dia a dia.
+const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean; superadminOnly?: boolean }[] = [
   { id: 'appearance', label: 'Aparência', icon: <Palette size={14} /> },
   { id: 'home-screen', label: 'Tela inicial', icon: <Home size={14} /> },
   { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
   { id: 'security', label: 'Segurança', icon: <Shield size={14} /> },
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
+  { id: 'permissions', label: 'Permissões', icon: <ShieldCheck size={14} />, superadminOnly: true },
+  { id: 'conversation-access', label: 'Acesso ao Conversas', icon: <MessageSquare size={14} />, superadminOnly: true },
   { id: 'alerts-health', label: 'Alertas', icon: <Bell size={14} /> },
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
   { id: 'intelligence', label: 'Inteligência', icon: <Sparkles size={14} /> },
@@ -102,21 +115,27 @@ export function SettingsPage() {
   const [tab, setTab] = useState<Tab>(readTabFromUrl())
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const { isPrimary, isLoading: primaryLoading } = usePrimaryInstall()
+  const papelDoUsuario = useUserStore((st) => st.user?.role ?? null)
 
   // Abas exclusivas do tenant principal (bychat-beyond). Em filhas (terram,
   // vantari, novos clientes) somem do menu E não renderizam o conteúdo
   // mesmo se a URL pedir (defesa em profundidade).
   const PRIMARY_ONLY_TABS = new Set<Tab>(['installations', 'roadmap'])
+  const ehSuperadmin = papelDoUsuario === 'SUPERADMIN'
   const visibleTabs = useMemo(
-    () => tabs.filter((t) => !t.primaryOnly || (PRIMARY_BUILD && isPrimary)),
-    [isPrimary],
+    () => tabs.filter((t) => (!t.primaryOnly || (PRIMARY_BUILD && isPrimary)) && (!t.superadminOnly || ehSuperadmin)),
+    [isPrimary, ehSuperadmin],
   )
 
   // Se URL pedir aba primary-only numa instalação filha, redireciona pra Aparência.
+  const SUPERADMIN_ONLY_TABS = new Set<Tab>(['permissions', 'conversation-access'])
   useEffect(() => {
     if (primaryLoading) return
     if ((!isPrimary || !PRIMARY_BUILD) && PRIMARY_ONLY_TABS.has(tab)) setTab('appearance')
-  }, [primaryLoading, isPrimary, tab])
+    // Mesma defesa em profundidade das abas primary-only: pedir pela URL não
+    // basta para ver a matriz de acesso.
+    if (!ehSuperadmin && SUPERADMIN_ONLY_TABS.has(tab)) setTab('appearance')
+  }, [primaryLoading, isPrimary, tab, ehSuperadmin])
 
   // Bookmarks antigos: ?tab=teams|loss-reasons|fields|business-hours → /cadastros/*
   useEffect(() => {
@@ -182,6 +201,8 @@ export function SettingsPage() {
           {tab === 'webhooks' && <WebhooksSettings />}
           {tab === 'api-keys' && <ApiKeysSettings />}
           {tab === 'modules' && <ModulesSettings />}
+          {tab === 'permissions' && <ModulePermissionsPage embutido />}
+          {tab === 'conversation-access' && <ConversationAccessPage embutido />}
           {tab === 'alerts-health' && <AlertsHealthSettings />}
           {tab === 'my-google' && <GoogleAccountSettings />}
           {tab === 'dedup' && <DedupSettings />}

@@ -13,6 +13,7 @@ import {
 } from '@/hooks/useConversationAccess'
 import { ROLE_LABELS } from '@/hooks/useUsers'
 import { useAuth } from '@/hooks/useAuth'
+import type { ComponentChildren, JSX } from 'preact'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -88,7 +89,7 @@ function iguais(a: RegraParaSalvar[], b: RegraParaSalvar[]): boolean {
   return sa.every((v, i) => v === sb[i])
 }
 
-export function ConversationAccessPage() {
+export function ConversationAccessPage({ embutido }: { embutido?: boolean } = {}) {
   const { user } = useAuth()
   const [comoFunciona, setComoFunciona] = useState(false)
   const { data, isLoading } = useConversationAccess()
@@ -108,7 +109,8 @@ export function ConversationAccessPage() {
   // trocar de sujeito precisa recarregar, e é o que o `key` no componente
   // filho resolve sem efeito colateral.
   return (
-    <Page
+    <Moldura
+      embutido={embutido}
       title="Acesso ao Conversas"
       description="Quem acompanha quais números, e o que pode fazer neles"
       actions={
@@ -254,7 +256,7 @@ export function ConversationAccessPage() {
           body: <>Enviar, gerir e excluir só ficam disponíveis onde há "Ver" — toda ação começa por abrir a conversa. Desmarcar "Ver" apaga as outras três da linha.</>,
         }}
       />
-    </Page>
+    </Moldura>
   )
 }
 
@@ -421,5 +423,49 @@ function MatrizDoSujeito({ canais, regras, salvando, onSalvar }: {
         </p>
       )}
     </Card>
+  )
+}
+
+/**
+ * Moldura da tela: `<Page>` quando ela é uma rota, um bloco simples quando é
+ * uma aba dentro de Configurações.
+ *
+ * Sem isto, embutir a tela renderizaria dois cabeçalhos empilhados — o de
+ * Configurações e o dela — que é o defeito clássico de reaproveitar página
+ * como aba.
+ */
+function Moldura({
+  embutido, title, description, actions, children,
+}: {
+  embutido?: boolean | undefined
+  title: string
+  description?: string | undefined
+  actions?: JSX.Element | undefined
+  children: ComponentChildren
+}) {
+  if (!embutido) {
+    // As props opcionais só são repassadas quando existem: com
+    // `exactOptionalPropertyTypes`, mandar `description: undefined` não é o
+    // mesmo que não mandar.
+    return (
+      <Page
+        title={title}
+        {...(description ? { description } : {})}
+        {...(actions ? { actions } : {})}
+      >
+        {children}
+      </Page>
+    )
+  }
+  return (
+    <div class="space-y-4">
+      {(description || actions) && (
+        <div class="flex items-start justify-between gap-3">
+          {description && <p class="text-sm text-fg-muted">{description}</p>}
+          {actions}
+        </div>
+      )}
+      {children}
+    </div>
   )
 }

@@ -17,6 +17,7 @@ import { useSystemModules, useToggleSystemModule } from '@/hooks/useRouting'
 import { Power, Lock } from '@/components/ui/icon-set'
 import { Badge } from '@/components/ui/Badge'
 import { ApiError } from '@/lib/apiClient'
+import type { ComponentChildren, JSX } from 'preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -66,7 +67,7 @@ const FIELD_ACCENT: Record<PermField, string> = {
   canDelete: 'var(--color-danger)',
 }
 
-export function ModulePermissionsPage() {
+export function ModulePermissionsPage({ embutido }: { embutido?: boolean } = {}) {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'SUPERADMIN'
   const [showHowItWorks, setShowHowItWorks] = useState(false)
@@ -75,17 +76,18 @@ export function ModulePermissionsPage() {
 
   if (!isSuperAdmin) {
     return (
-      <Page title="Permissões por Módulo">
+      <Moldura embutido={embutido} title="Permissões por Módulo">
         <EmptyState
           icon={<ShieldCheck size={24} />}
           title="Apenas Super Admin pode gerenciar permissões"
         />
-      </Page>
+      </Moldura>
     )
   }
 
   return (
-    <Page
+    <Moldura
+      embutido={embutido}
       title="Permissões por Módulo"
       description="Controle de acesso CRUD por role e por usuário"
       actions={
@@ -145,7 +147,7 @@ export function ModulePermissionsPage() {
           body: <>90% dos casos resolvem com permissões de Role. Use Override só quando alguém precisa de algo diferente do papel dele. Se você acaba dando muito Override pro mesmo Role, talvez seja hora de revisar o que esse Role deveria ter.</>,
         }}
       />
-    </Page>
+    </Moldura>
   )
 }
 
@@ -748,5 +750,49 @@ function SystemModulesCard() {
         </div>
       </div>
     </Card>
+  )
+}
+
+/**
+ * Moldura da tela: `<Page>` quando ela é uma rota, um bloco simples quando é
+ * uma aba dentro de Configurações.
+ *
+ * Sem isto, embutir a tela renderizaria dois cabeçalhos empilhados — o de
+ * Configurações e o dela — que é o defeito clássico de reaproveitar página
+ * como aba.
+ */
+function Moldura({
+  embutido, title, description, actions, children,
+}: {
+  embutido?: boolean | undefined
+  title: string
+  description?: string | undefined
+  actions?: JSX.Element | undefined
+  children: ComponentChildren
+}) {
+  if (!embutido) {
+    // As props opcionais só são repassadas quando existem: com
+    // `exactOptionalPropertyTypes`, mandar `description: undefined` não é o
+    // mesmo que não mandar.
+    return (
+      <Page
+        title={title}
+        {...(description ? { description } : {})}
+        {...(actions ? { actions } : {})}
+      >
+        {children}
+      </Page>
+    )
+  }
+  return (
+    <div class="space-y-4">
+      {(description || actions) && (
+        <div class="flex items-start justify-between gap-3">
+          {description && <p class="text-sm text-fg-muted">{description}</p>}
+          {actions}
+        </div>
+      )}
+      {children}
+    </div>
   )
 }

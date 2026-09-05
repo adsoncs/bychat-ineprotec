@@ -389,12 +389,6 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })),
   ),
   make: lazy(() => import('./pages/MakePage').then((m) => ({ default: m.MakePage }))),
-  'module-permissions': lazy(() =>
-    import('./pages/ModulePermissionsPage').then((m) => ({ default: m.ModulePermissionsPage })),
-  ),
-  'conversation-access': lazy(() =>
-    import('./pages/ConversationAccessPage').then((m) => ({ default: m.ConversationAccessPage })),
-  ),
   google: lazy(() =>
     import('./pages/GoogleSuitePage').then((m) => ({ default: m.GoogleSuitePage })),
   ),
@@ -617,6 +611,12 @@ export function Router() {
         <Switch>
           <Route path="/" component={IndexRoute} />
           <Route path="/sources" component={SourcesRedirect} />
+          {/* Permissões e Acesso ao Conversas viraram abas de Configurações e
+            * saíram do menu — então saíram também do catálogo que monta as
+            * rotas. Sem estes redirects, todo link salvo para elas viraria
+            * "página não encontrada". */}
+          <Route path="/module-permissions">{() => <SettingsTabRedirect tab="permissions" />}</Route>
+          <Route path="/conversation-access">{() => <SettingsTabRedirect tab="conversation-access" />}</Route>
           <Route path="/roadmap">{() => <SettingsTabRedirect tab="roadmap" />}</Route>
           <Route path="/installations">{() => <SettingsTabRedirect tab="installations" />}</Route>
           <Route path="/trash">{() => <SettingsTabRedirect tab="trash" />}</Route>

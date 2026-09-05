@@ -91,12 +91,23 @@ export const sidebarSchema: SidebarSchema = {
       ],
       initiallyCollapsed: true,
     },
+    // Vendas e Automação eram um grupo só. São assuntos diferentes e de gente
+    // diferente: um é meta, comissão e a venda em si; o outro é o que o sistema
+    // faz sozinho. Todo o resto do menu já é um grupo por assunto — estes dois
+    // eram a exceção.
     {
       id: 'sales',
-      label: 'Vendas & Automação',
+      label: 'Vendas',
       items: [
         { id: 'sales-ai', label: 'Vendas IA', href: '/app/sales-ai', icon: 'TrendingUp', permission: 'vendas' },
         { id: 'goals-commissions', label: 'Metas & Comissões', href: '/app/goals-commissions', icon: 'Target', permission: 'goals_commissions' },
+      ],
+      initiallyCollapsed: true,
+    },
+    {
+      id: 'automation',
+      label: 'Automação',
+      items: [
         { id: 'workflows', label: 'Fluxos', href: '/app/workflows', icon: 'Workflow', permission: 'workflows' },
         { id: 'sales-cadences', label: 'Cadências', href: '/app/sales-cadences', icon: 'Megaphone', permission: 'sales_engagement' },
         { id: 'jobs', label: 'Filas & Monitor', href: '/app/jobs', icon: 'GanttChart', permission: 'queues' },
@@ -194,6 +205,7 @@ export const sidebarSchema: SidebarSchema = {
         // exigir role administrativo para item de gestão de mensagens.
         { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'leads' },
         { id: 'personas', label: 'Personas / ICPs', href: '/app/personas', icon: 'Users', permission: 'personas' },
+        { id: 'users', label: 'Usuários', href: '/app/users', icon: 'Users', permission: 'users' },
         { id: 'cad-teams', label: 'Equipes', href: '/app/cadastros/teams', icon: 'Users', permission: 'settings' },
         { id: 'cad-routing', label: 'Roteamento de Leads', href: '/app/cadastros/routing', icon: 'Map', permission: 'settings' },
         // Importar leads: operação administrativa de carga em massa. Gated por
@@ -319,20 +331,47 @@ export const sidebarSchema: SidebarSchema = {
       initiallyCollapsed: true,
     },
   ],
+  // O rodapé ficou com Configurações e o que vem depois dela. Usuários subiu
+  // para Cadastros (é cadastro como os outros), e Permissões e Acesso ao
+  // Conversas viraram abas DENTRO de Configurações — as duas respondem "quem vê
+  // o quê", que é assunto de configuração, e ficavam soltas ao lado do item que
+  // as deveria conter. As duas seguem visíveis só para SUPERADMIN, agora pela
+  // regra da própria tela de Configurações.
   footer: [
-    { id: 'users', label: 'Usuários', href: '/app/users', icon: 'Users', permission: 'users' },
-    { id: 'module-permissions', label: 'Permissões', href: '/app/module-permissions', icon: 'ShieldCheck', permission: 'users' },
-    // Sem `permission` de propósito: item sem chave declarada só o SUPERADMIN
-    // enxerga (regra do SidebarBody), e é exatamente quem pode editar a matriz
-    // — ela amplia o alcance de um papel para além do escopo dele.
-    { id: 'conversation-access', label: 'Acesso ao Conversas', href: '/app/conversation-access', icon: 'MessageSquare' },
     { id: 'settings', label: 'Configurações', href: '/app/settings', icon: 'Settings', permission: 'settings' },
   ],
 }
 
-/** Lista plana de todos os itens — usada pelo Cmd+K e por busca. */
+/**
+ * Destinos que NÃO ocupam espaço no menu, mas continuam encontráveis no Cmd+K.
+ *
+ * Permissões e Acesso ao Conversas viraram abas de Configurações. Tirá-las do
+ * menu sem colocá-las aqui as tiraria também da busca — e quem digitava
+ * "permissões" para chegar lá ficaria sem caminho nenhum, que é uma piora
+ * disfarçada de organização.
+ */
+export const buscaExtra: SidebarItem[] = [
+  { id: 'module-permissions', label: 'Permissões', href: '/app/settings?tab=permissions', icon: 'ShieldCheck', permission: 'users' },
+  // Sem `permission` de propósito: item sem chave declarada só o SUPERADMIN
+  // enxerga (regra do SidebarBody e do Cmd+K), e é exatamente quem pode editar
+  // a matriz — ela amplia o alcance de um papel para além do escopo dele.
+  { id: 'conversation-access', label: 'Acesso ao Conversas', href: '/app/settings?tab=conversation-access', icon: 'MessageSquare' },
+]
+
+/**
+ * Lista plana dos itens do MENU.
+ *
+ * É também a fonte das rotas do Router, então `buscaExtra` fica de fora: os
+ * destinos de lá apontam para uma aba (`/app/settings?tab=…`) e virariam rota
+ * inválida. Para busca, use `itensDeBusca()`.
+ */
 export function flattenItems(schema: SidebarSchema = sidebarSchema): SidebarItem[] {
   return [...schema.pinned, ...schema.groups.flatMap((g) => g.items), ...schema.footer]
+}
+
+/** O que o Cmd+K oferece: o menu inteiro mais os destinos sem lugar no menu. */
+export function itensDeBusca(schema: SidebarSchema = sidebarSchema): SidebarItem[] {
+  return [...flattenItems(schema), ...buscaExtra]
 }
 
 /** Encontra item por id ou href. */
