@@ -538,7 +538,51 @@ app.addHook('onRequest', async (req, reply) => {
 app.addHook('preHandler', modulePermissionHook)
 
 // ── ROUTES ───────────────────────────────────
-await app.register(realtimeRoutes)
+await // ⚠️ ORDEM IMPORTA: este handler precisa vir ANTES do primeiro `app.register`
+// de rotas. Cada register cria um escopo filho que herda o error handler
+// VIGENTE naquele momento — declarado depois, ele não valia para nenhuma rota,
+// e todo erro saía no formato padrão do Fastify. Foi assim que um id não
+// numérico na URL continuou respondendo 500 mesmo com o tratamento escrito.
+app.setErrorHandler(async (error, req, reply) => {
+  let status = (error as any).statusCode || 500
+
+  // Id que não é número vira 400, não 500.
+  //
+  // 222 rotas em 44 arquivos fazem `where: { id: parseInt(req.params.id) }`.
+  // Com um id não numérico na URL — um caminho digitado errado, um link velho,
+  // um robô varrendo — `parseInt` devolve NaN, o Prisma recusa a query e a
+  // resposta saía como erro interno do servidor. Não é: o pedido é que estava
+  // errado, e "500" manda quem chamou procurar defeito onde não há, além de
+  // sujar o monitoramento com alarme falso.
+  //
+  // Tratado aqui, num lugar só, em vez de nas 222: a validação continua sendo
+  // responsabilidade de cada rota, mas a resposta para de mentir. O erro segue
+  // no log com a mensagem original — mascarar o sintoma sem registrar a causa
+  // seria trocar um problema por outro.
+  const msg = String((error as any)?.message || '')
+  const prismaValorInvalido = status >= 500
+    && ((error as any)?.name === 'PrismaClientValidationError' || msg.includes('Invalid `prisma.'))
+    && (msg.includes('Argument `id`') || msg.includes('id: Int') || msg.includes('Got invalid value'))
+  if (prismaValorInvalido) {
+    req.log.warn({ url: req.url, err: msg.slice(0, 300) }, 'parâmetro inválido na URL (respondido 400)')
+    return reply.code(400).send({ error: 'Parâmetro inválido na URL.' })
+  }
+
+  if (status >= 500) {
+    captureException(error, {
+      url: req.url,
+      method: req.method,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
+    req.log.error({ err: error }, 'Unhandled error')
+  }
+  return reply.code(status).send({
+    error: (error as any).message || 'Internal Server Error',
+  })
+})
+
+app.register(realtimeRoutes)
 await app.register(telegramRoutes)
 await app.register(instagramRoutes)
 await app.register(leadsRoutes)
@@ -700,21 +744,6 @@ app.addHook('onResponse', async (req, reply) => {
   } catch {}
 })
 
-app.setErrorHandler(async (error, req, reply) => {
-  const status = (error as any).statusCode || 500
-  if (status >= 500) {
-    captureException(error, {
-      url: req.url,
-      method: req.method,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-    })
-    req.log.error({ err: error }, 'Unhandled error')
-  }
-  return reply.code(status).send({
-    error: (error as any).message || 'Internal Server Error',
-  })
-})
 
 // ── Serve index.html com meta tags e códigos injetados server-side ──
 const HEAD_SANITIZE_OPTS: any = {
