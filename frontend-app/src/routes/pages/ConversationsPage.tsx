@@ -5,6 +5,8 @@ import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { usePonteiroGrosso, useLarguraElemento } from '@/hooks/useBreakpoint'
 import { useActiveConversationStore } from '@/stores/activeConversation'
+import { useLocation } from 'wouter-preact'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import {
   MessageSquare,
   Send,
@@ -64,6 +66,7 @@ import {
   RefreshCw,
   Layers,
   UserRound,
+  ArrowUpRight,
 } from '@/components/ui/icon-set'
 import { ICON_SIZE } from '@/components/ui/Icon'
 // Logo de marca: vem do registry, não redesenhado aqui (traço e grade únicos).
@@ -3408,6 +3411,38 @@ function AudioPlayer({ url, speed }: { url: string; speed: number }) {
   )
 }
 
+/** Atalho do painel de Informações para a ficha do lead.
+ *
+ * Ativo só quando o contato É lead — e ser lead é ter `qualifiedAt`, o mesmo
+ * critério do banner logo abaixo ("Lead qualificado" × "Apenas conversa") e da
+ * promoção em massa da Caixa. Conversa solta não tem ficha para abrir: a rota
+ * `/leads/:id` mostraria um registro que não conta em métrica nenhuma. Inativo,
+ * o caminho é o botão "Promover a Lead" do próprio banner.
+ */
+function AbrirLeadButton({ leadId, isQualified }: { leadId: number; isQualified: boolean }) {
+  const [, navigate] = useLocation()
+  // Mesmo gate do item "Leads" no menu — e a rota `/leads/:id` já vive dentro
+  // de um <ModuleGate moduleId="leads">, então sem o módulo o botão levaria a
+  // uma tela de bloqueio.
+  const acesso = useModuleAccess('leads')
+  if (acesso.status !== 'allowed') return null
+
+  return (
+    <button
+      type="button"
+      class="px-2 py-1 rounded border border-border text-2xs text-fg-muted hover:text-fg hover:bg-surface-3 inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-fg-muted disabled:hover:bg-transparent"
+      disabled={!isQualified}
+      onClick={() => navigate(`/leads/${leadId}`)}
+      aria-label="Abrir a ficha do lead"
+      title={isQualified
+        ? 'Abrir a ficha completa deste lead'
+        : 'Ainda é apenas conversa — promova a Lead para abrir a ficha'}
+    >
+      <ArrowUpRight size={ICON_SIZE.xxs} /> Abrir lead
+    </button>
+  )
+}
+
 function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void }) {
   const { data, isLoading } = useTicketInfo(leadId)
   const unqualify = useUnqualifyLead()
@@ -3453,16 +3488,19 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
 
   return (
     <>
-      <header class="flex items-center justify-between p-3 border-b border-border">
+      <header class="flex items-center justify-between gap-2 p-3 border-b border-border">
         <span class="text-sm font-medium text-fg">Informações</span>
-        <button
-          type="button"
-          class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
-          onClick={onClose}
-          aria-label="Fechar"
-        >
-          <XIcon size={ICON_SIZE.sm} />
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          <AbrirLeadButton leadId={leadId} isQualified={isQualified} />
+          <button
+            type="button"
+            class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
+            onClick={onClose}
+            aria-label="Fechar"
+          >
+            <XIcon size={ICON_SIZE.sm} />
+          </button>
+        </div>
       </header>
 
       <div class="flex-1 overflow-y-auto">
