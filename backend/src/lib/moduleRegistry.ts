@@ -580,16 +580,6 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false,
   },
   {
-    id: 'goals_commissions', name: 'Metas e Comissões', icon: '🎯', category: 'vendas',
-    description: 'Metas por funil e por agente (receita, mensalidade, nº de vendas e conversão) e a comissão de cada venda — percentual ou valor fixo, com taxa separada para pagamento único e mensalidade, e faixas que melhoram a taxa conforme o atingimento da meta. Os valores saem das propostas ganhas do módulo Negociações: nada é digitado duas vezes.',
-    pages: ['goals-commissions'],
-    routePrefixes: ['/api/admin/commissions', '/api/admin/goals'],
-    actions: ['view', 'create', 'edit', 'delete'],
-    // Nasce desligado: comissionamento é decisão comercial de cada operação, e
-    // ligar sem regra cadastrada só mostraria tela vazia.
-    defaultEnabled: false,
-  },
-  {
     id: 'status_summary', name: 'Resumos', icon: '🏷️', category: 'crm',
     description: 'Inverte o kanban: em vez de arrastar o card, o operador classifica a situação do atendimento escolhendo um Resumo (ex.: "AT-200 SOLICITOU MATRICULA"), e o motor move a etapa, gera as atividades com prazo e responsável, marca ganho/perdido e exige a objeção. Nasce desligado.',
     pages: ['status-summaries', 'status-summary-report'],
