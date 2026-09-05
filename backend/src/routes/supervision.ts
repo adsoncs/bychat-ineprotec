@@ -150,6 +150,8 @@ interface Filters {
   stale?: string
   unread?: string
   kind?: string
+  /** '1' = só conversas cuja última mensagem é do contato (tratado na rota, não aqui). */
+  waiting?: string
 }
 
 function filtersToWhere(q: Filters, now: Date): Record<string, any> {
@@ -277,11 +279,6 @@ function minutesBetween(a: Date | null | undefined, b: Date | null | undefined):
   return Math.round((b.getTime() - a.getTime()) / 60_000)
 }
 
-function avg(nums: number[]): number | null {
-  if (!nums.length) return null
-  return Math.round(nums.reduce((s, n) => s + n, 0) / nums.length)
-}
-
 export async function supervisionRoutes(app: FastifyInstance) {
   // ── GET /api/supervision/overview — KPIs + distribuições ──
   // `days` recorta apenas os indicadores de fluxo (resolvidas, 1ª resposta,
@@ -299,7 +296,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
       const base = { AND: [filtersToWhere({ ...q, bucket: 'all' }, now), await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
       const withBase = (extra: Record<string, unknown>) => ({ AND: [base, extra] })
 
-      const [raw, inbox, snoozed, resolvedNow, unassigned, unread, resolvedToday, resolvedPeriod, groups] =
+      const [raw, inbox, snoozed, resolvedNow, unassigned, unread, resolvedToday, resolvedPeriod, groups, reabertas] =
         await Promise.all([
           prisma.lead.count({ where: withBase(bucketWhere('raw', now)) }),
           prisma.lead.count({ where: withBase(bucketWhere('inbox', now)) }),
@@ -310,58 +307,200 @@ export async function supervisionRoutes(app: FastifyInstance) {
           prisma.lead.count({ where: withBase({ conversationClosedAt: { gte: todayStart } }) }),
           prisma.lead.count({ where: withBase({ conversationClosedAt: { gte: since, lte: until } }) }),
           prisma.lead.count({ where: withBase({ AND: [activeWhere(now), { isGroup: true }] }) }),
+          // Voltou a falar depois de resolvido: encerramento que não resolveu.
+          prisma.lead.count({ where: withBase({ conversationReopenedAt: { gte: since, lte: until } }) }),
         ])
 
-      // Tempos: 1ª resposta (assignedAt → firstResponseAt) e resolução
-      // (conversationOpenedAt → conversationClosedAt), no período.
-      const timeRows = await prisma.lead.findMany({
+      const activeTotal = raw + inbox + snoozed
+
+      // ── Os conjuntos de ids, sem truncamento ────────────────────────────
+      //
+      // O `take: 5000` que existia aqui cortava em silêncio E sem `orderBy`:
+      // acima de cinco mil conversas a média era de uma amostra arbitrária,
+      // decidida pelo plano de execução do banco. Agora o recorte do período
+      // é feito onde ele de fato existe — só conversa com mensagem no período
+      // pode ter turno no período —, o que mantém a lista curta sem inventar
+      // um teto.
+      const [idsAtivosRows, idsPeriodoRows] = await Promise.all([
+        prisma.lead.findMany({ where: withBase(activeWhere(now)), select: { id: true } }),
+        prisma.lead.findMany({
+          where: withBase({
+            OR: [
+              { lastMessageAt: { gte: since, lte: until } },
+              { conversationClosedAt: { gte: since, lte: until } },
+            ],
+          }),
+          select: { id: true },
+        }),
+      ])
+      const activeIds = idsAtivosRows.map((r) => r.id)
+      const idsPeriodo = idsPeriodoRows.map((r) => r.id)
+      const idList = activeIds.join(',')
+
+      // ── Ritmo: tempo de resposta medido pelas MENSAGENS ─────────────────
+      //
+      // O que estava aqui era `assignedAt → firstResponseAt` e
+      // `conversationOpenedAt → conversationClosedAt` — os dois dependentes de
+      // clique, e o primeiro gravado num único ponto do sistema (concluir uma
+      // Atividade), o que o deixava preenchido em 5% dos leads. Ver o cabeçalho
+      // de services/responseTime.ts para o diagnóstico completo.
+      const {
+        relogioDaCasa, metaDeResposta, duracaoDeAtendimento, MIN_AMOSTRA,
+        medirTurnos, resumirTurnos, serieDiaria, porOperador, coberturaPorHora, faixasDoRelogio,
+      } = await import('../services/responseTime.js')
+      const relogio = await relogioDaCasa()
+      const metaMin = await metaDeResposta()
+
+      // Janela anterior de MESMO tamanho, para a comparação de ritmo e
+      // resultado. "Mediana 5 min" é um fato; "5 min, era 12" é uma direção, e
+      // é a direção que a reunião de segunda pergunta.
+      const duracaoMs = Math.max(1, until.getTime() - since.getTime())
+      const antesDe = new Date(since.getTime() - duracaoMs)
+      const antesAte = new Date(since.getTime() - 1)
+      const idsAnteriorRows = await prisma.lead.findMany({
         where: withBase({
           OR: [
-            { conversationClosedAt: { gte: since, lte: until } },
-            { firstResponseAt: { gte: since, lte: until } },
+            { lastMessageAt: { gte: antesDe, lte: antesAte } },
+            { conversationClosedAt: { gte: antesDe, lte: antesAte } },
           ],
         }),
-        select: {
-          assignedAt: true, firstResponseAt: true,
-          conversationOpenedAt: true, conversationClosedAt: true,
-        },
-        take: 5000,
+        select: { id: true },
       })
-      const firstResponse = timeRows
-        .map((r) => minutesBetween(r.assignedAt, r.firstResponseAt))
-        .filter((n): n is number => n !== null && n >= 0)
-      const resolution = timeRows
-        .map((r) => minutesBetween(r.conversationOpenedAt, r.conversationClosedAt))
-        .filter((n): n is number => n !== null && n >= 0)
+      const idsAnterior = idsAnteriorRows.map((r) => r.id)
 
-      // Espera atual da fila: quanto tempo a conversa mais antiga está sem tratamento.
-      const oldestRaw = await prisma.lead.findFirst({
-        where: withBase(bucketWhere('raw', now)),
-        orderBy: { lastMessageAt: 'asc' },
-        select: { lastMessageAt: true },
+      const [turnos, turnosAntes, duracao, duracaoAntes, cobertura] = await Promise.all([
+        medirTurnos(idsPeriodo, since, until, relogio),
+        medirTurnos(idsAnterior, antesDe, antesAte, relogio),
+        duracaoDeAtendimento(idsPeriodo, since, until, relogio),
+        duracaoDeAtendimento(idsAnterior, antesDe, antesAte, relogio),
+        coberturaPorHora(idsPeriodo, since, until, relogio),
+      ])
+      const ritmo = resumirTurnos(turnos, metaMin, relogio)
+      const ritmoAntes = resumirTurnos(turnosAntes, metaMin, relogio)
+      const serie = serieDiaria(turnos, relogio)
+
+      // Dono de cada conversa do período, para o comparativo por operador.
+      const donos = await prisma.lead.findMany({
+        where: { id: { in: idsPeriodo.length ? idsPeriodo : [-1] } },
+        select: { id: true, assignedUserId: true },
+      })
+      const donoDoLead = new Map(donos.map((d) => [d.id, d.assignedUserId]))
+
+      // Nomes de TODOS os operadores que aparecem no período, não só dos que
+      // têm fila hoje: quem atendeu bem e ficou sem conversa ativa apareceria
+      // no comparativo como "#2".
+      const idsOperadores = [...new Set(donos.map((d) => d.assignedUserId).filter((v): v is number => !!v))]
+      const nomesOperadores = idsOperadores.length
+        ? await prisma.user.findMany({
+            where: { id: { in: idsOperadores } },
+            select: { id: true, name: true, email: true },
+          })
+        : []
+
+      // ── Fila de agora: de quem é a bola ─────────────────────────────────
+      //
+      // "Não lidas" contava o contador que zera quando alguém ABRE a conversa,
+      // e abrir não é responder — no beyond o painel dizia 0 com dez clientes
+      // esperando. Aqui a pergunta é outra: a última palavra é do contato? É o
+      // mesmo critério que a lista desta tela já usa por linha
+      // (`waitingSinceMin`), agora também no topo.
+      const esperando = activeIds.length
+        ? await prisma.$queryRawUnsafe<Array<{ id: number; nome: string | null; desde: Date }>>(
+            `SELECT l.id, l.nome, ult.timestamp AS desde
+               FROM bychat_leads l
+               JOIN bychat_messages ult ON ult.id = (
+                 SELECT m2.id FROM bychat_messages m2
+                  WHERE m2.leadId = l.id AND m2.isInternal = 0
+                  ORDER BY m2.timestamp DESC, m2.id DESC LIMIT 1)
+              WHERE l.id IN (${idList}) AND ult.fromMe = 0
+              ORDER BY ult.timestamp ASC`,
+          ).catch(() => [])
+        : []
+      const maisAntiga = esperando[0] ?? null
+
+      // ── Microdado das gavetas ───────────────────────────────────────────
+      //
+      // As quatro primeiras linhas de cada cartão vêm JUNTO com o resumo, numa
+      // resposta só: o cartão diz "11 esperando" e abre com nome, trecho e
+      // tempo sem nova consulta e sem passar pela busca. O número que interessa
+      // ao gestor é o nome.
+      const AMOSTRA_GAVETA = 4
+      const idsEsperando = esperando.slice(0, AMOSTRA_GAVETA).map((e) => Number(e.id))
+      const detalhesEsperando = idsEsperando.length
+        ? await prisma.lead.findMany({
+            where: { id: { in: idsEsperando } },
+            select: {
+              id: true, nome: true, empresa: true,
+              assignedUser: { select: { name: true, email: true } },
+              messages: {
+                where: { isInternal: false },
+                orderBy: { timestamp: 'desc' },
+                take: 1,
+                select: { body: true, timestamp: true },
+              },
+            },
+          })
+        : []
+      const porId = new Map(detalhesEsperando.map((d) => [d.id, d]))
+      const amostraEsperando = esperando.slice(0, AMOSTRA_GAVETA).map((e) => {
+        const d = porId.get(Number(e.id))
+        return {
+          id: Number(e.id),
+          nome: d?.nome || d?.empresa || `#${e.id}`,
+          dono: d?.assignedUser ? (d.assignedUser.name || d.assignedUser.email) : null,
+          trecho: (d?.messages?.[0]?.body || '').slice(0, 90),
+          esperaMin: minutesBetween(new Date(e.desde), now),
+        }
       })
 
-      const activeTotal = raw + inbox + snoozed
+      const amostraSemNinguem = activeIds.length
+        ? await prisma.lead.findMany({
+            where: {
+              AND: [
+                { id: { in: activeIds } },
+                { assignedUserId: null },
+                withBase(activeWhere(now)),
+              ],
+            },
+            orderBy: { lastMessageAt: 'asc' },
+            take: AMOSTRA_GAVETA,
+            select: { id: true, nome: true, empresa: true, source: true, lastMessageAt: true },
+          })
+        : []
 
       // Quem conduz e por qual canal: as duas dependem de dados que o Prisma não
       // agrega (JSON aninhado e "última mensagem de cada conversa"), então vão de
       // SQL. Para respeitarem os MESMOS filtros da tela, o SQL recebe os ids do
       // conjunto já filtrado em vez de reconsultar por conta própria.
-      const activeIdRows = await prisma.lead.findMany({
-        where: withBase(activeWhere(now)),
-        select: { id: true },
-        take: 5000,
-      })
-      const activeIds = activeIdRows.map((r) => r.id)
-      const idList = activeIds.join(',')
-
-      const humanRows = activeIds.length
-        ? await prisma.$queryRawUnsafe<Array<{ total: bigint }>>(
-            `SELECT COUNT(*) AS total FROM bychat_leads
-             WHERE id IN (${idList}) AND JSON_EXTRACT(formData, '$._botPaused') IS NOT NULL`,
-          ).catch(() => [{ total: BigInt(0) }])
-        : [{ total: BigInt(0) }]
-      const humanDriven = Number(humanRows?.[0]?.total ?? 0)
+      //
+      // O cálculo antigo era `bot = ativas − humanas`: conversa que nunca teve
+      // chatbot nenhum entrava como se o bot estivesse conduzindo, e o painel
+      // do beyond anunciava 23 conversas "com chatbot" quando havia UMA. São
+      // três estados, e o terceiro é o que pede ação: ninguém conduzindo.
+      // Mesmos critérios de readBotState() — jornada em fase terminal não
+      // conduz coisa alguma.
+      const conducao = activeIds.length
+        ? await prisma.$queryRawUnsafe<Array<{ humano: bigint; bot: bigint; ninguem: bigint }>>(
+            `WITH f AS (
+               SELECT assignedUserId,
+                      (JSON_EXTRACT(formData, '$._botPaused') IS NOT NULL) AS humano,
+                      ((JSON_EXTRACT(formData, '$._aiJourney') IS NOT NULL
+                        OR JSON_EXTRACT(formData, '$._script') IS NOT NULL)
+                       AND COALESCE(
+                             JSON_UNQUOTE(JSON_EXTRACT(formData, '$._aiJourney.phase')),
+                             JSON_UNQUOTE(JSON_EXTRACT(formData, '$._script.phase')), ''
+                           ) NOT IN ('done', 'disqualified')) AS bot_ativo
+                 FROM bychat_leads WHERE id IN (${idList})
+             )
+             SELECT COALESCE(SUM(humano), 0) AS humano,
+                    COALESCE(SUM(NOT humano AND bot_ativo), 0) AS bot,
+                    COALESCE(SUM(NOT humano AND NOT bot_ativo AND assignedUserId IS NULL), 0) AS ninguem
+               FROM f`,
+          ).catch(() => [])
+        : []
+      const comHumano = Number(conducao?.[0]?.humano ?? 0)
+      const comBot = Number(conducao?.[0]?.bot ?? 0)
+      const semNinguem = Number(conducao?.[0]?.ninguem ?? 0)
 
       // Distribuições — groupBy nativo; nomes resolvidos depois em lote.
       const [byUser, byTeam, byFunnel, byStage] = await Promise.all([
@@ -400,21 +539,90 @@ export async function supervisionRoutes(app: FastifyInstance) {
         generatedAt: now.toISOString(),
         periodDays: days,
         buckets: { raw, inbox, snoozed, resolved: resolvedNow, active: activeTotal },
+        // Três blocos, e cada um diz o que é: `agora` é foto do estado (não
+        // responde ao seletor de período), `ritmo` e `resultado` são do período.
+        // Misturar os dois sem dizer qual é qual foi metade da confusão que o
+        // painel antigo criava na reunião de gestão.
         kpis: {
-          activeTotal,
-          unassigned,
-          unread,
-          groups,
-          resolvedToday,
-          resolvedPeriod,
-          humanDriven,
-          botDriven: Math.max(activeTotal - humanDriven, 0),
-          oldestWaitingMin: oldestRaw?.lastMessageAt ? minutesBetween(oldestRaw.lastMessageAt, now) : null,
-          avgFirstResponseMin: avg(firstResponse),
-          avgResolutionMin: avg(resolution),
-          sampleFirstResponse: firstResponse.length,
-          sampleResolution: resolution.length,
+          agora: {
+            activeTotal,
+            unassigned,
+            esperandoResposta: esperando.length,
+            esperaMaisAntigaMin: maisAntiga ? minutesBetween(new Date(maisAntiga.desde), now) : null,
+            esperaMaisAntigaLead: maisAntiga ? { id: Number(maisAntiga.id), nome: maisAntiga.nome } : null,
+            comHumano,
+            comBot,
+            semNinguem,
+            groups,
+            unread,
+          },
+          ritmo: {
+            respostaMedianaMin: ritmo.resposta.mediana,
+            respostaP90Min: ritmo.resposta.p90,
+            respostaMediaMin: ritmo.resposta.media,
+            amostra: ritmo.resposta.amostra,
+            insuficiente: ritmo.resposta.insuficiente,
+            dentroDaMetaPct: ritmo.dentroDaMetaPct,
+            dentroDaMeta: ritmo.dentroDaMeta,
+            metaMin: ritmo.metaMin,
+            semResposta: ritmo.semResposta,
+            turnos: ritmo.turnos,
+            relogio: ritmo.relogio,
+          },
+          resultado: {
+            atendidas: ritmo.turnos - ritmo.semResposta,
+            encerradasHoje: resolvedToday,
+            encerradasPeriodo: resolvedPeriod,
+            encerradasEmLote: duracao.emLote,
+            reabertas,
+            duracaoMedianaMin: duracao.duracao.mediana,
+            duracaoP90Min: duracao.duracao.p90,
+            duracaoAmostra: duracao.duracao.amostra,
+            duracaoInsuficiente: duracao.duracao.insuficiente,
+          },
+          minAmostra: MIN_AMOSTRA,
+          // O período imediatamente anterior, de mesmo tamanho. Só ritmo e
+          // resultado: foto do agora não tem "período anterior".
+          anterior: {
+            respostaMedianaMin: ritmoAntes.resposta.mediana,
+            respostaP90Min: ritmoAntes.resposta.p90,
+            dentroDaMetaPct: ritmoAntes.dentroDaMetaPct,
+            semResposta: ritmoAntes.semResposta,
+            amostra: ritmoAntes.resposta.amostra,
+            insuficiente: ritmoAntes.resposta.insuficiente,
+            atendidas: ritmoAntes.turnos - ritmoAntes.semResposta,
+            encerradas: duracaoAntes.encerradas + duracaoAntes.emLote,
+            encerradasEmLote: duracaoAntes.emLote,
+            duracaoMedianaMin: duracaoAntes.duracao.mediana,
+            duracaoInsuficiente: duracaoAntes.duracao.insuficiente,
+            de: antesDe.toISOString(),
+            ate: antesAte.toISOString(),
+          },
         },
+        // As quatro primeiras linhas de cada gaveta, para o cartão abrir sem
+        // nova consulta.
+        amostras: {
+          esperando: amostraEsperando,
+          semNinguem: amostraSemNinguem.map((l) => ({
+            id: l.id,
+            nome: l.nome || l.empresa || `#${l.id}`,
+            origem: l.source,
+            paradoDesdeMin: l.lastMessageAt ? minutesBetween(l.lastMessageAt, now) : null,
+          })),
+        },
+        // Séries dos gráficos — todas do mesmo conjunto já medido.
+        serie: {
+          porDia: serie,
+          porHora: cobertura,
+          expediente: faixasDoRelogio(relogio),
+        },
+        porOperador: porOperador(
+          turnos,
+          donoDoLead,
+          new Map([...users, ...nomesOperadores].map((u) => [u.id, u.name || u.email])),
+          new Map(byUser.map((r) => [r.assignedUserId, r._count._all])),
+          metaMin,
+        ),
         byUser: byUser
           .map((r) => ({
             id: r.assignedUserId,
@@ -460,7 +668,29 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // recorte deles: as conversas que passaram pela linha pessoal apareciam
       // inteiras para qualquer supervisor. É o mesmo filtro que a tela de
       // Conversas usa — aqui faltava.
-      const where = { AND: [filtersToWhere(q, now), await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
+      const where: any = { AND: [filtersToWhere(q, now), await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
+
+      // ?waiting=1 — só as conversas em que a bola está com a operação (a última
+      // mensagem é do contato). É o filtro que faz o cartão "Esperando resposta"
+      // do topo virar lista com um clique.
+      //
+      // Vai de SQL porque "a ÚLTIMA mensagem" não é expressável no where do
+      // Prisma: `messages: { some: ... }` responde "existe alguma", que é outra
+      // pergunta — e foi justamente a confusão entre as duas que fazia o painel
+      // dizer "0 não lidas" com gente esperando.
+      if (String(q.waiting || '') === '1') {
+        const bolaConosco = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+          `SELECT l.id FROM bychat_leads l
+             JOIN bychat_messages ult ON ult.id = (
+               SELECT m2.id FROM bychat_messages m2
+                WHERE m2.leadId = l.id AND m2.isInternal = 0
+                ORDER BY m2.timestamp DESC, m2.id DESC LIMIT 1)
+            WHERE ult.fromMe = 0
+              AND (l.conversationClosedAt IS NULL OR l.conversationReopenedAt IS NOT NULL)`,
+        ).catch(() => [])
+        const ids = (bolaConosco || []).map((r) => Number(r.id))
+        where.AND.push({ id: { in: ids.length ? ids : [-1] } })
+      }
 
       const sort = (q.sort || 'recent').toString()
       const orderBy =

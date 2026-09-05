@@ -7,6 +7,15 @@ interface KpiCardProps {
   hint?: string | undefined
   icon?: JSX.Element | undefined
   trend?: { value: number; label?: string } | undefined
+  /**
+   * Quando o indicador MELHORA ao cair — tempo de resposta, fila, conversas sem
+   * resposta. Inverte só a COR do chip; o sinal do número continua o real, para
+   * o cartão não dizer "+" quando caiu.
+   *
+   * Sem isto, "1ª resposta: 5min ↓58%" apareceria em vermelho, que é o oposto
+   * do que aconteceu.
+   */
+  menorEhMelhor?: boolean | undefined
   loading?: boolean | undefined
   /** Série pra sparkline embutida. Sem `sparklineColor`, segue a cor do `tone`. */
   sparkline?: number[] | undefined
@@ -58,12 +67,14 @@ export function KpiCard({
   hint,
   icon,
   trend,
+  menorEhMelhor = false,
   loading = false,
   sparkline,
   sparklineColor,
   tone = 'neutral',
 }: KpiCardProps) {
-  const dir = !trend || trend.value === 0 ? 'flat' : trend.value > 0 ? 'up' : 'down'
+  const melhorou = trend ? (menorEhMelhor ? trend.value < 0 : trend.value > 0) : false
+  const dir = !trend || trend.value === 0 ? 'flat' : melhorou ? 'up' : 'down'
   const color = sparklineColor ?? toneVar[tone]
 
   return (

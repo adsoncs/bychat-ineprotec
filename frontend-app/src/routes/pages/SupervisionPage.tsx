@@ -8,7 +8,11 @@
 // Atualização: o WebSocket invalida ['supervision'] (ver lib/realtime.ts); o
 // refetchInterval dos hooks é só a rede de segurança para telão parado.
 
+import type { ComponentChildren, JSX } from 'preact'
 import { useMemo, useState } from 'preact/hooks'
+import { useLocation } from 'wouter-preact'
+import { cn } from '@/lib/cn'
+import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   CornerUpLeft,
@@ -25,6 +29,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { KpiCard } from '@/components/ui/KpiCard'
+import {
+  SerieDeResposta, CoberturaPorHora, TabelaDeOperadores, fmtUteis,
+} from '@/components/supervision/SupervisionCharts'
 import { toast } from '@/lib/toast'
 import {
   useSupervisionOverview, useSupervisionConversations, useSupervisionFilterOptions,
@@ -223,6 +230,194 @@ function DistBar({ rows, empty }: { rows: Array<{ key: string; label: string; to
   )
 }
 
+/**
+ * Pílula de filtro com o número dentro.
+ *
+ * Substitui os menus suspensos pelo mesmo idioma da lista de Conversas: o
+ * gestor lê a operação inteira ANTES de clicar em qualquer coisa, e o clique
+ * que ele der já é o filtro. Menu escondia o número e cobrava dois gestos —
+ * abrir e escolher — para uma pergunta que se faz dez vezes por dia.
+ */
+function Pilula({
+  rotulo, total, ativa, tom = 'neutro', onClick, title,
+}: {
+  rotulo: string
+  total?: number | undefined
+  ativa: boolean
+  tom?: 'neutro' | 'alerta' | undefined
+  onClick: () => void
+  title?: string | undefined
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={ativa}
+      class={cn(
+        'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-xs whitespace-nowrap transition-colors',
+        ativa
+          ? 'bg-accent border-accent text-fg-on-brand font-semibold'
+          : tom === 'alerta'
+            ? 'border-warning/50 bg-warning/10 text-warning font-medium hover:bg-warning/20'
+            : 'border-border bg-surface text-fg hover:bg-surface-3',
+      )}
+    >
+      {rotulo}
+      {total !== undefined && (
+        <span class={cn('tabular-nums text-2xs', ativa ? 'opacity-90' : 'text-fg-muted')}>{total}</span>
+      )}
+    </button>
+  )
+}
+
+/** Divisória entre grupos de pílulas — o mesmo recurso do cabeçalho do Conversas. */
+function DivisoriaPilulas() {
+  return <span class="hidden sm:inline-block h-5 w-px bg-border mx-1" aria-hidden />
+}
+
+/**
+ * Cartão de contagem que abre o microdado ali mesmo.
+ *
+ * O número que interessa ao gestor é o nome: "11 esperando" só vira ação
+ * depois de saber QUEM. Antes isso custava rolar até a lista, filtrar e ler
+ * linha a linha; as primeiras linhas agora vêm junto do resumo, na mesma
+ * resposta, e a gaveta abre fechada para a tela caber inteira.
+ */
+function CartaoComGaveta({
+  label, value, hint, icon, tone, loading, itens, aoVerTodos, vazio,
+}: {
+  label: string
+  value: string | number
+  hint: string
+  icon: JSX.Element
+  tone?: 'neutral' | 'warning' | 'danger' | undefined
+  loading?: boolean | undefined
+  itens: Array<{ id: number; titulo: string; detalhe: string; direita: string }>
+  aoVerTodos?: (() => void) | undefined
+  vazio: string
+}) {
+  const [aberta, setAberta] = useState(false)
+  const [, navigate] = useLocation()
+
+  return (
+    <div class="flex flex-col">
+      <button
+        type="button"
+        class="text-left"
+        onClick={() => setAberta((v) => !v)}
+        aria-expanded={aberta}
+        title={aberta ? 'Fechar detalhes' : 'Ver quem está nesta conta'}
+      >
+        <KpiCard
+          label={label}
+          value={value}
+          hint={`${hint} · ${aberta ? 'ocultar' : 'ver quem'}`}
+          icon={icon}
+          tone={tone}
+          loading={loading}
+        />
+      </button>
+      {aberta && (
+        <div class="border border-t-0 border-border rounded-b-lg bg-surface-2 -mt-1 pt-1">
+          {itens.length === 0 ? (
+            <div class="px-3 py-2.5 text-2xs text-fg-muted">{vazio}</div>
+          ) : (
+            <>
+              {itens.map((i) => (
+                <button
+                  key={i.id}
+                  type="button"
+                  class="w-full text-left px-3 py-2 border-b border-border last:border-b-0 hover:bg-surface-3"
+                  onClick={() => navigate(`/conversations?leadId=${i.id}`)}
+                  title="Abrir esta conversa"
+                >
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="text-xs font-medium text-fg truncate">{i.titulo}</span>
+                    <span class="text-2xs tabular-nums text-warning shrink-0">{i.direita}</span>
+                  </div>
+                  <div class="text-2xs text-fg-muted truncate">{i.detalhe}</div>
+                </button>
+              ))}
+              {aoVerTodos && (
+                <button
+                  type="button"
+                  class="w-full text-left px-3 py-2 text-2xs text-accent hover:bg-surface-3"
+                  onClick={aoVerTodos}
+                >
+                  ver todas na lista →
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Uma faixa de KPIs com nome e procedência.
+ *
+ * O cartão sozinho não diz se responde ao seletor de período — e essa dúvida
+ * era metade da confusão do painel antigo, onde "Sem responsável" (foto) e
+ * "Resolução média" (período) dividiam a mesma grade sem nenhuma marca. A
+ * etiqueta ao lado do nome responde antes de alguém perguntar.
+ */
+function FaixaKpi({
+  titulo, etiqueta, detalhe, children,
+}: {
+  titulo: string
+  etiqueta: string
+  detalhe?: string | undefined
+  children: ComponentChildren
+}) {
+  return (
+    <section class="space-y-2">
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 class="text-sm font-semibold text-fg">{titulo}</h2>
+        <span class="inline-flex items-center rounded px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wider text-accent bg-accent/10">
+          {etiqueta}
+        </span>
+        {detalhe && <span class="text-2xs text-fg-muted">{detalhe}</span>}
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * A dica do cartão — ou o aviso de que a amostra não sustenta um número.
+ *
+ * É a regra que faltava: o "78d 17h" que chegou como reclamação do cliente era
+ * a média de UMA conversa. Abaixo do piso o cartão mostra "—" e diz por quê,
+ * em vez de publicar um número que descreve um caso isolado como se fosse o
+ * comportamento da equipe.
+ */
+/**
+ * A variação contra o período anterior, no formato que o KpiCard entende.
+ *
+ * Devolve `undefined` quando não há com o que comparar — período anterior sem
+ * amostra publicável não vira seta, porque uma seta tirada de duas conversas
+ * seria o mesmo erro que tirou o painel do ar.
+ */
+function variacao(
+  atual: number | null | undefined,
+  anterior: number | null | undefined,
+  opts: { emPontos?: boolean } = {},
+): { value: number; label?: string } | undefined {
+  if (atual === null || atual === undefined || anterior === null || anterior === undefined) return undefined
+  if (atual === anterior) return undefined
+  if (opts.emPontos) return { value: atual - anterior, label: 'pp' }
+  if (anterior === 0) return undefined
+  return { value: Math.round(((atual - anterior) / Math.abs(anterior)) * 100) }
+}
+
+function amostraHint(insuficiente: boolean | undefined, amostra: number | undefined, dica: string): string {
+  if (insuficiente) return `Amostra insuficiente (${amostra ?? 0}) — poucos casos para publicar um número`
+  return `${dica} · ${amostra ?? 0} no período`
+}
+
 export function SupervisionPage() {
   const [bucket, setBucket] = useState<string>('active')
   const [search, setSearch] = useState('')
@@ -234,6 +429,12 @@ export function SupervisionPage() {
   // o que tira os grupos TAMBÉM dos KPIs — um grupo com 176 não lidas distorce a fila.
   const [showGroups, setShowGroups] = useState(true)
   const [onlyUnread, setOnlyUnread] = useState(false)
+  // Só as conversas em que a bola está com a operação. Vem dos cartões
+  // "Esperando resposta" e "Sem resposta": número que não vira lista é número
+  // que ninguém usa na segunda-feira.
+  const [waiting, setWaiting] = useState(false)
+  // O painel do "Filtros": só o que muda de semana em semana mora aqui.
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [stale, setStale] = useState('')
   const [sort, setSort] = useState('recent')
   const [page, setPage] = useState(0)
@@ -255,16 +456,19 @@ export function SupervisionPage() {
     ...(channel ? { channel } : {}),
     ...(showGroups ? {} : { kind: 'contacts' }),
     ...(onlyUnread ? { unread: '1' } : {}),
+    ...(waiting ? { waiting: '1' } : {}),
     ...(stale ? { stale } : {}),
     sort,
     limit,
     offset: page * limit,
-  }), [bucket, search, userId, teamId, funnelId, channel, showGroups, onlyUnread, stale, sort, page])
+  }), [bucket, search, userId, teamId, funnelId, channel, showGroups, onlyUnread, waiting, stale, sort, page])
 
   // Overview ignora o balde (é a visão do todo) mas respeita os demais filtros
   // — e leva o período, que só ele usa (a lista não é recortada por data).
   const overviewFilters: SupervisionFilters = useMemo(() => {
-    const { bucket: _b, limit: _l, offset: _o, sort: _s, ...rest } = filters
+    // `waiting` fica de fora: ele é o recorte da LISTA. Se entrasse aqui, clicar
+    // em "Esperando resposta" reescreveria o próprio cartão que foi clicado.
+    const { bucket: _b, limit: _l, offset: _o, sort: _s, waiting: _w, ...rest } = filters
     return { ...rest, from: period.range.dateFrom, to: period.range.dateTo }
   }, [filters, period.range.dateFrom, period.range.dateTo])
 
@@ -290,9 +494,13 @@ export function SupervisionPage() {
   }
   function clearFilters() {
     setSearch(''); setUserId(''); setTeamId(''); setFunnelId(''); setChannel('')
-    setShowGroups(true); setOnlyUnread(false); setStale(''); setPage(0)
+    setShowGroups(true); setOnlyUnread(false); setWaiting(false); setStale(''); setPage(0)
   }
-  const hasFilters = !!(search || userId || teamId || funnelId || channel || !showGroups || onlyUnread || stale)
+  const hasFilters = !!(search || userId || teamId || funnelId || channel || !showGroups || onlyUnread || waiting || stale)
+  // A bolinha do botão conta só o que está ESCONDIDO atrás dele. Busca,
+  // operador, pressa e estado estão à vista em pílula — contá-los faria o
+  // número dizer "há filtros ativos" para algo que o gestor está enxergando.
+  const filtrosAvancados = [teamId, funnelId, channel, stale, !showGroups ? 'g' : ''].filter(Boolean).length
 
   function runAction(
     fn: { mutate: (v: any, o: any) => void },
@@ -308,6 +516,30 @@ export function SupervisionPage() {
   }
 
   const kpi = ov?.kpis
+  const agora = kpi?.agora
+  const ritmo = kpi?.ritmo
+  const resultado = kpi?.resultado
+  const anterior = kpi?.anterior
+  // Tamanho do dia de expediente: é ele que traduz minuto útil em "dia útil"
+  // sem virar dia de calendário. Vem da jornada cadastrada.
+  const minPorDia = ritmo?.relogio.minutosPorDiaUtil ?? 600
+
+  // Todos os operadores viram pílula, como você pediu — inclusive quem está com
+  // fila zerada, porque fila vazia também é informação de gestão. A fila sai do
+  // mesmo `byUser` que alimenta a distribuição, então pílula e gráfico contam a
+  // mesma coisa.
+  const pilulasDeOperador = useMemo(() => {
+    const fila = new Map<string, number>()
+    for (const r of ov?.byUser ?? []) fila.set(r.id === null ? 'none' : String(r.id), r.total)
+    const lista = (opts?.users ?? []).map((u) => ({
+      valor: String(u.id),
+      nome: u.name,
+      fila: fila.get(String(u.id)) ?? 0,
+    }))
+    lista.sort((a, b) => b.fila - a.fila || a.nome.localeCompare(b.nome))
+    const semDono = fila.get('none') ?? 0
+    return [...lista, { valor: 'none', nome: 'Sem responsável', fila: semDono }]
+  }, [opts?.users, ov?.byUser])
 
   return (
     <Page
@@ -363,75 +595,198 @@ export function SupervisionPage() {
         })}
       </div>
 
-      {/* KPIs */}
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* ── KPIs, em três faixas ────────────────────────────────────────
+        *
+        * Antes eram oito cartões numa grade só, e nenhum dizia se respondia ao
+        * seletor de período — dois deles ("1ª resposta" e "Resolução") mediam
+        * cliques do operador e chegavam a anunciar médias de 54 e 78 DIAS numa
+        * operação que responde em minutos. Agora a tela separa o que precisa de
+        * mão AGORA do RITMO do time e do RESULTADO do período, cada faixa
+        * dizendo de onde vem o número. Ver services/responseTime.ts.
+        */}
+      <FaixaKpi
+        titulo="Agora"
+        etiqueta="foto do momento"
+        detalhe="Não muda com o período escolhido"
+      >
+        <CartaoComGaveta
+          label="Esperando resposta"
+          value={agora?.esperandoResposta ?? '—'}
+          hint="A última mensagem é do contato"
+          icon={<MessageSquare size={15} />}
+          tone={agora && agora.esperandoResposta > 0 ? 'warning' : 'neutral'}
+          loading={ovLoading}
+          itens={(ov?.amostras.esperando ?? []).map((e) => ({
+            id: e.id,
+            titulo: e.dono ? `${e.nome} · ${e.dono}` : `${e.nome} · sem dono`,
+            detalhe: e.trecho || 'sem texto na última mensagem',
+            direita: fmtDuration(e.esperaMin),
+          }))}
+          aoVerTodos={() => { setWaiting(true); setBucket('active'); setPage(0) }}
+          vazio="Ninguém aguardando resposta agora."
+        />
+        <KpiCard
+          label="Espera mais antiga"
+          value={fmtDuration(agora?.esperaMaisAntigaMin ?? null)}
+          hint={agora?.esperaMaisAntigaLead?.nome
+            ? `${agora.esperaMaisAntigaLead.nome} aguarda desde então`
+            : 'Ninguém aguardando resposta'}
+          icon={<Clock size={15} />}
+          tone={(agora?.esperaMaisAntigaMin ?? 0) > 60 ? 'danger' : 'neutral'}
+          loading={ovLoading}
+        />
         <KpiCard
           label="Sem responsável"
-          value={kpi?.unassigned ?? '—'}
+          value={agora?.unassigned ?? '—'}
           hint="Conversas ativas que ninguém assumiu"
           icon={<AlertTriangle size={15} />}
           loading={ovLoading}
         />
+        <CartaoComGaveta
+          label="Sem ninguém"
+          value={agora?.semNinguem ?? '—'}
+          hint={`${agora?.comHumano ?? 0} com humano · ${agora?.comBot ?? 0} com bot`}
+          icon={<Bot size={15} />}
+          tone={agora && agora.semNinguem > 0 ? 'warning' : 'neutral'}
+          loading={ovLoading}
+          itens={(ov?.amostras.semNinguem ?? []).map((l) => ({
+            id: l.id,
+            titulo: l.nome,
+            detalhe: l.origem ? `entrou por ${leadSourceLabel(l.origem)}` : 'origem não registrada',
+            direita: fmtDuration(l.paradoDesdeMin),
+          }))}
+          aoVerTodos={() => { setUserId('none'); setBucket('active'); setPage(0) }}
+          vazio="Toda conversa ativa tem operador ou bot."
+        />
+      </FaixaKpi>
+
+      <FaixaKpi
+        titulo="Ritmo"
+        etiqueta={`${periodLabel(period.range)} · relógio comercial`}
+        detalhe={ritmo ? `Medido pelas mensagens · ${ritmo.relogio.label}` : undefined}
+      >
         <KpiCard
-          label="Não lidas"
-          value={kpi?.unread ?? '—'}
-          hint="Conversas com mensagem do lead pendente"
+          label="1ª resposta (mediana)"
+          value={ritmo?.insuficiente ? '—' : fmtUteis(ritmo?.respostaMedianaMin, minPorDia)}
+          hint={amostraHint(ritmo?.insuficiente, ritmo?.amostra, 'Metade dos contatos é respondida em até isso')}
+          trend={ritmo?.insuficiente ? undefined : variacao(ritmo?.respostaMedianaMin, anterior?.respostaMedianaMin)}
+          menorEhMelhor
+          icon={<Clock size={15} />}
+          tone="accent"
+          loading={ovLoading}
+        />
+        <KpiCard
+          label="1ª resposta (p90)"
+          value={ritmo?.insuficiente ? '—' : fmtUteis(ritmo?.respostaP90Min, minPorDia)}
+          hint={amostraHint(ritmo?.insuficiente, ritmo?.amostra, '9 de cada 10 dentro disso — é aqui que mora o problema')}
+          trend={ritmo?.insuficiente ? undefined : variacao(ritmo?.respostaP90Min, anterior?.respostaP90Min)}
+          menorEhMelhor
+          icon={<Clock size={15} />}
+          loading={ovLoading}
+        />
+        <KpiCard
+          label="Dentro da meta"
+          value={ritmo?.insuficiente || ritmo?.dentroDaMetaPct === null || ritmo?.dentroDaMetaPct === undefined
+            ? '—'
+            : `${ritmo.dentroDaMetaPct}%`}
+          hint={amostraHint(
+            ritmo?.insuficiente,
+            ritmo?.amostra,
+            `Respondidas em até ${ritmo?.metaMin ?? 15}min úteis · ${ritmo?.dentroDaMeta ?? 0} de ${ritmo?.amostra ?? 0}`,
+          )}
+          trend={ritmo?.insuficiente ? undefined : variacao(ritmo?.dentroDaMetaPct, anterior?.dentroDaMetaPct, { emPontos: true })}
+          icon={<CheckCircle2 size={15} />}
+          tone={(ritmo?.dentroDaMetaPct ?? 0) >= 80 ? 'success' : 'warning'}
+          loading={ovLoading}
+        />
+        <button
+          type="button"
+          class="text-left"
+          onClick={() => { setWaiting(true); setBucket('active'); setPage(0) }}
+          title="Ver quem está sem resposta"
+        >
+          <KpiCard
+            label="Sem resposta"
+            value={ritmo?.semResposta ?? '—'}
+            hint={`De ${ritmo?.turnos ?? 0} mensagens do contato no período, seguem sem resposta`}
+            trend={variacao(ritmo?.semResposta, anterior?.semResposta)}
+            menorEhMelhor
+            icon={<AlertTriangle size={15} />}
+            tone={ritmo && ritmo.semResposta > 0 ? 'danger' : 'neutral'}
+            loading={ovLoading}
+          />
+        </button>
+      </FaixaKpi>
+
+      <FaixaKpi
+        titulo="Resultado"
+        etiqueta={periodLabel(period.range)}
+        detalhe="Encerramento em lote fica fora das médias"
+      >
+        <KpiCard
+          label="Conversas atendidas"
+          value={resultado?.atendidas ?? '—'}
+          hint="Tiveram ao menos uma resposta nossa"
+          trend={variacao(resultado?.atendidas, anterior?.atendidas)}
           icon={<MessageSquare size={15} />}
           loading={ovLoading}
         />
         <KpiCard
-          label="Espera mais antiga"
-          value={fmtDuration(kpi?.oldestWaitingMin ?? null)}
-          hint="Há quanto tempo a conversa mais antiga da Caixa aguarda"
-          icon={<Clock size={15} />}
-          loading={ovLoading}
-        />
-        <KpiCard
-          label="Resolvidas hoje"
-          value={kpi?.resolvedToday ?? '—'}
-          hint={`${kpi?.resolvedPeriod ?? 0} ${periodLabel(period.range)}`}
+          label="Encerradas"
+          value={resultado?.encerradasPeriodo ?? '—'}
+          hint={`${resultado?.encerradasHoje ?? 0} hoje · ${resultado?.encerradasEmLote ?? 0} em lote`}
+          trend={variacao(resultado?.encerradasPeriodo, anterior?.encerradas)}
           icon={<CheckCircle2 size={15} />}
           loading={ovLoading}
         />
         <KpiCard
-          label="Com chatbot"
-          value={kpi?.botDriven ?? '—'}
-          hint="Conversas ativas ainda conduzidas pelo bot"
-          icon={<Bot size={15} />}
-          loading={ovLoading}
-        />
-        <KpiCard
-          label="Com humano"
-          value={kpi?.humanDriven ?? '—'}
-          hint="Bot pausado porque um operador assumiu"
-          icon={<UserIcon size={15} />}
-          loading={ovLoading}
-        />
-        <KpiCard
-          label="1ª resposta (média)"
-          value={fmtDuration(kpi?.avgFirstResponseMin ?? null)}
-          hint={`Da atribuição à primeira ação — ${kpi?.sampleFirstResponse ?? 0} conversas no período`}
+          label="Duração do atendimento"
+          value={resultado?.duracaoInsuficiente ? '—' : fmtUteis(resultado?.duracaoMedianaMin, minPorDia)}
+          hint={amostraHint(
+            resultado?.duracaoInsuficiente,
+            resultado?.duracaoAmostra,
+            `Mediana dos encerrados um a um · p90 ${fmtUteis(resultado?.duracaoP90Min, minPorDia)}`,
+          )}
+          trend={resultado?.duracaoInsuficiente ? undefined : variacao(resultado?.duracaoMedianaMin, anterior?.duracaoMedianaMin)}
+          menorEhMelhor
           icon={<Clock size={15} />}
           loading={ovLoading}
         />
         <KpiCard
-          label="Resolução (média)"
-          value={fmtDuration(kpi?.avgResolutionMin ?? null)}
-          hint={`Da abertura ao encerramento — ${kpi?.sampleResolution ?? 0} conversas no período`}
-          icon={<CheckCircle2 size={15} />}
+          label="Reabertas"
+          value={resultado?.reabertas ?? '—'}
+          hint="Contato voltou depois de resolvido"
+          icon={<AlertTriangle size={15} />}
+          tone={resultado && resultado.reabertas > 0 ? 'warning' : 'neutral'}
           loading={ovLoading}
         />
+      </FaixaKpi>
+
+      {/* ── Gráficos ────────────────────────────────────────────────────
+        *
+        * Os três respondem o que a tela não respondia: como o ritmo variou dia
+        * a dia (o agregado do período engolia o dia ruim), em que HORA o
+        * cliente fala contra a hora em que a gente responde, e carga contra
+        * desempenho por pessoa. Todos saem do MESMO conjunto de pares
+        * mensagem→resposta já medido no backend — uma varredura, três leituras.
+        */}
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <SerieDeResposta pontos={ov?.serie.porDia ?? []} minPorDia={minPorDia} />
+        <CoberturaPorHora horas={ov?.serie.porHora ?? []} expediente={ov?.serie.expediente ?? []} />
       </div>
 
+      {/* A barra "por operador" virou tabela: contagem sozinha não distingue
+        * quem está lento de quem está sobrecarregado. Clicar no nome filtra a
+        * tela inteira por ele. */}
+      <TabelaDeOperadores
+        linhas={ov?.porOperador ?? []}
+        minPorDia={minPorDia}
+        metaMin={ritmo?.metaMin ?? 15}
+        onSelecionar={(id) => { setUserId(id === null ? 'none' : String(id)); setPage(0) }}
+      />
+
       {/* Distribuições */}
-      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        <Card>
-          <div class="text-sm font-semibold text-fg mb-3">Por operador</div>
-          <DistBar
-            rows={(ov?.byUser ?? []).map((r) => ({ key: String(r.id ?? 'none'), label: r.name, total: r.total }))}
-            empty="Sem conversas ativas."
-          />
-        </Card>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card>
           <div class="text-sm font-semibold text-fg mb-3">Por setor</div>
           <DistBar
@@ -462,69 +817,139 @@ export function SupervisionPage() {
         </Card>
       </div>
 
-      {/* Filtros */}
+      {/* ── Barra de comando ────────────────────────────────────────────
+        *
+        * Eram 6 menus suspensos, 2 caixas e 1 chave: ver "as conversas do
+        * fulano paradas há mais de 1 hora" custava cinco gestos. Agora o que
+        * se usa toda hora é pílula com o número dentro — o gestor lê a
+        * operação inteira antes de clicar, e o clique já é o filtro. O que
+        * muda uma vez por semana (setor, funil, canal, grupos, ordenação)
+        * ficou atrás de "Filtros", com a bolinha de quantos estão ativos.
+        * Mesmo idioma do cabeçalho da lista de Conversas.
+        */}
       <Card>
-        <div class="flex items-center gap-2 mb-3">
-          <Filter size={15} class="text-fg-muted" />
-          <span class="text-sm font-medium text-fg">Filtros</span>
+        <div class="flex flex-wrap items-center gap-2">
+          <Input
+            class="flex-1 min-w-[180px]"
+            placeholder="Buscar nome, telefone, e-mail…"
+            value={search}
+            onInput={(e) => { setSearch((e.target as HTMLInputElement).value); setPage(0) }}
+          />
+          <Button
+            variant={filtrosAbertos ? 'secondary' : 'ghost'}
+            size="sm"
+            class="relative"
+            onClick={() => setFiltrosAbertos((v) => !v)}
+            aria-expanded={filtrosAbertos}
+          >
+            <Filter size={14} class="mr-1" /> Filtros
+            {filtrosAvancados > 0 && (
+              <span class="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-fg-on-brand text-3xs tabular-nums">
+                {filtrosAvancados}
+              </span>
+            )}
+          </Button>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X size={13} class="mr-1" />Limpar
             </Button>
           )}
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-2">
-          <Input
-            placeholder="Buscar nome, telefone, e-mail…"
-            value={search}
-            onInput={(e) => { setSearch((e.target as HTMLInputElement).value); setPage(0) }}
-          />
-          <select class={SELECT_CLS} value={userId} onChange={(e) => { setUserId((e.target as HTMLSelectElement).value); setPage(0) }}>
-            <option value="">Todos os operadores</option>
-            <option value="none">Sem responsável</option>
-            {(opts?.users ?? []).map((u) => <option key={u.id} value={String(u.id)}>{u.name}</option>)}
-          </select>
-          <select class={SELECT_CLS} value={teamId} onChange={(e) => { setTeamId((e.target as HTMLSelectElement).value); setPage(0) }}>
-            <option value="">Todos os setores</option>
-            <option value="none">Sem setor</option>
-            {(opts?.teams ?? []).map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
-          </select>
-          <select class={SELECT_CLS} value={funnelId} onChange={(e) => { setFunnelId((e.target as HTMLSelectElement).value); setPage(0) }}>
-            <option value="">Todos os funis</option>
-            <option value="none">Sem funil</option>
-            {(opts?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
-          </select>
-          <select class={SELECT_CLS} value={channel} onChange={(e) => { setChannel((e.target as HTMLSelectElement).value); setPage(0) }}>
-            <option value="">Todos os canais</option>
-            {(opts?.channels ?? []).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-          <select class={SELECT_CLS} value={stale} onChange={(e) => { setStale((e.target as HTMLSelectElement).value); setPage(0) }}>
-            <option value="">Qualquer tempo</option>
-            <option value="30">Paradas há +30min</option>
-            <option value="60">Paradas há +1h</option>
-            <option value="240">Paradas há +4h</option>
-            <option value="1440">Paradas há +24h</option>
-          </select>
+
+        {/* Grupo 1 — quem atende. Todos os operadores da casa, com a fila de
+            cada um; quem está sem conversa ativa também aparece, porque fila
+            zerada é informação. */}
+        <div class="flex flex-wrap items-center gap-1.5 mt-3">
+          <Pilula rotulo="Todos" total={kpi?.agora.activeTotal} ativa={!userId}
+            onClick={() => { setUserId(''); setPage(0) }} title="Sem filtro de operador" />
+          {pilulasDeOperador.map((o) => (
+            <Pilula
+              key={o.valor}
+              rotulo={o.nome}
+              total={o.fila}
+              ativa={userId === o.valor}
+              onClick={() => { setUserId(userId === o.valor ? '' : o.valor); setPage(0) }}
+              title={`Só as conversas de ${o.nome}`}
+            />
+          ))}
         </div>
-        <div class="flex flex-wrap items-center gap-3 mt-3">
-          <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
-            <input type="checkbox" checked={onlyUnread} onChange={(e) => { setOnlyUnread((e.target as HTMLInputElement).checked); setPage(0) }} />
-            Só não lidas
-          </label>
-          <Toggle
-            label="Grupos"
-            checked={showGroups}
-            onChange={(v) => { setShowGroups(v); setPage(0) }}
-            hint={showGroups
-              ? 'Grupos de WhatsApp entram nos números e na lista'
-              : 'Só conversas com contatos — grupos ficam de fora de tudo'}
+
+        {/* Grupo 2 — o que pede mão agora · Grupo 3 — o estado da conversa. */}
+        <div class="flex flex-wrap items-center gap-1.5 mt-2">
+          <Pilula
+            rotulo="Esperando resposta"
+            total={kpi?.agora.esperandoResposta}
+            ativa={waiting}
+            tom="alerta"
+            onClick={() => { setWaiting(!waiting); setPage(0) }}
+            title="A última mensagem é do contato"
           />
-          <select class={SELECT_CLS + " max-w-[12rem]"} value={sort} onChange={(e) => setSort((e.target as HTMLSelectElement).value)}>
-            <option value="recent">Mais recentes</option>
-            <option value="oldest">Mais antigas</option>
-            <option value="unread">Mais não lidas</option>
-          </select>
+          <Pilula
+            rotulo="Não lidas"
+            total={kpi?.agora.unread}
+            ativa={onlyUnread}
+            onClick={() => { setOnlyUnread(!onlyUnread); setPage(0) }}
+            title="Com mensagem não lida no painel"
+          />
+          <Pilula
+            rotulo="Paradas +1h"
+            ativa={stale === '60'}
+            onClick={() => { setStale(stale === '60' ? '' : '60'); setPage(0) }}
+            title="Sem nenhuma mensagem há mais de uma hora"
+          />
+          <DivisoriaPilulas />
+          {BUCKETS.map((b) => (
+            <Pilula
+              key={b.id}
+              rotulo={b.label}
+              total={ov?.buckets?.[b.id as keyof typeof ov.buckets]}
+              ativa={bucket === b.id}
+              onClick={() => { setBucket(bucket === b.id ? 'active' : b.id); setPage(0) }}
+              title={`Só as conversas em ${b.label}`}
+            />
+          ))}
         </div>
+
+        {filtrosAbertos && (
+          <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-2 mt-3 pt-3 border-t border-border">
+            <select class={SELECT_CLS} value={teamId} onChange={(e) => { setTeamId((e.target as HTMLSelectElement).value); setPage(0) }}>
+              <option value="">Todos os setores</option>
+              <option value="none">Sem setor</option>
+              {(opts?.teams ?? []).map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
+            </select>
+            <select class={SELECT_CLS} value={funnelId} onChange={(e) => { setFunnelId((e.target as HTMLSelectElement).value); setPage(0) }}>
+              <option value="">Todos os funis</option>
+              <option value="none">Sem funil</option>
+              {(opts?.funnels ?? []).map((f) => <option key={f.id} value={String(f.id)}>{f.name}</option>)}
+            </select>
+            <select class={SELECT_CLS} value={channel} onChange={(e) => { setChannel((e.target as HTMLSelectElement).value); setPage(0) }}>
+              <option value="">Todos os canais</option>
+              {(opts?.channels ?? []).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <select class={SELECT_CLS} value={stale} onChange={(e) => { setStale((e.target as HTMLSelectElement).value); setPage(0) }}>
+              <option value="">Qualquer tempo</option>
+              <option value="30">Paradas há +30min</option>
+              <option value="60">Paradas há +1h</option>
+              <option value="240">Paradas há +4h</option>
+              <option value="1440">Paradas há +24h</option>
+            </select>
+            <select class={SELECT_CLS} value={sort} onChange={(e) => setSort((e.target as HTMLSelectElement).value)}>
+              <option value="recent">Mais recentes</option>
+              <option value="oldest">Mais antigas</option>
+              <option value="unread">Mais não lidas</option>
+            </select>
+            <div class="md:col-span-3 xl:col-span-5">
+              <Toggle
+                label="Grupos"
+                checked={showGroups}
+                onChange={(v) => { setShowGroups(v); setPage(0) }}
+                hint={showGroups
+                  ? 'Grupos de WhatsApp entram nos números e na lista'
+                  : 'Só conversas com contatos — grupos ficam de fora de tudo'}
+              />
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* Ações em lote */}
