@@ -6,7 +6,7 @@ import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useSidebarStore } from '@/stores/sidebar'
 import { useThemeStore, type Theme } from '@/stores/theme'
 import { useFontSizeStore, FONT_SIZE_LABELS, type FontSize } from '@/stores/fontSize'
-import { useLocaleStore, useT, type Locale } from '@/i18n'
+import { useT } from '@/i18n'
 import { useAuth, useUpdateWorkStatus } from '@/hooks/useAuth'
 import { ROLE_LABELS, type UserRole } from '@/hooks/useUsers'
 import type { WorkStatus } from '@/stores/user'
@@ -163,7 +163,6 @@ export function Topbar({ onOpenCommandPalette }: TopbarProps) {
         <DuplicatesBadge />
         <WorkStatusMenu />
         <FontSizeMenu />
-        <LocaleMenu />
         <ThemeMenu />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -421,59 +420,6 @@ function FontSizeMenu() {
                 )}
                 onSelect={() => setSize(it.value)}
               >
-                <span class="flex-1">{it.label}</span>
-                {isCurrent && <span class="text-accent">●</span>}
-              </DropdownMenu.Item>
-            )
-          })}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  )
-}
-
-function LocaleMenu() {
-  const locale = useLocaleStore((s) => s.locale)
-  const setLocale = useLocaleStore((s) => s.setLocale)
-  const t = useT()
-  const items: { value: Locale; label: string; flag: string }[] = [
-    { value: 'pt', label: t('locale.pt'), flag: '🇧🇷' },
-    { value: 'en', label: t('locale.en'), flag: '🇬🇧' },
-    { value: 'es', label: t('locale.es'), flag: '🇪🇸' },
-  ]
-  const current = items.find((i) => i.value === locale) ?? items[0]!
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          class="h-9 px-2 rounded-md text-xs font-medium text-fg-muted hover:bg-surface-3 hover:text-fg flex items-center gap-1"
-          aria-label={t('locale.label')}
-          title={t('locale.label')}
-        >
-          <span aria-hidden="true">{current.flag}</span>
-          <span class="hidden sm:inline uppercase">{locale}</span>
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={8}
-          class="min-w-[10rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
-          style={{ zIndex: 'var(--z-popover)' }}
-        >
-          {items.map((it) => {
-            const isCurrent = it.value === locale
-            return (
-              <DropdownMenu.Item
-                key={it.value}
-                class={cn(
-                  'flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none',
-                  isCurrent && 'text-fg font-medium',
-                )}
-                onSelect={() => setLocale(it.value)}
-              >
-                <span aria-hidden="true">{it.flag}</span>
                 <span class="flex-1">{it.label}</span>
                 {isCurrent && <span class="text-accent">●</span>}
               </DropdownMenu.Item>

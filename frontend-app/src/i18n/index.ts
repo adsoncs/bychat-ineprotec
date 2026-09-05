@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import { CATALOGS, pt, type Locale, type MessageKey } from './messages'
 
 interface LocaleState {
@@ -7,34 +6,40 @@ interface LocaleState {
   setLocale: (locale: Locale) => void
 }
 
-export const useLocaleStore = create<LocaleState>()(
-  persist(
-    (set) => ({
-      locale: detectInitialLocale(),
-      setLocale: (locale) => {
-        if (typeof document !== 'undefined') {
-          document.documentElement.lang = bcp47(locale)
-        }
-        set({ locale })
-      },
-    }),
-    {
-      name: 'bh:locale',
-      onRehydrateStorage: () => (state) => {
-        if (state && typeof document !== 'undefined') {
-          document.documentElement.lang = bcp47(state.locale)
-        }
-      },
-    },
-  ),
-)
+/**
+ * O sistema é em português, e só.
+ *
+ * O seletor de idioma saiu do topo em 05/09/2026. Duas coisas tinham de sair
+ * junto com ele, senão a remoção prenderia gente em inglês ou espanhol sem
+ * botão nenhum para voltar:
+ *
+ *   1. O idioma vinha do idioma do NAVEGADOR, então quem usa o navegador em
+ *      inglês nunca tinha visto o sistema em português — sem ter mexido em nada.
+ *   2. A escolha era gravada em `bh:locale` no localStorage. Quem já tinha
+ *      trocado continuaria no idioma antigo para sempre.
+ *
+ * A maquinaria de tradução fica de pé: `useT`, os catálogos e as chaves seguem
+ * como estão. Voltar atrás é recolocar o `<LocaleMenu />` no Topbar e devolver
+ * a detecção e a gravação aqui — de propósito, para o dia em que houver
+ * tradução de verdade para manter.
+ */
+export const useLocaleStore = create<LocaleState>()((set) => ({
+  locale: 'pt',
+  setLocale: (locale) => {
+    if (typeof document !== 'undefined') document.documentElement.lang = bcp47(locale)
+    set({ locale })
+  },
+}))
 
-function detectInitialLocale(): Locale {
-  if (typeof navigator === 'undefined') return 'pt'
-  const lang = navigator.language.toLowerCase()
-  if (lang.startsWith('en')) return 'en'
-  if (lang.startsWith('es')) return 'es'
-  return 'pt'
+if (typeof document !== 'undefined') {
+  document.documentElement.lang = bcp47('pt')
+  // Apaga a preferência antiga: sem isto ela ficaria guardada no navegador de
+  // cada usuário sem nada que a leia nem que a mude.
+  try {
+    window.localStorage.removeItem('bh:locale')
+  } catch {
+    // localStorage bloqueado (janela anônima, cookies desativados) — nada a fazer.
+  }
 }
 
 function bcp47(locale: Locale): string {
