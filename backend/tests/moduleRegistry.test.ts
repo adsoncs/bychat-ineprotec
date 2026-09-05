@@ -102,9 +102,16 @@ describe('MODULE_REGISTRY — invariantes', () => {
     }
   })
 
-  test('o caso que motivou o teste: meta-ads-report é de vendas', () => {
-    assert.equal(getModuleForRoute('/api/admin/meta-ads-report/dashboard')?.id, 'vendas')
-    assert.equal(getModuleForRoute('/api/admin/meta/campaigns')?.id, 'marketing')
+  test('o caso que motivou o teste: o relatório não é engolido por /api/admin/meta', () => {
+    // O defeito original era `/api/admin/meta` (marketing) levar as rotas de
+    // `/api/admin/meta-ads-report`. O dono do relatório mudou de `vendas` para
+    // `ads_report` quando o relatório virou módulo próprio — o que não pode
+    // mudar é ele ser DIFERENTE de quem governa `/api/admin/meta`.
+    const relatorio = getModuleForRoute('/api/admin/meta-ads-report/dashboard')?.id
+    const meta = getModuleForRoute('/api/admin/meta/campaigns')?.id
+    assert.equal(meta, 'marketing')
+    assert.notEqual(relatorio, meta)
+    assert.equal(relatorio, 'ads_report')
   })
 
   test('as rotas de leads pertencem ao módulo leads', () => {

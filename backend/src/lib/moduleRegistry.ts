@@ -218,28 +218,64 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     inheritFrom: 'captacao',
   },
   {
-    id: 'marketing', name: 'Marketing', icon: '📢', category: 'marketing',
-    description: 'Meta Ads, links rastreáveis, origens UTM e tracking unificado de campanhas.',
-    pages: ['meta', 'trackablelinks', 'origins', 'tracking'],
-    // `/api/admin/google/ads` mora aqui e não em "Conta Google": a tela de
-    // Google Ads é do menu de Marketing, ao lado da de Meta Ads, e era o módulo
-    // google que governava a rota — tela e rota apontando para módulos
-    // diferentes é o defeito que este registry já teve duas vezes.
+    id: 'marketing', name: 'Anúncios', icon: '📢', category: 'marketing',
+    // Ficou com o que é anúncio: a conexão com a Meta e o Google Ads. Links
+    // rastreáveis e Rastreamento saíram para módulos próprios — servem para
+    // medir QUALQUER origem de tráfego, inclusive quem não anuncia.
+    description: 'Conexão com Meta Ads e Google Ads: contas, formulários de lead e sincronização de campanhas.',
+    pages: ['meta', 'googleads'],
     routePrefixes: [
-      '/api/admin/meta', '/api/admin/trackable-links', '/api/admin/origins', '/api/admin/tracking',
-      '/api/meta', '/api/tracking', '/api/admin/google/ads',
+      '/api/admin/meta', '/api/meta', '/api/admin/google/ads',
     ],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
   },
   {
-    id: 'vendas', name: 'Vendas & Anúncios', icon: '💰', category: 'vendas',
-    description: 'Gestão de vendas detectadas e relatório de Meta Ads (investimento, leads, ROAS).',
-    pages: ['sales', 'meta-ads-report'],
-    routePrefixes: ['/api/admin/sales', '/api/admin/meta-ads-report', '/api/admin/google-ads-report',
-      '/api/admin/reports', '/api/admin/conversions', '/api/admin/payments', '/api/admin/coupons'],
+    id: 'trackable_links', name: 'Links Rastreáveis', icon: '🔗', category: 'marketing',
+    description: 'Links curtos com UTM que registram cada clique e ligam a visita ao lead que ela virou.',
+    pages: ['trackablelinks'],
+    routePrefixes: ['/api/admin/trackable-links'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+    inheritFrom: 'marketing',
+  },
+  {
+    id: 'tracking', name: 'Rastreamento', icon: '🛰️', category: 'marketing',
+    description: 'Script de rastreamento no site: visitas anônimas, origem da sessão e a amarração com o lead quando ele se identifica.',
+    pages: ['tracking', 'origins'],
+    routePrefixes: ['/api/admin/tracking', '/api/tracking', '/api/admin/origins'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'marketing',
+  },
+  {
+    id: 'vendas', name: 'Vendas', icon: '💰', category: 'vendas',
+    // O relatório de anúncios e o financeiro (pagamentos e cupons) viraram
+    // módulos próprios: um é medição de mídia, o outro é cobrança, e nenhum dos
+    // dois é a venda em si — que é o que sobra aqui.
+    description: 'Vendas detectadas nas conversas, conversões enviadas à Meta e os relatórios de funil.',
+    pages: ['sales'],
+    routePrefixes: ['/api/admin/sales', '/api/admin/reports', '/api/admin/conversions'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+  },
+  {
+    id: 'ads_report', name: 'Relatório de Anúncios', icon: '📊', category: 'vendas',
+    description: 'Investimento, leads e ROAS por campanha — Meta Ads e Google Ads lado a lado.',
+    pages: ['meta-ads-report'],
+    routePrefixes: ['/api/admin/meta-ads-report', '/api/admin/google-ads-report'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'vendas',
+  },
+  {
+    id: 'payments', name: 'Pagamentos e Cupons', icon: '💳', category: 'vendas',
+    description: 'Cobrança pelo painel: provedores de pagamento, links de cobrança e cupons de desconto.',
+    pages: [],
+    routePrefixes: ['/api/admin/payments', '/api/admin/coupons'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'vendas',
   },
   {
     id: 'whatsapp', name: 'WhatsApp', icon: '📱', category: 'canais',
@@ -307,12 +343,21 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     // lista de rotas liberadas do gate, então declará-lo aqui nunca teve efeito
     // — a API do Looker é autenticada por chave, não por módulo.
     description: 'Conexão da conta Google (OAuth) que sustenta as integrações de Calendar, Gmail, Drive, Sheets, Tasks e Analytics.',
-    pages: ['googleads', 'make'],
+    pages: [],
     routePrefixes: ['/api/admin/google/config', '/api/admin/google/connections',
       '/api/admin/google/auth-url', '/api/admin/google/callback',
       '/api/admin/google/reset-credentials', '/api/integrations/google'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+  },
+  {
+  id: 'make', name: 'Make.com', icon: '🧩', category: 'integracoes',
+    description: 'Automação com o Make.com: dispara cenários a partir de eventos do painel.',
+    pages: ['make'],
+    routePrefixes: ['/api/admin/make'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'google',
   },
   {
     id: 'google_calendar', name: 'Google Calendar', icon: '📅', category: 'integracoes',
@@ -560,7 +605,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     routePrefixes: [
       '/api/admin/settings', '/api/admin/appearance', '/api/admin/custom-fields',
       '/api/admin/routing', '/api/admin/system-emails', '/api/admin/business-hours',
-      '/api/admin/make', '/api/admin/evolution-monitor', '/api/admin/evolution',
+      '/api/admin/evolution-monitor', '/api/admin/evolution',
       '/api/admin/landing-contact', '/api/admin/user-module-overrides', '/api/admin/sms',
       '/api/admin/agents', '/api/admin/default-team', '/api/admin/payment-providers',
       // Endpoints sem /admin

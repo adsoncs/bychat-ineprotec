@@ -239,6 +239,24 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
       ])
     }
 
+    case 'payments': {
+      const [prov, cupons] = await Promise.all([
+        safeCount((prisma as any).paymentProviderConnection?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).coupon?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'provedores conectados', count: prov },
+        { label: 'cupons cadastrados', count: cupons },
+      ])
+    }
+
+    case 'trackable_links': {
+      const [links] = await Promise.all([
+        safeCount((prisma as any).trackableLink?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([{ label: 'links rastreáveis', count: links }])
+    }
+
     case 'google_calendar': {
       const [integr] = await Promise.all([
         safeCount((prisma as any).googleCalendarIntegration?.count?.() ?? Promise.resolve(0)),
