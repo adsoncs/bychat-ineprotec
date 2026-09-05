@@ -92,11 +92,24 @@ async function syncModulePermissions(moduleId: string, enabled: boolean) {
     const data = enabled
       ? preset
       : { canView: false, canCreate: false, canEdit: false, canDelete: false }
-    await prisma.modulePermission.upsert({
-      where: { moduleId_role: { moduleId, role: role as any } },
-      create: { moduleId, role: role as any, ...data },
-      update: data,
-    })
+    // O upsert do Prisma em MySQL é SELECT + INSERT, não atômico: dois seeds
+    // concorrentes (dois boots quase simultâneos, ou uma chamada duplicada)
+    // chegam a inserir o mesmo par (moduleId, role) e o segundo bate no
+    // unique. Aconteceu de verdade aqui. A colisão significa que a linha JÁ
+    // existe — então vira update, e não um erro que derruba o seed dos módulos
+    // seguintes: era o que deixava um módulo novo sem as linhas de permissão.
+    try {
+      await prisma.modulePermission.upsert({
+        where: { moduleId_role: { moduleId, role: role as any } },
+        create: { moduleId, role: role as any, ...data },
+        update: data,
+      })
+    } catch {
+      await prisma.modulePermission.updateMany({
+        where: { moduleId, role: role as any },
+        data,
+      }).catch(() => {})
+    }
   }
   invalidatePermCache()
 }
@@ -199,6 +212,16 @@ export async function ensureModulesSeeded(): Promise<void> {
       // Estado inicial: core sempre ativo; senão honra o Setting legado se existir
       // (admin pode ter "ligado" antes do row existir), senão o defaultEnabled.
       let active = def.core === true ? true : def.defaultEnabled === true
+      // Módulo desmembrado de outro nasce com o estado do pai — é o que faz a
+      // separação não ligar nem desligar nada em produção. Vale só aqui, no
+      // primeiro seed: depois o toggle do admin manda.
+      if (def.inheritFrom) {
+        const pai = await prisma.module.findUnique({
+          where: { id: def.inheritFrom },
+          select: { active: true },
+        }).catch(() => null)
+        if (pai) active = pai.active
+      }
       const legacy = await prisma.setting.findUnique({ where: { key: settingKey(def.id) } })
       if (legacy) {
         const v = legacy.value as any
@@ -208,7 +231,9 @@ export async function ensureModulesSeeded(): Promise<void> {
         data: { id: def.id, name: def.name, category: def.category, active, isCore: def.core === true },
       }).catch(() => {})
       // Garante presets de permissão coerentes com o estado recém-semeado
-      await syncModulePermissions(def.id, active)
+      await syncModulePermissions(def.id, active).catch((e) => {
+        console.warn(`[moduleManager] permissões de ${def.id} falharam:`, (e as Error).message)
+      })
       created++
     }
     if (created > 0) {

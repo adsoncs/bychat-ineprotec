@@ -12,6 +12,7 @@ import {
 } from '@/hooks/useFunnels'
 import { useKanbanFunnelsSummary } from '@/hooks/useKanban'
 import { useAiJourneyConfig, useUpdateAiJourneyConfig } from '@/hooks/useAiJourney'
+import { useModuleAccess } from '@/hooks/usePermissions'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -288,6 +289,7 @@ function StageFormModal({ funnelId, stage, onClose }: { funnelId: number; stage:
 }
 
 function AiJourneyConfigCard({ funnelId }: { funnelId: number }) {
+  const acesso = useModuleAccess('ai_journey')
   const { data: resp, isLoading } = useAiJourneyConfig(funnelId)
   const update = useUpdateAiJourneyConfig()
   const cfg = resp?.data
@@ -330,6 +332,27 @@ function AiJourneyConfigCard({ funnelId }: { funnelId: number }) {
       },
     )
   }
+
+  // Sem o módulo, a rota responde 404 e `cfg` nunca chega — e o cartão ficava
+  // em esqueleto para sempre, o que se lê como "este tenant não tem Jornada
+  // IA". Tratar "não veio dado" como "ainda carregando" é o que fazia a tela
+  // mentir; aqui ela diz o que está havendo e onde resolver.
+  if (acesso.status === 'inactive') {
+    return (
+      <Card>
+        <div class="flex items-center gap-2 mb-1">
+          <Brain size={16} class="text-fg-muted" />
+          <h3 class="text-sm font-semibold text-fg">Jornada Automática por IA</h3>
+          <Badge tone="neutral">Módulo desativado</Badge>
+        </div>
+        <p class="text-xs text-fg-muted">
+          Ative o módulo <strong>Jornada IA</strong> em Configurações › Módulos para a IA
+          acompanhar as conversas deste funil e sugerir a próxima etapa.
+        </p>
+      </Card>
+    )
+  }
+  if (acesso.status === 'denied') return null
 
   if (isLoading || !cfg) {
     return (

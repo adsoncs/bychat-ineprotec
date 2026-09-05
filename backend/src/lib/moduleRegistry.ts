@@ -12,6 +12,15 @@ export interface ModuleDefinition {
   actions: ('view' | 'create' | 'edit' | 'delete')[]
   core?: boolean              // true = não pode ser desativado (módulos essenciais)
   defaultEnabled?: boolean    // true = vem ligado por padrão (default: true para core, false para os demais)
+  /**
+   * Ao ser semeado pela PRIMEIRA vez, herda o `active` deste outro módulo.
+   *
+   * Existe para desmembrar um módulo sem ligar nem desligar nada em produção:
+   * quem tinha o módulo-pai ligado continua com as funções ligadas, quem tinha
+   * desligado continua sem. Só vale no seed inicial — depois disso o toggle do
+   * admin manda, como em qualquer outro módulo.
+   */
+  inheritFrom?: string
   dependsOn?: string[]        // ids de módulos exigidos: ligar este liga as dependências; não dá pra desligar uma dependência com dependentes ativos
 }
 
@@ -81,11 +90,36 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'intelligence', name: 'Inteligência', icon: '🧠', category: 'crm',
-    description: 'Análise inteligente de leads, score, enriquecimento e recomendações via IA.',
+    description: 'Lead score, enriquecimento de dados e análise de leads por IA.',
     pages: ['intelligence'],
-    routePrefixes: ['/api/bychat/leads', '/api/admin/ai-journey', '/api/admin/conversation-audits', '/api/admin/scoring-config', '/api/admin/enrichment', '/api/bychat/enrichment', '/api/bychat/analyze'],
+    // `/api/bychat/leads` saiu daqui: o módulo `leads` já reivindica esse
+    // prefixo, e `getModuleForRoute` é um `.find()` — quem ganhava era só quem
+    // estivesse declarado primeiro no arquivo. Uma reordenação inocente do
+    // registry tiraria a tela de Leads de todo tenant com Inteligência
+    // desligada. Jornada IA e Auditoria de Conversas viraram módulos próprios
+    // logo abaixo: fazem coisas sem parentesco com score e enriquecimento, e
+    // ligá-las obrigava a ligar tudo junto.
+    routePrefixes: ['/api/admin/scoring-config', '/api/admin/enrichment', '/api/bychat/enrichment', '/api/bychat/analyze'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+  },
+  {
+    id: 'ai_journey', name: 'Jornada IA', icon: '✨', category: 'crm',
+    description: 'A IA acompanha a conversa e sugere (ou aplica) a próxima etapa do funil, por funil.',
+    pages: ['ai-journey'],
+    routePrefixes: ['/api/admin/ai-journey'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'intelligence',
+  },
+  {
+    id: 'conversation_audit', name: 'Auditoria de Conversas', icon: '🔎', category: 'crm',
+    description: 'Avaliação por IA do atendimento já realizado, com nota por operador e por conversa.',
+    pages: ['conversation-audit'],
+    routePrefixes: ['/api/admin/conversation-audits'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'intelligence',
   },
   {
     id: 'kanban', name: 'Kanban', icon: '📋', category: 'crm',
