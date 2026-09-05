@@ -80,9 +80,9 @@ export const sidebarSchema: SidebarSchema = {
       id: 'marketing',
       label: 'Marketing',
       items: [
-        { id: 'chatbots', label: 'Chatbots', href: '/app/chatbots', icon: 'Bot', permission: 'captacao' },
-        { id: 'pages', label: 'Landing Pages', href: '/app/pages', icon: 'Globe', permission: 'captacao' },
-        { id: 'forms', label: 'Formulários', href: '/app/forms', icon: 'FormInput', permission: 'captacao' },
+        { id: 'chatbots', label: 'Chatbots', href: '/app/chatbots', icon: 'Bot', permission: 'chatbots' },
+        { id: 'pages', label: 'Landing Pages', href: '/app/pages', icon: 'Globe', permission: 'landing_pages' },
+        { id: 'forms', label: 'Formulários', href: '/app/forms', icon: 'FormInput', permission: 'forms' },
         { id: 'meta-ads', label: 'Meta Ads', href: '/app/meta-ads', icon: 'Megaphone', permission: 'marketing' },
         { id: 'google-ads', label: 'Google Ads', href: '/app/google-ads', icon: 'Search', permission: 'marketing' },
         { id: 'links', label: 'Links rastreáveis', href: '/app/links', icon: 'Link2', permission: 'marketing' },

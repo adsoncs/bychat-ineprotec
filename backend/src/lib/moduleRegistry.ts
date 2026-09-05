@@ -179,17 +179,43 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'captacao', name: 'Captação', icon: '🎯', category: 'captacao',
-    description: 'Landing pages, formulários, chatbots e templates de captura de leads.',
-    pages: ['landingpages', 'forms', 'chatbots', 'templates'],
-    routePrefixes: [
-      '/api/admin/pages', '/api/admin/forms', '/api/admin/chatbots',
-      '/api/admin/inbound-webhooks',
-      // Endpoints sem /admin
-      '/api/pages', '/api/forms', '/api/chatbots',
-      // templates ficou em 'leads' (cadastro do operador, não captacao admin)
-    ],
+    // Chatbots, Formulários e Landing Pages saíram para módulos próprios: são
+    // três produtos diferentes, com tela e time de uso diferentes, e ligá-los
+    // juntos obrigava quem só queria chatbot a carregar construtor de página.
+    // O que fica aqui é a entrada por integração (webhook de terceiro), que não
+    // tem tela própria e é o "resto" honesto da captação.
+    description: 'Entrada de leads por integração — webhooks de sistemas de terceiros.',
+    pages: ['templates'],
+    routePrefixes: ['/api/admin/inbound-webhooks'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+  },
+  {
+    id: 'chatbots', name: 'Chatbots', icon: '🤖', category: 'captacao',
+    description: 'Fluxos de atendimento automático no WhatsApp: jornada por IA ou script, com qualificação e roteamento.',
+    pages: ['chatbots'],
+    routePrefixes: ['/api/admin/chatbots', '/api/chatbots'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'captacao',
+  },
+  {
+    id: 'forms', name: 'Formulários', icon: '📝', category: 'captacao',
+    description: 'Formulários de captura publicados ou embedados no site, com campos personalizados e roteamento na entrada.',
+    pages: ['forms'],
+    routePrefixes: ['/api/admin/forms', '/api/forms'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'captacao',
+  },
+  {
+    id: 'landing_pages', name: 'Landing Pages', icon: '🌐', category: 'captacao',
+    description: 'Construtor de páginas de captura hospedadas pelo próprio sistema.',
+    pages: ['landingpages'],
+    routePrefixes: ['/api/admin/pages', '/api/pages'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'captacao',
   },
   {
     id: 'marketing', name: 'Marketing', icon: '📢', category: 'marketing',

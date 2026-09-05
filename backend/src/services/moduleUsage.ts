@@ -76,17 +76,55 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
     }
 
     case 'captacao': {
-      const [pages, forms, chatbots, templates] = await Promise.all([
-        safeCount(prisma.landingPage.count({ where: { status: 'PUBLISHED' } }) as any),
-        safeCount(prisma.form.count({ where: { active: true } }) as any),
-        safeCount(prisma.chatbot.count() as any),
+      // Chatbots, formulários e landing pages viraram módulos próprios e têm
+      // contagem própria logo abaixo. Aqui fica o que sobrou: a entrada por
+      // integração e os modelos.
+      const [webhooks, templates] = await Promise.all([
+        safeCount(prisma.inboundWebhook.count() as any),
         safeCount(prisma.messageTemplate.count({ where: { active: true } }) as any),
       ])
       return pack([
-        { label: 'landing pages publicadas', count: pages },
-        { label: 'formulários ativos', count: forms },
-        { label: 'chatbots', count: chatbots },
+        { label: 'webhooks de entrada', count: webhooks },
         { label: 'templates ativos', count: templates },
+      ])
+    }
+
+    case 'chatbots': {
+      const [total, ativos] = await Promise.all([
+        safeCount(prisma.chatbot.count() as any),
+        safeCount(prisma.chatbot.count({ where: { active: true } }) as any),
+      ])
+      return pack([
+        { label: 'chatbots', count: total },
+        { label: 'chatbots ativos', count: ativos },
+      ])
+    }
+
+    case 'forms': {
+      // A contagem de chatbots vinculados NÃO é decoração: desligar
+      // Formulários derruba o chatbot em modo script, que lê os campos do form
+      // para saber o que perguntar. É a informação que falta na hora de
+      // decidir, e é aqui que ela aparece — no type-to-confirm da desativação.
+      const [ativos, comChatbot, envios] = await Promise.all([
+        safeCount(prisma.form.count({ where: { active: true } }) as any),
+        safeCount(prisma.chatbot.count({ where: { formId: { not: null } } }) as any),
+        safeCount(prisma.formSubmission.count() as any),
+      ])
+      return pack([
+        { label: 'formulários ativos', count: ativos },
+        { label: 'chatbots que dependem de um formulário', count: comChatbot },
+        { label: 'respostas recebidas', count: envios },
+      ])
+    }
+
+    case 'landing_pages': {
+      const [publicadas, total] = await Promise.all([
+        safeCount(prisma.landingPage.count({ where: { status: 'PUBLISHED' } }) as any),
+        safeCount(prisma.landingPage.count() as any),
+      ])
+      return pack([
+        { label: 'landing pages publicadas', count: publicadas },
+        { label: 'landing pages no total', count: total },
       ])
     }
 

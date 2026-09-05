@@ -253,6 +253,7 @@ const HOOK_BYPASS_PREFIXES = [
   '/api/admin/modules/',
   // Públicos / externos
   '/api/forms/submit/',
+  '/api/forms/progress/',
   '/api/forms/config/',
   '/api/forms/embed/',
   '/api/pixel/',
