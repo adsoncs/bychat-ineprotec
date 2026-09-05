@@ -223,11 +223,37 @@ export async function getModuleUsage(moduleId: string): Promise<ModuleUsage> {
     }
 
     case 'google': {
-      const [conns] = await Promise.all([
+      // A conta Google sustenta as outras integrações: desligar aqui derruba
+      // Calendar, Gmail, Sheets, Drive, Tasks e Analytics de uma vez. Por isso
+      // as integrações vinculadas entram na contagem — é o que a pessoa precisa
+      // saber antes de confirmar, e não depois.
+      const [conns, calendars, sheets] = await Promise.all([
         safeCount((prisma as any).googleConnection?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).googleCalendarIntegration?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).googleSheetIntegration?.count?.() ?? Promise.resolve(0)),
       ])
       return pack([
         { label: 'conexões OAuth configuradas', count: conns },
+        { label: 'agendas vinculadas (param de sincronizar)', count: calendars },
+        { label: 'planilhas vinculadas (param de sincronizar)', count: sheets },
+      ])
+    }
+
+    case 'google_calendar': {
+      const [integr] = await Promise.all([
+        safeCount((prisma as any).googleCalendarIntegration?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([{ label: 'agendas vinculadas', count: integr }])
+    }
+
+    case 'google_data': {
+      const [sheets, logs] = await Promise.all([
+        safeCount((prisma as any).googleSheetIntegration?.count?.() ?? Promise.resolve(0)),
+        safeCount((prisma as any).googleSheetLog?.count?.() ?? Promise.resolve(0)),
+      ])
+      return pack([
+        { label: 'planilhas vinculadas', count: sheets },
+        { label: 'sincronizações registradas', count: logs },
       ])
     }
 

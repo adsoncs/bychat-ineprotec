@@ -221,9 +221,13 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'marketing', name: 'Marketing', icon: '📢', category: 'marketing',
     description: 'Meta Ads, links rastreáveis, origens UTM e tracking unificado de campanhas.',
     pages: ['meta', 'trackablelinks', 'origins', 'tracking'],
+    // `/api/admin/google/ads` mora aqui e não em "Conta Google": a tela de
+    // Google Ads é do menu de Marketing, ao lado da de Meta Ads, e era o módulo
+    // google que governava a rota — tela e rota apontando para módulos
+    // diferentes é o defeito que este registry já teve duas vezes.
     routePrefixes: [
       '/api/admin/meta', '/api/admin/trackable-links', '/api/admin/origins', '/api/admin/tracking',
-      '/api/meta', '/api/tracking',
+      '/api/meta', '/api/tracking', '/api/admin/google/ads',
     ],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
@@ -232,7 +236,8 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     id: 'vendas', name: 'Vendas & Anúncios', icon: '💰', category: 'vendas',
     description: 'Gestão de vendas detectadas e relatório de Meta Ads (investimento, leads, ROAS).',
     pages: ['sales', 'meta-ads-report'],
-    routePrefixes: ['/api/admin/sales', '/api/admin/meta-ads-report', '/api/admin/reports', '/api/admin/conversions', '/api/admin/payments', '/api/admin/coupons'],
+    routePrefixes: ['/api/admin/sales', '/api/admin/meta-ads-report', '/api/admin/google-ads-report',
+      '/api/admin/reports', '/api/admin/conversions', '/api/admin/payments', '/api/admin/coupons'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
   },
@@ -290,15 +295,61 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     defaultEnabled: false,
   },
   {
-    id: 'google', name: 'Google', icon: '🔗', category: 'integracoes',
-    description: 'Integrações Google: Sheets, Calendar, Drive, Ads, GA4, Gmail, Tasks, Looker e Make.',
-    pages: ['googlesheets', 'googlecalendar', 'googledrive', 'googleads', 'ga4', 'gmail', 'googletasks', 'lookerstudio', 'make'],
-    routePrefixes: [
-      '/api/admin/google', '/api/admin/ga4', '/api/admin/gmail', '/api/v1/looker',
-      '/api/integrations/google',
-    ],
+    id: 'google', name: 'Conta Google', icon: '🔗', category: 'integracoes',
+    // Este módulo virou o que sempre foi de fato: a CONEXÃO. É ela que guarda o
+    // OAuth da empresa e sustenta todas as integrações abaixo — desligar aqui
+    // derruba Calendar, Gmail, Sheets, Drive, Tasks, GA4 e Looker de uma vez, e
+    // a contagem de uso avisa isso na hora de desligar.
+    //
+    // Os prefixos `/api/admin/ga4` e `/api/admin/gmail` saíram: não existe uma
+    // rota sequer neles (as reais são `/api/admin/google/ga4` e
+    // `/api/admin/google/gmail`). E `/api/v1/looker` também: `/api/v1/` está na
+    // lista de rotas liberadas do gate, então declará-lo aqui nunca teve efeito
+    // — a API do Looker é autenticada por chave, não por módulo.
+    description: 'Conexão da conta Google (OAuth) que sustenta as integrações de Calendar, Gmail, Drive, Sheets, Tasks e Analytics.',
+    pages: ['googleads', 'make'],
+    routePrefixes: ['/api/admin/google/config', '/api/admin/google/connections',
+      '/api/admin/google/auth-url', '/api/admin/google/callback',
+      '/api/admin/google/reset-credentials', '/api/integrations/google'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: true,
+  },
+  {
+    id: 'google_calendar', name: 'Google Calendar', icon: '📅', category: 'integracoes',
+    description: 'Agenda do Google: cria e sincroniza os eventos dos agendamentos, com link do Meet.',
+    pages: ['googlecalendar'],
+    routePrefixes: ['/api/admin/google/calendar', '/api/admin/google/calendars'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'google',
+  },
+  {
+    id: 'gmail', name: 'Gmail', icon: '✉️', category: 'integracoes',
+    description: 'E-mail pelo Gmail da empresa: envio a partir do lead e recebimento das respostas.',
+    pages: ['gmail'],
+    routePrefixes: ['/api/admin/google/gmail'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'google',
+  },
+  {
+    id: 'google_data', name: 'Sheets, Drive e Tasks', icon: '📄', category: 'integracoes',
+    description: 'Planilhas, arquivos e tarefas do Google — as três integrações de produtividade, que quem usa costuma usar juntas.',
+    pages: ['googlesheets', 'googledrive', 'googletasks'],
+    routePrefixes: ['/api/admin/google/sheets', '/api/admin/google/spreadsheets',
+      '/api/admin/google/drive', '/api/admin/google/tasks'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'google',
+  },
+  {
+    id: 'google_analytics', name: 'GA4 e Looker Studio', icon: '📈', category: 'integracoes',
+    description: 'Medição: envio de eventos ao GA4 e a fonte de dados para painéis no Looker Studio.',
+    pages: ['ga4', 'lookerstudio'],
+    routePrefixes: ['/api/admin/google/ga4'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+    inheritFrom: 'google',
   },
   {
     id: 'educacional', name: 'Educacional', icon: '🎓', category: 'educacional',

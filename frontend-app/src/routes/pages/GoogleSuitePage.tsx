@@ -42,18 +42,31 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { useModuleAccess } from '@/hooks/usePermissions'
 
 type Tab = 'account' | 'sheets' | 'calendar' | 'drive' | 'tasks' | 'gmail' | 'ga4' | 'looker'
 
-const TABS: { id: Tab; label: string; icon: typeof FileSpreadsheet }[] = [
+/**
+ * As abas e o módulo que governa cada uma.
+ *
+ * As integrações do Google deixaram de ser um módulo só: Calendar, Gmail,
+ * produtividade (Sheets/Drive/Tasks) e medição (GA4/Looker) ligam e desligam
+ * separados. A aba de uma integração desligada some daqui — sem isso, ela
+ * abriria e todas as chamadas dela responderiam 404, que é a forma mais
+ * confusa possível de dizer "esse recurso está desligado".
+ *
+ * "Minha conta" não tem módulo próprio: é a conexão, e sem ela nenhuma das
+ * outras existe.
+ */
+const TABS: { id: Tab; label: string; icon: typeof FileSpreadsheet; modulo?: string }[] = [
   { id: 'account', label: 'Minha conta', icon: Sparkles },
-  { id: 'sheets', label: 'Sheets', icon: FileSpreadsheet },
-  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
-  { id: 'drive', label: 'Drive', icon: HardDrive },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks },
-  { id: 'gmail', label: 'Gmail', icon: Mail },
-  { id: 'ga4', label: 'GA4', icon: BarChart3 },
-  { id: 'looker', label: 'Looker Studio', icon: LineChartIcon },
+  { id: 'sheets', label: 'Sheets', icon: FileSpreadsheet, modulo: 'google_data' },
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange, modulo: 'google_calendar' },
+  { id: 'drive', label: 'Drive', icon: HardDrive, modulo: 'google_data' },
+  { id: 'tasks', label: 'Tasks', icon: ListChecks, modulo: 'google_data' },
+  { id: 'gmail', label: 'Gmail', icon: Mail, modulo: 'gmail' },
+  { id: 'ga4', label: 'GA4', icon: BarChart3, modulo: 'google_analytics' },
+  { id: 'looker', label: 'Looker Studio', icon: LineChartIcon, modulo: 'google_analytics' },
 ]
 
 /**
@@ -70,6 +83,22 @@ function abaDaUrl(): Tab {
 }
 
 export function GoogleSuitePage() {
+  // Cada aba pergunta pelo seu módulo. `useModuleAccess` responde 'loading'
+  // enquanto as permissões não chegaram — e aí a aba fica visível, para a tela
+  // não piscar abas aparecendo uma a uma.
+  const acessoCalendar = useModuleAccess('google_calendar')
+  const acessoGmail = useModuleAccess('gmail')
+  const acessoData = useModuleAccess('google_data')
+  const acessoAnalytics = useModuleAccess('google_analytics')
+  const abasVisiveis = TABS.filter((t) => {
+    const st = t.modulo === 'google_calendar' ? acessoCalendar.status
+      : t.modulo === 'gmail' ? acessoGmail.status
+      : t.modulo === 'google_data' ? acessoData.status
+      : t.modulo === 'google_analytics' ? acessoAnalytics.status
+      : 'allowed'
+    return st === 'allowed' || st === 'loading'
+  })
+
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>(abaDaUrl)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
@@ -96,7 +125,7 @@ export function GoogleSuitePage() {
       <ConnectionsCard />
 
       <div class="flex gap-1 border-b border-border overflow-x-auto">
-        {TABS.map((t) => {
+        {abasVisiveis.map((t) => {
           const Icon = t.icon
           return (
             <button
