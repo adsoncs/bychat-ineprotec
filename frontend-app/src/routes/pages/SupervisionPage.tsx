@@ -563,6 +563,13 @@ export function SupervisionPage() {
   // sem virar dia de calendário. Vem da jornada cadastrada.
   const minPorDia = ritmo?.relogio.minutosPorDiaUtil ?? 600
 
+  // Conversas esperando há mais de 30 dias saem do cartão de espera (senão ele
+  // mostra o mesmo número para sempre) mas não somem da tela: viram uma frase
+  // ao lado, que é o convite para a varredura.
+  const esquecidasTexto = agora && agora.esquecidas > 0
+    ? ` · ${agora.esquecidas} esperando há mais de ${agora.esquecidasDias} dias`
+    : ''
+
   // Todos os operadores viram pílula, como você pediu — inclusive quem está com
   // fila zerada, porque fila vazia também é informação de gestão. A fila sai do
   // mesmo `byUser` que alimenta a distribuição, então pílula e gráfico contam a
@@ -651,7 +658,7 @@ export function SupervisionPage() {
         <CartaoComGaveta
           label="Esperando resposta"
           value={agora?.esperandoResposta ?? '—'}
-          hint="A última mensagem é do contato"
+          hint={`A última mensagem é do contato${esquecidasTexto}`}
           icon={<MessageSquare size={15} />}
           tone={agora && agora.esperandoResposta > 0 ? 'warning' : 'neutral'}
           loading={ovLoading}
@@ -682,7 +689,9 @@ export function SupervisionPage() {
             value={fmtDuration(agora?.esperaMaisAntigaMin ?? null)}
             hint={agora?.esperaMaisAntigaLead?.nome
               ? `${agora.esperaMaisAntigaLead.nome} aguarda desde então — abrir`
-              : 'Ninguém aguardando resposta'}
+              : agora && agora.esquecidas > 0
+                ? `Ninguém na fila recente${esquecidasTexto}`
+                : 'Ninguém aguardando resposta'}
             icon={<Clock size={15} />}
             tone={(agora?.esperaMaisAntigaMin ?? 0) > 60 ? 'danger' : 'neutral'}
             loading={ovLoading}
@@ -738,9 +747,9 @@ export function SupervisionPage() {
           loading={ovLoading}
         />
         <KpiCard
-          label="1ª resposta (p90)"
+          label="9 em cada 10 até"
           value={ritmo?.insuficiente ? '—' : fmtUteis(ritmo?.respostaP90Min, minPorDia)}
-          hint={amostraHint(ritmo?.insuficiente, ritmo?.amostra, '9 de cada 10 dentro disso — é aqui que mora o problema')}
+          hint={amostraHint(ritmo?.insuficiente, ritmo?.amostra, 'Só 1 em cada 10 demora mais que isso — é aqui que mora o problema')}
           trend={ritmo?.insuficiente ? undefined : variacao(ritmo?.respostaP90Min, anterior?.respostaP90Min)}
           menorEhMelhor
           icon={<Clock size={15} />}

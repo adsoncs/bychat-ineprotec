@@ -85,6 +85,37 @@ function relogioPadrao(): Relogio {
   }
 }
 
+/**
+ * Une faixas que se sobrepõem no mesmo dia da semana.
+ *
+ * Sem isto, duas equipes com jornadas parecidas (8h-18h e 9h-17h) viram DOIS
+ * intervalos no mesmo dia, e tanto o tamanho do dia útil quanto o tempo de
+ * resposta contam o mesmo período duas vezes: no demo o painel anunciava um dia
+ * de expediente de 30 HORAS. Vale igual para os vários slots por dia que o
+ * Horário Comercial permite (manhã e tarde, com intervalo de almoço) — ali eles
+ * não se sobrepõem e a função devolve os dois intactos.
+ */
+function mesclarFaixas(faixas: Faixa[]): Faixa[] {
+  const porDia = new Map<number, Faixa[]>()
+  for (const f of faixas) {
+    if (f.fim <= f.inicio) continue
+    const lista = porDia.get(f.weekday) ?? []
+    lista.push(f)
+    porDia.set(f.weekday, lista)
+  }
+  const saida: Faixa[] = []
+  for (const [weekday, lista] of porDia) {
+    lista.sort((a, b) => a.inicio - b.inicio)
+    let atual = { weekday, inicio: lista[0]!.inicio, fim: lista[0]!.fim }
+    for (const f of lista.slice(1)) {
+      if (f.inicio <= atual.fim) atual.fim = Math.max(atual.fim, f.fim)
+      else { saida.push(atual); atual = { weekday, inicio: f.inicio, fim: f.fim } }
+    }
+    saida.push(atual)
+  }
+  return saida
+}
+
 /** Média de minutos dos dias que têm expediente. Dia fechado não entra na média. */
 function minutosPorDiaUtil(faixas: Faixa[]): number {
   const porDia = new Map<number, number>()
@@ -121,7 +152,7 @@ function normalizar(linhas: Array<{ weekday: number; startTime: string; endTime:
     }
     // ini === fim: linha sem duração, o dia não conta.
   }
-  return faixas
+  return mesclarFaixas(faixas)
 }
 
 /**
@@ -163,12 +194,13 @@ export async function relogioDaCasa(): Promise<Relogio> {
       }
     }
     if (faixas.length) {
+      const unidas = mesclarFaixas(faixas)
       return {
-        faixas,
+        faixas: unidas,
         timezone: bh.timezone || PADRAO_TZ,
         origem: 'cadastrada',
         label: 'horário comercial da empresa',
-        minutosPorDiaUtil: minutosPorDiaUtil(faixas),
+        minutosPorDiaUtil: minutosPorDiaUtil(unidas),
       }
     }
   }

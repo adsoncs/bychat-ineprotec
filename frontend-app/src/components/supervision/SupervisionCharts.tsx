@@ -105,7 +105,7 @@ export function SerieDeResposta({ pontos, minPorDia }: { pontos: PontoDoDia[]; m
             <i class="size-2.5 rounded-sm" style={{ background: 'var(--color-accent)' }} /> Mediana
           </span>
           <span class="inline-flex items-center gap-1.5">
-            <i class="size-2.5 rounded-sm" style={{ background: 'var(--color-orange)' }} /> p90
+            <i class="size-2.5 rounded-sm" style={{ background: 'var(--color-orange)' }} /> 9 em cada 10
           </span>
         </div>
       </div>
@@ -114,7 +114,7 @@ export function SerieDeResposta({ pontos, minPorDia }: { pontos: PontoDoDia[]; m
       </p>
       <div class="overflow-x-auto">
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: '520px' }} role="img"
-          aria-label="Mediana e p90 do tempo de resposta, por dia">
+          aria-label="Mediana e nono decil do tempo de resposta, por dia">
           {marcas.map((m) => (
             <g key={m.f}>
               <line x1={L} y1={y(m.v)} x2={W - R} y2={y(m.v)}
@@ -135,7 +135,7 @@ export function SerieDeResposta({ pontos, minPorDia }: { pontos: PontoDoDia[]; m
               <g key={p.dia}>
                 <circle cx={x(i)} cy={y(Math.min(p.p90 ?? 0, teto))} r={acima ? 4 : 3}
                   fill="var(--color-orange)" stroke="var(--color-surface)" stroke-width="1.5">
-                  <title>{`${diaCurto(p.dia)} · p90 ${fmtUteis(p.p90, minPorDia)} · ${p.amostra} atendimentos`}</title>
+                  <title>{`${diaCurto(p.dia)} · 9 em cada 10 até ${fmtUteis(p.p90, minPorDia)} · ${p.amostra} atendimentos`}</title>
                 </circle>
                 {acima && (
                   <text x={x(i)} y={y(teto) - 7} text-anchor="middle" fill="var(--color-orange)"
@@ -311,7 +311,7 @@ export function TabelaDeOperadores({
               <th class="text-left font-medium pb-2 pr-3">Operador</th>
               <th class="text-left font-medium pb-2 pr-3 w-[26%]">Fila agora</th>
               <th class="text-right font-medium pb-2 pr-3">Mediana</th>
-              <th class="text-right font-medium pb-2 pr-3">p90</th>
+              <th class="text-right font-medium pb-2 pr-3" title="9 em cada 10 atendimentos ficam abaixo deste tempo">9 em 10</th>
               <th class="text-right font-medium pb-2 pr-3">Na meta</th>
               <th class="text-right font-medium pb-2">Sem resp.</th>
             </tr>

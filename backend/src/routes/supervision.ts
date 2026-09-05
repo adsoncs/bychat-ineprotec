@@ -447,7 +447,18 @@ export async function supervisionRoutes(app: FastifyInstance) {
               ORDER BY ult.timestamp ASC`,
           ).catch(() => [])
         : []
-      const maisAntiga = esperando[0] ?? null
+      // "Espera mais antiga" mede a fila de HOJE, não o arquivo morto.
+      //
+      // Sem teto, o cartão era sequestrado por uma conversa esquecida em junho
+      // e anunciava "85d" todo santo dia — um número verdadeiro e inútil, que
+      // não muda com o trabalho da equipe e some da vista justamente porque
+      // ninguém pode fazer nada com ele hoje. As esquecidas continuam contadas,
+      // à parte: viram um aviso próprio, que é o convite para uma varredura.
+      const TETO_ESPERA_DIAS = 30
+      const limiteEspera = new Date(now.getTime() - TETO_ESPERA_DIAS * 86_400_000)
+      const esperandoRecentes = esperando.filter((e) => new Date(e.desde) >= limiteEspera)
+      const esquecidas = esperando.length - esperandoRecentes.length
+      const maisAntiga = esperandoRecentes[0] ?? null
 
       // ── Microdado das gavetas ───────────────────────────────────────────
       //
@@ -591,6 +602,9 @@ export async function supervisionRoutes(app: FastifyInstance) {
             esperandoResposta: esperando.length,
             esperaMaisAntigaMin: maisAntiga ? minutesBetween(new Date(maisAntiga.desde), now) : null,
             esperaMaisAntigaLead: maisAntiga ? { id: Number(maisAntiga.id), nome: maisAntiga.nome } : null,
+            /** Esperando há mais de 30 dias — fora do cartão de espera, contadas aqui. */
+            esquecidas,
+            esquecidasDias: TETO_ESPERA_DIAS,
             comHumano,
             comBot,
             semNinguem,

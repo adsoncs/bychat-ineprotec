@@ -32,6 +32,9 @@ export interface SupervisionOverview {
       /** Minutos CORRIDOS (é o tempo que o cliente sente), não úteis. */
       esperaMaisAntigaMin: number | null
       esperaMaisAntigaLead: { id: number; nome: string | null } | null
+      /** Esperando há mais de `esquecidasDias` — não entram no cartão de espera. */
+      esquecidas: number
+      esquecidasDias: number
       comHumano: number
       comBot: number
       /** Sem operador e sem bot conduzindo. */
