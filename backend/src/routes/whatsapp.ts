@@ -10,7 +10,7 @@ import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
 import { isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
-import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { authMiddleware, adminOnly, verifyToken } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
@@ -637,11 +637,19 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // GET /api/whatsapp/connection-stream — SSE para estado de conexão em tempo real
   app.get('/api/whatsapp/connection-stream', async (req, reply) => {
+    // Auth por query (?token=<JWT>): EventSource não envia header Authorization,
+    // e o cookie de refresh tem path /api/admin — não chega até aqui. Mesmo
+    // padrão do WebSocket /api/ws. Sem token válido, recusa antes de abrir o
+    // stream. Removido o 'Access-Control-Allow-Origin: *': o app é same-origin;
+    // o wildcard deixava qualquer site ler o estado de conexão do WhatsApp.
+    const qToken = (req.query as any)?.token
+    if (!qToken) return reply.code(401).send({ error: 'Token não fornecido' })
+    try { verifyToken(String(qToken)) } catch { return reply.code(401).send({ error: 'Token inválido ou expirado' }) }
+
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     })
     // Se nunca sincronizou com a Evolution, faz fetch pontual antes de emitir.
     // Evita reportar "disconnected" falso-positivo quando a instância já está conectada

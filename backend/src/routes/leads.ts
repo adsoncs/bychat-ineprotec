@@ -17,6 +17,13 @@ import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { validateLeadAcquiresSlot } from '../services/educationalSlots.js'
 import { scoreLead, getAiScoreCalibration } from '../services/aiLeadScoreService.js'
 
+// Rate-limit por IP da criação pública de lead (chat widget / landing). Não
+// altera a semântica de dedup/update — só barra enumeração/abuso anônimo.
+// 20/min é folgado para um humano preenchendo um formulário e apertado para
+// varredura automatizada. Em memória, por processo (mesma abordagem do
+// submit de formulário em forms.ts).
+const leadCreateCounts = new Map<string, { count: number; reset: number }>()
+
 export async function leadsRoutes(app: FastifyInstance) {
 
   // Helper de gate por lead — bloqueia AGENT/VIEWER de ver/operar lead alheio.
@@ -77,6 +84,14 @@ export async function leadsRoutes(app: FastifyInstance) {
 
   // ── POST /api/bychat/leads ─── Criar lead (etapa 0) ou salvar completo ──
   app.post('/api/bychat/leads', async (req, reply) => {
+    const ip = getIp(req)
+    const nowRl = Date.now()
+    const rl = leadCreateCounts.get(ip) || { count: 0, reset: nowRl + 60000 }
+    if (nowRl > rl.reset) { rl.count = 0; rl.reset = nowRl + 60000 }
+    rl.count++
+    leadCreateCounts.set(ip, rl)
+    if (rl.count > 20) return reply.code(429).send({ error: 'Muitas requisições. Aguarde 1 minuto.' })
+
     const body = req.body as any
     const fd = body?.formData
 

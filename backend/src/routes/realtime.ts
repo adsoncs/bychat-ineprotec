@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import websocket from '@fastify/websocket'
-import { verifyToken } from '../lib/auth.js'
+import { verifyToken, authMiddleware } from '../lib/auth.js'
 import type { JwtPayload } from '../lib/auth.js'
 import { prisma } from '../lib/prisma.js'
 import { canUserAccessLead } from '../lib/teamAccess.js'
@@ -189,7 +189,7 @@ export async function realtimeRoutes(app: FastifyInstance) {
   })
 
   // Endpoint para o painel admin verificar quantos clientes estão conectados.
-  app.get('/api/ws/stats', { preHandler: app.hasDecorator('authenticate') ? undefined : undefined }, async () => {
+  app.get('/api/ws/stats', { preHandler: authMiddleware }, async () => {
     return { connections: sockets.size }
   })
 }

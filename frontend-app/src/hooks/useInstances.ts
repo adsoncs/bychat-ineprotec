@@ -200,39 +200,58 @@ export function useInstanceStatus(id: number | null, enabled = false, intervalMs
 export function useWhatsappConnectionStream(): void {
   const qc = useQueryClient()
   useEffect(() => {
-    const token = (() => {
-      try { return localStorage.getItem(env.authTokenKey) } catch { return null }
-    })()
-    if (!token) return
     let es: EventSource | null = null
     let lastState: string | null = null
     let cancelled = false
-    try {
-      // EventSource não suporta header Authorization; o endpoint não exige auth.
-      es = new EventSource(`${env.apiBase}/whatsapp/connection-stream`)
-    } catch {
-      return
+    let retry: ReturnType<typeof setTimeout> | null = null
+
+    const readToken = (): string | null => {
+      try { return localStorage.getItem(env.authTokenKey) } catch { return null }
     }
-    es.onmessage = (ev: MessageEvent) => {
+
+    // Reconexão MANUAL (não a nativa do EventSource): o endpoint agora exige
+    // ?token=<JWT>, e o access token expira em ~15min. Se a conexão cair após a
+    // expiração, o EventSource nativo tentaria de novo com o MESMO token na URL
+    // e levaria 401 em loop. Aqui, a cada (re)conexão relemos o token fresco do
+    // localStorage (o tokenWatcher o renova antes de expirar).
+    const connect = () => {
       if (cancelled) return
+      const token = readToken()
+      if (!token) { retry = setTimeout(connect, 5000); return } // sem sessão: tenta depois
       try {
-        const raw = typeof ev.data === 'string' ? ev.data : ''
-        if (!raw) return
-        const data = JSON.parse(raw) as { state?: string }
-        if (!data?.state) return
-        if (lastState !== null && lastState !== data.state) {
-          void qc.invalidateQueries({ queryKey: ['instances'] })
-        }
-        lastState = data.state
+        es = new EventSource(`${env.apiBase}/whatsapp/connection-stream?token=${encodeURIComponent(token)}`)
       } catch {
-        /* ignore */
+        retry = setTimeout(connect, 5000)
+        return
+      }
+      es.onmessage = (ev: MessageEvent) => {
+        if (cancelled) return
+        try {
+          const raw = typeof ev.data === 'string' ? ev.data : ''
+          if (!raw) return
+          const data = JSON.parse(raw) as { state?: string }
+          if (!data?.state) return
+          if (lastState !== null && lastState !== data.state) {
+            void qc.invalidateQueries({ queryKey: ['instances'] })
+          }
+          lastState = data.state
+        } catch {
+          /* ignore */
+        }
+      }
+      es.onerror = () => {
+        // Fecha e reconecta com token fresco após um intervalo (backoff simples).
+        try { es?.close() } catch { /* ignore */ }
+        es = null
+        if (!cancelled && !retry) retry = setTimeout(() => { retry = null; connect() }, 5000)
       }
     }
-    es.onerror = () => {
-      // EventSource reconecta sozinho; não precisamos fazer nada.
-    }
+
+    connect()
+
     return () => {
       cancelled = true
+      if (retry) { clearTimeout(retry); retry = null }
       try { es?.close() } catch { /* ignore */ }
     }
   }, [qc])
