@@ -55,6 +55,10 @@ async function ensureUserForKommo(u: any): Promise<number> {
   const created = await prisma.user.create({
     data: { email, name, role: 'AGENT', active: true, passwordHash, isAgent: true },
   })
+  // Idem ao CRM Educacional: agente importado precisa do perfil para existir
+  // para o rodízio.
+  const { garantirPerfilDeAgente } = await import('./teamRouting.js')
+  await garantirPerfilDeAgente([created.id]).catch(() => 0)
   return created.id
 }
 

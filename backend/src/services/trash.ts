@@ -283,7 +283,12 @@ async function restoreSimpleEntity(type: TrashEntityType, snapshot: any) {
       return wf
     }
     case 'user': {
-      return prisma.user.create({ data })
+      const restaurado = await prisma.user.create({ data })
+      // O perfil de agente vive em outra tabela e não volta com o usuário —
+      // sem isto, quem foi restaurado da lixeira ficaria fora do rodízio.
+      const { garantirPerfilDeAgente } = await import('./teamRouting.js')
+      await garantirPerfilDeAgente([restaurado.id]).catch(() => 0)
+      return restaurado
     }
     case 'custom_field':
       return prisma.customField.create({ data })

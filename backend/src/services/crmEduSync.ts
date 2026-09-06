@@ -172,6 +172,10 @@ async function garantirConsultor(nome: string, crmId: string | null): Promise<nu
   const criado = await prisma.user.create({
     data: { email, name: limpo, role: 'AGENT', active: true, passwordHash, isAgent: true },
   })
+  // Consultor criado por sincronização é agente como qualquer outro: sem o
+  // perfil ele nasce invisível para o rodízio (o motor V2 filtra por perfil).
+  const { garantirPerfilDeAgente } = await import('./teamRouting.js')
+  await garantirPerfilDeAgente([criado.id]).catch(() => 0)
   return criado.id
 }
 
