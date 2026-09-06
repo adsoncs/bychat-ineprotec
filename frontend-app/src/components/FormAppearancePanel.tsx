@@ -250,6 +250,8 @@ export function FormAppearancePanel({ value, onChange, fields, settings }: Props
           <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
             <Input label="Largura máxima" value={styling.maxWidth!} onInput={(e) => set('maxWidth', (e.target as HTMLInputElement).value)} hint="Ex.: 480px, 100%, 32rem" />
             <Input label="Espaço entre campos" value={styling.fieldSpacing!} onInput={(e) => set('fieldSpacing', (e.target as HTMLInputElement).value)} hint="Ex.: 16px" />
+            <Input label="Espaço nas bordas" value={styling.wrapPadding!} onInput={(e) => set('wrapPadding', (e.target as HTMLInputElement).value)} hint="Respiro em volta do form. Ex.: 24px, 24px 16px, 0" />
+            <Input label="Cantos arredondados (bloco)" value={styling.wrapRadius!} onInput={(e) => set('wrapRadius', (e.target as HTMLInputElement).value)} hint="Só aparece com fundo sólido. Ex.: 12px, 0" />
             <Input label="Padding dos campos" value={styling.fieldPadding!} onInput={(e) => set('fieldPadding', (e.target as HTMLInputElement).value)} hint="Ex.: 11px 14px" />
             <Input label="Cantos arredondados (campos)" value={styling.borderRadius!} onInput={(e) => set('borderRadius', (e.target as HTMLInputElement).value)} hint="Ex.: 8px, 999px" />
           </div>
@@ -322,7 +324,7 @@ function FormPreview({ styling, fields, settings }: PreviewProps) {
   const css = `
     .bf-preview-root, .bf-preview-root *, .bf-preview-root *::before, .bf-preview-root *::after { box-sizing: border-box; margin: 0; padding: 0; }
     .bf-preview-root { font-family: ${styling.fontFamily}; font-size: ${styling.fontSize}; color: ${styling.labelColor}; line-height: 1.5; }
-    .bf-preview-wrap { max-width: ${styling.maxWidth}; margin: 0 auto; background: ${styling.backgroundColor}; padding: 16px; border-radius: ${styling.borderRadius}; }
+    .bf-preview-wrap { max-width: ${styling.maxWidth}; margin: 0 auto; background: ${styling.backgroundColor}; padding: ${styling.wrapPadding}; border-radius: ${styling.wrapRadius}; }
     .bf-preview-field { margin-bottom: ${styling.fieldSpacing}; }
     .bf-preview-field label { display: block; font-size: ${styling.labelSize}; font-weight: ${styling.labelWeight}; margin-bottom: 6px; color: ${styling.labelColor}; }
     .bf-preview-field input, .bf-preview-field select, .bf-preview-field textarea {

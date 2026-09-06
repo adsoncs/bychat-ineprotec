@@ -55,6 +55,8 @@ export interface FormStyling {
   fontSize?:            string
   maxWidth?:            string
   fieldSpacing?:        string
+  wrapPadding?:         string
+  wrapRadius?:          string
   successTitleColor?:   string
   successTextColor?:    string
   successTitleSize?:    string
@@ -89,6 +91,8 @@ export const DEFAULT_FORM_STYLING: Required<FormStyling> = {
   fontSize:              '14px',
   maxWidth:              '480px',
   fieldSpacing:          '16px',
+  wrapPadding:           '24px',
+  wrapRadius:            '12px',
   successTitleColor:     '#34a853',
   successTextColor:      '#5f6368',
   successTitleSize:      '20px',

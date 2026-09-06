@@ -890,6 +890,13 @@ export function getDefaultFormStyling(): any {
     // Layout
     maxWidth:            '480px',
     fieldSpacing:        '16px',
+    // Respiro interno do formulário. Sem ele o embed encostava nas bordas do
+    // container do site do cliente (o canvas do editor já desenhava com folga,
+    // então o painel mostrava um form com respiro que o site não tinha).
+    wrapPadding:         '24px',
+    // Raio do bloco do formulário. Só aparece quando o fundo do wrap não é
+    // transparente — com fundo sólido, canto reto encosta duro na página.
+    wrapRadius:          '12px',
 
     // Sucesso
     successTitleColor:   '#34a853',
@@ -954,6 +961,8 @@ function generateEmbedScript(
     fontSize:               cssVal(s.fontSize,            d.fontSize),
     maxWidth:               cssVal(s.maxWidth,            d.maxWidth),
     fieldSpacing:           cssVal(s.fieldSpacing,        d.fieldSpacing),
+    wrapPadding:            cssVal(s.wrapPadding,         d.wrapPadding),
+    wrapRadius:             cssVal(s.wrapRadius,          d.wrapRadius),
     successTitleColor:      cssVal(s.successTitleColor,   d.successTitleColor),
     successTextColor:       cssVal(s.successTextColor,    d.successTextColor),
     successTitleSize:       cssVal(s.successTitleSize,    d.successTitleSize),
@@ -1000,7 +1009,7 @@ function generateEmbedScript(
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :host{display:block;font-family:${v.fontFamily};color:${v.labelColor};line-height:1.5;font-size:${v.fontSize}}
-.bf-wrap{max-width:${v.maxWidth};margin:0 auto;background:${v.background};padding:0}
+.bf-wrap{max-width:${v.maxWidth};margin:0 auto;background:${v.background};padding:${v.wrapPadding};border-radius:${v.wrapRadius}}
 .bf-field{margin-bottom:${v.fieldSpacing}}
 .bf-statement{margin-bottom:${v.fieldSpacing};text-align:center}
 .bf-st-ico{font-size:40px;line-height:1;margin-bottom:8px}
@@ -1027,7 +1036,7 @@ function generateEmbedScript(
     <div class="bf-field bf-lgpd">
       <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;font-size:13px;cursor:pointer">
         <input type="checkbox" id="bf-lgpd" style="width:auto;margin:3px 0 0">
-        <span style="font-size:13px;color:${v.fieldPlaceholder}">Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary}">Política de Privacidade</a>.</span>
+        <span style="font-size:13px;color:${v.labelColor}">Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary};text-decoration:underline">Política de Privacidade</a>.</span>
       </label>
       <div class="bf-lgpd-err" style="color:${v.errorBorder};font-size:12px;margin-top:4px;display:none">É necessário aceitar para enviar.</div>
     </div>

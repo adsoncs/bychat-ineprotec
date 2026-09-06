@@ -101,6 +101,8 @@ function resolveTokens(styling: any) {
     fontSize: g('fontSize', '14px'),
     maxWidth: g('maxWidth', '480px'),
     fieldSpacing: g('fieldSpacing', '16px'),
+    wrapPadding: g('wrapPadding', '24px'),
+    wrapRadius: g('wrapRadius', '12px'),
     successTitleColor: g('successTitleColor', '#34a853'),
     successTextColor: g('successTextColor', '#5f6368'),
     successTitleSize: g('successTitleSize', '20px'),
@@ -115,7 +117,7 @@ function buildCss(v: ReturnType<typeof resolveTokens>): string {
 :root{--accent:${v.primary};--accent-hover:${v.primaryHover};--btn-text:${v.buttonText};--label-color:${v.labelColor};--field-bg:${v.fieldBg};--field-border:${v.fieldBorder};--field-text:${v.fieldText};--radius:${v.radius}}
 html,body{min-height:100%}
 body{font-family:${v.fontFamily};color:${v.labelColor};line-height:1.5;font-size:${v.fontSize};background:#f1f5f9;padding:28px 16px}
-.bf-wrap{max-width:${v.maxWidth};margin:0 auto;background:${v.background === 'transparent' ? '#ffffff' : v.background};padding:28px 24px;border-radius:14px;box-shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px -16px rgba(15,23,42,.25)}
+.bf-wrap{max-width:${v.maxWidth};margin:0 auto;background:${v.background === 'transparent' ? '#ffffff' : v.background};padding:${v.wrapPadding};border-radius:${v.wrapRadius};box-shadow:0 1px 3px rgba(15,23,42,.08),0 8px 24px -16px rgba(15,23,42,.25)}
 .bf-field{margin-bottom:${v.fieldSpacing}}
 .bf-statement{margin-bottom:${v.fieldSpacing};text-align:center}
 .bf-st-ico{font-size:40px;line-height:1;margin-bottom:8px}
