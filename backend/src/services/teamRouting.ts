@@ -297,6 +297,48 @@ async function getEligibleMembers(
   })
 }
 
+/**
+ * Garante o PERFIL DE AGENTE de quem tem papel que recebe leads.
+ *
+ * Existe porque o motor V2 filtra por `agentProfile`, e havia três portas por
+ * onde alguém entrava sem ele: criar usuário, promover VIEWER a um papel
+ * operacional, e ligar o próprio motor com a equipe já montada. Quem passasse
+ * por qualquer uma delas ficava invisível para o rodízio — e em silêncio, porque
+ * a tela mostra a pessoa como agente (o `isAgent` do modelo antigo) e nada
+ * denuncia a falta do perfil.
+ *
+ * Foi exatamente o que parou o roteamento do ineprotec por cinco dias: três
+ * operadoras ativas, disponíveis, e nenhuma elegível.
+ *
+ * É idempotente (upsert) e não mexe em perfil que já exista — peso, férias e
+ * limite diário de quem já está configurado ficam como estão.
+ *
+ * Devolve quantos perfis foram criados.
+ */
+export async function garantirPerfilDeAgente(userIds: number[]): Promise<number> {
+  if (userIds.length === 0) return 0
+  const alvos = await prisma.user.findMany({
+    where: { id: { in: userIds }, active: true, role: { not: 'VIEWER' }, agentProfile: { is: null } },
+    select: { id: true },
+  })
+  if (alvos.length === 0) return 0
+  await prisma.agentProfile.createMany({
+    data: alvos.map((u) => ({ userId: u.id })),
+    skipDuplicates: true,
+  })
+  invalidateRoutingCache()
+  return alvos.length
+}
+
+/** O mesmo, para todo mundo do tenant — usado ao LIGAR o motor V2. */
+export async function garantirPerfilDeTodosOsAgentes(): Promise<number> {
+  const todos = await prisma.user.findMany({
+    where: { active: true, role: { not: 'VIEWER' } },
+    select: { id: true },
+  })
+  return garantirPerfilDeAgente(todos.map((u) => u.id))
+}
+
 export async function pickOperatorForTeam(
   teamId: number,
   opts?: { onlyUserIds?: number[] },

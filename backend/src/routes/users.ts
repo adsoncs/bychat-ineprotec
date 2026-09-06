@@ -428,6 +428,16 @@ export async function usersRoutes(app: FastifyInstance) {
       }
     })
 
+    // Papel que recebe lead nasce com PERFIL DE AGENTE. Sem isto o usuário novo
+    // fica invisível para o rodízio (o motor V2 filtra por perfil, não por
+    // papel) — e em silêncio, porque na tela ele aparece como agente normal.
+    {
+      const { garantirPerfilDeAgente } = await import('../services/teamRouting.js')
+      await garantirPerfilDeAgente([user.id]).catch((e) => {
+        req.log.warn({ e }, `[users] perfil de agente não criado para ${user.id}`)
+      })
+    }
+
     // Audit: user created
     const cAct = auditActor(req)
     void logUserAudit({
@@ -486,6 +496,17 @@ export async function usersRoutes(app: FastifyInstance) {
     if (notifyWhatsapp !== undefined) data.notifyWhatsapp = notifyWhatsapp ? String(notifyWhatsapp).replace(/\D/g, '').slice(0, 30) || null : null
 
     const updated = await prisma.user.update({ where: { id: Number(id) }, data })
+
+    // Promoveu VIEWER a um papel que recebe lead (ou reativou o usuário)? O
+    // perfil de agente vem junto. O caminho inverso NÃO apaga o perfil — é a
+    // mesma regra da tela de agentes, que preserva peso e histórico para quando
+    // a pessoa voltar.
+    if (role !== undefined || active === true) {
+      const { garantirPerfilDeAgente } = await import('../services/teamRouting.js')
+      await garantirPerfilDeAgente([updated.id]).catch((e) => {
+        req.log.warn({ e }, `[users] perfil de agente não criado para ${updated.id}`)
+      })
+    }
 
     // Audit: user edited — log only fields that actually changed
     const changes: Record<string, { from: any; to: any }> = {}

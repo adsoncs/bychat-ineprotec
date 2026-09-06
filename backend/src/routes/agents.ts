@@ -301,14 +301,31 @@ export async function agentsRoutes(app: FastifyInstance) {
       if (typeof body.enabled !== 'boolean') {
         return reply.code(400).send({ error: 'enabled (boolean) é obrigatório' })
       }
-      // Quando ligar, garante que existe ao menos 1 agente — senão o motor
-      // novo bloqueia 100% dos leads no round-robin/least_loaded/random.
+      // Quando ligar, garante que existe ao menos 1 agente ELEGÍVEL — senão o
+      // motor novo bloqueia 100% dos leads no round-robin/least_loaded/random.
+      //
+      // A checagem daqui contava usuários por PAPEL, que não é o que o motor
+      // exige: ele filtra por `agentProfile`. Um tenant com três operadoras de
+      // papel certo e nenhum perfil passava por esta validação e ficava cinco
+      // dias sem distribuir lead nenhum, em silêncio (ineprotec, 01→06/09/2026).
+      //
+      // Em vez de só recusar, criamos o que falta: quem liga o motor quer que a
+      // equipe que já existe participe dele. O upsert não toca em perfil já
+      // configurado.
       if (body.enabled) {
-        // Reforma F1: conta usuários ativos cuja role recebe leads (não VIEWER).
-        const agentCount = await prisma.user.count({
-          where: { active: true, role: { not: 'VIEWER' } },
+        const { garantirPerfilDeTodosOsAgentes } = await import('../services/teamRouting.js')
+        const criados = await garantirPerfilDeTodosOsAgentes()
+        if (criados > 0) {
+          req.log.info(`[routing] motor V2 ligado: ${criados} perfil(is) de agente criado(s) para a equipe existente`)
+        }
+        const elegiveis = await prisma.user.count({
+          where: {
+            active: true,
+            role: { not: 'VIEWER' },
+            agentProfile: { is: { active: true } },
+          },
         })
-        if (agentCount === 0) {
+        if (elegiveis === 0) {
           return reply.code(409).send({
             error: 'Nenhum usuário com papel que recebe leads (AGENT/MANAGER/ADMIN). Marque pelo menos um antes de habilitar o Roteamento V2.',
           })
