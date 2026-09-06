@@ -45,7 +45,11 @@ export function Sidebar() {
   const iconOnly = effectiveMode === 'rail'
   return (
     <aside class="app-sidebar" data-mode={effectiveMode}>
-      <SidebarHeader iconOnly={iconOnly} showCollapseButton />
+      {/* Sem o botão de recolher aqui: com o menu subindo até o topo, ele ficava
+        * a três centímetros do hambúrguer da barra superior, fazendo a mesma
+        * coisa. Quem recolhe é o hambúrguer (ou Ctrl+B); no modo faixa o botão
+        * segue no rodapé da barra, longe o bastante para não repetir ninguém. */}
+      <SidebarHeader iconOnly={iconOnly} />
       <SidebarNav iconOnly={iconOnly} />
       {/* Recolhida, a barra perde o botão do cabeçalho (não cabe ao lado do
         * logo em 4rem) e o reencontra aqui — sem isto o usuário ficaria preso

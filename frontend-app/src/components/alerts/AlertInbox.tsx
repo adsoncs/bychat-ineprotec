@@ -44,13 +44,17 @@ const ICONE: Record<AlertSeverity, typeof Bell> = {
 // informação, e três vermelhos e cinco amarelos numa gaveta de 28rem cansam a
 // vista antes de comunicar urgência.
 
-export function AlertInbox() {
-  const [open, setOpen] = useState(false)
+/**
+ * O aviso ao vivo: som e notificação da área de trabalho quando um alerta sobe.
+ *
+ * Vive num hook próprio porque o sino deixou de ser um componente só — a barra
+ * superior reúne alertas, transferências e duplicados numa bandeja única, e o
+ * aviso precisa continuar tocando venha de onde vier a caixa que o hospeda.
+ */
+export function useAvisoDeAlertaAoVivo(): void {
   const qc = useQueryClient()
   const t = useT()
   const { prefs } = useAccountPrefs()
-  const countQuery = useUnreadAlertCount()
-  const count = countQuery.data?.count ?? 0
 
   // O sino toca pelo WebSocket; o refetch do contador é só rede de segurança.
   // Reusa as preferências que já existem para mensagem — som e aviso na área de
@@ -74,6 +78,14 @@ export function AlertInbox() {
       }
     })
   }, [qc, prefs.notifySound, prefs.notifyDesktop, t])
+}
+
+export function AlertInbox() {
+  const [open, setOpen] = useState(false)
+  const t = useT()
+  const countQuery = useUnreadAlertCount()
+  const count = countQuery.data?.count ?? 0
+  useAvisoDeAlertaAoVivo()
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
@@ -115,8 +127,17 @@ export function AlertInbox() {
   )
 }
 
-function ListaDeAlertas(
-  { aberta, naoLidos, onFechar }: { aberta: boolean; naoLidos: number; onFechar: () => void },
+/**
+ * A lista, sem a caixa que a hospeda.
+ *
+ * `embutida` some com o título próprio: dentro da bandeja única quem nomeia o
+ * conteúdo é a aba, e dois cabeçalhos empilhados é o defeito clássico de
+ * reaproveitar um popover inteiro como conteúdo de outro.
+ */
+export function ListaDeAlertas(
+  { aberta, naoLidos, onFechar, embutida }: {
+    aberta: boolean; naoLidos: number; onFechar: () => void; embutida?: boolean
+  },
 ) {
   const t = useT()
   const query = useAlerts(aberta)
@@ -128,21 +149,35 @@ function ListaDeAlertas(
     // `min-h-0` é obrigatório nos dois níveis: sem ele um filho flex se recusa a
     // ficar menor que o próprio conteúdo, e a barra de rolagem nunca aparece.
     <div class="flex flex-col min-h-0 flex-1">
-      <div class="shrink-0 p-3 border-b border-border flex items-start justify-between gap-3">
-        <div>
-          <div class="font-semibold text-sm">{t('alerts.title')}</div>
-          <div class="text-xs text-fg-muted">{t('alerts.subtitle')}</div>
+      {embutida ? (
+        naoLidos > 0 && (
+          <div class="shrink-0 px-3 pt-2 flex justify-end">
+            <button
+              class="text-xs text-fg-muted hover:text-fg whitespace-nowrap"
+              onClick={() => marcarTodos.mutate()}
+              disabled={marcarTodos.isPending}
+            >
+              {t('alerts.markAllRead')}
+            </button>
+          </div>
+        )
+      ) : (
+        <div class="shrink-0 p-3 border-b border-border flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold text-sm">{t('alerts.title')}</div>
+            <div class="text-xs text-fg-muted">{t('alerts.subtitle')}</div>
+          </div>
+          {naoLidos > 0 && (
+            <button
+              class="text-xs text-fg-muted hover:text-fg whitespace-nowrap"
+              onClick={() => marcarTodos.mutate()}
+              disabled={marcarTodos.isPending}
+            >
+              {t('alerts.markAllRead')}
+            </button>
+          )}
         </div>
-        {naoLidos > 0 && (
-          <button
-            class="text-xs text-fg-muted hover:text-fg whitespace-nowrap"
-            onClick={() => marcarTodos.mutate()}
-            disabled={marcarTodos.isPending}
-          >
-            {t('alerts.markAllRead')}
-          </button>
-        )}
-      </div>
+      )}
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {query.isLoading ? (
           <div class="p-6 text-xs text-fg-muted">{t('common.loading')}</div>

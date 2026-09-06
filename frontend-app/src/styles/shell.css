@@ -59,12 +59,17 @@
 
 .app-sidebar {
   position: fixed;
-  inset: var(--topbar-h) auto 0 0;
+  /* Do topo ao fundo, e não abaixo da barra: a marca ocupa o canto superior
+     esquerdo (o primeiro ponto para onde o olho vai) e a barra superior passa a
+     ser o cabeçalho da ÁREA DE TRABALHO, não uma faixa que atravessa tudo.
+     O `--z-sidebar` (40) já é maior que o `--z-topbar` (30), então a barra
+     lateral cobre a faixa do topo sem que a sombra da outra corte a marca. */
+  inset: 0 auto 0 0;
   z-index: var(--z-sidebar);
   display: flex;
   flex-direction: column;
   width: var(--sidebar-w);
-  height: calc(100dvh - var(--topbar-h));
+  height: 100dvh;
   /* Sem fundo e sem borda: a barra é o próprio fundo da janela. O fallback
      continua sendo sobrescrevível por tenant (--app-sidebar-bg). */
   background: var(--app-sidebar-bg, transparent);
@@ -297,6 +302,69 @@
   background: var(--app-topbar-bg, var(--color-surface));
   color: var(--app-topbar-text, inherit);
   padding-right: calc(0.75rem + var(--app-gutter));
+  /* O MESMO recuo do painel — literalmente a mesma variável. É o que faz barra
+     e painel se moverem juntos, na mesma curva, quando alguém recolhe o menu:
+     sem isto seriam duas contas para manter em sincronia, e elas divergiriam na
+     primeira mudança de largura. No celular a variável é 0 e a barra volta a
+     atravessar a tela, que é o certo lá — não há menu fixo. */
+  margin-left: calc(var(--app-main-offset, 0rem) + var(--app-gutter));
+  transition: margin-left var(--duration-base) var(--ease-out);
+}
+
+/* ── faixa de página ──────────────────────────────────────────────────────
+ *
+ * A segunda faixa do desenho: título da tela e migalhas, no topo do painel.
+ * As margens negativas anulam o padding do `.app-main` para ela encostar nas
+ * bordas do painel — é o que a faz parecer parte da moldura, e não mais um
+ * bloco de conteúdo com uma linha embaixo.
+ */
+.app-pagestrip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 2.875rem;
+  margin: -1.25rem -1.25rem 1.25rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.app-pagestrip-title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--color-fg);
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-pagestrip-crumbs {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+}
+
+.app-pagestrip-crumbs b {
+  color: var(--color-fg);
+  font-weight: 500;
+}
+
+.app-pagestrip-crumbs i {
+  font-style: normal;
+  opacity: 0.45;
+}
+
+/* No celular a trilha inteira não cabe ao lado do título, e o menu lateral já
+   diz de onde a pessoa veio. Fica só o título. */
+@media (max-width: 640px) {
+  .app-pagestrip-crumbs { display: none; }
 }
 
 /* main: o PAINEL FLUTUANTE. É ele que carrega a identidade da pele — raio, fio
@@ -327,16 +395,16 @@
   min-height: calc(100dvh - var(--topbar-h) - var(--app-gutter));
 }
 
-.app-shell[data-sidebar-mode='rail'] .app-main {
+.app-shell[data-sidebar-mode='rail'] {
   --app-main-offset: var(--sidebar-w-rail);
 }
 
-.app-shell[data-sidebar-mode='expanded'] .app-main {
+.app-shell[data-sidebar-mode='expanded'] {
   --app-main-offset: var(--sidebar-w-expanded);
 }
 
 /* drawer (mobile): a barra flutua sobre o conteúdo, que não recua. */
-.app-shell[data-sidebar-mode='drawer'] .app-main {
+.app-shell[data-sidebar-mode='drawer'] {
   --app-main-offset: 0rem;
 }
 

@@ -196,7 +196,9 @@
   --sidebar-w-expanded: 16rem; /* 256px */
   --sidebar-w-rail: 4rem;      /* 64px  */
   --sidebar-w-drawer: 18rem;   /* 288px */
-  --topbar-h: 3.5rem;          /* 56px  */
+  /* 64px: a barra passou a hospedar busca, utilidades redondas e a pessoa
+     por extenso (nome + turno). Em 56px isso ficava espremido. */
+  --topbar-h: 4rem;            /* 64px  */
   --app-gutter: 0.625rem;      /* 10px  */
 
   /* ─── Ícones ───

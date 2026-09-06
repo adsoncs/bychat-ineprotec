@@ -9,6 +9,7 @@ import { useSidebarStore, resolveSidebarMode } from '@/stores/sidebar'
 import { useT } from '@/i18n'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { PageStrip } from './PageStrip'
 import { CommandPalette } from './CommandPalette'
 import { CallWidget } from '@/components/voip/CallWidget'
 import { WaCallWidget } from '@/components/voip/WaCallWidget'
@@ -99,9 +100,13 @@ export function AppShell({ children }: AppShellProps) {
       <a href="#main-content" class="skip-link">
         {t('shell.skipToContent')}
       </a>
-      <Topbar onOpenCommandPalette={() => setPaletteOpen(true)} />
+      <Topbar onOpenCommandPalette={() => setPaletteOpen(true)} onToggleSidebar={toggleSidebar} />
       <Sidebar />
       <main id="main-content" class="app-main" tabIndex={-1}>
+        {/* A faixa de página mora DENTRO do painel, encostada no topo dele: é
+            assim que ela ganha a mesma borda arredondada e acompanha o recuo
+            lateral do menu sem precisar repetir essa conta no shell. */}
+        <PageStrip />
         {children}
       </main>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />

@@ -131,6 +131,9 @@ function bucketWhere(bucket: Bucket, now: Date): Record<string, unknown> {
   }
 }
 
+/** Fila de hoje: acima disto é varredura, não turno. Usado no painel e no pulso. */
+const TETO_ESPERA_DIAS = 30
+
 /** Conversas "vivas" — o que a gestão acompanha no dia a dia (exclui resolvidas). */
 function activeWhere(now: Date): Record<string, unknown> {
   return {
@@ -454,7 +457,6 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // não muda com o trabalho da equipe e some da vista justamente porque
       // ninguém pode fazer nada com ele hoje. As esquecidas continuam contadas,
       // à parte: viram um aviso próprio, que é o convite para uma varredura.
-      const TETO_ESPERA_DIAS = 30
       const limiteEspera = new Date(now.getTime() - TETO_ESPERA_DIAS * 86_400_000)
       const esperandoRecentes = esperando.filter((e) => new Date(e.desde) >= limiteEspera)
       const esquecidas = esperando.length - esperandoRecentes.length
@@ -1106,6 +1108,148 @@ export async function supervisionRoutes(app: FastifyInstance) {
       return reply.code(500).send({ error: err.message })
     }
   })
+
+  // ── O pulso do turno (barra superior) ──────────────────────────────────
+  //
+  // Três números, e nada além disso: quantas conversas esperam por nós, quanto
+  // temos levado para responder HOJE, e quantas já passaram da meta. É o que a
+  // barra de cima mostra o dia inteiro, então tem de ser barato e tem de estar
+  // certo — um número errado no topo é pior que número nenhum, porque todo
+  // mundo aprende a ignorá-lo.
+  //
+  // Três decisões que valem o comentário:
+  //
+  //   1. NÃO usa `requireSupervisor`. O pulso é do operador tanto quanto do
+  //      gestor. O que limita cada um é o mesmo recorte da tela de Conversas
+  //      (matriz de acesso + canais reservados), então cada um vê o pulso da
+  //      fila que ele enxerga — nunca a da casa inteira.
+  //   2. "Esperando" é a bola com a gente: a última mensagem não interna da
+  //      conversa é do CONTATO. Não é `unreadMessages`, que zera quando alguém
+  //      só abre a conversa — foi assim que o painel dizia "0 não lidas" com
+  //      onze clientes esperando.
+  //   3. A mediana é de HOJE e em minutos ÚTEIS, com piso de amostra. Abaixo
+  //      do piso devolve `null` e a barra mostra "—": uma mediana de duas
+  //      conversas é ruído com cara de indicador.
+  app.get('/api/supervision/pulse', { preHandler: authMiddleware }, async (req, reply) => {
+    try {
+      const user = (req as any).user as JwtPayload
+      const cacheado = pulsoDoCache(user.userId)
+      if (cacheado) return cacheado
+
+      const now = new Date()
+      const inicioDoDia = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const base = { AND: [await recorteDaMatriz(req), await recorteDeCanaisReservados(req)] }
+
+      const {
+        relogioDaCasa, metaDeResposta, minutosUteis, medirTurnos, resumirTurnos, MIN_AMOSTRA,
+      } = await import('../services/responseTime.js')
+      const [relogio, metaMin] = await Promise.all([relogioDaCasa(), metaDeResposta()])
+
+      const ativos = await prisma.lead.findMany({
+        where: { AND: [base, activeWhere(now)] },
+        select: { id: true },
+      })
+      const idsAtivos = ativos.map((r) => r.id)
+
+      // Quem falou por último em cada conversa ativa. Mesma consulta do painel
+      // de Supervisão — uma definição só de "esperando" no sistema inteiro.
+      const esperando = idsAtivos.length
+        ? await prisma.$queryRawUnsafe<Array<{ desde: Date }>>(
+            `SELECT ult.timestamp AS desde
+               FROM bychat_leads l
+               JOIN bychat_messages ult ON ult.id = (
+                 SELECT m2.id FROM bychat_messages m2
+                  WHERE m2.leadId = l.id AND m2.isInternal = 0
+                  ORDER BY m2.timestamp DESC, m2.id DESC LIMIT 1)
+              WHERE l.id IN (${idsAtivos.join(',')}) AND ult.fromMe = 0
+              ORDER BY ult.timestamp ASC`,
+          ).catch(() => [])
+        : []
+
+      // O teto de 30 dias vale para a espera MAIS ANTIGA, não para a contagem —
+      // é assim no painel de Supervisão, e a barra tem de dizer o mesmo número
+      // que ele. Aplicá-lo à contagem daria "0 esperando" numa base cuja
+      // Supervisão mostra 44: duas verdades para a mesma pergunta, que é
+      // exatamente o defeito que aquele redesenho veio corrigir.
+      //
+      // As esquecidas viajam à parte, porque mudam o que a barra deve dizer:
+      // "44 esperando" com as 44 paradas há mais de um mês não é fila de turno,
+      // é convite para uma varredura.
+      const limite = new Date(now.getTime() - TETO_ESPERA_DIAS * 86_400_000)
+      const naFila = esperando.filter((e) => new Date(e.desde) >= limite)
+      const esquecidas = esperando.length - naFila.length
+      const foraDaMeta = esperando.filter((e) => minutosUteis(new Date(e.desde), now, relogio) > metaMin).length
+
+      // A mediana de hoje: só conversas que tiveram mensagem hoje podem ter
+      // turno hoje, e é esse recorte que mantém a consulta curta.
+      const doDia = await prisma.lead.findMany({
+        where: { AND: [base, { lastMessageAt: { gte: inicioDoDia } }] },
+        select: { id: true },
+      })
+      const turnos = doDia.length
+        ? await medirTurnos(doDia.map((r) => r.id), inicioDoDia, now, relogio)
+        : []
+      const ritmo = resumirTurnos(turnos, metaMin, relogio)
+      const amostra = turnos.filter((t) => t.minutos !== null).length
+
+      const eu = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { workStatus: true, workStatusUpdatedAt: true },
+      })
+
+      const corpo = {
+        esperando: esperando.length,
+        esquecidas,
+        esquecidasDias: TETO_ESPERA_DIAS,
+        maisAntigaMin: naFila.length ? minutosUteis(new Date(naFila[0]!.desde), now, relogio) : null,
+        medianaHojeMin: amostra >= MIN_AMOSTRA ? ritmo.resposta.mediana : null,
+        amostraHoje: amostra,
+        minAmostra: MIN_AMOSTRA,
+        foraDaMeta,
+        metaMin,
+        relogio: { label: relogio.label, origem: relogio.origem },
+        turno: {
+          status: eu?.workStatus ?? 'offline',
+          desde: eu?.workStatusUpdatedAt ? eu.workStatusUpdatedAt.toISOString() : null,
+        },
+      }
+      guardarPulso(user.userId, corpo)
+      return corpo
+    } catch (err: any) {
+      req.log.error({ err }, 'pulse falhou')
+      return reply.code(500).send({ error: err.message })
+    }
+  })
+}
+
+// ── Cache do pulso ────────────────────────────────────────────────────────
+//
+// A barra pergunta a cada minuto, por usuário logado, em TODAS as telas. Sem
+// isto, o custo do painel de Supervisão passaria a ser pago o dia inteiro por
+// gente que nem abriu aquela tela. Meio minuto de validade é o suficiente para
+// que abrir cinco telas seguidas custe uma consulta só.
+const PULSO_TTL_MS = 30_000
+const pulsoCache = new Map<number, { em: number; corpo: unknown }>()
+
+function pulsoDoCache(userId: number): unknown | null {
+  const hit = pulsoCache.get(userId)
+  if (!hit) return null
+  if (Date.now() - hit.em > PULSO_TTL_MS) {
+    pulsoCache.delete(userId)
+    return null
+  }
+  return hit.corpo
+}
+
+function guardarPulso(userId: number, corpo: unknown): void {
+  // Sem limpeza o mapa cresceria com cada usuário que já passou por aqui.
+  // Varre o que venceu antes de gravar: é barato e o mapa nunca passa do
+  // número de gente logada no minuto.
+  if (pulsoCache.size > 200) {
+    const agora = Date.now()
+    for (const [id, v] of pulsoCache) if (agora - v.em > PULSO_TTL_MS) pulsoCache.delete(id)
+  }
+  pulsoCache.set(userId, { em: Date.now(), corpo })
 }
 
 /** Aceita number | number[] e devolve ids únicos e válidos. */

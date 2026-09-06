@@ -55,16 +55,19 @@ export function TransferInbox() {
   )
 }
 
-function TransferList({ onClose: _onClose }: { onClose: () => void }) {
+/** A lista sozinha. `embutida` some com o título — ver ListaDeAlertas. */
+export function TransferList({ onClose: _onClose, embutida }: { onClose: () => void; embutida?: boolean }) {
   const incomingQuery = useTransferRequests('incoming', 'pending')
   const list = incomingQuery.data?.requests ?? []
 
   return (
     <div class="flex flex-col min-h-0 flex-1">
-      <div class="shrink-0 p-3 border-b border-border">
-        <div class="font-semibold text-sm">Transferências pendentes</div>
-        <div class="text-xs text-fg-muted">Solicitações recebidas — você pode aceitar ou recusar.</div>
-      </div>
+      {!embutida && (
+        <div class="shrink-0 p-3 border-b border-border">
+          <div class="font-semibold text-sm">Transferências pendentes</div>
+          <div class="text-xs text-fg-muted">Solicitações recebidas — você pode aceitar ou recusar.</div>
+        </div>
+      )}
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {incomingQuery.isLoading ? (
           <div class="p-6 text-xs text-fg-muted">Carregando…</div>

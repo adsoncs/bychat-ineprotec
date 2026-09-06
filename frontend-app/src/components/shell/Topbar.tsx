@@ -1,6 +1,7 @@
-import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, ChevronDown, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Copy, Headphones } from '@/components/ui/icon-set'
+import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Headphones, Check, ChevronDown, LayoutGrid, MessageSquare } from '@/components/ui/icon-set'
+import { Maximize, Minimize } from '@/components/ui/icons.custom'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { useState } from 'preact/hooks'
+import { useState, useMemo, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useSidebarStore } from '@/stores/sidebar'
@@ -10,59 +11,33 @@ import { useT } from '@/i18n'
 import { useAuth, useUpdateWorkStatus } from '@/hooks/useAuth'
 import { ROLE_LABELS, type UserRole } from '@/hooks/useUsers'
 import type { WorkStatus } from '@/stores/user'
-import { useDuplicatesCount } from '@/hooks/useLeads'
 import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
-import { TransferInbox } from '@/components/routing/TransferInbox'
-import { AlertInbox } from '@/components/alerts/AlertInbox'
+import { WorkInbox } from './WorkInbox'
+import { TopbarUtil } from './TopbarUtil'
+import { useTopbarPulse } from '@/hooks/useTopbarPulse'
+import { useMyPermissions } from '@/hooks/usePermissions'
+import { useUserStore } from '@/stores/user'
+import { sidebarSchema, findItem } from '@/modules/sidebar.config'
+import { useFavoritesStore } from '@/stores/favorites'
+import { Icon } from '@/components/ui/Icon'
 import { cn } from '@/lib/cn'
 import { ICON_SIZE } from '@/components/ui/Icon'
 
-// Palette para avatar — gradients suaves derivados do nome (determinístico)
-const AVATAR_PALETTE: [string, string][] = [
-  ['#1a73e8', '#4285f4'],  // azul
-  ['#7c4dff', '#b388ff'],  // roxo
-  ['#00897b', '#26a69a'],  // teal
-  ['#e91e63', '#f06292'],  // rosa
-  ['#ff7043', '#ffab91'],  // coral
-  ['#43a047', '#66bb6a'],  // verde
-  ['#3949ab', '#5c6bc0'],  // indigo
-  ['#fb8c00', '#ffa726'],  // âmbar
-  ['#5e35b1', '#7e57c2'],  // violeta
-  ['#0097a7', '#26c6da'],  // ciano
-]
-
-function getAvatarStyle(seed: string): { background: string } {
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0
-  const [from, to] = AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]!
-  return { background: `linear-gradient(135deg, ${from} 0%, ${to} 100%)` }
-}
-
+/**
+ * Iniciais em cinza sólido, e não um degradê sorteado pelo e-mail.
+ *
+ * O gradiente por hash — dez pares de roxo, coral e teal — era a assinatura
+ * visual mais reconhecível de interface gerada por IA, e não dizia nada que as
+ * iniciais já não digam. A cor no avatar voltou a significar uma coisa só: o
+ * anel de status de trabalho.
+ */
 function getInitials(name: string | null | undefined, email: string | null | undefined): string {
   const src = (name || email || '').trim()
   if (!src) return '?'
   const parts = src.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
   return src.substring(0, 2).toUpperCase()
-}
-
-function formatRelativeTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const ts = new Date(iso).getTime()
-  if (!Number.isFinite(ts)) return ''
-  const diffMs = Date.now() - ts
-  const min = Math.floor(diffMs / 60_000)
-  if (min < 1) return 'agora'
-  if (min < 60) return `há ${min} min`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `há ${hr}h`
-  const d = Math.floor(hr / 24)
-  if (d < 30) return `há ${d}d`
-  const mo = Math.floor(d / 30)
-  if (mo < 12) return `há ${mo} ${mo === 1 ? 'mês' : 'meses'}`
-  const y = Math.floor(mo / 12)
-  return `há ${y} ${y === 1 ? 'ano' : 'anos'}`
 }
 
 const ROLE_ICONS: Record<UserRole, typeof Shield> = {
@@ -73,233 +48,7 @@ const ROLE_ICONS: Record<UserRole, typeof Shield> = {
   VIEWER: Eye,
 }
 
-// Badge de role com estilo nobre — substitui o `danger` (vermelho) que dava
-// destaque negativo. SUPERADMIN/ADMIN usam accent (azul de marca);
-// MANAGER usa info; VIEWER usa neutral.
-function RoleBadge({ role, size = 'sm' }: { role: UserRole; size?: 'xs' | 'sm' }) {
-  const Icon = ROLE_ICONS[role]
-  const isElevated = role === 'SUPERADMIN' || role === 'ADMIN'
-  const tone = isElevated
-    ? 'bg-accent/15 text-accent ring-accent/30'
-    : role === 'MANAGER'
-      ? 'bg-info/15 text-info ring-info/30'
-      : 'bg-surface-3 text-fg-muted ring-border'
-  const padding = size === 'xs' ? 'h-5 px-1.5 text-3xs gap-1' : 'h-6 px-2 text-2xs gap-1.5'
-  return (
-    <span class={cn('inline-flex items-center rounded-full font-medium ring-1', tone, padding)}>
-      <Icon size={ICON_SIZE.xs} />
-      {ROLE_LABELS[role]}
-    </span>
-  )
-}
-
-interface TopbarProps {
-  onOpenCommandPalette: () => void
-}
-
-export function Topbar({ onOpenCommandPalette }: TopbarProps) {
-  const layout = useShellLayout()
-  const openDrawer = useSidebarStore((s) => s.openDrawer)
-  const { user, logout } = useAuth()
-  const t = useT()
-  const isMobile = layout === 'mobile'
-  const role = (user?.role as UserRole | undefined) ?? undefined
-  const displayName = user?.name?.trim() || user?.email || '—'
-  const initials = getInitials(user?.name, user?.email)
-  const avatarSeed = user?.email || user?.name || String(user?.id ?? 'x')
-  const avatarStyle = getAvatarStyle(avatarSeed)
-  const lastLoginRel = formatRelativeTime(user?.lastLoginAt)
-  const memberSinceRel = formatRelativeTime(user?.createdAt)
-  const [profileOpen, setProfileOpen] = useState(false)
-  const [prefsOpen, setPrefsOpen] = useState(false)
-
-  return (
-    <header class="app-topbar">
-      {isMobile && (
-        <button
-          type="button"
-          class="size-9 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
-          onClick={openDrawer}
-          aria-label={t('shell.menu.open')}
-        >
-          <Menu size={ICON_SIZE.md} />
-        </button>
-      )}
-
-      {isMobile ? (
-        // No mobile o campo expandido com flex-1 + placeholder longo competia com
-        // os ícones de ação e estourava o topbar. Vira só um ícone (abre o mesmo
-        // command palette), alinhado à esquerda; o grupo de ações fica no ml-auto.
-        <button
-          type="button"
-          onClick={onOpenCommandPalette}
-          class="size-9 flex items-center justify-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
-          aria-label={t('shell.search.aria')}
-        >
-          <Search size={ICON_SIZE.md} />
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={onOpenCommandPalette}
-          class={cn(
-            'flex flex-1 min-w-0 items-center gap-2 h-9 px-3 rounded-md text-sm',
-            'bg-surface-2 text-fg-muted border border-border surface-raised hover:bg-surface-3',
-            'max-w-md',
-          )}
-          aria-label={t('shell.search.aria')}
-        >
-          <Search size={ICON_SIZE.md} class="shrink-0" />
-          <span class="flex-1 text-left truncate">{t('shell.search.placeholder')}</span>
-          <kbd class="hidden sm:inline-flex items-center gap-0.5 px-1.5 h-5 rounded border border-border text-2xs text-fg-muted font-mono shrink-0">
-            <span>⌘</span>K
-          </kbd>
-        </button>
-      )}
-
-      <div class="ml-auto flex items-center gap-2">
-        <AlertInbox />
-        <TransferInbox />
-        <DuplicatesBadge />
-        <WorkStatusMenu />
-        <FontSizeMenu />
-        <ThemeMenu />
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              class="flex items-center gap-2 h-9 pl-1 pr-2.5 rounded-full hover:bg-surface-3 transition-colors"
-              aria-label={t('shell.user.menu')}
-            >
-              <span
-                class="size-7 rounded-full grid place-items-center text-2xs font-semibold text-white shadow-sm ring-1 ring-white/10"
-                style={avatarStyle}
-              >
-                {initials}
-              </span>
-              <span class="hidden sm:inline text-xs font-semibold text-fg truncate max-w-[10rem]">
-                {displayName}
-              </span>
-              <ChevronDown size={ICON_SIZE.sm} class="text-fg-muted hidden sm:inline" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="end"
-              sideOffset={8}
-              class="min-w-[18rem] rounded-panel bg-surface-2 border border-border shadow-xl surface-raised p-0 overflow-hidden"
-              style={{ zIndex: 'var(--z-popover)' }}
-            >
-              {/* Header card com avatar grande */}
-              <div class="flex items-start gap-3 p-3 bg-gradient-to-br from-surface-3/40 to-transparent">
-                <span
-                  class="size-12 rounded-full grid place-items-center text-base font-semibold text-white shadow-md ring-2 ring-white/10 shrink-0"
-                  style={avatarStyle}
-                >
-                  {initials}
-                </span>
-                <div class="min-w-0 flex-1 space-y-1">
-                  <div class="text-sm font-semibold text-fg truncate">{displayName}</div>
-                  <div class="text-2xs text-fg-muted truncate">{user?.email ?? ''}</div>
-                  {role && <div class="pt-0.5"><RoleBadge role={role} size="xs" /></div>}
-                </div>
-              </div>
-
-              {/* Metadata sutil */}
-              {(lastLoginRel || memberSinceRel) && (
-                <>
-                  <DropdownMenu.Separator class="h-px bg-border" />
-                  <div class="px-3 py-2 space-y-0.5 text-2xs text-fg-muted">
-                    {lastLoginRel && (
-                      <div class="flex items-center justify-between">
-                        <span>Último acesso</span>
-                        <span class="text-fg-muted">{lastLoginRel}</span>
-                      </div>
-                    )}
-                    {memberSinceRel && (
-                      <div class="flex items-center justify-between">
-                        <span>Membro desde</span>
-                        <span class="text-fg-muted">{memberSinceRel}</span>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <DropdownMenu.Separator class="h-px bg-border" />
-
-              <div class="p-1">
-                <DropdownMenu.Item
-                  class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
-                  onSelect={() => setProfileOpen(true)}
-                >
-                  <UserIcon size={ICON_SIZE.sm} class="text-fg-muted" />
-                  Meu perfil
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
-                  onSelect={() => setPrefsOpen(true)}
-                >
-                  <SlidersHorizontal size={ICON_SIZE.sm} class="text-fg-muted" />
-                  Minhas preferências
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
-                  onSelect={() => { window.location.assign('/app/settings') }}
-                >
-                  <SettingsIcon size={ICON_SIZE.sm} class="text-fg-muted" />
-                  Configurações
-                </DropdownMenu.Item>
-              </div>
-
-              <DropdownMenu.Separator class="h-px bg-border" />
-
-              <div class="p-1">
-                <DropdownMenu.Item
-                  class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-danger/10 text-danger outline-none"
-                  onSelect={logout}
-                >
-                  <LogOut size={ICON_SIZE.sm} />
-                  {t('shell.user.logout')}
-                </DropdownMenu.Item>
-              </div>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-      </div>
-      <ProfileModal open={profileOpen} onOpenChange={setProfileOpen} />
-      <AccountPrefsModal open={prefsOpen} onOpenChange={setPrefsOpen} />
-    </header>
-  )
-}
-
-// Fase 24: Badge de "Leads duplicados pendentes" no topbar.
-// Mostra contador discreto; clicar leva pra /app/leads/duplicates.
-// Refetcha a cada 60s (igual cron do server-side).
-function DuplicatesBadge() {
-  const { data } = useDuplicatesCount()
-  const [, navigate] = useLocation()
-  const count = data?.count ?? 0
-  if (count === 0) return null
-  const display = count > 99 ? '99+' : String(count)
-  return (
-    <button
-      type="button"
-      class="relative size-9 grid place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
-      onClick={() => navigate('/app/leads/duplicates')}
-      aria-label={`${count} lead(s) duplicado(s) pendente(s) de revisão`}
-      title={`${count} duplicado(s) pendente(s) — clique pra revisar`}
-    >
-      <Copy size={ICON_SIZE.md} />
-      <span class="absolute -top-0.5 -right-0.5 min-w-[1.1rem] h-[1.1rem] px-1 inline-flex items-center justify-center rounded-full bg-warning text-3xs font-bold text-fg-on-brand shadow-sm ring-2 ring-surface">
-        {display}
-      </span>
-    </button>
-  )
-}
-
-// Menu de status de trabalho do operador. Disponível/Ausente/Em pausa/Offline.
-// Renderiza um dot colorido no botão e troca via PUT /admin/me/work-status.
+// ── Status de trabalho ────────────────────────────────────────────────────
 const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   available: 'Disponível',
   away: 'Ausente',
@@ -307,10 +56,10 @@ const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   offline: 'Offline',
 }
 const WORK_STATUS_COLORS: Record<WorkStatus, string> = {
-  available: '#22c55e', // verde
-  away: '#f59e0b',      // âmbar
-  busy: '#dc2626',      // vermelho
-  offline: '#9ca3af',   // cinza
+  available: 'var(--color-success)',
+  away: 'var(--color-warning)',
+  busy: 'var(--color-danger)',
+  offline: 'var(--color-fg-muted)',
 }
 const WORK_STATUS_HINTS: Record<WorkStatus, string> = {
   available: 'Você recebe leads novos automaticamente',
@@ -319,123 +68,219 @@ const WORK_STATUS_HINTS: Record<WorkStatus, string> = {
   offline: 'Você não está trabalhando agora',
 }
 
-function WorkStatusMenu() {
-  const { user } = useAuth()
-  const update = useUpdateWorkStatus()
-  const status: WorkStatus = (user?.workStatus as WorkStatus | undefined) ?? 'offline'
-  const items: WorkStatus[] = ['available', 'away', 'busy', 'offline']
+interface TopbarProps {
+  onOpenCommandPalette: () => void
+  onToggleSidebar: () => void
+}
+
+/**
+ * A barra superior — desenho de painel administrativo clássico, em duas faixas.
+ *
+ * Esta é a de cima, e ela pertence ao SISTEMA: é idêntica em toda tela, e é a
+ * previsibilidade que faz a mão ir sozinha. A de baixo (`PageStrip`) pertence à
+ * tela e muda com ela.
+ *
+ * A fileira da direita é lida como um bloco só porque todos os botões são
+ * iguais — mesmo diâmetro, mesmo cinza, mesmo hover circular — e um risco
+ * vertical separa a conta do resto. É o que permite ter várias utilidades sem
+ * que o topo vire uma prateleira: o olho conta "utilidades", não seis decisões.
+ */
+export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
+  const layout = useShellLayout()
+  const openDrawer = useSidebarStore((s) => s.openDrawer)
+  const { user, logout } = useAuth()
+  const t = useT()
+  const [, navigate] = useLocation()
+  const isMobile = layout === 'mobile'
+  const role = (user?.role as UserRole | undefined) ?? undefined
+  const displayName = user?.name?.trim() || user?.email || '—'
+  const initials = getInitials(user?.name, user?.email)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [prefsOpen, setPrefsOpen] = useState(false)
+
+  // O contador de "conversas esperando" é o mesmo número da Supervisão, e só é
+  // buscado para quem atende — para o financeiro ou o marketing seria um número
+  // sobre uma fila que não é dele.
+  const { data: perms } = useMyPermissions()
+  const papel = useUserStore((st) => st.user?.role ?? null)
+  const veAtendimento = papel === 'SUPERADMIN' || !!perms?.permissions?.['atendimento']?.canView
+  // Vale no celular também: o contador de conversas esperando é o único sinal
+  // de fila que sobra ali, já que a barra estreita não comporta mais nada.
+  const pulse = useTopbarPulse(veAtendimento)
+  const esperando = pulse.data?.esperando ?? 0
+
+  return (
+    <header class="app-topbar">
+      <button
+        type="button"
+        class="size-9 grid place-items-center rounded-lg text-fg-muted hover:bg-surface-3 hover:text-fg shrink-0"
+        onClick={isMobile ? openDrawer : onToggleSidebar}
+        aria-label={isMobile ? t('shell.menu.open') : 'Recolher ou expandir o menu'}
+        title={isMobile ? t('shell.menu.open') : 'Recolher o menu (⌘B)'}
+      >
+        <Menu size={ICON_SIZE.md} />
+      </button>
+
+      {/* No celular o campo não cabe ao lado das utilidades — vira uma lupa, que
+          abre o mesmo ⌘K. Some-lo por completo tiraria a busca de quem só usa o
+          telefone, que é justamente quem não tem o atalho de teclado. */}
+      {isMobile ? (
+        <TopbarUtil titulo={t('shell.search.placeholder')} onClick={onOpenCommandPalette}>
+          <Search size={ICON_SIZE.md} />
+        </TopbarUtil>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenCommandPalette}
+          class={cn(
+            'flex items-center gap-2 h-9 px-3 rounded-lg text-sm min-w-0',
+            'flex-1 max-w-[22rem] bg-surface-3 text-fg-muted hover:text-fg transition-colors',
+          )}
+          aria-label={t('shell.search.aria')}
+        >
+          <Search size={ICON_SIZE.md} class="shrink-0" />
+          <span class="flex-1 text-left truncate">{t('shell.search.placeholder')}</span>
+        </button>
+      )}
+
+      <div class="ml-auto flex items-center gap-0.5 min-w-0">
+        {!isMobile && <MenuDeAtalhos />}
+        {!isMobile && <BotaoTelaCheia />}
+        <MenuDeTema />
+        <TopbarUtil
+          titulo={esperando ? `${esperando} conversa(s) esperando resposta` : 'Conversas'}
+          onClick={() => navigate('/app/conversations')}
+          badge={esperando}
+        >
+          <MessageSquare size={ICON_SIZE.md} />
+        </TopbarUtil>
+        <WorkInbox />
+        <span class="w-px h-6 bg-border mx-2 shrink-0" aria-hidden="true" />
+        <MenuDaConta
+          displayName={displayName}
+          email={user?.email ?? ''}
+          initials={initials}
+          role={role}
+          onPerfil={() => setProfileOpen(true)}
+          onPreferencias={() => setPrefsOpen(true)}
+          onSair={logout}
+        />
+      </div>
+      <ProfileModal open={profileOpen} onOpenChange={setProfileOpen} />
+      <AccountPrefsModal open={prefsOpen} onOpenChange={setPrefsOpen} />
+    </header>
+  )
+}
+
+/**
+ * O grid de atalhos.
+ *
+ * Num template ele existe para mostrar um componente; aqui só se justifica se
+ * levar a algum lugar que a pessoa de fato usa. Por isso ele não é uma lista
+ * fixa: são os FAVORITOS de quem está logado, completados com os atalhos do topo
+ * do menu até fechar as nove células.
+ */
+function MenuDeAtalhos() {
+  const [, navigate] = useLocation()
+  const favoritos = useFavoritesStore((s) => s.ids)
+
+  const celulas = useMemo(() => {
+    const escolhidos: typeof sidebarSchema.pinned = []
+    const vistos = new Set<string>()
+    for (const id of favoritos) {
+      const it = findItem(id)
+      if (it && !vistos.has(it.id)) { escolhidos.push(it); vistos.add(it.id) }
+    }
+    for (const it of sidebarSchema.pinned) {
+      if (escolhidos.length >= 9) break
+      if (!vistos.has(it.id)) { escolhidos.push(it); vistos.add(it.id) }
+    }
+    return escolhidos.slice(0, 9)
+  }, [favoritos])
+
+  if (celulas.length === 0) return null
+
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          class="flex items-center gap-1.5 h-9 px-2 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
-          aria-label={`Status: ${WORK_STATUS_LABELS[status]}`}
-          title={`Status: ${WORK_STATUS_LABELS[status]} — ${WORK_STATUS_HINTS[status]}`}
+          class="size-9 grid place-items-center rounded-full text-fg-muted hover:bg-surface-3 hover:text-fg transition-colors"
+          aria-label="Atalhos"
+          title="Atalhos"
         >
-          <span
-            class="size-2.5 rounded-full ring-2 ring-surface"
-            style={{ background: WORK_STATUS_COLORS[status] }}
-          />
-          <span class="hidden md:inline text-2xs font-medium">
-            {WORK_STATUS_LABELS[status]}
-          </span>
+          <LayoutGrid size={ICON_SIZE.md} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={8}
-          class="min-w-[14rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
+          class="w-[16rem] rounded-lg bg-surface-2 border border-border shadow-xl surface-raised p-2"
           style={{ zIndex: 'var(--z-popover)' }}
         >
-          <div class="px-2 py-1.5 text-3xs uppercase tracking-wider text-fg-muted font-semibold">
-            Status de trabalho
+          <div class="px-1 pb-2 text-3xs uppercase tracking-wider text-fg-muted font-semibold">
+            Atalhos
           </div>
-          {items.map((s) => {
-            const isCurrent = s === status
-            return (
+          <div class="grid grid-cols-3 gap-0.5">
+            {celulas.map((it) => (
               <DropdownMenu.Item
-                key={s}
-                disabled={update.isPending || isCurrent}
-                class={cn(
-                  'flex items-start gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none',
-                  isCurrent && 'bg-surface-3',
-                )}
-                onSelect={() => { if (!isCurrent) update.mutate(s) }}
+                key={it.id}
+                class="flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-lg cursor-pointer hover:bg-surface-3 outline-none text-center"
+                onSelect={() => { if (it.href) navigate(it.href) }}
               >
-                <span
-                  class="size-2.5 rounded-full mt-1.5 shrink-0"
-                  style={{ background: WORK_STATUS_COLORS[s] }}
-                />
-                <span class="flex-1 min-w-0">
-                  <span class="block text-fg font-medium">{WORK_STATUS_LABELS[s]}</span>
-                  <span class="block text-2xs text-fg-muted leading-tight">{WORK_STATUS_HINTS[s]}</span>
-                </span>
-                {isCurrent && <span class="text-accent text-xs mt-1">●</span>}
+                <Icon name={it.icon} size="md" class="text-accent" />
+                <span class="text-3xs text-fg-muted leading-tight line-clamp-2">{it.label}</span>
               </DropdownMenu.Item>
-            )
-          })}
+            ))}
+          </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   )
 }
 
-function FontSizeMenu() {
-  const size = useFontSizeStore((s) => s.size)
-  const setSize = useFontSizeStore((s) => s.setSize)
-  const items: { value: FontSize; label: string }[] = [
-    { value: 'comfortable', label: FONT_SIZE_LABELS.comfortable },
-    { value: 'large', label: FONT_SIZE_LABELS.large },
-    { value: 'larger', label: FONT_SIZE_LABELS.larger },
-  ]
+/**
+ * Tela cheia.
+ *
+ * O F11 do navegador faz o mesmo, e por isso este botão só se paga se souber o
+ * estado: ele escuta `fullscreenchange`, então sair pelo F11 ou pelo Esc troca o
+ * ícone aqui também. Um botão que mostra "entrar" com a tela já cheia é pior que
+ * não ter botão.
+ */
+function BotaoTelaCheia() {
+  const [cheia, setCheia] = useState(false)
+
+  useEffect(() => {
+    const sincronizar = () => setCheia(!!document.fullscreenElement)
+    sincronizar()
+    document.addEventListener('fullscreenchange', sincronizar)
+    return () => document.removeEventListener('fullscreenchange', sincronizar)
+  }, [])
+
+  // Alguns navegadores recusam a promessa (política do site, iframe sem
+  // permissão). O catch existe para o erro não subir como rejeição não tratada
+  // — o botão simplesmente não faz nada, e o estado continua verdadeiro.
+  function alternar() {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+    else void document.documentElement.requestFullscreen?.().catch(() => {})
+  }
+
+  if (typeof document !== 'undefined' && !document.documentElement.requestFullscreen) return null
+
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          class="size-9 grid place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
-          aria-label="Tamanho da fonte"
-          title="Tamanho da fonte"
-        >
-          <Type size={ICON_SIZE.md} />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={8}
-          class="min-w-[10rem] rounded-lg bg-surface-2 border border-border shadow-lg surface-raised p-1"
-          style={{ zIndex: 'var(--z-popover)' }}
-        >
-          {items.map((it) => {
-            const isCurrent = it.value === size
-            return (
-              <DropdownMenu.Item
-                key={it.value}
-                class={cn(
-                  'flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none',
-                  isCurrent && 'text-fg font-medium',
-                )}
-                onSelect={() => setSize(it.value)}
-              >
-                <span class="flex-1">{it.label}</span>
-                {isCurrent && <span class="text-accent">●</span>}
-              </DropdownMenu.Item>
-            )
-          })}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <TopbarUtil titulo={cheia ? 'Sair da tela cheia' : 'Tela cheia'} onClick={alternar}>
+      {cheia ? <Minimize size={ICON_SIZE.md} /> : <Maximize size={ICON_SIZE.md} />}
+    </TopbarUtil>
   )
 }
 
-function ThemeMenu() {
+/** Tema: o ícone mostra o tema em vigor, o menu troca. */
+function MenuDeTema() {
   const theme = useThemeStore((s) => s.theme)
   const setTheme = useThemeStore((s) => s.setTheme)
   const t = useT()
-  const Icon = theme === 'light' ? Sun : theme === 'system' ? Monitor : Moon
+  const Atual = theme === 'light' ? Sun : theme === 'system' ? Monitor : Moon
   const items: { value: Theme; label: string; icon: typeof Sun }[] = [
     { value: 'light', label: t('shell.theme.light'), icon: Sun },
     { value: 'dark', label: t('shell.theme.dark'), icon: Moon },
@@ -446,11 +291,11 @@ function ThemeMenu() {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          class="size-9 grid place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg"
+          class="size-9 grid place-items-center rounded-full text-fg-muted hover:bg-surface-3 hover:text-fg transition-colors"
           aria-label={t('shell.theme.label')}
           title={t('shell.theme.label')}
         >
-          <Icon size={ICON_SIZE.md} />
+          <Atual size={ICON_SIZE.md} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -461,23 +306,198 @@ function ThemeMenu() {
           style={{ zIndex: 'var(--z-popover)' }}
         >
           {items.map((it) => {
-            const Active = it.icon
-            const isCurrent = it.value === theme
+            const Icone = it.icon
+            const atual = it.value === theme
             return (
               <DropdownMenu.Item
                 key={it.value}
                 class={cn(
                   'flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none',
-                  isCurrent && 'text-fg font-medium',
+                  atual && 'text-fg font-medium',
                 )}
                 onSelect={() => setTheme(it.value)}
               >
-                <Active size={ICON_SIZE.sm} />
+                <Icone size={ICON_SIZE.sm} />
                 <span class="flex-1">{it.label}</span>
-                {isCurrent && <span class="text-accent">●</span>}
+                {atual && <Check size={ICON_SIZE.sm} class="text-accent" />}
               </DropdownMenu.Item>
             )
           })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  )
+}
+
+/**
+ * A conta: avatar, nome e papel, um sob o outro.
+ *
+ * Custa largura e não serve para nada operacional — e é justamente o que faz o
+ * painel parecer um sistema com gente e papel, em vez de uma ferramenta anônima.
+ * O anel colorido no avatar carrega o status de trabalho, e trocá-lo é a
+ * primeira linha do menu: some uma pílula da barra sem que a operação perca o
+ * controle que usa todo dia.
+ */
+function MenuDaConta(
+  { displayName, email, initials, role, onPerfil, onPreferencias, onSair }: {
+    displayName: string
+    email: string
+    initials: string
+    role: UserRole | undefined
+    onPerfil: () => void
+    onPreferencias: () => void
+    onSair: () => void
+  },
+) {
+  const t = useT()
+  const { user } = useAuth()
+  const update = useUpdateWorkStatus()
+  const status: WorkStatus = (user?.workStatus as WorkStatus | undefined) ?? 'offline'
+  const size = useFontSizeStore((st) => st.size)
+  const setSize = useFontSizeStore((st) => st.setSize)
+  const Papel = role ? ROLE_ICONS[role] : null
+  const tamanhos: FontSize[] = ['comfortable', 'large', 'larger']
+  const estados: WorkStatus[] = ['available', 'away', 'busy', 'offline']
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          class="flex items-center gap-2 h-11 pl-1 pr-2 rounded-full hover:bg-surface-3 transition-colors min-w-0"
+          aria-label={t('shell.user.menu')}
+        >
+          <span class="relative grid place-items-center shrink-0">
+            <span class="size-8 rounded-full grid place-items-center text-2xs font-semibold bg-surface-3 text-fg ring-1 ring-border">
+              {initials}
+            </span>
+            <span
+              class="absolute bottom-0 right-0 size-2.5 rounded-full ring-2 ring-surface"
+              style={{ background: WORK_STATUS_COLORS[status] }}
+            />
+          </span>
+          <span class="hidden lg:block min-w-0 text-left leading-tight">
+            <span class="block text-xs font-semibold text-fg truncate max-w-[9rem]">{displayName}</span>
+            <span class="block text-3xs text-fg-muted truncate max-w-[9rem]">
+              {role ? ROLE_LABELS[role] : ''}
+            </span>
+          </span>
+          <ChevronDown size={ICON_SIZE.sm} class="text-fg-muted hidden lg:block shrink-0" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={8}
+          class="min-w-[17rem] rounded-panel bg-surface-2 border border-border shadow-xl surface-raised p-0 overflow-hidden"
+          style={{ zIndex: 'var(--z-popover)' }}
+        >
+          <div class="flex items-start gap-3 p-3">
+            <span class="size-10 rounded-full grid place-items-center text-xs font-semibold bg-surface-3 text-fg ring-1 ring-border shrink-0">
+              {initials}
+            </span>
+            <div class="min-w-0 flex-1 space-y-1">
+              <div class="text-sm font-semibold text-fg truncate">{displayName}</div>
+              <div class="text-2xs text-fg-muted truncate">{email}</div>
+              {role && Papel && (
+                <span class="inline-flex items-center gap-1.5 h-5 px-2 rounded-full text-3xs font-medium text-fg-muted ring-1 ring-border">
+                  <Papel size={ICON_SIZE.xs} />
+                  {ROLE_LABELS[role]}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <DropdownMenu.Separator class="h-px bg-border" />
+
+          <div class="p-1">
+            <div class="px-2.5 pt-1.5 pb-1 text-3xs uppercase tracking-wider text-fg-muted font-semibold">
+              Status de trabalho
+            </div>
+            {estados.map((st) => {
+              const atual = st === status
+              return (
+                <DropdownMenu.Item
+                  key={st}
+                  disabled={update.isPending || atual}
+                  class={cn(
+                    'flex items-center gap-2.5 h-8 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg',
+                    atual && 'bg-surface-3',
+                  )}
+                  onSelect={() => { if (!atual) update.mutate(st) }}
+                  title={WORK_STATUS_HINTS[st]}
+                >
+                  <span class="size-2.5 rounded-full shrink-0" style={{ background: WORK_STATUS_COLORS[st] }} />
+                  <span class="flex-1">{WORK_STATUS_LABELS[st]}</span>
+                  {atual && <Check size={ICON_SIZE.sm} class="text-accent" />}
+                </DropdownMenu.Item>
+              )
+            })}
+          </div>
+
+          <DropdownMenu.Separator class="h-px bg-border" />
+
+          {/* O tema mora na barra; aqui fica só o tamanho do texto, que não tem
+              outro atalho e é ajuste de acessibilidade. A casa dos dois continua
+              sendo Configurações › Aparência. */}
+          <div class="p-3 space-y-1.5">
+            <div class="text-3xs uppercase tracking-wider text-fg-muted font-semibold flex items-center gap-1.5">
+              <Type size={ICON_SIZE.xs} /> Tamanho do texto
+            </div>
+            <div class="flex gap-1 p-0.5 rounded-lg bg-surface-3">
+              {tamanhos.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  class={cn(
+                    'flex-1 h-7 rounded-md text-2xs',
+                    v === size ? 'bg-surface-2 text-fg font-semibold shadow-sm' : 'text-fg-muted hover:text-fg',
+                  )}
+                  onClick={() => setSize(v)}
+                >
+                  {FONT_SIZE_LABELS[v]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <DropdownMenu.Separator class="h-px bg-border" />
+
+          <div class="p-1">
+            <DropdownMenu.Item
+              class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+              onSelect={onPerfil}
+            >
+              <UserIcon size={ICON_SIZE.sm} class="text-fg-muted" />
+              Meu perfil
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+              onSelect={onPreferencias}
+            >
+              <SlidersHorizontal size={ICON_SIZE.sm} class="text-fg-muted" />
+              Minhas preferências
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+              onSelect={() => { window.location.assign('/app/settings') }}
+            >
+              <SettingsIcon size={ICON_SIZE.sm} class="text-fg-muted" />
+              Configurações
+            </DropdownMenu.Item>
+          </div>
+
+          <DropdownMenu.Separator class="h-px bg-border" />
+
+          <div class="p-1">
+            <DropdownMenu.Item
+              class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-danger/10 text-danger outline-none"
+              onSelect={onSair}
+            >
+              <LogOut size={ICON_SIZE.sm} />
+              {t('shell.user.logout')}
+            </DropdownMenu.Item>
+          </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

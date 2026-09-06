@@ -70,3 +70,52 @@ export function Instagram(props: CustomIconProps): JSX.Element {
     </svg>
   )
 }
+
+/**
+ * Tela cheia — entrar e sair.
+ *
+ * Não existe no set gerado, e o set não se edita à mão. São quatro cantos
+ * apontando para fora (entrar) e para dentro (sair), na mesma grade 24 e com o
+ * mesmo traço dos vizinhos, para o botão não destoar na fileira de utilidades.
+ */
+export function Maximize(props: CustomIconProps): JSX.Element {
+  const { size = 24, class: className } = props
+  return (
+    <svg
+      data-icon=""
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width={props.strokeWidth ?? 1.5}
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  )
+}
+
+export function Minimize(props: CustomIconProps): JSX.Element {
+  const { size = 24, class: className } = props
+  return (
+    <svg
+      data-icon=""
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width={props.strokeWidth ?? 1.5}
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+    </svg>
+  )
+}
