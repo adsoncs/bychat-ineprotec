@@ -14,7 +14,8 @@ import { moveToTrash, snapshotLead, snapshotLeads } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { queues } from '../lib/queues.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
-import { validateLeadAcquiresSlot } from '../services/educationalSlots.js'
+import { assertLeadSlotAvailableTx, SlotFullError } from '../services/educationalSlots.js'
+import { Prisma } from '@prisma/client'
 import { scoreLead, getAiScoreCalibration } from '../services/aiLeadScoreService.js'
 
 // Rate-limit por IP da criação pública de lead (chat widget / landing). Não
@@ -648,10 +649,6 @@ export async function leadsRoutes(app: FastifyInstance) {
     // valida disponibilidade nas ofertas em que o lead está inscrito.
     const wasConsuming = !!currentStage?.consumesSlot
     const willConsume = !!targetStage.consumesSlot
-    if (willConsume && !wasConsuming) {
-      const slotErr = await validateLeadAcquiresSlot(parseInt(id))
-      if (slotErr) return reply.code(409).send({ error: slotErr })
-    }
 
     // Atualiza status E funnelId (garante que lead aparece no kanban)
     const updateData: any = { status }
@@ -659,10 +656,28 @@ export async function leadsRoutes(app: FastifyInstance) {
       updateData.funnelId = targetStage.funnelId
     }
 
-    const updated = await prisma.lead.update({
-      where: { id: parseInt(id) },
-      data: updateData
-    })
+    // Vagas (Educacional): quando a etapa-alvo consome vaga e a atual nao
+    // consumia, a checagem de disponibilidade e a troca de status precisam ser
+    // ATOMICAS — senao duas movimentacoes simultaneas para a ultima vaga leem o
+    // mesmo total e ambas passam (overselling). Serializa numa transacao READ
+    // COMMITTED com lock FOR UPDATE nas ofertas do lead.
+    let updated
+    if (willConsume && !wasConsuming) {
+      try {
+        updated = await prisma.$transaction(async (tx) => {
+          await assertLeadSlotAvailableTx(tx, parseInt(id))
+          return tx.lead.update({ where: { id: parseInt(id) }, data: updateData })
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
+      } catch (e: any) {
+        if (e instanceof SlotFullError) return reply.code(409).send({ error: e.message })
+        throw e
+      }
+    } else {
+      updated = await prisma.lead.update({
+        where: { id: parseInt(id) },
+        data: updateData,
+      })
+    }
 
     // Histórico de movimentação — é o que alimenta o Relatório de Funil e o
     // "já passou por" da conversa. A rota atualizava o Lead sem registrar nada,

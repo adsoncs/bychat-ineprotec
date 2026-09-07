@@ -8,10 +8,10 @@ import { Prisma } from '@prisma/client'
 
 export type OfferingSlotCount = { totalInscricoes: number; vagasOcupadas: number }
 
-export async function getOfferingSlotCounts(offeringIds: number[]): Promise<Map<number, OfferingSlotCount>> {
+export async function getOfferingSlotCounts(offeringIds: number[], client: Prisma.TransactionClient | typeof prisma = prisma): Promise<Map<number, OfferingSlotCount>> {
   const out = new Map<number, OfferingSlotCount>()
   if (offeringIds.length === 0) return out
-  const rows = await prisma.$queryRaw<Array<{ offeringId: number; totalInscricoes: bigint; vagasOcupadas: bigint }>>`
+  const rows = await client.$queryRaw<Array<{ offeringId: number; totalInscricoes: bigint; vagasOcupadas: bigint }>>`
     SELECT
       r.offeringId AS offeringId,
       COUNT(*) AS totalInscricoes,
@@ -54,4 +54,36 @@ export async function validateLeadAcquiresSlot(leadId: number): Promise<string |
     }
   }
   return null
+}
+
+
+// Lancado por assertLeadSlotAvailableTx quando nao ha vaga. O chamador
+// converte em HTTP 409.
+export class SlotFullError extends Error {}
+
+// Versao transacional/atomica da checagem de vaga. Deve ser chamada DENTRO de
+// um prisma.$transaction (de preferencia isolationLevel ReadCommitted), na mesma
+// transacao em que o lead sera movido para a etapa que consome vaga. Trava as
+// ofertas limitadas do lead com SELECT ... FOR UPDATE — concorrentes bloqueiam
+// ate o commit — e so entao recontabiliza. Sem isso, duas movimentacoes
+// simultaneas para a ultima vaga leem o mesmo total e ambas passam (overselling).
+export async function assertLeadSlotAvailableTx(tx: Prisma.TransactionClient, leadId: number): Promise<void> {
+  const regs = await tx.processRegistration.findMany({
+    where: { leadId },
+    select: { offering: { select: { id: true, nome: true, vagasMaximas: true } } },
+  })
+  const limited = regs
+    .map((r) => r.offering)
+    .filter((o): o is { id: number; nome: string; vagasMaximas: number } => !!o && !!o.vagasMaximas && o.vagasMaximas > 0)
+  if (limited.length === 0) return
+  const ids = limited.map((o) => o.id)
+  // Row lock nas ofertas: serializa a alocacao da ultima vaga entre requisicoes.
+  await tx.$queryRaw`SELECT id FROM bychat_edu_offerings WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`
+  const counts = await getOfferingSlotCounts(ids, tx)
+  for (const o of limited) {
+    const ocupadas = counts.get(o.id)?.vagasOcupadas ?? 0
+    if (ocupadas + 1 > o.vagasMaximas) {
+      throw new SlotFullError(`Sem vagas: a oferta "${o.nome}" tem ${o.vagasMaximas} vagas, todas ocupadas.`)
+    }
+  }
 }
