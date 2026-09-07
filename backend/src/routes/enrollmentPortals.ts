@@ -231,6 +231,10 @@ function serializePaymentMethod(m: any) {
 
 // ─── Rotas ───────────────────────────────────────────────
 
+// Rate-limit em memoria (por IP) da submissao publica de inscricao — ver uso
+// no POST /register. Por processo; espelha o padrao de forms.ts.
+const portalRegisterCounts = new Map<string, { count: number; reset: number }>()
+
 export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/enrollment-portals — listar
@@ -294,7 +298,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // POST /api/admin/enrollment-portals — criar
   app.post('/api/admin/enrollment-portals', { preHandler: adminOnly }, async (req, reply) => {
-    const body = req.body as any
+    const body = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
 
     if (!body?.nome || !body?.unitId) {
@@ -376,7 +380,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // PUT /api/admin/enrollment-portals/:id — atualizar
   app.put('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
-    const body = req.body as any
+    const body = (req.body as any) || {}
     const data: any = {}
 
     if (body.nome !== undefined) data.nome = body.nome
@@ -1373,7 +1377,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // POST /api/public/portals/:slug/register — submeter inscrição
   app.post('/api/public/portals/:slug/register', async (req, reply) => {
     const { slug } = req.params as any
-    const body = req.body as any
+
+    // Rate-limit por IP: barra spam de inscricoes (cada submit cria lead +
+    // inscricao + candidato). 30/min por IP e folgado para uma pessoa e para
+    // uma turma no mesmo IP, e apertado para automacao. Em memoria, por processo.
+    {
+      const ipRl = req.ip
+      const nowRl = Date.now()
+      const eRl = portalRegisterCounts.get(ipRl) || { count: 0, reset: nowRl + 60000 }
+      if (nowRl > eRl.reset) { eRl.count = 0; eRl.reset = nowRl + 60000 }
+      eRl.count++
+      portalRegisterCounts.set(ipRl, eRl)
+      if (eRl.count > 30) return reply.code(429).send({ error: 'Muitas inscricoes em sequencia. Aguarde um minuto e tente novamente.' })
+    }
+    const body = (req.body as any) || {}
     const headers = req.headers as any
 
     if (!/^[a-z0-9-]{3,100}$/.test(slug || '')) return reply.code(400).send({ error: 'Slug inválido' })
@@ -3285,7 +3302,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
     if (!portal) return reply.code(404).send({ error: 'Portal/conexão não encontrada' })
 
-    const body = req.body as any
+    const body = (req.body as any) || {}
     const event: string = body?.event || ''
     const payment = body?.payment
 
