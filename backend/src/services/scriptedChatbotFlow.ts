@@ -51,6 +51,8 @@ export const DEFAULT_SCRIPTED_MESSAGES: Record<string, string> = {
   bookingConfirmed: '✅ Reunião agendada para *{{horario}}*!\n\nVocê vai receber os detalhes por aqui. Até lá! 🚀', // {{horario}} {{nome}}
   disqualifiedFallback: 'Obrigado pelas respostas! Em breve entraremos em contato. 😊',
   qualifiedDone: 'Obrigado! Em breve entraremos em contato. 😊',
+  // Escape do roteiro: usado quando o contato não consegue responder a opção.
+  handoffAfterFallback: 'Sem problema! Vou te passar para uma pessoa da equipe continuar daqui. 😊',
 }
 
 // Resolve a mensagem de uma chave: override do chatbot → default; interpola variáveis.
@@ -64,6 +66,8 @@ interface ScriptState {
   stepIndex: number
   answers: Record<string, any>
   leadId: number | null
+  /** Respostas seguidas que não casaram no passo atual. Zera ao avançar. */
+  falhas?: number
   // flow_pending: enviamos um WhatsApp Flow e aguardamos o nfm_reply (respostas).
   phase: 'asking' | 'scheduling' | 'done' | 'disqualified' | 'flow_pending'
   slots?: Array<{ startAt: string; text: string }>
@@ -366,12 +370,17 @@ async function _process(
     // value; a qualificação/roteamento abaixo continua determinístico sobre ele.
     const ai = await interpretSelectAnswer(field, text, { instruction: chatbot?.interpretPrompt })
     if (ai.value) state.answers[field.key] = ai.value
+    else if (await desistirDoPasso(leadId, state, chatbot, field, send)) return
     else { await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return }
   } else if (parsed.kind === 'select') {
+    if (await desistirDoPasso(leadId, state, chatbot, field, send)) return
     await send(leadId, msg(chatbot, 'invalidSelect')); await askField(leadId, field); return
   } else {
+    if (await desistirDoPasso(leadId, state, chatbot, field, send)) return
     await send(leadId, `${msg(chatbot, 'invalidAnswer', { erro: parsed.error })}\n\n${questionText(field)}`); return
   }
+  // Respondeu: o contador de teimosia do passo zera.
+  state.falhas = 0
 
   // Persiste a resposta no lead (campos nativos via mapTo + customFields).
   await applyAnswerToLead(leadId, field, state.answers)
@@ -416,6 +425,34 @@ async function _process(
 }
 
 // ── Persistência do estado em lead.formData._script (+ answers no topo) ──
+/** Tentativas no MESMO passo antes de entregar a conversa para uma pessoa. */
+const MAX_TENTATIVAS_NO_PASSO = 3
+
+/**
+ * O roteiro desiste — e entrega para gente.
+ *
+ * Sem isto o bot repergunta para sempre: quem responde "sei lá" a um menu ficava
+ * num laço infinito, e no WhatsApp isso não termina em erro, termina em cliente
+ * desistindo. Três tentativas no mesmo passo é o bastante para concluir que a
+ * pergunta não vai ser respondida daquele jeito.
+ *
+ * Encerra o roteiro (`phase: 'done'`) e deixa a conversa aberta na fila, que é
+ * o mesmo desfecho de quem completa — o operador assume com o que já foi dito.
+ */
+async function desistirDoPasso(
+  leadId: number, state: ScriptState, chatbot: any, field: any,
+  send: (leadId: number, texto: string) => Promise<void>,
+): Promise<boolean> {
+  state.falhas = (state.falhas ?? 0) + 1
+  if (state.falhas < MAX_TENTATIVAS_NO_PASSO) return false
+  console.warn(`[chatbot] lead ${leadId}: ${state.falhas} respostas sem casar em "${field?.key}" — roteiro encerrado e conversa entregue à equipe`)
+  state.phase = 'done'
+  state.falhas = 0
+  await persist(leadId, state, false)
+  await send(leadId, msg(chatbot, 'handoffAfterFallback'))
+  return true
+}
+
 async function persist(leadId: number, state: ScriptState, completed = false): Promise<void> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } })
   const fd: any = (lead?.formData as any) || {}

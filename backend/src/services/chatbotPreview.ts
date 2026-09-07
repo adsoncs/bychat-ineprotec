@@ -466,7 +466,18 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
   } else if (parsed.kind === 'select' && chatbot?.aiInterpret) {
     const ai = await interpretSelectAnswer(field, text, { instruction: chatbot?.interpretPrompt }).catch(() => ({ value: null } as any))
     if (ai.value) state.answers[field.key] = ai.value
-    else { out.push(msg(chatbot, 'invalidSelect')); askField(out, field); return done(sessionId, out, state) }
+    else {
+      // Mesmo escape do runner real: três tentativas no mesmo passo e a conversa
+      // vai para uma pessoa. O simulador precisa mostrar isso, senão ele ensina
+      // um comportamento que o WhatsApp não tem.
+      state.fallbackCount = (state.fallbackCount || 0) + 1
+      if (state.fallbackCount >= 3) {
+        out.push(msg(chatbot, 'handoffAfterFallback'))
+        state.phase = 'done'
+        return done(sessionId, out, state)
+      }
+      out.push(msg(chatbot, 'invalidSelect')); askField(out, field); return done(sessionId, out, state)
+    }
   } else if (parsed.kind === 'select') {
     if (cfg?.maxFallbacks) {
       state.fallbackCount = (state.fallbackCount || 0) + 1
