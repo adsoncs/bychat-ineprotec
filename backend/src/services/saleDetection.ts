@@ -136,7 +136,14 @@ async function callAI(systemPrompt: string, conversation: string): Promise<SaleR
     // Falha da API era engolida e o log dizia só "nenhum provedor disponível" —
     // mensagem que manda procurar configuração quando o problema é crédito
     // acabado, chave revogada ou rate limit. Sem o motivo, ninguém investiga.
-    console.warn(`[SaleDetection] Anthropic respondeu ${resp.status}: ${(await resp.text().catch(() => '')).slice(0, 200)}`)
+    const motivo = (await resp.text().catch(() => '')).slice(0, 200)
+    console.warn(`[SaleDetection] Anthropic respondeu ${resp.status}: ${motivo}`)
+    // Este serviço roda sozinho, a cada conversa: é o primeiro a perceber que a
+    // IA caiu por crédito/credencial, muito antes de alguém escrever para o bot.
+    // Avisar daqui faz o alerta chegar à gestão sem depender de um cliente
+    // esbarrar no problema. Ver services/aiProviderHealth.ts.
+    const { noteLlmFailure } = await import('./aiProviderHealth.js')
+    await noteLlmFailure(new Error(`Anthropic ${resp.status}: ${motivo}`), 'anthropic').catch(() => {})
   }
 
   // Fallback to OpenAI

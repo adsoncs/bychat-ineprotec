@@ -547,12 +547,26 @@ function safeJson(s: any): any { try { return JSON.parse(s || '{}') } catch { re
 
 export async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
   const primary = await getPrimaryProvider()
+  const { noteLlmFailure, noteLlmSuccess } = await import('./aiProviderHealth.js')
   try {
-    return primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
+    const r = primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
+    await noteLlmSuccess()
+    return r
   } catch (e) {
     // Fallback para o outro provider.
-    try { return primary === 'openai' ? await anthropicTurn(system, messages) : await openaiTurn(system, messages) }
-    catch { throw e }
+    try {
+      const r = primary === 'openai' ? await anthropicTurn(system, messages) : await openaiTurn(system, messages)
+      await noteLlmSuccess()
+      return r
+    } catch (e2) {
+      // Os DOIS provedores recusaram. Se a recusa é de crédito/credencial, quem
+      // fica sabendo é a gestão (sino), não o contato — ver aiProviderHealth.ts.
+      // A classificação viaja no próprio erro para o motor decidir se responde.
+      const kind = await noteLlmFailure(e, primary).catch(() => 'transient' as const)
+      const kind2 = kind === 'credential' ? kind : await noteLlmFailure(e2, primary === 'openai' ? 'anthropic' : 'openai').catch(() => 'transient' as const)
+      ;(e as any).llmFailure = kind2
+      throw e
+    }
   }
 }
 
@@ -724,11 +738,21 @@ async function _process(
   const startedAt = Date.now()
   let replied = false
   let failed = false
+  // Falha da NOSSA infraestrutura (crédito, cota, credencial). Não vira mensagem
+  // para o contato: a frase de desculpa pede que ele repita, ele repete, e a
+  // falha se repete junto — cinco dias disso no severiano renderam 66 mensagens
+  // de erro e nenhuma resposta de verdade. Ver services/aiProviderHealth.ts.
+  let indisponivel = false
   for (let i = 0; i < MAX_TOOL_ITERS; i++) {
     if (Date.now() - startedAt > TURN_BUDGET_MS) { app.log.warn('[aiJourney] orçamento do turno esgotado'); failed = true; break }
     let turn: LlmTurn
     try { turn = await llmTurn(system, messages) }
-    catch (e: any) { app.log.error(`[aiJourney] LLM: ${e?.message || e}`); failed = true; break }
+    catch (e: any) {
+      app.log.error(`[aiJourney] LLM: ${e?.message || e}`)
+      failed = true
+      indisponivel = e?.llmFailure === 'credential'
+      break
+    }
 
     if (turn.kind === 'text') {
       const { text: out, options } = extractOptions(turn.text)
@@ -762,6 +786,14 @@ async function _process(
     if (fp === 'disqualified') {
       app.log.warn('[aiJourney] desqualificado sem resposta — encerrando cordialmente')
       await send(leadId, 'Obrigado pelas suas respostas! No momento não seguimos com o agendamento, mas qualquer novidade a nossa equipe entra em contato. 😊', []).catch(() => {})
+    } else if (indisponivel) {
+      // Silêncio deliberado: a mensagem do lead já está gravada e a conversa
+      // aparece nas Conversas para o time atender. A gestão foi avisada pelo
+      // sino (alerta `integration.error`), que é quem pode resolver.
+      app.log.error(`[aiJourney] lead ${leadId}: IA indisponível (crédito/credencial) — bot em silêncio, conversa entregue ao atendimento humano`)
+    } else if (failed) {
+      app.log.warn('[aiJourney] sem resposta final — enviando fallback')
+      await send(leadId, 'Tive uma instabilidade aqui 😕 Pode repetir a sua última mensagem, por favor?', []).catch(() => {})
     } else if (failed) {
       app.log.warn('[aiJourney] sem resposta final — enviando fallback')
       await send(leadId, 'Tive uma instabilidade aqui 😕 Pode repetir a sua última mensagem, por favor?', []).catch(() => {})
