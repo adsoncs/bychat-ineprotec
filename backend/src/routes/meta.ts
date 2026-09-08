@@ -3,6 +3,8 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { phoneKey } from '../lib/phone.js'
+import { DEFAULT_FIELD_MAP, normKey, guessCoreField, buildAutoMapping } from '../lib/metaFieldMap.js'
 import { rejectLeadEntry } from '../services/leadBlocklist.js'
 import { authMiddleware } from '../lib/auth.js'
 import { logEvent, getIp, getOperator, EVENT_TYPES } from '../services/leadHistory.js'
@@ -73,6 +75,58 @@ export function startMetaLeadPoller() {
   }, META_POLL_INTERVAL)
 }
 
+/**
+ * Descobre formulários que existem na página da Meta e ainda não estão no CRM.
+ *
+ * O poller varre apenas os forms já cadastrados: quando a agência publica um
+ * criativo com formulário NOVO, ele fica invisível para o CRM até alguém clicar
+ * "Sincronizar formulários" no painel — e os leads ficam parados na Meta até lá
+ * (incidente severiano: 3 dias, 24 leads, descobertos só na sincronização
+ * manual). Roda no máximo a cada 30 min por integração; só CRIA o que falta,
+ * nunca mexe em form existente nem no mapeamento revisado pelo operador.
+ */
+const lastFormDiscovery = new Map<number, number>()
+const FORM_DISCOVERY_INTERVAL = 30 * 60 * 1000
+
+async function discoverNewForms(integration: any): Promise<number> {
+  const last = lastFormDiscovery.get(integration.id) || 0
+  if (Date.now() - last < FORM_DISCOVERY_INTERVAL) return 0
+  lastFormDiscovery.set(integration.id, Date.now())
+
+  const forms = await metaFetchAll(
+    `/${integration.pageId}/leadgen_forms?fields=id,name,status,leads_count,created_time,questions&limit=100`,
+    integration.pageAccessToken
+  )
+  const known = new Set((await prisma.metaForm.findMany({
+    where: { integrationId: integration.id }, select: { formId: true }
+  })).map(f => f.formId))
+
+  const novos = forms.filter((f: any) => !known.has(String(f.id)))
+  if (novos.length === 0) return 0
+
+  const cfLookup = await loadCustomFieldLookup()
+  const inherited = await inheritFormTargeting(integration.id)
+
+  for (const f of novos) {
+    await prisma.metaForm.create({
+      data: {
+        integrationId: integration.id,
+        formId: String(f.id),
+        formName: f.name || String(f.id),
+        status: 'active',
+        fieldMapping: f.questions ? buildAutoMapping(f.questions, cfLookup) : undefined,
+        funnelId: inherited?.funnelId ?? undefined,
+        stageKey: inherited?.stageKey || 'NOVO',
+        defaultTeamId: inherited?.defaultTeamId ?? undefined,
+        autoComplete: inherited?.autoComplete || false,
+        metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
+      }
+    })
+    console.log(`[Meta] Formulário novo descoberto na página ${integration.pageId}: ${f.name || f.id} (${f.id})`)
+  }
+  return novos.length
+}
+
 async function pollAllMetaForms() {
   const integrations = await prisma.metaIntegration.findMany({
     where: { active: true },
@@ -84,6 +138,15 @@ async function pollAllMetaForms() {
   let totalCreated = 0
 
   for (const integration of integrations) {
+    try {
+      const novos = await discoverNewForms(integration)
+      if (novos > 0) {
+        // Recarrega para varrer já nesta rodada os forms recém-descobertos.
+        integration.forms = await prisma.metaForm.findMany({ where: { integrationId: integration.id, status: 'active' } }) as any
+      }
+    } catch (err: any) {
+      console.error(`[Meta] Descoberta de forms falhou (page ${integration.pageId}): ${err.message}`)
+    }
     for (const form of integration.forms) {
       try {
         const created = await pollFormLeads(form, integration)
@@ -777,42 +840,16 @@ export async function metaRoutes(app: FastifyInstance) {
       const synced = []
 
       // Load custom fields for auto-mapping
-      const customFields = await prisma.customField.findMany({ where: { active: true } })
-      const cfLookup: Record<string, string> = {}
-      for (const cf of customFields) {
-        cfLookup[cf.key.toLowerCase()] = `cf_${cf.key}`
-        cfLookup[cf.label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')] = `cf_${cf.key}`
-      }
-
-      const nameP = /^(full_name|first_name|last_name|nome|name)$/i
-      const emailP = /^(email|e-mail|email_address)$/i
-      const phoneP = /^(phone_number|phone|telefone|whatsapp|celular|mobile)$/i
-      const compP = /^(company_name|company|empresa)$/i
-      const cityP = /^(city|cidade)$/i
+      const cfLookup = await loadCustomFieldLookup()
+      const inherited = await inheritFormTargeting(integration.id)
 
       for (const f of forms) {
-        const prevForm = await prisma.metaForm.findFirst({ where: { formId: String(f.id) }, select: { fieldMapping: true, funnelId: true, stageKey: true, autoComplete: true } })
+        const prevForm = await prisma.metaForm.findFirst({ where: { formId: String(f.id) }, select: { fieldMapping: true, funnelId: true, stageKey: true, autoComplete: true, defaultTeamId: true } })
 
         // Auto-generate mapping if no existing mapping
-        let autoMapping: Record<string, string> | undefined = undefined
-        if (!prevForm?.fieldMapping && f.questions) {
-          autoMapping = {}
-          for (const q of f.questions) {
-            const key = q.key || q.label || ''
-            if (nameP.test(key)) autoMapping[key] = 'nome'
-            else if (emailP.test(key)) autoMapping[key] = 'email'
-            else if (phoneP.test(key)) autoMapping[key] = 'whatsapp'
-            else if (compP.test(key)) autoMapping[key] = 'empresa'
-            else if (cityP.test(key)) autoMapping[key] = 'cidade'
-            else {
-              const nk = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-              const nl = (q.label || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-              if (cfLookup[nk]) autoMapping[key] = cfLookup[nk]
-              else if (cfLookup[nl]) autoMapping[key] = cfLookup[nl]
-              else autoMapping[key] = '_formData'
-            }
-          }
-        }
+        const autoMapping = (!prevForm?.fieldMapping && f.questions)
+          ? buildAutoMapping(f.questions, cfLookup)
+          : undefined
 
         const form = await prisma.metaForm.upsert({
           where: { integrationId_formId: { integrationId: integration.id, formId: String(f.id) } },
@@ -826,10 +863,14 @@ export async function metaRoutes(app: FastifyInstance) {
             formId: String(f.id),
             formName: f.name || f.id,
             fieldMapping: prevForm?.fieldMapping || autoMapping || undefined,
-            funnelId: prevForm?.funnelId || undefined,
-            stageKey: prevForm?.stageKey || 'NOVO',
-            autoComplete: prevForm?.autoComplete || false,
-            metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time },
+            // Form novo herda funil/etapa/time do irmão que já recebe lead: sem
+            // isso vai para o funil padrão do sistema e a campanha some da vista
+            // da equipe até alguém reparar (ver inheritFormTargeting).
+            funnelId: prevForm?.funnelId ?? inherited?.funnelId ?? undefined,
+            stageKey: prevForm?.stageKey || inherited?.stageKey || 'NOVO',
+            defaultTeamId: prevForm?.defaultTeamId ?? inherited?.defaultTeamId ?? undefined,
+            autoComplete: prevForm?.autoComplete || inherited?.autoComplete || false,
+            metadata: { questions: f.questions, status: f.status, leads_count: f.leads_count, created_time: f.created_time, ...(!prevForm && inherited ? { inheritedFromFormId: inherited.id } : {}) },
           }
         })
         synced.push(form)
@@ -985,8 +1026,17 @@ export async function metaRoutes(app: FastifyInstance) {
         const standardUpdates: Record<string, string> = {}
 
         for (const [metaField, value] of Object.entries(fields)) {
-          const leadField = mapping[metaField] || DEFAULT_FIELD_MAP[metaField]
-          if (!leadField || leadField === '_ignore' || leadField === '_formData' || !value) continue
+          if (!value) continue
+          // Núcleo por conteúdo do rótulo mesmo quando o mapeamento salvo manda
+          // o campo para `_formData`: é justamente o mapeamento errado que faz o
+          // operador clicar em "Reprocessar", e sem isso o botão não devolve o
+          // nome nem o telefone que estão no payload guardado.
+          let leadField = mapping[metaField] || DEFAULT_FIELD_MAP[metaField]
+          if (!leadField || leadField === '_ignore' || leadField === '_formData') {
+            const core = guessCoreField(metaField)
+            if (!core) continue
+            leadField = core
+          }
 
           if (leadField.startsWith('cf_')) {
             customFieldValues[leadField.slice(3)] = value
@@ -1252,16 +1302,38 @@ async function processMetaLead(metaLeadId: string, metaFormId: string, pageId: s
       include: { integration: true }
     })
 
-    // Se form nao existe no sistema, criar automaticamente
-    const resolvedForm = form || await prisma.metaForm.create({
-      data: {
-        integrationId: integration.id,
-        formId: metaFormId,
-        formName: `Form ${metaFormId}`,
-        status: 'active',
-      },
-      include: { integration: true }
-    })
+    // Se form nao existe no sistema, criar automaticamente — já com nome real,
+    // mapeamento das perguntas e destino herdado do form irmão. Antes nascia
+    // "Form <id>" e sem fieldMapping: caía no DEFAULT_FIELD_MAP (rótulos em
+    // inglês) e todo lead de formulário em português entrava sem nome nem
+    // telefone, no funil padrão do sistema.
+    const resolvedForm = form || await (async () => {
+      let questions: any[] | undefined
+      let formName = `Form ${metaFormId}`
+      try {
+        const meta = await metaFetch(`/${metaFormId}?fields=id,name,questions`, integration.pageAccessToken)
+        questions = meta?.questions
+        if (meta?.name) formName = meta.name
+      } catch (err: any) {
+        app.log.warn(`[Meta] Não consegui ler o formulário ${metaFormId}: ${err.message}`)
+      }
+      const inherited = await inheritFormTargeting(integration.id)
+      return prisma.metaForm.create({
+        data: {
+          integrationId: integration.id,
+          formId: metaFormId,
+          formName,
+          status: 'active',
+          fieldMapping: questions ? buildAutoMapping(questions, await loadCustomFieldLookup()) : undefined,
+          funnelId: inherited?.funnelId ?? undefined,
+          stageKey: inherited?.stageKey || 'NOVO',
+          defaultTeamId: inherited?.defaultTeamId ?? undefined,
+          autoComplete: inherited?.autoComplete || false,
+          metadata: { questions, autoDiscovered: true, ...(inherited ? { inheritedFromFormId: inherited.id } : {}) },
+        },
+        include: { integration: true }
+      })
+    })()
 
     // 4. Buscar dados do lead via Graph API
     const leadData = await metaFetch(
@@ -1330,21 +1402,30 @@ async function processMetaLead(metaLeadId: string, metaFormId: string, pageId: s
   }
 }
 
-// Mapeamento padrao de campos Meta -> Lead
-const DEFAULT_FIELD_MAP: Record<string, string> = {
-  'full_name': 'nome',
-  'first_name': 'nome',
-  'last_name': 'nome',
-  'email': 'email',
-  'phone_number': 'whatsapp',
-  'phone': 'whatsapp',
-  'company_name': 'empresa',
-  'company': 'empresa',
-  'city': 'cidade',
-  'state': 'cidade',
-  'zip_code': 'cidade',
-  'job_title': 'segmento',
-  'street_address': 'cidade',
+/** cfLookup (chave e label normalizadas → cf_<key>) dos custom fields ativos. */
+async function loadCustomFieldLookup(): Promise<Record<string, string>> {
+  const customFields = await prisma.customField.findMany({ where: { active: true } })
+  const cfLookup: Record<string, string> = {}
+  for (const cf of customFields) {
+    cfLookup[cf.key.toLowerCase()] = `cf_${cf.key}`
+    cfLookup[normKey(cf.label)] = `cf_${cf.key}`
+  }
+  return cfLookup
+}
+
+/**
+ * Config de destino para um form recém-descoberto: herda do irmão mais recente
+ * da mesma página que já recebeu lead. Sem isso o form novo cai no funil padrão
+ * do sistema — no severiano, "Recepção", que ninguém trabalha — enquanto a
+ * campanha é a mesma de sempre, só com criativo/form novo na Meta.
+ */
+async function inheritFormTargeting(integrationId: number) {
+  const sibling = await prisma.metaForm.findFirst({
+    where: { integrationId, funnelId: { not: null } },
+    orderBy: [{ lastLeadAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, funnelId: true, stageKey: true, defaultTeamId: true, autoComplete: true },
+  })
+  return sibling
 }
 
 async function createLeadFromMeta(
@@ -1368,7 +1449,16 @@ async function createLeadFromMeta(
     } else if (leadField.startsWith('cf_')) {
       customFieldValues[leadField.slice(3)] = value
     } else if (mapped[leadField]) {
-      mapped[leadField] += ' ' + value
+      // Dois campos no mesmo destino: concatenar faz sentido em nome
+      // (first_name + last_name), mas em telefone/e-mail produz um valor que
+      // não disca nem entrega. Formulário com "telefone" E "qual seu whatsapp"
+      // existe (unialfa); ali o segundo valor só entra se o primeiro não for um
+      // telefone de verdade.
+      if (leadField === 'whatsapp') {
+        if (!phoneKey(mapped.whatsapp) && phoneKey(value)) mapped.whatsapp = value
+      } else if (leadField !== 'email') {
+        mapped[leadField] += ' ' + value
+      }
     } else {
       mapped[leadField] = value
     }
@@ -1384,6 +1474,34 @@ async function createLeadFromMeta(
   if (mapped.email) mapped.email = mapped.email.slice(0, 191)
   if (mapped.segmento) mapped.segmento = mapped.segmento.slice(0, 100)
   if (mapped.cidade) mapped.cidade = mapped.cidade.slice(0, 100)
+
+  // Rede de segurança do núcleo (telefone/nome/e-mail). O `fieldMapping` é
+  // editável pelo operador e um form novo pode chegar com rótulo que ninguém
+  // previu — quando isso acontece o dado ESTÁ no payload da Meta, só não foi
+  // parar na coluna certa, e o lead nasce impossível de contatar (não abre
+  // conversa, reprova em toda condição de telefone, some do disparo). Aqui o
+  // valor é recuperado do payload cru e o desvio fica registrado na timeline,
+  // para o mapeamento ser corrigido em vez de silenciosamente contornado.
+  const recovered: string[] = []
+  for (const core of ['whatsapp', 'nome', 'email'] as const) {
+    if (mapped[core]) continue
+    for (const [k, v] of Object.entries(fields)) {
+      if (!v || guessCoreField(k) !== core) continue
+      if (core === 'whatsapp' && !phoneKey(v)) continue
+      mapped[core] = core === 'whatsapp'
+        ? v.replace(/[^\d+]/g, '').slice(0, 30)
+        : v.slice(0, 191)
+      recovered.push(`${core} <- "${k}"`)
+      break
+    }
+  }
+  if (recovered.length) {
+    console.warn(`[Meta] mapeamento do form ${form.formId} não cobre o núcleo; recuperado do payload: ${recovered.join(', ')}`)
+  }
+  const semTelefone = !mapped.whatsapp
+  if (semTelefone) {
+    console.warn(`[Meta] lead do form ${form.formId} entrou SEM telefone — campos recebidos: ${Object.keys(fields).join(', ')}`)
+  }
 
   // Lista de bloqueio. Devolver null aqui faz o chamador seguir como se o lead
   // não tivesse sido criado — o poller do Meta marca o registro como processado
@@ -1489,6 +1607,22 @@ async function createLeadFromMeta(
       qualificationSource: 'meta_lead_ads',
     }
   })
+
+  if (recovered.length || semTelefone) {
+    logEvent({
+      leadId: lead.id,
+      type: 'integration_warning',
+      category: 'integration',
+      title: semTelefone ? 'Lead do Meta entrou sem telefone' : 'Mapeamento do formulário corrigido na entrada',
+      channel: 'meta_lead_ads',
+      source: 'integration',
+      actorType: 'integration',
+      description: semTelefone
+        ? `Nenhum campo do formulário "${form.formName}" pôde ser lido como telefone. Revise o mapeamento em Integrações › Meta Ads. Campos recebidos: ${Object.keys(fields).join(', ')}`
+        : `O mapeamento do formulário "${form.formName}" não cobria ${recovered.join(', ')}; o valor foi recuperado do payload da Meta. Revise o mapeamento em Integrações › Meta Ads.`,
+      metadata: { formId: form.formId, recovered, fields: Object.keys(fields) },
+    })
+  }
 
   // Consentimento LGPD implícito: ao submeter um Meta Lead Form, o usuário aceitou
   // a política de privacidade do Facebook Lead Ads, que autoriza o anunciante a
