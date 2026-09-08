@@ -15,7 +15,8 @@ import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { WorkInbox } from './WorkInbox'
 import { TopbarUtil } from './TopbarUtil'
-import { useTopbarPulse } from '@/hooks/useTopbarPulse'
+import { useUnreadCount } from '@/hooks/useUnreadCount'
+import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useMyPermissions } from '@/hooks/usePermissions'
 import { useUserStore } from '@/stores/user'
 import { sidebarSchema, findItem } from '@/modules/sidebar.config'
@@ -98,16 +99,32 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [prefsOpen, setPrefsOpen] = useState(false)
 
-  // O contador de "conversas esperando" é o mesmo número da Supervisão, e só é
-  // buscado para quem atende — para o financeiro ou o marketing seria um número
-  // sobre uma fila que não é dele.
+  // O contador do balão é a MESMA fonte do item Conversas no menu: conversas
+  // com mensagem não lida.
+  //
+  // Antes ele vinha do pulso da Supervisão, que conta outra coisa — conversa
+  // ativa cuja última mensagem é do contato. Com o operador lendo tudo sem
+  // encerrar, a mesma tela dizia duas verdades ao mesmo tempo: nenhum badge no
+  // menu e "34" no topo. E o 34 não abria em lugar nenhum, porque a tela de
+  // Conversas filtra por lida/não lida, não por quem falou por último — o
+  // número não tinha como ser conferido.
+  //
+  // A fila de espera continua existindo, na Supervisão, onde vem com o que a
+  // torna legível: mediana do dia, meta, esquecidas e a espera mais antiga.
+  //
+  // Só para quem atende — para o financeiro ou o marketing seria um número
+  // sobre uma fila que não é dele — e respeitando a mesma preferência do menu
+  // ("Mostrar quantas conversas esperam resposta"): desligar num lugar e o
+  // contador continuar no outro é o mesmo defeito, de outro jeito.
   const { data: perms } = useMyPermissions()
   const papel = useUserStore((st) => st.user?.role ?? null)
   const veAtendimento = papel === 'SUPERADMIN' || !!perms?.permissions?.['atendimento']?.canView
-  // Vale no celular também: o contador de conversas esperando é o único sinal
-  // de fila que sobra ali, já que a barra estreita não comporta mais nada.
-  const pulse = useTopbarPulse(veAtendimento)
-  const esperando = pulse.data?.esperando ?? 0
+  const { prefs } = useAccountPrefs()
+  // Mesma queryKey do menu: a barra não paga uma requisição a mais por isso.
+  const { data: naoLidas } = useUnreadCount()
+  // Vale no celular também: o contador é o único sinal de fila que sobra ali,
+  // já que a barra estreita não comporta mais nada.
+  const semResposta = veAtendimento && prefs.showUnreadBadge ? (naoLidas?.unread ?? 0) : 0
 
   return (
     <header class="app-topbar">
@@ -148,9 +165,9 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
         {!isMobile && <BotaoTelaCheia />}
         <MenuDeTema />
         <TopbarUtil
-          titulo={esperando ? `${esperando} conversa(s) esperando resposta` : 'Conversas'}
+          titulo={semResposta ? `${semResposta} conversa(s) com mensagem não lida` : 'Conversas'}
           onClick={() => navigate('/app/conversations')}
-          badge={esperando}
+          badge={semResposta}
         >
           <MessageSquare size={ICON_SIZE.md} />
         </TopbarUtil>
