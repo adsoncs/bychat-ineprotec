@@ -440,10 +440,18 @@ app.addHook('onRequest', async (req, reply) => {
   // tracking script). Não há sessão/credencial enviada — formulários são
   // protegidos por rate-limit por IP e validação de campos no handler.
   if (req.url.startsWith('/api/forms/submit/')) return
+  // Captura parcial do formulário: mesmo par do /submit/. Ficou de fora da lista
+  // e tomava 403 sempre que a página do form respondia por um domínio ausente de
+  // CORS_ORIGIN — o envio final passava e o lead parcial sumia sem erro visível.
+  if (req.url.startsWith('/api/forms/progress/')) return
   if (req.url.startsWith('/api/forms/config/')) return
   if (req.url.startsWith('/api/forms/embed/')) return
   if (req.url.startsWith('/api/pixel/')) return
   if (req.url.startsWith('/api/t/')) return
+  // Registro do consentimento LGPD do banner de cookies (cc.js). Mesma natureza
+  // das anteriores: sem sessão, sem ação privilegiada — e é a PROVA do aceite,
+  // que não pode se perder por causa do domínio pelo qual a página respondeu.
+  if (req.url === '/api/public/consent') return
 
   const origin = req.headers.origin || req.headers.referer
   if (origin) {

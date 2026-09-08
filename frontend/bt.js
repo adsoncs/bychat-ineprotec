@@ -704,6 +704,17 @@
     });
   }
 
+  // O gerenciador de consentimento oficial (cc.js) esta na pagina? Ele ja grava
+  // o cookie bt_consent e dispara 'bych:consent'. Sem esta checagem, na primeira
+  // visita a pagina abria DOIS banners de cookies um sobre o outro (o do cc.js e
+  // o legado daqui) — visivel para todo lead que abria um formulario ou landing.
+  function consentManagerPresent() {
+    try {
+      if (win.__bychConsent) return true;
+      return !!doc.querySelector('script[src*="/consent/cc.js"]');
+    } catch (e) { return false; }
+  }
+
   // ─── Boot ──────────────────────────────────────────────
   function boot() {
     if (consentStatus === 'granted') {
@@ -711,8 +722,15 @@
       startTracking();
     } else if (consentStatus === 'denied') {
       // Consentimento negado — nao fazer nada
+    } else if (consentManagerPresent()) {
+      // Banner unico: o cc.js pergunta, nos so obedecemos a decisao dele.
+      win.addEventListener('bych:consent', function () {
+        consentStatus = getCookie(CONSENT_COOKIE);
+        trackingActive = consentStatus === 'granted';
+        if (trackingActive) startTracking();
+      });
     } else {
-      // Sem decisao — mostrar banner
+      // Sem decisao e sem gerenciador na pagina — banner legado.
       showConsentBanner();
     }
   }

@@ -619,7 +619,7 @@ function WelcomeBlockEditor(props: {
     <div class="space-y-3 rounded-md border border-border bg-surface p-4">
       <h4 class="text-sm font-semibold text-fg">Tela de boas-vindas</h4>
       {props.displayMode !== 'conversational' && (
-        <p class="text-2xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">A tela de boas-vindas só aparece no modo <strong>Conversacional</strong>.</p>
+        <p class="text-2xs text-fg-muted bg-surface-2 border border-border rounded p-2">No modo <strong>Clássico</strong> a capa aparece no lugar do formulário e o botão abaixo revela os campos.</p>
       )}
       <label class="flex items-center gap-2 text-sm text-fg">
         <input type="checkbox" class="size-4 accent-accent" checked={props.enabled} onChange={(e) => props.onEnabled((e.target as HTMLInputElement).checked)} />
