@@ -16,7 +16,7 @@ import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbot
 import { processScriptedChatbotMessage } from '../services/scriptedChatbotFlow.js'
 import { detectOrigin, stripTrackingRef, saveLeadOrigin } from '../services/originDetection.js'
 import { resolveDefaultTeamId, resolveRoutingFromContext } from '../services/teamRouting.js'
-import { instanceAcceptsGroups, resolveGroupLead, groupSenderName } from '../services/whatsappGroups.js'
+import { instanceAcceptsGroups, resolveGroupLead, groupSenderName, sincronizarGrupoPorJid } from '../services/whatsappGroups.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 
 // ─── Evolution API helpers ────────────────────────────────
@@ -540,7 +540,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             url: webhookUrl,
             webhookByEvents: false,
             webhookBase64: false,
-            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE']
+            events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'PRESENCE_UPDATE', 'GROUP_UPDATE']
           }
         })
         // Se a criação já retornou QR code, devolve direto
@@ -871,6 +871,35 @@ export async function whatsappRoutes(app: FastifyInstance) {
           })
         } catch (typingErr: any) {
           app.log.warn(`presence.update error: ${typingErr.message}`)
+        }
+        return { ok: true }
+      }
+
+      // Grupo renomeado (ou com foto trocada) no WhatsApp. Sem isto a conversa
+      // fica com o nome da primeira mensagem para sempre: era o que acontecia no
+      // kobogo, onde o grupo renomeado sumia da busca porque só o nome ANTIGO
+      // estava no banco. O `subject` já vem no evento; a foto sai da consulta.
+      if (event === 'groups.update' || event === 'groups.upsert') {
+        const bruto = body.data
+        const itens: any[] = Array.isArray(bruto)
+          ? bruto
+          : Array.isArray(bruto?.groups)
+          ? bruto.groups
+          : bruto
+          ? [bruto]
+          : []
+        const inst: string = body.instance || bruto?.instance || evoInstance()
+        for (const g of itens) {
+          const jid: string = g?.id || g?.groupJid || g?.remoteJid || ''
+          if (!jid.endsWith('@g.us')) continue
+          const mudou = await sincronizarGrupoPorJid(jid, inst, {
+            force: true,
+            subject: typeof g?.subject === 'string' ? g.subject : null,
+          }).catch((e: any) => {
+            app.log.warn(`[Webhook] ${event} ${jid}: ${e?.message || e}`)
+            return null
+          })
+          if (mudou?.nome) app.log.info(`[Webhook] Grupo ${jid} renomeado para "${mudou.nome}"`)
         }
         return { ok: true }
       }

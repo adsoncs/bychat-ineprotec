@@ -18,7 +18,11 @@
 // fornecido) e o grupo nunca colide com um contato real no resolvedor de
 // identidade — que, aliás, não roda para grupo.
 
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { prisma } from '../lib/prisma.js'
+import { redis } from '../lib/redis.js'
 import { onlyDigits } from '../lib/phone.js'
 import { resolveRoutingFromContext } from './teamRouting.js'
 
@@ -31,25 +35,167 @@ function isPlaceholderName(name: string | null | undefined): boolean {
   return !name || /^Grupo \d{1,6}$/.test(name)
 }
 
+export interface GroupProfile {
+  /** Nome do grupo como está AGORA no WhatsApp. */
+  subject: string | null
+  /** URL assinada e temporária da foto (pps.whatsapp.net) — precisa ser baixada. */
+  pictureUrl: string | null
+}
+
 /**
- * Assunto (nome) do grupo via Evolution: GET /group/findGroupInfos.
- * Devolve null em qualquer falha — o nome do grupo é enfeite, não pode derrubar
- * o recebimento da mensagem.
+ * Nome e foto do grupo via Evolution: GET /group/findGroupInfos.
+ *
+ * A mesma resposta traz `subject` e `pictureUrl` — por isso uma consulta só
+ * resolve os dois. Devolve null em qualquer falha: perfil de grupo é enfeite e
+ * não pode derrubar o recebimento da mensagem.
  */
-export async function fetchGroupSubject(instanceName: string, groupJid: string): Promise<string | null> {
+export async function fetchGroupInfo(instanceName: string, groupJid: string): Promise<GroupProfile | null> {
   const base = process.env.EVOLUTION_API_URL || ''
   const key = process.env.EVOLUTION_API_KEY || ''
   if (!base || !key) return null
   try {
     const url = `${base}/group/findGroupInfos/${encodeURIComponent(instanceName)}?groupJid=${encodeURIComponent(groupJid)}`
-    const res = await fetch(url, { headers: { apikey: key } })
+    // Timeout explícito: a Evolution pendura a resposta quando a linha está
+    // desconectada, e sem isto uma instância morta seguraria o webhook.
+    const res = await fetch(url, { headers: { apikey: key }, signal: AbortSignal.timeout(15_000) })
     if (!res.ok) return null
     const info: any = await res.json()
     const subject = typeof info?.subject === 'string' ? info.subject.trim() : ''
-    return subject || null
+    const pictureUrl = typeof info?.pictureUrl === 'string' ? info.pictureUrl.trim() : ''
+    return { subject: subject || null, pictureUrl: pictureUrl || null }
   } catch {
     return null
   }
+}
+
+/** Só o assunto — mantido porque é o que o import de conversas do celular usa. */
+export async function fetchGroupSubject(instanceName: string, groupJid: string): Promise<string | null> {
+  return (await fetchGroupInfo(instanceName, groupJid))?.subject ?? null
+}
+
+// ─── Perfil do grupo (nome + foto): manter em dia ────────────────────────────
+//
+// Grupo é renomeado e troca de foto no WhatsApp sem avisar ninguém — não existe
+// evento garantido e o `subject` só chegava aqui na PRIMEIRA mensagem. Resultado
+// no kobogo (08/09/2026): um grupo virou "Suporte Attrae | Kobogó" no aparelho e
+// continuou "CRM | Clínica Elementus" na tela, então quem buscava pelo nome novo
+// não achava a conversa.
+//
+// Duas portas, de propósito: o evento `groups.update` (reflexo imediato, quando
+// a Evolution entrega) e uma revalidação com TTL na chegada de mensagem — que
+// funciona mesmo sem o evento configurado na instância.
+
+const AVATAR_DIR = join(process.cwd(), '..', 'uploads', 'avatars')
+
+/** Uma consulta de perfil por grupo a cada 6h: o nome muda raramente, a mensagem chega toda hora. */
+const PERFIL_TTL_S = 6 * 60 * 60
+
+/**
+ * Baixa a foto do grupo para `/uploads/avatars/<leadId>.jpg`, como já é feito
+ * com a foto do contato: a URL da Evolution é ASSINADA e EXPIRA (`oe=`), então
+ * guardá-la crua faz a imagem sumir da tela depois de alguns dias.
+ *
+ * Devolve a URL pública só quando os bytes MUDARAM — o `?v=` faz o navegador
+ * rebaixar a imagem, e trocá-lo a cada varredura seria trabalho à toa.
+ */
+async function baixarFotoDoGrupo(leadId: number, pictureUrl: string, atual: string | null): Promise<string | null> {
+  try {
+    const res = await fetch(pictureUrl, { signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (!buf.length) return null
+    const file = join(AVATAR_DIR, `${leadId}.jpg`)
+    const novoHash = createHash('sha1').update(buf).digest('hex')
+    let hashAtual = ''
+    try { hashAtual = createHash('sha1').update(await readFile(file)).digest('hex') } catch { /* sem arquivo → baixa */ }
+    const jaHospedada = !!atual && atual.startsWith('/uploads/avatars/')
+    if (novoHash === hashAtual && jaHospedada) return null
+    await mkdir(AVATAR_DIR, { recursive: true })
+    await writeFile(file, buf)
+    return `/uploads/avatars/${leadId}.jpg?v=${Date.now()}`
+  } catch {
+    return null
+  }
+}
+
+export interface GrupoSincronizavel {
+  id: number
+  nome: string | null
+  profilePicUrl?: string | null
+}
+
+/**
+ * Põe nome e foto do grupo em dia com o WhatsApp.
+ *
+ * `force` pula o TTL — é o caminho do evento `groups.update`, do backfill e do
+ * grupo que ainda está com nome placeholder. Sem ele, uma varredura por grupo a
+ * cada 6h basta e não transforma cada mensagem numa consulta à Evolution.
+ *
+ * Nunca lança: perfil desatualizado é chato, mensagem perdida é grave.
+ */
+export async function sincronizarPerfilDoGrupo(
+  lead: GrupoSincronizavel,
+  instanceName: string,
+  groupJid: string,
+  opts: { force?: boolean; subject?: string | null } = {},
+): Promise<{ nome?: string; profilePicUrl?: string } | null> {
+  if (!instanceName || !groupJid) return null
+
+  if (!opts.force) {
+    try {
+      const primeiro = await redis.set(`evogrpperfil:${lead.id}`, '1', 'EX', PERFIL_TTL_S, 'NX')
+      if (primeiro === null) return null
+    } catch { /* Redis fora: consulta assim mesmo — uma chamada extra custa menos que o nome errado */ }
+  }
+
+  try {
+    // O evento traz o nome novo pronto; a foto só a consulta sabe.
+    const info = await fetchGroupInfo(instanceName, groupJid)
+    const subject = ((opts.subject ?? info?.subject) || '').trim()
+    const data: { nome?: string; profilePicUrl?: string } = {}
+
+    if (subject && subject !== lead.nome) data.nome = subject.slice(0, 191)
+
+    if (info?.pictureUrl) {
+      const url = await baixarFotoDoGrupo(lead.id, info.pictureUrl, lead.profilePicUrl ?? null)
+      if (url) data.profilePicUrl = url
+    }
+
+    if (!Object.keys(data).length) return null
+
+    await prisma.lead.update({ where: { id: lead.id }, data })
+    // Import dinâmico: o realtime é uma rota, e o serviço não pode depender dela
+    // no topo sem criar ciclo de import.
+    try {
+      const { broadcastRealtimeEvent } = await import('../routes/realtime.js')
+      broadcastRealtimeEvent({ type: 'lead:updated', payload: { id: lead.id, ...data }, scope: { leadId: lead.id } })
+    } catch { /* realtime é enfeite: o F5 mostra do mesmo jeito */ }
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Mesma sincronização, partindo do JID — é o que o webhook tem em mãos quando
+ * chega `groups.update`. Grupo que não existe por aqui (conexão com grupos
+ * desligados) simplesmente não faz nada.
+ */
+export async function sincronizarGrupoPorJid(
+  groupJid: string,
+  instanceName: string,
+  opts: { force?: boolean; subject?: string | null } = {},
+): Promise<{ nome?: string; profilePicUrl?: string } | null> {
+  if (!groupJid.endsWith('@g.us')) return null
+  const lead = await prisma.lead.findFirst({
+    where: { groupJid },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, nome: true, profilePicUrl: true, instanceName: true },
+  })
+  if (!lead) return null
+  // O titular manda: é a linha por onde a conversa fala. Só cai na instância que
+  // entregou o evento quando o grupo ainda não tem titular.
+  return sincronizarPerfilDoGrupo(lead, lead.instanceName || instanceName, groupJid, opts)
 }
 
 export interface GroupLeadInput {
@@ -76,28 +222,29 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
     const dono = await ensureGroupChannelOwner(existing, instanceName)
     if (dono !== existing.instanceName) existing.instanceName = dono
 
-    // Nome ainda placeholder (a API falhou na criação) ou grupo renomeado no
-    // WhatsApp: tenta corrigir sem bloquear o fluxo.
+    // Perfil em dia. Placeholder é o caso urgente (o nome na tela não diz nada a
+    // ninguém): espera a consulta. Grupo já nomeado revalida em segundo plano,
+    // com TTL — é o que pega renome e troca de foto sem depender de evento.
     if (isPlaceholderName(existing.nome)) {
-      const subject = await fetchGroupSubject(instanceName, groupJid)
-      if (subject && subject !== existing.nome) {
-        return prisma.lead.update({ where: { id: existing.id }, data: { nome: subject } })
-      }
+      const perfil = await sincronizarPerfilDoGrupo(existing, dono, groupJid, { force: true })
+      if (perfil?.nome) return { ...existing, nome: perfil.nome }
+    } else {
+      void sincronizarPerfilDoGrupo(existing, dono, groupJid).catch(() => {})
     }
     return existing
   }
 
-  const [subject, routing, { generateUid }, { deriveLeadOrigin }] = await Promise.all([
-    fetchGroupSubject(instanceName, groupJid),
+  const [info, routing, { generateUid }, { deriveLeadOrigin }] = await Promise.all([
+    fetchGroupInfo(instanceName, groupJid),
     resolveRoutingFromContext({ source: 'whatsapp', instanceName }),
     import('./dedup.js'),
     import('../lib/leadOrigin.js'),
   ])
 
-  return prisma.lead.create({
+  const criado = await prisma.lead.create({
     data: {
       uid: await generateUid(),
-      nome: subject || placeholderName(groupJid),
+      nome: info?.subject || placeholderName(groupJid),
       empresa: '',
       // Não é telefone: guardamos só os dígitos do JID para caber no campo, e o
       // JID completo em `groupJid` (fonte da verdade para envio e dedup).
@@ -121,6 +268,16 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
       assignedAt: routing.userId ? new Date() : null,
     },
   })
+
+  // Foto em segundo plano: o grupo já aparece na lista sem ela, e a mensagem
+  // que criou a conversa não pode esperar um download.
+  if (info?.pictureUrl) {
+    void baixarFotoDoGrupo(criado.id, info.pictureUrl, null)
+      .then((url) => (url ? prisma.lead.update({ where: { id: criado.id }, data: { profilePicUrl: url } }) : null))
+      .catch(() => {})
+  }
+
+  return criado
 }
 
 /**

@@ -74,6 +74,32 @@ export async function sincronizarFoto(
   }
 }
 
+/**
+ * Linha por onde perguntar a foto DESTE lead.
+ *
+ * Não é detalhe: o WhatsApp só devolve a foto de um grupo para uma linha que
+ * está DENTRO dele, e a foto de um contato para a linha que o conhece. Usar
+ * sempre a primeira instância ativa (o que este job fazia) fazia toda conversa
+ * das outras linhas voltar "sem foto" — e, pior, ser MARCADA como sem foto, o
+ * que a tirava da fila. No kobogo, 21 dos 30 grupos estavam assim.
+ *
+ * `Lead.instanceName` é o titular do grupo e a linha de entrada do contato; a
+ * primeira ativa continua sendo o fallback de quem não tem essa marca.
+ */
+function instanciaDoLead(l: { instanceName: string | null }, ativas: Set<string>, padrao: string): string {
+  return l.instanceName && ativas.has(l.instanceName) ? l.instanceName : padrao
+}
+
+/** Instâncias ligadas agora, para não perguntar por uma linha desativada. */
+async function instanciasAtivas(): Promise<{ ativas: Set<string>; padrao: string | null }> {
+  const linhas = await prisma.whatsAppInstance.findMany({
+    where: { active: true },
+    select: { instanceName: true },
+    orderBy: { id: 'asc' },
+  })
+  return { ativas: new Set(linhas.map((i) => i.instanceName)), padrao: linhas[0]?.instanceName ?? null }
+}
+
 export interface ResultadoSync {
   tentados: number
   baixadas: number
@@ -87,18 +113,14 @@ export interface ResultadoSync {
  * seria centenas de chamadas à Evolution em sequência.
  */
 export async function sincronizarFotosPendentes(limite = 40): Promise<ResultadoSync> {
-  const inst = await prisma.whatsAppInstance.findFirst({
-    where: { active: true },
-    select: { instanceName: true },
-    orderBy: { id: 'asc' },
-  })
-  if (!inst) return { tentados: 0, baixadas: 0, semFoto: 0 }
+  const { ativas, padrao } = await instanciasAtivas()
+  if (!padrao) return { tentados: 0, baixadas: 0, semFoto: 0 }
 
   const candidatos = await prisma.lead.findMany({
     where: { profilePicUrl: null },
     orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
     take: limite,
-    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true },
+    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true, instanceName: true },
   })
 
   let baixadas = 0
@@ -106,7 +128,7 @@ export async function sincronizarFotosPendentes(limite = 40): Promise<ResultadoS
   for (const l of candidatos) {
     const jid = jidDoLead(l)
     if (!jid) { semFoto++; continue }
-    const url = await sincronizarFoto(l.id, jid, inst.instanceName)
+    const url = await sincronizarFoto(l.id, jid, instanciaDoLead(l, ativas, padrao))
     if (url) baixadas++
     else {
       semFoto++
@@ -124,16 +146,14 @@ export async function sincronizarFotosPendentes(limite = 40): Promise<ResultadoS
 
 /** Renova fotos antigas (arquivo local acima do TTL). */
 export async function renovarFotosVencidas(limite = 20): Promise<ResultadoSync> {
-  const inst = await prisma.whatsAppInstance.findFirst({
-    where: { active: true }, select: { instanceName: true }, orderBy: { id: 'asc' },
-  })
-  if (!inst) return { tentados: 0, baixadas: 0, semFoto: 0 }
+  const { ativas, padrao } = await instanciasAtivas()
+  if (!padrao) return { tentados: 0, baixadas: 0, semFoto: 0 }
 
   const comFoto = await prisma.lead.findMany({
     where: { profilePicUrl: { startsWith: '/uploads/avatars/' } },
     orderBy: { lastMessageAt: { sort: 'desc', nulls: 'last' } },
     take: limite * 5,
-    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true },
+    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true, instanceName: true },
   })
 
   // Quem foi marcado como "sem foto" ('') entra em rodízio: a pessoa pode ter
@@ -144,7 +164,7 @@ export async function renovarFotosVencidas(limite = 20): Promise<ResultadoSync> 
     where: { profilePicUrl: '' },
     orderBy: { updatedAt: 'asc' },
     take: Math.max(5, Math.floor(limite / 4)),
-    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true },
+    select: { id: true, whatsapp: true, groupJid: true, waLid: true, isGroup: true, instanceName: true },
   })
 
   let baixadas = 0
@@ -158,7 +178,7 @@ export async function renovarFotosVencidas(limite = 20): Promise<ResultadoSync> 
     const jid = jidDoLead(l)
     if (!jid) continue
     tentados++
-    if (await sincronizarFoto(l.id, jid, inst.instanceName)) baixadas++
+    if (await sincronizarFoto(l.id, jid, instanciaDoLead(l, ativas, padrao))) baixadas++
   }
   return { tentados, baixadas, semFoto: tentados - baixadas }
 }

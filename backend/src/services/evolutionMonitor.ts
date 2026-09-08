@@ -83,6 +83,9 @@ export const EVENTOS_WEBHOOK_NECESSARIOS = [
   'MESSAGES_UPDATE',
   'CONNECTION_UPDATE',
   'PRESENCE_UPDATE',
+  // Renome e troca de foto de grupo: sem este evento a conversa de grupo fica
+  // com o nome da primeira mensagem até a revalidação por TTL passar.
+  'GROUP_UPDATE',
 ] as const
 
 /** URL/chave da Evolution — o Configurações (banco) vence o `.env`. */

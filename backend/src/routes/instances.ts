@@ -338,7 +338,7 @@ export async function instancesRoutes(app: FastifyInstance) {
           instanceName: inst.instanceName,
           integration: 'WHATSAPP-BAILEYS',
           qrcode: true,
-          webhook: { url: webhookUrl, webhookByEvents: false, webhookBase64: false, events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'PRESENCE_UPDATE', 'CONNECTION_UPDATE'] }
+          webhook: { url: webhookUrl, webhookByEvents: false, webhookBase64: false, events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'PRESENCE_UPDATE', 'CONNECTION_UPDATE', 'GROUP_UPDATE'] }
         })
         if (createResult?.qrcode?.base64 || createResult?.base64) return createResult
       }
