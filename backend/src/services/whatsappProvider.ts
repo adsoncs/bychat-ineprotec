@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client'
 import { channelForUserTeams, userTeamIds } from './channelTeams.js'
 import { titularesDeGrupos } from './whatsappGroups.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
+import { garantirUrlAceita } from './whatsappMediaFormat.js'
 import {
   sendTextMessage,
   sendMediaMessage,
@@ -426,8 +427,15 @@ export class CloudApiProvider implements WhatsAppProvider {
     // já é um MP4. 'sticker' tem tipo próprio e vai direto.
     const normalized = mediaType === 'gif' ? 'video' : mediaType
     const type = (['image', 'video', 'audio', 'document', 'sticker'].includes(normalized) ? normalized : 'document') as 'image' | 'video' | 'audio' | 'document' | 'sticker'
+
+    // Última checagem antes de a Meta ver o link. O upload já normaliza o que
+    // entra pelo painel, mas mídia antiga, arquivo trazido por integração e
+    // mensagem agendada de antes desta correção continuariam em WebM — e a
+    // Meta só reclamaria depois, no webhook, com o envio já dado como feito.
+    const link = await garantirUrlAceita(mediaUrl, type)
+
     const result = await sendMediaMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), type, {
-      link: mediaUrl,
+      link,
       caption,
       filename: fileName,
     })

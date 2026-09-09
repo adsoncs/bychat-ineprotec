@@ -8,7 +8,12 @@ interface AudioRecorderProps {
   onCancel: () => void
 }
 
-const PREFERRED_MIMES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg']
+// Ogg primeiro, WebM só como último recurso: a API Oficial da Meta recusa
+// áudio em WebM (erro 131053, "Media upload error") e o envio falha DEPOIS de
+// já ter sido aceito. O Firefox grava Ogg direto; o Chrome não sabe, e nele o
+// arquivo continua saindo em WebM — por isso o backend converte no upload.
+// Aqui é só para não criar o trabalho quando dá para evitar.
+const PREFERRED_MIMES = ['audio/ogg;codecs=opus', 'audio/ogg', 'audio/webm;codecs=opus', 'audio/webm']
 
 function pickMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''

@@ -1434,10 +1434,15 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (!data) return reply.code(400).send({ error: 'Nenhum arquivo enviado' })
 
       const { mkdirSync, writeFileSync } = await import('fs')
-      const { join } = await import('path')
+      const { join, basename, extname } = await import('path')
       const { randomUUID } = await import('crypto')
 
-      const uploadsDir = join(process.cwd(), '..', 'uploads')
+      // UPLOADS_DIR em vez de process.cwd(): é a mesma raiz que o fastify-static
+      // publica e que a guarda de formato do envio reabre. Com cwd diferente de
+      // `backend/` os dois lados apontariam para pastas distintas.
+      const { UPLOADS_DIR } = await import('../lib/uploadsDir.js')
+
+      const uploadsDir = UPLOADS_DIR
       mkdirSync(uploadsDir, { recursive: true })
 
       // Validar extensão (primeira camada)
@@ -1483,13 +1488,37 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
       writeFileSync(filePath, Buffer.concat(chunks))
 
+      // Áudio e vídeo passam por um acerto de contêiner antes de virar link.
+      // O gravador do navegador só produz WebM e a API Oficial da Meta recusa
+      // WebM nos dois tipos — o envio era aceito e falhava depois, calado, com
+      // 131053. Converter aqui conserta TODOS os caminhos de envio de uma vez
+      // (conversa, chatbot, agendado, disparo), e não só o botão de gravar.
+      const tipoDaMidia = (data.mimetype || '').startsWith('audio/')
+        ? 'audio'
+        : (data.mimetype || '').startsWith('video/') ? 'video' : null
+
+      let arquivoFinal = filePath
+      if (tipoDaMidia) {
+        const { converterParaFormatoAceito } = await import('../services/whatsappMediaFormat.js')
+        arquivoFinal = await converterParaFormatoAceito(filePath, tipoDaMidia)
+      }
+      const convertido = arquivoFinal !== filePath
+      const nomeFinal = basename(arquivoFinal)
+
       const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3001}`
-      const publicUrl = `${appUrl}/uploads/${savedName}`
+      const publicUrl = `${appUrl}/uploads/${nomeFinal}`
+
+      // Quando converteu, o nome e o MIME devolvidos precisam ser os do arquivo
+      // novo: é deles que a tela tira o tipo da mídia e o player da bolha.
+      const { mimeDoArquivo } = await import('../services/whatsappMediaFormat.js')
+      const nomeExibido = convertido
+        ? data.filename.replace(/\.[^.]+$/, '') + extname(arquivoFinal)
+        : data.filename
 
       return {
         url: publicUrl,
-        filename: data.filename,
-        mimetype: data.mimetype,
+        filename: nomeExibido,
+        mimetype: convertido ? mimeDoArquivo(arquivoFinal) : data.mimetype,
         size: chunks.reduce((a, c) => a + c.length, 0)
       }
     } catch (err: any) {
