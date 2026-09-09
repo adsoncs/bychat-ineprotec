@@ -7,6 +7,7 @@ import { channelForUserTeams, userTeamIds } from './channelTeams.js'
 import { titularesDeGrupos } from './whatsappGroups.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import { garantirUrlAceita } from './whatsappMediaFormat.js'
+import { variantesDeDiscagem } from '../lib/phone.js'
 import {
   sendTextMessage,
   sendMediaMessage,
@@ -156,9 +157,27 @@ export class EvolutionProvider implements WhatsAppProvider {
       // JID completo (@lid, @g.us, @s.whatsapp.net) não tem o que resolver.
       if (!err?.waNumberNotFound || destino.includes('@')) throw err
       const [r] = await this.checkNumbers([destino]).catch(() => [])
-      if (!r?.exists || !r.jid) throw err
-      console.log(`[Evolution] ${this.instanceName}: envio para ${destino} recusado como inexistente, mas a checagem devolveu ${r.jid} — repetindo no JID`)
-      return await enviar(r.jid)
+      if (r?.exists && r.jid) {
+        console.log(`[Evolution] ${this.instanceName}: envio para ${destino} recusado como inexistente, mas a checagem devolveu ${r.jid} — repetindo no JID`)
+        return await enviar(r.jid)
+      }
+
+      // Última tentativa antes de devolver erro ao operador: as outras grafias
+      // do mesmo telefone. O caso que motivou isto é o fixo com WhatsApp
+      // Business — `phoneKey` põe o nono dígito em todo número de 8 dígitos, e
+      // (18) 3623-4401 virou 5518936234401, que não existe. Mandar o operador
+      // "conferir o cadastro" era pedir que ele consertasse na mão algo que a
+      // consulta seguinte responde sozinha.
+      const variantes = variantesDeDiscagem(destino)
+      if (variantes.length) {
+        const achados = await this.checkNumbers(variantes).catch(() => [])
+        const bom = achados.find((c) => c.exists && c.jid)
+        if (bom) {
+          console.log(`[Evolution] ${this.instanceName}: ${destino} não existe, mas ${bom.number} existe${bom.name ? ` ("${bom.name}")` : ''} — enviando por ${bom.jid} (cadastro segue como está)`)
+          return await enviar(bom.jid!)
+        }
+      }
+      throw err
     }
   }
 

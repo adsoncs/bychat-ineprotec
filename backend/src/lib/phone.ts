@@ -152,3 +152,44 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
   const kb = phoneKey(b)
   return ka !== null && ka === kb
 }
+
+/**
+ * Outras grafias plausíveis do MESMO telefone, para tentar quando o WhatsApp
+ * disser que o número não existe.
+ *
+ * Existe por causa do lead 841 do severiano (Ideal Cartuchos, 09/09/2026): a
+ * loja atende num FIXO com WhatsApp Business, (18) 3623-4401. O `phoneKey`
+ * acima insere o nono dígito em todo número de 8 dígitos — inclusive em fixo —,
+ * então o cadastro virou `5518936234401`, que não existe. A Evolution recusava,
+ * a operadora tentou 13 vezes em 9 minutos e nenhuma mensagem saiu; consultada
+ * a grafia sem o 9, a mesma Evolution respondeu `exists: true` com o nome da
+ * loja.
+ *
+ * Aqui só geramos candidatos para CONSULTA e ENVIO — a identidade do contato
+ * (`phoneKey`) fica intocada de propósito: ela é a chave que junta lead,
+ * mensagem e conversa, e mudá-la é outro assunto, com risco de duplicar
+ * contato.
+ *
+ * No Brasil o nono dígito é dos CELULARES, cujo número começa em 9 (antes,
+ * 6-9). Fixo começa em 2-5 — daí a distinção abaixo.
+ */
+export function variantesDeDiscagem(raw: string | null | undefined): string[] {
+  const d = onlyDigits(raw)
+  if (!d || isLikelyLid(d)) return []
+
+  const fora: string[] = []
+  const push = (v: string) => { if (v !== d && !fora.includes(v)) fora.push(v) }
+
+  // 55 + DDD + 9 + 8 dígitos, e o primeiro deles é de FIXO (2-5): o 9 foi posto
+  // por engano na normalização. A grafia real é sem ele.
+  const comNoveIndevido = /^(55[1-9][1-9])9([2-5]\d{7})$/.exec(d)
+  if (comNoveIndevido) push(comNoveIndevido[1] + comNoveIndevido[2])
+
+  // 55 + DDD + 8 dígitos começando em 6-9: celular de antes do nono dígito,
+  // que hoje só atende com ele.
+  const semNove = /^(55[1-9][1-9])([6-9]\d{7})$/.exec(d)
+  if (semNove) push(semNove[1] + '9' + semNove[2])
+
+  return fora
+}
+

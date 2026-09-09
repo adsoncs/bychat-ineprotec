@@ -349,12 +349,39 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
         // "conferir o telefone no cadastro" nesse caso o faz mexer num número
         // certo — e o certo é tentar de novo.
         if (sendErr?.waNumberNotFound) {
-          const prova = await prisma.message.findFirst({
-            where: { leadId: lid, OR: [{ fromMe: false }, { ack: { gte: 2 } }] },
+          // A prova de que o número existe TEM VALIDADE. Antes bastava haver
+          // uma entrega em qualquer ponto do passado, e a frase mandava tentar
+          // de novo: no lead 841 do severiano (09/09/2026) a última entrega era
+          // de oito dias antes, o número tinha deixado de atender no WhatsApp, e
+          // a operadora tentou 13 vezes em 9 minutos seguindo essa instrução.
+          // Recusa passageira aparece em conversa VIVA; conversa parada há dias
+          // não diz nada sobre o número hoje.
+          const HORAS_DE_VALIDADE = 48
+          const desde = new Date(Date.now() - HORAS_DE_VALIDADE * 60 * 60 * 1000)
+          const provaRecente = await prisma.message.findFirst({
+            where: {
+              leadId: lid,
+              timestamp: { gte: desde },
+              OR: [{ fromMe: false }, { ack: { gte: 2 } }],
+            },
             select: { id: true },
           }).catch(() => null)
-          if (prova) {
-            sendError = 'O WhatsApp não confirmou o número agora — a conferência do servidor falhou, mas esta conversa já teve mensagem entregue. Tente enviar de novo em instantes.'
+
+          if (provaRecente) {
+            sendError = 'O WhatsApp não confirmou o número agora — a conferência do servidor falhou, mas esta conversa teve mensagem entregue nas últimas horas. Tente enviar de novo em instantes.'
+          } else {
+            const provaAntiga = await prisma.message.findFirst({
+              where: { leadId: lid, OR: [{ fromMe: false }, { ack: { gte: 2 } }] },
+              select: { timestamp: true },
+              orderBy: { timestamp: 'desc' },
+            }).catch(() => null)
+            if (provaAntiga) {
+              // Não mandar "tente de novo": já tentamos as outras grafias do
+              // número no provider e nenhuma respondeu. Insistir aqui não muda
+              // o resultado — o caminho é falar com o contato por outro meio.
+              const quando = provaAntiga.timestamp.toLocaleDateString('pt-BR')
+              sendError = `Este número não responde mais no WhatsApp. A conversa funcionou até ${quando}, mas agora o WhatsApp não reconhece o número — normalmente é conta encerrada ou troca de número. Confirme o contato por outro caminho antes de tentar de novo.`
+            }
           }
         }
         log.error(`WhatsApp send error: ${sendErr.message}`)
