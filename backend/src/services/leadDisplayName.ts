@@ -21,6 +21,7 @@
 // impede o sync da agenda de passar por cima do que um humano digitou.
 
 import { prisma } from '../lib/prisma.js'
+import { formatarTelefone } from '../lib/phone.js'
 
 export type NomeOrigem =
   | 'manual'
@@ -54,18 +55,14 @@ export function podeSubstituir(origemAtual: string | null | undefined, origemNov
 /**
  * Telefone em formato de leitura: `(62) 99871-6285`. É o que aparece quando não
  * há nome confiável — melhor que um apelido errado, e o operador reconhece o
- * número. Fora do padrão brasileiro, devolve com o "+" na frente.
+ * número. Fora do Brasil sai com o DDI e a formatação do país: um contato dos
+ * Estados Unidos aparece como `+1 (689) 206-4057`, não como um bloco de
+ * dígitos que parece cadastro quebrado.
  */
 export function telefoneComoNome(phone: string | null | undefined): string {
   const d = (phone ?? '').replace(/\D/g, '')
   if (!d) return 'Sem nome'
-  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) {
-    const ddd = d.slice(2, 4)
-    const resto = d.slice(4)
-    const meio = resto.length === 9 ? `${resto.slice(0, 5)}-${resto.slice(5)}` : `${resto.slice(0, 4)}-${resto.slice(4)}`
-    return `(${ddd}) ${meio}`
-  }
-  return `+${d}`
+  return formatarTelefone(d) || `+${d}`
 }
 
 /** Nome inicial de um contato de WhatsApp: agenda da empresa, senão o número. */

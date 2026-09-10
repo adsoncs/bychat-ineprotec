@@ -7,21 +7,13 @@ import { toast } from '@/lib/toast'
 import { nomeDoCanal } from '@/lib/channelColors'
 import { api } from '@/lib/apiClient'
 import { useSenderChannels } from '@/hooks/useChat'
+import { mascaraTelefone } from '@/lib/telefone'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Abre a conversa criada/encontrada. */
   onAberta: (leadId: number) => void
-}
-
-/** Máscara leve: só dígitos, formatada como telefone BR enquanto digita. */
-function formatarTelefone(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 13)
-  if (d.length <= 2) return d
-  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
-  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7, 11)}`
 }
 
 export function NewConversationModal({ open, onOpenChange, onAberta }: Props) {
@@ -34,16 +26,21 @@ export function NewConversationModal({ open, onOpenChange, onAberta }: Props) {
   const canais = sc?.channels ?? []
 
   async function criar(ignorarChecagem = false) {
-    const d = telefone.replace(/\D/g, '')
-    if (d.length < 10) {
-      toast('Informe o número com DDD', 'warning')
+    // O "+" vai junto de propósito: é ele que diz ao servidor que o país foi
+    // declarado por quem digitou. Sem ele, "+1 689 206-4057" chegaria como
+    // 11 dígitos soltos e teria de ser adivinhado.
+    const internacional = telefone.trim().startsWith('+')
+    const digitos = telefone.replace(/\D/g, '')
+    const valor = internacional ? '+' + digitos : digitos
+    if (internacional ? digitos.length < 8 : digitos.length < 10) {
+      toast(internacional ? 'Informe o número internacional completo' : 'Informe o número com DDD', 'warning')
       return
     }
     setSalvando(true)
     try {
       const r = await api.post<{ leadId: number; criado: boolean; jaTinhaConversa: boolean }>(
         '/atendimento/conversations',
-        { nome: nome.trim(), telefone: d, channelId: canal || undefined, ignorarChecagem },
+        { nome: nome.trim(), telefone: valor, channelId: canal || undefined, ignorarChecagem },
       )
       toast(
         r.criado ? 'Conversa criada' : r.jaTinhaConversa ? 'Este contato já tinha conversa — abrindo' : 'Contato já existia — conversa aberta',
@@ -93,8 +90,8 @@ export function NewConversationModal({ open, onOpenChange, onAberta }: Props) {
         <Input
           label="WhatsApp *"
           value={telefone}
-          placeholder="(62) 99999-9999"
-          onInput={(e) => setTelefone(formatarTelefone((e.target as HTMLInputElement).value))}
+          placeholder="(62) 99999-9999 · de fora, comece com +"
+          onInput={(e) => setTelefone(mascaraTelefone((e.target as HTMLInputElement).value))}
         />
 
         {canais.length > 1 && (

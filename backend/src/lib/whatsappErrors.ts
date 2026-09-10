@@ -20,6 +20,8 @@
  */
 export type WhatsAppErrorContext = 'send' | 'profile' | 'automation' | 'account'
 
+import { paisDoTelefone, formatarTelefone } from './phone.js'
+
 interface Rule {
   /** código numérico da Meta (error.code) */
   code?: number
@@ -241,6 +243,13 @@ export function humanizeWhatsAppError(
 
   // Número sem WhatsApp — a Evolution devolve a checagem crua no corpo do erro.
   if (/"exists"\s*:\s*false/.test(text)) {
+    // Dizer "confira o cadastro" para um número estrangeiro manda o operador
+    // procurar DDD e nono dígito onde não existe nenhum dos dois. O aviso passa
+    // a nomear o país — é a diferença entre "está errado" e "é de fora".
+    const pais = number ? paisDoTelefone(number) : null
+    if (pais && !pais.brasileiro) {
+      return `O número ${formatarTelefone(number)} é de ${pais.nome} e não respondeu como conta de WhatsApp. Confirme o número internacional completo com o contato.`
+    }
     return `O número ${number ?? 'informado'} não tem WhatsApp. Confira o telefone no cadastro do contato.`
   }
 

@@ -7,7 +7,7 @@ import { channelForUserTeams, userTeamIds } from './channelTeams.js'
 import { titularesDeGrupos } from './whatsappGroups.js'
 import { humanizeWhatsAppError } from '../lib/whatsappErrors.js'
 import { garantirUrlAceita } from './whatsappMediaFormat.js'
-import { variantesDeDiscagem } from '../lib/phone.js'
+import { variantesDeDiscagem, toWaNumber, paisDoTelefone } from '../lib/phone.js'
 import {
   sendTextMessage,
   sendMediaMessage,
@@ -23,19 +23,24 @@ import {
 //
 // Importante: leads frequentemente têm `whatsapp` salvo SEM o DDI 55 (ex.: "62991138484"
 // pra um número de Goiânia). O Evolution rejeita com `exists: false` quando o número
-// chega sem DDI internacional. ensureBrazilDdi() detecta números brasileiros (10 ou 11
-// dígitos) e prefixa "55"; números que já vêm com 12-13 dígitos começando em 55, ou com
-// outro DDI, passam direto.
-function ensureBrazilDdi(digits: string): string {
-  // Número BR sem DDI (10 = fixo DDD+8d, 11 = celular DDD+9d)
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`
-  return digits
+// chega sem DDI internacional.
+//
+// Quem decide qual DDI pôr é `lib/phone.ts`, não este arquivo: até 10/09/2026 aqui se
+// prefixava "55" em TODO bloco de 10 ou 11 dígitos, e o +1 (689) 206-4057 da Marcia
+// (severiano, lead 335) saía como "5516892064057" — um número que não existe. Agora a
+// mesma função que forma a identidade do contato forma o destino da discagem, e os dois
+// não podem mais divergir.
+function paraDiscagem(identifier: string): string {
+  const digitos = normalizePhone(identifier)
+  // `toWaNumber` devolve null para LID e lixo; nesses casos segue o valor cru e
+  // deixa a API recusar com a mensagem dela, como antes.
+  return toWaNumber(digitos) ?? digitos
 }
 
 function toEvoNumber(identifier: string): string {
   if (!identifier) return ''
   if (identifier.includes('@')) return identifier   // JID completo: @lid, @s.whatsapp.net, @g.us
-  return ensureBrazilDdi(normalizePhone(identifier))
+  return paraDiscagem(identifier)
 }
 
 // ─── Interface ──────────────────────────────────────────
@@ -437,7 +442,7 @@ export class CloudApiProvider implements WhatsAppProvider {
 
   async sendText(phone: string, text: string, _options?: WhatsAppSendOptions): Promise<WhatsAppSendResult> {
     // Cloud API: citação requer `context.message_id` — não suportado nesta camada ainda.
-    const result = await sendTextMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), text)
+    const result = await sendTextMessage(this.phoneNumberId, this.token, paraDiscagem(phone), text)
     return { ...result, provider: 'cloud_api' }
   }
 
@@ -453,7 +458,7 @@ export class CloudApiProvider implements WhatsAppProvider {
     // Meta só reclamaria depois, no webhook, com o envio já dado como feito.
     const link = await garantirUrlAceita(mediaUrl, type)
 
-    const result = await sendMediaMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), type, {
+    const result = await sendMediaMessage(this.phoneNumberId, this.token, paraDiscagem(phone), type, {
       link,
       caption,
       filename: fileName,
@@ -466,12 +471,12 @@ export class CloudApiProvider implements WhatsAppProvider {
   }
 
   async sendTemplate(phone: string, templateName: string, language: string, components?: any[]): Promise<WhatsAppSendResult> {
-    const result = await sendTemplateMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), templateName, language, components)
+    const result = await sendTemplateMessage(this.phoneNumberId, this.token, paraDiscagem(phone), templateName, language, components)
     return { ...result, provider: 'cloud_api' }
   }
 
   async sendInteractive(phone: string, interactive: any): Promise<WhatsAppSendResult> {
-    const result = await sendInteractiveMessage(this.phoneNumberId, this.token, ensureBrazilDdi(normalizePhone(phone)), interactive)
+    const result = await sendInteractiveMessage(this.phoneNumberId, this.token, paraDiscagem(phone), interactive)
     return { ...result, provider: 'cloud_api' }
   }
 
@@ -494,7 +499,7 @@ export class CloudApiProvider implements WhatsAppProvider {
   }
 
   async react(ref: WhatsAppMessageRef, emoji: string): Promise<void> {
-    const to = ref.chat.includes('@') ? ref.chat.split('@')[0] : ensureBrazilDdi(normalizePhone(ref.chat))
+    const to = ref.chat.includes('@') ? ref.chat.split('@')[0] : paraDiscagem(ref.chat)
     await sendReactionMessage(this.phoneNumberId, this.token, to, ref.externalId, emoji)
   }
 }

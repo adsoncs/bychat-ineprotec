@@ -14,6 +14,7 @@ import {
 } from '../services/conversationAccess.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { reassignPendingCadenceActivities } from '../services/routing/helpers.js'
+import { paisDoTelefone, formatarTelefone } from '../lib/phone.js'
 
 // Formata "{operador} / {setor}" para auditoria; retorna "fila" / "sem setor" quando vazio.
 function describeAssignment(
@@ -2631,7 +2632,20 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // `formData` sai do payload: serve só para derivar o marcador.
       const { readBotPause } = await import('../services/botTakeover.js')
       const { formData, ...rest } = lead as any
-      return { lead: { ...rest, botPaused: readBotPause(formData) } }
+      // De que país é o telefone. Vai pronto do servidor porque a tabela de
+      // DDIs mora no backend — e porque o painel precisa dizer "🇺🇸 Estados
+      // Unidos" em vez de deixar o operador achar que o cadastro está quebrado.
+      const pais = paisDoTelefone(rest.whatsapp)
+      return {
+        lead: {
+          ...rest,
+          botPaused: readBotPause(formData),
+          telefoneFormatado: rest.whatsapp ? formatarTelefone(rest.whatsapp) : null,
+          telefonePais: pais && !pais.brasileiro
+            ? { nome: pais.nome, bandeira: pais.bandeira, ddi: pais.ddi, iso: pais.iso }
+            : null,
+        },
+      }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }

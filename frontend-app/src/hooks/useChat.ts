@@ -597,6 +597,10 @@ export interface TicketLeadInfo {
   pushName?: string | null
   empresa: string | null
   whatsapp: string | null
+  /** Telefone já legível, formatado pelo servidor conforme o país. */
+  telefoneFormatado?: string | null
+  /** Preenchido SÓ quando o número é de fora do Brasil. */
+  telefonePais?: { nome: string; bandeira: string; ddi: string; iso: string } | null
   /** Conversa de GRUPO de WhatsApp — sem telefone, sem chatbot, sem score. */
   isGroup?: boolean
   email: string | null

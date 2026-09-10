@@ -11,7 +11,7 @@
 // para o mesmo número é o começo de toda base duplicada.
 
 import { prisma } from '../lib/prisma.js'
-import { phoneKey, onlyDigits } from '../lib/phone.js'
+import { phoneKey, onlyDigits, paisDoTelefone, formatarTelefone } from '../lib/phone.js'
 import { generateUid } from './dedup.js'
 
 export interface StartConversationInput {
@@ -30,14 +30,22 @@ export type StartConversationResult =
 
 export async function startConversation(input: StartConversationInput): Promise<StartConversationResult> {
   const nome = (input.nome || '').trim()
-  const digitos = onlyDigits(input.telefone)
-  if (!digitos || digitos.length < 10) {
+  const crus = onlyDigits(input.telefone)
+  // Um "+" na frente significa que quem digitou declarou o país — a informação
+  // some em `onlyDigits`, então `phoneKey` recebe o valor ORIGINAL. Sem isso,
+  // "+1 689 206-4057" chegaria como 11 dígitos e voltaria a ser adivinhado
+  // como brasileiro.
+  const internacional = String(input.telefone || '').trim().startsWith('+')
+  if (!crus || crus.length < (internacional ? 8 : 10)) {
     return { ok: false, status: 400, error: 'Informe um número válido com DDD.' }
   }
-  const chave = phoneKey(digitos)
+  const chave = phoneKey(input.telefone)
   if (!chave) {
     return { ok: false, status: 400, error: 'Número não reconhecido como telefone válido.' }
   }
+  // Daqui para baixo o número é sempre o canônico — é ele que a Evolution
+  // consulta e é ele que fica no cadastro.
+  const digitos = chave
 
   // 1. Já existe? Então a conversa é a dele — nunca um segundo lead.
   const existente = await prisma.lead.findFirst({
@@ -74,11 +82,17 @@ export async function startConversation(input: StartConversationInput): Promise<
         // conhece o contato, mas a consulta por telefone não resolve — conta em
         // modo @lid. Bloquear aí impediria falar com quem tem WhatsApp sim.
         if (r.length && r[0] && r[0].exists === false && !r[0].name) {
+          // "Confira o DDD e o dígito 9" só faz sentido para número do Brasil.
+          // Num telefone estrangeiro não há DDD nem nono dígito para conferir, e
+          // o operador ficava procurando erro onde não havia.
+          const pais = paisDoTelefone(digitos)
           return {
             ok: false,
             status: 422,
             code: 'NO_WHATSAPP',
-            error: 'Este número não tem WhatsApp. Confira o DDD e o dígito 9.',
+            error: pais && !pais.brasileiro
+              ? `Este número é de ${pais.nome} e não respondeu como conta de WhatsApp. Confirme o número internacional completo com o contato.`
+              : 'Este número não tem WhatsApp. Confira o DDD e o dígito 9.',
           }
         }
       }
@@ -101,7 +115,7 @@ export async function startConversation(input: StartConversationInput): Promise<
     const novo = await prisma.lead.create({
       data: {
         uid: await generateUid(),
-        nome: nome || digitos,
+        nome: nome || formatarTelefone(digitos),
         whatsapp: digitos,
         phoneKey: chave,
         email: '',

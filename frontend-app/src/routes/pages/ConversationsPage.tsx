@@ -154,6 +154,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { cn } from '@/lib/cn'
 import { corDoCanal, nomeDoCanal } from '@/lib/channelColors'
 import { formatRelative } from '@/lib/format'
+import { formatarTelefone } from '@/lib/telefone'
 import { toast } from '@/lib/toast'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 
@@ -3640,7 +3641,27 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
           <section>
             <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1">Contato</div>
             <dl class="text-xs space-y-1">
-              <InfoRow label="WhatsApp" value={lead.whatsapp} icon={<Phone size={ICON_SIZE.xxs} />} />
+              <InfoRow
+                label="WhatsApp"
+                icon={<Phone size={ICON_SIZE.xxs} />}
+                valueNode={lead.whatsapp ? (
+                  <span class="inline-flex items-center gap-1.5">
+                    <span>{lead.telefoneFormatado || formatarTelefone(lead.whatsapp)}</span>
+                    {/* Contato de fora do Brasil: sem esta marca, um número sem
+                        DDD parece cadastro errado e o operador "conserta" o que
+                        estava certo. O país vem pronto do servidor, que é onde
+                        moram os planos de numeração. */}
+                    {lead.telefonePais && (
+                      <span
+                        class="shrink-0 rounded bg-surface-3 px-1 py-px text-2xs text-fg-muted"
+                        title={`Número de ${lead.telefonePais.nome} (+${lead.telefonePais.ddi})`}
+                      >
+                        {lead.telefonePais.bandeira} {lead.telefonePais.iso}
+                      </span>
+                    )}
+                  </span>
+                ) : undefined}
+              />
               {/* Referências de nome. Ficam aqui, e não na lista nem na bolha:
                   ajudam o operador a reconhecer a pessoa sem que o apelido dela
                   vire a identidade que a empresa vê. */}
@@ -4800,20 +4821,6 @@ function FolhaDeAcoes({ titulo, onFechar, children }: {
 /** Ponto que separa os dados do contato no cabeçalho. Existe como componente
  *  para o separador sumir junto com o dado que ele separa — antes eram "|" e
  *  "·" soltos no texto, que sobravam pendurados quando o campo vinha vazio. */
-/** Telefone em formato de gente: +55 62 99111-4444 (ou "(62) 99111-4444" na
- *  versão curta, para painel estreito). Cru, ele é uma fileira de 13 dígitos
- *  que ninguém lê e que, ao ser cortada, ainda vira um número errado. */
-function formatarTelefone(bruto: string, forma: 'completo' | 'curto' = 'completo'): string {
-  const d = bruto.replace(/\D/g, '')
-  const br = d.startsWith('55') ? d.slice(2) : d
-  const ddd = br.slice(0, 2)
-  const resto = br.length === 11 ? `${br.slice(2, 7)}-${br.slice(7)}`
-    : br.length === 10 ? `${br.slice(2, 6)}-${br.slice(6)}`
-    : ''
-  if (!resto) return bruto
-  return forma === 'curto' ? `(${ddd}) ${resto}` : `+55 ${ddd} ${resto}`
-}
-
 function SeparadorMeta({ class: className }: { class?: string }) {
   return <span class={cn('shrink-0 text-fg-muted/60', className)} aria-hidden>·</span>
 }

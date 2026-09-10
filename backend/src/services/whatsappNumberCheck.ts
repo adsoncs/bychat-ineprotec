@@ -21,7 +21,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
-import { onlyDigits } from '../lib/phone.js'
+import { onlyDigits, toWaNumber, paisDoTelefone } from '../lib/phone.js'
 
 /** Nome da tag aplicada a quem não tem WhatsApp. */
 export const TAG_SEM_WHATSAPP = 'Sem WhatsApp'
@@ -151,8 +151,12 @@ export async function checarNumeroDoLead(leadId: number, opts?: { forcar?: boole
   // Grupo não é pessoa e o JID não é telefone: consultar daria "não existe".
   if (lead.isGroup) return { existe: null, checadoEm: null, doCache: false }
 
-  const numero = onlyDigits(lead.whatsapp || '')
-  if (!numero || numero.length < 10) return { existe: null, checadoEm: null, doCache: false }
+  // `toWaNumber` é o mesmo número que sairia no envio — inclusive quando o
+  // contato é de fora do Brasil, caso em que o piso de 10 dígitos de antes
+  // descartava a consulta sem dizer nada (há plano nacional mais curto que
+  // isso).
+  const numero = toWaNumber(lead.whatsapp) ?? onlyDigits(lead.whatsapp || '')
+  if (!numero || numero.length < 8) return { existe: null, checadoEm: null, doCache: false }
 
   const anterior = carimbo(lead.formData)
   if (!opts?.forcar && anterior && anterior.numero === numero && !venceu(anterior.em)) {
@@ -199,7 +203,11 @@ export async function checarNumeroDoLead(leadId: number, opts?: { forcar?: boole
   }).catch(() => {})
   await aplicarTag(leadId, existe)
 
-  if (!existe) console.log(`[waCheck] lead ${leadId}: ${numero} não tem WhatsApp`)
+  if (!existe) {
+    const pais = paisDoTelefone(numero)
+    const de = pais && !pais.brasileiro ? ` (${pais.nome})` : ''
+    console.log(`[waCheck] lead ${leadId}: ${numero}${de} não tem WhatsApp`)
+  }
   return { existe, checadoEm: em, doCache: false }
 }
 
