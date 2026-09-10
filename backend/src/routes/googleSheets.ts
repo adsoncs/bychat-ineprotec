@@ -111,7 +111,11 @@ export async function googleSheetsRoutes(app: FastifyInstance) {
   // GET /api/admin/google/auth-url — Generate OAuth2 URL
   app.get('/api/admin/google/auth-url', { preHandler: adminOnly }, async (req, reply) => {
     try {
-      const url = await getAuthUrl()
+      // `?escopo=ads` pede só a permissão do Google Ads. Sem o parâmetro o
+      // comportamento é o de sempre (Planilhas + Agenda + Gmail + Tarefas +
+      // Ads), para não mudar o que já funciona em quem usa a conexão inteira.
+      const { escopo } = req.query as { escopo?: string }
+      const url = await getAuthUrl(undefined, escopo)
       return { url }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })

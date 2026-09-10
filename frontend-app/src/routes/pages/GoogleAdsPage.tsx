@@ -19,7 +19,8 @@ import {
   type ValueSource,
   type ConversionMapItem,
 } from '@/hooks/useGoogleAds'
-import { useGoogleConnections } from '@/hooks/useGoogle'
+import { useGoogleConnections, useGoogleAuthUrl } from '@/hooks/useGoogle'
+import { useQueryClient } from '@tanstack/react-query'
 import { Page } from '@/components/ui/Page'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -34,6 +35,40 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/**
+ * Abre o consentimento do Google pedindo SOMENTE a permissão do Google Ads.
+ *
+ * A conexão do Google Suite pede tudo de uma vez — Planilhas, Drive, Agenda,
+ * Tarefas e Gmail, este último com leitura. Para ligar relatório de anúncio
+ * isso é permissão demais: uma agência não pode entregar a caixa de entrada da
+ * própria empresa ao sistema de um cliente. Aqui a conta autoriza só
+ * `adwords`, e a tela do Google mostra exatamente isso.
+ */
+/** A conexão autorizou o Google Ads? Sem isto a API responde 403 sem explicar. */
+function temPermissaoAds(scopes: string | null | undefined): boolean {
+  return String(scopes || '').split(/\s+/).includes('https://www.googleapis.com/auth/adwords')
+}
+
+function abrirConsentimento(url: string, aoConectar: () => void) {
+  const popup = window.open(url, 'google-oauth-ads', 'width=600,height=700')
+  if (!popup) { toast('Pop-up bloqueado pelo navegador', 'danger'); return }
+
+  function handler(ev: MessageEvent) {
+    if (!ev.data || typeof ev.data !== 'object') return
+    const d = ev.data as { type?: string; email?: string; error?: string }
+    if (d.type === 'google-auth-success') {
+      toast(`${d.email} conectado para o Google Ads`, 'success')
+      window.removeEventListener('message', handler)
+      aoConectar()
+    } else if (d.type === 'google-auth-error') {
+      toast(`Erro ao conectar: ${d.error ?? 'desconhecido'}`, 'danger')
+      window.removeEventListener('message', handler)
+    }
+  }
+  window.addEventListener('message', handler)
+}
+
 
 export function GoogleAdsPage() {
   const [onlySales, setOnlySales] = useState(false)
@@ -297,6 +332,18 @@ function emptyRowState(defaultValueSource: ValueSource): RowState {
 
 function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
   const { data: connections, isLoading: loadingConn } = useGoogleConnections()
+  const authAds = useGoogleAuthUrl()
+  const qc = useQueryClient()
+
+  function conectarSomenteAds() {
+    authAds.mutate('ads', {
+      onSuccess: ({ url }) => abrirConsentimento(url, () => {
+        void qc.invalidateQueries({ queryKey: ['google-connections'] })
+      }),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
   const create = useCreateGoogleAdsConfig()
   const updateMap = useUpdateGoogleAdsConversionMap()
   const [step, setStep] = useState<WizardStep>(1)
@@ -404,13 +451,19 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
             <div>
               <p class="font-medium">Nenhuma conta Google conectada</p>
               <p class="mt-0.5 text-xs text-fg-muted">
-                Conecte sua conta Google em <strong>Google Suite</strong> primeiro. Use o mesmo login que tem acesso à sua conta de Google Ads.
+                Conecte a conta que tem acesso à conta de Google Ads. O acesso pedido é
+                somente o do Google Ads — nada de Gmail, Drive ou Agenda.
               </p>
             </div>
           </div>
-          <Button variant="primary" size="sm" onClick={() => window.location.assign('/app/google')}>
-            <ExternalLink size={14} /> Ir para Google Suite
-          </Button>
+          <div class="flex flex-wrap gap-2">
+            <Button variant="primary" size="sm" onClick={conectarSomenteAds} disabled={authAds.isPending}>
+              <KeyRound size={14} /> {authAds.isPending ? 'Abrindo…' : 'Conectar somente o Google Ads'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => window.location.assign('/app/google')}>
+              <ExternalLink size={14} /> Conexão completa no Google Suite
+            </Button>
+          </div>
         </div>
       )}
 
@@ -419,7 +472,12 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
           {/* PASSO 1 — Conta Google */}
           {step === 1 && (
             <>
-              <div class="text-xs text-fg-muted mb-2">Selecione a conta Google que tem acesso à sua conta Google Ads:</div>
+              <div class="flex items-center justify-between gap-3 mb-2">
+                <div class="text-xs text-fg-muted">Selecione a conta Google que tem acesso à sua conta Google Ads:</div>
+                <Button variant="ghost" size="sm" onClick={conectarSomenteAds} disabled={authAds.isPending}>
+                  <Plus size={14} /> Outra conta
+                </Button>
+              </div>
               <div class="flex flex-col gap-2">
                 {connections?.data.map((c) => (
                   <button
@@ -435,6 +493,9 @@ function GoogleAdsConfigModal({ onClose }: { onClose: () => void }) {
                     <div class="min-w-0">
                       <div class="text-sm font-medium text-fg truncate">{c.email}</div>
                       {!c.active && <div class="text-2xs text-warning">conexão inativa — reconecte</div>}
+                      {c.active && !temPermissaoAds(c.scopes) && (
+                        <div class="text-2xs text-warning">sem permissão de Google Ads — use “Outra conta”</div>
+                      )}
                     </div>
                     <ChevronRight size={14} class="text-fg-muted shrink-0" />
                   </button>

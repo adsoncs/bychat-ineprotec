@@ -56,6 +56,40 @@ export const ALL_GOOGLE_SCOPES = [
   ...SCOPES_TASKS, ...SCOPES_ADS,
 ]
 
+/**
+ * Conjuntos de permissão que a conexão pode pedir, por finalidade.
+ *
+ * Existe porque conectar o Google para UMA coisa pedia acesso a TODAS: quem só
+ * queria ligar o Google Ads via a tela de consentimento pedir também leitura do
+ * Gmail (`gmail.readonly`), Drive, Agenda e Tarefas. Uma agência não pode — e
+ * não deve — entregar a caixa de entrada da própria empresa ao sistema de um
+ * cliente para configurar relatório de anúncio.
+ *
+ * `completo` continua sendo o pedido de sempre, para quem realmente vai usar
+ * Planilhas, Agenda e Gmail na mesma conexão. `ads` é o mínimo que a Google Ads
+ * API exige: o escopo `adwords` mais a identidade, que só serve para sabermos
+ * qual e-mail autorizou.
+ */
+export const GOOGLE_SCOPE_SETS = {
+  completo: ALL_GOOGLE_SCOPES,
+  ads: [...SCOPES_IDENTITY, ...SCOPES_ADS],
+} as const
+
+export type GoogleScopeSet = keyof typeof GOOGLE_SCOPE_SETS
+
+/** Nome do conjunto → escopos. Valor desconhecido cai no completo, que é o
+ *  comportamento antigo — nunca em um conjunto menor que o pedido. */
+export function scopesFor(set?: string | null): readonly string[] {
+  return GOOGLE_SCOPE_SETS[(set || '') as GoogleScopeSet] ?? ALL_GOOGLE_SCOPES
+}
+
+/** A conexão tem permissão de Google Ads? Usado para explicar a falha em vez de
+ *  deixar a API responder 403 sem contexto. */
+export function conexaoTemAds(scopes: string | null | undefined): boolean {
+  return String(scopes || '').split(/\s+/).includes(SCOPES_ADS[0])
+}
+
+
 async function getSetting(key: string): Promise<string> {
   // env var takes precedence, then database
   const envMap: Record<string, string> = {
@@ -104,12 +138,12 @@ export async function createOAuth2Client() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri)
 }
 
-export async function getAuthUrl(state?: string): Promise<string> {
+export async function getAuthUrl(state?: string, scopeSet?: string | null): Promise<string> {
   const client = await createOAuth2Client()
   return client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: ALL_GOOGLE_SCOPES,
+    scope: [...scopesFor(scopeSet)],
     state: state || '',
   })
 }

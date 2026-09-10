@@ -170,9 +170,16 @@ export function useResetGoogleCredentials() {
   })
 }
 
+/**
+ * URL de consentimento do Google.
+ *
+ * `escopo: 'ads'` pede SÓ a permissão do Google Ads — sem Gmail, Drive, Agenda
+ * ou Tarefas. Sem o parâmetro, o pedido é o completo de sempre.
+ */
 export function useGoogleAuthUrl() {
   return useMutation({
-    mutationFn: () => api.get<{ url: string }>('/admin/google/auth-url'),
+    mutationFn: (escopo?: 'ads') =>
+      api.get<{ url: string }>(`/admin/google/auth-url${escopo ? `?escopo=${escopo}` : ''}`),
   })
 }
 
