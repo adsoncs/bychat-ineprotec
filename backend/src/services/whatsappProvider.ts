@@ -93,6 +93,45 @@ export interface WhatsAppProvider {
 
 // ─── Evolution API Provider ─────────────────────────────
 
+/**
+ * Abre alerta quando a Evolution recusa um envio por conexão.
+ *
+ * O monitor de linhas pergunta o estado à Evolution e acredita na resposta:
+ * `connectionState === 'open'` → segue em frente. Só que "open" pode ser
+ * mentira. Em 11/09/2026 a linha principal do elementus passou 4h20 assim:
+ * reportando `open`, respondendo consultas, sem receber uma única mensagem e
+ * recusando todos os 42 envios com `Connection Closed`. Ninguém foi avisado,
+ * porque o único sintoma — a recusa do envio — morria como texto no log.
+ *
+ * A recusa é o sinal honesto: se o operador tentou mandar e não foi, a linha
+ * está quebrada, não importa o que o estado diga. O `dedupeKey` é por linha, e
+ * não por tentativa, senão 42 cliques virariam 42 alertas.
+ */
+function avisarLinhaRecusandoEnvio(instanceName: string, path: string, cru: string): void {
+  // Só falha de CONEXÃO. Número inexistente, mídia recusada e limite de envio
+  // são problemas daquela mensagem, não da linha.
+  if (!/connection closed|connection lost|not connected|"close"/i.test(cru)) return
+  if (!path.includes('/message/')) return
+  void (async () => {
+    try {
+      const { raiseAlert } = await import('./alertService.js')
+      await raiseAlert({
+        dedupeKey: `channel:send_refused:${instanceName}`,
+        kind: 'canal',
+        severity: 'critical',
+        audience: 'management',
+        title: `A linha ${instanceName} está recusando envios`,
+        body: 'A Evolution respondeu "Connection Closed" a um envio. A linha pode continuar aparecendo como CONECTADA na tela — '
+          + 'o que caiu é a conexão do servidor com o WhatsApp, não o aparelho.\n\n'
+          + 'Enquanto durar, nenhuma resposta sai por esta linha e o contato fica esperando. '
+          + 'Vá em Configurações › WhatsApp e use "Reconectar"; se não voltar, será preciso ler o QR Code de novo.',
+        entityType: 'whatsapp_instance', entityId: null,
+        metadata: { instancia: instanceName, rota: path, respostaCrua: cru.slice(0, 300) },
+      })
+    } catch { /* alerta é aviso, nunca derruba o envio */ }
+  })()
+}
+
 export class EvolutionProvider implements WhatsAppProvider {
   readonly providerName = 'evolution' as const
 
@@ -118,6 +157,15 @@ export class EvolutionProvider implements WhatsAppProvider {
     try { parsed = JSON.parse(text) } catch { parsed = text }
 
     if (!res.ok) {
+      // O erro cru morre na linha seguinte, trocado pela frase de operador. Sem
+      // ele, diagnosticar é adivinhar: em 11/09/2026 o elementus passou o dia
+      // com "conexão desconectada" na tela e a instância respondendo `open` —
+      // só instrumentando este ponto apareceu o que a Evolution realmente dizia
+      // (`{"message":"Connection Closed"}`, o socket do Baileys, não o aparelho).
+      // Fica como aviso: é uma linha por falha de envio, e é a única testemunha.
+      console.warn(`[evolution] ${method} ${path} → HTTP ${res.status} :: ${String(text).slice(0, 300)}`)
+      // Linha viva no papel, morta na prática: avisa a gestão na hora.
+      avisarLinhaRecusandoEnvio(this.instanceName, path, String(text))
       // Erro cru da Evolution vira frase de operador (lib/whatsappErrors).
       const erro = new Error(humanizeWhatsAppError(parsed, res.status))
       // A recusa por "número não existe" fica MARCADA, e não só traduzida: quem

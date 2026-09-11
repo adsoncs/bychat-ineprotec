@@ -153,7 +153,20 @@ const CONFIG_RULES: Rule[] = [
 /** Regras da Evolution (WhatsApp não oficial, via aparelho conectado). */
 const EVOLUTION_RULES: Rule[] = [
   {
-    match: /connection closed|connection lost|not connected|"close"|desconect/i,
+    // "Connection Closed" é o socket do Baileys, não o aparelho. A instância
+    // continua reportando `open`, responde a consultas, e mesmo assim recusa
+    // todo envio — foi o que travou o elementus em 11/09/2026: 41 tentativas,
+    // nenhuma saiu, com a tela mostrando a linha conectada.
+    //
+    // Mandar o operador ao QR Code aqui o faz procurar um problema que não
+    // existe — o celular dele está conectado. Quem resolve é religar a conexão
+    // no servidor, e é isso que a frase passou a dizer.
+    match: /connection closed|connection lost|not connected|"close"/i,
+    message: () => 'A linha de WhatsApp parou de aceitar envios (o aparelho continua conectado). Vá em Configurações › WhatsApp e use "Reconectar" nesta conexão; se persistir, avise o suporte técnico.',
+  },
+  {
+    // Desconexão de verdade: aí sim o aparelho caiu e o QR Code é o caminho.
+    match: /desconect|logged out|loggedout/i,
     message: () => 'A conexão de WhatsApp usada nesta conversa está desconectada. Reconecte o aparelho pelo QR Code em Configurações › WhatsApp.',
   },
   {

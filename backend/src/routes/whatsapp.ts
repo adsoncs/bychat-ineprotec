@@ -236,6 +236,26 @@ function idDaMensagemCitada(data: any): string {
   return ''
 }
 
+/**
+ * Texto de uma mensagem com botões ou lista (templateMessage).
+ *
+ * A Evolution entrega esse tipo com o conteúdo aninhado em `hydratedTemplate`
+ * (formato antigo) ou em `interactiveMessage` — nunca em `conversation`, que é
+ * onde o extrator olhava. O resultado é que a mensagem chegava ao aparelho e
+ * não existia no sistema.
+ */
+function templateText(message: any): string {
+  const t = message?.templateMessage
+  if (!t) return ''
+  const h = t.hydratedTemplate || t.hydratedFourRowTemplate || t.fourRowTemplate || {}
+  return String(
+    h.hydratedContentText
+    || h.content?.text
+    || t.interactiveMessageTemplate?.body?.text
+    || '',
+  ).trim()
+}
+
 /** Acha o lead deste contato NESTA instância.
  *
  *  A regra é: um lead por telefone POR INSTÂNCIA. Sem isso, um contato que
@@ -1222,6 +1242,15 @@ export async function whatsappRoutes(app: FastifyInstance) {
                    message.extendedTextMessage?.text ||
                    message.buttonsResponseMessage?.selectedButtonId ||
                    message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                   // Mensagem com botões/lista do WhatsApp Business: o texto mora
+                   // no `hydratedTemplate`, não em `conversation`. Sem ler daqui a
+                   // mensagem inteira sumia — e é mensagem de verdade, não enfeite:
+                   // no elementus são os lembretes de consulta que a clínica dispara
+                   // por fora, 137 em 11 dias, nenhum aparecendo na conversa. O
+                   // atendente abria a ficha sem saber que o paciente já tinha sido
+                   // avisado, e o "confirmado" dele chegava sem contexto nenhum.
+                   templateText(message) ||
+                   message.interactiveMessage?.body?.text ||
                    ''
 
       // Resposta a Disparo Inteligente: marca o destinatário como respondido
