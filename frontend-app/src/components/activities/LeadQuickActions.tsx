@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter-preact'
-import { MessageSquare, Phone, Mail, ExternalLink } from '@/components/ui/icon-set'
+import { MessageSquare, ExternalLink } from '@/components/ui/icon-set'
 import { ActionPill } from './ActionPill'
 
 // O que a atividade sabe do lead — é o que o backend já devolve na listagem,
@@ -9,7 +9,6 @@ export interface LeadDaAtividade {
   nome: string | null
   empresa: string | null
   whatsapp: string | null
-  email: string | null
 }
 
 /**
@@ -21,9 +20,12 @@ export interface LeadDaAtividade {
  * de tarefas em que estava. O cliente descreveu exatamente isso: "tem as
  * atividades mas não consigo fazer nada de fato por ela".
  *
- * Aqui cada ação é um destino direto. Só aparece o que o lead realmente tem:
- * um contato sem e-mail não ganha um botão de e-mail desabilitado, que promete
- * e não cumpre.
+ * Só entram destinos DENTRO do sistema. `tel:` e `mailto:` chegaram a existir
+ * aqui e foram removidos: abrem o discador e o cliente de e-mail do aparelho,
+ * a conversa acontece fora, e nada disso volta para o CRM — sem registro na
+ * timeline, sem mensagem no histórico, sem a atividade avançando. Um atalho que
+ * tira o atendimento do sistema não ajuda o agente, atrapalha o acompanhamento.
+ * Para falar com o contato existe a Conversa, que registra tudo.
  *
  * Rótulo junto do ícone, de propósito: as ações desta tela já viviam atrás de
  * um `⋯`, e foi assim que ninguém as encontrou.
@@ -65,22 +67,6 @@ export function LeadQuickActions({ lead, antesDeNavegar }: {
         titulo="Abrir a ficha completa, com histórico, funil e campos"
         onClick={() => irPara(`/leads/${lead.id}`)}
       />
-      {telefone && (
-        <ActionPill
-          icone={<Phone size={11} />}
-          rotulo="Ligar"
-          titulo={`Ligar para ${lead.whatsapp}`}
-          href={`tel:+${telefone}`}
-        />
-      )}
-      {lead.email && (
-        <ActionPill
-          icone={<Mail size={11} />}
-          rotulo="E-mail"
-          titulo={`Escrever para ${lead.email}`}
-          href={`mailto:${lead.email}`}
-        />
-      )}
     </>
   )
 }

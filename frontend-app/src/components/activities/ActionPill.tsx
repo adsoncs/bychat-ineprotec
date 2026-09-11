@@ -23,14 +23,13 @@ const TONES: Record<PillTone, string> = {
  * `<button>` quando a ação acontece aqui dentro.
  */
 export function ActionPill({
-  icone, rotulo, titulo, tone = 'neutral', onClick, href, disabled,
+  icone, rotulo, titulo, tone = 'neutral', onClick, disabled,
 }: {
   icone: preact.ComponentChildren
   rotulo: string
   titulo: string
   tone?: PillTone
   onClick?: () => void
-  href?: string
   disabled?: boolean
 }) {
   const classe = cn(
@@ -39,15 +38,13 @@ export function ActionPill({
     disabled && 'opacity-50 pointer-events-none',
   )
 
+  // Só `<button>`: toda ação daqui acontece DENTRO do sistema. O componente
+  // chegou a aceitar `href` para os antigos "Ligar" (tel:) e "E-mail"
+  // (mailto:) — removidos porque levavam o atendimento para fora e nada
+  // voltava ao CRM. Sem a porta, ninguém a reabre sem pensar.
+  //
   // `stopPropagation`: a linha pode ganhar clique próprio, e uma ação que
   // dispara duas coisas ao mesmo tempo é pior que não ter ação.
-  if (href) {
-    return (
-      <a href={href} class={classe} title={titulo} onClick={(e) => e.stopPropagation()}>
-        {icone}{rotulo}
-      </a>
-    )
-  }
   return (
     <button
       type="button"
