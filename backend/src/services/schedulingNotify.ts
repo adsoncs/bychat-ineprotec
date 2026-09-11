@@ -5,7 +5,7 @@ import { sendEmailGeneric, getEmailConfig, getFromAddress } from './notify.js'
 import { getMeetingRecordingNotice } from '../lib/meetingsConfig.js'
 import { getBranding } from '../lib/branding.js'
 import { getRenderedTemplate } from './messageTemplates.js'
-import { buildBodyParams, renderTemplateText } from '../lib/waTemplateParams.js'
+import { EMPTY_PARAM_PLACEHOLDER, buildBodyParams, renderTemplateText } from '../lib/waTemplateParams.js'
 
 function publicBase(): string { return (process.env.APP_URL || 'https://localhost').replace(/\/$/, '') }
 export function cancelLink(token: string): string { return `${publicBase()}/agendar/cancelar/${token}` }
@@ -65,6 +65,14 @@ async function templateNameFor(kind: keyof typeof TEMPLATE_KEYS): Promise<string
   return v || fallback
 }
 
+// Em que ordem os nossos nomes entram nos {{1}}, {{2}}… de um template POSICIONAL.
+// Segue o exemplo aprovado na Meta para `confirmacao_agendamento_reuniao`:
+//   {{1}} Glauber · {{2}} Reunião com BeyondHub · {{3}} segunda-feira, … às 17:00
+//   {{4}} https://meet.google.com/abc-defg-hij
+// Um template NOMEADO ({{nome}}, {{quando}}…) ignora esta lista: ali o token já
+// é o nome.
+const ORDEM_AGENDAMENTO = ['nome', 'reuniao', 'quando', 'link'] as const
+
 /** Envia um HSM ao lead. Retorna false se o template não existir/não estiver aprovado. */
 async function sendHsm(
   conn: { phoneNumberId: string; systemUserToken: string; wabaId: string | null; id: number },
@@ -79,16 +87,53 @@ async function sendHsm(
     console.warn(`[scheduling] template ${templateName} não aprovado (${tpl?.status ?? 'inexistente'}) — WhatsApp não enviado`)
     return false
   }
+  const ordem = [...ORDEM_AGENDAMENTO]
+  const { params, faltando } = buildBodyParams(tpl.components, values, ordem)
+  if (faltando.length) {
+    const quais = faltando.map((t) => `{{${t}}}`).join(', ')
+    console.error(`[scheduling] template ${templateName}: ${quais} sem valor — envio CANCELADO (a mensagem sairia com "${EMPTY_PARAM_PLACEHOLDER}")`)
+    await avisarTemplateIncompleto(templateName, faltando, leadId, values)
+    return false
+  }
+
   const wp = await import('./whatsappProvider.js')
   const provider = new wp.CloudApiProvider(conn.phoneNumberId, conn.systemUserToken)
-  const params = buildBodyParams(tpl.components, values)
   await provider.sendTemplate(phone, templateName, tpl.language || 'pt_BR', params.length ? [{ type: 'body', parameters: params }] : [])
   if (leadId) {
     await prisma.message.create({
-      data: { leadId, body: renderTemplateText(tpl.components, values), fromMe: true, senderName: 'Agendamento', ack: 1, provider: 'cloud_api', cloudApiConnectionId: conn.id },
+      data: { leadId, body: renderTemplateText(tpl.components, values, ordem), fromMe: true, senderName: 'Agendamento', ack: 1, provider: 'cloud_api', cloudApiConnectionId: conn.id },
     }).catch(() => {})
   }
   return true
+}
+
+/**
+ * Abre alerta para a gestão quando um template ficaria incompleto.
+ *
+ * Sem isto a correção seria só silêncio de outro tipo: o cliente deixa de
+ * receber a mensagem errada, mas também não recebe a certa, e a equipe continua
+ * sem saber. O `dedupeKey` é por template + variáveis faltando, então cem
+ * agendamentos com o mesmo defeito viram UM alerta, não cem.
+ */
+async function avisarTemplateIncompleto(
+  templateName: string, faltando: string[], leadId: number | null, values: Record<string, string>,
+): Promise<void> {
+  try {
+    const { raiseAlert } = await import('./alertService.js')
+    await raiseAlert({
+      dedupeKey: `hsm:incompleto:${templateName}:${faltando.join(',')}`,
+      kind: 'scheduling',
+      severity: 'critical',
+      title: `Confirmação de agendamento não enviada: o template "${templateName}" ficou incompleto`,
+      body: `As variáveis ${faltando.map((t) => `{{${t}}}`).join(', ')} chegaram sem valor, então a mensagem foi SEGURADA — ela sairia com "—" no lugar do nome, da data e do link.\n\n`
+        + `O contato NÃO recebeu a confirmação: alguém precisa falar com ele.\n\n`
+        + `Valores disponíveis no momento do envio: ${Object.keys(values).filter((k) => values[k]).join(', ') || '(nenhum)'}.`,
+      ...(leadId ? { entityType: 'lead', entityId: leadId } : {}),
+      metadata: { templateName, faltando, valores: Object.keys(values) },
+    })
+  } catch (e: any) {
+    console.warn('[scheduling] não consegui abrir alerta do template incompleto:', e?.message)
+  }
 }
 
 // Envia a confirmação de agendamento ao lead pelo WhatsApp e marca confirmRequestedAt
