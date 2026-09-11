@@ -32,9 +32,22 @@ export interface LeadDaAtividade {
  * linha os coloca na MESMA fileira das ações da tarefa, e é isso que faz tudo
  * parecer um conjunto só.
  */
-export function LeadQuickActions({ lead }: { lead: LeadDaAtividade }) {
+export function LeadQuickActions({ lead, antesDeNavegar }: {
+  lead: LeadDaAtividade
+  /**
+   * Chamado ANTES de sair da tela. Existe para quem usa isto dentro de um
+   * modal: navegar com o diálogo aberto desmonta o Radix no meio do caminho e
+   * ele pode deixar a página travada, sem cliques. Fechar antes evita isso.
+   */
+  antesDeNavegar?: () => void
+}) {
   const [, navigate] = useLocation()
   const telefone = (lead.whatsapp || '').replace(/\D/g, '')
+
+  function irPara(destino: string) {
+    antesDeNavegar?.()
+    navigate(destino)
+  }
 
   return (
     <>
@@ -43,14 +56,14 @@ export function LeadQuickActions({ lead }: { lead: LeadDaAtividade }) {
           icone={<MessageSquare size={11} />}
           rotulo="Conversa"
           titulo="Abrir a conversa de WhatsApp deste contato"
-          onClick={() => navigate(`/conversations?leadId=${lead.id}`)}
+          onClick={() => irPara(`/conversations?leadId=${lead.id}`)}
         />
       )}
       <ActionPill
         icone={<ExternalLink size={11} />}
         rotulo="Ficha do lead"
         titulo="Abrir a ficha completa, com histórico, funil e campos"
-        onClick={() => navigate(`/leads/${lead.id}`)}
+        onClick={() => irPara(`/leads/${lead.id}`)}
       />
       {telefone && (
         <ActionPill

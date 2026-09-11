@@ -1094,7 +1094,6 @@ function EditActivityModal({ activity, onClose }: { activity: Activity; onClose:
       open
       onOpenChange={(o) => { if (!o) onClose() }}
       title="Editar atividade"
-      description={activity.lead ? `Lead: ${activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}` : undefined}
       size="lg"
       footer={
         <>
@@ -1106,6 +1105,31 @@ function EditActivityModal({ activity, onClose }: { activity: Activity; onClose:
       }
     >
       <div class="space-y-3">
+        {/* O lead no topo do formulário, e não como legenda do título.
+            Aqui ele era a mesma frase morta da lista — "Lead: Fulano" — e quem
+            abrisse a atividade para remarcar sem lembrar do contexto tinha de
+            fechar tudo e procurar a pessoa pelo menu. */}
+        {activity.lead && (
+          <div class="rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+            <a
+              href={`/app/leads/${activity.lead.id}`}
+              class="group inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline max-w-full"
+              title="Abrir a ficha completa deste lead"
+            >
+              <UserIcon size={12} class="shrink-0" />
+              <span class="truncate">
+                {activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}
+              </span>
+              {activity.lead.empresa && activity.lead.nome && (
+                <span class="text-fg-muted font-normal text-xs truncate">· {activity.lead.empresa}</span>
+              )}
+              <ArrowUpRight size={11} class="shrink-0 opacity-60 group-hover:opacity-100" />
+            </a>
+            <div class="flex items-center gap-1 flex-wrap mt-2">
+              <LeadQuickActions lead={activity.lead} antesDeNavegar={onClose} />
+            </div>
+          </div>
+        )}
         <Select label="Tipo" value={type} onChange={(e) => setType((e.target as HTMLSelectElement).value as ActivityType)}>
           {(Object.keys(TYPE_META) as ActivityType[]).map((k) => <option key={k} value={k}>{TYPE_META[k].label}</option>)}
         </Select>
