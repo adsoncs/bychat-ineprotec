@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   Calendar, AlertCircle, ListChecks, Check, X as XIcon, Trash2, Plus,
-  Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, MoreHorizontal, Lock, HelpCircle, Pencil,
+  Send, Paperclip, Sparkles, MessageSquare, Mail, Phone, Bell, Lock, HelpCircle, Pencil,
   ArrowDownLeft, ArrowUpRight, ChevronDown, User as UserIcon,
 } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
@@ -29,6 +28,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { LeadQuickActions } from '@/components/activities/LeadQuickActions'
+import { ActionPill } from '@/components/activities/ActionPill'
 import { cn } from '@/lib/cn'
 import { formatDateTime, formatRelative } from '@/lib/format'
 import { toast } from '@/lib/toast'
@@ -492,7 +493,7 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
       'px-4 py-3 hover:bg-surface-3',
       overdue && 'border-l-2 border-l-danger',
     )}>
-      <div class="flex items-center gap-3">
+      <div class="flex items-start gap-3 flex-wrap sm:flex-nowrap">
         <div
           class="size-9 rounded-full grid place-items-center shrink-0"
           style={{ background: meta.bg, color: meta.color }}
@@ -539,13 +540,40 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
             </div>
           )}
           {activity.lead && (
-            <div class="text-xs text-fg-muted truncate mt-0.5">
-              Lead: {activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}
-              {activity.lead.empresa && activity.lead.nome && <span class="text-fg-muted"> · {activity.lead.empresa}</span>}
-            </div>
+            <>
+              {/* O lead é o ASSUNTO da atividade, não um detalhe dela: a tarefa
+                  existe por causa dele. Aqui ele era uma linha cinza de texto
+                  puro — para chegar ao contato, o agente saía da tela, abria
+                  Leads pelo menu e procurava de novo, perdendo a lista de
+                  tarefas em que estava. Agora é o caminho mais visível da linha. */}
+              <a
+                href={`/app/leads/${activity.lead.id}`}
+                class="group inline-flex items-center gap-1.5 mt-1 text-sm font-medium text-accent hover:underline max-w-full"
+                title="Abrir a ficha completa deste lead"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <UserIcon size={12} class="shrink-0" />
+                <span class="truncate">
+                  {activity.lead.nome ?? activity.lead.empresa ?? `#${activity.lead.id}`}
+                </span>
+                {activity.lead.empresa && activity.lead.nome && (
+                  <span class="text-fg-muted font-normal text-xs truncate">· {activity.lead.empresa}</span>
+                )}
+                <ArrowUpRight size={11} class="shrink-0 opacity-60 group-hover:opacity-100" />
+              </a>
+            </>
           )}
           {activity.description && (
             <div class="text-2xs text-fg-muted truncate mt-0.5">{activity.description}</div>
+          )}
+
+          {/* Ações do CONTATO: ficam junto do nome dele, que é o assunto
+              da tarefa. As ações da própria tarefa moram à direita, onde o
+              menu `⋯` ficava — é lá que a mão do operador já procura. */}
+          {activity.lead && (
+            <div class="flex items-center gap-1 flex-wrap mt-1.5">
+              <LeadQuickActions lead={activity.lead} />
+            </div>
           )}
         </div>
         <div class="text-xs whitespace-nowrap text-right shrink-0">
@@ -558,16 +586,57 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
             </div>
           )}
         </div>
-        <ActivityRowMenu
-          canExecute={canExecute}
-          isPending={isPending}
-          executing={exec.isPending}
-          onExecute={handleExecute}
-          onComplete={() => changeStatus('completed')}
-          onCancel={() => changeStatus('cancelled')}
-          onEdit={onEdit}
-          onDelete={onDelete}
-        />
+
+        {/* Onde ficava o `⋯`. Todas visíveis: escondidas atrás do menu, ninguém
+            as encontrava — foi o que o cliente relatou ao dizer que via as
+            atividades e não conseguia "fazer nada de fato" por elas. */}
+        <div class="flex items-center gap-1 shrink-0 justify-end">
+          {isPending ? (
+            <>
+              {canExecute && (
+                <ActionPill
+                  icone={<Send size={11} />}
+                  rotulo={exec.isPending ? 'Enviando…' : 'Enviar'}
+                  titulo="Enviar agora a mensagem desta atividade"
+                  tone="info"
+                  disabled={exec.isPending}
+                  onClick={handleExecute}
+                />
+              )}
+              <ActionPill
+                icone={<Check size={11} />}
+                rotulo="Concluir"
+                titulo="Marcar esta atividade como concluída"
+                tone="success"
+                onClick={() => changeStatus('completed')}
+              />
+              <ActionPill
+                icone={<XIcon size={11} />}
+                rotulo="Cancelar"
+                titulo="Cancelar esta atividade"
+                tone="muted"
+                onClick={() => changeStatus('cancelled')}
+              />
+            </>
+          ) : (
+            <span class="inline-flex items-center gap-1 px-2 py-1 text-2xs text-fg-muted">
+              <Lock size={11} /> Finalizada
+            </span>
+          )}
+          <ActionPill
+            icone={<Pencil size={11} />}
+            rotulo="Editar"
+            titulo="Editar título, data, responsável e conteúdo"
+            onClick={onEdit}
+          />
+          <ActionPill
+            icone={<Trash2 size={11} />}
+            rotulo="Excluir"
+            titulo="Excluir esta atividade"
+            tone="danger"
+            onClick={onDelete}
+          />
+        </div>
       </div>
 
       {/* Gravação de ligação VoIP (quando a atividade tem áudio anexado) */}
@@ -592,117 +661,6 @@ function ActivityRow({ activity, onEdit, onDelete }: { activity: Activity; onEdi
         <ActivityAttachments activityId={activity.id} leadId={activity.leadId} />
       </div>
     </li>
-  )
-}
-
-function ActivityRowMenu({
-  canExecute, isPending, executing, onExecute, onComplete, onCancel, onEdit, onDelete,
-}: {
-  canExecute: boolean
-  isPending: boolean
-  executing: boolean
-  onExecute: () => void
-  onComplete: () => void
-  onCancel: () => void
-  onEdit: () => void
-  onDelete: () => void
-}) {
-  // Radix Portal renderiza o menu no <body>, escapando qualquer overflow:hidden
-  // de containers pais (modal de lead, lista com border-radius, etc).
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          class="size-8 rounded-full border border-border bg-surface text-fg-muted grid place-items-center hover:bg-surface-3 hover:text-fg transition-colors shrink-0"
-          aria-label="Ações"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreHorizontal size={14} />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={4}
-          class="min-w-[12rem] rounded-md border border-border bg-surface-2 shadow-lg py-1"
-          style={{ zIndex: 'var(--z-popover)' }}
-        >
-          {isPending ? (
-            <>
-              {canExecute && (
-                <ActivityMenuItem icon={<Send size={12} />} tone="info" onSelect={onExecute} disabled={executing}>
-                  Enviar
-                </ActivityMenuItem>
-              )}
-              <ActivityMenuItem icon={<Check size={12} />} tone="success" onSelect={onComplete}>
-                Concluir
-              </ActivityMenuItem>
-              <ActivityMenuItem icon={<XIcon size={12} />} tone="muted" onSelect={onCancel}>
-                Cancelar
-              </ActivityMenuItem>
-              <DropdownMenu.Separator class="my-1 h-px bg-border" />
-              <ActivityMenuItem icon={<Pencil size={12} />} tone="info" onSelect={onEdit}>
-                Editar
-              </ActivityMenuItem>
-              <ActivityMenuItem icon={<Trash2 size={12} />} tone="danger" onSelect={onDelete}>
-                Excluir
-              </ActivityMenuItem>
-            </>
-          ) : (
-            <>
-              <div class="px-3 py-2 text-xs text-fg-muted inline-flex items-center gap-2">
-                <Lock size={12} /> Atividade finalizada
-              </div>
-              <DropdownMenu.Separator class="my-1 h-px bg-border" />
-              <ActivityMenuItem icon={<Pencil size={12} />} tone="info" onSelect={onEdit}>
-                Editar
-              </ActivityMenuItem>
-              <ActivityMenuItem icon={<Trash2 size={12} />} tone="danger" onSelect={onDelete}>
-                Excluir
-              </ActivityMenuItem>
-            </>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  )
-}
-
-function ActivityMenuItem({
-  icon, children, tone, onSelect, disabled,
-}: {
-  icon: preact.ComponentChildren
-  children: preact.ComponentChildren
-  tone: 'success' | 'danger' | 'info' | 'muted'
-  onSelect: () => void
-  disabled?: boolean
-}) {
-  const toneClass = tone === 'success'
-    ? 'text-success'
-    : tone === 'danger'
-      ? 'text-danger'
-      : tone === 'info'
-        ? 'text-info'
-        : 'text-fg-muted'
-  return (
-    <DropdownMenu.Item
-      disabled={!!disabled}
-      onSelect={(e) => {
-        // setTimeout(0) evita race condition entre fechamento do menu e abertura
-        // de modais de confirmação (Radix dropdown + dialog disputam focus trap).
-        e.preventDefault()
-        setTimeout(() => onSelect(), 0)
-      }}
-      class={cn(
-        'w-full text-left px-3 py-1.5 text-xs cursor-pointer outline-none hover:bg-surface-3 inline-flex items-center gap-2',
-        toneClass,
-        disabled && 'opacity-50 cursor-not-allowed',
-      )}
-    >
-      {icon}
-      {children}
-    </DropdownMenu.Item>
   )
 }
 
