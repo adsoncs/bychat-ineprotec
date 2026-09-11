@@ -80,6 +80,102 @@ export async function reconcileLeadIdentity(
   if (Object.keys(data).length > 0) {
     await prisma.lead.update({ where: { id: leadId }, data }).catch(() => {})
   }
+
+  // O contato que entrou só com LID ficou na lista como "Contato do WhatsApp",
+  // porque não havia número para mostrar. Agora há: o nome de espera cede ao
+  // telefone formatado. A hierarquia de `registrarNome` cuida do resto — se
+  // alguém já digitou um nome à mão, ou a agenda trouxe um, nada muda aqui.
+  if (typeof data.whatsapp === 'string' && data.whatsapp) {
+    const { registrarNome, telefoneComoNome } = await import('./leadDisplayName.js')
+    await registrarNome({
+      leadId,
+      nome: telefoneComoNome(data.whatsapp),
+      origem: 'telefone',
+    }).catch(() => {})
+  }
+}
+
+/**
+ * Ficha COMPLETA do contato para os motores de chatbot, casando pela identidade
+ * canônica (phoneKey) ANTES de cair na igualdade crua em `whatsapp`.
+ *
+ * Os motores buscavam só `where: { whatsapp: phone }`. Não casa: a Cloud API
+ * entrega o número BR SEM o 9º dígito ("557186799229") e o middleware do Prisma
+ * (lib/prisma.ts → applyPhoneKey) grava o telefone já canônico, COM o 9
+ * ("5571986799229"). A busca nunca encontrava, o motor abria uma ficha nova a
+ * cada mensagem — e a ficha nova já nascia canônica, garantindo que a mensagem
+ * seguinte também não achasse. O estado da jornada (`_aiJourney`/`_script`) e o
+ * histórico do LLM vivem por leadId, então a IA se reapresentava a cada turno e
+ * perdia tudo o que o lead tinha respondido.
+ *
+ * A busca crua CONTINUA aqui, como segundo passo: `phoneKey` devolve null para
+ * o que não é telefone identificável (número estrangeiro fora do padrão, ficha
+ * legada com dígito a mais). Nesses casos a igualdade crua é o único match que
+ * existe — trocá-la pelo phoneKey teria recriado o mesmo bug do outro lado.
+ *
+ * E um terceiro passo pelo `waLid`, para quem chegou só com o LID: a ficha
+ * dessa pessoa não tem telefone nenhum, então os dois primeiros passos passam
+ * direto por ela. Esta função é, portanto, um SUPERCONJUNTO estrito do que os
+ * motores faziam: acha tudo o que a busca antiga achava, mais o que ela
+ * deixava passar.
+ *
+ * `somenteAbertos` reproduz o `completed: false` do motor 'ai' (chatbotFlow):
+ * ficha já concluída não é retomada, abre-se uma conversa nova.
+ * `reconciliar` (default true) faz o backfill preguiçoso de phoneKey/waLid do
+ * lead que casou; desligado em caminhos de leitura pura (gates), que não devem
+ * escrever.
+ */
+export interface OpcoesFichaDoContato {
+  somenteAbertos?: boolean
+  reconciliar?: boolean
+}
+
+export async function acharLeadDoContato(
+  phone: string,
+  opts: OpcoesFichaDoContato = {},
+): Promise<Awaited<ReturnType<typeof prisma.lead.findUnique>>> {
+  if (!phone) return null
+  const filtro = opts.somenteAbertos ? { completed: false } : {}
+
+  // 1) identidade canônica: colapsa com/sem 9º dígito, com/sem DDI, formatado.
+  const pk = phoneKey(phone)
+  // Desempate por id: duas fichas gravadas no mesmo instante (a corrida que a
+  // trava anti-ficha-em-dobro cobre) deixariam a ordem indefinida, e o bot
+  // responderia ora numa, ora noutra, entre mensagens da MESMA conversa.
+  const ordem = [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
+  let lead = pk
+    ? await prisma.lead.findFirst({ where: { phoneKey: pk, ...filtro }, orderBy: ordem })
+    : null
+
+  // 2) igualdade crua — o que os motores sempre fizeram. Cobre o número fora do
+  //    padrão e a ficha legada sem phoneKey preenchido (o middleware só grava na
+  //    próxima escrita).
+  if (!lead) {
+    lead = await prisma.lead.findFirst({ where: { whatsapp: phone, ...filtro }, orderBy: ordem })
+  }
+
+  // 3) waLid — a ÚNICA chave de quem chegou só com o LID. A ficha dessa pessoa
+  //    não tem telefone (a coluna fica vazia de propósito: LID não é número),
+  //    então nem o phoneKey nem a igualdade crua a encontram. Sem este passo o
+  //    motor abriria uma ficha por mensagem, e a jornada — que vive por leadId —
+  //    recomeçaria do zero a cada turno.
+  if (!lead && isLikelyLid(phone)) {
+    const lid = phone.includes('@') ? phone : `${phone}@lid`
+    lead = await prisma.lead.findFirst({
+      where: { waLid: { in: [lid, phone] }, ...filtro },
+      orderBy: ordem,
+    })
+  }
+  if (!lead) return null
+
+  if (opts.reconciliar !== false) {
+    await reconcileLeadIdentity(
+      lead.id,
+      { whatsapp: lead.whatsapp, waLid: lead.waLid, phoneKey: lead.phoneKey },
+      { phone },
+    ).catch(() => {})
+  }
+  return lead
 }
 
 // ── Trava contra a ficha em dobro ───────────────────────────────────────

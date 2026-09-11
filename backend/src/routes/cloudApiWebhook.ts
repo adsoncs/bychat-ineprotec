@@ -2,6 +2,7 @@
 // Webhook para receber mensagens e status da WhatsApp Cloud API Oficial
 
 import { FastifyInstance } from 'fastify'
+import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { getMetaAppSecret } from '../lib/meta.js'
@@ -490,7 +491,9 @@ async function processIncomingMessage(
           uid: await generateUid(),
           nome: contactName || phone,
           empresa: '',
-          whatsapp: phone,
+          // Mesmo motivo do webhook da Evolution: LID responde a conversa, mas
+          // não é telefone de ninguém.
+          ...identidadeDoContato(phone),
           email: '',
           formData: { _source: 'whatsapp' },
           scores: {},

@@ -96,6 +96,42 @@ export function isLikelyLid(raw: string | null | undefined): boolean {
 }
 
 /**
+ * Separa a IDENTIDADE do ENDEREÇO de um contato do WhatsApp.
+ *
+ * Quando a Meta entrega só o LID (identificador de privacidade) e nem
+ * `remoteJidAlt` nem as heurísticas devolvem o número real, o valor que circula
+ * pelo código é o LID. Ele serve para RESPONDER — a conversa funciona, e é por
+ * isso que ele circula —, mas não é telefone de ninguém.
+ *
+ * Gravá-lo na coluna `whatsapp` do lead custa caro e em silêncio:
+ *
+ *  • a mesma pessoa volta com o número real e vira OUTRO lead, porque não há
+ *    `waLid` ligando os dois;
+ *  • disparo ativo para aquele "número" não chega a lugar nenhum;
+ *  • a ficha exibe um telefone que ninguém consegue discar.
+ *
+ * Medido no severiano em 10/09/2026: 21 leads com LID na coluna de telefone,
+ * dos quais 15 sem `waLid` — a convergência que o placeholder prometia nunca
+ * poderia acontecer neles.
+ *
+ * Use no momento de GRAVAR o contato. O endereço de entrega continua sendo o
+ * que já era; o que muda é onde cada coisa é guardada.
+ */
+export function identidadeDoContato(valor: string | null | undefined): {
+  /** Telefone de verdade, ou vazio. Nunca um LID. */
+  whatsapp: string
+  /** O LID, quando o valor era um. É ele que liga esta conversa à pessoa. */
+  waLid: string | null
+} {
+  const bruto = String(valor || '').trim()
+  if (!bruto) return { whatsapp: '', waLid: null }
+  if (isLikelyLid(bruto) || isGroupJid(bruto)) {
+    return { whatsapp: '', waLid: bruto }
+  }
+  return { whatsapp: bruto, waLid: null }
+}
+
+/**
  * É o JID de um grupo do WhatsApp (`120363...@g.us`)?
  *
  * Grupo não é telefone: não passa por phoneKey/toWaNumber (que destroem o

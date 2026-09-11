@@ -8,6 +8,7 @@
 // (scriptedChatbotFlow.ts) chamem EXATAMENTE o mesmo código — garantindo que as
 // condicionais de qualificação e as etapas do funil sejam idênticas nos dois canais.
 
+import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { generateUid, flagDuplicate } from '../services/dedup.js'
@@ -121,9 +122,19 @@ export async function createLeadFromForm(
 
   const nome = mapped.nome || mapped.name || ''
   const email = mapped.email || ''
-  const whatsapp = ctx?.forceWhatsapp || mapped.whatsapp || mapped.phone || mapped.telefone || ''
+  // O `forceWhatsapp` vem do inbound e pode ser um LID, quando a Meta não
+  // entregou o número real. LID responde a conversa, mas não é telefone: vai
+  // para `waLid`, e a coluna de telefone fica vazia até a pessoa se identificar.
+  const contato = identidadeDoContato(
+    ctx?.forceWhatsapp || mapped.whatsapp || mapped.phone || mapped.telefone || '',
+  )
+  const whatsapp = contato.whatsapp
   const empresa = mapped.empresa || mapped.company || ''
-  if (!(nome || email || whatsapp)) return null
+  // O `waLid` conta como identificação: o contato puro-LID chega sem nome, sem
+  // e-mail e — desde que o LID parou de virar telefone — sem número. Sem contá-lo
+  // aqui, a guarda de "dados insuficientes" devolveria null e a mensagem dessa
+  // pessoa sumiria sem deixar ficha, que é pior que a ficha com telefone errado.
+  if (!(nome || email || whatsapp || contato.waLid)) return null
 
   // Lista de bloqueio — rede final. Esta função é o caminho comum de TODOS os
   // criadores de lead por conteúdo de formulário: rota /forms, chatbot roteirizado
@@ -169,6 +180,9 @@ export async function createLeadFromForm(
     data: {
       uid: await generateUid(),
       nome: nome || 'Lead LP', email: email || '', whatsapp: whatsapp || '', empresa: empresa || '',
+      // Sem telefone ainda: é o LID que liga esta conversa à pessoa, e é por ele
+      // que a próxima mensagem com número real encontra este mesmo lead.
+      ...(contato.waLid ? { waLid: contato.waLid } : {}),
       // O contato se apresentou no formulário: nome mais forte que a agenda do
       // WhatsApp e que o pushName (ver services/leadDisplayName.ts).
       nomeOrigem: 'formulario',

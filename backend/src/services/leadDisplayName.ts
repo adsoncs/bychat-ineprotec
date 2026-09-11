@@ -16,12 +16,13 @@
 //   grupo       → nome do grupo de WhatsApp (não é pessoa)
 //   pushname    → legado: nome escolhido pelo contato (nunca é escrito de novo)
 //   telefone    → sem nome confiável; mostra o número formatado
+//   sem_numero  → nem nome nem número: contato que chegou só com LID
 //
 // Regra única: um nome só é substituído por outro de força MAIOR. É isso que
 // impede o sync da agenda de passar por cima do que um humano digitou.
 
 import { prisma } from '../lib/prisma.js'
-import { formatarTelefone } from '../lib/phone.js'
+import { formatarTelefone, isGroupJid, isLikelyLid } from '../lib/phone.js'
 
 export type NomeOrigem =
   | 'manual'
@@ -31,6 +32,7 @@ export type NomeOrigem =
   | 'grupo'
   | 'pushname'
   | 'telefone'
+  | 'sem_numero'
 
 const FORCA: Record<NomeOrigem, number> = {
   manual: 100,
@@ -40,6 +42,10 @@ const FORCA: Record<NomeOrigem, number> = {
   grupo: 60,
   pushname: 20,
   telefone: 10,
+  // A mais fraca de todas, de propósito: é um rótulo de espera. Assim que o
+  // número real aparecer, o nome por telefone (força 10) passa por cima dele
+  // sozinho — sem isto o contato ficaria "Contato do WhatsApp" para sempre.
+  sem_numero: 5,
 }
 
 export function forcaDaOrigem(origem: string | null | undefined): number {
@@ -53,6 +59,15 @@ export function podeSubstituir(origemAtual: string | null | undefined, origemNov
 }
 
 /**
+ * Rótulo de quem chegou sem nome e sem número que se possa discar.
+ *
+ * A alternativa seria deixar o campo em branco, e uma linha em branco na lista
+ * de conversas parece defeito. Isto diz ao operador o que de fato aconteceu: o
+ * contato existe, dá para responder, só não temos o telefone dele ainda.
+ */
+export const SEM_NUMERO = 'Contato do WhatsApp'
+
+/**
  * Telefone em formato de leitura: `(62) 99871-6285`. É o que aparece quando não
  * há nome confiável — melhor que um apelido errado, e o operador reconhece o
  * número. Fora do Brasil sai com o DDI e a formatação do país: um contato dos
@@ -60,7 +75,11 @@ export function podeSubstituir(origemAtual: string | null | undefined, origemNov
  * dígitos que parece cadastro quebrado.
  */
 export function telefoneComoNome(phone: string | null | undefined): string {
-  const d = (phone ?? '').replace(/\D/g, '')
+  const bruto = (phone ?? '').trim()
+  // LID não é número: formatá-lo produz algo com cara de telefone — o severiano
+  // via "+18 7303641276560" na lista — que o operador tenta discar e não existe.
+  if (isLikelyLid(bruto) || isGroupJid(bruto)) return SEM_NUMERO
+  const d = bruto.replace(/\D/g, '')
   if (!d) return 'Sem nome'
   return formatarTelefone(d) || `+${d}`
 }
@@ -72,7 +91,10 @@ export function nomeInicialWhatsapp(input: {
 }): { nome: string; origem: NomeOrigem } {
   const agenda = (input.nomeAgenda ?? '').trim()
   if (agenda) return { nome: agenda, origem: 'agenda' }
-  return { nome: telefoneComoNome(input.phone), origem: 'telefone' }
+  const nome = telefoneComoNome(input.phone)
+  return nome === SEM_NUMERO
+    ? { nome, origem: 'sem_numero' }
+    : { nome, origem: 'telefone' }
 }
 
 /**

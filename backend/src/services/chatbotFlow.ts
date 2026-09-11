@@ -3,8 +3,9 @@
 // Funciona com qualquer provider (Evolution API ou Cloud API Oficial)
 
 import { FastifyInstance } from 'fastify'
+import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
-import { semFichaEmDobro, chaveDoContato } from './contactIdentity.js'
+import { semFichaEmDobro, chaveDoContato, acharLeadDoContato } from './contactIdentity.js'
 import { getBranding } from '../lib/branding.js'
 import { notifyNewLead } from './notify.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -347,7 +348,7 @@ export async function chatbotTriggerAllows(chatbotId: number | null | undefined,
   const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)
   if (!kws.length) return true
   // Lead já em fluxo ativo → não bloqueia (continua a conversa em andamento).
-  const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' }, select: { completed: true, formData: true } }).catch(() => null)
+  const lead = await acharLeadDoContato(phone, { reconciliar: false }).catch(() => null)
   const fd: any = lead?.formData || {}
   const aiActive = fd._aiJourney && fd._aiJourney.phase === 'active'
   const scrActive = fd._script && fd._script.phase && !['done', 'disqualified'].includes(fd._script.phase)
@@ -414,13 +415,7 @@ export async function processChatbotMessage(
     : null
 
   // Busca ou cria lead pelo número de WhatsApp
-  let lead = await prisma.lead.findFirst({
-    where: {
-      whatsapp: phone,
-      completed: false
-    },
-    orderBy: { createdAt: 'desc' }
-  })
+  let lead = await acharLeadDoContato(phone, { somenteAbertos: true })
 
   const isNew = !lead
 
@@ -430,10 +425,7 @@ export async function processChatbotMessage(
     // começa procurando de novo — é isso que faz a segunda aproveitar o que a
     // primeira criou.
     const resultado = await semFichaEmDobro(chaveDoContato(phone, instanceName ?? null), async () => {
-    const jaExiste = await prisma.lead.findFirst({
-      where: { whatsapp: phone, completed: false },
-      orderBy: { createdAt: 'desc' },
-    })
+    const jaExiste = await acharLeadDoContato(phone, { somenteAbertos: true })
     // Outra mensagem do mesmo contato ganhou a corrida e já criou a ficha (e já
     // mandou a saudação): esta segue o fluxo normal em vez de saudar de novo.
     if (jaExiste) return { lead: jaExiste, saudou: false }
@@ -490,7 +482,10 @@ Para começar, qual é o seu *nome*?`
         uid: await generateUid(),
         nome: '',
         empresa: '',
-        whatsapp: phone,
+        // O `phone` que o webhook passa adiante pode ser o LID: ele endereça a
+        // resposta, mas não é telefone de ninguém. Vai para `waLid`, e a coluna
+        // fica vazia até o número real aparecer.
+        ...identidadeDoContato(phone),
         email: '',
         formData: {
           _chatMessages: [{ role: 'assistant', content: firstMessage }],

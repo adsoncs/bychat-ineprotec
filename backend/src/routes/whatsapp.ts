@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { resolveLeadForContact, reconcileLeadIdentity, semFichaEmDobro, chaveDoContato } from '../services/contactIdentity.js'
-import { isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
+import { identidadeDoContato, isLikelyLid, onlyDigits, phoneKey as phoneKeyOf } from '../lib/phone.js'
 import { authMiddleware, adminOnly, verifyToken } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { processChatbotMessage, chatbotTriggerAllows } from '../services/chatbotFlow.js'
@@ -245,7 +245,32 @@ function idDaMensagemCitada(data: any): string {
  *
  *  Leads criados antes desta regra têm `instanceName` nulo: são adotados pela
  *  primeira instância que falar com eles, em vez de virarem duplicata. */
-async function acharLeadDaInstancia(phone: string, instanceName: string | null) {
+async function acharLeadDaInstancia(
+  phone: string,
+  instanceName: string | null,
+  waLid?: string | null,
+) {
+  // O contato puro-LID não tem telefone gravado — a coluna `whatsapp` fica
+  // vazia de propósito, porque LID não é número de ninguém. Para ele o `waLid`
+  // é a ÚNICA chave: sem procurar por aqui, cada mensagem que chega não
+  // encontra a ficha aberta na mensagem anterior e abre outra.
+  const porLid = waLid
+    ? await prisma.lead.findFirst({
+        where: { waLid, ...(instanceName ? { OR: [{ instanceName }, { instanceName: null }] } : {}) },
+        orderBy: { createdAt: 'desc' },
+      })
+    : null
+  if (porLid) {
+    if (instanceName && !porLid.instanceName) {
+      await prisma.lead.update({ where: { id: porLid.id }, data: { instanceName } }).catch(() => {})
+    }
+    return porLid
+  }
+
+  // Sem telefone e sem match por LID não há o que procurar: `whatsapp: ''`
+  // casaria com toda ficha que nasceu sem número.
+  if (!phone) return null
+
   const daInstancia = instanceName
     ? await prisma.lead.findFirst({
         where: { whatsapp: phone, instanceName },
@@ -988,12 +1013,20 @@ export async function whatsappRoutes(app: FastifyInstance) {
             { whatsapp: ident.lead.whatsapp, waLid: ident.lead.waLid, phoneKey: ident.lead.phoneKey },
             { phone: phone || undefined, waLid: waLidToPersist },
           )
-        } else if (!phone && remoteJid.endsWith('@lid')) {
-          // Contato puro-LID NOVO (sem telefone, sem match): placeholder com os
-          // dígitos do LID só pra não derrubar a mensagem — waLid fica gravado e
-          // mensagens futuras (com o número real) convergem via reconcile.
-          phone = onlyDigits(remoteJid)
         }
+      }
+
+      // Sem telefone e com LID em mãos, o LID vira o ENDEREÇO DE ENTREGA: é o
+      // que faz a resposta chegar, e daqui para baixo `phone` é usado como
+      // destino, não como identidade. Quem grava (`identidadeDoContato`) sabe
+      // separar as duas coisas e deixa a coluna `whatsapp` vazia.
+      //
+      // Precisa valer também quando o lead JÁ existe: até 10/09/2026 isto era
+      // um `else` do match, então a segunda mensagem de um contato puro-LID
+      // chegava com `phone` vazio e morria no `if (!msgText || !phone)` logo
+      // adiante — a conversa simplesmente parava de receber.
+      if (!phone && !isGroupMsg && remoteJid.endsWith('@lid')) {
+        phone = onlyDigits(remoteJid)
       }
 
       // ── Lista de bloqueio (mensagem RECEBIDA) ────────────────────────
@@ -1023,7 +1056,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             // (no grupo, o lead é achado pelo JID — não há telefone).
             const lead = isGroupMsg
               ? await prisma.lead.findFirst({ where: { groupJid: remoteJid }, orderBy: { createdAt: 'asc' } })
-              : await acharLeadDaInstancia(phone, inboundInstance)
+              : await acharLeadDaInstancia(phone, inboundInstance, waLidToPersist)
             if (lead) {
               const recentMsg = await prisma.message.findFirst({
                 where: { leadId: lead.id, fromMe: true, externalId: null },
@@ -1421,7 +1454,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       app.log.info(`WhatsApp msg from ${phone}: ${msgText.substring(0, 100)}`)
 
       // Log mensagem recebida (se lead existe)
-      const existingLeadForLog = await acharLeadDaInstancia(phone, inboundInstance)
+      const existingLeadForLog = await acharLeadDaInstancia(phone, inboundInstance, waLidToPersist)
 
       // Foto de perfil do contato (assíncrono, não bloqueia): baixa e hospeda
       // localmente. O helper se auto-limita pelo TTL e migra URLs antigas
@@ -1482,7 +1515,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
           // exclusividade e começa procurando de novo: quem chega depois
           // encontra o que o primeiro criou.
           lead = await semFichaEmDobro(chaveDoContato(phone, inboundInstance), async () => {
-          const jaExiste = await acharLeadDaInstancia(phone, inboundInstance)
+          const jaExiste = await acharLeadDaInstancia(phone, inboundInstance, waLidToPersist)
           if (jaExiste) return jaExiste
           const { generateUid } = await import('../services/dedup.js')
           // Fix C (Reforma F2): se a instância tem `ownerUserId`, o lead é
@@ -1510,7 +1543,11 @@ export async function whatsappRoutes(app: FastifyInstance) {
               nomeWhatsappAgenda: nomeAgenda,
               pushName: data.pushName || null,
               empresa: '',
-              whatsapp: phone,
+              // `phone` pode ser o LID, quando a Meta não entregou o número e as
+              // heurísticas não resolveram. Ele serve para responder, não para
+              // ser o telefone da pessoa: vai para `waLid` e a coluna fica
+              // vazia até a identificação acontecer.
+              ...identidadeDoContato(phone),
               // um lead por telefone POR INSTÂNCIA: é o que mantém separadas as
               // conversas de empresas diferentes que dividem a instalação
               instanceName: inboundInstance || null,
@@ -1525,7 +1562,10 @@ export async function whatsappRoutes(app: FastifyInstance) {
               teamId: routing.teamId,
               assignedUserId: routing.userId,
               assignedAt: routing.userId ? new Date() : null,
-              waLid: waLidToPersist,
+              // O `waLidToPersist` traz o JID completo (`...@lid`), que é mais
+              // preciso que os dígitos crus; quando ele falta, o que sobrou em
+              // `phone` ainda pode ser um LID, e é ele que guarda o vínculo.
+              waLid: waLidToPersist ?? identidadeDoContato(phone).waLid,
             }
           })
           if (routing.ruleName) {
