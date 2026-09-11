@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { identidadeDoContato } from '../lib/phone.js'
+import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { getMetaAppSecret } from '../lib/meta.js'
@@ -337,7 +338,20 @@ async function processIncomingMessage(
     case 'audio':
       mediaType = 'audio'
       if (msg.audio?.id) {
-        mediaUrl = await saveCloudApiMedia(msg.audio.id, token, 'audio', app)
+        // Baixa UMA vez: o mesmo buffer vira o arquivo tocável e a transcrição.
+        const baixado = await baixarMidiaCloudApi(msg.audio.id, token, 'audio', app)
+        mediaUrl = baixado.url
+        // Até 11/09/2026 a transcrição existia só no webhook da Evolution. Quem
+        // recebe por Cloud API — o ineprotec, que não tem outro canal — via a
+        // chave LIGADA em Configurações e nenhum áudio transcrito, sem erro
+        // nenhum no log: não havia o que falhar, a chamada não existia.
+        if (baixado.buffer && await transcricaoLigada()) {
+          const texto = await transcreverAudio(baixado.buffer, baixado.mimeType)
+          if (texto) {
+            text = texto
+            app.log.info(`[audio] transcrito (${texto.length} caracteres)`)
+          }
+        }
       }
       break
 
@@ -675,7 +689,16 @@ async function processStatusUpdate(status: any, app: FastifyInstance) {
 
 // ─── Media Download Helper ──────────────────────────────
 
-async function saveCloudApiMedia(mediaId: string, token: string, type: string, app: FastifyInstance): Promise<string> {
+/**
+ * Baixa a mídia e devolve o arquivo salvo JUNTO com o conteúdo.
+ *
+ * `saveCloudApiMedia` descartava o buffer, então transcrever exigiria baixar o
+ * mesmo áudio de novo — duas chamadas à Meta pela mesma coisa. Quem só precisa
+ * da URL continua chamando `saveCloudApiMedia`, que é um envelope desta.
+ */
+async function baixarMidiaCloudApi(
+  mediaId: string, token: string, type: string, app: FastifyInstance,
+): Promise<{ url: string; buffer: Buffer | null; mimeType: string | null }> {
   try {
     const { buffer, mimeType } = await downloadMedia(mediaId, token)
 
@@ -697,9 +720,13 @@ async function saveCloudApiMedia(mediaId: string, token: string, type: string, a
     writeFileSync(filePath, buffer)
 
     // Retornar URL relativa
-    return `/uploads/cloud-api/${fileName}`
+    return { url: `/uploads/cloud-api/${fileName}`, buffer, mimeType }
   } catch (err: any) {
     app.log.error(`[CloudAPI] Media download failed for ${mediaId}: ${err.message}`)
-    return ''
+    return { url: '', buffer: null, mimeType: null }
   }
+}
+
+async function saveCloudApiMedia(mediaId: string, token: string, type: string, app: FastifyInstance): Promise<string> {
+  return (await baixarMidiaCloudApi(mediaId, token, type, app)).url
 }

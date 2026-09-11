@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import crypto from 'crypto'
 import { writeFile, mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { transcreverAudio, transcricaoLigada } from '../services/audioTranscription.js'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -482,59 +483,13 @@ async function saveEvolutionMedia(messageKey: any, instance: string, mediaType: 
 // Áudio — só administrador). Default LIGADA: quem já usa não perde o recurso
 // por não conhecer a chave. Cache curto porque isto é caminho de webhook.
 let transcribeFlag: { value: boolean; at: number } | null = null
-const TRANSCRIBE_TTL_MS = 60_000
-
-/** Chamado pelo PUT /api/admin/settings — o toggle vale no áudio seguinte. */
-export function invalidateTranscriptionFlag(): void {
-  transcribeFlag = null
-}
-
-export async function isTranscriptionEnabled(): Promise<boolean> {
-  if (transcribeFlag && Date.now() - transcribeFlag.at < TRANSCRIBE_TTL_MS) return transcribeFlag.value
-  let enabled = true
-  const row = await prisma.setting.findUnique({ where: { key: 'conversations.transcribe_audio' } }).catch(() => null)
-  if (row && row.value != null) {
-    const v = typeof row.value === 'string' ? row.value.replace(/^"|"$/g, '') : row.value
-    enabled = v === true || v === 'true' || v === 1 || v === '1'
-  }
-  transcribeFlag = { value: enabled, at: Date.now() }
-  return enabled
-}
-
-async function transcribeAudio(audioBuffer: Buffer): Promise<string | null> {
-  try {
-    const { writeFileSync, unlinkSync, mkdirSync } = await import('fs')
-    const { join } = await import('path')
-    const { execSync } = await import('child_process')
-    const { randomUUID } = await import('crypto')
-
-    const tmpDir = '/tmp/bychat-audio'
-    mkdirSync(tmpDir, { recursive: true })
-
-    const tmpFile = join(tmpDir, `${randomUUID()}.ogg`)
-    writeFileSync(tmpFile, audioBuffer)
-
-    const scriptPath = join(process.cwd(), 'scripts', 'transcribe.py')
-    const result = execSync(`python3 "${scriptPath}" "${tmpFile}"`, {
-      timeout: 60000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    })
-
-    // Cleanup temp file
-    try { unlinkSync(tmpFile) } catch { /* ignore */ }
-
-    const parsed = JSON.parse(result.trim())
-    if (parsed.error) {
-      console.error(`[Audio] Transcription error: ${parsed.error}`)
-      return null
-    }
-    return parsed.text || null
-  } catch (err: any) {
-    console.error('[Audio] Local transcription failed:', err.message || err)
-    return null
-  }
-}
+// A transcrição mora em services/audioTranscription.ts: os DOIS webhooks
+// (Evolution e Cloud API) precisam dela, e enquanto ela viveu aqui dentro —
+// sem export — quem recebia por Cloud API simplesmente não transcrevia, com a
+// chave ligada na tela. Os nomes antigos seguem exportados porque
+// routes/settings.ts e o próprio webhook os chamam.
+export { invalidarFlagTranscricao as invalidateTranscriptionFlag } from '../services/audioTranscription.js'
+export { transcricaoLigada as isTranscriptionEnabled } from '../services/audioTranscription.js'
 
 // ─── Routes ───────────────────────────────────────────────
 
@@ -1311,8 +1266,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
             mediaUrl = await saveMediaBuffer(audioBuf, message.audioMessage.mimetype || '', 'audio', app)
             // O download continua acontecendo com a transcrição desligada: é ele
             // que produz o arquivo tocável na conversa.
-            if (await isTranscriptionEnabled()) {
-              const transcription = await transcribeAudio(audioBuf)
+            if (await transcricaoLigada()) {
+              const transcription = await transcreverAudio(audioBuf, message.audioMessage.mimetype || null)
               if (transcription) {
                 mediaCaption = transcription
                 app.log.info(`[Audio] Transcribed from ${phone}: ${transcription.substring(0, 100)}`)
