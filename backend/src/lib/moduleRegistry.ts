@@ -1,11 +1,64 @@
 // src/lib/moduleRegistry.ts
 // Registro centralizado dos módulos do sistema — source of truth para backend e frontend
 
+/**
+ * Guarda-chuva a que o módulo pertence — e, na loja, o pacote que o vende.
+ *
+ * NÃO é o mesmo que a posição no menu: "Dashboard" pertence à Plataforma e tem
+ * um atalho no topo; "Leads" pertence a CRM & Vendas e tem cadastros auxiliares
+ * dentro de Cadastros. Onde o módulo PERTENCE e onde ele APARECE são perguntas
+ * diferentes, e confundir as duas foi o que produziu duas taxonomias divergentes:
+ * o menu agrupava por `group`, esta tela por `category`, e ninguém garantia que
+ * concordassem. Com o guarda-chuva, a resposta passa a ser uma só.
+ */
+export type ModuleUmbrella =
+  | 'atendimento'
+  | 'crm_vendas'
+  | 'marketing_canais'
+  | 'automacao_integracoes'
+  | 'educacional'
+  | 'erp_academico'
+  | 'plataforma'
+
+/**
+ * Como o módulo entra na conta do cliente.
+ *
+ *   base   — faz parte da plataforma; existe sempre, não se vende à parte.
+ *   pacote — liberado ao comprar o guarda-chuva onde ele vive.
+ *   uso    — cada uso gasta dinheiro nosso (token de IA, conversa da Meta,
+ *            minuto de VoIP), então preço fixo não cobre: é medido e faturado.
+ *
+ * Isto é CLASSIFICAÇÃO, não preço. Valor, desconto e composição de pacote vivem
+ * no banco — mudar um preço não pode exigir deploy em doze instalações.
+ */
+export type ModuleCobranca = 'base' | 'pacote' | 'uso'
+
+/**
+ * Pacote que exige outro para funcionar.
+ *
+ * O ERP Acadêmico é construído em cima do Educacional: `aca_estrutura`,
+ * `aca_vestibular`, `aca_cadastros` e a Avaliação Institucional dependem dele
+ * diretamente. Vender ERP a quem não tem Educacional entrega telas que não
+ * abrem.
+ *
+ * Fica declarado aqui em vez de resolvido escondendo os dois no mesmo pacote:
+ * há escola que quer só a captação acadêmica (Educacional) e nunca vai querer o
+ * ERP. Separados, cada um se vende sozinho; declarado, o carrinho sabe que um
+ * puxa o outro e avisa antes da compra — não depois.
+ */
+export const UMBRELLA_REQUIRES: Partial<Record<ModuleUmbrella, ModuleUmbrella[]>> = {
+  erp_academico: ['educacional'],
+}
+
 export interface ModuleDefinition {
   id: string
   name: string
   icon: string
   category: string
+  /** Guarda-chuva do módulo — e o pacote que o vende. Ver ModuleUmbrella. */
+  umbrella: ModuleUmbrella
+  /** Como entra na conta: base, pacote ou uso. Ver ModuleCobranca. */
+  cobranca: ModuleCobranca
   description: string         // descrição curta para a UI de gerenciamento
   pages: string[]
   routePrefixes: string[]
@@ -31,6 +84,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     // conta com ele para não sofrer em silêncio. Quem não quer um TIPO de
     // alerta silencia aquele tipo, não a caixa inteira.
     id: 'alerts', name: 'Alertas', icon: '🔔', category: 'overview',
+    umbrella: 'atendimento', cobranca: 'base',
     description: 'Caixa de alertas do time: integração fora do ar, prazo estourado e trabalho parado.',
     pages: [],
     routePrefixes: ['/api/alerts'],
@@ -39,6 +93,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'dashboard', name: 'Dashboard', icon: '📊', category: 'overview',
+    umbrella: 'plataforma', cobranca: 'base',
     description: 'Visão geral consolidada com widgets configuráveis e métricas-chave.',
     pages: ['dashboard'],
     routePrefixes: ['/api/admin/widget-data', '/api/admin/user-dashboards', '/api/admin/dashboard', '/api/admin/team-metrics', '/api/bychat/stats'],
@@ -47,6 +102,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'atendimento', name: 'Conversas', icon: '💬', category: 'crm',
+    umbrella: 'atendimento', cobranca: 'base',
     description: 'Inbox unificada de atendimento — WhatsApp, Instagram, Email em um só lugar.',
     pages: ['atendimento'],
     routePrefixes: ['/api/atendimento', '/api/bychat/chat', '/api/admin/conversation-access'],
@@ -55,6 +111,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'contatos', name: 'Contatos', icon: '📇', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'base',
     description: 'Quem já conversou com a empresa e ainda não virou Lead. Mesma ficha do Lead, num estado anterior.',
     pages: ['contatos'],
     routePrefixes: ['/api/contatos'],
@@ -63,6 +120,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'supervision', name: 'Supervisão', icon: '🎧', category: 'crm',
+    umbrella: 'atendimento', cobranca: 'base',
     description: 'Painel gerencial do Conversas: baldes, KPIs, quem conduz (bot ou humano), canal, funil e ações sobre as conversas.',
     pages: ['supervision'],
     routePrefixes: ['/api/supervision'],
@@ -74,6 +132,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'leads', name: 'Leads', icon: '👥', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'base',
     description: 'Cadastro e gestão de leads/contatos com histórico, campos personalizados e segmentação.',
     pages: ['leads'],
     routePrefixes: [
@@ -90,6 +149,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'intelligence', name: 'Inteligência', icon: '🧠', category: 'crm',
+    umbrella: 'atendimento', cobranca: 'uso',
     description: 'Lead score, enriquecimento de dados e análise de leads por IA.',
     pages: ['intelligence'],
     // `/api/bychat/leads` saiu daqui: o módulo `leads` já reivindica esse
@@ -105,6 +165,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'ai_journey', name: 'Jornada IA', icon: '✨', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'uso',
     description: 'A IA acompanha a conversa e sugere (ou aplica) a próxima etapa do funil, por funil.',
     pages: ['ai-journey'],
     routePrefixes: ['/api/admin/ai-journey'],
@@ -114,6 +175,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'conversation_audit', name: 'Auditoria de Conversas', icon: '🔎', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'uso',
     description: 'Avaliação por IA do atendimento já realizado, com nota por operador e por conversa.',
     pages: ['conversation-audit'],
     routePrefixes: ['/api/admin/conversation-audits'],
@@ -123,6 +185,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'personas', name: 'Personas / ICPs', icon: '👥', category: 'ferramentas',
+    umbrella: 'plataforma', cobranca: 'pacote',
     description: 'Perfis de cliente ideal usados pela IA para pontuar e qualificar leads.',
     pages: ['personas'],
     routePrefixes: ['/api/admin/personas'],
@@ -132,6 +195,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'webhooks_out', name: 'Webhooks de Saída', icon: '📤', category: 'config',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Avisa sistemas externos quando algo acontece aqui — lead novo, mudança de etapa, venda.',
     pages: ['webhooks'],
     routePrefixes: ['/api/admin/webhooks'],
@@ -141,6 +205,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'db_connectors', name: 'Conector de Banco', icon: '🗄️', category: 'config',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     // A rota existia e NENHUM módulo a governava: a tela era escondida pelo
     // módulo de API Keys enquanto a API seguia aberta. Agora tela e rota
     // apontam para o mesmo lugar.
@@ -153,6 +218,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'activity_templates', name: 'Modelos de Atividade', icon: '🗒️', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Modelos de tarefa que os Resumos e as cadências usam para criar atividade com prazo e responsável.',
     pages: [],
     routePrefixes: ['/api/activity-templates'],
@@ -162,6 +228,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'queues', name: 'Filas e Monitor', icon: '📟', category: 'automacao',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Diagnóstico das filas de processamento em segundo plano: o que está na fila, o que falhou e por quê.',
     pages: ['queuemonitor'],
     routePrefixes: ['/api/admin/queues'],
@@ -171,6 +238,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'kanban', name: 'Kanban', icon: '📋', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'base',
     description: 'Visualização em colunas (drag & drop) de leads por etapa do funil.',
     pages: ['kanban'],
     routePrefixes: ['/api/admin/kanban'],
@@ -179,6 +247,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'funnels', name: 'Funis', icon: '🔀', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'base',
     description: 'Configuração de pipelines/funis com etapas customizáveis para diferentes processos comerciais.',
     pages: ['funnels'],
     routePrefixes: ['/api/admin/funnels', '/api/admin/stages'],
@@ -187,6 +256,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'activities', name: 'Atividades', icon: '📅', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Tarefas, ligações, reuniões e follow-ups vinculados aos leads — com agenda e notificações.',
     pages: ['activities'],
     routePrefixes: ['/api/admin/activities', '/api/activities'],
@@ -195,6 +265,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'scheduling', name: 'Agendamentos', icon: '📅', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Agendamento de reuniões (estilo Calendly): tipos de reunião, disponibilidade, página pública, Google Meet e integração com leads/funil.',
     pages: ['scheduling'],
     routePrefixes: ['/api/admin/scheduling', '/api/scheduling'],
@@ -203,6 +274,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'tags', name: 'Tags', icon: '🏷', category: 'crm',
+    umbrella: 'plataforma', cobranca: 'pacote',
     description: 'Etiquetagem de leads para segmentação e filtros rápidos.',
     pages: ['tags'],
     routePrefixes: ['/api/admin/tags', '/api/tags'],
@@ -211,6 +283,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'workflows', name: 'Automação', icon: '⚡', category: 'automacao',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Workflows automáticos disparados por eventos — emails, mensagens, webhooks, integrações.',
     pages: ['workflows'],
     routePrefixes: ['/api/admin/workflows', '/api/admin/workflow-executions'],
@@ -219,6 +292,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'sales_engagement', name: 'Cadências de Vendas', icon: '📣', category: 'automacao',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Cadências outbound (WhatsApp/email/SMS) com governança, classificação IA de respostas, opt-out e métricas.',
     pages: ['sales-cadences'],
     routePrefixes: ['/api/admin/sales-cadences', '/api/admin/channel-governance'],
@@ -227,6 +301,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'captacao', name: 'Captação', icon: '🎯', category: 'captacao',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     // Chatbots, Formulários e Landing Pages saíram para módulos próprios: são
     // três produtos diferentes, com tela e time de uso diferentes, e ligá-los
     // juntos obrigava quem só queria chatbot a carregar construtor de página.
@@ -240,6 +315,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'chatbots', name: 'Chatbots', icon: '🤖', category: 'captacao',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Fluxos de atendimento automático no WhatsApp: jornada por IA ou script, com qualificação e roteamento.',
     pages: ['chatbots'],
     routePrefixes: ['/api/admin/chatbots', '/api/chatbots'],
@@ -249,6 +325,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'forms', name: 'Formulários', icon: '📝', category: 'captacao',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Formulários de captura publicados ou embedados no site, com campos personalizados e roteamento na entrada.',
     pages: ['forms'],
     routePrefixes: ['/api/admin/forms', '/api/forms'],
@@ -258,6 +335,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'landing_pages', name: 'Landing Pages', icon: '🌐', category: 'captacao',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Construtor de páginas de captura hospedadas pelo próprio sistema.',
     pages: ['landingpages'],
     routePrefixes: ['/api/admin/pages', '/api/pages'],
@@ -267,6 +345,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'marketing', name: 'Anúncios', icon: '📢', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     // Ficou com o que é anúncio: a conexão com a Meta e o Google Ads. Links
     // rastreáveis e Rastreamento saíram para módulos próprios — servem para
     // medir QUALQUER origem de tráfego, inclusive quem não anuncia.
@@ -280,6 +359,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'trackable_links', name: 'Links Rastreáveis', icon: '🔗', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Links curtos com UTM que registram cada clique e ligam a visita ao lead que ela virou.',
     pages: ['trackablelinks'],
     routePrefixes: ['/api/admin/trackable-links'],
@@ -289,6 +369,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'tracking', name: 'Rastreamento', icon: '🛰️', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Script de rastreamento no site: visitas anônimas, origem da sessão e a amarração com o lead quando ele se identifica.',
     pages: ['tracking', 'origins'],
     routePrefixes: ['/api/admin/tracking', '/api/tracking', '/api/admin/origins'],
@@ -298,6 +379,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'vendas', name: 'Vendas', icon: '💰', category: 'vendas',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     // O relatório de anúncios e o financeiro (pagamentos e cupons) viraram
     // módulos próprios: um é medição de mídia, o outro é cobrança, e nenhum dos
     // dois é a venda em si — que é o que sobra aqui.
@@ -309,6 +391,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'ads_report', name: 'Relatório de Anúncios', icon: '📊', category: 'vendas',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Investimento, leads e ROAS por campanha — Meta Ads e Google Ads lado a lado.',
     pages: ['meta-ads-report'],
     routePrefixes: ['/api/admin/meta-ads-report', '/api/admin/google-ads-report'],
@@ -318,6 +401,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'payments', name: 'Pagamentos e Cupons', icon: '💳', category: 'vendas',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Cobrança pelo painel: provedores de pagamento, links de cobrança e cupons de desconto.',
     pages: [],
     routePrefixes: ['/api/admin/payments', '/api/admin/coupons'],
@@ -327,6 +411,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'whatsapp', name: 'WhatsApp', icon: '📱', category: 'canais',
+    umbrella: 'marketing_canais', cobranca: 'uso',
     description: 'Conexão de instâncias (Evolution/Cloud API), envio em massa e templates oficiais Meta.',
     pages: ['whatsapp', 'cloudapi', 'metatemplates'],
     // Instagram e Telegram saíram daqui: são canais próprios, com tela própria
@@ -344,6 +429,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'instagram', name: 'Instagram Direct', icon: '📸', category: 'canais',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Mensagens diretas do Instagram: conexão da conta, recebimento por webhook e resposta pelo Conversas.',
     pages: ['instagram'],
     routePrefixes: ['/api/instagram', '/api/oauth/instagram'],
@@ -353,6 +439,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'telegram', name: 'Telegram', icon: '✈️', category: 'canais',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     description: 'Canal do Telegram: conexão do bot, recebimento por webhook e resposta pelo Conversas.',
     pages: ['telegram'],
     routePrefixes: ['/api/telegram'],
@@ -362,6 +449,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'broadcast', name: 'Disparos em Massa', icon: '🚀', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'uso',
     description: 'Campanhas de envio em massa via WhatsApp Oficial (Cloud API) com templates HSM, seleção de leads ou importação de base, métricas e custo.',
     pages: ['broadcast'],
     routePrefixes: ['/api/admin/broadcast', '/api/broadcast'],
@@ -370,6 +458,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'smart_broadcast', name: 'Disparos Inteligentes', icon: '🧠', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'uso',
     description: 'Campanhas pelos números próprios conectados (Evolution), com ritmo humanizado, simulação de digitação, variações de texto, aquecimento e proteção automática do número.',
     pages: ['smart-broadcast'],
     routePrefixes: ['/api/admin/smart-broadcast'],
@@ -380,6 +469,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'google', name: 'Conta Google', icon: '🔗', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     // Este módulo virou o que sempre foi de fato: a CONEXÃO. É ela que guarda o
     // OAuth da empresa e sustenta todas as integrações abaixo — desligar aqui
     // derruba Calendar, Gmail, Sheets, Drive, Tasks, GA4 e Looker de uma vez, e
@@ -400,6 +490,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
   id: 'make', name: 'Make.com', icon: '🧩', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Automação com o Make.com: dispara cenários a partir de eventos do painel.',
     pages: ['make'],
     routePrefixes: ['/api/admin/make'],
@@ -409,6 +500,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'google_calendar', name: 'Google Calendar', icon: '📅', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Agenda do Google: cria e sincroniza os eventos dos agendamentos, com link do Meet.',
     pages: ['googlecalendar'],
     routePrefixes: ['/api/admin/google/calendar', '/api/admin/google/calendars'],
@@ -418,6 +510,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'gmail', name: 'Gmail', icon: '✉️', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'E-mail pelo Gmail da empresa: envio a partir do lead e recebimento das respostas.',
     pages: ['gmail'],
     routePrefixes: ['/api/admin/google/gmail'],
@@ -427,6 +520,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'google_data', name: 'Sheets, Drive e Tasks', icon: '📄', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Planilhas, arquivos e tarefas do Google — as três integrações de produtividade, que quem usa costuma usar juntas.',
     pages: ['googlesheets', 'googledrive', 'googletasks'],
     routePrefixes: ['/api/admin/google/sheets', '/api/admin/google/spreadsheets',
@@ -437,6 +531,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'google_analytics', name: 'GA4 e Looker Studio', icon: '📈', category: 'integracoes',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Medição: envio de eventos ao GA4 e a fonte de dados para painéis no Looker Studio.',
     pages: ['ga4', 'lookerstudio'],
     routePrefixes: ['/api/admin/google/ga4'],
@@ -446,6 +541,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'educacional', name: 'Educacional', icon: '🎓', category: 'educacional',
+    umbrella: 'educacional', cobranca: 'pacote',
     description: 'Gestão acadêmica: unidades, campus, cursos, modalidades, ofertas, processos seletivos e matrículas. Ideal para escolas, faculdades e cursos.',
     pages: ['eduDashboard', 'eduLevels', 'eduModalities', 'eduUnits', 'eduCampuses', 'eduCourses', 'eduOfferings', 'eduSelectionProcesses'],
     routePrefixes: ['/api/admin/educacional', '/api/admin/enrollment-registrations', '/api/admin/enrollment-documents', '/api/admin/enrollment-document-reviews', '/api/admin/enem-imports', '/api/admin/essay-submissions', '/api/admin/registrations', '/api/admin/presencial-exams'],
@@ -460,6 +556,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   // um pai com filhos ativos (bloqueio em /modules/:id/toggle).
   {
     id: 'aca_estrutura', name: 'Estrutura Acadêmica', icon: '🏛', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Disciplinas, matriz curricular, turmas, períodos letivos e planos de pagamento. Base do ERP — vincula cursos/ofertas do módulo Educacional.',
     pages: ['acaEstrutura'],
     routePrefixes: [
@@ -472,6 +569,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_alocacao', name: 'Alocação de Recursos', icon: '🏫', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Ambientes físicos (salas/laboratórios) e tipos, equipamentos e tipos, e reservas de espaço com detecção de conflito de horário.',
     pages: ['acaAlocacao'],
     routePrefixes: ['/api/admin/aca/alocacao'],
@@ -480,6 +578,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_matriculas', name: 'Alunos & Matrículas', icon: '🎓', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Alunos (sobre o CRM), inscrições e matrícula com ciclo de vida (máquina de estados). Núcleo de cadastro do aluno.',
     pages: ['acaAlunos', 'acaMatriculas'],
     routePrefixes: ['/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas', '/api/admin/aca/pessoas'],
@@ -488,6 +587,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_avaliacao_institucional', name: 'Avaliação Institucional (CPA)', icon: '📊', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Avaliação institucional / CPA: questionários por dimensões, perguntas (escala/NPS/texto/sim-não), aplicação por link público e dashboard de resultados (médias, NPS, participação).',
     pages: ['acaAvaliacaoInst'],
     routePrefixes: ['/api/admin/aca/avaliacao-inst'],
@@ -496,6 +596,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_vestibular', name: 'Processo Seletivo', icon: '📝', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Camada admin do processo seletivo: componentes de nota (digitação), classificação com critério de desempate, convocação por chamadas e ensalamento. Opera sobre os candidatos do módulo Educacional.',
     pages: ['acaVestibular'],
     routePrefixes: ['/api/admin/aca/vestibular'],
@@ -504,6 +605,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_acesso', name: 'Controle de Acesso', icon: '🚪', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Controle de acesso físico (catraca/QR): pontos de acesso, credenciais por aluno, decisão de liberação (credencial válida + bloqueio) e registro de acessos. A catraca é o ponto de integração.',
     pages: ['acaAcesso'],
     routePrefixes: ['/api/admin/aca/acesso'],
@@ -512,6 +614,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_movimentacoes', name: 'Movimentações Acadêmicas', icon: '🔁', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Trancamento, afastamento, transferência (interna/externa), remanejamento, reclassificação, cancelamento e reingresso — com registro auditável e processo de "atualiza situações" em lote (alunos sem rematrícula → evadidos).',
     pages: ['acaMovimentacoes'],
     routePrefixes: ['/api/admin/aca/movimentacoes'],
@@ -520,6 +623,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_financeiro', name: 'Financeiro Acadêmico', icon: '💳', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Mensalidades/contratos (Asaas), central financeira, encargos (juros/multa/desconto), renegociação, bloqueio acadêmico, recibos e controle de NFS-e.',
     pages: ['acaFinanceiro'],
     routePrefixes: ['/api/admin/aca/financeiro', '/api/admin/aca/parcelas'],
@@ -528,6 +632,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_financeiro_bancario', name: 'Financeiro Bancário', icon: '🏦', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Back-office financeiro: plano de contas, contas bancárias, indexadores, feriados, cobranças recorrentes/avulsas e remessa/retorno CNAB (boleto registrado).',
     pages: ['acaFinBanco'],
     routePrefixes: ['/api/admin/aca/fin-banco'],
@@ -536,6 +641,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_cobranca_fiscal', name: 'Cobrança Judicial & Fiscal', icon: '⚖️', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Dívida ativa (CDA) e cobrança judicial, integração contábil (regras + lançamentos) e geração de lote de NFS-e.',
     pages: ['acaCobrancaFiscal'],
     routePrefixes: ['/api/admin/aca/cobranca-fiscal'],
@@ -544,6 +650,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_pedagogico', name: 'Núcleo Pedagógico', icon: '📖', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Diário de classe, frequência, avaliações/notas, conselho de classe e fechamento, calendário acadêmico, quadro de horários e plano de ensino & materiais.',
     pages: ['acaDiario', 'acaConselho', 'acaCalendario'],
     routePrefixes: [
@@ -556,6 +663,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_ead', name: 'EAD / LMS', icon: '🖥', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Ponte EAD com o LMS próprio (a construir): turmas EAD, sincronização de matrículas, recebimento de médias e registro de acesso. O LMS é o ponto de integração (modo simulado para validar sem ele).',
     pages: ['acaEad'],
     routePrefixes: ['/api/admin/aca/ead'],
@@ -564,6 +672,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_docente', name: 'Docente / RH Acadêmico', icon: '👨‍🏫', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Cadastro de docentes (titulação/regime/valor-hora), tipos de atividade com fator, atividades docentes mensais com cálculo de valores e aceite/disponibilidade de disciplinas.',
     pages: ['acaDocente'],
     routePrefixes: ['/api/admin/aca/docente'],
@@ -572,6 +681,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_secretaria', name: 'Secretaria & Documentos', icon: '📁', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Histórico escolar, declarações, atas, certificados/egressos, requerimentos (secretaria virtual) e estágio & atividades complementares.',
     pages: ['acaSecretaria', 'acaRequerimentos', 'acaEstagio', 'acaEgressos'],
     routePrefixes: [
@@ -584,6 +694,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_cadastros', name: 'Cadastros Auxiliares', icon: '🗂', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Listas de apoio acadêmicas: áreas de conhecimento, formações, atendimentos especiais (acessibilidade) e tipos de documento.',
     pages: ['acaCadastros'],
     routePrefixes: ['/api/admin/aca/cadastros'],
@@ -592,6 +703,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_diploma', name: 'Diploma Digital (MEC)', icon: '🎓', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Diploma digital no padrão MEC: geração do XML, assinatura ICP-Brasil (ponto de integração), registro, anulação e validação pública por código.',
     pages: ['acaDiploma'],
     routePrefixes: ['/api/admin/aca/diploma'],
@@ -600,6 +712,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_ged', name: 'GED (Documentos do Aluno)', icon: '🗄', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Gestão eletrônica de documentos do aluno (GED): anexar por link, classificar por tipo e conferir (recebido/conferido/pendente).',
     pages: ['acaGed'],
     routePrefixes: ['/api/admin/aca/ged'],
@@ -608,6 +721,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_assinatura', name: 'Assinatura de Contratos', icon: '✍️', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Assinatura eletrônica de contratos do aluno via Autentique (envelope + signatários, links de assinatura, webhook de status). Modo simulado para testes sem credencial.',
     pages: ['acaAssinatura'],
     routePrefixes: ['/api/admin/aca/assinatura'],
@@ -616,6 +730,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_comunicacao', name: 'Comunicação Acadêmica', icon: '📨', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando WhatsApp/e-mail do ByChat.',
     pages: ['acaComunicacao'],
     routePrefixes: ['/api/admin/aca/comunicacao'],
@@ -624,6 +739,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_portais', name: 'Portais Aluno/Professor', icon: '🔑', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Portais de autoatendimento via magic-link (SSR): aluno (boletim, financeiro, documentos) e professor (diário, notas, materiais).',
     pages: ['acaPortais'],
     routePrefixes: ['/api/admin/aca/portal'],
@@ -632,6 +748,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_portais_plus', name: 'Centrais (Responsável/Ex-aluno)', icon: '🧑‍🤝‍🧑', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Portais magic-link adicionais por perfil: Central do Responsável (acompanha boletim/financeiro do dependente) e Central do Ex-aluno (histórico + 2ª via de documentos).',
     pages: ['acaPortaisPlus'],
     routePrefixes: ['/api/admin/aca/portal-plus'],
@@ -640,6 +757,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'aca_relatorios', name: 'Indicadores & Censo', icon: '📈', category: 'erp_academico',
+    umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'BI acadêmico/financeiro (KPIs) e exportação Censo/SISTEC. Somente leitura — agrega os dados dos demais módulos.',
     pages: ['acaBi', 'acaSistec'],
     routePrefixes: ['/api/admin/aca/bi', '/api/admin/aca/sistec', '/api/admin/aca/censo'],
@@ -648,6 +766,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'settings', name: 'Configurações', icon: '⚙', category: 'config',
+    umbrella: 'plataforma', cobranca: 'base',
     description: 'Configurações gerais do sistema, aparência e campos personalizados.',
     pages: ['settings', 'appearance', 'customfields'],
     routePrefixes: [
@@ -667,6 +786,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'users', name: 'Usuários', icon: '👤', category: 'config',
+    umbrella: 'plataforma', cobranca: 'base',
     description: 'Cadastro de usuários, roles e permissões granulares por módulo.',
     pages: ['users', 'module-permissions'],
     routePrefixes: ['/api/admin/users'],
@@ -675,6 +795,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'teams', name: 'Equipes', icon: '👥', category: 'config',
+    umbrella: 'plataforma', cobranca: 'base',
     description: 'Setores de atendimento (Comercial, Financeiro, Suporte) e seus membros.',
     pages: ['teams'],
     routePrefixes: ['/api/admin/teams', '/api/teams'],
@@ -683,6 +804,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'enrollment_portals', name: 'Portal de Matrículas', icon: '🎓', category: 'educacional',
+    umbrella: 'educacional', cobranca: 'pacote',
     description: 'Portais públicos de inscrição/matrícula (educacional). Vincula processos seletivos e coleta candidatos.',
     pages: ['enrollment-portals'],
     routePrefixes: ['/api/admin/enrollment-portals'],
@@ -691,6 +813,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'security', name: 'Segurança', icon: '🛡', category: 'config',
+    umbrella: 'plataforma', cobranca: 'pacote',
     description: 'Logs de acesso, sessões, IPs bloqueados e auditoria de ações.',
     pages: ['security'],
     routePrefixes: ['/api/admin/security'],
@@ -699,6 +822,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'apikeys', name: 'API Keys', icon: '🔑', category: 'config',
+    umbrella: 'automacao_integracoes', cobranca: 'pacote',
     description: 'Chaves de acesso à API pública, para quem integra o painel a outro sistema.',
     pages: ['apikeys'],
     routePrefixes: ['/api/admin/api-keys'],
@@ -707,6 +831,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'installations', name: 'Instalações', icon: '🏢', category: 'admin',
+    umbrella: 'plataforma', cobranca: 'base',
     description: 'Gestão multi-tenant de instalações (apenas SUPERADMIN), lixeira e roadmap.',
     pages: ['installations', 'trash', 'roadmap'],
     routePrefixes: ['/api/admin/installations', '/api/admin/trash'],
@@ -715,6 +840,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'tools', name: 'Ferramentas', icon: '🛠', category: 'ferramentas',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
     // Personas saiu: as outras quatro são calculadoras que não guardam nada, e
     // a persona é cadastro — alimenta a IA e o lead score. Coisas com vida
     // diferente não devem morrer no mesmo interruptor.
@@ -726,6 +852,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'helpdesk', name: 'Helpdesk / Chamados', icon: '🎫', category: 'support',
+    umbrella: 'atendimento', cobranca: 'pacote',
     description: 'Central de chamados/tickets de suporte com protocolo, prioridade, tipos, atribuição por setor, thread público/interno e timeline. Base para SLA, automações, base de conhecimento e portal do cliente (módulo em construção).',
     pages: ['helpdesk'],
     routePrefixes: ['/api/helpdesk', '/api/admin/helpdesk'],
@@ -734,6 +861,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'voip', name: 'VoIP', icon: '📞', category: 'integracoes',
+    umbrella: 'marketing_canais', cobranca: 'uso',
     description: 'Telefonia integrada (FaleMaisVoip): click-to-call pelo ramal do operador, registro de ligações como atividade e sincronização de gravações.',
     pages: ['voip'],
     // O callback público de gravações fica fora de /api/voip (não exige auth/gating).
@@ -743,6 +871,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'meetings', name: 'Reuniões (Transcrição)', icon: '🎙', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'uso',
     description: 'Transcreve e analisa reuniões ONLINE (bot em Google Meet/Teams/Zoom) e PRESENCIAIS (grava o áudio da sala no celular/navegador ou por upload, sem bot). Tudo transcrito localmente (soberano, sem enviar áudio a terceiros) + análise por IA anexada ao lead. A GRAVAÇÃO exige opt-in/consentimento explícito (LGPD) — ver Configurações › LGPD/Legal.',
     pages: ['meetings'],
     routePrefixes: ['/api/admin/meetings', '/api/meetings'],
@@ -751,6 +880,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'catalog', name: 'Catálogo de Produtos e Serviços', icon: '📦', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'O que a empresa vende — produtos, serviços, planos ou mensalidades (cadastro manual + importação por planilha). É a fonte da verdade que o chatbot de IA consulta para responder sobre itens, preços e disponibilidade sem inventar, e de onde saem os itens das propostas no módulo Negociações.',
     pages: ['catalog'],
     routePrefixes: ['/api/admin/catalog'],
@@ -759,6 +889,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'goals_commissions', name: 'Metas e Comissões', icon: '🎯', category: 'vendas',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Metas por funil e por agente (receita, mensalidade, nº de vendas e conversão) e a comissão de cada venda — percentual ou valor fixo, com taxa separada para pagamento único e mensalidade, e faixas que melhoram a taxa conforme o atingimento da meta. Os valores saem das propostas ganhas do módulo Negociações: nada é digitado duas vezes.',
     pages: ['goals-commissions'],
     routePrefixes: ['/api/admin/commissions', '/api/admin/goals'],
@@ -769,6 +900,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'negotiations', name: 'Negociações', icon: '🤝', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Negociações/propostas: itens do catálogo, mensalidade vs. pagamento único, descontos, condição de pagamento, anexos e fechamento ganho/perdido. Tem tela própria (todas as propostas, KPIs de recorrência e pipeline por status) e uma seção no detalhe do lead.',
     pages: ['negotiations'],
     routePrefixes: ['/api/admin/negotiations'],
@@ -777,6 +909,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   },
   {
     id: 'status_summary', name: 'Resumos', icon: '🏷️', category: 'crm',
+    umbrella: 'crm_vendas', cobranca: 'pacote',
     description: 'Inverte o kanban: em vez de arrastar o card, o operador classifica a situação do atendimento escolhendo um Resumo (ex.: "AT-200 SOLICITOU MATRICULA"), e o motor move a etapa, gera as atividades com prazo e responsável, marca ganho/perdido e exige a objeção. Nasce desligado.',
     pages: ['status-summaries', 'status-summary-report'],
     routePrefixes: ['/api/status-summaries'],

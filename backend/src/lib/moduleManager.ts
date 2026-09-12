@@ -67,11 +67,24 @@ export function getModuleDefinition(moduleId: string): ModuleDefinition | undefi
 // Lê o estado de ativação de um módulo. Reforma F6 (2026-05-21): fonte primária
 // é bychat_modules.active (introduzido na F1). Setting legado (`module.X.enabled`)
 // continua sendo sincronizado em setModuleEnabled para retrocompatibilidade.
+//
+// Loja de apps (11/09/2026): passaram a ser DUAS perguntas, e o módulo só
+// funciona com sim nas duas —
+//
+//   tem direito?  → bychat_module_entitlements, escrito pela loja
+//   está ligado?  → bychat_modules.active, escrito pelo admin
+//
+// Sem essa separação, comprar e ligar seriam a mesma coisa: o cancelamento não
+// saberia distinguir "não comprou" de "comprou e desligou", e um admin ligaria
+// sozinho o que não pagou. Quem já era cliente antes da loja recebeu direito
+// sem prazo sobre tudo (migration 0157), então para ele nada mudou.
 export async function isModuleEnabled(moduleId: string): Promise<boolean> {
   const def = getModuleDefinition(moduleId)
   if (!def) return false
   if (def.core) return true
   try {
+    const { temDireito } = await import('../services/moduleEntitlements.js')
+    if (!(await temDireito(moduleId))) return false
     const row = await prisma.module.findUnique({ where: { id: moduleId }, select: { active: true } })
     if (row) return row.active
     // Fallback compat: tenant antigo sem migration ainda — usa Setting.

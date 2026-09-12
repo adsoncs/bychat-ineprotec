@@ -11,6 +11,10 @@ export interface SystemModule {
   name: string
   icon: string
   category: string
+  /** Guarda-chuva: onde o módulo pertence — e, na loja, o pacote que o vende. */
+  umbrella: string
+  /** Como entra na conta: 'base' (plataforma), 'pacote' ou 'uso' (medido). */
+  cobranca: 'base' | 'pacote' | 'uso'
   description: string
   pages: string[]
   routePrefixes: string[]

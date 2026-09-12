@@ -8,25 +8,32 @@ import { toast } from '@/lib/toast'
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'core'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  overview: 'Visão Geral',
-  crm: 'CRM',
-  automacao: 'Automação',
-  captacao: 'Captação',
-  marketing: 'Marketing',
-  vendas: 'Vendas',
-  canais: 'Canais',
-  integracoes: 'Integrações',
+// Os sete guarda-chuvas. Substituem as antigas "categorias", que eram uma
+// segunda taxonomia mantida à mão: o menu agrupava de um jeito, esta tela de
+// outro, e as duas pararam de concordar — "Chatbots" aparecia em Marketing no
+// menu e em Captação aqui. Agora há uma lista só, e ela é a mesma que a loja
+// usa para vender.
+const UMBRELLA_LABELS: Record<string, string> = {
+  atendimento: 'Atendimento',
+  crm_vendas: 'CRM & Vendas',
+  marketing_canais: 'Marketing & Canais',
+  automacao_integracoes: 'Automação & Integrações',
   educacional: 'Educacional',
   erp_academico: 'ERP Acadêmico',
-  config: 'Configuração',
-  admin: 'Administração',
+  plataforma: 'Plataforma',
 }
 
-const CATEGORY_ORDER = [
-  'overview', 'crm', 'canais', 'captacao', 'marketing', 'automacao',
-  'vendas', 'educacional', 'erp_academico', 'integracoes', 'config', 'admin',
+const UMBRELLA_ORDER = [
+  'plataforma', 'atendimento', 'crm_vendas', 'marketing_canais',
+  'automacao_integracoes', 'educacional', 'erp_academico',
 ]
+
+// Como o módulo entra na conta do cliente.
+const COBRANCA_LABELS: Record<string, string> = {
+  base: 'na base',
+  pacote: 'no pacote',
+  uso: 'por uso',
+}
 
 function normalize(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -37,7 +44,7 @@ export function ModulesSettings() {
   const toggle = useToggleModule()
 
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [umbrellaFilter, setUmbrellaFilter] = useState<string>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [activating, setActivating] = useState<SystemModule | null>(null)
   const [deactivatingSimple, setDeactivatingSimple] = useState<SystemModule | null>(null)
@@ -48,22 +55,22 @@ export function ModulesSettings() {
   const totalCore = all.filter((m) => m.core).length
   const totalInactive = all.length - totalEnabled
 
-  const presentCats = useMemo(
-    () => CATEGORY_ORDER.filter((c) => all.some((m) => m.category === c)),
+  const presentUmbrellas = useMemo(
+    () => UMBRELLA_ORDER.filter((u) => all.some((m) => m.umbrella === u)),
     [all],
   )
 
   const filtered = useMemo(() => {
     const q = normalize(search.trim())
     return all.filter((m) => {
-      if (categoryFilter !== 'all' && m.category !== categoryFilter) return false
+      if (umbrellaFilter !== 'all' && m.umbrella !== umbrellaFilter) return false
       if (statusFilter === 'active' && (!m.enabled || m.core)) return false
       if (statusFilter === 'inactive' && (m.enabled || m.core)) return false
       if (statusFilter === 'core' && !m.core) return false
       if (q && !normalize(`${m.name} ${m.description ?? ''} ${m.id}`).includes(q)) return false
       return true
     })
-  }, [all, categoryFilter, statusFilter, search])
+  }, [all, umbrellaFilter, statusFilter, search])
 
   function handleToggleClick(m: SystemModule) {
     if (m.core) return
@@ -130,14 +137,14 @@ export function ModulesSettings() {
           />
         </div>
         <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter((e.target as HTMLSelectElement).value)}
+          value={umbrellaFilter}
+          onChange={(e) => setUmbrellaFilter((e.target as HTMLSelectElement).value)}
           class="h-10 px-3 rounded-lg bg-surface border border-border text-sm text-fg focus:outline-none focus:border-accent"
-          aria-label="Filtrar por categoria"
+          aria-label="Filtrar por guarda-chuva"
         >
-          <option value="all">Todas as categorias</option>
-          {presentCats.map((c) => (
-            <option key={c} value={c}>{CATEGORY_LABELS[c] ?? c}</option>
+          <option value="all">Todos os guarda-chuvas</option>
+          {presentUmbrellas.map((u) => (
+            <option key={u} value={u}>{UMBRELLA_LABELS[u] ?? u}</option>
           ))}
         </select>
         <select
@@ -166,7 +173,7 @@ export function ModulesSettings() {
                 <tr class="border-b border-border">
                   <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Módulo</th>
                   <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Identificador</th>
-                  <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Categoria</th>
+                  <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Guarda-chuva</th>
                   <th class="px-3 py-2.5 text-center font-semibold uppercase tracking-wider">Status</th>
                   <th class="px-3 py-2.5 text-right font-semibold uppercase tracking-wider">Ação</th>
                 </tr>
@@ -304,7 +311,14 @@ function ModuleRow({
         </div>
       </td>
       <td class="px-3 py-2.5 font-mono text-2xs text-fg-muted">{m.id}</td>
-      <td class="px-3 py-2.5 text-fg-muted">{CATEGORY_LABELS[m.category] ?? m.category ?? '—'}</td>
+      <td class="px-3 py-2.5 text-fg-muted">
+        <div>{UMBRELLA_LABELS[m.umbrella] ?? m.umbrella ?? '—'}</div>
+        {/* Como o módulo entra na conta. Some para os da base: dizer "na base"
+            em tudo que é core vira ruído numa lista de 81 linhas. */}
+        {m.cobranca && m.cobranca !== 'base' && (
+          <div class="text-3xs text-fg-muted opacity-70 mt-0.5">{COBRANCA_LABELS[m.cobranca] ?? m.cobranca}</div>
+        )}
+      </td>
       <td class="px-3 py-2.5 text-center">{statusBadge}</td>
       <td class="px-3 py-2.5 text-right">{actionCell}</td>
     </tr>

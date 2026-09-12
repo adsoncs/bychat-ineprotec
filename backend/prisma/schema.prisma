@@ -25,6 +25,16 @@ enum UserRole {
 model User {
   id                   Int       @id @default(autoincrement())
   email                String    @unique @db.VarChar(191)
+  /// Dono do produto — um nível acima do SUPERADMIN, que é do cliente.
+  ///
+  /// É ATRIBUTO e não papel de propósito: há 47 comparações estritas
+  /// `role === 'SUPERADMIN'` no código e nenhuma hierarquia, então um valor
+  /// novo no enum daria ao dono MENOS acesso que ao superadmin. Assim ele
+  /// continua sendo superadmin em tudo, e ganha o que é dele à parte.
+  ///
+  /// Nenhuma rota escreve este campo — só `scripts/definir-dono.ts`, rodado no
+  /// servidor. Ver migration 0158.
+  isOwner             Boolean   @default(false)
   name                 String    @db.VarChar(191)
   passwordHash         String    @db.VarChar(255)
   role                 UserRole  @default(VIEWER)
@@ -462,6 +472,44 @@ model Module {
 
   @@index([active])
   @@map("bychat_modules")
+}
+
+/// Direito de uso de um módulo — o que a loja vendeu a esta instalação.
+///
+/// Separado de `Module.active` de propósito. São duas perguntas diferentes:
+///   tem direito?  → esta tabela, escrita pela loja
+///   está ligado?  → Module.active, escrito pelo admin
+/// O módulo só funciona com sim nas duas. Sem essa separação, o cancelamento
+/// não distingue "não comprou" de "comprou e desligou", e um admin liga
+/// sozinho o que não pagou.
+///
+/// PREÇO NÃO MORA AQUI: o tenant guarda o que pode usar, a loja central guarda
+/// quanto custa. Preço no tenant significaria mudar valor em doze bancos.
+model ModuleEntitlement {
+  id       Int    @id @default(autoincrement())
+  moduleId String @db.VarChar(50)
+
+  /// pacote | avulso | cortesia | teste | migracao — ver migration 0157.
+  /// Importa no cancelamento: revogar um pacote não derruba uma cortesia.
+  origem String  @default("pacote") @db.VarChar(20)
+  /// Guarda-chuva que concedeu, quando origem = 'pacote'.
+  pacote String? @db.VarChar(40)
+
+  inicioEm DateTime  @default(now())
+  /// NULL = sem prazo. Assinatura ativa renova empurrando esta data.
+  expiraEm DateTime?
+
+  referencia   String? @db.VarChar(120)
+  concedidoPor String? @db.VarChar(120)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([moduleId, origem], map: "uniq_modulo_origem")
+  @@index([moduleId], map: "idx_modulo")
+  @@index([expiraEm], map: "idx_expira")
+  @@index([pacote], map: "idx_pacote")
+  @@map("bychat_module_entitlements")
 }
 
 model UserModuleOverride {

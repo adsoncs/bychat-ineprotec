@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { ehDono } from '../lib/dono.js'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
@@ -475,6 +476,20 @@ export async function usersRoutes(app: FastifyInstance) {
     if (user.role === 'SUPERADMIN' && requester.role !== 'SUPERADMIN') {
       return reply.code(403).send({ error: 'Apenas um Super Admin pode editar outro Super Admin' })
     }
+
+    // O dono do produto é intocável por dentro da aplicação. Ele alcança a loja
+    // de apps e os direitos de uso — se o superadmin pudesse desativá-lo,
+    // rebaixá-lo ou trocar sua senha, alcançaria a loja por tabela e se daria
+    // os módulos que não pagou. Quem define dono é `scripts/definir-dono.ts`,
+    // no servidor; nem esta rota nem nenhuma outra escreve `isOwner`.
+    const alvoEhDono = (user as { isOwner?: boolean }).isOwner === true
+    const pedinteEhDono = await ehDono(requester.userId)
+    if (alvoEhDono && !pedinteEhDono) {
+      return reply.code(403).send({
+        error: 'Este usuário é o dono do produto e não pode ser alterado por aqui.',
+      })
+    }
+
 
     const data: any = {}
     if (email !== undefined) data.email = email.toLowerCase().trim()

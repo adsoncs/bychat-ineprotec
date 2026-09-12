@@ -16,6 +16,13 @@
 export type { IconName } from '@/components/ui/icons'
 import type { IconName } from '@/components/ui/icons'
 
+/** Os sete guarda-chuvas do produto. Espelham `ModuleUmbrella` do backend
+ *  (`moduleRegistry.ts`) — e é isso que `tests/menuGuardaChuva.test.ts` cobra:
+ *  se as duas listas divergirem, o teste quebra antes de chegar em produção. */
+export type Umbrella =
+  | 'atendimento' | 'crm_vendas' | 'marketing_canais' | 'automacao_integracoes'
+  | 'educacional' | 'erp_academico' | 'plataforma'
+
 export interface SidebarItem {
   id: string
   label: string
@@ -25,9 +32,22 @@ export interface SidebarItem {
   badge?: string | number
   /** chave de permissão; undefined = sempre visível */
   permission?: string
+  /**
+   * A tela mora numa seção diferente do guarda-chuva do seu módulo — de
+   * propósito. "Meus Painéis" é do módulo Dashboard (Plataforma) e vive em
+   * Relatórios, porque é lá que o gestor procura.
+   *
+   * Precisa ser declarado: sem isso, o teste não distingue um atalho pensado de
+   * um módulo que alguém pendurou no grupo errado — que foi como as duas
+   * taxonomias do produto se afastaram.
+   */
+  atalho?: boolean
 }
 
 export interface SidebarGroup {
+  /** A que guarda-chuva esta seção pertence. Todo item dela deve vir de um
+   *  módulo do mesmo guarda-chuva — quem for exceção declara `atalho: true`. */
+  umbrella: Umbrella
   id: string
   label: string
   items: SidebarItem[]
@@ -60,6 +80,7 @@ export const sidebarSchema: SidebarSchema = {
   groups: [
     {
       id: 'crm',
+      umbrella: 'crm_vendas',
       label: 'CRM',
       items: [
         // Contato é conversa que ainda não virou Lead: mesma ficha, outro estado
@@ -78,6 +99,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'marketing',
+      umbrella: 'marketing_canais',
       label: 'Marketing',
       items: [
         { id: 'chatbots', label: 'Chatbots', href: '/app/chatbots', icon: 'Bot', permission: 'chatbots' },
@@ -87,7 +109,6 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'google-ads', label: 'Google Ads', href: '/app/google-ads', icon: 'Search', permission: 'marketing' },
         { id: 'links', label: 'Links rastreáveis', href: '/app/links', icon: 'Link2', permission: 'trackable_links' },
         { id: 'tracking', label: 'Rastreamento', href: '/app/tracking', icon: 'Activity', permission: 'tracking' },
-        { id: 'reputation', label: 'Radar de Reputação', href: '/app/reputation', icon: 'Radar', permission: 'reputation_radar' },
       ],
       initiallyCollapsed: true,
     },
@@ -97,6 +118,7 @@ export const sidebarSchema: SidebarSchema = {
     // eram a exceção.
     {
       id: 'sales',
+      umbrella: 'crm_vendas',
       label: 'Vendas',
       items: [
         { id: 'sales-ai', label: 'Vendas IA', href: '/app/sales-ai', icon: 'TrendingUp', permission: 'vendas' },
@@ -106,6 +128,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'automation',
+      umbrella: 'automacao_integracoes',
       label: 'Automação',
       items: [
         { id: 'workflows', label: 'Fluxos', href: '/app/workflows', icon: 'Workflow', permission: 'workflows' },
@@ -116,6 +139,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'support',
+      umbrella: 'atendimento',
       label: 'Suporte',
       items: [
         { id: 'helpdesk', label: 'Chamados', href: '/app/helpdesk', icon: 'LifeBuoy', permission: 'helpdesk' },
@@ -132,9 +156,10 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'reports',
+      umbrella: 'crm_vendas',
       label: 'Relatórios',
       items: [
-        { id: 'analytics', label: 'Meus Painéis', href: '/app/analytics', icon: 'LineChart', permission: 'dashboard' },
+        { id: 'analytics', label: 'Meus Painéis', href: '/app/analytics', icon: 'LineChart', permission: 'dashboard', atalho: true },
         { id: 'meta-ads-report', label: 'Relatório Meta Ads', href: '/app/meta-ads-report', icon: 'BarChart3', permission: 'ads_report' },
         { id: 'funnel-report', label: 'Relatório de Funil', href: '/app/funnel-report', icon: 'Workflow', permission: 'vendas' },
         { id: 'google-ads-report', label: 'Relatório Google Ads', href: '/app/google-ads-report', icon: 'BarChart3', permission: 'ads_report' },
@@ -146,6 +171,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'tools',
+      umbrella: 'marketing_canais',
       label: 'Utilitários',
       items: [
         { id: 'utms', label: 'UTMs', href: '/app/utms', icon: 'Link2', permission: 'tools' },
@@ -157,6 +183,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'channels',
+      umbrella: 'marketing_canais',
       label: 'Canais',
       items: [
         { id: 'whatsapp', label: 'WhatsApp', href: '/app/whatsapp', icon: 'Phone', permission: 'whatsapp' },
@@ -173,37 +200,39 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'integrations-group',
+      umbrella: 'automacao_integracoes',
       label: 'Integrações',
       items: [
-        { id: 'integrations', label: 'Visão geral', href: '/app/integrations', icon: 'Plug', permission: 'settings' },
+        { id: 'integrations', label: 'Visão geral', href: '/app/integrations', icon: 'Plug', permission: 'settings', atalho: true },
         { id: 'google', label: 'Google Workspace', href: '/app/google', icon: 'Sparkles', permission: 'google' },
         { id: 'make', label: 'Make.com', href: '/app/make', icon: 'Boxes', permission: 'make' },
-        { id: 'conversions', label: 'Conversões Meta Ads', href: '/app/conversions', icon: 'Send', permission: 'vendas' },
-        { id: 'integ-evolution', label: 'Evolution API', href: '/app/integrations/evolution', icon: 'Activity', permission: 'settings' },
-        { id: 'integ-email', label: 'E-mail', href: '/app/integrations/email', icon: 'Mail', permission: 'settings' },
-        { id: 'integ-sms', label: 'SMS', href: '/app/integrations/sms', icon: 'MessageSquare', permission: 'settings' },
-        { id: 'integ-ai', label: 'IA / Tokens', href: '/app/integrations/ai', icon: 'Brain', permission: 'settings' },
-        { id: 'integ-dns', label: 'DNS', href: '/app/integrations/dns', icon: 'Globe', permission: 'settings' },
+        { id: 'conversions', label: 'Conversões Meta Ads', href: '/app/conversions', icon: 'Send', permission: 'vendas', atalho: true },
+        { id: 'integ-evolution', label: 'Evolution API', href: '/app/integrations/evolution', icon: 'Activity', permission: 'settings', atalho: true },
+        { id: 'integ-email', label: 'E-mail', href: '/app/integrations/email', icon: 'Mail', permission: 'settings', atalho: true },
+        { id: 'integ-sms', label: 'SMS', href: '/app/integrations/sms', icon: 'MessageSquare', permission: 'settings', atalho: true },
+        { id: 'integ-ai', label: 'IA / Tokens', href: '/app/integrations/ai', icon: 'Brain', permission: 'settings', atalho: true },
+        { id: 'integ-dns', label: 'DNS', href: '/app/integrations/dns', icon: 'Globe', permission: 'settings', atalho: true },
         { id: 'integ-webhooks', label: 'Webhooks de Saída', href: '/app/integrations/webhooks', icon: 'Webhook', permission: 'webhooks_out' },
         { id: 'integ-inbound-webhooks', label: 'Webhooks de Entrada', href: '/app/integrations/inbound-webhooks', icon: 'Webhook', permission: 'captacao' },
         { id: 'integ-db-connectors', label: 'Conector de BD', href: '/app/integrations/db-connectors', icon: 'Database', permission: 'db_connectors' },
         { id: 'integ-api-keys', label: 'API Keys', href: '/app/integrations/api-keys', icon: 'Key', permission: 'apikeys' },
-        { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings' },
-        { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings' },
-        { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings' },
+        { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings', atalho: true },
+        { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings', atalho: true },
+        { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings', atalho: true },
       ],
       initiallyCollapsed: true,
     },
     {
       id: 'cadastros',
+      umbrella: 'plataforma',
       label: 'Cadastros',
       items: [
-        { id: 'funnels', label: 'Funis', href: '/app/funnels', icon: 'GitFork', permission: 'funnels' },
+        { id: 'funnels', label: 'Funis', href: '/app/funnels', icon: 'GitFork', permission: 'funnels', atalho: true },
         { id: 'tags', label: 'Etiquetas', href: '/app/tags', icon: 'Tag', permission: 'tags' },
         // Modelos: cadastro operacional usado em cadências/atividades. Gated
         // por 'leads' (não mais 'captacao') — AGENT já possui leads, evita
         // exigir role administrativo para item de gestão de mensagens.
-        { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'leads' },
+        { id: 'templates', label: 'Modelos', href: '/app/templates', icon: 'FileText', permission: 'leads', atalho: true },
         { id: 'personas', label: 'Personas / ICPs', href: '/app/personas', icon: 'Users', permission: 'personas' },
         { id: 'users', label: 'Usuários', href: '/app/users', icon: 'Users', permission: 'users' },
         { id: 'cad-teams', label: 'Equipes', href: '/app/cadastros/teams', icon: 'Users', permission: 'settings' },
@@ -214,10 +243,10 @@ export const sidebarSchema: SidebarSchema = {
         // Objeções (motivos de perda): operador usa ao marcar lead como perdido.
         // Gated por 'leads' para AGENT poder visualizar/escolher; CRUD continua
         // restrito por canCreate/canEdit/canDelete no backend.
-        { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'leads' },
+        { id: 'cad-loss-reasons', label: 'Objeções', href: '/app/cadastros/loss-reasons', icon: 'XCircle', permission: 'leads', atalho: true },
         // Resumos: catálogo do módulo status_summary (nasce OFF). Gated pelo
         // próprio módulo — tenant que não usa não vê o item.
-        { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary' },
+        { id: 'cad-status-summaries', label: 'Resumos', href: '/app/cadastros/status-summaries', icon: 'Tag', permission: 'status_summary', atalho: true },
         { id: 'cad-custom-fields', label: 'Campos personalizados', href: '/app/cadastros/custom-fields', icon: 'Database', permission: 'settings' },
         { id: 'cad-business-hours', label: 'Atendimento', href: '/app/cadastros/business-hours', icon: 'Clock', permission: 'settings' },
       ],
@@ -228,10 +257,10 @@ export const sidebarSchema: SidebarSchema = {
     //    permission 'educacional' ou 'enrollment_portals' (independem do ERP). ──
     {
       id: 'educational',
+      umbrella: 'educacional',
       label: 'Educacional',
       items: [
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
-        { id: 'he-market', label: 'Mercado (Ensino Superior)', href: '/app/he-market', icon: 'Target', permission: 'higher_ed_market' },
         { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
         { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
         { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },
@@ -250,6 +279,7 @@ export const sidebarSchema: SidebarSchema = {
     //    ativos. Cada grupo some inteiro se o cliente não tiver aquele bloco. ──
     {
       id: 'erp-estrutura',
+      umbrella: 'erp_academico',
       label: 'ERP · Estrutura & Cadastros',
       items: [
         { id: 'aca-estrutura', label: 'Estrutura Acadêmica', href: '/app/aca/estrutura', icon: 'Layers', permission: 'aca_estrutura' },
@@ -261,6 +291,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'erp-academico',
+      umbrella: 'erp_academico',
       label: 'ERP · Acadêmico',
       items: [
         { id: 'aca-instituicao', label: 'Instituição', href: '/app/aca/instituicao', icon: 'Building2', permission: 'aca_matriculas' },
@@ -287,6 +318,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'erp-secretaria',
+      umbrella: 'erp_academico',
       label: 'ERP · Secretaria',
       items: [
         { id: 'aca-secretaria', label: 'Secretaria', href: '/app/aca/secretaria', icon: 'FileText', permission: 'aca_secretaria' },
@@ -308,6 +340,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'erp-financeiro',
+      umbrella: 'erp_academico',
       label: 'ERP · Financeiro',
       items: [
         { id: 'aca-financeiro', label: 'Financeiro', href: '/app/aca/financeiro', icon: 'Wallet', permission: 'aca_financeiro' },
@@ -318,6 +351,7 @@ export const sidebarSchema: SidebarSchema = {
     },
     {
       id: 'erp-relatorios',
+      umbrella: 'erp_academico',
       label: 'ERP · Relatórios',
       items: [
         { id: 'aca-bi', label: 'Indicadores (BI)', href: '/app/aca/bi', icon: 'BarChart3', permission: 'aca_relatorios' },
