@@ -512,6 +512,44 @@ model ModuleEntitlement {
   @@map("bychat_module_entitlements")
 }
 
+/// Trilha do que o DONO decidiu à mão sobre a assinatura.
+///
+/// Existe porque parte do dinheiro não passa pelo provedor: o cliente paga por
+/// PIX ou transferência e alguém dá baixa. Sem registro, "marquei como pago" é
+/// palavra contra palavra quando se conferir o caixa meses depois — por isso
+/// guarda competência, valor, meio e quem fez.
+///
+/// ⚠️ A chave Asaas do Attrae NÃO mora neste banco (ver migration 0159): este
+/// banco é do cliente, e a credencial com que cobramos fica só na loja central.
+model AssinaturaEvento {
+  id   Int    @id @default(autoincrement())
+  /// teste | pago_manual | carencia_estendida | renovado | cancelado
+  tipo String @db.VarChar(30)
+  /// Guarda-chuva afetado. null = a assinatura toda.
+  pacote String? @db.VarChar(40)
+  /// Mês de referência de um pagamento manual: "2026-09".
+  competencia String? @db.VarChar(7)
+
+  vencimentoAnterior DateTime?
+  vencimentoNovo     DateTime?
+
+  valorCentavos Int?
+  /// pix | transferencia | dinheiro | outro
+  meio String? @db.VarChar(20)
+
+  observacao String? @db.VarChar(500)
+  /// E-mail do dono. Não é FK: apagar o usuário não pode apagar o registro do dinheiro.
+  feitoPor String? @db.VarChar(191)
+
+  createdAt DateTime @default(now())
+
+  @@index([tipo], map: "idx_tipo")
+  @@index([pacote], map: "idx_pacote")
+  @@index([competencia], map: "idx_competencia")
+  @@index([createdAt], map: "idx_criado")
+  @@map("bychat_assinatura_eventos")
+}
+
 model UserModuleOverride {
   id        Int      @id @default(autoincrement())
   userId    Int

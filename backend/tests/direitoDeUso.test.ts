@@ -22,7 +22,9 @@ import { MODULE_REGISTRY } from '../src/lib/moduleRegistry.js'
 import {
   modulosComDireito, temDireito, concederPacote, concederModulo,
   revogarPacote, invalidarCacheDeDireitos, resumoDeDireitos,
+  pacotesDisponiveis, modulosDoPacote, PacoteIndisponivelError,
 } from '../src/services/moduleEntitlements.js'
+import type { ModuleUmbrella } from '../src/lib/moduleRegistry.js'
 
 // Um módulo real, não-core, para os testes de concessão avulsa.
 const COBAIA = MODULE_REGISTRY.find((m) => !m.core && m.umbrella === 'marketing_canais')!.id
@@ -145,5 +147,51 @@ describe('o resumo do que a instalação tem', () => {
         assert.ok(ids.has(m.id), `${m.id} não existe no registro`)
       }
     }
+  })
+})
+
+describe('a loja não pode vender o que a instalação não roda', () => {
+  // O registry diverge por instalação — medido em 11/09/2026, beyond 82
+  // módulos e severiano 60, com os 22 de diferença todos no ERP acadêmico.
+  // Antes desta guarda, vender ERP a quem não o tem gravava ZERO direitos e
+  // devolvia sucesso: o cliente pagava, a tela não mudava, e só a reclamação
+  // revelava. Cobrar por nada é o defeito mais caro que uma loja pode ter.
+
+  test('a vitrine só lista pacote com módulo instalado', () => {
+    const disponiveis = pacotesDisponiveis()
+    assert.ok(disponiveis.length > 0, 'nenhuma instalação vende nada?')
+    for (const p of disponiveis) {
+      assert.ok(modulosDoPacote(p).length > 0, `${p} na vitrine sem nenhum módulo`)
+    }
+  })
+
+  const RECUSA = `${MARCA}-recusa`
+
+  test('pacote sem módulo aqui é RECUSADO, não vendido em silêncio', async () => {
+    const ausente = 'erp_de_outro_planeta' as ModuleUmbrella
+    assert.ok(!pacotesDisponiveis().includes(ausente))
+    await assert.rejects(
+      () => concederPacote({ pacote: ausente, referencia: RECUSA }),
+      (e: Error) => e instanceof PacoteIndisponivelError && /não roda/.test(e.message),
+      'conceder um pacote inexistente tem de falhar, não devolver lista vazia',
+    )
+  })
+
+  test('todo pacote fora da vitrine é recusado', async () => {
+    // Vale de verdade nas instalações menores, onde há pacote faltando.
+    const todos: ModuleUmbrella[] = ['atendimento', 'crm_vendas', 'marketing_canais',
+      'automacao_integracoes', 'educacional', 'erp_academico', 'plataforma']
+    const disponiveis = pacotesDisponiveis()
+    for (const p of todos.filter((x) => !disponiveis.includes(x))) {
+      await assert.rejects(() => concederPacote({ pacote: p, referencia: RECUSA }),
+        PacoteIndisponivelError, `${p} não está instalado e foi aceito`)
+    }
+  })
+
+  test('nada foi gravado pelas tentativas recusadas', async () => {
+    const sujeira = await prisma.moduleEntitlement.count({
+      where: { referencia: RECUSA },
+    })
+    assert.equal(sujeira, 0, 'uma venda recusada não pode deixar direito no banco')
   })
 })
