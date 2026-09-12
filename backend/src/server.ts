@@ -815,12 +815,17 @@ function decodeHtmlEntities(s: string): string {
   // Decodifica entidades comuns; usado para campos LP onde o painel salvou
   // tags HTML como &lt;br&gt; e o consumo final precisa de tags reais.
   return String(s)
-    .replace(/&amp;/g, ' AMP ') // marker para evitar dupla decode de & em entities
+    // Marcador provisório para o & já decodificado, para que "&amp;lt;"
+    // termine em "&lt;" e não em "<". O NUL vai ESCAPADO, nunca cru: cru,
+    // ele faz o arquivo ser tratado como binário por grep e diff, e some
+    // sem aviso se um editor normalizar o arquivo -- e aí o marcador
+    // sobreviveria ao texto final como "AMP".
+    .replace(/&amp;/g, '\u0000AMP\u0000')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/ AMP /g, '&')
+    .replace(/\u0000AMP\u0000/g, '&')
 }
 
 // Sanitize options para lp_title: permite <br> e <span class="gold|dim"> apenas.

@@ -321,7 +321,7 @@ export async function resolverAusentes(kind: string, chavesVivas: string[]): Pro
     where: {
       kind,
       status: 'open',
-      dedupeKey: { notIn: chavesVivas.length ? chavesVivas : [' sem-chave-viva'] },
+      dedupeKey: { notIn: chavesVivas.length ? chavesVivas : ['\u0000sem-chave-viva'] },
     },
     data: { status: 'resolved', resolvedAt: new Date() },
   })
