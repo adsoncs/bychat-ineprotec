@@ -171,3 +171,33 @@ describe('baixa manual — dinheiro que entra por fora', { skip: trava }, () => 
     await assert.rejects(() => estenderCarencia({ dias: 9999, feitoPor: QUEM }), /entre 0 e 365/)
   })
 })
+
+describe('a loja fica FORA das configurações do sistema', { skip: trava }, () => {
+  // Regra do produto: o superadmin do cliente não pode alcançar nada da loja.
+  // A 0159 falhou nisso — gravou a carência como Setting, e `GET
+  // /api/admin/settings` devolve todas as chaves enquanto o `PUT` faz upsert de
+  // qualquer uma. Dava para gravar 3650 e ganhar dez anos de graça. Lista negra
+  // por prefixo não resolveria: mais de doze rotas escrevem Setting.
+
+  test('nenhuma configuração da loja sobrou em Setting', async () => {
+    const vazadas = await prisma.setting.findMany({
+      where: { OR: [{ key: { startsWith: 'loja.' } }, { grp: 'loja' }] },
+    })
+    assert.deepEqual(vazadas.map((s) => s.key), [],
+      'configuração da loja visível e editável na tela de configurações')
+  })
+
+  test('a carência vive na tabela própria', async () => {
+    const row = await prisma.lojaConfig.findUnique({ where: { chave: 'carencia_dias' } })
+    assert.ok(row, 'sem linha, a carência cai no default e o ajuste do dono some')
+    assert.equal(Number(row!.valor), await carenciaDias())
+  })
+
+  test('esticar a carência não recria a chave em Setting', async () => {
+    await estenderCarencia({ dias: 20, feitoPor: QUEM })
+    const vazou = await prisma.setting.count({ where: { key: { startsWith: 'loja.' } } })
+    assert.equal(vazou, 0, 'a escrita do dono não pode reabrir a porta')
+    assert.equal(await carenciaDias(), 20)
+    await estenderCarencia({ dias: 15, feitoPor: QUEM })
+  })
+})

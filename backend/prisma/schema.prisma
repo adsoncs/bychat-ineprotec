@@ -512,6 +512,22 @@ model ModuleEntitlement {
   @@map("bychat_module_entitlements")
 }
 
+/// Configuração da loja — FORA de `Setting`, de propósito.
+///
+/// `GET /api/admin/settings` devolve todas as chaves e o `PUT` faz upsert de
+/// qualquer uma, e mais de doze rotas escrevem Setting. Enquanto a carência
+/// morou lá, o superadmin do cliente podia se dar dez anos de graça. Lista
+/// negra por prefixo não protegeria; o que protege é não morar lá.
+///
+/// Nenhuma rota de administração do tenant lê ou escreve esta tabela.
+model LojaConfig {
+  chave        String   @id @db.VarChar(60)
+  valor        String   @db.VarChar(500)
+  atualizadoEm DateTime @default(now())
+
+  @@map("bychat_loja_config")
+}
+
 /// Trilha do que o DONO decidiu à mão sobre a assinatura.
 ///
 /// Existe porque parte do dinheiro não passa pelo provedor: o cliente paga por

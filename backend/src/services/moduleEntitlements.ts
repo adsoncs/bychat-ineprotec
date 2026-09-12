@@ -206,20 +206,24 @@ export async function resumoDeDireitos(): Promise<{
 //  (PIX, transferência) e nunca passa pelo provedor.
 // ─────────────────────────────────────────────────────────────────────────
 
+// A configuração da loja NÃO mora em `Setting`. A tela de configurações lista
+// todas as chaves e aceita escrita em qualquer uma — enquanto a carência morou
+// lá, o superadmin do cliente podia gravar 3650 e se dar dez anos de graça.
+// Ver migration 0160.
 async function numeroDaConfig(chave: string, padrao: number): Promise<number> {
-  const row = await prisma.setting.findUnique({ where: { key: chave } }).catch(() => null)
-  const v = Number(String(row?.value ?? '').replace(/"/g, ''))
+  const row = await prisma.lojaConfig.findUnique({ where: { chave } }).catch(() => null)
+  const v = Number(row?.valor)
   return Number.isFinite(v) && v >= 0 ? v : padrao
 }
 
 /** Dias de carência após o vencimento. O dono ajusta sem deploy. */
 export async function carenciaDias(): Promise<number> {
-  return numeroDaConfig('loja.carencia_dias', 15)
+  return numeroDaConfig('carencia_dias', 15)
 }
 
 /** Dias de teste grátis. */
 export async function testeDias(): Promise<number> {
-  return numeroDaConfig('loja.teste_dias', 7)
+  return numeroDaConfig('teste_dias', 7)
 }
 
 export type EstadoAssinatura = 'sem_direito' | 'vigente' | 'em_carencia' | 'sem_prazo'
@@ -344,13 +348,10 @@ export async function estenderCarencia(input: {
   if (!Number.isFinite(input.dias) || input.dias < 0 || input.dias > 365) {
     throw new Error('Carência deve ser entre 0 e 365 dias')
   }
-  await prisma.setting.upsert({
-    where: { key: 'loja.carencia_dias' },
-    create: {
-      key: 'loja.carencia_dias', value: String(input.dias) as never,
-      label: 'Dias de carência após o vencimento', grp: 'loja', fieldType: 'number',
-    },
-    update: { value: String(input.dias) as never },
+  await prisma.lojaConfig.upsert({
+    where: { chave: 'carencia_dias' },
+    create: { chave: 'carencia_dias', valor: String(input.dias) },
+    update: { valor: String(input.dias), atualizadoEm: new Date() },
   })
   await prisma.assinaturaEvento.create({
     data: {
