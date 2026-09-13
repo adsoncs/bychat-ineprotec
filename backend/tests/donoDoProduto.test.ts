@@ -92,6 +92,26 @@ describe('a API não escreve isOwner', () => {
       'isOwner virou campo aceito pela API: qualquer admin poderia se tornar dono')
   })
 
+  test('a varredura reconhece uma escrita de verdade', () => {
+    // Sem isto, um erro na varredura a deixaria verde para sempre — e o teste
+    // que protege a conta mais poderosa do produto viraria enfeite.
+    const falso = `
+      await prisma.user.update({ where: { id }, data: { name, isOwner: true } })
+    `
+    let achou = false
+    for (const m of falso.matchAll(/\bdata\s*:\s*\{/g)) {
+      let i = m.index! + m[0].length, prof = 1
+      const ini = i
+      while (i < falso.length && prof > 0) {
+        if (falso[i] === '{') prof++
+        else if (falso[i] === '}') prof--
+        i++
+      }
+      if (/\bisOwner\s*:/.test(falso.slice(ini, i))) achou = true
+    }
+    assert.ok(achou, 'a varredura não enxerga uma escrita evidente')
+  })
+
   test('nenhuma rota escreve isOwner', async () => {
     const { readdirSync, readFileSync } = await import('fs')
     const { join } = await import('path')
@@ -100,9 +120,25 @@ describe('a API não escreve isOwner', () => {
     for (const f of readdirSync(dir)) {
       if (!f.endsWith('.ts')) continue
       const txt = readFileSync(join(dir, f), 'utf8')
-      // Escrita seria `isOwner:` dentro de um data/update. Leitura (`.isOwner`,
-      // `isOwner === true`) é legítima e não conta.
-      if (/isOwner\s*:/.test(txt)) culpados.push(f)
+      // Só ESCRITA conta. `isOwner:` aparece legitimamente na leitura — o
+      // /api/admin/me devolve o campo para a interface saber se mostra o painel
+      // da loja. O que não pode existir é `isOwner` dentro de um `data: { … }`
+      // do Prisma, que é como um campo chega ao banco.
+      //
+      // A varredura acompanha as chaves em vez de casar um regex solto: um
+      // `data: {` pode ter objetos aninhados, e um regex ganancioso acusaria o
+      // arquivo inteiro enquanto um preguiçoso pararia no primeiro `}`.
+      for (const m of txt.matchAll(/\bdata\s*:\s*\{/g)) {
+        let i = m.index! + m[0].length
+        let profundidade = 1
+        const inicio = i
+        while (i < txt.length && profundidade > 0) {
+          if (txt[i] === '{') profundidade++
+          else if (txt[i] === '}') profundidade--
+          i++
+        }
+        if (/\bisOwner\s*:/.test(txt.slice(inicio, i))) { culpados.push(f); break }
+      }
     }
     assert.deepEqual(culpados, [],
       'rota escrevendo isOwner: quem define dono é scripts/definir-dono.ts, no servidor')

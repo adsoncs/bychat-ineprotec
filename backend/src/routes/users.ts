@@ -253,6 +253,9 @@ export async function usersRoutes(app: FastifyInstance) {
     if (!user) return { error: 'Usuário não encontrado' }
     return {
       id: user.id, email: user.email, name: user.name, role: user.role,
+      // O dono do produto é um atributo, não um papel — a interface precisa
+      // dele para mostrar o painel da loja, que o superadmin não vê.
+      isOwner: user.isOwner === true,
       displayName: user.displayName,
       active: user.active, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt,
       workStatus: user.workStatus,

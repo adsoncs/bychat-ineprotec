@@ -7,6 +7,14 @@ export interface CurrentUser {
   email: string
   name: string
   role: string
+  /**
+   * Dono do produto — quem administra a loja de apps.
+   *
+   * É atributo e não papel de propósito: o código compara `role ===
+   * 'SUPERADMIN'` em dezenas de lugares sem hierarquia, e um papel novo faria
+   * o dono ter MENOS acesso que o superadmin do cliente. Aqui ele só adiciona.
+   */
+  isOwner?: boolean
   avatarUrl?: string
   active?: boolean
   lastLoginAt?: string | null

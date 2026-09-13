@@ -611,6 +611,32 @@ export function Router() {
         <Switch>
           <Route path="/" component={IndexRoute} />
           <Route path="/sources" component={SourcesRedirect} />
+          {/* Assinatura da instalação — o painel do dono do produto.
+            * Fora de Configurações de propósito: Configurações é a tela do
+            * cliente, e o superadmin dele não pode alcançar a loja. A API
+            * responde 404 para quem não é dono, então quem abrir esta URL sem
+            * ser dono vê a tela vazia de erro, não um "acesso negado" que
+            * confirmaria que há algo aqui.
+            * A URL diz o que a tela É (assinatura), não quem entra nela. */}
+          <Route path="/assinatura">
+            {() => {
+              const Painel = migratedPages['assinatura']
+              return Painel ? <Painel /> : null
+            }}
+          </Route>
+          {/* A tela nasceu em /dono e viveu poucas horas assim. O redirect custa
+            * duas linhas e evita "página não encontrada" para um link salvo. */}
+          <Route path="/dono">{() => { window.location.replace('/app/assinatura'); return null }}</Route>
+          {/* Permissões e Acesso ao Conversas viraram abas de Configurações e
+            * saíram do menu — então saíram também do catálogo que monta as
+            * rotas. Sem estes redirects, todo link salvo para elas viraria
+            * "página não encontrada". */}
+          <Route path="/module-permissions">{() => <SettingsTabRedirect tab="permissions" />}</Route>
+          <Route path="/conversation-access">{() => <SettingsTabRedirect tab="conversation-access" />}</Route>
+          <Route path="/roadmap">{() => <SettingsTabRedirect tab="roadmap" />}</Route>
+          <Route path="/installations">{() => <SettingsTabRedirect tab="installations" />}</Route>
+          <Route path="/trash">{() => <SettingsTabRedirect tab="trash" />}</Route>
+          <Route path="/payments">{() => <SettingsTabRedirect tab="payments" />}</Route>
           {/* Permissões e Acesso ao Conversas viraram abas de Configurações e
             * saíram do menu — então saíram também do catálogo que monta as
             * rotas. Sem estes redirects, todo link salvo para elas viraria

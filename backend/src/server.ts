@@ -144,6 +144,7 @@ import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
 import { reputationRoutes } from './routes/reputation.js'
 import { heMarketRoutes } from './routes/heMarket.js'
 import { homeScreensRoutes } from './routes/homeScreens.js'
+import { donoAssinaturaRoutes } from './routes/donoAssinatura.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
@@ -707,6 +708,7 @@ await app.register(helpdeskPortalRoutes)
 await app.register(reputationRoutes)
 await app.register(heMarketRoutes)
 await app.register(homeScreensRoutes)
+await app.register(donoAssinaturaRoutes)
 
 // ── Overlay do tenant (módulos próprios: ex. ERP ineprotec, Venda360) ──
 // Carrega src/overlay/index.ts SE existir; no-op nos tenants sem overlay. Mantém

@@ -1,4 +1,4 @@
-import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, Shield, Settings as SettingsIcon, SlidersHorizontal, Eye, BarChart3, Headphones, Check, ChevronDown, LayoutGrid, MessageSquare } from '@/components/ui/icon-set'
+import { Menu, Search, LogOut, User as UserIcon, Sun, Moon, Monitor, Type, Shield, Settings as SettingsIcon, CreditCard, SlidersHorizontal, Eye, BarChart3, Headphones, Check, ChevronDown, LayoutGrid, MessageSquare } from '@/components/ui/icon-set'
 import { Maximize, Minimize } from '@/components/ui/icons.custom'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useState, useMemo, useEffect } from 'preact/hooks'
@@ -502,6 +502,19 @@ function MenuDaConta(
               <SettingsIcon size={ICON_SIZE.sm} class="text-fg-muted" />
               Configurações
             </DropdownMenu.Item>
+            {/* Só o DONO do produto vê. Fica aqui, e não em Configurações,
+                porque Configurações é a tela do cliente — o superadmin dele não
+                pode alcançar a loja. Esconder o item é conforto, não proteção:
+                quem for direto na URL recebe 404 da API. */}
+            {user?.isOwner && (
+              <DropdownMenu.Item
+                class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+                onSelect={() => { window.location.assign('/app/assinatura') }}
+              >
+                <CreditCard size={ICON_SIZE.sm} class="text-fg-muted" />
+                Assinatura
+              </DropdownMenu.Item>
+            )}
           </div>
 
           <DropdownMenu.Separator class="h-px bg-border" />

@@ -21,6 +21,30 @@ export type ModuleUmbrella =
   | 'plataforma'
 
 /**
+ * Como o pacote se chama para uma pessoa.
+ *
+ * Fica junto do tipo, e não na tela, porque três lugares precisam do mesmo
+ * nome: a aba de Módulos, o painel do dono e, quando existir, a vitrine da
+ * loja. Três cópias divergiriam — foi assim que menu e módulos passaram a
+ * discordar.
+ */
+export const UMBRELLA_LABELS: Record<ModuleUmbrella, string> = {
+  plataforma: 'Plataforma',
+  atendimento: 'Atendimento',
+  crm_vendas: 'CRM & Vendas',
+  marketing_canais: 'Marketing & Canais',
+  automacao_integracoes: 'Automação & Integrações',
+  educacional: 'Educacional',
+  erp_academico: 'ERP Acadêmico',
+}
+
+/** Ordem de exibição: do que todo mundo usa para o mais especializado. */
+export const UMBRELLA_ORDER: ModuleUmbrella[] = [
+  'plataforma', 'atendimento', 'crm_vendas', 'marketing_canais',
+  'automacao_integracoes', 'educacional', 'erp_academico',
+]
+
+/**
  * Como o módulo entra na conta do cliente.
  *
  *   base   — faz parte da plataforma; existe sempre, não se vende à parte.

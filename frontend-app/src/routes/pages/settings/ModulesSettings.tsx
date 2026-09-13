@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { useAuth } from '@/hooks/useAuth'
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'core'
 
@@ -42,6 +43,11 @@ function normalize(s: string): string {
 export function ModulesSettings() {
   const { data, isLoading } = useModules()
   const toggle = useToggleModule()
+  // Ligar e desligar módulo é decisão de quem vende. Ao superadmin do cliente
+  // cabe decidir QUEM da equipe usa cada módulo ativo — o que é outra tela.
+  // Esconder o botão é clareza, não proteção: a API recusa de todo jeito.
+  const { user } = useAuth()
+  const ehDono = user?.isOwner === true
 
   const [search, setSearch] = useState('')
   const [umbrellaFilter, setUmbrellaFilter] = useState<string>('all')
@@ -123,6 +129,19 @@ export function ModulesSettings() {
         </div>
       </div>
 
+      {!ehDono && (
+        // Sem isto, a tela parece quebrada: a coluna de ação fica vazia e o
+        // operador não tem como saber que é assim de propósito.
+        <div class="rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-xs text-fg-muted">
+          O que está ativo é definido na contratação. Aqui você acompanha o que a
+          instalação tem e, em{' '}
+          <a href="/app/settings?tab=permissions" class="text-accent hover:underline">
+            Permissões
+          </a>
+          , decide quem da equipe usa cada módulo ativo.
+        </div>
+      )}
+
       {/* Filtros */}
       <div class="flex items-center gap-2.5 flex-wrap">
         <div class="relative flex-1 min-w-60">
@@ -187,7 +206,7 @@ export function ModulesSettings() {
                   </tr>
                 )}
                 {filtered.map((m) => (
-                  <ModuleRow key={m.id} module={m} onToggle={() => handleToggleClick(m)} disabled={toggle.isPending} />
+                  <ModuleRow key={m.id} module={m} onToggle={() => handleToggleClick(m)} disabled={toggle.isPending} podeAlternar={ehDono} />
                 ))}
               </tbody>
             </table>
@@ -245,11 +264,13 @@ export function ModulesSettings() {
 }
 
 function ModuleRow({
-  module: m, onToggle, disabled,
+  module: m, onToggle, disabled, podeAlternar,
 }: {
   module: SystemModule
   onToggle: () => void
   disabled: boolean
+  /** Só o dono do produto liga e desliga. Ver ModulesSettings. */
+  podeAlternar: boolean
 }) {
   const isActive = !!m.enabled
   const isCore = !!m.core
@@ -271,6 +292,10 @@ function ModuleRow({
 
   const actionCell = isCore ? (
     <span class="text-fg-muted text-2xs italic">sempre ativo</span>
+  ) : !podeAlternar ? (
+    // Sem botão em vez de botão que falha: um controle que responde 403 manda
+    // o operador abrir chamado achando que quebrou.
+    <span class="text-fg-muted text-2xs italic">{isActive ? '—' : 'não contratado'}</span>
   ) : isActive ? (
     <button
       type="button"

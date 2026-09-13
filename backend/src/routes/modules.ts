@@ -5,6 +5,7 @@
 import { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { listModulesWithStatus, setModuleEnabled, getModuleDefinition, isModuleEnabled } from '../lib/moduleManager.js'
+import { ehDono } from '../lib/dono.js'
 import { getModuleDependents, getModuleDependencies } from '../lib/moduleRegistry.js'
 import { getAllModuleUsage, getModuleUsage } from '../services/moduleUsage.js'
 import { prisma } from '../lib/prisma.js'
@@ -36,7 +37,25 @@ export async function modulesRoutes(app: FastifyInstance) {
   // Quando há uso (`usage.total > 0`) E está sendo desativado, exige `confirmName`
   // batendo exatamente o nome do módulo (type-to-confirm). Registra log de
   // auditoria com snapshot do uso no momento.
+  // Ligar e desligar módulo é decisão de QUEM VENDE, não de quem compra.
+  //
+  // O módulo ativo é a mercadoria: se o superadmin do cliente liga o que quiser,
+  // a loja não vende nada — basta ligar. Ao superadmin resta o que é
+  // legitimamente dele: decidir QUEM da equipe usa cada módulo que está ativo
+  // (as permissões por módulo, em outra tela).
+  //
+  // Aqui a resposta é 403 e não 404, ao contrário das rotas da loja: a tela de
+  // Módulos existe e o superadmin a vê: negar em silêncio deixaria o botão
+  // falhando sem explicação. O que ele não pode é acionar — e precisa saber por
+  // quê, senão abre chamado achando que está quebrado.
   app.post('/api/admin/modules/:id/toggle', { preHandler: adminOnly }, async (req, reply) => {
+    const userId = (req as unknown as { user?: { userId?: number } }).user?.userId
+    if (!(await ehDono(userId))) {
+      return reply.code(403).send({
+        error: 'Ativar ou desativar módulos é do dono do produto. Aqui você define quem da equipe usa cada módulo ativo.',
+        somenteDono: true,
+      })
+    }
     const { id } = req.params as any
     const body = req.body as { enabled: boolean; confirmName?: string }
     if (typeof body?.enabled !== 'boolean') {

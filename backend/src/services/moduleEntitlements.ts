@@ -229,6 +229,45 @@ export async function testeDias(): Promise<number> {
 export type EstadoAssinatura = 'sem_direito' | 'vigente' | 'em_carencia' | 'sem_prazo'
 
 /**
+ * A regra de estado, sem banco: dadas as datas de vencimento que valem para um
+ * pacote, em que pé ele está.
+ *
+ * Fica separada porque só assim dá para testá-la de verdade. Em qualquer
+ * instalação real existe direito perpétuo da migração 0157, e com ele nenhum
+ * pacote jamais entra em carência — testar pelo banco exigiria apagar direito
+ * de cliente, que é exatamente o que não se pode fazer. Aqui a aritmética fica
+ * exposta e o cliente novo (que terá só a compra) pode ser simulado.
+ *
+ * `vencimentos`: null representa direito sem prazo.
+ */
+export function decidirEstado(
+  vencimentos: Array<Date | null>,
+  diasDeCarencia: number,
+  agora: number = Date.now(),
+): { estado: EstadoAssinatura; expiraEm: Date | null; diasRestantes: number | null } {
+  if (vencimentos.length === 0) return { estado: 'sem_direito', expiraEm: null, diasRestantes: null }
+
+  // Direito sem prazo vence a discussão: enquanto existir um, nada expira.
+  if (vencimentos.some((v) => v === null)) {
+    return { estado: 'sem_prazo', expiraEm: null, diasRestantes: null }
+  }
+
+  const datas = (vencimentos as Date[]).slice().sort((a, b) => b.getTime() - a.getTime())
+  const maior = datas[0]
+  if (!maior) return { estado: 'sem_direito', expiraEm: null, diasRestantes: null }
+
+  const venc = maior.getTime()
+  if (venc > agora) {
+    return { estado: 'vigente', expiraEm: maior, diasRestantes: Math.ceil((venc - agora) / 864e5) }
+  }
+  const fimDaCarencia = venc + diasDeCarencia * 864e5
+  if (fimDaCarencia > agora) {
+    return { estado: 'em_carencia', expiraEm: maior, diasRestantes: Math.ceil((fimDaCarencia - agora) / 864e5) }
+  }
+  return { estado: 'sem_direito', expiraEm: maior, diasRestantes: 0 }
+}
+
+/**
  * Em que pé está um pacote — e, quando em carência, quantos dias faltam.
  *
  * A diferença entre `vigente` e `em_carencia` é o que a tela precisa para
@@ -240,23 +279,42 @@ export async function estadoDoPacote(pacote: ModuleUmbrella): Promise<{
   expiraEm: Date | null
   diasRestantes: number | null
 }> {
+  // Todas as origens, não só 'pacote'. Um cliente antigo tem direito por
+  // `migracao` (a 0157 deu tudo sem prazo a quem já era cliente) e um módulo
+  // pode vir de cortesia. Olhar só a compra faria a tela gritar "sem direito"
+  // em vermelho para uma instalação inteiramente liberada — que foi
+  // exatamente o que aconteceu quando a tela foi aberta pela primeira vez.
+  const ids = modulosDoPacote(pacote)
+  if (ids.length === 0) return { estado: 'sem_direito', expiraEm: null, diasRestantes: null }
+
+  const linhas = await prisma.moduleEntitlement.findMany({
+    where: { moduleId: { in: ids } },
+    select: { expiraEm: true },
+  })
+  return decidirEstado(linhas.map((l) => l.expiraEm), await carenciaDias())
+}
+
+/**
+ * A ASSINATURA do pacote — só o que foi comprado, ignorando direito herdado.
+ *
+ * Existe porque `estadoDoPacote` responde sobre ACESSO, e acesso e assinatura
+ * podem discordar: quem já era cliente antes da loja tem direito sem prazo pela
+ * migração, então continua "liberado" mesmo depois de comprar. Sem separar as
+ * duas, o dono marcava um mês como pago e a tela não mudava nada — e uma ação
+ * sem efeito visível é uma ação em que ninguém confia.
+ */
+export async function assinaturaDoPacote(pacote: ModuleUmbrella): Promise<{
+  expiraEm: Date
+  diasRestantes: number
+  vencida: boolean
+} | null> {
   const linha = await prisma.moduleEntitlement.findFirst({
-    where: { pacote, origem: 'pacote' },
+    where: { pacote, origem: 'pacote', expiraEm: { not: null } },
     orderBy: [{ expiraEm: 'desc' }],
   })
-  if (!linha) return { estado: 'sem_direito', expiraEm: null, diasRestantes: null }
-  if (!linha.expiraEm) return { estado: 'sem_prazo', expiraEm: null, diasRestantes: null }
-
-  const agora = Date.now()
-  const venc = linha.expiraEm.getTime()
-  if (venc > agora) {
-    return { estado: 'vigente', expiraEm: linha.expiraEm, diasRestantes: Math.ceil((venc - agora) / 864e5) }
-  }
-  const fimDaCarencia = venc + (await carenciaDias()) * 864e5
-  if (fimDaCarencia > agora) {
-    return { estado: 'em_carencia', expiraEm: linha.expiraEm, diasRestantes: Math.ceil((fimDaCarencia - agora) / 864e5) }
-  }
-  return { estado: 'sem_direito', expiraEm: linha.expiraEm, diasRestantes: 0 }
+  if (!linha?.expiraEm) return null
+  const dias = Math.ceil((linha.expiraEm.getTime() - Date.now()) / 864e5)
+  return { expiraEm: linha.expiraEm, diasRestantes: dias, vencida: dias <= 0 }
 }
 
 /** Teste grátis de um pacote. Vence sozinho — não vira assinatura por engano. */

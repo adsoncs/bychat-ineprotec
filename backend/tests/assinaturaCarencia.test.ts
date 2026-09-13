@@ -22,6 +22,7 @@ import { prisma } from '../src/lib/prisma.js'
 import {
   carenciaDias, testeDias, estadoDoPacote, iniciarTeste, marcarComoPago,
   estenderCarencia, modulosComDireito, invalidarCacheDeDireitos, concederPacote,
+  decidirEstado,
 } from '../src/services/moduleEntitlements.js'
 import { MODULE_REGISTRY } from '../src/lib/moduleRegistry.js'
 
@@ -90,37 +91,76 @@ describe('teste grátis', { skip: trava }, () => {
   })
 })
 
-describe('carência', { skip: trava }, () => {
-  test('vencido ontem continua funcionando', async () => {
-    // É o ponto inteiro da carência: cortar no dia do vencimento transforma um
+describe('carência — a regra, sem depender do banco', () => {
+  // Testada pela função pura porque em instalação real TODO pacote tem direito
+  // perpétuo da migração 0157, e com ele nada entra em carência. Provar a regra
+  // pelo banco exigiria apagar direito de cliente. Aqui simula-se o cliente
+  // novo, que terá só a compra — que é para quem a carência existe.
+  const dia = 864e5
+  const agora = Date.parse('2026-09-15T12:00:00Z')
+  const emDias = (n: number) => new Date(agora + n * dia)
+
+  test('sem direito nenhum é sem direito', () => {
+    assert.equal(decidirEstado([], 15, agora).estado, 'sem_direito')
+  })
+
+  test('direito sem prazo não expira', () => {
+    assert.equal(decidirEstado([null], 15, agora).estado, 'sem_prazo')
+    assert.equal(decidirEstado([null, emDias(-999)], 15, agora).estado, 'sem_prazo',
+      'um perpétuo ao lado de um vencido ainda mantém o acesso')
+  })
+
+  test('vencimento no futuro é vigente, com os dias certos', () => {
+    const r = decidirEstado([emDias(10)], 15, agora)
+    assert.equal(r.estado, 'vigente')
+    assert.equal(r.diasRestantes, 10)
+  })
+
+  test('vencido ontem continua funcionando, na carência', () => {
+    // O ponto inteiro da carência: cortar no dia do vencimento transforma um
     // boleto atrasado em cliente sem sistema.
-    await concederPacote({
-      pacote: PACOTE, expiraEm: new Date(Date.now() - 864e5), // ontem
-      referencia: MARCA, concedidoPor: QUEM,
-    })
-    const st = await estadoDoPacote(PACOTE)
-    assert.equal(st.estado, 'em_carencia')
-    assert.ok((st.diasRestantes ?? 0) > 0 && (st.diasRestantes ?? 0) <= 15)
-    assert.ok((await modulosComDireito()).has(UM_MODULO), 'em carência o módulo ainda abre')
+    const r = decidirEstado([emDias(-1)], 15, agora)
+    assert.equal(r.estado, 'em_carencia')
+    assert.equal(r.diasRestantes, 14, 'restam 14 dos 15')
   })
 
-  test('passada a carência, o acesso cai', async () => {
-    await concederPacote({
-      pacote: PACOTE, expiraEm: new Date(Date.now() - 20 * 864e5), // 20 dias > 15
-      referencia: MARCA, concedidoPor: QUEM,
-    })
-    const st = await estadoDoPacote(PACOTE)
-    assert.equal(st.estado, 'sem_direito')
+  test('no último dia da carência ainda funciona', () => {
+    const r = decidirEstado([emDias(-14.9)], 15, agora)
+    assert.equal(r.estado, 'em_carencia')
   })
 
-  test('o dono estica a carência e o acesso volta', async () => {
-    await estenderCarencia({ dias: 30, motivo: 'cliente avisou que paga na sexta', feitoPor: QUEM })
-    assert.equal(await carenciaDias(), 30)
-    const st = await estadoDoPacote(PACOTE)
-    assert.equal(st.estado, 'em_carencia', 'com 30 dias de carência, vencido há 20 volta a valer')
-    const ev = await prisma.assinaturaEvento.findFirst({ where: { tipo: 'carencia_estendida', feitoPor: QUEM } })
-    assert.ok(ev, 'esticar prazo sem registro é favor invisível')
+  test('passada a carência, o acesso cai', () => {
+    assert.equal(decidirEstado([emDias(-16)], 15, agora).estado, 'sem_direito')
+  })
+
+  test('carência zero corta no vencimento', () => {
+    // Configuração válida: quem não quer carência põe 0 e o corte é seco.
+    assert.equal(decidirEstado([emDias(-0.1)], 0, agora).estado, 'sem_direito')
+  })
+
+  test('entre vários vencimentos, o que dura mais é o que manda', () => {
+    const r = decidirEstado([emDias(-30), emDias(5), emDias(-2)], 15, agora)
+    assert.equal(r.estado, 'vigente')
+    assert.equal(r.diasRestantes, 5)
+  })
+})
+
+describe('carência — a instalação real', { skip: trava }, () => {
+  test('a configuração em vigor é a que a regra recebe', async () => {
+    // A ponte entre a regra pura e o banco: se `estadoDoPacote` parasse de
+    // passar a carência configurada, os testes acima continuariam verdes.
+    await estenderCarencia({ dias: 40, feitoPor: QUEM })
+    assert.equal(await carenciaDias(), 40)
     await estenderCarencia({ dias: 15, feitoPor: QUEM })
+    assert.equal(await carenciaDias(), 15)
+  })
+
+  test('com direito perpétuo, o pacote não expira', async () => {
+    // É o estado de quem já era cliente antes da loja — e a razão de a tela
+    // dizer "Liberado" em vez de "Sem direito".
+    const st = await estadoDoPacote(PACOTE)
+    assert.ok(['sem_prazo', 'vigente'].includes(st.estado),
+      `instalação com direito de migração não pode aparecer como ${st.estado}`)
   })
 })
 
