@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { ShieldCheck, Download, FileSignature, Settings, Link2, Copy, Check } from 'lucide-preact'
+import { ShieldCheck, Download, FileSignature, Settings, Link2, Check } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'

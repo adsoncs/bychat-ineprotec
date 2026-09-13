@@ -106,10 +106,8 @@ export function leadStatusClass(status: string | null | undefined): string {
 
 interface Props {
   status: string
-  // Rótulo humano da etapa (Stage.name). Quando presente, é o texto exibido —
-  // a cor continua derivada da `status` (chave técnica, ex.: "kommo_143").
-  // Sem label, cai no comportamento antigo (mostra a própria `status`).
-  label?: string | null
+  // Rótulo humano da etapa (Stage.name); a cor continua derivada de status (chave).
+  label?: string | null | undefined
   class?: string
 }
 

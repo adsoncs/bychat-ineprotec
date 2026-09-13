@@ -173,7 +173,7 @@ export interface InstanceLiveStatus {
   instance: string
   state?: string
   status?: number
-  error?: string
+  error?: string | undefined
 }
 
 /**

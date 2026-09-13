@@ -166,8 +166,18 @@ function OverviewTab({ portal: p, onTabChange }: { portal: EnrollmentPortal; onT
   const [qrOpen, setQrOpen] = useState(false)
   const [embedOpen, setEmbedOpen] = useState(false)
 
-  // KPIs reais do analytics (30d)
-  const { data: analytics } = usePortalAnalytics(p.id, 30)
+  // KPIs reais do analytics (30 dias).
+  //
+  // Recebia o número 30 onde o hook espera { from, to }: a consulta saía com
+  // `from=undefined&to=undefined` e os KPIs desta tela nunca refletiram o
+  // período que o rótulo promete.
+  const periodo30 = useMemo(() => {
+    const ate = new Date()
+    const de = new Date(Date.now() - 30 * 86_400_000)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    return { from: iso(de), to: iso(ate) }
+  }, [])
+  const { data: analytics } = usePortalAnalytics(p.id, periodo30)
 
   const incompleteWarnings = useMemo(() => buildIncompleteWarnings(p), [p])
 
@@ -645,7 +655,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   }
 
   function handleResend(r: EnrollmentRegistration) {
-    resend.mutate(r.id, {
+    resend.mutate({ id: r.id }, {
       onSuccess: () => toast(`Link reenviado para ${r.candidateCode}`, 'success'),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })

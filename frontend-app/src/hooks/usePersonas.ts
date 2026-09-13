@@ -26,7 +26,7 @@ export interface Persona {
 
 export interface PersonaInput {
   name: string
-  description?: string | null
+  description?: string | null | undefined
   ageRange?: string | null
   genderHint?: string | null
   location?: string | null

@@ -259,19 +259,24 @@ export async function runAiJourneyForLead(leadId: number, opts?: { force?: boole
   let aiResp: { text: string; model: string } | null = null
   let lastErr: Error | null = null
 
-  const tryAnthropic = async () => {
+  // As tentativas DEVOLVEM a resposta em vez de atribuir por efeito colateral.
+  // Atribuindo de dentro da closure, o compilador não enxergava a escrita e
+  // estreitava `aiResp` para `never` depois do `if (!aiResp) throw` — daí os
+  // erros em `aiResp.text` e `aiResp.model`, num código que funciona.
+  type RespostaIa = { text: string; model: string }
+  const tryAnthropic = async (): Promise<RespostaIa> => {
     if (!anthropicKey) throw new Error('Anthropic key não configurada')
-    aiResp = await callAnthropic(anthropicKey, await getAnthropicModel(), systemPrompt, userPrompt)
+    return callAnthropic(anthropicKey, await getAnthropicModel(), systemPrompt, userPrompt)
   }
-  const tryOpenAi = async () => {
+  const tryOpenAi = async (): Promise<RespostaIa> => {
     if (!openaiKey) throw new Error('OpenAI key não configurada')
-    aiResp = await callOpenAi(openaiKey, await getOpenAiModel(), systemPrompt, userPrompt)
+    return callOpenAi(openaiKey, await getOpenAiModel(), systemPrompt, userPrompt)
   }
 
   if (primary === 'openai') {
-    try { await tryOpenAi() } catch (e: any) { lastErr = e; try { await tryAnthropic() } catch (e2: any) { lastErr = e2 } }
+    try { aiResp = await tryOpenAi() } catch (e: any) { lastErr = e; try { aiResp = await tryAnthropic() } catch (e2: any) { lastErr = e2 } }
   } else {
-    try { await tryAnthropic() } catch (e: any) { lastErr = e; try { await tryOpenAi() } catch (e2: any) { lastErr = e2 } }
+    try { aiResp = await tryAnthropic() } catch (e: any) { lastErr = e; try { aiResp = await tryOpenAi() } catch (e2: any) { lastErr = e2 } }
   }
   if (!aiResp) throw lastErr ?? new Error('Sem provedor de IA disponível')
 

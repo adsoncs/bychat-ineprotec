@@ -48,7 +48,7 @@ interface SendWhatsAppButtonProps {
    * coisa (falar com a pessoa) não podem ter pesos diferentes: o verde puxava
    * o olho para o canal em vez de para o lead.
    */
-  tone?: 'brand' | 'neutral'
+  tone?: 'brand' | 'neutral' | undefined
   /** callback após envio bem-sucedido (opcional) */
   onSent?: () => void
 }

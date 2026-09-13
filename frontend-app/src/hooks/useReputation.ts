@@ -109,7 +109,7 @@ export function useReputationImports() {
 export function useUpdateReputationCompany() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number; status?: string; notes?: string; leadId?: number | null }) =>
+    mutationFn: ({ id, ...body }: { id: number; status?: string | undefined; notes?: string; leadId?: number | null | undefined }) =>
       api.patch(`/admin/reputation/companies/${id}`, body),
     onSuccess: (_r, v) => {
       qc.invalidateQueries({ queryKey: ['reputation-companies'] })

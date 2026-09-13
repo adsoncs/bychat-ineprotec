@@ -30,7 +30,7 @@ export interface CloudApiConnection {
   tokenType: string
   /** Número segue ativo no app WhatsApp Business do celular (coexistência). */
   coexistence?: boolean
-  businessProfile: { about?: string; address?: string; description?: string; email?: string; profile_picture_url?: string } | null
+  businessProfile: { about?: string; address?: string; description?: string; email?: string | undefined; profile_picture_url?: string } | null
   createdAt: string
   updatedAt: string
 }
@@ -254,7 +254,7 @@ export function useCloudApiProfile(id: number | null) {
 export interface UpdateCloudApiProfileInput {
   about?: string
   address?: string
-  description?: string
+  description?: string | undefined
   email?: string
   vertical?: string
   websites?: string[]

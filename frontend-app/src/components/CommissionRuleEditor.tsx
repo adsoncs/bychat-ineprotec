@@ -21,7 +21,7 @@ interface Funnel { id: number; name: string; active?: boolean }
 interface UserOption { id: number; name: string }
 
 type Draft = {
-  id?: number
+  id?: number | undefined
   nome: string
   active: boolean
   funnelId: number | null
@@ -125,7 +125,7 @@ export function CommissionRuleEditor({ open, rule, funnels, users, onClose }: {
     setD((cur) => ({
       ...cur,
       tiers: [...cur.tiers, {
-        atingimentoMin: cur.tiers.length ? Math.min(200, (cur.tiers[cur.tiers.length - 1].atingimentoMin || 0) + 20) : 0,
+        atingimentoMin: cur.tiers.length ? Math.min(200, (cur.tiers[cur.tiers.length - 1]!.atingimentoMin || 0) + 20) : 0,
         tipoUnico: cur.tipoUnico, taxaUnico: cur.taxaUnico,
         tipoRecorrente: cur.tipoRecorrente, taxaRecorrente: cur.taxaRecorrente,
       }],

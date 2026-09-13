@@ -90,7 +90,7 @@ export function useLeadStageSuggestions(leadId: number | null) {
 export function useApplySuggestion() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, note }: { id: number; note?: string }) =>
+    mutationFn: ({ id, note }: { id: number; note?: string | undefined }) =>
       api.post<{ ok: true }>(`/admin/ai-journey/suggestions/${id}/apply`, { note }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['ai-journey-suggestions'] })
@@ -103,7 +103,7 @@ export function useApplySuggestion() {
 export function useRejectSuggestion() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, note }: { id: number; note?: string }) =>
+    mutationFn: ({ id, note }: { id: number; note?: string | undefined }) =>
       api.post<{ ok: true }>(`/admin/ai-journey/suggestions/${id}/reject`, { note }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['ai-journey-suggestions'] })

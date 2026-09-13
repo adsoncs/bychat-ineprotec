@@ -21,7 +21,7 @@ export interface GoogleConnection {
   updatedAt: string
   /** "COMPANY" = conta da empresa (Drive/Sheets centralizado + fallback). "OPERATOR" = conta pessoal de um operador. */
   kind?: 'COMPANY' | 'OPERATOR'
-  userId?: number | null
+  userId?: number | null | undefined
 }
 
 export interface Spreadsheet { id: string; name: string; modifiedTime?: string }
@@ -522,7 +522,7 @@ export function useCreateGmailConfig() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { connectionId: number; senderName?: string; signature?: string }) =>
-      api.post<{ data: GmailConfig & { email?: string } }>('/admin/google/gmail/config', input),
+      api.post<{ data: GmailConfig & { email?: string | undefined } }>('/admin/google/gmail/config', input),
     onSuccess: () => inv(qc, KEY_GMAIL_CONFIGS, KEY_GMAIL_PROFILE),
   })
 }
@@ -555,7 +555,7 @@ export function useGmailProfile(enabled: boolean) {
 
 export function useSendGmail() {
   return useMutation({
-    mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string; replyTo?: string }) =>
+    mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string | undefined; replyTo?: string }) =>
       api.post<{ success: true; messageId: string }>('/admin/google/gmail/send', input),
   })
 }
@@ -564,7 +564,7 @@ export function useSendGmail() {
 export function useSendLeadEmail(leadId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string; replyToActivityId?: number; files?: File[] }) => {
+    mutationFn: (input: { to: string; subject: string; body: string; bodyHtml?: string | undefined; replyToActivityId?: number | undefined; files?: File[] | undefined }) => {
       if (input.files && input.files.length > 0) {
         const fd = new FormData()
         fd.append('to', input.to)

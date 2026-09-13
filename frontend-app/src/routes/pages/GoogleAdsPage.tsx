@@ -56,7 +56,7 @@ function abrirConsentimento(url: string, aoConectar: () => void) {
 
   function handler(ev: MessageEvent) {
     if (!ev.data || typeof ev.data !== 'object') return
-    const d = ev.data as { type?: string; email?: string; error?: string }
+    const d = ev.data as { type?: string | undefined; email?: string | undefined; error?: string | undefined }
     if (d.type === 'google-auth-success') {
       toast(`${d.email} conectado para o Google Ads`, 'success')
       window.removeEventListener('message', handler)

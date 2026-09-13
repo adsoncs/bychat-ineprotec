@@ -53,7 +53,7 @@ function DividaTab() {
 
       <div class="flex flex-wrap gap-1">
         <button class={`text-xs px-2 py-1 rounded border ${status === '' ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus('')}>Todas</button>
-        {Object.keys(CDA_STATUS).map((s) => <button key={s} class={`text-xs px-2 py-1 rounded border ${status === s ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus(s)}>{CDA_STATUS[s].label} ({counts[s] ?? 0})</button>)}
+        {Object.keys(CDA_STATUS).map((s) => <button key={s} class={`text-xs px-2 py-1 rounded border ${status === s ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus(s)}>{CDA_STATUS[s]?.label ?? s} ({counts[s] ?? 0})</button>)}
       </div>
 
       {data.isLoading ? <Skeleton class="h-24 w-full" /> : cdas.length === 0 ? <EmptyState icon={<Scale size={26} />} title="Sem CDAs" description="Inscreva parcelas vencidas em dívida ativa acima." /> : (

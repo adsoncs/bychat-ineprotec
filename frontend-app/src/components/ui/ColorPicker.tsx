@@ -32,8 +32,8 @@ const PRESET_COLORS = [
 interface ColorPickerProps {
   value: string
   onChange: (v: string) => void
-  label?: string
-  hint?: string
+  label?: string | undefined
+  hint?: string | undefined
   /** Permitir alpha (RRGGBBAA). Default: detecta automaticamente do value. */
   alpha?: boolean
   /** Posição da pop. Default 'bottom'. */

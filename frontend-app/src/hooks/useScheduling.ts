@@ -76,7 +76,7 @@ export function useDeleteMeetingType() {
 
 // ── Disponibilidade & slots (Fase 2) ──
 export interface WeeklyRule { weekday: number; start: string; end: string }
-export interface AvailabilityException { id?: number; date: string; unavailable: boolean; startTime?: string | null; endTime?: string | null; note?: string | null }
+export interface AvailabilityException { id?: number; date: string; unavailable: boolean; startTime?: string | null; endTime?: string | null; note?: string | null | undefined }
 export interface AvailabilityData { timezone: string; rules: WeeklyRule[]; exceptions: AvailabilityException[] }
 export interface DaySlots { date: string; weekday: number; slots: { startAt: string; endAt: string; label: string }[] }
 
@@ -178,7 +178,7 @@ export interface CalendarEvent {
   color: string
   confirmedAt?: string | null
   confirmRequestedAt?: string | null
-  note?: string | null
+  note?: string | null | undefined
   meetingTypeName?: string | null
   locationType?: string | null
   meetLink?: string | null
@@ -198,14 +198,14 @@ export interface CalendarResponse {
   googleConnected?: boolean
 }
 export interface BlockInput {
-  id?: number
+  id?: number | undefined
   title?: string
   kind?: 'busy' | 'event'
   startAt: string
   endAt: string
   allDay?: boolean
   color?: string | null
-  note?: string | null
+  note?: string | null | undefined
   operatorUserId?: number | null
 }
 
@@ -240,7 +240,7 @@ export function useDeleteBlock() {
 export function useUpdateBookingStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status, reason }: { id: number; status: string; reason?: string }) =>
+    mutationFn: ({ id, status, reason }: { id: number; status: string; reason?: string | undefined }) =>
       api.patch(`/admin/scheduling/calendar/bookings/${id}`, { status, ...(reason ? { reason } : {}) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['scheduling-calendar'] }),
   })

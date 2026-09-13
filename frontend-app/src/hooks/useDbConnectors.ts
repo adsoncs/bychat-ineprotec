@@ -37,7 +37,7 @@ export interface DbConnector {
 export interface DbConnectorInput {
   name: string
   channelLabel?: string | null
-  description?: string | null
+  description?: string | null | undefined
   dbType: DbType
   host: string
   port: number
@@ -128,14 +128,14 @@ export function useDeleteDbConnector() {
 export function useTestDbConnection() {
   return useMutation({
     mutationFn: (data: Partial<DbConnectorInput> & { connectorId?: number }) =>
-      api.post<{ ok: boolean; error?: string }>('/admin/db-connectors/test-connection', data),
+      api.post<{ ok: boolean; error?: string | undefined }>('/admin/db-connectors/test-connection', data),
   })
 }
 
 export function usePreviewDbConnector() {
   return useMutation({
     mutationFn: (id: number) =>
-      api.post<{ ok: boolean; rowsRead: number; preview: Record<string, unknown>[]; error?: string }>(`/admin/db-connectors/${id}/preview`, {}),
+      api.post<{ ok: boolean; rowsRead: number; preview: Record<string, unknown>[]; error?: string | undefined }>(`/admin/db-connectors/${id}/preview`, {}),
   })
 }
 

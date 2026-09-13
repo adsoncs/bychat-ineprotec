@@ -364,7 +364,7 @@ export function useUploadPageAsset() {
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: fd,
       })
-      const json = await res.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string }
+      const json = await res.json().catch(() => ({})) as { ok?: boolean; url?: string; error?: string | undefined }
       if (!res.ok || !json.url) throw new Error(json.error ?? `HTTP ${res.status}`)
       return { url: json.url }
     },

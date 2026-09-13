@@ -91,7 +91,7 @@ export interface WebhookTestResult {
   success: boolean
   statusCode?: number
   duration?: number
-  error?: string
+  error?: string | undefined
 }
 
 export function useTestWebhook() {

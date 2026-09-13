@@ -115,7 +115,7 @@ export async function criar(p: CriarEnvelope) {
 }
 
 /** Cria um envelope a partir de um template (interpola corpo + signatários padrão). */
-export async function criarDeTemplate(templateId: number, ctx: { alunoId?: number | null; matriculaId?: number | null; contratoId?: number | null; titulo?: string }) {
+export async function criarDeTemplate(templateId: number, ctx: { alunoId?: number | null; matriculaId?: number | null; contratoId?: number | null; titulo?: string; tipoNegocio?: string | null }) {
   const t = await prisma.acaContratoTemplate.findUnique({ where: { id: templateId } })
   if (!t) throw new Error('Template não encontrado')
   const cfg = (t.config as any) || {}

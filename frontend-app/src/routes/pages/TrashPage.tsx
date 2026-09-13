@@ -499,7 +499,7 @@ function RowActions({ onView, onRestore, onDelete }: {
 
 function ActionButton({ children, tone, onClick }: {
   children: preact.ComponentChildren
-  tone?: 'success' | 'danger'
+  tone?: 'success' | 'danger' | undefined
   onClick: () => void
 }) {
   return (

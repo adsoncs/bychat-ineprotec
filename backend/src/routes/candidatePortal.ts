@@ -13,6 +13,7 @@ import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { validateUploadContent, UploadValidationError } from '../lib/uploadSafety.js'
+import { Prisma } from '@prisma/client'
 
 async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
   const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
@@ -499,7 +500,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
     await prisma.enrollmentDocument.update({
       where: { id: doc.id },
-      data: { aiStatus: 'pending', aiSuggestion: null, aiConfidence: null, aiAnalysis: null, aiProcessedAt: null },
+      data: { aiStatus: 'pending', aiSuggestion: null, aiConfidence: null, aiAnalysis: Prisma.DbNull, aiProcessedAt: null },
     })
     const { queues } = await import('../lib/queues.js')
     await queues.documentReview.add('review', { docId: doc.id }, {

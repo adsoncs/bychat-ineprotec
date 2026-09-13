@@ -49,7 +49,7 @@ function atalhos(): { label: string; date: Date }[] {
   ]
 }
 
-export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial, channelId, onAgendado }: Props) {
+export function ScheduleMessageModal({ open, onOpenChange, leadId, textoInicial, onAgendado }: Props) {
   const [quando, setQuando] = useState(() => paraInputLocal(new Date(Date.now() + 3600_000)))
   const [texto, setTexto] = useState(textoInicial ?? '')
   const [cancelarSeResponder, setCancelarSeResponder] = useState(true)

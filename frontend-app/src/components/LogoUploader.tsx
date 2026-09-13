@@ -8,7 +8,7 @@ import { toast } from '@/lib/toast'
 interface LogoUploaderProps {
   slot: LogoSlot
   label: string
-  hint?: string
+  hint?: string | undefined
   currentUrl: string
   /** aceitar SVG/ICO além de imagens raster (favicon usa true) */
   allowVector?: boolean

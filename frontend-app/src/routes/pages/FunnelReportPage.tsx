@@ -21,10 +21,6 @@ const fmtInt = (n: number) => intFmt.format(Math.round(n || 0))
 const fmtPct = (n: number | null) => (n === null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(1)}%`)
 const reduceMotion = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-function today() { return new Date().toISOString().slice(0, 10) }
-function isoAgo(days: number) { return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) }
-function monthStart(offset = 0) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset); return d.toISOString().slice(0, 10) }
-function monthEnd(offset = 0) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset + 1); d.setDate(0); return d.toISOString().slice(0, 10) }
 
 // ── count-up animado (Motion) ────────────────────────────────────
 function useCountUp(target: number, deps: unknown[]) {

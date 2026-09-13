@@ -28,7 +28,7 @@ export interface RoutingAgent {
 }
 
 export interface WorkingHourEntry {
-  id?: number
+  id?: number | undefined
   weekday: number
   startTime: string
   endTime: string
@@ -91,7 +91,7 @@ export function useSaveAgentWorkingHours(userId: number) {
 
 // ── Skills do agente (F5) ────────────────────────────────────────────
 export interface SkillEntry {
-  id?: number
+  id?: number | undefined
   skill: string
   level: number
 }
@@ -470,7 +470,7 @@ export interface RoutingRuleInput {
   enabled?: boolean
   conditions: RuleCondition[]
   action: RuleAction
-  description?: string | null
+  description?: string | null | undefined
 }
 
 export function useRoutingRules() {

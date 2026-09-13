@@ -4,7 +4,7 @@ import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Input, Select } from '@/components/ui/Input'
 import {
   useAcaRefs, usePeriodos, useDisciplinas, useMatrizes, useTurmas, useCatalogoMut,
   type Matriz, type Ref, type Turma,
@@ -156,7 +156,7 @@ function MatrizCard({ matriz, disciplinas, mut }: { matriz: Matriz; disciplinas:
       {Object.keys(porFase).sort((a, b) => +a - +b).map((f) => (
         <div key={f} class="space-y-1">
           <div class="text-xs font-medium text-fg-muted">Módulo {f}</div>
-          {porFase[+f].map((c) => (
+          {(porFase[+f] ?? []).map((c) => (
             <div key={c.id} class="flex items-center gap-2 text-sm pl-2">
               <span class="flex-1 text-fg">{c.disciplina.nome}</span>
               <span class="text-xs text-fg-subtle">{c.disciplina.cargaHoraria}h</span>

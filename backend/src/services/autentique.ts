@@ -131,7 +131,9 @@ export async function criarDocumento(token: string, sandbox: boolean, name: stri
   const form = new FormData()
   form.append('operations', JSON.stringify({ query, variables }))
   form.append('map', JSON.stringify({ '0': ['variables.file'] }))
-  form.append('0', new Blob([pdf], { type: 'application/pdf' }), `${name}.pdf`)
+  // Uint8Array e não Buffer: a tipagem de Blob não aceita Buffer, e a cópia da
+  // view sobre o mesmo ArrayBuffer não custa nada.
+  form.append('0', new Blob([new Uint8Array(pdf)], { type: 'application/pdf' }), `${name}.pdf`)
 
   const res = await fetch(ENDPOINT, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form })
   const j = (await res.json()) as GqlResult<{ createDocument: CriarDocResult }>

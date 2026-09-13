@@ -141,7 +141,7 @@ export function useDsarRequests(status: string) {
 export function useUpdateDsar() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status, response }: { id: number; status?: string; response?: string }) =>
+    mutationFn: ({ id, status, response }: { id: number; status?: string | undefined; response?: string }) =>
       api.post<{ ok: true }>(`/admin/dsar/${id}`, { status, response }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dsar'] }),
   })
@@ -150,7 +150,7 @@ export function useUpdateDsar() {
 export function useDeleteDsarLead() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+    mutationFn: ({ id, reason }: { id: number; reason?: string | undefined }) =>
       api.post<{ ok: true }>(`/admin/dsar/${id}/delete-lead`, { reason }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dsar'] })

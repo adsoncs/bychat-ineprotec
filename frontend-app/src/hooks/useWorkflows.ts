@@ -7,7 +7,14 @@ export interface WorkflowTriggerConfig {
   newValue?: string | undefined
   tagName?: string | undefined
   channel?: string | undefined
-  source?: string | undefined
+  /**
+   * Origem do lead na condição.
+   *
+   * Aceita lista: o backend normaliza com `valueList()` e testa com
+   * `includes()`, então a tela pode oferecer várias origens de uma vez — era o
+   * que ela já fazia, contra um tipo que dizia o contrário.
+   */
+  source?: string | string[] | undefined
   chatbotId?: number | undefined
   /** Fase 23.1: filtro de objeção em lead.lost (lista de LossReason.id). */
   reasonIds?: number[] | undefined

@@ -36,7 +36,7 @@ const num = (v: unknown) => { const n = parseFloat(String(v ?? '').replace(',', 
 // único (um valor alto dividido em 6x) e `recorrenciaMeses` só para o recorrente.
 /** "R$ 8.000,00 + R$ 890,00/mês" quando há mensalidade; só o total quando não há.
  * Um contrato de recorrência exibido como número único parece venda avulsa. */
-function negValueLabel(n: { valorFinal?: unknown; valorUnico?: unknown; valorRecorrente?: unknown } | null | undefined): string {
+function negValueLabel(n: { valorFinal?: unknown | undefined; valorUnico?: unknown; valorRecorrente?: unknown } | null | undefined): string {
   const mrr = num(n?.valorRecorrente)
   if (!n || mrr <= 0) return money(n?.valorFinal)
   const unico = num(n.valorUnico)
@@ -167,7 +167,7 @@ function CatalogPickerModal({ open, onClose, onAdd }: { open: boolean; onClose: 
         {browse.isLoading ? (
           <div class="space-y-2"><Skeleton class="h-10 w-full" /><Skeleton class="h-10 w-full" /></div>
         ) : produtos.length === 0 ? (
-          <EmptyState icon={Boxes} title="Nada no catálogo"
+          <EmptyState icon={<Boxes size={22} />} title="Nada no catálogo"
             description={cat || q ? 'Nenhum item com esse filtro. Limpe a busca ou escolha outra categoria.' : 'Cadastre o que você vende em CRM › Catálogo para reaproveitar nas propostas — ou adicione o item digitando à mão.'} />
         ) : (
           <div class="max-h-80 overflow-y-auto rounded-md border border-border divide-y divide-border">
@@ -331,12 +331,10 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
   // recorrente. Sem isso, um desconto no valor avulso derrubaria o MRR do card.
   const subUnico = f.rows.reduce((s, r) => s + (isRec(r) ? 0 : rowSubtotal(r)), 0)
   const subRecorrente = f.rows.reduce((s, r) => s + (isRec(r) ? rowSubtotal(r) : 0), 0)
-  const subtotal = subUnico + subRecorrente
   // Cada bloco tem o seu desconto: ceder no valor cobrado uma vez e ceder na
   // mensalidade são concessões diferentes e de valores diferentes.
   const descUnico = f.descontoValor ? (f.descontoTipo === 'percent' ? subUnico * (num(f.descontoValor) / 100) : num(f.descontoValor)) : 0
   const descRecorrente = f.descontoRecValor ? (f.descontoRecTipo === 'percent' ? subRecorrente * (num(f.descontoRecValor) / 100) : num(f.descontoRecValor)) : 0
-  const desconto = descUnico + descRecorrente
   const acrescimos = num(f.acrescimos)
   const totalUnico = Math.max(0, subUnico - descUnico + acrescimos)
   const mrr = Math.max(0, subRecorrente - descRecorrente)
@@ -803,11 +801,11 @@ export function LeadNegotiationTab({ leadId }: { leadId: number }) {
         <Button size="sm" variant="primary" onClick={() => setSelected('new')}><Plus size={14} /> Nova negociação</Button>
       </div>
       {isLoading ? <Skeleton class="h-24 w-full" /> : list.length === 0 ? (
-        <EmptyState icon={Handshake} title="Nenhuma negociação" description="Crie uma proposta: adicione itens, desconto e condições de pagamento — o total é calculado na hora." />
+        <EmptyState icon={<Handshake size={22} />} title="Nenhuma negociação" description="Crie uma proposta: adicione itens, desconto e condições de pagamento — o total é calculado na hora." />
       ) : (
         <div class="space-y-2">
           {list.map((neg: Negotiation) => {
-            const st = neg.resultado === 'won' ? { label: 'Ganha', tone: 'success' as Tone } : neg.resultado === 'lost' ? { label: 'Perdida', tone: 'danger' as Tone } : (STATUS[neg.status] || STATUS.rascunho)
+            const st = neg.resultado === 'won' ? { label: 'Ganha', tone: 'success' as Tone } : neg.resultado === 'lost' ? { label: 'Perdida', tone: 'danger' as Tone } : (STATUS[neg.status] || STATUS.rascunho!)
             return (
               <Card key={neg.id}>
                 <button type="button" class="w-full text-left flex items-center gap-3" onClick={() => setSelected(neg.id)}>

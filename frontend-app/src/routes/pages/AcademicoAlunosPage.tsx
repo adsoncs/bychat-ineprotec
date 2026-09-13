@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { GraduationCap, Plus, Hash, UserPlus, X, ArrowLeft, Search } from 'lucide-preact'
+import { GraduationCap, Hash, UserPlus, X, ArrowLeft, Search } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -84,7 +84,7 @@ function PromoteModal({ open, onClose, onDone }: { open: boolean; onClose: () =>
   }
 
   return (
-    <Modal open={open} onClose={() => { reset(); onClose() }} title="Promover contato a aluno">
+    <Modal open={open} onOpenChange={(o) => { if (!o) { reset(); onClose() } }} title="Promover contato a aluno">
       <div class="space-y-3">
         {!picked ? (
           <>

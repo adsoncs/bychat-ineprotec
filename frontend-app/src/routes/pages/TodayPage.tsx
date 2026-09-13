@@ -385,7 +385,7 @@ function groupByLead(activities: Activity[], now: number): LeadGroup[] {
   const groups = Array.from(map.values())
   for (const g of groups) {
     g.activities.sort((a, b) => timeOf(a) - timeOf(b))
-    g.firstAt = timeOf(g.activities[0])
+    g.firstAt = g.activities[0] ? timeOf(g.activities[0]) : 0
     g.overdue = g.activities.filter((a) => urgencyOf(a, now) === 'overdue').length
   }
   return groups.sort((a, b) => a.firstAt - b.firstAt)

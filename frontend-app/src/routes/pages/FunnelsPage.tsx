@@ -224,7 +224,7 @@ function SetDefaultFunnelDialog({ funnel, current, onClose }: {
   )
 }
 
-function Pill({ icon, children, tone = 'default' }: { icon?: preact.ComponentChildren; children: preact.ComponentChildren; tone?: 'default' | 'muted' }) {
+function Pill({ icon, children, tone = 'default' }: { icon?: preact.ComponentChildren; children: preact.ComponentChildren; tone?: 'default' | 'muted' | undefined }) {
   const cls = tone === 'muted'
     ? 'bg-surface-3 text-fg-muted'
     : 'bg-surface-3 text-fg-muted'

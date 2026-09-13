@@ -19,6 +19,6 @@ export function useAcessoMut() {
     atualizarPonto: useMutation({ mutationFn: ({ id, ...b }: any) => api.put(`${base}/pontos/${id}`, b), onSuccess: () => inval('aca-acesso-pontos') }),
     gerarCredencial: useMutation({ mutationFn: (alunoId: number) => api.post(`${base}/credenciais`, { alunoId }), onSuccess: () => inval('aca-acesso-cred') }),
     toggleCredencial: useMutation({ mutationFn: ({ id, ativo }: { id: number; ativo: boolean }) => api.put(`${base}/credenciais/${id}`, { ativo }), onSuccess: () => inval('aca-acesso-cred') }),
-    registrar: useMutation({ mutationFn: (b: { token: string; pontoId?: number; tipo?: string }) => api.post<{ autorizado: boolean; motivo: string | null; alunoNome: string | null }>(`${base}/registrar`, b), onSuccess: () => inval('aca-acesso-logs') }),
+    registrar: useMutation({ mutationFn: (b: { token: string; pontoId?: number | undefined; tipo?: string | undefined }) => api.post<{ autorizado: boolean; motivo: string | null; alunoNome: string | null }>(`${base}/registrar`, b), onSuccess: () => inval('aca-acesso-logs') }),
   }
 }

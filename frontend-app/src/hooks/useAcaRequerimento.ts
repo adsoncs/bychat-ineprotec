@@ -4,7 +4,7 @@ import { api } from '@/lib/apiClient'
 export interface Requerimento {
   id: number; protocolo: string; alunoId: number; ra: string | null; alunoNome: string; tipoNome: string
   assunto: string; descricao: string | null; status: string; resposta: string | null; documentoId: number | null
-  custoParcelaId: number | null; prazoEm: string | null; respondidoEm: string | null; createdAt: string; email?: string; whatsapp?: string
+  custoParcelaId: number | null; prazoEm: string | null; respondidoEm: string | null; createdAt: string; email?: string | undefined; whatsapp?: string
 }
 export interface ReqTipo {
   id: number; nome: string; descricao: string | null; slaDias: number; geraDocumento: string | null; ativo: boolean; ordem: number
@@ -35,7 +35,7 @@ export function useRequerimento(id: number | null) {
 export function useRequerimentoMut() {
   const qc = useQueryClient()
   const inval = () => { void qc.invalidateQueries({ queryKey: ['aca-reqs'] }); void qc.invalidateQueries({ queryKey: ['aca-req'] }) }
-  return useMutation({ mutationFn: ({ id, ...b }: { id: number; status?: string; resposta?: string }) => api.put(`/admin/aca/requerimentos/${id}`, b), onSuccess: inval })
+  return useMutation({ mutationFn: ({ id, ...b }: { id: number; status?: string | undefined; resposta?: string }) => api.put(`/admin/aca/requerimentos/${id}`, b), onSuccess: inval })
 }
 export function useTramitarMut() {
   const qc = useQueryClient()

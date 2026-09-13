@@ -2,7 +2,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { env } from '@/lib/env'
 
-export interface FinFiltros { situacao?: string; turmaId?: number; periodoLetivoId?: number; q?: string; vencidas?: boolean; tipo?: string; page?: number; limit?: number }
+// Filtros da tela: todos opcionais e todos podem chegar como `undefined`
+// explícito — é assim que a tela diz "limpei este filtro". Com
+// `exactOptionalPropertyTypes`, isso precisa estar no tipo.
+export interface FinFiltros {
+  situacao?: string | undefined
+  turmaId?: number | undefined
+  periodoLetivoId?: number | undefined
+  q?: string | undefined
+  vencidas?: boolean | undefined
+  tipo?: string | undefined
+  page?: number | undefined
+  limit?: number | undefined
+}
 export interface ParcelaLinha {
   id: number; nroParcela: number; tipo: string; valor: number; valorPago: number; vencimento: string; pagoEm: string | null
   multa: number; juros: number; desconto: number; valorAtual: number
@@ -93,7 +105,7 @@ export function useNfseMut(parcelaId: number) {
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-nfse', parcelaId] })
   return {
     criar: useMutation({ mutationFn: () => api.post('/admin/aca/financeiro/nfse', { parcelaId }), onSuccess: inval }),
-    registrar: useMutation({ mutationFn: ({ id, ...b }: { id: number; status?: string; numero?: string; serie?: string; link?: string }) => api.put(`/admin/aca/financeiro/nfse/${id}`, b), onSuccess: inval }),
+    registrar: useMutation({ mutationFn: ({ id, ...b }: { id: number; status?: string | undefined; numero?: string; serie?: string; link?: string }) => api.put(`/admin/aca/financeiro/nfse/${id}`, b), onSuccess: inval }),
     excluir: useMutation({ mutationFn: (id: number) => api.delete(`/admin/aca/financeiro/nfse/${id}`), onSuccess: inval }),
   }
 }

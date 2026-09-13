@@ -42,7 +42,7 @@ function Lista({ onOpen }: { onOpen: (tipo: 'aluno' | 'prof', id: number) => voi
       <div class="flex flex-wrap gap-1">
         {PAPEIS.map((p) => (
           <button key={p || 'all'} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>
-            {p === '' ? 'Todos' : PAPEL_LABEL[p].label}{p && counts[p] ? ` (${counts[p]})` : ''}
+            {p === '' ? 'Todos' : PAPEL_LABEL[p]?.label ?? p}{p && counts[p] ? ` (${counts[p]})` : ''}
           </button>
         ))}
       </div>
@@ -99,7 +99,7 @@ function NovaPessoaModal({ onClose, onCreated }: { onClose: () => void; onCreate
       <div class="space-y-3">
         <div class="flex flex-wrap gap-1">
           {['ALUNO', 'PROFESSOR', 'ORIENTADOR', 'COORDENADOR', 'CANDIDATO'].map((p) => (
-            <button key={p} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-accent/10 border-accent text-accent' : 'border-border text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>{PAPEL_LABEL[p].label}</button>
+            <button key={p} class={`text-xs px-3 py-1.5 rounded-md border ${papel === p ? 'bg-accent/10 border-accent text-accent' : 'border-border text-fg-muted hover:bg-surface-2'}`} onClick={() => setPapel(p)}>{PAPEL_LABEL[p]?.label ?? p}</button>
           ))}
         </div>
         {papel === 'ALUNO' && (

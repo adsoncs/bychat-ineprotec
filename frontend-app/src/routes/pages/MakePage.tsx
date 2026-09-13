@@ -534,7 +534,7 @@ function ApiKeyStatusBanner({
 
 function KpiCell({
   label, value, tone = 'neutral',
-}: { label: string; value: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) {
+}: { label: string; value: string; tone?: 'neutral' | 'success' | 'warning' | 'danger' | undefined }) {
   const toneCls =
     tone === 'success' ? 'text-success' :
     tone === 'warning' ? 'text-warning' :

@@ -23,7 +23,7 @@ const PERSONAS = [
 
 type Persona = (typeof PERSONAS)[number]['id']
 
-function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string | number; hint?: string; tone?: string }) {
+function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string | number; hint?: string | undefined; tone?: string | undefined }) {
   return (
     <Card class="space-y-1">
       <div class="flex items-center gap-2 text-fg-muted text-xs">{icon}<span>{label}</span></div>

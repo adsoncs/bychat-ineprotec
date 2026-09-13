@@ -33,7 +33,7 @@ export function PortalAnalyticsTab({ portal }: { portal: EnrollmentPortal }) {
           </div>
           <Select
             value={mes}
-            onChange={(e) => setDays(Number((e.target as HTMLSelectElement).value))}
+            onChange={(e) => setMes((e.target as HTMLSelectElement).value as RangePreset)}
             aria-label="Período"
           >
             {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}

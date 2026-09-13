@@ -597,7 +597,7 @@ function LeadOwnerBadge({
   assignedUser,
 }: {
   leadId: number
-  assignedUser: { id: number; name: string; email?: string } | null | undefined
+  assignedUser: { id: number; name: string; email?: string | undefined } | null | undefined
 }) {
   const me = useUserStore((s) => s.user)
   const canChange = me?.role === 'SUPERADMIN' || me?.role === 'ADMIN'
@@ -635,7 +635,7 @@ function LeadOwnerPicker({
   label,
 }: {
   leadId: number
-  assignedUser: { id: number; name: string; email?: string } | null
+  assignedUser: { id: number; name: string; email?: string | undefined } | null
   badgeClass: string
   label: string
 }) {

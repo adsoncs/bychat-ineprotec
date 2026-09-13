@@ -1190,7 +1190,7 @@ function ChannelTag({ channel, compact = false, semTexto = false }: {
     messenger: { Icon: MessageCircle, cls: 'bg-[#0084FF]/15 text-[#0084FF]' },
     evolution: { Icon: Smartphone, cls: '' },
   }
-  const { Icon, cls } = map[channel.provider] || map.evolution
+  const { Icon, cls } = map[channel.provider] || map.evolution!
   const num = channel.number || channel.name
   const ehWhats = channel.provider === 'evolution' || channel.provider === 'cloud_api'
   const cor = ehWhats ? corDoCanal(channel.color, channel.provider) : null
@@ -1826,7 +1826,6 @@ function ChatPanel({
    * selecionar o trecho na mão — que é exatamente o trabalho que a gente queria
    * poupar. Isolado na própria mensagem, "copiar" traz só o código.
    */
-  const MARCA_QUEBRA = /^\s*\[\[quebra\]\]\s*$/im
 
   /** Devolve o texto à caixa quando o envio falha, sem atropelar o que já foi digitado. */
   function devolverTexto(texto: string) {
@@ -3125,7 +3124,7 @@ function ChatPanel({
                       const n = slashMatches.length
                       if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex((i) => (i + 1) % n); return }
                       if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex((i) => (i - 1 + n) % n); return }
-                      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); void selectShortcut(slashMatches[Math.min(slashIndex, n - 1)]); return }
+                      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const alvo = slashMatches[Math.min(slashIndex, n - 1)]; if (alvo) void selectShortcut(alvo); return }
                       if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                     }
                     // Tecla de envio conforme a preferência: "Enter envia"
@@ -3297,7 +3296,7 @@ function MediaContent({
   if (type === 'contact') {
     const linhas = (name ?? '').split(',').map((n) => n.trim()).filter(Boolean)
     const telefones = (url ?? '').split('\n')
-      .flatMap((v) => [...v.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)].map((m) => m[1].trim()))
+      .flatMap((v) => [...v.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)].map((m) => (m[1] ?? "").trim()))
       .filter(Boolean)
     return (
       <div class="mb-1 rounded-md border border-border bg-surface-2 px-3 py-2">
@@ -4224,7 +4223,7 @@ function formatHourMinute(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | null }) {
+function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | null | undefined }) {
   if (ack === null) return null
   // Falha de entrega. Antes caía no mesmo ramo do "pendente" e desenhava o
   // relógio: quem atendia lia como "ainda saindo" uma mensagem que o cliente

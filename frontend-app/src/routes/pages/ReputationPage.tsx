@@ -24,7 +24,7 @@ const pct = (v: number | null, digits = 0) => (v === null ? '—' : `${(v * 100)
 const num = (v: number) => v.toLocaleString('pt-BR')
 const monthLabel = (period: string) => {
   const [y, m] = period.split('-')
-  return `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(m) - 1]}/${y.slice(2)}`
+  return `${(['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(m) - 1] ?? '—')}/${(y ?? '').slice(2)}`
 }
 
 /** Faixas do score de oportunidade — quanto maior, mais a empresa "dói" hoje. */
@@ -541,7 +541,7 @@ function SchoolsTab() {
             <div class="text-sm font-semibold text-fg">Censo Escolar (INEP/MEC)</div>
             <p class="text-xs text-fg-muted mt-1">
               {done.length > 0
-                ? <>Anos ingeridos: <b class="text-fg">{done.map((d) => d.year).join(', ')}</b> — {num(done[0].schools)} escolas privadas em atividade.</>
+                ? <>Anos ingeridos: <b class="text-fg">{done.map((d) => d.year).join(', ')}</b> — {num(done[0]!.schools)} escolas privadas em atividade.</>
                 : 'Nenhum ano ingerido ainda.'}
               {pending.length > 0 && <> · Disponíveis: {pending.join(', ')}.</>}
               <br />

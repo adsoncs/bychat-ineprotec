@@ -32,7 +32,7 @@ interface CardStatus {
 interface SmtpTestResult {
   ok: boolean
   at: number
-  error?: string
+  error?: string | undefined
 }
 
 export function EmailSettings({ onGoToTab }: { onGoToTab?: (tab: Tab) => void } = {}) {

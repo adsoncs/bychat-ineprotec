@@ -100,7 +100,7 @@ export interface IntelFact {
   value: string
   confidence: number | null
   fetchedAt: string
-  status?: 'active' | 'disputed' | 'merged' | 'rejected' | 'stale'
+  status?: 'active' | 'disputed' | 'merged' | 'rejected' | 'stale' | undefined
 }
 
 export interface IntelLeadDetail {
@@ -213,7 +213,7 @@ export function useDeleteFact() {
 export function useDisputeFact() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ leadId, factId, reason, restore }: { leadId: number; factId: number; reason?: string; restore?: boolean }) =>
+    mutationFn: ({ leadId, factId, reason, restore }: { leadId: number; factId: number; reason?: string | undefined; restore?: boolean }) =>
       api.post<{ ok: true; status: string }>(`/bychat/leads/${leadId}/enrichment/${factId}/dispute`, { reason, restore }),
     onSuccess: (_, vars) => {
       void qc.invalidateQueries({ queryKey: ['intel-lead', vars.leadId] })
@@ -240,7 +240,7 @@ export function useConfirmCandidate() {
 export function useDismissCandidate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ leadId, factId, reason }: { leadId: number; factId: number; reason?: string }) =>
+    mutationFn: ({ leadId, factId, reason }: { leadId: number; factId: number; reason?: string | undefined }) =>
       api.post<{ ok: true; status: string }>(`/bychat/leads/${leadId}/enrichment/${factId}/dismiss`, { reason }),
     onSuccess: (_, vars) => {
       void qc.invalidateQueries({ queryKey: ['intel-lead', vars.leadId] })
@@ -334,7 +334,7 @@ export interface ApproachSuggestionsResponse {
   provider?: string
   model?: string
   costUsd?: number
-  reason?: string
+  reason?: string | undefined
 }
 
 export interface PromotionEntry {

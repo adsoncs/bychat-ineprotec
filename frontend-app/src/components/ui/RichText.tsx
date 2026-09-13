@@ -15,7 +15,7 @@ import {
 interface RichTextProps {
   value: string
   onChange: (html: string) => void
-  label?: string
+  label?: string | undefined
   placeholder?: string
   minHeight?: string
 }

@@ -58,7 +58,7 @@ export function useUploadActivityAttachment() {
 export function useDeleteActivityAttachment() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ activityId, attachmentId }: { activityId: number; attachmentId: number; leadId?: number }) =>
+    mutationFn: ({ activityId, attachmentId }: { activityId: number; attachmentId: number; leadId?: number | undefined }) =>
       api.delete<{ ok: true }>(`/activities/${activityId}/attachments/${attachmentId}`),
     onSuccess: (_, vars) => {
       void qc.invalidateQueries({ queryKey: ['activity-attachments', vars.activityId] })

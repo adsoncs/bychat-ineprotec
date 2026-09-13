@@ -73,6 +73,10 @@ import {
   Repeat,
   Mic,
   BookUser,
+  Radar,
+  Target,
+  Bell,
+  Stethoscope,
 } from 'lucide-preact'
 import type { JSX as JSXNs } from 'preact'
 
@@ -179,6 +183,10 @@ const ICONS: Record<IconName, unknown> = {
   Repeat,
   Mic,
   BookUser,
+  Radar,
+  Target,
+  Bell,
+  Stethoscope,
 }
 
 interface SidebarIconProps {

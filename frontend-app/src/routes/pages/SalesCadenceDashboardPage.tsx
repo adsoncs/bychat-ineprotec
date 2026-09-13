@@ -182,7 +182,7 @@ function KpiCard({
   icon: any
   label: string
   value: string
-  hint?: string
+  hint?: string | undefined
 }) {
   return (
     <Card>
@@ -205,7 +205,7 @@ function BreakdownCard({
   labelMap,
 }: {
   title: string
-  hint?: string
+  hint?: string | undefined
   data: Record<string, number>
   labelMap: Record<string, string>
 }) {

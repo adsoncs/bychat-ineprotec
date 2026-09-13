@@ -17,7 +17,7 @@ export function GoogleAccountSettings() {
   useEffect(() => {
     function handler(ev: MessageEvent) {
       if (!ev.data || typeof ev.data !== 'object') return
-      const d = ev.data as { type?: string; email?: string; kind?: string; error?: string }
+      const d = ev.data as { type?: string | undefined; email?: string | undefined; kind?: string; error?: string | undefined }
       if (d.type === 'google-auth-success') {
         toast(`${d.email} conectado à sua conta`, 'success')
         void qc.invalidateQueries({ queryKey: ['my-google'] })

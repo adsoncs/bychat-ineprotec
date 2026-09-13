@@ -170,7 +170,7 @@ function SenderHealthPanel({ senders }: { senders: Sender[] }) {
       </div>
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {senders.map((s) => {
-          const state = SENDER_STATE[s.state] ?? SENDER_STATE.warming
+          const state = SENDER_STATE[s.state] ?? SENDER_STATE.warming!
           const pct = s.dailyCap ? Math.min(100, Math.round((s.sentToday / s.dailyCap) * 100)) : 0
           return (
             <div key={s.id} class="rounded-md border border-border bg-surface-2 p-3">
@@ -456,7 +456,7 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
                 {senders.map((s) => {
                   const on = selectedSenders.has(s.instanceName)
                   const blocked = s.state === 'blocked'
-                  const state = SENDER_STATE[s.state] ?? SENDER_STATE.warming
+                  const state = SENDER_STATE[s.state] ?? SENDER_STATE.warming!
                   return (
                     <button key={s.id} type="button" disabled={blocked}
                       onClick={() => {

@@ -28,10 +28,10 @@ export interface WindowConfig {
 
 /** O que acontece com o lead quando ele responde ao disparo. */
 export interface ReplyActions {
-  moveToFunnelId?: number
-  moveToStageKey?: string
-  assignToUserId?: number
-  createActivity?: boolean
+  moveToFunnelId?: number | undefined
+  moveToStageKey?: string | undefined
+  assignToUserId?: number | undefined
+  createActivity?: boolean | undefined
 }
 
 export interface SmartCampaign {
@@ -265,7 +265,7 @@ export function useSimulateCampaign() {
 export function useStartSmartCampaign() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, scheduledAt }: { id: number; scheduledAt?: string | null }) =>
+    mutationFn: ({ id, scheduledAt }: { id: number; scheduledAt?: string | null | undefined }) =>
       api.post<{ ok: true; status: string; plan: PlanSummary }>(`${BASE}/campaigns/${id}/start`, { scheduledAt }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['smart-campaigns'] }),
   })
@@ -322,7 +322,7 @@ export function useSuppressions(search = '') {
 export function useAddSuppression() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { phones: string; reason?: string; note?: string }) =>
+    mutationFn: (input: { phones: string; reason?: string | undefined; note?: string | undefined }) =>
       api.post<{ ok: true; added: number; invalid: number }>(`${BASE}/suppressions`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['smart-suppressions'] }),
   })

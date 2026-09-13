@@ -12,7 +12,7 @@ export type TriggerCategory = 'lead' | 'message' | 'activity' | 'sales' | 'syste
 export interface TriggerEvent {
   value: string
   label: string
-  description?: string
+  description?: string | undefined
   category: TriggerCategory
   /** Módulo que precisa estar ATIVO pra esse trigger ser oferecido na UI. */
   requiresModule?: 'educacional' | 'enrollment_portals'

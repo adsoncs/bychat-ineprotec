@@ -515,7 +515,7 @@ function RecordingsTab() {
         <div class="space-y-3"><Skeleton class="h-20 w-full" /><Skeleton class="h-20 w-full" /></div>
       ) : recordings.length === 0 ? (
         <EmptyState
-          icon={Mic}
+          icon={<Mic size={22} />}
           title="Nenhuma reunião gravada ainda"
           description="Quando um bot de transcrição entrar numa reunião, ela aparece aqui com a transcrição e a análise por IA. Ative a gravação em Configurações › LGPD/Legal e a licença do usuário na aba Bots por usuário."
         />
@@ -608,7 +608,7 @@ function SeatRow({ seat }: { seat: MeetingSeat }) {
 function SeatsTab() {
   const { data, isLoading, error } = useMeetingSeats()
   if (error) {
-    return <EmptyState icon={Users} title="Apenas administradores" description="A gestão de licenças do bot por usuário é restrita a administradores." />
+    return <EmptyState icon={<Users size={22} />} title="Apenas administradores" description="A gestão de licenças do bot por usuário é restrita a administradores." />
   }
   if (isLoading) {
     return <div class="space-y-3"><Skeleton class="h-16 w-full" /><Skeleton class="h-16 w-full" /></div>
@@ -630,7 +630,7 @@ function SeatsTab() {
         </div>
       </Card>
       {seats.length === 0 ? (
-        <EmptyState icon={Users} title="Nenhum operador" description="Cadastre usuários para atribuir licenças de bot." />
+        <EmptyState icon={<Users size={22} />} title="Nenhum operador" description="Cadastre usuários para atribuir licenças de bot." />
       ) : (
         <div class="space-y-2">{seats.map((s) => <SeatRow key={s.userId} seat={s} />)}</div>
       )}
@@ -645,7 +645,7 @@ function MeetingsSettingsCard() {
   const [f, setF] = useState<MeetingsSettings | null>(null)
   useEffect(() => { if (data) setF(data) }, [data])
 
-  if (error) return <EmptyState icon={SlidersHorizontal} title="Apenas administradores" description="As configurações do módulo são restritas a administradores." />
+  if (error) return <EmptyState icon={<SlidersHorizontal size={22} />} title="Apenas administradores" description="As configurações do módulo são restritas a administradores." />
   if (isLoading || !f) return <Skeleton class="h-72 w-full" />
 
   const set = <K extends keyof MeetingsSettings>(k: K, v: MeetingsSettings[K]) => setF((p) => p ? { ...p, [k]: v } : p)
@@ -824,7 +824,7 @@ function PlaybookConfigTab() {
   const [text, setText] = useState('')
   useEffect(() => { if (data) { setEnabled(data.enabled); setText(data.text) } }, [data])
 
-  if (error) return <EmptyState icon={Settings} title="Apenas administradores" description="A configuração do playbook é restrita a administradores." />
+  if (error) return <EmptyState icon={<Settings size={22} />} title="Apenas administradores" description="A configuração do playbook é restrita a administradores." />
   if (isLoading) return <Skeleton class="h-64 w-full" />
 
   const dirty = !!data && (enabled !== data.enabled || text !== data.text)

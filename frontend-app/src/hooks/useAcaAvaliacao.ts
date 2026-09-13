@@ -6,7 +6,7 @@ import { api } from '@/lib/apiClient'
 export type EsquemaEscopo = 'INSTITUCIONAL' | 'CURSO' | 'MATRIZ' | 'DISCIPLINA'
 
 export interface EsquemaComponente {
-  id?: number
+  id?: number | undefined
   sigla: string
   nome: string
   peso: number
@@ -19,7 +19,7 @@ export interface Esquema {
   escopo: EsquemaEscopo
   escopoId: number | null
   nome: string
-  descricao?: string | null
+  descricao?: string | null | undefined
   escala: string
   /// Mapa conceito→nota mínima, usado quando escala = CONCEITO.
   mapaConceitos?: Record<string, number> | null
@@ -72,7 +72,7 @@ export function useEsquema(id: number | null) {
 export function useSaveEsquema() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<Esquema> & { id?: number }) =>
+    mutationFn: ({ id, ...body }: Partial<Esquema> & { id?: number | undefined }) =>
       id
         ? api.put<{ esquema: Esquema }>(`/admin/aca/esquemas/${id}`, body)
         : api.post<{ esquema: Esquema }>('/admin/aca/esquemas', body),

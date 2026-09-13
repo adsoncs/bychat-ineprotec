@@ -27,7 +27,7 @@ export function useAlocacaoMut() {
     atualizarAmbiente: useMutation({ mutationFn: ({ id, ...b }: any) => api.put(`${base}/ambientes/${id}`, b), onSuccess: () => inval('aca-aloc-amb') }),
     criarTipoEquip: useMutation({ mutationFn: (b: any) => api.post(`${base}/tipos-equipamento`, b), onSuccess: () => inval('aca-aloc-tipoeq') }),
     criarEquipamento: useMutation({ mutationFn: (b: any) => api.post(`${base}/equipamentos`, b), onSuccess: () => inval('aca-aloc-eq', 'aca-aloc-amb') }),
-    criarReserva: useMutation({ mutationFn: (b: any) => api.post<{ reserva?: any; error?: string; conflitos?: any[] }>(`${base}/reservas`, b), onSuccess: () => inval('aca-aloc-res') }),
+    criarReserva: useMutation({ mutationFn: (b: any) => api.post<{ reserva?: any; error?: string | undefined; conflitos?: any[] }>(`${base}/reservas`, b), onSuccess: () => inval('aca-aloc-res') }),
     cancelarReserva: useMutation({ mutationFn: (id: number) => api.delete(`${base}/reservas/${id}`), onSuccess: () => inval('aca-aloc-res') }),
   }
 }

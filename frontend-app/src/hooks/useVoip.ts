@@ -139,13 +139,13 @@ export interface VoipSyncResult {
   recordings: number
   matched: number
   total: number
-  error?: string
+  error?: string | undefined
 }
 
 export function useSyncRecordings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (range: { from?: string; to?: string } = {}) =>
+    mutationFn: (range: { from?: string | undefined; to?: string | undefined } = {}) =>
       api.post<{ ok: boolean; result: VoipSyncResult }>('/admin/voip/recordings/sync', range),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['voip-calls'] }),
   })
@@ -170,7 +170,7 @@ export function useDialLead() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { leadId?: number | undefined; phone: string; callerId?: string | undefined }) =>
-      api.post<{ ok: boolean; call: VoipCall; error?: string }>('/voip/calls', input),
+      api.post<{ ok: boolean; call: VoipCall; error?: string | undefined }>('/voip/calls', input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['voip-calls'] })
       void qc.invalidateQueries({ queryKey: ['lead-activities'] })

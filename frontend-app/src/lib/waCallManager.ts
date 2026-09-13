@@ -251,7 +251,7 @@ let outboundParams: { to: string; connId: number | null } | null = null
  * negada, deixa a chamada no estado 'permission_denied' (com botão "Tentar novamente"),
  * sem derrubar o fluxo. Ao conceder, segue automaticamente.
  */
-async function proceedCall(): Promise<{ ok: boolean; error?: string }> {
+async function proceedCall(): Promise<{ ok: boolean; error?: string | undefined }> {
   const call = store().call
   if (!call) return { ok: false }
 
@@ -306,7 +306,7 @@ async function proceedCall(): Promise<{ ok: boolean; error?: string }> {
 }
 
 /** Re-tenta após o operador conceder o microfone nas configurações do navegador. */
-export async function retryPermission(): Promise<{ ok: boolean; error?: string }> {
+export async function retryPermission(): Promise<{ ok: boolean; error?: string | undefined }> {
   return proceedCall()
 }
 
@@ -357,7 +357,7 @@ export async function startOutbound(
   to: string,
   cloudApiConnectionId: number | null = null,
   leadId: number | null = null
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string | undefined }> {
   if (store().call) return { ok: false, error: 'Já existe uma chamada em andamento' }
 
   outboundParams = { to, connId: cloudApiConnectionId }
@@ -378,7 +378,7 @@ export async function startOutbound(
 export async function requestCallPermission(
   to: string,
   cloudApiConnectionId: number | null = null
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string | undefined }> {
   try {
     await api.post('/wa-calls/request-permission', {
       to,

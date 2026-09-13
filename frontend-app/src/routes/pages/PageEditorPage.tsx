@@ -67,7 +67,7 @@ export function PageEditorPage({ params }: { params: { id: string } }) {
   // Ponte de seleção: escuta cliques vindos de dentro do iframe.
   useEffect(() => {
     function onMsg(e: MessageEvent) {
-      const d = (e.data || {}) as { source?: string; type?: string; id?: string }
+      const d = (e.data || {}) as { source?: string; type?: string | undefined; id?: string }
       if (d.source !== 'lp-canvas') return
       if (d.type === 'select' && d.id) setActiveId(d.id)
       // Após cada re-render o iframe avisa 'ready' → restauramos a seleção.

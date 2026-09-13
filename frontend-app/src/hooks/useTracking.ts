@@ -234,7 +234,7 @@ export interface PageValidationResult {
   scriptSrc?: string
   recentPageviews24h?: number
   totalSessions?: number
-  error?: string
+  error?: string | undefined
 }
 
 export function useValidateTrackingPages() {

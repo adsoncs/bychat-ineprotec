@@ -147,7 +147,7 @@ function Kpi({ icon, label, value, hint, trend, loading }: {
   icon: any
   label: string
   value: string
-  hint?: string | null
+  hint?: string | null | undefined
   trend?: 'up' | 'down'
   loading?: boolean
 }) {

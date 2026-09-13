@@ -32,7 +32,7 @@ export function useScheduledMessages(leadId: number | null, status?: string) {
 
 export interface CreateScheduledInput {
   scheduledAt: string
-  body?: string
+  body?: string | undefined
   templateId?: number
   kind?: 'text' | 'template_hsm'
   hsmPayload?: unknown
@@ -69,7 +69,7 @@ export function useCancelScheduledMessage(leadId: number | null) {
 export function useRescheduleMessage(leadId: number | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number; scheduledAt?: string; body?: string; cancelIfReplied?: boolean }) =>
+    mutationFn: ({ id, ...body }: { id: number; scheduledAt?: string | undefined; body?: string; cancelIfReplied?: boolean }) =>
       api.put<{ item: ScheduledMessageItem }>(`/atendimento/scheduled/${id}`, body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['scheduled-messages', leadId] })

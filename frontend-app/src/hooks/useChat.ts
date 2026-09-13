@@ -63,7 +63,7 @@ export interface TicketsCounters {
   attending: number
   /** Conversas de grupo no escopo — 0 significa "este tenant não usa grupos". */
   groups?: number
-  /** Não lidas DENTRO do recorte da lista — o número da pílula "Não lidas". */
+  /** Não lidas DENTRO da aba aberta — o número da pílula "Não lidas". */
   unread?: number
 }
 

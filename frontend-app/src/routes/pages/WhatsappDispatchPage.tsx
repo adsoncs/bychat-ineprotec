@@ -232,7 +232,7 @@ function NumChip({ label, active, onClick }: { label: string; active: boolean; o
   )
 }
 
-function DKpi({ label, value, tone = 'neutral' }: { label: string; value: number | string; tone?: 'neutral' | 'info' | 'success' | 'danger' | 'warning' }) {
+function DKpi({ label, value, tone = 'neutral' }: { label: string; value: number | string; tone?: 'neutral' | 'info' | 'success' | 'danger' | 'warning' | undefined }) {
   const color = { neutral: 'text-fg', info: 'text-info', success: 'text-success', danger: 'text-danger', warning: 'text-warning' }[tone]
   return (
     <div class="rounded-md border border-border bg-surface-2 p-2.5">

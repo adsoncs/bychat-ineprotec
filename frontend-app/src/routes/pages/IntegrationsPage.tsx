@@ -626,7 +626,7 @@ function FilterChip({
   label: string
   active: boolean
   onClick: () => void
-  tone?: 'neutral' | 'success' | 'warning' | 'danger'
+  tone?: 'neutral' | 'success' | 'warning' | 'danger' | undefined
 }): JSX.Element {
   const activeCls =
     tone === 'success' ? 'bg-accent text-fg-on-brand border-accent' :

@@ -5,7 +5,7 @@
 // único item que vale para a instalação inteira: a transcrição dos áudios.
 
 import { useMemo, useState } from 'preact/hooks'
-import type { ComponentChildren } from 'preact'
+import type {} from 'preact'
 import { ChevronDown, ChevronUp, Loader2, RotateCcw } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -332,6 +332,7 @@ function NomesDasAbas() {
 
   const atual = rascunho ?? labels
   const mudou = JSON.stringify(atual) !== JSON.stringify(labels)
+
   // Os itens seguem a ordem escolhida pela empresa, com Grupos no fim — é onde
   // ele fica na barra, e a lista tem de espelhar a tela para ser conferível.
   const itensContador = [...(atual.order?.bucket ?? [...CAIXAS]), 'groups'] as ItemContador[]
@@ -344,7 +345,6 @@ function NomesDasAbas() {
     return { ...(c as Record<string, boolean> | undefined ?? {}) }
   })()
   const contadorLigado = (id: ItemContador) => contadoresAtuais[id] !== false
-
 
   function editar(grupo: 'scope' | 'bucket', id: string, valor: string) {
     setRascunho({ ...atual, [grupo]: { ...atual[grupo], [id]: valor } } as TabLabels)

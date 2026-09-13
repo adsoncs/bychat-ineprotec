@@ -16,7 +16,7 @@ export function useCadastrosMut() {
   const qc = useQueryClient()
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-cad'] })
   return {
-    criar: useMutation({ mutationFn: (b: { tipo: string; nome: string; descricao?: string }) => api.post('/admin/aca/cadastros', b), onSuccess: inval }),
+    criar: useMutation({ mutationFn: (b: { tipo: string; nome: string; descricao?: string | undefined }) => api.post('/admin/aca/cadastros', b), onSuccess: inval }),
     atualizar: useMutation({ mutationFn: ({ id, ...b }: any) => api.put(`/admin/aca/cadastros/${id}`, b), onSuccess: inval }),
     excluir: useMutation({ mutationFn: (id: number) => api.delete(`/admin/aca/cadastros/${id}`), onSuccess: inval }),
   }

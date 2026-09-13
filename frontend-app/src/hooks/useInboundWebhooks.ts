@@ -27,7 +27,7 @@ export interface InboundWebhook {
 
 export interface InboundWebhookInput {
   name: string
-  description?: string | null
+  description?: string | null | undefined
   active?: boolean
   defaultFunnelId?: number | null
   defaultStageKey?: string | null
@@ -52,7 +52,7 @@ export interface InboundWebhookHit {
 export interface LeadFieldOption {
   target: string
   label: string
-  type?: string
+  type?: string | undefined
 }
 
 export function useInboundWebhooks() {

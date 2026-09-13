@@ -765,7 +765,7 @@ export interface SelectionProcessFilters {
   unitId?: number
   levelId?: number
   entryModeId?: number
-  status?: string
+  status?: string | undefined
 }
 
 export function useSelectionProcesses(filters: SelectionProcessFilters = {}) {

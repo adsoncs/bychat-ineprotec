@@ -189,7 +189,7 @@ export function useApplyStatusSummary() {
     mutationFn: ({ leadId, ...input }: {
       leadId: number
       code: string
-      note?: string
+      note?: string | undefined
       lossReasonId?: number | null
       dueAt?: string | null
     }) => api.post<{ data: ApplySummaryResult }>(`/leads/${leadId}/status-summary`, input),
@@ -227,7 +227,7 @@ export interface SummaryReportRow {
 
 export function useStatusSummaryReport(
   funnelId: number | null,
-  filters?: { from?: string; to?: string },
+  filters?: { from?: string | undefined; to?: string | undefined },
 ) {
   const params = new URLSearchParams()
   if (funnelId != null) params.set('funnelId', String(funnelId))

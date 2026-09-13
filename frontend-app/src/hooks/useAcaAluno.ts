@@ -43,7 +43,7 @@ export function useLeadSearch(q: string) {
 export function usePromoteLead() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (b: { leadId: number; cpf?: string; sexo?: string; dataNascimento?: string }) =>
+    mutationFn: (b: { leadId: number; cpf?: string | undefined; sexo?: string | undefined; dataNascimento?: string | undefined }) =>
       api.post<{ aluno: Aluno }>('/admin/aca/alunos', b),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['aca-alunos'] }); void qc.invalidateQueries({ queryKey: ['aca-meta'] }) },
   })
@@ -61,7 +61,7 @@ export function useResponsavelActions(alunoId: number) {
   const qc = useQueryClient()
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-aluno', alunoId] })
   return {
-    add: useMutation({ mutationFn: (b: { nome: string; tipo?: string; parentesco?: string; telefone?: string; email?: string; cpf?: string }) => api.post(`/admin/aca/alunos/${alunoId}/responsaveis`, b), onSuccess: inval }),
+    add: useMutation({ mutationFn: (b: { nome: string; tipo?: string | undefined; parentesco?: string | undefined; telefone?: string | undefined; email?: string | undefined; cpf?: string | undefined }) => api.post(`/admin/aca/alunos/${alunoId}/responsaveis`, b), onSuccess: inval }),
     remove: useMutation({ mutationFn: (rid: number) => api.delete(`/admin/aca/alunos/${alunoId}/responsaveis/${rid}`), onSuccess: inval }),
   }
 }

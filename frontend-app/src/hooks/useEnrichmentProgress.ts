@@ -20,7 +20,7 @@ export function useEnrichmentProgress(leadId: number | null): EnrichmentProgress
     if (leadId === null) return
     setProgress(null)
     const off = onServerEvent((ev) => {
-      const p = ev.payload as { leadId?: number; provider?: string; index?: number; total?: number; factsSoFar?: number } | undefined
+      const p = ev.payload as { leadId?: number | undefined; provider?: string; index?: number; total?: number; factsSoFar?: number } | undefined
       if (p?.leadId !== leadId) return
       if (ev.type === 'lead:enrichment_started') {
         setProgress({ provider: '', index: 0, total: 0, factsSoFar: 0, at: Date.now() })

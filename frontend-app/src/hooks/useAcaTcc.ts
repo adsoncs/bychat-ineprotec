@@ -15,7 +15,7 @@ export function useTccMut() {
   const qc = useQueryClient()
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-tcc'] })
   return {
-    criar: useMutation({ mutationFn: (b: { matriculaId: number; titulo: string; orientador?: string; resumo?: string }) => api.post('/admin/aca/tcc', b), onSuccess: inval }),
+    criar: useMutation({ mutationFn: (b: { matriculaId: number; titulo: string; orientador?: string | undefined; resumo?: string | undefined }) => api.post('/admin/aca/tcc', b), onSuccess: inval }),
     atualizar: useMutation({ mutationFn: ({ id, ...b }: any) => api.put(`/admin/aca/tcc/${id}`, b), onSuccess: inval }),
     excluir: useMutation({ mutationFn: (id: number) => api.delete(`/admin/aca/tcc/${id}`), onSuccess: inval }),
   }

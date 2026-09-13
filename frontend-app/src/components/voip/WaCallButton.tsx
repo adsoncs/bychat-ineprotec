@@ -13,7 +13,7 @@ interface WaCallButtonProps {
   leadId?: number | null
   cloudApiConnectionId?: number | null
   class?: string
-  label?: string
+  label?: string | undefined
 }
 
 export function WaCallButton({ phone, leadId = null, cloudApiConnectionId = null, class: className, label }: WaCallButtonProps) {

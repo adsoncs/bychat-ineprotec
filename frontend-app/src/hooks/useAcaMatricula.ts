@@ -44,7 +44,7 @@ export function useMatriculaMut(id: number) {
     void qc.invalidateQueries({ queryKey: ['aca-inscricoes'] })
   }
   return {
-    setStatus: useMutation({ mutationFn: (b: { para: string; obs?: string }) => api.post(`/admin/aca/matriculas/${id}/status`, b), onSuccess: inval }),
+    setStatus: useMutation({ mutationFn: (b: { para: string; obs?: string | undefined }) => api.post(`/admin/aca/matriculas/${id}/status`, b), onSuccess: inval }),
     efetivar: useMutation({ mutationFn: () => api.post(`/admin/aca/matriculas/${id}/efetivar`, {}), onSuccess: inval }),
   }
 }

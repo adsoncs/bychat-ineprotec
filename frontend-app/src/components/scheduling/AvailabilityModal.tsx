@@ -22,8 +22,8 @@ export function AvailabilityModal({ meetingTypeId, meetingTypeName, mine, userId
   meetingTypeId?: number
   meetingTypeName?: string
   mine?: boolean
-  userId?: number
-  userName?: string
+  userId?: number | undefined
+  userName?: string | undefined
   onClose: () => void
 }) {
   const forUser = typeof userId === 'number' ? userId : null

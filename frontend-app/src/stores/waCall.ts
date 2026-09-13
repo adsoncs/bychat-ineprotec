@@ -19,7 +19,7 @@ export interface WaCallState {
   status: WaCallStatus
   cloudApiConnectionId: number | null
   startedAt: number | null
-  error?: string
+  error?: string | undefined
 }
 
 interface WaCallStore {

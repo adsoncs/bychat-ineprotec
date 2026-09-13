@@ -552,7 +552,7 @@ function TriggerFiltersEditor({
   if (triggerEvent === 'lead.created') {
     return (
       <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
-        <Select label="Origem do lead" value={value.source ?? ''} onChange={(e) => patch('source', (e.target as HTMLSelectElement).value || undefined)}>
+        <Select label="Origem do lead" value={typeof value.source === 'string' ? value.source : ''} onChange={(e) => patch('source', (e.target as HTMLSelectElement).value || undefined)}>
           <option value="">Qualquer origem</option>
           {LEAD_SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </Select>

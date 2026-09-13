@@ -12,7 +12,7 @@ export interface Mantenedora {
   repNome?: string | null
   repCpf?: string | null
   repCargo?: string | null
-  telefone?: string | null
+  telefone?: string | null | undefined
   email?: string | null
   ativo: boolean
   _count?: { ies: number }
@@ -62,7 +62,7 @@ export interface VinculoMovimentacao {
   motivo?: string | null
   observacao?: string | null
   dataEfeito: string
-  userName?: string | null
+  userName?: string | null | undefined
   estornoDeId?: number | null
 }
 
@@ -85,7 +85,7 @@ export interface Vinculo {
   dataIngresso?: string | null
   dataConclusao?: string | null
   sensivel: boolean
-  aluno?: { id: number; ra?: string | null; cpf?: string | null; lead?: { nome?: string | null; whatsapp?: string | null; email?: string | null } }
+  aluno?: { id: number; ra?: string | null; cpf?: string | null | undefined; lead?: { nome?: string | null; whatsapp?: string | null; email?: string | null | undefined } }
   movimentacoes?: VinculoMovimentacao[]
   matriculas?: Array<{ id: number; turmaId: number; status: string; dataMatricula: string }>
   _count?: { matriculas: number; movimentacoes: number }

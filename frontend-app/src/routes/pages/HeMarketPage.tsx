@@ -5,7 +5,7 @@ import {
 import {
   useHeOverview, useHeAreas, useHeCities, useHeUfs, useHeCompetitors, useHeOpportunities,
   useHeMyIes, useHeSettings, useHeInstitutionSearch, useSaveHeSettings, useHeImports, useRunHeImport,
-  type HeFilters, type HeRatios,
+  type HeFilters,
 } from '@/hooks/useHeMarket'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -36,8 +36,8 @@ function occTone(v: number | null): 'danger' | 'warning' | 'success' | 'neutral'
 }
 
 function Kpi({ label, value, hint, icon, tone, delta, deltaGoodWhen = 'up' }: {
-  label: string; value: string; hint?: string; icon?: preact.JSX.Element
-  tone?: 'danger' | 'warning' | 'success'
+  label: string; value: string; hint?: string | undefined; icon?: preact.JSX.Element
+  tone?: 'danger' | 'warning' | 'success' | 'neutral' | undefined
   /** Variação relativa vs. ano anterior (0.12 = +12%). */
   delta?: number | null
   deltaGoodWhen?: 'up' | 'down'
@@ -61,7 +61,7 @@ function Kpi({ label, value, hint, icon, tone, delta, deltaGoodWhen = 'up' }: {
 }
 
 /** Barra horizontal simples — uma série só, sem lib de chart. */
-function Bar({ value, max, tone = 'accent' }: { value: number; max: number; tone?: 'accent' | 'danger' }) {
+function Bar({ value, max, tone = 'accent' }: { value: number; max: number; tone?: 'accent' | 'danger' | undefined }) {
   const w = max > 0 ? Math.max(1, Math.round((value / max) * 100)) : 0
   return (
     <div class="h-1.5 bg-surface-3 rounded-full overflow-hidden">
@@ -526,7 +526,7 @@ function SettingsTab() {
             <div class="text-sm font-semibold text-fg">Censo da Educação Superior (INEP/MEC)</div>
             <p class="text-xs text-fg-muted mt-1">
               {done.length > 0
-                ? <>Anos ingeridos: <b class="text-fg">{done.map((d) => d.year).join(', ')}</b> — {num(done[0].courses)} registros de curso.</>
+                ? <>Anos ingeridos: <b class="text-fg">{done.map((d) => d.year).join(', ')}</b> — {num(done[0]!.courses)} registros de curso.</>
                 : 'Nenhum ano ingerido ainda.'}
               {pending.length > 0 && <> · Disponíveis: {pending.slice(0, 4).join(', ')}.</>}
               <br />

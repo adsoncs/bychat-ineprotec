@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'preact/hooks'
-import { Repeat, History, UserMinus, ArrowRightLeft, Ban, AlertTriangle } from 'lucide-preact'
+import { useState } from 'preact/hooks'
+import { Repeat, History, UserMinus, AlertTriangle } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'

@@ -4,7 +4,7 @@ import { usePageHeaderStore } from '@/stores/pageHeader'
 
 interface PageProps {
   title: string
-  description?: string
+  description?: string | undefined
   actions?: ComponentChildren
   children: ComponentChildren
 }

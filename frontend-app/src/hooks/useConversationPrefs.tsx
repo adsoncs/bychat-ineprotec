@@ -96,11 +96,11 @@ export const NAME_COLORS: { id: string; label: string; value: string | null }[] 
 export const AUDIO_SPEEDS = [1, 1.25, 1.5, 2]
 
 function fontSize(step: FontStep): string {
-  return (FONT_STEPS.find((f) => f.id === step) ?? FONT_STEPS[1]).size
+  return (FONT_STEPS.find((f) => f.id === step) ?? FONT_STEPS[1]!).size
 }
 
 function metaFontSize(step: FontStep): string {
-  return (META_FONT_STEPS.find((f) => f.id === step) ?? META_FONT_STEPS[0]).size
+  return (META_FONT_STEPS.find((f) => f.id === step) ?? META_FONT_STEPS[0]!).size
 }
 
 const STORAGE_PREFIX = 'conversas.prefs.v1'

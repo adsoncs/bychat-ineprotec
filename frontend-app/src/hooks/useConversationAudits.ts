@@ -32,7 +32,7 @@ export interface AuditFilters {
   operatorId?: number
   minScore?: number
   maxScore?: number
-  tone?: string
+  tone?: string | undefined
   status?: string
   limit?: number
 }

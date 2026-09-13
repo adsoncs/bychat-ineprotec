@@ -286,7 +286,7 @@ export function KanbanPage() {
   const [duplicating, setDuplicating] = useState<KanbanLead | null>(null)
   const [moving, setMoving] = useState<KanbanLead | null>(null)
   const [, navigate] = useLocation()
-  const [activityFor, setActivityFor] = useState<{ id: number; label: string; whatsapp?: string | null; email?: string | null } | null>(null)
+  const [activityFor, setActivityFor] = useState<{ id: number; label: string; whatsapp?: string | null; email?: string | null | undefined } | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [markWonFor, setMarkWonFor] = useState<number | null>(null)
   const [markLostFor, setMarkLostFor] = useState<number | null>(null)

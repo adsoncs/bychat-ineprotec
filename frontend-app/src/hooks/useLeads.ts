@@ -138,6 +138,8 @@ export interface LeadDetail extends LeadListItem {
   outcome?: 'won' | 'lost' | null
   outcomeAt?: string | null
   outcomeBy?: number | null
+  /** Quem fechou o lead. O backend resolve o usuário e envia junto. */
+  outcomeByUser?: { id: number; name: string | null } | null
   outcomeNote?: string | null
   lostReasonId?: number | null
   lostReason?: { id: number; name: string; color: string | null } | null
@@ -586,6 +588,8 @@ export interface DuplicateLeadSummary {
   utmSource: string | null
   utmCampaign: string | null
   createdAt: string
+  /** Rótulo da etapa no funil — o backend resolve e envia junto do status. */
+  statusLabel?: string | null
   duplicateFlaggedAt?: string | null
   duplicateMatchedBy?: 'whatsapp' | 'email' | null
   possibleDuplicateOfId?: number | null

@@ -214,7 +214,7 @@ export function MarkLostModal({
 }: {
   open: boolean
   onClose: () => void
-  leadId?: number
+  leadId?: number | undefined
 }) {
   const { user } = useAuth()
   const canManage = user && (user.role === 'SUPERADMIN' || user.role === 'ADMIN' || user.role === 'MANAGER')

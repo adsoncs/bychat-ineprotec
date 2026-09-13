@@ -277,7 +277,7 @@ export function SalesCadencesPage() {
 
 interface CadenceFormState {
   name: string
-  description?: string | null
+  description?: string | null | undefined
   teamId?: number | null
   status?: string
   pauseOnReply?: boolean

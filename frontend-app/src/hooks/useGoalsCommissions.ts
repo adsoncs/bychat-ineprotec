@@ -24,7 +24,7 @@ export const METRICS: GoalMetric[] = ['revenue', 'mrr', 'count', 'conversion']
 // ── Regras ────────────────────────────────────────────────────────────────
 
 export interface CommissionTier {
-  id?: number
+  id?: number | undefined
   atingimentoMin: number
   tipoUnico: RateType
   taxaUnico: number | string | null
@@ -64,7 +64,7 @@ export function useCommissionRules() {
 export function useSaveCommissionRule() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: Partial<CommissionRule> & { id?: number }) =>
+    mutationFn: (body: Partial<CommissionRule> & { id?: number | undefined }) =>
       body.id
         ? api.put<{ rule: CommissionRule }>(`/admin/commissions/rules/${body.id}`, body)
         : api.post<{ rule: CommissionRule }>('/admin/commissions/rules', body),
@@ -217,10 +217,10 @@ export interface CommissionEntry {
 
 export interface EntriesParams {
   period: string
-  userId?: number | string | null
+  userId?: number | string | null | undefined
   funnelId?: number | null
-  status?: string
-  page?: number
+  status?: string | undefined
+  page?: number | undefined
   limit?: number
 }
 
@@ -274,7 +274,7 @@ export function usePayCommissionBatch() {
 export function useRecalcCommissions() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ period, userId }: { period: string; userId?: number | null }) =>
+    mutationFn: ({ period, userId }: { period: string; userId?: number | null | undefined }) =>
       api.post<{ negociacoes: number; agentes: number }>('/admin/commissions/recalc', { period, userId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['commission-entries'] })

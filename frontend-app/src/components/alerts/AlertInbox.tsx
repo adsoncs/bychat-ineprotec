@@ -65,7 +65,7 @@ export function useAvisoDeAlertaAoVivo(): void {
       if (ev.type !== 'alert:raised') return
       qc.invalidateQueries({ queryKey: ['alerts'] })
 
-      const p = (ev.payload || {}) as { title?: string; severity?: AlertSeverity; id?: number }
+      const p = (ev.payload || {}) as { title?: string | undefined; severity?: AlertSeverity; id?: number }
       if (prefs.notifySound) playNotificationSound()
       if (prefs.notifyDesktop && document.visibilityState === 'hidden') {
         showDesktopNotification({

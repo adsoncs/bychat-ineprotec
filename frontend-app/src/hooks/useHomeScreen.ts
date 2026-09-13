@@ -37,7 +37,7 @@ export interface HomeBlock {
 export interface HomeScreen {
   id: number
   name: string
-  description?: string | null
+  description?: string | null | undefined
   blocks: HomeBlock[]
   active?: boolean
   isSystem?: boolean

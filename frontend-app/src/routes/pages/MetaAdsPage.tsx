@@ -462,7 +462,7 @@ function MetaFormMappingModal({ form, onClose }: { form: MetaForm; onClose: () =
       } catch (e) {
         // Código em uso (campo possivelmente inativo): tenta sem key fixa,
         // backend gera uma única automaticamente — nunca sobrescreve nada.
-        if ((e as { status?: number }).status === 409) {
+        if ((e as { status?: number | undefined }).status === 409) {
           resp = await createField.mutateAsync({
             key: '',
             label,

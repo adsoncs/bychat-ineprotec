@@ -200,7 +200,7 @@ export function countSpsUsingMode(
 interface FormExtraField {
   type?: string
   name?: string
-  label?: string
+  label?: string | undefined
   required?: boolean
 }
 

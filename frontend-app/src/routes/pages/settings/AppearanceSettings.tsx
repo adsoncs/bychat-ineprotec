@@ -38,7 +38,7 @@ type Draft = Record<string, string>
 
 interface OptionalColorPickerProps {
   label: string
-  hint?: string
+  hint?: string | undefined
   value: string
   onChange: (v: string) => void
   fallbackHex: string
@@ -837,7 +837,7 @@ interface RangeFieldProps {
   unit?: string
   value: string
   onChange: (v: string) => void
-  hint?: string
+  hint?: string | undefined
 }
 
 function RangeField({ label, min, max, step = 1, unit = '', value, onChange, hint }: RangeFieldProps) {
@@ -909,7 +909,7 @@ interface BooleanToggleProps {
   valueOff: string
   labelOn: string
   labelOff: string
-  hint?: string
+  hint?: string | undefined
   onChange: (v: string) => void
 }
 

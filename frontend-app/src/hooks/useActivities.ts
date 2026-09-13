@@ -131,16 +131,16 @@ export function useUpdateActivity() {
   return useMutation({
     mutationFn: ({ id, ...input }: {
       id: number
-      status?: ActivityStatus
+      status?: ActivityStatus | undefined
       type?: ActivityType
       title?: string
-      description?: string | null
+      description?: string | null | undefined
       scheduledAt?: string
       reminderAt?: string | null
-      messageBody?: string | null
-      messageSubject?: string | null
-      recipientPhone?: string | null
-      recipientEmail?: string | null
+      messageBody?: string | null | undefined
+      messageSubject?: string | null | undefined
+      recipientPhone?: string | null | undefined
+      recipientEmail?: string | null | undefined
     }) =>
       api.put<{ ok: true; activity: Activity }>(`/activities/${id}`, input),
     onSuccess: () => invalidateActivityQueries(qc),

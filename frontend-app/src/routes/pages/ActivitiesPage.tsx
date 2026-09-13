@@ -110,7 +110,7 @@ export function ActivitiesPage() {
   const dateRangeDisabled = view === 'today' || view === 'upcoming'
 
   const filters = useMemo(() => {
-    const f: { view?: View extends 'all' ? never : View; type?: ActivityType; limit: number; from?: string; to?: string; dateField?: 'scheduledAt' | 'createdAt' } = { limit: 200 } as any
+    const f: { view?: View extends 'all' ? never : View; type?: ActivityType | undefined; limit: number; from?: string | undefined; to?: string | undefined; dateField?: 'scheduledAt' | 'createdAt' } = { limit: 200 } as any
     if (view !== 'all') (f as any).view = view
     if (typeFilter) f.type = typeFilter
     if (!dateRangeDisabled) {
@@ -703,7 +703,7 @@ function KpiButton({
 
 type FormTab = 'general' | 'message' | 'attachment'
 
-function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void; preselectedLead?: { id: number; label: string; whatsapp?: string | null; email?: string | null } | undefined }) {
+function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void; preselectedLead?: { id: number; label: string; whatsapp?: string | null; email?: string | null | undefined } | undefined }) {
   const [tab, setTab] = useState<FormTab>('general')
   const [lead, setLead] = useState<{ id: number; label: string } | null>(preselectedLead ? { id: preselectedLead.id, label: preselectedLead.label } : null)
   const [searchInput, setSearchInput] = useState('')

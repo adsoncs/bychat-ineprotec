@@ -36,7 +36,7 @@ interface ModelOption {
 interface AiTestResult {
   ok: boolean
   at: number
-  error?: string
+  error?: string | undefined
 }
 
 const ANTHROPIC_MODELS: ModelOption[] = [

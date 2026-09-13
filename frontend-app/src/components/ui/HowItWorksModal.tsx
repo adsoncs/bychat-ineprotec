@@ -8,7 +8,7 @@ export interface HowItWorksStep {
 }
 
 export interface HowItWorksTip {
-  tone?: 'info' | 'warning' | 'success'
+  tone?: 'info' | 'warning' | 'success' | undefined
   title: string
   body: ComponentChildren
 }

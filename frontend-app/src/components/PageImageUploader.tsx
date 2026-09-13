@@ -12,7 +12,7 @@ interface PageImageUploaderProps {
   label: string
   value: string
   onChange: (url: string) => void
-  hint?: string
+  hint?: string | undefined
   /** Permitir editar a URL manualmente (alguns assets podem vir de CDN externa). */
   allowManualUrl?: boolean
   /** Aceitar SVG/ICO além de raster (para favicon, etc.). */

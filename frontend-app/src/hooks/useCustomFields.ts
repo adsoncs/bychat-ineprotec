@@ -8,7 +8,7 @@ export interface CustomField {
   type: string
   group: string
   required: boolean
-  description?: string | null
+  description?: string | null | undefined
   placeholder?: string | null
   defaultValue?: string | null
   options: unknown

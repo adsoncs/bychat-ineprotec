@@ -536,7 +536,7 @@ function PreviewStep({
   )
 }
 
-function KpiCard({ label, value, tone }: { label: string; value: number; tone?: 'info' | 'success' | 'warning' | 'danger' }) {
+function KpiCard({ label, value, tone }: { label: string; value: number; tone?: 'info' | 'success' | 'warning' | 'danger' | undefined }) {
   const cls = tone === 'info' ? 'text-info' : tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : tone === 'danger' ? 'text-danger' : 'text-fg'
   return (
     <Card>

@@ -532,7 +532,7 @@ function UtmFormModal({ utm, conv, suggestions, onClose }: {
 
 function AutocompleteInput({ label, hint, value, onInput, options }: {
   label: string
-  hint?: string
+  hint?: string | undefined
   value: string
   onInput: (v: string) => void
   options: string[]

@@ -721,8 +721,9 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
 
     const sp = reg.processRegistration?.selectionProcess
-    const evType = sp?.entryMode?.evaluationType
-    if (evType !== 'exam_online') {
+    // Sem processo seletivo não há redação a exigir — e é este mesmo teste que
+    // garante ao compilador que `sp` existe daqui para baixo.
+    if (!sp || sp.entryMode?.evaluationType !== 'exam_online') {
       return { eligible: false, reason: 'Esta inscrição não exige redação online.' }
     }
 

@@ -2,6 +2,7 @@
 // atualiza cursor, salva DbConnectorRun. Idempotente via Lead.sourceId.
 
 import { prisma } from '../../lib/prisma.js'
+import { Prisma } from '@prisma/client'
 import { getAdapter, decryptPassword } from './index.js'
 import type { ConnectorMapping, LeadFieldTarget } from './types.js'
 import { generateUid } from '../dedup.js'
@@ -128,9 +129,11 @@ export async function runConnector(connectorId: number, opts: RunOptions): Promi
             empresa: mapped.empresa || mapped.nome || 'Lead BD',
             segmento: mapped.segmento || null,
             cidade: mapped.cidade || null,
-            formData: { _source: 'db_connector', _connectorId: connectorId, _row: row },
+            // `row` vem de um banco externo com tipo aberto; o Prisma precisa da
+            // garantia de que é JSON válido — e é, veio de uma linha de SELECT.
+            formData: { _source: 'db_connector', _connectorId: connectorId, _row: row } as Prisma.InputJsonValue,
             scores: {},
-            customFields: Object.keys(mapped.customFields).length > 0 ? mapped.customFields : undefined,
+            customFields: Object.keys(mapped.customFields).length > 0 ? (mapped.customFields as Prisma.InputJsonValue) : undefined,
             status: connector.defaultStageKey || 'NOVO',
             teamId: connector.defaultTeamId ?? null,
             assignedUserId,

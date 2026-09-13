@@ -42,7 +42,7 @@ export interface SalesCadenceDetail extends SalesCadence {
 
 export interface CadenceInput {
   name: string
-  description?: string | null
+  description?: string | null | undefined
   teamId?: number | null
   status?: string
   triggerMode?: string
@@ -130,7 +130,7 @@ export function useAiCadenceGenerate() {
 export function useAiCadenceCommit() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { generated: GeneratedCadence; status?: 'draft' | 'active'; teamId?: number | null }) =>
+    mutationFn: (input: { generated: GeneratedCadence; status?: 'draft' | 'active' | undefined; teamId?: number | null }) =>
       api.post<SalesCadenceDetail>('/admin/sales-cadences/ai-generate/commit', input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['sales-cadences'] })

@@ -12,7 +12,7 @@ export function usePlanoMut(diarioId: number) {
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-plano', diarioId] })
   return {
     salvarPlano: useMutation({ mutationFn: (b: Partial<PlanoEnsino>) => api.put(`/admin/aca/diarios/${diarioId}/plano`, b), onSuccess: inval }),
-    addMaterial: useMutation({ mutationFn: (b: { titulo: string; url: string; tipo?: string; descricao?: string }) => api.post(`/admin/aca/diarios/${diarioId}/materiais`, b), onSuccess: inval }),
+    addMaterial: useMutation({ mutationFn: (b: { titulo: string; url: string; tipo?: string | undefined; descricao?: string | undefined }) => api.post(`/admin/aca/diarios/${diarioId}/materiais`, b), onSuccess: inval }),
     delMaterial: useMutation({ mutationFn: (id: number) => api.delete(`/admin/aca/materiais/${id}`), onSuccess: inval }),
   }
 }

@@ -30,7 +30,7 @@ export const REGIME_STATUS: Record<string, { label: string; tone: 'success' | 'w
   ENCERRADO: { label: 'Encerrado', tone: 'neutral' },
 }
 
-export const useRegimesEspeciais = (filtros: { alunoId?: number | null; status?: string } = {}) => {
+export const useRegimesEspeciais = (filtros: { alunoId?: number | null; status?: string | undefined } = {}) => {
   const qs = new URLSearchParams()
   if (filtros.alunoId) qs.set('alunoId', String(filtros.alunoId))
   if (filtros.status) qs.set('status', filtros.status)

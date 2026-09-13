@@ -26,7 +26,7 @@ function isEligible(l: LeadListItem): boolean {
   return !!(l.whatsapp && l.whatsapp.trim())
 }
 
-export function Stat({ label, value, tone = 'neutral' }: { label: string; value: number | string; tone?: 'neutral' | 'info' | 'warning' | 'success' | 'danger' }) {
+export function Stat({ label, value, tone = 'neutral' }: { label: string; value: number | string; tone?: 'neutral' | 'info' | 'warning' | 'success' | 'danger' | undefined }) {
   const color = { neutral: 'text-fg', info: 'text-info', warning: 'text-warning', success: 'text-success', danger: 'text-danger' }[tone]
   return <div class="rounded-md border border-border bg-surface-2 p-3"><div class={`text-lg font-semibold ${color}`}>{value}</div><div class="text-2xs text-fg-muted">{label}</div></div>
 }

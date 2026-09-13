@@ -172,10 +172,10 @@ function pillarLabel(k: string): string {
 }
 
 interface DataPoint {
-  label?: string
+  label?: string | undefined
   name?: string
   key?: string
-  value?: number
+  value?: number | undefined
   count?: number
   color?: string
   sent?: number

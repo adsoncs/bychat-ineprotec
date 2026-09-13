@@ -138,7 +138,7 @@ export function useUnblockIp() {
 export function useLockUser() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+    mutationFn: ({ id, reason }: { id: number; reason?: string | undefined }) =>
       api.put<{ ok: true }>(`/admin/security/users/${id}/lock`, { reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['security-users'] }),
   })
@@ -201,8 +201,8 @@ export interface LeadBlockRule {
 }
 
 export interface LeadBlockInput {
-  id?: number
-  label?: string
+  id?: number | undefined
+  label?: string | undefined
   email?: string
   emailDomain?: string
   whatsapp?: string
@@ -241,7 +241,7 @@ export function useDeleteLeadBlock() {
 export function useBlockLeadContact() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ leadId, reason }: { leadId: number; reason?: string }) =>
+    mutationFn: ({ leadId, reason }: { leadId: number; reason?: string | undefined }) =>
       api.post<{ rule: LeadBlockRule }>(`/admin/security/lead-blocks/from-lead/${leadId}`, { reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['lead-blocks'] }),
   })

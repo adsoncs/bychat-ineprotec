@@ -1,5 +1,5 @@
-import { useState } from 'preact/hooks'
-import { BookMarked, Plus, ArrowLeft, Trash2, CheckSquare, Square, Save, Link as LinkIcon } from 'lucide-preact'
+import { useEffect, useState } from 'preact/hooks'
+import { Plus, ArrowLeft, Trash2, CheckSquare, Square, Save, Link as LinkIcon } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -271,12 +271,15 @@ function NotasPanel({ diarioId }: { diarioId: number }) {
     // agrupa edições por avaliação
     const porAval: Record<number, Array<{ matriculaId: number; valor: number | null }>> = {}
     for (const k of Object.keys(edits)) {
+      // A chave é "matriculaId:avaliacaoId"; qualquer coisa fora desse formato é
+      // lixo e não pode virar índice — o compilador estava certo em reclamar.
       const [mId, aId] = k.split(':').map(Number)
-      const raw = edits[k].trim().replace(',', '.')
+      if (mId === undefined || aId === undefined || !Number.isFinite(mId) || !Number.isFinite(aId)) continue
+      const raw = (edits[k] ?? '').trim().replace(',', '.')
       ;(porAval[aId] ??= []).push({ matriculaId: mId, valor: raw === '' ? null : Number(raw) })
     }
     const ids = Object.keys(porAval).map(Number)
-    Promise.all(ids.map((aId) => mut.lancarNotas.mutateAsync({ avaliacaoId: aId, registros: porAval[aId] }))).then(() => setEdits({}))
+    Promise.all(ids.map((aId) => mut.lancarNotas.mutateAsync({ avaliacaoId: aId, registros: porAval[aId] ?? [] }))).then(() => setEdits({}))
   }
   const dirty = Object.keys(edits).length > 0
 

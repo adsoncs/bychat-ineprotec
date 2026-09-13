@@ -64,13 +64,13 @@ export interface ConversionStats {
 }
 
 export interface ConversionEventsFilters {
-  page?: number
+  page?: number | undefined
   limit?: number
   platform?: ConversionPlatform
   status?: ConversionEventStatus
   /** YYYY-MM-DD — mesmo período dos KPIs da tela */
-  from?: string
-  to?: string
+  from?: string | undefined
+  to?: string | undefined
 }
 
 function buildQs(f: Record<string, any>): string {
@@ -106,7 +106,7 @@ export function useUpdateCapiConfig() {
 export function useTestCapiEvent() {
   return useMutation({
     mutationFn: () =>
-      api.post<{ ok: boolean; response?: any; error?: string }>(
+      api.post<{ ok: boolean; response?: any; error?: string | undefined }>(
         '/admin/conversions/capi/test',
         {},
       ),
@@ -155,7 +155,7 @@ export function useSendLeadQualityFeedback() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { leadId: number; quality: LeadQuality }) =>
-      api.post<{ ok: boolean; skipped?: string; error?: string; metaLeadId?: string }>(
+      api.post<{ ok: boolean; skipped?: string; error?: string | undefined; metaLeadId?: string }>(
         '/admin/conversions/lead-quality/send',
         input,
       ),
@@ -166,8 +166,8 @@ export function useSendLeadQualityFeedback() {
 export function useSendCapiEvent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { leadId: number; eventName: string; value?: number; funnelStage?: string }) =>
-      api.post<{ ok: boolean; eventId: string; error?: string }>('/admin/conversions/capi/send', input),
+    mutationFn: (input: { leadId: number; eventName: string; value?: number | undefined; funnelStage?: string }) =>
+      api.post<{ ok: boolean; eventId: string; error?: string | undefined }>('/admin/conversions/capi/send', input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [EVENTS_KEY] })
       void qc.invalidateQueries({ queryKey: [STATS_KEY] })

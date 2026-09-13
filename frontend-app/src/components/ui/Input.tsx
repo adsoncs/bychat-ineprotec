@@ -11,9 +11,9 @@ const fieldBase =
   'focus:outline-none focus:border-accent'
 
 type InputProps = JSX.IntrinsicElements['input'] & {
-  label?: string
-  hint?: string
-  error?: string
+  label?: string | undefined
+  hint?: string | undefined
+  error?: string | undefined
 }
 
 export function Input({ label, hint, error, class: className, id, ...rest }: InputProps) {
@@ -33,9 +33,9 @@ export function Input({ label, hint, error, class: className, id, ...rest }: Inp
 }
 
 type TextareaProps = JSX.IntrinsicElements['textarea'] & {
-  label?: string
-  hint?: string
-  error?: string
+  label?: string | undefined
+  hint?: string | undefined
+  error?: string | undefined
 }
 
 export function Textarea({ label, hint, error, class: className, id, ...rest }: TextareaProps) {
@@ -55,8 +55,8 @@ export function Textarea({ label, hint, error, class: className, id, ...rest }: 
 }
 
 type SelectProps = JSX.IntrinsicElements['select'] & {
-  label?: string
-  hint?: string
+  label?: string | undefined
+  hint?: string | undefined
 }
 
 export function Select({ label, hint, class: className, id, children, ...rest }: SelectProps) {
@@ -77,9 +77,9 @@ export function Select({ label, hint, class: className, id, children, ...rest }:
 }
 
 type CheckboxProps = Omit<JSX.IntrinsicElements['input'], 'type' | 'size'> & {
-  label?: string
+  label?: string | undefined
   /** Linha de apoio abaixo do rótulo — para explicar o que a opção faz. */
-  hint?: string
+  hint?: string | undefined
   /** Estado parcial (nem tudo, nem nada), como no cabeçalho de uma lista. */
   indeterminate?: boolean
 }
@@ -116,8 +116,8 @@ export function Checkbox({ label, hint, indeterminate, class: className, id, ...
 type SwitchProps = {
   checked: boolean
   onChange: (v: boolean) => void
-  label?: string
-  hint?: string
+  label?: string | undefined
+  hint?: string | undefined
   disabled?: boolean
   /** Rótulo para leitor de tela quando não há `label` visível. */
   ariaLabel?: string

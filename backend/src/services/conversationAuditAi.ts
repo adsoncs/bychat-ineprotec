@@ -236,21 +236,24 @@ export async function auditLeadConversation(leadId: number, opts: { triggeredBy?
     let aiResp: { text: string; model: string } | null = null
     let lastErr: Error | null = null
 
-    const tryAnthropic = async () => {
+    // Devolvem em vez de atribuir de dentro da closure: com a escrita escondida,
+    // o compilador estreitava `aiResp` para `never` após o `if (!aiResp) throw`.
+    type RespostaIa = { text: string; model: string }
+    const tryAnthropic = async (): Promise<RespostaIa> => {
       if (!anthropicKey) throw new Error('Anthropic key não configurada')
       const model = await getAnthropicModel()
-      aiResp = await callAnthropic(anthropicKey, model, systemPrompt, userPrompt)
+      return callAnthropic(anthropicKey, model, systemPrompt, userPrompt)
     }
-    const tryOpenAi = async () => {
+    const tryOpenAi = async (): Promise<RespostaIa> => {
       if (!openaiKey) throw new Error('OpenAI key não configurada')
       const model = await getOpenAiModel()
-      aiResp = await callOpenAi(openaiKey, model, systemPrompt, userPrompt)
+      return callOpenAi(openaiKey, model, systemPrompt, userPrompt)
     }
 
     if (primary === 'openai') {
-      try { await tryOpenAi() } catch (e: any) { lastErr = e; try { await tryAnthropic() } catch (e2: any) { lastErr = e2 } }
+      try { aiResp = await tryOpenAi() } catch (e: any) { lastErr = e; try { aiResp = await tryAnthropic() } catch (e2: any) { lastErr = e2 } }
     } else {
-      try { await tryAnthropic() } catch (e: any) { lastErr = e; try { await tryOpenAi() } catch (e2: any) { lastErr = e2 } }
+      try { aiResp = await tryAnthropic() } catch (e: any) { lastErr = e; try { aiResp = await tryOpenAi() } catch (e2: any) { lastErr = e2 } }
     }
     if (!aiResp) throw lastErr ?? new Error('Sem provedor de IA disponível')
 

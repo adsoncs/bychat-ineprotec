@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks'
-import { LayoutTemplate, Search, Send } from '@/components/ui/icon-set'
+import { LayoutTemplate, Send } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'

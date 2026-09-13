@@ -124,7 +124,7 @@ export function useImportCommit() {
 export function useStartCampaign() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, scheduledAt }: { id: number; scheduledAt?: string | null }) =>
+    mutationFn: ({ id, scheduledAt }: { id: number; scheduledAt?: string | null | undefined }) =>
       api.post<{ ok: true; status: string }>(`/admin/broadcast/campaigns/${id}/start`, { scheduledAt }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['broadcast-campaigns'] }),
   })

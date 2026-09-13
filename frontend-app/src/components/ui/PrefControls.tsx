@@ -8,7 +8,7 @@ import { Switch as SwitchBase } from '@/components/ui/Input'
  * duplicar levava a espaçamento e foco divergentes entre telas.
  */
 
-export function Section({ title, hint, children }: { title: string; hint?: string; children: ComponentChildren }) {
+export function Section({ title, hint, children }: { title: string; hint?: string | undefined; children: ComponentChildren }) {
   return (
     <section class="space-y-3">
       <div>

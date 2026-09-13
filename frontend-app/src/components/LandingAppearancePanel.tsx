@@ -495,7 +495,7 @@ export function LandingAppearancePanel({ page, onClose }: Props) {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: preact.ComponentChildren }) {
+function Section({ title, hint, children }: { title: string; hint?: string | undefined; children: preact.ComponentChildren }) {
   return (
     <div>
       <div class="text-2xs uppercase tracking-wider text-fg-muted font-medium mb-1.5">{title}</div>

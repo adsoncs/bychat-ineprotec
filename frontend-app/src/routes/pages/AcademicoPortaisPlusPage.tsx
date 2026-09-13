@@ -149,7 +149,7 @@ function CoordenadorTab({ onLink }: { onLink: OnLink }) {
   )
 }
 
-function LinkBox({ url, expiraEm }: { url: string; expiraEm?: string }) {
+function LinkBox({ url, expiraEm }: { url: string; expiraEm?: string | undefined }) {
   const [copied, setCopied] = useState(false)
   const copy = () => { navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }) }
   return (

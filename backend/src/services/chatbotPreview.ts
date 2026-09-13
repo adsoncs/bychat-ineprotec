@@ -40,9 +40,14 @@ interface SupportMod {
 let supCache: SupportMod | null | undefined // undefined = ainda não tentou; null = ausente
 async function getSupport(): Promise<SupportMod | null> {
   if (supCache !== undefined) return supCache
-  try { supCache = (await import('./scriptedSupportFlow.js')) as any }
-  catch { supCache = null }
-  return supCache
+  try {
+    // Caminho em variável de propósito: o módulo só existe em alguns tenants, e
+    // um import literal faria o TypeScript exigir aqui um arquivo que nesta
+    // instalação não existe. O try/catch é o contrato — ausência é esperada.
+    const caminho = './scriptedSupportFlow.js'
+    supCache = (await import(/* @vite-ignore */ caminho)) as SupportMod
+  } catch { supCache = null }
+  return supCache ?? null
 }
 const localFirstName = (n: any): string => String(n ?? '').trim().split(/\s+/)[0] || ''
 
@@ -376,7 +381,7 @@ export async function startPreview(chatbotId: number): Promise<PreviewResult | {
   const cfg = sup ? sup.getSupportCfg(chatbot) : null
 
   // No preview não há contato conhecido: nome nunca é pulado.
-  const first = nextStep(fields, 0, cfg ? { known: { nome: false } } : undefined)
+  const first = nextStep(fields, 0)
   const state: PreviewState = { stepIndex: first.index, answers: {}, phase: 'asking', fallbackCount: 0 }
 
   let welcome = greet
@@ -418,7 +423,7 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
   // ── Conversa encerrada → reinício (restartOnReturn) ──
   if (state.phase === 'done' || state.phase === 'disqualified') {
     if (cfg?.restartOnReturn) {
-      const first = nextStep(fields, 0, { known: { nome: false } })
+      const first = nextStep(fields, 0)
       state.stepIndex = first.index; state.answers = {}; state.phase = 'asking'; state.fallbackCount = 0; state.dept = undefined; state.slots = undefined
       out.push(sup!.supportMsg(chatbot, 'greetingReturning', { nome: '' }))
       if (first.kind !== 'finish') askField(out, first.field)
@@ -524,7 +529,7 @@ export async function messagePreview(sessionId: string, text: string): Promise<P
   const ns = nextStep(fields, state.stepIndex + 1)
   state.stepIndex = ns.index
   if (ns.kind === 'finish') {
-    if (cfg) await simEnterWaitingAgent(cfg, chatbot, form, state, state.dept || cfg.fallbackDept, out)
+    if (cfg && sup) await simEnterWaitingAgent(sup, cfg, chatbot, form, state, state.dept || cfg.fallbackDept, out)
     else simFinishQualified(chatbot, form, state, out)
     return done(sessionId, out, state)
   }

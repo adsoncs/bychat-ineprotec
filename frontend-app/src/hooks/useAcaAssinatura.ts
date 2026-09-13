@@ -13,7 +13,30 @@ export async function abrirPdfContrato(id: number) {
 
 export interface EnvelopeRow { id: number; titulo: string; status: string; provider: string; enviadoEm: string | null; finalizadoEm: string | null; alunoNome: string | null; ra: string | null; totalSignatarios: number; assinados: number }
 export interface Signatario { id: number; nome: string; email: string | null; papel: string; status: string; linkAssinatura: string | null; publicId: string | null; assinadoEm: string | null; viewedEm: string | null; rejeitadoEm: string | null; ordem: number }
-export interface EnvelopeDetail { id: number; titulo: string; status: string; provider: string; alunoId: number | null; contratoId: number | null; documentoExternoId: string | null; enviadoEm: string | null; finalizadoEm: string | null; termoTexto: string | null; arquivoAssinadoUrl: string | null; signatarios: Signatario[] }
+// O detalhe vem do `findUnique` com todos os campos do envelope: os que faltavam
+// aqui (origem, prazo, lembrete, ordem e recusa) já eram lidos pela tela e o
+// compilador reclamava com razão — o tipo é que estava atrasado.
+export interface EnvelopeDetail {
+  id: number
+  titulo: string
+  status: string
+  provider: string
+  alunoId: number | null
+  contratoId: number | null
+  documentoExternoId: string | null
+  enviadoEm: string | null
+  finalizadoEm: string | null
+  termoTexto: string | null
+  arquivoAssinadoUrl: string | null
+  /** ESCRITO | UPLOAD | INLINE — como o envelope foi montado. */
+  origem: string
+  deadlineEm: string | null
+  /** DAILY | WEEKLY | null — cadência do lembrete, não um liga-desliga. */
+  reminder: string | null
+  sortable: boolean
+  refusable: boolean
+  signatarios: Signatario[]
+}
 export interface AssinaturaConfig { modo: 'SIMULADO' | 'AUTENTIQUE'; sandbox: boolean; tokenConfigurado: boolean; webhookSecretConfigurado?: boolean }
 
 export const ENV_STATUS: Record<string, { label: string; tone: 'neutral' | 'info' | 'warning' | 'success' | 'danger' }> = {
@@ -61,8 +84,24 @@ export function useGatilhoMut() {
   }
 }
 
+/**
+ * Contrato assinado no portal do aluno (Fase 5) — não tem envelope de provedor.
+ * Entra nesta tela porque é aqui que a instituição guarda o histórico de
+ * contratos; sem isso, uma assinatura feita no Portal não apareceria no ERP.
+ */
+export interface AceiteRow {
+  contratoId: number
+  matriculaId: number
+  alunoNome: string | null
+  ra: string | null
+  assinadoEm: string
+  assinadoPor: string | null
+  ip: string | null
+  matriculaStatus: string | null
+}
+
 export const useEnvelopes = (status: string) =>
-  useQuery({ queryKey: ['aca-assinaturas', status], queryFn: () => api.get<{ envelopes: EnvelopeRow[] }>(`/admin/aca/assinatura${status ? `?status=${status}` : ''}`), staleTime: 3_000 })
+  useQuery({ queryKey: ['aca-assinaturas', status], queryFn: () => api.get<{ envelopes: EnvelopeRow[]; aceites: AceiteRow[] }>(`/admin/aca/assinatura${status ? `?status=${status}` : ''}`), staleTime: 3_000 })
 
 export const useEnvelope = (id: number | null) =>
   useQuery({ queryKey: ['aca-assinatura', id], queryFn: () => api.get<{ envelope: EnvelopeDetail }>(`/admin/aca/assinatura/${id}`), enabled: id !== null })

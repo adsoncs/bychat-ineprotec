@@ -70,14 +70,14 @@ export function useDeleteLossReason() {
 
 export interface MarkWonInput {
   id: number
-  value?: number | null
-  note?: string | null
+  value?: number | null | undefined
+  note?: string | null | undefined
 }
 
 export interface MarkLostInput {
   id: number
   reasonId?: number | null
-  note?: string | null
+  note?: string | null | undefined
 }
 
 export function useMarkLeadWon() {
@@ -110,7 +110,7 @@ export function useReopenLead() {
 export function useBulkMarkWon() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { ids: number[]; value?: number | null; note?: string | null }) =>
+    mutationFn: (input: { ids: number[]; value?: number | null | undefined; note?: string | null | undefined }) =>
       api.post<{ ok: true; processed: number; failed: number }>('/bychat/leads/bulk/won', input),
     onSuccess: () => inv(qc),
   })
@@ -119,7 +119,7 @@ export function useBulkMarkWon() {
 export function useBulkMarkLost() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { ids: number[]; reasonId?: number | null; note?: string | null }) =>
+    mutationFn: (input: { ids: number[]; reasonId?: number | null; note?: string | null | undefined }) =>
       api.post<{ ok: true; processed: number; failed: number }>('/bychat/leads/bulk/lost', input),
     onSuccess: () => inv(qc),
   })

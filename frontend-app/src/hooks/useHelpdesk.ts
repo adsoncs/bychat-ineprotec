@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { periodQuery, type PeriodRange } from '@/components/ui/PeriodPicker'
+import type { Parcial } from '@/lib/tipos'
 
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'solved' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
@@ -48,7 +49,7 @@ export function useOrganizations() {
 }
 export function useSaveOrganization() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<Organization> & { id?: number }) => id ? api.put(`/admin/helpdesk/organizations/${id}`, b) : api.post('/admin/helpdesk/organizations', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-orgs'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Parcial<Organization> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/organizations/${id}`, b) : api.post('/admin/helpdesk/organizations', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-orgs'] }) })
 }
 export function useDeleteOrganization() {
   const qc = useQueryClient()
@@ -65,7 +66,7 @@ export interface SlaPolicy {
   conditions: { priorities?: string[]; channels?: string[]; types?: string[]; teamIds?: number[] }
   firstResponseMins: Record<string, number>
   resolutionMins: Record<string, number>
-  nextResponseMins?: Record<string, number> | null
+  nextResponseMins?: Record<string, number> | null | undefined
   useBusinessHours: boolean
   calendarId: number | null
 }
@@ -312,12 +313,12 @@ export function useTagsCatalog() {
 
 export interface CreateTicketInput {
   subject: string
-  description?: string
+  description?: string | undefined
   priority?: TicketPriority
   type?: TicketType
   channel?: TicketChannel
-  requesterName?: string
-  requesterEmail?: string
+  requesterName?: string | undefined
+  requesterEmail?: string | undefined
   requesterPhone?: string
 }
 
@@ -364,18 +365,18 @@ export function useTicketActions(ticketId: number) {
     claim: useMutation({ mutationFn: () => api.post(`/helpdesk/tickets/${ticketId}/claim`), onSuccess: invalidate }),
     release: useMutation({ mutationFn: () => api.post(`/helpdesk/tickets/${ticketId}/release`), onSuccess: invalidate }),
     assign: useMutation({
-      mutationFn: (input: { userId?: number | null; teamId?: number | null }) =>
+      mutationFn: (input: { userId?: number | null | undefined; teamId?: number | null }) =>
         api.post(`/helpdesk/tickets/${ticketId}/assign`, input),
       onSuccess: invalidate,
     }),
     setRequester: useMutation({
-      mutationFn: (input: { leadId?: number; requesterName?: string; requesterEmail?: string; requesterPhone?: string }) =>
+      mutationFn: (input: { leadId?: number | undefined; requesterName?: string; requesterEmail?: string; requesterPhone?: string }) =>
         api.post(`/helpdesk/tickets/${ticketId}/requester`, input),
       onSuccess: invalidate,
     }),
     unlinkLead: useMutation({ mutationFn: () => api.delete(`/helpdesk/tickets/${ticketId}/requester`), onSuccess: invalidate }),
     addFollower: useMutation({
-      mutationFn: (input: { userId?: number; email?: string; name?: string }) =>
+      mutationFn: (input: { userId?: number | undefined; email?: string | undefined; name?: string }) =>
         api.post(`/helpdesk/tickets/${ticketId}/followers`, input),
       onSuccess: invalidate,
     }),
@@ -430,7 +431,7 @@ export type BulkAction = 'status' | 'priority' | 'assign' | 'team' | 'tag' | 'de
 export function useBulkAction() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { ids: number[]; action: BulkAction; value?: string | number | null }) =>
+    mutationFn: (input: { ids: number[]; action: BulkAction; value?: string | number | boolean | null | undefined }) =>
       api.post<{ updated: number; skipped: number[] }>('/helpdesk/tickets/bulk', input),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-tickets'] }),
   })
@@ -462,13 +463,13 @@ export function useKbCategories() {
 }
 export function useSaveKbCategory() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<KbCategory> & { id?: number }) => id ? api.put(`/admin/helpdesk/kb/categories/${id}`, b) : api.post('/admin/helpdesk/kb/categories', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['kb-categories'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Parcial<KbCategory> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/kb/categories/${id}`, b) : api.post('/admin/helpdesk/kb/categories', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['kb-categories'] }) })
 }
 export function useDeleteKbCategory() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (id: number) => api.delete(`/admin/helpdesk/kb/categories/${id}`), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['kb-categories'] }); void qc.invalidateQueries({ queryKey: ['kb-articles'] }) } })
 }
-export function useKbArticles(filters: { status?: string; q?: string } = {}) {
+export function useKbArticles(filters: { status?: string | undefined; q?: string } = {}) {
   return useQuery({
     queryKey: ['kb-articles', filters],
     queryFn: () => { const p = new URLSearchParams(); if (filters.status) p.set('status', filters.status); if (filters.q) p.set('q', filters.q); const qs = p.toString(); return api.get<{ articles: KbArticle[] }>(`/admin/helpdesk/kb/articles${qs ? `?${qs}` : ''}`) },
@@ -477,7 +478,7 @@ export function useKbArticles(filters: { status?: string; q?: string } = {}) {
 }
 export function useSaveKbArticle() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<KbArticle> & { id?: number }) => id ? api.put(`/admin/helpdesk/kb/articles/${id}`, b) : api.post('/admin/helpdesk/kb/articles', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['kb-articles'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Parcial<KbArticle> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/kb/articles/${id}`, b) : api.post('/admin/helpdesk/kb/articles', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['kb-articles'] }) })
 }
 export function useDeleteKbArticle() {
   const qc = useQueryClient()
@@ -509,7 +510,7 @@ export function useMacros() {
 }
 export function useSaveMacro() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<Macro> & { id?: number }) => id ? api.put(`/admin/helpdesk/macros/${id}`, b) : api.post('/admin/helpdesk/macros', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-macros'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Parcial<Macro> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/macros/${id}`, b) : api.post('/admin/helpdesk/macros', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-macros'] }) })
 }
 export function useDeleteMacro() {
   const qc = useQueryClient()
@@ -528,7 +529,7 @@ export function useTriggers() {
 }
 export function useSaveTrigger() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<Trigger> & { id?: number }) => id ? api.put(`/admin/helpdesk/triggers/${id}`, b) : api.post('/admin/helpdesk/triggers', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-triggers'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Partial<Trigger> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/triggers/${id}`, b) : api.post('/admin/helpdesk/triggers', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-triggers'] }) })
 }
 export function useDeleteTrigger() {
   const qc = useQueryClient()
@@ -540,7 +541,7 @@ export function useAutomations() {
 }
 export function useSaveAutomation() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...b }: Partial<Automation> & { id?: number }) => id ? api.put(`/admin/helpdesk/automations/${id}`, b) : api.post('/admin/helpdesk/automations', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-automations'] }) })
+  return useMutation({ mutationFn: ({ id, ...b }: Partial<Automation> & { id?: number | undefined }) => id ? api.put(`/admin/helpdesk/automations/${id}`, b) : api.post('/admin/helpdesk/automations', b), onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-automations'] }) })
 }
 export function useDeleteAutomation() {
   const qc = useQueryClient()
@@ -556,7 +557,7 @@ export function useCalendars() {
 export function useSavePolicy() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...body }: Partial<SlaPolicy> & { id?: number }) =>
+    mutationFn: ({ id, ...body }: Partial<SlaPolicy> & { id?: number | undefined }) =>
       id ? api.put(`/admin/helpdesk/sla-policies/${id}`, body) : api.post('/admin/helpdesk/sla-policies', body),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['helpdesk-sla-policies'] }),
   })

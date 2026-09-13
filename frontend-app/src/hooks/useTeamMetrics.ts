@@ -72,10 +72,10 @@ export interface TeamMetricsResponse {
 }
 
 export interface TeamMetricsParams {
-  from?: string
+  from?: string | undefined
   to?: string
   teamId?: number | null
-  userId?: number | null
+  userId?: number | null | undefined
   funnelId?: number | null
   qualificationSource?: string | null
 }
@@ -110,7 +110,7 @@ export interface OperatorBreakdownResponse {
 
 export function useOperatorBreakdown(
   userId: number | null,
-  params: { from?: string; to?: string },
+  params: { from?: string | undefined; to?: string | undefined },
 ) {
   const search = new URLSearchParams()
   if (params.from) search.set('from', params.from)

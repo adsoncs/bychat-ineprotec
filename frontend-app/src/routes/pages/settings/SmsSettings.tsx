@@ -22,7 +22,7 @@ interface SmsTestResult {
   ok: boolean
   at: number
   providerId?: string
-  error?: string
+  error?: string | undefined
 }
 
 export function SmsSettings() {

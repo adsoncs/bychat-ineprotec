@@ -40,7 +40,7 @@ export function AcademicoTccPage() {
 
       <div class="flex flex-wrap gap-1">
         <button class={`text-xs px-2 py-1 rounded border ${status === '' ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus('')}>Todos</button>
-        {ORDER.filter((s) => counts[s]).map((s) => <button key={s} class={`text-xs px-2 py-1 rounded border ${status === s ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus(s)}>{TCC_STATUS[s].label} ({counts[s]})</button>)}
+        {ORDER.filter((s) => counts[s]).map((s) => <button key={s} class={`text-xs px-2 py-1 rounded border ${status === s ? 'bg-surface-2 border-border' : 'border-transparent text-fg-muted'}`} onClick={() => setStatus(s)}>{TCC_STATUS[s]?.label ?? s} ({counts[s]})</button>)}
       </div>
 
       {data.isLoading ? <Skeleton class="h-32 w-full" /> : tccs.length === 0 ? <EmptyState icon={<ScrollText size={28} />} title="Nenhum TCC" description="Registre o primeiro TCC acima." /> : (
@@ -48,7 +48,7 @@ export function AcademicoTccPage() {
           {tccs.map((t) => (
             <div key={t.id} class="px-4 py-3 text-sm flex items-center gap-3">
               <span class="flex-1 min-w-0"><span class="block truncate text-fg">{t.titulo}</span><span class="block text-xs text-fg-muted">{t.alunoNome}{t.ra ? ` · RA ${t.ra}` : ''}{t.orientador ? ` · orient. ${t.orientador}` : ''}{t.nota != null ? ` · nota ${t.nota}` : ''}</span></span>
-              <Select value={t.status} onChange={(e: any) => mut.atualizar.mutate({ id: t.id, status: e.currentTarget.value })} class="!py-1 text-xs !w-36">{ORDER.map((s) => <option key={s} value={s}>{TCC_STATUS[s].label}</option>)}</Select>
+              <Select value={t.status} onChange={(e: any) => mut.atualizar.mutate({ id: t.id, status: e.currentTarget.value })} class="!py-1 text-xs !w-36">{ORDER.map((s) => <option key={s} value={s}>{TCC_STATUS[s]?.label ?? s}</option>)}</Select>
               {(t.status === 'APROVADO' || t.status === 'REPROVADO') && <Input class="!w-20 !py-1 text-xs" type="number" step="0.1" placeholder="Nota" value={t.nota ?? ''} onInput={(e: any) => mut.atualizar.mutate({ id: t.id, nota: e.currentTarget.value })} />}
               <Badge tone={TCC_STATUS[t.status]?.tone ?? 'neutral'}>{TCC_STATUS[t.status]?.label ?? t.status}</Badge>
               <button class="text-fg-muted hover:text-danger" onClick={() => mut.excluir.mutate(t.id)}><Trash2 size={14} /></button>

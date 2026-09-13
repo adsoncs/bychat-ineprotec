@@ -53,7 +53,7 @@ interface IconProps {
   size?: IconSize
   class?: string
   /** Rótulo acessível. Sem ele o ícone é decorativo (aria-hidden pelo lucide). */
-  label?: string
+  label?: string | undefined
 }
 
 export function Icon({ name, icon, size = 'md', class: className, label }: IconProps) {

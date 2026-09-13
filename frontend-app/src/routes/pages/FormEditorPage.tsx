@@ -238,7 +238,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
   // ── Ponte de seleção: cliques dentro do iframe → seleção no painel ──
   useEffect(() => {
     function onMsg(e: MessageEvent) {
-      const d = (e.data || {}) as { source?: string; type?: string; id?: string }
+      const d = (e.data || {}) as { source?: string; type?: string | undefined; id?: string }
       if (d.source !== 'forms-canvas') return
       if (d.type === 'select' && d.id) setActiveId(d.id)
       if (d.type === 'ready' && activeRef.current) postHighlight(activeRef.current, false)

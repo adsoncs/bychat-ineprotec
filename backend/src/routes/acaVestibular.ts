@@ -75,7 +75,11 @@ export async function acaVestibularRoutes(app: FastifyInstance) {
   // ── Digitação de notas (bulk upsert) ──
   app.post('/api/admin/aca/vestibular/notas', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
-    const itens: Array<{ processRegistrationId: number; componenteId: number; nota: number }> = Array.isArray(b.notas) ? b.notas : []
+    // `nota` chega do corpo da requisição, não de dentro: o navegador manda string
+      // vazia quando o professor apaga o campo. Declarar `number` puro tornava a
+      // guarda logo abaixo uma comparação "impossível" — e removê-la faria
+      // `Number('')` virar NOTA ZERO para quem simplesmente não tem nota.
+      const itens: Array<{ processRegistrationId: number; componenteId: number; nota: number | string }> = Array.isArray(b.notas) ? b.notas : []
     if (!itens.length) return reply.code(400).send({ error: 'notas[] obrigatório' })
     let n = 0
     for (const it of itens) {

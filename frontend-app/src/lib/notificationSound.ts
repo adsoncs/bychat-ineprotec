@@ -37,7 +37,7 @@ interface Note {
   freq: number
   at: number
   dur: number
-  type?: OscillatorType
+  type?: OscillatorType | undefined
 }
 
 export type SoundId = 'classico' | 'duplo' | 'suave' | 'ascendente' | 'grave' | 'cristal'

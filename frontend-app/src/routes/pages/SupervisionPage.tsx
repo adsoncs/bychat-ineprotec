@@ -181,7 +181,7 @@ function Toggle({ label, checked, onChange, hint }: {
   label: string
   checked: boolean
   onChange: (v: boolean) => void
-  hint?: string
+  hint?: string | undefined
 }) {
   return (
     <button
@@ -483,7 +483,11 @@ export function SupervisionPage() {
   const [assignTeam, setAssignTeam] = useState('')
   // Período dos indicadores de fluxo (resolvidas, 1ª resposta, tempo de
   // resolução). Antes eram 7 dias fixos, sem seletor na tela.
-  const period = usePeriod('supervision', '7d')
+  //
+  // O padrão era '7d', que não existe entre os presets (m0..m4, custom): o hook
+  // ignorava e caía no mês corrente. Agora o padrão é o mês corrente de forma
+  // explícita — mesmo comportamento, sem a promessa falsa.
+  const period = usePeriod('supervision', 'm0')
 
   const limit = 50
   const filters: SupervisionFilters = useMemo(() => ({

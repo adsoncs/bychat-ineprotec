@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 
 interface IdentityConfig {

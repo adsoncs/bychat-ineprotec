@@ -11,6 +11,15 @@ export interface ButtonProps extends NativeButtonAttrs {
   size?: Size
   /** quando true, renderiza só ícone (square) */
   iconOnly?: boolean
+  /**
+   * Ação em andamento: desabilita o botão e troca o conteúdo por um indicador.
+   *
+   * A prop já era passada em 23 lugares — inclusive em ações lentas como criar
+   * cobrança e classificar um processo — e o componente simplesmente a ignorava
+   * (ela caía no `...rest` e virava atributo do <button>). Quem clicava não via
+   * retorno nenhum, e clicava de novo.
+   */
+  loading?: boolean
   children?: ComponentChildren
 }
 
@@ -42,6 +51,7 @@ export function Button({
   variant = 'primary',
   size = 'md',
   iconOnly = false,
+  loading = false,
   class: className,
   className: classNameAlt,
   type = 'button',
@@ -51,6 +61,8 @@ export function Button({
   return (
     <button
       type={type}
+      disabled={rest.disabled || loading}
+      aria-busy={loading || undefined}
       class={cn(
         'inline-flex items-center justify-center rounded-md font-semibold select-none',
         /* A transição saiu do utilitário `transition-colors` e foi para o CSS
@@ -72,6 +84,15 @@ export function Button({
       )}
       {...rest}
     >
+      {loading && (
+        <svg
+          class="animate-spin -ml-0.5 mr-1.5 h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24"
+          fill="none" aria-hidden="true"
+        >
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
+          <path class="opacity-90" fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-3a7 7 0 0 0-7-7z" />
+        </svg>
+      )}
       {children}
     </button>
   )

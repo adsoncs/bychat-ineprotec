@@ -35,9 +35,9 @@ export async function requestNotificationPermission(): Promise<NotifyPermission>
 // aviso que se atualiza, não cinco empilhados. É o que a `tag` faz.
 export interface DesktopNotifyInput {
   title: string
-  body?: string
+  body?: string | undefined
   /** Agrupa avisos da mesma origem (ex.: `lead-42`). */
-  tag?: string
+  tag?: string | undefined
   /** Rota do painel aberta ao clicar. */
   href?: string
 }

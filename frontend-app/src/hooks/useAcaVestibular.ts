@@ -35,7 +35,7 @@ export function useVestibularMut() {
     criarMotivo: useMutation({ mutationFn: (b: any) => api.post(`${base}/motivos-cancelamento`, b), onSuccess: () => inval('aca-vest-motivos') }),
     criarEmpresa: useMutation({ mutationFn: (b: any) => api.post(`${base}/empresas`, b), onSuccess: () => inval('aca-vest-empresas') }),
     setExtra: useMutation({ mutationFn: ({ regId, ...b }: any) => api.put(`${base}/inscricoes/${regId}/extra`, b), onSuccess: () => inval('aca-vest-extras') }),
-    cancelarInscricao: useMutation({ mutationFn: ({ regId, motivoId }: { regId: number; motivoId?: number }) => api.post(`${base}/inscricoes/${regId}/cancelar`, { motivoId }), onSuccess: () => inval('aca-vest-cand') }),
+    cancelarInscricao: useMutation({ mutationFn: ({ regId, motivoId }: { regId: number; motivoId?: number | undefined }) => api.post(`${base}/inscricoes/${regId}/cancelar`, { motivoId }), onSuccess: () => inval('aca-vest-cand') }),
   }
 }
 

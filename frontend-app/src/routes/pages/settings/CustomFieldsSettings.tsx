@@ -98,7 +98,7 @@ function parseOptions(raw: unknown): OptionItem[] {
   for (const item of raw) {
     if (typeof item === 'string') out.push({ value: item, label: item })
     else if (item && typeof item === 'object') {
-      const obj = item as { value?: unknown; label?: unknown }
+      const obj = item as { value?: unknown | undefined; label?: unknown }
       const v = typeof obj.value === 'string' ? obj.value : ''
       const l = typeof obj.label === 'string' ? obj.label : v
       if (v !== '') out.push({ value: v, label: l })

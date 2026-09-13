@@ -92,7 +92,7 @@ export function useGenerateSSL() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (subdomain: string) =>
-      api.post<{ ok: boolean; output?: string; error?: string; detail?: string }>(
+      api.post<{ ok: boolean; output?: string; error?: string | undefined; detail?: string }>(
         `/admin/installations/${subdomain}/ssl`,
         {},
       ),

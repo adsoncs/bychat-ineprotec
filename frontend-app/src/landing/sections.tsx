@@ -54,7 +54,7 @@ import {
 const MEETING_ICONS: Record<string, typeof Video> = { Video, Sparkles, Target, Mic }
 
 function Section(props: {
-  id?: string
+  id?: string | undefined
   class?: string
   children: preact.ComponentChildren
 }) {

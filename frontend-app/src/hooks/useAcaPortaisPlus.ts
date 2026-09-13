@@ -31,7 +31,7 @@ export function useCoordenadorMut() {
   const qc = useQueryClient()
   const inval = () => void qc.invalidateQueries({ queryKey: ['aca-pp-coords'] })
   return {
-    criar: useMutation({ mutationFn: (b: { nome: string; email?: string; courseId: number }) => api.post('/admin/aca/portal-plus/coordenadores', b), onSuccess: inval }),
+    criar: useMutation({ mutationFn: (b: { nome: string; email?: string | undefined; courseId: number }) => api.post('/admin/aca/portal-plus/coordenadores', b), onSuccess: inval }),
     atualizar: useMutation({ mutationFn: ({ id, ...b }: { id: number; nome?: string; email?: string; courseId?: number; ativo?: boolean }) => api.put(`/admin/aca/portal-plus/coordenadores/${id}`, b), onSuccess: inval }),
   }
 }

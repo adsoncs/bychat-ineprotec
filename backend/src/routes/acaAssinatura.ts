@@ -9,6 +9,39 @@ import { getConfig, setConfig, verificarAssinaturaWebhook } from '../services/au
 
 const ENV_INCLUDE = { signatarios: { orderBy: { ordem: 'asc' as const } } }
 
+/**
+ * Contratos assinados no Portal — Fase 5.
+ *
+ * Desde que a assinatura passou a acontecer no portal do aluno, um contrato pode
+ * estar assinado sem que exista envelope de provedor externo. Esta tela é o
+ * histórico da instituição: se ela listasse só envelopes, uma assinatura feita
+ * pelo Portal simplesmente não apareceria em lugar nenhum do ERP.
+ */
+async function aceitesDoPortal(q: any) {
+  // O filtro por status da tela é o do envelope; um aceite só entra na lista
+  // quando ela não está filtrando por outro status que não "ASSINADO".
+  if (q.status && q.status !== 'ASSINADO') return []
+  const where: any = { aceiteEm: { not: null } }
+  if (q.alunoId) where.matricula = { alunoId: Number(q.alunoId) }
+  const rows = await prisma.acaContrato.findMany({
+    where, orderBy: { aceiteEm: 'desc' }, take: 200,
+    select: {
+      id: true, aceiteEm: true, aceiteNome: true, aceiteIp: true, matriculaId: true,
+      matricula: { select: { id: true, status: true, aluno: { select: { ra: true, lead: { select: { nome: true } } } } } },
+    },
+  })
+  return rows.map((c) => ({
+    contratoId: c.id,
+    matriculaId: c.matriculaId,
+    alunoNome: c.matricula?.aluno?.lead?.nome ?? null,
+    ra: c.matricula?.aluno?.ra ?? null,
+    assinadoEm: c.aceiteEm,
+    assinadoPor: c.aceiteNome,
+    ip: c.aceiteIp,
+    matriculaStatus: c.matricula?.status ?? null,
+  }))
+}
+
 export async function acaAssinaturaRoutes(app: FastifyInstance) {
   // ── Config (sem expor o token) ──
   app.get('/api/admin/aca/assinatura/config', { preHandler: authMiddleware }, async () => {
@@ -44,6 +77,7 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
         ra: r.alunoId ? aMap.get(r.alunoId)?.ra ?? null : null,
         totalSignatarios: r.signatarios.length, assinados: r.signatarios.filter((s) => s.status === 'ASSINADO').length,
       })),
+      aceites: await aceitesDoPortal(q),
     }
   })
 
@@ -134,7 +168,7 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
     const tids = [...new Set(gs.map((g) => g.templateId).filter((x): x is number => x != null))]
     const ts = tids.length ? await prisma.acaContratoTemplate.findMany({ where: { id: { in: tids } }, select: { id: true, nome: true } }) : []
     const tMap = new Map(ts.map((t) => [t.id, t.nome]))
-    return { gatilhos: gs.map((g) => ({ ...g, templateNome: tMap.get(g.templateId) ?? null })) }
+    return { gatilhos: gs.map((g) => ({ ...g, templateNome: g.templateId != null ? tMap.get(g.templateId) ?? null : null })) }
   })
   app.post('/api/admin/aca/assinatura/gatilhos', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}

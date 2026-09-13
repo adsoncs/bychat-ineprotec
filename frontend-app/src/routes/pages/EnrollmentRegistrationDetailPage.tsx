@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import {
-  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText,
+  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy,
 } from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
@@ -12,6 +12,7 @@ import {
   useBulkApproveAi,
   useUpdateEnemImport,
   useResendMagicLink,
+  useResendRegistrationLink,
   useSyncRegistrationPayment,
   type RegistrationReview,
   type DocumentSlot,
@@ -374,19 +375,22 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
   const slug = review.portal?.slug
   const code = review.registration.candidateCode
   const [resending, setResending] = useState(false)
+  const [linkGerado, setLinkGerado] = useState<{ url: string; ttlDays: number } | null>(null)
   const resend = useResendMagicLink(slug ?? '')
+  const gerar = useResendRegistrationLink()
 
   if (!slug) return null
 
   const candidateUrl = `${window.location.origin}/candidato/${code}`
+  const semContato = !review.lead?.email && !review.lead?.whatsapp
 
   function handleResend() {
-    if (!review.lead?.email && !review.lead?.whatsapp) {
+    if (semContato) {
       toast('Lead não tem email nem WhatsApp', 'danger'); return
     }
     setResending(true)
     resend.mutate(
-      review.lead.email ? { email: review.lead.email } : { whatsapp: review.lead.whatsapp ?? '' },
+      review.lead!.email ? { email: review.lead!.email } : { whatsapp: review.lead!.whatsapp ?? '' },
       {
         onSuccess: () => { toast('Magic link reenviado', 'success'); setResending(false) },
         onError: (e: unknown) => { toast((e as Error).message, 'danger'); setResending(false) },
@@ -394,8 +398,24 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
     )
   }
 
-  function handleCopy() {
-    void navigator.clipboard.writeText(candidateUrl).then(() => toast('Link copiado', 'success'))
+  /**
+   * Gera o link SEM enviar nada.
+   *
+   * Quem está atendendo já costuma estar falando com a pessoa no Conversas — aí
+   * disparar uma mensagem automática por fora atrapalha em vez de ajudar. Com o
+   * link em mãos, a secretaria cola onde a conversa já está acontecendo.
+   */
+  function handleGerar() {
+    gerar.mutate({ id: review.registration.id, enviar: false }, {
+      onSuccess: (r) => setLinkGerado({ url: r.url, ttlDays: r.ttlDays }),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
+  function copiar(texto: string, label: string) {
+    void navigator.clipboard.writeText(texto)
+      .then(() => toast(`${label} copiado`, 'success'))
+      .catch(() => toast('Não foi possível copiar — selecione o texto e copie à mão', 'warning'))
   }
 
   return (
@@ -416,12 +436,47 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
           </div>
         </div>
         <div class="flex gap-2 shrink-0">
-          <Button variant="secondary" size="sm" onClick={handleCopy}>Copiar link</Button>
-          <Button variant="primary" size="sm" onClick={handleResend} disabled={resending || resend.isPending}>
-            <Send size={12} /> {resending || resend.isPending ? 'Enviando…' : 'Reenviar magic link'}
+          <Button variant="secondary" size="sm" onClick={() => copiar(candidateUrl, 'Link')}>
+            Copiar link
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleGerar} disabled={gerar.isPending}>
+            <QrCode size={12} /> {gerar.isPending ? 'Gerando…' : 'Gerar link de acesso'}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleResend}
+            disabled={resending || resend.isPending || semContato}
+            title={semContato ? 'Lead sem email nem WhatsApp' : ''}
+          >
+            <Send size={12} /> {resending || resend.isPending ? 'Enviando…' : 'Enviar ao candidato'}
           </Button>
         </div>
       </div>
+
+      {/* O link entra direto na tela, para ser copiado e colado onde a conversa
+          já está — não só disparado por fora. */}
+      {linkGerado && (
+        <div class="mt-3 rounded-md border border-border bg-surface p-3">
+          <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+            <div class="text-xs font-medium text-fg">Link de acesso direto</div>
+            <div class="text-2xs text-fg-muted">
+              Vale por {linkGerado.ttlDays} dia(s) · entra direto, sem o candidato precisar fazer login
+            </div>
+          </div>
+          <div class="flex gap-2 items-start">
+            <code class="flex-1 min-w-0 text-2xs text-fg-muted break-all bg-bg rounded px-2 py-1.5">
+              {linkGerado.url}
+            </code>
+            <Button variant="secondary" size="sm" onClick={() => copiar(linkGerado.url, 'Link de acesso')}>
+              <Copy size={12} /> Copiar
+            </Button>
+          </div>
+          <div class="text-2xs text-warning mt-2">
+            Quem tiver este link entra na inscrição — mande só para o candidato.
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

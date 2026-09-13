@@ -33,7 +33,6 @@ export type CaixaId = (typeof CAIXAS)[number]
 export const ITENS_CONTADOR = [...CAIXAS, 'groups'] as const
 export type ItemContador = (typeof ITENS_CONTADOR)[number]
 
-
 export interface TabOrder {
   scope: EscopoId[]
   bucket: CaixaId[]

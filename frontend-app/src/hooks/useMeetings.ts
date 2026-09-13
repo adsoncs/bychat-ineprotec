@@ -149,7 +149,7 @@ export interface MeetingsReport {
 
 export function useGenerateMeetingsReport() {
   return useMutation({
-    mutationFn: (body: { from?: string; to?: string; leadId?: number; userId?: number }) =>
+    mutationFn: (body: { from?: string | undefined; to?: string | undefined; leadId?: number | undefined; userId?: number | undefined }) =>
       api.post<{ report: MeetingsReport }>('/admin/meetings/report', body),
   })
 }
@@ -220,7 +220,7 @@ export function useMeetingLeadSearch(q: string) {
 export function useUploadPresencialMeeting() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ file, title, leadId, activityId, language }: { file: File; title?: string; leadId?: number | null; activityId?: number | null; language?: string }) => {
+    mutationFn: ({ file, title, leadId, activityId, language }: { file: File; title?: string | undefined; leadId?: number | null | undefined; activityId?: number | null; language?: string }) => {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('consent', 'true')
@@ -228,7 +228,7 @@ export function useUploadPresencialMeeting() {
       if (leadId) fd.append('leadId', String(leadId))
       if (activityId) fd.append('activityId', String(activityId))
       if (language) fd.append('language', language)
-      return api.post<{ recorded: boolean; reason?: string; recording?: MeetingRecording }>('/admin/meetings/upload', fd)
+      return api.post<{ recorded: boolean; reason?: string | undefined; recording?: MeetingRecording }>('/admin/meetings/upload', fd)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meeting-recordings'] }),
   })
@@ -241,7 +241,7 @@ export function useDispatchMeetingBot() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ meetUrl, language }: { meetUrl: string; language?: string }) =>
-      api.post<{ recorded: boolean; reason?: string; recording?: MeetingRecording }>(
+      api.post<{ recorded: boolean; reason?: string | undefined; recording?: MeetingRecording }>(
         '/admin/meetings/dispatch',
         { meetUrl, ...(language ? { language } : {}) },
       ),

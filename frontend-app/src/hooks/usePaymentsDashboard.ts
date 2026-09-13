@@ -99,8 +99,8 @@ export interface PaymentMethodsFilters {
   limit?: number
   offset?: number
   /** Intervalo do seletor de meses; o backend prioriza sobre `days`. */
-  from?: string
-  to?: string
+  from?: string | undefined
+  to?: string | undefined
 }
 
 export function usePaymentMethods(filters: PaymentMethodsFilters = {}) {
@@ -135,7 +135,7 @@ export interface WebhookHitRow {
   connection: { id: number; name: string; provider: string } | null
 }
 
-export function useWebhookHits(filters: { provider?: string; status?: string; eventType?: string; days?: number; from?: string; to?: string; limit?: number; offset?: number } = {}) {
+export function useWebhookHits(filters: { provider?: string; status?: string | undefined; eventType?: string; days?: number; from?: string | undefined; to?: string | undefined; limit?: number; offset?: number } = {}) {
   return useQuery({
     queryKey: ['webhook-hits-list', filters],
     queryFn: () => {
@@ -182,7 +182,7 @@ export interface Coupon {
 
 export interface CouponInput {
   code: string
-  description?: string | null
+  description?: string | null | undefined
   type: 'percent' | 'fixed'
   value: number
   minAmount?: number | null

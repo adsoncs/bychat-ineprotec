@@ -159,7 +159,7 @@ export type GoogleAdsTrigger = 'lead.won' | 'lead_qualified' | 'enrollment.payme
 export type ValueSource = 'zero' | 'sale_value' | 'fixed'
 
 export interface ConversionMapItem {
-  id?: number
+  id?: number | undefined
   trigger: GoogleAdsTrigger
   conversionAction: string
   valueSource: ValueSource

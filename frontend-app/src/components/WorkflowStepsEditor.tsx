@@ -915,7 +915,7 @@ function ActionFields({
 
 // ─── Helpers — selects de tag/stage/template ──────────────────────────────────
 
-function TeamSelectField({ label, hint, value, onChange }: { label: string; hint?: string; value: number; onChange: (v: number | null) => void }) {
+function TeamSelectField({ label, hint, value, onChange }: { label: string; hint?: string | undefined; value: number; onChange: (v: number | null) => void }) {
   const { data, isLoading } = useTeams()
   const teams = (data?.teams ?? []).filter((t) => t.active)
   return (
@@ -934,7 +934,7 @@ function TeamSelectField({ label, hint, value, onChange }: { label: string; hint
   )
 }
 
-function UserSelectField({ label, hint, value, onChange }: { label: string; hint?: string; value: number; onChange: (v: number | null) => void }) {
+function UserSelectField({ label, hint, value, onChange }: { label: string; hint?: string | undefined; value: number; onChange: (v: number | null) => void }) {
   const { data, isLoading } = useUsers()
   const users = (data?.users ?? []).filter((u) => u.active)
   return (
@@ -955,7 +955,7 @@ function UserSelectField({ label, hint, value, onChange }: { label: string; hint
   )
 }
 
-function TagSelectField({ label, hint, value, onChange }: { label: string; hint?: string; value: string; onChange: (v: string) => void }) {
+function TagSelectField({ label, hint, value, onChange }: { label: string; hint?: string | undefined; value: string; onChange: (v: string) => void }) {
   const { data } = useTags()
   return (
     <Select
@@ -970,7 +970,7 @@ function TagSelectField({ label, hint, value, onChange }: { label: string; hint?
   )
 }
 
-function StageSelectField({ label, hint, value, onChange }: { label: string; hint?: string; value: string; onChange: (v: string) => void }) {
+function StageSelectField({ label, hint, value, onChange }: { label: string; hint?: string | undefined; value: string; onChange: (v: string) => void }) {
   const { data } = useStages()
   return (
     <Select
@@ -988,7 +988,7 @@ function StageSelectField({ label, hint, value, onChange }: { label: string; hin
 function LossReasonsConditionField({
   hint, value, onChange,
 }: {
-  hint?: string
+  hint?: string | undefined
   value: number[]
   onChange: (ids: number[]) => void
 }) {

@@ -623,7 +623,7 @@ function openOAuthPopup(url: string) {
 
   function handler(ev: MessageEvent) {
     if (!ev.data || typeof ev.data !== 'object') return
-    const d = ev.data as { type?: string; email?: string; error?: string }
+    const d = ev.data as { type?: string | undefined; email?: string | undefined; error?: string | undefined }
     if (d.type === 'google-auth-success') {
       toast(`${d.email} conectado`, 'success')
       window.removeEventListener('message', handler)
@@ -643,7 +643,7 @@ function ConnectionSelect({
 }: {
   value: number | ''
   onChange: (v: number | '') => void
-  label?: string
+  label?: string | undefined
   required?: boolean
 }) {
   const { data } = useGoogleConnections()

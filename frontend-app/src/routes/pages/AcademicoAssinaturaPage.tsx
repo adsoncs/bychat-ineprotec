@@ -46,6 +46,7 @@ function Contratos({ onOpen }: { onOpen: (id: number) => void }) {
   const [cfg, setCfg] = useState(false)
   const data = useEnvelopes(status)
   const envs = data.data?.envelopes ?? []
+  const aceites = data.data?.aceites ?? []
   const config = useAssinaturaConfig()
   return (
     <div class="space-y-3">
@@ -57,9 +58,9 @@ function Contratos({ onOpen }: { onOpen: (id: number) => void }) {
         </div>
       </div>
       <div class="flex flex-wrap gap-1">
-        {FILTROS.map((s) => <button key={s || 'all'} class={`text-xs px-3 py-1.5 rounded-md border ${status === s ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setStatus(s)}>{s === '' ? 'Todos' : ENV_STATUS[s].label}</button>)}
+        {FILTROS.map((s) => <button key={s || 'all'} class={`text-xs px-3 py-1.5 rounded-md border ${status === s ? 'bg-surface-2 border-border text-fg' : 'border-transparent text-fg-muted hover:bg-surface-2'}`} onClick={() => setStatus(s)}>{s === '' ? 'Todos' : ENV_STATUS[s]?.label ?? s}</button>)}
       </div>
-      {data.isLoading ? <Skeleton class="h-14 w-full" /> : envs.length === 0 ? <EmptyState icon={<FileSignature size={28} />} title="Nenhum contrato" description="Crie um contrato para enviar à assinatura." /> : (
+      {data.isLoading ? <Skeleton class="h-14 w-full" /> : envs.length === 0 ? (aceites.length === 0 ? <EmptyState icon={<FileSignature size={28} />} title="Nenhum contrato" description="Os contratos assinados no portal do aluno aparecem abaixo. Aqui ficam os enviados a provedor externo de assinatura." /> : null) : (
         <Card class="p-0 overflow-hidden divide-y divide-border">
           {envs.map((e) => (
             <div key={e.id} class="px-4 py-3 flex items-center gap-3 text-sm cursor-pointer hover:bg-surface-2" onClick={() => onOpen(e.id)}>
@@ -68,6 +69,31 @@ function Contratos({ onOpen }: { onOpen: (id: number) => void }) {
             </div>
           ))}
         </Card>
+      )}
+      {aceites.length > 0 && (
+        <div class="space-y-2">
+          <div class="text-sm font-semibold text-fg flex items-center gap-2">
+            <FileSignature size={15} /> Assinados no portal do aluno
+          </div>
+          <p class="text-xs text-fg-subtle">
+            Aceite eletrônico com nome, data e endereço de rede registrados. Não passam por
+            provedor externo — o aluno assina dentro do portal.
+          </p>
+          <Card class="p-0 overflow-hidden divide-y divide-border">
+            {aceites.map((a) => (
+              <div key={a.contratoId} class="px-4 py-3 flex items-center gap-3 text-sm">
+                <span class="flex-1 min-w-0">
+                  <span class="block truncate text-fg">{a.alunoNome ?? 'Sem aluno'}{a.ra ? ` · RA ${a.ra}` : ''}</span>
+                  <span class="block text-xs text-fg-muted">
+                    Assinado por {a.assinadoPor ?? '—'} em {new Date(a.assinadoEm).toLocaleString('pt-BR')}
+                    {a.ip ? ` · IP ${a.ip}` : ''}
+                  </span>
+                </span>
+                <Badge tone="success">Assinado</Badge>
+              </div>
+            ))}
+          </Card>
+        </div>
       )}
       {novo && <NovoModal onClose={() => setNovo(false)} onCreated={(id) => { setNovo(false); onOpen(id) }} />}
       {cfg && <ConfigModal onClose={() => setCfg(false)} />}

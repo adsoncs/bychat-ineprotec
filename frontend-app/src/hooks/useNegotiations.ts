@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
 export interface NegItem {
-  id?: number
+  id?: number | undefined
   productId?: number | null
   nome: string
   quantidade: number
@@ -10,7 +10,7 @@ export interface NegItem {
   descontoItem?: number | string | null
   subtotal?: number | string
   /** unico = cobrança de uma vez; recorrente = mensalidade (entra no MRR). */
-  cobranca?: 'unico' | 'recorrente'
+  cobranca?: 'unico' | 'recorrente' | undefined
   /** Só p/ `unico`: parcelamento do item (null/1 = à vista). */
   parcelas?: number | null
   /** Só p/ `recorrente`: prazo do contrato em meses. */
@@ -124,7 +124,7 @@ export function useDeleteNegotiation(leadId: number) {
 export function useCloseNegotiation(leadId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, resultado, lostReasonId, valorFinal }: { id: number; resultado: 'won' | 'lost'; lostReasonId?: number; valorFinal?: number }) =>
+    mutationFn: ({ id, resultado, lostReasonId, valorFinal }: { id: number; resultado: 'won' | 'lost'; lostReasonId?: number | undefined; valorFinal?: number | undefined }) =>
       api.post<{ negotiation: Negotiation }>(`/admin/negotiations/${id}/close`, { resultado, lostReasonId, valorFinal }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['negotiations', leadId] }); qc.invalidateQueries({ queryKey: ['negotiation'] }); qc.invalidateQueries({ queryKey: ['lead'] }) },
   })
@@ -161,7 +161,7 @@ export function useDeleteNegotiationAttachment(leadId: number) {
 // Catálogo como fonte de itens da proposta (best-effort: módulo desligado → vazio).
 export interface CatalogHit {
   id: number; nome: string; categoria: string; preco: number | string | null
-  cobranca?: 'unico' | 'recorrente'; descricao?: string | null; sku?: string | null; disponivel?: boolean
+  cobranca?: 'unico' | 'recorrente'; descricao?: string | null | undefined; sku?: string | null; disponivel?: boolean
 }
 
 /** Busca por texto — usada no campo de digitação rápida. */
@@ -215,21 +215,21 @@ export interface NegotiationRow extends Negotiation {
 }
 
 export interface NegotiationsOverviewParams {
-  page?: number
-  limit?: number
-  q?: string
-  status?: string
+  page?: number | undefined
+  limit?: number | undefined
+  q?: string | undefined
+  status?: string | undefined
   /** open | won | lost */
-  resultado?: string
-  funnelId?: number | null
+  resultado?: string | undefined
+  funnelId?: number | null | undefined
   /** id do responsável, 'none' (sem dono) ou vazio. Filtra pelo dono do LEAD. */
-  responsavelUserId?: number | string | null
+  responsavelUserId?: number | string | null | undefined
   /** unico | recorrente — só propostas que têm aquele componente */
-  cobranca?: string
-  dateFrom?: string
-  dateTo?: string
+  cobranca?: string | undefined
+  dateFrom?: string | undefined
+  dateTo?: string | undefined
   /** recent | oldest | value | mrr */
-  orderBy?: string
+  orderBy?: string | undefined
 }
 
 export interface NegotiationsOverview {

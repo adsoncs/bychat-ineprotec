@@ -30,12 +30,6 @@ export function useAcaRefs() {
   return useQuery({ queryKey: ['aca-refs'], queryFn: () => api.get<{ courses: Ref[]; offerings: OfferingRef[]; periodos: PeriodoRef[]; matrizes: MatrizRef[] }>('/admin/aca/refs'), staleTime: 30_000 })
 }
 
-function crud<T>(key: string, path: string) {
-  return {
-    useList: (qs = '') => useQuery({ queryKey: [key, qs], queryFn: () => api.get<any>(`/admin/aca/${path}${qs}`), staleTime: 5_000 }),
-  }
-}
-
 export const usePeriodos = () => useQuery({ queryKey: ['aca-periodos'], queryFn: () => api.get<{ periodos: Periodo[] }>('/admin/aca/periodos'), staleTime: 5_000 })
 export const useDisciplinas = (courseId?: number) => useQuery({ queryKey: ['aca-disciplinas', courseId], queryFn: () => api.get<{ disciplinas: Disciplina[] }>(`/admin/aca/disciplinas${courseId ? `?courseId=${courseId}` : ''}`), staleTime: 5_000 })
 export const useMatrizes = (courseId?: number) => useQuery({ queryKey: ['aca-matrizes', courseId], queryFn: () => api.get<{ matrizes: Matriz[] }>(`/admin/aca/matrizes${courseId ? `?courseId=${courseId}` : ''}`), staleTime: 5_000 })

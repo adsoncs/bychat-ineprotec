@@ -150,7 +150,7 @@ export interface SupervisionConversation {
 
 export interface SupervisionFilters {
   bucket?: string
-  userId?: string
+  userId?: string | undefined
   teamId?: string
   funnelId?: string
   channel?: string
@@ -164,8 +164,8 @@ export interface SupervisionFilters {
   limit?: number
   offset?: number
   /** YYYY-MM-DD — período dos indicadores de fluxo (resolvidas, tempos) */
-  from?: string
-  to?: string
+  from?: string | undefined
+  to?: string | undefined
 }
 
 function toQuery(f: SupervisionFilters): string {
@@ -231,5 +231,5 @@ export const useSupervisionClose = () => useSupervisionAction<Record<string, nev
 export const useSupervisionReopen = () => useSupervisionAction<Record<string, never>>('reopen')
 export const useSupervisionResumeBot = () => useSupervisionAction<Record<string, never>>('resume-bot')
 export const useSupervisionAssign = () =>
-  useSupervisionAction<{ userId?: number | null; teamId?: number | null; reason?: string }>('assign')
+  useSupervisionAction<{ userId?: number | null | undefined; teamId?: number | null; reason?: string | undefined }>('assign')
 export const useSupervisionSnooze = () => useSupervisionAction<{ until: string | null }>('snooze')

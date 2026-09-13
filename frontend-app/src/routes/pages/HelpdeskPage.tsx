@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import { Fragment } from 'preact'
 import type { ComponentChildren } from 'preact'
-import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Settings2, Copy, Clock, Timer, Zap, BookOpen, Eye, Star, Smile, Building2, BarChart3, Download, Sparkles, List, Columns } from '@/components/ui/icon-set'
+import { LifeBuoy, Plus, Hash, ArrowLeft, Paperclip, UserPlus, X, Link2, Trash2, Search, Copy, Clock, Timer, BookOpen, Eye, Star, Building2, Download, Sparkles, List, Columns } from '@/components/ui/icon-set'
 import { env } from '@/lib/env'
 import { useLocation } from 'wouter-preact'
 import { Page } from '@/components/ui/Page'
@@ -19,6 +19,7 @@ import { PeriodPicker, PeriodIncompleteHint, usePeriod, periodQuery, PRESET_LABE
 import {
   useTickets, useTicket, useCreateTicket, useUpdateTicket, useAddComment,
   useAgents, useTeams, useTagsCatalog, useTicketActions, useBulkAction, usePresence, searchLeads,
+  type TicketActions,
   useHelpdeskSettings, useSaveHelpdeskSettings,
   useSlaPolicies, useCalendars, useSavePolicy, useDeletePolicy, useCreateCalendar,
   useMacros, useApplyMacro, useSaveMacro, useDeleteMacro,
@@ -757,7 +758,7 @@ export function HelpdeskKbPage() {
 const STATUS_OPTS = STATUSES.map((s) => ({ v: s, l: STATUS_LABEL[s] }))
 const PRIO_OPTS = (['low', 'normal', 'high', 'urgent'] as TicketPriority[]).map((p) => ({ v: p, l: PRIORITY_LABEL[p] }))
 
-function actionSummary(a: Record<string, unknown>): string {
+function actionSummary(a: TicketActions): string {
   const parts: string[] = []
   if (a.setStatus) parts.push(`status→${STATUS_LABEL[a.setStatus as TicketStatus] || a.setStatus}`)
   if (a.setPriority) parts.push(`prioridade→${PRIORITY_LABEL[a.setPriority as TicketPriority] || a.setPriority}`)
@@ -1098,7 +1099,9 @@ export function HelpdeskChannelsPage() {
 
 function BulkBar({ ids, agents, onDone }: { ids: number[]; agents: Array<{ id: number; name: string | null; email: string }>; onDone: () => void }) {
   const bulk = useBulkAction()
-  function run(action: BulkAction, value?: string | number | null) {
+  // `boolean` entra por causa do spam, que o backend lê como liga-desliga
+  // (`b.value !== false`) — a tela já passava `true` e o tipo não previa.
+  function run(action: BulkAction, value?: string | number | boolean | null) {
     bulk.mutate({ ids, action, value }, { onSuccess: onDone })
   }
   return (

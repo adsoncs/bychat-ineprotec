@@ -10,7 +10,7 @@ interface CallButtonProps {
   phone?: string | null | undefined
   compact?: boolean
   class?: string
-  label?: string
+  label?: string | undefined
 }
 
 // Botão de click-to-call. Só aparece se o módulo VoIP estiver ativo e o operador

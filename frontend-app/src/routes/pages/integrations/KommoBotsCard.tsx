@@ -158,8 +158,8 @@ export function KommoBotsCard({ subdomain, hasToken }: { subdomain: string; hasT
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm text-fg truncate">{b.name}</span>
-                  {b.active ? <Badge tone="accent">ativo na Kommo</Badge> : <Badge tone="muted">pausado</Badge>}
-                  {b.typeFunctionality && b.typeFunctionality !== 'regular' && <Badge tone="muted">{b.typeFunctionality}</Badge>}
+                  {b.active ? <Badge tone="accent">ativo na Kommo</Badge> : <Badge tone="neutral">pausado</Badge>}
+                  {b.typeFunctionality && b.typeFunctionality !== 'regular' && <Badge tone="neutral">{b.typeFunctionality}</Badge>}
                 </div>
                 <div class="text-[11px] text-fg-muted mt-0.5">
                   {b.imported && b.chatbot ? (

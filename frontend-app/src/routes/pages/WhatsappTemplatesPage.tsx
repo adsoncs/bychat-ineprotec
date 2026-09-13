@@ -71,7 +71,7 @@ export function WhatsappTemplatesPage() {
   useEffect(() => {
     const off = onServerEvent((ev) => {
       if (ev.type !== 'cloudapi:template_status') return
-      const p = (ev.payload ?? {}) as { name?: string; status?: string; statusReason?: string }
+      const p = (ev.payload ?? {}) as { name?: string; status?: string | undefined; statusReason?: string }
       const label = cloudApiTemplateStatusLabel(p.status ?? '')
       if (p.status === 'APPROVED') {
         toast(`Modelo "${p.name}" foi aprovado pela Meta`, 'success')
@@ -330,7 +330,7 @@ export function WhatsappTemplatesPage() {
   )
 }
 
-function TplKpi({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'success' | 'warning' | 'danger' }) {
+function TplKpi({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'success' | 'warning' | 'danger' | undefined }) {
   const toneCls =
     tone === 'success' ? 'text-success' :
     tone === 'warning' ? 'text-warning' :
@@ -349,7 +349,7 @@ function FilterChip({
   label: string
   active: boolean
   onClick: () => void
-  tone?: 'neutral' | 'success' | 'warning' | 'danger'
+  tone?: 'neutral' | 'success' | 'warning' | 'danger' | undefined
 }) {
   const activeCls =
     tone === 'success' ? 'bg-success/15 text-success border-success/40' :

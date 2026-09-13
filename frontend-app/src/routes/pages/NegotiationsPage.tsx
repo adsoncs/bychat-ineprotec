@@ -342,7 +342,7 @@ export function NegotiationsPage() {
         <div class="space-y-2"><Skeleton class="h-12 w-full" /><Skeleton class="h-12 w-full" /><Skeleton class="h-12 w-full" /></div>
       ) : rows.length === 0 ? (
         <EmptyState
-          icon={Handshake}
+          icon={<Handshake size={22} />}
           title={filtroAtivo ? 'Nenhuma negociação neste recorte' : 'Nenhuma negociação ainda'}
           description={filtroAtivo
             ? 'Ajuste os filtros acima — o período talvez esteja cortando o que você procura.'

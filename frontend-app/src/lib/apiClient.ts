@@ -41,7 +41,7 @@ export function setToken(token: string | null): void {
 }
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
-  body?: unknown
+  body?: unknown | undefined
   /** se true, não envia Authorization mesmo se houver token */
   anonymous?: boolean
   /** se true, não dispara `bh:auth:expired` em resposta 401.

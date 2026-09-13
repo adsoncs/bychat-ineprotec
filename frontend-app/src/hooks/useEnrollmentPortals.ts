@@ -37,6 +37,8 @@ export interface EnrollmentPortal {
   paymentDeadlineHours: number
   paymentConnectionId: number | null
   paymentMode: PaymentMode
+  paymentScope?: string | null
+  paymentMethodsConfig?: unknown
 
   // Captcha
   captchaType: CaptchaType
@@ -76,6 +78,7 @@ export interface EnrollmentPortal {
   brandFooterText: string | null
   brandFontFamily: FontFamily | null
   brandRadiusScale: RadiusScale | null
+  brandTemplate?: string | null
 
   // Custom code
   customCss: string | null
@@ -144,6 +147,10 @@ export interface EnrollmentPortalInput {
   paymentDeadlineHours?: number | undefined
   paymentConnectionId?: number | null | undefined
   paymentMode?: PaymentMode | undefined
+  /** 'taxa' (taxa de inscrição) ou 'curso' (plano de pagamento da oferta). */
+  paymentScope?: string | undefined
+  /** Regras por meio de pagamento — ver services/portalPagamento.ts no backend. */
+  paymentMethodsConfig?: unknown
   captchaType?: CaptchaType | undefined
   captchaSiteKey?: string | null | undefined
   captchaSecret?: string | null | undefined
@@ -183,6 +190,22 @@ export interface BrandingInput {
   brandFooterText?: string | null | undefined
   brandFontFamily?: FontFamily | null | undefined
   brandRadiusScale?: RadiusScale | null | undefined
+  /** Arranjo da página: 'classico' ou 'duas-colunas'. Só estrutura, não marca. */
+  brandTemplate?: string | null | undefined
+  /** Acabamento: a forma da página, com a cor e a fonte vindo dos campos acima. */
+  brandHeaderStyle?: string | null | undefined
+  brandStepStyle?: string | null | undefined
+  brandBackdropFrom?: string | null | undefined
+  brandBackdropTo?: string | null | undefined
+  brandButtonShape?: string | null | undefined
+  brandButtonUppercase?: boolean | null | undefined
+  brandSecurityNote?: string | null | undefined
+  brandSummaryAlways?: boolean | null | undefined
+  brandSecondaryColor?: string | null | undefined
+  brandTypeScale?: string | null | undefined
+  brandContentWidth?: string | null | undefined
+  /** Textos da tela pública. Chave ausente = texto padrão do sistema. */
+  brandLabels?: Record<string, string> | null | undefined
 }
 
 export function useEnrollmentPortals() {
@@ -320,7 +343,7 @@ export function useSyncRegistrationPayment(registrationId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      api.post<{ ok: true; transitionedToPaid: boolean; results: Array<{ externalId: string; paymentStatus?: string; transitionedToPaid?: boolean; error?: string }> }>(
+      api.post<{ ok: true; transitionedToPaid: boolean; results: Array<{ externalId: string; paymentStatus?: string; transitionedToPaid?: boolean; error?: string | undefined }> }>(
         `/admin/enrollment-registrations/${registrationId}/sync-payment`,
       ),
     onSuccess: () => {
@@ -652,7 +675,7 @@ export function useUpdateEnemImport(registrationId: number) {
 
 export function useResendMagicLink(slug: string) {
   return useMutation({
-    mutationFn: (input: { email?: string; whatsapp?: string }) =>
+    mutationFn: (input: { email?: string | undefined; whatsapp?: string }) =>
       api.post<{ ok: true; sent?: boolean }>(`/public/portals/${slug}/resend-link`, input),
   })
 }
@@ -706,7 +729,7 @@ export function usePortalRegistrations(portalId: number | null | undefined, filt
 export function useCancelRegistration(portalId: number | null | undefined) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, reason }: { id: number; reason?: string }) =>
+    mutationFn: ({ id, reason }: { id: number; reason?: string | undefined }) =>
       api.post<{ ok: true; registration: EnrollmentRegistration }>(
         `/admin/enrollment-registrations/${id}/cancel`,
         { reason: reason ?? null },
@@ -718,11 +741,19 @@ export function useCancelRegistration(portalId: number | null | undefined) {
   })
 }
 
+/**
+ * Gera o link de acesso da inscrição.
+ *
+ * `enviar: false` devolve a URL sem disparar mensagem nenhuma — para quem vai
+ * entregar o link por outro caminho (o Conversas, por exemplo). Sem o campo, o
+ * comportamento é o de sempre: envia ao candidato.
+ */
 export function useResendRegistrationLink() {
   return useMutation({
-    mutationFn: (id: number) =>
-      api.post<{ ok: true; sent: boolean; url: string }>(
+    mutationFn: ({ id, enviar = true }: { id: number; enviar?: boolean }) =>
+      api.post<{ ok: true; sent: boolean; url: string; ttlDays: number }>(
         `/admin/enrollment-registrations/${id}/resend-link`,
+        { enviar },
       ),
   })
 }

@@ -28,7 +28,7 @@ const TABS = [
 
 type Aba = (typeof TABS)[number]['id']
 
-function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: number | string; hint?: string; tone?: string }) {
+function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: number | string; hint?: string | undefined; tone?: string | undefined }) {
   return (
     <Card class="space-y-1">
       <div class="flex items-center gap-2 text-fg-muted text-xs">{icon}<span>{label}</span></div>

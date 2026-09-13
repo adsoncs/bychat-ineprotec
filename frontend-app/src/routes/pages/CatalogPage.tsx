@@ -114,7 +114,7 @@ export function CatalogPage() {
       {isLoading ? (
         <div class="space-y-2"><Skeleton class="h-14 w-full" /><Skeleton class="h-14 w-full" /></div>
       ) : products.length === 0 ? (
-        <EmptyState icon={Boxes} title="Catálogo vazio" description="Cadastre o que você vende — um a um ou pela planilha (baixe o modelo acima). Depois disso, os itens ficam disponíveis nas propostas e a IA passa a responder com base neles." />
+        <EmptyState icon={<Boxes size={22} />} title="Catálogo vazio" description="Cadastre o que você vende — um a um ou pela planilha (baixe o modelo acima). Depois disso, os itens ficam disponíveis nas propostas e a IA passa a responder com base neles." />
       ) : (
         <div class="space-y-2">
           {products.map((p) => (

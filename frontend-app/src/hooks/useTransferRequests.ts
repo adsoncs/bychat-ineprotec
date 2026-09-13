@@ -21,7 +21,7 @@ export interface TransferRequest {
 export interface CreateTransferInput {
   leadId: number
   toUserId: number
-  reason?: string
+  reason?: string | undefined
 }
 
 export function useIncomingTransferCount() {

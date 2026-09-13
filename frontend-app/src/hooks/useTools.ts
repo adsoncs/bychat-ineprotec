@@ -3,7 +3,7 @@ import { api } from '@/lib/apiClient'
 
 export interface UrlInspectResponse {
   ok: boolean
-  error?: string
+  error?: string | undefined
   targetUrl: string
   finalUrl: string
   finalStatus: number

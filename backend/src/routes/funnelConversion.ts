@@ -60,7 +60,8 @@ export async function funnelConversionRoutes(app: FastifyInstance) {
     const movements = await prisma.leadStageMovement.findMany({
       where: movWhere,
       orderBy: { movedAt: 'asc' },
-      select: { leadId: true, fromStageKey: true, toStageKey: true, movedAt: true, source: true },
+      // fromFunnelId entra porque o KPI de entradas conta quem veio de OUTRO funil.
+      select: { leadId: true, fromStageKey: true, toStageKey: true, movedAt: true, source: true, fromFunnelId: true },
     })
 
     // Leads que estão atualmente em cada etapa (snapshot final)

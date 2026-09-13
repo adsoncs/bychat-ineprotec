@@ -21,11 +21,11 @@ export interface Product {
 }
 
 export interface ProductInput {
-  id?: number
+  id?: number | undefined
   categoria: string
   nome: string
   marca?: string
-  descricao?: string
+  descricao?: string | undefined
   preco?: string | number | null
   estoque?: number | null
   disponivel?: boolean

@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { useCadastrosAux, useCadastrosMut, CAD_TIPOS } from '@/hooks/useAcaCadastros'
 
 export function AcademicoCadastrosPage() {
-  const [tipo, setTipo] = useState(CAD_TIPOS[0].key)
+  const [tipo, setTipo] = useState(CAD_TIPOS[0]!.key)
   const data = useCadastrosAux(tipo)
   const mut = useCadastrosMut()
   const [nome, setNome] = useState('')

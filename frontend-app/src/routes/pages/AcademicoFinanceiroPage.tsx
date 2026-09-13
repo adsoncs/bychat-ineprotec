@@ -4,7 +4,7 @@ import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { Input, Select } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Modal } from '@/components/ui/Modal'
 import { Pagination } from '@/components/ui/Pagination'
@@ -17,7 +17,7 @@ const SIT_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral' | 'a
 const SIT_LABEL: Record<string, string> = { PAGA: 'Paga', ABERTA: 'Em aberto', VENCIDA: 'Vencida', CANCELADA: 'Cancelada', RENEGOCIADA: 'Renegociada' }
 const LIMIT = 50
 
-function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string; hint?: string; tone?: string }) {
+function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string; hint?: string | undefined; tone?: string | undefined }) {
   return (
     <Card class="space-y-1">
       <div class="flex items-center gap-2 text-fg-muted text-xs">{icon}<span>{label}</span></div>

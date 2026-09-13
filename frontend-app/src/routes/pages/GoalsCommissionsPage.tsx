@@ -59,8 +59,11 @@ function currentPeriod(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 function shiftPeriod(period: string, delta: number): string {
+  // "AAAA-MM" partido em dois números; um período malformado voltaria como
+  // undefined e o Date.UTC produziria Invalid Date silenciosamente.
   const [y, m] = period.split('-').map(Number)
-  const d = new Date(Date.UTC(y, (m - 1) + delta, 1))
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return period
+  const d = new Date(Date.UTC(y!, (m! - 1) + delta, 1))
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
@@ -113,7 +116,8 @@ export function GoalsCommissionsPage() {
   const funnels = useFunnels()
   const users = useUsers()
   const funnelOptions = (funnels.data?.funnels ?? []).filter((f) => f.active)
-  const userOptions = (users.data?.users ?? []).map((u) => ({ id: u.id, name: u.name }))
+  // `name` é nullable no cadastro; sem fallback o seletor mostraria vazio.
+  const userOptions = (users.data?.users ?? []).map((u) => ({ id: u.id, name: u.name ?? `Usuário ${u.id}` }))
 
   const panel = useCommissionPanel(period, funnelId)
   const recalc = useRecalcCommissions()
@@ -299,7 +303,7 @@ function PainelTab({ period, funnelId }: { period: string; funnelId: number | nu
       </Card>
 
       {(data?.agentes ?? []).length === 0 ? (
-        <EmptyState icon={Target} title="Nenhum agente no recorte" description="Cadastre metas na aba Metas ou registre vendas no módulo Negociações." />
+        <EmptyState icon={<Target size={22} />} title="Nenhum agente no recorte" description="Cadastre metas na aba Metas ou registre vendas no módulo Negociações." />
       ) : null}
     </div>
   )
@@ -437,7 +441,7 @@ function RegrasTab({ funnels, users }: { funnels: { id: number; name: string }[]
 
       {rules.length === 0 ? (
         <EmptyState
-          icon={Target}
+          icon={<Target size={22} />}
           title="Nenhuma regra de comissão"
           description="Sem regra, venda ganha não gera comissão. Crie uma regra geral (sem funil e sem agente) e depois as exceções."
         />
@@ -630,7 +634,7 @@ function LancamentosTab({ period, funnelId, users, isManager, onOpenLead }: {
         <Skeleton class="h-64 w-full" />
       ) : rows.length === 0 ? (
         <EmptyState
-          icon={Target}
+          icon={<Target size={22} />}
           title="Nenhuma comissão neste mês"
           description="Lançamentos aparecem quando uma proposta é fechada como Ganha e existe regra aplicável ao agente."
         />

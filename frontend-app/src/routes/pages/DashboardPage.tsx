@@ -405,7 +405,6 @@ function FiltersBar({
   const { data: funnelsData } = useFunnels()
   const funnels = (funnelsData?.funnels ?? []).filter((f) => f.active !== false)
 
-  function fmt(d: Date) { return d.toISOString().split('T')[0] ?? '' }
 
   // Meses fechados, como no resto do sistema. "Hoje" continua porque este painel
   // é usado para acompanhar o dia corrente, não só para fechar mês.

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { Database, Download, AlertTriangle, CheckCircle2, GraduationCap } from 'lucide-preact'
+import { Download, AlertTriangle, CheckCircle2, GraduationCap } from 'lucide-preact'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -15,7 +15,7 @@ export function AcademicoCensoPage() {
   const [tab, setTab] = useState<Tab>('validacao')
   const anos = useAnosCenso()
   const [anoBase, setAnoBase] = useState<number | null>(null)
-  useEffect(() => { if (anoBase === null && anos.data?.anos?.length) setAnoBase(anos.data.anos[0]) }, [anos.data])
+  useEffect(() => { if (anoBase === null && anos.data?.anos?.length) setAnoBase(anos.data.anos[0] ?? null) }, [anos.data])
 
   return (
     <Page title="Censo INEP / ENADE" description="Validação de consistência, Censo da Educação Superior e seleção ENADE (ingressantes/concluintes).">
