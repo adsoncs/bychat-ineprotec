@@ -21,6 +21,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { MODULE_REGISTRY } from '../src/lib/moduleRegistry.js'
 import { sidebarSchema } from '../../frontend-app/src/modules/sidebar.config.js'
 
@@ -93,5 +94,47 @@ describe('todo guarda-chuva aparece no menu', () => {
     const invisiveis = [...doRegistro].filter((u) => !noMenu.has(u as never))
     assert.deepEqual(invisiveis, [],
       'guarda-chuva sem seção no menu: vendável e inalcançável')
+  })
+})
+
+describe('a tela de Módulos agrupa, não só filtra', () => {
+  // Eu já dei esta fase por feita uma vez tendo entregue só um FILTRO e uma
+  // COLUNA: a tela continuava uma lista plana de 81 linhas. O usuário percebeu
+  // antes de mim. Este teste olha o arquivo porque é o único jeito de provar
+  // que a estrutura é por seção — nenhum teste de dado pega isso.
+
+  const tela = readFileSync(
+    new URL('../../frontend-app/src/routes/pages/settings/ModulesSettings.tsx', import.meta.url),
+    'utf8',
+  )
+
+  test('existe uma seção por guarda-chuva, com título', () => {
+    assert.match(tela, /secoes\.map\(/,
+      'a tela precisa iterar seções; um `filtered.map` solto é lista plana de novo')
+    assert.match(tela, /<section\b/, 'cada guarda-chuva é uma seção')
+    assert.match(tela, /secao\.rotulo/, 'a seção precisa mostrar o nome do guarda-chuva')
+  })
+
+  test('a seção diz quantos módulos estão ativos', () => {
+    // É a resposta que a tela existe para dar: "o que esta instalação tem de
+    // Atendimento?" — sem isso o agrupamento é só enfeite.
+    assert.match(tela, /secao\.ativos/)
+    assert.match(tela, /secao\.total/)
+  })
+
+  test('guarda-chuva vazio não vira seção vazia', () => {
+    assert.match(tela, /\.filter\(\(sec\) => sec\.modulos\.length > 0\)/,
+      'instalação sem ERP não pode exibir uma seção "ERP Acadêmico" vazia')
+  })
+
+  test('módulo sem guarda-chuva continua visível', () => {
+    // Some da seção mas não da tela: invisível para quem administra seria pior
+    // que fora de lugar.
+    assert.match(tela, /semGuardaChuva/)
+  })
+
+  test('a ordem das seções é a do produto, não a alfabética', () => {
+    assert.match(tela, /UMBRELLA_ORDER\s*\n?\s*\.map\(/,
+      'a ordem vem de UMBRELLA_ORDER — do que todo mundo usa ao mais especializado')
   })
 })

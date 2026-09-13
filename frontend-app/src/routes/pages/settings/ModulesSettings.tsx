@@ -78,6 +78,38 @@ export function ModulesSettings() {
     })
   }, [all, umbrellaFilter, statusFilter, search])
 
+  /**
+   * O resultado, em seções por guarda-chuva.
+   *
+   * A lista plana de 81 linhas obrigava a percorrer tudo para achar um módulo, e
+   * escondia a informação que passou a importar: o guarda-chuva é como o produto
+   * é vendido, e é o mesmo recorte do menu lateral. Ver a seção cheia ou vazia
+   * responde "o que esta instalação tem de Atendimento?" de um olhar.
+   *
+   * Guarda-chuva sem módulo nenhum nesta instalação não vira seção vazia — some.
+   */
+  const secoes = useMemo(() => {
+    return UMBRELLA_ORDER
+      .map((u) => {
+        const doPacote = all.filter((m) => m.umbrella === u)
+        return {
+          id: u,
+          rotulo: UMBRELLA_LABELS[u] ?? u,
+          modulos: filtered.filter((m) => m.umbrella === u),
+          ativos: doPacote.filter((m) => m.enabled).length,
+          total: doPacote.length,
+        }
+      })
+      .filter((sec) => sec.modulos.length > 0)
+  }, [filtered, all])
+
+  // Um módulo sem guarda-chuva não pode sumir da tela só porque não se encaixa
+  // em nenhuma seção — ficaria invisível para quem administra.
+  const semGuardaChuva = useMemo(
+    () => filtered.filter((m) => !(UMBRELLA_ORDER as readonly string[]).includes(m.umbrella as string)),
+    [filtered],
+  )
+
   function handleToggleClick(m: SystemModule) {
     if (m.core) return
     if (!m.enabled) {
@@ -184,34 +216,61 @@ export function ModulesSettings() {
 
       {isLoading && <Skeleton class="h-32 w-full" />}
 
-      {!isLoading && (
-        <div class="rounded-xl border border-border bg-surface-2 overflow-hidden">
+      {!isLoading && filtered.length === 0 && (
+        <div class="rounded-xl border border-border bg-surface-2 py-10 text-center text-sm text-fg-muted italic">
+          Nenhum módulo encontrado
+        </div>
+      )}
+
+      {!isLoading && secoes.map((secao) => (
+        <section key={secao.id} class="rounded-xl border border-border bg-surface-2 overflow-hidden">
+          {/* O cabeçalho responde de um olhar o que o pacote entrega nesta
+              instalação: quantos módulos ele tem e quantos estão ligados. */}
+          <header class="flex items-baseline justify-between gap-3 px-4 py-3 bg-surface border-b border-border">
+            <h3 class="font-semibold text-fg">{secao.rotulo}</h3>
+            <span class="text-2xs text-fg-muted tabular-nums shrink-0">
+              {secao.ativos} de {secao.total} {secao.total === 1 ? 'ativo' : 'ativos'}
+            </span>
+          </header>
           <div class="overflow-x-auto">
-            <table class="w-full text-sm" style={{ minWidth: '48.75rem' }}>
-              <thead class="bg-surface text-fg-muted text-2xs">
+            <table class="w-full text-sm" style={{ minWidth: '42rem' }}>
+              <thead class="text-fg-muted text-2xs">
                 <tr class="border-b border-border">
-                  <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Módulo</th>
-                  <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Identificador</th>
-                  <th class="px-3 py-2.5 text-left font-semibold uppercase tracking-wider">Guarda-chuva</th>
-                  <th class="px-3 py-2.5 text-center font-semibold uppercase tracking-wider">Status</th>
-                  <th class="px-3 py-2.5 text-right font-semibold uppercase tracking-wider">Ação</th>
+                  <th class="px-3 py-2 text-left font-semibold uppercase tracking-wider">Módulo</th>
+                  <th class="px-3 py-2 text-left font-semibold uppercase tracking-wider">Identificador</th>
+                  <th class="px-3 py-2 text-center font-semibold uppercase tracking-wider">Status</th>
+                  <th class="px-3 py-2 text-right font-semibold uppercase tracking-wider">Ação</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={5} class="text-center py-8 text-fg-muted italic text-sm">
-                      Nenhum módulo encontrado
-                    </td>
-                  </tr>
-                )}
-                {filtered.map((m) => (
+                {secao.modulos.map((m) => (
                   <ModuleRow key={m.id} module={m} onToggle={() => handleToggleClick(m)} disabled={toggle.isPending} podeAlternar={ehDono} />
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
+      ))}
+
+      {!isLoading && semGuardaChuva.length > 0 && (
+        <section class="rounded-xl border border-warning/40 bg-surface-2 overflow-hidden">
+          {/* Não deveria existir — o teste do registro cobra guarda-chuva em
+              todo módulo. Se aparecer, é classificação faltando, e some sozinho
+              quando alguém corrigir o registro. */}
+          <header class="flex items-baseline justify-between gap-3 px-4 py-3 bg-warning/10 border-b border-warning/30">
+            <h3 class="font-semibold text-warning">Sem guarda-chuva</h3>
+            <span class="text-2xs text-fg-muted">falta classificar no registro</span>
+          </header>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm" style={{ minWidth: '42rem' }}>
+              <tbody>
+                {semGuardaChuva.map((m) => (
+                  <ModuleRow key={m.id} module={m} onToggle={() => handleToggleClick(m)} disabled={toggle.isPending} podeAlternar={ehDono} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Confirm: Ativar */}
@@ -335,13 +394,14 @@ function ModuleRow({
           </div>
         </div>
       </td>
-      <td class="px-3 py-2.5 font-mono text-2xs text-fg-muted">{m.id}</td>
-      <td class="px-3 py-2.5 text-fg-muted">
-        <div>{UMBRELLA_LABELS[m.umbrella] ?? m.umbrella ?? '—'}</div>
-        {/* Como o módulo entra na conta. Some para os da base: dizer "na base"
-            em tudo que é core vira ruído numa lista de 81 linhas. */}
+      {/* O guarda-chuva saiu daqui: virou o título da seção, e repeti-lo em
+          cada linha era ruído. A forma de cobrança veio para junto do
+          identificador, que é o outro dado técnico da linha. */}
+      <td class="px-3 py-2.5 font-mono text-2xs text-fg-muted">
+        <div>{m.id}</div>
+        {/* Some para os da base: dizer "na base" em tudo que é core vira ruído. */}
         {m.cobranca && m.cobranca !== 'base' && (
-          <div class="text-3xs text-fg-muted opacity-70 mt-0.5">{COBRANCA_LABELS[m.cobranca] ?? m.cobranca}</div>
+          <div class="font-sans text-3xs opacity-70 mt-0.5">{COBRANCA_LABELS[m.cobranca] ?? m.cobranca}</div>
         )}
       </td>
       <td class="px-3 py-2.5 text-center">{statusBadge}</td>
