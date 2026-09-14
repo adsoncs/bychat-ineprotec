@@ -22,6 +22,10 @@ const HomeScreenPage = lazy(() =>
   import('./pages/HomeScreenPage').then((m) => ({ default: m.HomeScreenPage })),
 )
 
+const SurveyResults = lazy(() =>
+  import('./pages/SurveyResultsPage').then((m) => ({ default: m.SurveyResultsPage })),
+)
+
 const migratedPages: Record<string, ComponentType> = {
   // "Visão Geral" da sidebar (/dashboard) entra pela MESMA porta que a raiz: a
   // Tela Inicial do papel/usuário. Sem tela atribuída, a HomeScreenPage já cai
@@ -153,6 +157,9 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   settings: lazy(() =>
     import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+  ),
+  surveys: lazy(() =>
+    import('./pages/SurveysPage').then((m) => ({ default: m.SurveysPage })),
   ),
   'cad-teams': lazy(() =>
     import('./pages/CadastrosTeamsPage').then((m) => ({ default: m.CadastrosTeamsPage })),
@@ -611,6 +618,11 @@ export function Router() {
         <Switch>
           <Route path="/" component={IndexRoute} />
           <Route path="/sources" component={SourcesRedirect} />
+          <Route path="/surveys/:id">
+            {(params: { id: string }) => (
+              <ModuleGate moduleId="surveys"><SurveyResults params={params} /></ModuleGate>
+            )}
+          </Route>
           {/* Assinatura da instalação — o painel do dono do produto.
             * Fora de Configurações de propósito: Configurações é a tela do
             * cliente, e o superadmin dele não pode alcançar a loja. A API

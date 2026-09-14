@@ -144,6 +144,7 @@ import { helpdeskPortalRoutes } from './routes/helpdeskPortal.js'
 import { reputationRoutes } from './routes/reputation.js'
 import { heMarketRoutes } from './routes/heMarket.js'
 import { homeScreensRoutes } from './routes/homeScreens.js'
+import { surveysRoutes } from './routes/surveys.js'
 import { donoAssinaturaRoutes } from './routes/donoAssinatura.js'
 import { lojaSincronizacaoRoutes } from './routes/lojaSincronizacao.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
@@ -713,6 +714,7 @@ await app.register(helpdeskPortalRoutes)
 await app.register(reputationRoutes)
 await app.register(heMarketRoutes)
 await app.register(homeScreensRoutes)
+await app.register(surveysRoutes)
 await app.register(donoAssinaturaRoutes)
 await app.register(lojaSincronizacaoRoutes)
 

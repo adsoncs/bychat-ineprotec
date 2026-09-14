@@ -940,6 +940,33 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false,
   },
+  {
+    id: 'surveys', name: 'Pesquisas', icon: '📊', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
+    description: 'Pesquisas de satisfação e NPS por WhatsApp: o questionário vira um formulário nativo (Flow), o disparo sai por template aprovado e o resultado vira relatório de NPS com média por pergunta e os comentários ao lado da nota.',
+    pages: ['surveys'],
+    routePrefixes: ['/api/surveys'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: true,
+  },
+  {
+    id: 'reputation_radar', name: 'Radar de Reputação', icon: '📡', category: 'marketing',
+    umbrella: 'marketing_canais', cobranca: 'pacote',
+    description: 'Prospecção B2B por dor de reputação: ingere a base aberta oficial do Consumidor.gov.br (Senacon/MJ) e ranqueia empresas por volume de reclamações, taxa de não resposta, insatisfação e tendência. O alvo é sempre a empresa reclamada — a base é anonimizada e não contém dado do consumidor.',
+    pages: ['reputation'],
+    routePrefixes: ['/api/admin/reputation'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
+  {
+    id: 'higher_ed_market', name: 'Mercado — Ensino Superior', icon: '🎓', category: 'educacional',
+    umbrella: 'educacional', cobranca: 'pacote',
+    description: 'Inteligência de mercado para IES a partir do Censo da Educação Superior (INEP/MEC): ocupação de vagas, conversão de captação, evasão, concorrência na praça e demanda reprimida por área. Dashboard de decisão entregue à instituição cliente.',
+    pages: ['he-market'],
+    routePrefixes: ['/api/admin/he-market'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    defaultEnabled: false,
+  },
 ]
 
 /**

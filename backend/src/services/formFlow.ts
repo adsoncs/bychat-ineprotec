@@ -230,7 +230,7 @@ export async function createLeadFromForm(
     title: `Lead criado via ${isWhats ? 'chatbot (WhatsApp)' : 'formulário'}: ${form.name}`,
     channel: isWhats ? 'whatsapp' : (isSchedulingForm ? 'scheduling' : 'web_form'), source: leadSource, actorType: 'lead',
     description: `Lead "${nome || email || whatsapp}" criado via ${isWhats ? 'chatbot WhatsApp' : 'formulário'} "${form.name}"${body.pageSlug ? ` na página /p/${body.pageSlug}` : (isWhats ? '' : ' (embed externo)')}`,
-    metadata: { formId: form.id, formName: form.name, pageSlug: body.pageSlug, submissionId, submittedData: data, ...(ctx?.chatbotId ? { chatbotId: ctx.chatbotId } : {}) }, ipAddress: ip,
+    metadata: { formId: form.id, formName: form.name, funnelId: targetFunnelId, pageSlug: body.pageSlug, submissionId, submittedData: data, ...(ctx?.chatbotId ? { chatbotId: ctx.chatbotId } : {}) }, ipAddress: ip,
   })
   if (routedRuleId) {
     logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Regra de roteamento aplicada (#${routedRuleId})`, actorType: 'system', metadata: { ruleId: routedRuleId, teamId: routedTeamId, userId: routedUserId } })
@@ -343,6 +343,64 @@ export function validateFieldValue(field: any, value: string): string | null {
   if (field.required && !v) return 'Campo obrigatório'
   if (v && field.type === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return 'E-mail inválido'
   if (v && field.type === 'phone' && v.replace(/\D/g, '').length < 8) return 'Telefone inválido'
+  if (v && field.type === 'scale') {
+    const { min, max } = scaleRange(field)
+    const n = Number(v)
+    if (!Number.isInteger(n) || n < min || n > max) return `Responda com um número de ${min} a ${max}`
+  }
+  return null
+}
+
+// ── Escala / nota (type='scale') ──────────────────────────────────────────────
+// Intervalo inteiro fechado. Padrão 1–5; NPS usa 0–10.
+export function scaleRange(field: any): { min: number; max: number } {
+  const min = Number.isInteger(field?.scaleMin) ? Number(field.scaleMin) : 1
+  const max = Number.isInteger(field?.scaleMax) ? Number(field.scaleMax) : 5
+  return max > min ? { min, max } : { min, max: min + 1 }
+}
+
+/** Valores da escala, na ordem. */
+export function scaleValues(field: any): number[] {
+  const { min, max } = scaleRange(field)
+  const out: number[] = []
+  for (let v = min; v <= max; v++) out.push(v)
+  return out
+}
+
+/** Rótulo de uma nota: nome próprio (scaleLabels) → ponta (min/maxLabel) → número. */
+export function scaleValueLabel(field: any, value: number): string {
+  const named = field?.scaleLabels?.[String(value)]
+  if (named && String(named).trim()) return `${value} — ${String(named).trim()}`
+  const { min, max } = scaleRange(field)
+  if (value === min && field?.scaleMinLabel) return `${value} — ${field.scaleMinLabel}`
+  if (value === max && field?.scaleMaxLabel) return `${value} — ${field.scaleMaxLabel}`
+  return String(value)
+}
+
+// Parse da resposta de escala no canal texto. Ao contrário do select, o número
+// digitado é a PRÓPRIA nota, não o índice 1-based da lista — daí o parser separado.
+export function matchScaleChoice(field: any, raw: string): { value: string; label: string } | null {
+  const { min, max } = scaleRange(field)
+  const v = String(raw ?? '').trim()
+  if (!v) return null
+  // Casa o primeiro número do texto ("nota 8", "dou 8!") sem pegar dígito solto de
+  // dentro de outro número: exige limite de palavra dos dois lados.
+  const m = v.match(/(?:^|\s)(\d{1,2})(?:\s|$|[.,!])/) || (/^\d{1,2}$/.test(v) ? [v, v] : null)
+  if (m) {
+    const n = Number(m[1])
+    if (Number.isInteger(n) && n >= min && n <= max) return { value: String(n), label: scaleValueLabel(field, n) }
+    return null
+  }
+  // Sem número: aceita o nome da nota ("muito satisfeito") — é o que a pessoa
+  // digita quando responde copiando o rótulo em vez de tocar na lista nativa.
+  const named: Record<string, string> = field?.scaleLabels || {}
+  const low = v.toLowerCase()
+  for (const [k, name] of Object.entries(named)) {
+    if (String(name).toLowerCase().trim() === low) {
+      const n = Number(k)
+      if (Number.isInteger(n) && n >= min && n <= max) return { value: String(n), label: scaleValueLabel(field, n) }
+    }
+  }
   return null
 }
 

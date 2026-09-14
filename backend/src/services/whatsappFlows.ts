@@ -1,9 +1,19 @@
 // src/services/whatsappFlows.ts
 //
 // WhatsApp Flows ESTÁTICOS (sem endpoint/criptografia). Gera, a partir de um Form,
-// um Flow JSON de tela única (TextInput / TextArea / Dropdown) cujas respostas
+// um Flow JSON (TextInput / TextArea / Dropdown / RadioButtonsGroup) cujas respostas
 // voltam de uma vez no `nfm_reply` do webhook. Cobre o caso "formulário dentro do
-// WhatsApp" (cadastro/intake) sem precisar de endpoint público nem RSA/AES.
+// WhatsApp" (cadastro/intake, pesquisa de satisfação) sem precisar de endpoint
+// público nem RSA/AES.
+//
+// Dois formatos:
+//   - TELA ÚNICA (padrão): todos os campos numa tela terminal. É o que os forms de
+//     captação usam hoje.
+//   - MULTI-TELA (opts.multiScreen): uma tela por seção, quebrando nos campos
+//     `statement`. Cada tela navega para a próxima levando no payload tudo o que já
+//     foi coletado; a última completa o Flow com o conjunto inteiro. Serve a
+//     questionários longos (NPS/pesquisa), onde 11 perguntas numa tela só viram um
+//     paredão de rolagem.
 //
 // Fluxo de publicação (acionado pelo admin no painel):
 //   1. POST /{wabaId}/flows           → cria rascunho
@@ -12,6 +22,7 @@
 // Para enviar: interactive type:'flow' com flow_id + flow_token (buildFlowSendPayload).
 
 import { decryptToken, cloudApiFetch } from './cloudApi.js'
+import { scaleRange, scaleValueLabel } from './formFlow.js'
 
 // Versão do Flow JSON. Se a Meta rejeitar na publicação, ajuste aqui (o erro de
 // validação é exibido ao admin, pois a publicação é acionada por ele).
@@ -48,59 +59,182 @@ export function flowInputFields(form: any): any[] {
 
 // Override editável por campo (editor visual), desacoplado do form.
 export interface FlowFieldConfig { key: string; label?: string; include?: boolean; required?: boolean }
+
+// Limites da Meta respeitados aqui (Flow JSON reference):
+//   label de input/radio ≤ 30 | title de opção ≤ 30 | RadioButtonsGroup ≤ 20 opções
+//   TextSubheading ≤ 80 | componentes por tela ≤ 50 | título de tela ≤ 30
 const LABEL_MAX = 30
 const SUBHEADING_MAX = 80
+const BODY_MAX = 300
+const OPTION_TITLE_MAX = 30
+const RADIO_MAX_OPTIONS = 20
+const SCREEN_TITLE_MAX = 30
+// Cada pergunta gasta até 2 componentes (texto da pergunta + input) e a tela ainda
+// leva cabeçalho e rodapé. 20 perguntas = 43 componentes, dentro do teto de 50.
+const MAX_INPUTS_PER_SCREEN = 20
 
-/** Constrói o Flow JSON estático de tela única a partir do form + overrides do editor. */
-export function buildFlowJson(form: any, opts?: { title?: string; cta?: string; fieldConfig?: FlowFieldConfig[] }): { json: any; screenId: string } {
-  const screenId = 'INTAKE'
-  const children: any[] = []
-  const payload: Record<string, string> = {}
+/** Componentes de UMA pergunta: o texto (quando o rótulo não cabe no label) + o input. */
+function fieldComponents(f: any, cfg: FlowFieldConfig | undefined): { comps: any[]; name: string } {
+  const comps: any[] = []
+  const name = flowFieldName(f.key)
+  const required = cfg?.required ?? !!f.required
+  const fullLabel = stripTags(cfg?.label ?? f.label) || f.key
+
+  // Rótulo longo (> 30) → o texto da pergunta sai acima do input, em vez de ser
+  // cortado no meio: subtítulo até 80 caracteres, corpo de texto acima disso.
+  let label = fullLabel
+  if (fullLabel.length > LABEL_MAX) {
+    comps.push(fullLabel.length <= SUBHEADING_MAX
+      ? { type: 'TextSubheading', text: fullLabel }
+      : { type: 'TextBody', text: trunc(fullLabel, BODY_MAX) })
+    label = f.type === 'scale' ? 'Sua nota' : f.type === 'select' ? 'Selecione' : 'Sua resposta'
+  }
+  label = trunc(label, LABEL_MAX)
+
+  if (f.type === 'scale') {
+    // Escala vira RadioButtonsGroup: mostra todas as notas abertas, sem o usuário
+    // ter que abrir um dropdown para responder. 0–10 = 11 opções, dentro do teto.
+    const { min, max } = scaleRange(f)
+    const rows: any[] = []
+    for (let n = min; n <= max && rows.length < RADIO_MAX_OPTIONS; n++) {
+      rows.push({ id: String(n), title: trunc(scaleValueLabel(f, n), OPTION_TITLE_MAX) })
+    }
+    comps.push({ type: 'RadioButtonsGroup', name, label, required, 'data-source': rows })
+  } else if (f.type === 'select' && Array.isArray(f.options) && f.options.length) {
+    comps.push({
+      type: 'Dropdown', name, label, required,
+      'data-source': f.options.slice(0, 200).map((o: any) => ({ id: String(o.value), title: trunc(stripTags(o.label), OPTION_TITLE_MAX) })),
+    })
+  } else if (f.type === 'textarea') {
+    comps.push({ type: 'TextArea', name, label, required })
+  } else {
+    comps.push({ type: 'TextInput', name, label, 'input-type': INPUT_TYPE[f.type] || 'text', required })
+  }
+  return { comps, name }
+}
+
+/** Uma tela planejada: cabeçalho opcional (vindo de um `statement`) + suas perguntas. */
+interface ScreenPlan { heading: any | null; fields: any[] }
+
+// Agrupa os campos em telas. Cada `statement` abre uma tela nova e vira o cabeçalho
+// dela; seções muito longas são quebradas para não estourar o teto de componentes.
+function planScreens(form: any, cfgByKey: Map<string, FlowFieldConfig>): ScreenPlan[] {
+  const all: any[] = Array.isArray(form?.fields) ? form.fields : []
+  const screens: ScreenPlan[] = []
+  let current: ScreenPlan | null = null
+
+  for (const f of all) {
+    if (!f) continue
+    if (f.type === 'statement') {
+      current = { heading: f, fields: [] }
+      screens.push(current)
+      continue
+    }
+    if (SKIP_TYPES.has(f.type)) continue
+    if (cfgByKey.get(String(f.key))?.include === false) continue
+    if (!current || current.fields.length >= MAX_INPUTS_PER_SCREEN) {
+      current = { heading: null, fields: [] }
+      screens.push(current)
+    }
+    current.fields.push(f)
+  }
+  // Telas sem cabeçalho e sem pergunta não têm o que mostrar.
+  return screens.filter((s) => s.fields.length > 0 || s.heading)
+}
+
+export interface BuildFlowOpts {
+  title?: string
+  cta?: string
+  fieldConfig?: FlowFieldConfig[]
+  /** Uma tela por seção (quebra nos `statement`). Padrão: tela única. */
+  multiScreen?: boolean
+  /** Rótulo do botão das telas intermediárias no modo multi-tela. */
+  navLabel?: string
+}
+
+/** Constrói o Flow JSON estático a partir do form + overrides do editor. */
+export function buildFlowJson(form: any, opts?: BuildFlowOpts): { json: any; screenId: string } {
   const cfgByKey = new Map<string, FlowFieldConfig>((opts?.fieldConfig || []).map((c) => [String(c.key), c]))
+  const title = trunc(opts?.title || form?.name || 'Formulário', SCREEN_TITLE_MAX)
 
-  for (const f of flowInputFields(form)) {
-    const cfg = cfgByKey.get(String(f.key))
-    if (cfg?.include === false) continue // campo removido do formulário do WhatsApp
-    const name = flowFieldName(f.key)
-    const required = cfg?.required ?? !!f.required
-    const fullLabel = stripTags(cfg?.label ?? f.label) || f.key
-
-    // Rótulo longo (> 30) → vira um subtítulo acima + input com rótulo curto, em vez
-    // de cortar a pergunta no meio (limite de rótulo do componente da Meta).
-    let label = fullLabel
-    if (fullLabel.length > LABEL_MAX) {
-      children.push({ type: 'TextSubheading', text: trunc(fullLabel, SUBHEADING_MAX) })
-      label = f.type === 'select' ? 'Selecione' : 'Sua resposta'
+  if (!opts?.multiScreen) {
+    const screenId = 'INTAKE'
+    const children: any[] = []
+    const payload: Record<string, string> = {}
+    for (const f of flowInputFields(form)) {
+      const cfg = cfgByKey.get(String(f.key))
+      if (cfg?.include === false) continue // campo removido do formulário do WhatsApp
+      const { comps, name } = fieldComponents(f, cfg)
+      children.push(...comps)
+      payload[name] = '${form.' + name + '}'
     }
-    label = trunc(label, LABEL_MAX)
-
-    if (f.type === 'select' && Array.isArray(f.options) && f.options.length) {
-      children.push({
-        type: 'Dropdown', name, label, required,
-        'data-source': f.options.slice(0, 200).map((o: any) => ({ id: String(o.value), title: trunc(stripTags(o.label), 30) })),
-      })
-    } else if (f.type === 'textarea') {
-      children.push({ type: 'TextArea', name, label, required })
-    } else {
-      children.push({ type: 'TextInput', name, label, 'input-type': INPUT_TYPE[f.type] || 'text', required })
+    children.push({ type: 'Footer', label: trunc(opts?.cta || 'Enviar', 30), 'on-click-action': { name: 'complete', payload } })
+    return {
+      screenId,
+      json: {
+        version: FLOW_JSON_VERSION,
+        screens: [{
+          id: screenId, title, terminal: true, success: true, data: {},
+          layout: { type: 'SingleColumnLayout', children: [{ type: 'Form', name: 'form', children }] },
+        }],
+      },
     }
-    payload[name] = '${form.' + name + '}'
   }
 
-  children.push({ type: 'Footer', label: trunc(opts?.cta || 'Enviar', 30), 'on-click-action': { name: 'complete', payload } })
+  // ── Multi-tela ──
+  const plans = planScreens(form, cfgByKey)
+  if (!plans.length) return buildFlowJson(form, { ...opts, multiScreen: false })
 
-  const json = {
-    version: FLOW_JSON_VERSION,
-    screens: [{
-      id: screenId,
-      title: trunc(opts?.title || form?.name || 'Formulário', 30),
-      terminal: true,
-      success: true,
-      data: {},
-      layout: { type: 'SingleColumnLayout', children: [{ type: 'Form', name: 'form', children }] },
-    }],
-  }
-  return { json, screenId }
+  const screenIds = plans.map((_, i) => `SCREEN_${i}`)
+  const screens: any[] = []
+  // Nomes já coletados nas telas ANTERIORES: cada tela precisa declará-los em `data`
+  // e repassá-los no payload, senão o dado se perde ao navegar.
+  const carried: string[] = []
+
+  plans.forEach((plan, i) => {
+    const last = i === plans.length - 1
+    const children: any[] = []
+    if (plan.heading) {
+      const h = stripTags(plan.heading.label)
+      const sub = stripTags(plan.heading.helpText)
+      if (h) children.push({ type: 'TextHeading', text: trunc(h, SUBHEADING_MAX) })
+      if (sub) children.push({ type: 'TextBody', text: trunc(sub, BODY_MAX) })
+    }
+
+    const payload: Record<string, string> = {}
+    for (const n of carried) payload[n] = '${data.' + n + '}'
+    const mine: string[] = []
+    for (const f of plan.fields) {
+      const { comps, name } = fieldComponents(f, cfgByKey.get(String(f.key)))
+      children.push(...comps)
+      payload[name] = '${form.' + name + '}'
+      mine.push(name)
+    }
+
+    children.push({
+      type: 'Footer',
+      label: trunc(last ? (opts?.cta || 'Enviar') : (opts?.navLabel || 'Continuar'), 30),
+      'on-click-action': last
+        ? { name: 'complete', payload }
+        : { name: 'navigate', next: { type: 'screen', name: screenIds[i + 1] }, payload },
+    })
+
+    const data: Record<string, any> = {}
+    for (const n of carried) data[n] = { type: 'string', __example__: '-' }
+
+    screens.push({
+      id: screenIds[i], title, data,
+      ...(last ? { terminal: true, success: true } : {}),
+      // Tela só de texto (seção sem pergunta) não precisa do wrapper Form.
+      layout: {
+        type: 'SingleColumnLayout',
+        children: mine.length ? [{ type: 'Form', name: 'form', children }] : children,
+      },
+    })
+    carried.push(...mine)
+  })
+
+  return { json: { version: FLOW_JSON_VERSION, screens }, screenId: screenIds[0]! }
 }
 
 /** Sobe o Flow JSON como asset (multipart). */

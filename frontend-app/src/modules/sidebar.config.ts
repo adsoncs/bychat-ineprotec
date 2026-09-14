@@ -109,6 +109,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'google-ads', label: 'Google Ads', href: '/app/google-ads', icon: 'Search', permission: 'marketing' },
         { id: 'links', label: 'Links rastreáveis', href: '/app/links', icon: 'Link2', permission: 'trackable_links' },
         { id: 'tracking', label: 'Rastreamento', href: '/app/tracking', icon: 'Activity', permission: 'tracking' },
+        { id: 'reputation', label: 'Radar de Reputação', href: '/app/reputation', icon: 'Radar', permission: 'reputation_radar' },
       ],
       initiallyCollapsed: true,
     },
@@ -191,6 +192,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'whatsapp-templates', label: 'Modelos de Mensagem', href: '/app/whatsapp-templates', icon: 'FileText', permission: 'whatsapp' },
         { id: 'whatsapp-dispatch', label: 'Disparos & Custos', href: '/app/whatsapp-dispatch', icon: 'BarChart3', permission: 'whatsapp' },
         { id: 'broadcast', label: 'Disparos em Massa', href: '/app/broadcast', icon: 'Megaphone', permission: 'broadcast' },
+        { id: 'surveys', label: 'Pesquisas', href: '/app/surveys', icon: 'ClipboardList', permission: 'surveys' },
         { id: 'smart-broadcast', label: 'Disparos Inteligentes', href: '/app/smart-broadcast', icon: 'BrainCircuit', permission: 'smart_broadcast' },
         { id: 'telegram', label: 'Telegram', href: '/app/telegram', icon: 'Send', permission: 'telegram' },
         { id: 'instagram', label: 'Instagram', href: '/app/instagram', icon: 'Instagram', permission: 'instagram' },
@@ -261,6 +263,7 @@ export const sidebarSchema: SidebarSchema = {
       label: 'Educacional',
       items: [
         { id: 'educational', label: 'Visão geral', href: '/app/educational', icon: 'GraduationCap', permission: 'educacional' },
+        { id: 'he-market', label: 'Mercado (Ensino Superior)', href: '/app/he-market', icon: 'Target', permission: 'higher_ed_market' },
         { id: 'edu-units', label: 'Unidades', href: '/app/educational/units', icon: 'Building2', permission: 'educacional' },
         { id: 'edu-campuses', label: 'Campus', href: '/app/educational/campuses', icon: 'MapPin', permission: 'educacional' },
         { id: 'edu-levels', label: 'Níveis', href: '/app/educational/levels', icon: 'GraduationCap', permission: 'educacional' },

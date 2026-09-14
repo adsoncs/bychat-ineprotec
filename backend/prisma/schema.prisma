@@ -9661,3 +9661,103 @@ model AlertMute {
   @@index([userId])
   @@map("bychat_alert_mutes")
 }
+
+model Survey {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(191)
+  description String? @db.VarChar(255)
+
+  // [{ id, key, type: 'scale'|'textarea'|'text'|'select'|'statement', label,
+  //    required, scaleMin, scaleMax, scaleMinLabel, scaleMaxLabel, isNps }]
+  questions Json @db.Json
+
+  // Chave da pergunta 0–10 que calcula o NPS. Vazio = usa o primeiro campo com
+  // `isNps: true`; sem nenhum, a pesquisa não produz NPS (só médias).
+  npsQuestionKey String? @db.VarChar(100)
+
+  // Mensagens do disparo/encerramento. { intro, thanks, alreadyAnswered, expired }
+  messages Json? @db.Json
+
+  // Entrega por WhatsApp Flow nativo (tela única por seção). Aponta para o Flow
+  // publicado na Meta; sem ele o runner cai no roteiro pergunta-a-pergunta.
+  flowId Int?
+
+  // Janela de resposta: sessões abertas expiram depois disso (horas).
+  expiresAfterHours Int @default(168)
+
+  active    Boolean  @default(true)
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  responses SurveyResponse[]
+  sessions  SurveySession[]
+
+  @@index([active])
+  @@index([flowId])
+  @@map("bychat_surveys")
+}
+
+// Uma resposta concluída. `answers` guarda {questionKey: valor} — os dados NÃO
+// são gravados em lead.formData nem nos customFields para não poluir o lead; só
+// a nota vira evento/tag.
+model SurveyResponse {
+  id       Int    @id @default(autoincrement())
+  surveyId Int
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  leadId Int?
+  phone  String? @db.VarChar(30)
+
+  answers Json @db.Json
+
+  // Nota 0–10 da pergunta de NPS e sua faixa: promoter (9–10) | passive (7–8) |
+  // detractor (0–6). Null quando a pesquisa não tem pergunta de NPS.
+  npsScore    Int?
+  npsCategory String? @db.VarChar(20)
+
+  // Canal de origem da resposta: whatsapp_flow | whatsapp_chat | web
+  channel String @default("whatsapp_flow") @db.VarChar(30)
+
+  respondedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([surveyId, respondedAt])
+  @@index([leadId])
+  @@index([npsCategory])
+  @@map("bychat_survey_responses")
+}
+
+// Convite em aberto: criado no disparo, fechado quando a resposta chega (ou
+// expira). É o que dá prioridade à pesquisa sobre o chatbot de atendimento no
+// webhook — sem sessão aberta, a mensagem segue o caminho normal.
+model SurveySession {
+  id       Int    @id @default(autoincrement())
+  surveyId Int
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  leadId Int?
+  phone  String @db.VarChar(30)
+
+  // Token do WhatsApp Flow (flow_token) — casa o nfm_reply de volta com a sessão.
+  flowToken String? @unique @db.VarChar(120)
+
+  // Estado do roteiro quando a entrega é pergunta-a-pergunta (fallback).
+  state Json? @db.Json
+
+  // pending = convite enviado | answered = respondeu | expired = passou da janela
+  status String @default("pending") @db.VarChar(20)
+
+  sentAt      DateTime  @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([surveyId, status])
+  @@index([phone, status])
+  @@index([leadId])
+  @@index([expiresAt])
+  @@map("bychat_survey_sessions")
+}
