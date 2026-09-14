@@ -123,6 +123,8 @@ model User {
   @@index([role])
   @@index([isAgent])
   @@map("bychat_users")
+  /// O dono é lido a cada pedido (ver lib/dono.ts) — o índice é da 0158.
+  @@index([isOwner], map: "idx_users_owner")
 }
 
 // Filtros nomeados que o usuário salva e pode reaplicar depois (públicos
