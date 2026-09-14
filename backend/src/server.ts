@@ -145,6 +145,7 @@ import { reputationRoutes } from './routes/reputation.js'
 import { heMarketRoutes } from './routes/heMarket.js'
 import { homeScreensRoutes } from './routes/homeScreens.js'
 import { donoAssinaturaRoutes } from './routes/donoAssinatura.js'
+import { lojaSincronizacaoRoutes } from './routes/lojaSincronizacao.js'
 import { startSlaScheduler } from './services/helpdeskSla.js'
 import { startAutomationScheduler } from './services/helpdeskAutomation.js'
 import { startHelpdeskRoutingScheduler } from './services/helpdeskRouting.js'
@@ -421,6 +422,10 @@ app.addHook('onRequest', async (req, reply) => {
   if (!req.url.startsWith('/api/')) return
   const method = req.method
   if (method !== 'POST' && method !== 'PUT' && method !== 'DELETE') return
+
+  // A loja central é um servidor falando com este: sem Origin, como webhook.
+  // Não é buraco no CSRF — o pedido é assinado com HMAC e recusado sem isso.
+  if (req.url.startsWith('/api/loja/')) return
 
   // Webhooks externos não têm Origin do nosso domínio
   const isWebhookRoute = req.url === '/api/whatsapp/webhook' ||
@@ -709,6 +714,7 @@ await app.register(reputationRoutes)
 await app.register(heMarketRoutes)
 await app.register(homeScreensRoutes)
 await app.register(donoAssinaturaRoutes)
+await app.register(lojaSincronizacaoRoutes)
 
 // ── Overlay do tenant (módulos próprios: ex. ERP ineprotec, Venda360) ──
 // Carrega src/overlay/index.ts SE existir; no-op nos tenants sem overlay. Mantém
