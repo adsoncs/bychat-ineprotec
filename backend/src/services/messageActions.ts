@@ -21,6 +21,7 @@
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { broadcastRealtimeEvent } from '../routes/realtime.js'
+import { jidDoWaLid } from '../lib/phone.js'
 import {
   createEvolutionProviderFor,
   getProviderForChannel,
@@ -69,7 +70,8 @@ function chatDaMensagem(msg: MessageRow): string {
   const lead = msg.lead
   if (lead.isGroup && lead.groupJid) return lead.groupJid
   if (lead.whatsapp) return lead.whatsapp
-  if (lead.waLid) return lead.waLid
+  const lid = jidDoWaLid(lead.waLid)
+  if (lid) return lid
   throw new MessageActionError('Esta conversa não tem número nem grupo — não dá para agir no WhatsApp.', 409, 'NO_CHAT')
 }
 

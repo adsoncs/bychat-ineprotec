@@ -16,6 +16,7 @@
 import { mkdir, writeFile, stat } from 'fs/promises'
 import { join } from 'path'
 import { prisma } from '../lib/prisma.js'
+import { jidDoWaLid } from '../lib/phone.js'
 
 const AVATAR_DIR = join(process.cwd(), '..', 'uploads', 'avatars')
 /** Foto de perfil muda pouco; 7 dias evita rebuscar a base toda a cada tick. */
@@ -45,7 +46,8 @@ function jidDoLead(l: { whatsapp: string | null; groupJid: string | null; waLid:
   if (l.isGroup && l.groupJid) return l.groupJid
   const w = (l.whatsapp || '').trim()
   if (w && !w.includes('@')) return w
-  if (l.waLid) return l.waLid
+  const lid = jidDoWaLid(l.waLid)
+  if (lid) return lid
   return w || null
 }
 

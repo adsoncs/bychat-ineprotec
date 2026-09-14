@@ -132,6 +132,22 @@ export function identidadeDoContato(valor: string | null | undefined): {
 }
 
 /**
+ * `lead.waLid` guarda ora o JID completo (`...@lid`, quando veio direto do
+ * webhook e o valor foi repassado intacto), ora só os dígitos (quando
+ * `identidadeDoContato` o inferiu por estrutura, sem ter o JID original à
+ * mão — ex.: motores de chatbot que só recebem `phone` já em dígitos). Mandar
+ * os dígitos crus como destino de envio é errado: sem o "@" o provider trata
+ * como TELEFONE e tenta `<dígitos>@s.whatsapp.net`, que não existe — LID e
+ * telefone são namespaces diferentes do WhatsApp. Use ao montar o destino de
+ * qualquer ação (enviar, editar, apagar, buscar foto) a partir de `waLid`.
+ */
+export function jidDoWaLid(raw: string | null | undefined): string | null {
+  const v = String(raw || '').trim()
+  if (!v) return null
+  return v.includes('@') ? v : `${v}@lid`
+}
+
+/**
  * É o JID de um grupo do WhatsApp (`120363...@g.us`)?
  *
  * Grupo não é telefone: não passa por phoneKey/toWaNumber (que destroem o

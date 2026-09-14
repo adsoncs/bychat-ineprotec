@@ -24,6 +24,7 @@ import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { broadcastRealtimeEvent } from '../routes/realtime.js'
 import { montarPrefixo } from './operatorIdentity.js'
+import { jidDoWaLid } from '../lib/phone.js'
 
 export interface TicketMessageActor {
   userId: number
@@ -321,7 +322,9 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
 
         let result: any
         // Grupo: o destino é o JID "<id>@g.us" (não há telefone).
-        const destinatario: string = (lead as any).groupJid || (lead as any).waLid || lead.whatsapp
+        // Contato puro-LID: jidDoWaLid garante o sufixo "@lid" mesmo quando a
+        // coluna só tem os dígitos — sem ele o envio ia para "<dígitos>@s.whatsapp.net".
+        const destinatario: string = (lead as any).groupJid || jidDoWaLid((lead as any).waLid) || lead.whatsapp
 
         if (mType === 'template') {
           if (provider.providerName !== 'cloud_api') {
