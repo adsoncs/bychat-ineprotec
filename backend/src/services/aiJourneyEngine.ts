@@ -16,6 +16,7 @@ import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage } from './formFlow.js'
+import { acharLeadDoContato } from './contactIdentity.js'
 import { applyAnswerToLead } from './scriptedChatbotFlow.js'
 import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
@@ -644,7 +645,11 @@ async function _process(
   }
 
   // ── Lead + estado ──
-  let lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+  // acharLeadDoContato casa por phoneKey canônico, depois igualdade crua e por
+  // fim waLid — a busca ingênua `where: { whatsapp: phone }` não achava o lead
+  // de quem chegou só com LID (whatsapp fica vazio de propósito nesse caso) e
+  // reabria a jornada do zero a cada mensagem. Ver services/contactIdentity.ts.
+  let lead = await acharLeadDoContato(phone)
   const fd: any = (lead?.formData as any) || {}
   let state: AiState | null = fd._aiJourney || null
 
@@ -678,7 +683,11 @@ async function _process(
       await prisma.lead.update({ where: { id: leadId }, data: { nome: cname } }).catch(() => {})
       if (lead) lead.nome = cname
     }
-    if (!lead?.whatsapp) { await prisma.lead.update({ where: { id: leadId }, data: { whatsapp: phone } }).catch(() => {}); if (lead) lead.whatsapp = phone }
+    // Sem backfill cru de `whatsapp` aqui: createLeadFromForm já gravou a
+    // identidade certa via identidadeDoContato — telefone de verdade na coluna
+    // `whatsapp`, LID em `waLid`. Escrever `phone` cru de novo reintroduzia o
+    // LID na coluna de telefone sempre que o lead nascia só-LID (caso do "Lead
+    // LP" com número de 15 dígitos sem DDI válido, severiano 14/09/2026).
     logEvent({ leadId, type: EVENT_TYPES.DIAGNOSIS_STARTED, category: 'lifecycle', title: `Jornada IA iniciada: ${chatbot?.name || form.name}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead' })
   }
 

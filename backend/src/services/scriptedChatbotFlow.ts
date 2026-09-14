@@ -15,6 +15,7 @@ import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage, buildCustomFieldValues } from './formFlow.js'
+import { acharLeadDoContato } from './contactIdentity.js'
 import { pickOperatorForTeam } from './teamRouting.js'
 import { parseAnswer, evaluateQualification, resolveStageMove, nextStep } from './journey/journeyEngine.js'
 import { interpretSelectAnswer } from './journey/interpret.js'
@@ -263,7 +264,10 @@ async function _process(
   }
 
   // ── Localiza lead + estado ──
-  const lead = await prisma.lead.findFirst({ where: { whatsapp: phone }, orderBy: { createdAt: 'desc' } })
+  // acharLeadDoContato casa por phoneKey canônico e por waLid, além da igualdade
+  // crua — a busca antiga não achava quem chegou só com LID (whatsapp fica vazio
+  // de propósito) e reabria o roteiro do zero a cada mensagem. Ver contactIdentity.ts.
+  const lead = await acharLeadDoContato(phone)
   const fd: any = (lead?.formData as any) || {}
   let state: ScriptState | null = fd._script || null
 
