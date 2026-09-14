@@ -178,7 +178,16 @@ async function handleDomainEvent(event: DomainEvent): Promise<void> {
 
 // ─── Execute Step ───────────────────────────────────────
 
-export async function executeNextStep(executionId: number, stepId: number): Promise<void> {
+export async function executeNextStep(executionId: number, stepId: number | null | undefined): Promise<void> {
+  // Um `wait` sem próximo passo configurado (fim de fluxo) enfileira o job de
+  // retomada com `nextStepId: null` — sem esta guarda, o worker chamava
+  // `findUnique({ where: { id: null } })`, o Prisma lançava "Argument `id`
+  // must not be null" e a execução ficava presa em "running" para sempre.
+  // Ausência de próximo passo = fim do fluxo.
+  if (!stepId) {
+    await completeExecution(executionId, 'completed')
+    return
+  }
   try {
     const execution = await prisma.workflowExecution.findUnique({
       where: { id: executionId },
