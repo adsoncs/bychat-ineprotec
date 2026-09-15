@@ -162,6 +162,23 @@ const TOOLS = [
 ]
 
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
+// Tradução do `originType` (lib/leadOrigin.ts) para uma frase que a IA pode
+// usar na abertura sem inventar canal. Só cobre os casos em que dá pra falar
+// com o lead sobre isso com naturalidade — o resto (import, manual, api...)
+// é plumbing interno e não deve aparecer na conversa.
+const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
+  meta_ctwa: 'clicou num anúncio do Instagram/Facebook que abre direto o WhatsApp',
+  meta_lead_ads: 'preencheu um formulário de um anúncio no Facebook/Instagram',
+  google_ads: 'clicou num anúncio no Google',
+  web_form: 'preencheu um formulário no nosso site',
+  web_chat: 'começou a falar pelo chat do nosso site',
+  organic: 'chegou pelo nosso site (busca, não veio de anúncio pago)',
+  trackable_link: 'clicou num link que compartilhamos',
+  instagram: 'chamou a gente direto pelo Instagram',
+  telegram: 'chamou a gente direto pelo Telegram',
+  enrollment_portal: 'já estava no nosso portal de matrículas',
+}
+
 export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null): string {
   const fields: any[] = form?.fields || []
   const collect = fields
@@ -195,6 +212,28 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
   const already = Object.keys(state.answers || {})
   const hasSched = fields.some((f) => f?.type === 'scheduling')
 
+  // Origem do lead (como ele chegou até nós) — sem isto a IA não tinha como
+  // saber, e ou ficava genérica ou (pior) arriscava cravar um canal errado
+  // ("vi que veio pelo Google" pra quem veio de anúncio no Meta).
+  const origemDescricao = ORIGEM_DESCRICAO[lead?.originType as string] || ''
+
+  // Campos que o formulário perguntaria, mas que o lead já respondeu ANTES
+  // desta conversa (formulário nativo da Meta, import, outro canal) — ficam em
+  // `customFields`, não em `state.answers` (que só cobre esta conversa). Sem
+  // isto a IA perguntava de novo o que a pessoa já tinha dito, que é
+  // exatamente o "parecer que não prestou atenção" que se quer evitar.
+  const customFields = (lead?.customFields && typeof lead.customFields === 'object') ? lead.customFields as Record<string, unknown> : {}
+  const previamenteConhecidos = fields
+    .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling' && !already.includes(f.key))
+    .map((f) => {
+      const chaveCf = f.mapTo?.startsWith('cf_') ? f.mapTo.replace('cf_', '') : (f.mapTo || f.key)
+      const valor = customFields[chaveCf]
+      if (valor === undefined || valor === null || valor === '') return null
+      return `- ${stripTags(f.label) || f.key}: "${valor}"`
+    })
+    .filter(Boolean)
+    .join('\n')
+
   const nm = realNome || state.answers?.nome || ''
   // Saudação configurada do chatbot: a IA conduz a abertura, mas DEVE abrir com
   // esta mensagem (no tom da marca). Só vale para a 1ª mensagem da conversa.
@@ -215,8 +254,10 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     setores ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
     `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: nome, e-mail, WhatsApp e cidade. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.`,
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
+    origemDescricao ? `\n## Como este lead chegou até nós\n${origemDescricao}\n\nUse isso pra soar informado na abertura, SE fizer sentido natural mencionar. NUNCA cite um canal diferente deste (ex.: não diga "veio pelo Google" se a origem aqui for outra) — na dúvida, não mencione origem nenhuma.` : '',
+    previamenteConhecidos ? `\n## O lead já respondeu isto ANTES desta conversa (não pergunte de novo — confirme/aproveite)\n${previamenteConhecidos}` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
-    greeting ? `\n## Abertura da conversa\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
+    greeting ? `\n## Abertura da conversa (mensagem padrão)\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     `\n## Como agir
 - Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
