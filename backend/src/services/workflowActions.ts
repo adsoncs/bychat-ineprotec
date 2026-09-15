@@ -6,6 +6,12 @@ import { queues } from '../lib/queues.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
+import { templateBodyTokens } from '../lib/waTemplateParams.js'
+
+// Último recurso para um parâmetro de template HSM vazio. Neutro de propósito:
+// cabe tanto em "olá, {{1}}" quanto em "o(a) {{2}} participando", e é melhor do
+// que perder a mensagem — a Meta recusa o disparo com parâmetro em branco.
+const DEFAULT_TEMPLATE_PARAM_FALLBACK = 'você'
 
 /** Heurística simples pra decidir se um corpo é HTML — se contém tags. */
 function looksLikeHtml(s: string): boolean {
@@ -84,6 +90,14 @@ interface ActionConfig {
   // send_whatsapp / send_sms
   message?: string
   templateId?: number // referência opcional a MessageTemplate (id)
+  // send_whatsapp via API Oficial (Cloud API): quando há conexão ativa, o disparo
+  // para lead "frio" (fora da janela de 24h) tem de ser um template HSM aprovado.
+  // cloudTemplateId → CloudApiTemplate; templateParams resolve {{1}}, {{2}}, ... na
+  // ordem, a partir de campos do lead / customFields / valor fixo.
+  cloudTemplateId?: number
+  // `fallback`: texto usado quando o campo do lead está vazio — a Meta rejeita o
+  // disparo inteiro se algum parâmetro chegar em branco (erro 131008).
+  templateParams?: Array<{ type: 'lead_field' | 'custom_field' | 'fixed'; value: string; fallback?: string }>
   // send_email
   subject?: string
   body?: string
@@ -196,6 +210,96 @@ export async function dispatchAction(
 
   switch (config.actionType) {
     case 'send_whatsapp': {
+      // Há conexão Cloud API (API Oficial) ativa? Se sim e o step tem template HSM
+      // configurado, o disparo sai pela API oficial como TEMPLATE (obrigatório fora
+      // da janela de 24h). Sem conexão ativa OU sem cloudTemplateId, mantém o envio
+      // por texto livre via Evolution (comportamento legado do QR Code).
+      const cloudConn = await prisma.cloudApiConnection.findFirst({
+        where: { active: true },
+        select: { id: true, wabaId: true },
+      })
+
+      if (cloudConn && config.cloudTemplateId) {
+        const hsm = await prisma.cloudApiTemplate.findUnique({ where: { id: config.cloudTemplateId } })
+        if (!hsm) {
+          await prisma.workflowStepExecution.update({
+            where: { id: stepExec.id },
+            data: { status: 'failed', error: `Template HSM ${config.cloudTemplateId} não encontrado`, completedAt: new Date() }
+          })
+          return
+        }
+        if (hsm.status !== 'APPROVED') {
+          await prisma.workflowStepExecution.update({
+            where: { id: stepExec.id },
+            data: { status: 'failed', error: `Template HSM "${hsm.name}" não está aprovado (status ${hsm.status})`, completedAt: new Date() }
+          })
+          return
+        }
+        // Resolve os parâmetros posicionais ({{1}}, {{2}}, ...) a partir do lead.
+        //
+        // A Meta REJEITA o disparo inteiro (131008 "Parameter of type text is
+        // missing text value") quando qualquer parâmetro chega vazio — e chega
+        // vazio sempre que o lead não tem o campo (ex.: leads de Lead Ads sem o
+        // nome do aluno). Cada parâmetro pode declarar um `fallback`; sem ele,
+        // usamos um texto neutro para não perder a mensagem por um campo em
+        // branco. Também colapsamos quebras de linha e espaços múltiplos, que a
+        // Cloud API recusa dentro de parâmetros (132000/131008).
+        const values = (config.templateParams || []).map((p) => {
+          let raw = ''
+          if (p.type === 'fixed') {
+            raw = p.value || ''
+          } else if (p.type === 'custom_field') {
+            const cf = (lead.customFields || {}) as Record<string, unknown>
+            raw = cf[p.value] != null ? String(cf[p.value]) : ''
+          } else {
+            const v = (lead as any)[p.value]
+            raw = v != null && typeof v !== 'object' ? String(v) : ''
+          }
+          const clean = raw.replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim()
+          if (clean) return clean
+          const fb = (p.fallback || '').replace(/[\r\n\t]+/g, ' ').trim()
+          return fb || DEFAULT_TEMPLATE_PARAM_FALLBACK
+        })
+        // Templates nomeados ({{nome}}) exigem `parameter_name` em cada parâmetro; a
+        // configuração do fluxo é uma lista ordenada, então casamos posição a posição
+        // com os tokens do template aprovado. Sem isto, a Meta recusa com #132000 —
+        // e só templates posicionais ({{1}}) funcionariam nos fluxos.
+        const { tokens, named } = templateBodyTokens(hsm.components)
+        const components = values.length
+          ? [{
+            type: 'body',
+            parameters: values.map((text, i) => {
+              const p: Record<string, unknown> = { type: 'text', text }
+              if (named && tokens[i]) p.parameter_name = tokens[i]
+              return p
+            }),
+          }]
+          : []
+
+        const gov = await enforceGovernance(leadId, 'whatsapp', stepExec.id)
+        if (!gov.allow) return
+        const job = await queues.whatsapp.add('send', {
+          leadId,
+          stepExecutionId: stepExec.id,
+          cloudTemplate: {
+            connectionId: cloudConn.id,
+            name: hsm.name,
+            language: hsm.language,
+            components,
+          },
+        }, {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          delay: gov.delayMs,
+        })
+        await prisma.workflowStepExecution.update({
+          where: { id: stepExec.id },
+          data: { jobId: job.id }
+        })
+        break
+      }
+
+      // ─── Caminho legado: texto livre via Evolution ───
       // Resolve template (se templateId) ou usa message inline (fallback).
       let message = config.message || ''
       if (config.templateId) {

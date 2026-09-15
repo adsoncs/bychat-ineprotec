@@ -26,6 +26,38 @@ async function getWhatsAppConfig() {
   }
 }
 
+/**
+ * Renderiza o corpo de um template HSM para exibição no histórico: pega o texto
+ * do BODY salvo (com {{1}}, {{2}}, ...) e substitui pelos parâmetros enviados.
+ * Índices posicionais podem repetir (ex.: {{2}} duas vezes) — todas as ocorrências
+ * recebem o mesmo valor, exatamente como a Meta faz no envio.
+ */
+async function renderCloudTemplateBody(
+  wabaId: string,
+  cloudTemplate: { name: string; language: string; components?: any[] },
+): Promise<string | null> {
+  const tpl = await prisma.cloudApiTemplate.findFirst({
+    where: { wabaId, name: cloudTemplate.name, language: cloudTemplate.language },
+    select: { components: true },
+  })
+  const comps = Array.isArray(tpl?.components) ? (tpl!.components as any[]) : []
+  const body = comps.find((c) => String(c?.type || '').toUpperCase() === 'BODY')
+  let text: string = typeof body?.text === 'string' ? body.text : ''
+  if (!text) return null
+  // Parâmetros enviados no component BODY. Posicional casa por ordem ({{1}}, {{2}});
+  // template NOMEADO ({{nome}}) traz `parameter_name` em cada parâmetro e precisa
+  // casar por esse nome — sem isto o texto ficava intacto e a equipe via "{{nome}}"
+  // cru na conversa, enquanto a família recebia a mensagem certa.
+  const sent = (cloudTemplate.components || []).find((c: any) => String(c?.type || '').toLowerCase() === 'body')
+  const params: any[] = sent?.parameters || []
+  params.forEach((p, i) => {
+    const val = String(p?.text ?? '')
+    const token = p?.parameter_name ? String(p.parameter_name) : String(i + 1)
+    text = text.replace(new RegExp(`\\{\\{\\s*${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\}\\}`, 'g'), val)
+  })
+  return text
+}
+
 async function updateStepExecution(stepExecutionId: number | undefined, status: string, result?: any, error?: string) {
   if (!stepExecutionId) return
   await prisma.workflowStepExecution.update({
@@ -64,9 +96,53 @@ async function advanceWorkflow(stepExecutionId: number | undefined) {
 
 // ─── WhatsApp Worker ────────────────────────────────────
 
+// A Meta recusa o disparo INTEIRO quando um parâmetro de texto chega vazio
+// (131008 "Parameter of type text is missing text value") — basta o lead não ter
+// o campo mapeado, como acontece com lead de anúncio sem o nome do aluno.
+//
+// A troca por um texto de reserva é feita AQUI, no ponto de envio, e não só na
+// montagem do job: os parâmetros viajam congelados no payload da fila, então um
+// job enfileirado antes da correção continuaria falhando para sempre. Prefere o
+// `fallback` configurado no passo do workflow; sem ele, um termo neutro.
+const NEUTRAL_PARAM_FALLBACK = 'você'
+
+async function fillEmptyTemplateParams(components: any, stepExecutionId?: number): Promise<any> {
+  if (!Array.isArray(components)) return components
+  const isBlank = (p: any) => p?.type === 'text' && !String(p.text ?? '').trim()
+  if (!components.some((c: any) => Array.isArray(c?.parameters) && c.parameters.some(isBlank))) {
+    return components
+  }
+
+  // Texto de reserva declarado no passo, na mesma ordem de {{1}}, {{2}}, …
+  let fallbacks: string[] = []
+  if (stepExecutionId) {
+    const exec = await prisma.workflowStepExecution.findUnique({
+      where: { id: stepExecutionId },
+      select: { step: { select: { config: true } } },
+    }).catch(() => null)
+    const params = (exec?.step?.config as any)?.templateParams
+    if (Array.isArray(params)) fallbacks = params.map((p: any) => String(p?.fallback ?? '').trim())
+  }
+
+  let filled = 0
+  const out = components.map((c: any) => {
+    if (!Array.isArray(c?.parameters)) return c
+    return {
+      ...c,
+      parameters: c.parameters.map((p: any, i: number) => {
+        if (!isBlank(p)) return p
+        filled++
+        return { ...p, text: fallbacks[i] || NEUTRAL_PARAM_FALLBACK }
+      }),
+    }
+  })
+  console.warn(`[Worker:wf-whatsapp] ${filled} parâmetro(s) vazio(s) do template substituído(s) (step ${stepExecutionId ?? '-'})`)
+  return out
+}
+
 function createWhatsAppWorker() {
   return new Worker('wf-whatsapp', async (job) => {
-    const { leadId, message, stepExecutionId } = job.data
+    const { leadId, message, stepExecutionId, cloudTemplate } = job.data
     const lead = await prisma.lead.findUnique({ where: { id: leadId } })
     if (!lead || !lead.whatsapp) throw new Error(`Lead ${leadId} sem WhatsApp`)
 
@@ -80,6 +156,69 @@ function createWhatsAppWorker() {
       const err = `Lead ${leadId} com WhatsApp inválido ("${lead.whatsapp}") — número não discável, corrija o cadastro`
       await updateStepExecution(stepExecutionId, 'failed', null, err)
       throw new UnrecoverableError(err)
+    }
+
+    // ─── API Oficial (Cloud API): envio como TEMPLATE HSM ───
+    if (cloudTemplate) {
+      const conn = await prisma.cloudApiConnection.findFirst({
+        where: { id: cloudTemplate.connectionId, active: true },
+      })
+      if (!conn) throw new Error(`Conexão Cloud API ${cloudTemplate.connectionId} inativa/inexistente`)
+
+      const { decryptToken, sendTemplateMessage } = await import('./cloudApi.js')
+      const token = decryptToken(conn.systemUserToken)
+      const components = await fillEmptyTemplateParams(cloudTemplate.components, stepExecutionId)
+
+      const result = await trackedSend({
+        channel: 'whatsapp',
+        queueName: 'wf-whatsapp',
+        jobId: job.id ? String(job.id) : null,
+        leadId,
+        recipient: to,
+        bodyPreview: `[template ${cloudTemplate.name}]`,
+        attempts: job.attemptsMade + 1,
+        maxAttempts: job.opts?.attempts ?? null,
+        source: stepExecutionId ? 'workflow' : 'system',
+        sourceId: stepExecutionId ?? null,
+      }, async () => {
+        const r = await sendTemplateMessage(conn.phoneNumberId, token, to, cloudTemplate.name, cloudTemplate.language, components)
+        return { externalId: r.messageId, metadata: { cloudApiConnectionId: conn.id, template: cloudTemplate.name } }
+      })
+
+      // Renderiza o TEXTO real enviado (body do HSM com {{1}}, {{2}}, ... já
+      // substituídos) para o histórico/Conversas mostrar o que o lead recebeu,
+      // e não um placeholder "[template: ...]".
+      const renderedBody = await renderCloudTemplateBody(conn.wabaId, cloudTemplate)
+        .catch(() => null)
+
+      await prisma.message.create({
+        data: {
+          leadId,
+          body: renderedBody || `[template: ${cloudTemplate.name}]`,
+          fromMe: true,
+          senderName: 'Workflow',
+          ack: 1,
+          externalId: result.externalId ?? undefined,
+          provider: 'cloud_api',
+          cloudApiConnectionId: conn.id,
+        }
+      })
+
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.MESSAGE_SENT,
+        category: 'communication',
+        title: 'Template de workflow enviado via WhatsApp API Oficial',
+        channel: 'whatsapp',
+        source: 'workflow',
+        actorType: 'system',
+        description: `Template HSM: ${cloudTemplate.name}`,
+        metadata: { externalId: result.externalId, template: cloudTemplate.name },
+      })
+
+      await updateStepExecution(stepExecutionId, 'completed', { messageId: result.externalId })
+      await advanceWorkflow(stepExecutionId)
+      return
     }
 
     const cfg = await getWhatsAppConfig()
