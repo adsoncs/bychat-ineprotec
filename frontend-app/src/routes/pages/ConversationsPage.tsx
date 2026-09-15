@@ -3296,7 +3296,7 @@ function MediaContent({
   if (type === 'contact') {
     const linhas = (name ?? '').split(',').map((n) => n.trim()).filter(Boolean)
     const telefones = (url ?? '').split('\n')
-      .flatMap((v) => [...v.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)].map((m) => (m[1] ?? "").trim()))
+      .flatMap((v) => [...v.matchAll(/^(?:item\d+\.)?TEL[^:\r\n]*:(.+)$/gim)].map((m) => (m[1] ?? "").trim()))
       .filter(Boolean)
     return (
       <div class="mb-1 rounded-md border border-border bg-surface-2 px-3 py-2">

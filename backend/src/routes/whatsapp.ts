@@ -325,7 +325,7 @@ function dadosDoContato(conteudo: any): { nome: string; telefones: string[]; vca
   }
   const nome = String(conteudo?.displayName || '').trim() || doVcard('FN') || doVcard('N').replace(/;+/g, ' ').trim()
   // Um contato pode ter vários números (celular, comercial): pegamos todos.
-  const telefones = [...vcard.matchAll(/^TEL[^:\r\n]*:(.+)$/gim)]
+  const telefones = [...vcard.matchAll(/^(?:item\d+\.)?TEL[^:\r\n]*:(.+)$/gim)]
     .map((m) => String(m[1]).trim())
     .filter(Boolean)
   return { nome, telefones, vcard }
