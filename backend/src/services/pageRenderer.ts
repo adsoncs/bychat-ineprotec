@@ -583,6 +583,10 @@ main > *:first-child .lp-section { padding-top: 0; }
   width: 100%; height: 100%;
   border: none;
 }
+.lp-video__wrap--vertical {
+  max-width: 380px;
+  padding-bottom: 177.78%; /* 9:16 — formato Shorts/Reels */
+}
 
 /* ── Logos ── */
 .lp-logos__grid {
@@ -1113,11 +1117,17 @@ function renderVideo(p: any): string {
   let embedUrl = ''
   const url = p.url || ''
   // YouTube
-  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)
+  const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/)
   if (ytMatch) embedUrl = `https://www.youtube-nocookie.com/embed/${ytMatch[1]}`
   // Vimeo
   const vimeoMatch = url.match(/vimeo\.com\/(\d+)/)
   if (vimeoMatch) embedUrl = `https://player.vimeo.com/video/${vimeoMatch[1]}`
+
+  // Formato: 'landscape' (16:9) ou 'vertical' (9:16, Shorts/Reels). 'auto' (default)
+  // detecta pelo próprio link — só links /shorts/ contam como vertical.
+  const isShortsUrl = /youtube\.com\/shorts\//.test(url)
+  const format = p.format === 'landscape' || p.format === 'vertical' ? p.format : (isShortsUrl ? 'vertical' : 'landscape')
+  const wrapClass = format === 'vertical' ? 'lp-video__wrap lp-video__wrap--vertical' : 'lp-video__wrap'
 
   return `
 <section class="lp-section">
@@ -1126,7 +1136,7 @@ function renderVideo(p: any): string {
       ${p.heading ? `<h2>${esc(p.heading)}</h2>` : ''}
       ${p.subheading ? `<p>${esc(p.subheading)}</p>` : ''}
     </div>
-    ${embedUrl ? `<div class="lp-video__wrap"><iframe src="${esc(embedUrl)}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope" allowfullscreen title="${esc(p.heading || 'Video')}"></iframe></div>` : ''}
+    ${embedUrl ? `<div class="${wrapClass}"><iframe src="${esc(embedUrl)}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope" allowfullscreen title="${esc(p.heading || 'Video')}"></iframe></div>` : ''}
   </div>
 </section>`
 }
@@ -1258,7 +1268,7 @@ function renderCarouselVideos(p: any): string {
   const items: any[] = p.items || []
 
   function getEmbed(url: string): string {
-    const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)/)
+    const yt = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/)
     if (yt) return `https://www.youtube-nocookie.com/embed/${yt[1]}`
     const vm = url.match(/vimeo\.com\/(\d+)/)
     if (vm) return `https://player.vimeo.com/video/${vm[1]}`
@@ -1272,10 +1282,14 @@ function renderCarouselVideos(p: any): string {
     <div class="swiper lp-swiper" data-swiper="${esc(JSON.stringify({ spaceBetween: 16 }))}">
       <div class="swiper-wrapper">
         ${items.map(item => {
-          const embed = getEmbed(item.url || '')
+          const url = item.url || ''
+          const embed = getEmbed(url)
+          const isVertical = item.format === 'vertical' || (item.format !== 'landscape' && /youtube\.com\/shorts\//.test(url))
+          const slideWidth = isVertical ? '270px' : '480px'
+          const ratio = isVertical ? '9/16' : '16/9'
           return embed ? `
-        <div class="swiper-slide" style="width:480px;max-width:90vw">
-          <iframe src="${esc(embed)}" style="width:100%;aspect-ratio:16/9;border:none;border-radius:14px" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope" allowfullscreen title="${esc(item.title || '')}"></iframe>
+        <div class="swiper-slide" style="width:${slideWidth};max-width:90vw">
+          <iframe src="${esc(embed)}" style="width:100%;aspect-ratio:${ratio};border:none;border-radius:14px" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope" allowfullscreen title="${esc(item.title || '')}"></iframe>
         </div>` : ''
         }).join('')}
       </div>

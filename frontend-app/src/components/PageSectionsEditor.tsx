@@ -228,7 +228,7 @@ function defaultProps(type: SectionTypeId): Record<string, unknown> {
         items: [{ name: 'Plano A', price: 'R$ 99/mês', features: ['Feature 1', 'Feature 2'] }],
       }
     case 'video':
-      return { heading: '', url: '' }
+      return { heading: '', url: '', format: 'auto' }
     case 'text':
       return { content: '' }
     case 'footer':
@@ -278,7 +278,7 @@ function defaultProps(type: SectionTypeId): Record<string, unknown> {
     case 'carousel_videos':
       return {
         heading: '',
-        items: [{ url: '', title: '' }],
+        items: [{ url: '', title: '', format: 'auto' }],
       }
     case 'stats':
       return {
@@ -1323,7 +1323,15 @@ function SectionPropsForm({
       return (
         <div class="space-y-2">
           <Input label="Título (opcional)" value={get('heading')} onInput={(e) => onPatch({ heading: (e.target as HTMLInputElement).value })} />
-          <Input label="URL do vídeo" type="url" value={get('url')} onInput={(e) => onPatch({ url: (e.target as HTMLInputElement).value })} placeholder="https://www.youtube.com/watch?v=..." />
+          <Input label="URL do vídeo" type="url" value={get('url')} onInput={(e) => onPatch({ url: (e.target as HTMLInputElement).value })} placeholder="https://www.youtube.com/watch?v=... ou .../shorts/..." />
+          <div>
+            <label class="mb-1 block text-xs font-medium text-fg-muted">Formato</label>
+            <Select value={get('format', 'auto')} onChange={(e) => onPatch({ format: (e.target as HTMLSelectElement).value })}>
+              <option value="auto">Automático (detecta pelo link)</option>
+              <option value="landscape">Vídeo — paisagem (16:9)</option>
+              <option value="vertical">Shorts — vertical (9:16)</option>
+            </Select>
+          </div>
         </div>
       )
 
@@ -1505,11 +1513,16 @@ function SectionPropsForm({
             label="Vídeos"
             items={Array.isArray(p.items) ? (p.items as Record<string, unknown>[]) : []}
             onChange={(items) => onPatch({ items })}
-            template={{ url: '', title: '' }}
+            template={{ url: '', title: '', format: 'auto' }}
             renderRow={(item, patch) => (
               <div class="space-y-2">
-                <Input value={str(item.url)} onInput={(e) => patch({ url: (e.target as HTMLInputElement).value })} placeholder="https://youtube.com/..." />
+                <Input value={str(item.url)} onInput={(e) => patch({ url: (e.target as HTMLInputElement).value })} placeholder="https://www.youtube.com/watch?v=... ou .../shorts/..." />
                 <Input value={str(item.title)} onInput={(e) => patch({ title: (e.target as HTMLInputElement).value })} placeholder="Título (alt)" />
+                <Select value={str(item.format) || 'auto'} onChange={(e) => patch({ format: (e.target as HTMLSelectElement).value })}>
+                  <option value="auto">Automático (detecta pelo link)</option>
+                  <option value="landscape">Vídeo — paisagem (16:9)</option>
+                  <option value="vertical">Shorts — vertical (9:16)</option>
+                </Select>
               </div>
             )}
           />
