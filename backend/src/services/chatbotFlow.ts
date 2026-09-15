@@ -343,8 +343,13 @@ export async function chatbotTriggerAllows(chatbotId: number | null | undefined,
     const { readBotPause } = await import('./botTakeover.js')
     if (readBotPause(paused.formData)) return false
   }
-  const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { triggerMode: true, triggerKeywords: true } }).catch(() => null)
-  if (!cb || cb.triggerMode !== 'keyword') return true
+  const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { active: true, triggerMode: true, triggerKeywords: true } }).catch(() => null)
+  // Chatbot desativado (ou apagado) NUNCA responde — antes esta função ignorava
+  // `active` por completo: uma conexão/instância deixada com chatbotId vinculado
+  // continuava disparando a IA mesmo com o toggle "Inativo" na tela de Chatbots,
+  // que só bloqueava rotas de admin (widget/embed), não o atendimento real.
+  if (!cb || !cb.active) return false
+  if (cb.triggerMode !== 'keyword') return true
   const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)
   if (!kws.length) return true
   // Lead já em fluxo ativo → não bloqueia (continua a conversa em andamento).
