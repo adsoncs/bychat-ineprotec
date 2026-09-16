@@ -3,7 +3,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useFunnels, useFunnel } from '@/hooks/useFunnels'
-import { useQualifyLead, useBulkQualifyLeads, type BulkQualifyResult } from '@/hooks/useLeads'
+import { useTeams, useTeamMembers } from '@/hooks/useTeams'
+import { useUsers } from '@/hooks/useUsers'
+import { useQualifyLead, useBulkQualifyLeads, useLead, type BulkQualifyResult } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
 import { Target, Users } from '@/components/ui/icon-set'
 
@@ -22,9 +24,21 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   const funnelsQ = useFunnels()
   const [funnelId, setFunnelId] = useState<number | null>(null)
   const [stageKey, setStageKey] = useState<string | null>(null)
+  const [teamId, setTeamId] = useState<number | null>(null)
+  const [userId, setUserId] = useState<number | null>(null)
   const funnelDetailQ = useFunnel(funnelId)
+  const teamsQ = useTeams()
+  const teamMembersQ = useTeamMembers(teamId)
+  const usersQ = useUsers()
   const qualify = useQualifyLead()
   const bulkQualify = useBulkQualifyLeads()
+  // Lead que já tinha um funil de antes (resquício do bug do card de funil,
+  // ver LeadFunnelCard): mesmo escolhendo "Sem funil" aqui, o backend exige
+  // responsável do mesmo jeito — sem isso o botão fica preso num erro sem ter
+  // onde preencher o campo. Em lote, exige sempre: não dá pra saber sem
+  // buscar cada lead se algum já está nessa situação.
+  const leadAtualQ = useLead(mode?.kind === 'single' ? mode.leadId : null)
+  const leadJaTemFunil = mode?.kind === 'single' && leadAtualQ.data?.funnelId != null
 
   // Pré-seleciona o funil padrão quando abre.
   useEffect(() => {
@@ -49,24 +63,57 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   useEffect(() => {
     if (!open) {
       setStageKey(null)
+      setTeamId(null)
+      setUserId(null)
     }
   }, [open])
 
+  // Escolher "Sem funil" depois de já ter marcado responsável: limpa, EXCETO
+  // quando o lead já tinha um funil de antes — aí o responsável continua
+  // obrigatório mesmo com "Sem funil" selecionado (ver `precisaResponsavel`).
+  useEffect(() => {
+    if (funnelId === null && !leadJaTemFunil) { setTeamId(null); setUserId(null) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funnelId, leadJaTemFunil])
+
+  // Operador só pode ser quem pertence à equipe escolhida — igual ao
+  // TransferModal. Sem equipe, qualquer operador elegível (ativo, não-VIEWER)
+  // vale, porque nem todo funil tem um setor dono. Troca de equipe descarta
+  // um operador que não é mais válido na lista nova.
+  const membrosDaEquipe = teamMembersQ.data?.members ?? []
+  const todosElegiveis = (usersQ.data?.users ?? []).filter((u) => u.active && u.role !== 'VIEWER')
+  const opcoesResponsavel = teamId !== null
+    ? membrosDaEquipe.map((m) => ({ id: m.user.id, label: m.user.name ?? m.user.email, isLeader: m.isLeader }))
+    : todosElegiveis.map((u) => ({ id: u.id, label: u.name ?? u.email, isLeader: false }))
+  useEffect(() => {
+    if (userId !== null && opcoesResponsavel.length > 0 && !opcoesResponsavel.some((o) => o.id === userId)) setUserId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, opcoesResponsavel.length])
+
   const stages = useMemo(() => (funnelDetailQ.data?.stages ?? []).filter((s) => s.active), [funnelDetailQ.data])
   const noFunnel = funnelId === null
+  // Exige responsável quando: vai entrar num funil agora, OU o lead (single)
+  // já tinha um de antes, OU é promoção em lote (não dá pra saber sem custo
+  // se algum dos leads selecionados já está nessa situação).
+  const precisaResponsavel = !noFunnel || leadJaTemFunil || mode?.kind === 'bulk'
+  const faltaResponsavel = precisaResponsavel && !userId
 
   const submitting = qualify.isPending || bulkQualify.isPending
   const count = mode?.kind === 'bulk' ? mode.leadIds.length : 1
 
   async function handleSubmit() {
     if (!mode) return
-    const targeting = !noFunnel && stageKey ? { funnelId: funnelId!, stageKey } : {}
+    const targeting = {
+      ...(!noFunnel && stageKey ? { funnelId: funnelId!, stageKey } : {}),
+      ...(precisaResponsavel ? { assignedUserId: userId! } : {}),
+      ...(precisaResponsavel && teamId ? { teamId } : {}),
+    }
 
     if (mode.kind === 'single') {
       try {
         const r = await qualify.mutateAsync({ id: mode.leadId, ...targeting })
         if (r.qualified) {
-          toast(targeting.funnelId ? 'Promovido a Lead e adicionado ao funil' : 'Promovido a Lead', 'success')
+          toast(!noFunnel || leadJaTemFunil ? 'Promovido a Lead e adicionado ao funil' : 'Promovido a Lead', 'success')
           onDone?.({ qualified: 1 })
         } else {
           toast('Lead já estava qualificado', 'info')
@@ -112,7 +159,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={submitting || (!noFunnel && !stageKey)}>
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={submitting || (!noFunnel && !stageKey) || faltaResponsavel}>
             {mode?.kind === 'bulk' ? <><Users size={14} /> Promover {count}</> : <><Target size={14} /> Promover</>}
           </Button>
         </>
@@ -183,6 +230,56 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {precisaResponsavel && (
+          <div class="grid grid-cols-2 gap-2">
+            {leadJaTemFunil && noFunnel && (
+              <p class="col-span-2 text-2xs text-warning">
+                Este contato já está num funil (de antes) — escolha um responsável para promovê-lo de verdade.
+              </p>
+            )}
+            <div>
+              <label class="block text-xs font-medium text-fg mb-1">Equipe (opcional)</label>
+              <select
+                class="w-full h-9 rounded-md border border-border bg-surface-2 px-2 text-sm"
+                value={teamId === null ? '' : String(teamId)}
+                onChange={(e) => {
+                  const v = (e.target as HTMLSelectElement).value
+                  setTeamId(v ? parseInt(v, 10) : null)
+                }}
+                disabled={submitting}
+              >
+                <option value="">Sem equipe</option>
+                {(teamsQ.data?.teams ?? []).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-fg mb-1">Responsável *</label>
+              {(teamId !== null && teamMembersQ.isLoading) || (teamId === null && usersQ.isLoading) ? (
+                <Skeleton class="h-9 w-full" />
+              ) : (
+                <select
+                  class="w-full h-9 rounded-md border border-border bg-surface-2 px-2 text-sm"
+                  value={userId === null ? '' : String(userId)}
+                  onChange={(e) => {
+                    const v = (e.target as HTMLSelectElement).value
+                    setUserId(v ? parseInt(v, 10) : null)
+                  }}
+                  disabled={submitting}
+                >
+                  <option value="">Selecione…</option>
+                  {opcoesResponsavel.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}{o.isLeader ? ' (líder)' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
         )}
 

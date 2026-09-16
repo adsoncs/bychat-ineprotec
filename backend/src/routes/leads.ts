@@ -1108,35 +1108,83 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ad-hoc realmente vira um lead (ex: pessoa interessada que mandou DM).
   // Body opcional: { funnelId, stageKey } — se ambos vierem, joga o lead no
   // funil/etapa em um único request (evita lead "qualificado mas órfão").
+  //
+  // Colocar num funil EXIGE responsável (assignedUserId, + teamId opcional
+  // pra restringir quem pode ser escolhido). Achado no elementus, 2026-09-16:
+  // o card de funil da conversa (LeadFunnelCard) chamava PUT /leads/:id/status
+  // — que só grava status/funnelId, nunca qualifiedAt — então o lead "parecia"
+  // promovido (funil e etapa preenchidos) mas continuava fora do Kanban e das
+  // métricas, e o botão "Promover" seguia achando que não era lead nenhum, sem
+  // ninguém responsável por ele.
+  //
+  // A exigência também vale para "Sem funil (apenas qualificar)" QUANDO o
+  // lead já tem um funnelId de antes (resquício do mesmo bug): qualificar sem
+  // tocar no funil deixaria esse lead legado escapar pela borda — qualificado,
+  // dentro de um funil, e ainda assim órfão. Só o lead que nasce e continua
+  // sem funil nenhum segue sem exigir responsável.
   app.post('/api/bychat/leads/:id/qualify', { preHandler: authMiddleware }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
-    const { funnelId, stageKey } = (req.body as any) || {}
-    const lead = await prisma.lead.findUnique({ where: { id }, select: { id: true, qualifiedAt: true, status: true } })
+    const { funnelId, stageKey, assignedUserId, teamId } = (req.body as any) || {}
+    const lead = await prisma.lead.findUnique({ where: { id }, select: { id: true, qualifiedAt: true, status: true, funnelId: true } })
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
     if (lead.qualifiedAt) return reply.code(400).send({ error: 'Lead já está qualificado' })
 
     let assignedToFunnel = false
-    if (funnelId && stageKey) {
-      const fId = Number(funnelId)
-      const targetStage = await prisma.stage.findFirst({ where: { funnelId: fId, key: String(stageKey), active: true } })
-      if (!targetStage) return reply.code(400).send({ error: 'Etapa inválida para o funil informado' })
-      await prisma.lead.update({
-        where: { id },
-        data: { funnelId: fId, status: targetStage.key },
-      })
-      assignedToFunnel = true
+    const updateData: Prisma.LeadUncheckedUpdateInput = {}
+    const entrandoNoFunilAgora = !!(funnelId && stageKey)
+    const precisaResponsavel = entrandoNoFunilAgora || lead.funnelId != null
+
+    if (precisaResponsavel) {
+      let targetStage: { key: string; funnelId: number } | null = null
+      if (entrandoNoFunilAgora) {
+        const fId = Number(funnelId)
+        const s = await prisma.stage.findFirst({ where: { funnelId: fId, key: String(stageKey), active: true } })
+        if (!s) return reply.code(400).send({ error: 'Etapa inválida para o funil informado' })
+        targetStage = { key: s.key, funnelId: s.funnelId }
+      }
+
+      // Responsável obrigatório ao entrar num funil (ou ao qualificar um lead
+      // que já tem um) — sem isso o lead nasce "promovido" mas órfão.
+      const uid = parseInt(String(assignedUserId ?? ''))
+      if (!Number.isInteger(uid) || uid <= 0) {
+        return reply.code(400).send({ error: 'Selecione um responsável para promover este lead a um funil.' })
+      }
+      const responsavel = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, active: true, role: true } })
+      if (!responsavel) return reply.code(400).send({ error: 'Responsável não encontrado.' })
+      if (!responsavel.active) return reply.code(400).send({ error: 'Responsável está inativo.' })
+      if (responsavel.role === 'VIEWER') return reply.code(400).send({ error: 'VIEWER não pode ser responsável por um lead.' })
+
+      let tid: number | null = null
+      if (teamId !== undefined && teamId !== null && teamId !== '') {
+        tid = parseInt(String(teamId))
+        if (!Number.isInteger(tid)) return reply.code(400).send({ error: 'Equipe inválida.' })
+        const membro = await prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: tid, userId: uid } } })
+        if (!membro) return reply.code(400).send({ error: 'O responsável escolhido não pertence à equipe selecionada.' })
+      }
+
+      if (targetStage) {
+        updateData.funnelId = targetStage.funnelId
+        updateData.status = targetStage.key
+      }
+      updateData.assignedUserId = uid
+      updateData.assignedAt = new Date()
+      if (tid !== null) updateData.teamId = tid
+      await prisma.lead.update({ where: { id }, data: updateData })
+      assignedToFunnel = entrandoNoFunilAgora
       logEvent({
         leadId: id,
         type: EVENT_TYPES.STATUS_CHANGED,
         category: 'lifecycle',
-        title: `Adicionado ao funil ao promover: ${lead.status} → ${targetStage.key}`,
+        title: targetStage
+          ? `Adicionado ao funil ao promover: ${lead.status} → ${targetStage.key}`
+          : `Responsável definido ao promover (já estava no funil)`,
         source: 'panel',
         ...getOperator(req),
         oldValue: lead.status,
-        newValue: targetStage.key,
-        metadata: { funnelId: fId, viaPromote: true },
+        newValue: targetStage?.key ?? lead.status,
+        metadata: { funnelId: targetStage?.funnelId ?? lead.funnelId, viaPromote: true, assignedUserId: uid, teamId: tid },
         ipAddress: getIp(req),
       })
     }
@@ -1147,10 +1195,10 @@ export async function leadsRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/bychat/leads/qualify-bulk ─── Promover múltiplos em massa ──
-  // Body: { leadIds: number[], funnelId?: number, stageKey?: string }
+  // Body: { leadIds: number[], funnelId?: number, stageKey?: string, assignedUserId?, teamId? }
   app.post('/api/bychat/leads/qualify-bulk', { preHandler: authMiddleware }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
-    const { leadIds, funnelId, stageKey } = (req.body as any) || {}
+    const { leadIds, funnelId, stageKey, assignedUserId, teamId } = (req.body as any) || {}
     if (!Array.isArray(leadIds) || leadIds.length === 0) {
       return reply.code(400).send({ error: 'leadIds (array) é obrigatório' })
     }
@@ -1158,21 +1206,47 @@ export async function leadsRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Máximo de 100 leads por operação' })
     }
 
-    let targetStage: { key: string; funnelId: number | null } | null = null
-    if (funnelId && stageKey) {
-      const fId = Number(funnelId)
-      const s = await prisma.stage.findFirst({ where: { funnelId: fId, key: String(stageKey), active: true } })
-      if (!s) return reply.code(400).send({ error: 'Etapa inválida para o funil informado' })
-      targetStage = { key: s.key, funnelId: s.funnelId }
-    }
-
     const ids = leadIds.map((id: any) => parseInt(id)).filter((n) => Number.isFinite(n))
     // Escopo: só qualifica leads acessíveis ao usuário.
     const qbScope = await buildLeadAccessWhere(user.userId, user.role as AccessRole)
     const leads = await prisma.lead.findMany({
       where: { AND: [{ id: { in: ids } }, qbScope] },
-      select: { id: true, qualifiedAt: true, status: true },
+      select: { id: true, qualifiedAt: true, status: true, funnelId: true },
     })
+
+    let targetStage: { key: string; funnelId: number | null } | null = null
+    let bulkAssignedUserId: number | null = null
+    let bulkTeamId: number | null = null
+    const entrandoNoFunilAgora = !!(funnelId && stageKey)
+    // Mesma exigência do /qualify individual: entrar em funil (ou qualificar
+    // um lead que já tem um, resquício do mesmo bug) precisa de responsável,
+    // senão os leads em lote nascem/continuam promovidos e órfãos.
+    const algumJaTemFunil = leads.some((l) => !l.qualifiedAt && l.funnelId != null)
+    if (entrandoNoFunilAgora) {
+      const fId = Number(funnelId)
+      const s = await prisma.stage.findFirst({ where: { funnelId: fId, key: String(stageKey), active: true } })
+      if (!s) return reply.code(400).send({ error: 'Etapa inválida para o funil informado' })
+      targetStage = { key: s.key, funnelId: s.funnelId }
+    }
+    if (entrandoNoFunilAgora || algumJaTemFunil) {
+      const uid = parseInt(String(assignedUserId ?? ''))
+      if (!Number.isInteger(uid) || uid <= 0) {
+        return reply.code(400).send({ error: 'Selecione um responsável para promover estes leads a um funil.' })
+      }
+      const responsavel = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, active: true, role: true } })
+      if (!responsavel) return reply.code(400).send({ error: 'Responsável não encontrado.' })
+      if (!responsavel.active) return reply.code(400).send({ error: 'Responsável está inativo.' })
+      if (responsavel.role === 'VIEWER') return reply.code(400).send({ error: 'VIEWER não pode ser responsável por um lead.' })
+      bulkAssignedUserId = uid
+
+      if (teamId !== undefined && teamId !== null && teamId !== '') {
+        const tid = parseInt(String(teamId))
+        if (!Number.isInteger(tid)) return reply.code(400).send({ error: 'Equipe inválida.' })
+        const membro = await prisma.teamMember.findUnique({ where: { teamId_userId: { teamId: tid, userId: uid } } })
+        if (!membro) return reply.code(400).send({ error: 'O responsável escolhido não pertence à equipe selecionada.' })
+        bulkTeamId = tid
+      }
+    }
 
     const { qualifyLead } = await import('../services/leadQualification.js')
     let qualified = 0
@@ -1181,21 +1255,34 @@ export async function leadsRoutes(app: FastifyInstance) {
     for (const l of leads) {
       try {
         if (l.qualifiedAt) { alreadyQualified++; continue }
-        if (targetStage) {
+        // Entra em funil agora, OU já tinha um (legado): os dois casos
+        // precisam do responsável calculado acima.
+        if (targetStage || l.funnelId != null) {
+          const bulkUpdateData: Prisma.LeadUncheckedUpdateInput = {
+            assignedUserId: bulkAssignedUserId,
+            assignedAt: new Date(),
+          }
+          if (targetStage) {
+            bulkUpdateData.funnelId = targetStage.funnelId
+            bulkUpdateData.status = targetStage.key
+          }
+          if (bulkTeamId !== null) bulkUpdateData.teamId = bulkTeamId
           await prisma.lead.update({
             where: { id: l.id },
-            data: { funnelId: targetStage.funnelId, status: targetStage.key },
+            data: bulkUpdateData,
           })
           logEvent({
             leadId: l.id,
             type: EVENT_TYPES.STATUS_CHANGED,
             category: 'lifecycle',
-            title: `Adicionado ao funil em lote: ${l.status} → ${targetStage.key}`,
+            title: targetStage
+              ? `Adicionado ao funil em lote: ${l.status} → ${targetStage.key}`
+              : 'Responsável definido em lote ao promover (já estava no funil)',
             source: 'panel',
             ...getOperator(req),
             oldValue: l.status,
-            newValue: targetStage.key,
-            metadata: { funnelId: targetStage.funnelId, viaPromote: true, bulk: true, totalInBatch: leads.length },
+            newValue: targetStage?.key ?? l.status,
+            metadata: { funnelId: targetStage?.funnelId ?? l.funnelId, viaPromote: true, bulk: true, totalInBatch: leads.length, assignedUserId: bulkAssignedUserId, teamId: bulkTeamId },
             ipAddress: getIp(req),
           })
         }

@@ -1,8 +1,13 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronDown, Loader2, Target, Lock, History, Plus, X } from '@/components/ui/icon-set'
 import { api, ApiError } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
+import { useTeams, useTeamMembers } from '@/hooks/useTeams'
+import { useUsers } from '@/hooks/useUsers'
+import { useQualifyLead } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
@@ -70,6 +75,14 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   // lead de onde ele está; isto acrescenta um processo sem mexer no atual, e
   // misturar as duas no mesmo menu faria uma ser feita no lugar da outra.
   const [somaAberta, setSomaAberta] = useState(false)
+  // Contato ainda não qualificado (ver leadQualification.ts: Conversa ≠ Lead):
+  // escolher funil/etapa aqui precisa promover de verdade, não só mudar
+  // status/funnelId cosmeticamente — senão o card mostra "no funil" enquanto
+  // Kanban, métricas e o botão "Promover a Lead" continuam achando que não é
+  // lead nenhum (achado no elementus, 2026-09-16 — Alan Borges). Promover
+  // exige responsável: guarda a etapa/funil escolhidos até a pessoa confirmar.
+  const [pendente, setPendente] = useState<{ etapa: Etapa; funnelId: number | undefined } | null>(null)
+  const qualify = useQualifyLead()
 
   const q = useQuery({
     queryKey: ['ticket-funnel', leadId],
@@ -132,7 +145,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   }
   if (q.isError || !q.data) return null
 
-  const { funilAtual, etapaAtual, funis, passagens, permissoes } = q.data
+  const { funilAtual, etapaAtual, funis, passagens, permissoes, qualificado } = q.data
   const adicionais = q.data.adicionais ?? []
   const etapas = funilAtual?.stages ?? []
   const atual = etapas.find((e) => e.key === etapaAtual) ?? null
@@ -144,6 +157,12 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
 
   function acionar(etapa: Etapa, funnelId?: number) {
     if (mover.isPending) return
+    // Ainda não é lead: esta ação É a promoção, então exige responsável antes
+    // de gravar qualquer coisa — ver comentário do estado `pendente` acima.
+    if (!qualificado) {
+      setPendente({ etapa, funnelId })
+      return
+    }
     setMovendo(etapa.key)
     mover.mutate(funnelId ? { status: etapa.key, funnelId } : { status: etapa.key })
   }
@@ -151,52 +170,80 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   // ── Sem funil: o contato existe, mas ainda não entrou em nenhum processo ──
   if (!funilAtual) {
     return (
-      <section>
-        <TituloSecao />
-        <div class="rounded-md border border-dashed border-border bg-surface p-3">
-          <p class="text-xs leading-relaxed text-fg-muted">
-            Este contato ainda não está em um funil. Escolha um para começar a acompanhar a negociação.
-          </p>
-          {funis.length > 0 && (
-            <div class="mt-2.5 space-y-1.5">
-              {funis.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  disabled={!permissoes.podeAvancar || mover.isPending}
-                  onClick={() => f.stages[0] && acionar(f.stages[0], f.id)}
-                  class={cn(
-                    'flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border',
-                    'bg-surface-2 px-2.5 py-2 text-left text-xs text-fg transition-colors duration-200',
-                    'hover:border-accent/60 hover:bg-surface-3 focus-visible:outline focus-visible:outline-2',
-                    'focus-visible:outline-offset-2 focus-visible:outline-accent',
-                    'disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9',
-                  )}
-                >
-                  <span class="min-w-0 truncate font-medium">{f.name}</span>
-                  <span class="shrink-0 text-2xs text-fg-muted">
-                    {movendo === f.stages[0]?.key && mover.isPending
-                      ? <Loader2 size={11} class="animate-spin" />
-                      : `entrar em ${f.stages[0]?.name ?? '—'}`}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          {!permissoes.podeAvancar && (
-            <p class="mt-2 flex items-center gap-1 text-2xs text-fg-muted">
-              <Lock size={10} /> Seu perfil não move leads de etapa.
+      <>
+        <section>
+          <TituloSecao />
+          <div class="rounded-md border border-dashed border-border bg-surface p-3">
+            <p class="text-xs leading-relaxed text-fg-muted">
+              Este contato ainda não está em um funil. Escolha um para começar a acompanhar a negociação.
             </p>
-          )}
-        </div>
-      </section>
+            {funis.length > 0 && (
+              <div class="mt-2.5 space-y-1.5">
+                {funis.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    disabled={!permissoes.podeAvancar || mover.isPending}
+                    onClick={() => f.stages[0] && acionar(f.stages[0], f.id)}
+                    class={cn(
+                      'flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border',
+                      'bg-surface-2 px-2.5 py-2 text-left text-xs text-fg transition-colors duration-200',
+                      'hover:border-accent/60 hover:bg-surface-3 focus-visible:outline focus-visible:outline-2',
+                      'focus-visible:outline-offset-2 focus-visible:outline-accent',
+                      'disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9',
+                    )}
+                  >
+                    <span class="min-w-0 truncate font-medium">{f.name}</span>
+                    <span class="shrink-0 text-2xs text-fg-muted">
+                      {movendo === f.stages[0]?.key && mover.isPending
+                        ? <Loader2 size={11} class="animate-spin" />
+                        : `entrar em ${f.stages[0]?.name ?? '—'}`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {!permissoes.podeAvancar && (
+              <p class="mt-2 flex items-center gap-1 text-2xs text-fg-muted">
+                <Lock size={10} /> Seu perfil não move leads de etapa.
+              </p>
+            )}
+          </div>
+        </section>
+        {pendente && (
+          <ModalPromoverComResponsavel
+            etapaNome={pendente.etapa.name}
+            submitting={qualify.isPending}
+            onCancel={() => setPendente(null)}
+            onConfirm={(assignedUserId, teamId) => {
+              qualify.mutate(
+                { id: leadId, funnelId: pendente.funnelId!, stageKey: pendente.etapa.key, assignedUserId, ...(teamId ? { teamId } : {}) },
+                {
+                  onSuccess: () => {
+                    toast(`Promovido a Lead e adicionado a ${pendente.etapa.name}`, 'success')
+                    setPendente(null)
+                    void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
+                  },
+                  onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para promover', 'danger'),
+                },
+              )
+            }}
+          />
+        )}
+      </>
     )
   }
 
   return (
+    <>
     <section>
       <div class="mb-1 flex items-center justify-between gap-2">
         <div class="text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
+        {!qualificado && (
+          <span class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+            ainda não é Lead
+          </span>
+        )}
         {outrosFunis.length > 0 && (
           <button
             type="button"
@@ -421,9 +468,119 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
         </p>
       )}
     </section>
+    {pendente && (
+      <ModalPromoverComResponsavel
+        etapaNome={pendente.etapa.name}
+        submitting={qualify.isPending}
+        onCancel={() => setPendente(null)}
+        onConfirm={(assignedUserId, teamId) => {
+          qualify.mutate(
+            { id: leadId, funnelId: pendente.funnelId ?? funilAtual.id, stageKey: pendente.etapa.key, assignedUserId, ...(teamId ? { teamId } : {}) },
+            {
+              onSuccess: () => {
+                toast(`Promovido a Lead e movido para ${pendente.etapa.name}`, 'success')
+                setPendente(null)
+                setTrocaAberta(false)
+                void qc.invalidateQueries({ queryKey: ['ticket-funnel', leadId] })
+              },
+              onError: (e: unknown) => toast(e instanceof ApiError ? e.message : 'Não deu para promover', 'danger'),
+            },
+          )
+        }}
+      />
+    )}
+    </>
   )
 }
 
 function TituloSecao() {
   return <div class="mb-1 text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
+}
+
+/**
+ * Escolher um responsável é o que faz a promoção valer de verdade: sem
+ * ninguém dono, o lead entraria no funil mas continuaria órfão — o mesmo
+ * limbo que este modal existe para evitar (ver comentário do estado
+ * `pendente` em LeadFunnelCard). Mesmo padrão do TransferModal da conversa:
+ * equipe primeiro (opcional), responsável depois (obrigatório, restrito aos
+ * membros da equipe quando uma é escolhida).
+ */
+function ModalPromoverComResponsavel({
+  etapaNome, submitting, onCancel, onConfirm,
+}: {
+  etapaNome: string
+  submitting: boolean
+  onCancel: () => void
+  onConfirm: (assignedUserId: number, teamId: number | null) => void
+}) {
+  const [teamId, setTeamId] = useState<number | null>(null)
+  const [userId, setUserId] = useState<number | null>(null)
+  const teamsQ = useTeams()
+  const teamMembersQ = useTeamMembers(teamId)
+  const usersQ = useUsers()
+
+  const membrosDaEquipe = teamMembersQ.data?.members ?? []
+  const todosElegiveis = (usersQ.data?.users ?? []).filter((u) => u.active && u.role !== 'VIEWER')
+  const opcoes = teamId !== null
+    ? membrosDaEquipe.map((m) => ({ id: m.user.id, label: m.user.name ?? m.user.email, isLeader: m.isLeader }))
+    : todosElegiveis.map((u) => ({ id: u.id, label: u.name ?? u.email, isLeader: false }))
+
+  useEffect(() => {
+    if (userId !== null && opcoes.length > 0 && !opcoes.some((o) => o.id === userId)) setUserId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, opcoes.length])
+
+  return (
+    <Modal
+      open
+      onOpenChange={(o) => { if (!o) onCancel() }}
+      title="Promover a Lead"
+      description={`Este contato ainda é só uma conversa. Escolha o responsável para movê-lo a "${etapaNome}" como Lead de verdade.`}
+      size="md"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={submitting}>Cancelar</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => userId && onConfirm(userId, teamId)}
+            disabled={submitting || !userId}
+          >
+            {submitting ? 'Promovendo…' : 'Promover'}
+          </Button>
+        </>
+      }
+    >
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs font-medium text-fg mb-1">Equipe (opcional)</label>
+          <select
+            class="w-full h-9 rounded-md border border-border bg-surface-2 px-2 text-sm"
+            value={teamId === null ? '' : String(teamId)}
+            onChange={(e) => setTeamId((e.target as HTMLSelectElement).value ? parseInt((e.target as HTMLSelectElement).value, 10) : null)}
+            disabled={submitting}
+          >
+            <option value="">Sem equipe</option>
+            {(teamsQ.data?.teams ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-fg mb-1">Responsável *</label>
+          {(teamId !== null && teamMembersQ.isLoading) || (teamId === null && usersQ.isLoading) ? (
+            <Skeleton class="h-9 w-full" />
+          ) : (
+            <select
+              class="w-full h-9 rounded-md border border-border bg-surface-2 px-2 text-sm"
+              value={userId === null ? '' : String(userId)}
+              onChange={(e) => setUserId((e.target as HTMLSelectElement).value ? parseInt((e.target as HTMLSelectElement).value, 10) : null)}
+              disabled={submitting}
+            >
+              <option value="">Selecione…</option>
+              {opcoes.map((o) => <option key={o.id} value={o.id}>{o.label}{o.isLeader ? ' (líder)' : ''}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
 }

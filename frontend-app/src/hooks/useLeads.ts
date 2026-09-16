@@ -699,6 +699,10 @@ export interface QualifyInput {
   id: number
   funnelId?: number
   stageKey?: string
+  // Obrigatório no backend quando funnelId+stageKey vêm junto — entrar num
+  // funil sem responsável nascia "promovido" e órfão (ver leadQualification.ts).
+  assignedUserId?: number
+  teamId?: number
 }
 
 export function useQualifyLead() {
@@ -706,7 +710,9 @@ export function useQualifyLead() {
   return useMutation({
     mutationFn: (input: number | QualifyInput) => {
       const id = typeof input === 'number' ? input : input.id
-      const body = typeof input === 'number' ? {} : { funnelId: input.funnelId, stageKey: input.stageKey }
+      const body = typeof input === 'number'
+        ? {}
+        : { funnelId: input.funnelId, stageKey: input.stageKey, assignedUserId: input.assignedUserId, teamId: input.teamId }
       return api.post<{ ok: true; qualified: boolean; assignedToFunnel: boolean }>(`/bychat/leads/${id}/qualify`, body)
     },
     onSuccess: (_d, input) => {
@@ -729,6 +735,8 @@ export interface BulkQualifyInput {
   leadIds: number[]
   funnelId?: number
   stageKey?: string
+  assignedUserId?: number
+  teamId?: number
 }
 
 export interface BulkQualifyResult {
