@@ -305,10 +305,38 @@ async function acharLeadDaInstancia(
     where: { whatsapp: phone, instanceName: null },
     orderBy: { createdAt: 'desc' },
   })
-  if (semInstancia && instanceName) {
-    await prisma.lead.update({ where: { id: semInstancia.id }, data: { instanceName } }).catch(() => {})
+  if (semInstancia) {
+    if (instanceName) await prisma.lead.update({ where: { id: semInstancia.id }, data: { instanceName } }).catch(() => {})
+    return semInstancia
   }
-  return semInstancia
+
+  // Instância presa numa etiqueta que não existe MAIS no cadastro (importação
+  // de celular antigo, WhatsApp descontinuado): sem este passo o contato
+  // duplica toda vez que fala de novo pela instância real, porque o match
+  // acima (`daInstancia`) exige igualdade exata. Medido no kobogo: 179 leads
+  // presos em "diogenesfm" — instância removida —, 6 já haviam duplicado
+  // (Nayara Araújo, 2026-09-16: áudio enviado num ticket, resposta da cliente
+  // caiu num ticket novo, silenciosamente). Só adota se a instância gravada no
+  // lead não existe mais: duas instâncias VIVAS (ex.: Kobogó Tech e Anywhere)
+  // continuam separadas de propósito — é a regra do comentário da função.
+  if (instanceName) {
+    const candidato = await prisma.lead.findFirst({
+      where: { whatsapp: phone, instanceName: { not: instanceName } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (candidato?.instanceName) {
+      const instanciaAindaExiste = await prisma.whatsAppInstance.findFirst({
+        where: { instanceName: candidato.instanceName },
+        select: { id: true },
+      })
+      if (!instanciaAindaExiste) {
+        await prisma.lead.update({ where: { id: candidato.id }, data: { instanceName } }).catch(() => {})
+        return candidato
+      }
+    }
+  }
+
+  return null
 }
 
 /** Nome e telefone de um contato compartilhado.
