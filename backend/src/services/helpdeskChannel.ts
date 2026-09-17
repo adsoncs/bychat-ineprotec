@@ -23,6 +23,10 @@ export async function sendTicketChannelReply(
   op: { userId?: number | undefined; userName?: string | undefined; role?: string | undefined },
 ): Promise<{ ok: boolean; error?: string }> {
   if (!ticket.requesterLeadId) return { ok: false, error: 'Chamado sem conversa vinculada' }
+  // Capturado antes do envio (que chama a API do provider e pode demorar): é o
+  // instante do pedido, não o da gravação fire-and-forget lá embaixo. Ver
+  // comentário de `triggeredAt` em leadConversation.ts.
+  const requestedAt = new Date()
   const lead = await prisma.lead.findUnique({ where: { id: ticket.requesterLeadId }, select: { id: true, whatsapp: true } })
   if (!lead?.whatsapp) return { ok: false, error: 'Lead vinculado sem WhatsApp' }
   try {
@@ -42,7 +46,7 @@ export async function sendTicketChannelReply(
       },
     })
     const { ensureConversationOpen } = await import('./leadConversation.js')
-    ensureConversationOpen(lead.id, { byUserId: op.userId, byUserName: op.userName, reason: 'outbound' }).catch(() => {})
+    ensureConversationOpen(lead.id, { byUserId: op.userId, byUserName: op.userName, reason: 'outbound', triggeredAt: requestedAt }).catch(() => {})
     return { ok: true }
   } catch (e) {
     return { ok: false, error: (e as Error).message }

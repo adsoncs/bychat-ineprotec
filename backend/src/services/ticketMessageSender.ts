@@ -97,6 +97,10 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   } = input
   const msgBody = input.body
   const mType = input.mediaType || 'text'
+  // Capturado ANTES de qualquer await: é o instante do pedido de envio, não o
+  // da gravação (que roda fire-and-forget lá embaixo). Ver comentário de
+  // `triggeredAt` em leadConversation.ts.
+  const requestedAt = new Date()
 
   // quotedMsgId é o ID interno (Message.id); o provider precisa do externalId.
   const quotedInternalId: number | null =
@@ -139,6 +143,7 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
       byUserId: user.userId,
       byUserName: user.name || user.email || undefined,
       reason: 'outbound',
+      triggeredAt: requestedAt,
     }).catch(() => {})
   }
 

@@ -961,7 +961,10 @@ export async function instagramRoutes(app: FastifyInstance) {
         if (lead.conversationOpenedAt && lead.conversationClosedAt) {
           markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
         } else {
-          ensureConversationOpen(lead.id, { reason: 'reopen_message' }).catch(() => {})
+          // triggeredAt = horário da PRÓPRIA mensagem (a Meta manda), não de
+          // agora: protege um "Resolver" que aconteça enquanto este webhook
+          // ainda está em voo. Ver leadConversation.ts.
+          ensureConversationOpen(lead.id, { reason: 'reopen_message', triggeredAt: created.timestamp }).catch(() => {})
         }
       }
     }

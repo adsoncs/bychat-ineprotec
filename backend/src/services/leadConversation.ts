@@ -15,6 +15,23 @@ interface OpenOpts {
   byUserId?: number
   byUserName?: string
   reason?: string // 'manual', 'outbound', 'reopen_message', 'chatbot_escalation'
+  /**
+   * Instante em que o EVENTO que está pedindo a abertura começou (mensagem
+   * digitada, webhook recebido) — não o instante em que este código roda.
+   *
+   * Várias chamadas daqui são fire-and-forget (a mensagem importa mais que o
+   * estado da conversa, então não travam a resposta por causa disto) e podem
+   * gravar no banco bem depois de disparadas. Sem isto, um operador que manda
+   * a última mensagem e clica em Resolver em seguida corria risco real: a
+   * gravação atrasada do "abrir" pisava a gravação (síncrona, imediata) do
+   * "Resolver", e a conversa voltava para Em Atendimento sem nenhum erro
+   * visível — reclamação de vários clientes (severiano e outros, 17/09).
+   * Com `triggeredAt`, a abertura só é gravada se `conversationClosedAt`
+   * ainda não existir OU for de ANTES do evento que pediu a abertura — ou
+   * seja, quem decidiu por último (por relógio do evento, não da escrita)
+   * vence, não importa a ordem em que as duas escritas cheguem ao banco.
+   */
+  triggeredAt?: Date
 }
 
 // Abre (ou reabre) o atendimento. Idempotente: se já está aberto, não muda.
@@ -42,8 +59,16 @@ export async function openConversation(leadId: number, opts: OpenOpts = {}): Pro
   }
 
   const wasReopen = !!cur.conversationOpenedAt && !!cur.conversationClosedAt
-  await prisma.lead.update({
-    where: { id: leadId },
+  const triggeredAt = opts.triggeredAt || new Date()
+  // updateMany (não update) para poder condicionar no WHERE: só grava se
+  // ninguém encerrou a conversa DEPOIS do evento que pediu esta abertura. Um
+  // "Resolver" gravado depois de `triggeredAt` já é mais recente que o motivo
+  // desta chamada — vence, e esta abertura vira no-op (result.count === 0).
+  const result = await prisma.lead.updateMany({
+    where: {
+      id: leadId,
+      OR: [{ conversationClosedAt: null }, { conversationClosedAt: { lt: triggeredAt } }],
+    },
     // conversationReopenedAt zera aqui: a espera na Caixa termina no instante em
     // que alguém assume ou responde, e é isso que tira o lead da Caixa.
     data: {
@@ -51,6 +76,7 @@ export async function openConversation(leadId: number, opts: OpenOpts = {}): Pro
       snoozedUntil: null, conversationReopenedAt: null,
     },
   })
+  if (result.count === 0) return { opened: false, reopened: false }
   logEvent({
     leadId,
     type: (wasReopen ? 'conversation_reopened' : 'conversation_opened') as any,

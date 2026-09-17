@@ -1155,8 +1155,12 @@ export async function whatsappRoutes(app: FastifyInstance) {
                     // Grupo fica de fora pela mesma razão do "responder é
                     // assumir": grupo é da equipe, não de um atendimento.
                     if (!isGroupMsg) {
+                      // triggeredAt = agora: é o melhor proxy que temos para o
+                      // instante da mensagem no celular (o Evolution não fornece
+                      // um horário mais cedo neste ponto). Ver leadConversation.ts.
+                      const triggeredAt = new Date()
                       import('../services/leadConversation.js')
-                        .then((m) => m.ensureConversationOpen(lead.id, { reason: 'outbound' }))
+                        .then((m) => m.ensureConversationOpen(lead.id, { reason: 'outbound', triggeredAt }))
                         .catch(() => { /* o atendimento é secundário: a mensagem é o que importa */ })
                     }
 
