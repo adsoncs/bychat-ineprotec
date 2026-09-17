@@ -227,6 +227,15 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
   // e-mail/cidade que o negócio nem queria coletar.
   const contactWanted = CONTACT_MAPTOS.filter((mapTo) => fields.some((f) => f?.mapTo === mapTo))
   const contactLabels = contactWanted.map((m) => CONTACT_LABEL[m]).join(', ')
+  // A regra "nome/whatsapp já são conhecidos, não pergunte" era incondicional —
+  // dita mesmo quando NENHUM dos dois era real (contato novo sem nome de perfil
+  // no WhatsApp, ou o preview de teste, que não tem contato nenhum por trás).
+  // A IA ficava "sabendo" de um fato falso e, sem valor nenhum pra usar, tanto
+  // fazia perguntar quanto travar — daí pedir o nome mesmo devendo saber, ou o
+  // oposto. Agora só afirma o que está de fato preenchido.
+  const regraNomeWhats = (realNome || realWhats)
+    ? `\n- ${realNome && realWhats ? 'O nome e o WhatsApp do lead' : realNome ? 'O nome do lead' : 'O WhatsApp do lead'} JÁ ${realNome && realWhats ? 'são conhecidos' : 'é conhecido'} (veja "Já sabemos sobre o lead"/"Respostas já coletadas"). NÃO pergunte por ${realNome && realWhats ? 'eles' : 'isso'} de novo${realNome ? ' — use o nome para personalizar a conversa' : ''}.`
+    : ''
   const already = Object.keys(state.answers || {})
   const hasSched = fields.some((f) => f?.type === 'scheduling')
 
@@ -301,8 +310,7 @@ O atendimento humano funciona: **${businessHours}**. Agora são ${new Date().toL
 - Se a conversa está acontecendo FORA desse horário, diga com naturalidade que a equipe retorna no próximo período de atendimento e qual é ele (ex.: "o time atende a partir das 8h de amanhã").
 - Este horário é o do atendimento humano. Não confunda com os horários de visita, que vêm de listar_horarios.` : `\n## Horário de atendimento da equipe
 O horário de atendimento humano NÃO está cadastrado no sistema. Portanto: NUNCA afirme horário de funcionamento nem prometa prazo de retorno ("respondem ainda hoje", "amanhã cedo"). Diga apenas que a equipe vai retornar assim que possível.`,
-    `\n## Regras
-- O nome e o WhatsApp do lead JÁ são conhecidos (vêm do perfil do WhatsApp — veja "Já sabemos"/"Respostas já coletadas"). NÃO pergunte por eles; use o nome para personalizar a conversa.
+    `\n## Regras${regraNomeWhats}
 - NUNCA invente horários: use só os que listar_horarios devolveu.
 - NUNCA afirme que agendou sem agendar ter retornado ok=true.
 - Responda sempre em português do Brasil, com mensagens curtas (WhatsApp).
