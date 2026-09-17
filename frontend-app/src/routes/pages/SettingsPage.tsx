@@ -6,7 +6,7 @@ import {
   Palette, Shield, Package, Home,
   Mail, Copy, Bell,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
-  ShieldCheck, MessageSquare,
+  ShieldCheck, MessageSquare, History,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -35,6 +35,7 @@ import { IntelligenceSettings } from './settings/IntelligenceSettings'
 import { LegalSettings } from './settings/LegalSettings'
 import { CompanySettings } from './settings/CompanySettings'
 import { TrashPage } from './TrashPage'
+import { AuditLogPage } from './AuditLogPage'
 import { PaymentsPage } from './PaymentsPage'
 
 // Instalações e Planejamento existem SÓ na instalação principal (bychat-beyond).
@@ -59,7 +60,7 @@ export type Tab =
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
   | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company' | 'alerts-health'
-  | 'permissions' | 'conversation-access'
+  | 'permissions' | 'conversation-access' | 'audit-log'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -84,6 +85,7 @@ const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: bo
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
   { id: 'permissions', label: 'Permissões', icon: <ShieldCheck size={14} />, superadminOnly: true },
   { id: 'conversation-access', label: 'Acesso ao Conversas', icon: <MessageSquare size={14} />, superadminOnly: true },
+  { id: 'audit-log', label: 'Auditoria', icon: <History size={14} />, superadminOnly: true },
   { id: 'alerts-health', label: 'Alertas', icon: <Bell size={14} /> },
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
   { id: 'intelligence', label: 'Inteligência', icon: <Sparkles size={14} /> },
@@ -128,7 +130,7 @@ export function SettingsPage() {
   )
 
   // Se URL pedir aba primary-only numa instalação filha, redireciona pra Aparência.
-  const SUPERADMIN_ONLY_TABS = new Set<Tab>(['permissions', 'conversation-access'])
+  const SUPERADMIN_ONLY_TABS = new Set<Tab>(['permissions', 'conversation-access', 'audit-log'])
   useEffect(() => {
     if (primaryLoading) return
     if ((!isPrimary || !PRIMARY_BUILD) && PRIMARY_ONLY_TABS.has(tab)) setTab('appearance')
@@ -203,6 +205,7 @@ export function SettingsPage() {
           {tab === 'modules' && <ModulesSettings />}
           {tab === 'permissions' && <ModulePermissionsPage embutido />}
           {tab === 'conversation-access' && <ConversationAccessPage embutido />}
+          {tab === 'audit-log' && <AuditLogPage />}
           {tab === 'alerts-health' && <AlertsHealthSettings />}
           {tab === 'my-google' && <GoogleAccountSettings />}
           {tab === 'dedup' && <DedupSettings />}

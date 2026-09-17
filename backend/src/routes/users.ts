@@ -3,7 +3,7 @@ import { ehDono } from '../lib/dono.js'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
-import { signToken, authMiddleware, adminOnly, adminStrict, type JwtPayload } from '../lib/auth.js'
+import { signToken, authMiddleware, adminOnly, adminStrict, superadminOnly, type JwtPayload } from '../lib/auth.js'
 import { verificarTotp, consumirCodigoRecuperacao } from '../services/twoFactor.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
@@ -623,6 +623,41 @@ export async function usersRoutes(app: FastifyInstance) {
     // viewerIsActor: a entrada representa algo que ESTE usuário fez (vs. sofreu).
     const data = audits.map((a) => ({ ...a, viewerIsActor: a.actorId === Number(id) }))
     return { data }
+  })
+
+  // ── GET /api/admin/audit-log — Log de auditoria GERAL (superadmin) ──
+  //
+  // A rota acima só mostra o histórico de UM usuário por vez — para responder
+  // "quem mexeu no chatbot?" era preciso já saber quem suspeitar e abrir o
+  // perfil dele. Esta lista tudo, com filtro por tipo de alvo (chatbot, user,
+  // setting, cloud_api, ...) e por ação, sem exigir esse chute.
+  app.get('/api/admin/audit-log', { preHandler: superadminOnly }, async (req) => {
+    const q = req.query as { targetType?: string; action?: string; actorId?: string; limit?: string; offset?: string }
+    const where: any = {}
+    if (q.targetType) where.targetType = q.targetType
+    if (q.action) where.action = q.action
+    if (q.actorId) where.actorId = parseInt(q.actorId, 10)
+
+    const limit = Math.min(parseInt(q.limit || '50', 10) || 50, 200)
+    const offset = Math.max(parseInt(q.offset || '0', 10) || 0, 0)
+
+    const [data, total, targetTypes] = await Promise.all([
+      prisma.userAudit.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        select: {
+          id: true, action: true, actorName: true, actorId: true, userId: true,
+          targetType: true, targetLabel: true, changes: true, ipAddress: true, createdAt: true,
+        },
+      }),
+      prisma.userAudit.count({ where }),
+      // Alimenta o filtro do front sem precisar hardcodar a lista de tipos.
+      prisma.userAudit.findMany({ distinct: ['targetType'], select: { targetType: true }, where: { targetType: { not: null } } }),
+    ])
+
+    return { data, total, limit, offset, targetTypes: targetTypes.map((t) => t.targetType).filter(Boolean) }
   })
 
   // ── POST /api/admin/forgot-password — Solicitar redefinição de senha ──

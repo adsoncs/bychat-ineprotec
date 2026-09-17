@@ -47,14 +47,56 @@ export async function chatbotsRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/chatbots/:id — Update
+  //
+  // Auditoria: esta rota mexe no campo mais sensível do chatbot (`active`) sem
+  // deixar rastro nenhum — achado no severiano, 2026-09-16: o chatbot ficou
+  // desligado por dias e ninguém sabia dizer quem, nem quando. Agora toda
+  // edição que muda algo de fato é gravada em UserAudit (quem, quando, de→para),
+  // visível em GET /api/admin/audit-log (superadmin). Campos de texto longo
+  // (prompts, mensagens) entram truncados: o que importa é flagrar A MUDANÇA e
+  // o autor, não arquivar o prompt inteiro a cada edição.
+  const CHATBOT_UPDATE_FIELDS = ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin'] as const
+
   app.put('/api/admin/chatbots/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const body = req.body as any
     const data: any = {}
-    for (const k of ['name', 'channel', 'mode', 'formId', 'useFlow', 'postChatAi', 'postChatPrompt', 'aiInterpret', 'interpretPrompt', 'aiJourneyPrompt', 'triggerMode', 'triggerKeywords', 'schedulingIntro', 'scriptedMessages', 'funnelId', 'defaultTeamId', 'systemPrompt', 'extractionPrompt', 'analysisPrompt', 'greetingMessage', 'completionMessage', 'active', 'inactivityEnabled', 'inactivityAction', 'inactivityTimeoutMin', 'inactivityMessage', 'inactivityCheckIntervalMin', 'inactivityMaxRetries', 'inactivityCloseAfterMin']) {
+    for (const k of CHATBOT_UPDATE_FIELDS) {
       if (body[k] !== undefined) data[k] = body[k]
     }
+
+    const before = await prisma.chatbot.findUnique({
+      where: { id: Number(id) },
+      select: Object.fromEntries(CHATBOT_UPDATE_FIELDS.map((f) => [f, true])) as Record<string, true>,
+    })
     const chatbot = await prisma.chatbot.update({ where: { id: Number(id) }, data })
+
+    if (before) {
+      const TRUNCATE_AT = 200
+      const shorten = (v: unknown) => (typeof v === 'string' && v.length > TRUNCATE_AT ? v.slice(0, TRUNCATE_AT) + '…' : v)
+      const changes: Record<string, { from: unknown; to: unknown }> = {}
+      for (const k of CHATBOT_UPDATE_FIELDS) {
+        if (data[k] === undefined) continue
+        const from = (before as any)[k]
+        const to = data[k]
+        const igual = typeof from === 'object' || typeof to === 'object'
+          ? JSON.stringify(from) === JSON.stringify(to)
+          : from === to
+        if (igual) continue
+        changes[k] = { from: shorten(from), to: shorten(to) }
+      }
+      if (Object.keys(changes).length > 0) {
+        const action = 'active' in changes ? (changes.active.to ? 'chatbot.activated' : 'chatbot.deactivated') : 'chatbot.updated'
+        void logUserAudit({
+          action,
+          targetType: 'chatbot',
+          targetLabel: chatbot.name || `Chatbot #${id}`,
+          changes,
+          ...auditActor(req),
+        })
+      }
+    }
+
     return chatbot
   })
 
