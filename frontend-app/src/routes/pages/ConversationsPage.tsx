@@ -1442,7 +1442,7 @@ function ChatPanel({
   onToggleInfo: () => void
 }) {
   const { prefs: prefsConversa } = useConversationPrefs()
-  const { data, isLoading } = useTicketMessages(leadId)
+  const { data, isLoading, loadMore, loadingMore, hasMoreOlder } = useTicketMessages(leadId)
   const { data: ticketsList } = useTickets({ bucket })
   const { data: infoData } = useTicketInfo(leadId)
   const ticket = ticketsList?.tickets.find((t) => t.id === leadId)
@@ -1595,6 +1595,23 @@ function ChatPanel({
   useEffect(() => { ajustarAltura(textareaRef.current) }, [draft])
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Sinaliza pro efeito de "rolar até o fim" (mais abaixo) ignorar o aumento
+  // de mensagens causado por "carregar anteriores" — sem isto, toda vez que
+  // o operador pedia o histórico antigo a tela pulava de volta pro fim,
+  // escondendo justamente o que ele acabou de carregar.
+  const carregandoAntigasRef = useRef(false)
+  async function carregarMensagensAnteriores() {
+    const el = scrollRef.current
+    const alturaAntes = el?.scrollHeight ?? 0
+    carregandoAntigasRef.current = true
+    await loadMore()
+    // Próximo frame: as mensagens antigas já estão no DOM, então dá pra medir
+    // o quanto a altura cresceu e manter o operador olhando pro mesmo trecho.
+    requestAnimationFrame(() => {
+      if (el) el.scrollTop = el.scrollHeight - alturaAntes
+      carregandoAntigasRef.current = false
+    })
+  }
 
   // Cleanup preview URL when file changes/unmounts.
   useEffect(() => {
@@ -1768,6 +1785,7 @@ function ChatPanel({
   // Scroll para o fim quando mensagens chegarem (incluso quando o painel info
   // está aberto — antes o scroll só ocorria no re-render do painel principal).
   useEffect(() => {
+    if (carregandoAntigasRef.current) return
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
@@ -2736,6 +2754,18 @@ function ChatPanel({
         )}
         {!isLoading && data?.messages.length === 0 && (
           <div class="text-center text-xs text-fg-muted py-8">Nenhuma mensagem ainda. Envie a primeira!</div>
+        )}
+        {!isLoading && (data?.messages.length ?? 0) > 0 && hasMoreOlder && (
+          <div class="flex justify-center pb-2">
+            <button
+              type="button"
+              class="text-3xs font-medium text-accent hover:underline disabled:opacity-50 disabled:no-underline"
+              disabled={loadingMore}
+              onClick={carregarMensagensAnteriores}
+            >
+              {loadingMore ? 'Carregando…' : 'Carregar mensagens anteriores'}
+            </button>
+          </div>
         )}
         {(() => {
           if (isLoading || !data) return null

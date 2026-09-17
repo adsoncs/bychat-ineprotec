@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { api } from '@/lib/apiClient'
 import { playSentSound } from '@/lib/notificationSound'
 import { readMirror as readAccountPrefsMirror } from '@/hooks/useAccountPrefs'
@@ -231,8 +231,21 @@ export interface MessageReaction {
   at: string
 }
 
+/**
+ * A rota só devolve as últimas 50 (`limit`) — conversa mais longa que isso
+ * sempre parecia "cortada" pra quem abria direto na aba: a bolha mais antiga
+ * visível respondia a algo que ficou de fora, sem contexto nenhum (achado num
+ * caso real: "vou enviar perai" reagindo a um pedido de foto que não aparecia
+ * na tela). O backend já aceita `before` pra paginar; só faltava o front usar.
+ *
+ * As mensagens carregadas por "carregar anteriores" ficam FORA do cache do
+ * react-query, num estado local: o polling de 5s só pede a página mais nova
+ * (sem `before`), e as duas se juntam por `useMemo` — evita reimplementar
+ * paginação completa do react-query só pra uma tela onde as antigas, uma vez
+ * carregadas, não mudam mais.
+ */
 export function useTicketMessages(leadId: number | null) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['ticket-messages', leadId],
     queryFn: () => api.get<{ messages: ChatMessage[]; hasMore: boolean }>(`/atendimento/tickets/${leadId}/messages?limit=50`),
     enabled: leadId !== null,
@@ -244,6 +257,56 @@ export function useTicketMessages(leadId: number | null) {
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
   })
+
+  const [older, setOlder] = useState<ChatMessage[]>([])
+  const [hasMoreOlder, setHasMoreOlder] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  // Troca de conversa: o histórico antigo acumulado é de OUTRO lead — ajuste
+  // de estado durante a renderização (padrão recomendado pelo React para
+  // "resetar ao mudar uma prop-chave"), não um useEffect, pra não piscar o
+  // histórico velho por um frame antes de limpar.
+  const leadRef = useRef<number | null>(null)
+  if (leadRef.current !== leadId) {
+    leadRef.current = leadId
+    if (older.length) setOlder([])
+    if (!hasMoreOlder) setHasMoreOlder(true)
+  }
+
+  const latest = query.data?.messages ?? []
+  const messages = useMemo(() => {
+    if (!older.length) return latest
+    const idsNaPaginaNova = new Set(latest.map((m) => m.id))
+    return [...older.filter((m) => !idsNaPaginaNova.has(m.id)), ...latest]
+  }, [older, latest])
+
+  // Sem nada carregado ainda por "carregar mais", o `hasMore` vem da própria
+  // página inicial; depois de algum load, vale o que a ÚLTIMA página mais
+  // antiga devolveu.
+  const hasMore = older.length > 0 ? hasMoreOlder : (query.data?.hasMore ?? false)
+
+  const loadMore = useCallback(async () => {
+    if (!leadId || loadingMore || !hasMore || messages.length === 0) return
+    setLoadingMore(true)
+    try {
+      const oldestId = messages[0]!.id
+      const resp = await api.get<{ messages: ChatMessage[]; hasMore: boolean }>(
+        `/atendimento/tickets/${leadId}/messages?limit=50&before=${oldestId}`,
+      )
+      setOlder((prev) => [...resp.messages, ...prev])
+      setHasMoreOlder(resp.hasMore)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [leadId, loadingMore, hasMore, messages])
+
+  return {
+    ...query,
+    data: query.data ? { ...query.data, messages, hasMore } : query.data,
+    loadMore,
+    loadingMore,
+    hasMoreOlder: hasMore,
+  }
 }
 
 /**
