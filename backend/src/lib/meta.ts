@@ -58,11 +58,27 @@ export async function getMetaWaConfigId(): Promise<string> {
   return wa || getMetaConfigId()
 }
 
+// Sem timeout, uma chamada que a Meta nunca fecha (visto no elementus,
+// 2026-09-16: insights nível 'ad' com date_preset=maximum numa conta de 18
+// meses/57 campanhas — a Meta ora devolve error_subcode 99 em ~30s, ora
+// simplesmente não responde) prendia a Promise pra sempre. O request do
+// operador já tinha estourado o proxy_read_timeout do nginx havia muito
+// tempo; o processo Node seguia vivo (outras rotas respondiam normal) mas
+// aquele /sync-meta nunca terminava, nunca caía no fallback bucketed nem
+// registrava erro — só reiniciar o processo liberava. 45s é generoso o
+// bastante pra uma resposta lenta real (medido: erro genuíno em ~10-30s)
+// sem deixar a chamada pendurada por minutos.
 export async function metaFetch(path: string, token: string, method = 'GET', body?: any) {
   const url = `${META_GRAPH_URL}${path}${path.includes('?') ? '&' : '?'}access_token=${token}`
-  const opts: any = { method, headers: { 'Content-Type': 'application/json' } }
+  const opts: any = { method, headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(45000) }
   if (body) opts.body = JSON.stringify(body)
-  const resp = await fetch(url, opts)
+  let resp: Response
+  try {
+    resp = await fetch(url, opts)
+  } catch (e: any) {
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new Error(`Meta API timeout (45s) em ${path}`)
+    throw e
+  }
   if (!resp.ok) {
     const err = await resp.text()
     throw new Error(`Meta API ${resp.status}: ${err}`)
