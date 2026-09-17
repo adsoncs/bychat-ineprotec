@@ -274,6 +274,66 @@ const ADMIN_REDIRECT_HTML = `<!doctype html>
 </noscript>
 <p>Redirecionando para o painel…</p>`
 
+// URL desconhecida (fora de /api e /app) numa instalação FILHA (tenant de
+// cliente) caia no fallback de `serveHtmlWithInjections`, que serve o
+// `frontend/index.html` — a VITRINE DE VENDAS do BeyondHub ("Diagnostico
+// Estrategico Gratuito"), com o nome "BeyondHub" injetado por padrao pelas
+// configs de aparencia da landing. Achado por um cliente, 2026-09-17:
+// digitar qualquer URL errada no dominio DELE mostrava propaganda do
+// fornecedor. Esta pagina substitui esse fallback nas instalacoes filhas —
+// nunca cai no conteudo do BeyondHub, e ainda ajuda quem se perdeu a voltar.
+const TENANT_404_HTML = `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Pagina nao encontrada</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0; padding: 24px;
+  }
+  .card {
+    max-width: 440px; width: 100%; text-align: center;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px; padding: 44px 32px;
+  }
+  .code {
+    font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 { font-size: 19px; margin: 16px 0 8px; color: #f8fafc; font-weight: 600; }
+  p { font-size: 14px; color: #94a3b8; margin: 0 0 26px; line-height: 1.5; }
+  .links { display: flex; flex-direction: column; gap: 9px; }
+  a.btn {
+    display: block; padding: 12px 18px; border-radius: 10px; text-decoration: none;
+    font-size: 14px; font-weight: 600;
+  }
+  .primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; }
+  .secondary { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="code">404</div>
+    <h1>Essa pagina nao existe</h1>
+    <p>O endereco que voce digitou nao foi encontrado. Aqui estao alguns caminhos para voltar ao sistema:</p>
+    <div class="links">
+      <a class="btn primary" href="/app">Ir para o painel</a>
+      <a class="btn secondary" href="/app/dashboard">Visao geral</a>
+      <a class="btn secondary" href="/app/kanban">Kanban de leads</a>
+      <a class="btn secondary" href="/app/leads">Lista de leads</a>
+    </div>
+  </div>
+</body>
+</html>`
+
 // ── STATIC FILES (frontend) ──────────────────
 await app.register(staticFiles, {
   root: join(__dirname, '../../frontend'),
@@ -1251,6 +1311,12 @@ app.setNotFoundHandler(async (req, reply) => {
         .send({ error: 'Asset não encontrado' })
     }
     return serveNewAppIndex(req, reply)
+  }
+  // Fora de /api e /app: instalacao filha (tenant de cliente) NUNCA mostra o
+  // fallback de vitrine de vendas do BeyondHub — so a instalacao PRINCIPAL,
+  // onde `serveHtmlWithInjections` e de fato a landing institucional.
+  if (!isPrimaryInstall()) {
+    return reply.code(404).type('text/html').send(TENANT_404_HTML)
   }
   return serveHtmlWithInjections(req, reply)
 })
