@@ -372,14 +372,27 @@ async function executeTool(
     if (name === 'salvar_dados') {
       const campos: Array<{ chave: string; valor: string }> = Array.isArray(input?.campos) ? input.campos : []
       const salvos: string[] = []
+      // `field.validate: 'email'` é opt-in por campo do form — hoje só o
+      // formato de e-mail é checado, mas o mecanismo é genérico pra outros
+      // validadores no futuro. Sem isto, um "email_candidato" incompleto
+      // (ex.: "fernanda" sem @) ia direto pra nota do RH sem ninguém perceber.
+      const invalidos: string[] = []
       for (const c of campos) {
         const field = fields.find((f) => f?.key === c.chave)
         if (!field) continue
+        const valor = String(c.valor ?? '').trim()
+        if (field.validate === 'email' && valor && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor)) {
+          invalidos.push(c.chave)
+          continue
+        }
         // Campos de seleção: a IA costuma mandar o LABEL que o lead falou, mas a
         // qualificação determinística compara com o VALUE da opção. Mapeia para o value.
         state.answers[c.chave] = mapSelectValue(field, c.valor)
         await applyAnswerToLead(leadId, field, state.answers).catch(() => {})
         salvos.push(c.chave)
+      }
+      if (invalidos.length) {
+        return JSON.stringify({ ok: salvos.length > 0, salvos, invalidos, instrucao: `O(s) campo(s) ${invalidos.join(', ')} não parece(m) válido(s) — peça de novo com naturalidade (ex.: "esse e-mail parece incompleto, pode conferir?").` })
       }
       return JSON.stringify({ ok: true, salvos })
     }
@@ -422,20 +435,36 @@ async function executeTool(
           .filter((f: any) => f && f.key !== routeField.key && state.answers[f.key] !== undefined && state.answers[f.key] !== null && String(state.answers[f.key]).trim())
           .map((f: any) => `${stripTags(f.label) || f.key}: ${state.answers[f.key]}`)
           .join('\n')
-        const anexo = await prisma.message.findFirst({
-          where: { leadId, fromMe: false, mediaType: { in: ['document', 'image'] } },
+        // Até 3 anexos das últimas 2h (não só o mais recente): candidato pode
+        // mandar currículo + carta de apresentação em mensagens separadas, e
+        // pegar só o último jogava a primeira fora sem ninguém perceber. A
+        // janela de 2h evita puxar um anexo de uma conversa antiga e não
+        // relacionada, num lead que já conversou sobre outro assunto antes.
+        const anexos = await prisma.message.findMany({
+          where: {
+            leadId, fromMe: false, mediaType: { in: ['document', 'image'] },
+            timestamp: { gte: new Date(Date.now() - 2 * 60 * 60 * 1000) },
+          },
           orderBy: { timestamp: 'desc' },
+          take: 3,
           select: { mediaUrl: true, mediaName: true },
         })
-        const anexoTexto = anexo?.mediaUrl
-          ? `\nArquivo: ${absoluteUrl(anexo.mediaUrl)}${anexo.mediaName ? ` (${anexo.mediaName})` : ''}`
+        const anexoTexto = anexos.length
+          ? '\n' + anexos.map((a) => `Arquivo: ${absoluteUrl(a.mediaUrl || '')}${a.mediaName ? ` (${a.mediaName})` : ''}`).join('\n')
           : '\nArquivo: não enviado.'
+        const noteContent = `${stripTags(opt.label) || route.stageKey} — recebido via chatbot\n${dadosTexto}${anexoTexto}`
         await prisma.leadNote.create({
+          data: { leadId, userId: null, userName: chatbot?.name || 'Chatbot', content: noteContent },
+        }).catch(() => {})
+        // Mensagem interna na PRÓPRIA conversa: sem isto, quem abre Conversas
+        // não vê nenhum sinal de que a candidatura foi processada — só quem
+        // for direto na aba de Notas do lead. Mesmo princípio do fluxo
+        // scripted antigo (que também deixava um rastro na conversa).
+        await prisma.message.create({
           data: {
-            leadId,
-            userId: null,
-            userName: chatbot?.name || 'Chatbot',
-            content: `${stripTags(opt.label) || route.stageKey} — recebido via chatbot\n${dadosTexto}${anexoTexto}`,
+            leadId, fromMe: true, isInternal: true,
+            body: `📝 ${stripTags(opt.label) || route.stageKey} registrado (nota criada, sem atendimento humano imediato)\n\n${noteContent}`,
+            senderName: chatbot?.name || 'Chatbot', timestamp: new Date(),
           },
         }).catch(() => {})
       }
