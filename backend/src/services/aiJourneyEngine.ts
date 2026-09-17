@@ -57,6 +57,15 @@ function stripTags(s: string | null | undefined): string {
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+// mediaUrl de anexo é salvo relativo (`/media/...`) — a nota do lead precisa do
+// link completo pra abrir fora do painel.
+function absoluteUrl(url: string): string {
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  const base = String(process.env.APP_URL || '').replace(/\/+$/, '')
+  return base ? `${base}${url.startsWith('/') ? '' : '/'}${url}` : url
+}
+
 // Mapeia o que a IA salvou num campo de seleção para o VALUE da opção (a qualificação
 // usa o value, não o label). Casa por value exato ou por label (case/acento-insensível,
 // contém em qualquer direção). Sem match → mantém como veio.
@@ -356,7 +365,7 @@ export async function getCatalogSummary(): Promise<string> {
 async function executeTool(
   name: string, input: any, ctx: { leadId: number; phone: string; form: any; chatbot: any; state: AiState; promoteFunnelId: number | null; promoteStageKey: string | null; app: FastifyInstance },
 ): Promise<string> {
-  const { leadId, phone, form, state, promoteFunnelId, app } = ctx
+  const { leadId, phone, form, state, promoteFunnelId, app, chatbot } = ctx
   const fields: any[] = form?.fields || []
   const settings: any = form?.settings || {}
   try {
@@ -401,6 +410,34 @@ async function executeTool(
       if (route.teamId != null) {
         const userId = await pickOperatorForTeam(route.teamId).catch(() => null)
         await prisma.lead.update({ where: { id: leadId }, data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() } }).catch(() => {})
+      }
+      // Setores como RH (candidatura/currículo) não precisam de handoff humano
+      // imediato — precisam é de um REGISTRO completo do que foi coletado.
+      // `route.saveNote: true` grava uma nota no lead com todas as respostas já
+      // salvas (salvar_dados) e o anexo mais recente do contato (o currículo),
+      // sem encaminhar nada por WhatsApp — era assim no fluxo scripted antigo,
+      // que mandava pro celular do RH; aqui o RH lê a nota no próprio painel.
+      if (route.saveNote) {
+        const dadosTexto = fields
+          .filter((f: any) => f && f.key !== routeField.key && state.answers[f.key] !== undefined && state.answers[f.key] !== null && String(state.answers[f.key]).trim())
+          .map((f: any) => `${stripTags(f.label) || f.key}: ${state.answers[f.key]}`)
+          .join('\n')
+        const anexo = await prisma.message.findFirst({
+          where: { leadId, fromMe: false, mediaType: { in: ['document', 'image'] } },
+          orderBy: { timestamp: 'desc' },
+          select: { mediaUrl: true, mediaName: true },
+        })
+        const anexoTexto = anexo?.mediaUrl
+          ? `\nArquivo: ${absoluteUrl(anexo.mediaUrl)}${anexo.mediaName ? ` (${anexo.mediaName})` : ''}`
+          : '\nArquivo: não enviado.'
+        await prisma.leadNote.create({
+          data: {
+            leadId,
+            userId: null,
+            userName: chatbot?.name || 'Chatbot',
+            content: `${stripTags(opt.label) || route.stageKey} — recebido via chatbot\n${dadosTexto}${anexoTexto}`,
+          },
+        }).catch(() => {})
       }
       logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: encaminhado para ${stripTags(opt.label) || route.stageKey}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead', metadata: { teamId: route.teamId, funnelId: route.funnelId, stageKey: route.stageKey } })
       return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado ao setor certo nos bastidores. NÃO mencione "setor" nem "encaminhamento" — apenas siga ajudando o lead com naturalidade.' })
