@@ -312,15 +312,17 @@ const TENANT_404_HTML = `<!doctype html>
   }
   h1 { font-size: 19px; margin: 16px 0 8px; color: #1c2333; font-weight: 600; }
   p { font-size: 14px; color: #64748b; margin: 0 0 26px; line-height: 1.5; }
-  .links { display: flex; flex-direction: column; gap: 9px; }
-  a.btn {
-    display: block; padding: 12px 18px; border-radius: 10px; text-decoration: none;
-    font-size: 14px; font-weight: 600;
+  .links { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  a.tile {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 20px 10px; border-radius: 14px; text-decoration: none;
+    background: #F1F4F8; border: 1px solid #DDE3EC; transition: background 0.15s, border-color 0.15s;
   }
-  .primary { background: #0057C0; color: #fff; }
-  .primary:hover { background: #0064DD; }
-  .secondary { background: #F1F4F8; color: #1c2333; border: 1px solid #DDE3EC; }
-  .secondary:hover { background: #E6EBF2; }
+  a.tile:hover { background: #E6EBF2; border-color: #C7D2E0; }
+  a.tile.primary { background: #EAF2FF; border-color: #C9DFFF; }
+  a.tile.primary:hover { background: #DCEBFF; border-color: #B3D2FF; }
+  a.tile svg { width: 32px; height: 32px; stroke: #0057C0; }
+  a.tile span { font-size: 13px; font-weight: 600; color: #1c2333; }
 </style>
 </head>
 <body>
@@ -329,10 +331,22 @@ const TENANT_404_HTML = `<!doctype html>
     <h1>Essa pagina nao existe</h1>
     <p>O endereco que voce digitou nao foi encontrado. Aqui estao alguns caminhos para voltar ao sistema:</p>
     <div class="links">
-      <a class="btn primary" href="/app">Ir para o painel</a>
-      <a class="btn secondary" href="/app/dashboard">Visao geral</a>
-      <a class="btn secondary" href="/app/kanban">Kanban de leads</a>
-      <a class="btn secondary" href="/app/leads">Lista de leads</a>
+      <a class="tile primary" href="/app">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+        <span>Painel</span>
+      </a>
+      <a class="tile" href="/app/dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M12 20V4"/><path d="M20 20v-7"/></svg>
+        <span>Visao geral</span>
+      </a>
+      <a class="tile" href="/app/kanban">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M9 4v17"/><path d="M15 4v17"/></svg>
+        <span>Kanban</span>
+      </a>
+      <a class="tile" href="/app/leads">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Leads</span>
+      </a>
     </div>
   </div>
 </body>
