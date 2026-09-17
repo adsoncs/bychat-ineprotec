@@ -208,7 +208,25 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     realNome ? `nome: ${realNome}` : '',
     realWhats ? `whatsapp: ${realWhats}` : '',
     lead?.email ? `email: ${lead.email}` : '',
+    // Origem/campanha ajudam a IA a distinguir contexto sem perguntar de novo —
+    // ex.: veio de anúncio de vaga (RH) vs. formulário institucional (comercial).
+    lead?.source ? `origem do lead: ${lead.source}${lead.campaignName ? ` (campanha: ${lead.campaignName})` : ''}` : '',
   ].filter(Boolean).join(' · ')
+  // Campos personalizados já preenchidos antes desta conversa (import, outro
+  // formulário, CRM externo) — contexto que a IA não tem como obter perguntando,
+  // porque o próprio lead já respondeu isso em outro lugar.
+  const customFieldsList = lead?.customFields && typeof lead.customFields === 'object'
+    ? Object.entries(lead.customFields as Record<string, unknown>)
+        .filter(([, v]) => v !== null && v !== undefined && String(v).trim())
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join('\n')
+    : ''
+  // Só exige (e só diz à IA que exige) os dados de contato que o FORM deste
+  // chatbot realmente pede — o texto era fixo ("nome, e-mail, WhatsApp e
+  // cidade") mesmo num form que só tem `nome`, e a IA insistia em pedir
+  // e-mail/cidade que o negócio nem queria coletar.
+  const contactWanted = CONTACT_MAPTOS.filter((mapTo) => fields.some((f) => f?.mapTo === mapTo))
+  const contactLabels = contactWanted.map((m) => CONTACT_LABEL[m]).join(', ')
   const already = Object.keys(state.answers || {})
   const hasSched = fields.some((f) => f?.type === 'scheduling')
 
@@ -252,8 +270,9 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     base,
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
     setores ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
-    `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: nome, e-mail, WhatsApp e cidade. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.`,
+    contactWanted.length ? `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: ${contactLabels}. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.` : '',
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
+    customFieldsList ? `\n## Campos personalizados do lead (contexto adicional, já preenchidos antes desta conversa)\n${customFieldsList}` : '',
     origemDescricao ? `\n## Como este lead chegou até nós\n${origemDescricao}\n\nUse isso pra soar informado na abertura, SE fizer sentido natural mencionar. NUNCA cite um canal diferente deste (ex.: não diga "veio pelo Google" se a origem aqui for outra) — na dúvida, não mencione origem nenhuma.` : '',
     previamenteConhecidos ? `\n## O lead já respondeu isto ANTES desta conversa (não pergunte de novo — confirme/aproveite)\n${previamenteConhecidos}` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
