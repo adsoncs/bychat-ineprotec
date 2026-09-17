@@ -147,7 +147,15 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
           const debugResp = await metaFetch(`/debug_token?input_token=${accessToken}`, `${appId}|${appSecret}`)
           const debugData = debugResp.data || debugResp
 
-          if (debugData.type === 'SYSTEM') {
+          // A Graph API devolve 'SYSTEM_USER' (confirmado ao vivo em 17/09), nao
+          // 'SYSTEM' como o codigo checava — a comparacao nunca batia, e todo
+          // token de sistema (permanente, expires_at=0) era trocado à toa por
+          // um "long-lived" de 60 dias na linha de baixo. O token que a Meta
+          // devolve nessa troca continua sendo o mesmo token permanente (nao
+          // ha degradacao real), mas o rotulo salvo ficava errado e aparece
+          // pro usuario na tela (Configuracoes > WhatsApp Cloud API > "Tipo de
+          // token"), sugerindo uma expiracao que nao existe.
+          if (debugData.type === 'SYSTEM' || debugData.type === 'SYSTEM_USER') {
             // Ja é um System User Token
             tokenType = 'system_user'
             app.log.info('[CloudAPI] Token ja é System User Token (permanente)')
