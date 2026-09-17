@@ -49,8 +49,12 @@ export async function cloudApiWebhookRoutes(app: FastifyInstance) {
       return reply.code(403).send('Verification failed')
     }
 
-    // Buscar verify token da conexao ativa
-    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true } })
+    // Buscar a conexao DONA deste verify_token — nao "qualquer ativa": com 2+
+    // numeros cadastrados cada um tem o seu proprio verifyToken, e pegar o
+    // primeiro ativo (ignorando o token que a Meta mandou) fazia a Alternate
+    // Callback URL do 2o numero em diante ser comparada contra o verifyToken
+    // errado e recusada pela Meta.
+    const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true, verifyToken: token } })
     const expectedToken = conn?.verifyToken || process.env.CLOUD_API_VERIFY_TOKEN || ''
 
     if (token === expectedToken) {
