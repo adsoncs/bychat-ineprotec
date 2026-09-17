@@ -290,33 +290,37 @@ const TENANT_404_HTML = `<!doctype html>
 <meta name="robots" content="noindex, nofollow">
 <title>Pagina nao encontrada</title>
 <style>
-  :root { color-scheme: dark; }
+  /* Mesma paleta do tema claro do painel (tokens.css): fundo quase-branco
+     #F5F7FA, card branco puro, azul de marca #0057C0 (--color-accent). */
+  :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    color: #e2e8f0; padding: 24px;
+    background: #F5F7FA;
+    color: #1c2333; padding: 24px;
   }
   .card {
     max-width: 440px; width: 100%; text-align: center;
-    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    background: #FFFFFF; border: 1px solid #DDE3EC;
     border-radius: 16px; padding: 44px 32px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -8px rgba(16, 24, 40, 0.08);
   }
   .code {
     font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    color: #0057C0;
   }
-  h1 { font-size: 19px; margin: 16px 0 8px; color: #f8fafc; font-weight: 600; }
-  p { font-size: 14px; color: #94a3b8; margin: 0 0 26px; line-height: 1.5; }
+  h1 { font-size: 19px; margin: 16px 0 8px; color: #1c2333; font-weight: 600; }
+  p { font-size: 14px; color: #64748b; margin: 0 0 26px; line-height: 1.5; }
   .links { display: flex; flex-direction: column; gap: 9px; }
   a.btn {
     display: block; padding: 12px 18px; border-radius: 10px; text-decoration: none;
     font-size: 14px; font-weight: 600;
   }
-  .primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; }
-  .secondary { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.1); }
+  .primary { background: #0057C0; color: #fff; }
+  .primary:hover { background: #0064DD; }
+  .secondary { background: #F1F4F8; color: #1c2333; border: 1px solid #DDE3EC; }
+  .secondary:hover { background: #E6EBF2; }
 </style>
 </head>
 <body>
