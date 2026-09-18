@@ -1112,6 +1112,36 @@ export async function whatsappRoutes(app: FastifyInstance) {
                     : conteudo.stickerMessage ? 'sticker'
                     : (conteudo.contactMessage || conteudo.contactsArrayMessage) ? 'contact'
                     : 'text'
+                  // Mídia enviada PELO CELULAR (fora do painel) nunca baixava o
+                  // arquivo — só gravava "[audio]"/"[document]"/etc. sem anexo,
+                  // igual à mídia RECEBIDA faria se não chamasse saveEvolutionMedia.
+                  // Achado em produção (nobre, 18/09): dos áudios outbound, 50 de
+                  // 54 vieram por este caminho e nenhum tinha mediaUrl — mesmo
+                  // padrão em document/image/sticker "pelo celular".
+                  let mediaUrlEco = ''
+                  let mediaNameEco = ''
+                  // Tudo isto está dentro do try/catch geral do bloco fromMe (mais
+                  // acima) — sem este try próprio, uma falha de download (rede,
+                  // Evolution fora do ar) pularia o catch de fora e cancelaria até
+                  // a gravação da mensagem em si, perdendo o eco inteiro em vez de
+                  // só ficar sem anexo (pior do que o bug original).
+                  try {
+                    if (tipo === 'image') {
+                      mediaUrlEco = await saveEvolutionMedia(key, inboundInstance, 'image', conteudo.imageMessage?.mimetype || '', app)
+                    } else if (tipo === 'video') {
+                      mediaUrlEco = await saveEvolutionMedia(key, inboundInstance, 'video', conteudo.videoMessage?.mimetype || '', app)
+                    } else if (tipo === 'audio') {
+                      const audioBuf = await downloadAudioFromEvolution(key, inboundInstance)
+                      if (audioBuf) mediaUrlEco = await saveMediaBuffer(audioBuf, conteudo.audioMessage?.mimetype || '', 'audio', app)
+                    } else if (tipo === 'document') {
+                      mediaNameEco = conteudo.documentMessage?.fileName || ''
+                      mediaUrlEco = await saveEvolutionMedia(key, inboundInstance, 'document', conteudo.documentMessage?.mimetype || '', app)
+                    } else if (tipo === 'sticker') {
+                      mediaUrlEco = await saveEvolutionMedia(key, inboundInstance, 'sticker', conteudo.stickerMessage?.mimetype || '', app)
+                    }
+                  } catch (mediaErr: any) {
+                    app.log.warn(`[Webhook] eco "pelo celular" sem anexo (${tipo}): ${mediaErr?.message || mediaErr}`)
+                  }
                   // Sem corpo e sem mídia não há o que mostrar (protocolo, recibo).
                   if (corpo || tipo !== 'text') {
                     await prisma.message.create({
@@ -1120,6 +1150,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
                         fromMe: true,
                         body: corpo || `[${tipo}]`,
                         mediaType: tipo,
+                        mediaUrl: mediaUrlEco || null,
+                        mediaName: mediaNameEco || null,
                         provider: 'evolution',
                         evolutionInstance: inboundInstance,
                         // deixa explícito na conversa de onde veio a resposta
