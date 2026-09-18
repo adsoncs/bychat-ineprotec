@@ -100,11 +100,18 @@ export async function openConversation(leadId: number, opts: OpenOpts = {}): Pro
 export async function closeConversation(leadId: number, opts: OpenOpts = {}): Promise<{ closed: boolean }> {
   const cur = await prisma.lead.findUnique({
     where: { id: leadId },
-    select: { conversationOpenedAt: true, conversationClosedAt: true },
+    select: { conversationOpenedAt: true, conversationClosedAt: true, conversationReopenedAt: true },
   })
   if (!cur) return { closed: false }
-  // Já fechado e não há reabertura pendente
-  if (cur.conversationClosedAt && cur.conversationOpenedAt && cur.conversationClosedAt >= cur.conversationOpenedAt) {
+  // Já fechado e não há reabertura pendente. O comentário sempre disse "e não
+  // há reabertura pendente", mas o código nunca checava `conversationReopenedAt`
+  // — uma conversa reaberta pelo CONTATO (markConversationReopened) só seta esse
+  // campo, sem tocar em conversationOpenedAt/conversationClosedAt, então esta
+  // condição continuava batendo e todo clique em "Resolver" numa conversa
+  // reaberta-com-dono virava no-op silencioso (closed:false, sem erro, sem
+  // rastro no histórico) — o lead ficava preso em Aguardando indefinidamente.
+  // Achado com leads reais presos há semanas (17/09).
+  if (cur.conversationClosedAt && cur.conversationOpenedAt && cur.conversationClosedAt >= cur.conversationOpenedAt && !cur.conversationReopenedAt) {
     return { closed: false }
   }
 
