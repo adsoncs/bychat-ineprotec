@@ -72,7 +72,7 @@ import { Select } from '@/components/ui/Input'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { cn } from '@/lib/cn'
 import { toast } from '@/lib/toast'
-import { leadSourceLabel } from '@/lib/leadSourceLabels'
+import { leadSourceLabel, isFormSource } from '@/lib/leadSourceLabels'
 import { SendWhatsAppButton } from '@/components/WhatsappSend'
 
 const LazyCreateActivityModal = lazy(() =>
@@ -115,7 +115,8 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
   if (!source) return null
   const title = leadSourceLabel(source)
   const common = { width: size, height: size, viewBox: '0 0 24 24' }
-  switch (source) {
+  // form:<id> (origem nomeada) usa o mesmo ícone de formulário.
+  switch (isFormSource(source) ? 'form' : source) {
     case 'whatsapp':
       return (
         <svg {...common} fill="currentColor" aria-label={title}>

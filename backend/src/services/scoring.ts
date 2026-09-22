@@ -4,6 +4,7 @@
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { withSourceLabel } from '../lib/leadSourceLabel.js'
 
 // ─── Tipos ────────────────────────────────────
 
@@ -287,7 +288,7 @@ export async function generateLeadAnalysis(leadId: number, force = false): Promi
   const chatMessages = fd._chatMessages || []
 
   // ── Identifica tipo/origem do lead ──
-  const source = lead.source || 'desconhecido'
+  const source = (await withSourceLabel(lead)).source || 'desconhecido'
   const sourceLabels: Record<string, string> = {
     web_chat: 'Chatbot de diagnóstico',
     meta_lead_ads: 'Meta Lead Ads (Facebook/Instagram)',

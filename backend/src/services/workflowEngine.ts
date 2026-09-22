@@ -54,6 +54,13 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
       continue
     }
 
+    // `form:<id>` (form com origem nomeada) é o mesmo caminho que gravava
+    // 'landing_page' — filtro antigo por Landing Page continua pegando.
+    if (key === 'source' && typeof actual === 'string' && actual.startsWith('form:')) {
+      if (!valueMatches(actual, expected) && !valueMatches('landing_page', expected)) return false
+      continue
+    }
+
     if (key === 'funnelId') {
       if (!valueMatches(event.funnelId, expected) && !valueMatches(event.payload?.metadata?.funnelId, expected)) return false
       continue

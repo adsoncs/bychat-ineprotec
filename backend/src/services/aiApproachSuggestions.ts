@@ -26,6 +26,7 @@ import {
 import { loadBusinessContext, BUSINESS_CONTEXT_FIELDS } from './businessContext.js'
 import { logEvent } from './leadHistory.js'
 import { captureException } from '../lib/observability.js'
+import { withSourceLabel } from '../lib/leadSourceLabel.js'
 
 export interface ApproachSuggestionsResult {
   suggestions: string[]
@@ -256,7 +257,7 @@ async function buildUserPrompt(leadId: number): Promise<string | null> {
     `- Setor: ${sector ?? '–'}`,
     `- Cidade: ${city ?? '–'}`,
     `- Cargo (se descoberto): ${position ?? '–'}`,
-    `- Canal de origem: ${lead.source ?? '–'}`,
+    `- Canal de origem: ${(await withSourceLabel(lead)).source ?? '–'}`,
     `- Solução/Produto de interesse: ${lead.solucaoNome ?? '–'}`,
     `- Maturidade declarada: ${lead.maturidade ?? '–'}`,
     `- Score do diagnóstico: ${(lead.scores as any)?.geral ?? '–'}`,

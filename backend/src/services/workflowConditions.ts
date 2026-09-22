@@ -59,7 +59,11 @@ export async function evaluateCondition(config: ConditionConfig, leadId: number)
   if (config.type === 'source_is' || config.type === 'source_is_not') {
     const alvo = valueList(config.value)
     if (alvo.length === 0) return false
-    const bate = alvo.includes(String(lead.originType)) || alvo.includes(String(lead.source))
+    // `form:<id>` (form com origem nomeada) nasceu do mesmo caminho que gravava
+    // 'landing_page' — quem já filtrava por "Landing Page" continua pegando.
+    const src = String(lead.source)
+    const bate = alvo.includes(String(lead.originType)) || alvo.includes(src)
+      || (src.startsWith('form:') && alvo.includes('landing_page'))
     return config.type === 'source_is' ? bate : !bate
   }
 

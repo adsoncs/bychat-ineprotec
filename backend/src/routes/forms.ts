@@ -501,6 +501,17 @@ export async function formsRoutes(app: FastifyInstance) {
     return { forms }
   })
 
+  // ── GET /api/forms/source-labels ─── Mapa id→"Nome da origem" (ANTES de :id!) ──
+  // Resolve o `source = form:<id>` em Leads/Kanban/Conversas/relatórios. Só entra
+  // form com o nome configurado; os demais gravam landing_page/scheduling.
+  app.get('/api/forms/source-labels', { preHandler: authMiddleware }, async () => {
+    const rows = await prisma.form.findMany({ select: { id: true, settings: true }, orderBy: { id: 'asc' } })
+    const items = rows
+      .map((r) => ({ id: r.id, name: String((r.settings as any)?.sourceLabel ?? '').trim() }))
+      .filter((r) => r.name)
+    return { items }
+  })
+
   // ── GET /api/forms/templates ─── Modelos pré-definidos (ANTES de :id!) ──
   app.get('/api/forms/templates', { preHandler: authMiddleware }, async () => {
     return { templates: FORM_TEMPLATES }

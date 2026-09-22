@@ -117,6 +117,17 @@ export function useForms() {
   })
 }
 
+/** Mapa id→"Nome da origem" dos formulários, p/ resolver `source = form:<id>`.
+ *  A chave fica sob ['forms'] de propósito: salvar/criar/apagar um form já
+ *  invalida o prefixo e o rótulo novo aparece sem recarregar. */
+export function useFormSourceLabels() {
+  return useQuery<{ items: { id: number; name: string }[] }>({
+    queryKey: ['forms', 'source-labels'],
+    queryFn: () => api.get('/forms/source-labels'),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useCreateForm() {
   const qc = useQueryClient()
   return useMutation({
@@ -234,6 +245,9 @@ export interface FormSettings {
   /** Dispara conversões server-side (Meta CAPI + Google Ads) ao criar o lead.
    *  Ausente = compat: tratado como ligado apenas para forms criados como conversacionais. */
   fireConversions?: boolean | undefined
+  /** "Nome da origem": quando preenchido, o lead nasce com `source = form:<id>`
+   *  e a coluna Origem mostra este nome. Vazio = Landing Page/Agendamento. */
+  sourceLabel?: string | undefined
   pixels?: FormPixels | undefined
   conversational?: FormConversationalSettings | undefined
   journey?: FormJourneySettings | undefined

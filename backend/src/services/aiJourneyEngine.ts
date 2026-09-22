@@ -23,6 +23,7 @@ import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './sche
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
 import { pickOperatorForTeam } from './teamRouting.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
+import { withSourceLabel } from '../lib/leadSourceLabel.js'
 
 const MAX_TOOL_ITERS = 6
 const HISTORY_LIMIT = 24
@@ -873,7 +874,7 @@ async function _process(
   // Horário de atendimento humano (Cadastros › Atendimento) — o bot precisa dele
   // para responder "quando vocês respondem?" com o que a empresa cadastrou.
   const bhText = await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null)
-  const system = buildSystemPrompt(chatbot, form, lead, state, catalogSummary, bhText)
+  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText)
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
   // Tudo com teto de tempo: nenhuma chamada (LLM ou ferramenta) pode pendurar o turno

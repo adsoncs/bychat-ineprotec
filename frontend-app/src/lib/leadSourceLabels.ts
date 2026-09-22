@@ -41,6 +41,21 @@ export function setDbConnectorNames(map: Record<number, string>): void {
 
 const DB_CONNECTOR_RE = /^db_connector:(\d+)$/
 
+// Mesmo esquema para formulários com "Nome da origem" configurado: o lead nasce
+// com `source = form:<id>` e o rótulo vem de Form.settings.sourceLabel. Populado
+// pelo AppShell via useFormSourceLabels(). Form apagado → "Formulário".
+let formSourceNames: Record<number, string> = {}
+export function setFormSourceNames(map: Record<number, string>): void {
+  formSourceNames = map
+}
+
+const FORM_RE = /^form:(\d+)$/
+
+/** `form:<id>` é origem de formulário — vale como Landing Page em filtros/ícones. */
+export function isFormSource(value: string | null | undefined): boolean {
+  return !!value && FORM_RE.test(value)
+}
+
 /**
  * Cor da origem do lead.
  *
@@ -81,6 +96,7 @@ export function leadSourceColor(value: string | null | undefined): string {
   if (!value) return 'var(--color-fg-muted)'
   const m = DB_CONNECTOR_RE.exec(value)
   if (m) return 'var(--color-fg-muted)'
+  if (FORM_RE.test(value)) return LEAD_SOURCE_COLORS.form!
   return LEAD_SOURCE_COLORS[value] ?? 'var(--color-fg-muted)'
 }
 
@@ -88,5 +104,7 @@ export function leadSourceLabel(value: string | null | undefined): string {
   if (!value) return 'Direto'
   const m = DB_CONNECTOR_RE.exec(value)
   if (m) return dbConnectorNames[Number(m[1])] ?? 'Banco de Dados'
+  const f = FORM_RE.exec(value)
+  if (f) return formSourceNames[Number(f[1])] ?? 'Formulário'
   return LEAD_SOURCE_LABELS[value] ?? value
 }

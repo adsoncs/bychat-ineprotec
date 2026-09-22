@@ -27,6 +27,7 @@ import {
 import { buildBusinessContextBlock } from './businessContext.js'
 import { logEvent } from './leadHistory.js'
 import { captureException } from '../lib/observability.js'
+import { withSourceLabel } from '../lib/leadSourceLabel.js'
 
 const QUEUE_NAME = 'wf-ai-lead-score'
 const SCORE_JOB = 'score-lead'
@@ -306,7 +307,7 @@ async function buildUserPrompt(leadId: number, phase: Phase): Promise<string | n
     `- Empresa: ${lead.empresa ?? '–'}`,
     `- Segmento: ${lead.segmento ?? '–'}`,
     `- Cidade: ${lead.cidade ?? '–'}`,
-    `- Canal de origem: ${lead.source ?? '–'}${lead.sourceId ? ` (${lead.sourceId})` : ''}`,
+    `- Canal de origem: ${(await withSourceLabel(lead)).source ?? '–'}${lead.sourceId ? ` (${lead.sourceId})` : ''}`,
     `- ${funilCtx}`,
     `- Qualificado: ${lead.qualifiedAt ? `sim (${lead.qualificationSource ?? '?'})` : 'não'}`,
     `- Consentimento LGPD: ${lead.lgpdConsent ? 'sim' : 'não'}`,

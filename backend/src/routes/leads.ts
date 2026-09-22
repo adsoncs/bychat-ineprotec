@@ -1051,8 +1051,8 @@ export async function leadsRoutes(app: FastifyInstance) {
     const [total, alreadyQualified, candidatesForBackfill, willStayUnqualified] = await Promise.all([
       prisma.lead.count(),
       prisma.lead.count({ where: { qualifiedAt: { not: null } } }),
-      prisma.lead.count({ where: { qualifiedAt: null, source: { in: QUALIFYING_SOURCES } } }),
-      prisma.lead.count({ where: { qualifiedAt: null, OR: [{ source: null }, { source: { notIn: QUALIFYING_SOURCES } }] } }),
+      prisma.lead.count({ where: { qualifiedAt: null, OR: [{ source: { in: QUALIFYING_SOURCES } }, { source: { startsWith: 'form:' } }] } }),
+      prisma.lead.count({ where: { qualifiedAt: null, OR: [{ source: null }, { AND: [{ source: { notIn: QUALIFYING_SOURCES } }, { NOT: { source: { startsWith: 'form:' } } }] }] } }),
     ])
     // Breakdown por source dos que ficarão como conversa
     const breakdown = await prisma.lead.groupBy({
@@ -1075,7 +1075,7 @@ export async function leadsRoutes(app: FastifyInstance) {
   app.post('/api/bychat/leads/qualification-backfill', { preHandler: adminOnly }, async (_req) => {
     const QUALIFYING_SOURCES = ['form', 'landing_page', 'enrollment_portal', 'meta_lead_ads', 'make', 'api', 'manual']
     const result = await prisma.lead.updateMany({
-      where: { qualifiedAt: null, source: { in: QUALIFYING_SOURCES } },
+      where: { qualifiedAt: null, OR: [{ source: { in: QUALIFYING_SOURCES } }, { source: { startsWith: 'form:' } }] },
       data: { qualifiedAt: new Date(), qualificationSource: 'backfill' },
     })
     return { ok: true, qualified: result.count }

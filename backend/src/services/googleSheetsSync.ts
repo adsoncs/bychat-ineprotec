@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { eventBus, type DomainEvent } from '../lib/eventBus.js'
 import { appendRow } from '../lib/google.js'
 import { WEBHOOK_EVENTS, WEBHOOK_EVENT_LABELS } from './webhookDispatcher.js'
+import { withSourceLabel } from '../lib/leadSourceLabel.js'
 
 export { WEBHOOK_EVENTS as SHEETS_EVENTS, WEBHOOK_EVENT_LABELS as SHEETS_EVENT_LABELS }
 
@@ -87,7 +88,8 @@ async function dispatchToSheet(
   attempt: number = 1,
 ): Promise<void> {
   const startTime = Date.now()
-  const values = buildRowValues(integration, lead, event)
+  // `form:<id>` sai com o nome da origem; os demais códigos seguem crus.
+  const values = buildRowValues(integration, await withSourceLabel(lead), event)
 
   try {
     await appendRow(integration.connectionId, integration.spreadsheetId, integration.sheetName, values)

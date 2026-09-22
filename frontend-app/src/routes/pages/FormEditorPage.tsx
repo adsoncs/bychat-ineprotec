@@ -116,6 +116,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
   const [successMode, setSuccessMode] = useState<'message' | 'redirect'>('message')
   const [redirectUrl, setRedirectUrl] = useState('')
   const [fireConversions, setFireConversions] = useState(false)
+  const [sourceLabel, setSourceLabel] = useState('')
   const [metaPixelId, setMetaPixelId] = useState('')
   const [metaEventName, setMetaEventName] = useState('Lead')
   const [googleConversionId, setGoogleConversionId] = useState('')
@@ -156,6 +157,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     setSuccessMode(s.successMode ?? ((s.redirectEnabled ?? !!(s.redirectUrl && s.redirectUrl.trim())) ? 'redirect' : 'message'))
     setDisplayMode(s.displayMode === 'conversational' ? 'conversational' : 'classic')
     setFireConversions(s.fireConversions ?? (s.displayMode === 'conversational'))
+    setSourceLabel(s.sourceLabel ?? '')
     const px = s.pixels ?? {}
     setMetaPixelId(px.metaPixelId ?? '')
     setMetaEventName(px.metaEventName ?? 'Lead')
@@ -205,6 +207,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     redirectEnabled: successMode === 'redirect',
     displayMode,
     fireConversions,
+    sourceLabel: sourceLabel.trim(),
     pixels: {
       metaPixelId: metaPixelId.trim(),
       metaEventName: metaEventName.trim() || 'Lead',
@@ -222,7 +225,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
       qualifyPositive: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyPositiveStage || null },
       qualifyNegative: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyNegativeStage || null },
     },
-  }), [submitText, successTitle, successMessage, successHtml, successMode, redirectUrl, displayMode, fireConversions, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
+  }), [submitText, successTitle, successMessage, successHtml, successMode, redirectUrl, displayMode, fireConversions, sourceLabel, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
 
   // ── Canvas: re-render via endpoint SSR (modo edit), com debounce ──
   useEffect(() => {
@@ -473,6 +476,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                       <option value="">Setor padrão global</option>
                       {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </Select>
+                    <Input label="Nome da origem" value={sourceLabel} maxLength={80} onInput={(e) => { setSourceLabel((e.target as HTMLInputElement).value); touch() }} placeholder="Ex.: Campanha de Instagram" hint="É o que aparece em Origem nos leads deste formulário, inclusive nos que já entraram com este nome. Vazio = Landing Page." />
                     <div class="rounded-md border border-border bg-surface-2 p-3 space-y-3">
                       <span class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Jornada no funil</span>
                       <label class="flex items-start gap-2 cursor-pointer">

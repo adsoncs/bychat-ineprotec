@@ -1,7 +1,8 @@
 import type { ComponentChildren } from 'preact'
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks'
 import { useDbConnectorNames } from '@/hooks/useDbConnectors'
-import { setDbConnectorNames } from '@/lib/leadSourceLabels'
+import { setDbConnectorNames, setFormSourceNames } from '@/lib/leadSourceLabels'
+import { useFormSourceLabels } from '@/hooks/useForms'
 import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
@@ -66,6 +67,13 @@ export function AppShell({ children }: AppShellProps) {
       setDbConnectorNames(Object.fromEntries(dbConnNames.items.map((c) => [c.id, c.name])))
     }
   }, [dbConnNames])
+  // Idem para formulários com "Nome da origem" (source = form:<id>).
+  const { data: formSourceLabels } = useFormSourceLabels()
+  useMemo(() => {
+    if (formSourceLabels?.items) {
+      setFormSourceNames(Object.fromEntries(formSourceLabels.items.map((f) => [f.id, f.name])))
+    }
+  }, [formSourceLabels])
 
   // Cmd+K / Ctrl+K abre a palette globalmente; Cmd+B / Ctrl+B recolhe o menu
   // (mesmo atalho do VS Code). No mobile a navegação é o drawer — o atalho ali

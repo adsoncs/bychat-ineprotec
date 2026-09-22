@@ -114,7 +114,7 @@ export function deriveLeadOrigin(input: DeriveOriginInput): OriginType {
   if (
     qualificationSource === 'form'
     || src === 'web_form' || src === 'landing_page' || src === 'form'
-    || src === 'site' || src === 'landing'
+    || src === 'site' || src === 'landing' || src.startsWith('form:')
   ) return 'web_form'
 
   // 9. Chatbot completed (sem canal explícito) → web_chat (default)

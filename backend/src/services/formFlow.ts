@@ -116,8 +116,12 @@ export async function createLeadFromForm(
 
   // Form com etapa de agendamento → a origem do lead é "agendamento", não
   // landing page. No WhatsApp o canal vence (ctx.leadSource = 'whatsapp').
+  // Form com "Nome da origem" (settings.sourceLabel) → `form:<id>`: o rótulo é
+  // resolvido na exibição (lib/leadSourceLabel.ts), igual a `db_connector:<id>`,
+  // então renomear a origem corrige também os leads antigos deste formulário.
   const isSchedulingForm = fields.some((f: any) => f?.type === 'scheduling')
-  const leadSource = ctx?.leadSource ?? (isSchedulingForm ? 'scheduling' : 'landing_page')
+  const hasCustomSource = typeof form?.settings?.sourceLabel === 'string' && form.settings.sourceLabel.trim() !== ''
+  const leadSource = ctx?.leadSource ?? (hasCustomSource ? `form:${form.id}` : (isSchedulingForm ? 'scheduling' : 'landing_page'))
   const isWhats = ctx?.channel === 'whatsapp'
 
   const nome = mapped.nome || mapped.name || ''
