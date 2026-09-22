@@ -75,6 +75,9 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
   // lead de onde ele está; isto acrescenta um processo sem mexer no atual, e
   // misturar as duas no mesmo menu faria uma ser feita no lugar da outra.
   const [somaAberta, setSomaAberta] = useState(false)
+  // Contato que ainda não é Lead: a lista de funis fica fechada atrás de um
+  // botão. Aberta de saída, ela era lida como "o contato está nestes funis".
+  const [escolhaAberta, setEscolhaAberta] = useState(false)
   // Contato ainda não qualificado (ver leadQualification.ts: Conversa ≠ Lead):
   // escolher funil/etapa aqui precisa promover de verdade, não só mudar
   // status/funnelId cosmeticamente — senão o card mostra "no funil" enquanto
@@ -167,17 +170,48 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
     mover.mutate(funnelId ? { status: etapa.key, funnelId } : { status: etapa.key })
   }
 
-  // ── Sem funil: o contato existe, mas ainda não entrou em nenhum processo ──
-  if (!funilAtual) {
+  // ── Sem funil: contato que ainda não é Lead, ou Lead ainda fora de processo ──
+  //
+  // Contato que não é Lead NUNCA mostra funil nem etapa, mesmo que a linha traga
+  // funnelId/status preenchidos por padrão: desenhar a trilha com "atual" fazia
+  // o agente acreditar que a pessoa estava naquela etapa. Só aparece a opção de
+  // adicionar — que é a promoção a Lead (pede responsável antes de gravar).
+  if (!funilAtual || !qualificado) {
+    const listaVisivel = qualificado || escolhaAberta
     return (
       <>
         <section>
-          <TituloSecao />
+          <div class="mb-1 flex items-center justify-between gap-2">
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
+            {!qualificado && (
+              <span class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
+                ainda não é Lead
+              </span>
+            )}
+          </div>
           <div class="rounded-md border border-dashed border-border bg-surface p-3">
             <p class="text-xs leading-relaxed text-fg-muted">
-              Este contato ainda não está em um funil. Escolha um para começar a acompanhar a negociação.
+              {qualificado
+                ? 'Este lead ainda não está em um funil. Escolha um para começar a acompanhar a negociação.'
+                : 'Este contato ainda não é Lead e não está em nenhum funil. Adicione a um funil para acompanhar a negociação — ele vira Lead nessa hora.'}
             </p>
-            {funis.length > 0 && (
+            {!qualificado && funis.length > 0 && permissoes.podeAvancar && (
+              <button
+                type="button"
+                aria-expanded={escolhaAberta}
+                onClick={() => setEscolhaAberta((v) => !v)}
+                class={cn(
+                  'mt-2.5 inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border border-border',
+                  'bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors duration-200',
+                  'hover:border-accent/60 hover:bg-surface-3 focus-visible:outline focus-visible:outline-2',
+                  'focus-visible:outline-offset-2 focus-visible:outline-accent',
+                )}
+              >
+                <Plus size={12} /> Adicionar a um funil
+                <ChevronDown size={11} class={cn('transition-transform duration-200', escolhaAberta && 'rotate-180')} />
+              </button>
+            )}
+            {listaVisivel && funis.length > 0 && (
               <div class="mt-2.5 space-y-1.5">
                 {funis.map((f) => (
                   <button
@@ -197,7 +231,7 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
                     <span class="shrink-0 text-2xs text-fg-muted">
                       {movendo === f.stages[0]?.key && mover.isPending
                         ? <Loader2 size={11} class="animate-spin" />
-                        : `entrar em ${f.stages[0]?.name ?? '—'}`}
+                        : `${qualificado ? 'entrar' : 'adicionar'} em ${f.stages[0]?.name ?? '—'}`}
                     </span>
                   </button>
                 ))}
@@ -239,11 +273,6 @@ export function LeadFunnelCard({ leadId }: { leadId: number }) {
     <section>
       <div class="mb-1 flex items-center justify-between gap-2">
         <div class="text-2xs uppercase tracking-wider text-fg-muted">Funil</div>
-        {!qualificado && (
-          <span class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-3xs font-medium text-warning">
-            ainda não é Lead
-          </span>
-        )}
         {outrosFunis.length > 0 && (
           <button
             type="button"

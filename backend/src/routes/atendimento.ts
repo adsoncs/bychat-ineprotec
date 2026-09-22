@@ -2364,6 +2364,24 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const { funisDoLead } = await import('../services/leadFunnels.js')
     const adicionais = (await funisDoLead(lid)).filter((v) => !v.principal)
 
+    // Contato que ainda não é Lead NÃO está em funil nenhum, mesmo que a linha
+    // já carregue funnelId/status (o contato nasce com o funil padrão e a
+    // etapa inicial preenchidos). Devolver esse funil fazia o card desenhar a
+    // trilha com "atual" numa etapa em que a pessoa não está — e os agentes
+    // tratavam como verdade. Só Lead tem funil; o contato recebe apenas a lista
+    // para ser adicionado (o que o promove a Lead).
+    if (!lead.qualifiedAt) {
+      return {
+        funilAtual: null,
+        adicionais: [],
+        etapaAtual: null,
+        qualificado: false,
+        funis,
+        passagens: [],
+        permissoes: { podeAvancar, podeRetroceder },
+      }
+    }
+
     return {
       funilAtual: lead.funnelId ? funis.find((f) => f.id === lead.funnelId) ?? null : null,
       adicionais: adicionais.map((v) => ({
