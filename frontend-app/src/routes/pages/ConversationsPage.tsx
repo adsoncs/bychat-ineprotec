@@ -66,7 +66,7 @@ import {
   RefreshCw,
   Layers,
   UserRound,
-  ArrowUpRight,
+  ArrowUpRight, Play, FileSpreadsheet, Download,
 } from '@/components/ui/icon-set'
 import { ICON_SIZE } from '@/components/ui/Icon'
 // Logo de marca: vem do registry, não redesenhado aqui (traço e grade únicos).
@@ -152,6 +152,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { cn } from '@/lib/cn'
+import { GaleriaDeMidiaProvider, useGaleriaDeMidia } from '@/components/media/MediaViewer'
+import { mediaKindOf, extensaoDe, rotuloDoTipo, baixarArquivo, type MediaItem } from '@/components/media/mediaKind'
 import { corDoCanal, nomeDoCanal } from '@/lib/channelColors'
 import { formatRelative } from '@/lib/format'
 import { formatarTelefone } from '@/lib/telefone'
@@ -2337,8 +2339,21 @@ function ChatPanel({
     </>
   )
 
+  // Todas as mídias da conversa, na ordem dela: é a galeria do visualizador
+  // (← → passa de uma para a outra, como no WhatsApp).
+  const midiasDaConversa = useMemo<MediaItem[]>(() => (data?.messages ?? [])
+    .filter((m) => m.mediaUrl && m.mediaType && m.mediaType !== 'text' && m.mediaType !== 'contact' && !m.isDeleted)
+    .map((m) => ({
+      id: m.id,
+      kind: mediaKindOf(m.mediaType, m.mediaUrl!, m.mediaName),
+      url: m.mediaUrl!,
+      name: m.mediaName,
+      sender: m.fromMe ? (m.senderName || 'Você') : (m.senderName || lead?.nome || null),
+      at: m.timestamp,
+    })), [data?.messages, lead?.nome])
+
   return (
-    <>
+    <GaleriaDeMidiaProvider items={midiasDaConversa}>
       {/* Cabeçalho da conversa.
        *
        * Antes eram três blocos disputando a mesma linha, com `flex-wrap` nas
@@ -3338,7 +3353,7 @@ function ChatPanel({
         channelId={channelId ?? undefined}
         onAgendado={() => { setDraft(''); encolherCaixa() }}
       />
-    </>
+    </GaleriaDeMidiaProvider>
   )
 }
 
@@ -3352,22 +3367,35 @@ function MediaContent({
   type,
   url,
   name,
+  msgId,
 }: {
   type: string
   url: string
   name: string | null
+  /** Mensagem dona da mídia — é por ela que o visualizador abre na posição certa. */
+  msgId?: number
 }) {
   const { prefs } = useConversationPrefs()
+  const galeria = useGaleriaDeMidia()
+  // Abre no visualizador da própria tela (MediaViewer). Nunca aba nova: o
+  // navegador barra como popup e o agente perde a conversa de vista.
+  const abrir = (e?: Event) => {
+    e?.preventDefault()
+    if (msgId != null && galeria?.abrir(msgId)) return
+    void baixarArquivo(url, name)
+  }
   // Privacidade: em sala aberta a mídia do cliente fica desfocada até o operador
   // passar o mouse. `group-hover` não serve aqui (a bolha inteira é um group do
   // botão de responder), então o efeito é próprio deste elemento.
   const blur = prefs.blurMedia ? 'blur-md hover:blur-none transition-[filter] duration-150' : ''
 
+  // Imagem em miniatura (metade do tamanho de antes — ocupava a bolha inteira
+  // e empurrava a conversa para fora da tela). O clique abre o visualizador.
   if (type === 'image') {
     return (
-      <a href={url} target="_blank" rel="noreferrer" class="mb-1 block">
-        <img src={url} alt={name ?? 'Imagem'} class={cn('max-w-full rounded', blur)} />
-      </a>
+      <button type="button" onClick={abrir} class="mb-1 block cursor-zoom-in overflow-hidden rounded" title="Abrir imagem">
+        <img src={url} alt={name ?? 'Imagem'} loading="lazy" class={cn('block h-auto max-h-60 w-auto max-w-[15rem] rounded object-cover', blur)} />
+      </button>
     )
   }
   // Contato compartilhado: cartão com o telefone clicável. Sem este caso a
@@ -3411,7 +3439,7 @@ function MediaContent({
   // mostraria um player parado — um GIF tem que rodar sozinho, em loop e mudo.
   if (type === 'gif') {
     return (
-      <div class="relative mb-1 w-fit">
+      <button type="button" onClick={abrir} class="relative mb-1 block w-fit cursor-zoom-in" title="Abrir GIF">
         <video
           src={url}
           autoPlay
@@ -3419,13 +3447,13 @@ function MediaContent({
           muted
           playsInline
           preload="metadata"
-          class={cn('max-w-full rounded', blur)}
-          style={{ maxHeight: '18rem' }}
+          class={cn('max-w-[15rem] rounded', blur)}
+          style={{ maxHeight: '11rem' }}
         />
         <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-3xs font-semibold text-white">
           GIF
         </span>
-      </div>
+      </button>
     )
   }
   // Largura própria, não `w-full`: a bolha se dimensiona pelo conteúdo, e um
@@ -3435,23 +3463,40 @@ function MediaContent({
   if (type === 'audio') {
     return <AudioPlayer url={url} speed={prefs.audioSpeed} />
   }
+  // Vídeo: capa (primeiro quadro) com botão de play; toca no visualizador, em
+  // tamanho de gente e com controle de velocidade.
   if (type === 'video') {
     return (
-      <video controls preload="metadata" src={url} class={cn('mb-1 w-80 max-w-full rounded', blur)}>
-        Vídeo
-      </video>
+      <button type="button" onClick={abrir} class="group/video relative mb-1 block overflow-hidden rounded bg-black" title="Assistir vídeo">
+        <video src={`${url}#t=0.1`} preload="metadata" muted playsInline class={cn('block max-h-44 w-60 max-w-full object-cover opacity-90', blur)} />
+        <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span class="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white ring-1 ring-white/30 transition-transform group-hover/video:scale-110">
+            <Play size={ICON_SIZE.lg} />
+          </span>
+        </span>
+      </button>
     )
   }
+  // Documento: cartão que diz o que é (PDF, planilha…) e abre no visualizador;
+  // o ícone ao lado baixa sem abrir.
+  const kind = mediaKindOf(type, url, name)
+  const ext = extensaoDe(url, name)
+  const IconeDoc = kind === 'pdf' ? FileText : ['xls', 'xlsx', 'ods', 'csv'].includes(ext) ? FileSpreadsheet : FileText
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      class="mb-1 inline-flex items-center gap-2 rounded-md bg-surface-3 px-2 py-1.5 text-xs text-fg hover:underline"
-    >
-      <FileText size={ICON_SIZE.sm} />
-      <span class="max-w-[14rem] truncate">{name ?? 'Anexo'}</span>
-    </a>
+    <div class="mb-1 flex max-w-[16rem] items-stretch overflow-hidden rounded-md border border-border/60 bg-surface-3 text-fg">
+      <button type="button" onClick={abrir} class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-2" title="Abrir">
+        <span class={cn('flex h-9 w-8 shrink-0 items-center justify-center rounded text-3xs font-bold uppercase', kind === 'pdf' ? 'bg-danger/15 text-danger' : 'bg-accent/15 text-accent')}>
+          {kind === 'pdf' ? 'PDF' : <IconeDoc size={ICON_SIZE.md} />}
+        </span>
+        <span class="min-w-0">
+          <span class="block truncate text-xs font-medium">{name ?? 'Anexo'}</span>
+          <span class="block text-3xs text-fg-muted">{rotuloDoTipo(kind, ext)} · clique para abrir</span>
+        </span>
+      </button>
+      <button type="button" onClick={() => void baixarArquivo(url, name)} class="flex shrink-0 items-center border-l border-border/60 px-2 text-fg-muted hover:bg-surface-2 hover:text-fg" aria-label="Baixar" title="Baixar">
+        <Download size={ICON_SIZE.sm} />
+      </button>
+    </div>
   )
 }
 
@@ -4515,7 +4560,10 @@ function MessageBubble({
   // Áudio no WhatsApp não tem legenda: quando a mensagem é de áudio e mesmo
   // assim tem corpo, esse texto é a transcrição feita pelo servidor.
   const bodyIsTranscript = msg.mediaType === 'audio' && !!msg.body
-  const showBody = !!msg.body && (!bodyIsTranscript || prefs.showTranscript)
+  // Mídia sem legenda chega com o corpo "[image]", "[document]"… — marcador do
+  // servidor, não texto do contato. Com a mídia desenhada ele só polui a bolha.
+  const corpoEhMarcador = !!msg.mediaUrl && /^\[(image|video|gif|audio|document|sticker|file|mídia|midia)\]$/i.test((msg.body ?? '').trim())
+  const showBody = !!msg.body && !corpoEhMarcador && (!bodyIsTranscript || prefs.showTranscript)
 
   // "Pressionar e segurar" para abrir as ações, como no WhatsApp do celular.
   // 450ms é o ponto em que o gesto já não se confunde com um toque comum nem
@@ -4628,7 +4676,7 @@ function MessageBubble({
           </button>
         )}
         {msg.mediaType && msg.mediaType !== 'text' && msg.mediaUrl && (
-          <MediaContent type={msg.mediaType} url={msg.mediaUrl} name={msg.mediaName} />
+          <MediaContent type={msg.mediaType} url={msg.mediaUrl} name={msg.mediaName} msgId={msg.id} />
         )}
         {showBody && (
           <div
