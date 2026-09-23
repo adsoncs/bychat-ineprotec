@@ -275,15 +275,20 @@ async function acharLeadDaInstancia(
   // vazia de propósito, porque LID não é número de ninguém. Para ele o `waLid`
   // é a ÚNICA chave: sem procurar por aqui, cada mensagem que chega não
   // encontra a ficha aberta na mensagem anterior e abre outra.
+  // Lead de uma conexão da API oficial ainda cadastrada é OUTRA conversa, mesmo
+  // sem instanceName: sem este filtro a Evolution "adotava" a conversa do
+  // número da API oficial e juntava as duas (ver contactIdentity → CanalDoContato).
+  const { semConexaoCloudViva } = await import('../services/contactIdentity.js')
+  const foraDaCloud = await semConexaoCloudViva()
   const porLid = waLid
     ? await prisma.lead.findFirst({
-        where: { waLid, ...(instanceName ? { OR: [{ instanceName }, { instanceName: null }] } : {}) },
+        where: { AND: [{ waLid }, foraDaCloud, ...(instanceName ? [{ OR: [{ instanceName }, { instanceName: null }] }] : [])] },
         orderBy: { createdAt: 'desc' },
       })
     : null
   if (porLid) {
     if (instanceName && !porLid.instanceName) {
-      await prisma.lead.update({ where: { id: porLid.id }, data: { instanceName } }).catch(() => {})
+      await prisma.lead.update({ where: { id: porLid.id }, data: { instanceName, cloudApiConnectionId: null } }).catch(() => {})
     }
     return porLid
   }
@@ -302,11 +307,11 @@ async function acharLeadDaInstancia(
 
   // legado: sem instância definida, adota
   const semInstancia = await prisma.lead.findFirst({
-    where: { whatsapp: phone, instanceName: null },
+    where: { AND: [{ whatsapp: phone, instanceName: null }, foraDaCloud] },
     orderBy: { createdAt: 'desc' },
   })
   if (semInstancia) {
-    if (instanceName) await prisma.lead.update({ where: { id: semInstancia.id }, data: { instanceName } }).catch(() => {})
+    if (instanceName) await prisma.lead.update({ where: { id: semInstancia.id }, data: { instanceName, cloudApiConnectionId: null } }).catch(() => {})
     return semInstancia
   }
 
@@ -1008,7 +1013,8 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // é o do PARTICIPANTE, então o match por nome acharia (e reconciliaria) o
       // lead pessoal de quem falou. Grupo dedupa por groupJid, mais abaixo.
       if (!isGroupMsg) {
-        const ident = await resolveLeadForContact({ phone, waLid: waLidToPersist, pushName: data.pushName })
+        // Só a conversa desta instância (ou uma sem dono vivo) — ver CanalDoContato.
+        const ident = await resolveLeadForContact({ phone, waLid: waLidToPersist, pushName: data.pushName }, { instanceName: inboundInstance })
         if (ident.lead) {
           if (ident.lead.whatsapp && !isLikelyLid(ident.lead.whatsapp)) phone = ident.lead.whatsapp
           await reconcileLeadIdentity(
@@ -1061,8 +1067,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
               ? await prisma.lead.findFirst({ where: { groupJid: remoteJid }, orderBy: { createdAt: 'asc' } })
               : await acharLeadDaInstancia(phone, inboundInstance, waLidToPersist)
             if (lead) {
+              // Só envio RECENTE: o painel grava o externalId na resposta do
+              // envio, então linha sem id é resto de envio que falhou. Sem teto
+              // de tempo, um texto órfão de dias antes "casava" com a foto que a
+              // equipe mandou pelo celular — a foto sumia e o texto herdava o id
+              // dela (severiano: 4 casos, textos de 1 a 17 dias antes).
               const recentMsg = await prisma.message.findFirst({
-                where: { leadId: lead.id, fromMe: true, externalId: null },
+                where: { leadId: lead.id, fromMe: true, externalId: null, timestamp: { gte: new Date(Date.now() - 10 * 60 * 1000) } },
                 orderBy: { timestamp: 'desc' }
               })
               if (recentMsg) {
@@ -1467,11 +1478,16 @@ export async function whatsappRoutes(app: FastifyInstance) {
       // aqui: é persistida uma única vez pelo create downstream (atendimento ou
       // engine do chatbot), que já grava mediaType/mediaUrl/mediaName — evita a
       // duplicação (este bloco + o create de baixo gravavam a mesma mensagem).
-      if (mediaType !== 'text' && !msgText && phone) {
-        const existingLead = await prisma.lead.findFirst({
-          where: { whatsapp: phone },
-          orderBy: { createdAt: 'desc' }
-        })
+      //
+      // Contato NOVO não entra aqui: a imagem que abre a conversa segue para o
+      // caminho sem chatbot lá embaixo, que cria o lead e grava. Até 22/09/2026
+      // este bloco só achava lead por `whatsapp = phone` (sem instância e sem
+      // LID) e, sem achar, o `return` seguinte jogava a imagem fora — quem
+      // começava a conversa mandando foto sumia (severiano, 18/09: a foto das
+      // 08:42 não existe no CRM; o lead só nasceu com o texto das 08:51).
+      const soMidia = mediaType !== 'text' && !msgText
+      if (soMidia && phone) {
+        const existingLead = await acharLeadDaInstancia(phone, inboundInstance, waLidToPersist)
         if (existingLead) {
           await prisma.message.create({
             data: {
@@ -1492,12 +1508,27 @@ export async function whatsappRoutes(app: FastifyInstance) {
             where: { id: existingLead.id },
             data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() }
           })
-          // If no text content, don't process through AI
-          if (!msgText) return { ok: true }
+          // Sem este aviso a foto só aparecia no próximo polling e não tocava a
+          // notificação do operador — os outros caminhos de entrada já avisam.
+          broadcastRealtimeEvent({
+            type: 'message:received',
+            payload: {
+              leadId: existingLead.id, mediaType, channel: 'evolution',
+              from: data.pushName || existingLead.nome || phone,
+              preview: `[${mediaType}]`,
+            },
+            scope: { leadId: existingLead.id },
+          })
+          if (existingLead.conversationOpenedAt && existingLead.conversationClosedAt) {
+            const { markConversationReopened } = await import('../services/leadConversation.js')
+            markConversationReopened(existingLead.id, { reason: 'reopen_message' }).catch(() => {})
+          }
+          // Sem texto não há o que a IA processar
+          return { ok: true }
         }
       }
 
-      if (!msgText || !phone) return { ok: true }
+      if ((!msgText && !soMidia) || !phone) return { ok: true }
 
       app.log.info(`WhatsApp msg from ${phone}: ${msgText.substring(0, 100)}`)
 
@@ -1550,7 +1581,10 @@ export async function whatsappRoutes(app: FastifyInstance) {
       })
       // Gate de ativação por palavra-chave: se o chatbot exige gatilho e a mensagem
       // (cold start) não casa, trata como SEM chatbot → atendimento humano.
-      const hasChatbot = whatsappInstance?.chatbotId != null && await chatbotTriggerAllows(whatsappInstance.chatbotId, phone, cleanMsg)
+      // Foto sem legenda de contato novo não tem o que o bot ler: vai para o
+      // caminho sem chatbot, que cria o lead e grava a imagem. O bot entra na
+      // primeira mensagem de texto, como já acontece com o gatilho de ativação.
+      const hasChatbot = !soMidia && whatsappInstance?.chatbotId != null && await chatbotTriggerAllows(whatsappInstance.chatbotId, phone, cleanMsg, { instanceName: inboundInstance })
 
       if (!hasChatbot) {
         // Sem chatbot vinculado — apenas salvar mensagem no atendimento, sem IA
@@ -1642,7 +1676,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
           data: {
             leadId: lead.id,
             fromMe: false,
-            body: msgText,
+            body: msgText || `[${mediaType}]`,
             mediaType: mediaType || 'text',
             mediaUrl: mediaUrl || null,
             mediaName: mediaName || null,
@@ -1688,7 +1722,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
           const bhConfig = await getBusinessHoursConfig()
           if (bhConfig.enabled && bhConfig.message && !isWithinBusinessHours(bhConfig)) {
             if (await shouldSendAutoReply(lead.id, bhConfig.throttleHours)) {
-              const sent = await sendWhatsAppMessage(phone, bhConfig.message).catch(() => null)
+              // Pela instância que RECEBEU: é o número desta conversa (sem ela
+              // saía pela instância do .env, outro número).
+              const sent = await sendWhatsAppMessage(phone, bhConfig.message, inboundInstance).catch(() => null)
               if (sent) {
                 await prisma.message.create({
                   data: {

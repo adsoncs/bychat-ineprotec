@@ -1073,6 +1073,10 @@ function ConversationsScreen() {
               leadId={selected}
               bucket={bucket}
               onClose={() => setSelected(null)}
+              onAbrirConversa={(id) => {
+                void qcConversas.invalidateQueries({ queryKey: ['tickets'] })
+                setSelected(id)
+              }}
               showInfo={showInfo}
               onToggleInfo={() => setShowInfo((v) => !v)}
             />
@@ -1434,11 +1438,13 @@ function TicketRow({
 }
 
 function ChatPanel({
-  leadId, bucket, onClose, showInfo, onToggleInfo,
+  leadId, bucket, onClose, showInfo, onToggleInfo, onAbrirConversa,
 }: {
   leadId: number
   bucket: Bucket
   onClose: () => void
+  /** Abre outra conversa (ex.: o mesmo contato por outro número). */
+  onAbrirConversa: (leadId: number) => void
   showInfo: boolean
   onToggleInfo: () => void
 }) {
@@ -1545,6 +1551,24 @@ function ChatPanel({
   // Menu de troca de número de envio (mantém visível só o número padrão/atual;
   // os demais ficam neste dropdown — evita o rodapé poluído com muitos números).
   const [numMenuOpen, setNumMenuOpen] = useState(false)
+  // Número escolhido que NÃO é o desta conversa: pede confirmação e abre a
+  // conversa daquele número. O contato recebe cada número nosso como um chat
+  // separado; aqui tem que ser igual — nada sai por outro número nesta aba.
+  const [trocaPara, setTrocaPara] = useState<SenderChannel | null>(null)
+  const [abrindoOutra, setAbrindoOutra] = useState(false)
+  async function abrirPorOutroNumero(c: SenderChannel) {
+    setAbrindoOutra(true)
+    try {
+      const r = await api.post<{ leadId: number; criada: boolean }>(`/atendimento/tickets/${leadId}/abrir-por-numero`, { channelId: c.id })
+      setTrocaPara(null)
+      toast(r.criada ? `Conversa aberta pelo número ${c.number || nomeDoCanal(c)}` : `Abrindo a conversa do número ${c.number || nomeDoCanal(c)}`, 'success')
+      onAbrirConversa(r.leadId)
+    } catch (e: unknown) {
+      toast((e as Error).message || 'Não deu para abrir a conversa por esse número', 'danger')
+    } finally {
+      setAbrindoOutra(false)
+    }
+  }
   // Diálogo de promoção (funil + etapa). Abre por dois caminhos, sempre com o
   // lead ainda não qualificado: logo depois do "Assumir", e pelo aviso discreto
   // "Ainda é contato" no cabeçalho — que é o que sobrou desde que responder
@@ -2995,7 +3019,7 @@ function ChatPanel({
                       )}
                     </span>
                   )}
-                  {!locked && (
+                  {(!locked || channels.length > 1) && (
                     <div class="relative">
                       <button
                         type="button"
@@ -3008,10 +3032,12 @@ function ChatPanel({
                         )}
                         aria-expanded={numMenuOpen}
                         aria-haspopup="listbox"
-                        title={selected ? 'Trocar número de envio' : 'Escolha o número da primeira mensagem'}
+                        title={locked
+                          ? 'Falar com este contato por outro número abre uma conversa separada'
+                          : selected ? 'Trocar número de envio' : 'Escolha o número da primeira mensagem'}
                       >
                         <ChevronDown size={ICON_SIZE.xxs} />
-                        {selected ? 'Trocar' : 'Escolher número'}
+                        {locked ? 'Outro número' : selected ? 'Trocar' : 'Escolher número'}
                       </button>
                       {numMenuOpen && (
                         <>
@@ -3020,7 +3046,9 @@ function ChatPanel({
                             role="listbox"
                             class="absolute left-0 bottom-full mb-1 z-40 w-64 max-h-64 overflow-auto rounded-md border border-border bg-surface shadow-lg py-1 text-xs"
                           >
-                            <div class="px-3 py-1 text-3xs uppercase tracking-wider text-fg-muted">Números disponíveis</div>
+                            <div class="px-3 py-1 text-3xs uppercase tracking-wider text-fg-muted">
+                              {locked ? 'Abrir conversa por outro número' : 'Números disponíveis'}
+                            </div>
                             {channels.map((c) => {
                               const active = c.id === channelId
                               const isCloud = c.provider === 'cloud_api'
@@ -3031,7 +3059,12 @@ function ChatPanel({
                                   role="option"
                                   aria-selected={active}
                                   key={c.id}
-                                  onClick={() => { setChannelId(c.id); setNumMenuOpen(false) }}
+                                  onClick={() => {
+                                    setNumMenuOpen(false)
+                                    // Conversa com número fixo: outro número = outra conversa.
+                                    if (lockedChannelId && c.id !== lockedChannelId) setTrocaPara(c)
+                                    else setChannelId(c.id)
+                                  }}
                                   class={cn(
                                     'w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-surface-3',
                                     active ? 'text-fg font-semibold' : 'text-fg-muted',
@@ -3054,6 +3087,22 @@ function ChatPanel({
                   {offConversation && (
                     <span class="text-3xs text-warning">Este não é o número desta conversa — o contato vai receber de um número que não conhece.</span>
                   )}
+                  {locked && senderChannels?.lockedChannelActive === false && (
+                    <span class="text-3xs text-danger">
+                      O número desta conversa está desconectado — nada será enviado por outro. Reconecte-o ou use “Outro número”, que abre uma conversa separada.
+                    </span>
+                  )}
+                  <ConfirmDialog
+                    open={trocaPara !== null}
+                    onOpenChange={(o) => { if (!o) setTrocaPara(null) }}
+                    title="Falar por outro número?"
+                    description={trocaPara
+                      ? `Esta conversa continua no número ${selected ? chanLabel(selected) : 'atual'}. Para falar por ${chanLabel(trocaPara)} abre-se outra conversa com este contato — do lado dele, ela chega como um chat separado.`
+                      : ''}
+                    confirmLabel="Abrir conversa"
+                    loading={abrindoOutra}
+                    onConfirm={() => { if (trocaPara) void abrirPorOutroNumero(trocaPara) }}
+                  />
                   {!locked && !selected && (
                     <span class="text-3xs text-fg-muted">Primeira mensagem: escolha por qual número falar com este contato.</span>
                   )}

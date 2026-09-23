@@ -975,6 +975,9 @@ model Lead {
   /// mesmo tenant caía na MESMA conversa — o atendente de uma via o atendimento
   /// da outra. Nulo nos leads anteriores a esta regra.
   instanceName String? @db.VarChar(100)
+  // Conexão da API oficial dona da conversa — o par do `instanceName` (Evolution).
+  // Ver services/contactIdentity.ts → filtroDoCanal. Migration 0161.
+  cloudApiConnectionId Int?
   email        String  @db.VarChar(191)
   segmento     String? @db.VarChar(100)
   cidade       String? @db.VarChar(100)
@@ -1253,6 +1256,8 @@ model Lead {
   @@index([googleCampaignId])
   @@index([statusSummaryId])
   @@index([statusSummaryId, statusSummaryAt])
+  @@index([phoneKey, instanceName])
+  @@index([phoneKey, cloudApiConnectionId])
   @@map("bychat_leads")
 }
 

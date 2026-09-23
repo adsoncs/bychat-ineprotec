@@ -85,7 +85,7 @@ export async function handleMessageEchoes(
       if (already) continue
     }
 
-    const resolved = await resolveLeadForContact({ phone: clientPhone }).catch(() => null)
+    const resolved = await resolveLeadForContact({ phone: clientPhone }, { cloudApiConnectionId: conn.id }).catch(() => null)
     const lead = resolved?.lead
     if (!lead) {
       // Conversa que só existe no celular e nunca passou pelo ByChat. Criar lead
@@ -206,7 +206,7 @@ export async function handleHistory(
       const otherPhone = normalizePhone(String(fromMe ? msg?.to : msg?.from) || '')
       if (!otherPhone) continue
 
-      const resolved = await resolveLeadForContact({ phone: otherPhone }).catch(() => null)
+      const resolved = await resolveLeadForContact({ phone: otherPhone }, { cloudApiConnectionId: conn.id }).catch(() => null)
       if (!resolved?.lead) continue
 
       const { text, mediaType, mediaName } = extractContent(msg)

@@ -28,19 +28,117 @@ export interface ResolvedContact {
 
 const SELECT = { id: true, whatsapp: true, waLid: true, phoneKey: true } as const
 
-export async function resolveLeadForContact(c: InboundContact): Promise<ResolvedContact> {
+// ── Canal dono da conversa ──────────────────────────────────────────────
+//
+// Um lead por telefone POR NÚMERO DA EMPRESA: o contato que escreve para dois
+// números nossos tem duas conversas, e cada atendimento só enxerga a sua. A
+// regra nasceu em 19/08/2026 só para a Evolution (`Lead.instanceName`); a API
+// oficial e os motores de chatbot achavam o lead só pelo telefone e juntavam
+// as duas conversas (beyond, 22/09: a foto mandada ao 6285 e a mandada ao 2843
+// caíram no mesmo chat; severiano tinha 93 leads assim, com números distintos).
+//
+// Dono = o canal gravado no lead (`instanceName` OU `cloudApiConnectionId`),
+// enquanto ele EXISTIR no cadastro — mesma régua do acharLeadDaInstancia.
+// Instância só desativada (QR caiu) não perde os contatos; canal apagado
+// (migração Evolution → API oficial no terram/ineprotec) solta os leads, e o
+// canal novo os adota em vez de duplicar a base inteira.
+export interface CanalDoContato {
+  instanceName?: string | null
+  cloudApiConnectionId?: number | null
+}
+
+let canaisCache: { at: number; instancias: string[]; conexoes: number[] } | null = null
+async function canaisCadastrados(): Promise<{ instancias: string[]; conexoes: number[] }> {
+  if (canaisCache && Date.now() - canaisCache.at < 30_000) return canaisCache
+  const [inst, conn] = await Promise.all([
+    prisma.whatsAppInstance.findMany({ select: { instanceName: true } }),
+    prisma.cloudApiConnection.findMany({ select: { id: true } }),
+  ])
+  canaisCache = { at: Date.now(), instancias: inst.map((i) => i.instanceName), conexoes: conn.map((c) => c.id) }
+  return canaisCache
+}
+
+/** Lead sem dono vivo: legado (sem canal) ou cujo canal saiu do cadastro. */
+export async function filtroSemDono() {
+  const { instancias, conexoes } = await canaisCadastrados()
+  return {
+    AND: [
+      { OR: [{ instanceName: null }, { instanceName: { notIn: instancias } }] },
+      { OR: [{ cloudApiConnectionId: null }, { cloudApiConnectionId: { notIn: conexoes } }] },
+    ],
+  }
+}
+
+/** Parte "API oficial" do filtro acima, para quem já trata a Evolution à mão
+ *  (acharLeadDaInstancia): lead de conexão ainda cadastrada não é da Evolution. */
+export async function semConexaoCloudViva() {
+  const { conexoes } = await canaisCadastrados()
+  return { OR: [{ cloudApiConnectionId: null }, { cloudApiConnectionId: { notIn: conexoes } }] }
+}
+
+function temCanal(canal?: CanalDoContato | null): canal is CanalDoContato {
+  return !!canal && (!!canal.instanceName || !!canal.cloudApiConnectionId)
+}
+
+function filtroDoDono(canal: CanalDoContato) {
+  return canal.cloudApiConnectionId
+    ? { cloudApiConnectionId: canal.cloudApiConnectionId }
+    : { instanceName: canal.instanceName! }
+}
+
+/**
+ * Busca em duas passadas: primeiro o lead DESTE canal; não havendo, um sem
+ * dono vivo — que é adotado (passa a pertencer a este canal). Lead de outro
+ * canal existente nunca volta: aí o chamador cria a conversa nova.
+ */
+async function buscarNoCanal<T extends { id: number }>(
+  canal: CanalDoContato | null | undefined,
+  buscar: (extra: Record<string, unknown>) => Promise<T | null>,
+  adotar = true,
+): Promise<T | null> {
+  if (!temCanal(canal)) return buscar({})
+  const proprio = await buscar(filtroDoDono(canal))
+  if (proprio) return proprio
+  const livre = await buscar(await filtroSemDono())
+  // Caminho de leitura pura (gates) filtra igual, mas não escreve.
+  if (livre && adotar) await adotarNoCanal(livre.id, canal)
+  return livre
+}
+
+/** Canal de uma mensagem a partir do que os motores já recebem. */
+export function canalDaMensagem(
+  provider: string | null | undefined,
+  instanceName: string | null | undefined,
+  cloudApiConnectionId: number | null | undefined,
+): CanalDoContato | null {
+  if (provider === 'cloud_api') return cloudApiConnectionId ? { cloudApiConnectionId } : null
+  return instanceName ? { instanceName } : null
+}
+
+/** Grava o canal como dono do lead (e solta o canal morto que ele tivesse). */
+export async function adotarNoCanal(leadId: number, canal: CanalDoContato): Promise<void> {
+  if (!temCanal(canal)) return
+  const data = canal.cloudApiConnectionId
+    ? { cloudApiConnectionId: canal.cloudApiConnectionId, instanceName: null }
+    : { instanceName: canal.instanceName!, cloudApiConnectionId: null }
+  await prisma.lead.update({ where: { id: leadId }, data }).catch(() => {})
+}
+
+export async function resolveLeadForContact(c: InboundContact, canal?: CanalDoContato | null): Promise<ResolvedContact> {
   const pk = phoneKey(c.phone)
   const lid = c.waLid && isLikelyLid(c.waLid) ? c.waLid : null
 
   // 1) waLid exato
   if (lid) {
-    const byLid = await prisma.lead.findFirst({ where: { waLid: lid }, orderBy: { createdAt: 'desc' }, select: SELECT })
+    const byLid = await buscarNoCanal(canal, (extra) =>
+      prisma.lead.findFirst({ where: { waLid: lid, ...extra }, orderBy: { createdAt: 'desc' }, select: SELECT }))
     if (byLid) return { lead: byLid, matchedBy: 'walid', phoneKey: pk }
   }
 
   // 2) phoneKey canônico exato
   if (pk) {
-    const byKey = await prisma.lead.findFirst({ where: { phoneKey: pk }, orderBy: { createdAt: 'desc' }, select: SELECT })
+    const byKey = await buscarNoCanal(canal, (extra) =>
+      prisma.lead.findFirst({ where: { phoneKey: pk, ...extra }, orderBy: { createdAt: 'desc' }, select: SELECT }))
     if (byKey) return { lead: byKey, matchedBy: 'phoneKey', phoneKey: pk }
   }
 
@@ -49,11 +147,11 @@ export async function resolveLeadForContact(c: InboundContact): Promise<Resolved
     const first = c.pushName.trim().split(/\s+/)[0]
     if (first && first.length >= 3) {
       const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000)
-      const byName = await prisma.lead.findFirst({
-        where: { nome: { startsWith: first }, waLid: null, createdAt: { gte: cutoff } },
+      const byName = await buscarNoCanal(canal, (extra) => prisma.lead.findFirst({
+        where: { nome: { startsWith: first }, waLid: null, createdAt: { gte: cutoff }, ...extra },
         orderBy: { createdAt: 'desc' },
         select: SELECT,
-      })
+      }))
       if (byName) return { lead: byName, matchedBy: 'pushName', phoneKey: pk }
     }
   }
@@ -128,6 +226,9 @@ export async function reconcileLeadIdentity(
 export interface OpcoesFichaDoContato {
   somenteAbertos?: boolean
   reconciliar?: boolean
+  /** Número da empresa por onde a mensagem chegou. Sem ele, busca no tenant
+   *  inteiro (comportamento antigo — só para quem não sabe o canal). */
+  canal?: CanalDoContato | null
 }
 
 export async function acharLeadDoContato(
@@ -136,6 +237,7 @@ export async function acharLeadDoContato(
 ): Promise<Awaited<ReturnType<typeof prisma.lead.findUnique>>> {
   if (!phone) return null
   const filtro = opts.somenteAbertos ? { completed: false } : {}
+  const adotar = opts.reconciliar !== false
 
   // 1) identidade canônica: colapsa com/sem 9º dígito, com/sem DDI, formatado.
   const pk = phoneKey(phone)
@@ -144,14 +246,16 @@ export async function acharLeadDoContato(
   // responderia ora numa, ora noutra, entre mensagens da MESMA conversa.
   const ordem = [{ createdAt: 'desc' as const }, { id: 'desc' as const }]
   let lead = pk
-    ? await prisma.lead.findFirst({ where: { phoneKey: pk, ...filtro }, orderBy: ordem })
+    ? await buscarNoCanal(opts.canal, (extra) =>
+        prisma.lead.findFirst({ where: { phoneKey: pk, ...filtro, ...extra }, orderBy: ordem }), adotar)
     : null
 
   // 2) igualdade crua — o que os motores sempre fizeram. Cobre o número fora do
   //    padrão e a ficha legada sem phoneKey preenchido (o middleware só grava na
   //    próxima escrita).
   if (!lead) {
-    lead = await prisma.lead.findFirst({ where: { whatsapp: phone, ...filtro }, orderBy: ordem })
+    lead = await buscarNoCanal(opts.canal, (extra) =>
+      prisma.lead.findFirst({ where: { whatsapp: phone, ...filtro, ...extra }, orderBy: ordem }), adotar)
   }
 
   // 3) waLid — a ÚNICA chave de quem chegou só com o LID. A ficha dessa pessoa
@@ -161,10 +265,10 @@ export async function acharLeadDoContato(
   //    recomeçaria do zero a cada turno.
   if (!lead && isLikelyLid(phone)) {
     const lid = phone.includes('@') ? phone : `${phone}@lid`
-    lead = await prisma.lead.findFirst({
-      where: { waLid: { in: [lid, phone] }, ...filtro },
+    lead = await buscarNoCanal(opts.canal, (extra) => prisma.lead.findFirst({
+      where: { waLid: { in: [lid, phone] }, ...filtro, ...extra },
       orderBy: ordem,
-    })
+    }), adotar)
   }
   if (!lead) return null
 

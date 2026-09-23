@@ -439,7 +439,12 @@ async function processIncomingMessage(
   // (COM chatbot → bot de IA; SEM chatbot → atendimento humano).
   // Gate de ativação: se o chatbot exige palavra-chave e a mensagem (cold start) não
   // casa, trata como SEM chatbot → cai no atendimento humano abaixo.
-  const hasChatbot = conn.chatbotId != null && await chatbotTriggerAllows(conn.chatbotId, phone, msgText)
+  // Mídia sem legenda não tem o que o bot ler, e o ramo do bot termina em
+  // `if (!msgText) return` — a foto era descartada sem rastro em toda conexão
+  // com chatbot. Vai para o atendimento humano abaixo, que acha/cria o lead e
+  // grava; o bot segue na próxima mensagem de texto.
+  const soMidia = mediaType !== 'text' && !msgText
+  const hasChatbot = !soMidia && conn.chatbotId != null && await chatbotTriggerAllows(conn.chatbotId, phone, msgText, { cloudApiConnectionId: conn.id })
 
   if (!hasChatbot) {
     // ── Atendimento humano: salva a mensagem e roteia, sem rodar IA ──
@@ -450,7 +455,8 @@ async function processIncomingMessage(
     // Identidade canônica unificada (lib/phone.ts + contactIdentity): casa por
     // phoneKey EXATO, colapsando todas as variações (com/sem 55, com/sem 9º dígito).
     // Substitui o antigo "whatsapp contains últimos-8" (frágil e propenso a duplicar).
-    const resolved = await resolveLeadForContact({ phone })
+    // Só a conversa DESTE número (ver contactIdentity → CanalDoContato).
+    const resolved = await resolveLeadForContact({ phone }, { cloudApiConnectionId: conn.id })
     let lead = resolved.lead
       ? await prisma.lead.findUnique({ where: { id: resolved.lead.id } })
       : null
@@ -469,7 +475,7 @@ async function processIncomingMessage(
       // duas fichas. A tarefa começa procurando de novo, que é o que faz a
       // segunda aproveitar o que a primeira criou.
       lead = await semFichaEmDobro(chaveDoContato(phone, `cloud:${conn.id}`), async () => {
-      const denovo = await resolveLeadForContact({ phone })
+      const denovo = await resolveLeadForContact({ phone }, { cloudApiConnectionId: conn.id })
       if (denovo.lead) {
         const achado = await prisma.lead.findUnique({ where: { id: denovo.lead.id } })
         if (achado) return achado
@@ -512,6 +518,8 @@ async function processIncomingMessage(
           // Mesmo motivo do webhook da Evolution: LID responde a conversa, mas
           // não é telefone de ninguém.
           ...identidadeDoContato(phone),
+          // A conversa pertence a ESTE número (par do instanceName da Evolution).
+          cloudApiConnectionId: conn.id,
           email: '',
           formData: { _source: 'whatsapp' },
           scores: {},

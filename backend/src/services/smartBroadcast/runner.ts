@@ -157,6 +157,15 @@ function createSmartWorker(): Worker {
       await prisma.smartCampaignRecipient.update({ where: { id: rec.id }, data: { status: 'sending' } })
       const provider = createEvolutionProviderFor(rec.assignedInstance)
       let lastId: string | null = null
+      // A bolha entra na conversa DO NÚMERO que enviou (rodízio de linhas), não
+      // na conversa que o lead tinha por outro número: o contato recebe isto
+      // como um chat daquela linha, e a resposta dele chega nela.
+      let conversaLeadId: number | null = rec.leadId ?? null
+      if (rec.leadId) {
+        const { conversaNoNumero } = await import('../conversaPorNumero.js')
+        const c = await conversaNoNumero(rec.leadId, { instanceName: rec.assignedInstance }, { source: 'smart_broadcast', motivo: `disparo:${campaign.id}` }).catch(() => null)
+        conversaLeadId = c?.leadId ?? null
+      }
 
       for (let i = 0; i < rendered.length; i++) {
         const block = rendered[i]!
@@ -173,10 +182,10 @@ function createSmartWorker(): Worker {
 
         // Conversa do lead precisa refletir o que ele recebeu — senão o operador
         // atende sem saber o que foi dito em seu nome.
-        if (rec.leadId) {
+        if (conversaLeadId) {
           await prisma.message.create({
             data: {
-              leadId: rec.leadId, fromMe: true, body: block.text || '(mídia)',
+              leadId: conversaLeadId, fromMe: true, body: block.text || '(mídia)',
               mediaType: block.mediaUrl ? (block.mediaType || 'image') : 'text',
               mediaUrl: block.mediaUrl, provider: 'evolution',
               evolutionInstance: rec.assignedInstance, externalId: result.messageId,

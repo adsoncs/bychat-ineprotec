@@ -599,6 +599,9 @@ export async function getDefaultProvider(): Promise<WhatsAppProvider> {
 
 /** Retorna provider baseado na origem das mensagens do lead */
 export async function getProviderForLead(lead: { id: number; whatsapp: string }): Promise<WhatsAppProvider> {
+  // Número fixo da conversa vence tudo (e desconectado falha, não troca).
+  const daConversa = await providerDaConversa(lead.id)
+  if (daConversa) return daConversa.provider
   // Verificar se lead tem mensagens via cloud_api
   const cloudMsg = await prisma.message.findFirst({
     where: { leadId: lead.id, provider: 'cloud_api' },
@@ -659,6 +662,11 @@ export function createEvolutionProviderFor(instanceName: string): EvolutionProvi
  * (provider lead-based / default).
  */
 export async function getProviderForLeadOwner(lead: { id: number; whatsapp: string }): Promise<{ provider: WhatsAppProvider; instanceName: string | null }> {
+  // Número fixo da conversa vence tudo. Antes, com a janela de 24h da API
+  // oficial fechada, isto mandava pela Evolution — outro número, dentro da
+  // mesma conversa. Agora a mensagem sai pelo número da conversa ou não sai.
+  const daConversa = await providerDaConversa(lead.id)
+  if (daConversa) return { provider: daConversa.provider, instanceName: daConversa.instanceName }
   // A Cloud API só entrega TEXTO LIVRE dentro da janela de 24h (a partir da última
   // mensagem RECEBIDA do lead). Só mantemos a conversa na Cloud API se a janela
   // estiver aberta; senão o número é "frio" (ex.: lead de formulário/landing/
@@ -747,6 +755,86 @@ export interface InboundChannel {
   kind: 'evolution' | 'cloud'
   instanceName: string | null
   cloudApiConnectionId: number | null
+}
+
+// ── Número FIXO da conversa ─────────────────────────────────────────────
+//
+// Regra (decisão do Adson, 22/09/2026): cada conversa tem o seu número, e
+// NADA sai por outro número dentro dela — nem painel, nem SUPERADMIN, nem
+// workflow, nem aviso de agenda. O contato recebe cada número nosso como uma
+// conversa separada no aparelho dele; do lado de cá tem que ser igual. Trocar
+// de número é abrir OUTRA conversa (POST /tickets/:id/abrir-por-numero).
+//
+// O número é o dono gravado no lead (`cloudApiConnectionId`/`instanceName`,
+// ver contactIdentity → CanalDoContato); lead legado sem dono cai no canal das
+// mensagens (última recebida, senão a última qualquer). Canal que saiu do
+// cadastro não conta — o lead fica livre, como na identidade. Canal que existe
+// mas está DESATIVADO continua sendo o da conversa: aí o envio falha, e nunca
+// escorrega para outro número.
+export interface CanalDaConversa extends InboundChannel {
+  ativo: boolean
+}
+
+export class CanalDaConversaIndisponivel extends Error {
+  readonly code = 'CHANNEL_UNAVAILABLE'
+  constructor(readonly canal: CanalDaConversa) {
+    super(`O número desta conversa (${canal.instanceName ?? `API oficial #${canal.cloudApiConnectionId}`}) está desconectado — a mensagem não foi enviada por outro número.`)
+  }
+}
+
+async function canalCadastrado(
+  instanceName: string | null | undefined,
+  cloudApiConnectionId: number | null | undefined,
+): Promise<CanalDaConversa | null> {
+  if (cloudApiConnectionId) {
+    const c = await prisma.cloudApiConnection.findUnique({ where: { id: cloudApiConnectionId }, select: { id: true, active: true } })
+    return c ? { channelId: cloudChannelId(c.id), kind: 'cloud', instanceName: null, cloudApiConnectionId: c.id, ativo: c.active } : null
+  }
+  if (instanceName) {
+    const i = await prisma.whatsAppInstance.findFirst({ where: { instanceName }, select: { instanceName: true, active: true } })
+    return i ? { channelId: evoChannelId(i.instanceName), kind: 'evolution', instanceName: i.instanceName, cloudApiConnectionId: null, ativo: i.active } : null
+  }
+  return null
+}
+
+export async function canalDaConversa(leadId: number): Promise<CanalDaConversa | null> {
+  // Grupo: o número titular (ver inboundChannelForLead).
+  const titular = (await titularesDeGrupos([leadId])).get(leadId)
+  if (titular) {
+    const c = await canalCadastrado(titular, null)
+    if (c) return c
+  }
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { instanceName: true, cloudApiConnectionId: true },
+  })
+  if (!lead) return null
+  const dono = await canalCadastrado(null, lead.cloudApiConnectionId)
+    ?? await canalCadastrado(lead.instanceName, null)
+  if (dono) return dono
+
+  const sel = { provider: true, evolutionInstance: true, cloudApiConnectionId: true } as const
+  for (const where of [
+    { leadId, fromMe: false, isInternal: false },
+    { leadId, isInternal: false },
+  ]) {
+    const m = await prisma.message.findFirst({ where, orderBy: { timestamp: 'desc' }, select: sel })
+    if (!m) continue
+    const c = m.provider === 'cloud_api'
+      ? await canalCadastrado(null, m.cloudApiConnectionId)
+      : m.provider === 'evolution' ? await canalCadastrado(m.evolutionInstance, null) : null
+    if (c) return c
+  }
+  return null
+}
+
+/** Provider do número fixo da conversa; null quando ela ainda não tem número. */
+export async function providerDaConversa(leadId: number): Promise<{ provider: WhatsAppProvider; instanceName: string | null; cloudApiConnectionId: number | null; canal: CanalDaConversa } | null> {
+  const canal = await canalDaConversa(leadId)
+  if (!canal) return null
+  if (!canal.ativo) throw new CanalDaConversaIndisponivel(canal)
+  const r = await getProviderForChannel(canal.channelId)
+  return { provider: r.provider, instanceName: r.instanceName, cloudApiConnectionId: r.cloudApiConnectionId ?? null, canal }
 }
 
 /**
@@ -966,8 +1054,10 @@ export async function getProviderForSender(
   //    falou. Vem antes de dono/remetente/setor: o contato só conhece esse
   //    número. Vale também para automações e helpdesk, que chegam aqui sem
   //    channelId explícito.
-  const locked = await lockedChannelForLead(lead.id, sender)
-  if (locked) return getProviderForChannel(locked.channelId)
+  //    Estrito desde 22/09/2026: número desconectado ou fora do alcance do
+  //    remetente NÃO escorrega para outro número (ver canalDaConversa).
+  const daConversa = await providerDaConversa(lead.id)
+  if (daConversa) return daConversa
 
   // 1. Sem conversa: DONO do lead com número dedicado.
   const leadRow = await prisma.lead.findUnique({ where: { id: lead.id }, select: { assignedUserId: true } })

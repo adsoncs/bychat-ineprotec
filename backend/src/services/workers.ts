@@ -221,20 +221,40 @@ function createWhatsAppWorker() {
       return
     }
 
-    const cfg = await getWhatsAppConfig()
-    if (!cfg.url || !cfg.key) throw new Error('WhatsApp não configurado')
-
-    // Resolver instância vinculada ao chatbot do lead (NUNCA usar fallback genérico)
-    let inst: string | null = null
-    if (lead.chatbotId) {
-      const instance = await prisma.whatsAppInstance.findFirst({
-        where: { chatbotId: lead.chatbotId, active: true }
-      })
-      if (instance) inst = instance.instanceName
+    // Número FIXO da conversa primeiro (ver whatsappProvider → canalDaConversa).
+    // Antes o workflow saía pela instância do chatbot ou pela do .env, sem olhar
+    // a conversa — o contato recebia de um número e a mensagem aparecia na
+    // conversa de outro. Desconectado falha aqui, sem trocar de número.
+    const wp = await import('./whatsappProvider.js')
+    let daConversa: Awaited<ReturnType<typeof wp.providerDaConversa>> = null
+    try {
+      daConversa = await wp.providerDaConversa(leadId)
+    } catch (e: any) {
+      if (e instanceof wp.CanalDaConversaIndisponivel) {
+        await updateStepExecution(stepExecutionId, 'failed', null, e.message)
+        throw new UnrecoverableError(e.message)
+      }
+      throw e
     }
-    // Fallback: instância da env (configurada pelo admin)
-    if (!inst) inst = cfg.instance
-    if (!inst) throw new Error('Nenhuma instância WhatsApp vinculada ao chatbot do lead')
+
+    let inst: string | null = daConversa?.instanceName ?? null
+    const cloudConnId: number | null = daConversa?.cloudApiConnectionId ?? null
+    let provider = daConversa?.provider ?? null
+    if (!daConversa) {
+      // Conversa ainda sem número: instância do chatbot do lead, senão a da env.
+      const cfg = await getWhatsAppConfig()
+      if (!cfg.url || !cfg.key) throw new Error('WhatsApp não configurado')
+      if (lead.chatbotId) {
+        const instance = await prisma.whatsAppInstance.findFirst({
+          where: { chatbotId: lead.chatbotId, active: true }
+        })
+        if (instance) inst = instance.instanceName
+      }
+      if (!inst) inst = cfg.instance
+      if (!inst) throw new Error('Nenhuma instância WhatsApp vinculada ao chatbot do lead')
+      provider = new wp.EvolutionProvider(cfg.url, cfg.key, inst)
+    }
+    if (!provider) throw new Error('Sem número para enviar')
 
     const result = await trackedSend({
       channel: 'whatsapp',
@@ -248,20 +268,17 @@ function createWhatsAppWorker() {
       source: stepExecutionId ? 'workflow' : 'system',
       sourceId: stepExecutionId ?? null,
     }, async () => {
-      const resp = await fetch(`${cfg.url}/message/sendText/${inst}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: cfg.key },
-        body: JSON.stringify({ number: to, text: message })
-      })
-
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => 'Unknown error')
-        throw new Error(`WhatsApp send failed (${resp.status}): ${errText}`)
-      }
-
-      const data = await resp.json().catch(() => ({}))
-      return { externalId: data?.key?.id || null, metadata: { instance: inst } }
+      // O provider lança em falha (HTTP != 2xx) — o trackedSend registra e o
+      // BullMQ tenta de novo.
+      const r = await provider.sendText(to, message)
+      return { externalId: r.messageId || null, metadata: { instance: inst, cloudApiConnectionId: cloudConnId } }
     })
+
+    // Primeira mensagem de conversa sem número: este passa a ser o dela.
+    if (!daConversa && result.externalId) {
+      const { adotarNoCanal } = await import('./contactIdentity.js')
+      await adotarNoCanal(leadId, { instanceName: inst })
+    }
 
     // Salvar mensagem no banco
     await prisma.message.create({
@@ -272,8 +289,9 @@ function createWhatsAppWorker() {
         senderName: 'Workflow',
         ack: 1,
         externalId: result.externalId ?? undefined,
-        provider: 'evolution',
-        evolutionInstance: inst,
+        provider: provider.providerName,
+        evolutionInstance: provider.providerName === 'evolution' ? inst : null,
+        cloudApiConnectionId: provider.providerName === 'cloud_api' ? cloudConnId : null,
       }
     })
 

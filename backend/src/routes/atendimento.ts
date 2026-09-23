@@ -881,7 +881,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const user = (req as any).user
     const leadId = q.leadId ? parseInt(q.leadId) : null
 
-    const { resolveSenderChannels, suggestChannelForLead, getCloudWindowState, canOverrideConversationChannel } = await import('../services/whatsappProvider.js')
+    const { resolveSenderChannels, suggestChannelForLead, getCloudWindowState } = await import('../services/whatsappProvider.js')
     const channels = await resolveSenderChannels({ userId: user.userId, role: user.role })
 
     // Janela de 24h só é relevante p/ Cloud; calcula uma vez por lead.
@@ -896,19 +896,71 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const suggestion = leadId
       ? await suggestChannelForLead(leadId, { userId: user.userId, role: user.role })
       : { channelId: null, locked: false }
-    const canOverride = canOverrideConversationChannel(user.role)
+
+    // Número FIXO da conversa (whatsappProvider → canalDaConversa): travado para
+    // todos os perfis. Trocar de número abre outra conversa (abrir-por-numero).
+    const { canalDaConversa } = await import('../services/whatsappProvider.js')
+    const fixo = leadId ? await canalDaConversa(leadId) : null
 
     return {
       channels: channels.map(c => ({
         ...c,
         window: c.provider === 'cloud_api' ? window : null,
       })),
-      suggestedChannelId: suggestion.channelId,
-      // Ninguém mais fica preso ao número sugerido: qualquer nível pode trocar
-      // quando precisar. A sugestão continua marcando qual é o número certo.
-      lockedChannelId: null,
-      canOverrideChannel: canOverride,
+      suggestedChannelId: fixo?.channelId ?? suggestion.channelId,
+      lockedChannelId: fixo?.channelId ?? null,
+      // Número da conversa fora do ar: o painel avisa em vez de oferecer envio.
+      lockedChannelActive: fixo ? fixo.ativo : null,
+      canOverrideChannel: false,
     }
+  })
+
+  // ── POST /api/atendimento/tickets/:leadId/abrir-por-numero — outra conversa ──
+  //
+  // Cada conversa tem o seu número (whatsappProvider → canalDaConversa). Falar
+  // com o mesmo contato por OUTRO número é abrir a conversa DAQUELE número: a
+  // que já existe, ou uma nova — do mesmo jeito que o contato, no aparelho dele,
+  // passa a ter um segundo chat. Nunca troca o número da conversa atual.
+  app.post('/api/atendimento/tickets/:leadId/abrir-por-numero', { preHandler: authMiddleware }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid)) return
+    const channelId = String((req.body as any)?.channelId || '')
+
+    const wp = await import('../services/whatsappProvider.js')
+    const allowed = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
+    const destino = allowed.find((c: any) => c.id === channelId)
+    if (!destino) return reply.code(403).send({ error: 'Você não tem acesso a esse número.' })
+
+    const atual = await prisma.lead.findUnique({ where: { id: lid }, select: { groupJid: true } })
+    if (!atual) return reply.code(404).send({ error: 'Conversa não encontrada.' })
+    if (atual.groupJid) return reply.code(400).send({ error: 'Grupo pertence a um número só — não se abre por outro.' })
+
+    const { conversaNoNumero, canalDoChannelId } = await import('../services/conversaPorNumero.js')
+    const canal = canalDoChannelId(channelId)
+    if (!canal) return reply.code(400).send({ error: 'Número inválido.' })
+    // Quem abriu é quem vai falar por este número.
+    const resultado = await conversaNoNumero(lid, canal, { assignedUserId: user.userId, source: 'manual' })
+    if (!resultado) return reply.code(400).send({ error: 'Não deu para abrir a conversa por esse número.' })
+
+    if (resultado.criada) {
+      const rotulo = destino.number || destino.label || channelId
+      logEvent({
+        leadId: resultado.leadId, type: EVENT_TYPES.LEAD_CREATED, category: 'lifecycle',
+        title: `Conversa aberta pelo número ${rotulo}`,
+        channel: 'whatsapp', source: 'panel', actorType: 'operator', userId: user.userId, userName: user.name || user.email,
+        description: `Aberta a partir da conversa #${lid}, que continua no número dela.`,
+        metadata: { origemLeadId: lid, channelId },
+      })
+      logEvent({
+        leadId: lid, type: EVENT_TYPES.LEAD_EDITED, category: 'lifecycle',
+        title: `Nova conversa aberta pelo número ${rotulo}`,
+        channel: 'whatsapp', source: 'panel', actorType: 'operator', userId: user.userId, userName: user.name || user.email,
+        description: `O contato passa a ter também a conversa #${resultado.leadId}, por outro número.`,
+        metadata: { novaLeadId: resultado.leadId, channelId },
+      })
+    }
+    return resultado
   })
 
   // ── POST /api/atendimento/tickets/:leadId/messages — Send message ──

@@ -5,7 +5,7 @@
 import { FastifyInstance } from 'fastify'
 import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
-import { semFichaEmDobro, chaveDoContato, acharLeadDoContato } from './contactIdentity.js'
+import { semFichaEmDobro, chaveDoContato, acharLeadDoContato, canalDaMensagem, type CanalDoContato } from './contactIdentity.js'
 import { getBranding } from '../lib/branding.js'
 import { notifyNewLead } from './notify.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -331,14 +331,13 @@ async function getAttendantName(chatbotId: number | null): Promise<string> {
 // - 'keyword' → só inicia se a mensagem (lead em "cold start") CONTÉM uma das palavras;
 //   lead já dentro de um fluxo ativo continua sempre (não re-filtra no meio).
 // Quando retorna false, o webhook trata como "sem chatbot" → atendimento humano.
-export async function chatbotTriggerAllows(chatbotId: number | null | undefined, phone: string, msgText: string): Promise<boolean> {
+export async function chatbotTriggerAllows(chatbotId: number | null | undefined, phone: string, msgText: string, canal?: CanalDoContato | null): Promise<boolean> {
   if (!chatbotId) return false
   // Takeover humano: se um operador já respondeu a este lead pelo painel, o bot
   // NUNCA responde (pausa definitiva até devolverem pelas Conversas). Precede
   // o filtro de palavra-chave. Ver services/botTakeover.ts.
-  const paused = await prisma.lead.findFirst({
-    where: { whatsapp: phone }, orderBy: { createdAt: 'desc' }, select: { formData: true },
-  }).catch(() => null)
+  // Pelo número desta conversa: o takeover de um número não cala o bot do outro.
+  const paused = await acharLeadDoContato(phone, { reconciliar: false, canal }).catch(() => null)
   if (paused) {
     const { readBotPause } = await import('./botTakeover.js')
     if (readBotPause(paused.formData)) return false
@@ -353,7 +352,7 @@ export async function chatbotTriggerAllows(chatbotId: number | null | undefined,
   const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)
   if (!kws.length) return true
   // Lead já em fluxo ativo → não bloqueia (continua a conversa em andamento).
-  const lead = await acharLeadDoContato(phone, { reconciliar: false }).catch(() => null)
+  const lead = await acharLeadDoContato(phone, { reconciliar: false, canal }).catch(() => null)
   const fd: any = lead?.formData || {}
   const aiActive = fd._aiJourney && fd._aiJourney.phase === 'active'
   const scrActive = fd._script && fd._script.phase && !['done', 'disqualified'].includes(fd._script.phase)
@@ -420,7 +419,9 @@ export async function processChatbotMessage(
     : null
 
   // Busca ou cria lead pelo número de WhatsApp
-  let lead = await acharLeadDoContato(phone, { somenteAbertos: true })
+  // Só a conversa DESTE número da empresa — ver contactIdentity → CanalDoContato.
+  const canal = canalDaMensagem(provider, instanceName, cloudApiConnectionId)
+  let lead = await acharLeadDoContato(phone, { somenteAbertos: true, canal })
 
   const isNew = !lead
 
@@ -430,7 +431,7 @@ export async function processChatbotMessage(
     // começa procurando de novo — é isso que faz a segunda aproveitar o que a
     // primeira criou.
     const resultado = await semFichaEmDobro(chaveDoContato(phone, instanceName ?? null), async () => {
-    const jaExiste = await acharLeadDoContato(phone, { somenteAbertos: true })
+    const jaExiste = await acharLeadDoContato(phone, { somenteAbertos: true, canal })
     // Outra mensagem do mesmo contato ganhou a corrida e já criou a ficha (e já
     // mandou a saudação): esta segue o fluxo normal em vez de saudar de novo.
     if (jaExiste) return { lead: jaExiste, saudou: false }
@@ -491,6 +492,9 @@ Para começar, qual é o seu *nome*?`
         // resposta, mas não é telefone de ninguém. Vai para `waLid`, e a coluna
         // fica vazia até o número real aparecer.
         ...identidadeDoContato(phone),
+        // Dono da conversa: o número por onde ela chegou.
+        ...(canal?.cloudApiConnectionId ? { cloudApiConnectionId: canal.cloudApiConnectionId } : {}),
+        ...(canal?.instanceName ? { instanceName: canal.instanceName } : {}),
         email: '',
         formData: {
           _chatMessages: [{ role: 'assistant', content: firstMessage }],

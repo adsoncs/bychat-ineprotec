@@ -84,12 +84,15 @@ export async function scheduledMessagesRoutes(app: FastifyInstance) {
     if (channelId && !canal) {
       return reply.code(403).send({ error: 'Você não tem acesso a esse número de envio.' })
     }
-    if (canal && !wp.canOverrideConversationChannel(user.role)) {
-      const locked = await wp.lockedChannelForLead(leadId, { userId: user.userId, role: user.role })
+    if (canal) {
+      // Número FIXO da conversa, para todos os perfis (whatsappProvider →
+      // canalDaConversa). O disparo passa pelo sendTicketMessage, que recusa
+      // igual — aqui só avisa já no agendamento.
+      const locked = await wp.canalDaConversa(leadId)
       if (locked && locked.channelId !== canal.id) {
         const label = canais.find((c: any) => c.id === locked.channelId)
         return reply.code(409).send({
-          error: `Esta conversa está em andamento pelo número ${label?.number || label?.label || locked.channelId}. O agendamento precisa sair por ele — é o número que o contato conhece.`,
+          error: `Esta conversa é do número ${label?.number || label?.label || locked.channelId}. O agendamento sai por ele; para outro número, abra uma conversa nova por ele.`,
           code: 'CHANNEL_LOCKED',
           lockedChannelId: locked.channelId,
         })

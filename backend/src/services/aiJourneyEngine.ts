@@ -16,7 +16,7 @@ import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage } from './formFlow.js'
-import { acharLeadDoContato } from './contactIdentity.js'
+import { acharLeadDoContato, canalDaMensagem } from './contactIdentity.js'
 import { applyAnswerToLead } from './scriptedChatbotFlow.js'
 import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
@@ -784,7 +784,9 @@ async function _process(
   // fim waLid — a busca ingênua `where: { whatsapp: phone }` não achava o lead
   // de quem chegou só com LID (whatsapp fica vazio de propósito nesse caso) e
   // reabria a jornada do zero a cada mensagem. Ver services/contactIdentity.ts.
-  let lead = await acharLeadDoContato(phone)
+  // Só a conversa DESTE número da empresa — ver contactIdentity → CanalDoContato.
+  const canal = canalDaMensagem(provider, instanceName, cloudApiConnectionId)
+  let lead = await acharLeadDoContato(phone, { canal })
   const fd: any = (lead?.formData as any) || {}
   let state: AiState | null = fd._aiJourney || null
 
@@ -798,7 +800,7 @@ async function _process(
         promoteFunnelId ? { funnelId: promoteFunnelId, stageKey: promoteStageKey ?? null } : undefined, {
         channel: 'whatsapp', leadSource: 'whatsapp', chatbotId: chatbotId ?? null,
         routing: { source: 'whatsapp', chatbotId: chatbotId ?? null, instanceName: instanceName ?? null },
-        forceWhatsapp: phone, qualificationSource: 'form',
+        forceWhatsapp: phone, qualificationSource: 'form', canal,
       })
       leadId = created?.leadId ?? null
     } else if (promoteFunnelId ?? form.funnelId) {

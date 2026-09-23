@@ -367,13 +367,15 @@ export interface SenderChannelsResponse {
   /** Número da conversa: o canal por onde o contato falou. Null em lead sem conversa. */
   suggestedChannelId: string | null
   /**
-   * Conversa em andamento → número TRAVADO no canal de entrada (aquele pelo qual
-   * o contato falou, o único que ele conhece). Null em lead sem conversa (o
-   * operador escolhe o da primeira interação) e null para SUPERADMIN, que pode
-   * trocar de número — para ele o canal da conversa é só o padrão.
+   * Número FIXO da conversa (backend: whatsappProvider → canalDaConversa),
+   * travado para todos os perfis. Null só em conversa que ainda não tem número:
+   * aí o operador escolhe o da primeira mensagem, e ele passa a ser o dela.
+   * Falar por outro número abre OUTRA conversa (abrir-por-numero).
    */
   lockedChannelId: string | null
-  /** true só para SUPERADMIN: pode responder por número diferente do da conversa. */
+  /** false quando o número da conversa está desconectado: nada sai por outro. */
+  lockedChannelActive?: boolean | null
+  /** Sempre false: ninguém troca o número dentro da conversa. */
   canOverrideChannel: boolean
 }
 

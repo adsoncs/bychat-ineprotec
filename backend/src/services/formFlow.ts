@@ -100,6 +100,8 @@ export interface CreateLeadCtx {
   routing?: RoutingContext
   chatbotId?: number | null
   forceWhatsapp?: string // injeta o telefone do inbound (WhatsApp)
+  /** Número da empresa por onde a conversa chegou — vira o dono do lead. */
+  canal?: { instanceName?: string | null; cloudApiConnectionId?: number | null } | null
 }
 
 export async function createLeadFromForm(
@@ -187,6 +189,9 @@ export async function createLeadFromForm(
       // Sem telefone ainda: é o LID que liga esta conversa à pessoa, e é por ele
       // que a próxima mensagem com número real encontra este mesmo lead.
       ...(contato.waLid ? { waLid: contato.waLid } : {}),
+      // Dono da conversa (ver services/contactIdentity.ts → CanalDoContato).
+      ...(ctx?.canal?.cloudApiConnectionId ? { cloudApiConnectionId: ctx.canal.cloudApiConnectionId } : {}),
+      ...(ctx?.canal?.instanceName ? { instanceName: ctx.canal.instanceName } : {}),
       // O contato se apresentou no formulário: nome mais forte que a agenda do
       // WhatsApp e que o pushName (ver services/leadDisplayName.ts).
       nomeOrigem: 'formulario',

@@ -48,11 +48,21 @@ export async function startConversation(input: StartConversationInput): Promise<
   const digitos = chave
 
   // 1. Já existe? Então a conversa é a dele — nunca um segundo lead.
-  const existente = await prisma.lead.findFirst({
-    where: { phoneKey: chave },
-    orderBy: { createdAt: 'desc' },
-    select: { id: true, nome: true, conversationOpenedAt: true, conversationClosedAt: true },
-  })
+  //    Com número de saída escolhido, "a dele" é a conversa DAQUELE número
+  //    (uma por número da empresa — ver whatsappProvider → canalDaConversa):
+  //    o contato que já fala com a linha A e recebe pela B tem dois chats, e
+  //    aqui também. Sem número escolhido, vale qualquer conversa do contato.
+  const { canalDoChannelId } = await import('./conversaPorNumero.js')
+  const canal = input.channelId ? canalDoChannelId(input.channelId) : null
+  const sel = { id: true, nome: true, conversationOpenedAt: true, conversationClosedAt: true } as const
+  let existente: { id: number; nome: string; conversationOpenedAt: Date | null; conversationClosedAt: Date | null } | null
+  if (canal) {
+    const { resolveLeadForContact } = await import('./contactIdentity.js')
+    const r = await resolveLeadForContact({ phone: digitos }, canal)
+    existente = r.lead ? await prisma.lead.findUnique({ where: { id: r.lead.id }, select: sel }) : null
+  } else {
+    existente = await prisma.lead.findFirst({ where: { phoneKey: chave }, orderBy: { createdAt: 'desc' }, select: sel })
+  }
 
   // 2. Número tem WhatsApp? Abrir conversa com número que não existe gera um
   //    ticket morto e queima envio depois. A checagem usa a instância do
@@ -125,6 +135,9 @@ export async function startConversation(input: StartConversationInput): Promise<
         source: 'manual',
         teamId,
         assignedUserId: input.actor.userId,
+        // Nasce já no número escolhido — é dele esta conversa.
+        ...(canal?.cloudApiConnectionId ? { cloudApiConnectionId: canal.cloudApiConnectionId } : {}),
+        ...(canal?.instanceName ? { instanceName: canal.instanceName } : {}),
         formData: { origem: 'conversa_manual', criadoPor: input.actor.name || input.actor.userId },
       },
       select: { id: true },

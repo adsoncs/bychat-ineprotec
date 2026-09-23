@@ -257,26 +257,45 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
         let instanceName: string | null
         let cloudConnId: number | null = null
 
-        if (channelId) {
-          // Override explícito do seletor de número. Valida acesso do operador.
-          const allowed = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
-          if (!allowed.some((c: any) => c.id === channelId)) {
-            return { ok: false, status: 403, error: 'Você não tem acesso a esse número de envio.' }
-          }
-          // Conversa em andamento trava o número: o contato só conhece aquele por
-          // onde falou. Exceção: SUPERADMIN pode trocar deliberadamente.
-          const locked = wp.canOverrideConversationChannel(user.role)
-            ? null
-            : await wp.lockedChannelForLead(lid, { userId: user.userId, role: user.role })
-          if (locked && locked.channelId !== channelId) {
-            const lockedLabel = allowed.find((c: any) => c.id === locked.channelId)
+        // Número FIXO da conversa (ver whatsappProvider → canalDaConversa): se a
+        // conversa já tem número, a mensagem sai por ele ou não sai — para
+        // qualquer perfil, SUPERADMIN inclusive. Falar por outro número é abrir
+        // outra conversa (POST /tickets/:id/abrir-por-numero), porque é isso que
+        // o contato vê do lado dele: uma conversa por número.
+        const allowed = await wp.resolveSenderChannels({ userId: user.userId, role: user.role })
+        const fixo = await wp.canalDaConversa(lid)
+        const rotulo = (id: string) => {
+          const c = allowed.find((x: any) => x.id === id)
+          return c?.number || c?.label || id
+        }
+        if (fixo) {
+          if (channelId && channelId !== fixo.channelId) {
             return {
               ok: false,
               status: 409,
               code: 'CHANNEL_LOCKED',
-              lockedChannelId: locked.channelId,
-              error: `Esta conversa já está em andamento pelo número ${lockedLabel?.number || lockedLabel?.label || locked.channelId}. A resposta precisa sair por ele — é o número que o contato conhece.`,
+              lockedChannelId: fixo.channelId,
+              error: `Esta conversa é do número ${rotulo(fixo.channelId)}. Para falar por outro número, abra uma conversa nova por ele.`,
             }
+          }
+          if (!fixo.ativo) {
+            return {
+              ok: false,
+              status: 409,
+              code: 'CHANNEL_UNAVAILABLE',
+              lockedChannelId: fixo.channelId,
+              error: `O número desta conversa (${rotulo(fixo.channelId)}) está desconectado. A mensagem não foi enviada — reconecte o número ou abra uma conversa nova por outro.`,
+            }
+          }
+          if (!allowed.some((c: any) => c.id === fixo.channelId)) {
+            return { ok: false, status: 403, error: `Você não tem acesso ao número desta conversa (${rotulo(fixo.channelId)}).` }
+          }
+          const r = await wp.getProviderForChannel(fixo.channelId)
+          provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId
+        } else if (channelId) {
+          // Conversa ainda sem número: o operador escolhe o da primeira mensagem.
+          if (!allowed.some((c: any) => c.id === channelId)) {
+            return { ok: false, status: 403, error: 'Você não tem acesso a esse número de envio.' }
           }
           const r = await wp.getProviderForChannel(channelId)
           provider = r.provider; instanceName = r.instanceName; cloudConnId = r.cloudApiConnectionId
@@ -349,6 +368,12 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
 
         sentExternalId = result?.messageId || null
         log.info(`[Atendimento] Sent ${mType} via ${sentProvider}${instanceName ? ` (${instanceName})` : ''}${cloudConnId ? ` (cloud#${cloudConnId})` : ''}, externalId=${sentExternalId}`)
+        // Primeira mensagem de uma conversa sem número: o número usado passa a
+        // ser o DELA (daqui em diante nada sai por outro). Grupo tem titular próprio.
+        if (!fixo && sentExternalId && !(lead as any).groupJid) {
+          const { adotarNoCanal } = await import('./contactIdentity.js')
+          await adotarNoCanal(lid, cloudConnId ? { cloudApiConnectionId: cloudConnId } : { instanceName })
+        }
       } catch (sendErr: any) {
         sendError = sendErr.message
         // "Número não tem WhatsApp" numa conversa que ESTÁ acontecendo é a
