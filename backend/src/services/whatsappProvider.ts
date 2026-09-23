@@ -1177,6 +1177,9 @@ export interface SenderChannel {
   number: string | null
   /** true se o operador é dono exclusivo deste canal (ownerUserId) */
   dedicated: boolean
+  /** Conta da Meta (WABA) do número da API oficial: cada modelo HSM pertence a
+   *  uma conta, e modelo de outra conta a Meta recusa. Null na Evolution. */
+  wabaId?: string | null
 }
 
 function evoChannelId(instanceName: string): string { return `evolution:${instanceName}` }
@@ -1236,6 +1239,7 @@ export async function resolveSenderChannels(sender: { userId: number; role: stri
     color: c.color ?? null,
     number: c.displayPhone ?? null,
     dedicated: c.ownerUserId === sender.userId,
+    wabaId: c.wabaId ?? null,
   })
 
   // Política de canais de envio:

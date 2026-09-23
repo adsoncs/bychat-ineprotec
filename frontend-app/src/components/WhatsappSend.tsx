@@ -15,6 +15,8 @@
 
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
+import { useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/apiClient'
 import { MessageCircle, Send, Cloud, Smartphone, Clock, AlertTriangle, ChevronRight, ChevronDown, Check, ArrowLeft, Lock } from '@/components/ui/icon-set'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -136,6 +138,8 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   const { data: evoData } = useTemplates({ channel: 'whatsapp' })
   const { data: cloudData } = useCloudApiTemplates()
   const send = useSendMessage(leadId)
+  const qc = useQueryClient()
+  const [enviandoOutro, setEnviandoOutro] = useState(false)
   const [, navigate] = useLocation()
 
   const channels = channelsData?.channels ?? []
@@ -155,10 +159,16 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
     if (preset && channels.some((c) => c.id === preset)) setChannelId(preset)
   }, [channelsData])
   const isCloud = channel?.provider === 'cloud_api'
-  const windowOpen = channel?.window?.open ?? false
+  // Número diferente do FIXO da conversa = mensagem vai para a conversa DAQUELE
+  // número (outro chat, como o contato vê do lado dele). Nela a janela de 24h
+  // da API oficial não é a desta conversa — conta como fechada (só modelo).
+  const outroNumero = lockedChannelId !== null && channelId !== null && channelId !== lockedChannelId
+  const windowOpen = outroNumero ? false : (channel?.window?.open ?? false)
 
   const evoTemplates = (evoData?.templates ?? []).filter((t) => t.active)
-  const cloudTemplates = (cloudData?.templates ?? []).filter((t) => t.status === 'APPROVED')
+  // Só os modelos da CONTA (WABA) deste número: modelo de outra conta a Meta recusa.
+  const cloudTemplates = (cloudData?.templates ?? []).filter((t) =>
+    t.status === 'APPROVED' && (!channel?.wabaId || t.wabaId === channel.wabaId))
 
   // Composição
   const [selectedEvo, setSelectedEvo] = useState<MessageTemplateItem | null>(null)
@@ -241,6 +251,28 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       input = { body, mediaType: 'text', isInternal: false, channelId }
     }
 
+    // Outro número: acha/abre a conversa do contato NAQUELE número e envia lá.
+    if (outroNumero) {
+      const numero = channel?.number || channel?.label || 'escolhido'
+      setEnviandoOutro(true)
+      void (async () => {
+        try {
+          const r = await api.post<{ leadId: number; criada: boolean }>(`/atendimento/tickets/${leadId}/abrir-por-numero`, { channelId })
+          await api.post(`/atendimento/tickets/${r.leadId}/messages`, input)
+          void qc.invalidateQueries({ queryKey: ['tickets'] })
+          void qc.invalidateQueries({ queryKey: ['ticket-messages', r.leadId] })
+          toast(`Mensagem enviada pelo ${numero}${r.criada ? ' — nova conversa aberta para este número' : ''}`, 'success')
+          onSent?.(); onClose()
+          if (opts.andOpenConversation) navigate(`/conversations?leadId=${r.leadId}`)
+        } catch (e) {
+          toast((e as Error).message || 'Falha ao enviar', 'danger')
+        } finally {
+          setEnviandoOutro(false)
+        }
+      })()
+      return
+    }
+
     send.mutate(input, {
       onSuccess: () => {
         toast(opts.andOpenConversation ? 'Mensagem enviada' : 'Mensagem enviada — abra Conversas pra acompanhar', 'success')
@@ -250,6 +282,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       onError: (e: unknown) => toast((e as Error).message || 'Falha ao enviar', 'danger'),
     })
   }
+  const enviando = send.isPending || enviandoOutro
 
   return (
     <Modal
@@ -268,19 +301,19 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
       footer={
         isComposing ? (
           <>
-            <Button variant="ghost" size="sm" onClick={backToTemplates} disabled={send.isPending}>
+            <Button variant="ghost" size="sm" onClick={backToTemplates} disabled={enviando}>
               <ArrowLeft size={12} /> Voltar
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => handleSend({ andOpenConversation: true })} disabled={send.isPending || noPhone}>
+            <Button variant="ghost" size="sm" onClick={() => handleSend({ andOpenConversation: true })} disabled={enviando || noPhone}>
               <MessageCircle size={12} /> Enviar e abrir conversa
             </Button>
             <button
               type="button"
               onClick={() => handleSend({ andOpenConversation: false })}
-              disabled={send.isPending || noPhone}
+              disabled={enviando || noPhone}
               class={cn('inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium text-white transition-colors', WPP_BG, WPP_HOVER, 'disabled:opacity-50 disabled:cursor-not-allowed')}
             >
-              <Send size={12} /> {send.isPending ? 'Enviando…' : 'Enviar'}
+              <Send size={12} /> {enviando ? 'Enviando…' : 'Enviar'}
             </button>
           </>
         ) : (
@@ -321,7 +354,7 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
           <ChannelHeader
             channels={channels}
             channelId={channelId}
-            locked={lockedChannelId !== null && channelId === lockedChannelId}
+            locked={false}
             conversationChannelId={conversationChannelId}
             onSelect={switchChannel}
           />
@@ -489,9 +522,9 @@ function ChannelHeader({ channels, channelId, locked, conversationChannelId, onS
         )}
       </div>
       {offConversation && (
-        <div class="mt-1 rounded-md border border-warning/40 bg-warning/10 p-2 text-2xs text-fg">
-          Esta conversa veio pelo {conversationChannel ? `${conversationChannel.label}${conversationChannel.number ? ` · ${conversationChannel.number}` : ''}` : 'outro número'}.
-          Enviando por aqui, o contato recebe de um número que ele não conhece.
+        <div class="mt-1 rounded-md border border-info/40 bg-info/10 p-2 text-2xs text-fg">
+          A conversa atual é pelo {conversationChannel ? `${conversationChannel.label}${conversationChannel.number ? ` · ${conversationChannel.number}` : ''}` : 'outro número'} e continua lá.
+          Por este número a mensagem vai para a conversa <strong>deste</strong> número com o contato — do lado dele, chega como outro chat.
         </div>
       )}
       {open && canSwitch && (

@@ -361,6 +361,8 @@ export interface SenderChannel {
   number: string | null
   dedicated: boolean
   window: SenderWindowState | null
+  /** Conta da Meta do número da API oficial — filtra os modelos HSM válidos. */
+  wabaId?: string | null
 }
 export interface SenderChannelsResponse {
   channels: SenderChannel[]
