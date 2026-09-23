@@ -14,9 +14,15 @@ import { Input, Textarea } from '@/components/ui/Input'
 import { ColorPicker } from '@/components/ui/ColorPicker'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { useCan } from '@/hooks/usePermissions'
 
 export function TagsPage() {
   const { data, isLoading } = useTags(true)
+  // Mesma regra do servidor (módulo Tags na tela de Permissões): botão que o
+  // perfil não pode usar não aparece — antes aparecia e devolvia erro.
+  const podeCriar = useCan('tags', 'create')
+  const podeEditar = useCan('tags', 'edit')
+  const podeExcluir = useCan('tags', 'delete')
   const [editing, setEditing] = useState<Tag | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Tag | null>(null)
@@ -31,9 +37,9 @@ export function TagsPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>
-          <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+          {podeCriar && <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
             <Plus size={14} /> Nova etiqueta
-          </Button>
+          </Button>}
         </div>
       }
     >
@@ -46,12 +52,12 @@ export function TagsPage() {
         <EmptyState
           icon={<TagIcon size={24} />}
           title="Nenhuma etiqueta criada"
-          action={<Button size="sm" variant="primary" onClick={() => setCreating(true)}><Plus size={14} /> Criar primeira etiqueta</Button>}
+          action={podeCriar ? <Button size="sm" variant="primary" onClick={() => setCreating(true)}><Plus size={14} /> Criar primeira etiqueta</Button> : undefined}
         />
       )}
       {!isLoading && data && data.tags.length > 0 && (
         <Card>
-          <TagsSortableList tags={data.tags} onEdit={setEditing} onDelete={setDeleting} />
+          <TagsSortableList tags={data.tags} onEdit={podeEditar ? setEditing : undefined} onDelete={podeExcluir ? setDeleting : undefined} podeReordenar={podeEditar} />
         </Card>
       )}
 
@@ -111,8 +117,8 @@ export function TagsPage() {
 }
 
 function TagsSortableList({
-  tags, onEdit, onDelete,
-}: { tags: Tag[]; onEdit: (t: Tag) => void; onDelete: (t: Tag) => void }) {
+  tags, onEdit, onDelete, podeReordenar = true,
+}: { tags: Tag[]; onEdit?: ((t: Tag) => void) | undefined; onDelete?: ((t: Tag) => void) | undefined; podeReordenar?: boolean }) {
   const reorder = useReorderTags()
 
   function handleReorder(next: Tag[]) {
@@ -122,11 +128,7 @@ function TagsSortableList({
     })
   }
 
-  return (
-    <SortableList
-      items={tags}
-      onReorder={handleReorder}
-      renderItem={(t) => (
+  const linha = (t: Tag) => (
         <div class="flex items-center gap-3 rounded-md border border-border p-3 bg-surface">
           <span
             class="size-7 rounded-md shrink-0 border border-border/40"
@@ -143,24 +145,32 @@ function TagsSortableList({
               <strong class="text-fg">{t._count.leads}</strong> {t._count.leads === 1 ? 'lead' : 'leads'}
             </span>
           )}
-          <div class="flex gap-1.5 shrink-0">
-            <Button variant="secondary" size="sm" onClick={() => onEdit(t)} aria-label="Editar etiqueta">
-              <Pencil size={12} /> Editar
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onDelete(t)}
-              aria-label="Excluir etiqueta"
-              class="!text-danger border-danger/30 hover:bg-danger/10"
-            >
-              <Trash2 size={12} /> Excluir
-            </Button>
-          </div>
+          {(onEdit || onDelete) && (
+            <div class="flex gap-1.5 shrink-0">
+              {onEdit && (
+                <Button variant="secondary" size="sm" onClick={() => onEdit(t)} aria-label="Editar etiqueta">
+                  <Pencil size={12} /> Editar
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onDelete(t)}
+                  aria-label="Excluir etiqueta"
+                  class="!text-danger border-danger/30 hover:bg-danger/10"
+                >
+                  <Trash2 size={12} /> Excluir
+                </Button>
+              )}
+            </div>
+          )}
         </div>
-      )}
-    />
   )
+
+  // Sem permissão de editar, a ordem não muda: lista sem arrastar.
+  if (!podeReordenar) return <div class="space-y-2">{tags.map((t) => <div key={t.id}>{linha(t)}</div>)}</div>
+  return <SortableList items={tags} onReorder={handleReorder} renderItem={linha} />
 }
 
 function TagFormModal({ tag, onClose }: { tag: Tag | null; onClose: () => void }) {

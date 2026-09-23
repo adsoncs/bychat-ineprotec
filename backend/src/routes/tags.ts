@@ -29,7 +29,7 @@ export async function tagsRoutes(app: FastifyInstance) {
   // permissão do módulo: o menu aparecia para quem tinha `tags.canView`, a
   // página abria e a chamada voltava 403 — etiqueta nenhuma na tela, sem
   // explicação. Quem decide o acesso é a permissão do módulo, que é onde o
-  // admin configura. Criar, editar e apagar seguem restritos.
+  // admin configura. Criar, editar e apagar também seguem essa permissão.
   app.get('/api/tags/all', { preHandler: [authMiddleware, requireModule('tags', 'view')] }, async () => {
     const tags = await prisma.tag.findMany({
       orderBy: [{ position: 'asc' }, { name: 'asc' }],
@@ -39,7 +39,10 @@ export async function tagsRoutes(app: FastifyInstance) {
   })
 
   // ── POST /api/tags ─── Criar tag ──
-  app.post('/api/tags', { preHandler: adminOnly }, async (req, reply) => {
+  // Criar/editar/excluir/reordenar respeitam a tela de Permissões (módulo Tags),
+  // não o papel: com `adminOnly` o agente com "criar" marcado recebia 403 e o
+  // MANAGER com tudo liberado também (kobogo/elementus, 23/09/2026).
+  app.post('/api/tags', { preHandler: [authMiddleware, requireModule('tags', 'create')] }, async (req, reply) => {
     const body = req.body as any
     if (!body.name || !body.color) return reply.code(400).send({ error: 'Nome e cor obrigatórios' })
 
@@ -59,7 +62,7 @@ export async function tagsRoutes(app: FastifyInstance) {
   })
 
   // ── PUT /api/tags/:id ─── Editar tag ──
-  app.put('/api/tags/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/tags/:id', { preHandler: [authMiddleware, requireModule('tags', 'edit')] }, async (req, reply) => {
     const { id } = req.params as any
     const body = req.body as any
 
@@ -70,16 +73,25 @@ export async function tagsRoutes(app: FastifyInstance) {
     if (body.position !== undefined) data.position = body.position
     if (body.active !== undefined) data.active = body.active
 
+    // Tag inexistente e nome repetido viravam erro 500 do banco.
+    const atual = await prisma.tag.findUnique({ where: { id: parseInt(id) }, select: { id: true } })
+    if (!atual) return reply.code(404).send({ error: 'Tag não encontrada' })
+    if (data.name) {
+      const mesmoNome = await prisma.tag.findFirst({ where: { name: data.name, NOT: { id: parseInt(id) } }, select: { id: true } })
+      if (mesmoNome) return reply.code(409).send({ error: `Tag "${data.name}" já existe` })
+    }
+
     const tag = await prisma.tag.update({ where: { id: parseInt(id) }, data })
     return { ok: true, tag }
   })
 
   // ── DELETE /api/tags/:id ─── Deletar tag (move para lixeira) ──
-  app.delete('/api/tags/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/tags/:id', { preHandler: [authMiddleware, requireModule('tags', 'delete')] }, async (req, reply) => {
     const { id } = req.params as any
     const user = (req as any).user as JwtPayload
     const snapshot = await snapshotEntity('tag', parseInt(id))
-    if (snapshot) {
+    if (!snapshot) return reply.code(404).send({ error: 'Tag não encontrada' })
+    {
       await moveToTrash({
         entityType: 'tag',
         entityId: parseInt(id),
@@ -94,7 +106,7 @@ export async function tagsRoutes(app: FastifyInstance) {
   })
 
   // ── PUT /api/tags/reorder ─── Reordenar tags ──
-  app.put('/api/tags/reorder', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/tags/reorder', { preHandler: [authMiddleware, requireModule('tags', 'edit')] }, async (req, reply) => {
     const { items } = req.body as any // [{id, position}]
     if (!Array.isArray(items)) return reply.code(400).send({ error: 'items obrigatório' })
     for (const item of items) {
@@ -243,7 +255,7 @@ export async function tagsRoutes(app: FastifyInstance) {
   })
 
   // ── GET /api/tags/stats ─── Distribuição de tags ──
-  app.get('/api/tags/stats', { preHandler: adminOnly }, async () => {
+  app.get('/api/tags/stats', { preHandler: [authMiddleware, requireModule('tags', 'view')] }, async () => {
     const tags = await prisma.tag.findMany({
       where: { active: true },
       orderBy: [{ position: 'asc' }],
