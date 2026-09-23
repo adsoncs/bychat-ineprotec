@@ -10,6 +10,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { useQualifyLead } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { useUserStore } from '@/stores/user'
 
 /**
  * O funil do lead, dentro da conversa.
@@ -544,6 +545,9 @@ function ModalPromoverComResponsavel({
 }) {
   const [teamId, setTeamId] = useState<number | null>(null)
   const [userId, setUserId] = useState<number | null>(null)
+  // Começa em quem está promovendo; trocar ou limpar à mão prevalece.
+  const euId = useUserStore((st) => (st.user?.id != null ? Number(st.user.id) : null))
+  const [responsavelMexido, setResponsavelMexido] = useState(false)
   const teamsQ = useTeams()
   const teamMembersQ = useTeamMembers(teamId)
   const usersQ = useUsers()
@@ -558,6 +562,12 @@ function ModalPromoverComResponsavel({
     if (userId !== null && opcoes.length > 0 && !opcoes.some((o) => o.id === userId)) setUserId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, opcoes.length])
+
+  useEffect(() => {
+    if (responsavelMexido || userId !== null || euId == null) return
+    if (opcoes.some((o) => o.id === euId)) setUserId(euId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responsavelMexido, userId, euId, opcoes.length, teamId])
 
   return (
     <Modal
@@ -601,7 +611,7 @@ function ModalPromoverComResponsavel({
             <select
               class="w-full h-9 rounded-md border border-border bg-surface-2 px-2 text-sm"
               value={userId === null ? '' : String(userId)}
-              onChange={(e) => setUserId((e.target as HTMLSelectElement).value ? parseInt((e.target as HTMLSelectElement).value, 10) : null)}
+              onChange={(e) => { setResponsavelMexido(true); setUserId((e.target as HTMLSelectElement).value ? parseInt((e.target as HTMLSelectElement).value, 10) : null) }}
               disabled={submitting}
             >
               <option value="">Selecione…</option>

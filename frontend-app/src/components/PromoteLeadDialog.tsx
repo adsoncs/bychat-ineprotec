@@ -8,6 +8,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { useQualifyLead, useBulkQualifyLeads, useLead, type BulkQualifyResult } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
 import { Target, Users } from '@/components/ui/icon-set'
+import { useUserStore } from '@/stores/user'
 
 type Mode =
   | { kind: 'single'; leadId: number; leadName?: string | null | undefined }
@@ -26,6 +27,10 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   const [stageKey, setStageKey] = useState<string | null>(null)
   const [teamId, setTeamId] = useState<number | null>(null)
   const [userId, setUserId] = useState<number | null>(null)
+  // Responsável começa em quem está promovendo (qualquer papel). Se a pessoa
+  // trocar ou limpar o campo, a escolha dela vale até fechar a janela.
+  const euId = useUserStore((st) => (st.user?.id != null ? Number(st.user.id) : null))
+  const [responsavelMexido, setResponsavelMexido] = useState(false)
   const funnelDetailQ = useFunnel(funnelId)
   const teamsQ = useTeams()
   const teamMembersQ = useTeamMembers(teamId)
@@ -65,6 +70,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
       setStageKey(null)
       setTeamId(null)
       setUserId(null)
+      setResponsavelMexido(false)
     }
   }, [open])
 
@@ -96,6 +102,14 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   // já tinha um de antes, OU é promoção em lote (não dá pra saber sem custo
   // se algum dos leads selecionados já está nessa situação).
   const precisaResponsavel = !noFunnel || leadJaTemFunil || mode?.kind === 'bulk'
+
+  // Pré-seleciona quem está logado, desde que esteja entre as opções (numa
+  // equipe da qual ele não faz parte, fica vazio para escolher).
+  useEffect(() => {
+    if (!open || !precisaResponsavel || responsavelMexido || userId !== null || euId == null) return
+    if (opcoesResponsavel.some((o) => o.id === euId)) setUserId(euId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, precisaResponsavel, responsavelMexido, userId, euId, opcoesResponsavel.length, teamId])
   const faltaResponsavel = precisaResponsavel && !userId
 
   const submitting = qualify.isPending || bulkQualify.isPending
@@ -267,6 +281,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                   value={userId === null ? '' : String(userId)}
                   onChange={(e) => {
                     const v = (e.target as HTMLSelectElement).value
+                    setResponsavelMexido(true)
                     setUserId(v ? parseInt(v, 10) : null)
                   }}
                   disabled={submitting}
