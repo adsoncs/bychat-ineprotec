@@ -3389,12 +3389,13 @@ function MediaContent({
   // botão de responder), então o efeito é próprio deste elemento.
   const blur = prefs.blurMedia ? 'blur-md hover:blur-none transition-[filter] duration-150' : ''
 
-  // Imagem em miniatura (metade do tamanho de antes — ocupava a bolha inteira
-  // e empurrava a conversa para fora da tela). O clique abre o visualizador.
+  // Imagem em miniatura: até 288px (18rem). Ocupava a bolha inteira e empurrava
+  // a conversa para fora da tela; os 240px de 22/09 ficaram pequenos demais
+  // (queixa de cliente) e subiram 20% em 23/09. O clique abre o visualizador.
   if (type === 'image') {
     return (
       <button type="button" onClick={abrir} class="mb-1 block cursor-zoom-in overflow-hidden rounded" title="Abrir imagem">
-        <img src={url} alt={name ?? 'Imagem'} loading="lazy" class={cn('block h-auto max-h-60 w-auto max-w-[15rem] rounded object-cover', blur)} />
+        <img src={url} alt={name ?? 'Imagem'} loading="lazy" class={cn('block h-auto max-h-72 w-auto max-w-[18rem] rounded object-cover', blur)} />
       </button>
     )
   }
@@ -3447,8 +3448,8 @@ function MediaContent({
           muted
           playsInline
           preload="metadata"
-          class={cn('max-w-[15rem] rounded', blur)}
-          style={{ maxHeight: '11rem' }}
+          class={cn('max-w-[18rem] rounded', blur)}
+          style={{ maxHeight: '13.25rem' }}
         />
         <span class="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-3xs font-semibold text-white">
           GIF
@@ -3468,7 +3469,7 @@ function MediaContent({
   if (type === 'video') {
     return (
       <button type="button" onClick={abrir} class="group/video relative mb-1 block overflow-hidden rounded bg-black" title="Assistir vídeo">
-        <video src={`${url}#t=0.1`} preload="metadata" muted playsInline class={cn('block max-h-44 w-60 max-w-full object-cover opacity-90', blur)} />
+        <video src={`${url}#t=0.1`} preload="metadata" muted playsInline class={cn('block max-h-[13.25rem] w-72 max-w-full object-cover opacity-90', blur)} />
         <span class="pointer-events-none absolute inset-0 flex items-center justify-center">
           <span class="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white ring-1 ring-white/30 transition-transform group-hover/video:scale-110">
             <Play size={ICON_SIZE.lg} />
