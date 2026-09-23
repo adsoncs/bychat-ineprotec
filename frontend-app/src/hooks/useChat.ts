@@ -609,6 +609,18 @@ export function useDeleteTicket() {
   })
 }
 
+/** "Limpar conversa": oculta as mensagens da tela da equipe (nada sai do WhatsApp do contato). */
+export function useClearTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (leadId: number) => api.post<{ ok: true; ocultadas: number }>(`/atendimento/tickets/${leadId}/clear`),
+    onSuccess: (_r, leadId) => {
+      void qc.invalidateQueries({ queryKey: ['ticket-messages', leadId] })
+      void qc.invalidateQueries({ queryKey: ['tickets'] })
+    },
+  })
+}
+
 export function useSnoozeTicket() {
   const qc = useQueryClient()
   return useMutation({

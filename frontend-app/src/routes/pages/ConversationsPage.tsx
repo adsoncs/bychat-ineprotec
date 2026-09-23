@@ -66,7 +66,7 @@ import {
   RefreshCw,
   Layers,
   UserRound,
-  ArrowUpRight, Play, FileSpreadsheet, Download,
+  ArrowUpRight, Play, FileSpreadsheet, Download, ExternalLink, Eraser,
 } from '@/components/ui/icon-set'
 import { ICON_SIZE } from '@/components/ui/Icon'
 // Logo de marca: vem do registry, não redesenhado aqui (traço e grade únicos).
@@ -87,6 +87,7 @@ import {
   useDeleteTicket,
   useAssignTicket,
   useSnoozeTicket,
+  useClearTicket,
   useUnsnoozeTicket,
   useTicketInfo,
   useResumeBot,
@@ -152,6 +153,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { cn } from '@/lib/cn'
+import { ContextMenu, type ItemMenu } from '@/components/ui/ContextMenu'
 import { GaleriaDeMidiaProvider, useGaleriaDeMidia } from '@/components/media/MediaViewer'
 import { mediaKindOf, extensaoDe, rotuloDoTipo, baixarArquivo, type MediaItem } from '@/components/media/mediaKind'
 import { corDoCanal, nomeDoCanal } from '@/lib/channelColors'
@@ -401,6 +403,136 @@ function ConversationsScreen() {
   const marcarLidasEmLote = useMarkReadBulk()
   // Fixar conversa no topo — vale só para quem fixou.
   const alternarFixado = useTogglePin()
+
+  // ── Menu de contexto (botão direito) na lista ─────────────────────────────
+  // Mesmas ações do cabeçalho da conversa, sem precisar abri-la. As que usam
+  // uma janela do painel (transferir, sincronizar, excluir…) abrem a conversa
+  // e pedem a janela ao ChatPanel via `acaoPendente` — assim há UMA janela de
+  // cada, e não duas versões divergindo.
+  const [menuConversa, setMenuConversa] = useState<{ t: Ticket; x: number; y: number } | null>(null)
+  const [acaoPendente, setAcaoPendente] = useState<{ leadId: number; acao: AcaoDoPainel } | null>(null)
+  const [confirmacao, setConfirmacao] = useState<{ tipo: 'limpar' | 'bloquear'; t: Ticket } | null>(null)
+  const [, navegar] = useLocation()
+  const usuario = useUserStore((st) => st.user)
+  const claimLista = useClaimTicket()
+  const releaseLista = useReleaseTicket()
+  const closeLista = useCloseConversation()
+  const openLista = useOpenConversation()
+  const snoozeLista = useSnoozeTicket()
+  const unsnoozeLista = useUnsnoozeTicket()
+  const limparLista = useClearTicket()
+  const [bloqueando, setBloqueando] = useState(false)
+  // Números do operador + o número fixo da conversa sob o menu (para tirá-lo
+  // da lista de "outro número"). Só busca enquanto o menu está aberto.
+  const { data: canaisDoMenu } = useSenderChannels(menuConversa && !menuConversa.t.isGroup ? menuConversa.t.id : null)
+  async function abrirPorNumero(t: Ticket, channelId: string, rotulo: string) {
+    try {
+      const r = await api.post<{ leadId: number; criada: boolean }>(`/atendimento/tickets/${t.id}/abrir-por-numero`, { channelId })
+      void qcConversas.invalidateQueries({ queryKey: ['tickets'] })
+      setSelected(r.leadId)
+      toast(r.criada ? `Conversa aberta pelo número ${rotulo}` : `Abrindo a conversa do número ${rotulo}`, 'success')
+    } catch (e) { falhou(e) }
+  }
+
+  function abrirNoPainel(leadId: number, acao?: AcaoDoPainel) {
+    setSelected(leadId)
+    if (acao === 'info') { setShowInfo(true); return }
+    if (acao) setAcaoPendente({ leadId, acao })
+  }
+  const ok = (msg: string) => () => toast(msg, 'success')
+  const falhou = (e: unknown) => toast((e as Error).message, 'danger')
+  async function copiar(texto: string, oque: string) {
+    try { await navigator.clipboard.writeText(texto); toast(`${oque} copiado`, 'success') }
+    catch { toast('Não foi possível copiar', 'danger') }
+  }
+
+  function itensDoMenu(t: Ticket): ItemMenu[] {
+    // Mesmas regras do cabeçalho da conversa (ChatPanel): uma conversa nunca
+    // mostra "Resolver" num lugar e "Reabrir" no outro.
+    const resolvida = !!t.conversationClosedAt && !t.conversationReopenedAt
+    const crua = !t.conversationOpenedAt && !t.conversationClosedAt
+    const temDono = t.assignedUserId != null
+    const podeAssumir = !temDono && (crua || !!t.conversationReopenedAt)
+    const minha = temDono && usuario?.id != null && Number(t.assignedUserId) === Number(usuario.id)
+    const adormecida = !!t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()
+    const grupo = !!t.isGroup
+    const evolution = t.channel?.provider === 'evolution'
+    const admin = usuario?.role === 'ADMIN' || usuario?.role === 'SUPERADMIN'
+    const naoLidas = t.unreadMessages > 0
+    const ate = (d: Date) => snoozeLista.mutate({ leadId: t.id, until: d.toISOString() }, { onSuccess: ok(`Adormecida até ${formatSnoozeLabel(d.toISOString())}`), onError: falhou })
+    const emHoras = (h: number) => { const d = new Date(); d.setHours(d.getHours() + h); return d }
+    const amanha9 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d }
+    const segunda9 = () => { const d = new Date(); d.setDate(d.getDate() + (((1 + 7 - d.getDay()) % 7) || 7)); d.setHours(9, 0, 0, 0); return d }
+    const I = ICON_SIZE.sm
+    const itens: ItemMenu[] = []
+    const add = (i: ItemMenu | false | null | undefined) => { if (i) itens.push(i) }
+    const sep = (id: string) => { if (itens.length && itens[itens.length - 1]!.tipo !== 'separador') itens.push({ tipo: 'separador', id }) }
+
+    if (selected !== t.id) add({ id: 'abrir', rotulo: 'Abrir conversa', icone: <MessageSquare size={I} />, aoEscolher: () => abrirNoPainel(t.id) })
+    add({ id: 'info', rotulo: 'Informações', icone: <Info size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'info') })
+    add({ id: 'buscar', rotulo: 'Pesquisar na conversa', icone: <Search size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'buscar') })
+
+    sep('s1')
+    if (podeAssumir) add({ id: 'assumir', rotulo: 'Assumir atendimento', icone: <Hand size={I} />, aoEscolher: () => claimLista.mutate(t.id, { onSuccess: ok('Atendimento assumido'), onError: falhou }) })
+    if (resolvida) add({ id: 'reabrir', rotulo: 'Reabrir atendimento', icone: <Inbox size={I} />, aoEscolher: () => openLista.mutate(t.id, { onSuccess: ok('Atendimento reaberto'), onError: falhou }) })
+    else add({ id: 'resolver', rotulo: crua ? 'Descartar da Caixa' : 'Resolver atendimento', icone: <CheckCircle size={I} />, aoEscolher: () => closeLista.mutate(t.id, { onSuccess: ok(crua ? 'Descartada da Caixa' : 'Atendimento resolvido'), onError: falhou }) })
+    if (minha && !resolvida && !crua) add({ id: 'devolver', rotulo: 'Devolver à fila', icone: <UserMinus size={I} />, aoEscolher: () => releaseLista.mutate(t.id, { onSuccess: ok('Devolvida à fila'), onError: falhou }) })
+    if (!resolvida) add({ id: 'transferir', rotulo: 'Transferir…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'transferir') })
+    if (adormecida) add({ id: 'acordar', rotulo: 'Acordar agora', icone: <Clock size={I} />, aoEscolher: () => unsnoozeLista.mutate(t.id, { onSuccess: ok('Conversa acordada'), onError: falhou }) })
+    else if (!resolvida && !crua) add({
+      id: 'adormecer', rotulo: 'Adormecer', icone: <Clock size={I} />, submenu: [
+        { id: 'z1', rotulo: 'Daqui a 1 hora', aoEscolher: () => ate(emHoras(1)) },
+        { id: 'z4', rotulo: 'Daqui a 4 horas', aoEscolher: () => ate(emHoras(4)) },
+        { id: 'zam', rotulo: 'Amanhã às 9h', aoEscolher: () => ate(amanha9()) },
+        { id: 'zseg', rotulo: 'Segunda-feira às 9h', aoEscolher: () => ate(segunda9()) },
+        { tipo: 'separador', id: 'zs' },
+        { id: 'zoutra', rotulo: 'Outra data e hora…', aoEscolher: () => abrirNoPainel(t.id, 'adormecer') },
+      ],
+    })
+
+    sep('s2')
+    add(naoLidas
+      ? { id: 'lida', rotulo: 'Marcar como lida', icone: <MailOpen size={I} />, aoEscolher: () => marcarLidasEmLote.mutate([t.id], { onSuccess: ok('Marcada como lida'), onError: falhou }) }
+      : { id: 'naolida', rotulo: 'Marcar como não lida', icone: <MailQuestion size={I} />, aoEscolher: () => marcarNaoLida.mutate(t.id, {
+          onSuccess: (r) => { if (selected === t.id) setSelected(null); toast(r.espelhadoNoWhatsapp ? 'Marcada como não lida aqui e no WhatsApp' : 'Marcada como não lida', 'success') },
+          onError: falhou,
+        }) })
+    add({ id: 'fixar', rotulo: t.pinned ? 'Desafixar' : 'Fixar no topo', icone: t.pinned ? <PinOff size={I} /> : <Pin size={I} />,
+      aoEscolher: () => alternarFixado.mutate({ leadId: t.id, pinned: !!t.pinned }, { onSuccess: ok(t.pinned ? 'Conversa desafixada' : 'Conversa fixada no topo'), onError: falhou }) })
+    add({ id: 'selecionar', rotulo: selectedIds.has(t.id) ? 'Desmarcar' : 'Selecionar', icone: <CheckSquare size={I} />, aoEscolher: () => toggleSelect(t.id) })
+    if (!t.qualifiedAt && !grupo) add({ id: 'promover', rotulo: 'Promover a Lead', icone: <Star size={I} />, aoEscolher: () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) })
+    // Sincronizar puxa o histórico do APARELHO: só existe na Evolution. A API
+    // oficial não guarda histórico para consulta.
+    if (evolution) add({ id: 'sync', rotulo: grupo ? 'Sincronizar grupo' : 'Sincronizar do celular', icone: <RefreshCw size={I} />, aoEscolher: () => abrirNoPainel(t.id, 'sincronizar') })
+    // Outro número = OUTRA conversa (cada conversa tem número fixo). Submenu com
+    // os números do operador, menos o desta conversa; independe do painel — vale
+    // até em conversa resolvida, que não tem caixa de texto.
+    if (!grupo) {
+      const outros = (canaisDoMenu?.channels ?? []).filter((c) => c.id !== canaisDoMenu?.lockedChannelId)
+      add({
+        id: 'outro', rotulo: 'Falar por outro número', icone: <Smartphone size={I} />,
+        submenu: !canaisDoMenu
+          ? [{ id: 'carregando', rotulo: 'Carregando números…', desativado: true }]
+          : outros.length === 0
+            ? [{ id: 'nenhum', rotulo: 'Nenhum outro número disponível', desativado: true }]
+            : outros.map((c) => {
+                const rot = c.number && nomeDoCanal(c) !== c.number ? `${nomeDoCanal(c)} · ${c.number}` : nomeDoCanal(c)
+                return { id: `n-${c.id}`, rotulo: rot, icone: c.provider === 'cloud_api' ? <Cloud size={I} /> : <Smartphone size={I} />, aoEscolher: () => void abrirPorNumero(t, c.id, c.number || rot) }
+              }),
+      })
+    }
+
+    sep('s3')
+    if (!grupo) add({ id: 'ficha', rotulo: 'Abrir ficha do lead', icone: <ExternalLink size={I} />, aoEscolher: () => navegar(`/leads/${t.id}`) })
+    if (t.whatsapp && !grupo) add({ id: 'copnum', rotulo: 'Copiar número', icone: <Phone size={I} />, aoEscolher: () => void copiar(t.whatsapp!, 'Número') })
+    if (t.nome) add({ id: 'copnome', rotulo: 'Copiar nome', icone: <Copy size={I} />, aoEscolher: () => void copiar(t.nome!, 'Nome') })
+
+    sep('s4')
+    add({ id: 'limpar', rotulo: 'Limpar conversa', icone: <Eraser size={I} />, perigo: true, aoEscolher: () => setConfirmacao({ tipo: 'limpar', t }) })
+    if (admin && !grupo) add({ id: 'bloquear', rotulo: 'Bloquear contato', icone: <Ban size={I} />, perigo: true, aoEscolher: () => setConfirmacao({ tipo: 'bloquear', t }) })
+    add({ id: 'excluir', rotulo: 'Excluir conversa', icone: <Trash2 size={I} />, perigo: true, aoEscolher: () => abrirNoPainel(t.id, 'excluir') })
+    return itens
+  }
 
   const ticketsQ = useTicketsInfinite({
     bucket, scope,
@@ -980,6 +1112,7 @@ function ConversationsScreen() {
                     selectable={selectionEnabled}
                     selected={selectedIds.has(t.id)}
                     onToggleSelect={() => toggleSelect(t.id)}
+                    onMenu={(x, y) => setMenuConversa({ t, x, y })}
                     onPromote={!t.qualifiedAt && !t.isGroup ? () => setPromoteSingle({ id: t.id, name: t.nome ?? undefined }) : undefined}
                     onAlternarFixado={() => {
                       alternarFixado.mutate({ leadId: t.id, pinned: !!t.pinned }, {
@@ -1079,6 +1212,8 @@ function ConversationsScreen() {
                 void qcConversas.invalidateQueries({ queryKey: ['tickets'] })
                 setSelected(id)
               }}
+              acaoPendente={acaoPendente?.leadId === selected ? acaoPendente.acao : null}
+              onAcaoConsumida={() => setAcaoPendente(null)}
               showInfo={showInfo}
               onToggleInfo={() => setShowInfo((v) => !v)}
             />
@@ -1127,6 +1262,52 @@ function ConversationsScreen() {
       />
 
       <ImportChatsModal open={importarOpen} onOpenChange={setImportarOpen} />
+
+      {menuConversa && (
+        <ContextMenu
+          x={menuConversa.x}
+          y={menuConversa.y}
+          itens={itensDoMenu(menuConversa.t)}
+          rotulo={`Ações da conversa com ${menuConversa.t.nome ?? menuConversa.t.whatsapp ?? 'contato'}`}
+          onClose={() => setMenuConversa(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={confirmacao?.tipo === 'limpar'}
+        onOpenChange={(o) => { if (!o) setConfirmacao(null) }}
+        title="Limpar conversa?"
+        description={`As mensagens com ${confirmacao?.t.nome ?? 'este contato'} somem desta tela para toda a equipe. Nada é apagado no WhatsApp do contato, e o histórico continua gravado no lead.`}
+        confirmLabel="Limpar"
+        destructive
+        loading={limparLista.isPending}
+        onConfirm={() => {
+          const t = confirmacao?.t
+          if (!t) return
+          limparLista.mutate(t.id, {
+            onSuccess: (r) => { setConfirmacao(null); toast(`Conversa limpa (${r.ocultadas} mensagens ocultadas)`, 'success') },
+            onError: falhou,
+          })
+        }}
+      />
+      <ConfirmDialog
+        open={confirmacao?.tipo === 'bloquear'}
+        onOpenChange={(o) => { if (!o) setConfirmacao(null) }}
+        title="Bloquear contato?"
+        description={`Novas mensagens e formulários de ${confirmacao?.t.nome ?? 'este contato'} passam a ser barrados (lista de bloqueio em Segurança). Dá para desfazer lá.`}
+        confirmLabel="Bloquear"
+        destructive
+        loading={bloqueando}
+        onConfirm={async () => {
+          const t = confirmacao?.t
+          if (!t) return
+          setBloqueando(true)
+          try {
+            await api.post(`/admin/security/lead-blocks/from-lead/${t.id}`, { reason: 'Bloqueado a partir das Conversas (menu da lista)' })
+            setConfirmacao(null)
+            toast('Contato bloqueado', 'success')
+          } catch (e) { falhou(e) } finally { setBloqueando(false) }
+        }}
+      />
 
       <NewConversationModal
         open={novaConversaOpen}
@@ -1214,6 +1395,9 @@ function ChannelTag({ channel, compact = false, semTexto = false }: {
   )
 }
 
+/** Ações que o menu da lista pede ao painel da conversa (que tem as janelas). */
+type AcaoDoPainel = 'info' | 'buscar' | 'transferir' | 'sincronizar' | 'excluir' | 'outroNumero' | 'adormecer'
+
 function TicketRow({
   ticket,
   active,
@@ -1225,6 +1409,7 @@ function TicketRow({
   onMarcarNaoLida,
   onMarcarLida,
   onAlternarFixado,
+  onMenu,
 }: {
   ticket: Ticket
   active: boolean
@@ -1236,9 +1421,23 @@ function TicketRow({
   onMarcarNaoLida?: (() => void) | undefined
   onMarcarLida?: (() => void) | undefined
   onAlternarFixado?: (() => void) | undefined
+  /** Abre o menu de contexto da conversa na posição (x, y) da tela. */
+  onMenu?: ((x: number, y: number) => void) | undefined
 }) {
   const { prefs } = useConversationPrefs()
   const name = ticket.nome ?? ticket.whatsapp ?? 'Sem nome'
+  // Toque longo (celular) abre o mesmo menu do botão direito.
+  const toqueRef = useRef<{ t: number; x: number; y: number } | null>(null)
+  function iniciarToque(e: TouchEvent) {
+    const p = e.touches[0]
+    if (!onMenu || !p) return
+    const x = p.clientX, y = p.clientY
+    const t = window.setTimeout(() => { toqueRef.current = null; navigator.vibrate?.(10); onMenu(x, y) }, 500)
+    toqueRef.current = { t, x, y }
+  }
+  function cancelarToque() {
+    if (toqueRef.current) { window.clearTimeout(toqueRef.current.t); toqueRef.current = null }
+  }
   const initials = (name ?? '?').slice(0, 2).toUpperCase()
   const lastBody = ticket.lastMessage?.body ?? ticket.lastMessagePreview ?? ''
   const previewPrefix = ticket.lastMessage?.fromMe ? 'Você: ' : ''
@@ -1249,10 +1448,29 @@ function TicketRow({
   const compact = prefs.density === 'compact'
 
   return (
-    <li class="group relative">
+    <li
+      class="group relative"
+      onContextMenu={onMenu ? (e) => { e.preventDefault(); onMenu(e.clientX, e.clientY) } : undefined}
+      onTouchStart={iniciarToque}
+      onTouchMove={(e) => {
+        const p = e.touches[0], o = toqueRef.current
+        if (o && p && Math.hypot(p.clientX - o.x, p.clientY - o.y) > 10) cancelarToque()
+      }}
+      onTouchEnd={cancelarToque}
+      onTouchCancel={cancelarToque}
+    >
       <button
         type="button"
         onClick={onClick}
+        onKeyDown={onMenu ? (e) => {
+          // Tecla de menu do teclado ou Shift+F10: abre o menu na própria linha.
+          if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+            e.preventDefault()
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            onMenu(r.left + 24, r.top + r.height / 2)
+          }
+        } : undefined}
+        aria-haspopup={onMenu ? 'menu' : undefined}
         class={cn(
           'w-full text-left px-3 border-b border-border hover:bg-surface-3 transition-colors',
           compact ? 'py-1.5' : 'py-3',
@@ -1440,13 +1658,16 @@ function TicketRow({
 }
 
 function ChatPanel({
-  leadId, bucket, onClose, showInfo, onToggleInfo, onAbrirConversa,
+  leadId, bucket, onClose, showInfo, onToggleInfo, onAbrirConversa, acaoPendente = null, onAcaoConsumida,
 }: {
   leadId: number
   bucket: Bucket
   onClose: () => void
   /** Abre outra conversa (ex.: o mesmo contato por outro número). */
   onAbrirConversa: (leadId: number) => void
+  /** Pedido do menu da lista (botão direito) para abrir uma janela deste painel. */
+  acaoPendente?: AcaoDoPainel | null
+  onAcaoConsumida?: () => void
   showInfo: boolean
   onToggleInfo: () => void
 }) {
@@ -1576,6 +1797,7 @@ function ChatPanel({
   // "Ainda é contato" no cabeçalho — que é o que sobrou desde que responder
   // passou a assumir a conversa sem passar pelo botão.
   const [promoverAberto, setPromoverAberto] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -1658,6 +1880,22 @@ function ChatPanel({
     setPendingTplAttachment(null)
     setSlashDismissed(false)
   }, [leadId])
+
+  // Pedido do menu de contexto da lista: abre a janela correspondente. Fica
+  // DEPOIS do reset acima de propósito — efeitos rodam na ordem em que são
+  // declarados, e o reset (que roda na troca de conversa) zeraria a busca e o
+  // seletor de número que este acabou de abrir.
+  useEffect(() => {
+    if (!acaoPendente) return
+    if (acaoPendente === 'transferir') setTransferOpen(true)
+    else if (acaoPendente === 'sincronizar') setSyncOpen(true)
+    else if (acaoPendente === 'excluir') setDeleteOpen(true)
+    else if (acaoPendente === 'buscar') setChatSearch((v) => v ?? '')
+    else if (acaoPendente === 'outroNumero') setNumMenuOpen(true)
+    else if (acaoPendente === 'adormecer') setMenuAcoesOpen(true)
+    onAcaoConsumida?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acaoPendente, leadId])
 
   /**
    * O rascunho é DE CADA CONVERSA.

@@ -125,6 +125,12 @@ const SELECAO_TICKET = {
       // A lista mostra "Voltou a falar" na conversa que o contato reabriu: sem
       // isso o operador vê um lead COM dono na Caixa e não entende por quê.
       conversationReopenedAt: true,
+      // Aberta/encerrada: o menu de contexto da lista decide Resolver × Reabrir
+      // × Descartar por eles, com a MESMA regra do cabeçalho da conversa. O tipo
+      // Ticket do front já os declarava, mas a lista não mandava — toda conversa
+      // parecia "crua".
+      conversationOpenedAt: true,
+      conversationClosedAt: true,
       messages: {
         orderBy: { timestamp: 'desc' },
         take: 1,
@@ -1626,6 +1632,29 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     } catch (err: any) {
       return respondeErroAcao(reply, err)
     }
+  })
+
+  // POST /api/atendimento/tickets/:leadId/clear — "Limpar conversa"
+  //
+  // Como o "Limpar conversa" do WhatsApp: some da TELA da equipe, sem apagar
+  // nada no aparelho do contato nem do banco. Usa o mesmo `isDeleted` do
+  // "apagar para mim" (a bolha já some da lista por ele) — as mensagens ficam
+  // gravadas para auditoria, métricas e histórico do lead. Mesma permissão de
+  // excluir mensagem.
+  app.post('/api/atendimento/tickets/:leadId/clear', { preHandler: authMiddleware }, async (req, reply) => {
+    const lid = parseInt((req.params as any).leadId)
+    if (!await assertTicketAccess(req, reply, lid, 'delete')) return
+    const user = (req as any).user as JwtPayload
+    const r = await prisma.message.updateMany({ where: { leadId: lid, isDeleted: false }, data: { isDeleted: true } })
+    logEvent({
+      leadId: lid, type: EVENT_TYPES.LEAD_EDITED, category: 'communication',
+      title: 'Conversa limpa no painel',
+      description: `${r.count} mensagem(ns) ocultada(s) da tela da equipe — nada foi apagado no WhatsApp do contato.`,
+      channel: 'manual', source: 'panel', actorType: 'operator', userId: user.userId, userName: user.name || user.email,
+      metadata: { mensagensOcultadas: r.count },
+    })
+    broadcastRealtimeEvent({ type: 'message:sent', payload: { leadId: lid }, scope: { leadId: lid } })
+    return { ok: true, ocultadas: r.count }
   })
 
   // POST /api/atendimento/tickets/:leadId/messages/:messageId/forward
