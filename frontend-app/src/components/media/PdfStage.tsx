@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { Loader2, Minus, Plus, AlertTriangle } from '@/components/ui/icon-set'
 import { ICON_SIZE } from '@/components/ui/Icon'
 
