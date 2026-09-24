@@ -129,6 +129,7 @@ import { api } from '@/lib/apiClient'
 import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
+import { BarraFormatacao, atalhoFormatacao } from '@/components/FormatacaoMensagem'
 import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
 import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
 import { NewConversationModal } from '@/components/NewConversationModal'
@@ -3460,6 +3461,8 @@ function ChatPanel({
                       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); const alvo = slashMatches[Math.min(slashIndex, n - 1)]; if (alvo) void selectShortcut(alvo); return }
                       if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                     }
+                    // Ctrl+B, Ctrl+I… — mesmos atalhos do WhatsApp Web.
+                    if (atalhoFormatacao(e, textareaRef.current)) return
                     // Tecla de envio conforme a preferência: "Enter envia"
                     // (Shift+Enter quebra) ou "Ctrl+Enter envia" — nesta, o
                     // Enter sozinho quebra linha, para respostas longas.
@@ -3480,6 +3483,7 @@ function ChatPanel({
                   // continuar escrevendo a próxima enquanto a anterior voa.
                   rows={1}
                 />
+                <BarraFormatacao textareaRef={textareaRef} />
                 <button
                   type="button"
                   class={cn(
@@ -4549,11 +4553,21 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 }
 
-/** Replica formatação do WhatsApp: *bold*, _italic_, ~strike~, ```code```, URLs auto-link. */
+/** Replica formatação do WhatsApp: *bold*, _italic_, ~strike~, ```code```,
+ *  `código`, listas ("- ", "* ", "1. "), citação ("> ") e URLs auto-link. */
 function formatWhatsappBody(s: string): string {
   let out = escapeHtml(s)
-  // ```code``` → <code> (multilinha)
-  out = out.replace(/```([\s\S]+?)```/g, '<code class="font-mono bg-black/10 px-1 rounded">$1</code>')
+  // Código (bloco ``` e inline `) sai da frente antes do resto: o WhatsApp não
+  // formata nada dentro dele — nem negrito, nem link. Volta no fim.
+  const codigos: string[] = []
+  const guardar = (html: string) => `\uE000${codigos.push(html) - 1}\uE001`
+  out = out.replace(/```([\s\S]+?)```/g, (_m, c) => guardar(`<code class="font-mono bg-black/10 px-1 rounded">${c}</code>`))
+  out = out.replace(/`([^`\n]+)`/g, (_m, c) => guardar(`<code class="font-mono bg-black/10 px-1 rounded">${c}</code>`))
+  // "- item" / "* item" → marcador (antes do negrito: "* " no começo da linha não é negrito)
+  out = out.replace(/^([-*]) (?=\S)/gm, '<span class="opacity-70">•</span> ')
+  // "> citação" → faixa lateral; consome a quebra de linha, senão o bloco
+  // deixaria uma linha em branco embaixo (a bolha é whitespace-pre-wrap).
+  out = out.replace(/^&gt; ?(.*)(\n|$)/gm, '<span class="block border-l-[3px] border-current pl-2 opacity-75">$1</span>')
   // *bold*
   out = out.replace(/(^|[\s>])\*([^*\n]+)\*(?=[\s<.,!?]|$)/g, '$1<strong>$2</strong>')
   // _italic_
@@ -4565,7 +4579,7 @@ function formatWhatsappBody(s: string): string {
     const href = m.startsWith('www.') ? `https://${m}` : m
     return `<a href="${href}" target="_blank" rel="noreferrer" class="underline opacity-90 hover:opacity-100">${m}</a>`
   })
-  return out
+  return out.replace(/\uE000(\d+)\uE001/g, (_m, i) => codigos[Number(i)] ?? '')
 }
 
 function dayKey(iso: string): string {
