@@ -352,12 +352,24 @@ const TENANT_404_HTML = `<!doctype html>
 </body>
 </html>`
 
+/**
+ * Cabeçalho dentro do `setHeaders` do @fastify/static. Da versão 10 em diante
+ * ele recebe o `reply` do Fastify (`.header()`), e não mais a resposta crua do
+ * Node (`.setHeader()`). Chamar `setHeader` no reply lançava DENTRO do envio do
+ * arquivo e a requisição ficava pendurada sem resposta — todo .js do app e todo
+ * /uploads parados (24/09). Aceita as duas formas.
+ */
+function definirCabecalho(res: any, nome: string, valor: string) {
+  if (typeof res.header === 'function') res.header(nome, valor)
+  else res.setHeader(nome, valor)
+}
+
 // ── STATIC FILES (frontend) ──────────────────
 await app.register(staticFiles, {
   root: join(__dirname, '../../frontend'),
   prefix: '/',
   setHeaders: (res: any) => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+    definirCabecalho(res, 'Cache-Control', 'no-cache, no-store, must-revalidate')
   }
 })
 
@@ -387,10 +399,10 @@ await app.register(staticFiles, {
   prefix: '/uploads/',
   decorateReply: false,
   setHeaders: (res: any, filePath: string) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff')
+    definirCabecalho(res, 'X-Content-Type-Options', 'nosniff')
     if (ARQUIVO_EXECUTAVEL.test(filePath)) {
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
-      res.setHeader('Content-Disposition', 'attachment')
+      definirCabecalho(res, 'Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+      definirCabecalho(res, 'Content-Disposition', 'attachment')
     }
   },
 })
@@ -410,9 +422,9 @@ await app.register(staticFiles, {
     // Assets com hash (gerados pelo Vite) podem ser cacheados longamente.
     // index.html nunca cachear — para deploys propagarem na hora.
     if (path.endsWith('/index.html') || path.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+      definirCabecalho(res, 'Cache-Control', 'no-cache, no-store, must-revalidate')
     } else if (/\/assets\/.+\.(js|css|woff2?|svg|png|jpg|webp|avif)$/.test(path)) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      definirCabecalho(res, 'Cache-Control', 'public, max-age=31536000, immutable')
     }
   },
 })
@@ -1242,7 +1254,7 @@ app.get('/', async (req, reply) => {
   // preservando a query string (utm_*, etc).
   if (!isPrimaryInstall()) {
     const qs = req.url.indexOf('?')
-    return reply.redirect(302, qs >= 0 ? `/app${req.url.slice(qs)}` : '/app')
+    return reply.redirect(qs >= 0 ? `/app${req.url.slice(qs)}` : '/app', 302)
   }
   return serveHtmlWithInjections(req, reply)
 })
@@ -1257,7 +1269,7 @@ async function serveEducationalLanding(req: any, reply: any) {
     if (served !== null) return served
   }
   if (!isPrimaryInstall()) {
-    return reply.redirect(302, '/app')
+    return reply.redirect('/app', 302)
   }
   return serveHtmlWithInjections(req, reply)
 }

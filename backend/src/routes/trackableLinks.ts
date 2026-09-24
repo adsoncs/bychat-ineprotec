@@ -132,7 +132,7 @@ export async function trackableLinksRoutes(app: FastifyInstance) {
       recordClick({ linkId: link.id, ip, userAgent: ua, referer, deviceType, browser, os, ...ids, sessionId: sessionIdR }).catch(() => {})
     }
 
-    return reply.redirect(302, waUrl)
+    return reply.redirect(waUrl, 302)
   })
 
   // ═══════════════════════════════════════════
