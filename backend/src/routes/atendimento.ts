@@ -462,6 +462,16 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         else filtrosAnd.push({ OR: [...porIdentidade, ...porContexto, ...porMensagem] })
       }
 
+      // `ids`: recorta a lista a estas conversas. É o que a busca de mensagens
+      // usa — ela acha sozinha quais conversas têm o termo e só pergunta aqui
+      // quais a pessoa pode ver. (Mandar o termo com searchFields=mensagens
+      // gerava três subconsultas em bychat_messages na mesma consulta, e o
+      // MySQL 8.0.46 do kobogo morreu com signal 11 numa delas, em 24/09.)
+      if (query.ids) {
+        const ids = String(query.ids).split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500)
+        filtrosAnd.push({ id: { in: ids.length ? ids : [-1] } })
+      }
+
       if (query.tagIds) {
         const tagIdArr = String(query.tagIds).split(',').map(Number).filter(Boolean)
         if (tagIdArr.length > 0) {

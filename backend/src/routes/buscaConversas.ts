@@ -50,10 +50,25 @@ export async function buscaConversasRoutes(app: FastifyInstance) {
     const limite = Math.min(parseInt(query.limite) || 30, 60)
     const antes = query.antes ? new Date(String(query.antes)) : null
 
-    // Conversas que ESTA pessoa pode abrir e que têm o termo em alguma mensagem —
-    // respondido pela lista de conversas, com todas as regras dela.
+    // 1) Quais conversas têm o termo — consulta simples, só na tabela de
+    //    mensagens, das mais recentes para trás.
+    // 2) Dessas, quais ESTA pessoa pode abrir — respondido pela lista de
+    //    conversas (escopo, matriz do gerenciador, números reservados).
+    //
+    // Antes o passo 1 ia junto com o 2 numa consulta só (`searchFields=mensagens`):
+    // o LIKE virava subconsulta ao lado das da matriz e da reserva de número, e
+    // essa combinação derrubou o MySQL 8.0.46 do kobogo (signal 11) em 24/09.
+    const candidatas = await prisma.message.findMany({
+      where: { body: { contains: q }, isDeleted: false, deletedForAll: false },
+      orderBy: { timestamp: 'desc' },
+      distinct: ['leadId'],
+      take: 300,
+      select: { leadId: true },
+    })
+    const idsCandidatos = candidatas.map((m) => m.leadId)
+    if (!idsCandidatos.length) return { mensagens: [], conversas: {}, mais: false }
     const params = new URLSearchParams({
-      bucket: 'qualquer', search: q, searchFields: 'mensagens', limit: '200', semContadores: '1',
+      bucket: 'qualquer', ids: idsCandidatos.join(','), limit: '200', semContadores: '1',
     })
     const r = await app.inject({
       method: 'GET',
