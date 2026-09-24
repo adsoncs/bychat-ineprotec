@@ -6,7 +6,7 @@ import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { usePonteiroGrosso, useLarguraElemento, useMinWidth } from '@/hooks/useBreakpoint'
 import { useActiveConversationStore } from '@/stores/activeConversation'
 import { useLocation } from 'wouter-preact'
-import { useModuleAccess } from '@/hooks/usePermissions'
+import { useModuleAccess, useCan } from '@/hooks/usePermissions'
 import {
   MessageSquare,
   Send,
@@ -121,7 +121,7 @@ import {
   useRemoveLeadTag,
 } from '@/hooks/useLeads'
 import { PromoteLeadDialog } from '@/components/PromoteLeadDialog'
-import { useTags } from '@/hooks/useTags'
+import { useTags, useCreateTag } from '@/hooks/useTags'
 import { useFunnels } from '@/hooks/useFunnels'
 import { useTemplates, type MessageTemplateItem } from '@/hooks/useTemplates'
 import { Clock as ClockIcon, LayoutTemplate, MessageSquarePlus, Smartphone as SmartphoneIcon } from '@/components/ui/icon-set'
@@ -133,7 +133,7 @@ import { BarraFormatacao, atalhoFormatacao } from '@/components/FormatacaoMensag
 import { ResultadosBusca } from '@/components/conversas/ResultadosBusca'
 import { PainelBuscaConversa } from '@/components/conversas/PainelBuscaConversa'
 import '@/components/conversas/busca.css'
-import { grifarHtml } from '@/lib/buscaTexto'
+import { grifarHtml, normalizarBusca } from '@/lib/buscaTexto'
 import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
 import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
 import { NewConversationModal } from '@/components/NewConversationModal'
@@ -4290,20 +4290,52 @@ function InfoRow({
   )
 }
 
+/** Cores das etiquetas criadas pela conversa — as mesmas famílias do WhatsApp
+ *  Business; a próxima cor é a seguinte da roda, para duas novas não saírem iguais. */
+const CORES_ETIQUETA = ['#1a73e8', '#00a884', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b']
+
 function TagsSection({ leadId, tags }: { leadId: number; tags: TicketLeadInfo['tags'] }) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [busca, setBusca] = useState('')
   const { data: allTagsData } = useTags()
   const addTag = useAddLeadTags()
   const removeTag = useRemoveLeadTag()
+  const criar = useCreateTag()
+  // Criar etiqueta daqui segue a MESMA permissão da tela de Etiquetas: a agente
+  // atende pela conversa e precisa marcar o contato sem sair dela.
+  const podeCriar = useCan('tags', 'create')
   const all = allTagsData?.tags ?? []
   const existingIds = new Set(tags.map((t) => t.tag.id))
   const available = all.filter((t) => !existingIds.has(t.id))
+  const termo = busca.trim()
+  const chave = normalizarBusca(termo)
+  const filtradas = chave ? available.filter((t) => normalizarBusca(t.name).includes(chave)) : available
+  const mesmoNome = chave ? all.find((t) => normalizarBusca(t.name) === chave) : undefined
+  const podeCriarEsta = podeCriar && !!termo && !mesmoNome
+  const ocupado = addTag.isPending || criar.isPending
+
+  function fechar() { setPickerOpen(false); setBusca('') }
+  function aplicar(tagId: number, criada = false) {
+    addTag.mutate({ leadId, tagIds: [tagId] }, {
+      onSuccess: () => { toast(criada ? 'Etiqueta criada e aplicada' : 'Tag adicionada', 'success'); fechar() },
+      onError: (e) => toast(e.message, 'danger'),
+    })
+  }
+  async function criarEAplicar() {
+    if (!podeCriarEsta || ocupado) return
+    try {
+      const r = await criar.mutateAsync({ name: termo.slice(0, 50), color: CORES_ETIQUETA[all.length % CORES_ETIQUETA.length]! })
+      aplicar(r.tag.id, true)
+    } catch (e) {
+      toast((e as Error).message, 'danger')
+    }
+  }
 
   return (
     <section>
       <div class="flex items-center justify-between mb-1">
         <div class="text-2xs uppercase tracking-wider text-fg-muted">Etiquetas</div>
-        {available.length > 0 && (
+        {(available.length > 0 || podeCriar) && (
           <button
             type="button"
             class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
@@ -4344,29 +4376,64 @@ function TagsSection({ leadId, tags }: { leadId: number; tags: TicketLeadInfo['t
       {pickerOpen && (
         <Modal
           open
-          onOpenChange={(o) => { if (!o) setPickerOpen(false) }}
+          onOpenChange={(o) => { if (!o) fechar() }}
           title="Adicionar tag"
           size="sm"
         >
-          <div class="space-y-1 max-h-72 overflow-y-auto">
-            {available.length === 0 ? (
-              <div class="text-xs text-fg-muted">Todas as tags já aplicadas.</div>
-            ) : available.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                class="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-surface-3 inline-flex items-center gap-2"
-                onClick={() => {
-                  addTag.mutate({ leadId, tagIds: [t.id] }, {
-                    onSuccess: () => { toast('Tag adicionada', 'success'); setPickerOpen(false) },
-                    onError: (e) => toast(e.message, 'danger'),
-                  })
-                }}
-              >
-                <span class="size-2.5 rounded-full" style={{ background: t.color }} />
-                {t.name}
-              </button>
-            ))}
+          <div class="space-y-2">
+            <input
+              type="text"
+              value={busca}
+              autoFocus
+              maxLength={50}
+              onInput={(e) => setBusca((e.target as HTMLInputElement).value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                // Enter: a única encontrada, a de mesmo nome, ou cria a nova.
+                const alvo = filtradas.length === 1 ? filtradas[0] : filtradas.find((t) => t.id === mesmoNome?.id)
+                if (alvo) aplicar(alvo.id)
+                else void criarEAplicar()
+              }}
+              placeholder={podeCriar ? 'Buscar ou criar etiqueta…' : 'Buscar etiqueta…'}
+              aria-label={podeCriar ? 'Buscar ou criar etiqueta' : 'Buscar etiqueta'}
+              class="w-full h-9 rounded-md border border-border bg-surface px-3 text-sm text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
+            />
+            <div class="space-y-1 max-h-72 overflow-y-auto">
+              {filtradas.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={ocupado}
+                  class="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-surface-3 inline-flex items-center gap-2 disabled:opacity-60"
+                  onClick={() => aplicar(t.id)}
+                >
+                  <span class="size-2.5 rounded-full" style={{ background: t.color }} />
+                  {t.name}
+                </button>
+              ))}
+              {podeCriarEsta && (
+                <button
+                  type="button"
+                  disabled={ocupado}
+                  onClick={() => void criarEAplicar()}
+                  class="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-surface-3 inline-flex items-center gap-2 text-accent disabled:opacity-60"
+                >
+                  {criar.isPending ? <Loader2 size={ICON_SIZE.xxs} class="animate-spin" /> : <Plus size={ICON_SIZE.xxs} />}
+                  Criar etiqueta “{termo}”
+                </button>
+              )}
+              {mesmoNome && existingIds.has(mesmoNome.id) && (
+                <div class="px-2 py-1.5 text-xs text-fg-muted">“{mesmoNome.name}” já está neste contato.</div>
+              )}
+              {filtradas.length === 0 && !podeCriarEsta && !(mesmoNome && existingIds.has(mesmoNome.id)) && (
+                <div class="px-2 py-1.5 text-xs text-fg-muted">
+                  {termo
+                    ? (podeCriar ? 'Nenhuma etiqueta com esse nome.' : 'Nenhuma etiqueta com esse nome — quem cria etiquetas é quem tem essa permissão em Permissões.')
+                    : 'Todas as tags já aplicadas.'}
+                </div>
+              )}
+            </div>
           </div>
         </Modal>
       )}
