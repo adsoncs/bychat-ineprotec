@@ -266,7 +266,7 @@ function templateText(message: any): string {
  *
  *  Leads criados antes desta regra têm `instanceName` nulo: são adotados pela
  *  primeira instância que falar com eles, em vez de virarem duplicata. */
-async function acharLeadDaInstancia(
+export async function acharLeadDaInstancia(
   phone: string,
   instanceName: string | null,
   waLid?: string | null,
@@ -297,9 +297,18 @@ async function acharLeadDaInstancia(
   // casaria com toda ficha que nasceu sem número.
   if (!phone) return null
 
+  // O mesmo telefone chega em formatos diferentes: a Evolution manda o JID de
+  // celular antigo SEM o 9º dígito ("556296436325") e a ficha grava o número
+  // normalizado ("5562996436325"). Comparando só o texto cru, a segunda mensagem
+  // de um contato novo — que esperou a primeira na trava de `semFichaEmDobro` —
+  // não achava a ficha recém-criada e abria outra: a conversa se partia em duas
+  // (kobogo, Roberta, 24/09/2026, mensagens com 0,8 s de intervalo).
+  const pk = phoneKeyOf(phone)
+  const mesmoNumero = pk && pk !== phone ? { OR: [{ whatsapp: phone }, { phoneKey: pk }] } : { whatsapp: phone }
+
   const daInstancia = instanceName
     ? await prisma.lead.findFirst({
-        where: { whatsapp: phone, instanceName },
+        where: { AND: [mesmoNumero, { instanceName }] },
         orderBy: { createdAt: 'desc' },
       })
     : null
@@ -307,7 +316,7 @@ async function acharLeadDaInstancia(
 
   // legado: sem instância definida, adota
   const semInstancia = await prisma.lead.findFirst({
-    where: { AND: [{ whatsapp: phone, instanceName: null }, foraDaCloud] },
+    where: { AND: [mesmoNumero, { instanceName: null }, foraDaCloud] },
     orderBy: { createdAt: 'desc' },
   })
   if (semInstancia) {
@@ -326,7 +335,7 @@ async function acharLeadDaInstancia(
   // continuam separadas de propósito — é a regra do comentário da função.
   if (instanceName) {
     const candidato = await prisma.lead.findFirst({
-      where: { whatsapp: phone, instanceName: { not: instanceName } },
+      where: { AND: [mesmoNumero, { instanceName: { not: instanceName } }] },
       orderBy: { createdAt: 'desc' },
     })
     if (candidato?.instanceName) {
