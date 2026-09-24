@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact'
+import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
@@ -66,9 +67,14 @@ import {
   RefreshCw,
   Layers,
   UserRound,
-  ArrowUpRight, Play, FileSpreadsheet, Download, ExternalLink, Eraser,
+  ArrowUpRight, Play, FileSpreadsheet, Download, ExternalLink, Eraser, ListChecks,
 } from '@/components/ui/icon-set'
 import { ICON_SIZE } from '@/components/ui/Icon'
+// A mesma janela de "Nova atividade" de Atividades e do Kanban, carregada só
+// quando alguém pede pelo menu — quem nunca cria atividade daqui não paga o peso.
+const LazyCreateActivityModal = lazy(() =>
+  import('@/routes/pages/ActivitiesPage').then((m) => ({ default: m.CreateActivityModal })),
+)
 // Logo de marca: vem do registry, não redesenhado aqui (traço e grade únicos).
 import { Instagram as InstagramLogo } from '@/components/ui/icons.custom'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
@@ -454,6 +460,10 @@ function ConversationsScreen() {
   const [menuConversa, setMenuConversa] = useState<{ t: Ticket; x: number; y: number } | null>(null)
   const [acaoPendente, setAcaoPendente] = useState<{ leadId: number; acao: AcaoDoPainel } | null>(null)
   const [confirmacao, setConfirmacao] = useState<{ tipo: 'limpar' | 'bloquear'; t: Ticket } | null>(null)
+  // "Criar atividade" do menu de botão direito: abre a janela de Atividades já
+  // com o contato preenchido. Só para quem pode criar atividades.
+  const [atividadePara, setAtividadePara] = useState<{ id: number; label: string; whatsapp?: string | null; email?: string | null | undefined } | null>(null)
+  const podeCriarAtividade = useCan('activities', 'create')
   const [, navegar] = useLocation()
   const usuario = useUserStore((st) => st.user)
   const claimLista = useClaimTicket()
@@ -565,6 +575,15 @@ function ConversationsScreen() {
     }
 
     sep('s3')
+    if (podeCriarAtividade) add({
+      id: 'atividade', rotulo: 'Criar atividade', icone: <ListChecks size={I} />,
+      aoEscolher: () => setAtividadePara({
+        id: t.id,
+        label: t.nome ?? t.empresa ?? (t.whatsapp ? formatarTelefone(t.whatsapp) : `Contato #${t.id}`),
+        whatsapp: grupo ? null : t.whatsapp,
+        email: t.email ?? null,
+      }),
+    })
     if (!grupo) add({ id: 'ficha', rotulo: 'Abrir ficha do lead', icone: <ExternalLink size={I} />, aoEscolher: () => navegar(`/leads/${t.id}`) })
     if (t.whatsapp && !grupo) add({ id: 'copnum', rotulo: 'Copiar número', icone: <Phone size={I} />, aoEscolher: () => void copiar(t.whatsapp!, 'Número') })
     if (t.nome) add({ id: 'copnome', rotulo: 'Copiar nome', icone: <Copy size={I} />, aoEscolher: () => void copiar(t.nome!, 'Nome') })
@@ -1385,6 +1404,11 @@ function ConversationsScreen() {
           rotulo={`Ações da conversa com ${menuConversa.t.nome ?? menuConversa.t.whatsapp ?? 'contato'}`}
           onClose={() => setMenuConversa(null)}
         />
+      )}
+      {atividadePara && (
+        <Suspense fallback={null}>
+          <LazyCreateActivityModal preselectedLead={atividadePara} onClose={() => setAtividadePara(null)} />
+        </Suspense>
       )}
       <ConfirmDialog
         open={confirmacao?.tipo === 'limpar'}

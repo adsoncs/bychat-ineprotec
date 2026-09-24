@@ -720,7 +720,10 @@ function CreateActivityModal({ onClose, preselectedLead }: { onClose: () => void
   const [scheduledAt, setScheduledAt] = useState(() => {
     const d = new Date(Date.now() + 60 * 60 * 1000)
     d.setSeconds(0, 0)
-    return d.toISOString().slice(0, 16)
+    // No fuso de quem está usando: o salvar lê este campo como hora LOCAL.
+    // Com toISOString() puro o padrão saía em UTC — no Brasil, "daqui a 1 hora"
+    // virava daqui a 4.
+    return toLocalInput(d.toISOString())
   })
   const [reminderAt, setReminderAt] = useState('')
   // Avisar o lead (convite Google + WhatsApp). Default OFF — evita que registrar
