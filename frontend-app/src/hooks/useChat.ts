@@ -300,10 +300,31 @@ export function useTicketMessages(leadId: number | null) {
     }
   }, [leadId, loadingMore, hasMore, messages])
 
+  /**
+   * Carrega o histórico de uma vez até a mensagem `id` — o "ir até" da busca,
+   * cujo resultado pode ser de meses atrás. Devolve se a mensagem veio.
+   */
+  const loadUntil = useCallback(async (id: number): Promise<boolean> => {
+    if (!leadId) return false
+    if (messages.some((m) => m.id === id)) return true
+    const oldestId = messages[0]?.id
+    const resp = await api.get<{ messages: ChatMessage[]; hasMore: boolean }>(
+      `/atendimento/tickets/${leadId}/messages?desde=${id}${oldestId ? `&before=${oldestId}` : ''}`,
+    )
+    setOlder((prev) => {
+      const porId = new Map<number, ChatMessage>()
+      for (const m of [...resp.messages, ...prev]) porId.set(m.id, m)
+      return [...porId.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id - b.id)
+    })
+    setHasMoreOlder(true)
+    return resp.messages.some((m) => m.id === id)
+  }, [leadId, messages])
+
   return {
     ...query,
     data: query.data ? { ...query.data, messages, hasMore } : query.data,
     loadMore,
+    loadUntil,
     loadingMore,
     hasMoreOlder: hasMore,
   }

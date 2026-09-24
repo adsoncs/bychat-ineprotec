@@ -37,7 +37,7 @@ type AcessoTicket = { ok: true } | { ok: false; status: number; error: string; a
 /** A checagem em si, sem tocar na resposta. Existe separada porque as ações em
  *  LOTE precisam separar o que a pessoa pode fazer do que não pode, em vez de
  *  recusar o lote inteiro por causa de uma conversa fora do alcance dela. */
-async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao = 'view'): Promise<AcessoTicket> {
+export async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao = 'view'): Promise<AcessoTicket> {
   // NÚMERO RESERVADO VENCE TUDO — inclusive a matriz do gerenciador.
   //
   // Antes a matriz "respondia sozinha" e a reserva saía de cena. Na prática o
@@ -241,6 +241,9 @@ function condicaoDaCaixa(bucket: string, now: Date): { campos: any; and: any[] }
 }
 
 export async function atendimentoRoutes(app: FastifyInstance) {
+  // Busca em seções (Contatos/Conversas/Mensagens) e busca dentro da conversa.
+  const { buscaConversasRoutes } = await import('./buscaConversas.js')
+  await buscaConversasRoutes(app)
 
   // ── GET /api/atendimento/unread-count — quantas conversas esperam por você ──
   // Existe para o contador do menu, que fica visível em TODA tela: buscar a
@@ -429,20 +432,34 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
 
       if (search) {
-        const alvos: any[] = [
+        // Número digitado com máscara — "(62) 9911-3" — não bate com o que está
+        // gravado ("556299113…"): procura também só pelos dígitos.
+        const digitos = search.replace(/\D/g, '')
+        const porIdentidade: any[] = [
           { nome: { contains: search } },
-          { empresa: { contains: search } },
           { whatsapp: { contains: search } },
+          ...(digitos.length >= 4 && digitos !== search.trim() ? [{ whatsapp: { contains: digitos } }] : []),
+        ]
+        const porContexto: any[] = [
+          { empresa: { contains: search } },
           { email: { contains: search } },
         ]
         // Procurar DENTRO das mensagens é o que o operador espera de uma busca
         // de conversas ("aquele cliente que falou em boleto"). Exige 3
         // caracteres: com uma ou duas letras o LIKE '%x%' varre a tabela
         // inteira e devolve quase tudo, o que não ajuda ninguém.
-        if (search.trim().length >= 3) {
-          alvos.push({ messages: { some: { body: { contains: search }, isDeleted: false } } })
-        }
-        filtrosAnd.push({ OR: alvos })
+        const porMensagem: any[] = search.trim().length >= 3
+          ? [{ messages: { some: { body: { contains: search }, isDeleted: false } } }]
+          : []
+        // `searchFields` recorta ONDE procurar — é o que a busca em seções usa
+        // (Contatos = nome/número; Conversas = grupo pelo nome ou contato por
+        // empresa/e-mail; Mensagens = texto). Sem ele, procura em tudo, como antes.
+        const campos = String(query.searchFields || '')
+        if (campos === 'identidade') filtrosAnd.push({ OR: porIdentidade })
+        else if (campos === 'nome') filtrosAnd.push({ nome: { contains: search } })
+        else if (campos === 'contexto') filtrosAnd.push({ OR: porContexto }, { NOT: { OR: porIdentidade } })
+        else if (campos === 'mensagens') filtrosAnd.push(porMensagem.length ? { OR: porMensagem } : { id: -1 })
+        else filtrosAnd.push({ OR: [...porIdentidade, ...porContexto, ...porMensagem] })
       }
 
       if (query.tagIds) {
@@ -626,6 +643,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
 
 
+      // A busca em seções só quer as linhas: os onze contadores abaixo não
+      // aparecem nela e custariam onze consultas a cada tecla.
+      if (query.semContadores === '1') return { tickets: result, total }
+
       // ── Contadores ────────────────────────────────────────────────────
       //
       // Cada número responde a UMA pergunta: "quantas conversas eu vejo se
@@ -752,11 +773,26 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (before) {
         where.id = { lt: before }
       }
+      // `desde`: tudo do instante da mensagem X até a mais antiga já carregada
+      // (`before`). É o "ir até a mensagem" da busca — o resultado pode ser de
+      // meses atrás, e rolar página por página até lá não é caminho.
+      const desde = query.desde ? parseInt(query.desde) : null
+      if (desde) {
+        const [alvo, limite] = await Promise.all([
+          prisma.message.findFirst({ where: { id: desde, leadId: lid }, select: { timestamp: true } }),
+          before ? prisma.message.findFirst({ where: { id: before, leadId: lid }, select: { timestamp: true } }) : null,
+        ])
+        if (!alvo) return reply.code(404).send({ error: 'Mensagem não encontrada nesta conversa' })
+        delete where.id
+        where.timestamp = { gte: alvo.timestamp, ...(limite ? { lte: limite.timestamp } : {}) }
+        const quantas = await prisma.message.count({ where })
+        if (quantas > 3000) return reply.code(422).send({ error: 'Mensagem antiga demais para carregar de uma vez', total: quantas })
+      }
 
       const messages = await prisma.message.findMany({
         where,
         orderBy: { timestamp: 'desc' },
-        take: limit,
+        take: desde ? 3000 : limit,
         select: {
           id: true,
           fromMe: true,
@@ -871,7 +907,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { resolverMencoesEmLote } = await import('../services/mentionResolver.js')
       const comMencoes = await resolverMencoesEmLote(messages).catch(() => messages)
 
-      return { messages: comMencoes, hasMore: messages.length === limit }
+      // Com `desde` sempre pode haver mais antigas: quem diz que acabou é o
+      // próximo "carregar anteriores", que volta vazio.
+      return { messages: comMencoes, hasMore: desde ? true : messages.length === limit }
     } catch (err: any) {
       app.log.error(`Atendimento messages error: ${err.message}`)
       return reply.code(500).send({ error: err.message })

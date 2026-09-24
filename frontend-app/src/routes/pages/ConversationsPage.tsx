@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { playToggleOn, playToggleOff } from '@/lib/notificationSound'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
-import { usePonteiroGrosso, useLarguraElemento } from '@/hooks/useBreakpoint'
+import { usePonteiroGrosso, useLarguraElemento, useMinWidth } from '@/hooks/useBreakpoint'
 import { useActiveConversationStore } from '@/stores/activeConversation'
 import { useLocation } from 'wouter-preact'
 import { useModuleAccess } from '@/hooks/usePermissions'
@@ -130,6 +130,10 @@ import { useUserStore } from '@/stores/user'
 import { AudioRecorder } from '@/components/AudioRecorder'
 import { EmojiPicker } from '@/components/EmojiPicker'
 import { BarraFormatacao, atalhoFormatacao } from '@/components/FormatacaoMensagem'
+import { ResultadosBusca } from '@/components/conversas/ResultadosBusca'
+import { PainelBuscaConversa } from '@/components/conversas/PainelBuscaConversa'
+import '@/components/conversas/busca.css'
+import { grifarHtml } from '@/lib/buscaTexto'
 import { ScheduleMessageModal } from '@/components/ScheduleMessageModal'
 import { HsmTemplatePicker } from '@/components/HsmTemplatePicker'
 import { NewConversationModal } from '@/components/NewConversationModal'
@@ -382,6 +386,43 @@ function ConversationsScreen() {
   const funnelsQ = useFunnels()
   const [selected, setSelected] = useState<number | null>(null)
   const [showInfo, setShowInfo] = useState(false)
+  // "Pesquisar mensagens" da conversa aberta. Mora aqui, e não no painel da
+  // conversa, porque divide com as Informações o lugar da direita — e porque o
+  // resultado de MENSAGEM da busca da lista também chega por ele (abre a
+  // conversa já na mensagem, com o termo grifado).
+  const [buscaConversa, setBuscaConversa] = useState<{
+    leadId: number
+    termo: string
+    painel: boolean
+    alvo: { id: number; seq: number } | null
+  } | null>(null)
+  const telaLarga = useMinWidth('lg')
+  // Outra conversa aberta: a pesquisa era da anterior.
+  useEffect(() => {
+    setBuscaConversa((b) => (b && b.leadId === selected ? b : null))
+  }, [selected])
+  function alternarBuscaConversa() {
+    if (selected === null) return
+    setBuscaConversa((b) => (b?.painel && b.leadId === selected
+      ? null
+      : { leadId: selected, termo: b?.leadId === selected ? b.termo : '', painel: true, alvo: b?.leadId === selected ? b.alvo : null }))
+    setShowInfo(false)
+  }
+  // Ctrl+F com uma conversa aberta abre a pesquisa DELA (e não a do navegador,
+  // que só acharia o que está carregado na tela).
+  useEffect(() => {
+    if (selected === null) return
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setShowInfo(false)
+        setBuscaConversa((b) => ({ leadId: selected!, termo: b?.leadId === selected ? b.termo : '', painel: true, alvo: b?.leadId === selected ? b.alvo : null }))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected])
+  const buscaAtual = buscaConversa && buscaConversa.leadId === selected ? buscaConversa : null
   // Som e aviso agora são preferência da CONTA (useAccountPrefs) e o
   // disparo vive no shell (useGlobalNotifications), valendo em qualquer tela.
   // Aqui ficou só o sino, que liga/desliga a mesma preferência.
@@ -535,9 +576,11 @@ function ConversationsScreen() {
     return itens
   }
 
+  // Buscando, a coluna mostra as seções de resultado (ResultadosBusca) no lugar
+  // da lista — a lista não precisa refazer a consulta a cada tecla.
+  const buscandoNaLista = search.trim().length > 0
   const ticketsQ = useTicketsInfinite({
     bucket, scope,
-    search: search || undefined,
     senderChannel: senderChannel || undefined,
     funnelId: funnelFilter || undefined,
     kind: kindFilter || undefined,
@@ -720,7 +763,17 @@ function ConversationsScreen() {
             {/* Linha 1 — busca e as três ações da lista. Nova conversa e
                 Preferências desceram do topo da página para onde a mão já está. */}
             <div class="flex items-center gap-2">
-              <div class="flex-1 min-w-0">
+              <div
+                class="flex-1 min-w-0"
+                data-busca-lista
+                // ↓ entra nos resultados, Enter abre o primeiro, Esc limpa.
+                onKeyDown={(e) => {
+                  const primeiro = () => document.querySelector<HTMLElement>('[data-resultado]')
+                  if (e.key === 'ArrowDown' && primeiro()) { e.preventDefault(); primeiro()!.focus() }
+                  else if (e.key === 'Enter' && primeiro()) { e.preventDefault(); primeiro()!.click() }
+                  else if (e.key === 'Escape' && search) { e.preventDefault(); setSearch('') }
+                }}
+              >
                 <SearchInput value={search} onChange={setSearch} placeholder="Pesquisar…" />
               </div>
               <button
@@ -888,6 +941,7 @@ function ConversationsScreen() {
               quem precisa da fila do setor tem as abas, e um quinto botão aqui
               faria a linha quebrar.
             */}
+            {!buscandoNaLista && (<>
             <div class="flex items-center gap-1.5 flex-wrap">
               {ESCOPOS.map((e) => {
                 const ativo = scope === e.id
@@ -1000,8 +1054,9 @@ function ConversationsScreen() {
                 </button>
               )}
             </nav>
+            </>)}
           </div>
-          {selectionEnabled && (
+          {selectionEnabled && !buscandoNaLista && (
             <div class="px-3 py-1.5 border-b border-border flex items-center gap-2 text-2xs">
               <button
                 type="button"
@@ -1025,7 +1080,7 @@ function ConversationsScreen() {
               )}
             </div>
           )}
-          {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && !buscandoNaLista && (
             <div class="px-3 py-2 border-b border-border bg-accent/5 flex items-center gap-2">
               <span class="text-xs text-fg flex-1">
                 <strong>{selectedIds.size}</strong> selecionada{selectedIds.size > 1 ? 's' : ''}
@@ -1074,6 +1129,20 @@ function ConversationsScreen() {
             </div>
           )}
           <div class="flex-1 overflow-y-auto">
+            {/* Buscando: seções de resultado no lugar da lista, como no WhatsApp
+                Web. Abrir um resultado mantém a busca — dá para ir de um em um. */}
+            {buscandoNaLista ? (
+              <ResultadosBusca
+                termo={search}
+                ativo={selected}
+                onAbrir={(id) => setSelected(id)}
+                onAbrirMensagem={(m) => {
+                  setShowInfo(false)
+                  setSelected(m.leadId)
+                  setBuscaConversa({ leadId: m.leadId, termo: search.trim(), painel: false, alvo: { id: m.id, seq: Date.now() } })
+                }}
+              />
+            ) : (<>
             {ticketsQ.isLoading && (
               <div class="p-3 flex flex-col gap-2">
                 {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} class="h-14 w-full" />)}
@@ -1179,6 +1248,7 @@ function ConversationsScreen() {
                 {ticketsCarregados.length} conversas — fim da lista
               </p>
             )}
+            </>)}
           </div>
         </aside>
 
@@ -1216,7 +1286,10 @@ function ConversationsScreen() {
               acaoPendente={acaoPendente?.leadId === selected ? acaoPendente.acao : null}
               onAcaoConsumida={() => setAcaoPendente(null)}
               showInfo={showInfo}
-              onToggleInfo={() => setShowInfo((v) => !v)}
+              onToggleInfo={() => { setShowInfo((v) => !v); setBuscaConversa(null) }}
+              busca={buscaAtual}
+              buscaAberta={!!buscaAtual?.painel}
+              onAbrirBusca={alternarBuscaConversa}
             />
           )}
         </section>
@@ -1253,6 +1326,46 @@ function ConversationsScreen() {
             </div>
           </>
         )}
+
+        {/* Pesquisar mensagens — o mesmo lugar das Informações (uma coisa de
+         *  cada vez à direita, como no WhatsApp). No celular, folha por cima; ao
+         *  escolher um resultado ela fecha para mostrar a conversa, e reabrir
+         *  traz a mesma pesquisa. */}
+        {selected !== null && buscaAtual?.painel && (() => {
+          const painel = (
+            <PainelBuscaConversaDaTela
+              leadId={selected}
+              termo={buscaAtual.termo}
+              alvoId={buscaAtual.alvo?.id ?? null}
+              onTermo={(termo) => setBuscaConversa((b) => (b ? { ...b, termo } : b))}
+              onIrPara={(id) => setBuscaConversa((b) => (b ? { ...b, alvo: { id, seq: Date.now() }, painel: telaLarga } : b))}
+              onFechar={() => setBuscaConversa(null)}
+            />
+          )
+          return telaLarga ? (
+            <aside class="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface-2">
+              {painel}
+            </aside>
+          ) : (
+            <div>
+              <div
+                class="fixed inset-0 bg-[oklch(0%_0_0/0.45)]"
+                style={{ zIndex: 'var(--z-backdrop)' }}
+                onClick={() => setBuscaConversa((b) => (b ? { ...b, painel: false } : b))}
+                aria-hidden="true"
+              />
+              <aside
+                class="fixed inset-y-0 right-0 flex w-[min(24rem,100vw)] flex-col border-l border-border bg-surface-2 shadow-xl"
+                style={{ zIndex: 'var(--z-modal)' }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pesquisar mensagens"
+              >
+                {painel}
+              </aside>
+            </div>
+          )
+        })()}
       </div>
 
       <ConversationPrefsModal
@@ -1398,6 +1511,22 @@ function ChannelTag({ channel, compact = false, semTexto = false }: {
 
 /** Ações que o menu da lista pede ao painel da conversa (que tem as janelas). */
 type AcaoDoPainel = 'info' | 'buscar' | 'transferir' | 'sincronizar' | 'excluir' | 'outroNumero' | 'adormecer'
+
+/** O painel de pesquisa precisa do nome e do tipo da conversa — a ficha dela
+ *  já está em cache (o painel da conversa carrega a mesma). */
+function PainelBuscaConversaDaTela(props: {
+  leadId: number
+  termo: string
+  alvoId: number | null
+  onTermo: (t: string) => void
+  onIrPara: (id: number) => void
+  onFechar: () => void
+}) {
+  const { data } = useTicketInfo(props.leadId)
+  const lead = data?.lead
+  const nome = lead?.nome || (lead?.whatsapp ? formatarTelefone(lead.whatsapp, 'curto') : 'este contato')
+  return <PainelBuscaConversa {...props} nome={nome} grupo={!!lead?.isGroup} />
+}
 
 function TicketRow({
   ticket,
@@ -1660,6 +1789,7 @@ function TicketRow({
 
 function ChatPanel({
   leadId, bucket, onClose, showInfo, onToggleInfo, onAbrirConversa, acaoPendente = null, onAcaoConsumida,
+  busca = null, buscaAberta = false, onAbrirBusca,
 }: {
   leadId: number
   bucket: Bucket
@@ -1671,9 +1801,13 @@ function ChatPanel({
   onAcaoConsumida?: () => void
   showInfo: boolean
   onToggleInfo: () => void
+  /** Pesquisa desta conversa: o termo grifado nas bolhas e a mensagem a mostrar. */
+  busca?: { termo: string; alvo: { id: number; seq: number } | null } | null
+  buscaAberta?: boolean
+  onAbrirBusca: () => void
 }) {
   const { prefs: prefsConversa } = useConversationPrefs()
-  const { data, isLoading, loadMore, loadingMore, hasMoreOlder } = useTicketMessages(leadId)
+  const { data, isLoading, loadMore, loadUntil, loadingMore, hasMoreOlder } = useTicketMessages(leadId)
   const { data: ticketsList } = useTickets({ bucket })
   const { data: infoData } = useTicketInfo(leadId)
   const ticket = ticketsList?.tickets.find((t) => t.id === leadId)
@@ -1735,7 +1869,6 @@ function ChatPanel({
   // Autocomplete de atalhos "/": índice destacado + dispensa por Escape.
   const [slashIndex, setSlashIndex] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
-  const [chatSearch, setChatSearch] = useState<string | null>(null)
   const [quotedMsg, setQuotedMsg] = useState<ChatMessage | null>(null)
   // Editar/encaminhar/apagar/reagir uma mensagem já enviada.
   const editar = useEditMessage(leadId)
@@ -1843,7 +1976,6 @@ function ChatPanel({
   // Reajusta quando o texto muda por fora da digitação (modelo inserido, emoji,
   // rascunho limpo após enviar).
   useEffect(() => { ajustarAltura(textareaRef.current) }, [draft])
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Sinaliza pro efeito de "rolar até o fim" (mais abaixo) ignorar o aumento
   // de mensagens causado por "carregar anteriores" — sem isto, toda vez que
@@ -1872,9 +2004,8 @@ function ChatPanel({
     return undefined
   }, [pendingPreviewUrl])
 
-  // Reset busca/citação ao trocar de conversa.
+  // Reset citação ao trocar de conversa (a pesquisa mora na tela e zera lá).
   useEffect(() => {
-    setChatSearch(null)
     setQuotedMsg(null)
     setChannelId(null)
     setNumMenuOpen(false)
@@ -1891,7 +2022,7 @@ function ChatPanel({
     if (acaoPendente === 'transferir') setTransferOpen(true)
     else if (acaoPendente === 'sincronizar') setSyncOpen(true)
     else if (acaoPendente === 'excluir') setDeleteOpen(true)
-    else if (acaoPendente === 'buscar') setChatSearch((v) => v ?? '')
+    else if (acaoPendente === 'buscar') { if (!buscaAberta) onAbrirBusca() }
     else if (acaoPendente === 'outroNumero') setNumMenuOpen(true)
     else if (acaoPendente === 'adormecer') setMenuAcoesOpen(true)
     onAcaoConsumida?.()
@@ -2052,10 +2183,54 @@ function ChatPanel({
   // está aberto — antes o scroll só ocorria no re-render do painel principal).
   useEffect(() => {
     if (carregandoAntigasRef.current) return
+    // Foi até uma mensagem pela pesquisa: mensagem nova chegando não pode
+    // arrancar a pessoa de lá (é o que o WhatsApp faz também).
+    if (alvoBuscaRef.current !== null) return
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
   }, [messageCount, showInfo, pendentes.length])
+
+  // ── Ir até a mensagem escolhida na pesquisa ─────────────────────────────
+  // Se ela ainda não está carregada (resultado de meses atrás), o histórico
+  // vem de uma vez até ela; depois a conversa rola até a bolha, que pisca e
+  // fica com o termo grifado mais forte que o das outras.
+  const [alvoVisivel, setAlvoVisivel] = useState<number | null>(null)
+  const alvoBuscaRef = useRef<number | null>(null)
+  alvoBuscaRef.current = busca?.alvo?.id ?? null
+  const carregado = !isLoading && !!data
+  useEffect(() => {
+    const alvo = busca?.alvo
+    if (!alvo) { setAlvoVisivel(null); return }
+    if (!carregado) return
+    let cancelado = false
+    void (async () => {
+      let el = document.getElementById(`msg-${alvo.id}`)
+      const perto = !!el
+      if (!el) {
+        carregandoAntigasRef.current = true
+        try {
+          const veio = await loadUntil(alvo.id)
+          if (!veio) { toast('Não foi possível chegar até essa mensagem.', 'info'); return }
+        } catch (e) {
+          toast((e as Error).message || 'Não foi possível carregar até essa mensagem.', 'danger')
+          return
+        } finally {
+          // Dois quadros: o primeiro monta as bolhas, o segundo já tem altura.
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+          carregandoAntigasRef.current = false
+        }
+        el = document.getElementById(`msg-${alvo.id}`)
+      }
+      if (cancelado || !el) return
+      el.scrollIntoView({ block: 'center', behavior: perto ? 'smooth' : 'auto' })
+      // Reinicia a animação mesmo quando é a mesma mensagem de novo.
+      setAlvoVisivel(null)
+      requestAnimationFrame(() => { if (!cancelado) setAlvoVisivel(alvo.id) })
+    })()
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca?.alvo?.seq, carregado, leadId])
 
   // Trocou de conversa: o que estava voando pertence à conversa anterior.
   useEffect(() => { setPendentes([]) }, [leadId])
@@ -2765,14 +2940,11 @@ function ChatPanel({
             type="button"
             class={cn(
               'grid size-9 place-items-center rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg',
-              chatSearch !== null && 'bg-surface-3 text-fg',
+              buscaAberta && 'bg-surface-3 text-fg',
             )}
-            onClick={() => {
-              setChatSearch((v) => (v === null ? '' : null))
-              requestAnimationFrame(() => searchInputRef.current?.focus())
-            }}
+            onClick={onAbrirBusca}
             aria-label="Buscar nesta conversa"
-            aria-pressed={chatSearch !== null}
+            aria-pressed={buscaAberta}
             title="Buscar nesta conversa (Ctrl+F)"
           >
             <Search size={ICON_SIZE.md} />
@@ -2929,29 +3101,6 @@ function ChatPanel({
         </div>
       )}
 
-      {chatSearch !== null && (
-        <div class="px-3 py-2 border-b border-border bg-surface-2 flex items-center gap-2">
-          <Search size={ICON_SIZE.xs} class="text-fg-muted shrink-0" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={chatSearch}
-            onInput={(e) => setChatSearch((e.target as HTMLInputElement).value)}
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setChatSearch(null) } }}
-            placeholder="Buscar nesta conversa…"
-            class="flex-1 bg-transparent border-0 outline-none text-xs text-fg placeholder:text-fg-muted"
-          />
-          <button
-            type="button"
-            class="size-6 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3"
-            onClick={() => setChatSearch(null)}
-            aria-label="Fechar busca"
-            title="Fechar busca (Esc)"
-          >
-            <XIcon size={ICON_SIZE.xs} />
-          </button>
-        </div>
-      )}
 
       {transferOpen && (
         <TransferModal
@@ -3048,19 +3197,14 @@ function ChatPanel({
         )}
         {(() => {
           if (isLoading || !data) return null
-          const q = chatSearch?.trim().toLowerCase() ?? ''
+          const q = busca?.termo.trim() ?? ''
           // "Apagar para mim" tira a bolha da tela e pronto — o WhatsApp do
           // contato segue com ela. O "para todos" continua na lista, porque
           // vira o aviso de mensagem apagada (é o que o app faz).
           const visiveis = data.messages.filter((m) => !m.isDeleted || m.deletedForAll)
-          // Buscando, mostra só o que já está gravado; fora da busca, as
-          // mensagens ainda em voo entram no fim da conversa.
-          const filtered = q
-            ? visiveis.filter((m) => (m.body ?? '').toLowerCase().includes(q) || (m.senderName ?? '').toLowerCase().includes(q))
-            : [...visiveis, ...pendentes]
-          if (q && filtered.length === 0) {
-            return <div class="text-center text-xs text-fg-muted py-8">Nenhuma mensagem encontrada para "{chatSearch}".</div>
-          }
+          // A pesquisa NÃO esconde mensagens: a conversa segue inteira, com o
+          // termo grifado, e o painel da direita leva de um resultado a outro.
+          const filtered = [...visiveis, ...pendentes]
           // Lookup por id interno (quotedMsgId é FK ao Message.id local).
           const byId = new Map<number, ChatMessage>()
           for (const m of data.messages) byId.set(m.id, m)
@@ -3069,7 +3213,7 @@ function ChatPanel({
             const showDivider = !prev || dayKey(m.timestamp) !== dayKey(prev.timestamp)
             const quoted = m.quotedMsgId != null ? byId.get(m.quotedMsgId) ?? null : null
             return (
-              <div key={m.id} id={`msg-${m.id}`} class={cn(destacada === m.id && 'rounded-lg ring-2 ring-accent/70 transition-[box-shadow] duration-500')}>
+              <div key={m.id} id={`msg-${m.id}`} class={cn(destacada === m.id && 'rounded-lg ring-2 ring-accent/70 transition-[box-shadow] duration-500', alvoVisivel === m.id && 'busca-alvo')}>
                 {showDivider && (
                   <div class="flex items-center justify-center my-2">
                     <span class="text-3xs uppercase tracking-wider px-2 py-0.5 rounded bg-surface-2 text-fg-muted border border-border">
@@ -4643,10 +4787,9 @@ function AckIcon({ ack, error }: { ack: number | null; error?: DeliveryError | n
 
 function highlightHtml(body: string, term: string): string {
   const formatted = formatWhatsappBody(body)
-  if (!term) return formatted
-  // Escape regex specials no termo de busca.
-  const safe = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return formatted.replace(new RegExp(`(${safe})`, 'gi'), '<mark class="bg-warning/40 text-fg rounded px-0.5">$1</mark>')
+  // Grifa só nos nós de texto (substituir na string pegaria tag e atributo) e
+  // sem diferença de acento/maiúscula — a mesma regra da pesquisa no servidor.
+  return term ? grifarHtml(formatted, term, 'busca-marca') : formatted
 }
 
 /** Emojis do atalho de reação — os mesmos que o WhatsApp oferece de primeira. */

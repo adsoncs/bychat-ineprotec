@@ -1,0 +1,51 @@
+/* Busca do Conversas — as cores do WhatsApp Web. */
+
+/* Termo achado nas listas de resultado: verde do WhatsApp, em negrito. */
+.busca-hit {
+  color: #00a884;
+  font-weight: 600;
+}
+[data-theme='light'] .busca-hit {
+  color: #008069;
+}
+
+/* Título das seções (Contatos, Conversas, Mensagens). */
+.busca-secao {
+  color: #00a884;
+}
+[data-theme='light'] .busca-secao {
+  color: #008069;
+}
+
+/* Termo dentro da bolha da conversa. */
+mark.busca-marca {
+  background: rgb(255 214 0 / 0.42);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  box-decoration-break: clone;
+}
+/* A mensagem que acabou de ser aberta pelo resultado: grifo mais forte. */
+.busca-alvo mark.busca-marca {
+  background: #ffb300;
+  color: #111b21;
+}
+
+/* O "piscar" da bolha ao chegar nela, como no WhatsApp. */
+@keyframes busca-pulso {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(0 168 132 / 0); }
+  20%, 60% { box-shadow: 0 0 0 4px rgb(0 168 132 / 0.55); }
+}
+.busca-alvo {
+  border-radius: 0.6rem;
+  animation: busca-pulso 1.6s ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .busca-alvo { animation: none; box-shadow: 0 0 0 3px rgb(0 168 132 / 0.55); }
+}
+
+/* A busca da lista já tem o próprio "×": o do navegador ficava duplicado. */
+[data-busca-lista] input[type='search']::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
