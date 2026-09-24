@@ -3214,19 +3214,30 @@ function ChatPanel({
           // Lookup por id interno (quotedMsgId é FK ao Message.id local).
           const byId = new Map<number, ChatMessage>()
           for (const m of data.messages) byId.set(m.id, m)
-          return filtered.map((m, idx) => {
-            const prev = idx > 0 ? filtered[idx - 1] : undefined
-            const showDivider = !prev || dayKey(m.timestamp) !== dayKey(prev.timestamp)
+          // Um bloco por dia. O rótulo do dia é `sticky`: enquanto se rola aquele
+          // dia ele fica preso no topo, e o dia seguinte, ao chegar, empurra o
+          // anterior e toma o lugar — é o card flutuante do WhatsApp Web. Numa
+          // conversa longa num dia só, a data continua à vista sem precisar
+          // voltar até o separador. Sticky só funciona dentro do próprio pai,
+          // por isso as mensagens precisam estar agrupadas por dia.
+          const dias: { chave: string; itens: ChatMessage[] }[] = []
+          for (const m of filtered) {
+            const chave = dayKey(m.timestamp)
+            const ultimo = dias[dias.length - 1]
+            if (ultimo && ultimo.chave === chave) ultimo.itens.push(m)
+            else dias.push({ chave, itens: [m] })
+          }
+          return dias.map((dia) => (
+            <section key={`${dia.chave}-${dia.itens[0]!.id}`} class="space-y-2" aria-label={formatDayLabel(dia.itens[0]!.timestamp)}>
+              <div class="sticky top-0 z-10 flex justify-center py-1 pointer-events-none">
+                <span class="pointer-events-auto text-3xs uppercase tracking-wider px-2.5 py-1 rounded-md bg-surface-2/95 text-fg-muted border border-border shadow-sm backdrop-blur-sm">
+                  {formatDayLabel(dia.itens[0]!.timestamp)}
+                </span>
+              </div>
+              {dia.itens.map((m) => {
             const quoted = m.quotedMsgId != null ? byId.get(m.quotedMsgId) ?? null : null
             return (
               <div key={m.id} id={`msg-${m.id}`} class={cn(destacada === m.id && 'rounded-lg ring-2 ring-accent/70 transition-[box-shadow] duration-500', alvoVisivel === m.id && 'busca-alvo')}>
-                {showDivider && (
-                  <div class="flex items-center justify-center my-2">
-                    <span class="text-3xs uppercase tracking-wider px-2 py-0.5 rounded bg-surface-2 text-fg-muted border border-border">
-                      {formatDayLabel(m.timestamp)}
-                    </span>
-                  </div>
-                )}
                 <MessageBubble
                   msg={m}
                   quoted={quoted}
@@ -3256,7 +3267,9 @@ function ChatPanel({
                 />
               </div>
             )
-          })
+              })}
+            </section>
+          ))
         })()}
       </div>
 
