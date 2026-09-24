@@ -19,6 +19,13 @@
 // que hoje pertence a ele": se o contato falou uma vez pela linha pessoal e
 // depois pela corporativa, abrir a conversa mostraria o histórico inteiro —
 // esconder só metade seria uma proteção que não protege.
+//
+// Exceção: GRUPO que hoje fala por um número da empresa. O grupo é compartilhado
+// com todos os participantes — o que passou nele pela linha pessoal nunca foi
+// privado de ninguém —, e escondê-lo tirava da equipe um grupo de trabalho só
+// porque o dono o usou pela linha pessoal antes de colocar o número da empresa
+// (kobogo, "Suporte Attrae | Kobogó", 24/09/2026). Grupo cujo número de hoje é a
+// linha reservada continua escondido; conversa individual segue a regra acima.
 
 import { prisma } from '../lib/prisma.js'
 
@@ -81,9 +88,54 @@ export function clausulaDeOcultacao(ocultos: CanaisOcultos): any | null {
   return { messages: { none: { OR: alvos } } }
 }
 
+/** As mensagens que passaram por algum canal oculto (condição de `bychat_messages`). */
+function alvosOcultos(ocultos: CanaisOcultos): any[] {
+  return [
+    ...(ocultos.instancias.length ? [{ provider: 'evolution', evolutionInstance: { in: ocultos.instancias } }] : []),
+    ...(ocultos.conexoes.length ? [{ provider: 'cloud_api', cloudApiConnectionId: { in: ocultos.conexoes } }] : []),
+  ]
+}
+
+/** O número de HOJE da conversa (o mesmo critério da resposta) é um canal oculto? */
+function numeroDeHojeOculto(
+  ef: { provider: string; evolutionInstance: string | null; cloudApiConnectionId: number | null } | undefined,
+  ocultos: CanaisOcultos,
+): boolean {
+  if (!ef) return true // sem número resolvido: não há o que liberar
+  if (ef.provider === 'evolution') return !!ef.evolutionInstance && ocultos.instancias.includes(ef.evolutionInstance)
+  if (ef.provider === 'cloud_api') return ef.cloudApiConnectionId != null && ocultos.conexoes.includes(ef.cloudApiConnectionId)
+  return false
+}
+
+/**
+ * Grupos que passaram por canal oculto mas hoje falam por um número da empresa.
+ *
+ * Calculado à parte e entregue como lista de ids — e não como mais uma
+ * subconsulta em `bychat_messages` dentro da listagem: empilhar essas
+ * subconsultas com as da matriz derrubou o MySQL 8.0.46 do kobogo (signal 11).
+ */
+async function gruposLiberados(ocultos: CanaisOcultos): Promise<number[]> {
+  const alvos = alvosOcultos(ocultos)
+  if (!alvos.length) return []
+  const tocaram = await prisma.message.findMany({
+    where: { OR: alvos, lead: { isGroup: true } },
+    distinct: ['leadId'],
+    select: { leadId: true },
+  })
+  if (!tocaram.length) return []
+  const ids = tocaram.map((m) => m.leadId)
+  const { canalEfetivoDeLeads } = await import('./whatsappProvider.js')
+  const efetivos = await canalEfetivoDeLeads(ids)
+  return ids.filter((id) => !numeroDeHojeOculto(efetivos.get(id), ocultos))
+}
+
 /** Atalho: a cláusula pronta para um usuário (ou `null` quando não há o que esconder). */
 export async function filtroDeCanaisVisiveis(userId: number, role: string): Promise<any | null> {
-  return clausulaDeOcultacao(await canaisOcultosPara(userId, role))
+  const ocultos = await canaisOcultosPara(userId, role)
+  const base = clausulaDeOcultacao(ocultos)
+  if (!base) return null
+  const liberados = await gruposLiberados(ocultos)
+  return liberados.length ? { OR: [base, { id: { in: liberados } }] } : base
 }
 
 /**
@@ -123,18 +175,14 @@ export async function podeVerConversa(leadId: number, userId: number, role: stri
   if (!ocultos.instancias.length && !ocultos.conexoes.length) return true
 
   const tocou = await prisma.message.findFirst({
-    where: {
-      leadId,
-      OR: [
-        ...(ocultos.instancias.length
-          ? [{ provider: 'evolution', evolutionInstance: { in: ocultos.instancias } }]
-          : []),
-        ...(ocultos.conexoes.length
-          ? [{ provider: 'cloud_api', cloudApiConnectionId: { in: ocultos.conexoes } }]
-          : []),
-      ],
-    },
+    where: { leadId, OR: alvosOcultos(ocultos) },
     select: { id: true },
   })
-  return !tocou
+  if (!tocou) return true
+  // Grupo que hoje fala por um número da empresa: liberado (ver o topo do arquivo).
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { isGroup: true } })
+  if (!lead?.isGroup) return false
+  const { canalEfetivoDeLeads } = await import('./whatsappProvider.js')
+  const efetivo = (await canalEfetivoDeLeads([leadId])).get(leadId)
+  return !numeroDeHojeOculto(efetivo, ocultos)
 }
