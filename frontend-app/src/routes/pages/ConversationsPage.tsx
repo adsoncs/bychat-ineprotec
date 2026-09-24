@@ -1576,6 +1576,11 @@ function TicketRow({
   const showStar = !isQualified && !!onPromote
   const fixada = !!ticket.pinned
   const compact = prefs.density === 'compact'
+  // Mensagem esperando leitura: o card ganha um fundo leve na cor da marca do
+  // cliente (a mesma do tema — azul no beyond, verde no habitat…) e uma faixa
+  // fina à esquerda. O número já diz quantas; a cor faz a conversa pular aos
+  // olhos numa lista longa, antes de a pessoa ler qualquer coisa.
+  const pendente = ticket.unreadMessages > 0
 
   return (
     <li
@@ -1604,6 +1609,7 @@ function TicketRow({
         class={cn(
           'w-full text-left px-3 border-b border-border hover:bg-surface-3 transition-colors',
           compact ? 'py-1.5' : 'py-3',
+          pendente && 'bg-accent/[0.08] hover:bg-accent/[0.14] shadow-[inset_3px_0_0_var(--color-accent)]',
           active && 'bg-surface-3',
           selected && 'bg-accent/5',
         )}
