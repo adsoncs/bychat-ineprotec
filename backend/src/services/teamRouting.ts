@@ -696,6 +696,22 @@ export async function canSendVia(
     return { ok: true }
   }
 
+  // A MATRIZ de Conversas (Permissões → Conversas), quando existe para este
+  // usuário, é a palavra final sobre em quais conversas ele fala — é ela que já
+  // decide o que ele vê. O setor dono do número era checado POR FORA dela: o
+  // admin liberava os grupos na tela de permissões e o envio recusava assim
+  // mesmo ("Você não pertence ao setor desta instância"); a caixa parecia
+  // travada para quem não era do setor (kobogo, Isabela e Luiz, 24/09/2026).
+  // A linha PESSOAL, acima, continua só do dono: reserva é teto.
+  const { mapaDeAcesso, permissoesNaConversa, permite } = await import('./conversationAccess.js')
+  const mapa = await mapaDeAcesso(userId, role)
+  if (mapa.configurado) {
+    const perms = await permissoesNaConversa(mapa, leadId)
+    return perms && permite(perms, 'create')
+      ? { ok: true }
+      : { ok: false, reason: 'Sem permissão para responder nesta conversa (Permissões → Conversas)' }
+  }
+
   // Instância de setor: precisa ser membro de ALGUM dos setores donos OU ter o
   // lead atribuído. A lista cobre o número compartilhado por vários setores; o
   // `defaultTeamId` entra junto para instância antiga que ainda não migrou.
