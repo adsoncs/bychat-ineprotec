@@ -30,6 +30,8 @@ export interface Ticket {
   lastMessageAt: string | null
   lastMessagePreview: string | null
   lastMessage: TicketLastMessage | null
+  /** A última mensagem que o contato vê (fora nota interna) é dele: esperando resposta da equipe. */
+  aguardandoResposta?: boolean
   conversationOpenedAt: string | null
   conversationClosedAt: string | null
   snoozedUntil: string | null

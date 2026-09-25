@@ -1600,11 +1600,13 @@ function TicketRow({
   const showStar = !isQualified && !!onPromote
   const fixada = !!ticket.pinned
   const compact = prefs.density === 'compact'
-  // Mensagem esperando leitura: o card ganha um fundo leve na cor da marca do
-  // cliente (a mesma do tema — azul no beyond, verde no habitat…) e uma faixa
-  // fina à esquerda. O número já diz quantas; a cor faz a conversa pular aos
-  // olhos numa lista longa, antes de a pessoa ler qualquer coisa.
-  const pendente = ticket.unreadMessages > 0
+  // Duas informações diferentes no card:
+  //  • o NÚMERO — quantas mensagens ainda não foram lidas;
+  //  • a COR (fundo leve na cor da marca do cliente + faixa à esquerda) — a
+  //    última mensagem é do CONTATO, ou seja, a conversa espera resposta da
+  //    equipe, lida ou não. Some quando alguém responde. Nota interna não conta
+  //    (o contato não a vê) — o servidor já manda isso calculado.
+  const pendente = ticket.aguardandoResposta ?? (ticket.lastMessage ? !ticket.lastMessage.fromMe : false)
 
   return (
     <li

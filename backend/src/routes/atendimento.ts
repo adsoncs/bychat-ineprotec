@@ -629,6 +629,23 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { canalEfetivoDeLeads } = await import('../services/whatsappProvider.js')
       const canalPorLead = await canalEfetivoDeLeads([...ticketsFixados, ...tickets].map(t => t.id))
 
+      // Quem falou por último — sem contar nota interna, que o contato não vê.
+      // É o destaque do card na lista: "a bola está com a gente". A prévia
+      // (`lastMessage`) continua sendo a última de todas, nota incluída.
+      const idsDaPagina = [...ticketsFixados, ...tickets].map(t => t.id)
+      const ultimaVisivel = new Map<number, boolean>()
+      if (idsDaPagina.length) {
+        const linhas = await prisma.$queryRawUnsafe<Array<{ leadId: number; fromMe: number }>>(
+          `SELECT m.leadId, m.fromMe FROM bychat_messages m
+             JOIN (SELECT leadId, MAX(timestamp) ts FROM bychat_messages
+                    WHERE leadId IN (${idsDaPagina.map(() => '?').join(',')}) AND isInternal = 0
+                    GROUP BY leadId) u ON u.leadId = m.leadId AND u.ts = m.timestamp
+            WHERE m.isInternal = 0`,
+          ...idsDaPagina,
+        )
+        for (const l of linhas) ultimaVisivel.set(Number(l.leadId), !!Number(l.fromMe))
+      }
+
       const result = [...ticketsFixados, ...tickets].map(t => {
         const last = t.messages[0] || null
         const efetivo = canalPorLead.get(t.id)
@@ -647,6 +664,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           lastMessage: last ? { body: last.body, fromMe: last.fromMe, timestamp: last.timestamp } : null,
           channel: buildChannel(paraCanal),
           pinned: fixados.has(t.id),
+          // Última mensagem (fora nota interna) veio do contato: esperando resposta.
+          aguardandoResposta: ultimaVisivel.has(t.id) ? !ultimaVisivel.get(t.id) : false,
           messages: undefined,
         }
       })
