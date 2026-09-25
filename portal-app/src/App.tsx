@@ -502,7 +502,13 @@ function AcessoNoTopo(props: {
       </button>
     )
   }
-  return <a class="acesso-topo" href="/portal/login">Entrar</a>
+  // Leva o portal junto: a tela de entrar é uma só para a instituição, e é
+  // por este parâmetro que ela veste a marca (cores, fonte, logo) deste portal.
+  const slug = location.pathname.split('/').filter(Boolean)[1]
+  const destino = slug && !['login', 'senha', 'aluno', 'documentos', 'contrato'].includes(slug)
+    ? `/portal/login?portal=${encodeURIComponent(slug)}`
+    : '/portal/login'
+  return <a class="acesso-topo" href={destino}>Entrar</a>
 }
 
 /** Passos da inscrição. Em barras (padrão) ou em círculos numerados. */

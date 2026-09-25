@@ -21,7 +21,8 @@ import {
 } from '../services/portalAccount.js'
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
-import { avisos, esc, pagina } from '../lib/portalHtml.js'
+import { avisos, esc } from '../lib/portalHtml.js'
+import { paginaComMarca } from '../lib/portalMarca.js'
 import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
 
 /** Sessão da requisição, ou null. Usado pelas rotas do próprio portal. */
@@ -247,7 +248,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   // ── GET /portal/login ──
   app.get('/portal/login', async (req, reply) => {
     const q = (req.query as any) || {}
-    return reply.type('text/html').send(pagina('Entrar no portal', `
+    return reply.type('text/html').send(await paginaComMarca(req, reply, 'Entrar no portal', `
       <div class="card">
         <h1>Entrar no portal</h1>
         <p class="sub">Use o CPF ou o e-mail do seu cadastro.</p>
@@ -276,7 +277,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+criar+sua+senha.').send()
     const q = (req.query as any) || {}
     const eu = await quemE(s.accountId)
-    return reply.type('text/html').send(pagina('Criar senha', `
+    return reply.type('text/html').send(await paginaComMarca(req, reply, 'Criar senha', `
       <div class="card">
         <h1>${eu?.temSenha ? 'Trocar senha' : 'Criar sua senha'}</h1>
         <p class="sub">${eu?.temSenha ? 'A senha atual deixa de valer e os outros aparelhos saem do portal.' : `Olá, ${esc(eu?.nome ?? '')}. Escolha uma senha para entrar quando quiser, sem depender do link.`}</p>
@@ -312,7 +313,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+ver+seus+documentos.').send()
     if (!portalAppDisponivel()) {
-      return reply.code(503).type('text/html').send(pagina('Documentos', '<div class="card"><h1>Indisponível</h1><p class="sub">A tela de documentos ainda não foi publicada nesta instalação.</p></div>'))
+      return reply.code(503).type('text/html').send(await paginaComMarca(req, reply, 'Documentos', '<div class="card"><h1>Indisponível</h1><p class="sub">A tela de documentos ainda não foi publicada nesta instalação.</p></div>'))
     }
     return reply.type('text/html').send(paginaDoPortal({
       nome: 'Meus documentos', slug: 'documentos',
@@ -347,7 +348,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const bloco = (titulo: string, corpo: string) =>
       `<div class="card" style="margin-bottom:14px"><h1 style="font-size:16px;margin-bottom:10px">${titulo}</h1>${corpo}</div>`
 
-    return reply.type('text/html').send(pagina('Meu portal', `
+    return reply.type('text/html').send(await paginaComMarca(req, reply, 'Meu portal', `
       ${avisos(q.erro, q.aviso)}
       <div class="card" style="margin-bottom:14px">
         <h1>Olá, ${esc((eu?.nome ?? '').split(' ')[0])}</h1>
