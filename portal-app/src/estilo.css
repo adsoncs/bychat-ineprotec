@@ -307,6 +307,10 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
     top: 20px;
     margin-top: 0;
   }
+  /* Com a faixa fixa, "grudar" a 20px do topo é grudar por baixo dela. */
+  :root[data-topo='barra'][data-template='duas-colunas'] .resumo {
+    top: calc(var(--altura-barra, 68px) + 20px);
+  }
 
   /* Sem resumo (portal de interesse, sem curso ou sem valor) a segunda coluna
      ficaria vazia e a tela pareceria quebrada — então volta a uma coluna. */
@@ -421,8 +425,11 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
   background: var(--papel); border-bottom: 1px solid var(--linha);
   padding: 0 clamp(16px, 4vw, 40px);
 }
-/* O espaço que a faixa fixa ocupa. Só quando ela existe. */
-:root[data-topo='barra'] .pagina { padding-top: 92px; }
+/* O espaço que a faixa fixa ocupa, mais o respiro até o conteúdo. A altura
+   real vem medida do componente (--altura-barra); o número ao lado é só o
+   valor até a primeira medição. Rolagem por âncora também para abaixo dela. */
+:root[data-topo='barra'] { scroll-padding-top: calc(var(--altura-barra, 68px) + 16px); }
+:root[data-topo='barra'] .pagina { padding-top: calc(var(--altura-barra, 68px) + 32px); }
 .barra-conteudo {
   max-width: 1240px; margin: 0 auto;
   display: flex; align-items: center; justify-content: space-between; gap: 20px;
@@ -447,8 +454,21 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
   }
   .barra-topo .trilha::-webkit-scrollbar { display: none; }
   :root[data-passos='numeros'] .trilha .etapa + .etapa::before { margin: 0 8px; flex-basis: 12px; }
-  /* Duas linhas ocupam mais altura — o vão do topo acompanha. */
-  :root[data-topo='barra'] .pagina { padding-top: 124px; }
+  .barra-conteudo .topo { width: 100%; }
+  :root[data-topo='barra'] .pagina { padding-top: calc(var(--altura-barra, 110px) + 20px); }
+}
+
+/* Do tablet para cima, uma linha só: logo à esquerda, passos no meio, selo e
+   "Entrar" à direita. O `.topo` some do layout para que logo e botão virem
+   itens da própria faixa — senão o par ocupava a linha inteira e empurrava
+   os passos para baixo. */
+@media (min-width: 720px) {
+  .barra-conteudo { flex-wrap: nowrap; }
+  .barra-conteudo .topo { display: contents; }
+  .barra-conteudo .topo > :not(.acesso-topo) { order: 1; flex-shrink: 0; }
+  .barra-topo .trilha { order: 2; }
+  .barra-topo .selo { order: 3; }
+  .barra-conteudo .acesso-topo { order: 4; }
 }
 
 /* ── Botão em cápsula e em caixa alta ────────────────────────── */
@@ -661,8 +681,6 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 }
 .acesso-topo:hover { border-color: var(--marca); background: var(--marca-suave); }
 .acesso-topo:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
-
-.barra-conteudo .topo { width: 100%; }
 
 /* Convite para criar senha, no cartão de conclusão. */
 .convite-senha { margin: 14px 0 0; font-size: 14px; line-height: 1.55; color: var(--tinta-2); }

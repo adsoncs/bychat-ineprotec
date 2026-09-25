@@ -528,8 +528,22 @@ function BarraTopo(props: {
   total: number
   acesso?: ComponentChildren
 }) {
+  // A faixa é fixa, então a página precisa saber quanto ela ocupa para começar
+  // logo abaixo. A altura muda com logo, selo, passos e largura da tela — um
+  // número chutado no CSS escondia o começo do formulário atrás dela.
+  const faixa = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const el = faixa.current
+    if (!el) return
+    const raiz = document.documentElement
+    const medir = () => raiz.style.setProperty('--altura-barra', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    medir()
+    const obs = new ResizeObserver(medir)
+    obs.observe(el)
+    return () => { obs.disconnect(); raiz.style.removeProperty('--altura-barra') }
+  }, [])
   return (
-    <header class="barra-topo">
+    <header class="barra-topo" ref={faixa}>
       <div class="barra-conteudo">
         <div class="topo">
           <Logo portal={props.portal} />
