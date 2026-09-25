@@ -6,7 +6,7 @@ export type PortalFormMode = 'full' | 'interest'
 export type FontFamily = 'inter' | 'roboto' | 'poppins' | 'system'
 export type RadiusScale = 'sharp' | 'medium' | 'rounded'
 export type CaptchaType = 'recaptcha' | 'hcaptcha' | null
-export type PaymentProvider = 'asaas' | 'pagarme' | null
+export type PaymentProvider = 'asaas' | 'pagarme' | 'iugu' | null
 // 'link'        — paymentlinks hospedado pelo provedor (redirect)
 // 'transparent' — checkout PIX/boleto/cartão renderiza no portal
 export type PaymentMode = 'link' | 'transparent'
@@ -598,7 +598,7 @@ export interface EnemImportFull {
 export interface EnrollmentPaymentMethodAdmin {
   id: number
   method: 'pix' | 'boleto' | 'credit_card'
-  provider: 'asaas' | 'pagarme'
+  provider: 'asaas' | 'pagarme' | 'iugu'
   status: string
   amount: string | number | null
   externalId: string | null

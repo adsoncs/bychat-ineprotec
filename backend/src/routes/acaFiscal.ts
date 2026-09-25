@@ -20,7 +20,7 @@ export async function acaFiscalRoutes(app: FastifyInstance) {
     const parcelaId = Number((req.params as any).id)
     const p = await prisma.acaParcela.findUnique({
       where: { id: parcelaId },
-      select: { nroParcela: true, tipo: true, valorPagoCentavos: true, valorBrutoCentavos: true, situacao: true, pagoEm: true, asaasChargeId: true, contrato: { select: { matricula: { select: { aluno: { select: { id: true, ra: true, cpf: true, lead: { select: { nome: true } } } } } } } } },
+      select: { nroParcela: true, tipo: true, valorPagoCentavos: true, valorBrutoCentavos: true, situacao: true, pagoEm: true, asaasChargeId: true, gatewayProvider: true, contrato: { select: { matricula: { select: { aluno: { select: { id: true, ra: true, cpf: true, lead: { select: { nome: true } } } } } } } } },
     })
     if (!p) return reply.code(404).send({ error: 'Parcela não encontrada' })
     if (p.situacao !== 'PAGA') return reply.code(400).send({ error: 'Recibo só para parcela paga.' })
@@ -30,7 +30,7 @@ export async function acaFiscalRoutes(app: FastifyInstance) {
       aluno: { nome: aluno.lead.nome, ra: aluno.ra, cpf: aluno.cpf },
       descricao: `${p.tipo.toLowerCase()} (parcela ${p.nroParcela})`,
       valorCentavos: valor,
-      formaPagamento: p.asaasChargeId ? 'Asaas (boleto/PIX)' : 'baixa manual',
+      formaPagamento: p.asaasChargeId ? `${p.gatewayProvider === 'iugu' ? 'iugu' : 'Asaas'} (boleto/PIX)` : 'baixa manual',
       dataPagamento: p.pagoEm ? new Date(p.pagoEm).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR'),
     }
     const numero = await proximoNumero()

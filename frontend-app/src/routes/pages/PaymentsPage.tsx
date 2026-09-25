@@ -7,6 +7,7 @@ import {
   useUpdatePaymentConnection,
   useDeletePaymentConnection,
   useTestPaymentConnection,
+  useRegisterIuguWebhooks,
   type PaymentConnection,
   type PaymentConnectionInput,
   type PaymentEnvironment,
@@ -101,7 +102,7 @@ export function PaymentsPage() {
           },
           {
             title: '🔌 Conexões',
-            body: <>Conecte <strong>Asaas</strong> (PIX, boleto, cartão) e <strong>Pagar.me</strong> (cartão, boleto, PIX). Pode ter várias conexões (uma por unidade/empresa). Cada uma com seu token de API e modo (sandbox/produção).</>,
+            body: <>Conecte <strong>Asaas</strong>, <strong>Pagar.me</strong> ou <strong>iugu</strong> (PIX, boleto, cartão). Pode ter várias conexões (uma por unidade/empresa). Cada uma com seu token de API e modo (sandbox/produção).</>,
           },
           {
             title: '🪝 Webhooks',
@@ -123,10 +124,10 @@ export function PaymentsPage() {
 }
 
 function providerLabel(p: PaymentProvider): string {
-  return p === 'pagarme' ? 'Pagar.me' : 'Asaas'
+  return p === 'pagarme' ? 'Pagar.me' : p === 'iugu' ? 'iugu' : 'Asaas'
 }
 
-const TAB_ORDER: PaymentProvider[] = ['asaas', 'pagarme']
+const TAB_ORDER: PaymentProvider[] = ['asaas', 'pagarme', 'iugu']
 
 function PaymentConnectionsTab() {
   const { data, isLoading } = usePaymentConnections()
@@ -140,7 +141,7 @@ function PaymentConnectionsTab() {
     return TAB_ORDER.reduce<Record<PaymentProvider, number>>((acc, p) => {
       acc[p] = connections.filter((c) => c.provider === p).length
       return acc
-    }, { asaas: 0, pagarme: 0 })
+    }, { asaas: 0, pagarme: 0, iugu: 0 })
   }, [connections])
 
   const visible = connections.filter((c) => c.provider === activeTab)
@@ -327,7 +328,9 @@ function ConnectionFormModal({
   const [provider, setProvider] = useState<PaymentProvider>(connection?.provider ?? defaultProvider ?? 'asaas')
   const [environment, setEnvironment] = useState<PaymentEnvironment>(connection?.environment ?? 'sandbox')
   const [apiKey, setApiKey] = useState('')
-  const [publicKey, setPublicKey] = useState('')
+  // Na iugu o campo guarda o ID da conta, que não é segredo: vem preenchido.
+  const [publicKey, setPublicKey] = useState(connection?.provider === 'iugu' ? (connection.accountId ?? '') : '')
+  const [webhookSecret, setWebhookSecret] = useState('')
   const [billingType, setBillingType] = useState<PaymentBillingType>(
     (connection?.defaultBillingType as PaymentBillingType | null) ?? 'UNDEFINED',
   )
@@ -336,6 +339,7 @@ function ConnectionFormModal({
   const [active, setActive] = useState(connection?.active ?? true)
 
   const isPagarme = provider === 'pagarme'
+  const isIugu = provider === 'iugu'
   // Pagar.me: ambiente derivado do prefixo da chave (sk_test_ vs sk_) — exibe automático
   const detectedPagarmeEnv: PaymentEnvironment = apiKey.trim().startsWith('sk_test_')
     ? 'sandbox'
@@ -352,7 +356,7 @@ function ConnectionFormModal({
       return
     }
     if (!isEdit && !apiKey.trim()) {
-      toast('Informe a API key do provedor', 'danger')
+      toast(isIugu ? 'Informe o token de API da iugu' : 'Informe a API key do provedor', 'danger')
       return
     }
     const payload: PaymentConnectionInput = {
@@ -360,14 +364,16 @@ function ConnectionFormModal({
       provider,
       // Pagar.me: backend ignora e deriva do prefixo da chave
       environment: isPagarme ? detectedPagarmeEnv : environment,
-      // Pagar.me sempre aceita PIX/cartão/boleto no link — billing type não se aplica
-      defaultBillingType: isPagarme ? null : billingType,
+      // Pagar.me e iugu: os meios aceitos vêm das regras do portal — billing type não se aplica
+      defaultBillingType: isPagarme || isIugu ? null : billingType,
       companyDocument: companyDocument.trim() || null,
       accountHolder: accountHolder.trim() || null,
       active,
     }
     if (apiKey.trim()) payload.apiKey = apiKey.trim()
     if (publicKey.trim()) payload.publicKey = publicKey.trim()
+    else if (isIugu && isEdit && connection?.accountId) payload.publicKey = null
+    if (webhookSecret.trim()) payload.webhookSecret = webhookSecret.trim()
 
     if (isEdit && connection) {
       update.mutate({ id: connection.id, ...payload }, {
@@ -396,9 +402,11 @@ function ConnectionFormModal({
 
   const apiKeyHint = isPagarme
     ? 'Painel Pagar.me → Configurações → Chaves de API → use a Secret Key (sk_test_… para teste, sk_… para produção). Valor é criptografado antes de gravar.'
-    : 'Painel Asaas → Integrações → API key. Valor é criptografado antes de gravar.'
+    : isIugu
+      ? 'Painel iugu (alia.iugu.com) → Configurações → Integração via API → Novo. Token de TESTE para o ambiente de teste, de PRODUÇÃO para cobrar de verdade — o token de produção só funciona depois de aprovado pelos administradores da conta. Valor é criptografado antes de gravar.'
+      : 'Painel Asaas → Integrações → API key. Valor é criptografado antes de gravar.'
 
-  const apiKeyPlaceholder = isPagarme ? 'sk_test_… ou sk_…' : 'aact_YWxz…'
+  const apiKeyPlaceholder = isPagarme ? 'sk_test_… ou sk_…' : isIugu ? 'token de API (test ou live)' : 'aact_YWxz…'
 
   return (
     <Modal
@@ -441,6 +449,7 @@ function ConnectionFormModal({
           >
             <option value="asaas">Asaas (PIX, boleto, cartão)</option>
             <option value="pagarme">Pagar.me (PIX, boleto, cartão)</option>
+            <option value="iugu">iugu (PIX, boleto, cartão)</option>
           </Select>
           {isPagarme ? (
             <Input
@@ -455,13 +464,15 @@ function ConnectionFormModal({
               value={environment}
               onChange={(e) => setEnvironment((e.target as HTMLSelectElement).value as PaymentEnvironment)}
             >
-              <option value="sandbox">Sandbox (teste)</option>
-              <option value="production">Produção</option>
+              <option value="sandbox">{isIugu ? 'Teste (token de teste)' : 'Sandbox (teste)'}</option>
+              <option value="production">{isIugu ? 'Produção (token de produção)' : 'Produção'}</option>
             </Select>
           )}
         </div>
         <Input
-          label={isEdit ? 'API key (deixe vazio para manter atual)' : 'API key *'}
+          label={isIugu
+            ? (isEdit ? 'Token de API (deixe vazio para manter o atual)' : 'Token de API *')
+            : (isEdit ? 'API key (deixe vazio para manter atual)' : 'API key *')}
           type="password"
           value={apiKey}
           onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
@@ -480,7 +491,16 @@ function ConnectionFormModal({
             hint="Pagar.me → Configurações → Chaves de API → Public Key. Permite tokenizar cartão no navegador (PCI SAQ A) quando o portal usa checkout transparente. PIX e boleto não precisam dela."
           />
         )}
-        {!isPagarme && (
+        {isIugu && (
+          <Input
+            label="ID da conta iugu (libera cartão no checkout)"
+            value={publicKey}
+            onInput={(e) => setPublicKey((e.target as HTMLInputElement).value.trim())}
+            placeholder="Ex.: 12345A6BC789012D34567E890F1G2345"
+            hint="alia.iugu.com → Configurações → Informações da Conta: o código depois do # (sem o #). Não é segredo — vai para o navegador, onde o iugu.js transforma o cartão em token. Sem ele, o portal oferece só PIX e boleto."
+          />
+        )}
+        {!isPagarme && !isIugu && (
           <Select
             label="Forma de pagamento padrão"
             value={billingType}
@@ -497,6 +517,25 @@ function ConnectionFormModal({
             O link de pagamento do Pagar.me sempre aceita <strong>PIX, cartão e boleto</strong> — o candidato escolhe na hora.
           </div>
         )}
+        {isIugu && (
+          <div class="text-xs text-fg-muted bg-surface-3 rounded-md p-2.5">
+            Os meios oferecidos (PIX, boleto, cartão e parcelas) vêm das regras de cada portal.
+            As mensalidades do Acadêmico também saem por esta conexão (boleto + PIX). A conta
+            iugu precisa estar <strong>verificada</strong> e com PIX ativo para receber.
+          </div>
+        )}
+        <Input
+          label="Chave de autenticação do webhook (opcional, recomendada)"
+          type="password"
+          value={webhookSecret}
+          onInput={(e) => setWebhookSecret((e.target as HTMLInputElement).value)}
+          placeholder={connection?.webhookSecret ? 'Configurada — digite para trocar' : 'Uma senha longa qualquer'}
+          hint={isIugu
+            ? 'Vai junto no cadastro dos gatilhos na iugu e é conferida em todo aviso. Mesmo sem ela, o sistema só dá baixa depois de confirmar o pagamento na API da iugu.'
+            : isPagarme
+              ? 'A mesma senha do Basic Auth configurado no webhook do Pagar.me. Com ela, aviso sem a senha é recusado.'
+              : 'O "Token de autenticação" do webhook no painel do Asaas (header asaas-access-token). Com ele, aviso sem o token é recusado.'}
+        />
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Input
             label="CNPJ da conta (opcional)"
@@ -524,7 +563,7 @@ function ConnectionFormModal({
         </label>
 
         {webhookUrl ? (
-          <WebhookUrlBox url={webhookUrl} provider={connection!.provider} />
+          <WebhookUrlBox url={webhookUrl} provider={connection!.provider} connectionId={connection!.id} />
         ) : (
           <div class="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-fg">
             Salve a conexão primeiro para gerar a URL única do webhook.
@@ -535,8 +574,9 @@ function ConnectionFormModal({
   )
 }
 
-function WebhookUrlBox({ url, provider }: { url: string; provider: PaymentProvider }) {
+function WebhookUrlBox({ url, provider, connectionId }: { url: string; provider: PaymentProvider; connectionId: number }) {
   const [copied, setCopied] = useState(false)
+  const registrar = useRegisterIuguWebhooks()
 
   function copy() {
     navigator.clipboard.writeText(url).then(() => {
@@ -559,7 +599,26 @@ function WebhookUrlBox({ url, provider }: { url: string; provider: PaymentProvid
         </Button>
       </div>
       <div class="text-xs text-fg-muted mt-2">
-        {provider === 'pagarme' ? (
+        {provider === 'iugu' ? (
+          <>
+            As cobranças do portal já levam este endereço, e a iugu avisa por ele. Para as
+            mensalidades e para quem paga pela página da iugu, cadastre também os gatilhos na
+            conta (<code class="font-mono">invoice.status_changed, invoice.refund, invoice.payment_failed</code>):
+            <div class="mt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={registrar.isPending}
+                onClick={() => registrar.mutate(connectionId, {
+                  onSuccess: (r) => toast(r.message, 'success'),
+                  onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                })}
+              >
+                <Webhook size={12} /> {registrar.isPending ? 'Cadastrando…' : 'Cadastrar gatilhos na iugu'}
+              </Button>
+            </div>
+          </>
+        ) : provider === 'pagarme' ? (
           <>
             Configure no Pagar.me em <strong>Configurações → Webhooks</strong>, eventos:
             {' '}<code class="font-mono">order.paid, charge.paid, charge.refunded, charge.payment_failed</code>.

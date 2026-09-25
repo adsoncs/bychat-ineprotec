@@ -8,7 +8,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
-import { criarCobrancaAsaas } from '../services/acaFinanceiro.js'
+import { criarCobrancaParcela } from '../services/acaFinanceiro.js'
 import { mintPortalToken as mintToken, verifyPortalToken as verifyToken } from '../lib/acaPortalToken.js'
 import { statusBloqueio } from '../services/acaBloqueio.js'
 import { emitirDocumentoAluno, emitirQuitacaoAnual, emitirCarteirinha, type DocTipo } from '../services/acaDocumentos.js'
@@ -353,7 +353,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
     const parcelaId = numOf(req, 'id')
     const parcela = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { contrato: { select: { matricula: { select: { alunoId: true } } } } } })
     if (!parcela || parcela.contrato.matricula.alunoId !== p.id) return reply.code(403).send({ error: 'não autorizado' })
-    await criarCobrancaAsaas(parcelaId).catch(() => {})
+    await criarCobrancaParcela(parcelaId).catch(() => {})
     reply.redirect(`/portal/aca/aluno?t=${encodeURIComponent(tokOf(req))}`)
   })
 

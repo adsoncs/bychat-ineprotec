@@ -12,6 +12,7 @@
 import { prisma } from '../lib/prisma.js'
 import { decryptToken } from './cloudApi.js'
 import { ASAAS_STATUS_MAP } from './paymentAsaas.js'
+import { buscarFaturaIugu, iuguDaConexao, type IuguFatura } from './paymentIugu.js'
 import { logEvent } from './leadHistory.js'
 
 interface SyncConnectionRow {
@@ -20,9 +21,10 @@ interface SyncConnectionRow {
   active: boolean
   apiKey: string
   environment: string
+  publicKey?: string | null
 }
 
-interface NormalizedCharge {
+export interface NormalizedCharge {
   externalId: string
   status: string                 // mapeado: pending|paid|overdue|failed|refunded
   paidAt: Date | null
@@ -106,7 +108,30 @@ async function fetchNormalizedFromProvider(
     }
   }
 
+  if (conn.provider === 'iugu') {
+    const cfg = iuguDaConexao(conn)
+    if (!cfg) return { error: 'Falha ao decifrar credenciais' }
+    try {
+      return cobrancaDaFaturaIugu(await buscarFaturaIugu(cfg, externalId))
+    } catch (e: any) {
+      return { error: e?.message || 'iugu: falha ao consultar a fatura' }
+    }
+  }
+
   return { error: `Provedor não suportado: ${conn.provider}` }
+}
+
+/** A fatura da iugu no formato que o resto da reconciliação entende. */
+export function cobrancaDaFaturaIugu(f: IuguFatura): NormalizedCharge {
+  const m = String(f.referencia || '').match(/^enrollment-(\d+)$/)
+  return {
+    externalId: f.id,
+    status: f.status,
+    paidAt: f.pagoEm,
+    billingType: f.meio,
+    enrollmentRefId: m ? parseInt(m[1]!) : null,
+    amount: (f.pagoCentavos ?? f.totalCentavos) ? (f.pagoCentavos ?? f.totalCentavos) / 100 : null,
+  }
 }
 
 export interface SyncResult {
@@ -126,8 +151,11 @@ export interface SyncResult {
 export async function syncChargeFromProvider(
   conn: SyncConnectionRow,
   externalId: string,
+  // Quem já consultou o provedor (o gatilho da iugu, por exemplo) passa o
+  // resultado — sem isso a mesma fatura seria buscada duas vezes seguidas.
+  jaConsultada?: NormalizedCharge,
 ): Promise<SyncResult> {
-  const norm = await fetchNormalizedFromProvider(conn, externalId)
+  const norm = jaConsultada ?? await fetchNormalizedFromProvider(conn, externalId)
   if ('error' in norm) return { ok: false, error: norm.error }
 
   let enrollmentRefId = norm.enrollmentRefId
@@ -297,7 +325,7 @@ async function reconcilePendingPayments(): Promise<{ checked: number; transition
         select: {
           portal: {
             select: {
-              paymentConnection: { select: { id: true, provider: true, active: true, apiKey: true, environment: true } },
+              paymentConnection: { select: { id: true, provider: true, active: true, apiKey: true, environment: true, publicKey: true } },
             },
           },
         },
@@ -398,6 +426,12 @@ export function startPaymentReconciliationScheduler(): void {
       const r = await reconcilePendingPayments()
       if (r.transitioned > 0 || r.errors > 0) {
         console.log(`[PaymentSync] tick — checked=${r.checked} transitionedToPaid=${r.transitioned} errors=${r.errors}`)
+      }
+      // Mensalidades do ERP cobradas pela iugu: mesma rede de segurança para
+      // quando o gatilho não chega (URL mudou, gatilho não cadastrado…).
+      const erp = await import('./acaFinanceiro.js').then((m) => m.reconciliarParcelasIugu()).catch(() => null)
+      if (erp && (erp.baixadas > 0 || erp.erros > 0)) {
+        console.log(`[PaymentSync] parcelas iugu — conferidas=${erp.conferidas} baixadas=${erp.baixadas} erros=${erp.erros}`)
       }
     } catch (err: any) {
       console.warn('[PaymentSync] erro no cron:', err?.message || err)

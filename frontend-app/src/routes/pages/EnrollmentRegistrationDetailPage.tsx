@@ -215,7 +215,7 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
             size="sm"
             onClick={handleSync}
             disabled={sync.isPending}
-            title="Consulta o status atual no Pagar.me/Asaas e replica no banco. Útil quando o webhook não chegou."
+            title="Consulta o status atual no gateway (Asaas, Pagar.me ou iugu) e replica no banco. Útil quando o webhook não chegou."
           >
             <RefreshCw size={11} class={sync.isPending ? 'animate-spin' : ''} />
             {sync.isPending ? 'Sincronizando…' : 'Sincronizar agora'}

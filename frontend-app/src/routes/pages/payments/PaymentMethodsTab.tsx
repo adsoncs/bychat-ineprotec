@@ -54,6 +54,7 @@ export function PaymentMethodsTab() {
             <option value="">Todos</option>
             <option value="pagarme">Pagar.me</option>
             <option value="asaas">Asaas</option>
+            <option value="iugu">iugu</option>
           </Select>
           <Select label="Período" value={mesSelecionado} onChange={(e) => setMesSelecionado((e.target as HTMLSelectElement).value as RangePreset)}>
             {(['m0','m1','m2','m3','m4'] as RangePreset[]).map((p) => (

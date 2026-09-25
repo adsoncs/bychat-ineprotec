@@ -255,7 +255,7 @@ function LinhaParcela({ p, checked, onToggle, onExtrato, onBaixa, onCobranca, on
       <td class="p-2 text-center"><Badge tone={p.atrasada ? 'danger' : SIT_TONE[p.situacao] ?? 'neutral'}>{p.atrasada ? 'Atrasada' : SIT_LABEL[p.situacao] ?? p.situacao}</Badge></td>
       <td class="p-2 text-right whitespace-nowrap">
         {podeAgir && <>
-          <button class="text-fg-muted hover:text-accent px-1" title="Gerar 2ª via (Asaas)" onClick={onCobranca}><Send size={14} /></button>
+          <button class="text-fg-muted hover:text-accent px-1" title="Gerar cobrança (boleto/PIX)" onClick={onCobranca}><Send size={14} /></button>
           <button class="text-fg-muted hover:text-success px-1" title="Dar baixa" onClick={onBaixa}><CheckCircle2 size={14} /></button>
         </>}
         {paga && <>

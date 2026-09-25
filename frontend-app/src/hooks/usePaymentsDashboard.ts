@@ -68,7 +68,7 @@ export function usePaymentsBreakdown(period: PeriodRange) {
 export interface PaymentMethodRow {
   id: number
   method: 'pix' | 'boleto' | 'credit_card'
-  provider: 'asaas' | 'pagarme'
+  provider: 'asaas' | 'pagarme' | 'iugu'
   status: string
   amount: number
   externalId: string | null

@@ -7,11 +7,13 @@ import { prisma } from '../lib/prisma.js'
 import { adminStrict, type JwtPayload } from '../lib/auth.js'
 import { encryptToken, decryptToken } from '../services/cloudApi.js'
 import { pingPagarme, detectPagarmeEnvironment } from '../services/paymentPagarme.js'
+import { pingIugu, registrarGatilhosIugu, iuguDaConexao } from '../services/paymentIugu.js'
+import { appUrl } from '../lib/appUrl.js'
 
 // 'simulado' existe para montar e testar o fluxo de cobrança sem credencial —
 // gera PIX/boleto com a forma certa, mas que banco nenhum aceita. É o mesmo
 // recurso que a assinatura já tinha (autentique em modo SIMULADO).
-const SUPPORTED_PROVIDERS = ['asaas', 'pagarme', 'simulado'] as const
+const SUPPORTED_PROVIDERS = ['asaas', 'pagarme', 'iugu', 'simulado'] as const
 type ProviderKind = typeof SUPPORTED_PROVIDERS[number]
 
 function isSupported(p: any): p is ProviderKind {
@@ -40,6 +42,9 @@ function summarize(c: any) {
     apiKeyMasked: mask(c.apiKey),
     publicKeyMasked: c.publicKey ? mask(c.publicKey) : null,
     hasPublicKey: !!c.publicKey,
+    // Na iugu a "chave pública" é o ID da conta — público por natureza (vai
+    // para o navegador no checkout), e a secretaria precisa conferi-lo inteiro.
+    ...(c.provider === 'iugu' && c.publicKey ? { accountId: safeDecrypt(c.publicKey) || null } : {}),
     webhookToken: c.webhookToken,
     webhookSecret: c.webhookSecret ? '•••' : null,
     companyDocument: c.companyDocument,
@@ -56,8 +61,11 @@ function summarize(c: any) {
 }
 
 // Testa a conexão com o provedor. Para Asaas: GET /myAccount.
-async function testProviderConnection(provider: ProviderKind, apiKeyPlain: string, environment: string)
+async function testProviderConnection(provider: ProviderKind, apiKeyPlain: string, environment: string, publicKeyPlain?: string | null)
   : Promise<{ ok: boolean; message: string }> {
+  if (provider === 'iugu') {
+    return pingIugu({ apiToken: apiKeyPlain, accountId: publicKeyPlain || null, environment: environment === 'production' ? 'production' : 'sandbox' })
+  }
   if (provider === 'simulado') {
     return { ok: true, message: 'Provedor simulado: cobranças com a forma certa, sem cobrar de verdade.' }
   }
@@ -207,7 +215,7 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
     const apiKeyPlain = safeDecrypt(c.apiKey)
     if (!apiKeyPlain) return reply.code(400).send({ error: 'API key inválida ou inacessível' })
 
-    const result = await testProviderConnection(c.provider as ProviderKind, apiKeyPlain, c.environment)
+    const result = await testProviderConnection(c.provider as ProviderKind, apiKeyPlain, c.environment, c.publicKey ? safeDecrypt(c.publicKey) : null)
     await prisma.paymentProviderConnection.update({
       where: { id: c.id },
       data: {
@@ -217,6 +225,32 @@ export async function paymentProvidersRoutes(app: FastifyInstance) {
       },
     })
     return { ok: result.ok, message: result.message }
+  })
+
+  // POST /api/admin/payment-providers/:id/iugu-gatilhos — cadastra na conta da
+  // iugu os gatilhos (webhooks) apontando para esta conexão. Idempotente: o que
+  // já existe com a mesma URL não é duplicado. Evita o passo manual no painel.
+  app.post('/api/admin/payment-providers/:id/iugu-gatilhos', { preHandler: adminStrict }, async (req, reply) => {
+    const { id } = req.params as any
+    const c = await prisma.paymentProviderConnection.findUnique({ where: { id: parseInt(id) } })
+    if (!c) return reply.code(404).send({ error: 'Conexão não encontrada' })
+    if (c.provider !== 'iugu') return reply.code(400).send({ error: 'Só para conexões iugu' })
+    const cfg = iuguDaConexao(c)
+    if (!cfg) return reply.code(400).send({ error: 'Token inválido ou inacessível — salve o token de novo' })
+    const base = appUrl()
+    if (!base) return reply.code(400).send({ error: 'APP_URL não configurada neste servidor — sem ela não há endereço para a iugu avisar' })
+    const url = `${base}/api/public/payment-webhook/iugu/${c.webhookToken}`
+    try {
+      const r = await registrarGatilhosIugu(cfg, url, c.webhookSecret)
+      return {
+        ok: true, url, ...r,
+        message: r.criados.length
+          ? `Gatilhos cadastrados na iugu: ${r.criados.join(', ')}${r.existentes.length ? ` (já existiam: ${r.existentes.join(', ')})` : ''}`
+          : 'Os gatilhos já estavam cadastrados na iugu.',
+      }
+    } catch (e: any) {
+      return reply.code(502).send({ error: e?.message || 'Falha ao cadastrar gatilhos na iugu' })
+    }
   })
 
   // DELETE /api/admin/payment-providers/:id

@@ -38,6 +38,7 @@ const comPadrao = (r: RegrasPagamento | null | undefined): RegrasPagamento => ({
 const PROVIDER_LABEL: Record<Exclude<PaymentProvider, null>, string> = {
   asaas: 'Asaas',
   pagarme: 'Pagar.me',
+  iugu: 'iugu',
 }
 
 const SectionTitle = ({ children }: { children: preact.ComponentChildren }) => (
@@ -209,7 +210,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
             hint={
               paymentMode === 'transparent'
                 ? 'Candidato paga sem sair do portal (PIX/boleto/cartão). Exige checkout transparente implementado por método.'
-                : 'Candidato é redirecionado para a página hospedada do provedor (PaymentLink Pagar.me / invoiceUrl Asaas).'
+                : 'Candidato é redirecionado para a página hospedada do provedor (PaymentLink Pagar.me / invoiceUrl Asaas / fatura iugu).'
             }
           >
             <option value="link">Link de pagamento (redirect ao provedor)</option>
@@ -351,7 +352,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                 value={String(regras.cartao.parcelasMax)}
                 disabled={!regras.cartao.ativo}
                 onInput={(e) => mark(setRegras)({ ...regras, cartao: { ...regras.cartao, parcelasMax: Number((e.target as HTMLInputElement).value) } })}
-                hint="Teto do Asaas: 21"
+                hint="Teto: Asaas 21, iugu 12"
               />
               <Input
                 label="Sem juros até"
@@ -379,9 +380,10 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
               />
             </div>
             <p class="text-2xs text-fg-muted mt-2">
-              Com o Asaas, o cartão é pago na página do provedor e quem oferece as vezes é a
-              operadora — os valores acima aparecem no portal como simulação. Para o
-              parcelamento valer na transação, o cartão precisa ser transparente (Pagar.me).
+              Com Asaas e iugu, o cartão é pago dentro do portal e as vezes e os juros acima
+              valem na transação. Na iugu o número do cartão vai direto do navegador para
+              ela (iugu.js) — exige o ID da conta cadastrado na conexão. Parcela mínima da
+              iugu: R$ 5,00.
             </p>
           </div>
         </div>

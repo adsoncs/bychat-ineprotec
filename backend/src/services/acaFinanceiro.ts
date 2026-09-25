@@ -7,9 +7,14 @@
 import { prisma } from '../lib/prisma.js'
 import { calcularEncargos, getEncargosConfig } from './acaEncargos.js'
 import {
-  createOrFindAsaasCustomer, createAsaasPayment, fetchAsaasPixQr,
+  createOrFindAsaasCustomer, createAsaasPayment, fetchAsaasPixQr, getAsaasPaymentStatus,
   ASAAS_STATUS_MAP, isAsaasPaymentEvent, type AsaasConfig, type AsaasWebhookPayload,
 } from './paymentAsaas.js'
+import {
+  iuguDaConexao, criarFaturaIugu, buscarFaturaIugu, baixaExternaIugu, dataIugu,
+  type IuguFatura,
+} from './paymentIugu.js'
+import { appUrl } from '../lib/appUrl.js'
 
 /** Config do Asaas a partir da conexão ativa (apiKey decifrada). null se não houver. */
 export async function getAsaasConfig(): Promise<AsaasConfig | null> {
@@ -63,6 +68,44 @@ export async function contaDaParcela(parcelaId: number): Promise<AsaasConfig | n
     }
   }
   return getAsaasConfig()
+}
+
+/** Gateways que emitem mensalidade. Pagar.me e simulado só cobram no checkout do portal. */
+const GATEWAYS_DO_ERP = ['asaas', 'iugu'] as const
+
+type ConexaoDoErp = {
+  id: number; provider: string; apiKey: string; publicKey: string | null
+  environment: string; webhookToken: string; active: boolean
+}
+
+/**
+ * A conexão que cobra esta parcela — mesma regra de `contaDaParcela`, agora
+ * para qualquer gateway do ERP: quem recebeu a entrada no portal recebe as
+ * mensalidades; sem portal, vale a conexão ativa mais recente.
+ */
+export async function conexaoDaParcela(parcelaId: number): Promise<ConexaoDoErp | null> {
+  const parcela = await prisma.acaParcela.findUnique({
+    where: { id: parcelaId },
+    select: { contrato: { select: { matricula: { select: { enrollmentRegistrationId: true } } } } },
+  })
+  const regId = parcela?.contrato?.matricula?.enrollmentRegistrationId ?? null
+  if (regId) {
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: regId },
+      select: { portal: { select: { paymentConnectionId: true } } },
+    })
+    const connId = reg?.portal?.paymentConnectionId ?? null
+    if (connId) {
+      const conn = await prisma.paymentProviderConnection.findFirst({
+        where: { id: connId, provider: { in: [...GATEWAYS_DO_ERP] }, active: true },
+      })
+      if (conn) return conn
+    }
+  }
+  return prisma.paymentProviderConnection.findFirst({
+    where: { provider: { in: [...GATEWAYS_DO_ERP] }, active: true },
+    orderBy: { id: 'desc' },
+  })
 }
 
 /** Vencimento de mensalidade N (1..) no dia `dia`, a partir do próximo mês. */
@@ -229,6 +272,18 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   return { contratoId: contrato.id, criadas: parcelas.length }
 }
 
+/**
+ * Emite a cobrança (boleto + PIX) de uma parcela no gateway da conexão dela —
+ * Asaas ou iugu. O id da cobrança fica em `asaasChargeId` (nome histórico: é o
+ * id no gateway, qualquer que seja) e o gateway em `gatewayProvider`.
+ */
+export async function criarCobrancaParcela(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
+  const conn = await conexaoDaParcela(parcelaId)
+  if (!conn) return { ok: false, error: 'Nenhuma conexão de pagamento ativa (Configurações › Pagamentos).' }
+  if (conn.provider === 'iugu') return criarCobrancaIugu(parcelaId, conn)
+  return criarCobrancaAsaas(parcelaId)
+}
+
 /** Cria a cobrança (boleto+PIX) no Asaas para uma parcela e guarda as referências. */
 export async function criarCobrancaAsaas(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
   // A mesma conta que recebeu a entrada no checkout recebe as mensalidades.
@@ -256,12 +311,163 @@ export async function criarCobrancaAsaas(parcelaId: number): Promise<{ ok: true;
     // 3) PIX copia-e-cola (best-effort)
     let pix: string | null = null
     try { const q = await fetchAsaasPixQr(config, pay.id); pix = q?.payload || null } catch { /* */ }
-    await prisma.acaParcela.update({ where: { id: parcelaId }, data: { asaasChargeId: pay.id, linhaDigitavel: pay.bankSlipUrl || pay.invoiceUrl || null, pixCopiaCola: pix } })
+    await prisma.acaParcela.update({ where: { id: parcelaId }, data: { asaasChargeId: pay.id, gatewayProvider: 'asaas', linhaDigitavel: pay.bankSlipUrl || pay.invoiceUrl || null, pixCopiaCola: pix } })
     await prisma.acaIntegracaoEvento.create({ data: { origem: 'ASAAS_COBRANCA', eventoExternoId: pay.id, status: 'SUCESSO', responseJson: { invoiceUrl: pay.invoiceUrl } as any } }).catch(() => {})
     return { ok: true, asaasChargeId: pay.id }
   } catch (e: any) {
     return { ok: false, error: e.message || 'Falha ao criar cobrança no Asaas' }
   }
+}
+
+/** URL do gatilho da iugu para esta conexão — a mesma que aparece em Configurações › Pagamentos. */
+export function urlGatilhoIugu(webhookToken: string): string | undefined {
+  const base = appUrl()
+  return base ? `${base}/api/public/payment-webhook/iugu/${webhookToken}` : undefined
+}
+
+/**
+ * Cria a fatura (boleto + PIX) da parcela na iugu.
+ *
+ * A iugu exige CPF e e-mail do pagador para boleto e PIX, e recusa vencimento
+ * no passado. Parcela já vencida sai com vencimento em dois dias, pelo valor
+ * atualizado (multa + juros até hoje, como no Asaas); a partir daí os encargos
+ * seguem por conta da própria iugu.
+ */
+async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
+  const cfg = iuguDaConexao(conn)
+  if (!cfg) return { ok: false, error: 'Não foi possível abrir as credenciais da iugu — salve o token de novo em Configurações › Pagamentos.' }
+  const parcela = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, include: { contrato: { include: { matricula: { include: { aluno: { include: { lead: true } } } } } } } })
+  if (!parcela) return { ok: false, error: 'Parcela não encontrada' }
+  if (parcela.asaasChargeId) return { ok: true, asaasChargeId: parcela.asaasChargeId }
+  if (parcela.situacao === 'PAGA' || parcela.situacao === 'CANCELADA') return { ok: false, error: `Parcela ${parcela.situacao.toLowerCase()} não gera cobrança.` }
+  const aluno = parcela.contrato.matricula.aluno
+  const cpf = String(aluno.cpf || '').replace(/\D/g, '')
+  if (cpf.length !== 11 && cpf.length !== 14) return { ok: false, error: 'Aluno sem CPF válido — a iugu exige CPF para emitir boleto e PIX.' }
+  const email = aluno.lead?.email?.trim()
+  if (!email) return { ok: false, error: 'Aluno sem e-mail — a iugu exige e-mail para emitir a cobrança.' }
+
+  try {
+    const encCfg = await getEncargosConfig()
+    const enc = calcularEncargos(parcela, encCfg)
+    const hoje = new Date()
+    const vencida = dataIugu(parcela.dataVencimento) < dataIugu(hoje)
+    const vencimento = vencida ? new Date(hoje.getTime() + 2 * 86400_000) : parcela.dataVencimento
+    const fatura = await criarFaturaIugu(cfg, {
+      metodos: ['boleto', 'pix'],
+      valor: enc.valorCobranca / 100,
+      vencimento,
+      descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}`,
+      email,
+      pagador: { nome: aluno.lead?.nome || 'Aluno', cpfCnpj: cpf, telefone: aluno.lead?.whatsapp || undefined, email },
+      referencia: `aca-parcela:${parcelaId}`,
+      // Mesma parcela, mesmo valor, mesmo vencimento: clique duplo não gera
+      // duas faturas. Valor ou data diferentes são outra cobrança de verdade.
+      chaveIdempotencia: `aca-parcela-${parcelaId}-${enc.valorCobranca}-${dataIugu(vencimento)}`,
+      urlNotificacao: urlGatilhoIugu(conn.webhookToken),
+      multaPct: encCfg.multaPct,
+      jurosMesPct: encCfg.jurosMesPct,
+      // Boleto de mensalidade segue pagável depois do vencimento, com os encargos.
+      expiraEmDias: 60,
+    })
+    await prisma.acaParcela.update({
+      where: { id: parcelaId },
+      data: {
+        asaasChargeId: fatura.id,
+        gatewayProvider: 'iugu',
+        linhaDigitavel: fatura.boleto?.pdfUrl || fatura.urlSegura || null,
+        pixCopiaCola: fatura.pix?.texto || null,
+        gatewaySyncAt: new Date(),
+      },
+    })
+    await prisma.acaIntegracaoEvento.create({ data: { origem: 'IUGU_COBRANCA', eventoExternoId: fatura.id, status: 'SUCESSO', responseJson: { urlSegura: fatura.urlSegura, linha: fatura.boleto?.linha ?? null } as any } }).catch(() => {})
+    return { ok: true, asaasChargeId: fatura.id }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Falha ao criar cobrança na iugu' }
+  }
+}
+
+/**
+ * Aplica à parcela o estado de uma fatura da iugu (vindo do gatilho ou da
+ * reconciliação). IDEMPOTENTE: a baixa é uma escrita condicional — de dois
+ * avisos simultâneos, só um muda a parcela para PAGA.
+ */
+export async function aplicarFaturaIuguNaParcela(fatura: IuguFatura): Promise<{ ok: boolean; baixou?: boolean; motivo?: string }> {
+  const m = String(fatura.referencia || '').match(/^aca-parcela:(\d+)$/)
+  const parcela = await prisma.acaParcela.findFirst({
+    where: m ? { id: parseInt(m[1]!), asaasChargeId: fatura.id } : { asaasChargeId: fatura.id, gatewayProvider: 'iugu' },
+    select: { id: true, contratoId: true, situacao: true, valorBrutoCentavos: true },
+  })
+  if (!parcela) return { ok: true, motivo: 'parcela não encontrada' }
+
+  let baixou = false
+  if (fatura.status === 'paid') {
+    const r = await prisma.acaParcela.updateMany({
+      where: { id: parcela.id, situacao: { not: 'PAGA' } },
+      data: {
+        situacao: 'PAGA',
+        valorPagoCentavos: fatura.pagoCentavos ?? fatura.totalCentavos ?? parcela.valorBrutoCentavos,
+        pagoEm: fatura.pagoEm ?? new Date(),
+        gatewaySyncAt: new Date(),
+      },
+    })
+    baixou = r.count === 1
+    if (baixou) await quitarSeCompleto(parcela.contratoId)
+  } else if (fatura.status === 'overdue' && parcela.situacao === 'ABERTA') {
+    await prisma.acaParcela.update({ where: { id: parcela.id }, data: { situacao: 'VENCIDA', gatewaySyncAt: new Date() } })
+  } else if (fatura.status === 'failed' && parcela.situacao !== 'PAGA') {
+    // Fatura cancelada na iugu (pelo painel, ou substituída): a parcela volta a
+    // não ter cobrança, e o botão "Cobrar" reaparece em vez de apontar para um
+    // boleto que o banco não aceita mais.
+    await prisma.acaParcela.updateMany({
+      where: { id: parcela.id, asaasChargeId: fatura.id },
+      data: { asaasChargeId: null, gatewayProvider: null, linhaDigitavel: null, pixCopiaCola: null, gatewaySyncAt: new Date() },
+    })
+  } else {
+    await prisma.acaParcela.update({ where: { id: parcela.id }, data: { gatewaySyncAt: new Date() } }).catch(() => {})
+  }
+  if (baixou) {
+    await prisma.acaIntegracaoEvento.create({
+      data: { origem: 'IUGU_WEBHOOK', eventoExternoId: `${fatura.id}:paid`, status: 'SUCESSO', responseJson: { parcelaId: parcela.id, pagoCentavos: fatura.pagoCentavos } as any },
+    }).catch(() => {})
+  }
+  return { ok: true, baixou }
+}
+
+/**
+ * Reconciliação das mensalidades emitidas na iugu. Chamada no mesmo tick do
+ * cron de pagamentos: confere até 10 parcelas em aberto por vez, as mais
+ * antigas de conferência primeiro, e não repete a mesma em menos de 30 min.
+ */
+export async function reconciliarParcelasIugu(): Promise<{ conferidas: number; baixadas: number; erros: number }> {
+  const limite = new Date(Date.now() - 30 * 60_000)
+  const parcelas = await prisma.acaParcela.findMany({
+    where: {
+      gatewayProvider: 'iugu',
+      asaasChargeId: { not: null },
+      situacao: { in: ['ABERTA', 'VENCIDA'] },
+      OR: [{ gatewaySyncAt: null }, { gatewaySyncAt: { lt: limite } }],
+    },
+    orderBy: { gatewaySyncAt: 'asc' },
+    take: 10,
+    select: { id: true, asaasChargeId: true },
+  })
+  let baixadas = 0
+  let erros = 0
+  for (const p of parcelas) {
+    try {
+      const conn = await conexaoDaParcela(p.id)
+      const cfg = conn?.provider === 'iugu' ? iuguDaConexao(conn) : null
+      if (!cfg) { erros++; continue }
+      const fatura = await buscarFaturaIugu(cfg, p.asaasChargeId!)
+      const r = await aplicarFaturaIuguNaParcela(fatura)
+      if (r.baixou) baixadas++
+    } catch {
+      erros++
+      await prisma.acaParcela.update({ where: { id: p.id }, data: { gatewaySyncAt: new Date() } }).catch(() => {})
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return { conferidas: parcelas.length, baixadas, erros }
 }
 
 /** Baixa manual de uma parcela (sem gateway). valorPago já considera encargos/desconto (Fin-2). */
@@ -271,6 +477,17 @@ export async function darBaixaManual(parcelaId: number): Promise<void> {
   const enc = calcularEncargos(p, await getEncargosConfig())
   await prisma.acaParcela.update({ where: { id: parcelaId }, data: { situacao: 'PAGA', valorPagoCentavos: enc.valorAtual, pagoEm: new Date() } })
   await quitarSeCompleto(p.contratoId)
+  // Com boleto emitido na iugu, a fatura precisa saber que foi paga por fora —
+  // senão o aluno segue recebendo lembrete e pode pagar de novo.
+  const emitida = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { asaasChargeId: true, gatewayProvider: true } })
+  if (emitida?.gatewayProvider === 'iugu' && emitida.asaasChargeId) {
+    const conn = await conexaoDaParcela(parcelaId)
+    const cfg = conn?.provider === 'iugu' ? iuguDaConexao(conn) : null
+    if (cfg) {
+      const r = await baixaExternaIugu(cfg, emitida.asaasChargeId, `aca-parcela-${parcelaId}`, 'Baixa manual na secretaria')
+      if (!r.ok) console.warn(`[acaFinanceiro] baixa externa na iugu falhou (parcela ${parcelaId}): ${r.message}`)
+    }
+  }
 }
 
 /** Processa um evento de pagamento do Asaas (webhook) — IDEMPOTENTE. */
@@ -282,9 +499,26 @@ export async function processarWebhookAsaas(payload: AsaasWebhookPayload): Promi
   if (dup) return { ok: true, motivo: 'duplicado' }
   await prisma.acaIntegracaoEvento.create({ data: { origem: 'ASAAS_WEBHOOK', eventoExternoId, status: 'PENDENTE', requestJson: payload as any } })
 
-  const interno = ASAAS_STATUS_MAP[payload.event] || payload.event
-  const pago = ['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED', 'PAYMENT_RECEIVED_IN_CASH'].includes(payload.event)
+  const interno = ASAAS_STATUS_MAP[String(payload.payment.status ?? '')] || payload.event
+  const pagoNoAviso = ['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED', 'PAYMENT_RECEIVED_IN_CASH'].includes(payload.event)
   const parcela = await prisma.acaParcela.findFirst({ where: { asaasChargeId: payload.payment.id }, select: { id: true, valorBrutoCentavos: true, contratoId: true } })
+  // O aviso diz "pago"; quem confirma é o Asaas. Esta rota é pública, então o
+  // corpo pode ser de qualquer um — sem a consulta, um POST com o id de uma
+  // cobrança dava baixa na mensalidade sem dinheiro nenhum ter entrado.
+  let pago = false
+  if (parcela && pagoNoAviso) {
+    const cfg = await contaDaParcela(parcela.id)
+    const real = cfg ? await getAsaasPaymentStatus(cfg, payload.payment.id).catch(() => null) : null
+    pago = !!real && ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'].includes(String((real as any).status ?? ''))
+    if (!pago) {
+      // Sai o registro de "já processado": se ficasse, um aviso forjado antes
+      // do pagamento faria o aviso VERDADEIRO, depois, ser descartado como
+      // duplicado — e a mensalidade paga nunca teria baixa.
+      await prisma.acaIntegracaoEvento.deleteMany({ where: { origem: 'ASAAS_WEBHOOK', eventoExternoId } })
+      console.warn(`[acaFinanceiro] aviso Asaas ${eventoExternoId} não confirmado na API (status: ${real ? String((real as any).status ?? '?') : 'sem resposta'}) — ignorado`)
+      return { ok: true, motivo: 'não confirmado no Asaas' }
+    }
+  }
   let baixou = false
   if (parcela && pago) {
     await prisma.acaParcela.update({ where: { id: parcela.id }, data: { situacao: 'PAGA', valorPagoCentavos: parcela.valorBrutoCentavos, pagoEm: payload.payment.paymentDate ? new Date(payload.payment.paymentDate) : new Date() } })

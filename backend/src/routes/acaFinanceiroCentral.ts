@@ -6,7 +6,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
-import { darBaixaManual, criarCobrancaAsaas } from '../services/acaFinanceiro.js'
+import { darBaixaManual, criarCobrancaParcela } from '../services/acaFinanceiro.js'
 import { getEncargosConfig, setEncargosConfig, calcularEncargos, type EncargosConfig } from '../services/acaEncargos.js'
 import { getBloqueioConfig, setBloqueioConfig, statusBloqueio } from '../services/acaBloqueio.js'
 import { getTermoTemplate, setTermoTemplate, dadosContrato } from '../services/acaContrato.js'
@@ -153,7 +153,7 @@ export async function acaFinanceiroCentralRoutes(app: FastifyInstance) {
   app.post('/api/admin/aca/financeiro/cobranca-lote', { preHandler: authMiddleware }, async (req) => {
     const ids = ((req.body as any)?.parcelaIds || []) as number[]
     let ok = 0; const erros: string[] = []
-    for (const id of ids) { const r = await criarCobrancaAsaas(Number(id)); if (r.ok) ok++; else erros.push(`${id}: ${r.error}`) }
+    for (const id of ids) { const r = await criarCobrancaParcela(Number(id)); if (r.ok) ok++; else erros.push(`${id}: ${r.error}`) }
     return { ok, total: ids.length, erros: erros.slice(0, 10) }
   })
 

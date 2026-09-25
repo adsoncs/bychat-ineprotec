@@ -8,7 +8,7 @@ import { contaDaRequisicao } from '../lib/portalSession.js'
 import { verifyPortalToken } from '../lib/acaPortalToken.js'
 import { painelDoAluno } from '../services/acaPainelAluno.js'
 import { contratoDoAluno, assinarPeloPortal } from '../services/portalContrato.js'
-import { criarCobrancaAsaas } from '../services/acaFinanceiro.js'
+import { criarCobrancaParcela } from '../services/acaFinanceiro.js'
 
 /** Sessão em cookie primeiro; token na URL continua valendo para links antigos. */
 async function alunoDaRequisicao(req: any): Promise<number | null> {
@@ -89,7 +89,7 @@ export async function acaAlunoApiRoutes(app: FastifyInstance) {
       return { ok: true, jaExistia: true, linhaDigitavel: parcela.linhaDigitavel, pix: parcela.pixCopiaCola }
     }
 
-    const r = await criarCobrancaAsaas(parcelaId)
+    const r = await criarCobrancaParcela(parcelaId)
     if (!r.ok) {
       req.log.warn(`[aluno] falha ao gerar cobrança da parcela ${parcelaId}: ${r.error}`)
       // O erro do gateway não serve para o aluno: ele não pode fazer nada com

@@ -24,6 +24,13 @@ import { flagDuplicate } from '../services/dedup.js'
 import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, type AsaasOrderMethod } from '../services/paymentAsaas.js'
 import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEvent, parsePagarmeWebhookPayload, detectPagarmeEnvironment, createPagarmeOrder, type PagarmeConfig, type PagarmeOrderMethod } from '../services/paymentPagarme.js'
 import { decryptToken } from '../services/cloudApi.js'
+import {
+  iuguDaConexao, criarFaturaIugu, cobrarCartaoIugu, buscarFaturaIugu, cancelarFaturaIugu,
+  lerGatilhoIugu, formularioParaObjeto, IuguError,
+} from '../services/paymentIugu.js'
+import { cobrancaDaFaturaIugu } from '../services/paymentSync.js'
+import { aplicarFaturaIuguNaParcela } from '../services/acaFinanceiro.js'
+import { appUrl } from '../lib/appUrl.js'
 import { lerRegras, tabelaDeParcelas, planoDeBoleto } from '../services/portalPagamento.js'
 import { avaliarCupom, consumirCupom } from '../services/portalCupom.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
@@ -276,6 +283,96 @@ async function persistPaymentMethod(input: {
       cardBrand: input.cardBrand ?? null,
     },
   })
+}
+
+/**
+ * O preço desta tentativa de pagamento e o registro do que foi escolhido.
+ *
+ * Era código do ramo Asaas do /payment-init — e por isso só o Asaas tinha
+ * cupom, juros de cartão e boleto parcelado; outro gateway cobrava a taxa
+ * cheia e a efetivação não sabia o que já tinha sido pago. Agora qualquer
+ * gateway que cobre pelo checkout transparente passa por aqui.
+ *
+ * `parcelamosNos` diz se as vezes do cartão são nossas (a transação passa por
+ * nós com a tabela do builder) ou da página do gateway (cobrança única, cheia).
+ */
+async function montarCobrancaDoCheckout(input: {
+  portalId: number
+  paymentMethodsConfig: unknown
+  paymentScope: string | null | undefined
+  cpf: string | undefined
+  method: 'pix' | 'boleto' | 'credit_card'
+  body: any
+  taxa: number
+  parcelamosNos: boolean
+}): Promise<{ erro: string } | {
+  valorCobrado: number
+  parcelasCartao: number
+  plano: ReturnType<typeof planoDeBoleto> | null
+  paymentPlan: (extra?: Record<string, unknown>) => Record<string, unknown>
+}> {
+  const { method, body, taxa, parcelamosNos } = input
+  const regrasPortal = lerRegras(input.paymentMethodsConfig)
+  const parcelasPedidas = Math.round(Number(body.parcelas ?? 1)) || 1
+
+  // Cupom: revalidado aqui, e não confiado na tela. Entre digitar o código
+  // e clicar em pagar, o cupom pode ter esgotado, expirado ou sido
+  // desligado — quem decide o preço é o servidor, na hora de cobrar.
+  const cupomAplicado = body.cupom
+    ? await avaliarCupom({
+        codigo: String(body.cupom),
+        valor: taxa,
+        portalId: input.portalId,
+        cpf: input.cpf,
+        descontoAVistaPct: regrasPortal.pix.descontoPct,
+      })
+    : null
+  if (cupomAplicado && 'valido' in cupomAplicado) return { erro: cupomAplicado.motivo }
+  const valorComDesconto = cupomAplicado ? cupomAplicado.valorFinal : taxa
+
+  const parcelasCartao = parcelamosNos
+    ? Math.min(Math.max(1, parcelasPedidas), regrasPortal.cartao.parcelasMax)
+    : 1
+  // Com juros, quem paga o acréscimo é o candidato: o valor enviado é o
+  // total da opção escolhida, não o preço de tabela.
+  const opcaoCartao = parcelamosNos
+    ? tabelaDeParcelas(valorComDesconto, regrasPortal.cartao).find((o) => o.parcelas === parcelasCartao)
+    : null
+
+  // Boleto parcelado cobra AGORA só a entrada — o resto vira parcela do
+  // contrato na efetivação. Sem isto, escolher "12x" gerava um boleto do
+  // valor inteiro: a tela oferecia parcelar e a cobrança vinha cheia.
+  const boletoParcelado = method === 'boleto'
+    && regrasPortal.boleto.parcelado
+    && parcelasPedidas > 1
+  const plano = boletoParcelado
+    ? planoDeBoleto(valorComDesconto, regrasPortal.boleto, parcelasPedidas)
+    : null
+
+  const valorCobrado = plano?.valorEntrada ?? opcaoCartao?.valorTotal ?? valorComDesconto
+
+  // O que foi escolhido fica registrado: é o que a efetivação vai ler para
+  // montar o contrato, e o que a secretaria vê se perguntarem.
+  const paymentPlan = (extra: Record<string, unknown> = {}) => ({
+    meio: method,
+    parcelas: plano?.parcelas ?? parcelasCartao,
+    valorCobrado,
+    valorTabela: taxa,
+    acrescimo: plano?.acrescimo ?? opcaoCartao?.acrescimo ?? 0,
+    // Guardado para consumir só quando o pagamento for confirmado.
+    ...(cupomAplicado ? {
+      cupom: cupomAplicado.code,
+      valorCheio: cupomAplicado.valorCheio,
+      descontoCupom: Math.round((cupomAplicado.valorCheio - cupomAplicado.valorFinal) * 100) / 100,
+      descontoOrigem: cupomAplicado.origem,
+    } : {}),
+    // No boleto parcelado, o que sobra para o financeiro cobrar.
+    ...(plano ? { valorParcela: plano.valorParcela, valorTotal: plano.valorTotal } : {}),
+    escopo: input.paymentScope === 'curso' ? 'curso' : 'taxa',
+    ...extra,
+  })
+
+  return { valorCobrado, parcelasCartao, plano, paymentPlan }
 }
 
 /**
@@ -1228,6 +1325,30 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       data: { status: 'cancelled' },
     })
 
+    // Inscrição cancelada não pode seguir cobrável: o boleto/PIX pendente na
+    // iugu é cancelado junto, senão o candidato paga algo que já não existe.
+    // Falha aqui não desfaz o cancelamento — fica no log para a secretaria.
+    const pendentesIugu = await prisma.enrollmentPaymentMethod.findMany({
+      where: { registrationId: reg.id, provider: 'iugu', status: 'pending', externalId: { not: null } },
+      select: { id: true, externalId: true },
+    })
+    if (pendentesIugu.length) {
+      const connIugu = await prisma.enrollmentRegistration.findUnique({
+        where: { id: reg.id },
+        select: { portal: { select: { paymentConnection: { select: { provider: true, apiKey: true, publicKey: true, environment: true } } } } },
+      })
+      const c = connIugu?.portal?.paymentConnection
+      const cfg = c?.provider === 'iugu' ? iuguDaConexao(c) : null
+      for (const m of pendentesIugu) {
+        const r = cfg ? await cancelarFaturaIugu(cfg, m.externalId!) : { ok: false, message: 'conexão iugu indisponível' }
+        if (r.ok) {
+          await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'failed', lastErrorMessage: 'Cancelada junto com a inscrição' } }).catch(() => {})
+        } else {
+          req.log.warn(`[enrollment-cancel] fatura iugu ${m.externalId} não cancelada: ${r.message}`)
+        }
+      }
+    }
+
     if (reg.leadId) {
       const u = (req as any).user as JwtPayload | undefined
       logEvent({
@@ -2061,13 +2182,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           select: {
             paymentProvider: true, paymentConfig: true, paymentDeadlineHours: true, nome: true,
             paymentConnectionId: true,
-            paymentConnection: { select: { provider: true, environment: true, apiKey: true, defaultBillingType: true, active: true } },
+            paymentConnection: { select: { provider: true, environment: true, apiKey: true, defaultBillingType: true, active: true, publicKey: true, webhookToken: true } },
           },
         })
 
         // Preferir conexão nova (PaymentProviderConnection) sobre config legada no portal
         let asaasCfg: ReturnType<typeof parseAsaasConfig> = null
         let pagarmeCfg: PagarmeConfig | null = null
+        let iuguCfg: ReturnType<typeof iuguDaConexao> = null
         const conn = portalFull?.paymentConnection
         if (conn && conn.active) {
           const { decryptToken } = await import('../services/cloudApi.js')
@@ -2081,6 +2203,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
               }
             } else if (conn.provider === 'pagarme') {
               pagarmeCfg = { apiKey: plainKey, environment: detectPagarmeEnvironment(plainKey) }
+            } else if (conn.provider === 'iugu') {
+              iuguCfg = iuguDaConexao(conn)
             }
           } catch (e: any) {
             req.log.warn(`[enrollment] falha ao decryptar apiKey da conexão: ${e.message}`)
@@ -2151,6 +2275,43 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
               paymentExpiresAt: dueDate,
             },
           })
+        } else if (taxaInscricao && iuguCfg && email) {
+          // Página da iugu com todos os meios aceitos pela conta: o candidato
+          // escolhe lá. Sem CPF, a própria página pede os dados do boleto/PIX.
+          const dueDate = new Date(Date.now() + (portalFull?.paymentDeadlineHours || 48) * 3600 * 1000)
+          const base = appUrl()
+          const fatura = await criarFaturaIugu(iuguCfg, {
+            metodos: 'all',
+            valor: Number(taxaInscricao),
+            vencimento: dueDate,
+            descricao: `Taxa de inscrição — ${portalFull?.nome} (${candidateCode})`,
+            email,
+            pagador: { nome: nome || 'Candidato', cpfCnpj: cpf || undefined, telefone: whatsapp || undefined, email },
+            referencia: `enrollment-${enrollment.id}`,
+            chaveIdempotencia: `enrollment-${enrollment.id}-link`,
+            ...(base && portalFull?.paymentConnection?.webhookToken
+              ? { urlNotificacao: `${base}/api/public/payment-webhook/iugu/${portalFull.paymentConnection.webhookToken}` }
+              : {}),
+            expiraEmDias: 0,
+          })
+          paymentUrl = fatura.urlSegura
+          await prisma.enrollmentRegistration.update({
+            where: { id: enrollment.id },
+            data: {
+              paymentId: fatura.id,
+              paymentUrl: fatura.urlSegura,
+              paymentAmount: Number(taxaInscricao),
+              paymentMethod: 'UNDEFINED',
+              paymentStatus: fatura.status,
+              paymentExpiresAt: dueDate,
+            },
+          })
+          // A reconciliação percorre as tentativas; sem esta linha, uma fatura
+          // de link cujo gatilho se perdesse nunca seria conferida.
+          await persistPaymentMethod({
+            registrationId: enrollment.id, provider: 'iugu', method: 'link', externalId: fatura.id,
+            status: fatura.status, amount: Number(taxaInscricao), dueDate,
+          }).catch(() => {})
         } else if (taxaInscricao) {
           req.log.warn(`[enrollment] portal ${portal.id} requirePayment=true mas config de pagamento inválida/ausente`)
         } else {
@@ -2165,7 +2326,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             category: 'lifecycle',
             title: `Link de pagamento gerado — ${candidateCode}`,
             channel: 'payment',
-            source: pagarmeCfg ? 'pagarme' : 'asaas',
+            source: iuguCfg ? 'iugu' : pagarmeCfg ? 'pagarme' : 'asaas',
             actorType: 'system',
             metadata: { mode: 'link', amount: taxaInscricao, registrationId: enrollment.id, paymentUrl },
           })
@@ -2278,7 +2439,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           select: {
             id: true,
             paymentScope: true, paymentMethodsConfig: true, requirePayment: true,
-            paymentConnection: { select: { provider: true, active: true } },
+            paymentConnection: { select: { id: true, provider: true, active: true, environment: true, publicKey: true } },
           },
         },
       },
@@ -2308,9 +2469,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Cartão só aparece com conexão que o suporte. Oferecer um botão que falha
     // na hora de pagar é pior do que não oferecer.
     const provedor = enrollment.portal?.paymentConnection?.provider ?? null
+    // iugu: o cartão vira token no navegador (iugu.js), e para isso a tela
+    // precisa do ID da conta. Sem ele cadastrado, cartão não aparece — PIX e
+    // boleto seguem funcionando.
+    const contaIugu = provedor === 'iugu' && enrollment.portal?.paymentConnection?.publicKey
+      ? (() => { try { return decryptToken(enrollment.portal!.paymentConnection!.publicKey!) || null } catch { return null } })()
+      : null
     const cartaoDisponivel = regras.cartao.ativo
       && !!enrollment.portal?.paymentConnection?.active
-      && ['asaas', 'pagarme', 'simulado'].includes(String(provedor))
+      && (['asaas', 'pagarme', 'simulado'].includes(String(provedor)) || (provedor === 'iugu' && !!contaIugu))
 
     // O desconto à vista já foi considerado na disputa com o cupom: aplicar de
     // novo aqui daria os dois ao mesmo tempo, que é o que se decidiu evitar.
@@ -2368,7 +2535,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         // candidato para fora. Asaas e Pagar.me aceitam cartão por aqui; o
         // provedor simulado não tem para onde mandar, então também é nosso.
         cartao: cartaoDisponivel
-          ? { ativo: true, hospedado: false, opcoes: tabelaDeParcelas(valor, regras.cartao) }
+          ? {
+              ativo: true,
+              hospedado: false,
+              opcoes: tabelaDeParcelas(valor, regras.cartao),
+              // O número do cartão vai do navegador direto para a iugu; para
+              // nós só volta o token de uso único.
+              ...(provedor === 'iugu' && contaIugu
+                ? { tokenizacao: { provider: 'iugu', accountId: contaIugu, teste: enrollment.portal?.paymentConnection?.environment !== 'production' } }
+                : {}),
+            }
           : { ativo: false },
       },
     })
@@ -2404,7 +2580,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             paymentConnection: {
               select: {
                 id: true, provider: true, environment: true, apiKey: true,
-                defaultBillingType: true, active: true,
+                defaultBillingType: true, active: true, publicKey: true, webhookToken: true,
               },
             },
           },
@@ -2456,7 +2632,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Teste de cartões: um checkout público que aceita cartão vira alvo de quem
     // valida listas roubadas uma tentativa por vez. Poucas tentativas por
     // inscrição não atrapalham quem errou o número e fecham essa porta.
-    if (method === 'credit_card' && dadosDoCartao) {
+    const cartaoNaIugu = method === 'credit_card' && conexao?.provider === 'iugu'
+    if (method === 'credit_card' && (dadosDoCartao || cartaoNaIugu)) {
       const tentativas = await prisma.enrollmentPaymentMethod.count({
         where: {
           registrationId: enrollment.id,
@@ -2586,26 +2763,6 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           environment: (conn.environment === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
           billingType: (conn.defaultBillingType as any) || 'UNDEFINED',
         }
-        const regrasPortal = lerRegras(enrollment.portal?.paymentMethodsConfig)
-        const parcelasPedidas = Math.round(Number(body.parcelas ?? 1)) || 1
-
-        // Cupom: revalidado aqui, e não confiado na tela. Entre digitar o código
-        // e clicar em pagar, o cupom pode ter esgotado, expirado ou sido
-        // desligado — quem decide o preço é o servidor, na hora de cobrar.
-        const cupomAplicado = body.cupom
-          ? await avaliarCupom({
-              codigo: String(body.cupom),
-              valor: Number(taxaInscricao),
-              portalId: enrollment.portal!.id,
-              cpf: fd.cpf,
-              descontoAVistaPct: regrasPortal.pix.descontoPct,
-            })
-          : null
-        if (cupomAplicado && 'valido' in cupomAplicado) {
-          return reply.code(400).send({ error: cupomAplicado.motivo })
-        }
-        const valorComDesconto = cupomAplicado ? cupomAplicado.valorFinal : Number(taxaInscricao)
-
         // Parcelamento só é nosso quando a transação passa por nós.
         //
         // Com os dados do cartão, `installmentCount` cria compra parcelada de
@@ -2615,26 +2772,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         // ali a cobrança é uma só, do valor cheio, e quem oferece as vezes é a
         // página do Asaas.
         const parcelamosNos = method === 'credit_card' && !cartaoHospedado
-        const parcelasCartao = parcelamosNos
-          ? Math.min(Math.max(1, parcelasPedidas), regrasPortal.cartao.parcelasMax)
-          : 1
-        // Com juros, quem paga o acréscimo é o candidato: o valor enviado é o
-        // total da opção escolhida, não o preço de tabela.
-        const opcaoCartao = parcelamosNos
-          ? tabelaDeParcelas(valorComDesconto, regrasPortal.cartao).find((o) => o.parcelas === parcelasCartao)
-          : null
-
-        // Boleto parcelado cobra AGORA só a entrada — o resto vira parcela do
-        // contrato na efetivação. Sem isto, escolher "12x" gerava um boleto do
-        // valor inteiro: a tela oferecia parcelar e a cobrança vinha cheia.
-        const boletoParcelado = method === 'boleto'
-          && regrasPortal.boleto.parcelado
-          && parcelasPedidas > 1
-        const plano = boletoParcelado
-          ? planoDeBoleto(valorComDesconto, regrasPortal.boleto, parcelasPedidas)
-          : null
-
-        const valorCobrado = plano?.valorEntrada ?? opcaoCartao?.valorTotal ?? valorComDesconto
+        // Cupom, juros do cartão e boleto parcelado: regra comum a todo
+        // gateway do checkout transparente (montarCobrancaDoCheckout).
+        const conta = await montarCobrancaDoCheckout({
+          portalId: enrollment.portal!.id,
+          paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
+          paymentScope: enrollment.portal?.paymentScope,
+          cpf: fd.cpf,
+          method,
+          body,
+          taxa: Number(taxaInscricao),
+          parcelamosNos,
+        })
+        if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
+        const { valorCobrado, parcelasCartao } = conta
 
         const order = await createAsaasOrder(cfg, {
           method: method as AsaasOrderMethod,
@@ -2689,26 +2840,111 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             ...(order.invoiceUrl ? { paymentUrl: order.invoiceUrl } : {}),
             // O que foi escolhido fica registrado: é o que a efetivação vai ler
             // para montar o contrato, e o que a secretaria vê se perguntarem.
-            paymentPlan: {
-              meio: method,
-              parcelas: plano?.parcelas ?? parcelasCartao,
-              valorCobrado,
-              valorTabela: Number(taxaInscricao),
-              acrescimo: plano?.acrescimo ?? opcaoCartao?.acrescimo ?? 0,
-              // Guardado para consumir só quando o pagamento for confirmado.
-              ...(cupomAplicado ? {
-                cupom: cupomAplicado.code,
-                valorCheio: cupomAplicado.valorCheio,
-                descontoCupom: Math.round((cupomAplicado.valorCheio - cupomAplicado.valorFinal) * 100) / 100,
-                descontoOrigem: cupomAplicado.origem,
-              } : {}),
-              // No boleto parcelado, o que sobra para o financeiro cobrar.
-              ...(plano ? { valorParcela: plano.valorParcela, valorTotal: plano.valorTotal } : {}),
-              escopo: enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa',
-              ...(order.installmentId ? { installmentId: order.installmentId } : {}),
-            },
+            paymentPlan: conta.paymentPlan(order.installmentId ? { installmentId: order.installmentId } : {}) as any,
           },
         })
+      } else if (conn.provider === 'iugu') {
+        const cfg = iuguDaConexao(conn)
+        if (!cfg) return reply.code(500).send({ error: 'Falha ao decifrar credenciais do provedor' })
+        // PIX e boleto exigem CPF e nome do pagador na iugu; toda fatura exige
+        // e-mail. Melhor dizer isso ao candidato do que devolver o 422 dela.
+        const cpfPagador = String(customer.cpfCnpj ?? '').replace(/\D/g, '')
+        if (method !== 'credit_card' && cpfPagador.length !== 11 && cpfPagador.length !== 14) {
+          return reply.code(400).send({ error: 'Para pagar com PIX ou boleto, informe um CPF válido na inscrição.' })
+        }
+        if (!customer.email) {
+          return reply.code(400).send({ error: 'Informe um e-mail na inscrição para receber a cobrança.' })
+        }
+
+        const conta = await montarCobrancaDoCheckout({
+          portalId: enrollment.portal!.id,
+          paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
+          paymentScope: enrollment.portal?.paymentScope,
+          cpf: fd.cpf,
+          method,
+          body,
+          taxa: Number(taxaInscricao),
+          parcelamosNos: method === 'credit_card',
+        })
+        if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
+        const { valorCobrado, parcelasCartao } = conta
+
+        // Cada clique em "pagar" é uma tentativa, com chave própria: a rede
+        // falhar no meio não cria duas faturas, e uma tentativa nova (outro
+        // meio, outro cartão) não é confundida com a repetição da anterior.
+        const tentativa = `enrollment-${enrollment.id}-${method}-${crypto.randomBytes(6).toString('hex')}`
+        const base = appUrl()
+        let fatura = await criarFaturaIugu(cfg, {
+          metodos: [method],
+          valor: valorCobrado,
+          vencimento: dueDate,
+          descricao: description,
+          email: customer.email,
+          pagador: { nome: customer.name, cpfCnpj: customer.cpfCnpj, telefone: customer.phone, email: customer.email },
+          referencia: `enrollment-${enrollment.id}`,
+          chaveIdempotencia: tentativa,
+          ...(base ? { urlNotificacao: `${base}/api/public/payment-webhook/iugu/${conn.webhookToken}` } : {}),
+          ...(method === 'credit_card' && parcelasCartao > 1 ? { maxParcelas: parcelasCartao } : {}),
+          // Taxa de inscrição não se paga depois do prazo: a fatura expira junto.
+          expiraEmDias: 0,
+        })
+        if (method === 'credit_card') {
+          try {
+            fatura = await cobrarCartaoIugu(cfg, {
+              faturaId: fatura.id,
+              token: String(body.cardToken),
+              parcelas: parcelasCartao,
+              chaveIdempotencia: `${tentativa}-charge`,
+            })
+          } catch (e) {
+            // Cartão recusado: a fatura fica sem uso — cancelada para não virar
+            // cobrança pendente esquecida no painel da iugu.
+            void cancelarFaturaIugu(cfg, fatura.id)
+            throw e
+          }
+        }
+        const qrDataUrl = fatura.pix?.texto
+          ? await QRCode.toDataURL(fatura.pix.texto, { margin: 1, width: 480 }).catch(() => null)
+          : null
+        methodRow = await persistPaymentMethod({
+          registrationId: enrollment.id,
+          provider: 'iugu',
+          method,
+          externalId: fatura.id,
+          status: fatura.status,
+          amount: valorCobrado,
+          dueDate,
+          ...(fatura.pix?.texto ? { pixQrCode: fatura.pix.texto } : {}),
+          ...(qrDataUrl ? { pixQrCodeUrl: qrDataUrl } : {}),
+          ...(fatura.boleto?.linha ? { boletoLine: fatura.boleto.linha } : {}),
+          ...(fatura.boleto?.codigoBarras ? { boletoBarcode: fatura.boleto.codigoBarras } : {}),
+          ...(fatura.boleto?.pdfUrl ? { boletoPdfUrl: fatura.boleto.pdfUrl } : {}),
+          ...(method === 'boleto' ? { boletoDueAt: dueDate } : {}),
+          ...(fatura.cartao?.ultimos4 ? { cardLastDigits: fatura.cartao.ultimos4 } : {}),
+          ...(fatura.cartao?.bandeira ? { cardBrand: fatura.cartao.bandeira } : {}),
+        })
+        await prisma.enrollmentRegistration.update({
+          where: { id: enrollment.id },
+          data: {
+            paymentId: fatura.id,
+            // "Pago" quem grava é a rotina de confirmação logo abaixo: ela só
+            // dispara cupom, conversão e aviso ao candidato na PASSAGEM para
+            // pago — gravado aqui, ela veria "já estava pago" e pularia tudo.
+            paymentStatus: fatura.status === 'paid' ? 'pending' : fatura.status,
+            paymentAmount: valorCobrado,
+            paymentMethod: method.toUpperCase(),
+            paymentExpiresAt: dueDate,
+            ...(fatura.urlSegura ? { paymentUrl: fatura.urlSegura } : {}),
+            paymentPlan: conta.paymentPlan({ gateway: 'iugu' }) as any,
+          },
+        })
+        // Cartão aprovado na hora: a confirmação não espera o gatilho. A
+        // mesma rotina do cron aplica os efeitos (cupom, conversão, aviso ao
+        // candidato), uma vez só.
+        if (fatura.status === 'paid') {
+          await syncChargeFromProvider(conn, fatura.id, cobrancaDaFaturaIugu(fatura)).catch(() => {})
+          methodRow = await prisma.enrollmentPaymentMethod.findUnique({ where: { id: methodRow.id } }) ?? methodRow
+        }
       } else {
         return reply.code(400).send({ error: `Provedor não suportado: ${conn.provider}` })
       }
@@ -2773,7 +3009,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       // sabe que deve manter o formulário aberto para a nova tentativa.
       const codigoDoProvedor = String(e?.data?.errors?.[0]?.code ?? '')
       const recusaDeCartao = method === 'credit_card'
-        && (codigoDoProvedor === 'invalid_creditCard' || /cart[ãa]o|n[ãa]o autorizada/i.test(String(e?.message ?? '')))
+        && (codigoDoProvedor === 'invalid_creditCard'
+          || (e instanceof IuguError && e.recusaCartao)
+          || /cart[ãa]o|n[ãa]o autorizada/i.test(String(e?.message ?? '')))
       if (recusaDeCartao) {
         return reply.code(402).send({
           error: 'Não foi possível aprovar este cartão. Confira os dados ou tente outro cartão — '
@@ -2808,7 +3046,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         portal: {
           select: {
             paymentMode: true, requirePayment: true,
-            paymentConnection: { select: { provider: true, environment: true, apiKey: true, active: true } },
+            paymentConnection: { select: { provider: true, environment: true, apiKey: true, active: true, publicKey: true } },
           },
         },
         paymentMethods: {
@@ -2846,6 +3084,22 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         }
       } catch (e: any) {
         req.log.warn(`[payment-status] falha ao recuperar QR do PIX: ${e?.message}`)
+      }
+    }
+    if (pixSemQr && connStatus?.active && connStatus.provider === 'iugu') {
+      try {
+        const cfg = iuguDaConexao(connStatus)
+        const f = cfg ? await buscarFaturaIugu(cfg, pixSemQr.externalId) : null
+        if (f?.pix?.texto) {
+          const img = await QRCode.toDataURL(f.pix.texto, { margin: 1, width: 480 }).catch(() => null)
+          const atualizado = await prisma.enrollmentPaymentMethod.update({
+            where: { id: pixSemQr.id },
+            data: { qrCode: f.pix.texto, ...(img ? { qrCodeUrl: img } : {}) },
+          })
+          Object.assign(pixSemQr, atualizado)
+        }
+      } catch (e: any) {
+        req.log.warn(`[payment-status] falha ao recuperar QR do PIX (iugu): ${e?.message}`)
       }
     }
 
@@ -2886,6 +3140,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Conexão de pagamento inativa' })
     }
     const conn = enrollment.portal.paymentConnection
+    if (conn.provider === 'iugu') {
+      // Na iugu a "chave pública" é o ID da conta, que o iugu.js usa no navegador.
+      const conta = await getConnectionPublicKey(conn.id)
+      if (!conta) return reply.code(404).send({ error: 'ID da conta iugu não cadastrado para esta conexão' })
+      const env = await prisma.paymentProviderConnection.findUnique({ where: { id: conn.id }, select: { environment: true } })
+      return reply.send({ provider: 'iugu', publicKey: conta, accountId: conta, teste: env?.environment !== 'production' })
+    }
     if (conn.provider !== 'pagarme') {
       // Asaas não usa public key separada — frontend deve indicar erro/fallback.
       return reply.send({ provider: conn.provider, publicKey: null })
@@ -3895,7 +4156,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return crypto.timingSafeEqual(ba, bb)
   }
   function verifyPaymentWebhookAuth(
-    provider: 'asaas' | 'pagarme',
+    provider: 'asaas' | 'pagarme' | 'iugu',
     webhookSecret: string | null | undefined,
     req: any,
   ): { ok: boolean; configured: boolean } {
@@ -4164,6 +4425,111 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     if (hitId) await updateWebhookHit(hitId, { status: 'processed', registrationId: enrollment.id })
     return { ok: true, event, paymentStatus: newPaymentStatus }
+  })
+
+  // ══════════════════════════════════════════════
+  // WEBHOOK DE PAGAMENTO — iugu (gatilhos)
+  // URL pública: /api/public/payment-webhook/iugu/:token
+  //
+  // A iugu manda `application/x-www-form-urlencoded` (event, data[id],
+  // data[status]…). O parser fica só neste escopo: aceitar formulário no
+  // servidor inteiro abriria as outras rotas a POST de formulário de outro
+  // site — hoje barrado justamente por exigirem JSON.
+  //
+  // O corpo NÃO é confiado: ele diz qual fatura mudou, e o estado vem da API
+  // da iugu consultada com o nosso token. Serve tanto para o portal
+  // (referência enrollment-<id>) quanto para as mensalidades do ERP
+  // (aca-parcela:<id>).
+  // ══════════════════════════════════════════════
+  await app.register(async (escopo) => {
+    escopo.addContentTypeParser(
+      'application/x-www-form-urlencoded',
+      { parseAs: 'string', bodyLimit: 64 * 1024 },
+      (_req, corpo, pronto) => {
+        try { pronto(null, formularioParaObjeto(String(corpo))) } catch (e: any) { pronto(e, undefined) }
+      },
+    )
+
+    escopo.post('/api/public/payment-webhook/iugu/:token', async (req, reply) => {
+      const { token } = req.params as any
+      if (!token || typeof token !== 'string' || token.length < 20) {
+        return reply.code(400).send({ error: 'Token inválido' })
+      }
+      const conn = await prisma.paymentProviderConnection.findUnique({
+        where: { webhookToken: token },
+        select: { id: true, active: true, provider: true, webhookSecret: true, apiKey: true, publicKey: true, environment: true },
+      })
+      if (!conn || !conn.active || conn.provider !== 'iugu') {
+        return reply.code(404).send({ error: 'Conexão não encontrada' })
+      }
+
+      // Dois caminhos chegam aqui: o gatilho cadastrado na conta (traz a chave
+      // em Authorization) e o `notification_url` de cada fatura (a iugu não
+      // manda chave nenhuma). Chave presente e errada é recusada; ausente
+      // segue — a autenticidade vem da consulta à API logo abaixo, não do corpo.
+      const auth = verifyPaymentWebhookAuth('iugu', conn.webhookSecret, req)
+      if (!auth.ok && req.headers['authorization']) {
+        await logSecurityEvent({ ip: req.ip, type: 'payment_webhook_invalid_signature', severity: 'high', path: req.url, details: 'iugu gatilho: authorization inválido' }).catch(() => {})
+        return reply.code(401).send({ error: 'Assinatura inválida' })
+      }
+
+      const aviso = lerGatilhoIugu(req.body)
+      const hitId = await recordWebhookHit({
+        connectionId: conn.id,
+        provider: 'iugu',
+        eventType: aviso.evento || 'unknown',
+        externalId: aviso.faturaId,
+        status: 'received',
+        payload: req.body,
+        signatureValid: auth.ok && auth.configured,
+        remoteIp: req.ip ?? null,
+        userAgent: (req.headers['user-agent'] as string) ?? null,
+      })
+
+      if (!aviso.evento.startsWith('invoice.') || !aviso.faturaId) {
+        if (hitId) await updateWebhookHit(hitId, { status: 'ignored' })
+        return { ok: true, ignored: true }
+      }
+
+      const cfg = iuguDaConexao(conn)
+      if (!cfg) {
+        if (hitId) await updateWebhookHit(hitId, { status: 'error', errorMessage: 'Falha ao decifrar credenciais' })
+        // 500 faz a iugu tentar de novo — é o que queremos quando o problema é nosso.
+        return reply.code(500).send({ error: 'Credenciais indisponíveis' })
+      }
+
+      let fatura
+      try {
+        fatura = await buscarFaturaIugu(cfg, aviso.faturaId)
+      } catch (e: any) {
+        // Fatura que a nossa conta não enxerga: aviso forjado ou de outra conta.
+        const status = e instanceof IuguError && e.status === 404 ? 'notFound' : 'error'
+        if (hitId) await updateWebhookHit(hitId, { status, errorMessage: e?.message?.slice(0, 500) ?? null })
+        return status === 'notFound' ? { ok: true, notFound: true } : reply.code(502).send({ error: 'Falha ao consultar a iugu' })
+      }
+
+      // Mensalidade do ERP
+      if (String(fatura.referencia || '').startsWith('aca-parcela:')) {
+        const r = await aplicarFaturaIuguNaParcela(fatura)
+        if (hitId) await updateWebhookHit(hitId, { status: r.motivo === 'parcela não encontrada' ? 'notFound' : 'processed' })
+        return { ok: true, erp: true, baixou: !!r.baixou }
+      }
+
+      // Inscrição do portal — mesma rotina idempotente do cron de reconciliação.
+      const r = await syncChargeFromProvider(conn, fatura.id, cobrancaDaFaturaIugu(fatura))
+      if (!r.ok) {
+        if (hitId) await updateWebhookHit(hitId, { status: 'notFound', errorMessage: r.error ?? null })
+        return { ok: true, notFound: true }
+      }
+      if (r.transitionedToPaid) {
+        await logSecurityEvent({
+          ip: req.ip, type: 'payment_confirmed_webhook', severity: 'info', path: req.url,
+          details: `iugu: ${r.candidateCode} marcado PAGO (fatura=${fatura.id}, confirmado na API)`,
+        }).catch(() => {})
+      }
+      if (hitId) await updateWebhookHit(hitId, { status: 'processed', registrationId: r.enrollmentId ?? null })
+      return { ok: true, paymentStatus: r.paymentStatus }
+    })
   })
 
   // ══════════════════════════════════════════════

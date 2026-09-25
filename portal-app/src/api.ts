@@ -350,13 +350,21 @@ export const iniciarPagamento = (
   // rascunho, não volta na resposta e não aparece em log.
   cartao?: { holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string },
   cupom?: string,
+  // Token de uso único gerado no navegador (iugu.js). Com ele, os dados do
+  // cartão não vão nesta requisição.
+  cardToken?: string,
 ) =>
   pedir<{ ok: boolean; method: MetodoPagamento; checkoutUrl?: string }>(
     `/api/public/registrations/${encodeURIComponent(code)}/payment-init`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ method: metodo, parcelas, ...(cartao ? { card: cartao } : {}), ...(cupom ? { cupom } : {}) }),
+      body: JSON.stringify({
+        method: metodo, parcelas,
+        ...(cartao && !cardToken ? { card: cartao } : {}),
+        ...(cardToken ? { cardToken } : {}),
+        ...(cupom ? { cupom } : {}),
+      }),
     },
   )
 
@@ -483,7 +491,13 @@ export interface OpcoesDePagamento {
   meios: {
     pix: { ativo: boolean; valor?: number; descontoPct?: number; expiraHoras?: number }
     boleto: { ativo: boolean; parcelado?: boolean; parcelasMax?: number; opcoes?: OpcaoBoleto[] }
-    cartao: { ativo: boolean; hospedado?: boolean; opcoes?: OpcaoParcela[] }
+    cartao: {
+      ativo: boolean
+      hospedado?: boolean
+      opcoes?: OpcaoParcela[]
+      /** Presente quando o cartão vira token no navegador antes de ir ao servidor (iugu). */
+      tokenizacao?: { provider: 'iugu'; accountId: string; teste: boolean }
+    }
   }
 }
 

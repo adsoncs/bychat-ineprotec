@@ -184,7 +184,7 @@ function FinanceiroCard({ matriculaId, podeGerar }: { matriculaId: number; podeG
             <Badge tone={SIT_TONE[p.situacao]}>{p.situacao}</Badge>
             {['ABERTA', 'VENCIDA'].includes(p.situacao) && (
               <div class="flex items-center gap-1">
-                {!p.asaasChargeId && <button class="text-[11px] text-accent hover:underline" title="Emitir boleto/PIX no Asaas" disabled={mut.cobranca.isPending} onClick={() => mut.cobranca.mutate(p.id)}>Cobrar</button>}
+                {!p.asaasChargeId && <button class="text-[11px] text-accent hover:underline" title="Emitir boleto/PIX no gateway de pagamento" disabled={mut.cobranca.isPending} onClick={() => mut.cobranca.mutate(p.id)}>Cobrar</button>}
                 {p.linhaDigitavel && <a class="text-fg-muted hover:text-accent" href={p.linhaDigitavel} target="_blank" rel="noopener" title="Boleto"><FileText size={13} /></a>}
                 {p.pixCopiaCola && <button class="text-fg-muted hover:text-accent" title="Copiar PIX" onClick={() => navigator.clipboard?.writeText(p.pixCopiaCola!)}><Copy size={13} /></button>}
                 <button class="text-[11px] text-fg-muted hover:text-success" title="Dar baixa manual" disabled={mut.baixa.isPending} onClick={() => mut.baixa.mutate(p.id)}>Baixar</button>

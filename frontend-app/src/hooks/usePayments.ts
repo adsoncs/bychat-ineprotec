@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/apiClient'
 
-export type PaymentProvider = 'asaas' | 'pagarme'
+export type PaymentProvider = 'asaas' | 'pagarme' | 'iugu'
 export type PaymentEnvironment = 'sandbox' | 'production'
 export type PaymentBillingType = 'UNDEFINED' | 'PIX' | 'BOLETO' | 'CREDIT_CARD'
 export type PaymentTestStatus = 'ok' | 'error' | null
@@ -15,6 +15,8 @@ export interface PaymentConnection {
   apiKeyMasked: string
   publicKeyMasked: string | null
   hasPublicKey: boolean
+  /** iugu: ID da conta (público — vai para o iugu.js no navegador). */
+  accountId?: string | null
   webhookToken: string
   webhookSecret: string | null
   companyDocument: string | null
@@ -35,7 +37,7 @@ export interface PaymentConnectionInput {
   environment: PaymentEnvironment
   /** só envia se preenchido — vazio mantém a key atual no edit */
   apiKey?: string | undefined
-  /** Pagar.me public key (pk_…). Habilita tokenização de cartão no frontend (PCI SAQ A). */
+  /** Pagar.me public key (pk_…) ou, na iugu, o ID da conta. Habilita tokenização de cartão no navegador (PCI SAQ A). */
   publicKey?: string | null | undefined
   defaultBillingType?: PaymentBillingType | null | undefined
   webhookSecret?: string | null | undefined
@@ -77,6 +79,16 @@ export function useDeletePaymentConnection() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => api.delete<{ ok: true }>(`/admin/payment-providers/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  })
+}
+
+/** iugu: cadastra na conta os gatilhos (webhooks) que apontam para esta conexão. */
+export function useRegisterIuguWebhooks() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ ok: boolean; message: string; url: string; criados: string[]; existentes: string[] }>(`/admin/payment-providers/${id}/iugu-gatilhos`),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   })
 }

@@ -7974,7 +7974,9 @@ model AcaParcela {
   dataVencimento     DateTime
   situacao           AcaParcelaSituacao @default(ABERTA)
   pagoEm             DateTime?
-  asaasChargeId      String?            @db.VarChar(191)
+  asaasChargeId      String?            @db.VarChar(191) // id da cobrança no gateway (Asaas ou iugu — ver gatewayProvider)
+  gatewayProvider    String?            @db.VarChar(20) // 'asaas' | 'iugu'; null = emitida antes da coluna (Asaas)
+  gatewaySyncAt      DateTime? // última conferência da cobrança no gateway (reconciliação)
   linhaDigitavel     String?            @db.Text
   pixCopiaCola       String?            @db.Text
   acordoId           Int?
@@ -7990,6 +7992,7 @@ model AcaParcela {
   @@index([contratoId])
   @@index([situacao, dataVencimento])
   @@index([asaasChargeId])
+  @@index([gatewayProvider, situacao])
   @@map("bychat_aca_parcelas")
 }
 

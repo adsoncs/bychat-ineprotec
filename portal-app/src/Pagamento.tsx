@@ -6,6 +6,7 @@ import {
 import {
   bandeira, errosDoCartao, mascaraCartao, mascaraValidade, type DadosDoCartao,
 } from './validacao'
+import { tokenizarNaIugu } from './iugu'
 
 const dinheiro = (v: number | null | undefined) =>
   typeof v === 'number' ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'
@@ -94,7 +95,11 @@ export function Pagamento(props: {
   }
 
   useEffect(() => {
-    if (!cobranca || cobranca.status === 'paid' || encerrada) return
+    if (!cobranca || encerrada) return
+    // Cartão aprovado na hora já volta pago: confirma de uma vez em vez de
+    // parar de consultar — sem isto a tela ficava em "aguardando" para
+    // sempre, até a pessoa clicar em "Já paguei".
+    if (cobranca.status === 'paid') { void sincronizar(); return }
     const intervalo = pronto ? 5000 : 2000
     const t = setInterval(() => { sincronizar() }, intervalo)
     return () => clearInterval(t)
@@ -106,7 +111,17 @@ export function Pagamento(props: {
     setCarregando(true)
     setErro(null)
     try {
-      const r = await iniciarPagamento(props.codigo, m, props.token, vezes, dadosDoCartao, cupomAtivo || undefined)
+      // iugu: o cartão vira token aqui, no navegador; o servidor recebe só o token.
+      const tokenizacao = m === 'credit_card' ? opcoes?.meios.cartao.tokenizacao : undefined
+      const cardToken = tokenizacao && dadosDoCartao
+        ? await tokenizarNaIugu(tokenizacao, dadosDoCartao)
+        : undefined
+      const r = await iniciarPagamento(
+        props.codigo, m, props.token, vezes,
+        cardToken ? undefined : dadosDoCartao,
+        cupomAtivo || undefined,
+        cardToken,
+      )
       // Some da memória assim que a chamada volta, dê certo ou errado.
       setCartao({})
       setCobranca(r.method)

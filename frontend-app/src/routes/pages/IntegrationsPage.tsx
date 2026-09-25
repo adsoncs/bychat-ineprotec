@@ -240,7 +240,7 @@ function useDbConnectorsStatus(): StatusInfo {
   return { state: active > 0 ? 'connected' : 'disconnected', detail: `${active}/${list.length} ativo(s)` }
 }
 
-function useProviderPaymentsStatus(provider: 'asaas' | 'pagarme'): StatusInfo {
+function useProviderPaymentsStatus(provider: 'asaas' | 'pagarme' | 'iugu'): StatusInfo {
   const { data, isLoading } = usePaymentConnections()
   if (isLoading) return { state: 'pending' }
   const list = (data?.connections ?? []).filter((c) => c.provider === provider)
@@ -427,6 +427,15 @@ const INTEGRATIONS: IntegrationDef[] = [
     href: '/payments',
     useStatus: () => useProviderPaymentsStatus('pagarme'),
   },
+  {
+    id: 'payments-iugu',
+    name: 'iugu',
+    description: 'PIX, boleto e cartão (tokenizado no navegador) no Portal de Matrículas, e mensalidades do Acadêmico.',
+    icon: CreditCard,
+    category: 'payments',
+    href: '/payments',
+    useStatus: () => useProviderPaymentsStatus('iugu'),
+  },
 ]
 
 const STATE_BADGE: Record<StatusState, { tone: 'accent' | 'warning' | 'danger' | 'neutral' | 'info'; solid?: boolean; label: string; Icon: typeof Plug }> = {
@@ -519,7 +528,7 @@ export function IntegrationsPage() {
         steps={[
           {
             title: '🗂️ Tudo agrupado por categoria',
-            body: <>Canais (WhatsApp/IG/Telegram), Anúncios (Meta/Google), Workspace (Google), Automação (Make.com), Pagamentos (Asaas/Pagar.me), E-mail, SMS, etc. Cada bloco mostra os itens da categoria.</>,
+            body: <>Canais (WhatsApp/IG/Telegram), Anúncios (Meta/Google), Workspace (Google), Automação (Make.com), Pagamentos (Asaas/Pagar.me/iugu), E-mail, SMS, etc. Cada bloco mostra os itens da categoria.</>,
           },
           {
             title: '🟢 Estado visual',

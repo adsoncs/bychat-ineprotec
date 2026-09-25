@@ -9,6 +9,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { Modal } from '@/components/ui/Modal'
 import { useWebhookHits, useWebhookHit, type WebhookHitRow } from '@/hooks/usePaymentsDashboard'
 import { formatRelative } from '@/lib/format'
+import { paymentProviderLabel } from '@/lib/paymentLabels'
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
   processed: 'success',
@@ -59,6 +60,7 @@ export function WebhookHitsTab() {
               <option value="">Todos provedores</option>
               <option value="pagarme">Pagar.me</option>
               <option value="asaas">Asaas</option>
+              <option value="iugu">iugu</option>
             </Select>
             <Select value={filters.status} onChange={(e) => update('status', (e.target as HTMLSelectElement).value)}>
               <option value="">Todos status</option>
@@ -133,7 +135,7 @@ function HitRow({ h, onView }: { h: WebhookHitRow; onView: () => void }) {
     <tr class="border-b border-border/40 hover:bg-surface-2 cursor-pointer" onClick={onView}>
       <td class="py-2 pr-3 text-xs text-fg-muted whitespace-nowrap">{formatRelative(h.receivedAt)}</td>
       <td class="py-2 pr-3">
-        <span class="text-xs text-fg">{h.provider === 'pagarme' ? 'Pagar.me' : 'Asaas'}</span>
+        <span class="text-xs text-fg">{paymentProviderLabel(h.provider)}</span>
         {h.connection && (
           <div class="text-2xs text-fg-muted truncate max-w-[150px]" title={h.connection.name}>
             {h.connection.name}

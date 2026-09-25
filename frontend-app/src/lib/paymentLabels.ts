@@ -58,6 +58,8 @@ export function paymentMethodLabel(m: string | null | undefined): string {
 export const PAYMENT_PROVIDER_LABEL: Record<string, string> = {
   pagarme: 'Pagar.me',
   asaas: 'Asaas',
+  iugu: 'iugu',
+  simulado: 'Simulado',
 }
 
 export function paymentProviderLabel(p: string | null | undefined): string {
