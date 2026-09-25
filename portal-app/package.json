@@ -1,0 +1,20 @@
+{
+  "name": "bychat-portal-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Portal público de inscrição/matrícula. Aplicação separada do painel: quem abre isto está no celular, em rede ruim, decidindo se estuda aqui.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "preact": "^10.29.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3"
+  }
+}

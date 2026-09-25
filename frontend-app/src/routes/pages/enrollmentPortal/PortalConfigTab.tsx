@@ -1,12 +1,10 @@
 import { useState, useEffect, useMemo } from 'preact/hooks'
-import { Save, AlertCircle, ExternalLink } from '@/components/ui/icon-set'
+import { Save, AlertCircle } from '@/components/ui/icon-set'
 import {
   useUpdateEnrollmentPortal,
   type EnrollmentPortal,
   type EnrollmentPortalInput,
   type CaptchaType,
-  type PaymentProvider,
-  type PaymentMode,
   type PixelConfig,
 } from '@/hooks/useEnrollmentPortals'
 import {
@@ -16,16 +14,10 @@ import {
   useModalities,
 } from '@/hooks/useEducational'
 import { useFunnels, useFunnel } from '@/hooks/useFunnels'
-import { usePaymentConnections } from '@/hooks/usePayments'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
-
-const PROVIDER_LABEL: Record<Exclude<PaymentProvider, null>, string> = {
-  asaas: 'Asaas',
-  pagarme: 'Pagar.me',
-}
 
 export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   // Filtros (allowed*Ids)
@@ -36,15 +28,6 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   const { data: funnelsData } = useFunnels()
 
   // Pagamento — conexões cadastradas em /app/payments
-  const { data: paymentConnectionsData, isLoading: loadingConnections } = usePaymentConnections()
-  const paymentConnections = useMemo(
-    () => (paymentConnectionsData?.connections ?? []).filter((c) => c.active),
-    [paymentConnectionsData],
-  )
-  const [requirePayment, setRequirePayment] = useState(portal.requirePayment)
-  const [paymentConnectionId, setPaymentConnectionId] = useState<number | null>(portal.paymentConnectionId)
-  const [paymentDeadlineHours, setPaymentDeadlineHours] = useState(String(portal.paymentDeadlineHours))
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>(portal.paymentMode ?? 'link')
 
   // Captcha
   const [captchaType, setCaptchaType] = useState<CaptchaType>(portal.captchaType)
@@ -111,16 +94,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   const stages = funnelDetail?.stages ?? []
 
   function handleSave() {
-    const selectedConnection = paymentConnectionId
-      ? paymentConnections.find((c) => c.id === paymentConnectionId) ?? null
-      : null
-    const derivedProvider: PaymentProvider = selectedConnection?.provider ?? null
     const payload: EnrollmentPortalInput = {
-      requirePayment,
-      paymentConnectionId: paymentConnectionId ?? null,
-      paymentProvider: derivedProvider,
-      paymentMode,
-      paymentDeadlineHours: parseInt(paymentDeadlineHours) || 48,
       captchaType,
       captchaSiteKey: captchaSiteKey.trim() || null,
       // Só envia secret se mudou — evita sobrescrever com vazio.
@@ -174,85 +148,6 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
           <Button size="sm" variant="primary" onClick={handleSave} disabled={!dirty || update.isPending}>
             <Save size={12} /> {update.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
-        </div>
-      </Card>
-
-      <Card>
-        <SectionTitle>Pagamento</SectionTitle>
-        <div class="space-y-3">
-          <label class="flex items-center gap-2 text-sm text-fg-muted">
-            <input
-              type="checkbox"
-              checked={requirePayment}
-              onChange={(e) => mark(setRequirePayment)((e.target as HTMLInputElement).checked)}
-            />
-            Exigir pagamento da taxa de inscrição
-          </label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Select
-              label="Provedor"
-              value={paymentConnectionId === null ? '' : String(paymentConnectionId)}
-              onChange={(e) => {
-                const v = (e.target as HTMLSelectElement).value
-                mark(setPaymentConnectionId)(v ? Number(v) : null)
-              }}
-              disabled={!requirePayment || loadingConnections}
-              hint={
-                loadingConnections
-                  ? 'Carregando conexões…'
-                  : paymentConnections.length === 0
-                  ? 'Nenhuma conexão ativa — cadastre em Pagamentos'
-                  : ''
-              }
-            >
-              <option value="">Selecionar…</option>
-              {paymentConnections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({PROVIDER_LABEL[c.provider]} • {c.environment === 'production' ? 'Produção' : 'Sandbox'})
-                </option>
-              ))}
-            </Select>
-            <Input
-              label="Prazo de pagamento (horas)"
-              type="number"
-              value={paymentDeadlineHours}
-              onInput={(e) => mark(setPaymentDeadlineHours)((e.target as HTMLInputElement).value)}
-              disabled={!requirePayment}
-              hint="Após esse prazo a inscrição expira"
-            />
-          </div>
-          {requirePayment && paymentConnections.length === 0 && !loadingConnections && (
-            <div class="text-2xs text-warning flex items-center gap-1.5">
-              <AlertCircle size={12} />
-              <span>
-                Nenhuma conexão de pagamento ativa.{' '}
-                <a href="/app/payments" class="underline inline-flex items-center gap-1">
-                  Cadastrar agora <ExternalLink size={10} />
-                </a>
-              </span>
-            </div>
-          )}
-          <Select
-            label="Modo de cobrança"
-            value={paymentMode}
-            onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value
-              mark(setPaymentMode)((v === 'transparent' ? 'transparent' : 'link') as PaymentMode)
-            }}
-            disabled={!requirePayment}
-            hint={
-              paymentMode === 'transparent'
-                ? 'Candidato paga sem sair do portal (PIX/boleto/cartão). Exige checkout transparente implementado por método.'
-                : 'Candidato é redirecionado para a página hospedada do provedor (PaymentLink Pagar.me / invoiceUrl Asaas).'
-            }
-          >
-            <option value="link">Link de pagamento (redirect ao provedor)</option>
-            <option value="transparent">Checkout no portal (transparente)</option>
-          </Select>
-          <div class="text-2xs text-fg-muted">
-            Conexões são gerenciadas em <a href="/app/payments" class="underline">Pagamentos</a>.
-            O valor da taxa vem do processo seletivo (`taxaInscricao`).
-          </div>
         </div>
       </Card>
 

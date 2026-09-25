@@ -34,30 +34,23 @@ export async function acaPortalLoginRoutes(app: FastifyInstance) {
   })
 
   // ───────── Página de login ─────────
+  // ── GET /portal/aca/login — porta antiga, agora leva à porta única ──
+  //
+  // Fase 7 da consolidação ERP × Portal (10/09/2026). Havia duas portas para o
+  // mesmo aluno: por aqui ele caía no portal SSR do ERP, e por /portal/login na
+  // aplicação — duas versões do mesmo portal, com conteúdos diferentes, vivas ao
+  // mesmo tempo. Desde a Fase 2 a autenticação é a mesma dos dois lados (a conta
+  // única aceita CPF, e-mail ou RA, e a senha antiga do ERP entra e é migrada),
+  // então mandar todo mundo para a porta nova não tranca ninguém do lado de fora.
+  //
+  // O SSR em /portal/aca/aluno continua no ar: ele atende os links de acesso já
+  // enviados e as seções que a aplicação ainda não tem (horário, materiais,
+  // estágio, próximas datas).
   app.get('/portal/aca/login', async (req, reply) => {
-    const erro = String((req.query as any)?.erro || '')
-    const aviso = String((req.query as any)?.aviso || '')
-    return reply.type('text/html').send(pagina('Portal do Aluno', `
-      <div class="card">
-        <h1>Portal do Aluno</h1>
-        <p class="sub">Entre com seu CPF ou RA.</p>
-        ${erro ? `<div class="card" style="background:#fde8e8;border-color:#f5b5b5;color:#a11;font-size:13px">${esc(erro)}</div>` : ''}
-        ${aviso ? `<div class="card" style="background:#eef7ee;border-color:#b5e0b5;color:#1a6b1a;font-size:13px">${esc(aviso)}</div>` : ''}
-        <form method="post" action="/api/public/aca/portal/login">
-          <label style="display:block;font-size:13px;margin:8px 0 4px">CPF ou RA</label>
-          <input type="text" name="identificador" required autocomplete="username" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px">
-          <label style="display:block;font-size:13px;margin:10px 0 4px">Senha</label>
-          <input type="password" name="senha" required autocomplete="current-password" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px">
-          <button type="submit" style="margin-top:12px;width:100%">Entrar</button>
-        </form>
-        <hr style="margin:16px 0;border:0;border-top:1px solid #e5e7eb">
-        <p class="sub" style="margin-bottom:6px">Primeiro acesso ou esqueceu a senha?</p>
-        <form method="post" action="/api/public/aca/portal/link">
-          <input type="text" name="identificador" required placeholder="CPF ou RA" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:8px">
-          <button class="sec" type="submit" style="margin-top:8px;width:100%">Receber link de acesso</button>
-        </form>
-        <p class="sub" style="font-size:12px;margin-top:8px">Enviamos um link para o WhatsApp ou e-mail do seu cadastro.</p>
-      </div>`))
+    const q = (req.query as any) || {}
+    const erro = String(q.erro || '')
+    const destino = erro ? `/portal/login?erro=${encodeURIComponent(erro)}` : '/portal/login'
+    return reply.code(303).header('location', destino).send()
   })
 
   app.post('/api/public/aca/portal/login', async (req, reply) => {

@@ -621,7 +621,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   {
     id: 'aca_vestibular', name: 'Processo Seletivo', icon: '📝', category: 'erp_academico',
     umbrella: 'erp_academico', cobranca: 'pacote',
-    description: 'Camada admin do processo seletivo: componentes de nota (digitação), classificação com critério de desempate, convocação por chamadas e ensalamento. Opera sobre os candidatos do módulo Educacional.',
+    description: 'Consulta do resultado da classificação e dados da inscrição (grupos, motivos de cancelamento, empresas, campos extras). Classificar e convocar é do Portal, em Educacional › Processo Seletivo › Classificação.',
     pages: ['acaVestibular'],
     routePrefixes: ['/api/admin/aca/vestibular'],
     actions: ['view', 'create', 'edit', 'delete'],
@@ -769,15 +769,6 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     routePrefixes: ['/api/admin/aca/portal'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
-  },
-  {
-    id: 'aca_portais_plus', name: 'Centrais (Responsável/Ex-aluno)', icon: '🧑‍🤝‍🧑', category: 'erp_academico',
-    umbrella: 'erp_academico', cobranca: 'pacote',
-    description: 'Portais magic-link adicionais por perfil: Central do Responsável (acompanha boletim/financeiro do dependente) e Central do Ex-aluno (histórico + 2ª via de documentos).',
-    pages: ['acaPortaisPlus'],
-    routePrefixes: ['/api/admin/aca/portal-plus'],
-    actions: ['view', 'create', 'edit', 'delete'],
-    defaultEnabled: false, dependsOn: ['aca_portais'],
   },
   {
     id: 'aca_relatorios', name: 'Indicadores & Censo', icon: '📈', category: 'erp_academico',

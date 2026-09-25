@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code, UserPlus, Plus, Pencil, Trash2,
+  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard,
 } from '@/components/ui/icon-set'
 import {
   useEnrollmentPortal,
@@ -32,6 +32,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { Modal } from '@/components/ui/Modal'
 import { PortalBrandingTab } from './enrollmentPortal/PortalBrandingTab'
 import { PortalConfigTab } from './enrollmentPortal/PortalConfigTab'
+import { PortalPaymentTab } from './enrollmentPortal/PortalPaymentTab'
 import { PortalAnalyticsTab } from './enrollmentPortal/PortalAnalyticsTab'
 import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
 import { downloadFile } from '@/lib/download'
@@ -41,7 +42,7 @@ import { env } from '@/lib/env'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 
-type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'config' | 'analytics'
+type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'config' | 'analytics'
 
 const STATUS_LABELS: Record<RegistrationStatus, string> = {
   draft: 'Rascunho',
@@ -117,6 +118,7 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
           {tab === 'registrations' && <RegistrationsTab portal={portal} />}
           {tab === 'form' && <PortalFormTab portal={portal} />}
           {tab === 'branding' && <PortalBrandingTab portal={portal} />}
+          {tab === 'payment' && <PortalPaymentTab portal={portal} />}
           {tab === 'config' && <PortalConfigTab portal={portal} />}
           {tab === 'analytics' && <PortalAnalyticsTab portal={portal} />}
         </>
@@ -131,6 +133,7 @@ function PortalTabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void })
     { id: 'registrations', label: 'Inscrições',   icon: <ListChecks size={14} /> },
     { id: 'form',          label: 'Formulário',   icon: <FormInput size={14} /> },
     { id: 'branding',      label: 'Branding',     icon: <Palette size={14} /> },
+    { id: 'payment',       label: 'Pagamento',    icon: <CreditCard size={14} /> },
     { id: 'config',        label: 'Configuração', icon: <Settings size={14} /> },
     { id: 'analytics',     label: 'Analytics',    icon: <BarChart3 size={14} /> },
   ]

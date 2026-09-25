@@ -12,6 +12,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { aplicarNotaDeAvaliacao } from '../services/portalClassificacao.js'
 import { eventBus } from '../lib/eventBus.js'
 import { validateEnemImport } from '../services/enemClassification.js'
 import {
@@ -447,6 +448,20 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       })
     }
 
+    // A nota da prova sobe para a inscrição do processo seletivo — é ela que a
+    // classificação ordena. Antes da Fase 4 parava aqui, e o candidato ficava
+    // com prova corrigida e sem nota na classificação.
+    if (exam.score != null || data.verdict === 'approved' || data.verdict === 'rejected') {
+      await aplicarNotaDeAvaliacao({
+        enrollmentRegistrationId: regId,
+        nota: exam.score ?? null,
+        aprovado: exam.verdict === 'approved' ? true : exam.verdict === 'rejected' ? false : null,
+        origem: 'Prova presencial',
+        ator: user.name || 'Operador',
+        atorId: user.userId,
+      })
+    }
+
     // Eventos
     const base = await buildBaseEventPayload(regId)
     if (base) {
@@ -644,6 +659,17 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         passed,
         cutoffApplied: cutoff,
       },
+    })
+
+    // Mesma razão da prova presencial: sem isto, a nota da redação nunca chegava
+    // à classificação e o candidato aparecia como "ainda sem nota".
+    await aplicarNotaDeAvaliacao({
+      enrollmentRegistrationId: sub.registrationId,
+      nota: finalScore ?? null,
+      aprovado: newStatus === 'approved' ? true : newStatus === 'rejected' ? false : null,
+      origem: 'Redação online',
+      ator: user.name || 'Operador',
+      atorId: user.userId,
     })
 
     const base = await buildBaseEventPayload(sub.registrationId)

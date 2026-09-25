@@ -6,7 +6,8 @@
 //   2. Cron de reconciliação (varre EnrollmentPaymentMethod pending das últimas 48h)
 //
 // Idempotente: side effects (logEvent, sendPaymentConfirmation, conversions++)
-// só disparam na transição `pending → paid`.
+// só disparam na transição `pending → paid`, e a transição é uma escrita
+// condicional — de dois processos simultâneos (webhook + cron), só um a vence.
 
 import { prisma } from '../lib/prisma.js'
 import { decryptToken } from './cloudApi.js'
@@ -166,7 +167,34 @@ export async function syncChargeFromProvider(
   }
   if (norm.amount) updates.paymentAmount = norm.amount
 
-  await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+  // Quem faz a transição para "pago" precisa ser um só.
+  //
+  // O webhook do provedor e o cron de reconciliação perseguem a mesma cobrança,
+  // e o Asaas reenvia o webhook quando não recebe 200 depressa. Lendo o estado
+  // antes e decidindo depois, dois processos simultâneos veem "ainda não pago"
+  // e ambos disparam os efeitos: conversão contada duas vezes, candidato
+  // recebendo duas confirmações e o evento de campanha indo em dobro.
+  //
+  // A escrita condicional resolve sem transação nem lock: só quem realmente
+  // mudou a linha de "não pago" para "pago" tem `count === 1` e seguirá para os
+  // efeitos. O segundo a chegar atualiza zero linhas e segue quieto.
+  let euFizATransicao = false
+  if (isPaidNow) {
+    const r = await prisma.enrollmentRegistration.updateMany({
+      where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+      data: updates,
+    })
+    euFizATransicao = r.count === 1
+    // Já estava pago: ainda assim atualiza o que não é o marco (valor, método).
+    if (!euFizATransicao) {
+      const { paymentPaidAt, status, ...semMarco } = updates
+      if (Object.keys(semMarco).length) {
+        await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
+      }
+    }
+  } else {
+    await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+  }
 
   // Upsert do EnrollmentPaymentMethod
   const existing = await prisma.enrollmentPaymentMethod.findFirst({
@@ -199,8 +227,13 @@ export async function syncChargeFromProvider(
     })
   }
 
-  // Side effects — só na primeira transição pra paid.
-  if (isPaidNow && !wasPaid) {
+  // Side effects — só para quem venceu a corrida da transição.
+  if (euFizATransicao) {
+    // A reconciliação confirma pagamento igual ao webhook, então consome o
+    // cupom pelo mesmo caminho — senão quem pagou por aqui não teria o resgate
+    // registrado, e o cupom ficaria eternamente "reservado".
+    void import('./portalCupom.js').then((m) => m.consumirCupom(enrollment.id)).catch(() => {})
+
     await prisma.enrollmentPortal.update({
       where: { id: enrollment.portalId },
       data: { conversions: { increment: 1 } },
@@ -233,7 +266,7 @@ export async function syncChargeFromProvider(
     candidateCode: enrollment.candidateCode,
     paymentStatus: norm.status,
     wasPaid,
-    transitionedToPaid: isPaidNow && !wasPaid,
+    transitionedToPaid: euFizATransicao,
   }
 }
 
@@ -278,6 +311,11 @@ async function reconcilePendingPayments(): Promise<{ checked: number; transition
   for (const m of methods) {
     const conn = m.registration?.portal?.paymentConnection
     if (!conn || !conn.active || !m.externalId) continue
+    // A cobrança só pode ser consultada no provedor que a emitiu. Depois de
+    // trocar o provedor do portal (simulado → Asaas, por exemplo), as cobranças
+    // antigas continuavam sendo perguntadas ao provedor novo, que nunca as
+    // reconhece: erro a cada tick, para sempre, gastando chamada de API.
+    if (m.provider && m.provider !== conn.provider) continue
     try {
       const result = await syncChargeFromProvider(conn, m.externalId)
       if (result.transitionedToPaid) transitioned++

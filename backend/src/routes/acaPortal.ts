@@ -16,6 +16,7 @@ import { proximoProtocolo } from './acaRequerimento.js'
 import { contratoAtivoDoAluno, dadosContrato, registrarAceite } from '../services/acaContrato.js'
 import { ofertasAbertas, previewTermoRematricula, efetivarRematricula } from '../services/acaRematricula.js'
 import { proximosEventosDoAluno } from './acaCalendario.js'
+import { contaDaRequisicao } from '../lib/portalSession.js'
 import { gradeDoAluno, DIAS } from './acaHorario.js'
 import { materiaisDoAluno } from './acaMaterial.js'
 import { resumoHoras } from './acaEstagio.js'
@@ -98,6 +99,23 @@ export async function financeiroAluno(alunoId: number) {
   return prisma.acaParcela.findMany({ where: { contratoId: { in: contratos.map((c) => c.id) } }, orderBy: [{ dataVencimento: 'asc' }] })
 }
 
+/**
+ * Quem é o aluno desta requisição.
+ *
+ * Primeiro a sessão em cookie (a porta nova); se não houver, o token na URL,
+ * que continua valendo para os links de aviso já enviados. Sem esse fallback,
+ * toda mensagem de vencimento no WhatsApp de ontem viraria "link inválido".
+ */
+async function alunoDaReq(req: any): Promise<{ id: number } | null> {
+  const conta = await contaDaRequisicao(req)
+  if (conta) {
+    const a = await prisma.aluno.findUnique({ where: { leadId: conta.leadId }, select: { id: true } })
+    if (a) return { id: a.id }
+  }
+  // tokOf mora dentro de acaPortalRoutes; aqui o token é lido direto da query.
+  return verifyToken((req.query?.t as string) || '', 'aca-aluno')
+}
+
 export async function acaPortalRoutes(app: FastifyInstance) {
   // Forms SSR do professor/aluno enviam x-www-form-urlencoded. Parser escopado
   // ao plugin (vira objeto chave→valor; campos repetidos viram array).
@@ -131,7 +149,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
 
   // ───────── Página: Portal do Aluno ─────────
   app.get('/portal/aca/aluno', async (req, reply) => {
-    const p = verifyToken(tokOf(req), 'aca-aluno')
+    const p = await alunoDaReq(req)
     if (!p) return pageErr(reply, 403, 'Link inválido ou expirado', 'Solicite um novo acesso à secretaria.')
     const aluno = await prisma.aluno.findUnique({ where: { id: p.id }, select: { ra: true, lead: { select: { nome: true } } } })
     if (!aluno) return pageErr(reply, 404, 'Aluno não encontrado')
@@ -330,7 +348,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
 
   // ───────── Ação: gerar 2ª via (cobrança Asaas) ─────────
   app.post('/api/public/aca/aluno/parcela-cobranca', async (req, reply) => {
-    const p = verifyToken(tokOf(req), 'aca-aluno')
+    const p = await alunoDaReq(req)
     if (!p) return reply.code(403).send({ error: 'token inválido' })
     const parcelaId = numOf(req, 'id')
     const parcela = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { contrato: { select: { matricula: { select: { alunoId: true } } } } } })
@@ -448,7 +466,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
 
   // ───────── Ação: baixar PDF de documento (autorizado pelo token) ─────────
   app.get('/api/public/aca/aluno/doc', async (req, reply) => {
-    const p = verifyToken(tokOf(req), 'aca-aluno')
+    const p = await alunoDaReq(req)
     if (!p) return reply.code(403).send({ error: 'token inválido' })
     const doc = await prisma.acaDocumento.findUnique({ where: { id: numOf(req, 'id') } })
     if (!doc || doc.alunoId !== p.id) return reply.code(403).send({ error: 'não autorizado' })
@@ -458,184 +476,26 @@ export async function acaPortalRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${doc.numero.replace('/', '-')}.pdf"`).send(pdf)
   })
 
-  // ───────── Página: Portal do Professor ─────────
-  app.get('/portal/aca/professor', async (req, reply) => {
-    const p = verifyToken(tokOf(req), 'aca-prof')
-    if (!p) return pageErr(reply, 403, 'Link inválido ou expirado')
-    const prof = await prisma.user.findUnique({ where: { id: p.id }, select: { name: true } })
-    const diarios = await prisma.acaDiario.findMany({ where: { professorUserId: p.id }, select: { id: true, turmaId: true, disciplinaId: true } })
-    const turmas = await prisma.acaTurma.findMany({ where: { id: { in: [...new Set(diarios.map((d) => d.turmaId))] } }, select: { id: true, nome: true } })
-    const tNome = new Map(turmas.map((t) => [t.id, t.nome]))
-    const discs = await prisma.acaDisciplina.findMany({ where: { id: { in: [...new Set(diarios.map((d) => d.disciplinaId))] } }, select: { id: true, nome: true } })
-    const dNome = new Map(discs.map((d) => [d.id, d.nome]))
-    const tk = encodeURIComponent(tokOf(req))
-    const lista = diarios.length === 0 ? '<p class="sub">Você não é responsável por nenhum diário.</p>' : `<table><tbody>${diarios.map((d) => `<tr><td>${esc(tNome.get(d.turmaId) || '—')}</td><td>${esc(dNome.get(d.disciplinaId) || '—')}</td><td class="r"><a href="/portal/aca/professor/diario?t=${tk}&d=${d.id}">Abrir →</a></td></tr>`).join('')}</tbody></table>`
-    reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Portal do Professor</title>${HEAD}</head><body>
-      <h1>Olá, ${esc(prof?.name || 'Professor(a)')}</h1><p class="sub">Portal do Professor · seus diários</p>
-      <div class="card"><h2 style="margin-top:0">Diários</h2>${lista}</div>
-      <footer>Acesso seguro por link temporário.</footer></body></html>`)
-  })
-
-  // ───────── Página: diário do professor (chamada + notas) ─────────
-  app.get('/portal/aca/professor/diario', async (req, reply) => {
-    const p = verifyToken(tokOf(req), 'aca-prof')
-    if (!p) return pageErr(reply, 403, 'Link inválido')
-    const diarioId = numOf(req, 'd')
-    const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true, disciplinaId: true, professorUserId: true } })
-    if (!diario || diario.professorUserId !== p.id) return pageErr(reply, 403, 'Diário não autorizado')
-    const tk = encodeURIComponent(tokOf(req))
-    const [disc, turma, mats, aulas, avaliacoes] = await Promise.all([
-      prisma.acaDisciplina.findUnique({ where: { id: diario.disciplinaId }, select: { nome: true } }),
-      prisma.acaTurma.findUnique({ where: { id: diario.turmaId }, select: { nome: true } }),
-      prisma.acaMatricula.findMany({ where: { turmaId: diario.turmaId, status: 'MATRICULADO', listaEspera: false }, select: { id: true, aluno: { select: { ra: true, lead: { select: { nome: true } } } } }, orderBy: { aluno: { lead: { nome: 'asc' } } } }),
-      prisma.acaAula.findMany({ where: { diarioId }, orderBy: { data: 'desc' }, take: 1 }),
-      prisma.acaAvaliacao.findMany({ where: { diarioId }, orderBy: [{ ordem: 'asc' }, { id: 'asc' }] }),
-    ])
-    const ultimaAula = aulas[0]
-    let chamadaHtml = '<p class="sub">Nenhuma aula registrada. Registre a primeira abaixo.</p>'
-    if (ultimaAula) {
-      const freqs = await prisma.acaFrequencia.findMany({ where: { aulaId: ultimaAula.id } })
-      const fByMat = new Map(freqs.map((f) => [f.matriculaId, f.presente]))
-      chamadaHtml = `<form method="post" action="/api/public/aca/prof/frequencia?t=${tk}&aulaId=${ultimaAula.id}">
-        <p class="sub">Aula de ${new Date(ultimaAula.data).toLocaleDateString('pt-BR')} — ${esc(ultimaAula.conteudo)}</p>
-        <table><thead><tr><th>Aluno</th><th class="r">Presente</th></tr></thead><tbody>
-        ${mats.map((m) => `<tr><td>${esc(m.aluno.lead.nome)}</td><td class="r"><input type="checkbox" name="presente_${m.id}" ${fByMat.get(m.id) !== false ? 'checked' : ''}></td></tr>`).join('')}
-        </tbody></table><p><input type="submit" value="Salvar chamada"></p></form>`
-    }
-    const novaAulaHtml = `<form method="post" action="/api/public/aca/prof/aula?t=${tk}&d=${diarioId}" class="card" style="background:#f9fafb">
-      <h2 style="margin-top:0">Registrar aula</h2>
-      <p><label class="fl">Data</label> <input type="date" name="data" required> &nbsp; <label class="fl" style="display:inline">Aulas</label> <input type="number" name="quantidadeAulas" value="2" min="1"></p>
-      <p><label class="fl">Conteúdo</label><br><input type="text" name="conteudo" required style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px"></p>
-      <input type="submit" value="Lançar aula"></form>`
-    let notasHtml = '<p class="sub">Crie uma avaliação para lançar notas.</p>'
-    if (avaliacoes.length) {
-      const notas = await prisma.acaNota.findMany({ where: { avaliacaoId: { in: avaliacoes.map((a) => a.id) } } })
-      const nMap = new Map(notas.map((n) => [`${n.matriculaId}:${n.avaliacaoId}`, n.valor]))
-      notasHtml = `<form method="post" action="/api/public/aca/prof/notas?t=${tk}&d=${diarioId}">
-        <table><thead><tr><th>Aluno</th>${avaliacoes.map((a) => `<th class="r">${esc(a.nome)}<br><span style="font-weight:400;color:#9ca3af">máx ${a.valorMaximo}</span></th>`).join('')}</tr></thead><tbody>
-        ${mats.map((m) => `<tr><td>${esc(m.aluno.lead.nome)}</td>${avaliacoes.map((a) => { const v = nMap.get(`${m.id}:${a.id}`); return `<td class="r"><input type="number" step="0.1" name="n_${m.id}_${a.id}" value="${v != null ? v : ''}" max="${a.valorMaximo}" min="0"></td>` }).join('')}</tr>`).join('')}
-        </tbody></table><p><input type="submit" value="Salvar notas"></p></form>`
-    }
-    const novaAvalHtml = `<form method="post" action="/api/public/aca/prof/avaliacao?t=${tk}&d=${diarioId}" style="margin-top:8px">
-      <label class="fl" style="display:inline">Nova avaliação</label> <input type="text" name="nome" placeholder="Prova 1" required style="padding:6px;border:1px solid #d1d5db;border-radius:6px">
-      peso <input type="number" name="peso" value="1" min="1" style="width:54px"> máx <input type="number" name="valorMaximo" value="10" style="width:54px">
-      <button class="sec" type="submit">Criar</button></form>`
-
-    // Plano de ensino + materiais (O2.7)
-    const [plano, materiais] = await Promise.all([
-      prisma.acaPlanoEnsino.findUnique({ where: { diarioId } }),
-      prisma.acaMaterial.findMany({ where: { diarioId }, orderBy: { createdAt: 'desc' } }),
-    ])
-    const planoHtml = `<form method="post" action="/api/public/aca/prof/plano?t=${tk}&d=${diarioId}">
-      <p><label class="fl">Ementa</label><textarea name="ementa" style="min-height:60px">${esc(plano?.ementa || '')}</textarea></p>
-      <p><label class="fl">Conteúdo programático</label><textarea name="conteudo" style="min-height:60px">${esc(plano?.conteudo || '')}</textarea></p>
-      <p><label class="fl">Bibliografia</label><textarea name="bibliografia">${esc(plano?.bibliografia || '')}</textarea></p>
-      <input type="submit" value="Salvar plano de ensino"></form>`
-    const matLista = materiais.length === 0 ? '<p class="sub">Nenhum material publicado.</p>' : `<ul>${materiais.map((m) => `<li><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.titulo)}</a></li>`).join('')}</ul>`
-    const matForm = `<form method="post" action="/api/public/aca/prof/material?t=${tk}&d=${diarioId}" style="display:grid;gap:6px">
-      <input type="text" name="titulo" required placeholder="Título do material" style="padding:8px;border:1px solid #d1d5db;border-radius:6px">
-      <input type="text" name="url" required placeholder="Link (Drive, PDF, vídeo…)" style="padding:8px;border:1px solid #d1d5db;border-radius:6px">
-      <div><button class="sec" type="submit">Adicionar material</button></div></form>`
-
-    reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>${esc(disc?.nome || 'Diário')}</title>${HEAD}</head><body>
-      <p class="tabs"><a href="/portal/aca/professor?t=${tk}">← Meus diários</a></p>
-      <h1>${esc(disc?.nome || 'Diário')}</h1><p class="sub">${esc(turma?.nome || '')} · ${mats.length} aluno(s)</p>
-      <div class="card"><h2 style="margin-top:0">Chamada</h2>${chamadaHtml}</div>
-      ${novaAulaHtml}
-      <div class="card"><h2 style="margin-top:0">Notas</h2>${notasHtml}${novaAvalHtml}</div>
-      <div class="card"><h2 style="margin-top:0">Plano de ensino</h2>${planoHtml}</div>
-      <div class="card"><h2 style="margin-top:0">Materiais</h2>${matLista}${matForm}</div>
-      <footer>Acesso seguro por link temporário.</footer></body></html>`)
-  })
-
-  // ───────── Ações do professor (POST forms) ─────────
-  const backProf = (reply: any, token: string, diarioId: number) => reply.redirect(`/portal/aca/professor/diario?t=${encodeURIComponent(token)}&d=${diarioId}`)
-  async function assertProfDiario(diarioId: number, userId: number): Promise<boolean> {
-    const d = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { professorUserId: true } })
-    return !!d && d.professorUserId === userId
+  // ── Endereços que saíram na Fase 7 ──
+  //
+  // Sem uma rota explícita, estas URLs caem no fallback do servidor — que
+  // entrega a landing de marketing. Quem guardou o link antigo veria uma página
+  // de "Diagnóstico Estratégico" no lugar do portal, sem entender o que houve.
+  // Melhor dizer o que aconteceu e para onde ir.
+  for (const caminho of ['/portal/aca/professor', '/portal/aca/professor/diario', '/portal/aca/coordenador', '/portal/aca/responsavel', '/portal/aca/exaluno']) {
+    app.get(caminho, async (_req, reply) =>
+      pageErr(reply, 410, 'Esta página saiu do ar',
+        'O acesso agora é pelo portal único. Entre em /portal/login — ou fale com a secretaria se precisar de ajuda.'))
   }
 
-  app.post('/api/public/aca/prof/frequencia', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const aulaId = numOf(req, 'aulaId')
-    const aula = await prisma.acaAula.findUnique({ where: { id: aulaId }, select: { diarioId: true, diario: { select: { professorUserId: true, turmaId: true } } } })
-    if (!aula || aula.diario.professorUserId !== p.id) return reply.code(403).send({ error: 'não autorizado' })
-    const body = (req.body as any) || {}
-    const mats = await prisma.acaMatricula.findMany({ where: { turmaId: aula.diario.turmaId, status: 'MATRICULADO', listaEspera: false }, select: { id: true } })
-    for (const m of mats) {
-      const presente = body[`presente_${m.id}`] != null
-      await prisma.acaFrequencia.upsert({ where: { aulaId_matriculaId: { aulaId, matriculaId: m.id } }, update: { presente }, create: { aulaId, matriculaId: m.id, presente } })
-    }
-    backProf(reply, tok, aula.diarioId)
-  })
-
-  app.post('/api/public/aca/prof/aula', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const diarioId = numOf(req, 'd')
-    if (!(await assertProfDiario(diarioId, p.id))) return reply.code(403).send({ error: 'não autorizado' })
-    const b = (req.body as any) || {}
-    if (b.data && b.conteudo) {
-      const diario = await prisma.acaDiario.findUnique({ where: { id: diarioId }, select: { turmaId: true } })
-      const aula = await prisma.acaAula.create({ data: { diarioId, data: new Date(b.data), conteudo: String(b.conteudo), quantidadeAulas: Number(b.quantidadeAulas) || 1 } })
-      const mats = await prisma.acaMatricula.findMany({ where: { turmaId: diario!.turmaId, status: 'MATRICULADO', listaEspera: false }, select: { id: true } })
-      for (const m of mats) await prisma.acaFrequencia.create({ data: { aulaId: aula.id, matriculaId: m.id, presente: true } })
-    }
-    backProf(reply, tok, diarioId)
-  })
-
-  app.post('/api/public/aca/prof/avaliacao', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const diarioId = numOf(req, 'd')
-    if (!(await assertProfDiario(diarioId, p.id))) return reply.code(403).send({ error: 'não autorizado' })
-    const b = (req.body as any) || {}
-    if (b.nome) await prisma.acaAvaliacao.create({ data: { diarioId, nome: String(b.nome).slice(0, 120), peso: Number(b.peso) || 1, valorMaximo: Number(b.valorMaximo) || 10 } })
-    backProf(reply, tok, diarioId)
-  })
-
-  app.post('/api/public/aca/prof/notas', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const diarioId = numOf(req, 'd')
-    if (!(await assertProfDiario(diarioId, p.id))) return reply.code(403).send({ error: 'não autorizado' })
-    const b = (req.body as any) || {}
-    const avaliacoes = await prisma.acaAvaliacao.findMany({ where: { diarioId }, select: { id: true, valorMaximo: true } })
-    const vmaxById = new Map(avaliacoes.map((a) => [a.id, a.valorMaximo]))
-    for (const key of Object.keys(b)) {
-      const m = key.match(/^n_(\d+)_(\d+)$/); if (!m) continue
-      const matriculaId = Number(m[1]); const avaliacaoId = Number(m[2])
-      if (!vmaxById.has(avaliacaoId)) continue
-      const raw = String(b[key]).trim().replace(',', '.')
-      let valor: number | null = raw === '' ? null : Number(raw)
-      if (valor != null) { if (Number.isNaN(valor)) continue; valor = Math.max(0, Math.min(valor, vmaxById.get(avaliacaoId)!)) }
-      await prisma.acaNota.upsert({ where: { avaliacaoId_matriculaId: { avaliacaoId, matriculaId } }, update: { valor }, create: { avaliacaoId, matriculaId, valor } })
-    }
-    backProf(reply, tok, diarioId)
-  })
-
-  // salvar plano de ensino (O2.7)
-  app.post('/api/public/aca/prof/plano', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const diarioId = numOf(req, 'd')
-    if (!(await assertProfDiario(diarioId, p.id))) return reply.code(403).send({ error: 'não autorizado' })
-    const b = (req.body as any) || {}
-    const data: any = {}
-    for (const k of ['ementa', 'objetivos', 'conteudo', 'metodologia', 'bibliografia', 'criterios']) data[k] = b[k] ? String(b[k]) : null
-    await prisma.acaPlanoEnsino.upsert({ where: { diarioId }, update: data, create: { diarioId, ...data } })
-    backProf(reply, tok, diarioId)
-  })
-
-  // adicionar material (O2.7)
-  app.post('/api/public/aca/prof/material', async (req, reply) => {
-    const tok = tokOf(req); const p = verifyToken(tok, 'aca-prof')
-    if (!p) return reply.code(403).send({ error: 'token inválido' })
-    const diarioId = numOf(req, 'd')
-    if (!(await assertProfDiario(diarioId, p.id))) return reply.code(403).send({ error: 'não autorizado' })
-    const b = (req.body as any) || {}
-    if (b.titulo && b.url) await prisma.acaMaterial.create({ data: { diarioId, titulo: String(b.titulo).slice(0, 191), url: String(b.url), tipo: 'LINK' } })
-    backProf(reply, tok, diarioId)
-  })
+  // ── Portal do Professor: REMOVIDO ──
+  //
+  // Fase 7 da consolidação ERP × Portal (10/09/2026). As páginas
+  // /portal/aca/professor e /portal/aca/professor/diario, e as seis rotas de
+  // ação do diário, saíram: **zero docentes cadastrados** e nenhum acesso nos
+  // logs. O diário de classe continua inteiro no ERP, em Acadêmico › Diário de
+  // Classe, que é onde ele é usado.
+  //
+  // Se a instituição passar a usar portal do professor, ele volta pelo git — mas
+  // deve nascer no portal-app, não em HTML montado à mão aqui.
 }

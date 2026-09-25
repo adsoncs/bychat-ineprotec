@@ -19,6 +19,7 @@ import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity, type TrashEntityType } from '../services/trash.js'
 import { getOfferingSlotCounts } from '../services/educationalSlots.js'
 import { FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, acharForma, acharCriterio } from '../services/acaFormaIngresso.js'
+import { classificar, convocar, corteAplicavel } from '../services/portalClassificacao.js'
 
 // Conta dependências de uma entidade educacional. Retorna lista de
 // { label, count } com count > 0. Vazia = pode deletar.
@@ -1015,6 +1016,89 @@ export async function educationalRoutes(app: FastifyInstance) {
     })
     if (!process) return reply.code(404).send({ error: 'Processo não encontrado' })
     return { process }
+  })
+
+  // ── Classificação do processo seletivo ──
+  //
+  // Fase 4 da consolidação ERP × Portal: o Portal é o dono da classificação.
+  // As mesmas ações existiam em /api/admin/aca/vestibular, escrevendo nesta
+  // mesma tabela com régua própria — ver services/portalClassificacao.ts.
+
+  app.get('/api/admin/educacional/selection-processes/:id/classification', { preHandler: eduAuth }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    const process = await prisma.selectionProcess.findUnique({
+      where: { id },
+      select: {
+        id: true, nome: true, notaCorte: true, essayCutoff: true, presencialCutoff: true,
+        entryMode: { select: { evaluationType: true, name: true } },
+      },
+    })
+    if (!process) return reply.code(404).send({ error: 'Processo não encontrado' })
+
+    const registrations = await prisma.processRegistration.findMany({
+      where: { selectionProcessId: id },
+      orderBy: [{ posicaoClassificacao: 'asc' }, { notaClassificacao: 'desc' }, { inscritoEm: 'asc' }],
+      select: {
+        id: true, status: true, notaClassificacao: true, posicaoClassificacao: true,
+        inscritoEm: true, classificadoEm: true, convocadoEm: true,
+        lead: { select: { id: true, nome: true, email: true } },
+        offering: { select: { id: true, nome: true, notaCorte: true, essayCutoff: true, presencialCutoff: true } },
+      },
+    })
+
+    const evType = process.entryMode?.evaluationType ?? null
+    const { corte, criterio } = corteAplicavel(evType, process, null)
+    const semNota = registrations.filter((r) => r.notaClassificacao === null && r.status !== 'desistente').length
+
+    return {
+      process: { id: process.id, nome: process.nome, evaluationType: evType, corte, criterioCorte: criterio },
+      // O corte pode variar por oferta; a tela mostra o de cada linha.
+      registrations: registrations.map((r) => ({
+        ...r,
+        corteAplicavel: corteAplicavel(evType, process, r.offering).corte,
+      })),
+      resumo: {
+        total: registrations.length,
+        semNota,
+        porStatus: registrations.reduce((acc: Record<string, number>, r) => {
+          acc[r.status] = (acc[r.status] ?? 0) + 1
+          return acc
+        }, {}),
+      },
+    }
+  })
+
+  app.post('/api/admin/educacional/selection-processes/:id/classify', { preHandler: eduAuth }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    const body = (req.body as any) || {}
+    const actor = (req as any).user
+    try {
+      return await classificar(id, {
+        criterio: body.criterio,
+        ator: actor?.name || actor?.email || 'Admin',
+        atorId: actor?.id ?? null,
+      })
+    } catch (e: any) {
+      return reply.code(400).send({ error: e?.message || 'Falha ao classificar' })
+    }
+  })
+
+  app.post('/api/admin/educacional/selection-processes/:id/convoke', { preHandler: eduAuth }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    const body = (req.body as any) || {}
+    const vagas = Number(body.qtdVagas)
+    if (!Number.isFinite(vagas) || vagas <= 0) {
+      return reply.code(400).send({ error: 'Informe quantas vagas convocar.' })
+    }
+    const actor = (req as any).user
+    try {
+      return await convocar(id, vagas, {
+        ator: actor?.name || actor?.email || 'Admin',
+        atorId: actor?.id ?? null,
+      })
+    } catch (e: any) {
+      return reply.code(400).send({ error: e?.message || 'Falha ao convocar' })
+    }
   })
 
   // ── Matriz SelectionProcess × DocumentType (CRUD) ──

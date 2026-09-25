@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { acaAlunoRoutes } from '../routes/acaAluno.js'
 import { acaCatalogoRoutes } from '../routes/acaCatalogo.js'
 import { acaInscricaoRoutes } from '../routes/acaInscricao.js'
+import { acaEfetivacaoRoutes } from '../routes/acaEfetivacao.js'
+import { acaAlunoApiRoutes } from '../routes/acaAlunoApi.js'
 import { acaMatriculaRoutes } from '../routes/acaMatricula.js'
 import { acaMovimentacaoRoutes } from '../routes/acaMovimentacao.js'
 import { acaEadRoutes } from '../routes/acaEad.js'
@@ -23,7 +25,6 @@ import { acaPortalPwaRoutes } from '../routes/acaPortalPwa.js'
 import { acaRegulatorioRoutes } from '../routes/acaRegulatorio.js'
 import { acaInteligenciaRoutes } from '../routes/acaInteligencia.js'
 import { acaImportacaoRoutes } from '../routes/acaImportacao.js'
-import { acaProvaRoutes } from '../routes/acaProva.js'
 import { twoFactorRoutes } from '../routes/twoFactor.js'
 import { acaPortalLoginRoutes } from '../routes/acaPortalLogin.js'
 import { acaAcordoPaginaRoutes } from '../routes/acaAcordoPagina.js'
@@ -39,7 +40,6 @@ import { acaNotaRoutes } from '../routes/acaNota.js'
 import { acaFechamentoRoutes } from '../routes/acaFechamento.js'
 import { acaSecretariaRoutes } from '../routes/acaSecretaria.js'
 import { acaPortalRoutes } from '../routes/acaPortal.js'
-import { acaPortalPlusRoutes } from '../routes/acaPortalPlus.js'
 import { acaDiplomaRoutes } from '../routes/acaDiploma.js'
 import { acaAvaliacaoInstRoutes } from '../routes/acaAvaliacaoInst.js'
 import { acaComunicacaoRoutes } from '../routes/acaComunicacao.js'
@@ -62,6 +62,8 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaAlunoRoutes)
   await app.register(acaCatalogoRoutes)
   await app.register(acaInscricaoRoutes)
+  await app.register(acaEfetivacaoRoutes)
+  await app.register(acaAlunoApiRoutes)
   await app.register(acaMatriculaRoutes)
   await app.register(acaMovimentacaoRoutes)
   await app.register(acaEadRoutes)
@@ -83,7 +85,6 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaRegulatorioRoutes)
   await app.register(acaInteligenciaRoutes)
   await app.register(acaImportacaoRoutes)
-  await app.register(acaProvaRoutes)
   await app.register(twoFactorRoutes)
   await app.register(acaPortalLoginRoutes)
   await app.register(acaAcordoPaginaRoutes)
@@ -99,7 +100,6 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaFechamentoRoutes)
   await app.register(acaSecretariaRoutes)
   await app.register(acaPortalRoutes)
-  await app.register(acaPortalPlusRoutes)
   await app.register(acaDiplomaRoutes)
   await app.register(acaAvaliacaoInstRoutes)
   await app.register(acaComunicacaoRoutes)
@@ -114,6 +114,11 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaEstagioRoutes)
   await app.register(acaSistecRoutes)
   await app.register(acaAssinaturaRoutes)
+  // Cobrança de contrato parado (enviado e não assinado).
+  import('../services/acaContratoLembrete.js')
+    .then(m => m.iniciarLembretesDeContrato())
+    .catch(err => console.warn('[acaContratoLembrete] init falhou:', err?.message || err))
+
   // Scheduler de comunicação acadêmica (avisos de vencimento/notas).
   import('../services/acaComunicacao.js')
     .then(m => m.startAcaComunicacaoScheduler())

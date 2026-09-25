@@ -10,7 +10,7 @@ export interface Disciplina { id: number; courseId: number; nome: string; codigo
 export interface ComponenteFull {
   id: number; fase: number; obrigatoria: boolean; disciplinaId: number
   // Fase 1 (G4): classificação e carga horária próprias do componente.
-  tipo?: string; chTotal?: number | null; chTeorica?: number | null; chPratica?: number | null
+  tipo?: string | undefined; chTotal?: number | null; chTeorica?: number | null; chPratica?: number | null
   chExtensao?: number | null; grupoEletiva?: string | null; ordem?: number | null
   disciplina: { nome: string; cargaHoraria: number; codigo: string | null }
 }

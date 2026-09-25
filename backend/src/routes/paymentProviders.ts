@@ -8,7 +8,10 @@ import { adminStrict, type JwtPayload } from '../lib/auth.js'
 import { encryptToken, decryptToken } from '../services/cloudApi.js'
 import { pingPagarme, detectPagarmeEnvironment } from '../services/paymentPagarme.js'
 
-const SUPPORTED_PROVIDERS = ['asaas', 'pagarme'] as const
+// 'simulado' existe para montar e testar o fluxo de cobrança sem credencial —
+// gera PIX/boleto com a forma certa, mas que banco nenhum aceita. É o mesmo
+// recurso que a assinatura já tinha (autentique em modo SIMULADO).
+const SUPPORTED_PROVIDERS = ['asaas', 'pagarme', 'simulado'] as const
 type ProviderKind = typeof SUPPORTED_PROVIDERS[number]
 
 function isSupported(p: any): p is ProviderKind {
@@ -55,6 +58,9 @@ function summarize(c: any) {
 // Testa a conexão com o provedor. Para Asaas: GET /myAccount.
 async function testProviderConnection(provider: ProviderKind, apiKeyPlain: string, environment: string)
   : Promise<{ ok: boolean; message: string }> {
+  if (provider === 'simulado') {
+    return { ok: true, message: 'Provedor simulado: cobranças com a forma certa, sem cobrar de verdade.' }
+  }
   if (provider === 'asaas') {
     const base = environment === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3'
     try {

@@ -63,9 +63,20 @@ export async function registrarAceite(contratoId: number, nome: string, ip: stri
   return { ok: true }
 }
 
-/** Contrato "ativo" do aluno (da matrícula MATRICULADO mais recente). */
+/**
+ * Contrato "ativo" do aluno, da matrícula mais recente.
+ *
+ * Exigia `status: 'MATRICULADO'` — e era a assinatura deste contrato que
+ * promovia a matrícula a MATRICULADO. Quem estava INSCRITO não via o contrato
+ * que o matricularia (4 das 5 matrículas da demo estavam presas assim). Agora a
+ * matrícula é considerada em qualquer status vivo.
+ */
 export async function contratoAtivoDoAluno(alunoId: number): Promise<number | null> {
-  const mat = await prisma.acaMatricula.findFirst({ where: { alunoId, status: 'MATRICULADO' }, orderBy: { dataMatricula: 'desc' }, select: { id: true } })
+  const mat = await prisma.acaMatricula.findFirst({
+    where: { alunoId, status: { notIn: ['CANCELADO', 'TRANSFERIDO', 'EVADIDO'] } },
+    orderBy: [{ dataMatricula: 'desc' }, { id: 'desc' }],
+    select: { id: true },
+  })
   if (!mat) return null
   const c = await prisma.acaContrato.findUnique({ where: { matriculaId: mat.id }, select: { id: true } })
   return c?.id ?? null

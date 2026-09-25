@@ -76,10 +76,21 @@ function rowToConfig(row: {
   silenceWindow: unknown
   blacklist: unknown
 }): GovernanceConfig {
+  // Estes campos são JSON no banco: o `??` só cobre a coluna inteira nula, não
+  // uma lista que faltou dentro dela. Uma blacklist gravada como `{phones: []}`
+  // — sem `emails` — passava por aqui e estourava em `emails.includes(...)`,
+  // derrubando cada tick da cadência. Cada lista tem de ter o seu próprio piso.
+  const lista = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : [])
+  const bl = (row.blacklist ?? {}) as Partial<GovernanceConfig['blacklist']>
+  const janela = (row.silenceWindow ?? {}) as Partial<GovernanceConfig['silenceWindow']>
+
   return {
     maxPerChannelPerDay: (row.maxPerChannelPerDay as GovernanceConfig['maxPerChannelPerDay']) ?? {},
-    silenceWindow: (row.silenceWindow as GovernanceConfig['silenceWindow']) ?? DEFAULT_GOVERNANCE.silenceWindow,
-    blacklist: (row.blacklist as GovernanceConfig['blacklist']) ?? { phones: [], emails: [] },
+    silenceWindow: {
+      ...DEFAULT_GOVERNANCE.silenceWindow,
+      ...(janela && typeof janela === 'object' ? janela : {}),
+    },
+    blacklist: { phones: lista(bl.phones), emails: lista(bl.emails) },
   }
 }
 

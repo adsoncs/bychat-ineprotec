@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { ChevronLeft, FileCheck2, FileText, ScrollText, Settings2 } from '@/components/ui/icon-set'
+import { ChevronLeft, FileCheck2, FileText, ScrollText, Settings2, Trophy } from '@/components/ui/icon-set'
 import {
   useSelectionProcess,
   useUpdateSelectionProcess,
@@ -14,10 +14,11 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { DocumentRequirementsEditor } from '@/components/educational/DocumentRequirementsEditor'
 import { EssayTopicsEditor } from '@/components/educational/EssayTopicsEditor'
 import { EssayConfigEditor, PresencialConfigEditor } from '@/components/educational/EssayConfigEditor'
+import { ClassificationTab } from '@/components/educational/ClassificationTab'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
-type Tab = 'overview' | 'documents' | 'evaluation' | 'topics'
+type Tab = 'overview' | 'documents' | 'evaluation' | 'topics' | 'classification'
 
 export function EducationalSelectionProcessDetailPage({ params }: { params: { id: string } }) {
   const id = parseInt(params.id)
@@ -65,6 +66,7 @@ export function EducationalSelectionProcessDetailPage({ params }: { params: { id
               : <PresencialConfigEditor process={process} />
           )}
           {tab === 'topics' && showEssayTab && <EssayTopicsEditor selectionProcessId={process.id} />}
+          {tab === 'classification' && <ClassificationTab processId={process.id} />}
         </>
       )}
     </Page>
@@ -80,6 +82,7 @@ function ProcessTabs({
   ]
   if (showEvalTab) tabs.push({ id: 'evaluation', label: 'Avaliação', icon: <Settings2 size={14} /> })
   if (showEssayTab) tabs.push({ id: 'topics', label: 'Temas de redação', icon: <ScrollText size={14} /> })
+  tabs.push({ id: 'classification', label: 'Classificação', icon: <Trophy size={14} /> })
 
   return (
     <div class="border-b border-border flex gap-1">
@@ -111,7 +114,8 @@ function OverviewTab({ process: p }: { process: SelectionProcess }) {
     { label: 'Período letivo', value: p.periodoLetivo ?? '—' },
     { label: 'Status', value: p.status },
     { label: 'Slug público', value: p.slug ? <code class="text-fg">{p.slug}</code> : '—' },
-    { label: 'Taxa de inscrição', value: p.taxaInscricao != null ? `R$ ${p.taxaInscricao.toFixed(2)}` : '—' },
+    // Decimal do Prisma chega como string no JSON: `.toFixed` direto derrubava a aba.
+    { label: 'Taxa de inscrição', value: p.taxaInscricao != null ? `R$ ${Number(p.taxaInscricao).toFixed(2)}` : '—' },
     { label: 'Nota de corte', value: p.notaCorte != null ? p.notaCorte.toString() : '—' },
   ]
 

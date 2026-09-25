@@ -12,7 +12,7 @@ const SIT_COR: Record<string, string> = { APROVADO: 'bg-success', RECUPERACAO: '
 const PARC_LABEL: Record<string, string> = { ABERTA: 'Em aberto', PAGA: 'Pagas', VENCIDA: 'Vencidas', CANCELADA: 'Canceladas', RENEGOCIADA: 'Renegociadas' }
 const PARC_COR: Record<string, string> = { ABERTA: 'bg-warning', PAGA: 'bg-success', VENCIDA: 'bg-danger', CANCELADA: 'bg-fg-subtle', RENEGOCIADA: 'bg-accent' }
 
-function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string; hint?: string; tone?: string }) {
+function Kpi({ icon, label, value, hint, tone }: { icon: any; label: string; value: string; hint?: string | undefined; tone?: string | undefined }) {
   return (
     <Card class="space-y-1">
       <div class="flex items-center gap-2 text-fg-muted text-xs">{icon}<span>{label}</span></div>

@@ -106,8 +106,27 @@
     btnReject.onmouseover = function() { btnReject.style.background = 'rgba(255,255,255,0.1)'; };
     btnReject.onmouseout = function() { btnReject.style.background = 'transparent'; };
 
-    btnAccept.onclick = function() { grantConsent(); banner.remove(); };
-    btnReject.onclick = function() { denyConsent(); banner.remove(); };
+    // O banner é fixed no rodapé com z-index máximo: sem reservar espaço, ele
+    // cobre o que estiver no fim da página. No portal de matrículas isso caía
+    // exatamente em cima do botão de assinar o contrato, no celular.
+    function reservarEspaco() {
+      if (!doc.body) return;
+      var h = banner.offsetHeight;
+      if (!h) return;
+      if (!doc.body.hasAttribute('data-bt-pad')) {
+        doc.body.setAttribute('data-bt-pad', doc.body.style.paddingBottom || '');
+      }
+      doc.body.style.paddingBottom = h + 'px';
+    }
+    function liberarEspaco() {
+      if (!doc.body) return;
+      doc.body.style.paddingBottom = doc.body.getAttribute('data-bt-pad') || '';
+      doc.body.removeAttribute('data-bt-pad');
+    }
+    function fechar(acao) { acao(); banner.remove(); liberarEspaco(); }
+
+    btnAccept.onclick = function() { fechar(grantConsent); };
+    btnReject.onclick = function() { fechar(denyConsent); };
 
     btnWrap.appendChild(btnAccept);
     btnWrap.appendChild(btnReject);
@@ -116,9 +135,12 @@
 
     if (doc.body) {
       doc.body.appendChild(banner);
+      reservarEspaco();
     } else {
-      doc.addEventListener('DOMContentLoaded', function() { doc.body.appendChild(banner); });
+      doc.addEventListener('DOMContentLoaded', function() { doc.body.appendChild(banner); reservarEspaco(); });
     }
+    // O banner muda de altura ao girar o telefone ou ao quebrar linha.
+    if (win.addEventListener) win.addEventListener('resize', reservarEspaco);
   }
 
   function grantConsent() {

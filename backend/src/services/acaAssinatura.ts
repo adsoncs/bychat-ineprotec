@@ -4,6 +4,7 @@
 // recusável), gatilhos automáticos por evento, e modo SIMULADO (sem rede).
 
 import { prisma } from '../lib/prisma.js'
+import { arquivarContratoNoGed, efetivarPorContratoAssinado } from './acaEfetivacao.js'
 import { getDocHeader, dataExtenso } from './acaDocRender.js'
 import { pdfContrato } from './acaPdf.js'
 import * as aut from './autentique.js'
@@ -82,13 +83,84 @@ export interface CriarEnvelope {
   signatarios?: NovoSignatario[]
 }
 
+/** Idade em anos completos, ou null quando não há data de nascimento. */
+function idadeEm(nascimento: Date | null | undefined): number | null {
+  if (!nascimento) return null
+  const hoje = new Date()
+  let anos = hoje.getFullYear() - nascimento.getFullYear()
+  const m = hoje.getMonth() - nascimento.getMonth()
+  if (m < 0 || (m === 0 && hoje.getDate() < nascimento.getDate())) anos--
+  return anos
+}
+
+export function menorDeIdade(nascimento: Date | null | undefined): boolean {
+  const i = idadeEm(nascimento)
+  return i != null && i < 18
+}
+
+/**
+ * Signatários do contrato.
+ *
+ * O canal de entrega segue o dado que a pessoa realmente usa: quem tem WhatsApp
+ * recebe por WhatsApp — grande parte dos alunos não abre e-mail, e um contrato
+ * parado por isso vira ligação para a secretaria.
+ *
+ * Aluno menor de 18 anos **exige** responsável assinando junto; o contrato só
+ * dele não tem validade. Quando falta responsável cadastrado, isso é sinalizado
+ * para o envio parar antes de gastar um documento no provedor.
+ */
 async function signatariosAuto(alunoId: number): Promise<NovoSignatario[]> {
   const out: NovoSignatario[] = []
-  const a = await prisma.aluno.findUnique({ where: { id: alunoId }, select: { cpf: true, lead: { select: { nome: true, email: true } } } })
-  if (a) out.push({ nome: a.lead.nome, email: a.lead.email, papel: 'ALUNO', acao: 'SIGN', cpf: a.cpf })
-  const resp = await prisma.acaResponsavel.findFirst({ where: { alunoId, tipo: { in: ['CONTRATO', 'FINANCEIRO'] }, email: { not: null } }, select: { nome: true, email: true } })
-  if (resp?.email) out.push({ nome: resp.nome, email: resp.email, papel: 'RESPONSAVEL', acao: 'SIGN' })
+  const a = await prisma.aluno.findUnique({
+    where: { id: alunoId },
+    select: { cpf: true, dataNascimento: true, lead: { select: { nome: true, email: true, whatsapp: true } } },
+  })
+  if (a) {
+    out.push({
+      nome: a.lead.nome, email: a.lead.email, telefone: a.lead.whatsapp,
+      papel: 'ALUNO', acao: 'SIGN', cpf: a.cpf,
+      deliveryMethod: a.lead.whatsapp ? 'WHATSAPP' : 'EMAIL',
+    })
+  }
+
+  // Responsável: aceita quem tem e-mail OU telefone (antes exigia e-mail, e
+  // responsável só com celular — o caso comum — ficava de fora do contrato).
+  const resp = await prisma.acaResponsavel.findFirst({
+    where: {
+      alunoId, ativo: true,
+      tipo: { in: ['CONTRATO', 'LEGAL', 'FINANCEIRO'] },
+      OR: [{ email: { not: null } }, { telefone: { not: null } }],
+    },
+    orderBy: { id: 'asc' },
+    select: { nome: true, email: true, telefone: true, cpf: true },
+  })
+  if (resp) {
+    out.push({
+      nome: resp.nome, email: resp.email, telefone: resp.telefone, cpf: resp.cpf,
+      papel: 'RESPONSAVEL', acao: 'SIGN',
+      deliveryMethod: resp.telefone ? 'WHATSAPP' : 'EMAIL',
+    })
+  }
   return out
+}
+
+/** Menor sem responsável cadastrado: o contrato não pode ser enviado assim. */
+export async function faltaResponsavelDeMenor(alunoId: number): Promise<string | null> {
+  const a = await prisma.aluno.findUnique({
+    where: { id: alunoId },
+    select: { dataNascimento: true, lead: { select: { nome: true } } },
+  })
+  if (!a || !menorDeIdade(a.dataNascimento)) return null
+  const resp = await prisma.acaResponsavel.findFirst({
+    where: {
+      alunoId, ativo: true, tipo: { in: ['CONTRATO', 'LEGAL', 'FINANCEIRO'] },
+      OR: [{ email: { not: null } }, { telefone: { not: null } }],
+    },
+    select: { id: true },
+  })
+  if (resp) return null
+  return `${a.lead.nome} é menor de idade e não tem responsável cadastrado com e-mail ou telefone. `
+    + 'Cadastre o responsável antes de enviar o contrato — sem a assinatura dele o documento não vale.'
 }
 
 export async function criar(p: CriarEnvelope) {
@@ -152,6 +224,12 @@ export async function enviar(envelopeId: number) {
   if (!env) throw new Error('Envelope não encontrado')
   if (env.status !== 'RASCUNHO') throw new Error('Envelope já enviado')
   if (!env.signatarios.length) throw new Error('Adicione ao menos um signatário')
+  // Menor de idade sem responsável: para aqui, antes de gastar um documento no
+  // provedor e de mandar ao aluno um contrato que não teria validade.
+  if (env.alunoId && !env.signatarios.some((s) => s.papel === 'RESPONSAVEL')) {
+    const impedimento = await faltaResponsavelDeMenor(env.alunoId)
+    if (impedimento) throw new Error(impedimento)
+  }
   for (const s of env.signatarios) {
     if (s.deliveryMethod === 'EMAIL' && !s.email) throw new Error(`Signatário ${s.nome}: e-mail obrigatório`)
     if ((s.deliveryMethod === 'SMS' || s.deliveryMethod === 'WHATSAPP') && !s.telefone) throw new Error(`Signatário ${s.nome}: telefone obrigatório p/ ${s.deliveryMethod}`)
@@ -235,6 +313,14 @@ async function recompute(envelopeId: number) {
   if (env.status === 'CANCELADO') return prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, include: { signatarios: { orderBy: { ordem: 'asc' } } } })
   const novo = statusEnvelope(env.signatarios, !!env.enviadoEm)
   await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { status: novo as any, finalizadoEm: novo === 'ASSINADO' ? (env.finalizadoEm ?? new Date()) : env.finalizadoEm } })
+  // Contrato fechado efetiva a matrícula (ponte com o ERP). Só na transição,
+  // para não reescrever a matrícula a cada sincronização com o provedor.
+  if (novo === 'ASSINADO' && env.status !== 'ASSINADO') {
+    await efetivarPorContratoAssinado(envelopeId).catch((e) =>
+      console.warn('[acaAssinatura] contrato assinado, mas a matrícula não efetivou:', e?.message || e))
+    await arquivarContratoNoGed(envelopeId).catch((e) =>
+      console.warn('[acaAssinatura] contrato assinado, mas não foi ao GED:', e?.message || e))
+  }
   return prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, include: { signatarios: { orderBy: { ordem: 'asc' } } } })
 }
 

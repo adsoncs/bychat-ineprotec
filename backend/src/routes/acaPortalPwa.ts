@@ -11,6 +11,7 @@
 // ícone, manifesto e a página de "sem conexão".
 
 import { FastifyInstance } from 'fastify'
+import { portalAppDisponivel } from '../lib/portalApp.js'
 import { getDocHeader } from '../services/acaDocRender.js'
 
 /** Ícone gerado a partir da inicial da instituição — evita depender de upload. */
@@ -30,9 +31,12 @@ export async function acaPortalPwaRoutes(app: FastifyInstance) {
       name: `${h.instituicao} — Portal`,
       short_name: 'Portal',
       description: 'Boletim, frequência, financeiro e documentos.',
-      // A raiz é a home do aluno; o token continua vindo pela URL do atalho.
-      start_url: '/portal/aca/aluno',
-      scope: '/portal/aca/',
+      // Abre no painel novo onde ele existe; onde não existe, no portal antigo,
+      // que continua servindo os links de aviso já enviados.
+      start_url: portalAppDisponivel() ? '/portal/aluno' : '/portal/aca/aluno',
+      // Escopo do portal inteiro: o atalho instalado passeia entre o painel, os
+      // documentos e o login sem sair do aplicativo.
+      scope: '/portal/',
       display: 'standalone',
       orientation: 'portrait',
       background_color: '#f7f8fa',
@@ -102,7 +106,19 @@ self.addEventListener('fetch', (e) => {
 
   // Conteúdo do portal: sempre da rede. Sem internet, mostra a página offline
   // em vez de servir dado velho de outra sessão.
-  if (url.pathname.startsWith('/portal/aca/')) {
+  // Assets da aplicação têm hash no nome: o cache pode servi-los à vontade.
+  if (url.pathname.startsWith('/portal-assets/')) {
+    e.respondWith(caches.match(req).then((r) => r || fetch(req).then((resp) => {
+      const copia = resp.clone()
+      caches.open(CACHE).then((c) => c.put(req, copia))
+      return resp
+    })))
+    return
+  }
+
+  // Conteúdo do portal: sempre da rede. Sem internet, mostra a página offline
+  // em vez de servir dado velho de outra sessão.
+  if (url.pathname.startsWith('/portal/')) {
     e.respondWith(fetch(req).catch(() => caches.match('/portal/aca/offline')))
   }
 })

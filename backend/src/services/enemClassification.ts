@@ -13,6 +13,7 @@
 // pode ser revertido pelo operador humano via validateEnemImport.
 
 import { prisma } from '../lib/prisma.js'
+import { classificacaoPodeAlterarStatus } from './portalClassificacao.js'
 
 function toNumber(v: any): number | null {
   if (v == null || v === '') return null
@@ -115,17 +116,26 @@ export async function processEnemScoreFromDocument(docId: number): Promise<{
   if (pr && mediaSimples != null) {
     const updates: any = { notaClassificacao: mediaSimples }
     let newStatus = pr.status
-    if (passed === true) {
+    // Quem já foi convocado ou matriculado não volta atrás porque um boletim
+    // chegou depois — a nota é atualizada, o status fica. Ver
+    // classificacaoPodeAlterarStatus em services/portalClassificacao.ts.
+    const podeMexerNoStatus = classificacaoPodeAlterarStatus(pr.status)
+    if (podeMexerNoStatus && passed === true) {
       newStatus = 'classificado'
       updates.status = 'classificado'
       updates.classificadoEm = new Date()
-    } else if (passed === false) {
+    } else if (podeMexerNoStatus && passed === false) {
       newStatus = 'reprovado'
       updates.status = 'reprovado'
     }
 
     if (newStatus !== pr.status) {
-      await prisma.processRegistration.update({ where: { id: pr.id }, data: updates })
+      // Condicional: entre ler e escrever, o webhook do pagamento ou o admin
+      // podem ter movido esta inscrição.
+      const mudou = await prisma.processRegistration.updateMany({
+        where: { id: pr.id, status: pr.status }, data: updates,
+      })
+      if (mudou.count === 0) return { ok: true, importedId: imp.id, passed, mediaSimples }
       await prisma.processRegistrationStatusLog.create({
         data: {
           registrationId: pr.id,

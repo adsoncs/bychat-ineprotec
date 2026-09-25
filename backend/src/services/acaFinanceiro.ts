@@ -14,11 +14,55 @@ import {
 /** Config do Asaas a partir da conexão ativa (apiKey decifrada). null se não houver. */
 export async function getAsaasConfig(): Promise<AsaasConfig | null> {
   const conn = await prisma.paymentProviderConnection.findFirst({ where: { provider: 'asaas', active: true }, orderBy: { id: 'desc' } })
+  return abrirConexao(conn)
+}
+
+async function abrirConexao(conn: { apiKey: string; environment: string } | null): Promise<AsaasConfig | null> {
   if (!conn) return null
   try {
     const { decryptToken } = await import('./cloudApi.js')
     return { apiKey: decryptToken(conn.apiKey), environment: conn.environment === 'production' ? 'production' : 'sandbox', billingType: 'UNDEFINED' }
   } catch { return null }
+}
+
+/**
+ * A conta do Asaas que deve receber esta parcela.
+ *
+ * Fase 6 da consolidação ERP × Portal (10/09/2026). O ERP pegava
+ * `findFirst({ provider: 'asaas', active: true }, orderBy: id desc)` — a última
+ * conexão criada — enquanto o Portal cobra pela conexão configurada no portal
+ * (`portal.paymentConnectionId`). Com uma conexão só isso coincide por acaso;
+ * com duas (sandbox e produção, ou duas unidades), a entrada da matrícula entra
+ * numa conta e as mensalidades noutra, e a conciliação não fecha.
+ *
+ * A regra passa a ser: **quem recebeu a entrada recebe as mensalidades**. Se a
+ * matrícula não veio do portal, ou o portal não define conexão, cai no
+ * comportamento antigo — que continua sendo o certo para matrícula feita na
+ * secretaria.
+ */
+export async function contaDaParcela(parcelaId: number): Promise<AsaasConfig | null> {
+  const parcela = await prisma.acaParcela.findUnique({
+    where: { id: parcelaId },
+    select: { contrato: { select: { matricula: { select: { enrollmentRegistrationId: true } } } } },
+  })
+  const regId = parcela?.contrato?.matricula?.enrollmentRegistrationId ?? null
+  if (regId) {
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: regId },
+      select: { portal: { select: { paymentConnectionId: true } } },
+    })
+    const connId = reg?.portal?.paymentConnectionId ?? null
+    if (connId) {
+      const conn = await prisma.paymentProviderConnection.findFirst({
+        where: { id: connId, provider: 'asaas', active: true },
+      })
+      // Conexão desativada depois da inscrição: melhor cair no padrão do que
+      // falhar a cobrança de quem já é aluno.
+      const cfg = await abrirConexao(conn)
+      if (cfg) return cfg
+    }
+  }
+  return getAsaasConfig()
 }
 
 /** Vencimento de mensalidade N (1..) no dia `dia`, a partir do próximo mês. */
@@ -28,9 +72,91 @@ function vencimentoMensalidade(n: number, dia: number): Date {
   return d
 }
 
+/** O que foi escolhido e pago no checkout do portal, quando houve um. */
+export interface EscolhaDoCheckout {
+  /** 'taxa' = pagou a inscrição; 'curso' = pagou o curso (entrada ou total). */
+  escopo: 'taxa' | 'curso'
+  meio: 'pix' | 'boleto' | 'credit_card'
+  parcelas: number
+  /** Em centavos, o que efetivamente entrou. */
+  valorPagoCentavos: number
+  pagoEm: Date
+}
+
+/**
+ * Lê o plano escolhido na inscrição de origem — só conta se o pagamento foi
+ * confirmado. Intenção sem pagamento não abate nada: quem escolheu cartão e
+ * abandonou a tela continua devendo o curso inteiro.
+ */
+async function escolhaDoCheckout(registrationId: number | null | undefined): Promise<EscolhaDoCheckout | null> {
+  if (!registrationId) return null
+  const reg = await prisma.enrollmentRegistration.findUnique({
+    where: { id: registrationId },
+    select: { paymentPlan: true, paymentStatus: true, paymentPaidAt: true, paymentAmount: true },
+  })
+  if (!reg || reg.paymentStatus !== 'paid') return null
+
+  const plano = (reg.paymentPlan ?? {}) as Record<string, unknown>
+  const escopo = plano.escopo === 'curso' ? 'curso' : 'taxa'
+  // Taxa de inscrição não abate mensalidade: são cobranças diferentes.
+  if (escopo !== 'curso') return null
+
+  const meio = ['pix', 'boleto', 'credit_card'].includes(String(plano.meio))
+    ? (plano.meio as EscolhaDoCheckout['meio'])
+    : 'pix'
+  const valor = Number(plano.valorCobrado ?? reg.paymentAmount ?? 0)
+  if (!Number.isFinite(valor) || valor <= 0) return null
+
+  return {
+    escopo: 'curso',
+    meio,
+    parcelas: Math.max(1, Math.round(Number(plano.parcelas ?? 1)) || 1),
+    valorPagoCentavos: Math.round(valor * 100),
+    pagoEm: reg.paymentPaidAt ?? new Date(),
+  }
+}
+
+/**
+ * Marca como pagas as parcelas que o checkout já cobriu, na ordem em que
+ * vencem, e devolve quantas foram.
+ *
+ * No cartão, o valor pago é o total da compra — inclusive o acréscimo de juros,
+ * que é do adquirente e não abate mensalidade. Por isso o abatimento anda por
+ * parcela, do começo para o fim, até o dinheiro acabar: sobra vira nada, e
+ * falta deixa o resto em aberto. Uma parcela parcialmente coberta continua
+ * ABERTA, com o valor já pago registrado — cobrar de novo o total seria erro,
+ * e dar por quitada seria prejuízo.
+ */
+export function aplicarPagamentoDoCheckout(parcelas: any[], escolha: EscolhaDoCheckout | null): number {
+  if (!escolha) return 0
+  let restante = escolha.valorPagoCentavos
+  let quitadas = 0
+
+  for (const p of parcelas) {
+    if (restante <= 0) break
+    const valor = Number(p.valorBrutoCentavos)
+    if (restante >= valor) {
+      p.situacao = 'PAGA'
+      p.valorPagoCentavos = valor
+      p.pagoEm = escolha.pagoEm
+      restante -= valor
+      quitadas++
+    } else {
+      p.valorPagoCentavos = restante
+      restante = 0
+    }
+  }
+  return quitadas
+}
+
 /**
  * Gera AcaContrato + AcaParcela a partir do PlanoPagamento da oferta da turma.
  * Idempotente (1 contrato por matrícula). Chamado ao EFETIVAR a matrícula.
+ *
+ * Quando a matrícula veio de uma inscrição do portal cujo checkout cobrou o
+ * CURSO (e não a taxa de inscrição), o que já foi pago ali entra abatido: no
+ * cartão parcelado o contrato costuma nascer quitado; no boleto parcelado, só
+ * a entrada.
  */
 export async function gerarContratoEParcelas(matriculaId: number): Promise<{ contratoId: number; criadas: number } | { skip: true }> {
   const existe = await prisma.acaContrato.findUnique({ where: { matriculaId }, select: { id: true } })
@@ -38,6 +164,11 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
 
   const mat = await prisma.acaMatricula.findUnique({ where: { id: matriculaId }, include: { turma: { select: { courseOfferingId: true } } } })
   if (!mat) throw new Error('Matrícula não encontrada')
+
+  // O que a pessoa escolheu no checkout, quando veio do portal. Sem isso, o
+  // plano padrão da oferta é aplicado a quem já pagou de outro jeito — e o
+  // aluno recebe cobrança de mensalidade que ele já quitou no cartão.
+  const escolha = await escolhaDoCheckout(mat.enrollmentRegistrationId)
   const offeringId = mat.turma.courseOfferingId
   if (!offeringId) throw new Error('Turma sem oferta vinculada — defina a oferta para gerar o financeiro.')
   const plano = await prisma.acaPlanoPagamento.findFirst({ where: { courseOfferingId: offeringId, ativo: true }, orderBy: { id: 'asc' } })
@@ -69,15 +200,39 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   for (let i = 1; i <= plano.numParcelas; i++) {
     parcelas.push({ contratoId: contrato.id, nroParcela: nro++, tipo: 'MENSALIDADE', valorBrutoCentavos: mensalidade, dataVencimento: vencimentoMensalidade(i, plano.diaVencimento) })
   }
+
+  // Agora o que já foi pago no checkout deixa de virar cobrança.
+  //
+  // Cartão parcelado é o caso que mais dói: a instituição recebe o valor
+  // inteiro do adquirente e quem paga em vezes é o aluno, para o banco dele.
+  // Gerar doze mensalidades depois disso seria cobrar duas vezes a mesma coisa.
+  // Boleto parcelado é o oposto: só a entrada foi paga, e as demais são
+  // exatamente estas parcelas — a primeira já nasce quitada.
+  const quitadas = aplicarPagamentoDoCheckout(parcelas, escolha)
+
   // Inserção em loop (convenção: sem createMany+skipDuplicates)
   for (const p of parcelas) await prisma.acaParcela.create({ data: p })
+
+  // Contrato inteiro pago no ato não fica "ATIVO" esperando cobrança nenhuma.
+  if (quitadas > 0 && quitadas === parcelas.length) {
+    await prisma.acaContrato.update({ where: { id: contrato.id }, data: { status: 'QUITADO' } })
+  }
+
+  // O evento existia no enum, mas ninguém o emitia — os gatilhos configurados
+  // para "contrato financeiro criado" nunca rodavam.
+  import('./acaAssinatura.js')
+    .then((m) => m.dispararEvento('CONTRATO_FINANCEIRO_CRIADO', {
+      alunoId: mat.alunoId, matriculaId, contratoId: contrato.id,
+    }))
+    .catch((e) => console.warn('[acaFinanceiro] gatilho CONTRATO_FINANCEIRO_CRIADO falhou:', e?.message || e))
 
   return { contratoId: contrato.id, criadas: parcelas.length }
 }
 
 /** Cria a cobrança (boleto+PIX) no Asaas para uma parcela e guarda as referências. */
 export async function criarCobrancaAsaas(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
-  const config = await getAsaasConfig()
+  // A mesma conta que recebeu a entrada no checkout recebe as mensalidades.
+  const config = await contaDaParcela(parcelaId)
   if (!config) return { ok: false, error: 'Nenhuma conexão Asaas ativa (Configurações › Pagamentos).' }
   const parcela = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, include: { contrato: { include: { matricula: { include: { aluno: { include: { lead: true } } } } } } } })
   if (!parcela) return { ok: false, error: 'Parcela não encontrada' }

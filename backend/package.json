@@ -12,7 +12,14 @@
     "db:studio": "prisma studio",
     "db:push": "prisma db push",
     "test": "node --import tsx --test --test-force-exit tests/*.test.ts",
-    "test:alertas": "node --import tsx --test --test-force-exit tests/alertas.test.ts"
+    "test:alertas": "node --import tsx --test --test-force-exit tests/alertas.test.ts",
+    "test:pagamento": "node --import tsx --test --test-force-exit tests/portal-pagamento.test.ts",
+    "test:abatimento": "node --import tsx --test --test-force-exit tests/aca-abatimento-checkout.test.ts",
+    "test:identidade": "node --import tsx --test --test-force-exit tests/identidade-unica.test.ts",
+    "test:classificacao": "node --import tsx --test --test-force-exit tests/classificacao.test.ts",
+    "test:contrato": "node --import tsx --test --test-force-exit tests/contrato-portal.test.ts",
+    "test:fronteira": "node --import tsx --test --test-force-exit tests/fronteira-financeira.test.ts",
+    "test:magiclink": "node --import tsx --test tests/magic-link-portal.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

@@ -1,0 +1,697 @@
+/* Portal público de inscrição.
+   Mobile primeiro: a maior parte das inscrições chega de celular, muitas em
+   rede ruim. A cor da marca e o arredondamento vêm do portal (variáveis
+   injetadas em runtime), o resto é neutro de propósito para não brigar com a
+   identidade de cada instituição. */
+
+:root {
+  --marca: #0e5a54;
+  --marca-suave: #e6f1ef;
+  --raio: 12px;
+
+  --tinta: #16211f;
+  --tinta-2: #5b6a66;
+  --tinta-3: #879490;
+  --linha: #dfe5e2;
+  --fundo: #f4f6f5;
+  --papel: #ffffff;
+  --erro: #a3372e;
+  --erro-suave: #fbeceb;
+  --ok: #2c7a4b;
+  --sombra: 0 1px 2px rgba(20, 33, 31, .06), 0 8px 24px -16px rgba(20, 33, 31, .3);
+}
+
+/* Sem modo escuro automático: este portal veste a identidade da instituição
+   (logo, cor, hero, rodapé), e a tela antiga era clara. Trocar de tema por
+   preferência do sistema do visitante mudaria a cara da instituição sem que
+   ninguém tivesse escolhido isso. A cor da marca vem do builder e pinta os
+   controles; o resto é neutro de propósito. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--tinta);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.pagina { max-width: 720px; margin: 0 auto; padding: 0 16px 96px; }
+
+/* ── Topo e capa ─────────────────────────────────────────────── */
+.topo { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; }
+.topo img { max-height: 40px; max-width: 190px; }
+.topo .nome { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+
+.capa {
+  background: var(--marca); color: #fff; border-radius: var(--raio);
+  padding: 26px 22px; margin-bottom: 18px; background-size: cover; background-position: center;
+}
+.capa h1 { margin: 0 0 6px; font-size: 25px; line-height: 1.2; letter-spacing: -.02em; text-wrap: balance; }
+.capa p { margin: 0; opacity: .92; font-size: 15.5px; }
+
+/* ── Trilha de etapas ────────────────────────────────────────── */
+.trilha { display: flex; align-items: center; gap: 6px; margin: 0 0 18px; }
+.trilha .etapa { flex: 1; min-width: 0; }
+.trilha .barra { height: 4px; border-radius: 3px; background: var(--linha); transition: background .25s; }
+.trilha .etapa.feita .barra, .trilha .etapa.atual .barra { background: var(--marca); }
+.trilha .rotulo {
+  display: block; margin-top: 7px; font-size: 12px; color: var(--tinta-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.trilha .etapa.atual .rotulo { color: var(--marca); font-weight: 600; }
+
+/* ── Cartão do formulário ────────────────────────────────────── */
+.cartao {
+  background: var(--papel); border: 1px solid var(--linha); border-radius: var(--raio);
+  padding: 22px 20px; box-shadow: var(--sombra);
+}
+.cartao h2 { margin: 0 0 3px; font-size: 19px; letter-spacing: -.01em; }
+.cartao .sub { margin: 0 0 18px; color: var(--tinta-2); font-size: 14.5px; }
+
+.campo { margin-bottom: 16px; }
+.campo label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.campo .opcional { font-weight: 400; color: var(--tinta-3); }
+.campo input, .campo select, .campo textarea {
+  width: 100%; padding: 12px 13px; font: inherit; font-size: 16px; /* 16px evita zoom no iOS */
+  color: var(--tinta); background: var(--papel);
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+  transition: border-color .15s, box-shadow .15s;
+}
+.campo input:focus, .campo select:focus, .campo textarea:focus {
+  outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave);
+}
+.campo.ruim input, .campo.ruim select { border-color: var(--erro); }
+.campo .erro { display: block; margin-top: 6px; font-size: 13px; color: var(--erro); }
+.campo .ajuda { display: block; margin-top: 6px; font-size: 13px; color: var(--tinta-3); }
+
+/* ── Escolha do curso ────────────────────────────────────────── */
+.busca { margin-bottom: 12px; }
+.cursos { display: grid; gap: 8px; max-height: 340px; overflow-y: auto; padding-right: 2px; }
+.curso {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 13px 14px; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+  background: var(--papel); cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit;
+}
+.curso:hover { border-color: var(--marca); }
+.curso[aria-pressed="true"] { border-color: var(--marca); background: var(--marca-suave); }
+.curso .t { display: block; font-weight: 600; font-size: 15px; }
+.curso .d { display: block; font-size: 13px; color: var(--tinta-2); margin-top: 3px; }
+.curso .v { font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vazio { padding: 22px; text-align: center; color: var(--tinta-3); font-size: 14.5px; }
+
+/* ── Resumo do que foi escolhido ─────────────────────────────── */
+.resumo {
+  margin-top: 16px; border: 1px solid var(--linha); border-radius: var(--raio);
+  background: var(--papel); padding: 16px 18px;
+}
+.resumo h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--tinta-3); }
+.resumo .linha { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 14.5px; }
+.resumo .linha b { font-variant-numeric: tabular-nums; }
+.resumo .destaque { border-top: 1px solid var(--linha); margin-top: 8px; padding-top: 12px; font-size: 16px; }
+
+/* ── Revisão ─────────────────────────────────────────────────── */
+.revisao .item { display: flex; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--linha); font-size: 14.5px; }
+.revisao .item:last-child { border-bottom: 0; }
+.revisao .item span { color: var(--tinta-2); }
+.revisao .item b { font-weight: 600; text-align: right; }
+.revisao .voltar { background: none; border: 0; color: var(--marca); font: inherit; font-size: 13px; cursor: pointer; padding: 0; text-decoration: underline; }
+
+/* ── Botões ──────────────────────────────────────────────────── */
+.acoes { display: flex; gap: 10px; margin-top: 22px; }
+button.principal, button.secundario {
+  flex: 1; padding: 13px 16px; font: inherit; font-weight: 650; font-size: 15.5px;
+  border-radius: calc(var(--raio) - 4px); cursor: pointer; border: 1px solid transparent;
+}
+button.principal { background: var(--marca); color: #fff; }
+button.principal:hover:not(:disabled) { filter: brightness(1.08); }
+button.principal:disabled { opacity: .55; cursor: not-allowed; }
+button.secundario { background: transparent; color: var(--tinta-2); border-color: var(--linha); flex: 0 0 auto; padding-inline: 20px; }
+
+/* ── Avisos ──────────────────────────────────────────────────── */
+.aviso { padding: 12px 14px; border-radius: calc(var(--raio) - 4px); font-size: 14px; margin-bottom: 16px; border: 1px solid; }
+.aviso.erro { color: var(--erro); border-color: var(--erro); background: var(--erro-suave); }
+.aviso.info { color: var(--tinta-2); border-color: var(--linha); background: var(--fundo); }
+
+/* ── Fim ─────────────────────────────────────────────────────── */
+.fim { text-align: center; padding: 10px 0 4px; }
+.fim .marca { font-size: 40px; line-height: 1; }
+.fim h2 { margin: 12px 0 6px; font-size: 22px; }
+.fim .codigo {
+  display: inline-block; margin: 14px 0; padding: 10px 16px; border: 1px dashed var(--marca);
+  border-radius: calc(var(--raio) - 4px); font-size: 19px; font-weight: 700; letter-spacing: .06em;
+  color: var(--marca); background: var(--marca-suave);
+}
+
+.rodape { margin-top: 26px; text-align: center; font-size: 12.5px; color: var(--tinta-3); line-height: 1.5; }
+.rodape a { color: var(--tinta-2); }
+
+/* ── Esqueleto de carregamento ───────────────────────────────── */
+.esqueleto { border-radius: var(--raio); background: var(--linha); opacity: .55; animation: pulsar 1.4s ease-in-out infinite; }
+@keyframes pulsar { 0%, 100% { opacity: .35; } 50% { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { .esqueleto { animation-duration: .01ms; } }
+
+.ajuda-flutuante {
+  position: fixed; right: 16px; bottom: 16px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 15px; border-radius: 999px; border: 1px solid var(--linha);
+  background: var(--papel); color: var(--tinta); box-shadow: var(--sombra);
+  font-size: 14px; font-weight: 600; text-decoration: none;
+  transition: opacity .15s;
+}
+/* Some enquanto a pessoa digita: um botão fixo por cima do campo em tela de
+   celular atrapalha exatamente quem ele deveria ajudar. */
+body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
+  opacity: 0; pointer-events: none;
+}
+
+/* ── Documentos ──────────────────────────────────────────────── */
+.doc {
+  background: var(--papel); border: 1px solid var(--linha); border-radius: var(--raio);
+  padding: 16px 18px; margin-bottom: 10px;
+}
+.doc-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.doc-nome { font-weight: 600; font-size: 15.5px; }
+.doc-ajuda { display: block; margin-top: 4px; font-size: 13px; color: var(--tinta-2); }
+
+.selo {
+  flex: 0 0 auto; font-size: 12px; font-weight: 650; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid; white-space: nowrap;
+}
+.selo.ok { color: var(--ok); border-color: var(--ok); }
+.selo.analise { color: var(--tinta-2); border-color: var(--linha); }
+.selo.ruim { color: var(--erro); border-color: var(--erro); }
+
+.doc-arquivo {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 12px;
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 6px); background: var(--fundo);
+  font-size: 13.5px;
+}
+.doc-arquivo-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-arquivo-tam { color: var(--tinta-3); font-variant-numeric: tabular-nums; }
+.doc-remover { background: none; border: 0; color: var(--erro); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; padding: 0; }
+
+/* Área de envio: alvo grande, porque no celular se toca com o polegar. */
+.solta {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  margin-top: 12px; padding: 20px 14px; text-align: center; cursor: pointer;
+  border: 1.5px dashed var(--linha); border-radius: calc(var(--raio) - 4px);
+  color: var(--marca); font-weight: 600; font-size: 14.5px;
+}
+.solta:hover, .solta.ativa { border-color: var(--marca); background: var(--marca-suave); }
+.solta-dica { color: var(--tinta-3); font-weight: 400; font-size: 12.5px; }
+
+/* Par rótulo/valor usado nas listas de conta e boletim. */
+.item { display: flex; justify-content: space-between; align-items: baseline; gap: 14px;
+        padding: 10px 0; border-bottom: 1px solid var(--linha); font-size: 14.5px; }
+.item:last-child { border-bottom: 0; }
+.item .tag { flex: 0 0 auto; font-size: 12px; color: var(--tinta-3); }
+.item > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* ── Passos: o que falta ─────────────────────────────────────── */
+.passos { list-style: none; margin: 0; padding: 0; }
+.passo { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--linha); }
+.passo:last-child { border-bottom: 0; }
+.passo-marca {
+  flex: 0 0 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; border: 1.5px solid;
+}
+.passo.feito .passo-marca { color: var(--ok); border-color: var(--ok); }
+.passo.pendente .passo-marca { color: var(--marca); border-color: var(--marca); }
+.passo.travado .passo-marca { color: var(--tinta-3); border-color: var(--linha); }
+.passo-corpo { display: flex; flex-direction: column; gap: 2px; font-size: 14.5px; }
+.passo-corpo b { font-size: 15px; }
+.passo-corpo > span { color: var(--tinta-2); }
+.passo.feito .passo-corpo b { color: var(--tinta-2); font-weight: 600; }
+.passo-acao {
+  align-self: flex-start; margin-top: 6px; font-size: 13.5px; font-weight: 600;
+  color: var(--marca); text-decoration: none; border-bottom: 1px solid currentColor;
+}
+
+/* ── Parcelas ────────────────────────────────────────────────── */
+.parcela { padding: 12px 0; border-bottom: 1px solid var(--linha); }
+.parcela:last-child { border-bottom: 0; }
+.parcela-topo { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.parcela-topo > span { display: flex; flex-direction: column; gap: 2px; font-size: 14.5px; }
+.parcela-venc { color: var(--tinta-3); font-size: 13px; }
+.parcela-valor { font-variant-numeric: tabular-nums; }
+.parcela-topo .selo { margin-top: 4px; align-self: flex-end; }
+.parcela-acoes { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.parcela-acoes button { flex: 1; min-width: 140px; padding: 9px 12px; font-size: 13.5px; }
+
+/* ── Pagamento ───────────────────────────────────────────────── */
+.pagamento-opcoes { display: grid; gap: 10px; margin-top: 14px; }
+.opcao-pagamento {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 15px 16px; font: inherit; text-align: left; cursor: pointer;
+  color: var(--tinta); background: var(--papel);
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+}
+.opcao-pagamento:hover:not(:disabled) { border-color: var(--marca); background: var(--marca-suave); }
+.opcao-pagamento b { font-size: 15.5px; }
+.opcao-pagamento span { font-size: 13px; color: var(--tinta-2); }
+
+.qr-caixa {
+  display: grid; place-items: center; margin: 16px 0 10px; padding: 12px;
+  background: #fff; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+}
+.qr-caixa img { display: block; width: 240px; height: 240px; image-rendering: pixelated; }
+
+.codigo-longo {
+  margin: 10px 0 0; padding: 10px 12px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; color: var(--tinta-2); overflow-wrap: anywhere;
+  background: var(--fundo); border: 1px solid var(--linha); border-radius: calc(var(--raio) - 6px);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TEMPLATE "duas-colunas"
+   ═══════════════════════════════════════════════════════════════
+   Arranjo inspirado no checkout que a INEPROTEC usava: formulário à
+   esquerda e resumo do curso grudado à direita enquanto se rola. Serve a
+   inscrição com valor à vista — para venda, o preço sempre visível reduz
+   desistência.
+
+   O template escolhe SÓ o arranjo. Cor, fonte, arredondamento, logo, capa e
+   rodapé continuam vindo do builder: a identidade é de cada instituição.
+
+   Vale a partir de 900px. Abaixo disso os dois templates são a mesma coisa —
+   uma coluna —, porque é assim que a maioria se inscreve: pelo celular. */
+
+@media (min-width: 900px) {
+  [data-template='duas-colunas'] .pagina {
+    display: grid;
+    max-width: 1060px;
+    gap: 0 26px;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas:
+      'topo   topo'
+      'capa   capa'
+      'trilha trilha'
+      'form   resumo'
+      'rodape rodape';
+    align-items: start;
+  }
+
+  [data-template='duas-colunas'] .topo { grid-area: topo; }
+  [data-template='duas-colunas'] .capa { grid-area: capa; }
+  [data-template='duas-colunas'] .trilha { grid-area: trilha; }
+  [data-template='duas-colunas'] .cartao { grid-area: form; }
+  [data-template='duas-colunas'] .resumo { grid-area: resumo; }
+  [data-template='duas-colunas'] .rodape { grid-area: rodape; }
+
+  /* O resumo acompanha a rolagem: é o dado que a pessoa consulta enquanto
+     preenche, e voltar ao topo para conferir o valor é atrito. */
+  [data-template='duas-colunas'] .resumo {
+    position: sticky;
+    top: 20px;
+    margin-top: 0;
+  }
+
+  /* Sem resumo (portal de interesse, sem curso ou sem valor) a segunda coluna
+     ficaria vazia e a tela pareceria quebrada — então volta a uma coluna. */
+  [data-template='duas-colunas'] .pagina:not(:has(.resumo)) {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 760px;
+    grid-template-areas: 'topo' 'capa' 'trilha' 'form' 'rodape';
+  }
+
+  /* Campos curtos lado a lado. Os longos e a escolha de curso continuam
+     ocupando a linha inteira — CPF cabe em meia linha, curso não. */
+  [data-template='duas-colunas'] .campos {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+  }
+  [data-template='duas-colunas'] .campos > .campo:has(.cursos),
+  [data-template='duas-colunas'] .campos > .campo:has(textarea),
+  [data-template='duas-colunas'] .campos > .campo:has(.busca) {
+    grid-column: 1 / -1;
+  }
+
+  /* Passos na horizontal, como uma barra de progresso do checkout. */
+  [data-template='duas-colunas'] .trilha { gap: 10px; }
+  [data-template='duas-colunas'] .trilha .rotulo { font-size: 12.5px; }
+
+  /* Com espaço de sobra, o cartão respira e o título vira a âncora da página —
+     no celular o mesmo tamanho comeria a tela inteira. */
+  [data-template='duas-colunas'] .cartao { padding: 34px 32px; }
+  [data-template='duas-colunas'] .cartao h2 { font-size: 27px; margin-bottom: 6px; }
+  [data-template='duas-colunas'] .cartao .sub { font-size: 15px; margin-bottom: 22px; }
+
+  /* A ação não precisa atravessar o cartão quando há largura sobrando. */
+  [data-template='duas-colunas'] .acoes { justify-content: flex-start; }
+  [data-template='duas-colunas'] .acoes button.principal { flex: 0 0 auto; min-width: 250px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACABAMENTO
+   ═══════════════════════════════════════════════════════════════
+   Escolhas de aparência do builder, cada uma num data-attribute na raiz.
+   Nenhuma delas inventa cor ou fonte: continuam vindo dos campos de marca.
+   Os padrões abaixo são os de sempre, então portal que não configurou nada
+   não muda de cara. */
+
+/* ── Fundo em degradê ────────────────────────────────────────── */
+:root[data-fundo='degrade'] body {
+  background: linear-gradient(120deg, var(--fundo-de) 0%, var(--fundo) 45%, var(--fundo-para) 100%);
+  background-attachment: fixed;
+}
+
+/* ── Passos em círculos numerados ────────────────────────────── */
+.trilha .numero { display: none; }
+
+:root[data-passos='numeros'] .trilha {
+  display: flex; align-items: center; gap: 0;
+}
+:root[data-passos='numeros'] .trilha .etapa {
+  display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0;
+}
+/* A barra vira o traço que liga um passo ao outro. */
+:root[data-passos='numeros'] .trilha .etapa + .etapa::before {
+  content: ''; flex: 1 0 18px; height: 1px; background: var(--linha); margin: 0 12px;
+}
+:root[data-passos='numeros'] .trilha .barra { display: none; }
+:root[data-passos='numeros'] .trilha .numero {
+  display: grid; place-items: center; flex: 0 0 auto;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--linha); background: var(--papel);
+  font-size: 13px; font-weight: 650; color: var(--tinta-3);
+  transition: background .2s, color .2s, border-color .2s;
+}
+:root[data-passos='numeros'] .trilha .rotulo {
+  margin-top: 0; font-size: 13.5px; color: var(--tinta-2);
+  overflow: visible; text-overflow: clip;
+}
+
+/* A faixa é que rola quando não cabe — não a página.
+   O comentário antigo dizia que ela rolava, mas faltava o overflow: sem ele,
+   quem rolava de lado era o documento inteiro, e uma etapa a mais na trilha
+   (o "Pagamento", na conclusão) empurrava a página toda para fora da tela. */
+:root[data-passos='numeros'] .trilha {
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+:root[data-passos='numeros'] .trilha::-webkit-scrollbar { display: none; }
+
+/* No celular, só a etapa atual diz o nome. Quatro rótulos não cabem em 400px,
+   e o que a pessoa precisa saber é onde ela está — os outros passos seguem
+   visíveis como números, que é o que dá a noção de quanto falta. */
+@media (max-width: 560px) {
+  :root[data-passos='numeros'] .trilha .rotulo { display: none; }
+  :root[data-passos='numeros'] .trilha .etapa.atual .rotulo { display: inline; }
+  :root[data-passos='numeros'] .trilha .etapa + .etapa::before { margin: 0 8px; }
+}
+:root[data-passos='numeros'] .trilha .etapa.atual .numero,
+:root[data-passos='numeros'] .trilha .etapa.feita .numero {
+  background: var(--marca); border-color: var(--marca); color: #fff;
+}
+:root[data-passos='numeros'] .trilha .etapa.atual .rotulo {
+  color: var(--tinta); font-weight: 600;
+}
+
+/* ── Barra de topo ───────────────────────────────────────────── */
+.barra-topo {
+  /* Fixa e colada nas bordas: a faixa precisa atravessar a tela inteira, e ela
+     mora dentro do container com largura máxima da página. Puxar por margem
+     negativa (calc(50% - 50vw)) atravessa, mas sobra largura e a página ganha
+     rolagem lateral — com left/right em 0 não há conta para errar. */
+  position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+  background: var(--papel); border-bottom: 1px solid var(--linha);
+  padding: 0 clamp(16px, 4vw, 40px);
+}
+/* O espaço que a faixa fixa ocupa. Só quando ela existe. */
+:root[data-topo='barra'] .pagina { padding-top: 92px; }
+.barra-conteudo {
+  max-width: 1240px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  min-height: 68px; flex-wrap: wrap;
+}
+.barra-conteudo .topo { padding: 12px 0; }
+.barra-topo .trilha { margin: 0; flex: 1 1 auto; justify-content: center; }
+.barra-topo .selo {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--tinta-2); white-space: nowrap;
+}
+.barra-topo .selo svg { color: var(--tinta-3); }
+
+/* No celular a faixa vira duas linhas: identidade e selo em cima, passos
+   embaixo, roláveis. Espremer tudo numa linha só cortaria os rótulos. */
+@media (max-width: 719px) {
+  .barra-conteudo { min-height: 0; padding-bottom: 10px; }
+  .barra-conteudo .topo { padding: 10px 0 4px; }
+  .barra-topo .trilha {
+    order: 3; flex-basis: 100%; justify-content: flex-start;
+    overflow-x: auto; padding-bottom: 2px; scrollbar-width: none;
+  }
+  .barra-topo .trilha::-webkit-scrollbar { display: none; }
+  :root[data-passos='numeros'] .trilha .etapa + .etapa::before { margin: 0 8px; flex-basis: 12px; }
+  /* Duas linhas ocupam mais altura — o vão do topo acompanha. */
+  :root[data-topo='barra'] .pagina { padding-top: 124px; }
+}
+
+/* ── Botão em cápsula e em caixa alta ────────────────────────── */
+:root[data-botao='pill'] button.principal,
+:root[data-botao='pill'] button.secundario { border-radius: 999px; }
+:root[data-caixa-alta='sim'] button.principal {
+  text-transform: uppercase; letter-spacing: .06em; font-size: 14.5px;
+}
+
+/* ── Resumo com etiquetas e valor em destaque ────────────────── */
+.resumo .curso-escolhido {
+  margin: 0 0 10px; font-size: 18px; font-weight: 700; line-height: 1.3;
+  letter-spacing: -.01em; text-wrap: balance;
+}
+.resumo .etiquetas { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.resumo .etiqueta {
+  font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 999px;
+  color: var(--marca); background: var(--marca-suave);
+}
+/* Cor de apoio, quando a instituição escolheu uma. Sem ela `--apoio` vale a
+   própria cor da marca e as etiquetas ficam iguais, como antes. */
+.resumo .etiqueta.apoio { color: var(--apoio, var(--marca)); background: var(--apoio-suave, var(--marca-suave)); }
+
+/* ── Escala de tipografia ────────────────────────────────────── */
+/* Muda o corpo do texto; o resto da tela é dimensionado em relação a ele nos
+   pontos que importam, então uma escolha só reajusta a página inteira. */
+:root[data-escala='compacta'] body { font-size: 15px; }
+:root[data-escala='ampla'] body { font-size: 17.5px; }
+:root[data-escala='compacta'] .cartao h2 { font-size: 18px; }
+:root[data-escala='ampla'] .cartao h2 { font-size: 21px; }
+@media (min-width: 900px) {
+  :root[data-escala='compacta'][data-template='duas-colunas'] .cartao h2 { font-size: 24px; }
+  :root[data-escala='ampla'][data-template='duas-colunas'] .cartao h2 { font-size: 31px; }
+}
+:root[data-escala='compacta'] .resumo .destaque b { font-size: 23px; }
+:root[data-escala='ampla'] .resumo .destaque b { font-size: 30px; }
+
+/* ── Largura do conteúdo ─────────────────────────────────────── */
+:root[data-largura='estreita'] .pagina { max-width: 620px; }
+:root[data-largura='ampla'] .pagina { max-width: 860px; }
+@media (min-width: 900px) {
+  :root[data-largura='estreita'][data-template='duas-colunas'] .pagina { max-width: 940px; }
+  :root[data-largura='ampla'][data-template='duas-colunas'] .pagina { max-width: 1240px; }
+}
+.resumo .destaque {
+  display: flex; flex-direction: column; gap: 2px;
+  border-top: 1px solid var(--linha); margin-top: 10px; padding-top: 12px;
+}
+.resumo .destaque span { font-size: 13px; color: var(--tinta-2); }
+.resumo .destaque b {
+  font-size: 26px; font-weight: 700; letter-spacing: -.02em; color: var(--marca);
+  font-variant-numeric: tabular-nums;
+}
+.resumo.vazio { border-style: dashed; }
+.resumo.vazio .ajuda { margin: 0; }
+
+/* ── Parcelas do cartão ──────────────────────────────────────── */
+.parcelas { display: grid; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.opcao-parcela {
+  display: grid; grid-template-columns: 46px 1fr auto; align-items: baseline; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+  background: var(--papel); cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit;
+}
+.opcao-parcela:hover:not(:disabled) { border-color: var(--marca); }
+.opcao-parcela:disabled { cursor: default; opacity: .9; }
+.opcao-parcela[aria-pressed='true'] { border-color: var(--marca); background: var(--marca-suave); }
+.opcao-parcela .q { font-weight: 700; font-size: 15px; }
+.opcao-parcela .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.opcao-parcela .j { font-size: 12.5px; color: var(--tinta-3); white-space: nowrap; }
+
+/* ── Formulário do cartão ────────────────────────────────────── */
+.form-cartao { margin-top: 6px; }
+.form-cartao .campo label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.form-cartao .marca-cartao {
+  font-size: 12px; font-weight: 600; color: var(--marca);
+  padding: 2px 8px; border-radius: 999px; background: var(--marca-suave);
+}
+/* Validade e código lado a lado: são curtos e a pessoa lê os dois do cartão
+   na mesma olhada. Empilhados, viram duas paradas desnecessárias. */
+.cartao-linha { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+
+/* ── Cupom ───────────────────────────────────────────────────── */
+.cupom { margin: 4px 0 16px; }
+.cupom label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.cupom-linha { display: flex; gap: 8px; }
+.cupom-linha input {
+  flex: 1; min-width: 0; padding: 11px 13px; font: inherit; font-size: 16px;
+  text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px);
+  background: var(--papel); color: var(--tinta);
+}
+.cupom-linha input:focus { outline: none; border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
+.cupom-linha button { flex: 0 0 auto; padding: 11px 16px; }
+.cupom .erro { display: block; margin-top: 6px; font-size: 13px; color: var(--erro); }
+.cupom-ok {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 13px; border-radius: calc(var(--raio) - 4px);
+  background: var(--marca-suave); border: 1px solid var(--marca); font-size: 14px;
+}
+.cupom-ok .ajuda { font-size: 12.5px; }
+.link { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--tinta-2); text-decoration: underline; cursor: pointer; }
+.riscado { color: var(--tinta-3); margin-right: 6px; font-weight: 400; }
+
+/* ── Contrato de matrícula (Fase 5) ────────────────────────────────────────── */
+
+.resumo-contrato { margin: 0 0 16px; display: grid; gap: 8px; }
+.resumo-contrato > div { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.resumo-contrato dt { color: var(--tinta-2); margin: 0; }
+.resumo-contrato dd { margin: 0; font-weight: 600; text-align: right; }
+
+/* O termo rola dentro da própria caixa: a rolagem é o que libera o botão de
+   assinar, e num scroll de página inteira não dá para saber se a pessoa chegou
+   ao fim deste texto ou ao fim da tela. */
+.termo {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--linha);
+  border-radius: calc(var(--raio) - 4px);
+  background: var(--fundo);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--tinta-2);
+  overscroll-behavior: contain;
+}
+.termo p { margin: 0 0 10px; }
+.termo p:last-child { margin-bottom: 0; }
+.termo:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+
+.assinado {
+  display: grid; gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--linha);
+  border-radius: calc(var(--raio) - 4px);
+  background: var(--fundo);
+}
+.assinado strong { font-size: 15px; }
+.assinado .sub { margin: 0; font-size: 13.5px; }
+.assinado button { margin-top: 10px; }
+
+.sub.legal { margin: 12px 0 0; font-size: 12.5px; color: var(--tinta-3); line-height: 1.5; }
+
+/* Erro ao gerar a cobrança de uma parcela, dentro da própria linha. */
+.parcela-erro { display: block; margin-top: 6px; font-size: 12.5px; color: var(--erro); line-height: 1.45; }
+
+/* ── Vida acadêmica no painel do aluno (Fase 7) ───────────────────────────── */
+
+.grade { display: grid; gap: 10px; }
+.grade-dia { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: start; font-size: 14px; }
+.grade-nome { color: var(--tinta-3); font-size: 13px; padding-top: 1px; }
+.grade-aula { line-height: 1.55; }
+.grade-extra { color: var(--tinta-3); }
+
+/* A data empilha acima do título em vez de disputar a linha com ele: um
+   intervalo ("16/09/2026 – 20/09/2026") não cabe numa coluna estreita e passava
+   por cima do texto no celular. A partir de 380px volta a ser lado a lado. */
+.evento { display: grid; gap: 2px; padding: 7px 0; font-size: 14px; border-top: 1px solid var(--linha); }
+.evento:first-of-type { border-top: 0; padding-top: 0; }
+.evento-data { color: var(--tinta-3); font-size: 13px; }
+
+@media (min-width: 380px) {
+  .evento { grid-template-columns: minmax(88px, auto) 1fr; gap: 10px; align-items: baseline; }
+  .evento-data { white-space: nowrap; }
+}
+.evento-desc { display: block; font-size: 12.5px; color: var(--tinta-3); margin-top: 2px; }
+
+.material-grupo { padding: 8px 0; border-top: 1px solid var(--linha); }
+.material-grupo:first-of-type { border-top: 0; padding-top: 0; }
+.material-disc { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.material-item { display: block; font-size: 14px; padding: 3px 0; color: var(--marca); text-decoration: none; }
+.material-item:hover { text-decoration: underline; }
+.material-desc { color: var(--tinta-3); font-weight: 400; }
+
+.horas { margin-bottom: 14px; }
+.horas:last-child { margin-bottom: 0; }
+.horas-topo { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; margin-bottom: 6px; }
+.horas-ok { color: var(--ok); font-weight: 600; }
+.horas-trilho { height: 7px; border-radius: 999px; background: var(--linha); overflow: hidden; }
+.horas-barra { height: 100%; border-radius: 999px; background: var(--marca); transition: width .3s ease; }
+.horas-barra.ok { background: var(--ok); }
+.horas-nota { display: block; font-size: 12.5px; color: var(--tinta-3); margin-top: 5px; }
+
+@media (prefers-reduced-motion: reduce) { .horas-barra { transition-duration: .01ms; } }
+
+/* ── Acesso no topo do portal ─────────────────────────────────────────────── */
+
+/* O botão vive na mesma linha do logo, encostado à direita. Discreto de
+   propósito: é um convite, não a ação principal da tela — a principal é
+   terminar a inscrição. */
+.topo { justify-content: space-between; }
+
+.acesso-topo {
+  flex-shrink: 0;
+  padding: 7px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--marca);
+  background: transparent;
+  border: 1px solid var(--linha);
+  border-radius: 999px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color .15s ease, background .15s ease;
+}
+.acesso-topo:hover { border-color: var(--marca); background: var(--marca-suave); }
+.acesso-topo:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+
+.barra-conteudo .topo { width: 100%; }
+
+/* Convite para criar senha, no cartão de conclusão. */
+.convite-senha { margin: 14px 0 0; font-size: 14px; line-height: 1.55; color: var(--tinta-2); }
+
+.como-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--marca);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.como-link:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) { .acesso-topo { transition-duration: .01ms; } }
+
+/* O painel de senha abre por um botão que fica no topo, longe dele. Além de
+   rolar até aqui, a entrada precisa ser perceptível: sem isso o conteúdo
+   simplesmente "já estava lá" quando a rolagem termina, e o clique parece não
+   ter feito nada. */
+.painel-senha { animation: surgir .28s ease-out both; }
+
+@keyframes surgir {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .painel-senha { animation-duration: .01ms; }
+}

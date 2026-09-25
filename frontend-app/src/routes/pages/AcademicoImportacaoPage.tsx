@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Select, Textarea } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { api } from '@/lib/apiClient'
-import { useImportacao, TIPOS_IMPORT, type ResultadoAnalise } from '@/hooks/useAcaProva'
+import { useImportacao, TIPOS_IMPORT, type ResultadoAnalise } from '@/hooks/useImportacao'
 
 // Migração de sistema legado. A simulação não é conveniência: é ela que separa
 // uma migração que dá certo de uma base inconsistente que ninguém consegue

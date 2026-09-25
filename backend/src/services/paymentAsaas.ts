@@ -155,17 +155,28 @@ export interface AsaasPixQr {
  * Só faz sentido chamar após createAsaasPayment com billingType=PIX (ou UNDEFINED com fallback).
  */
 export async function fetchAsaasPixQr(config: AsaasConfig, paymentId: string): Promise<AsaasPixQr | null> {
-  try {
-    const r = await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}/pixQrCode`)
-    if (!r?.encodedImage || !r?.payload) return null
-    return {
-      encodedImage: r.encodedImage,
-      payload: r.payload,
-      expirationDate: r.expirationDate,
+  // O QR costuma sair na hora, mas nem sempre: logo depois de criar a cobrança o
+  // Asaas pode responder sem encodedImage (visto na primeira cobrança PIX de uma
+  // conta). Sem repetir, o candidato ficava com a tela de PIX vazia e a única
+  // saída era gerar outra cobrança. Três tentativas curtas resolvem sem
+  // segurar a resposta do portal.
+  const esperas = [0, 600, 1500]
+  for (let i = 0; i < esperas.length; i++) {
+    if (esperas[i]) await new Promise((r) => setTimeout(r, esperas[i]))
+    try {
+      const r = await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}/pixQrCode`)
+      if (r?.encodedImage && r?.payload) {
+        return {
+          encodedImage: r.encodedImage,
+          payload: r.payload,
+          expirationDate: r.expirationDate,
+        }
+      }
+    } catch {
+      /* tenta de novo */
     }
-  } catch {
-    return null
   }
+  return null
 }
 
 export type AsaasOrderMethod = 'pix' | 'boleto' | 'credit_card'
@@ -180,6 +191,38 @@ export interface AsaasOrderInput {
   /** Cartão Asaas: token salvo previamente (tokenizeCreditCard endpoint) */
   cardToken?: string
   remoteIp?: string         // exigido pra cartão
+  /** Parcelas. >1 cria um carnê (boleto) ou parcela o cartão. */
+  installmentCount?: number
+  /**
+   * Cartão preenchido no nosso portal.
+   *
+   * A conta não tem `POST /creditCard/tokenize` liberado ("entre em contato com
+   * seu gerente de contas"), mas ACEITA os dados direto no `POST /payments` —
+   * verificado contra a API. Estes campos existem apenas durante a chamada:
+   * nada aqui é gravado, logado ou devolvido ao cliente.
+   */
+  cartao?: {
+    holderName: string
+    number: string
+    expiryMonth: string
+    expiryYear: string
+    ccv: string
+  }
+  /** Dados do titular exigidos pela análise antifraude do Asaas. */
+  titular?: {
+    name: string
+    email: string
+    cpfCnpj: string
+    postalCode: string
+    addressNumber: string
+    phone: string
+  }
+  /**
+   * Cartão pela página do próprio Asaas em vez da nossa tela. Fica como saída
+   * de emergência: se o caminho transparente for bloqueado na conta, dá para
+   * voltar ao `invoiceUrl` sem reescrever nada.
+   */
+  hospedado?: boolean
 }
 
 export interface AsaasOrderResult {
@@ -199,6 +242,10 @@ export interface AsaasOrderResult {
   // Cartão
   cardLastDigits?: string
   cardBrand?: string
+  /** Página de pagamento do Asaas — usada no cartão hospedado. */
+  invoiceUrl?: string
+  /** Id do carnê, quando a cobrança foi parcelada. */
+  installmentId?: string
 }
 
 /**
@@ -223,10 +270,25 @@ export async function createAsaasOrder(config: AsaasConfig, input: AsaasOrderInp
     description: (input.description || '').substring(0, 499),
     externalReference: input.externalReference,
   }
-  if (input.method === 'credit_card') {
-    if (!input.cardToken) throw new Error('Asaas: cardToken obrigatório para método credit_card')
-    body.creditCardToken = input.cardToken
+  if (input.method === 'credit_card' && !input.hospedado) {
+    if (input.cartao) {
+      body.creditCard = input.cartao
+      if (input.titular) body.creditCardHolderInfo = input.titular
+    } else if (input.cardToken) {
+      body.creditCardToken = input.cardToken
+    } else {
+      throw new Error('Asaas: dados do cartão ou cardToken obrigatórios para método credit_card')
+    }
+    // O IP de quem está pagando entra na análise antifraude do Asaas.
     if (input.remoteIp) body.remoteIp = input.remoteIp
+  }
+  // Parcelamento: o Asaas divide pelo total, então mandamos o valor cheio de
+  // cada parcela e ele monta o carnê (boleto) ou a compra parcelada (cartão).
+  const parcelas = Math.round(Number(input.installmentCount ?? 1))
+  if (parcelas > 1) {
+    body.installmentCount = parcelas
+    body.installmentValue = Number((input.value / parcelas).toFixed(2))
+    delete body.value
   }
 
   const p = await asaasFetch(config, '/payments', 'POST', body)
@@ -254,6 +316,8 @@ export async function createAsaasOrder(config: AsaasConfig, input: AsaasOrderInp
     if (cc.creditCardNumber) result.cardLastDigits = String(cc.creditCardNumber).slice(-4)
     if (cc.creditCardBrand) result.cardBrand = cc.creditCardBrand
   }
+  if (p.invoiceUrl) result.invoiceUrl = p.invoiceUrl
+  if (p.installment) result.installmentId = String(p.installment)
 
   return result
 }

@@ -44,6 +44,8 @@ import { salesCadencesRoutes } from './routes/salesCadences.js'
 import { enrollmentPortalsRoutes } from './routes/enrollmentPortals.js'
 import { enrollmentPortalPublicRoutes } from './routes/enrollmentPortalPublic.js'
 import { candidatePortalRoutes } from './routes/candidatePortal.js'
+import { portalAuthRoutes } from './routes/portalAuth.js'
+import { DIST_PORTAL, portalAppDisponivel } from './lib/portalApp.js'
 import { enrollmentDocReviewRoutes } from './routes/enrollmentDocReview.js'
 import { enrollmentEvaluationsRoutes } from './routes/enrollmentEvaluations.js'
 import { paymentProvidersRoutes } from './routes/paymentProviders.js'
@@ -174,7 +176,20 @@ import { modulePermissionHook } from './lib/permissions.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const app = Fastify({
-  logger: { level: process.env.LOG_LEVEL || 'info' },
+  logger: {
+    level: process.env.LOG_LEVEL || 'info',
+    // O Fastify não loga corpo de requisição, mas o checkout de cartão passa
+    // dado de cartão por este processo: se algum ponto do código resolver logar
+    // o corpo, estes campos não podem ir junto. Custa nada e fecha a porta.
+    redact: {
+      paths: [
+        'req.body.card', 'req.body.card.number', 'req.body.card.ccv',
+        'req.body.creditCard', 'req.body.creditCard.number', 'req.body.creditCard.ccv',
+        'req.body.cardToken', 'req.headers.authorization', 'req.headers.cookie',
+      ],
+      remove: true,
+    },
+  },
   trustProxy: true
 })
 
@@ -373,6 +388,17 @@ await app.register(staticFiles, {
   }
 })
 
+// Assets da aplicação do portal público (portal-app/dist). Prefixo próprio para
+// não disputar caminho com o painel nem com os uploads.
+if (portalAppDisponivel()) {
+  await app.register(staticFiles, {
+    root: DIST_PORTAL,
+    prefix: '/portal-assets/',
+    decorateReply: false,
+    maxAge: '30d',
+  })
+}
+
 // ── STATIC FILES (uploads) ──────────────────
 // Defesa contra XSS armazenado (A8): arquivos de usuário servidos do domínio
 // principal. `nosniff` impede MIME confusion e vale para TUDO.
@@ -549,11 +575,35 @@ app.addHook('onRequest', async (req, reply) => {
   // das anteriores: sem sessão, sem ação privilegiada — e é a PROVA do aceite,
   // que não pode se perder por causa do domínio pelo qual a página respondeu.
   if (req.url === '/api/public/consent') return
+  // Portal de matrículas: a página é feita para responder por domínio próprio
+  // da instituição (customDomain) e para ser embutida em site de parceiro — o
+  // próprio handler manda `frame-ancestors *`. Nos dois casos a Origin é
+  // externa, e sem esta isenção a inscrição morria em 403 no envio, com o
+  // rascunho já salvo. Mesma natureza do /api/forms/submit/: sem sessão, sem
+  // ação privilegiada, protegido por rate-limit e validação no handler.
+  // Note o plural: /api/public/portal/ (singular) é o login do portal, que
+  // cria sessão e continua exigindo Origin conhecida.
+  if (req.url.startsWith('/api/public/portals/')) return
+  // Criação da senha logo após a inscrição: mesmo fluxo, mesma página, mesma
+  // Origin externa. A credencial é o token que o /register acabou de devolver.
+  if (req.url === '/api/public/portal/senha-inicial') return
 
   const origin = req.headers.origin || req.headers.referer
   if (origin) {
     const originHost = origin.replace(/\/$/, '').split('?')[0]
-    const isAllowed = ALLOWED_ORIGINS.some(allowed => originHost.startsWith(allowed))
+    let isAllowed = ALLOWED_ORIGINS.some(allowed => originHost.startsWith(allowed))
+
+    // Mesma origem sempre passa. A lista fixa (CORS_ORIGIN/APP_URL) não conhece
+    // os domínios próprios dos portais (customDomain), e sem isto o aluno que
+    // entra por portal.faculdade.com.br tomava 403 no próprio login — sendo que
+    // a requisição partiu da página que nós mesmos servimos. CSRF é ataque de
+    // origem DIFERENTE; quando Origin e Host batem, não há o que proteger.
+    if (!isAllowed && req.headers.host) {
+      try {
+        isAllowed = new URL(originHost).host.toLowerCase() === String(req.headers.host).toLowerCase()
+      } catch { /* Origin malformada continua barrada */ }
+    }
+
     if (!isAllowed) {
       return reply.code(403).send({ error: 'Origem não permitida (CSRF)' })
     }
@@ -717,6 +767,7 @@ await app.register(preferencesRoutes)
 await app.register(salesCadencesRoutes)
 await app.register(enrollmentPortalsRoutes)
 await app.register(enrollmentPortalPublicRoutes)
+  await app.register(portalAuthRoutes)
 await app.register(candidatePortalRoutes)
 await app.register(enrollmentDocReviewRoutes)
 await app.register(enrollmentEvaluationsRoutes)

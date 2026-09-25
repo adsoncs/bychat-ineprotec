@@ -9,6 +9,9 @@ import { existsSync, mkdirSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { bufferMultipart, validateUploadContent, UploadValidationError, UploadTooLargeError } from '../lib/uploadSafety.js'
 import { prisma } from '../lib/prisma.js'
+import { classificacaoPodeAlterarStatus } from '../services/portalClassificacao.js'
+import { definirSenha, garantirConta } from '../services/portalAccount.js'
+import { criarCobrancaSimulada, ehSimulado } from '../services/pagamentoSimulado.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
@@ -18,9 +21,11 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
-import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, type AsaasOrderMethod } from '../services/paymentAsaas.js'
+import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, type AsaasOrderMethod } from '../services/paymentAsaas.js'
 import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEvent, parsePagarmeWebhookPayload, detectPagarmeEnvironment, createPagarmeOrder, type PagarmeConfig, type PagarmeOrderMethod } from '../services/paymentPagarme.js'
 import { decryptToken } from '../services/cloudApi.js'
+import { lerRegras, tabelaDeParcelas, planoDeBoleto } from '../services/portalPagamento.js'
+import { avaliarCupom, consumirCupom } from '../services/portalCupom.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
 import { syncChargeFromProvider, recordWebhookHit, updateWebhookHit } from '../services/paymentSync.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -120,6 +125,8 @@ const _portalUploadsBase = (() => {
 function applyBrandFields(body: any, data: any, mode: 'create' | 'update'): void {
   const FONTS = new Set(['inter', 'roboto', 'poppins', 'system'])
   const RADIUS = new Set(['sharp', 'medium', 'rounded'])
+  // Estrutura da página. Valor desconhecido cai no clássico em vez de quebrar.
+  const TEMPLATES = new Set(['classico', 'duas-colunas'])
   const setStr = (k: string, max: number) => {
     if (body[k] === undefined) return
     const v = body[k]
@@ -147,7 +154,71 @@ function applyBrandFields(body: any, data: any, mode: 'create' | 'update'): void
     const v = String(body.brandRadiusScale || '').toLowerCase()
     data.brandRadiusScale = RADIUS.has(v) ? v : null
   }
+  if (body.brandTemplate !== undefined) {
+    const v = String(body.brandTemplate || '').toLowerCase()
+    data.brandTemplate = TEMPLATES.has(v) ? v : null
+  }
+
+  // Acabamento: cada campo tem um conjunto fechado de valores, e o que não
+  // pertence a ele vira null (o portal usa o padrão) em vez de chegar torto na
+  // tela pública.
+  const umDe = (k: string, valores: string[]) => {
+    if (body[k] === undefined) return
+    const v = String(body[k] || '').toLowerCase()
+    data[k] = valores.includes(v) ? v : null
+  }
+  const cor = (k: string) => {
+    if (body[k] === undefined) return
+    const v = String(body[k] || '').trim()
+    data[k] = /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null
+  }
+  umDe('brandHeaderStyle', ['simples', 'barra'])
+  umDe('brandStepStyle', ['barras', 'numeros'])
+  umDe('brandButtonShape', ['reta', 'pill'])
+  cor('brandBackdropFrom')
+  cor('brandBackdropTo')
+  setStr('brandSecurityNote', 120)
+  if (body.brandButtonUppercase !== undefined) {
+    data.brandButtonUppercase = body.brandButtonUppercase == null ? null : !!body.brandButtonUppercase
+  }
+  if (body.brandSummaryAlways !== undefined) {
+    data.brandSummaryAlways = body.brandSummaryAlways == null ? null : !!body.brandSummaryAlways
+  }
+  cor('brandSecondaryColor')
+  umDe('brandTypeScale', ['compacta', 'padrao', 'ampla'])
+  umDe('brandContentWidth', ['estreita', 'padrao', 'ampla'])
+
+  // Textos da interface. Só as chaves conhecidas entram, cada uma limitada em
+  // tamanho: é conteúdo que vai para a tela pública, não campo livre de JSON.
+  if (body.brandLabels !== undefined) {
+    const entrada = body.brandLabels
+    if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)) {
+      data.brandLabels = null
+    } else {
+      const limpo: Record<string, string> = {}
+      for (const chave of ROTULOS_DO_PORTAL) {
+        const v = (entrada as any)[chave]
+        if (typeof v !== 'string') continue
+        const texto = v.trim().slice(0, 200)
+        // Texto em branco significa "usa o padrão" — não guarda string vazia.
+        if (texto) limpo[chave] = texto
+      }
+      data.brandLabels = Object.keys(limpo).length ? limpo : null
+    }
+  }
 }
+
+/**
+ * Rótulos que a instituição pode trocar na tela pública. O portal usa o texto
+ * padrão para toda chave ausente, então acrescentar uma aqui e no portal-app
+ * basta — sem migration, porque `brandLabels` é JSON.
+ */
+export const ROTULOS_DO_PORTAL = [
+  'continuar', 'voltar', 'enviar',
+  'revisao', 'revisaoTitulo', 'revisaoSubtitulo',
+  'resumoTitulo', 'resumoVazio', 'resumoTaxa', 'resumoMatricula',
+  'resumoMensalidade', 'resumoObservacao',
+] as const
 
 async function resolveUniquePortalSlug(requested: string | null | undefined, fallbackSeed: string, excludeId: number | null): Promise<string | null> {
   const base = requested ? slugify(requested) : slugify(fallbackSeed)
@@ -207,6 +278,105 @@ async function persistPaymentMethod(input: {
   })
 }
 
+/**
+ * Valida e normaliza os dados do cartão vindos do checkout.
+ *
+ * Devolve `null` para qualquer coisa incompleta ou inválida — a rota responde
+ * "confira os dados" em vez de gastar uma tentativa no provedor, que na conta
+ * conta como transação recusada. O resultado é usado na chamada e descartado:
+ * nada disto é gravado, logado ou devolvido ao cliente.
+ */
+function lerCartao(bruto: unknown): {
+  holderName: string
+  number: string
+  expiryMonth: string
+  expiryYear: string
+  ccv: string
+} | null {
+  if (!bruto || typeof bruto !== 'object') return null
+  const c = bruto as Record<string, unknown>
+
+  const numero = String(c.number ?? '').replace(/\D/g, '')
+  // 13 a 19 dígitos cobre de Visa antigo a Maestro; fora disso não é cartão.
+  if (numero.length < 13 || numero.length > 19) return null
+  if (!luhn(numero)) return null
+
+  const nome = String(c.holderName ?? '').trim()
+  if (nome.length < 2 || nome.length > 100) return null
+
+  const mes = String(c.expiryMonth ?? '').replace(/\D/g, '').padStart(2, '0')
+  if (!/^(0[1-9]|1[0-2])$/.test(mes)) return null
+
+  let ano = String(c.expiryYear ?? '').replace(/\D/g, '')
+  if (ano.length === 2) ano = `20${ano}`
+  if (!/^20\d{2}$/.test(ano)) return null
+
+  // Cartão vencido é recusa certa: melhor dizer isso agora, na nossa tela.
+  const agora = new Date()
+  const vence = new Date(Number(ano), Number(mes), 0, 23, 59, 59)
+  if (vence < agora) return null
+
+  const ccv = String(c.ccv ?? '').replace(/\D/g, '')
+  if (ccv.length < 3 || ccv.length > 4) return null
+
+  return { holderName: nome, number: numero, expiryMonth: mes, expiryYear: ano, ccv }
+}
+
+/** Dígito verificador do cartão (Luhn). Pega a maioria dos erros de digitação. */
+function luhn(numero: string): boolean {
+  let soma = 0
+  let dobra = false
+  for (let i = numero.length - 1; i >= 0; i--) {
+    let d = numero.charCodeAt(i) - 48
+    if (dobra) {
+      d *= 2
+      if (d > 9) d -= 9
+    }
+    soma += d
+    dobra = !dobra
+  }
+  return soma % 10 === 0
+}
+
+/**
+ * Dados do titular exigidos pela análise antifraude do Asaas.
+ *
+ * A maior parte já foi preenchida na inscrição — reaproveitar evita pedir de
+ * novo o que a pessoa acabou de digitar. O que o checkout mandar por cima
+ * (endereço de cobrança diferente, cartão de terceiro) tem precedência.
+ */
+function titularDoCartao(enrollment: any, formData: any, extra: unknown): {
+  name: string
+  email: string
+  cpfCnpj: string
+  postalCode: string
+  addressNumber: string
+  phone: string
+} {
+  const h = (extra && typeof extra === 'object' ? extra : {}) as Record<string, unknown>
+  const texto = (v: unknown) => String(v ?? '').trim()
+  const digitos = (v: unknown) => String(v ?? '').replace(/\D/g, '')
+  return {
+    name: texto(h.name) || texto(enrollment.lead?.nome) || texto(formData.nome),
+    email: texto(h.email) || texto(enrollment.lead?.email) || texto(formData.email),
+    cpfCnpj: digitos(h.cpfCnpj) || digitos(formData.cpf),
+    postalCode: digitos(h.postalCode) || digitos(formData.cep),
+    addressNumber: texto(h.addressNumber) || texto(formData.numero) || 'S/N',
+    phone: digitos(h.phone) || digitos(enrollment.lead?.whatsapp) || digitos(formData.whatsapp),
+  }
+}
+
+/** Bandeira pelo prefixo — só para mostrar na tela e guardar no histórico. */
+function bandeiraDoCartao(numero: string): string | undefined {
+  if (/^4/.test(numero)) return 'VISA'
+  if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(numero)) return 'MASTERCARD'
+  if (/^3[47]/.test(numero)) return 'AMEX'
+  if (/^(606282|3841)/.test(numero)) return 'HIPERCARD'
+  if (/^(4011|4312|4389|5041|5066|5090|6277|6363|650)/.test(numero)) return 'ELO'
+  if (/^3(0[0-5]|[68])/.test(numero)) return 'DINERS'
+  return undefined
+}
+
 function serializePaymentMethod(m: any) {
   return {
     id: m.id,
@@ -234,6 +404,20 @@ function serializePaymentMethod(m: any) {
 // Rate-limit em memoria (por IP) da submissao publica de inscricao — ver uso
 // no POST /register. Por processo; espelha o padrao de forms.ts.
 const portalRegisterCounts = new Map<string, { count: number; reset: number }>()
+
+/**
+ * A conta deste lead já tem senha?
+ *
+ * Só é chamado onde a identidade já está provada (token da inscrição ou magic
+ * link). Nunca a partir de um CPF digitado: numa rota aberta, responder isso
+ * revelaria quem se inscreveu na instituição.
+ */
+async function contaTemSenha(leadId: number): Promise<boolean> {
+  const conta = await prisma.portalAccount
+    .findUnique({ where: { leadId }, select: { senhaHash: true } })
+    .catch(() => null)
+  return !!conta?.senhaHash
+}
 
 export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
@@ -417,6 +601,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
     if (body.requirePayment !== undefined) data.requirePayment = !!body.requirePayment
     if (body.paymentDeadlineHours !== undefined) data.paymentDeadlineHours = parseInt(body.paymentDeadlineHours) || 48
+    // O que o portal cobra e as regras de cada meio. `lerRegras` normaliza e
+    // prende cada número na faixa válida, então o que chega torto do builder não
+    // vira cobrança torta lá na frente.
+    if (body.paymentScope !== undefined) {
+      data.paymentScope = body.paymentScope === 'curso' ? 'curso' : 'taxa'
+    }
+    if (body.paymentMethodsConfig !== undefined) {
+      data.paymentMethodsConfig = body.paymentMethodsConfig ? lerRegras(body.paymentMethodsConfig) : null
+    }
     if (body.paymentMode !== undefined) {
       data.paymentMode = body.paymentMode === 'transparent' ? 'transparent' : 'link'
     }
@@ -946,19 +1139,37 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           if (pr) {
             const updates: any = { notaClassificacao: updated.mediaSimples }
             let newStatus = pr.status
-            if (updated.passed === true) { newStatus = 'classificado'; updates.status = 'classificado'; updates.classificadoEm = new Date() }
-            else if (updated.passed === false) { newStatus = 'reprovado'; updates.status = 'reprovado' }
+            // Corrigir uma nota não desfaz convocação nem matrícula: a nota é
+            // atualizada e o status permanece, com o motivo no histórico. Tirar
+            // a vaga de alguém é ato próprio, pelo cancelamento.
+            const podeMexerNoStatus = classificacaoPodeAlterarStatus(pr.status)
+            if (podeMexerNoStatus && updated.passed === true) { newStatus = 'classificado'; updates.status = 'classificado'; updates.classificadoEm = new Date() }
+            else if (podeMexerNoStatus && updated.passed === false) { newStatus = 'reprovado'; updates.status = 'reprovado' }
+            const nota = `média ${updated.mediaSimples.toFixed(1)}${body.validationNote ? ` — ${body.validationNote}` : ''}`
             if (newStatus !== pr.status) {
-              await prisma.processRegistration.update({ where: { id: pr.id }, data: updates })
-              await prisma.processRegistrationStatusLog.create({
-                data: {
-                  registrationId: pr.id, fromStatus: pr.status, toStatus: newStatus,
-                  actorId: user.userId, actorName: user.name || 'Operador',
-                  observacao: `Override humano de notas ENEM: média ${updated.mediaSimples.toFixed(1)}${body.validationNote ? ` — ${body.validationNote}` : ''}`,
-                },
-              }).catch(() => {})
+              // Condicional: outra aba ou o webhook podem ter movido a inscrição
+              // entre a leitura acima e esta escrita.
+              const mudou = await prisma.processRegistration.updateMany({ where: { id: pr.id, status: pr.status }, data: updates })
+              if (mudou.count > 0) {
+                await prisma.processRegistrationStatusLog.create({
+                  data: {
+                    registrationId: pr.id, fromStatus: pr.status, toStatus: newStatus,
+                    actorId: user.userId, actorName: user.name || 'Operador',
+                    observacao: `Override humano de notas ENEM: ${nota}`,
+                  },
+                }).catch(() => {})
+              }
             } else {
               await prisma.processRegistration.update({ where: { id: pr.id }, data: { notaClassificacao: updated.mediaSimples } })
+              if (!podeMexerNoStatus && updated.passed === false) {
+                await prisma.processRegistrationStatusLog.create({
+                  data: {
+                    registrationId: pr.id, fromStatus: pr.status, toStatus: pr.status,
+                    actorId: user.userId, actorName: user.name || 'Operador',
+                    observacao: `Override humano de notas ENEM (${nota}) ficaria abaixo do corte, mas a inscrição já está em "${pr.status}" — nota atualizada, situação mantida.`,
+                  },
+                }).catch(() => {})
+              }
             }
           }
         }
@@ -1247,29 +1458,70 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       continueUrl = `${appUrl}/portal/${reg.portal.continuationPortal.slug}?t=${encodeURIComponent(token)}`
       continuationPortalNome = reg.portal.continuationPortal.nome
     } else {
-      // Portal 'full': link com candidateCode para o candidato continuar a inscrição existente.
-      continueUrl = `${appUrl}/portal/${reg.portal.slug}?c=${encodeURIComponent(reg.candidateCode)}`
+      // Portal 'full': o mesmo magic link assinado do modo interesse.
+      //
+      // Antes era `?c=<código da inscrição>`, e ninguém lia esse parâmetro: o
+      // link abria um formulário em branco. Pior que não funcionar, ele
+      // convidava a pessoa a se inscrever de novo — o código na URL também não
+      // autentica coisa alguma, é só um identificador que qualquer um adivinha
+      // pelo padrão.
+      //
+      // O token é assinado, tem validade e diz de quem é: a rota /continue o
+      // valida e devolve a inscrição no ponto em que parou.
+      const ttlDays = reg.portal.magicLinkTtlDays || 30
+      const token = signMagicLink(reg.lead.id, reg.portal.slug, ttlDays)
+      continueUrl = `${appUrl}/portal/${reg.portal.slug}?t=${encodeURIComponent(token)}`
       continuationPortalNome = reg.portal.nome
     }
 
-    eventBus.emitDomain({
-      type: 'enrollment.interest_submitted',
+    // Duas coisas diferentes moram nesta rota: GERAR o link e ENTREGAR o link.
+    //
+    // Nem toda entrega passa pelo disparo automático — a secretaria muitas vezes
+    // já está falando com a pessoa no Conversas, ou vai mandar por outro canal.
+    // Com `enviar: false` a rota devolve a URL e não dispara nada, e quem
+    // conduz a conversa decide como entregar. O padrão continua enviando, para
+    // não mudar o comportamento de quem já usa o botão.
+    const enviar = (req.body as any)?.enviar !== false
+
+    if (enviar) {
+      eventBus.emitDomain({
+        type: 'enrollment.interest_submitted',
+        leadId: reg.lead.id,
+        payload: {
+          nome: reg.lead.nome,
+          email: reg.lead.email,
+          whatsapp: reg.lead.whatsapp,
+          portalNome: reg.portal.nome,
+          courseName,
+          continueUrl,
+          continuationPortalNome,
+          ttlDays: reg.portal.magicLinkTtlDays || 30,
+          resend: true,
+        },
+        timestamp: new Date(),
+      })
+    }
+
+    // Quem gerou e quando fica registrado na timeline do lead: link de acesso é
+    // credencial, e credencial que ninguém sabe quem tirou vira problema.
+    logEvent({
       leadId: reg.lead.id,
-      payload: {
-        nome: reg.lead.nome,
-        email: reg.lead.email,
-        whatsapp: reg.lead.whatsapp,
-        portalNome: reg.portal.nome,
-        courseName,
-        continueUrl,
-        continuationPortalNome,
-        ttlDays: reg.portal.magicLinkTtlDays || 30,
-        resend: true,
-      },
-      timestamp: new Date(),
+      type: enviar ? 'magic_link_enviado' : 'magic_link_gerado',
+      category: 'lifecycle',
+      title: enviar
+        ? `Link de acesso reenviado ao candidato — ${reg.candidateCode}`
+        : `Link de acesso gerado para envio manual — ${reg.candidateCode}`,
+      channel: 'portal',
+      actorType: 'operator',
+      metadata: { registrationId: reg.id, portal: reg.portal.slug, enviado: enviar },
     })
 
-    return { ok: true, sent: true, url: continueUrl }
+    return {
+      ok: true,
+      sent: enviar,
+      url: continueUrl,
+      ttlDays: reg.portal.magicLinkTtlDays || 30,
+    }
   })
 
   // GET /api/admin/enrollment-portals/check-slug?slug=X&excludeId=Y — checa disponibilidade
@@ -1319,7 +1571,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         brandLogoUrl: true, brandLogoLink: true, brandFaviconUrl: true,
         brandPrimaryColor: true, brandHeroEnabled: true, brandHeroUrl: true,
         brandHeroTitle: true, brandHeroSubtitle: true, brandHeroOverlayOpacity: true,
-        brandFooterText: true, brandFontFamily: true, brandRadiusScale: true,
+        brandFooterText: true, brandFontFamily: true, brandRadiusScale: true, brandTemplate: true,
+        brandHeaderStyle: true, brandStepStyle: true, brandBackdropFrom: true, brandBackdropTo: true,
+        brandButtonShape: true, brandButtonUppercase: true, brandSecurityNote: true, brandSummaryAlways: true,
+        brandSecondaryColor: true, brandTypeScale: true, brandContentWidth: true, brandLabels: true,
         landingPage: { select: { id: true, slug: true, sections: true, globalStyles: true, customCss: true, customHead: true, status: true } },
       },
     })
@@ -1749,6 +2004,22 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
 
+    // Conta do portal: quem se inscreve já sai daqui com credencial própria.
+    // Se o formulário pediu senha, ela vale desde agora; senão a conta nasce
+    // sem senha e o link de primeiro acesso resolve. Em nenhum dos casos o
+    // candidato depende de decorar o código da inscrição para voltar.
+    try {
+      const conta = await garantirConta(lead.id, cpf)
+      const senhaEscolhida = String(fd.senha || fd.password || '')
+      if (senhaEscolhida && !conta.senhaHash) {
+        const r = await definirSenha(conta.id, senhaEscolhida, { revogarSessoes: false })
+        if (!r.ok) req.log.warn(`[enrollment] senha recusada na inscrição: ${r.erro}`)
+      }
+    } catch (err: any) {
+      // Conta é conveniência de acesso: falhar aqui não pode derrubar a inscrição.
+      req.log.warn(`[enrollment] conta do portal não criada: ${err.message}`)
+    }
+
     // Atualiza counters no portal
     await prisma.enrollmentPortal.update({
       where: { id: portal.id },
@@ -1954,6 +2225,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       paymentUrl,
       paymentMode,
       candidateToken,
+      // O topo do portal oferece "Criar senha" a quem não tem e "Entrar" a quem
+      // já tem. A resposta vem daqui, e não de uma consulta por CPF: perguntar
+      // "esta pessoa tem conta?" numa rota aberta transformaria o portal em
+      // consulta de "fulano se inscreveu aí?".
+      temSenha: await contaTemSenha(lead.id),
       // Indica para o frontend se este EntryMode exige upload do boletim ENEM
       // logo após a inscrição (parte da UX de uma única etapa).
       entryModeCode,
@@ -1981,6 +2257,123 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return sess
   }
 
+  // GET /api/public/registrations/:code/payment-options
+  //
+  // O que este portal aceita e quanto fica cada opção. A conta do parcelamento
+  // é feita aqui, e não na tela: juros e piso de parcela são regra de negócio,
+  // e o candidato precisa ver o mesmo número que vai ser cobrado.
+  app.get('/api/public/registrations/:code/payment-options', async (req, reply) => {
+    const { code } = req.params as any
+    const sess = requirePaymentSession(req, code)
+    if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+
+    const enrollment = await prisma.enrollmentRegistration.findUnique({
+      where: { id: sess.enrollmentId },
+      select: {
+        id: true,
+        // O CPF vem do formulário e é o que identifica quem já usou o cupom.
+        formData: true,
+        processRegistration: { select: { selectionProcess: { select: { taxaInscricao: true } } } },
+        portal: {
+          select: {
+            id: true,
+            paymentScope: true, paymentMethodsConfig: true, requirePayment: true,
+            paymentConnection: { select: { provider: true, active: true } },
+          },
+        },
+      },
+    })
+    if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const regras = lerRegras(enrollment.portal?.paymentMethodsConfig)
+    const valorTabela = Number(enrollment.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
+
+    // Cupom digitado na tela: recalcula tudo por cima dele. O desconto à vista
+    // do PIX entra na conta porque o candidato leva o maior dos dois, e a
+    // resposta diz qual venceu para a tela não precisar adivinhar.
+    const codigoCupom = String((req.query as any)?.cupom ?? '').trim()
+    const cupom = codigoCupom
+      ? await avaliarCupom({
+          codigo: codigoCupom,
+          valor: valorTabela,
+          portalId: enrollment.portal!.id,
+          cpf: (enrollment.formData as any)?.cpf,
+          descontoAVistaPct: regras.pix.descontoPct,
+        })
+      : null
+    const cupomOk = cupom && !('valido' in cupom) ? cupom : null
+    // Com cupom válido, ele passa a ser o preço de todos os meios.
+    const valor = cupomOk ? cupomOk.valorFinal : valorTabela
+
+    // Cartão só aparece com conexão que o suporte. Oferecer um botão que falha
+    // na hora de pagar é pior do que não oferecer.
+    const provedor = enrollment.portal?.paymentConnection?.provider ?? null
+    const cartaoDisponivel = regras.cartao.ativo
+      && !!enrollment.portal?.paymentConnection?.active
+      && ['asaas', 'pagarme', 'simulado'].includes(String(provedor))
+
+    // O desconto à vista já foi considerado na disputa com o cupom: aplicar de
+    // novo aqui daria os dois ao mesmo tempo, que é o que se decidiu evitar.
+    const descontoPix = !cupomOk && regras.pix.descontoPct > 0
+      ? Math.round(valor * (1 - regras.pix.descontoPct / 100) * 100) / 100
+      : null
+
+    return reply.send({
+      escopo: enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa',
+      valor,
+      valorTabela,
+      cupom: cupom
+        ? ('valido' in cupom
+            ? { aplicado: false, motivo: cupom.motivo }
+            : {
+                aplicado: true,
+                code: cupom.code,
+                descricao: cupom.descricao,
+                desconto: Math.round((cupom.valorCheio - cupom.valorFinal) * 100) / 100,
+                origem: cupom.origem,
+              })
+        : null,
+      meios: {
+        pix: regras.pix.ativo
+          ? {
+              ativo: true,
+              valor: descontoPix ?? valor,
+              // Com o cupom vencendo, o desconto à vista NÃO entrou: anunciá-lo
+              // no botão seria prometer um abatimento que não está no preço.
+              descontoPct: cupomOk ? 0 : regras.pix.descontoPct,
+              expiraHoras: regras.pix.expiraHoras,
+            }
+          : { ativo: false },
+        boleto: regras.boleto.ativo
+          ? {
+              ativo: true,
+              parcelado: regras.boleto.parcelado,
+              parcelasMax: regras.boleto.parcelasMax,
+              // Cada opção diz a entrada de agora e o que vira parcela depois.
+              opcoes: regras.boleto.parcelado
+                ? Array.from({ length: regras.boleto.parcelasMax }, (_, i) => planoDeBoleto(valor, regras.boleto, i + 1))
+                  .map((p) => ({
+                    parcelas: p.parcelas,
+                    valorEntrada: p.valorEntrada,
+                    valorParcela: p.valorParcela,
+                    valorTotal: p.valorTotal,
+                    acrescimo: p.acrescimo,
+                    semAcrescimo: p.semAcrescimo,
+                    descricao: p.descricao,
+                  }))
+                : [],
+            }
+          : { ativo: false },
+        // `hospedado` diz à tela se ela desenha o formulário ou manda o
+        // candidato para fora. Asaas e Pagar.me aceitam cartão por aqui; o
+        // provedor simulado não tem para onde mandar, então também é nosso.
+        cartao: cartaoDisponivel
+          ? { ativo: true, hospedado: false, opcoes: tabelaDeParcelas(valor, regras.cartao) }
+          : { ativo: false },
+      },
+    })
+  })
+
   // POST /api/public/registrations/:code/payment-init
   // body: { method: 'pix'|'boleto'|'credit_card', cardToken?: string }
   app.post('/api/public/registrations/:code/payment-init', async (req, reply) => {
@@ -2007,7 +2400,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         portal: {
           select: {
             id: true, nome: true, paymentMode: true, paymentDeadlineHours: true,
-            requirePayment: true,
+            requirePayment: true, paymentScope: true, paymentMethodsConfig: true,
             paymentConnection: {
               select: {
                 id: true, provider: true, environment: true, apiKey: true,
@@ -2036,8 +2429,53 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!taxaInscricao || Number(taxaInscricao) <= 0) {
       return reply.code(400).send({ error: 'Processo seletivo sem taxa de inscrição definida' })
     }
-    if (method === 'credit_card' && !body.cardToken) {
+    // Cartão, por provedor:
+    //  · Pagar.me — o navegador tokeniza com a chave pública e manda o token: o
+    //    número não passa por aqui (PCI SAQ A).
+    //  · Asaas — `POST /creditCard/tokenize` está bloqueado nesta conta ("entre
+    //    em contato com seu gerente de contas"), mas o `POST /payments` aceita o
+    //    cartão direto. O checkout é nosso, e o dado atravessa este processo em
+    //    memória: não é gravado, não é logado (redact no logger do server.ts) e
+    //    não volta na resposta. Ficam só bandeira e quatro últimos dígitos.
+    const conexao = enrollment.portal?.paymentConnection
+    const cartaoNoAsaas = method === 'credit_card' && conexao?.provider === 'asaas'
+    const dadosDoCartao = cartaoNoAsaas ? lerCartao(body.card) : null
+    // Saída de emergência: sem os dados, ainda dá para mandar o candidato à
+    // página do Asaas em vez de deixá-lo sem forma de pagar.
+    const cartaoHospedado = cartaoNoAsaas && !dadosDoCartao
+
+    if (method === 'credit_card' && !cartaoNoAsaas && !body.cardToken) {
       return reply.code(400).send({ error: 'cardToken obrigatório para cartão' })
+    }
+    if (cartaoNoAsaas && body.card && !dadosDoCartao) {
+      return reply.code(400).send({
+        error: 'Confira os dados do cartão: número, validade e código de segurança.',
+      })
+    }
+
+    // Teste de cartões: um checkout público que aceita cartão vira alvo de quem
+    // valida listas roubadas uma tentativa por vez. Poucas tentativas por
+    // inscrição não atrapalham quem errou o número e fecham essa porta.
+    if (method === 'credit_card' && dadosDoCartao) {
+      const tentativas = await prisma.enrollmentPaymentMethod.count({
+        where: {
+          registrationId: enrollment.id,
+          method: 'credit_card',
+          createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+      })
+      if (tentativas >= 5) {
+        await logSecurityEvent({
+          ip: req.ip,
+          type: 'payment_card_attempts',
+          severity: 'medium',
+          path: req.url,
+          details: `Inscrição ${enrollment.candidateCode}: ${tentativas} tentativas de cartão em 1h`,
+        }).catch(() => {})
+        return reply.code(429).send({
+          error: 'Muitas tentativas com cartão. Aguarde alguns minutos ou pague com PIX ou boleto.',
+        })
+      }
     }
 
     const fd = (enrollment.formData as any) || {}
@@ -2057,9 +2495,50 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       externalReference: `lead-${enrollment.leadId ?? 'unknown'}`,
     }
 
+    // Preenchida no ramo Asaas quando a cobrança tem página de pagamento.
+    let urlDaPagina: string | null = null
+
     try {
       let methodRow: any
-      if (conn.provider === 'pagarme') {
+      if (ehSimulado(conn.provider)) {
+        // Mesma forma de resposta dos provedores reais — o que muda é que nada
+        // sai daqui para uma API externa.
+        const sim = criarCobrancaSimulada({
+          metodo: method, valor: Number(taxaInscricao), vencimento: dueDate,
+          referencia: `enrollment-${enrollment.id}`, descricao: description,
+        })
+        // O QR sai pronto daqui (o backend já gera QR em outros pontos): o
+        // payload do PIX não precisa passear por serviço de imagem de terceiro.
+        const qrDataUrl = sim.pixQrCode
+          ? await QRCode.toDataURL(sim.pixQrCode, { margin: 1, width: 480 }).catch(() => null)
+          : null
+        methodRow = await persistPaymentMethod({
+          registrationId: enrollment.id,
+          provider: 'simulado',
+          method,
+          externalId: sim.chargeId,
+          status: sim.status,
+          amount: Number(taxaInscricao),
+          dueDate,
+          expiresAt: sim.expiresAt,
+          ...(sim.pixQrCode ? { pixQrCode: sim.pixQrCode } : {}),
+          ...(qrDataUrl ? { pixQrCodeUrl: qrDataUrl } : {}),
+          ...(sim.boletoLine ? { boletoLine: sim.boletoLine } : {}),
+          ...(sim.boletoBarcode ? { boletoBarcode: sim.boletoBarcode } : {}),
+          ...(sim.cardLastDigits ? { cardLastDigits: sim.cardLastDigits } : {}),
+          ...(sim.cardBrand ? { cardBrand: sim.cardBrand } : {}),
+        })
+        await prisma.enrollmentRegistration.update({
+          where: { id: enrollment.id },
+          data: {
+            paymentId: sim.chargeId,
+            paymentStatus: sim.status,
+            paymentAmount: Number(taxaInscricao),
+            paymentMethod: method.toUpperCase(),
+            paymentExpiresAt: dueDate,
+          },
+        })
+      } else if (conn.provider === 'pagarme') {
         const cfg: PagarmeConfig = {
           apiKey: apiKeyPlain,
           environment: detectPagarmeEnvironment(apiKeyPlain),
@@ -2107,16 +2586,72 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           environment: (conn.environment === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
           billingType: (conn.defaultBillingType as any) || 'UNDEFINED',
         }
+        const regrasPortal = lerRegras(enrollment.portal?.paymentMethodsConfig)
+        const parcelasPedidas = Math.round(Number(body.parcelas ?? 1)) || 1
+
+        // Cupom: revalidado aqui, e não confiado na tela. Entre digitar o código
+        // e clicar em pagar, o cupom pode ter esgotado, expirado ou sido
+        // desligado — quem decide o preço é o servidor, na hora de cobrar.
+        const cupomAplicado = body.cupom
+          ? await avaliarCupom({
+              codigo: String(body.cupom),
+              valor: Number(taxaInscricao),
+              portalId: enrollment.portal!.id,
+              cpf: fd.cpf,
+              descontoAVistaPct: regrasPortal.pix.descontoPct,
+            })
+          : null
+        if (cupomAplicado && 'valido' in cupomAplicado) {
+          return reply.code(400).send({ error: cupomAplicado.motivo })
+        }
+        const valorComDesconto = cupomAplicado ? cupomAplicado.valorFinal : Number(taxaInscricao)
+
+        // Parcelamento só é nosso quando a transação passa por nós.
+        //
+        // Com os dados do cartão, `installmentCount` cria compra parcelada de
+        // verdade e a tabela de juros do builder vale na cobrança. Sem eles
+        // (caminho hospedado), o mesmo campo cria um CARNÊ — dez boletos de
+        // "Parcela 1 de 10", que foi o que apareceu no primeiro teste. Por isso
+        // ali a cobrança é uma só, do valor cheio, e quem oferece as vezes é a
+        // página do Asaas.
+        const parcelamosNos = method === 'credit_card' && !cartaoHospedado
+        const parcelasCartao = parcelamosNos
+          ? Math.min(Math.max(1, parcelasPedidas), regrasPortal.cartao.parcelasMax)
+          : 1
+        // Com juros, quem paga o acréscimo é o candidato: o valor enviado é o
+        // total da opção escolhida, não o preço de tabela.
+        const opcaoCartao = parcelamosNos
+          ? tabelaDeParcelas(valorComDesconto, regrasPortal.cartao).find((o) => o.parcelas === parcelasCartao)
+          : null
+
+        // Boleto parcelado cobra AGORA só a entrada — o resto vira parcela do
+        // contrato na efetivação. Sem isto, escolher "12x" gerava um boleto do
+        // valor inteiro: a tela oferecia parcelar e a cobrança vinha cheia.
+        const boletoParcelado = method === 'boleto'
+          && regrasPortal.boleto.parcelado
+          && parcelasPedidas > 1
+        const plano = boletoParcelado
+          ? planoDeBoleto(valorComDesconto, regrasPortal.boleto, parcelasPedidas)
+          : null
+
+        const valorCobrado = plano?.valorEntrada ?? opcaoCartao?.valorTotal ?? valorComDesconto
+
         const order = await createAsaasOrder(cfg, {
           method: method as AsaasOrderMethod,
           customer: { ...customer, externalReference: `lead-${enrollment.leadId ?? 'unknown'}` },
-          value: Number(taxaInscricao),
+          value: valorCobrado,
           dueDate,
           description,
           externalReference: `enrollment-${enrollment.id}`,
+          ...(parcelasCartao > 1 ? { installmentCount: parcelasCartao } : {}),
+          ...(cartaoHospedado ? { hospedado: true } : {}),
+          // O cartão vai daqui direto para a chamada e não sobrevive a ela.
+          ...(dadosDoCartao ? { cartao: dadosDoCartao } : {}),
+          ...(dadosDoCartao ? { titular: titularDoCartao(enrollment, fd, body.holder) } : {}),
           ...(body.cardToken ? { cardToken: String(body.cardToken) } : {}),
           ...(req.ip ? { remoteIp: req.ip } : {}),
         })
+        urlDaPagina = order.invoiceUrl ?? null
         methodRow = await persistPaymentMethod({
           registrationId: enrollment.id,
           provider: 'asaas',
@@ -2127,22 +2662,51 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           dueDate,
           pixQrCode: order.pixQrCode,
           pixQrCodeUrl: order.pixQrCodeUrl,
-          expiresAt: order.expiresAt ? new Date(order.expiresAt) : undefined,
+          // NÃO usar order.expiresAt aqui: no Asaas é a validade do QR (um ano),
+          // não o prazo para pagar. O que vale para o candidato é o vencimento
+          // da cobrança — com o valor do QR a tela anunciava "vence em 2027"
+          // para algo que vence em dois dias.
+          expiresAt: undefined,
           boletoLine: order.boletoLine,
           boletoBarcode: order.boletoBarcode,
           boletoPdfUrl: order.boletoPdfUrl,
           boletoDueAt: order.boletoDueAt ? new Date(order.boletoDueAt) : undefined,
-          cardLastDigits: order.cardLastDigits,
-          cardBrand: order.cardBrand,
+          // O único traço do cartão que fica: quatro últimos e bandeira. É o que
+          // a pessoa reconhece ("terminado em 1234") e o que a secretaria usa
+          // para conferir um pagamento — nada além disso.
+          cardLastDigits: order.cardLastDigits ?? dadosDoCartao?.number.slice(-4),
+          cardBrand: order.cardBrand ?? (dadosDoCartao ? bandeiraDoCartao(dadosDoCartao.number) : undefined),
         })
         await prisma.enrollmentRegistration.update({
           where: { id: enrollment.id },
           data: {
             paymentId: order.paymentId,
             paymentStatus: order.status,
-            paymentAmount: Number(taxaInscricao),
+            paymentAmount: valorCobrado,
             paymentMethod: method.toUpperCase(),
             paymentExpiresAt: dueDate,
+            // A página do Asaas é para onde o cartão manda o candidato.
+            ...(order.invoiceUrl ? { paymentUrl: order.invoiceUrl } : {}),
+            // O que foi escolhido fica registrado: é o que a efetivação vai ler
+            // para montar o contrato, e o que a secretaria vê se perguntarem.
+            paymentPlan: {
+              meio: method,
+              parcelas: plano?.parcelas ?? parcelasCartao,
+              valorCobrado,
+              valorTabela: Number(taxaInscricao),
+              acrescimo: plano?.acrescimo ?? opcaoCartao?.acrescimo ?? 0,
+              // Guardado para consumir só quando o pagamento for confirmado.
+              ...(cupomAplicado ? {
+                cupom: cupomAplicado.code,
+                valorCheio: cupomAplicado.valorCheio,
+                descontoCupom: Math.round((cupomAplicado.valorCheio - cupomAplicado.valorFinal) * 100) / 100,
+                descontoOrigem: cupomAplicado.origem,
+              } : {}),
+              // No boleto parcelado, o que sobra para o financeiro cobrar.
+              ...(plano ? { valorParcela: plano.valorParcela, valorTotal: plano.valorTotal } : {}),
+              escopo: enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa',
+              ...(order.installmentId ? { installmentId: order.installmentId } : {}),
+            },
           },
         })
       } else {
@@ -2168,7 +2732,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         })
       }
 
-      return reply.send({ ok: true, method: serializePaymentMethod(methodRow) })
+      // No cartão hospedado a tela não desenha nada: manda o candidato para a
+      // página do Asaas. Vai fora do método porque é da cobrança, não da forma.
+      return reply.send({
+        ok: true,
+        method: serializePaymentMethod(methodRow),
+        ...(urlDaPagina ? { checkoutUrl: urlDaPagina } : {}),
+      })
     } catch (e: any) {
       req.log.error(`[payment-init] falha ao criar cobrança: ${e.message}`)
       // Persiste o erro pra UI ler depois
@@ -2197,7 +2767,30 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         })
       }
 
-      return reply.code(502).send({ error: e.message || 'Falha ao criar cobrança' })
+      // Cartão recusado não é falha nossa — é o caso mais comum de um checkout,
+      // e merece resposta própria. Se cair no texto genérico de "tente mais
+      // tarde", a pessoa não entende que basta usar outro cartão, e a tela não
+      // sabe que deve manter o formulário aberto para a nova tentativa.
+      const codigoDoProvedor = String(e?.data?.errors?.[0]?.code ?? '')
+      const recusaDeCartao = method === 'credit_card'
+        && (codigoDoProvedor === 'invalid_creditCard' || /cart[ãa]o|n[ãa]o autorizada/i.test(String(e?.message ?? '')))
+      if (recusaDeCartao) {
+        return reply.code(402).send({
+          error: 'Não foi possível aprovar este cartão. Confira os dados ou tente outro cartão — '
+            + 'você também pode pagar com PIX ou boleto.',
+          recusado: true,
+        })
+      }
+
+      // O texto do provedor é para nós, não para o candidato: dizia coisas como
+      // "O valor da cobrança (R$ 1,00) menos o valor do desconto (R$ 0,00) não
+      // pode ser menor que R$ 5,00" — problema de configuração nossa, exposto a
+      // quem só quer pagar. Fica no log e em lastErrorMessage; a tela recebe uma
+      // frase que a pessoa pode agir sobre.
+      return reply.code(502).send({
+        error: 'Não conseguimos gerar a cobrança agora. Tente de novo em alguns minutos — '
+          + `se continuar, fale com a secretaria informando o código ${enrollment.candidateCode}.`,
+      })
     }
   })
 
@@ -2212,7 +2805,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       select: {
         id: true, candidateCode: true, paymentStatus: true, paymentAmount: true,
         paymentExpiresAt: true, paymentPaidAt: true, paymentMethod: true,
-        portal: { select: { paymentMode: true, requirePayment: true } },
+        portal: {
+          select: {
+            paymentMode: true, requirePayment: true,
+            paymentConnection: { select: { provider: true, environment: true, apiKey: true, active: true } },
+          },
+        },
         paymentMethods: {
           orderBy: { createdAt: 'desc' },
         },
@@ -2220,8 +2818,41 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
 
+    // Recuperação do QR do PIX: se a cobrança foi criada mas o QR não veio na
+    // hora, o candidato ficaria preso numa tela vazia e a única saída seria
+    // gerar outra cobrança — duplicando o que já existe no provedor. Aqui a
+    // consulta de status busca o QR que faltou e grava, sem cobrar de novo.
+    const pixSemQr = enrollment.paymentMethods.find(
+      (m: any) => m.method === 'pix' && m.status === 'pending' && !m.qrCode && m.externalId,
+    ) as any
+    const connStatus = enrollment.portal?.paymentConnection
+    if (pixSemQr && connStatus?.active && connStatus.provider === 'asaas') {
+      try {
+        const chave = decryptToken(connStatus.apiKey)
+        const qr = chave
+          ? await fetchAsaasPixQr({ apiKey: chave, environment: connStatus.environment as any }, pixSemQr.externalId)
+          : null
+        if (qr) {
+          const atualizado = await prisma.enrollmentPaymentMethod.update({
+            where: { id: pixSemQr.id },
+            // Só o QR: o prazo já foi gravado na criação e é o vencimento da
+            // cobrança, não a validade do QR.
+            data: {
+              qrCode: qr.payload,
+              qrCodeUrl: `data:image/png;base64,${qr.encodedImage}`,
+            },
+          })
+          Object.assign(pixSemQr, atualizado)
+        }
+      } catch (e: any) {
+        req.log.warn(`[payment-status] falha ao recuperar QR do PIX: ${e?.message}`)
+      }
+    }
+
     return reply.send({
       paymentStatus: enrollment.paymentStatus,
+      // Quem recarregou a tela no meio do cartão precisa do link de volta.
+      checkoutUrl: (enrollment as any).paymentUrl ?? null,
       paymentAmount: enrollment.paymentAmount ? Number(enrollment.paymentAmount) : null,
       paymentExpiresAt: enrollment.paymentExpiresAt,
       paymentPaidAt: enrollment.paymentPaidAt,
@@ -2622,6 +3253,29 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
 
     const fd = (lead.formData as any) || {}
+
+    // Quem já tem inscrição neste portal não volta para o formulário em branco:
+    // volta para o ponto onde parou.
+    //
+    // A rota nasceu para o portal de interesse, onde o link é sempre "venha
+    // preencher". No portal completo o mesmo link é reenviado a quem JÁ se
+    // inscreveu — e devolver só o prefill mandava a pessoa começar de novo, o
+    // que criaria uma segunda inscrição para a mesma pessoa.
+    const portal = await prisma.enrollmentPortal.findUnique({
+      where: { slug },
+      select: { id: true },
+    })
+    const inscricao = portal
+      ? await prisma.enrollmentRegistration.findFirst({
+          where: { leadId: lead.id, portalId: portal.id },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, candidateCode: true, status: true,
+            paymentStatus: true, paymentUrl: true, formData: true,
+          },
+        })
+      : null
+
     return {
       ok: true,
       lead: { id: lead.id, nome: lead.nome, email: lead.email, whatsapp: lead.whatsapp },
@@ -2633,6 +3287,21 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         offeringId: fd._interestOfferingId || null,
         cidade: fd.cidade || null,
       },
+      // Mesmo motivo do /register: quem chega por link já está identificado, e o
+      // topo precisa saber qual dos dois botões oferecer.
+      temSenha: await contaTemSenha(lead.id),
+      // Presente só quando já existe inscrição: a tela abre no estado dela.
+      // O token de candidato é o mesmo que o envio devolve — é ele que autoriza
+      // pagar e criar a senha de acesso.
+      registration: inscricao
+        ? {
+            candidateCode: inscricao.candidateCode,
+            status: inscricao.status,
+            paymentStatus: inscricao.paymentStatus,
+            paymentUrl: inscricao.paymentUrl,
+            candidateToken: signCandidateToken(inscricao.id, inscricao.candidateCode),
+          }
+        : null,
     }
   })
 
@@ -3257,6 +3926,68 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // Asaas envia POST com { event, payment } após qualquer mudança de status.
   // ══════════════════════════════════════════════
 
+  // ── POST /api/public/registrations/:code/simular-pagamento ──
+  // Confirma uma cobrança do provedor SIMULADO, com os mesmos efeitos do
+  // webhook real. Existe para exercitar o fluxo inteiro sem gateway.
+  //
+  // ⚠️ Só funciona quando a conexão do portal é 'simulado'. Em conexão real,
+  // recusa — este caminho não pode virar uma porta para quitar cobrança de
+  // verdade sem passar pelo banco.
+  app.post('/api/public/registrations/:code/simular-pagamento', async (req, reply) => {
+    const { code } = req.params as any
+    const sess = requirePaymentSession(req, code)
+    if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+
+    const enrollment = await prisma.enrollmentRegistration.findUnique({
+      where: { id: sess.enrollmentId },
+      select: {
+        id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, paymentId: true,
+        portal: { select: { id: true, paymentConnection: { select: { provider: true, active: true } } } },
+      },
+    })
+    if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+
+    const provider = enrollment.portal?.paymentConnection?.provider
+    if (!ehSimulado(provider)) {
+      await logSecurityEvent({
+        ip: req.ip, type: 'payment_simulate_denied', severity: 'high', path: req.url,
+        details: `Tentativa de confirmar pagamento simulado em conexão "${provider ?? 'nenhuma'}" (inscrição ${enrollment.candidateCode})`,
+      }).catch(() => {})
+      return reply.code(403).send({ error: 'Esta cobrança é de um provedor real — só o banco confirma o pagamento.' })
+    }
+    if (enrollment.paymentStatus === 'paid') return { ok: true, jaEstavaPago: true }
+
+    const agora = new Date()
+    await prisma.enrollmentRegistration.update({
+      where: { id: enrollment.id },
+      data: { paymentStatus: 'paid', paymentPaidAt: agora, status: 'paid' },
+    })
+    await prisma.enrollmentPaymentMethod.updateMany({
+      where: { registrationId: enrollment.id, provider: 'simulado' },
+      data: { status: 'paid', paidAt: agora },
+    }).catch(() => {})
+    await prisma.enrollmentPortal.update({
+      where: { id: enrollment.portal!.id },
+      data: { conversions: { increment: 1 } },
+    }).catch(() => {})
+
+    if (enrollment.leadId) {
+      logEvent({
+        leadId: enrollment.leadId,
+        type: 'payment_received',
+        category: 'lifecycle',
+        title: `Pagamento recebido — ${enrollment.candidateCode}`,
+        channel: 'payment',
+        source: 'simulado',
+        actorType: 'system',
+        description: 'Confirmado pelo provedor simulado (ambiente de teste).',
+        metadata: { registrationId: enrollment.id, simulado: true },
+      })
+    }
+    return { ok: true, pagoEm: agora }
+  })
+
+
   app.post('/api/public/payment-webhook/asaas/:token', async (req, reply) => {
     const { token } = req.params as any
     if (!token || typeof token !== 'string' || token.length < 20) {
@@ -3361,7 +4092,27 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       updates.status = 'expired'
     }
 
-    await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+    // Transição para "pago" por escrita condicional: o provedor reenvia o
+    // webhook quando não recebe 200 depressa, e o cron de reconciliação persegue
+    // a mesma cobrança. Sem isto, dois processos leem "ainda não pago" e ambos
+    // disparam os efeitos — conversão em dobro, duas confirmações ao candidato e
+    // evento de campanha duplicado. Só quem muda a linha de fato segue adiante.
+    let euFizATransicao = false
+    if (isPaidNow) {
+      const r = await prisma.enrollmentRegistration.updateMany({
+        where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+        data: updates,
+      })
+      euFizATransicao = r.count === 1
+      if (!euFizATransicao) {
+        const { paymentPaidAt, status, ...semMarco } = updates
+        if (Object.keys(semMarco).length) {
+          await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
+        }
+      }
+    } else {
+      await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+    }
 
     // Espelha no EnrollmentPaymentMethod (checkout transparente) — match pelo externalId.
     // Para modo 'link' antigo não há row → updateMany retorna count=0, sem erro.
@@ -3374,7 +4125,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }).catch(() => {})
 
     // Log + atualiza counters do portal (apenas na primeira vez que virou pago)
-    if (isPaidNow && !wasPaid) {
+    if (euFizATransicao) {
+      // Só quem venceu a corrida consome o cupom: contado duas vezes, ele some
+      // do estoque sem ninguém ter usado.
+      void consumirCupom(enrollment.id)
+
       // Trilha de auditoria financeira (F5): registra toda confirmação de pagamento
       // por webhook — ação sensível a fraude (C1). Severidade elevada quando a
       // conexão aceitou o webhook SEM um webhookSecret configurado.
@@ -3499,7 +4254,27 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       updates.status = 'expired'
     }
 
-    await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+    // Transição para "pago" por escrita condicional: o provedor reenvia o
+    // webhook quando não recebe 200 depressa, e o cron de reconciliação persegue
+    // a mesma cobrança. Sem isto, dois processos leem "ainda não pago" e ambos
+    // disparam os efeitos — conversão em dobro, duas confirmações ao candidato e
+    // evento de campanha duplicado. Só quem muda a linha de fato segue adiante.
+    let euFizATransicao = false
+    if (isPaidNow) {
+      const r = await prisma.enrollmentRegistration.updateMany({
+        where: { id: enrollment.id, paymentStatus: { not: 'paid' } },
+        data: updates,
+      })
+      euFizATransicao = r.count === 1
+      if (!euFizATransicao) {
+        const { paymentPaidAt, status, ...semMarco } = updates
+        if (Object.keys(semMarco).length) {
+          await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
+        }
+      }
+    } else {
+      await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+    }
 
     // Espelha no EnrollmentPaymentMethod (checkout transparente) — match pelo externalId.
     // Para modo 'link' antigo não há row → updateMany retorna count=0, sem erro.
@@ -3511,7 +4286,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     }).catch(() => {})
 
-    if (isPaidNow && !wasPaid) {
+    if (euFizATransicao) {
+      // Só quem venceu a corrida consome o cupom: contado duas vezes, ele some
+      // do estoque sem ninguém ter usado.
+      void consumirCupom(enrollment.id)
+
       // Trilha de auditoria financeira (F5): ver bloco Asaas.
       await logSecurityEvent({
         ip: req.ip,
@@ -3521,7 +4300,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         details: `Pagar.me: ${enrollment.candidateCode} marcado PAGO (paymentId=${payment.id}, valor=${payment.value}, secretConfigurado=${pagarmeAuth.configured})`,
       }).catch(() => {})
     }
-    if (isPaidNow && !wasPaid && portal) {
+    if (euFizATransicao && portal) {
       await prisma.enrollmentPortal.update({
         where: { id: portal.id },
         data: { conversions: { increment: 1 } },

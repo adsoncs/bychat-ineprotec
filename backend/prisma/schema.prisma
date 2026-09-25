@@ -34,7 +34,7 @@ model User {
   ///
   /// Nenhuma rota escreve este campo — só `scripts/definir-dono.ts`, rodado no
   /// servidor. Ver migration 0158.
-  isOwner             Boolean   @default(false)
+  isOwner              Boolean   @default(false)
   name                 String    @db.VarChar(191)
   passwordHash         String    @db.VarChar(255)
   role                 UserRole  @default(VIEWER)
@@ -115,16 +115,16 @@ model User {
   /// Números reservados que este usuário pode acompanhar (ver `visibility`).
   instanceViews    WhatsAppInstanceViewer[]   @relation("WhatsAppInstanceViewerUser")
   cloudViews       CloudApiConnectionViewer[] @relation("CloudApiConnectionViewerUser")
-  alertsOwned     Alert[]          @relation("AlertOwner")
-  alertsReceived  AlertRecipient[]
-  alertMutes      AlertMute[]
+  alertsOwned      Alert[]                    @relation("AlertOwner")
+  alertsReceived   AlertRecipient[]
+  alertMutes       AlertMute[]
 
   @@index([email])
   @@index([role])
   @@index([isAgent])
-  @@map("bychat_users")
   /// O dono é lido a cada pedido (ver lib/dono.ts) — o índice é da 0158.
   @@index([isOwner], map: "idx_users_owner")
+  @@map("bychat_users")
 }
 
 // Filtros nomeados que o usuário salva e pode reaplicar depois (públicos
@@ -540,11 +540,11 @@ model LojaConfig {
 /// ⚠️ A chave Asaas do Attrae NÃO mora neste banco (ver migration 0159): este
 /// banco é do cliente, e a credencial com que cobramos fica só na loja central.
 model AssinaturaEvento {
-  id   Int    @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   /// teste | pago_manual | carencia_estendida | renovado | cancelado
-  tipo String @db.VarChar(30)
+  tipo        String  @db.VarChar(30)
   /// Guarda-chuva afetado. null = a assinatura toda.
-  pacote String? @db.VarChar(40)
+  pacote      String? @db.VarChar(40)
   /// Mês de referência de um pagamento manual: "2026-09".
   competencia String? @db.VarChar(7)
 
@@ -553,11 +553,11 @@ model AssinaturaEvento {
 
   valorCentavos Int?
   /// pix | transferencia | dinheiro | outro
-  meio String? @db.VarChar(20)
+  meio          String? @db.VarChar(20)
 
   observacao String? @db.VarChar(500)
   /// E-mail do dono. Não é FK: apagar o usuário não pode apagar o registro do dinheiro.
-  feitoPor String? @db.VarChar(191)
+  feitoPor   String? @db.VarChar(191)
 
   createdAt DateTime @default(now())
 
@@ -623,7 +623,7 @@ model Team {
   dbConnectors        DbConnector[]
   assignedActivities  Activity[]
   activityTemplates   ActivityTemplate[]
-  alerts Alert[]
+  alerts              Alert[]
 
   @@index([active, position])
   @@map("bychat_teams")
@@ -961,27 +961,27 @@ model Lead {
   id  Int     @id @default(autoincrement())
   uid String? @unique @db.VarChar(50) // Código único público (ex: LD-A3X9K2)
 
-  empresa      String  @db.VarChar(191)
-  nome         String  @db.VarChar(191)
-  whatsapp     String  @db.VarChar(30)
+  empresa              String  @db.VarChar(191)
+  nome                 String  @db.VarChar(191)
+  whatsapp             String  @db.VarChar(30)
   // Chave canônica do telefone (lib/phone.ts phoneKey): "55"+DDD+9+8 dígitos.
   // Colapsa todas as variações (com/sem 55, com/sem 9º dígito) numa só chave —
   // é a base do match EXATO de identidade do contato. null quando não há telefone
   // válido (ex.: contato só por LID). Indexada (não-única: o resolvedor central
   // de inbound dedupa na escrita; LID/vazios podem repetir).
-  phoneKey     String? @db.VarChar(20)
+  phoneKey             String? @db.VarChar(20)
   /// Número (instância) por onde este lead chegou. Sem isso o lead era achado
   /// só pelo telefone, e um mesmo contato que escrevesse para DUAS empresas do
   /// mesmo tenant caía na MESMA conversa — o atendente de uma via o atendimento
   /// da outra. Nulo nos leads anteriores a esta regra.
-  instanceName String? @db.VarChar(100)
+  instanceName         String? @db.VarChar(100)
   // Conexão da API oficial dona da conversa — o par do `instanceName` (Evolution).
   // Ver services/contactIdentity.ts → filtroDoCanal. Migration 0161.
   cloudApiConnectionId Int?
-  email        String  @db.VarChar(191)
-  segmento     String? @db.VarChar(100)
-  cidade       String? @db.VarChar(100)
-  customFields Json?   @db.Json // {fieldKey: value, ...}
+  email                String  @db.VarChar(191)
+  segmento             String? @db.VarChar(100)
+  cidade               String? @db.VarChar(100)
+  customFields         Json?   @db.Json // {fieldKey: value, ...}
 
   formData    Json  @db.Json
   scores      Json  @db.Json
@@ -1221,6 +1221,8 @@ model Lead {
 
   // Busca por telefone é o caminho quente do produto (todo webhook de WhatsApp
   // resolve o lead por aqui) e fazia full scan.
+  portalAccount PortalAccount? // conta do portal (candidato e aluno)
+
   @@index([whatsapp])
   @@index([status])
   @@index([createdAt])
@@ -4108,6 +4110,40 @@ model EnrollmentPortal {
   registrations EnrollmentRegistration[]
   drafts        EnrollmentDraft[]
 
+  /// Estrutura da página, separada da marca: 'classico' (uma coluna, feito para
+  /// celular) ou 'duas-colunas' (formulário + resumo fixo ao lado, no desktop).
+  /// Cor, fonte e arredondamento continuam vindo dos campos acima — o template
+  /// escolhe o arranjo, não a identidade.
+  brandTemplate        String?  @db.VarChar(30) // classico | duas-colunas
+  /// Acabamento da página. São controles de aparência, não de identidade: a cor
+  /// e a fonte continuam sendo as de cima. Servem para alcançar o padrão de um
+  /// checkout de mercado sem precisar de CSS próprio.
+  brandHeaderStyle     String?  @db.VarChar(20) // simples (logo solto) | barra (logo + passos + selo)
+  brandStepStyle       String?  @db.VarChar(20) // barras | numeros
+  brandBackdropFrom    String?  @db.VarChar(20) // cor inicial do fundo; vazio = fundo liso
+  brandBackdropTo      String?  @db.VarChar(20) // cor final do fundo
+  brandButtonShape     String?  @db.VarChar(20) // reta | pill
+  brandButtonUppercase Boolean? // texto do botão principal em caixa alta
+  brandSecurityNote    String?  @db.VarChar(120) // selo do topo; vazio = sem selo
+  brandSummaryAlways   Boolean? // resumo visível desde o começo, mesmo sem curso escolhido
+  /// Cor de apoio, usada onde a cor da marca sozinha empobrece a leitura (a
+  /// segunda etiqueta do resumo, por exemplo). Vazia = usa a cor da marca.
+  brandSecondaryColor  String?  @db.VarChar(20)
+  brandTypeScale       String?  @db.VarChar(20) // compacta | padrao | ampla
+  brandContentWidth    String?  @db.VarChar(20) // estreita | padrao | ampla
+  /// Textos da interface do portal (botões, títulos do resumo, rótulo da
+  /// revisão). Chave vazia ou ausente usa o texto padrão do sistema. É JSON
+  /// para acrescentar rótulo novo sem migration a cada palavra.
+  brandLabels          Json?
+  /// O que este portal cobra no checkout: 'taxa' (taxa de inscrição do processo
+  /// seletivo, o comportamento de sempre) ou 'curso' (o plano de pagamento da
+  /// oferta — entrada agora e o restante como parcelas do contrato no ERP).
+  paymentScope         String?  @db.VarChar(20)
+  /// Configuração por meio de pagamento: quais aceitar e as regras de cada um
+  /// (parcelas, juros, desconto à vista, prazo). Ver PAGAMENTO_PADRAO no
+  /// services/portalPagamento.ts — chave ausente cai no padrão.
+  paymentMethodsConfig Json?
+
   @@index([unitId])
   @@index([active])
   @@index([teamId])
@@ -4614,6 +4650,12 @@ model EnrollmentRegistration {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// O que o candidato escolheu no checkout: meio, número de parcelas, entrada
+  /// e o restante. É a INTENÇÃO — as parcelas só viram título do financeiro na
+  /// efetivação da matrícula, porque não se cobra mensalidade de quem ainda não
+  /// é aluno. Ver services/portalPagamento.ts.
+  paymentPlan Json?
 
   @@index([portalId])
   @@index([status])
@@ -6948,9 +6990,16 @@ model AcaMatricula {
   contrato AcaContrato?
   eventos  AcaMatriculaEvento[]
 
+  /// Inscrição do portal que deu origem a esta matrícula. É por aqui que o
+  /// financeiro descobre o que a pessoa escolheu no checkout (meio, parcelas,
+  /// quanto já pagou) em vez de aplicar o plano padrão da oferta às cegas.
+  /// Nulo em matrícula criada direto na secretaria ou em rematrícula.
+  enrollmentRegistrationId Int?
+
   @@unique([alunoId, turmaId])
   @@index([status])
   @@index([vinculoId])
+  @@index([enrollmentRegistrationId])
   @@map("bychat_aca_matriculas")
 }
 
@@ -9615,14 +9664,14 @@ model AlertRecipient {
   alertId Int
   userId  Int
 
-  readAt      DateTime?
+  readAt       DateTime?
   /// "Ciente por hoje": some da caixa DESTA pessoa até esta hora, e volta na
   /// varredura seguinte se a condição ainda existir. Substituiu o
   /// `dismissedAt`, que era permanente — quem descartava nunca mais via o
   /// alerta, nem quando o problema seguia de pé, nem quando ele reabria.
   /// Null = está na caixa.
   snoozedUntil DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt    DateTime  @default(now())
 
   alert Alert @relation(fields: [alertId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -9653,7 +9702,7 @@ model AlertMute {
   userId Int
 
   /// Família silenciada (ex.: "negotiation.stalled"). Null = silêncio por item.
-  kind String? @db.VarChar(60)
+  kind      String? @db.VarChar(60)
   /// Condição específica silenciada. Null = silêncio por família.
   dedupeKey String? @db.VarChar(191)
 
@@ -9767,4 +9816,80 @@ model SurveySession {
   @@index([leadId])
   @@index([expiresAt])
   @@map("bychat_survey_sessions")
+}
+
+model PortalAccount {
+  id     Int  @id @default(autoincrement())
+  leadId Int  @unique
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  /// CPF só com dígitos. Mora aqui, e não em Aluno, porque a conta nasce com o
+  /// candidato — que ainda não é aluno e cujo CPF só existe no formulário da
+  /// inscrição. Sem isso, quem se inscreveu não conseguia entrar com o próprio CPF.
+  cpf                  String?   @db.VarChar(14)
+  senhaHash            String?   @db.VarChar(255)
+  senhaDefinidaEm      DateTime?
+  emailVerificadoEm    DateTime?
+  whatsappVerificadoEm DateTime?
+
+  // Bloqueio por tentativa, igual ao portal do aluno: 5 erros seguram 15 min.
+  tentativas    Int       @default(0)
+  bloqueadoAte  DateTime?
+  ultimoLoginEm DateTime?
+
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessoes PortalSession[]
+  links   PortalAccessLink[]
+
+  @@index([cpf])
+  @@map("bychat_portal_accounts")
+}
+
+/// Sessão do portal: token opaco guardado como hash, entregue em cookie
+/// httpOnly. Substitui o token HMAC na barra de endereço, que vazava em print,
+/// encaminhamento de WhatsApp e histórico do navegador — e que, por ser
+/// stateless, não tinha como ser revogado.
+model PortalSession {
+  id        Int           @id @default(autoincrement())
+  accountId Int
+  account   PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  tokenHash    String    @unique @db.VarChar(64)
+  family       String    @db.VarChar(36)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById Int?
+  lastUsedAt   DateTime?
+  userAgent    String?   @db.VarChar(255)
+  ip           String?   @db.VarChar(45)
+  createdAt    DateTime  @default(now())
+
+  @@index([accountId])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("bychat_portal_sessions")
+}
+
+/// Link de primeiro acesso / recuperação: uso único e vida curta. O link antigo
+/// de 30 dias virava chave permanente para quem o recebesse; este é trocado por
+/// uma sessão no primeiro clique e morre em seguida.
+model PortalAccessLink {
+  id        Int           @id @default(autoincrement())
+  accountId Int
+  account   PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  tokenHash  String    @unique @db.VarChar(64)
+  finalidade String    @default("primeiro_acesso") @db.VarChar(30) // primeiro_acesso | recuperacao
+  canal      String?   @db.VarChar(20) // whatsapp | email
+  expiresAt  DateTime
+  usadoEm    DateTime?
+  ip         String?   @db.VarChar(45)
+  createdAt  DateTime  @default(now())
+
+  @@index([accountId])
+  @@index([expiresAt])
+  @@map("bychat_portal_access_links")
 }

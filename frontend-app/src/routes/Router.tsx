@@ -161,6 +161,9 @@ const migratedPages: Record<string, ComponentType> = {
   surveys: lazy(() =>
     import('./pages/SurveysPage').then((m) => ({ default: m.SurveysPage })),
   ),
+  assinatura: lazy(() =>
+    import('./pages/AssinaturaPage').then((m) => ({ default: m.AssinaturaPage })),
+  ),
   'cad-teams': lazy(() =>
     import('./pages/CadastrosTeamsPage').then((m) => ({ default: m.CadastrosTeamsPage })),
   ),
@@ -256,7 +259,7 @@ const migratedPages: Record<string, ComponentType> = {
     import('./pages/AcademicoEsquemasPage').then((m) => ({ default: m.AcademicoEsquemasPage })),
   ),
   // Fases 3-5 — regime especial, acervo/ENADE, evasão, produção docente,
-  // painel por persona, importação e prova online.
+  // painel por persona e importação.
   'aca-regime-especial': lazy(() =>
     import('./pages/AcademicoRegimeEspecialPage').then((m) => ({ default: m.AcademicoRegimeEspecialPage })),
   ),
@@ -283,9 +286,6 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   'aca-reconhecimento': lazy(() =>
     import('./pages/AcademicoReconhecimentoPage').then((m) => ({ default: m.AcademicoReconhecimentoPage })),
-  ),
-  'aca-provas': lazy(() =>
-    import('./pages/AcademicoProvasPage').then((m) => ({ default: m.AcademicoProvasPage })),
   ),
   'aca-equivalencias': lazy(() =>
     import('./pages/AcademicoEquivalenciasPage').then((m) => ({ default: m.AcademicoEquivalenciasPage })),
@@ -341,9 +341,6 @@ const migratedPages: Record<string, ComponentType> = {
   'aca-secretaria': lazy(() =>
     import('./pages/AcademicoSecretariaPage').then((m) => ({ default: m.AcademicoSecretariaPage })),
   ),
-  'aca-portais-plus': lazy(() =>
-    import('./pages/AcademicoPortaisPlusPage').then((m) => ({ default: m.AcademicoPortaisPlusPage })),
-  ),
   'aca-requerimentos': lazy(() =>
     import('./pages/AcademicoRequerimentosPage').then((m) => ({ default: m.AcademicoRequerimentosPage })),
   ),
@@ -385,6 +382,9 @@ const migratedPages: Record<string, ComponentType> = {
   ),
   'edu-doc-review': lazy(() =>
     import('./pages/educational/EducationalDocReviewPage').then((m) => ({ default: m.EducationalDocReviewPage })),
+  ),
+  'aca-funil-matriculas': lazy(() =>
+    import('./pages/educational/AcademicoFunilMatriculasPage').then((m) => ({ default: m.AcademicoFunilMatriculasPage })),
   ),
   'edu-evaluations': lazy(() =>
     import('./pages/educational/EducationalEvaluationsPage').then((m) => ({ default: m.EducationalEvaluationsPage })),
@@ -467,15 +467,9 @@ const AcaEsquemaForm = lazy(() =>
   import('./pages/AcademicoEsquemaFormPage').then((m) => ({ default: m.AcademicoEsquemaFormPage })),
 )
 
-// Fases 3-5 — formulário do regime, detalhe da prova e fila de correção.
+// Fases 3-5 — formulário do regime especial.
 const AcaRegimeForm = lazy(() =>
   import('./pages/AcademicoRegimeEspecialFormPage').then((m) => ({ default: m.AcademicoRegimeEspecialFormPage })),
-)
-const AcaProvaDetail = lazy(() =>
-  import('./pages/AcademicoProvaDetailPage').then((m) => ({ default: m.AcademicoProvaDetailPage })),
-)
-const AcaCorrecao = lazy(() =>
-  import('./pages/AcademicoCorrecaoPage').then((m) => ({ default: m.AcademicoCorrecaoPage })),
 )
 const AcaReconhecimentoDetail = lazy(() =>
   import('./pages/AcademicoReconhecimentoDetailPage').then((m) => ({ default: m.AcademicoReconhecimentoDetailPage })),
@@ -708,21 +702,10 @@ export function Router() {
               <ModuleGate moduleId="educacional"><AcaVinculoDetail params={params} /></ModuleGate>
             )}
           </Route>
-          {/* Fases 3-5. /aca/provas/correcao vem ANTES de /aca/provas/:id,
-              senão "correcao" seria lido como id da prova. */}
+          {/* Fases 3-5. */}
           <Route path="/aca/regime-especial/:id">
             {(params: { id: string }) => (
               <ModuleGate moduleId="educacional"><AcaRegimeForm params={params} /></ModuleGate>
-            )}
-          </Route>
-          <Route path="/aca/provas/correcao">
-            {() => (
-              <ModuleGate moduleId="educacional"><AcaCorrecao /></ModuleGate>
-            )}
-          </Route>
-          <Route path="/aca/provas/:id">
-            {(params: { id: string }) => (
-              <ModuleGate moduleId="educacional"><AcaProvaDetail params={params} /></ModuleGate>
             )}
           </Route>
           <Route path="/aca/reconhecimento/:id">

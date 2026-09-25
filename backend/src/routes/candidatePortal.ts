@@ -2,6 +2,7 @@
 // Portal do Candidato — autenticação por CPF+candidateCode, dashboard, upload de documentos.
 
 import { FastifyInstance } from 'fastify'
+import { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import { promises as fs } from 'fs'
 import { join } from 'path'
@@ -9,13 +10,30 @@ import { prisma } from '../lib/prisma.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
 import { signCandidateToken, verifyCandidateToken } from '../lib/candidateAuth.js'
+import { contaDaRequisicao } from '../lib/portalSession.js'
 import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { validateUploadContent, UploadValidationError } from '../lib/uploadSafety.js'
-import { Prisma } from '@prisma/client'
 
+/**
+ * Quem é o candidato desta requisição.
+ *
+ * Primeiro a conta do portal (cookie de sessão): quem tem senha entra uma vez e
+ * continua entrando, mesmo depois de virar aluno. Sem conta, vale o token curto
+ * do login por código + CPF, que continua atendendo quem chegou por um link de
+ * inscrição e ainda não criou senha.
+ */
 async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
+  const conta = await contaDaRequisicao(req)
+  if (conta) {
+    const reg = await prisma.enrollmentRegistration.findFirst({
+      where: { leadId: conta.leadId },
+      orderBy: { id: 'desc' },
+      select: { id: true, candidateCode: true },
+    })
+    if (reg) return { enrollmentId: reg.id, candidateCode: reg.candidateCode }
+  }
   const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
   const session = verifyCandidateToken(auth)
   if (!session) { reply.code(401).send({ error: 'Sessão inválida ou expirada' }); return null }
@@ -500,6 +518,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
     await prisma.enrollmentDocument.update({
       where: { id: doc.id },
+      // aiAnalysis é coluna Json: `null` cru é ambíguo (JSON null × NULL da
+      // coluna), então o Prisma exige Prisma.DbNull para esvaziar de verdade.
       data: { aiStatus: 'pending', aiSuggestion: null, aiConfidence: null, aiAnalysis: Prisma.DbNull, aiProcessedAt: null },
     })
     const { queues } = await import('../lib/queues.js')

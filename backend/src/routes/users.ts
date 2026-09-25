@@ -493,7 +493,6 @@ export async function usersRoutes(app: FastifyInstance) {
       })
     }
 
-
     const data: any = {}
     if (email !== undefined) data.email = email.toLowerCase().trim()
     if (name !== undefined) data.name = name.trim()
