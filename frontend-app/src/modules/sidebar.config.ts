@@ -276,6 +276,8 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'aca-funil-matriculas', label: 'Funil de matrículas', href: '/app/aca/funil-matriculas', icon: 'GraduationCap', permission: 'aca_matriculas', atalho: true },
         { id: 'edu-evaluations', label: 'Avaliações', href: '/app/educational/evaluations', icon: 'Award', permission: 'educacional' },
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
+        { id: 'edu-portal-financeiro', label: 'Financeiro do portal', href: '/app/educational/portal-financeiro', icon: 'Wallet', permission: 'enrollment_portals' },
+        { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'enrollment_portals' },
       ],
       initiallyCollapsed: true,
     },

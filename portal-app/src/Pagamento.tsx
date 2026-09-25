@@ -245,6 +245,7 @@ export function Pagamento(props: {
               {opcoes.valorTabela && opcoes.valorTabela > opcoes.valor && (
                 <s class="riscado">{dinheiro(opcoes.valorTabela)}</s>
               )}
+              {opcoes.rotulo && <span>{opcoes.rotulo}: </span>}
               <b>{dinheiro(opcoes.valor)}</b> — a inscrição só é confirmada depois do pagamento.
             </>
           ) : 'A inscrição só é confirmada depois do pagamento.'}
@@ -265,6 +266,12 @@ export function Pagamento(props: {
                   <span class="ajuda"> — mantivemos o desconto à vista, que é maior</span>
                 )}
                 {opcoes.cupom.descricao && <span class="ajuda"> · {opcoes.cupom.descricao}</span>}
+                {/* Cupom que vale só em alguns meios ou com teto de parcelas:
+                    dizer antes da escolha evita a surpresa no valor. */}
+                {!!opcoes.cupom.metodos?.length && (
+                  <span class="ajuda"> · vale no {opcoes.cupom.metodos.map((x) => (x === 'pix' ? 'PIX' : x === 'boleto' ? 'boleto' : 'cartão')).join(' ou ')}</span>
+                )}
+                {!!opcoes.cupom.maxParcelas && <span class="ajuda"> · até {opcoes.cupom.maxParcelas}x</span>}
               </div>
               <button class="link" onClick={removerCupom}>remover</button>
             </div>

@@ -392,6 +392,12 @@ const migratedPages: Record<string, ComponentType> = {
   'enrollment-portals': lazy(() =>
     import('./pages/EnrollmentPortalsPage').then((m) => ({ default: m.EnrollmentPortalsPage })),
   ),
+  'edu-portal-financeiro': lazy(() =>
+    import('./pages/educational/EducationalPortalFinanceiroPage').then((m) => ({ default: m.EducationalPortalFinanceiroPage })),
+  ),
+  'edu-cupons': lazy(() =>
+    import('./pages/educational/EducationalCuponsPage').then((m) => ({ default: m.EducationalCuponsPage })),
+  ),
   users: lazy(() =>
     import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })),
   ),

@@ -19,6 +19,9 @@
 //     pendente vale como reserva (ver `reservados`).
 
 import { prisma } from '../lib/prisma.js'
+import type { ContextoDaInscricao } from './portalCobranca.js'
+
+export type MeioDePagamento = 'pix' | 'boleto' | 'credit_card'
 
 export interface CupomAplicado {
   code: string
@@ -32,6 +35,14 @@ export interface CupomAplicado {
   valorFinal: number
   /** Qual regra venceu — é o que a tela mostra ao candidato. */
   origem: 'cupom' | 'a_vista' | 'nenhum'
+  /** Valor depois só do cupom (sem o desconto do PIX). */
+  valorComCupom: number
+  /** Meios em que o cupom vale; null = todos. */
+  metodos: MeioDePagamento[] | null
+  /** Soma com o desconto à vista do PIX em vez de competir com ele. */
+  acumulaAVista: boolean
+  /** Teto de parcelas com este cupom; null = o do portal. */
+  maxParcelas: number | null
 }
 
 export interface CupomRecusado {
@@ -87,6 +98,11 @@ export async function avaliarCupom(params: {
   portalId: number
   cpf?: string | null
   descontoAVistaPct?: number
+  /** Curso, oferta, processo, nível, modalidade, e-mail — para as travas. */
+  contexto?: ContextoDaInscricao | null
+  escopo?: 'taxa' | 'curso'
+  /** Quando já se sabe o meio (na hora de cobrar), a trava de meio é conferida. */
+  metodo?: MeioDePagamento
 }): Promise<CupomAplicado | CupomRecusado> {
   const code = normalizar(params.codigo)
   const valor = Number(params.valor)
@@ -95,7 +111,7 @@ export async function avaliarCupom(params: {
 
   const c = await prisma.coupon.findUnique({ where: { code } })
   if (!c) return { valido: false, motivo: 'Cupom não encontrado.' }
-  if (!c.active) return { valido: false, motivo: 'Este cupom não está mais ativo.' }
+  if (!c.active || c.archivedAt) return { valido: false, motivo: 'Este cupom não está mais ativo.' }
 
   const agora = new Date()
   if (c.validFrom && c.validFrom > agora) return { valido: false, motivo: 'Este cupom ainda não começou a valer.' }
@@ -112,6 +128,42 @@ export async function avaliarCupom(params: {
     if (!(c.portalIds as unknown[]).map(Number).includes(params.portalId)) {
       return { valido: false, motivo: 'Este cupom não vale para esta inscrição.' }
     }
+  }
+
+  // Travas de onde o cupom vale. Mensagem única de propósito: dizer "só vale
+  // para Direito" entregaria a regra de uma campanha a quem não é o público.
+  const ctx = params.contexto ?? null
+  const lista = (v: unknown): number[] | null =>
+    Array.isArray(v) && v.length > 0 ? (v as unknown[]).map(Number).filter(Number.isFinite) : null
+  const naoVale: CupomRecusado = { valido: false, motivo: 'Este cupom não vale para esta inscrição.' }
+  const travas: Array<[number[] | null, number | null | undefined]> = [
+    [lista(c.courseIds), ctx?.courseId],
+    [lista(c.offeringIds), ctx?.offeringId],
+    [lista(c.processIds), ctx?.processId],
+    [lista(c.levelIds), ctx?.levelId],
+    [lista(c.modalityIds), ctx?.modalityId],
+  ]
+  for (const [permitidos, atual] of travas) {
+    if (permitidos && (atual == null || !permitidos.includes(Number(atual)))) return naoVale
+  }
+  if (c.scope === 'taxa' || c.scope === 'curso') {
+    if ((params.escopo ?? 'taxa') !== c.scope) return naoVale
+  }
+  const metodos = Array.isArray(c.paymentMethods) && (c.paymentMethods as unknown[]).length
+    ? (c.paymentMethods as unknown[]).map(String).filter((m): m is MeioDePagamento => ['pix', 'boleto', 'credit_card'].includes(m))
+    : null
+  if (metodos && params.metodo && !metodos.includes(params.metodo)) {
+    const nomes: Record<MeioDePagamento, string> = { pix: 'PIX', boleto: 'boleto', credit_card: 'cartão' }
+    return { valido: false, motivo: `Este cupom vale só para ${metodos.map((m) => nomes[m]).join(' ou ')}.` }
+  }
+  // Público: lista fechada de CPFs (convênio) e/ou domínios de e-mail.
+  const cpfsPermitidos = Array.isArray(c.allowedCpfs) ? (c.allowedCpfs as unknown[]).map((x) => String(x).replace(/\D/g, '')).filter(Boolean) : []
+  const cpfDaPessoa = String(params.cpf ?? ctx?.cpf ?? '').replace(/\D/g, '')
+  if (cpfsPermitidos.length && !cpfsPermitidos.includes(cpfDaPessoa)) return naoVale
+  const dominios = Array.isArray(c.emailDomains) ? (c.emailDomains as unknown[]).map((d) => String(d).trim().toLowerCase().replace(/^@/, '')).filter(Boolean) : []
+  if (dominios.length) {
+    const dom = String(ctx?.email ?? '').split('@')[1]?.toLowerCase() ?? ''
+    if (!dominios.includes(dom)) return naoVale
   }
 
   // Estoque: o que já foi usado mais o que está reservado em cobrança aberta.
@@ -140,7 +192,7 @@ export async function avaliarCupom(params: {
   const pct = Math.max(0, Number(params.descontoAVistaPct ?? 0))
   const descontoAVista = pct > 0 ? centavos((valor * pct) / 100) : 0
 
-  // Vale o maior — nunca os dois.
+  // Vale o maior — nunca os dois (salvo cupom marcado para somar).
   const usaCupom = descontoCupom >= descontoAVista && descontoCupom > 0
   const desconto = usaCupom ? descontoCupom : descontoAVista
 
@@ -152,7 +204,43 @@ export async function avaliarCupom(params: {
     descontoAVista,
     valorFinal: centavos(Math.max(0, valor - desconto)),
     origem: desconto <= 0 ? 'nenhum' : usaCupom ? 'cupom' : 'a_vista',
+    valorComCupom: centavos(Math.max(0, valor - descontoCupom)),
+    metodos,
+    acumulaAVista: !!c.stackWithPix,
+    maxParcelas: c.maxInstallments && c.maxInstallments > 0 ? c.maxInstallments : null,
   }
+}
+
+/**
+ * Preço de um meio de pagamento, com cupom e desconto à vista do PIX.
+ *
+ * Uma regra só para a tela e para a cobrança — antes, a tela mostrava o PIX
+ * com desconto à vista e a cobrança saía cheia, e o desconto à vista que
+ * "vencia" o cupom acabava valendo também no boleto e no cartão.
+ *   · PIX: cupom e à vista competem (vale o maior) ou somam, se o cupom deixar;
+ *   · boleto/cartão: só o cupom, e só se ele valer para aquele meio.
+ */
+export function precoPorMeio(p: {
+  valor: number
+  meio: MeioDePagamento
+  descontoAVistaPct: number
+  cupom: CupomAplicado | null
+}): { valor: number; cupomAplicado: boolean; descontoAVista: number } {
+  const cupomVale = !!p.cupom && (!p.cupom.metodos || p.cupom.metodos.includes(p.meio))
+  const comCupom = cupomVale ? p.cupom!.valorComCupom : p.valor
+  if (p.meio !== 'pix' || p.descontoAVistaPct <= 0) {
+    return { valor: centavos(comCupom), cupomAplicado: cupomVale, descontoAVista: 0 }
+  }
+  const pct = p.descontoAVistaPct / 100
+  if (cupomVale && p.cupom!.acumulaAVista) {
+    const d = centavos(comCupom * pct)
+    return { valor: centavos(comCupom - d), cupomAplicado: true, descontoAVista: d }
+  }
+  const soAVista = centavos(p.valor * (1 - pct))
+  if (!cupomVale || soAVista < comCupom) {
+    return { valor: soAVista, cupomAplicado: false, descontoAVista: centavos(p.valor - soAVista) }
+  }
+  return { valor: centavos(comCupom), cupomAplicado: true, descontoAVista: 0 }
 }
 
 /**

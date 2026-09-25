@@ -364,6 +364,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         select: {
           portal: {
             select: {
+              slug: true,
               brandLogoUrl: true, brandLogoLink: true, brandFaviconUrl: true,
               brandPrimaryColor: true, brandFooterText: true,
               brandFontFamily: true, brandRadiusScale: true,
@@ -373,14 +374,16 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       }).catch(() => null)
       portal = reg?.portal || null
     }
-    reply.type('text/html').send(renderCandidatePortalHtml(portal))
+    // O gancho de marca (lib/portalMarca) completa o Branding deste portal.
+    if (portal?.slug) reply.header('x-portal-slug', portal.slug)
+    return reply.type('text/html').send(renderCandidatePortalHtml(portal))
   })
 
   // ── GET /candidato e /candidato/ — tela genérica de login ──
   // Sem :code na URL, exibimos o formulário pedindo código + CPF. Branding
   // genérico (sem portal vinculado), aplicado depois pelo /candidate/me.
   const renderGenericLogin = async (_req: any, reply: any) => {
-    reply.type('text/html').send(renderCandidatePortalHtml(null))
+    return reply.type('text/html').send(renderCandidatePortalHtml(null))
   }
   app.get('/candidato', renderGenericLogin)
   app.get('/candidato/', renderGenericLogin)

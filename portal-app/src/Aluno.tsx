@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
+import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
 import { carregarPainelAluno, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
 
 const dinheiro = (centavos: number) =>
@@ -16,12 +17,15 @@ const SITUACAO_PARCELA: Record<string, { rotulo: string; classe: string }> = {
 export function Aluno() {
   const [d, setD] = useState<PainelAluno | null>(null)
   const [falha, setFalha] = useState<string | null>(null)
+  const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
 
   useEffect(() => {
+    // Branding completo do portal (cores, fonte, cantos, fundo, logo).
+    void carregarMarca().then(setMarca)
     carregarPainelAluno()
       .then((p) => {
         setD(p)
-        if (p.marca) {
+        if (p.marca && !marca) {
           document.documentElement.style.setProperty('--marca', p.marca)
           document.documentElement.style.setProperty('--marca-suave', `color-mix(in srgb, ${p.marca} 12%, transparent)`)
         }
@@ -60,6 +64,7 @@ export function Aluno() {
 
   return (
     <div class="pagina">
+      <TopoDaMarca marca={marca} />
       <div class="cartao" style="margin-bottom:14px">
         <h2>{d.aluno.nome}</h2>
         <p class="sub" style="margin:0">

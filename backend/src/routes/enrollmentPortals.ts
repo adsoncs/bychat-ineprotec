@@ -32,7 +32,8 @@ import { cobrancaDaFaturaIugu } from '../services/paymentSync.js'
 import { aplicarFaturaIuguNaParcela } from '../services/acaFinanceiro.js'
 import { appUrl } from '../lib/appUrl.js'
 import { lerRegras, tabelaDeParcelas, planoDeBoleto } from '../services/portalPagamento.js'
-import { avaliarCupom, consumirCupom } from '../services/portalCupom.js'
+import { avaliarCupom, consumirCupom, precoPorMeio } from '../services/portalCupom.js'
+import { cobrancaDoPortal } from '../services/portalCobranca.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
 import { syncChargeFromProvider, recordWebhookHit, updateWebhookHit } from '../services/paymentSync.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -297,6 +298,7 @@ async function persistPaymentMethod(input: {
  * nós com a tabela do builder) ou da página do gateway (cobrança única, cheia).
  */
 async function montarCobrancaDoCheckout(input: {
+  registrationId: number
   portalId: number
   paymentMethodsConfig: unknown
   paymentScope: string | null | undefined
@@ -314,24 +316,35 @@ async function montarCobrancaDoCheckout(input: {
   const { method, body, taxa, parcelamosNos } = input
   const regrasPortal = lerRegras(input.paymentMethodsConfig)
   const parcelasPedidas = Math.round(Number(body.parcelas ?? 1)) || 1
+  const cob = await cobrancaDoPortal(input.registrationId)
 
   // Cupom: revalidado aqui, e não confiado na tela. Entre digitar o código
   // e clicar em pagar, o cupom pode ter esgotado, expirado ou sido
-  // desligado — quem decide o preço é o servidor, na hora de cobrar.
-  const cupomAplicado = body.cupom
+  // desligado — quem decide o preço é o servidor, na hora de cobrar. Aqui o
+  // meio já é conhecido, então a trava de meio de pagamento também vale.
+  const cupom = body.cupom
     ? await avaliarCupom({
         codigo: String(body.cupom),
         valor: taxa,
         portalId: input.portalId,
         cpf: input.cpf,
         descontoAVistaPct: regrasPortal.pix.descontoPct,
+        contexto: cob?.contexto ?? null,
+        escopo: cob?.escopo ?? 'taxa',
+        metodo: method,
       })
     : null
-  if (cupomAplicado && 'valido' in cupomAplicado) return { erro: cupomAplicado.motivo }
-  const valorComDesconto = cupomAplicado ? cupomAplicado.valorFinal : taxa
+  if (cupom && 'valido' in cupom) return { erro: cupom.motivo }
+
+  // Preço do meio escolhido: a mesma conta que a tela mostrou (precoPorMeio).
+  const preco = precoPorMeio({ valor: taxa, meio: method, descontoAVistaPct: regrasPortal.pix.descontoPct, cupom: cupom ?? null })
+  const cupomAplicado = preco.cupomAplicado ? cupom : null
+  const valorComDesconto = preco.valor
+  // O cupom pode limitar as vezes (campanha "20% só até 3x").
+  const tetoDoCupom = cupomAplicado?.maxParcelas ?? null
 
   const parcelasCartao = parcelamosNos
-    ? Math.min(Math.max(1, parcelasPedidas), regrasPortal.cartao.parcelasMax)
+    ? Math.min(Math.max(1, parcelasPedidas), regrasPortal.cartao.parcelasMax, tetoDoCupom ?? 99)
     : 1
   // Com juros, quem paga o acréscimo é o candidato: o valor enviado é o
   // total da opção escolhida, não o preço de tabela.
@@ -342,33 +355,37 @@ async function montarCobrancaDoCheckout(input: {
   // Boleto parcelado cobra AGORA só a entrada — o resto vira parcela do
   // contrato na efetivação. Sem isto, escolher "12x" gerava um boleto do
   // valor inteiro: a tela oferecia parcelar e a cobrança vinha cheia.
+  const parcelasBoleto = Math.min(parcelasPedidas, tetoDoCupom ?? 99)
   const boletoParcelado = method === 'boleto'
     && regrasPortal.boleto.parcelado
-    && parcelasPedidas > 1
+    && parcelasBoleto > 1
   const plano = boletoParcelado
-    ? planoDeBoleto(valorComDesconto, regrasPortal.boleto, parcelasPedidas)
+    ? planoDeBoleto(valorComDesconto, regrasPortal.boleto, parcelasBoleto)
     : null
 
   const valorCobrado = plano?.valorEntrada ?? opcaoCartao?.valorTotal ?? valorComDesconto
 
   // O que foi escolhido fica registrado: é o que a efetivação vai ler para
-  // montar o contrato, e o que a secretaria vê se perguntarem.
+  // montar o contrato, e o que a secretaria vê no financeiro do portal.
   const paymentPlan = (extra: Record<string, unknown> = {}) => ({
     meio: method,
     parcelas: plano?.parcelas ?? parcelasCartao,
     valorCobrado,
     valorTabela: taxa,
     acrescimo: plano?.acrescimo ?? opcaoCartao?.acrescimo ?? 0,
-    // Guardado para consumir só quando o pagamento for confirmado.
+    ...(preco.descontoAVista > 0 ? { descontoAVista: preco.descontoAVista } : {}),
+    // Guardado para consumir só quando o pagamento for confirmado — e só se o
+    // cupom de fato entrou no preço (no PIX, o à vista pode ter vencido).
     ...(cupomAplicado ? {
       cupom: cupomAplicado.code,
       valorCheio: cupomAplicado.valorCheio,
-      descontoCupom: Math.round((cupomAplicado.valorCheio - cupomAplicado.valorFinal) * 100) / 100,
-      descontoOrigem: cupomAplicado.origem,
+      descontoCupom: Math.round((cupomAplicado.valorCheio - cupomAplicado.valorComCupom) * 100) / 100,
+      descontoOrigem: preco.descontoAVista > 0 ? 'cupom+a_vista' : 'cupom',
     } : {}),
     // No boleto parcelado, o que sobra para o financeiro cobrar.
     ...(plano ? { valorParcela: plano.valorParcela, valorTotal: plano.valorTotal } : {}),
-    escopo: input.paymentScope === 'curso' ? 'curso' : 'taxa',
+    escopo: cob?.escopo ?? (input.paymentScope === 'curso' ? 'curso' : 'taxa'),
+    ...(cob ? { rotulo: cob.rotulo } : {}),
     ...extra,
   })
 
@@ -2213,7 +2230,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           asaasCfg = parseAsaasConfig(portalFull.paymentConfig)
         }
 
-        const taxaInscricao = offering?.selectionProcess?.taxaInscricao ?? null
+        // Taxa de inscrição, ou matrícula/1ª mensalidade quando o portal cobra o curso.
+        const cobrancaLink = await cobrancaDoPortal(enrollment.id).catch(() => null)
+        const taxaInscricao = cobrancaLink && cobrancaLink.valor > 0 ? cobrancaLink.valor : null
 
         if (taxaInscricao && asaasCfg) {
           const customer = await createOrFindAsaasCustomer(asaasCfg, {
@@ -2228,7 +2247,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             customerId: customer.id,
             value: Number(taxaInscricao),
             dueDate,
-            description: `Taxa de inscrição — ${portalFull?.nome} (${candidateCode})`,
+            description: `${cobrancaLink?.rotulo ?? 'Taxa de inscrição'} — ${portalFull?.nome} (${candidateCode})`,
             externalReference: `enrollment-${enrollment.id}`,
           })
           paymentUrl = payment.invoiceUrl
@@ -2260,7 +2279,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             customer: customer ? undefined : { name: nome || 'Candidato', email: email || undefined, cpfCnpj: cpf || undefined, phone: whatsapp || undefined },
             value: Number(taxaInscricao),
             dueDate,
-            description: `Taxa de inscrição — ${portalFull?.nome} (${candidateCode})`,
+            description: `${cobrancaLink?.rotulo ?? 'Taxa de inscrição'} — ${portalFull?.nome} (${candidateCode})`,
             externalReference: `enrollment-${enrollment.id}`,
           })
           paymentUrl = payment.invoiceUrl
@@ -2284,7 +2303,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             metodos: 'all',
             valor: Number(taxaInscricao),
             vencimento: dueDate,
-            descricao: `Taxa de inscrição — ${portalFull?.nome} (${candidateCode})`,
+            descricao: `${cobrancaLink?.rotulo ?? 'Taxa de inscrição'} — ${portalFull?.nome} (${candidateCode})`,
             email,
             pagador: { nome: nome || 'Candidato', cpfCnpj: cpf || undefined, telefone: whatsapp || undefined, email },
             referencia: `enrollment-${enrollment.id}`,
@@ -2447,11 +2466,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
 
     const regras = lerRegras(enrollment.portal?.paymentMethodsConfig)
-    const valorTabela = Number(enrollment.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
+    // Taxa de inscrição, ou matrícula/1ª mensalidade quando o portal cobra o curso.
+    const cob = await cobrancaDoPortal(enrollment.id)
+    const valorTabela = cob?.valor ?? 0
 
-    // Cupom digitado na tela: recalcula tudo por cima dele. O desconto à vista
-    // do PIX entra na conta porque o candidato leva o maior dos dois, e a
-    // resposta diz qual venceu para a tela não precisar adivinhar.
+    // Cupom digitado na tela: travas de curso/oferta/processo/público
+    // conferidas aqui; a de meio de pagamento, meio a meio (precoPorMeio).
     const codigoCupom = String((req.query as any)?.cupom ?? '').trim()
     const cupom = codigoCupom
       ? await avaliarCupom({
@@ -2460,11 +2480,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           portalId: enrollment.portal!.id,
           cpf: (enrollment.formData as any)?.cpf,
           descontoAVistaPct: regras.pix.descontoPct,
+          contexto: cob?.contexto ?? null,
+          escopo: cob?.escopo ?? 'taxa',
         })
       : null
     const cupomOk = cupom && !('valido' in cupom) ? cupom : null
-    // Com cupom válido, ele passa a ser o preço de todos os meios.
-    const valor = cupomOk ? cupomOk.valorFinal : valorTabela
+    const pixPreco = precoPorMeio({ valor: valorTabela, meio: 'pix', descontoAVistaPct: regras.pix.descontoPct, cupom: cupomOk })
+    const boletoPreco = precoPorMeio({ valor: valorTabela, meio: 'boleto', descontoAVistaPct: 0, cupom: cupomOk })
+    const cartaoPreco = precoPorMeio({ valor: valorTabela, meio: 'credit_card', descontoAVistaPct: 0, cupom: cupomOk })
+    // Valor de referência do topo: o do cupom (fora do PIX), ou o de tabela.
+    const valor = cupomOk && !cupomOk.metodos ? cupomOk.valorComCupom : valorTabela
+    const teto = cupomOk?.maxParcelas ?? null
 
     // Cartão só aparece com conexão que o suporte. Oferecer um botão que falha
     // na hora de pagar é pior do que não oferecer.
@@ -2479,14 +2505,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       && !!enrollment.portal?.paymentConnection?.active
       && (['asaas', 'pagarme', 'simulado'].includes(String(provedor)) || (provedor === 'iugu' && !!contaIugu))
 
-    // O desconto à vista já foi considerado na disputa com o cupom: aplicar de
-    // novo aqui daria os dois ao mesmo tempo, que é o que se decidiu evitar.
-    const descontoPix = !cupomOk && regras.pix.descontoPct > 0
-      ? Math.round(valor * (1 - regras.pix.descontoPct / 100) * 100) / 100
-      : null
-
     return reply.send({
-      escopo: enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa',
+      escopo: cob?.escopo ?? (enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa'),
+      rotulo: cob?.rotulo ?? 'Taxa de inscrição',
       valor,
       valorTabela,
       cupom: cupom
@@ -2496,18 +2517,21 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
                 aplicado: true,
                 code: cupom.code,
                 descricao: cupom.descricao,
-                desconto: Math.round((cupom.valorCheio - cupom.valorFinal) * 100) / 100,
+                desconto: Math.round((cupom.valorCheio - cupom.valorComCupom) * 100) / 100,
                 origem: cupom.origem,
+                // Onde o cupom vale — a tela avisa quando é só em alguns meios.
+                metodos: cupom.metodos,
+                maxParcelas: cupom.maxParcelas,
+                acumulaAVista: cupom.acumulaAVista,
               })
         : null,
       meios: {
         pix: regras.pix.ativo
           ? {
               ativo: true,
-              valor: descontoPix ?? valor,
-              // Com o cupom vencendo, o desconto à vista NÃO entrou: anunciá-lo
-              // no botão seria prometer um abatimento que não está no preço.
-              descontoPct: cupomOk ? 0 : regras.pix.descontoPct,
+              valor: pixPreco.valor,
+              // Só anuncia o desconto à vista quando ele de fato entrou no preço.
+              descontoPct: pixPreco.descontoAVista > 0 ? regras.pix.descontoPct : 0,
               expiraHoras: regras.pix.expiraHoras,
             }
           : { ativo: false },
@@ -2515,10 +2539,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           ? {
               ativo: true,
               parcelado: regras.boleto.parcelado,
-              parcelasMax: regras.boleto.parcelasMax,
+              parcelasMax: Math.min(regras.boleto.parcelasMax, teto ?? 99),
               // Cada opção diz a entrada de agora e o que vira parcela depois.
               opcoes: regras.boleto.parcelado
-                ? Array.from({ length: regras.boleto.parcelasMax }, (_, i) => planoDeBoleto(valor, regras.boleto, i + 1))
+                ? Array.from({ length: Math.min(regras.boleto.parcelasMax, teto ?? 99) }, (_, i) => planoDeBoleto(boletoPreco.valor, regras.boleto, i + 1))
                   .map((p) => ({
                     parcelas: p.parcelas,
                     valorEntrada: p.valorEntrada,
@@ -2538,7 +2562,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           ? {
               ativo: true,
               hospedado: false,
-              opcoes: tabelaDeParcelas(valor, regras.cartao),
+              opcoes: tabelaDeParcelas(cartaoPreco.valor, regras.cartao).filter((o) => !teto || o.parcelas <= teto),
               // O número do cartão vai do navegador direto para a iugu; para
               // nós só volta o token de uso único.
               ...(provedor === 'iugu' && contaIugu
@@ -2601,9 +2625,17 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!conn || !conn.active) {
       return reply.code(400).send({ error: 'Conexão de pagamento inativa ou inexistente' })
     }
-    const taxaInscricao = enrollment.processRegistration?.selectionProcess?.taxaInscricao
+    // O que se cobra: taxa de inscrição, ou matrícula/1ª mensalidade quando o
+    // portal cobra o curso (services/portalCobranca). `taxaInscricao` segue
+    // com esse nome nos ramos abaixo, mas é o valor desta cobrança.
+    const cobranca = await cobrancaDoPortal(enrollment.id)
+    const taxaInscricao = cobranca?.valor ?? 0
     if (!taxaInscricao || Number(taxaInscricao) <= 0) {
-      return reply.code(400).send({ error: 'Processo seletivo sem taxa de inscrição definida' })
+      return reply.code(400).send({
+        error: cobranca?.escopo === 'curso'
+          ? 'Esta oferta ainda não tem valor de matrícula/mensalidade definido. Fale com a secretaria.'
+          : 'Processo seletivo sem taxa de inscrição definida',
+      })
     }
     // Cartão, por provedor:
     //  · Pagar.me — o navegador tokeniza com a chave pública e manda o token: o
@@ -2663,7 +2695,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     const deadlineHours = enrollment.portal.paymentDeadlineHours || 48
     const dueDate = new Date(Date.now() + deadlineHours * 3600 * 1000)
-    const description = `Taxa de inscrição — ${enrollment.portal.nome} (${enrollment.candidateCode})`
+    const description = `${cobranca?.rotulo ?? 'Taxa de inscrição'} — ${enrollment.portal.nome} (${enrollment.candidateCode})`
     const customer = {
       name: enrollment.lead?.nome || fd.nome || 'Candidato',
       email: enrollment.lead?.email || fd.email || undefined,
@@ -2775,6 +2807,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         // Cupom, juros do cartão e boleto parcelado: regra comum a todo
         // gateway do checkout transparente (montarCobrancaDoCheckout).
         const conta = await montarCobrancaDoCheckout({
+          registrationId: enrollment.id,
           portalId: enrollment.portal!.id,
           paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
           paymentScope: enrollment.portal?.paymentScope,
@@ -2857,6 +2890,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         }
 
         const conta = await montarCobrancaDoCheckout({
+          registrationId: enrollment.id,
           portalId: enrollment.portal!.id,
           paymentMethodsConfig: enrollment.portal?.paymentMethodsConfig,
           paymentScope: enrollment.portal?.paymentScope,

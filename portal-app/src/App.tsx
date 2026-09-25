@@ -7,6 +7,7 @@ import {
 } from './api'
 import { criarSenhaInicial } from './api'
 import { Pagamento } from './Pagamento'
+import { aplicarMarca } from './marca'
 import { conclusaoDoPortal } from './api'
 import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
 
@@ -81,7 +82,7 @@ export function App() {
       .then(async (d) => {
         if (!vivo) return
         setDados(d)
-        aplicarMarca(d)
+        aplicarMarcaDoPortal(d)
 
         // Chegou por link da secretaria: o token manda mais que o rascunho local,
         // porque diz de quem é a inscrição — o rascunho é só o que este
@@ -369,71 +370,10 @@ export function App() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Peças
 
-// Escala de arredondamento do builder: valores nomeados, não número.
-const RAIOS: Record<string, string> = { sharp: '2px', medium: '12px', rounded: '20px' }
-
-// Fontes que o builder oferece. Carregadas só quando escolhidas — nenhuma
-// requisição a mais para quem ficou no padrão do sistema.
-const FONTES: Record<string, { familia: string; href?: string }> = {
-  inter: { familia: "'Inter', system-ui, sans-serif", href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap' },
-  roboto: { familia: "'Roboto', system-ui, sans-serif", href: 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap' },
-  poppins: { familia: "'Poppins', system-ui, sans-serif", href: 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap' },
-  system: { familia: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
-}
-
-function aplicarMarca(d: DadosPortal) {
-  const p = d.portal
-  const raiz = document.documentElement
-  if (p.brandPrimaryColor) {
-    raiz.style.setProperty('--marca', p.brandPrimaryColor)
-    raiz.style.setProperty('--marca-suave', `color-mix(in srgb, ${p.brandPrimaryColor} 12%, transparent)`)
-  }
-  // Estrutura da página escolhida no builder. Só o arranjo muda — cor, fonte e
-  // arredondamento continuam vindo dos campos de marca.
-  raiz.dataset.template = p.brandTemplate === 'duas-colunas' ? 'duas-colunas' : 'classico'
-
-  // Acabamento. Cada escolha vira um data-attribute que o CSS lê; nada aqui
-  // inventa cor ou fonte, só decide a forma.
-  raiz.dataset.topo = p.brandHeaderStyle === 'barra' ? 'barra' : 'simples'
-  raiz.dataset.passos = p.brandStepStyle === 'numeros' ? 'numeros' : 'barras'
-  raiz.dataset.botao = p.brandButtonShape === 'pill' ? 'pill' : 'reta'
-  raiz.dataset.caixaAlta = p.brandButtonUppercase ? 'sim' : 'nao'
-
-  raiz.dataset.escala = ['compacta', 'ampla'].includes(String(p.brandTypeScale ?? '')) ? String(p.brandTypeScale) : 'padrao'
-  raiz.dataset.largura = ['estreita', 'ampla'].includes(String(p.brandContentWidth ?? '')) ? String(p.brandContentWidth) : 'padrao'
-
-  // Cor de apoio: sem ela, tudo o que é acento usa a cor da marca — que é o
-  // comportamento de antes e continua sendo o padrão.
-  const apoio = p.brandSecondaryColor || p.brandPrimaryColor
-  if (apoio) {
-    raiz.style.setProperty('--apoio', apoio)
-    raiz.style.setProperty('--apoio-suave', `color-mix(in srgb, ${apoio} 12%, transparent)`)
-  }
-
-  // Fundo em degradê: só quando as duas pontas foram escolhidas. Com uma cor
-  // só, o resultado costuma ficar sujo — melhor manter o fundo liso.
-  if (p.brandBackdropFrom && p.brandBackdropTo) {
-    raiz.style.setProperty('--fundo-de', p.brandBackdropFrom)
-    raiz.style.setProperty('--fundo-para', p.brandBackdropTo)
-    raiz.dataset.fundo = 'degrade'
-  } else {
-    raiz.dataset.fundo = 'liso'
-  }
-
-  const raio = RAIOS[String(p.brandRadiusScale ?? '')]
-  if (raio) raiz.style.setProperty('--raio', raio)
-
-  const fonte = FONTES[String(p.brandFontFamily ?? '')]
-  if (fonte) {
-    if (fonte.href && !document.querySelector(`link[href="${fonte.href}"]`)) {
-      const l = document.createElement('link')
-      l.rel = 'stylesheet'
-      l.href = fonte.href
-      document.head.appendChild(l)
-    }
-    document.body.style.fontFamily = fonte.familia
-  }
-  document.title = p.metaTitle || p.nome
+function aplicarMarcaDoPortal(d: DadosPortal) {
+  // Mesma regra das telas logadas (marca.ts); aqui o título vem do portal.
+  aplicarMarca(d.portal)
+  document.title = d.portal.metaTitle || d.portal.nome
 }
 
 function Logo({ portal }: { portal: DadosPortal['portal'] }) {

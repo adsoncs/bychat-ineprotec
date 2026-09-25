@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
 import { carregarContrato, assinarContrato, type ContratoDoAluno } from './api'
 
 // Contrato de matrícula — Fase 5 da consolidação ERP × Portal.
@@ -30,6 +31,8 @@ export function Contrato() {
   const [leuTudo, setLeuTudo] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
+  useEffect(() => { void carregarMarca().then(setMarca) }, [])
   const [pronto, setPronto] = useState<{ efetivou: boolean } | null>(null)
   const termoRef = useRef<HTMLDivElement>(null)
 
@@ -95,6 +98,7 @@ export function Contrato() {
 
   return (
     <div class="pagina">
+      <TopoDaMarca marca={marca} />
       <div class="cartao contrato">
         <h2>{dados.titulo}</h2>
         <p class="sub">{dados.curso} · {dados.turma}</p>

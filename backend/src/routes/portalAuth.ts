@@ -22,7 +22,7 @@ import {
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
 import { avisos, esc } from '../lib/portalHtml.js'
-import { paginaComMarca } from '../lib/portalMarca.js'
+import { paginaComMarca, marcaDoAcesso } from '../lib/portalMarca.js'
 import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
 
 /** Sessão da requisição, ou null. Usado pelas rotas do próprio portal. */
@@ -244,6 +244,15 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   })
 
   // ───────────────────────── Telas de acesso ─────────────────────────
+
+  // ── GET /api/public/portal/marca — a marca que as telas do portal vestem ──
+  // Mesma regra do login (portal pedido › inscrição de quem está logado ›
+  // último portal visitado › portal principal). Só dados públicos do Branding.
+  app.get('/api/public/portal/marca', async (req, reply) => {
+    const m = await marcaDoAcesso(req, reply).catch(() => null)
+    reply.header('cache-control', 'no-store')
+    return { marca: m ? { ...m.bruto } : null }
+  })
 
   // ── GET /portal/login ──
   app.get('/portal/login', async (req, reply) => {

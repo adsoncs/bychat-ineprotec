@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
+import { carregarMarca } from './marca'
 import {
   carregarCandidato, enviarDocumento, removerDocumento,
   type Candidato, type DocumentoEnviado, type Exigencia,
@@ -26,6 +27,8 @@ export function Documentos() {
   async function recarregar() {
     try {
       const d = await carregarCandidato()
+      // Branding completo (fonte, cantos, fundo, botões); a cor vem logo abaixo.
+      void carregarMarca()
       // A identidade da instituição vale na área logada também: sem isto a
       // pessoa sai do portal roxo e cai numa tela com a cor padrão do sistema.
       if (d.portal?.brandPrimaryColor) {

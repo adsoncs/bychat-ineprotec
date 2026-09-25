@@ -4536,6 +4536,23 @@ model Coupon {
   // Escopo (JSON array de portalIds; null = todos os portais)
   portalIds Json? @db.Json
 
+  // Travas (todas: JSON array de ids; null/vazio = sem trava)
+  courseIds     Json? @db.Json
+  offeringIds   Json? @db.Json
+  processIds    Json? @db.Json // processos seletivos
+  levelIds      Json? @db.Json
+  modalityIds   Json? @db.Json
+  paymentMethods Json? @db.Json // subconjunto de ["pix","boleto","credit_card"]
+  scope         String? @db.VarChar(10) // 'taxa' | 'curso' | null (os dois)
+  allowedCpfs   Json? @db.Json // lista fechada (convênio): só estes CPFs
+  emailDomains  Json? @db.Json // ex.: ["empresa.com.br"]
+  stackWithPix  Boolean @default(false) // soma com o desconto à vista do PIX
+  maxInstallments Int? // teto de parcelas quando o cupom é usado
+  campaign      String? @db.VarChar(100)
+  batch         String? @db.VarChar(60) // lote gerado junto (códigos únicos)
+  notes         String? @db.Text
+  archivedAt    DateTime?
+
   // Validade
   validFrom  DateTime?
   validUntil DateTime?
@@ -4549,6 +4566,8 @@ model Coupon {
 
   @@index([code])
   @@index([active])
+  @@index([campaign])
+  @@index([batch])
   @@map("bychat_coupons")
 }
 

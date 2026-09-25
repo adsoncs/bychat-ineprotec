@@ -51,6 +51,7 @@ import { enrollmentEvaluationsRoutes } from './routes/enrollmentEvaluations.js'
 import { paymentProvidersRoutes } from './routes/paymentProviders.js'
 import { paymentsDashboardRoutes } from './routes/paymentsDashboard.js'
 import { couponsRoutes } from './routes/coupons.js'
+import { portalFinanceiroRoutes } from './routes/portalFinanceiro.js'
 import { leadHistoryRoutes } from './routes/leadHistory.js'
 import { activitiesRoutes, startActivityScheduler } from './routes/activities.js'
 import { alertsRoutes } from './routes/alerts.js'
@@ -523,6 +524,13 @@ app.addHook('preHandler', async (req) => {
   req.body = sanitizeValue(req.body)
 })
 
+// ── Marca do portal nas páginas SSR (ERP, candidato) ──
+// Antes das rotas: o gancho precisa valer para os plugins registrados depois.
+{
+  const { registrarMarcaSsr } = await import('./lib/portalMarca.js')
+  registrarMarcaSsr(app as any)
+}
+
 // ── CSRF PROTECTION ─────────────────────────────
 // CORS_ORIGIN/APP_URL aceitam LISTA separada por vírgula — durante o rebrand
 // ByChat→Attrae o tenant responde no domínio novo E no antigo, e sem isto o
@@ -774,6 +782,7 @@ await app.register(enrollmentEvaluationsRoutes)
 await app.register(paymentProvidersRoutes)
 await app.register(paymentsDashboardRoutes)
 await app.register(couponsRoutes)
+await app.register(portalFinanceiroRoutes)
 await app.register(leadHistoryRoutes)
 await app.register(activitiesRoutes)
 await app.register(alertsRoutes)

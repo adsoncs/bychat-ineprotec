@@ -480,10 +480,17 @@ export interface CupomNaTela {
   origem?: string
   /** Presente quando recusado. */
   motivo?: string
+  /** Meios em que o cupom vale; null = todos. */
+  metodos?: Array<'pix' | 'boleto' | 'credit_card'> | null
+  /** Teto de parcelas com o cupom. */
+  maxParcelas?: number | null
+  acumulaAVista?: boolean
 }
 
 export interface OpcoesDePagamento {
   escopo: 'taxa' | 'curso'
+  /** "Taxa de inscrição", "Matrícula" ou "1ª mensalidade". */
+  rotulo?: string
   valor: number
   /** Preço antes de qualquer desconto. */
   valorTabela?: number

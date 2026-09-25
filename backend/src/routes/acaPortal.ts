@@ -272,7 +272,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
       <div><button type="submit">Abrir solicitação</button></div>
     </form>`
 
-    reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Portal do Aluno</title>${HEAD}</head><body>
+    return reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Portal do Aluno</title>${HEAD}</head><body>
       <h1>Olá, ${esc(aluno.lead.nome)}</h1>
       <p class="sub">RA ${esc(aluno.ra || '—')} · Portal do Aluno</p>
       ${bannerHtml}
@@ -404,7 +404,7 @@ export async function acaPortalRoutes(app: FastifyInstance) {
     if (!pv) return pageErr(reply, 400, 'Turma indisponível', 'A matrícula pode ter sido encerrada.')
     const tk = encodeURIComponent(tok)
     const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-    reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Matrícula</title>${HEAD}</head><body>
+    return reply.type('text/html').send(`<!doctype html><html lang="pt-BR"><head><title>Matrícula</title>${HEAD}</head><body>
       <p class="tabs"><a href="/portal/aca/aluno?t=${tk}">← Voltar</a></p>
       <h1>Confirmar matrícula</h1>
       <div class="card">
