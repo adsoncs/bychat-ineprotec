@@ -137,6 +137,11 @@ interface ActionConfig {
   // notify_operator (aviso interno ao operador/setor responsável)
   waTemplateId?: number
   emailTemplateId?: number
+  // set_campaign
+  campaignName?: string
+  utmSource?: string
+  utmMedium?: string
+  utmCampaign?: string
 }
 
 function describeAssignment(
@@ -980,6 +985,55 @@ export async function dispatchAction(
         where: { id: stepExec.id },
         data: { status: 'completed', completedAt: new Date(), result: { phone: generalPhones.join(', ') || null, email: email || null, cc: ccList || null } },
       })
+      await finalizarPasso(executionId, stepId)
+      break
+    }
+
+    case 'qualify_lead': {
+      // Promove "só conversa" (funnelId/qualifiedAt nulos) para lead qualificado —
+      // sem isso o Kanban e o Relatório de Funil (que filtram por qualifiedAt
+      // != null) não enxergam o que o fluxo acabou de mover pra etapa.
+      const { qualifyLead } = await import('./leadQualification.js')
+      const resultado = await qualifyLead(leadId, { source: 'workflow' })
+
+      await prisma.workflowStepExecution.update({
+        where: { id: stepExec.id },
+        data: { status: 'completed', completedAt: new Date(), result: { qualified: resultado.qualified } },
+      })
+
+      await finalizarPasso(executionId, stepId)
+      break
+    }
+
+    case 'set_campaign': {
+      // Rotula a campanha/origem do lead (campo "Campanha" da aba Rastreamento).
+      // Meta CTWA não manda nome de campanha amigável no referral — só o
+      // fluxo (por reconhecer o texto do anúncio) sabe dizer qual é.
+      const data: { campaignName?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string } = {}
+      if (config.campaignName) data.campaignName = config.campaignName
+      if (config.utmSource) data.utmSource = config.utmSource
+      if (config.utmMedium) data.utmMedium = config.utmMedium
+      if (config.utmCampaign) data.utmCampaign = config.utmCampaign
+
+      if (Object.keys(data).length > 0) {
+        await prisma.lead.update({ where: { id: leadId }, data })
+        logEvent({
+          leadId,
+          type: EVENT_TYPES.LEAD_EDITED,
+          category: 'lifecycle',
+          title: `Campanha definida por workflow: "${config.campaignName || ''}"`,
+          source: 'workflow',
+          actorType: 'system',
+          newValue: config.campaignName,
+          metadata: { executionId },
+        })
+      }
+
+      await prisma.workflowStepExecution.update({
+        where: { id: stepExec.id },
+        data: { status: 'completed', completedAt: new Date(), result: data },
+      })
+
       await finalizarPasso(executionId, stepId)
       break
     }

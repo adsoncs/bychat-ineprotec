@@ -545,7 +545,20 @@ async function processIncomingMessage(
         source: 'webhook',
         actorType: 'lead',
         description: `Novo lead iniciou conversa pelo WhatsApp (${phone})`,
-        metadata: { phone, source: 'whatsapp', provider: 'cloud_api', originType },
+        // `firstMessage`: texto que o CONTATO digitou/mandou — não serve pra
+        // identificar campanha (é a saudação padrão do WhatsApp pra qualquer
+        // anúncio Click-to-WhatsApp; várias campanhas diferentes mandam o
+        // mesmo texto genérico). `referralWelcomeMessage`: texto que a própria
+        // Meta embute no referral do anúncio (`welcome_message.text`, quando o
+        // anúncio usa botão tipo "flow") — esse sim é específico da campanha,
+        // porque quem escreve é o anunciante, não o contato. Workflows com
+        // triggerConfig `{ referralWelcomeMessage: "..." }` reconhecem uma
+        // campanha CTWA específica de forma confiável.
+        metadata: {
+          phone, source: 'whatsapp', provider: 'cloud_api', originType,
+          firstMessage: (msgText || '').trim(),
+          referralWelcomeMessage: originData?.rawReferral?.welcome_message?.text || null,
+        },
       })
       const routedVia = conn.ownerUserId ? 'conexão dedicada (agente)' : (routedRuleName || (conn.defaultTeamId ? 'setor padrão da conexão' : 'fallback'))
       app.log.info(`[CloudAPI] Lead ${novo.id} roteado via "${routedVia}" → team=${routedTeamId}, user=${routedUserId}`)

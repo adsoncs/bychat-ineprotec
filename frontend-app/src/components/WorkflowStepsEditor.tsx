@@ -58,6 +58,8 @@ const ACTION_TYPES = [
   { value: 'assign_to_user', label: 'Atribuir a operador' },
   { value: 'transfer_to_team', label: 'Transferir para equipe' },
   { value: 'set_summary', label: 'Aplicar resumo' },
+  { value: 'qualify_lead', label: 'Qualificar lead' },
+  { value: 'set_campaign', label: 'Definir campanha' },
 ]
 
 const DUE_MODE_OPTIONS = [
@@ -908,6 +910,15 @@ function ActionFields({
             hint="Vai aparecer na timeline do lead. Suporta {{nome}}, {{empresa}}, etc."
           />
         </>
+      )}
+
+      {actionType === 'set_campaign' && (
+        <Input
+          label="Nome da campanha"
+          value={getStr(config, 'campaignName')}
+          onInput={(e) => onPatch({ campaignName: (e.target as HTMLInputElement).value })}
+          hint='Preenche o campo "Campanha" do lead (aba Rastreamento). Útil quando a origem (ex.: WhatsApp Ads) não manda um nome de campanha amigável.'
+        />
       )}
     </div>
   )

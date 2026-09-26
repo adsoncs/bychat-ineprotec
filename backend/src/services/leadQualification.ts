@@ -22,6 +22,7 @@ export type QualificationSource =
   | 'web_chat_completed'    // fim de chat de diagnóstico
   | 'duplicate'             // herdado de duplicação
   | 'restore'               // restaurado da lixeira
+  | 'workflow'              // ação 'qualify_lead' de um fluxo de automação
 
 interface QualifyOptions {
   source: QualificationSource
