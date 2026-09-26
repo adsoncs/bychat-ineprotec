@@ -377,6 +377,9 @@ const migratedPages: Record<string, ComponentType> = {
   'edu-entry-modes': lazy(() =>
     import('./pages/educational/EducationalEntryModesPage').then((m) => ({ default: m.EducationalEntryModesPage })),
   ),
+  'edu-dados-etapas': lazy(() =>
+    import('./pages/educational/EducationalDadosEtapasPage').then((m) => ({ default: m.EducationalDadosEtapasPage })),
+  ),
   'edu-selection-processes': lazy(() =>
     import('./pages/educational/EducationalSelectionProcessesPage').then((m) => ({ default: m.EducationalSelectionProcessesPage })),
   ),

@@ -16,6 +16,7 @@ import {
   type BlockKey,
   type CompletionConfig,
   type CoursePickerConfig,
+  type CourseDisplay,
   type CoursePickerMode,
   type CustomStepConfig,
   type EntryModesConfig,
@@ -223,6 +224,10 @@ function BlockCard({
         </div>
         {required ? (
           <span class="text-2xs text-fg-muted px-2">sempre ativo</span>
+        ) : block.key === 'documents' ? (
+          // Documentos são uma etapa da jornada: quem liga, desliga e ordena é a
+          // aba Etapas. O interruptor que ficava aqui não era lido por ninguém.
+          <span class="text-2xs text-fg-muted px-2">na aba Etapas</span>
         ) : (
           <label class="relative inline-block w-10 h-6 cursor-pointer shrink-0">
             <input
@@ -243,7 +248,7 @@ function BlockCard({
         )}
       </div>
 
-      {enabled && (
+      {(enabled || block.key === 'documents') && (
         <div class="border-t border-border p-3 pl-12">
           {block.key === 'identity'     && <IdentityConfigEditor     config={block.config as IdentityConfig}     onUpdate={onUpdateConfig} />}
           {block.key === 'coursePicker' && <CoursePickerConfigEditor config={block.config as CoursePickerConfig} onUpdate={onUpdateConfig} />}
@@ -331,6 +336,38 @@ function CoursePickerConfigEditor({ config, onUpdate }: {
 
       {mode === 'list' && (
         <div class="mt-3 pt-3 border-t border-dashed border-border">
+          <div class="text-2xs text-fg-muted mb-1.5">Como a lista aparece:</div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {([
+              { v: 'cartoes', t: 'Cartões', d: 'Um cartão por curso, com busca. Ocupa mais espaço.' },
+              { v: 'lista', t: 'Lista compacta', d: 'Uma linha por curso, com rolagem. Ocupa menos espaço.' },
+              { v: 'suspensa', t: 'Caixa de seleção', d: 'Um campo que abre a lista ao clicar. O mais enxuto.' },
+            ] as { v: CourseDisplay; t: string; d: string }[]).map((o) => (
+              <label key={o.v} class={cn(
+                'flex items-start gap-2 p-2 rounded border cursor-pointer transition-colors',
+                (config.exibicao ?? 'cartoes') === o.v ? 'border-accent bg-accent/10' : 'border-border bg-surface hover:bg-surface-3',
+              )}>
+                <input type="radio" name="cp-exibicao" class="mt-0.5" checked={(config.exibicao ?? 'cartoes') === o.v} onChange={() => onUpdate({ exibicao: o.v })} />
+                <div class="min-w-0">
+                  <div class="text-xs font-medium text-fg">{o.t}</div>
+                  <div class="text-2xs text-fg-muted mt-0.5">{o.d}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <label class="inline-flex items-start gap-2 text-xs cursor-pointer mt-3">
+            <input type="checkbox" class="mt-0.5" checked={config.mostrarValor !== false}
+              onChange={(e) => onUpdate({ mostrarValor: (e.target as HTMLInputElement).checked })} />
+            <span class="text-fg">
+              <strong>Mostrar o valor do curso</strong>
+              <span class="text-fg-muted"> — desligado, a lista mostra só o nome dos cursos e o resumo não mostra mensalidade, matrícula nem taxa.</span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {mode === 'list' && (
+        <div class="mt-3 pt-3 border-t border-dashed border-border">
           <label class="inline-flex items-start gap-2 text-xs cursor-pointer">
             <input
               type="checkbox"
@@ -410,7 +447,7 @@ function EntryModesConfigEditor({ config, modes, processes, portalSpIds, onUpdat
   return (
     <div class="space-y-2">
       <div class="text-2xs text-fg-muted">
-        Os campos extras de cada modo são definidos em Educacional → Modos de Ingresso. Aqui você só decide se serão pedidos no formulário deste portal.
+        Desligar um modo tira deste portal os cursos dos processos seletivos que usam esse modo — o candidato não consegue mais escolhê-los. Os campos extras de cada modo são definidos em Educacional → Modos de Ingresso.
       </div>
       {modes.map((m) => {
         const cfg = perMode[m.code] ?? { enabled: true, customFields: [] }
@@ -452,6 +489,12 @@ function EntryModesConfigEditor({ config, modes, processes, portalSpIds, onUpdat
                 )} />
               </label>
             </div>
+
+            {!enabled && (
+              <div class="text-2xs text-fg-muted">
+                Desligado — os cursos {spsCount === 1 ? 'do processo' : `dos ${spsCount} processos`} com este modo não aparecem neste portal.
+              </div>
+            )}
 
             {enabled && (
               <>
@@ -583,7 +626,7 @@ function DocumentsConfigInfo() {
     <div class="text-2xs text-fg-muted leading-relaxed">
       A lista exata de documentos é definida pelo <strong>modo de ingresso</strong> de cada processo seletivo (ou pela personalização do processo, em Educacional → Processos Seletivos → Documentos).
       <br />
-      Após enviar a inscrição, o candidato é direcionado para uma página dedicada onde envia os documentos (PDF/JPG).
+      Se o candidato envia os documentos logo após a inscrição, no portal logado ou nos dois — e em que ordem — é definido na aba <strong>Etapas</strong> (etapa "Envio de documentos").
     </div>
   )
 }

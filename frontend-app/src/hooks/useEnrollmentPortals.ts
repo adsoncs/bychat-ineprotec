@@ -206,6 +206,8 @@ export interface BrandingInput {
   brandContentWidth?: string | null | undefined
   /** Textos da tela pública. Chave ausente = texto padrão do sistema. */
   brandLabels?: Record<string, string> | null | undefined
+  /** Aparência do formulário limpo (embed). Ver FormLimpoEditor. */
+  brandFormStyle?: Record<string, unknown> | null | undefined
 }
 
 export function useEnrollmentPortals() {
@@ -703,6 +705,28 @@ export function useBulkApproveAi(registrationId: number) {
         { minConfidence: input.minConfidence ?? 0.85, dryRun: input.dryRun ?? false },
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registration-review', registrationId] }),
+  })
+}
+
+/** Quem preencheu a captura de interesse (vira contato, não inscrição). */
+export interface PortalInteressado {
+  leadId: number
+  nome: string
+  email: string | null
+  whatsapp: string | null
+  etapa: string
+  funil: string | null
+  criadoEm: string
+  curso: string | null
+  inscricao: { id: number; codigo: string; portalId: number; em: string } | null
+}
+export function usePortalInteressados(portalId: number, search: string, offset: number) {
+  return useQuery({
+    queryKey: ['portal-interessados', portalId, search, offset],
+    queryFn: () => api.get<{ total: number; items: PortalInteressado[] }>(
+      `/admin/enrollment-portals/${portalId}/interessados?limit=50&offset=${offset}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+    ),
+    staleTime: 15_000,
   })
 }
 

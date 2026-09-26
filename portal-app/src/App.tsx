@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren, JSX } from 'preact'
 import {
   continuarPorToken,
-  carregarPortal, enviarInscricao, lerRascunho, marcarConversao, rotulo, salvarRascunho,
+  carregarPortal, enviarInscricao, enviarInteresse, lerRascunho, marcarConversao, rotulo, salvarRascunho,
   type DadosPortal, type Oferta, type Passo,
 } from './api'
 import { criarSenhaInicial } from './api'
-import { Pagamento } from './Pagamento'
+import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
-import { conclusaoDoPortal } from './api'
+import { conclusaoDoPortal, irPara, recomendarCursos, type Recomendacao } from './api'
 import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,6 +136,9 @@ export function App() {
   }, [slug, token])
 
   const offertasDisponiveis = dados?.offerings ?? []
+  // Forma de ingresso, curso e polo: o que tem uma opção só é escolhido
+  // sozinho e a pergunta não aparece; com mais de uma, a pessoa escolhe.
+  const escolha = useEscolhaDeOferta(offertasDisponiveis, valores, (n, v) => setValores((x) => ({ ...x, [n]: v })), true)
   const passos: Passo[] = (dados?.portal.formConfig?.steps ?? [])
   /**
    * Campos visíveis do passo.
@@ -150,6 +153,8 @@ export function App() {
     const oferta = offertasDisponiveis.find((o) => String(o.id) === String(valores.offeringId))
     const modo = oferta?.selectionProcess?.entryMode?.code
     return todos.filter((c) => {
+      // Escolha de curso toda resolvida sozinha (uma forma, um curso, um polo): some.
+      if (c.type === 'offering-picker') return escolha.algoAEscolher
       const exigidos = c.visibleWhen?.entryMode
       if (!Array.isArray(exigidos) || exigidos.length === 0) return true
       // Sem curso escolhido ainda, esconde o condicional em vez de exigir cego.
@@ -160,8 +165,18 @@ export function App() {
   // Um passo cujos campos são todos condicionais e não se aplicam vira etapa em
   // branco. Fora da lista: a pessoa não deve clicar "continuar" numa tela vazia.
   const passosVisiveis = passos.filter((p, i) => i === 0 || camposDoPasso(p).length > 0)
-  const totalPassos = passosVisiveis.length + 1 // +1 = revisão
-  const naRevisao = passo >= passosVisiveis.length
+  // Modo simplificado (Educacional › Dados por etapa): a inscrição é uma página
+  // só — o servidor já junta os passos — e sem tela de revisão: preencheu, enviou.
+  const simplificado = !!dados?.portal.formConfig?._simplificado
+  const totalPassos = passosVisiveis.length + (simplificado ? 0 : 1) // +1 = revisão
+  const naRevisao = !simplificado && passo >= passosVisiveis.length
+  const ultimoPasso = passo >= passosVisiveis.length - 1
+  // Simplificado = formulário limpo: só os campos e o botão, feito para embutir
+  // em outro site — sem logo, "Entrar", trilha, capa, títulos, resumo ou rodapé.
+  const limpo = simplificado
+  // Escolha de curso: formato da lista e se o valor aparece (aba Formulário).
+  const configCurso = passos.flatMap((p) => (p.fields ?? []) as Campo[]).find((c) => c.type === 'offering-picker')?.config
+  const mostrarValor = configCurso?.mostrarValor !== false
   const passoAtual = passosVisiveis[passo]
 
   // ── rascunho: local na hora, servidor com folga ──
@@ -181,7 +196,9 @@ export function App() {
     const out: Record<string, string> = {}
     for (const c of camposDoPasso(p)) {
       if (c.type === 'offering-picker') {
-        if (c.required && !valores[c.name]) out[c.name] = 'Escolha um curso para continuar.'
+        if (escolha.formaNecessaria && !valores._formaIngresso) out[c.name] = 'Escolha a forma de ingresso.'
+        else if (c.required && !valores[c.name]) out[c.name] = 'Escolha um curso para continuar.'
+        else if (escolha.poloNecessario && !valores.campusId) out[c.name] = 'Escolha o polo onde vai estudar.'
         continue
       }
       const e = erroDoCampo(c, String(valores[c.name] ?? ''))
@@ -205,6 +222,13 @@ export function App() {
     topo.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  /** Simplificado: valida a página e envia, sem passar pela revisão. */
+  function enviarDireto() {
+    const erros = errosDoPasso(passoAtual)
+    if (Object.keys(erros).length) { avancar(); return } // avancar marca e foca o primeiro erro
+    void enviar()
+  }
+
   function voltar() {
     setPasso((p) => Math.max(0, p - 1))
     topo.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -225,7 +249,7 @@ export function App() {
       // própria, campanha, matrícula) — respeitamos em vez de mostrar a nossa.
       const fim = dados ? conclusaoDoPortal(dados.portal) : null
       if (fim?.behavior === 'redirect' && fim.target) {
-        location.href = fim.target
+        irPara(fim.target)
         return
       }
       setTemSenha(r.temSenha === true)
@@ -252,6 +276,9 @@ export function App() {
   if (!dados) return <Esqueleto />
 
   const { portal, offerings } = dados
+  // Captura de interesse: formulário curto e limpo (feito para LPs e sites), que
+  // cria o contato e manda o link para terminar a inscrição no portal completo.
+  if (portal.formMode === 'interest') return <FormInteresse slug={slug} portal={portal} ofertas={offerings} />
   const ofertaEscolhida = offerings.find((o) => String(o.id) === String(valores.offeringId)) ?? null
 
   if (concluido) {
@@ -265,8 +292,48 @@ export function App() {
         abrirSenha={abrirSenha}
         aoAbrirSenha={() => setAbrirSenha(true)}
         aoCriarSenha={() => setTemSenha(true)}
-        passos={[...passosVisiveis.map((p) => p.name), rotulo(portal, 'revisao'), 'Pagamento']}
+        passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')]), 'Conclusão']}
+        limpo={limpo}
       />
+    )
+  }
+
+  const camposNaTela = camposDoPasso(passoAtual).map((campo) =>
+    campo.type === 'offering-picker' ? (
+      <EscolhaDeOferta
+        key={campo.name}
+        slug={slug}
+        campo={campo}
+        escolha={escolha}
+        valores={valores}
+        definir={definir}
+        erro={tocados[campo.name] ? errosDoPasso(passoAtual)[campo.name] : undefined}
+      />
+    ) : (
+      <CampoTexto
+        key={campo.name}
+        campo={campo}
+        valor={String(valores[campo.name] ?? '')}
+        tocado={!!tocados[campo.name]}
+        aoMudar={(v) => definir(campo.name, v)}
+        aoSair={() => setTocados((t) => ({ ...t, [campo.name]: true }))}
+      />
+    ),
+  )
+
+  if (limpo) {
+    return (
+      <div class="form-limpo" {...estiloDoFormLimpo(portal)}>
+        <div ref={topo} />
+        <div class="campos">{camposNaTela}</div>
+        <Consentimento marcado={!!valores._lgpd} aoMudar={(v) => definir('_lgpd', v)} />
+        {erroEnvio && <div class="aviso erro" role="alert">{erroEnvio}</div>}
+        <div class="acoes">
+          <button class="principal" onClick={() => valores._lgpd ? enviarDireto() : setErroEnvio('Marque que concorda com a política de privacidade para enviar.')} disabled={enviando}>
+            {enviando ? 'Enviando…' : rotulo(portal, 'enviar')}
+          </button>
+        </div>
+      </div>
     )
   }
 
@@ -279,7 +346,7 @@ export function App() {
         <BarraTopo
           portal={portal}
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
-          passos={[...passosVisiveis.map((p) => p.name), rotulo(portal, 'revisao')]}
+          passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')])]}
           atual={passo}
           total={totalPassos}
         />
@@ -289,7 +356,7 @@ export function App() {
           acesso={<AcessoNoTopo temSenha={temSenha} podeCriar={false} aoCriarSenha={() => {}} />}
           trilha={
             <Trilha
-              passos={[...passosVisiveis.map((p) => p.name), rotulo(portal, 'revisao')]}
+              passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')])]}
               atual={passo}
               total={totalPassos}
             />
@@ -316,30 +383,8 @@ export function App() {
         ) : (
           <>
             <h2>{passoAtual?.name}</h2>
-            <p class="sub">Etapa {passo + 1} de {totalPassos}</p>
-            <div class="campos">
-            {camposDoPasso(passoAtual).map((campo) =>
-              campo.type === 'offering-picker' ? (
-                <EscolhaDeCurso
-                  key={campo.name}
-                  campo={campo}
-                  ofertas={offerings}
-                  valor={String(valores[campo.name] ?? '')}
-                  aoEscolher={(id) => definir(campo.name, id)}
-                  erro={tocados[campo.name] ? errosDoPasso(passoAtual)[campo.name] : undefined}
-                />
-              ) : (
-                <CampoTexto
-                  key={campo.name}
-                  campo={campo}
-                  valor={String(valores[campo.name] ?? '')}
-                  tocado={!!tocados[campo.name]}
-                  aoMudar={(v) => definir(campo.name, v)}
-                  aoSair={() => setTocados((t) => ({ ...t, [campo.name]: true }))}
-                />
-              ),
-            )}
-            </div>
+            {totalPassos > 1 && <p class="sub">Etapa {passo + 1} de {totalPassos}</p>}
+            <div class="campos">{camposNaTela}</div>
           </>
         )}
 
@@ -347,8 +392,8 @@ export function App() {
 
         <div class="acoes">
           {passo > 0 && <button class="secundario" onClick={voltar} disabled={enviando}>{rotulo(portal, 'voltar')}</button>}
-          {naRevisao ? (
-            <button class="principal" onClick={enviar} disabled={enviando}>
+          {naRevisao || (simplificado && ultimoPasso) ? (
+            <button class="principal" onClick={naRevisao ? enviar : enviarDireto} disabled={enviando}>
               {enviando ? 'Enviando…' : rotulo(portal, 'enviar')}
             </button>
           ) : (
@@ -358,7 +403,7 @@ export function App() {
       </div>
 
       {!naRevisao && (ofertaEscolhida || portal.brandSummaryAlways) && (
-        <ResumoDaOferta oferta={ofertaEscolhida} portal={portal} />
+        <ResumoDaOferta oferta={ofertaEscolhida} portal={portal} mostrarValor={mostrarValor} />
       )}
 
       <Rodape portal={portal} />
@@ -544,6 +589,8 @@ function CampoTexto(props: {
           <option value="">Selecione…</option>
           {campo.options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
+      ) : campo.type === 'textarea' ? (
+        <textarea {...comum} rows={4} onInput={(e) => props.aoMudar((e.target as HTMLTextAreaElement).value)} />
       ) : (
         <input
           {...comum}
@@ -579,11 +626,33 @@ function EscolhaDeCurso(props: {
   erro?: string
 }) {
   const [busca, setBusca] = useState('')
+  const exibicao = props.campo.config?.exibicao ?? 'cartoes'
+  const comValor = props.campo.config?.mostrarValor !== false
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
     if (!q) return props.ofertas
     return props.ofertas.filter((o) => `${o.nome} ${o.turno ?? ''} ${o.complemento ?? ''}`.toLowerCase().includes(q))
   }, [busca, props.ofertas])
+
+  // Caixa de seleção: o formato mais enxuto — um campo que abre a lista.
+  if (exibicao === 'suspensa') {
+    return (
+      <div class={`campo ${props.erro ? 'ruim' : ''}`}>
+        <label for="c_curso">{props.campo.label}</label>
+        <select id="c_curso" name={props.campo.name} value={props.valor}
+          aria-invalid={props.erro ? true : undefined}
+          onChange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) props.aoEscolher(Number(v)) }}>
+          <option value="">Selecione o curso…</option>
+          {props.ofertas.map((o) => {
+            const valor = comValor ? dinheiro(o.valorMensalidade) : null
+            const det = detalheDaOferta(o)
+            return <option key={o.id} value={o.id}>{o.nome}{det ? ` · ${det}` : ''}{valor ? ` — ${valor}/mês` : ''}</option>
+          })}
+        </select>
+        {props.erro && <span class="erro" role="alert">{props.erro}</span>}
+      </div>
+    )
+  }
 
   return (
     <div class={`campo ${props.erro ? 'ruim' : ''}`}>
@@ -598,10 +667,10 @@ function EscolhaDeCurso(props: {
           />
         </div>
       )}
-      <div class="cursos">
+      <div class={`cursos ${exibicao === 'lista' ? 'compacta' : ''}`}>
         {filtradas.length === 0 && <div class="vazio">Nenhum curso encontrado para “{busca}”.</div>}
         {filtradas.map((o) => {
-          const valor = dinheiro(o.valorMensalidade)
+          const valor = comValor ? dinheiro(o.valorMensalidade) : null
           return (
             <button
               type="button"
@@ -635,7 +704,7 @@ function detalheDaOferta(o: Oferta): string {
   return partes.join(' · ')
 }
 
-function ResumoDaOferta({ oferta, portal }: { oferta: Oferta | null; portal: DadosPortal['portal'] }) {
+function ResumoDaOferta({ oferta, portal, mostrarValor = true }: { oferta: Oferta | null; portal: DadosPortal['portal']; mostrarValor?: boolean }) {
   // Sem curso escolhido o resumo continua na tela, dizendo o que vai aparecer
   // ali. Uma coluna que some e volta faz a página pular embaixo da pessoa.
   if (!oferta) {
@@ -647,9 +716,10 @@ function ResumoDaOferta({ oferta, portal }: { oferta: Oferta | null; portal: Dad
     )
   }
 
-  const mensalidade = dinheiro(oferta.valorMensalidade)
-  const matricula = dinheiro(oferta.valorMatricula)
-  const taxa = dinheiro(oferta.selectionProcess?.taxaInscricao)
+  // Valor desligado na escolha de curso: o resumo também não mostra.
+  const mensalidade = mostrarValor ? dinheiro(oferta.valorMensalidade) : null
+  const matricula = mostrarValor ? dinheiro(oferta.valorMatricula) : null
+  const taxa = mostrarValor ? dinheiro(oferta.selectionProcess?.taxaInscricao) : null
   const etiquetas = [oferta.level?.nome, oferta.modality?.nome].filter(Boolean) as string[]
   const observacao = rotulo(portal, 'resumoObservacao')
 
@@ -710,6 +780,9 @@ function Revisao(props: {
             {(p.fields ?? []).some((c) => c.type === 'offering-picker') && (
               <div class="item"><span>Curso</span><b>{props.oferta?.nome ?? '—'}</b></div>
             )}
+            {(p.fields ?? []).some((c) => c.type === 'offering-picker') && (props.oferta?.campuses?.length ?? 0) > 1 && (
+              <div class="item"><span>Polo</span><b>{props.oferta?.campuses?.find((x) => String(x.campus.id) === String(props.valores.campusId))?.campus.nome ?? '—'}</b></div>
+            )}
           </div>
         )
       })}
@@ -734,6 +807,8 @@ function Concluido(props: {
   aoCriarSenha: () => void
   /** A trilha acompanha até aqui: a última etapa é o pagamento. */
   passos: string[]
+  /** Formulário limpo (embutido): só a confirmação e os próximos passos. */
+  limpo?: boolean
 }) {
   const [pago, setPago] = useState(false)
   const [senha, setSenha] = useState('')
@@ -771,6 +846,30 @@ function Concluido(props: {
       setSalvando(false)
     }
   }
+
+  // Embutido em outro site: confirmação e próximos passos, sem topo, trilha,
+  // convite de senha nem rodapé — o resto da página é de quem hospeda.
+  if (props.limpo) {
+    return (
+      <div class="form-limpo fim" {...estiloDoFormLimpo(props.portal)}>
+        <div class="marca" aria-hidden="true">✓</div>
+        <h2>Inscrição recebida</h2>
+        <div class="codigo">{props.codigo}</div>
+        {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
+        {props.pagamentoUrl ? (
+          <a href={props.pagamentoUrl} target="_top"><button class="principal">Pagar agora</button></a>
+        ) : !props.token && !props.mensagem ? (
+          <p class="sub">Enviamos os próximos passos para o seu WhatsApp.</p>
+        ) : null}
+        {props.token && !props.pagamentoUrl && (
+          <div style="margin-top:14px;text-align:left">
+            <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div class="pagina">
       <Cabecalho
@@ -796,16 +895,20 @@ function Concluido(props: {
         <p class="sub">Guarde este código — ele identifica sua inscrição.</p>
         <div class="codigo">{props.codigo}</div>
         {props.oferta && <p class="sub">{props.oferta.nome}</p>}
+        {/* A mensagem configurada (janela do portal / bloco Conclusão) vem
+            primeiro, sempre. Antes ela só aparecia quando não havia próximos
+            passos — ou seja, quase nunca. */}
+        {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
         {props.pagamentoUrl ? (
           <>
             <p class="sub">Falta concluir o pagamento para a inscrição valer.</p>
             <a href={props.pagamentoUrl}><button class="principal">Pagar agora</button></a>
           </>
-        ) : props.precisaPagar && props.token && !pago ? (
-          <p class="sub">Falta concluir o pagamento — escolha abaixo como pagar.</p>
-        ) : (
-          <p class="sub">{props.mensagem || 'Enviamos os próximos passos para o seu WhatsApp.'}</p>
-        )}
+        ) : props.token && !pago ? (
+          <p class="sub">Siga os próximos passos abaixo para concluir.</p>
+        ) : !props.mensagem ? (
+          <p class="sub">Enviamos os próximos passos para o seu WhatsApp.</p>
+        ) : null}
 
         {/* O painel de senha deixou de vir aberto; sem este convite, criar
             acesso sumiria da vista de quem acabou de se inscrever — e é aqui
@@ -820,18 +923,15 @@ function Concluido(props: {
         )}
       </div>
 
-      {props.precisaPagar && props.token && !props.pagamentoUrl && !pago && (
-        <div style="margin-top:14px;text-align:left">
-          <Pagamento codigo={props.codigo} token={props.token} aoConfirmar={() => setPago(true)} />
+      {/* Etapas depois da inscrição, na ordem que o portal escolheu
+          (pagamento, documentos, contrato, redação). Sem nenhuma aplicável,
+          não aparece nada — a tela fica como antes. */}
+      {props.token && !props.pagamentoUrl && (
+        <div class="cartao" style="margin-top:14px;text-align:left">
+          <Jornada codigo={props.codigo} token={props.token} contexto="inscricao" aoConcluirTudo={() => setPago(true)} />
         </div>
       )}
 
-      {pago && (
-        <div class="cartao" style="margin-top:14px">
-          <h2 style="font-size:17px">Pagamento confirmado</h2>
-          <p class="sub">Sua inscrição está completa. Avisamos os próximos passos pelo WhatsApp.</p>
-        </div>
-      )}
 
       {props.token && !pronto && !props.temSenha && props.abrirSenha && (
         <div class="cartao painel-senha" ref={painelSenha} style="margin-top:14px;text-align:left">
@@ -890,6 +990,333 @@ function Esqueleto() {
       <div class="esqueleto" style="height:120px;margin-bottom:18px" />
       <div class="esqueleto" style="height:14px;margin-bottom:18px" />
       <div class="esqueleto" style="height:340px" />
+    </div>
+  )
+}
+
+
+/**
+ * Uma linha de consentimento (LGPD). No formulário limpo não há tela de
+ * revisão onde isso apareceria — e o servidor não aceita envio sem ele.
+ */
+function Consentimento(props: { marcado: boolean; aoMudar: (v: boolean) => void }) {
+  return (
+    <label class="consentimento">
+      <input type="checkbox" checked={props.marcado} onChange={(e) => props.aoMudar((e.target as HTMLInputElement).checked)} />
+      <span>Concordo com o uso dos meus dados para contato sobre a inscrição, conforme a política de privacidade.</span>
+    </label>
+  )
+}
+
+/** Captura de interesse: nome, WhatsApp, e-mail e curso — e só. */
+function FormInteresse(props: { slug: string; portal: DadosPortal['portal']; ofertas: Oferta[] }) {
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const [tocados, setTocados] = useState<Record<string, boolean>>({})
+  const [lgpd, setLgpd] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [pronto, setPronto] = useState(false)
+  // Curso de interesse: uma forma de ingresso / um curso → escolhido sozinho.
+  // Polo não se pergunta aqui — fica para a inscrição completa.
+  const escolha = useEscolhaDeOferta(props.ofertas, valores, (n, v) => setValores((x) => ({ ...x, [n]: String(v) })), false)
+
+  // Formato da escolha de curso vem do formulário do portal, se houver; senão a
+  // caixa de seleção, que é o que cabe num formulário curto.
+  const configPicker = (props.portal.formConfig?.steps ?? []).flatMap((p) => (p.fields ?? []) as Campo[])
+    .find((c) => c.type === 'offering-picker')?.config
+  const campos: Campo[] = [
+    { type: 'text', name: 'nome', label: 'Nome completo', required: true },
+    { type: 'phone', name: 'whatsapp', label: 'WhatsApp', required: true },
+    { type: 'email', name: 'email', label: 'E-mail', required: false },
+  ]
+  const curso: Campo = {
+    type: 'offering-picker', name: 'offeringId', label: 'Curso de interesse', required: false,
+    config: { exibicao: configPicker?.exibicao ?? 'suspensa', mostrarValor: configPicker?.mostrarValor !== false },
+  }
+
+  async function enviar() {
+    const erros = campos.map((c) => [c.name, erroDoCampo(c, valores[c.name] ?? '')] as const).filter(([, e]) => e)
+    if (erros.length) {
+      setTocados(Object.fromEntries(campos.map((c) => [c.name, true])))
+      document.querySelector<HTMLElement>(`[name="${erros[0]![0]}"]`)?.focus()
+      return
+    }
+    if (!lgpd) { setErro('Marque que concorda com a política de privacidade para enviar.'); return }
+    setEnviando(true)
+    setErro(null)
+    try {
+      await enviarInteresse(props.slug, { ...valores, lgpdConsent: true })
+      marcarConversao('interesse', props.portal.nome)
+      // Conclusão configurada: redirecionar leva a página inteira (o formulário
+      // costuma estar embutido); mensagem substitui o texto padrão.
+      const fim = conclusaoDoPortal(props.portal)
+      if (fim?.behavior === 'redirect' && fim.target) { irPara(fim.target); return }
+      setPronto(true)
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  if (pronto) {
+    return (
+      <div class="form-limpo fim" {...estiloDoFormLimpo(props.portal)}>
+        <div class="marca" aria-hidden="true">✓</div>
+        {conclusaoDoPortal(props.portal)?.message
+          ? <p class="mensagem-final">{conclusaoDoPortal(props.portal)!.message}</p>
+          : <>
+              <h2>Recebemos seu interesse</h2>
+              <p class="sub">Enviamos no seu WhatsApp o link para continuar a inscrição.</p>
+            </>}
+      </div>
+    )
+  }
+
+  return (
+    <div class="form-limpo" {...estiloDoFormLimpo(props.portal)}>
+      <div class="campos">
+        {campos.map((c) => (
+          <CampoTexto key={c.name} campo={c} valor={valores[c.name] ?? ''} tocado={!!tocados[c.name]}
+            aoMudar={(v) => setValores((x) => ({ ...x, [c.name]: v }))}
+            aoSair={() => setTocados((t) => ({ ...t, [c.name]: true }))} />
+        ))}
+        {props.ofertas.length > 0 && escolha.algoAEscolher && (
+          <EscolhaDeOferta slug={props.slug} campo={curso} escolha={escolha} valores={valores}
+            definir={(n, v) => setValores((x) => ({ ...x, [n]: String(v) }))} />
+        )}
+      </div>
+      <Consentimento marcado={lgpd} aoMudar={setLgpd} />
+      {erro && <div class="aviso erro" role="alert">{erro}</div>}
+      <div class="acoes">
+        <button class="principal" onClick={enviar} disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar'}</button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Aparência do formulário limpo (aba Branding › Formulário limpo) como
+ * variáveis CSS na raiz dele. Só entra o que foi configurado — o resto segue o
+ * padrão da folha de estilo (.form-limpo em estilo.css).
+ */
+function estiloDoFormLimpo(portal: DadosPortal['portal']): { style?: string; 'data-borda'?: string; 'data-moldura'?: string } {
+  const f = portal.brandFormStyle
+  if (!f) return {}
+  const v: string[] = []
+  const px = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? `${n}px` : null)
+  const cor = (c: unknown) => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : null)
+  const borda = { nenhuma: '0px', fina: '1px', grossa: '2px', linha: '1px' }[f.bordaCampo ?? ''] ?? null
+  const altura = { compacta: '8px', padrao: '12px', ampla: '16px' }[f.alturaCampo ?? ''] ?? null
+  if (borda) v.push(`--fl-borda:${borda}`)
+  if (cor(f.corBorda)) v.push(`--fl-cor-borda:${f.corBorda}`)
+  if (cor(f.corFundoCampo)) v.push(`--fl-fundo-campo:${f.corFundoCampo}`)
+  if (px(f.raioCampo)) v.push(`--fl-raio:${px(f.raioCampo)}`)
+  if (altura) v.push(`--fl-altura:${altura}`)
+  if (px(f.espacoCampos)) v.push(`--fl-gap:${px(f.espacoCampos)}`)
+  if (px(f.respiro)) v.push(`--fl-respiro:${px(f.respiro)}`)
+  if (px(f.raioMoldura)) v.push(`--fl-raio-moldura:${px(f.raioMoldura)}`)
+  if (cor(f.corFundo)) v.push(`--fl-fundo:${f.corFundo}`)
+  return {
+    ...(v.length ? { style: v.join(';') } : {}),
+    ...(f.bordaCampo === 'linha' ? { 'data-borda': 'linha' } : {}),
+    ...(f.moldura ? { 'data-moldura': 'sim' } : {}),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Escolha da oferta: forma de ingresso → curso → polo, perguntando só o que
+// tem mais de uma opção.
+
+type Escolha = ReturnType<typeof useEscolhaDeOferta>
+
+function useEscolhaDeOferta(
+  ofertas: Oferta[],
+  valores: Record<string, unknown>,
+  definir: (nome: string, valor: string | number) => void,
+  comPolo: boolean,
+) {
+  const modos = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const o of ofertas) {
+      const em = o.selectionProcess?.entryMode
+      if (em?.code) m.set(em.code, em.name)
+    }
+    return [...m].map(([code, name]) => ({ code, name }))
+  }, [ofertas])
+  const formaNecessaria = modos.length > 1
+  const forma = formaNecessaria ? String(valores._formaIngresso ?? '') : (modos[0]?.code ?? '')
+  const filtradas = formaNecessaria
+    ? (forma ? ofertas.filter((o) => o.selectionProcess?.entryMode?.code === forma) : [])
+    : ofertas
+  const oferta = ofertas.find((o) => String(o.id) === String(valores.offeringId ?? '')) ?? null
+  const polos = comPolo ? (oferta?.campuses ?? []).map((c) => c.campus) : []
+  const cursoNecessario = filtradas.length > 1 || (formaNecessaria && !forma)
+  const poloNecessario = polos.length > 1
+
+  // Uma opção só: escolhe sozinho. Trocar a forma de ingresso limpa o curso
+  // que não pertence mais a ela; trocar o curso limpa o polo que não é dele.
+  useEffect(() => {
+    if (!ofertas.length) return
+    if (oferta && !filtradas.some((o) => o.id === oferta.id)) { definir('offeringId', ''); definir('campusId', ''); return }
+    if (filtradas.length === 1 && String(valores.offeringId ?? '') !== String(filtradas[0]!.id)) definir('offeringId', filtradas[0]!.id)
+  }, [ofertas, forma, filtradas.length, oferta?.id])
+  useEffect(() => {
+    if (!comPolo) return
+    if (polos.length === 1 && String(valores.campusId ?? '') !== String(polos[0]!.id)) definir('campusId', polos[0]!.id)
+    else if (polos.length > 1 && valores.campusId && !polos.some((p) => String(p.id) === String(valores.campusId))) definir('campusId', '')
+  }, [oferta?.id, polos.length])
+
+  return {
+    modos, formaNecessaria, forma, filtradas, oferta, polos, cursoNecessario, poloNecessario,
+    algoAEscolher: formaNecessaria || cursoNecessario || poloNecessario,
+  }
+}
+
+function EscolhaDeOferta(props: {
+  slug: string
+  campo: Campo
+  escolha: Escolha
+  valores: Record<string, unknown>
+  definir: (nome: string, valor: string | number) => void
+  erro?: string | undefined
+}) {
+  const e = props.escolha
+  const campoForma: Campo = {
+    type: 'select', name: '_formaIngresso', label: 'Forma de ingresso', required: !!props.campo.required,
+    options: e.modos.map((m) => m.name),
+  }
+  const nomeDaForma = e.modos.find((m) => m.code === e.forma)?.name ?? ''
+  // Quiz: como modo (abre primeiro) ou como atalho acima da lista.
+  const modoPicker = props.campo.config?.mode ?? 'list'
+  const comQuiz = modoPicker === 'quiz' || !!props.campo.config?.quizHelperEnabled
+  const [quizAberto, setQuizAberto] = useState(modoPicker === 'quiz' && !props.valores.offeringId)
+  return (
+    <>
+      {e.formaNecessaria && (
+        <div class="campo">
+          <label for="c_forma">Forma de ingresso</label>
+          <select id="c_forma" name="_formaIngresso" value={nomeDaForma}
+            onChange={(ev) => {
+              const nome = (ev.target as HTMLSelectElement).value
+              props.definir('_formaIngresso', e.modos.find((m) => m.name === nome)?.code ?? '')
+            }}>
+            <option value="">Selecione…</option>
+            {campoForma.options!.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      )}
+      {e.cursoNecessario && e.filtradas.length > 0 && (quizAberto ? (
+        <QuizCurso
+          slug={props.slug}
+          ofertas={e.filtradas}
+          comValor={props.campo.config?.mostrarValor !== false}
+          aoEscolher={(id) => { props.definir('offeringId', id); setQuizAberto(false) }}
+          aoVerTodos={() => setQuizAberto(false)}
+        />
+      ) : (
+        <>
+          {comQuiz && (
+            <button type="button" class="como-link me-ajude" onClick={() => setQuizAberto(true)}>
+              Me ajude a escolher
+            </button>
+          )}
+          <EscolhaDeCurso
+            campo={props.campo}
+            ofertas={e.filtradas}
+            valor={String(props.valores.offeringId ?? '')}
+            aoEscolher={(id) => props.definir('offeringId', id)}
+          />
+        </>
+      ))}
+      {e.poloNecessario && (
+        <div class="campo">
+          <label for="c_polo">Polo</label>
+          <select id="c_polo" name="campusId" value={String(props.valores.campusId ?? '')}
+            onChange={(ev) => props.definir('campusId', (ev.target as HTMLSelectElement).value)}>
+            <option value="">Selecione o polo…</option>
+            {e.polos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.cidade ? ` — ${p.cidade}${p.estado ? '/' + p.estado : ''}` : ''}</option>)}
+          </select>
+        </div>
+      )}
+      {props.erro && <span class="erro" role="alert">{props.erro}</span>}
+    </>
+  )
+}
+
+/** "Me ajude a escolher": poucas perguntas e os cursos que mais combinam. */
+function QuizCurso(props: {
+  slug: string
+  ofertas: Oferta[]
+  comValor: boolean
+  aoEscolher: (id: number) => void
+  aoVerTodos: () => void
+}) {
+  const unicos = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))]
+  const modalidades = unicos(props.ofertas.map((o) => o.modality?.nome))
+  const turnos = unicos(props.ofertas.map((o) => o.turno))
+  const [r, setR] = useState<Record<string, string>>({})
+  const [recs, setRecs] = useState<Recomendacao[] | null>(null)
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const ids = new Set(props.ofertas.map((o) => o.id))
+
+  async function buscar() {
+    setCarregando(true); setErro(null)
+    try {
+      const x = await recomendarCursos(props.slug, {
+        area: r.area ?? '', modality: r.modality ?? '', time_available: r.turno ?? '', budget: r.budget ?? '',
+      })
+      // Só o que está na lista desta etapa (forma de ingresso escolhida, filtros do portal).
+      setRecs(x.recommendations.filter((c) => ids.has(c.offeringId)))
+    } catch (e: any) { setErro(e.message) } finally { setCarregando(false) }
+  }
+
+  const sel = (nome: string, rotulo: string, opcoes: string[]) => opcoes.length > 1 && (
+    <div class="campo">
+      <label for={`q_${nome}`}>{rotulo}</label>
+      <select id={`q_${nome}`} value={r[nome] ?? ''} onChange={(e) => setR((x) => ({ ...x, [nome]: (e.target as HTMLSelectElement).value }))}>
+        <option value="">Tanto faz</option>
+        {opcoes.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+
+  return (
+    <div class="quiz-curso">
+      <div class="campo">
+        <label for="q_area">Que área ou profissão te interessa?</label>
+        <input id="q_area" value={r.area ?? ''} placeholder="Ex.: saúde, tecnologia, educação"
+          onInput={(e) => setR((x) => ({ ...x, area: (e.target as HTMLInputElement).value }))} />
+      </div>
+      {sel('modality', 'Modalidade', modalidades)}
+      {sel('turno', 'Turno', turnos)}
+      {props.comValor && (
+        <div class="campo">
+          <label for="q_budget">Quanto pode investir por mês? <span class="opcional">(opcional)</span></label>
+          <input id="q_budget" inputMode="numeric" value={r.budget ?? ''} placeholder="Ex.: 800"
+            onInput={(e) => setR((x) => ({ ...x, budget: (e.target as HTMLInputElement).value.replace(/\D/g, '') }))} />
+        </div>
+      )}
+      <div class="acoes" style="margin-top:4px">
+        <button type="button" class="secundario" onClick={buscar} disabled={carregando}>{carregando ? 'Buscando…' : 'Ver cursos indicados'}</button>
+      </div>
+      {erro && <div class="aviso erro" role="alert">{erro}</div>}
+      {recs && (recs.length ? (
+        <div class="cursos" style="margin-top:12px">
+          {recs.map((c) => (
+            <button type="button" class="curso" key={c.offeringId} onClick={() => props.aoEscolher(c.offeringId)}>
+              <span>
+                {/* Nome da oferta ("Administração — EAD Noturno"): o do curso
+                    sozinho repetia "Administração" para cada turno. */}
+                <span class="t">{props.ofertas.find((o) => o.id === c.offeringId)?.nome ?? c.courseName}</span>
+                <span class="d">{[c.modality, c.turno].filter(Boolean).join(' · ')}{c.matchReasons.length ? ` — ${c.matchReasons.join(', ')}` : ''}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : <div class="aviso info">Nenhum curso combinou com essas respostas. Veja a lista completa.</div>)}
+      <button type="button" class="como-link" style="margin-top:10px" onClick={props.aoVerTodos}>Ver todos os cursos</button>
     </div>
   )
 }

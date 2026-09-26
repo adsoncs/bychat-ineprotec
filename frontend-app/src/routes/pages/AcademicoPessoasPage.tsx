@@ -298,6 +298,11 @@ function FichaCompleta({ id, onBack }: { id: number; onBack: () => void }) {
           <Input label="Moradia (própria/alugada…)" value={f.socio.moradia} onInput={(e: any) => setJ('socio', 'moradia', e.currentTarget.value)} />
           <Input label="Com quem mora" value={f.socio.comQuemMora} onInput={(e: any) => setJ('socio', 'comQuemMora', e.currentTarget.value)} />
           <Input label="Povo indígena (se houver)" value={f.socio.povoIndigena} onInput={(e: any) => setJ('socio', 'povoIndigena', e.currentTarget.value)} />
+          {/* Mesmas chaves do catálogo de dados do portal (backend services/dadosCadastro.ts) */}
+          <Input label="Escola onde concluiu o ensino médio" value={f.socio.escolaOrigem} onInput={(e: any) => setJ('socio', 'escolaOrigem', e.currentTarget.value)} />
+          <Input label="Tipo de escola do ensino médio" value={f.socio.tipoEscolaEM} onInput={(e: any) => setJ('socio', 'tipoEscolaEM', e.currentTarget.value)} />
+          <Input label="Ano de conclusão do ensino médio" value={f.socio.anoConclusaoEM} onInput={(e: any) => setJ('socio', 'anoConclusaoEM', e.currentTarget.value)} />
+          <Input label="Deficiência, TEA ou altas habilidades" value={f.socio.deficiencia} onInput={(e: any) => setJ('socio', 'deficiencia', e.currentTarget.value)} />
           <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.socio.beneficioGov} onChange={(e: any) => setJ('socio', 'beneficioGov', e.currentTarget.checked)} /> Recebe benefício governamental</label>
           <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.socio.transporteEscolarPublico} onChange={(e: any) => setJ('socio', 'transporteEscolarPublico', e.currentTarget.checked)} /> Usa transporte escolar público</label>
           <label class="flex items-center gap-2 text-sm text-fg-muted"><input type="checkbox" checked={!!f.socio.internetDomicilio} onChange={(e: any) => setJ('socio', 'internetDomicilio', e.currentTarget.checked)} /> Internet no domicílio</label>

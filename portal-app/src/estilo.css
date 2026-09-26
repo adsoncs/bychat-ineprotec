@@ -713,3 +713,85 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 @media (prefers-reduced-motion: reduce) {
   .painel-senha { animation-duration: .01ms; }
 }
+
+/* ── Jornada: etapas depois da inscrição, na ordem do portal ───────── */
+.jornada-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.jornada-topo h2 { margin: 0; font-size: 18px; }
+.jornada-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.etapa-jornada { border: 1px solid var(--linha); border-radius: var(--raio); background: var(--papel); }
+.etapa-jornada.aberta { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
+.etapa-cabeca { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.etapa-num {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; border: 2px solid var(--linha); color: var(--tinta-2);
+}
+.etapa-jornada.aberta .etapa-num { border-color: var(--marca); color: var(--marca); }
+.etapa-jornada.feito .etapa-num, .etapa-jornada.aguardando .etapa-num { background: var(--marca); border-color: var(--marca); color: #fff; }
+.etapa-txt { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.etapa-txt .sub { margin: 0; font-size: 13px; }
+.etapa-status { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--fundo); color: var(--tinta-2); white-space: nowrap; }
+.etapa-status.feito { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.etapa-status.aguardando { color: var(--marca); background: var(--marca-suave); }
+.etapa-corpo { padding: 0 14px 14px; }
+.etapa-corpo > .cartao { box-shadow: none; border: 0; padding: 0; margin: 0; }
+.etapa-corpo .adiar { display: block; margin: 12px auto 0; }
+.docs-embutidos > .cartao { box-shadow: none; border: 0; padding: 0; }
+.docs-embutidos > .cartao + .cartao, .docs-embutidos .doc { margin-top: 10px; }
+@media (max-width: 560px) {
+  .etapa-cabeca { flex-wrap: wrap; }
+  .etapa-status { order: 3; margin-left: 40px; }
+}
+
+/* ── Redação online ────────────────────────────────────────────────── */
+.regras-redacao { margin: 0 0 14px; padding-left: 18px; color: var(--tinta-2); font-size: 14px; display: grid; gap: 4px; }
+.redacao .tema { background: var(--marca-suave); border-radius: var(--raio); padding: 12px 14px; margin-bottom: 12px; }
+.redacao .tema p { margin: 4px 0 0; white-space: pre-wrap; }
+.redacao-barra { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--tinta-2); margin-bottom: 6px; }
+.redacao-barra .alerta { color: var(--erro); font-weight: 700; }
+.texto-redacao { width: 100%; min-height: 320px; padding: 12px; font: inherit; font-size: 16px; line-height: 1.6; border: 1px solid var(--linha); border-radius: var(--raio); resize: vertical; margin-bottom: 12px; }
+.texto-redacao:focus { outline: 2px solid var(--marca); outline-offset: 1px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   FORMULÁRIO LIMPO (modo simplificado) — para embutir em outro site:
+   só os campos e o botão, sem cartão, sombra, fundo nem largura fixa.
+   ═══════════════════════════════════════════════════════════════ */
+.form-limpo { max-width: none; margin: 0; padding: 4px 2px 12px; background: transparent; }
+.form-limpo .acoes { margin-top: 16px; }
+.form-limpo.fim { text-align: center; }
+.form-limpo.fim h2 { margin: 6px 0 4px; font-size: 19px; }
+
+/* ── Lista de cursos compacta: uma linha por curso ──────────── */
+.cursos.compacta { gap: 0; max-height: 260px; border: 1px solid var(--linha); border-radius: var(--raio); padding: 0; }
+.cursos.compacta .curso {
+  border: 0; border-bottom: 1px solid var(--linha); border-radius: 0;
+  padding: 9px 12px; min-height: 0; box-shadow: none;
+}
+.cursos.compacta .curso:last-child { border-bottom: 0; }
+.cursos.compacta .curso .t { font-size: 14px; font-weight: 500; }
+.cursos.compacta .curso .d { font-size: 12px; }
+.cursos.compacta .curso .v { font-size: 13px; }
+.cursos.compacta .curso[aria-pressed="true"] { background: var(--marca-suave); box-shadow: inset 3px 0 0 var(--marca); }
+.consentimento { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; font-size: 13px; color: var(--tinta-2); cursor: pointer; }
+.consentimento input { margin-top: 3px; }
+
+/* ── Aparência configurável do formulário limpo (aba Branding) ──────────
+   Cada variável só existe quando configurada; sem ela vale o padrão. */
+.form-limpo { padding: var(--fl-respiro, 4px 2px 12px); background: var(--fl-fundo, transparent); }
+.form-limpo[data-moldura='sim'] { border: 1px solid var(--fl-cor-borda, var(--linha)); border-radius: var(--fl-raio-moldura, var(--raio)); }
+.form-limpo .campo { margin-bottom: var(--fl-gap, 16px); }
+.form-limpo .campo input, .form-limpo .campo select, .form-limpo .campo textarea {
+  border-width: var(--fl-borda, 1px);
+  border-color: var(--fl-cor-borda, var(--linha));
+  border-radius: var(--fl-raio, calc(var(--raio) - 4px));
+  background: var(--fl-fundo-campo, var(--papel));
+  padding-top: var(--fl-altura, 12px); padding-bottom: var(--fl-altura, 12px);
+}
+.form-limpo[data-borda='linha'] .campo input, .form-limpo[data-borda='linha'] .campo select, .form-limpo[data-borda='linha'] .campo textarea {
+  border-width: 0 0 1px 0; border-radius: 0; padding-left: 2px; padding-right: 2px;
+}
+.form-limpo .cursos.compacta, .form-limpo .curso { border-color: var(--fl-cor-borda, var(--linha)); }
+.form-limpo .cursos.compacta { border-radius: var(--fl-raio, var(--raio)); }
+.form-limpo .consentimento { margin-top: var(--fl-gap, 14px); }
+.mensagem-final { margin: 8px 0 12px; font-size: 16px; color: var(--tinta); white-space: pre-line; }
+.me-ajude { margin: 0 0 8px; }
+.quiz-curso { border: 1px dashed var(--linha); border-radius: var(--raio); padding: 14px; margin-bottom: 14px; }

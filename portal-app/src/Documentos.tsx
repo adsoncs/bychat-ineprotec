@@ -17,7 +17,11 @@ const MAX_BYTES = 25 * 1024 * 1024
 
 const tamanho = (b: number) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} kB`)
 
-export function Documentos() {
+/**
+ * `token` + `embutido`: a mesma tela dentro do fluxo de inscrição (etapa
+ * "Documentos"), autenticada pelo token da inscrição, sem cabeçalho de página.
+ */
+export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?: () => void } = {}) {
   const [dados, setDados] = useState<Candidato | null>(null)
   const [falha, setFalha] = useState<string | null>(null)
   const [enviando, setEnviando] = useState<string | null>(null)
@@ -26,9 +30,9 @@ export function Documentos() {
 
   async function recarregar() {
     try {
-      const d = await carregarCandidato()
+      const d = await carregarCandidato(props.token)
       // Branding completo (fonte, cantos, fundo, botões); a cor vem logo abaixo.
-      void carregarMarca()
+      if (!props.embutido) void carregarMarca()
       // A identidade da instituição vale na área logada também: sem isto a
       // pessoa sai do portal roxo e cai numa tela com a cor padrão do sistema.
       if (d.portal?.brandPrimaryColor) {
@@ -39,7 +43,7 @@ export function Documentos() {
       setDados(d)
     } catch (e: any) {
       // 401 aqui quer dizer sessão vencida — a saída é entrar de novo.
-      if (/expirad|inválid/i.test(e.message)) { location.href = '/portal/login'; return }
+      if (!props.embutido && /expirad|inválid/i.test(e.message)) { location.href = '/portal/login'; return }
       setFalha(e.message)
     }
   }
@@ -92,8 +96,9 @@ export function Documentos() {
         return
       }
       if (r.comprimido) setNotas((n) => ({ ...n, [codigo]: `Foto reduzida de ${tamanho(r.de)} para ${tamanho(r.para)} antes de enviar.` }))
-      await enviarDocumento(codigo, exig.documentType.name, r.arquivo)
+      await enviarDocumento(codigo, exig.documentType.name, r.arquivo, props.token)
       await recarregar()
+      props.aoMudar?.()
     } catch (e: any) {
       setErros((er) => ({ ...er, [codigo]: e.message }))
     } finally {
@@ -102,17 +107,20 @@ export function Documentos() {
   }
 
   async function remover(id: number) {
-    await removerDocumento(id).catch(() => null)
+    await removerDocumento(id, props.token).catch(() => null)
     await recarregar()
+    props.aoMudar?.()
   }
 
   return (
-    <div class="pagina">
-      <div class="topo">
-        {dados.portal.brandLogoUrl
-          ? <img src={dados.portal.brandLogoUrl} alt={dados.portal.nome} />
-          : <span class="nome">{dados.portal.nome}</span>}
-      </div>
+    <div class={props.embutido ? 'docs-embutidos' : 'pagina'}>
+      {!props.embutido && (
+        <div class="topo">
+          {dados.portal.brandLogoUrl
+            ? <img src={dados.portal.brandLogoUrl} alt={dados.portal.nome} />
+            : <span class="nome">{dados.portal.nome}</span>}
+        </div>
+      )}
 
       <div class="cartao" style="margin-bottom:14px">
         <h2>Seus documentos</h2>
@@ -150,7 +158,7 @@ export function Documentos() {
         />
       ))}
 
-      {dados.portal.brandFooterText && <div class="rodape">{dados.portal.brandFooterText}</div>}
+      {!props.embutido && dados.portal.brandFooterText && <div class="rodape">{dados.portal.brandFooterText}</div>}
     </div>
   )
 }

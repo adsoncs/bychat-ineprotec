@@ -4131,6 +4131,11 @@ model EnrollmentPortal {
   brandSecondaryColor  String?  @db.VarChar(20)
   brandTypeScale       String?  @db.VarChar(20) // compacta | padrao | ampla
   brandContentWidth    String?  @db.VarChar(20) // estreita | padrao | ampla
+  /// Aparência do formulário limpo (modo simplificado / captura de interesse,
+  /// o que vai embutido em outro site): borda, cor, arredondamento e altura
+  /// dos campos, espaço entre eles, respiro e moldura. Ver portal-app/estilo.css
+  /// (.form-limpo). Chave ausente = padrão.
+  brandFormStyle          Json?
   /// Textos da interface do portal (botões, títulos do resumo, rótulo da
   /// revisão). Chave vazia ou ausente usa o texto padrão do sistema. É JSON
   /// para acrescentar rótulo novo sem migration a cada palavra.
@@ -4143,6 +4148,10 @@ model EnrollmentPortal {
   /// (parcelas, juros, desconto à vista, prazo). Ver PAGAMENTO_PADRAO no
   /// services/portalPagamento.ts — chave ausente cai no padrão.
   paymentMethodsConfig Json?
+  /// Etapas depois da inscrição e sua ordem: { inscricao: [{chave, ativo,
+  /// obrigatoria}], painel: [...] | null (null = mesma ordem da inscrição) }.
+  /// Chaves: pagamento, documentos, contrato, prova. Ver services/portalJornada.ts.
+  jornadaEtapas Json?
 
   @@index([unitId])
   @@index([active])
@@ -4675,6 +4684,10 @@ model EnrollmentRegistration {
   /// efetivação da matrícula, porque não se cobra mensalidade de quem ainda não
   /// é aluno. Ver services/portalPagamento.ts.
   paymentPlan Json?
+  /// Aceite do contrato feito na própria inscrição (etapa "Contrato" do portal):
+  /// { termo, nome, ip, userAgent, em, plano }. Reaproveitado quando a matrícula
+  /// é efetivada — o contrato do ERP já nasce assinado.
+  contratoAceite Json?
 
   @@index([portalId])
   @@index([status])

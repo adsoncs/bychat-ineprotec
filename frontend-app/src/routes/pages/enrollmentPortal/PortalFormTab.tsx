@@ -11,6 +11,7 @@ import {
   type PortalFieldType,
 } from '@/hooks/useEnrollmentPortals'
 import { useEntryModes, useSelectionProcesses } from '@/hooks/useEducational'
+import { useDadosEtapas } from '@/hooks/useDadosEtapas'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -82,6 +83,10 @@ export function PortalFormTab({ portal }: { portal: EnrollmentPortal }) {
 
   const [config, setConfig] = useState<PortalFormConfig>(portal.formConfig ?? DEFAULT_CONFIG)
   const [blocks, setBlocks] = useState<FormBlock[]>(() => blocksFromFormConfig(portal.formConfig, portal))
+  const dadosEtapas = useDadosEtapas()
+  const cfgDados = ((portal as any).jornadaEtapas?.dados ?? dadosEtapas.data?.padrao ?? null) as { modo?: string } | null
+  const dadosAtivos = !!cfgDados
+  const dadosSimplificado = cfgDados?.modo === 'simplificado'
   const [previewMode, setPreviewMode] = useState<string>('')
   const [dirty, setDirty] = useState(false)
 
@@ -215,7 +220,20 @@ export function PortalFormTab({ portal }: { portal: EnrollmentPortal }) {
       if (withMeta._informativeBlocks) {
         (toSave as PortalFormConfig & { _informativeBlocks?: unknown })._informativeBlocks = withMeta._informativeBlocks
       }
+      const withModes = compiled as PortalFormConfig & { _entryModes?: unknown }
+      if (withModes._entryModes) {
+        (toSave as PortalFormConfig & { _entryModes?: unknown })._entryModes = withModes._entryModes
+      }
       extras = applyInformativeBlocks(blocks)
+    } else {
+      // O editor avançado só mexe nos steps. Sem isto, salvar por ele apagava os
+      // modos desligados e os blocos informativos gravados pelo editor simples
+      // (o backend substitui o formConfig inteiro).
+      const saved = (portal.formConfig ?? {}) as PortalFormConfig & { _entryModes?: unknown; _informativeBlocks?: unknown }
+      const next = { ...toSave } as PortalFormConfig & { _entryModes?: unknown; _informativeBlocks?: unknown }
+      if (next._entryModes === undefined && saved._entryModes !== undefined) next._entryModes = saved._entryModes
+      if (next._informativeBlocks === undefined && saved._informativeBlocks !== undefined) next._informativeBlocks = saved._informativeBlocks
+      toSave = next
     }
 
     // Validações
@@ -267,6 +285,15 @@ export function PortalFormTab({ portal }: { portal: EnrollmentPortal }) {
           </div>
         </div>
       </Card>
+
+      {dadosAtivos && (
+        <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info">
+          Os <strong>dados pessoais</strong> pedidos na inscrição vêm de <strong>Etapas › Dados pedidos em cada etapa</strong>
+          {(portal as any).jornadaEtapas?.dados ? ' (ajuste deste portal)' : ' (padrão da instituição)'} — eles substituem o bloco "Dados pessoais"
+          daqui{dadosSimplificado ? ', e no modo simplificado todas as etapas do formulário aparecem numa página só' : ''}. Curso, modos de ingresso e
+          etapas próprias continuam sendo definidos aqui.
+        </div>
+      )}
 
       {editorMode === 'simple' ? (
         <SimpleFormEditor

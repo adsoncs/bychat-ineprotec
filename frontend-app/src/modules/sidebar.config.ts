@@ -271,6 +271,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-courses', label: 'Cursos', href: '/app/educational/courses', icon: 'BookOpen', permission: 'educacional' },
         { id: 'edu-offerings', label: 'Ofertas', href: '/app/educational/offerings', icon: 'CalendarRange', permission: 'educacional' },
         { id: 'edu-entry-modes', label: 'Modos de ingresso', href: '/app/educational/entry-modes', icon: 'Award', permission: 'educacional' },
+        { id: 'edu-dados-etapas', label: 'Dados por etapa', href: '/app/educational/dados-etapas', icon: 'ClipboardList', permission: 'educacional' },
         { id: 'edu-selection-processes', label: 'Processos seletivos', href: '/app/educational/selection-processes', icon: 'FileCheck2', permission: 'educacional' },
         { id: 'edu-doc-review', label: 'Revisão de documentos', href: '/app/educational/doc-review', icon: 'ClipboardList', permission: 'educacional' },
         { id: 'aca-funil-matriculas', label: 'Funil de matrículas', href: '/app/aca/funil-matriculas', icon: 'GraduationCap', permission: 'aca_matriculas', atalho: true },

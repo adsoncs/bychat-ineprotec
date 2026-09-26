@@ -196,6 +196,36 @@ function applyBrandFields(body: any, data: any, mode: 'create' | 'update'): void
   umDe('brandTypeScale', ['compacta', 'padrao', 'ampla'])
   umDe('brandContentWidth', ['estreita', 'padrao', 'ampla'])
 
+  // Aparência do formulário limpo (embed). Números presos a faixas e cores em
+  // hex: vai direto para CSS da página pública, então nada passa torto.
+  if (body.brandFormStyle !== undefined) {
+    const e = body.brandFormStyle
+    if (!e || typeof e !== 'object' || Array.isArray(e)) {
+      data.brandFormStyle = null
+    } else {
+      const num = (v: unknown, min: number, max: number) => {
+        const n = Math.round(Number(v))
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : undefined
+      }
+      const hex = (v: unknown) => (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v.trim()) ? v.trim().toLowerCase() : undefined)
+      const um = (v: unknown, ok: string[]) => (typeof v === 'string' && ok.includes(v) ? v : undefined)
+      const out: Record<string, unknown> = {
+        bordaCampo: um(e.bordaCampo, ['nenhuma', 'fina', 'grossa', 'linha']),
+        corBorda: hex(e.corBorda),
+        corFundoCampo: hex(e.corFundoCampo),
+        raioCampo: num(e.raioCampo, 0, 30),
+        alturaCampo: um(e.alturaCampo, ['compacta', 'padrao', 'ampla']),
+        espacoCampos: num(e.espacoCampos, 0, 48),
+        respiro: num(e.respiro, 0, 64),
+        moldura: typeof e.moldura === 'boolean' ? e.moldura : undefined,
+        raioMoldura: num(e.raioMoldura, 0, 40),
+        corFundo: hex(e.corFundo),
+      }
+      for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k]
+      data.brandFormStyle = Object.keys(out).length ? out : null
+    }
+  }
+
   // Textos da interface. Só as chaves conhecidas entram, cada uma limitada em
   // tamanho: é conteúdo que vai para a tela pública, não campo livre de JSON.
   if (body.brandLabels !== undefined) {
@@ -617,7 +647,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const cId = body.continuationPortalId ? parseInt(body.continuationPortalId) : null
       if (!cId) return reply.code(400).send({ error: 'Portal de interesse precisa de um portal de continuação selecionado' })
       const cont = await prisma.enrollmentPortal.findUnique({ where: { id: cId }, select: { id: true, formMode: true } })
-      if (!cont || cont.formMode !== 'full') return reply.code(400).send({ error: 'Portal de continuação inválido (deve ser um portal completo)' })
+      // 'multi_step' é o nome antigo da inscrição completa — vale igual.
+      if (!cont || cont.formMode === 'interest') return reply.code(400).send({ error: 'Portal de continuação inválido (deve ser um portal completo)' })
       continuationPortalId = cId
     }
     const magicLinkTtlDays = body.magicLinkTtlDays ? Math.max(1, Math.min(180, parseInt(body.magicLinkTtlDays))) : 30
@@ -706,6 +737,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (body.allowedCourseIds !== undefined) data.allowedCourseIds = body.allowedCourseIds || null
     if (body.allowedCampusIds !== undefined) data.allowedCampusIds = body.allowedCampusIds || null
     if (body.allowedModalityIds !== undefined) data.allowedModalityIds = body.allowedModalityIds || null
+    // Etapas depois da inscrição e a ordem de cada tela (services/portalJornada).
+    if (body.jornadaEtapas !== undefined) {
+      const { jornadaParaGravar } = await import('../services/portalJornada.js')
+      data.jornadaEtapas = body.jornadaEtapas === null ? null : jornadaParaGravar(body.jornadaEtapas)
+    }
     if (body.paymentProvider !== undefined) data.paymentProvider = body.paymentProvider || null
     if (body.paymentConfig !== undefined) {
       const provider = body.paymentProvider !== undefined ? body.paymentProvider : undefined
@@ -737,7 +773,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const cId = body.continuationPortalId ? parseInt(body.continuationPortalId) : null
       if (cId) {
         const cont = await prisma.enrollmentPortal.findUnique({ where: { id: cId }, select: { id: true, formMode: true } })
-        if (!cont || cont.formMode !== 'full') return reply.code(400).send({ error: 'Portal de continuação inválido' })
+        if (!cont || cont.formMode === 'interest') return reply.code(400).send({ error: 'Portal de continuação inválido' })
         if (cId === parseInt(id)) return reply.code(400).send({ error: 'Portal não pode continuar nele mesmo' })
       }
       data.continuationPortalId = cId
@@ -1008,6 +1044,54 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       byStatus: byStatus.map(x => ({ status: x.status, count: x._count._all })),
       byDay: byDay.map(x => ({ day: String(x.day).slice(0, 10), total: Number(x.total), paid: Number(x.paid) })),
       bySource: bySource.map(x => ({ source: x.utmSource || '(direto)', count: x._count._all })).sort((a, b) => b.count - a.count).slice(0, 10),
+    }
+  })
+
+  // GET /interessados — quem preencheu a captura de interesse deste portal.
+  // Esse modo cria só o contato (não há inscrição até a pessoa continuar no
+  // portal completo), então a aba de inscrições ficava vazia e o envio parecia
+  // perdido. O vínculo com o portal está no formData do contato (_portalSlug).
+  app.get('/api/admin/enrollment-portals/:id/interessados', { preHandler: authMiddleware }, async (req, reply) => {
+    const portalId = parseInt((req.params as any).id)
+    const q = (req.query as any) || {}
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { slug: true, continuationPortalId: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+    const limit = Math.min(Math.max(parseInt(q.limit) || 50, 1), 200)
+    const offset = Math.max(parseInt(q.offset) || 0, 0)
+    const busca = String(q.search || '').trim()
+    const where: any = {
+      source: 'enrollment_portal_interest',
+      formData: { path: '$._portalSlug', equals: portal.slug },
+      ...(busca ? { OR: [{ nome: { contains: busca } }, { email: { contains: busca } }, { whatsapp: { contains: busca.replace(/\D/g, '') || busca } }] } : {}),
+    }
+    const [total, leads] = await Promise.all([
+      prisma.lead.count({ where }),
+      prisma.lead.findMany({
+        where, orderBy: { id: 'desc' }, take: limit, skip: offset,
+        select: {
+          id: true, nome: true, email: true, whatsapp: true, status: true, createdAt: true, formData: true,
+          funnel: { select: { name: true } },
+          enrollmentRegistrations: { orderBy: { id: 'desc' }, take: 1, select: { id: true, candidateCode: true, portalId: true, createdAt: true } },
+        },
+      }),
+    ])
+    const ofertaIds = [...new Set(leads.map((l) => Number((l.formData as any)?._interestOfferingId) || 0).filter(Boolean))]
+    const ofertas = ofertaIds.length
+      ? await prisma.courseOffering.findMany({ where: { id: { in: ofertaIds } }, select: { id: true, nome: true } })
+      : []
+    const nomeOferta = new Map(ofertas.map((o) => [o.id, o.nome]))
+    return {
+      total,
+      items: leads.map((l) => {
+        const insc = l.enrollmentRegistrations[0] ?? null
+        return {
+          leadId: l.id, nome: l.nome, email: l.email, whatsapp: l.whatsapp, etapa: l.status, funil: l.funnel?.name ?? null,
+          criadoEm: l.createdAt,
+          curso: nomeOferta.get(Number((l.formData as any)?._interestOfferingId) || 0) ?? null,
+          // Continuou? = já tem inscrição (normalmente no portal de continuação).
+          inscricao: insc ? { id: insc.id, codigo: insc.candidateCode, portalId: insc.portalId, em: insc.createdAt } : null,
+        }
+      }),
     }
   })
 
@@ -1697,7 +1781,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         selectionProcessIds: true,
         formConfig: true,
         formMode: true,
-        continuationPortal: { select: { slug: true, nome: true } },
+        jornadaEtapas: true,
+        continuationPortal: { select: { slug: true, nome: true, selectionProcessIds: true, formConfig: true } },
         ctaBehavior: true, ctaTarget: true, ctaMessage: true,
         captchaType: true, captchaSiteKey: true,
         allowedLevelIds: true, allowedCourseIds: true, allowedCampusIds: true, allowedModalityIds: true,
@@ -1712,7 +1797,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         brandFooterText: true, brandFontFamily: true, brandRadiusScale: true, brandTemplate: true,
         brandHeaderStyle: true, brandStepStyle: true, brandBackdropFrom: true, brandBackdropTo: true,
         brandButtonShape: true, brandButtonUppercase: true, brandSecurityNote: true, brandSummaryAlways: true,
-        brandSecondaryColor: true, brandTypeScale: true, brandContentWidth: true, brandLabels: true,
+        brandSecondaryColor: true, brandTypeScale: true, brandContentWidth: true, brandLabels: true, brandFormStyle: true,
         landingPage: { select: { id: true, slug: true, sections: true, globalStyles: true, customCss: true, customHead: true, status: true } },
       },
     })
@@ -1721,12 +1806,21 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Incrementa views (fire-and-forget)
     prisma.enrollmentPortal.update({ where: { id: portal.id }, data: { views: { increment: 1 } } }).catch(() => {})
 
-    // Carrega ofertas filtradas pelos processos + filtros de permissão
-    const processIds = (portal.selectionProcessIds as any) || []
+    // Carrega ofertas filtradas pelos processos + filtros de permissão.
+    // Processos de modos desligados no editor ficam de fora (services/portalModos).
+    const { processosOferecidos, ofertaFixa } = await import('../services/portalModos.js')
+    const fixa = ofertaFixa(portal.formConfig)
+    // Captura de interesse: o curso escolhido aqui é onde a pessoa vai se
+    // inscrever depois — então os cursos são os do portal de continuação.
+    const processIds = await processosOferecidos(
+      portal.formMode === 'interest' && portal.continuationPortal ? portal.continuationPortal : portal,
+    )
     const offerings = await prisma.courseOffering.findMany({
       where: {
         active: true,
         ...(processIds.length > 0 ? { selectionProcessId: { in: processIds } } : { id: -1 }),
+        // Curso pré-fixado: só ele. Uma oferta → o portal nem pergunta o curso.
+        ...(fixa ? { id: fixa } : {}),
         ...(Array.isArray(portal.allowedLevelIds) && (portal.allowedLevelIds as any[]).length > 0 ? { levelId: { in: (portal.allowedLevelIds as any[]).map(Number) } } : {}),
         ...(Array.isArray(portal.allowedCourseIds) && (portal.allowedCourseIds as any[]).length > 0 ? { courseId: { in: (portal.allowedCourseIds as any[]).map(Number) } } : {}),
         ...(Array.isArray(portal.allowedModalityIds) && (portal.allowedModalityIds as any[]).length > 0 ? { modalityId: { in: (portal.allowedModalityIds as any[]).map(Number) } } : {}),
@@ -1764,7 +1858,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
 
-    return { portal, offerings }
+    // Formulário efetivo: os dados da etapa "Inscrição" (Educacional › Dados por
+    // etapa, ou o ajuste do portal) viram o passo "Dados pessoais"; no modo
+    // simplificado, tudo numa página. jornadaEtapas não sai para o público.
+    const { dadosEfetivos, formConfigEfetivo } = await import('../services/dadosCadastro.js')
+    const { jornadaEtapas, continuationPortal, ...publico } = portal
+    const formConfig = formConfigEfetivo(portal.formConfig, await dadosEfetivos({ jornadaEtapas }))
+    return {
+      portal: {
+        ...publico, formConfig,
+        continuationPortal: continuationPortal ? { slug: continuationPortal.slug, nome: continuationPortal.nome } : null,
+      },
+      offerings,
+    }
   })
 
   // POST /api/public/portals/:slug/register — submeter inscrição
@@ -1790,7 +1896,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     const portal = await prisma.enrollmentPortal.findUnique({
       where: { slug },
-      select: { id: true, nome: true, active: true, unitId: true, selectionProcessIds: true, teamId: true, funnelId: true, stageKey: true, alwaysCreateNew: true, captchaType: true, captchaSecret: true, formConfig: true, requirePayment: true, formMode: true, paymentMode: true },
+      select: { id: true, nome: true, active: true, unitId: true, selectionProcessIds: true, allowedCampusIds: true, teamId: true, funnelId: true, stageKey: true, alwaysCreateNew: true, captchaType: true, captchaSecret: true, formConfig: true, requirePayment: true, formMode: true, paymentMode: true, jornadaEtapas: true },
     })
     if (!portal || !portal.active) return reply.code(404).send({ error: 'Portal indisponível' })
 
@@ -1852,8 +1958,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Verificar captcha (se configurado) — implementação mínima: confia em token e valida depois
     // (A validação server-side completa entra na Fase A.6 com integração reCAPTCHA)
 
-    // Validar offering pertence ao portal
-    const processIds = (portal.selectionProcessIds as any[]) || []
+    // Validar offering pertence ao portal (e a um modo de ingresso ligado nele)
+    const { processosOferecidos, ofertaFixa } = await import('../services/portalModos.js')
+    const processIds = await processosOferecidos(portal)
+    const fixa = ofertaFixa(portal.formConfig)
+    if (fixa && offeringId && offeringId !== fixa) return reply.code(400).send({ error: 'Oferta inválida para este portal' })
     let selectionProcessId: number | null = null
     let offering: any = null
     let entryModeCode: string | null = null
@@ -1877,15 +1986,39 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       if (!offering) return reply.code(400).send({ error: 'Oferta inválida para este portal' })
       selectionProcessId = offering.selectionProcessId
       entryModeCode = offering.selectionProcess?.entryMode?.code || null
+
+      // Polo: com um só (dentro do que o portal permite), é ele — a pessoa nem
+      // vê a pergunta. Com mais de um, a escolha é obrigatória e precisa ser
+      // um polo desta oferta.
+      const permitidos = Array.isArray(portal.allowedCampusIds) && (portal.allowedCampusIds as any[]).length
+        ? (portal.allowedCampusIds as any[]).map(Number) : null
+      const polos = await prisma.courseOfferingCampus.findMany({
+        where: { offeringId: offering.id, ...(permitidos ? { campusId: { in: permitidos } } : {}) },
+        select: { campus: { select: { id: true, nome: true } } },
+      }).catch(() => [] as any[])
+      if (polos.length === 1) {
+        fd.campusId = polos[0].campus.id
+        fd.campusNome = polos[0].campus.nome
+      } else if (polos.length > 1) {
+        const escolhido = polos.find((x: any) => x.campus.id === Number(fd.campusId))
+        if (!escolhido) return reply.code(400).send({ error: 'Escolha o polo onde vai estudar.' })
+        fd.campusId = escolhido.campus.id
+        fd.campusNome = escolhido.campus.nome
+      }
     }
 
     // ── Validação server-side de required × visibleWhen (Gap #1) ──
     // Qualquer campo required que seja visível no modo atual DEVE ter valor enviado.
     // Campos ocultos pela regra de modo não são validados (equivale à UI pública).
-    const formConfig = (portal.formConfig as any) || {}
+    // Valida contra o MESMO formulário que o portal mostrou (dados por etapa).
+    const { dadosEfetivos: _dadosEf, formConfigEfetivo: _fcEf } = await import('../services/dadosCadastro.js')
+    const cfgDados = await _dadosEf(portal)
+    const formConfig = _fcEf((portal.formConfig as any) || {}, cfgDados) || {}
     const steps = Array.isArray(formConfig.steps) ? formConfig.steps : []
     const missingFields: string[] = []
-    const seenNames = new Set<string>()
+    // Dado configurado para outra etapa (ex.: Nº do ENEM em "Completar cadastro")
+    // não é cobrado aqui, mesmo que o modo de ingresso o liste como extra.
+    const seenNames = new Set<string>(cfgDados ? Object.keys(cfgDados.campos) : [])
     for (const step of steps) {
       const fields = Array.isArray(step?.fields) ? step.fields : []
       for (const field of fields) {
@@ -4014,13 +4147,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       where: { slug },
       select: {
         id: true, active: true,
-        selectionProcessIds: true,
+        selectionProcessIds: true, formConfig: true,
         allowedLevelIds: true, allowedCourseIds: true, allowedModalityIds: true, allowedCampusIds: true,
       },
     })
     if (!portal || !portal.active) return reply.code(404).send({ error: 'Portal indisponível' })
 
-    const processIds = (portal.selectionProcessIds as any[]) || []
+    const { processosOferecidos } = await import('../services/portalModos.js')
+    const processIds = await processosOferecidos(portal)
     if (processIds.length === 0) return { recommendations: [] }
 
     const offerings = await prisma.courseOffering.findMany({

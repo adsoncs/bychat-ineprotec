@@ -367,6 +367,9 @@ export async function portalAuthRoutes(app: FastifyInstance) {
         ? bloco('Vida acadêmica', '<p class="sub" style="margin:0 0 10px">Situação da matrícula, financeiro, documentos e contrato.</p><a href="/portal/aluno"><button class="sec" type="button">Abrir meu portal</button></a>')
         : ''}
       ${inscricoes ? bloco('Minhas inscrições', inscricoes
+        // Quem ainda não é aluno segue a jornada da inscrição (pagamento,
+        // documentos, contrato, redação) na ordem do portal, em /portal/aluno.
+        + (eu?.aluno ? '' : '<a href="/portal/aluno"><button type="button">Continuar minha inscrição</button></a>')
         + '<a href="/portal/documentos"><button class="sec" type="button">Enviar documentos</button></a>') : ''}
       ${bloco('Conta', `<div class="item"><span>${esc(eu?.email ?? '—')}</span><span class="tag">e-mail</span></div>
         <div class="item"><span>${esc(eu?.whatsapp ?? '—')}</span><span class="tag">WhatsApp</span></div>

@@ -26,7 +26,16 @@ export interface ModeCustomField {
 export interface PerModeConfig { enabled: boolean; customFields: ModeCustomField[] }
 
 export interface IdentityConfig { askBirthdate?: boolean; askAddress?: boolean }
-export interface CoursePickerConfig { mode?: CoursePickerMode; fixedOfferingId?: number | null; quizHelperEnabled?: boolean }
+/** Como a lista de cursos aparece: cartões (padrão), lista compacta ou caixa de seleção. */
+export type CourseDisplay = 'cartoes' | 'lista' | 'suspensa'
+export interface CoursePickerConfig {
+  mode?: CoursePickerMode
+  fixedOfferingId?: number | null
+  quizHelperEnabled?: boolean
+  exibicao?: CourseDisplay
+  /** false = esconde mensalidade/matrícula/taxa na escolha e no resumo. */
+  mostrarValor?: boolean
+}
 export interface EntryModesConfig { perMode?: Record<string, PerModeConfig> }
 export interface PaymentConfig { deadlineHours?: number | null }
 export interface CompletionConfig { behavior?: CompletionBehavior; message?: string; target?: string }
@@ -227,6 +236,11 @@ interface InformativeBlocksMap {
 
 interface FormConfigWithMeta extends PortalFormConfig {
   _informativeBlocks?: InformativeBlocksMap
+  /** Escolhas do bloco "Modos de ingresso" (ligado/desligado + campos extras do
+   *  portal). Os steps sozinhos não guardam isso: um modo desligado simplesmente
+   *  some dos steps e, ao reabrir, voltava ligado. O backend lê daqui quais
+   *  modos o portal NÃO oferece (services/portalModos.ts). */
+  _entryModes?: EntryModesConfig
 }
 
 /** Compila blocks → formConfig (steps + flag _informativeBlocks). */
@@ -265,6 +279,8 @@ export function formConfigFromBlocks(blocks: FormBlock[], modes: EntryMode[]): F
           mode: cfg.mode ?? 'list',
           fixedOfferingId: cfg.fixedOfferingId ?? null,
           quizHelperEnabled: !!cfg.quizHelperEnabled,
+          exibicao: cfg.exibicao ?? 'cartoes',
+          mostrarValor: cfg.mostrarValor !== false,
         },
       }
       steps.push({ id: id(), name: 'Curso desejado', fields: [field] })
@@ -304,7 +320,10 @@ export function formConfigFromBlocks(blocks: FormBlock[], modes: EntryMode[]): F
     }
   }
 
-  return { steps, _informativeBlocks: informative }
+  const out: FormConfigWithMeta = { steps, _informativeBlocks: informative }
+  const em = blocks.find((b) => b.key === 'entryModes')
+  if (em) out._entryModes = JSON.parse(JSON.stringify(em.config)) as EntryModesConfig
+  return out
 }
 
 /** Decifra formConfig → blocks. Heurística baseada em nomes de campo. */
@@ -342,6 +361,8 @@ export function blocksFromFormConfig(formConfig: FormConfigWithMeta | null, port
           mode: picker?.config?.mode ?? 'list',
           fixedOfferingId: picker?.config?.fixedOfferingId ?? null,
           quizHelperEnabled: !!picker?.config?.quizHelperEnabled,
+          exibicao: picker?.config?.exibicao ?? 'cartoes',
+          mostrarValor: picker?.config?.mostrarValor !== false,
         },
       })
       coursePickerFound = true
@@ -375,6 +396,12 @@ export function blocksFromFormConfig(formConfig: FormConfigWithMeta | null, port
   // Garante presença dos defaults para o toggle aparecer mesmo desligado
   if (!identityFound)     out.unshift({ key: 'identity',     enabled: true, config: {} })
   if (!coursePickerFound) out.push   ({ key: 'coursePicker', enabled: true, config: { mode: 'list' } })
+  // O que foi gravado (_entryModes) manda: guarda os modos desligados e os
+  // campos extras do portal, que os steps não conseguem reconstituir.
+  const savedPerMode = formConfig?._entryModes?.perMode ?? {}
+  for (const [code, mc] of Object.entries(savedPerMode)) {
+    perMode[code] = { enabled: mc.enabled !== false, customFields: Array.isArray(mc.customFields) ? mc.customFields : [] }
+  }
   if (!out.find((b) => b.key === 'entryModes')) out.push({ key: 'entryModes', enabled: entryModesFound || true, config: { perMode } })
 
   // Documents (sem coluna no portal — só round-trip via informative)
@@ -396,9 +423,13 @@ export function blocksFromFormConfig(formConfig: FormConfigWithMeta | null, port
   if (!out.find((b) => b.key === 'completion')) {
     const saved = informative.completion ?? { enabled: true, config: {} as BlockConfig }
     const cfg = { ...(saved.config as CompletionConfig) }
-    if (cfg.behavior == null && portal?.ctaBehavior) cfg.behavior = portal.ctaBehavior
-    if (cfg.message == null && portal?.ctaMessage != null) cfg.message = portal.ctaMessage
-    if (cfg.target == null && portal?.ctaTarget != null) cfg.target = portal.ctaTarget
+    // As colunas cta* mandam: é o que o portal público usa e o que a janela de
+    // edição do portal grava. O bloco salvo só completa o que faltar.
+    if (portal) {
+      cfg.behavior = portal.ctaBehavior === 'redirect' ? 'redirect' : 'message'
+      if (portal.ctaMessage != null) cfg.message = portal.ctaMessage
+      if (portal.ctaTarget != null && portal.ctaBehavior === 'redirect') cfg.target = portal.ctaTarget
+    }
     out.push({ key: 'completion', enabled: true, config: cfg })
   }
 

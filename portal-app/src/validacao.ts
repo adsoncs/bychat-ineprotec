@@ -4,7 +4,7 @@
 // só que está errado: quem está preenchendo isso no ônibus não vai adivinhar o
 // que "campo inválido" quer dizer.
 
-export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker'
+export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker' | 'number' | 'rg'
 
 const digitos = (v: string) => v.replace(/\D+/g, '')
 
@@ -75,7 +75,7 @@ export function mascarar(tipo: Tipo, valor: string): string {
 
 /** Teclado do celular: número onde só entra número. */
 export function modoEntrada(tipo: Tipo): string | undefined {
-  if (tipo === 'cpf' || tipo === 'phone' || tipo === 'cep' || tipo === 'date') return 'numeric'
+  if (tipo === 'cpf' || tipo === 'phone' || tipo === 'cep' || tipo === 'date' || tipo === 'number') return 'numeric'
   if (tipo === 'email') return 'email'
   return undefined
 }
@@ -89,6 +89,13 @@ export interface Campo {
   placeholder?: string
   helpText?: string
   visibleWhen?: { entryMode?: string[] }
+  /** Só na escolha de curso: formato da lista e se mostra o valor. */
+  config?: {
+    exibicao?: 'cartoes' | 'lista' | 'suspensa'; mostrarValor?: boolean
+    /** list = lista; quiz = começa pelo "Me ajude a escolher"; fixed = curso pré-fixado (o servidor já filtra). */
+    mode?: 'list' | 'quiz' | 'fixed'; quizHelperEnabled?: boolean; fixedOfferingId?: number | null
+    [k: string]: unknown
+  }
 }
 
 /**
@@ -115,6 +122,8 @@ export function erroDoCampo(campo: Campo, valor: string, parcial = false): strin
     case 'cep':
       if (digitos(v).length < 8) return parcial ? null : 'CEP tem 8 dígitos.'
       return cepValido(v) ? null : 'CEP inválido.'
+    case 'number':
+      return /^\d+$/.test(v) ? null : 'Use só números.'
     default:
       return null
   }

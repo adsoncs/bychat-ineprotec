@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ColorPicker } from '@/components/ui/ColorPicker'
+import { FormLimpoEditor, type FormLimpoEstilo } from './FormLimpoEditor'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 
@@ -50,6 +51,7 @@ interface Acabamento {
   brandTypeScale?: string | null
   brandContentWidth?: string | null
   brandLabels?: Record<string, string> | null
+  brandFormStyle?: FormLimpoEstilo | null
 }
 
 const SCALE_OPTIONS: { value: string; label: string }[] = [
@@ -127,6 +129,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
   const [brandTypeScale, setBrandTypeScale] = useState(acab.brandTypeScale ?? 'padrao')
   const [brandContentWidth, setBrandContentWidth] = useState(acab.brandContentWidth ?? 'padrao')
   const [brandLabels, setBrandLabels] = useState<Record<string, string>>(acab.brandLabels ?? {})
+  const [brandFormStyle, setBrandFormStyle] = useState<FormLimpoEstilo>(acab.brandFormStyle ?? {})
   const [dirty, setDirty] = useState(false)
 
   // Mantém o estado em sync se o portal for atualizado externamente (upload).
@@ -154,6 +157,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
     setBrandTypeScale(acab.brandTypeScale ?? 'padrao')
     setBrandContentWidth(acab.brandContentWidth ?? 'padrao')
     setBrandLabels(acab.brandLabels ?? {})
+    setBrandFormStyle(acab.brandFormStyle ?? {})
     setDirty(false)
   }, [
     portal.brandPrimaryColor,
@@ -178,6 +182,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
     acab.brandTypeScale,
     acab.brandContentWidth,
     acab.brandLabels,
+    acab.brandFormStyle,
   ])
 
   function markDirty<T>(setter: (v: T) => void) {
@@ -224,6 +229,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
       brandTypeScale,
       brandContentWidth,
       brandLabels,
+      brandFormStyle: Object.keys(brandFormStyle).length ? (brandFormStyle as Record<string, unknown>) : null,
     }
     update.mutate(payload, {
       onSuccess: () => { toast('Branding salvo', 'success'); setDirty(false) },
@@ -434,6 +440,8 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
           )}
         </div>
       </Card>
+
+      <FormLimpoEditor valor={brandFormStyle} corMarca={brandPrimaryColor} onChange={markDirty(setBrandFormStyle)} />
 
       <Card>
         <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">Hero (capa do portal)</div>

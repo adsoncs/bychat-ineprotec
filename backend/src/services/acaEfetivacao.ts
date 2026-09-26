@@ -191,12 +191,22 @@ export async function efetivarInscricao(
         select: {
           id: true, offeringId: true,
           offering: { select: { id: true, courseId: true, unitId: true, turno: true } },
+          selectionProcess: { select: { entryModeId: true } },
         },
       },
     },
   })
   if (!reg) throw new Error('Inscrição não encontrada.')
   if (!reg.leadId) throw new Error('Inscrição sem contato vinculado — não dá para criar o aluno.')
+
+  // Dados exigidos para matricular (Educacional › Dados por etapa, ou o ajuste
+  // do portal). Falta algum → não vira matrícula; a secretaria vê o que falta e
+  // completa em Acadêmico › Pessoas, ou o candidato completa pelo portal.
+  const { pendenciasParaMatricular, aplicarNoCadastro } = await import('./dadosCadastro.js')
+  const faltam = await pendenciasParaMatricular(reg.id)
+  if (faltam.length) {
+    throw new Error(`Faltam dados para matricular ${reg.candidateCode}: ${faltam.map((f) => f.rotulo).join(', ')}.`)
+  }
 
   const form = (reg.formData as Record<string, any>) || {}
 
@@ -215,7 +225,13 @@ export async function efetivarInscricao(
   if (!offering) throw new Error('Inscrição sem oferta de curso — escolha o curso antes de efetivar.')
 
   const aluno = await garantirAluno(reg.leadId, form)
-  const entryModeId = Number(achar(form, ['entryModeId', 'formaIngressoId']) || 0) || null
+  // Endereço, escolaridade, ENEM e responsável financeiro: o catálogo sabe para
+  // onde vai cada um (garantirAluno só cobre as colunas de identificação).
+  await aplicarNoCadastro(reg.leadId, form)
+  // Forma de ingresso: a do processo seletivo da inscrição. O formData nunca
+  // trouxe entryModeId, então o vínculo nascia sem ela.
+  const entryModeId = Number(achar(form, ['entryModeId', 'formaIngressoId']) || 0)
+    || reg.processRegistration?.selectionProcess?.entryModeId || null
   const vinculoId = await garantirVinculo(aluno.id, offering, entryModeId)
   const turmaId = await acharTurma(offering.id, opts.turmaId)
 

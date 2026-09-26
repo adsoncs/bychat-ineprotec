@@ -293,7 +293,8 @@ function PortalFormModal({
   const [nome, setNome] = useState(portal?.nome ?? '')
   const [slug, setSlug] = useState(portal?.slug ?? '')
   const [unitId, setUnitId] = useState(portal?.unitId ?? units[0]?.id ?? 0)
-  const [formMode, setFormMode] = useState<PortalFormMode>(portal?.formMode ?? 'full')
+  // Portais antigos ficaram gravados como 'multi_step': é inscrição completa.
+  const [formMode, setFormMode] = useState<PortalFormMode>(portal?.formMode === 'interest' ? 'interest' : 'full')
   const [continuationPortalId, setContinuationPortalId] = useState<number | ''>(
     portal?.continuationPortalId ?? '',
   )
@@ -315,7 +316,8 @@ function PortalFormModal({
   const update = useUpdateEnrollmentPortal()
   const loading = create.isPending || update.isPending
 
-  const fullPortals = existingPortals.filter((p) => p.formMode === 'full' && p.id !== portal?.id)
+  // Tudo que não é captura de interesse é inscrição completa (inclui o legado 'multi_step').
+  const fullPortals = existingPortals.filter((p) => p.formMode !== 'interest' && p.id !== portal?.id)
 
   // ── Validação de slug em tempo real ──
   const [slugCheck, setSlugCheck] = useState<{ status: 'idle' | 'checking' | 'done'; result: CheckSlugResult | null }>({ status: 'idle', result: null })
@@ -482,9 +484,15 @@ function PortalFormModal({
               }}
               hint="O lead recebe link para finalizar a inscrição no portal completo."
             >
-              <option value="">Selecione…</option>
-              {fullPortals.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              <option value="">{fullPortals.length ? 'Selecione…' : 'Nenhum portal de inscrição completa'}</option>
+              {fullPortals.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.active === false ? ' (inativo)' : ''}</option>)}
             </Select>
+          )}
+          {formMode === 'interest' && fullPortals.length === 0 && (
+            <div class="text-xs text-warning mt-2">
+              A captura de interesse manda a pessoa terminar a inscrição num portal de inscrição completa, e ainda não há outro portal assim.
+              Crie primeiro o portal completo e depois volte aqui.
+            </div>
           )}
         </Section>
 

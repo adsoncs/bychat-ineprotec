@@ -261,6 +261,29 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
     await prisma.acaContrato.update({ where: { id: contrato.id }, data: { status: 'QUITADO' } })
   }
 
+  // Contrato já aceito na inscrição (etapa "Contrato" do portal): o do ERP nasce
+  // assinado, com o texto que a pessoa leu, e a matrícula é promovida — é o
+  // mesmo efeito da assinatura pelo portal logado (portalContrato).
+  if (mat.enrollmentRegistrationId) {
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: mat.enrollmentRegistrationId }, select: { contratoAceite: true } })
+    const aceite = (reg?.contratoAceite ?? null) as any
+    if (aceite?.em) {
+      await prisma.acaContrato.update({
+        where: { id: contrato.id },
+        data: { aceiteEm: new Date(aceite.em), aceiteIp: String(aceite.ip ?? '').slice(0, 60), aceiteNome: String(aceite.nome ?? '').slice(0, 191), aceiteTermo: aceite.termo ?? null },
+      })
+      const r = await prisma.acaMatricula.updateMany({
+        where: { id: matriculaId, listaEspera: false, status: { notIn: ['MATRICULADO', 'CANCELADO', 'TRANCADO', 'EVADIDO', 'TRANSFERIDO'] } },
+        data: { status: 'MATRICULADO' },
+      })
+      if (r.count > 0) {
+        await prisma.acaMatriculaEvento.create({
+          data: { matriculaId, de: mat.status, para: 'MATRICULADO', obs: `Contrato assinado na inscrição em ${new Date(aceite.em).toLocaleDateString('pt-BR')} por ${aceite.nome}` },
+        }).catch(() => {})
+      }
+    }
+  }
+
   // O evento existia no enum, mas ninguém o emitia — os gatilhos configurados
   // para "contrato financeiro criado" nunca rodavam.
   import('./acaAssinatura.js')

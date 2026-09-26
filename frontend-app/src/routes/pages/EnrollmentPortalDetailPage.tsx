@@ -3,11 +3,12 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard,
+  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard, ListOrdered,
 } from '@/components/ui/icon-set'
 import {
   useEnrollmentPortal,
   usePortalRegistrations,
+  usePortalInteressados,
   useUpdateEnrollmentPortal,
   useCancelRegistration,
   useResendRegistrationLink,
@@ -33,6 +34,7 @@ import { Modal } from '@/components/ui/Modal'
 import { PortalBrandingTab } from './enrollmentPortal/PortalBrandingTab'
 import { PortalConfigTab } from './enrollmentPortal/PortalConfigTab'
 import { PortalPaymentTab } from './enrollmentPortal/PortalPaymentTab'
+import { PortalEtapasTab } from './enrollmentPortal/PortalEtapasTab'
 import { PortalAnalyticsTab } from './enrollmentPortal/PortalAnalyticsTab'
 import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
 import { downloadFile } from '@/lib/download'
@@ -42,7 +44,7 @@ import { env } from '@/lib/env'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 
-type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'config' | 'analytics'
+type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics'
 
 const STATUS_LABELS: Record<RegistrationStatus, string> = {
   draft: 'Rascunho',
@@ -113,12 +115,13 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
 
       {portal && (
         <>
-          <PortalTabs tab={tab} onChange={setTab} />
+          <PortalTabs tab={tab} onChange={setTab} interesse={portal.formMode === 'interest'} />
           {tab === 'overview' && <OverviewTab portal={portal} onTabChange={setTab} />}
-          {tab === 'registrations' && <RegistrationsTab portal={portal} />}
+          {tab === 'registrations' && (portal.formMode === 'interest' ? <InteressadosTab portal={portal} /> : <RegistrationsTab portal={portal} />)}
           {tab === 'form' && <PortalFormTab portal={portal} />}
           {tab === 'branding' && <PortalBrandingTab portal={portal} />}
           {tab === 'payment' && <PortalPaymentTab portal={portal} />}
+          {tab === 'etapas' && <PortalEtapasTab portal={portal} />}
           {tab === 'config' && <PortalConfigTab portal={portal} />}
           {tab === 'analytics' && <PortalAnalyticsTab portal={portal} />}
         </>
@@ -127,13 +130,15 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
   )
 }
 
-function PortalTabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
+function PortalTabs({ tab, onChange, interesse }: { tab: Tab; onChange: (t: Tab) => void; interesse?: boolean }) {
   const tabs: { id: Tab; label: string; icon: preact.ComponentChildren }[] = [
     { id: 'overview',      label: 'Visão geral',  icon: <School size={14} /> },
-    { id: 'registrations', label: 'Inscrições',   icon: <ListChecks size={14} /> },
+    // Captura de interesse não gera inscrição — gera contato. A aba lista esses contatos.
+    { id: 'registrations', label: interesse ? 'Interessados' : 'Inscrições', icon: <ListChecks size={14} /> },
     { id: 'form',          label: 'Formulário',   icon: <FormInput size={14} /> },
     { id: 'branding',      label: 'Branding',     icon: <Palette size={14} /> },
     { id: 'payment',       label: 'Pagamento',    icon: <CreditCard size={14} /> },
+    { id: 'etapas',        label: 'Etapas',       icon: <ListOrdered size={14} /> },
     { id: 'config',        label: 'Configuração', icon: <Settings size={14} /> },
     { id: 'analytics',     label: 'Analytics',    icon: <BarChart3 size={14} /> },
   ]
@@ -426,7 +431,7 @@ interface IncompleteWarning {
 
 function buildIncompleteWarnings(p: EnrollmentPortal): IncompleteWarning[] {
   const warnings: IncompleteWarning[] = []
-  if (p.formMode === 'full' && p.selectionProcessIds.length === 0) {
+  if (p.formMode !== 'interest' && p.selectionProcessIds.length === 0) {
     warnings.push({ id: 'no-process', severity: 'high', message: 'Sem processo seletivo vinculado — o portal não exibirá ofertas.', tab: undefined })
   }
   if (!p.funnelId) {
@@ -594,6 +599,64 @@ function EmbedModal({ portal: p, onClose }: { portal: EnrollmentPortal; onClose:
         O servidor envia <code>frame-ancestors *</code> para portais públicos, então o iframe funciona em qualquer domínio.
       </div>
     </Modal>
+  )
+}
+
+// ── Interessados (portal de captura de interesse) ─────────────
+
+function InteressadosTab({ portal }: { portal: EnrollmentPortal }) {
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const { data, isLoading } = usePortalInteressados(portal.id, search.trim(), page * 50)
+  const items = data?.items ?? []
+  const total = data?.total ?? 0
+  const continuaram = items.filter((i) => i.inscricao).length
+  return (
+    <div class="space-y-3">
+      <Card>
+        <div class="text-xs text-fg-muted mb-3">
+          Este portal é de <strong>captura de interesse</strong>: quem preenche vira um contato no CRM e recebe o link para terminar a
+          inscrição no portal de continuação. A inscrição só existe
+          depois que a pessoa continua — por isso aparece aqui como <strong>interessado</strong>.
+        </div>
+        <div class="flex flex-wrap items-end gap-3">
+          <Input label="Buscar" value={search} placeholder="Nome, e-mail, WhatsApp" class="min-w-56"
+            onInput={(e) => { setSearch((e.target as HTMLInputElement).value); setPage(0) }} />
+          <div class="text-xs text-fg-muted pb-2">{total} interessado(s){items.length ? ` · ${continuaram} desta página já continuaram` : ''}</div>
+        </div>
+      </Card>
+      <Card class="p-0 overflow-x-auto">
+        {isLoading ? <Skeleton class="h-40" /> : items.length === 0 ? (
+          <div class="p-6 text-sm text-fg-muted text-center">Ninguém preencheu este formulário ainda.</div>
+        ) : (
+          <table class="w-full text-sm">
+            <thead class="bg-surface-2 text-2xs uppercase tracking-wider text-fg-muted">
+              <tr>
+                <th class="text-left px-3 py-2">Nome</th>
+                <th class="text-left px-3 py-2">Contato</th>
+                <th class="text-left px-3 py-2">Curso de interesse</th>
+                <th class="text-left px-3 py-2">No CRM</th>
+                <th class="text-left px-3 py-2">Continuou?</th>
+                <th class="text-left px-3 py-2">Quando</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.leadId} class="border-t border-border">
+                  <td class="px-3 py-2"><a class="text-accent hover:underline" href={`/app/leads/${i.leadId}`}>{i.nome}</a></td>
+                  <td class="px-3 py-2 text-xs text-fg-muted">{i.whatsapp}{i.email ? <><br />{i.email}</> : ''}</td>
+                  <td class="px-3 py-2 text-xs">{i.curso ?? '—'}</td>
+                  <td class="px-3 py-2 text-xs text-fg-muted">{[i.funil, i.etapa].filter(Boolean).join(' · ')}</td>
+                  <td class="px-3 py-2 text-xs">{i.inscricao ? <span class="text-success">Sim — {i.inscricao.codigo}</span> : <span class="text-fg-muted">Ainda não</span>}</td>
+                  <td class="px-3 py-2 text-xs text-fg-muted">{formatRelative(i.criadoEm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+      {total > 50 && <Pagination total={total} limit={50} offset={page * 50} onChange={(o) => setPage(Math.floor(o / 50))} />}
+    </div>
   )
 }
 

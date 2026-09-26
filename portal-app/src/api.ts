@@ -24,6 +24,8 @@ export interface Oferta {
   /** Nível e modalidade viram as etiquetas do resumo (ex.: TÉCNICO · EAD). */
   level?: { id: number; nome: string } | null
   modality?: { id: number; nome: string } | null
+  /** Polos onde a oferta acontece (já filtrados pelo que o portal permite). */
+  campuses?: { campus: { id: number; nome: string; cidade?: string | null; estado?: string | null } }[]
 }
 
 export interface Passo { id: string; name: string; fields: Campo[] }
@@ -35,8 +37,16 @@ export interface Portal {
   id: number
   slug: string
   nome: string
-  formConfig: { steps: Passo[]; _informativeBlocks?: Record<string, { config?: unknown }> }
+  /** _simplificado: a inscrição inteira numa página (Educacional › Dados por etapa). */
+  formConfig: { steps: Passo[]; _informativeBlocks?: Record<string, { config?: unknown }>; _simplificado?: boolean }
   formMode: string
+  /** Aparência do formulário limpo (embed) — aba Branding › Formulário limpo. */
+  brandFormStyle?: {
+    bordaCampo?: string; corBorda?: string; corFundoCampo?: string; raioCampo?: number; alturaCampo?: string
+    espacoCampos?: number; respiro?: number; moldura?: boolean; raioMoldura?: number; corFundo?: string
+  } | null
+  /** Captura de interesse: onde a pessoa vai terminar a inscrição (link por WhatsApp). */
+  continuationPortal?: { slug: string; nome: string } | null
   requirePayment: boolean
   metaTitle?: string | null
   metaDescription?: string | null
@@ -75,10 +85,39 @@ export interface Portal {
 export interface DadosPortal { portal: Portal; offerings: Oferta[] }
 
 /** Bloco de conclusão, quando o builder o configurou. */
+/**
+ * O que fazer ao concluir: mensagem ou redirecionamento.
+ *
+ * Vale o que está nas colunas cta* do portal — é onde gravam tanto a janela de
+ * edição do portal quanto o bloco "Conclusão" da aba Formulário. Ler só o bloco
+ * (como antes) ignorava o que se editava na janela e mostrava texto velho.
+ */
 export function conclusaoDoPortal(p: Portal): Conclusao | null {
   const meta = (p.formConfig as unknown as { _informativeBlocks?: Record<string, { config?: Conclusao }> })?._informativeBlocks
-  return meta?.completion?.config ?? null
+  const bloco = meta?.completion?.config ?? null
+  const behavior = (p.ctaBehavior ?? bloco?.behavior) === 'redirect' ? 'redirect' : 'message'
+  const message = (p.ctaMessage ?? bloco?.message ?? '').trim()
+  const target = (p.ctaTarget ?? bloco?.target ?? '').trim()
+  if (behavior === 'redirect') return target ? { behavior, target } : null
+  return message ? { behavior, message } : null
 }
+
+/** Vai para a URL de conclusão. Embutido num site, leva a página inteira — não só o quadro. */
+export function irPara(url: string) {
+  try {
+    if (window.top && window.top !== window) { window.top.location.href = url; return }
+  } catch { /* site de outra origem sem permissão: cai no quadro mesmo */ }
+  location.href = url
+}
+
+/** Quiz "Me ajude a escolher": cursos indicados pelas respostas (sem IA externa). */
+export interface Recomendacao { offeringId: number; courseName: string; modality?: string; turno?: string | null; matchReasons: string[] }
+export const recomendarCursos = (slug: string, answers: Record<string, string>) =>
+  pedir<{ recommendations: Recomendacao[] }>(`/api/public/portals/${encodeURIComponent(slug)}/recommend-course`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answers }),
+  })
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
   let r: Response
@@ -117,6 +156,14 @@ export interface RespostaInscricao {
 
 export const enviarInscricao = (slug: string, formData: Record<string, unknown>) =>
   pedir<RespostaInscricao>(`/api/public/portals/${encodeURIComponent(slug)}/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ formData }),
+  })
+
+/** Captura de interesse: cria o contato e manda o link de continuação por WhatsApp/e-mail. */
+export const enviarInteresse = (slug: string, formData: Record<string, unknown>) =>
+  pedir<{ ok: true; continuationPortalNome?: string }>(`/api/public/portals/${encodeURIComponent(slug)}/interest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ formData }),
@@ -172,15 +219,18 @@ export interface Candidato {
   documents: DocumentoEnviado[]
 }
 
-export const carregarCandidato = () => pedir<Candidato>('/api/candidate/me')
+/** Com `token` (o da inscrição), funciona antes de a pessoa ter senha — dentro do fluxo de inscrição. */
+const comToken = (token?: string): RequestInit => (token ? { headers: { Authorization: `Bearer ${token}` } } : {})
+
+export const carregarCandidato = (token?: string) => pedir<Candidato>('/api/candidate/me', comToken(token))
 
 /** Envio do arquivo. Multipart porque o backend valida os bytes, não só o nome. */
-export async function enviarDocumento(typeCode: string, label: string, arquivo: File): Promise<void> {
+export async function enviarDocumento(typeCode: string, label: string, arquivo: File, token?: string): Promise<void> {
   const fd = new FormData()
   fd.append('file', arquivo, arquivo.name)
   fd.append('typeCode', typeCode)
   fd.append('label', label)
-  const r = await fetch('/api/candidate/documents', { method: 'POST', body: fd, credentials: 'same-origin' })
+  const r = await fetch('/api/candidate/documents', { method: 'POST', body: fd, credentials: 'same-origin', ...comToken(token) })
   if (!r.ok) {
     const t = await r.text()
     let msg = `Não foi possível enviar (erro ${r.status}).`
@@ -189,8 +239,8 @@ export async function enviarDocumento(typeCode: string, label: string, arquivo: 
   }
 }
 
-export async function removerDocumento(id: number): Promise<void> {
-  const r = await fetch(`/api/candidate/documents/${id}`, { method: 'DELETE', credentials: 'same-origin' })
+export async function removerDocumento(id: number, token?: string): Promise<void> {
+  const r = await fetch(`/api/candidate/documents/${id}`, { method: 'DELETE', credentials: 'same-origin', ...comToken(token) })
   if (!r.ok) throw new Error('Não foi possível remover o arquivo.')
 }
 
@@ -518,3 +568,107 @@ export const opcoesDePagamento = (code: string, token: string, cupom?: string) =
       + (cupom ? `?cupom=${encodeURIComponent(cupom)}` : ''),
     { headers: { Authorization: `Bearer ${token}` } },
   )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jornada: etapas depois da inscrição, na ordem que o portal escolheu
+
+export type ChaveEtapa = 'cadastro' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
+export interface EtapaDaJornada {
+  chave: ChaveEtapa
+  titulo: string
+  situacao: 'feito' | 'pendente' | 'aguardando'
+  detalhe: string
+  obrigatoria: boolean
+  /** Dados obrigatórios desta etapa ainda em branco (pedidos antes da ação). */
+  dadosFaltando?: number
+}
+export interface Jornada {
+  portal: { id: number; slug: string; nome: string } | null
+  etapas: EtapaDaJornada[]
+}
+
+export const carregarJornada = (code: string, token: string, onde: 'inscricao' | 'painel' = 'inscricao') =>
+  pedir<Jornada>(`/api/public/registrations/${encodeURIComponent(code)}/jornada?onde=${onde}`, comToken(token))
+
+/** Dados pedidos numa etapa (Educacional › Dados por etapa), com o que já foi informado. */
+export interface DadosDaEtapa {
+  etapa: string
+  campos: Campo[]
+  valores: Record<string, unknown>
+  faltando: number
+}
+export const carregarDados = (code: string, token: string, etapa: string) =>
+  pedir<DadosDaEtapa>(`/api/public/registrations/${encodeURIComponent(code)}/dados?etapa=${encodeURIComponent(etapa)}`, comToken(token))
+
+export const salvarDados = (code: string, token: string, etapa: string, valores: Record<string, string>) =>
+  pedir<{ ok: true }>(`/api/public/registrations/${encodeURIComponent(code)}/dados`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ etapa, valores }),
+  })
+
+/** Portal logado: etapas na ordem do painel + token da inscrição para as ações. */
+export const carregarJornadaDoPortal = () =>
+  pedir<Jornada & { inscricao: { id: number; candidateCode: string }; token: string }>('/api/public/portal/jornada')
+
+export interface ContratoDaInscricao {
+  titulo: string
+  termo: string
+  curso: string
+  oferta: string
+  aluno: string
+  valorTotalCentavos: number
+  numParcelas: number
+  valorParcelaCentavos: number
+  assinado: boolean
+  assinadoEm: string | null
+  assinadoPor: string | null
+}
+
+export const carregarContratoDaInscricao = (code: string, token: string) =>
+  pedir<{ contrato: ContratoDaInscricao }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato`, comToken(token)).then((r) => r.contrato)
+
+export const assinarContratoDaInscricao = (code: string, token: string, nome: string) =>
+  pedir<{ ok: boolean; jaAssinado: boolean }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato/assinar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ nome }),
+  })
+
+// Redação online (mesma API do portal do candidato)
+export interface TentativaRedacao {
+  id: number
+  attemptNumber: number
+  status: string
+  wordCount: number | null
+  prompt: string | null
+  essayText?: string | null
+  startedAt: string | null
+  expiresAt: string | null
+  submittedAt: string | null
+  finalScore: number | null
+  passed: boolean | null
+  humanNote: string | null
+}
+export interface EstadoRedacao {
+  eligible: boolean
+  reason?: string
+  config?: { durationMinutes: number | null; maxAttempts: number | null; minWords: number | null; maxWords: number | null; pasteBlocked: boolean | null; topicCount: number }
+  submissions?: TentativaRedacao[]
+  attemptsLeft?: number
+  canStart?: boolean
+  activeDraft?: TentativaRedacao | null
+  pendingReview?: TentativaRedacao | null
+  finalResult?: TentativaRedacao | null
+}
+const json = (token: string, method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+})
+export const estadoDaRedacao = (token: string) => pedir<EstadoRedacao>('/api/candidate/essay', comToken(token))
+export const iniciarRedacao = (token: string) => pedir<{ ok: boolean; submission: TentativaRedacao }>('/api/candidate/essay/start', json(token, 'POST', {}))
+export const salvarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number) =>
+  pedir<{ ok: boolean; wordCount: number }>(`/api/candidate/essay/${id}/draft`, json(token, 'PUT', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas }))
+export const enviarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number) =>
+  pedir<{ ok: boolean }>(`/api/candidate/essay/${id}/submit`, json(token, 'POST', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas }))

@@ -34,6 +34,10 @@ export interface CabecalhoPortal {
   customHeadJs?: string | null
   customBodyJs?: string | null
   slug: string
+  /** Formulário limpo (modo simplificado): feito para embutir em outro site —
+   *  fundo transparente e sem o aviso de cookies do tracking próprio; o
+   *  consentimento, ali, é assunto do site que hospeda. */
+  limpo?: boolean
 }
 
 /**
@@ -64,6 +68,7 @@ export function paginaDoPortal(p: CabecalhoPortal, appUrl: string): string {
     `<meta name="apple-mobile-web-app-capable" content="yes">`,
     // A cor entra já no HTML para a primeira pintura não piscar no tom errado.
     p.brandPrimaryColor ? `<style>:root{--marca:${esc(p.brandPrimaryColor)}}</style>` : '',
+    p.limpo ? `<style>html,body{background:transparent!important}</style>` : '',
     p.customCss ? `<style>${p.customCss}</style>` : '',
     // Pixels e JS próprio do <head>: são configurados no builder e valiam só na
     // tela clássica. Sem eles a instituição preenchia GA4/Meta/TikTok na aba SEO
@@ -75,7 +80,9 @@ export function paginaDoPortal(p: CabecalhoPortal, appUrl: string): string {
   // Fim do corpo: o tracking próprio (correlaciona visitante → lead no CRM) e o
   // JS que a instituição pediu para rodar depois da página montar.
   const fimDoCorpo = [
-    `<script async src="/api/t/bt.js"></script>`,
+    // No formulário limpo não entra: o bt.js abre o aviso de cookies no rodapé,
+    // e embutido num site isso aparece por cima do site de quem hospeda.
+    p.limpo ? '' : `<script async src="/api/t/bt.js"></script>`,
     p.customBodyJs ? `<script>${p.customBodyJs}</script>` : '',
   ].filter(Boolean).join('\n    ')
 

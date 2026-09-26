@@ -320,7 +320,10 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
     const offerings = await fetchOfferingsForPortal(portal).catch(() => [])
     // Permite embedding em iframes de qualquer origem — portais de interesse
     // são pensados pra serem embedados em LPs e sites de parceiros.
-    reply.header('Content-Security-Policy', "frame-ancestors *")
+    // `*` não cobre página aberta como arquivo (file://) — é assim que a
+    // instituição costuma testar o embed antes de publicar, e o Chrome recusava
+    // ("a conexão foi recusada"). Os esquemas vão explícitos.
+    reply.header('Content-Security-Policy', "frame-ancestors * file: data: blob:")
     reply.removeHeader('X-Frame-Options')
 
     // Tela nova (portal-app): aplicação com formulário em etapas, validação
@@ -329,7 +332,13 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
     // `?classico=1` volta à tela server-side — reserva enquanto a nova roda.
     const querClassico = String((req.query as any)?.classico || '') === '1'
     if (!querClassico && portalAppDisponivel()) {
+      // Modo simplificado (Dados por etapa) = formulário limpo, para embutir.
+      const { dadosEfetivos } = await import('../services/dadosCadastro.js')
+      // Captura de interesse também: é o formulário curto feito para LPs e sites.
+      const extra = await prisma.enrollmentPortal.findUnique({ where: { id: portal.id }, select: { jornadaEtapas: true, formMode: true } })
+      const limpo = extra?.formMode === 'interest' || (await dadosEfetivos(extra))?.modo === 'simplificado'
       return reply.type('text/html').send(paginaDoPortal({
+        limpo,
         nome: portal.nome,
         slug: portal.slug,
         metaTitle: portal.metaTitle,

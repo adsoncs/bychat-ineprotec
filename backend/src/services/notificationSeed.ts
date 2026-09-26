@@ -566,9 +566,31 @@ async function ensureA11ySettings() {
 export async function seedDefaultNotificationTemplatesAndWorkflows() {
   await ensureSmsSettings()
   await ensureA11ySettings()
+  // Instalação completa: todos os modelos, inclusive os que nenhuma automação
+  // padrão usa (o envio direto os busca pelo nome).
+  await instalarWorkflows(WORKFLOWS, true)
+}
+
+/**
+ * Instala UMA automação padrão (e os modelos de mensagem dela), sem mexer nas
+ * outras. Ex.: 'wf_enrollment_interest' — o link de continuação da captura de
+ * interesse, sem o qual quem preenche o formulário curto nunca recebe o link.
+ * Idempotente: o que já existe (pelo nome) não é recriado nem sobrescrito.
+ */
+export async function garantirWorkflowPadrao(chave: string): Promise<{ criado: boolean; nome: string } | null> {
+  const w = WORKFLOWS.find((x) => x.key === chave)
+  if (!w) return null
+  const antes = await prisma.workflow.findFirst({ where: { name: w.name }, select: { id: true } })
+  await instalarWorkflows([w])
+  return { criado: !antes, nome: w.name }
+}
+
+async function instalarWorkflows(lista: WfDef[], todosOsModelos = false) {
+  const precisa = new Set(lista.flatMap((w) => [w.emailTplKey, w.waTplKey]).filter(Boolean) as string[])
   // ── Templates ──
   const tplIds = new Map<string, number>()
   for (const t of TEMPLATES) {
+    if (!todosOsModelos && !precisa.has(t.key)) continue
     const existing = await prisma.messageTemplate.findFirst({ where: { name: t.name } })
     if (existing) {
       tplIds.set(t.key, existing.id)
@@ -589,7 +611,7 @@ export async function seedDefaultNotificationTemplatesAndWorkflows() {
   }
 
   // ── Workflows ──
-  for (const w of WORKFLOWS) {
+  for (const w of lista) {
     const existing = await prisma.workflow.findFirst({ where: { name: w.name } })
     if (existing) continue // não sobrescreve customizações do admin
     const wf = await prisma.workflow.create({

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
+import { Jornada } from './Jornada'
+import { carregarJornadaDoPortal } from './api'
 import { carregarPainelAluno, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
 
 const dinheiro = (centavos: number) =>
@@ -18,6 +20,10 @@ export function Aluno() {
   const [d, setD] = useState<PainelAluno | null>(null)
   const [falha, setFalha] = useState<string | null>(null)
   const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
+  // Etapas da inscrição (ordem do portal logado) e o token para resolvê-las aqui.
+  const [jornada, setJornada] = useState<Awaited<ReturnType<typeof carregarJornadaDoPortal>> | null>(null)
+  // Quem ainda não virou aluno não tem painel acadêmico: vê só a jornada.
+  const [soCandidato, setSoCandidato] = useState(false)
 
   useEffect(() => {
     // Branding completo do portal (cores, fonte, cantos, fundo, logo).
@@ -30,10 +36,17 @@ export function Aluno() {
           document.documentElement.style.setProperty('--marca-suave', `color-mix(in srgb, ${p.marca} 12%, transparent)`)
         }
       })
-      .catch((e) => {
-        if (/Entre no portal|expirad/i.test(e.message)) { location.href = '/portal/login'; return }
+      .catch(async (e) => {
+        if (/Entre no portal|expirad|Aluno não encontrado/i.test(e.message)) {
+          // Candidato (ainda sem matrícula): a jornada da inscrição é a tela dele.
+          const j = await carregarJornadaDoPortal().catch(() => null)
+          if (j) { setJornada(j); setSoCandidato(true); return }
+          location.href = '/portal/login'
+          return
+        }
         setFalha(e.message)
       })
+    carregarJornadaDoPortal().then(setJornada).catch(() => {})
   }, [])
 
   if (falha) {
@@ -47,6 +60,23 @@ export function Aluno() {
       </div>
     )
   }
+  if (soCandidato && jornada) {
+    return (
+      <div class="pagina">
+        <TopoDaMarca marca={marca} />
+        <div class="cartao" style="margin-bottom:14px">
+          <h2>Minha inscrição</h2>
+          <p class="sub" style="margin:0">Código {jornada.inscricao.candidateCode}{jornada.portal ? ` · ${jornada.portal.nome}` : ''}</p>
+        </div>
+        <div class="cartao">
+          {jornada.etapas.length
+            ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
+            : <p class="sub">Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.</p>}
+        </div>
+      </div>
+    )
+  }
+
   if (!d) {
     return (
       <div class="pagina" aria-busy="true">
@@ -109,6 +139,12 @@ export function Aluno() {
           ))}
         </ol>
       </div>
+
+      {jornada && d.passos.some((p) => p.acao?.href === '#jornada') && (
+        <div class="cartao" style="margin-bottom:14px">
+          <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas.filter((e) => e.situacao !== 'feito')} />
+        </div>
+      )}
 
       {d.financeiro.parcelas.length > 0 && (
         <div class="cartao" style="margin-bottom:14px" id="financeiro">

@@ -20,6 +20,7 @@ import { materiaisDoAluno } from '../routes/acaMaterial.js'
 import { resumoHoras } from '../routes/acaEstagio.js'
 import { proximosEventosDoAluno } from '../routes/acaCalendario.js'
 import { ofertasAbertas } from './acaRematricula.js'
+import { etapasDaInscricao } from './portalJornada.js'
 
 export interface Passo {
   chave: string
@@ -130,7 +131,7 @@ export async function painelDoAluno(alunoId: number) {
   const totalAberto = abertas.reduce((s: number, p: any) => s + (p.valorBrutoCentavos ?? 0), 0)
 
   // ── O que falta, em ordem ──
-  const passos: Passo[] = []
+  let passos: Passo[] = []
 
   if (inscricao) {
     passos.push({
@@ -200,6 +201,32 @@ export async function painelDoAluno(alunoId: number) {
           : `Situação: ${matricula.status.toLowerCase()}`,
       situacao: efetivada ? 'feito' : 'pendente',
     })
+  }
+
+  // Ordem escolhida no portal (aba Etapas → portal logado). Inscrição abre e
+  // matrícula fecha; o meio segue a configuração, e etapas da inscrição que o
+  // painel não tinha (taxa de inscrição, redação online) entram onde pedidas.
+  const regDoAluno = await prisma.enrollmentRegistration.findFirst({
+    where: { leadId: aluno.lead.id }, orderBy: { id: 'desc' }, select: { id: true },
+  }).catch(() => null)
+  const jornada = regDoAluno ? await etapasDaInscricao(regDoAluno.id, 'painel').catch(() => null) : null
+  if (jornada) {
+    const inicio = passos.filter((p) => p.chave === 'inscricao')
+    const fim = passos.filter((p) => p.chave === 'matricula')
+    const meio: Passo[] = []
+    for (const e of jornada.etapas) {
+      const local = passos.find((p) => p.chave === (e.chave === 'pagamento' ? 'financeiro' : e.chave))
+      // Pagamento da inscrição ainda em aberto vale mais que as parcelas do ERP.
+      if (local && !(e.chave === 'pagamento' && e.situacao !== 'feito')) { meio.push(local); continue }
+      meio.push({
+        chave: e.chave === 'pagamento' ? 'pagamento_inscricao' : e.chave,
+        titulo: e.titulo,
+        detalhe: e.detalhe,
+        situacao: e.situacao === 'feito' ? 'feito' : 'pendente',
+        acao: e.situacao === 'pendente' ? { rotulo: e.chave === 'prova' ? 'Fazer a redação' : e.chave === 'pagamento' ? 'Pagar' : e.chave === 'contrato' ? 'Ler e assinar' : 'Enviar documentos', href: '#jornada' } : null,
+      })
+    }
+    passos = [...inicio, ...meio, ...fim]
   }
 
   return {
