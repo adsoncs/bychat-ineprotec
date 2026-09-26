@@ -16,10 +16,13 @@ interface Props {
   enviando?: boolean
 }
 
-/** Substitui {{1}}, {{2}}… pelos valores digitados, para o preview e para o
- *  corpo que fica registrado no histórico da conversa. */
-function interpolar(texto: string, vars: string[]): string {
-  return texto.replace(/\{\{(\d+)\}\}/g, (_m, n) => vars[Number(n) - 1] || `{{${n}}}`)
+/** Substitui {{1}}, {{2}}… ou {{nome}}, {{aluno}}… pelos valores digitados,
+ *  para o preview e para o corpo que fica registrado no histórico da conversa. */
+function interpolar(texto: string, variables: string[], vars: string[]): string {
+  return texto.replace(/\{\{\s*[^}\s]+\s*\}\}/g, (m) => {
+    const idx = variables.indexOf(m)
+    return idx >= 0 && vars[idx] ? vars[idx] : m
+  })
 }
 
 /**
@@ -56,15 +59,24 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
       return
     }
     const components = parsed.variables.length
-      ? [{ type: 'body', parameters: vars.map((v) => ({ type: 'text', text: v.trim() })) }]
+      ? [{
+          type: 'body',
+          parameters: vars.map((v, i) => {
+            const p: Record<string, string> = { type: 'text', text: v.trim() }
+            // Template nomeado exige parameter_name (o token sem as chaves) — sem
+            // isso a Meta recusa com #132000 mesmo com a quantidade certa de params.
+            if (parsed.named) p.parameter_name = parsed.variables[i]!.replace(/^\{\{\s*|\s*\}\}$/g, '')
+            return p
+          }),
+        }]
       : undefined
     onSend({
       name: escolhido.name,
       language: escolhido.language,
       components,
       // O histórico guarda o texto já preenchido — sem isso a conversa mostraria
-      // "{{1}}" no lugar do nome do cliente.
-      preview: interpolar(parsed.body, vars),
+      // "{{1}}"/"{{nome}}" no lugar do nome do cliente.
+      preview: interpolar(parsed.body, parsed.variables, vars),
     })
   }
 
@@ -168,14 +180,14 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
             <div class="mb-2 text-xs uppercase tracking-wider text-fg-muted">Como o contato vê</div>
             <div class="rounded-md bg-surface p-3 text-sm">
               {parsed?.header?.format === 'TEXT' && parsed.header.text && (
-                <div class="mb-1 font-semibold">{interpolar(parsed.header.text, vars)}</div>
+                <div class="mb-1 font-semibold">{interpolar(parsed.header.text, parsed.variables, vars)}</div>
               )}
               {parsed?.header?.format && !['NONE', 'TEXT'].includes(parsed.header.format) && (
                 <div class="mb-2 grid h-20 place-items-center rounded bg-surface-3 text-xs text-fg-muted">
                   [{parsed.header.format}]
                 </div>
               )}
-              <div class="whitespace-pre-wrap">{interpolar(parsed?.body ?? '', vars)}</div>
+              <div class="whitespace-pre-wrap">{interpolar(parsed?.body ?? '', parsed?.variables ?? [], vars)}</div>
               {parsed?.footer && <div class="mt-2 text-xs text-fg-muted">{parsed.footer}</div>}
               {!!parsed?.buttons.length && (
                 <div class="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">

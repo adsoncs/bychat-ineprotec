@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks'
-import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown } from '@/components/ui/icon-set'
+import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown, Clock } from '@/components/ui/icon-set'
+import { TeamWorkingHoursModal } from '@/components/routing/TeamWorkingHoursModal'
 import {
   useTeams,
   useCreateTeam,
@@ -36,6 +37,7 @@ export function TeamsSettings() {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<Team | null>(null)
   const [members, setMembers] = useState<Team | null>(null)
+  const [hoursTeam, setHoursTeam] = useState<Team | null>(null)
 
   const teams = data?.teams ?? []
   const totalCount = teams.length
@@ -73,6 +75,7 @@ export function TeamsSettings() {
             onEdit={setEditing}
             onDelete={setDeleting}
             onMembers={setMembers}
+            onHours={setHoursTeam}
           />
         </Card>
       )}
@@ -86,17 +89,21 @@ export function TeamsSettings() {
       {members && (
         <TeamMembersModal team={members} onClose={() => setMembers(null)} />
       )}
+      {hoursTeam && (
+        <TeamWorkingHoursModal teamId={hoursTeam.id} teamName={hoursTeam.name} onClose={() => setHoursTeam(null)} />
+      )}
     </div>
   )
 }
 
 function TeamsSortable({
-  teams, onEdit, onDelete, onMembers,
+  teams, onEdit, onDelete, onMembers, onHours,
 }: {
   teams: Team[]
   onEdit: (t: Team) => void
   onDelete: (t: Team) => void
   onMembers: (t: Team) => void
+  onHours: (t: Team) => void
 }) {
   const reorder = useReorderTeams()
   function handleReorder(next: Team[]) {
@@ -121,6 +128,9 @@ function TeamsSortable({
               <div class="text-sm font-medium text-fg flex items-center gap-2 flex-wrap">
                 {t.name}
                 <Badge tone={t.active ? 'accent' : 'neutral'}>{t.active ? 'Ativa' : 'Inativa'}</Badge>
+                {t.workingHoursEnabled && (
+                  <Badge tone="warning"><Clock size={10} class="inline -mt-0.5 mr-0.5" />Horário restrito</Badge>
+                )}
               </div>
               {t.description && <div class="text-xs text-fg-muted truncate">{t.description}</div>}
               <div class="text-2xs text-fg-muted mt-0.5 flex items-center gap-2 flex-wrap">
@@ -143,6 +153,9 @@ function TeamsSortable({
             <div class="flex gap-1.5 shrink-0 flex-wrap">
               <Button variant="secondary" size="sm" onClick={() => onMembers(t)} aria-label="Gerenciar membros" title="Gerenciar membros">
                 <Users size={12} /> Membros
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => onHours(t)} aria-label="Horário de atendimento" title="Horário de atendimento">
+                <Clock size={12} /> Horários
               </Button>
               <Button variant="secondary" size="sm" onClick={() => onEdit(t)} aria-label="Editar equipe" title="Editar">
                 <Pencil size={12} /> Editar

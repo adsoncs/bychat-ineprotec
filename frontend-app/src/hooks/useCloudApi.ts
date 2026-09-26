@@ -434,11 +434,12 @@ export interface ParsedTemplate {
   body: string
   footer: string | null
   buttons: TemplateButton[]
-  variables: string[] // ex.: ['{{1}}', '{{2}}']
+  variables: string[] // ex.: ['{{1}}', '{{2}}'] (posicional) ou ['{{nome}}', '{{aluno}}'] (nomeado)
+  named: boolean // true = variáveis nomeadas, exige parameter_name no envio
 }
 
 export function parseTemplateComponents(components: unknown): ParsedTemplate {
-  const result: ParsedTemplate = { header: null, body: '', footer: null, buttons: [], variables: [] }
+  const result: ParsedTemplate = { header: null, body: '', footer: null, buttons: [], variables: [], named: false }
   if (!Array.isArray(components)) return result
   for (const c of components as Record<string, unknown>[]) {
     const type = (typeof c.type === 'string' ? c.type : '').toUpperCase()
@@ -463,9 +464,19 @@ export function parseTemplateComponents(components: unknown): ParsedTemplate {
       }
     }
   }
-  // extrai variáveis do body ({{1}}, {{2}})
-  const matches = result.body.match(/\{\{\d+\}\}/g)
-  if (matches) result.variables = Array.from(new Set(matches)).sort()
+  // extrai variáveis do body — posicional ({{1}}, {{2}}) OU nomeada ({{nome}}, {{aluno}}).
+  // Ordem de primeira aparição no texto (não alfabética: "{{10}}" viria antes de
+  // "{{2}}" num sort de string). Mesma lógica de templateBodyTokens no backend
+  // (lib/waTemplateParams.ts) — sem isso, templates nomeados apareciam sem
+  // nenhum campo para preencher e o envio saía com 0 parâmetros (erro Meta 132000).
+  const matches = result.body.match(/\{\{\s*[^}\s]+\s*\}\}/g)
+  if (matches) {
+    const seen = new Set<string>()
+    for (const m of matches) {
+      if (!seen.has(m)) { seen.add(m); result.variables.push(m) }
+    }
+    result.named = result.variables.some((v) => !/^\{\{\d+\}\}$/.test(v))
+  }
   return result
 }
 

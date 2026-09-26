@@ -18,6 +18,7 @@ export interface Team {
   active: boolean
   position: number
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random'
+  workingHoursEnabled?: boolean
   createdAt: string
   updatedAt: string
   memberCount?: number

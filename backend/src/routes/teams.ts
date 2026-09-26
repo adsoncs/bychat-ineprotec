@@ -26,7 +26,7 @@ async function requireTeamLeaderOrAdmin(req: FastifyRequest, reply: FastifyReply
 const TEAM_SELECT = {
   id: true, name: true, slug: true, description: true,
   color: true, icon: true, active: true, position: true,
-  routingMode: true,
+  routingMode: true, workingHoursEnabled: true,
   createdAt: true, updatedAt: true,
 }
 
