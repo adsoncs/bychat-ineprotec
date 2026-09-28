@@ -1,5 +1,6 @@
 import { env } from './env'
 import { refreshAccessToken } from './refreshClient'
+import { mensagemDeErro, MENSAGEM_SEM_CONEXAO } from './httpErrors'
 
 /**
  * Cliente HTTP centralizado.
@@ -62,7 +63,15 @@ async function executeRequest(path: string, init: RequestInit, anonymous: boolea
     if (token) headers.set('Authorization', `Bearer ${token}`)
     else headers.delete('Authorization')
   }
-  return fetch(url, { ...init, headers })
+  try {
+    return await fetch(url, { ...init, headers })
+  } catch (e) {
+    // fetch só lança quando não houve resposta nenhuma (internet caiu, DNS,
+    // conexão cortada no meio do upload). O "Failed to fetch" do navegador
+    // não diz isso a ninguém. Cancelamento proposital segue como AbortError.
+    if ((e as Error)?.name === 'AbortError') throw e
+    throw new ApiError(MENSAGEM_SEM_CONEXAO, 0, null)
+  }
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -103,11 +112,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!res.ok) {
-    const message =
-      data && typeof data === 'object' && 'error' in data && typeof (data).error === 'string'
-        ? (data as { error: string }).error
-        : `HTTP ${res.status}`
-    throw new ApiError(message, res.status, data)
+    throw new ApiError(mensagemDeErro(res.status, data), res.status, data)
   }
 
   return data as T

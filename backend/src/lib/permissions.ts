@@ -148,6 +148,17 @@ const ACTION_OVERRIDES: { test: RegExp; action: Action }[] = [
   { test: /^\/api\/supervision\/conversations\/.+/, action: 'edit' },
 ]
 
+const NOME_DA_ACAO: Record<string, string> = {
+  view: 'Ver', create: 'Criar/Enviar', edit: 'Editar', delete: 'Excluir',
+}
+
+/** "Sem permissão" sozinho não diz nada a ninguém — nem ao operador, nem ao
+ *  admin que precisa liberar. Diz o quê falta e onde se libera. */
+export function mensagemSemPermissao(moduloNome: string, action: string): string {
+  const acao = NOME_DA_ACAO[action] ?? action
+  return `Seu perfil não tem a permissão "${acao}" no módulo ${moduloNome}. Peça a um administrador para liberar em Configurações → Permissões.`
+}
+
 function resolveAction(method: string, pathOnly: string): Action {
   const ov = ACTION_OVERRIDES.find(o => o.test.test(pathOnly))
   return ov ? ov.action : methodToAction(method)
@@ -175,7 +186,8 @@ export function requireModule(moduleId: string, action?: Action) {
     const act = action || methodToAction(req.method)
 
     if (!modPerms || !checkAction(modPerms, act)) {
-      return reply.code(403).send({ error: 'Sem permissão para este módulo', module: moduleId, action: act })
+      const nome = MODULE_REGISTRY.find(m => m.id === moduleId)?.name ?? moduleId
+      return reply.code(403).send({ error: mensagemSemPermissao(nome, act), module: moduleId, action: act })
     }
   }
 }
@@ -434,7 +446,7 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
         console.log(msg + ' [WARN-ONLY, request continued]')
       } else {
         console.warn(msg + ' [BLOCKED 403]')
-        return reply.code(403).send({ error: 'Sem permissão', module: mod.id, action: act })
+        return reply.code(403).send({ error: mensagemSemPermissao(mod.name, act), module: mod.id, action: act })
       }
     }
   } catch (err) {

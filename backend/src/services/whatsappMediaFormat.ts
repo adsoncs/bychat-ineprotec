@@ -112,8 +112,10 @@ export function aceitoPelaMeta(tipo: TipoMidia, s: Sonda): boolean {
   }
   // vídeo e GIF (que viaja como MP4)
   if (f.includes('matroska') || f.includes('webm')) return false
-  if (f.includes('3gp')) return true
-  if (f.includes('mp4')) return s.video === 'h264' && (s.audio === null || s.audio === 'aac')
+  // O ffprobe descreve TODO arquivo da família ISO (mp4, mov, 3gp) com a mesma
+  // lista "mov,mp4,m4a,3gp,3g2,mj2". Checar '3gp' primeiro aprovava qualquer
+  // MP4/MOV sem olhar o codec — o HEVC da câmera do iPhone passava direto.
+  if (f.includes('mp4') || f.includes('3gp')) return s.video === 'h264' && (s.audio === null || s.audio === 'aac')
   return false
 }
 
@@ -135,9 +137,13 @@ export async function converterParaFormatoAceito(caminho: string, tipo: TipoMidi
 
   const sonda = await sondar(caminho)
   if (!sonda) return caminho
-  if (aceitoPelaMeta(tipo, sonda)) return caminho
-
   const ehAudio = tipo === 'audio'
+  // .mov com H.264 já tem o codec certo, mas é servido como video/quicktime,
+  // que a Meta recusa: só troca de caixa (sem recodificar).
+  const soTrocarCaixa = !ehAudio && extname(caminho).toLowerCase() === '.mov'
+  const aceito = aceitoPelaMeta(tipo, sonda)
+  if (aceito && !soTrocarCaixa) return caminho
+
   const destino = caminhoDerivado(caminho, ehAudio ? 'ogg' : 'mp4')
   if (existsSync(destino)) return destino // já convertido antes
 
@@ -147,7 +153,9 @@ export async function converterParaFormatoAceito(caminho: string, tipo: TipoMidi
     ? (sonda.audio === 'opus'
         ? ['-v', 'error', '-y', '-i', caminho, '-vn', '-c:a', 'copy', '-f', 'ogg', destino]
         : ['-v', 'error', '-y', '-i', caminho, '-vn', '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', destino])
-    : ['-v', 'error', '-y', '-i', caminho, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
+    : aceito
+      ? ['-v', 'error', '-y', '-i', caminho, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', destino]
+      : ['-v', 'error', '-y', '-i', caminho, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
        '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-f', 'mp4', destino]
 
   try {
@@ -207,6 +215,10 @@ export function mimeDoArquivo(caminho: string): string {
   if (ext === '.ogg') return 'audio/ogg'
   if (ext === '.mp4') return 'video/mp4'
   if (ext === '.mp3') return 'audio/mpeg'
+  if (ext === '.m4a' || ext === '.aac') return 'audio/mp4'
+  if (ext === '.opus') return 'audio/ogg'
+  if (ext === '.wav') return 'audio/wav'
+  if (ext === '.mov') return 'video/quicktime'
   return 'application/octet-stream'
 }
 

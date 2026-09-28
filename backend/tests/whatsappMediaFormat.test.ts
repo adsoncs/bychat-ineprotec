@@ -64,6 +64,14 @@ describe('aceitoPelaMeta — vídeo', () => {
     assert.equal(aceitoPelaMeta('video', { formato: 'mov,mp4,m4a', audio: 'aac', video: 'vp9' }), false)
   })
 
+  test('família ISO descrita com "3gp" no meio ainda exige H.264 (HEVC do iPhone)', () => {
+    // O ffprobe descreve mp4/mov/3gp com a MESMA lista; checar '3gp' antes do
+    // codec aprovava qualquer vídeo de iPhone.
+    const iso = 'mov,mp4,m4a,3gp,3g2,mj2'
+    assert.equal(aceitoPelaMeta('video', { formato: iso, audio: 'aac', video: 'hevc' }), false)
+    assert.equal(aceitoPelaMeta('video', { formato: iso, audio: 'aac', video: 'h264' }), true)
+  })
+
   test('WebM de vídeo cai no mesmo 131053', () => {
     assert.equal(aceitoPelaMeta('video', { formato: 'matroska,webm', audio: 'opus', video: 'vp8' }), false)
   })
@@ -109,6 +117,12 @@ describe('nomes e URLs', () => {
     assert.equal(mimeDoArquivo('/up/a.wa.ogg'), 'audio/ogg')
     assert.equal(mimeDoArquivo('/up/a.wa.mp4'), 'video/mp4')
   })
+
+  test('MIME de áudio do iPhone e vídeo .mov (upload que chega como octet-stream)', () => {
+    assert.equal(mimeDoArquivo('/up/audio-1.m4a'), 'audio/mp4')
+    assert.equal(mimeDoArquivo('/up/nota.aac'), 'audio/mp4')
+    assert.equal(mimeDoArquivo('/up/IMG_0001.mov'), 'video/quicktime')
+  })
 })
 
 describe('conversão de verdade (precisa de ffmpeg)', { skip: !temFfmpeg ? 'ffmpeg não instalado' : false }, () => {
@@ -147,6 +161,39 @@ describe('conversão de verdade (precisa de ffmpeg)', { skip: !temFfmpeg ? 'ffmp
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
       '-c:a', 'libopus', origem])
     assert.equal(await converterParaFormatoAceito(origem, 'audio'), origem)
+  })
+
+  test('áudio do iPhone (M4A/AAC) já é aceito e não é mexido', async () => {
+    const origem = join(dir, 'iphone.m4a')
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+      '-c:a', 'aac', '-f', 'mp4', origem])
+    assert.equal(await converterParaFormatoAceito(origem, 'audio'), origem)
+  })
+
+  test('.mov com H.264 só troca de caixa para .mp4 (sem recodificar)', async () => {
+    const origem = join(dir, 'IMG_0001.mov')
+    execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10:duration=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-f', 'mov', origem])
+    const saida = await converterParaFormatoAceito(origem, 'video')
+    assert.ok(saida.endsWith('.wa.mp4'), saida)
+    const depois = await sondar(saida)
+    assert.equal(depois!.video, 'h264')
+    assert.equal(aceitoPelaMeta('video', depois!), true)
+  })
+
+  test('vídeo HEVC (câmera do iPhone) é recodificado em H.264', async (t) => {
+    const origem = join(dir, 'IMG_0002.mov')
+    try {
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=10:duration=1',
+        '-c:v', 'libx265', '-pix_fmt', 'yuv420p', '-f', 'mov', origem], { stdio: 'ignore' })
+    } catch {
+      t.skip('ffmpeg sem libx265 para gerar a amostra')
+      return
+    }
+    const saida = await converterParaFormatoAceito(origem, 'video')
+    const depois = await sondar(saida)
+    assert.equal(depois!.video, 'h264')
   })
 
   test('arquivo ilegível segue como está — converter às cegas seria pior', async () => {

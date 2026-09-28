@@ -1889,6 +1889,10 @@ function ChatPanel({
   const typing = useTypingState(leadId)
   const [draft, setDraft] = useState('')
   const [recording, setRecording] = useState(false)
+  // O painel não remonta ao trocar de conversa (não há key={leadId}): um áudio
+  // em gravação seguia aberto e ia para o PRÓXIMO contato. Trocar de conversa
+  // encerra a gravação — o gravador descarta e avisa.
+  useEffect(() => { setRecording(false) }, [leadId])
   const [transferOpen, setTransferOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   /** Sincronizar o histórico DESTA conversa com o celular conectado. */
@@ -2501,7 +2505,9 @@ function ChatPanel({
     image: 5 * 1024 * 1024,
     video: 16 * 1024 * 1024,
     audio: 16 * 1024 * 1024,
-    outro: 100 * 1024 * 1024,
+    // Teto do upload (backend: 25 MB). Com 100 MB aqui, um PDF de 40 MB era
+    // aceito na tela e recusado no envio.
+    outro: 25 * 1024 * 1024,
   }
 
   function aceitarArquivo(file: File): boolean {
@@ -2573,11 +2579,30 @@ function ChatPanel({
     setPendingPreviewUrl(null)
   }
 
-  function handleAudio(file: File) {
-    setRecording(false)
+  /** Os bloqueios de envio são checados ANTES de abrir o microfone. Antes
+   *  eram checados só no fim: o operador gravava, clicava Enviar e o áudio
+   *  era jogado fora por um aviso que já valia antes de começar. */
+  function iniciarGravacao() {
     if (envioBloqueado()) return
     if (mustPickChannel) {
       toast('Escolha por qual número enviar a primeira mensagem deste contato', 'warning')
+      return
+    }
+    setRecording(true)
+  }
+
+  /** Falha no upload ou no envio NÃO pode perder a gravação: ela vira anexo
+   *  pendente, e o operador reenvia com um clique em vez de gravar de novo. */
+  function guardarAudioParaReenvio(file: File, e: unknown) {
+    setPendingFile(file)
+    setPendingPreviewUrl(null)
+    toast(`${(e as Error).message} O áudio ficou guardado como anexo: clique em enviar para tentar de novo.`, 'danger')
+  }
+
+  function handleAudio(file: File) {
+    setRecording(false)
+    if (envioBloqueado() || mustPickChannel) {
+      guardarAudioParaReenvio(file, new Error('Não foi possível enviar agora.'))
       return
     }
     // Áudio é envio direto (sem confirmação): faz upload e envia em sequência.
@@ -2591,11 +2616,11 @@ function ChatPanel({
             channelId: channelId ?? undefined,
           },
           {
-            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+            onError: (e: unknown) => guardarAudioParaReenvio(file, e),
           },
         )
       },
-      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+      onError: (e: unknown) => guardarAudioParaReenvio(file, e),
     })
   }
 
@@ -3553,7 +3578,11 @@ function ChatPanel({
               )
             })()}
             {recording ? (
-              <AudioRecorder onComplete={handleAudio} onCancel={() => setRecording(false)} />
+              <AudioRecorder
+                onComplete={handleAudio}
+                onCancel={() => setRecording(false)}
+                onInterrupted={(f) => { setRecording(false); aceitarArquivo(f) }}
+              />
             ) : (
               <>
               {/* Janela de 24h da Meta: fora dela o WhatsApp Oficial só aceita
@@ -3728,7 +3757,7 @@ function ChatPanel({
                   <button
                     type="button"
                     class="size-9 shrink-0 rounded-md text-fg-muted hover:bg-surface-3 hover:text-fg grid place-items-center disabled:opacity-50"
-                    onClick={() => setRecording(true)}
+                    onClick={iniciarGravacao}
                     disabled={send.isPending || upload.isPending}
                     aria-label="Gravar áudio"
                     title="Gravar áudio"

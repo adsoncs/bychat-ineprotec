@@ -1555,8 +1555,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   })
 
   app.post('/api/atendimento/upload', { preHandler: authMiddleware }, async (req, reply) => {
+    // O limite global do multipart (server.ts) é 10 MB; sem elevar aqui, todo
+    // arquivo entre 10 e 25 MB estourava no meio da leitura e virava 500 com
+    // "request file too large" em inglês — apesar da mensagem abaixo prometer 25.
+    const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
     try {
-      const data = await req.file()
+      const data = await req.file({ limits: { fileSize: MAX_FILE_SIZE } })
       if (!data) return reply.code(400).send({ error: 'Nenhum arquivo enviado' })
 
       const { mkdirSync, writeFileSync } = await import('fs')
@@ -1573,7 +1577,10 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       // Validar extensão (primeira camada)
       const ext = (data.filename.split('.').pop() || 'bin').toLowerCase()
-      const allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'mp4', 'mp3', 'ogg', 'opus', 'wav', 'webm']
+      // m4a/aac: áudio gravado no iPhone (Safari só grava MP4/AAC) e nota de voz
+      // de Android. mov: vídeo da câmera do iPhone. zip/rar: o seletor da tela
+      // já oferecia e aqui recusava.
+      const allowedExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'zip', 'rar', 'mp4', 'mov', 'mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'webm']
       if (!allowedExts.includes(ext)) {
         return reply.code(400).send({ error: `Tipo de arquivo não permitido: .${ext}` })
       }
@@ -1585,10 +1592,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'text/csv', 'text/plain',
-        'video/mp4', 'video/webm',
-        'audio/mpeg', 'audio/ogg', 'audio/opus', 'audio/wav', 'audio/webm',
+        'application/zip', 'application/x-zip-compressed', 'application/vnd.rar', 'application/x-rar-compressed',
+        'video/mp4', 'video/webm', 'video/quicktime',
+        'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/opus', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/webm',
+        'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'audio/x-aac',
+        // Windows manda arquivo de tipo desconhecido como octet-stream; a
+        // extensão (já validada acima) é quem decide nesses casos.
+        'application/octet-stream',
       ]
-      if (data.mimetype && !allowedMimes.includes(data.mimetype)) {
+      // Sem parâmetros: alguns navegadores mandam "audio/webm;codecs=opus".
+      const mimeBase = (data.mimetype || '').split(';')[0]!.trim().toLowerCase()
+      if (mimeBase && !allowedMimes.includes(mimeBase)) {
         return reply.code(400).send({ error: `MIME type não permitido: ${data.mimetype}` })
       }
 
@@ -1603,14 +1617,19 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const filePath = join(uploadsDir, savedName)
 
       const chunks: Buffer[] = []
-      const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
       let totalSize = 0
       for await (const chunk of data.file) {
         totalSize += chunk.length
         if (totalSize > MAX_FILE_SIZE) {
-          return reply.code(413).send({ error: 'Arquivo muito grande (máximo 25MB)' })
+          return reply.code(413).send({ error: 'Arquivo grande demais para enviar (máximo 25 MB). Envie um arquivo menor ou um áudio mais curto.' })
         }
         chunks.push(chunk)
+      }
+      if (data.file.truncated) {
+        return reply.code(413).send({ error: 'Arquivo grande demais para enviar (máximo 25 MB). Envie um arquivo menor ou um áudio mais curto.' })
+      }
+      if (totalSize === 0) {
+        return reply.code(400).send({ error: 'O arquivo chegou vazio (0 bytes). Se foi um áudio, o microfone não captou som — grave de novo.' })
       }
       writeFileSync(filePath, Buffer.concat(chunks))
 
@@ -1619,9 +1638,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       // WebM nos dois tipos — o envio era aceito e falhava depois, calado, com
       // 131053. Converter aqui conserta TODOS os caminhos de envio de uma vez
       // (conversa, chatbot, agendado, disparo), e não só o botão de gravar.
-      const tipoDaMidia = (data.mimetype || '').startsWith('audio/')
+      const tipoPorExt = ['mp3', 'm4a', 'aac', 'ogg', 'opus', 'wav'].includes(ext) ? 'audio'
+        : ['mp4', 'mov'].includes(ext) ? 'video' : null
+      const tipoDaMidia = mimeBase.startsWith('audio/')
         ? 'audio'
-        : (data.mimetype || '').startsWith('video/') ? 'video' : null
+        : mimeBase.startsWith('video/') ? 'video'
+          : mimeBase === 'application/octet-stream' ? tipoPorExt : null
 
       let arquivoFinal = filePath
       if (tipoDaMidia) {
@@ -1644,12 +1666,17 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       return {
         url: publicUrl,
         filename: nomeExibido,
-        mimetype: convertido ? mimeDoArquivo(arquivoFinal) : data.mimetype,
+        mimetype: convertido || mimeBase === 'application/octet-stream'
+          ? mimeDoArquivo(arquivoFinal)
+          : data.mimetype,
         size: chunks.reduce((a, c) => a + c.length, 0)
       }
     } catch (err: any) {
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE' || err?.statusCode === 413) {
+        return reply.code(413).send({ error: 'Arquivo grande demais para enviar (máximo 25 MB). Envie um arquivo menor ou um áudio mais curto.' })
+      }
       app.log.error(`Upload error: ${err.message}`)
-      return reply.code(500).send({ error: err.message })
+      return reply.code(500).send({ error: `Falha ao salvar o arquivo no servidor: ${err.message}` })
     }
   })
 
