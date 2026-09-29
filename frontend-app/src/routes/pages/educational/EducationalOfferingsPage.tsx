@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'preact/hooks'
+import { useState, useMemo, useEffect } from 'preact/hooks'
 import { Ticket, BookOpen, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
 import {
   useOfferings,
@@ -54,6 +54,15 @@ export function EducationalOfferingsPage() {
   const [deleting, setDeleting] = useState<CourseOffering | null>(null)
 
   const offerings = useMemo(() => data?.offerings ?? [], [data])
+
+  // `?editar=<id>` abre direto o formulário da oferta — é por onde a aba de
+  // pagamento do portal manda quem quer ajustar o preço de um curso.
+  useEffect(() => {
+    const alvo = Number(new URLSearchParams(window.location.search).get('editar'))
+    if (!alvo || offerings.length === 0) return
+    const o = offerings.find((x) => x.id === alvo)
+    if (o) setEditing(o)
+  }, [offerings])
   const units = unitsData?.units ?? []
   const courses = coursesData?.courses ?? []
   const modalities = modalitiesData?.modalities ?? []

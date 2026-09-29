@@ -8,6 +8,7 @@ import {
   type PaymentMode,
 } from '@/hooks/useEnrollmentPortals'
 import { usePaymentConnections } from '@/hooks/usePayments'
+import { useOfferings, type CourseOffering } from '@/hooks/useEducational'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
@@ -41,6 +42,26 @@ const PROVIDER_LABEL: Record<Exclude<PaymentProvider, null>, string> = {
   iugu: 'iugu',
 }
 
+const brl = (v: number | string | null | undefined) =>
+  v == null || v === '' ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/**
+ * Ofertas que este portal mostra — o mesmo recorte do portal público
+ * (processos do portal + filtros de nível, curso e modalidade).
+ */
+function ofertasDoPortal(portal: EnrollmentPortal, ofertas: CourseOffering[]): CourseOffering[] {
+  const processos = portal.selectionProcessIds ?? []
+  const filtro = (lista: number[] | null | undefined, v: number | null | undefined) =>
+    !lista || lista.length === 0 || (v != null && lista.map(Number).includes(Number(v)))
+  return ofertas.filter((o) =>
+    o.active !== false
+    && o.selectionProcessId != null && processos.map(Number).includes(Number(o.selectionProcessId))
+    && filtro(portal.allowedLevelIds, o.levelId)
+    && filtro(portal.allowedCourseIds, o.courseId)
+    && filtro(portal.allowedModalityIds, o.modalityId),
+  )
+}
+
 const SectionTitle = ({ children }: { children: preact.ComponentChildren }) => (
   <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">{children}</div>
 )
@@ -69,6 +90,17 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
   const [paymentScope, setPaymentScope] = useState(pag.paymentScope ?? 'taxa')
   const [regras, setRegras] = useState<RegrasPagamento>(comPadrao(pag.paymentMethodsConfig))
   const [dirty, setDirty] = useState(false)
+
+  // Preços por curso: quando a oferta tem tabela, é ela que define preço e
+  // parcelas de cada meio — as regras de desconto/parcelas abaixo não valem.
+  const { data: offeringsData, isLoading: loadingOfertas } = useOfferings()
+  const cursos = useMemo(
+    () => ofertasDoPortal(portal, offeringsData?.offerings ?? []).sort((a, b) => a.nome.localeCompare(b.nome)),
+    [portal, offeringsData],
+  )
+  const comTabela = cursos.filter((o) => o.tabelaPrecos && Number(o.tabelaPrecos.aVista) > 0)
+  const todosComTabela = paymentScope === 'curso' && cursos.length > 0 && comTabela.length === cursos.length
+  const avisoTabela = todosComTabela ? 'Não se aplica: os cursos deste portal usam a tabela de preços da oferta.' : undefined
 
   // Recarrega quando o portal muda por fora (outra aba salvou, refetch).
   useEffect(() => {
@@ -235,11 +267,62 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
         </div>
       </Card>
 
+      {paymentScope === 'curso' && (
+        <Card>
+          <SectionTitle>Preços dos cursos deste portal</SectionTitle>
+          <p class="text-xs text-fg-muted mb-3">
+            Cada curso com <strong>tabela de preços</strong> cobra pelos valores dela: à vista no Pix
+            ou boleto, cartão e boleto parcelado. Para mudar um preço, edite a oferta do curso.
+            {comTabela.length > 0 && ' Nesses cursos, o desconto à vista e as parcelas dos meios abaixo não se aplicam; ligar ou desligar cada meio, a validade do PIX e o vencimento do boleto continuam valendo.'}
+          </p>
+          {loadingOfertas ? (
+            <div class="text-xs text-fg-muted">Carregando cursos…</div>
+          ) : cursos.length === 0 ? (
+            <div class="text-xs text-fg-muted">Nenhum curso ativo neste portal (confira os processos seletivos e os filtros da Configuração).</div>
+          ) : (
+            <div class="divide-y divide-border rounded-md border border-border">
+              {cursos.map((o) => {
+                const t = o.tabelaPrecos && Number(o.tabelaPrecos.aVista) > 0 ? o.tabelaPrecos : null
+                return (
+                  <div key={o.id} class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
+                    <div class="min-w-0 flex-1 basis-48 font-medium text-fg">{o.nome}</div>
+                    {t ? (
+                      <div class="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-fg-muted">
+                        <span><span class="text-2xs uppercase tracking-wider mr-1">À vista</span><b class="text-fg">{brl(t.aVista)}</b></span>
+                        <span><span class="text-2xs uppercase tracking-wider mr-1">Cartão</span><b class="text-fg">{t.cartao ? `${t.cartao.parcelas}x ${brl(t.cartao.valorParcela)}` : '—'}</b></span>
+                        <span><span class="text-2xs uppercase tracking-wider mr-1">Boleto</span><b class="text-fg">{t.boleto && t.boleto.parcelas > 1 ? `${t.boleto.parcelas}x ${brl(t.boleto.valorParcela)}` : 'só à vista'}</b></span>
+                      </div>
+                    ) : (
+                      <div class="text-warning">
+                        Sem tabela — cobra a 1ª mensalidade ({brl(o.valorMensalidade)}) pelo mesmo valor em qualquer meio
+                      </div>
+                    )}
+                    <a href={`/app/educational/offerings?editar=${o.id}`} class="inline-flex items-center gap-1 text-accent underline">
+                      {t ? 'Editar preços' : 'Definir preços'} <ExternalLink size={10} />
+                    </a>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
       <Card>
         <SectionTitle>Meios de pagamento</SectionTitle>
         <p class="text-xs text-fg-muted mb-3">
           Quais o candidato pode usar e as regras de cada um. Meio desligado não aparece no portal.
         </p>
+        {todosComTabela && (
+          <div class="mb-3 flex items-start gap-2 rounded-md border border-border bg-surface-2 p-2 text-xs text-fg-muted">
+            <AlertCircle size={14} class="mt-0.5 shrink-0" />
+            <span>
+              Os {cursos.length} cursos deste portal têm tabela de preços própria. Aqui valem só o liga/desliga
+              de cada meio, a validade do PIX e o dia de vencimento do boleto — desconto e parcelas vêm da tabela
+              (card acima).
+            </span>
+          </div>
+        )}
         <div class="space-y-4">
 
           {/* PIX */}
@@ -259,7 +342,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                 value={String(regras.pix.descontoPct)}
                 disabled={!regras.pix.ativo}
                 onInput={(e) => mark(setRegras)({ ...regras, pix: { ...regras.pix, descontoPct: Number((e.target as HTMLInputElement).value) } })}
-                hint="0 a 50. Aparece no botão do PIX."
+                hint={avisoTabela ?? '0 a 50. Aparece no botão do PIX.'}
               />
               <Input
                 label="Código válido por (horas)"
@@ -297,7 +380,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                 value={String(regras.boleto.parcelasMax)}
                 disabled={!regras.boleto.ativo || !regras.boleto.parcelado}
                 onInput={(e) => mark(setRegras)({ ...regras, boleto: { ...regras.boleto, parcelasMax: Number((e.target as HTMLInputElement).value) } })}
-                hint="1 a 48"
+                hint={avisoTabela ?? '1 a 48'}
               />
               <Input
                 label="Dia de vencimento das seguintes"
@@ -352,7 +435,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                 value={String(regras.cartao.parcelasMax)}
                 disabled={!regras.cartao.ativo}
                 onInput={(e) => mark(setRegras)({ ...regras, cartao: { ...regras.cartao, parcelasMax: Number((e.target as HTMLInputElement).value) } })}
-                hint="Teto: Asaas 21, iugu 12"
+                hint={avisoTabela ?? 'Teto: Asaas 21, iugu 12'}
               />
               <Input
                 label="Sem juros até"
