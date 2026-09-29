@@ -93,7 +93,12 @@ export interface Portal {
   ctaMessage?: string | null
 }
 
-export interface DadosPortal { portal: Portal; offerings: Oferta[] }
+export interface DadosPortal {
+  portal: Portal
+  offerings: Oferta[]
+  /** Aberto pelo link de um curso (/portal/<portal>/<curso>): só ele vem em `offerings`. */
+  cursoDoLink?: { slug: string; offeringId: number; nome: string } | null
+}
 
 /** Bloco de conclusão, quando o builder o configurou. */
 /**
@@ -150,8 +155,8 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
   return corpo as T
 }
 
-export const carregarPortal = (slug: string) =>
-  pedir<DadosPortal>(`/api/public/portals/${encodeURIComponent(slug)}`)
+export const carregarPortal = (slug: string, curso?: string | null) =>
+  pedir<DadosPortal>(`/api/public/portals/${encodeURIComponent(slug)}${curso ? `?curso=${encodeURIComponent(curso)}` : ''}`)
 
 export interface RespostaInscricao {
   ok: boolean
@@ -165,11 +170,12 @@ export interface RespostaInscricao {
   temSenha?: boolean
 }
 
-export const enviarInscricao = (slug: string, formData: Record<string, unknown>) =>
+export const enviarInscricao = (slug: string, formData: Record<string, unknown>, curso?: string | null) =>
   pedir<RespostaInscricao>(`/api/public/portals/${encodeURIComponent(slug)}/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ formData }),
+    // O curso do link vai junto: o servidor confere que a oferta é a dele.
+    body: JSON.stringify({ formData, ...(curso ? { curso } : {}) }),
   })
 
 /** Captura de interesse: cria o contato e manda o link de continuação por WhatsApp/e-mail. */

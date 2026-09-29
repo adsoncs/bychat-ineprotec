@@ -39,6 +39,12 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+/** "Técnico em Agrimensura" → "tecnico-em-agrimensura" (o servidor normaliza igual). */
+function slugDoCurso(v: string): string {
+  return v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
+}
+
 export function EducationalOfferingsPage() {
   const [search, setSearch] = useState('')
 
@@ -389,6 +395,7 @@ function OfferingFormModal({
   const [selectionProcessId, setSelectionProcessId] = useState<number | ''>(offering?.selectionProcessId ?? '')
   const [nome, setNome] = useState(offering?.nome ?? '')
   const [complemento, setComplemento] = useState(offering?.complemento ?? '')
+  const [slug, setSlug] = useState(offering?.slug ?? '')
   const [turno, setTurno] = useState(offering?.turno ?? '')
   const [vagasMinimas, setVagasMinimas] = useState(offering?.vagasMinimas != null ? String(offering.vagasMinimas) : '')
   const [vagasMaximas, setVagasMaximas] = useState(offering?.vagasMaximas != null ? String(offering.vagasMaximas) : '')
@@ -462,6 +469,7 @@ function OfferingFormModal({
       campusIds,
       nome: nome.trim(),
       complemento: complemento.trim() || null,
+      slug: slugDoCurso(slug) || null,
       turno: turno.trim() || null,
       vagasMinimas: parseIntOrNull(vagasMinimas),
       vagasMaximas: parseIntOrNull(vagasMaximas),
@@ -518,6 +526,23 @@ function OfferingFormModal({
           onInput={(e) => setComplemento((e.target as HTMLInputElement).value)}
           placeholder="Diferenciação rápida"
         />
+        <div>
+          <Input
+            label="Endereço no link do portal"
+            value={slug}
+            onInput={(e) => setSlug((e.target as HTMLInputElement).value)}
+            onBlur={() => setSlug(slugDoCurso(slug))}
+            placeholder="ex.: agrimensura"
+            hint={slug
+              ? `Link direto: …/portal/<portal>/${slugDoCurso(slug)} — abre o portal só com este curso, já escolhido.`
+              : 'Opcional. Com ele, a página do curso no site leva direto a este curso no portal, sem a lista.'}
+          />
+          {!slug && nome.trim() && (
+            <button type="button" class="mt-1 text-2xs text-accent underline" onClick={() => setSlug(slugDoCurso(nome))}>
+              Usar "{slugDoCurso(nome)}"
+            </button>
+          )}
+        </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Select

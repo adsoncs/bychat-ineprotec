@@ -62,6 +62,10 @@ function ofertasDoPortal(portal: EnrollmentPortal, ofertas: CourseOffering[]): C
   )
 }
 
+/** Link que abre o portal só com este curso — o que vai no botão do site. */
+const linkDoCurso = (portalSlug: string, cursoSlug: string) =>
+  `${window.location.origin}/portal/${encodeURIComponent(portalSlug)}/${encodeURIComponent(cursoSlug)}`
+
 const SectionTitle = ({ children }: { children: preact.ComponentChildren }) => (
   <div class="text-xs uppercase tracking-wider text-fg-muted mb-3">{children}</div>
 )
@@ -296,6 +300,22 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                       <div class="text-warning">
                         Sem tabela — cobra a 1ª mensalidade ({brl(o.valorMensalidade)}) pelo mesmo valor em qualquer meio
                       </div>
+                    )}
+                    {o.slug ? (
+                      <button
+                        type="button"
+                        class="text-accent underline"
+                        title={linkDoCurso(portal.slug, o.slug)}
+                        onClick={() => {
+                          navigator.clipboard?.writeText(linkDoCurso(portal.slug, o.slug!))
+                            .then(() => toast('Link do curso copiado', 'success'))
+                            .catch(() => toast(linkDoCurso(portal.slug, o.slug!), 'info'))
+                        }}
+                      >
+                        Copiar link direto
+                      </button>
+                    ) : (
+                      <span class="text-2xs text-fg-muted" title="Defina o endereço no link na oferta">sem link direto</span>
                     )}
                     <a href={`/app/educational/offerings?editar=${o.id}`} class="inline-flex items-center gap-1 text-accent underline">
                       {t ? 'Editar preços' : 'Definir preços'} <ExternalLink size={10} />

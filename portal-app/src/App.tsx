@@ -55,10 +55,32 @@ function slugDaUrl(): string {
   return (i >= 0 ? partes[i + 1] : partes[0]) || ''
 }
 
+/**
+ * Curso do link: /portal/<slug>/<curso> (o botão "Matricule-se" da página do
+ * curso no site) ou ?curso=<curso> (campanhas, embeds). Os nomes que o portal
+ * usa no caminho (/documentos, /contrato…) nunca chegam aqui: o servidor os
+ * reserva e o main.tsx os desvia antes.
+ */
+function cursoDaUrl(): string | null {
+  const partes = location.pathname.split('/').filter(Boolean)
+  const i = partes.indexOf('portal')
+  const doCaminho = i >= 0 ? partes[i + 2] : undefined
+  return doCaminho || new URLSearchParams(location.search).get('curso') || null
+}
+
+/** O mesmo portal sem o curso do link, com as UTMs e o resto da query intactos. */
+function urlSemCurso(slug: string): string {
+  const q = new URLSearchParams(location.search)
+  q.delete('curso')
+  const s = q.toString()
+  return `/portal/${encodeURIComponent(slug)}${s ? `?${s}` : ''}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function App() {
   const slug = useMemo(slugDaUrl, [])
+  const cursoLink = useMemo(cursoDaUrl, [])
   const token = useMemo(tokenDaUrl, [])
   const [dados, setDados] = useState<DadosPortal | null>(null)
   const [falha, setFalha] = useState<string | null>(null)
@@ -78,7 +100,7 @@ export function App() {
   // ── carga inicial + rascunho ──
   useEffect(() => {
     let vivo = true
-    carregarPortal(slug)
+    carregarPortal(slug, cursoLink)
       .then(async (d) => {
         if (!vivo) return
         setDados(d)
@@ -238,7 +260,7 @@ export function App() {
     setEnviando(true)
     setErroEnvio(null)
     try {
-      const r = await enviarInscricao(slug, { ...valores, lgpdConsent: true })
+      const r = await enviarInscricao(slug, { ...valores, lgpdConsent: true }, dados?.cursoDoLink?.slug)
       localStorage.removeItem(chaveRascunho(slug))
       // Antes do redirecionamento configurável: se a instituição manda o
       // candidato para outra página, a conversão precisa ter sido contada aqui.
@@ -403,7 +425,12 @@ export function App() {
       </div>
 
       {!naRevisao && (ofertaEscolhida || portal.brandSummaryAlways) && (
-        <ResumoDaOferta oferta={ofertaEscolhida} portal={portal} mostrarValor={mostrarValor} />
+        <ResumoDaOferta
+          oferta={ofertaEscolhida}
+          portal={portal}
+          mostrarValor={mostrarValor}
+          verTodos={dados?.cursoDoLink ? urlSemCurso(slug) : null}
+        />
       )}
 
       <Rodape portal={portal} />
@@ -718,7 +745,7 @@ function detalheDaOferta(o: Oferta): string {
   return partes.join(' · ')
 }
 
-function ResumoDaOferta({ oferta, portal, mostrarValor = true }: { oferta: Oferta | null; portal: DadosPortal['portal']; mostrarValor?: boolean }) {
+function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }: { oferta: Oferta | null; portal: DadosPortal['portal']; mostrarValor?: boolean; verTodos?: string | null }) {
   // Sem curso escolhido o resumo continua na tela, dizendo o que vai aparecer
   // ali. Uma coluna que some e volta faz a página pular embaixo da pessoa.
   if (!oferta) {
@@ -778,6 +805,13 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true }: { oferta: Ofert
         </>
       )}
       {observacao && <p class="ajuda" style="margin-top:10px">{observacao}</p>}
+      {/* Veio pelo link de um curso: o curso está escolhido, mas quem caiu na
+          página errada ainda tem por onde sair. */}
+      {verTodos && (
+        <p class="ajuda" style="margin-top:10px">
+          Não é este curso? <a href={verTodos}>Ver todos os cursos</a>
+        </p>
+      )}
     </div>
   )
 }

@@ -18,6 +18,20 @@ import {
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { lerTabelaDePrecos } from '../services/tabelaDePrecos.js'
+import { validarSlugCurso } from '../services/cursoDoLink.js'
+
+/**
+ * Endereço do curso no link (/portal/<portal>/<slug>): normaliza, recusa os
+ * reservados e os já usados por outra oferta — antes de gravar, para a tela
+ * dizer o motivo em vez de um erro de banco.
+ */
+async function slugParaGravar(bruto: unknown, ofertaId: number | null): Promise<{ slug: string | null } | { erro: string }> {
+  const v = validarSlugCurso(bruto)
+  if ('erro' in v || !v.slug) return v
+  const dono = await prisma.courseOffering.findUnique({ where: { slug: v.slug }, select: { id: true, nome: true } })
+  if (dono && dono.id !== ofertaId) return { erro: `O endereço "${v.slug}" já é usado por "${dono.nome}".` }
+  return v
+}
 
 /** Tabela de preços como a coluna JSON recebe: sem preço à vista, apaga. */
 function tabelaParaGravar(bruto: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
@@ -653,9 +667,12 @@ export async function educationalRoutes(app: FastifyInstance) {
     ])
     if (dateErr) return reply.code(400).send({ error: dateErr })
     const campusIds: number[] = Array.isArray(body.campusIds) ? body.campusIds.map(Number).filter(Boolean) : []
+    const slugNovo = body.slug !== undefined ? await slugParaGravar(body.slug, null) : { slug: null }
+    if ('erro' in slugNovo) return reply.code(400).send({ error: slugNovo.erro })
 
     const offering = await prisma.courseOffering.create({
       data: {
+        slug: slugNovo.slug,
         courseId: parseInt(body.courseId),
         unitId: parseInt(body.unitId),
         modalityId: parseInt(body.modalityId),
@@ -720,6 +737,11 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.active !== undefined) data.active = !!body.active
     // Tabela sem preço à vista é tabela apagada: vale o valor único de antes.
     if (body.tabelaPrecos !== undefined) data.tabelaPrecos = tabelaParaGravar(body.tabelaPrecos)
+    if (body.slug !== undefined) {
+      const v = await slugParaGravar(body.slug, parseInt(id))
+      if ('erro' in v) return reply.code(400).send({ error: v.erro })
+      data.slug = v.slug
+    }
 
     try {
       // Atualiza a oferta

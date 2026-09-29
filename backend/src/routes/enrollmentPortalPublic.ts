@@ -310,7 +310,24 @@ async function resolvePortal(req: FastifyRequest, slug?: string | null) {
 
 export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
   // GET /portal/:slug — HTML standalone do portal (rota canônica)
-  app.get('/portal/:slug', async (req, reply) => {
+  app.get('/portal/:slug', async (req, reply) => servirPortal(req, reply, null))
+
+  // GET /portal/:slug/:curso — o mesmo portal, aberto só com um curso (o botão
+  // "Matricule-se" da página do curso no site). O portal-app lê o curso do
+  // caminho; aqui o <head> ganha o nome do curso para a prévia do WhatsApp e
+  // do buscador. Caminhos fixos (/portal/aca/login…) têm precedência no
+  // roteador, e os nomes que o portal usa são reservados (cursoDoLink).
+  app.get('/portal/:slug/:curso', async (req, reply) => {
+    const { cursoPedido } = await import('../services/cursoDoLink.js')
+    const pedido = cursoPedido((req.params as any).curso, null)
+    if (!pedido) {
+      reply.code(404).type('text/html').send(renderNotFound())
+      return
+    }
+    return servirPortal(req, reply, pedido)
+  })
+
+  async function servirPortal(req: FastifyRequest, reply: any, cursoSlug: string | null) {
     const { slug } = req.params as any
     const portal = await resolvePortal(req, slug)
     if (!portal || !portal.active) {
@@ -318,6 +335,12 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
       return
     }
     const offerings = await fetchOfferingsForPortal(portal).catch(() => [])
+    // Curso do link: só se for deste portal. Fora dele, a página abre normal —
+    // o portal-app mostra a lista (a API faz a mesma conferência).
+    const cursoDoLink = cursoSlug
+      ? await prisma.courseOffering.findUnique({ where: { slug: cursoSlug }, select: { id: true, nome: true } }).catch(() => null)
+      : null
+    const cursoValido = cursoDoLink && offerings.some((o: any) => o.id === cursoDoLink.id) ? cursoDoLink : null
     // Permite embedding em iframes de qualquer origem — portais de interesse
     // são pensados pra serem embedados em LPs e sites de parceiros.
     // `*` não cobre página aberta como arquivo (file://) — é assim que a
@@ -341,7 +364,8 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
         limpo,
         nome: portal.nome,
         slug: portal.slug,
-        metaTitle: portal.metaTitle,
+        cursoSlug: cursoValido ? cursoSlug : null,
+        metaTitle: cursoValido ? `${cursoValido.nome} — ${portal.metaTitle || portal.nome}` : portal.metaTitle,
         metaDescription: portal.metaDescription,
         ogImageUrl: portal.ogImageUrl,
         brandFaviconUrl: portal.brandFaviconUrl,
@@ -353,7 +377,7 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
       }, process.env.APP_URL || ''))
     }
     reply.type('text/html').send(renderPortalHtml(portal, req, offerings))
-  })
+  }
 
   // Hook: se o Host do request for um customDomain de portal, reescreve a URL
   // para /portal/:slug internamente. Assim não colide com o static-files em GET /.

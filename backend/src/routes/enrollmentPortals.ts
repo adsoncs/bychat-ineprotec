@@ -1848,7 +1848,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
       select: {
         id: true, nome: true, turno: true,
-        valorMensalidade: true, valorMatricula: true, tabelaPrecos: true,
+        valorMensalidade: true, valorMatricula: true, tabelaPrecos: true, slug: true,
         vagasMinimas: true, vagasMaximas: true,
         inicioCurso: true, terminoCurso: true,
         selectionProcessId: true,
@@ -1884,12 +1884,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { dadosEfetivos, formConfigEfetivo } = await import('../services/dadosCadastro.js')
     const { jornadaEtapas, continuationPortal, ...publico } = portal
     const formConfig = formConfigEfetivo(portal.formConfig, await dadosEfetivos({ jornadaEtapas }))
+
+    // Curso escolhido pelo link (/portal/<portal>/<curso>): só vale se for um
+    // curso DESTE portal — de outro nível, ou inexistente, o portal abre com a
+    // lista de sempre, sem tela de erro.
+    const { cursoPedido } = await import('../services/cursoDoLink.js')
+    const pedido = cursoPedido(null, (req.query as any)?.curso)
+    const doLink = pedido ? offerings.find((o) => o.slug === pedido) ?? null : null
     return {
       portal: {
         ...publico, formConfig,
         continuationPortal: continuationPortal ? { slug: continuationPortal.slug, nome: continuationPortal.nome } : null,
       },
-      offerings,
+      offerings: doLink ? [doLink] : offerings,
+      cursoDoLink: doLink ? { slug: doLink.slug, offeringId: doLink.id, nome: doLink.nome } : null,
     }
   })
 
@@ -1983,6 +1991,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const processIds = await processosOferecidos(portal)
     const fixa = ofertaFixa(portal.formConfig)
     if (fixa && offeringId && offeringId !== fixa) return reply.code(400).send({ error: 'Oferta inválida para este portal' })
+    // Veio pelo link de um curso: a oferta enviada tem de ser a dele — a tela
+    // não oferece outra, e o servidor não confia só na tela.
+    {
+      const { cursoPedido } = await import('../services/cursoDoLink.js')
+      const pedido = cursoPedido(null, body.curso)
+      if (pedido && offeringId) {
+        const doLink = await prisma.courseOffering.findUnique({ where: { slug: pedido }, select: { id: true } })
+        if (doLink && doLink.id !== offeringId) return reply.code(400).send({ error: 'Oferta inválida para o curso deste link' })
+      }
+    }
     let selectionProcessId: number | null = null
     let offering: any = null
     let entryModeCode: string | null = null

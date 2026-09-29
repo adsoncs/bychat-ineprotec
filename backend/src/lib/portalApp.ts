@@ -38,6 +38,8 @@ export interface CabecalhoPortal {
    *  fundo transparente e sem o aviso de cookies do tracking próprio; o
    *  consentimento, ali, é assunto do site que hospeda. */
   limpo?: boolean
+  /** Curso do link (/portal/<slug>/<curso>): entra no og:url e no canonical. */
+  cursoSlug?: string | null
 }
 
 /**
@@ -49,7 +51,7 @@ export function paginaDoPortal(p: CabecalhoPortal, appUrl: string): string {
   const html = fs.readFileSync(path.join(DIST_PORTAL, 'index.html'), 'utf-8')
   const titulo = p.metaTitle || p.nome
   const descricao = p.metaDescription || `Faça sua inscrição em ${p.nome}.`
-  const url = `${appUrl.replace(/\/$/, '')}/portal/${encodeURIComponent(p.slug)}`
+  const url = `${appUrl.replace(/\/$/, '')}/portal/${encodeURIComponent(p.slug)}${p.cursoSlug ? `/${encodeURIComponent(p.cursoSlug)}` : ''}`
 
   const head = [
     `<title>${esc(titulo)}</title>`,

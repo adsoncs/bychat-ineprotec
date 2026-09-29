@@ -3638,6 +3638,9 @@ model CourseOffering {
   nome        String  @db.VarChar(191)
   complemento String? @db.VarChar(255) // ex: "Noturno — 2026/1"
   codigo      String? @db.VarChar(50)
+  /// Endereço do curso no link do portal: /portal/<portal>/<slug>. Com ele o
+  /// portal abre só este curso, já escolhido (services/cursoDoLink.ts).
+  slug        String? @unique @db.VarChar(100)
   turno       String? @db.VarChar(20) // Matutino, Vespertino, Noturno, Integral
 
   valorMensalidade Decimal? @db.Decimal(12, 2)

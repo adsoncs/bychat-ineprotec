@@ -361,6 +361,8 @@ export interface CourseOffering {
   valorMatricula: number | null
   /** Tabela de preços do checkout do portal por meio de pagamento. */
   tabelaPrecos?: TabelaPrecosOferta | null
+  /** Endereço do curso no link do portal: /portal/<portal>/<slug>. */
+  slug?: string | null
   notaCorte: number | null
   vagasMinimas: number | null
   vagasMaximas: number | null
@@ -400,6 +402,7 @@ export interface CourseOfferingInput {
   valorMensalidade?: number | null | undefined
   valorMatricula?: number | null | undefined
   tabelaPrecos?: TabelaPrecosOferta | null | undefined
+  slug?: string | null | undefined
   notaCorte?: number | null | undefined
   vagasMinimas?: number | null | undefined
   vagasMaximas?: number | null | undefined
