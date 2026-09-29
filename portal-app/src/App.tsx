@@ -644,9 +644,9 @@ function EscolhaDeCurso(props: {
           onChange={(e) => { const v = (e.target as HTMLSelectElement).value; if (v) props.aoEscolher(Number(v)) }}>
           <option value="">Selecione o curso…</option>
           {props.ofertas.map((o) => {
-            const valor = comValor ? dinheiro(o.valorMensalidade) : null
+            const valor = comValor ? precoDaLista(o) : null
             const det = detalheDaOferta(o)
-            return <option key={o.id} value={o.id}>{o.nome}{det ? ` · ${det}` : ''}{valor ? ` — ${valor}/mês` : ''}</option>
+            return <option key={o.id} value={o.id}>{o.nome}{det ? ` · ${det}` : ''}{valor ? ` — ${valor.valor}${valor.sufixo}` : ''}</option>
           })}
         </select>
         {props.erro && <span class="erro" role="alert">{props.erro}</span>}
@@ -670,7 +670,7 @@ function EscolhaDeCurso(props: {
       <div class={`cursos ${exibicao === 'lista' ? 'compacta' : ''}`}>
         {filtradas.length === 0 && <div class="vazio">Nenhum curso encontrado para “{busca}”.</div>}
         {filtradas.map((o) => {
-          const valor = comValor ? dinheiro(o.valorMensalidade) : null
+          const valor = comValor ? precoDaLista(o) : null
           return (
             <button
               type="button"
@@ -683,7 +683,7 @@ function EscolhaDeCurso(props: {
                 <span class="t">{o.nome}</span>
                 {detalheDaOferta(o) && <span class="d">{detalheDaOferta(o)}</span>}
               </span>
-              {valor && <span class="v">{valor}<span style="font-weight:400;color:var(--tinta-3)">/mês</span></span>}
+              {valor && <span class="v">{valor.valor}<span style="font-weight:400;color:var(--tinta-3)">{valor.sufixo}</span></span>}
             </button>
           )
         })}
@@ -691,6 +691,20 @@ function EscolhaDeCurso(props: {
       {props.erro && <span class="erro" role="alert">{props.erro}</span>}
     </div>
   )
+}
+
+/**
+ * O preço que a lista de cursos mostra. Com tabela, o à vista (é o menor, e é o
+ * que o site destaca no "Por R$ …"); sem ela, a mensalidade de sempre.
+ */
+function precoDaLista(o: Oferta): { valor: string; sufixo: string } | null {
+  const t = o.tabelaPrecos
+  if (t && Number(t.aVista) > 0) {
+    const v = dinheiro(t.aVista)
+    return v ? { valor: v, sufixo: ' à vista' } : null
+  }
+  const v = dinheiro(o.valorMensalidade)
+  return v ? { valor: v, sufixo: '/mês' } : null
 }
 
 /**
@@ -717,8 +731,11 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true }: { oferta: Ofert
   }
 
   // Valor desligado na escolha de curso: o resumo também não mostra.
-  const mensalidade = mostrarValor ? dinheiro(oferta.valorMensalidade) : null
-  const matricula = mostrarValor ? dinheiro(oferta.valorMatricula) : null
+  // Com tabela de preços, o resumo mostra as condições dela (as do site) no
+  // lugar de matrícula + mensalidade.
+  const tabela = mostrarValor && oferta.tabelaPrecos && Number(oferta.tabelaPrecos.aVista) > 0 ? oferta.tabelaPrecos : null
+  const mensalidade = mostrarValor && !tabela ? dinheiro(oferta.valorMensalidade) : null
+  const matricula = mostrarValor && !tabela ? dinheiro(oferta.valorMatricula) : null
   const taxa = mostrarValor ? dinheiro(oferta.selectionProcess?.taxaInscricao) : null
   const etiquetas = [oferta.level?.nome, oferta.modality?.nome].filter(Boolean) as string[]
   const observacao = rotulo(portal, 'resumoObservacao')
@@ -745,6 +762,20 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true }: { oferta: Ofert
           <span>{rotulo(portal, 'resumoMensalidade')}</span>
           <b>{mensalidade}</b>
         </div>
+      )}
+      {tabela && (
+        <>
+          {tabela.cartao && (
+            <div class="linha"><span>Cartão de crédito</span><b>{tabela.cartao.parcelas}x {dinheiro(tabela.cartao.valorParcela)}</b></div>
+          )}
+          {tabela.boleto && tabela.boleto.parcelas > 1 && (
+            <div class="linha"><span>Boleto parcelado</span><b>{tabela.boleto.parcelas}x {dinheiro(tabela.boleto.valorParcela)}</b></div>
+          )}
+          <div class="destaque">
+            <span>À vista no Pix ou boleto</span>
+            <b>{dinheiro(tabela.aVista)}</b>
+          </div>
+        </>
       )}
       {observacao && <p class="ajuda" style="margin-top:10px">{observacao}</p>}
     </div>

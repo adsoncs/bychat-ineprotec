@@ -124,6 +124,17 @@ export interface EscolhaDoCheckout {
   /** Em centavos, o que efetivamente entrou. */
   valorPagoCentavos: number
   pagoEm: Date
+  /**
+   * Condição da tabela de preços da oferta, quando o checkout cobrou por ela
+   * (services/tabelaDePrecos). É o preço que a pessoa aceitou — o contrato
+   * nasce dele, e não do plano padrão da oferta.
+   */
+  tabela?: {
+    condicao: 'a_vista' | 'cartao' | 'boleto_parcelado'
+    parcelas: number
+    valorParcelaCentavos: number
+    valorTotalCentavos: number
+  } | null
 }
 
 /**
@@ -150,13 +161,52 @@ async function escolhaDoCheckout(registrationId: number | null | undefined): Pro
   const valor = Number(plano.valorCobrado ?? reg.paymentAmount ?? 0)
   if (!Number.isFinite(valor) || valor <= 0) return null
 
+  const t = (plano.tabela ?? null) as Record<string, unknown> | null
+  const condicao = t && ['a_vista', 'cartao', 'boleto_parcelado'].includes(String(t.condicao))
+    ? (t.condicao as NonNullable<EscolhaDoCheckout['tabela']>['condicao'])
+    : null
+  const totalTabela = Math.round(Number(t?.valorTotal ?? 0) * 100)
+
   return {
     escopo: 'curso',
     meio,
     parcelas: Math.max(1, Math.round(Number(plano.parcelas ?? 1)) || 1),
     valorPagoCentavos: Math.round(valor * 100),
     pagoEm: reg.paymentPaidAt ?? new Date(),
+    tabela: condicao && totalTabela > 0
+      ? {
+          condicao,
+          parcelas: Math.max(1, Math.round(Number(t!.parcelas ?? 1)) || 1),
+          valorParcelaCentavos: Math.round(Number(t!.valorParcela ?? 0) * 100),
+          valorTotalCentavos: totalTabela,
+        }
+      : null,
   }
+}
+
+/**
+ * Parcelas do contrato pela condição da tabela de preços.
+ *
+ * À vista e cartão: uma parcela só, do total — a instituição recebe tudo agora
+ * (no cartão, quem parcela é o aluno com o banco dele). Boleto parcelado: as N
+ * parcelas anunciadas, e a primeira é a que o checkout acabou de cobrar.
+ */
+export function parcelasDaTabela(
+  tabela: NonNullable<EscolhaDoCheckout['tabela']>,
+  diaVencimento: number,
+): { tipo: 'MENSALIDADE'; valorBrutoCentavos: number; dataVencimento: Date }[] {
+  if (tabela.condicao !== 'boleto_parcelado' || tabela.parcelas <= 1) {
+    return [{ tipo: 'MENSALIDADE', valorBrutoCentavos: tabela.valorTotalCentavos, dataVencimento: vencimentoMensalidade(0, diaVencimento) }]
+  }
+  const n = tabela.parcelas
+  const parcela = tabela.valorParcelaCentavos
+  // A primeira absorve a sobra dos centavos, como no checkout (planoDeBoleto).
+  const primeira = tabela.valorTotalCentavos - parcela * (n - 1)
+  return Array.from({ length: n }, (_, i) => ({
+    tipo: 'MENSALIDADE' as const,
+    valorBrutoCentavos: i === 0 ? primeira : parcela,
+    dataVencimento: vencimentoMensalidade(i, diaVencimento),
+  }))
 }
 
 /**
@@ -215,6 +265,24 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   const offeringId = mat.turma.courseOfferingId
   if (!offeringId) throw new Error('Turma sem oferta vinculada — defina a oferta para gerar o financeiro.')
   const plano = await prisma.acaPlanoPagamento.findFirst({ where: { courseOfferingId: offeringId, ativo: true }, orderBy: { id: 'asc' } })
+
+  // Pago pela tabela de preços do portal: o contrato é o preço aceito ali.
+  // Bolsa não entra — o valor já foi fechado (e pago) no checkout.
+  if (escolha?.tabela) {
+    const contrato = await prisma.acaContrato.create({ data: {
+      matriculaId, planoPagamentoId: plano?.id ?? null, valorTotalCentavos: escolha.tabela.valorTotalCentavos,
+    } })
+    const parcelas: any[] = parcelasDaTabela(escolha.tabela, plano?.diaVencimento ?? 10)
+      .map((p, i) => ({ ...p, contratoId: contrato.id, nroParcela: i + 1 }))
+    const quitadas = aplicarPagamentoDoCheckout(parcelas, escolha)
+    for (const p of parcelas) await prisma.acaParcela.create({ data: p })
+    if (quitadas > 0 && quitadas === parcelas.length) {
+      await prisma.acaContrato.update({ where: { id: contrato.id }, data: { status: 'QUITADO' } })
+    }
+    await posContrato(mat, contrato.id)
+    return { contratoId: contrato.id, criadas: parcelas.length }
+  }
+
   if (!plano) throw new Error('Nenhum plano de pagamento ativo para esta oferta.')
 
   // desconto por bolsa ativa
@@ -261,6 +329,20 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
     await prisma.acaContrato.update({ where: { id: contrato.id }, data: { status: 'QUITADO' } })
   }
 
+  await posContrato(mat, contrato.id)
+  return { contratoId: contrato.id, criadas: parcelas.length }
+}
+
+/**
+ * O que vem depois de criar o contrato, qualquer que seja a origem das
+ * parcelas: aceite dado na inscrição e o gatilho "contrato financeiro criado".
+ */
+async function posContrato(
+  mat: { id: number; alunoId: number; status: any; enrollmentRegistrationId: number | null },
+  contratoId: number,
+): Promise<void> {
+  const matriculaId = mat.id
+  const contrato = { id: contratoId }
   // Contrato já aceito na inscrição (etapa "Contrato" do portal): o do ERP nasce
   // assinado, com o texto que a pessoa leu, e a matrícula é promovida — é o
   // mesmo efeito da assinatura pelo portal logado (portalContrato).
@@ -291,8 +373,6 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
       alunoId: mat.alunoId, matriculaId, contratoId: contrato.id,
     }))
     .catch((e) => console.warn('[acaFinanceiro] gatilho CONTRATO_FINANCEIRO_CRIADO falhou:', e?.message || e))
-
-  return { contratoId: contrato.id, criadas: parcelas.length }
 }
 
 /**

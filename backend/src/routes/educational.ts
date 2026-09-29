@@ -15,7 +15,15 @@ import {
   DEFAULT_CUSTOM_FIELDS,
   DEFAULT_FUNNEL_STAGES,
 } from '../services/educational.js'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
+import { lerTabelaDePrecos } from '../services/tabelaDePrecos.js'
+
+/** Tabela de preços como a coluna JSON recebe: sem preço à vista, apaga. */
+function tabelaParaGravar(bruto: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  const t = lerTabelaDePrecos(bruto)
+  return t ? (t as unknown as Prisma.InputJsonValue) : Prisma.DbNull
+}
 import { moveToTrash, snapshotEntity, type TrashEntityType } from '../services/trash.js'
 import { getOfferingSlotCounts } from '../services/educationalSlots.js'
 import { FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, acharForma, acharCriterio } from '../services/acaFormaIngresso.js'
@@ -659,6 +667,8 @@ export async function educationalRoutes(app: FastifyInstance) {
         turno: body.turno || null,
         valorMensalidade: body.valorMensalidade != null ? parseFloat(body.valorMensalidade) : null,
         valorMatricula:   body.valorMatricula != null ? parseFloat(body.valorMatricula) : null,
+        // Tabela de preços do checkout por meio (services/tabelaDePrecos).
+        ...(body.tabelaPrecos !== undefined ? { tabelaPrecos: tabelaParaGravar(body.tabelaPrecos) } : {}),
         notaCorte:        body.notaCorte != null && body.notaCorte !== '' ? parseFloat(body.notaCorte) : null,
         vagasMinimas: body.vagasMinimas != null ? parseInt(body.vagasMinimas) : null,
         vagasMaximas: body.vagasMaximas != null ? parseInt(body.vagasMaximas) : null,
@@ -708,6 +718,8 @@ export async function educationalRoutes(app: FastifyInstance) {
       if (body[k] !== undefined) data[k] = body[k] ? new Date(body[k]) : null
     }
     if (body.active !== undefined) data.active = !!body.active
+    // Tabela sem preço à vista é tabela apagada: vale o valor único de antes.
+    if (body.tabelaPrecos !== undefined) data.tabelaPrecos = tabelaParaGravar(body.tabelaPrecos)
 
     try {
       // Atualiza a oferta

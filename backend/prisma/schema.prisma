@@ -3642,6 +3642,11 @@ model CourseOffering {
 
   valorMensalidade Decimal? @db.Decimal(12, 2)
   valorMatricula   Decimal? @db.Decimal(12, 2)
+  /// Tabela de preços do checkout do portal, por meio de pagamento — a do site:
+  /// { aVista, cartao: { parcelas, valorParcela }, boleto: { parcelas, valorParcela } }.
+  /// Com ela, o portal cobra o CURSO pelo meio escolhido (e não a 1ª mensalidade)
+  /// e o contrato do ERP nasce com essa condição. Ver services/tabelaDePrecos.ts.
+  tabelaPrecos     Json?
   vagasMinimas     Int?
   vagasMaximas     Int?
 

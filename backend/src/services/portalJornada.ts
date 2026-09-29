@@ -273,6 +273,7 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
     where: { id: registrationId },
     select: {
       contratoAceite: true, formData: true, lead: { select: { nome: true } },
+      paymentPlan: true, paymentStatus: true,
       processRegistration: { select: { offering: { select: { id: true, nome: true, valorMatricula: true, valorMensalidade: true, course: { select: { nome: true } } } } } },
     },
   })
@@ -283,10 +284,16 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
     where: { courseOfferingId: of.id, ativo: true }, orderBy: { id: 'asc' },
     select: { numParcelas: true, valorParcelaCentavos: true, taxaMatriculaCentavos: true },
   }).catch(() => null)
-  const numParcelas = plano?.numParcelas ?? 0
-  const valorParcela = plano?.valorParcelaCentavos ?? Math.round(Number(of.valorMensalidade ?? 0) * 100)
-  const matricula = plano?.taxaMatriculaCentavos ?? Math.round(Number(of.valorMatricula ?? 0) * 100)
-  const valorTotal = matricula + valorParcela * numParcelas
+  // Pago pela tabela de preços do portal: o termo diz a condição aceita no
+  // checkout — é ela que vira o contrato do ERP (acaFinanceiro).
+  const pp = (reg.paymentStatus === 'paid' ? reg.paymentPlan : null) as Record<string, any> | null
+  const pelaTabela = pp?.tabela && Number(pp.tabela.valorTotal) > 0 ? pp.tabela : null
+  const numParcelas = pelaTabela ? Math.max(1, Number(pelaTabela.parcelas) || 1) : (plano?.numParcelas ?? 0)
+  const valorParcela = pelaTabela
+    ? Math.round(Number(pelaTabela.valorParcela) * 100)
+    : (plano?.valorParcelaCentavos ?? Math.round(Number(of.valorMensalidade ?? 0) * 100))
+  const matricula = pelaTabela ? 0 : (plano?.taxaMatriculaCentavos ?? Math.round(Number(of.valorMatricula ?? 0) * 100))
+  const valorTotal = pelaTabela ? Math.round(Number(pelaTabela.valorTotal) * 100) : matricula + valorParcela * numParcelas
   const nome = reg.lead?.nome ?? String((reg.formData as any)?.nome ?? '')
   const vars: Record<string, string> = {
     nome, ra: 'a definir na matrícula', curso: of.course?.nome ?? of.nome, turma: of.nome,

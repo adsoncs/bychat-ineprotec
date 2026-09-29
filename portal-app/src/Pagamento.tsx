@@ -233,6 +233,11 @@ export function Pagamento(props: {
     const mostraCartao = !!m.cartao.ativo
     const opcoesCartao = m?.cartao.opcoes ?? []
     const opcoesBoleto = m?.boleto.parcelado ? (m?.boleto.opcoes ?? []) : []
+    // Com tabela de preços, cada botão diz o preço do seu meio — é a
+    // comparação que o site faz ("à vista no Pix" × "12x no cartão").
+    const tabela = opcoes.tabela ?? null
+    const ultimaCartao = opcoesCartao.length ? opcoesCartao[opcoesCartao.length - 1] : null
+    const ultimaBoleto = opcoesBoleto.length > 1 ? opcoesBoleto[opcoesBoleto.length - 1] : null
 
     return (
       <div class="cartao">
@@ -303,9 +308,11 @@ export function Pagamento(props: {
             <button class="opcao-pagamento" onClick={() => escolher('pix')} disabled={carregando}>
               <b>PIX</b>
               <span>
-                {m?.pix.descontoPct
-                  ? `${dinheiro(m.pix.valor)} · ${m.pix.descontoPct}% de desconto`
-                  : 'Confirmação em segundos'}
+                {tabela
+                  ? `${dinheiro(m.pix.valor)} à vista`
+                  : m?.pix.descontoPct
+                    ? `${dinheiro(m.pix.valor)} · ${m.pix.descontoPct}% de desconto`
+                    : 'Confirmação em segundos'}
               </span>
             </button>
           )}
@@ -319,9 +326,11 @@ export function Pagamento(props: {
             >
               <b>Boleto</b>
               <span>
-                {opcoesBoleto.length > 1
-                  ? `à vista ou em até ${m?.boleto.parcelasMax}x`
-                  : 'Compensa em até 3 dias úteis'}
+                {tabela
+                  ? `${dinheiro(opcoes.valor)} à vista${ultimaBoleto ? ` ou ${ultimaBoleto.parcelas}x ${dinheiro(ultimaBoleto.valorParcela)}` : ''}`
+                  : opcoesBoleto.length > 1
+                    ? `à vista ou em até ${m?.boleto.parcelasMax}x`
+                    : 'Compensa em até 3 dias úteis'}
               </span>
             </button>
           )}
@@ -329,9 +338,11 @@ export function Pagamento(props: {
             <button class="opcao-pagamento" onClick={() => setMetodo('credit_card')} disabled={carregando}>
               <b>Cartão de crédito</b>
               <span>
-                {opcoesCartao.length > 1
-                  ? `em até ${opcoesCartao[opcoesCartao.length - 1].parcelas}x`
-                  : 'à vista'}
+                {tabela && ultimaCartao
+                  ? `${ultimaCartao.parcelas}x ${dinheiro(ultimaCartao.valorParcela)}${ultimaCartao.semJuros ? ' sem juros' : ''}`
+                  : opcoesCartao.length > 1
+                    ? `em até ${opcoesCartao[opcoesCartao.length - 1].parcelas}x`
+                    : 'à vista'}
               </span>
             </button>
           )}

@@ -359,6 +359,8 @@ export interface CourseOffering {
   turno: string | null
   valorMensalidade: number | null
   valorMatricula: number | null
+  /** Tabela de preços do checkout do portal por meio de pagamento. */
+  tabelaPrecos?: TabelaPrecosOferta | null
   notaCorte: number | null
   vagasMinimas: number | null
   vagasMaximas: number | null
@@ -377,6 +379,13 @@ export interface CourseOffering {
   _count?: { registrations: number }
 }
 
+/** À vista (Pix/boleto), cartão e boleto parcelado — a tabela do site. */
+export interface TabelaPrecosOferta {
+  aVista: number
+  cartao: { parcelas: number; valorParcela: number } | null
+  boleto: { parcelas: number; valorParcela: number } | null
+}
+
 export interface CourseOfferingInput {
   courseId: number
   unitId: number
@@ -390,6 +399,7 @@ export interface CourseOfferingInput {
   turno?: string | null | undefined
   valorMensalidade?: number | null | undefined
   valorMatricula?: number | null | undefined
+  tabelaPrecos?: TabelaPrecosOferta | null | undefined
   notaCorte?: number | null | undefined
   vagasMinimas?: number | null | undefined
   vagasMaximas?: number | null | undefined

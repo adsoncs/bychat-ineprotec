@@ -16,16 +16,22 @@
 // as travas do cupom conferem.
 
 import { prisma } from '../lib/prisma.js'
+import { lerTabelaDePrecos, type TabelaDePrecos } from './tabelaDePrecos.js'
 
 export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
   /** Em reais. 0 quando não há valor configurado. */
   valor: number
   /** Como a cobrança aparece para a pessoa e no financeiro. */
-  rotulo: 'Taxa de inscrição' | 'Matrícula' | '1ª mensalidade'
+  rotulo: 'Taxa de inscrição' | 'Matrícula' | '1ª mensalidade' | 'Curso'
   /** De onde veio o valor — ajuda a secretaria a achar onde corrigir. */
-  fonte: 'processo' | 'plano_erp' | 'oferta' | 'nenhuma'
+  fonte: 'processo' | 'plano_erp' | 'oferta' | 'tabela' | 'nenhuma'
   contexto: ContextoDaInscricao
+  /**
+   * Tabela de preços da oferta, quando há: cada meio cobra o curso inteiro pela
+   * condição dela, e `valor` é o à vista. Ver services/tabelaDePrecos.
+   */
+  tabela?: TabelaDePrecos | null
 }
 
 export interface ContextoDaInscricao {
@@ -53,7 +59,7 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
           offering: {
             select: {
               id: true, courseId: true, levelId: true, modalityId: true,
-              valorMatricula: true, valorMensalidade: true,
+              valorMatricula: true, valorMensalidade: true, tabelaPrecos: true,
             },
           },
         },
@@ -77,6 +83,14 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   if (reg.portal?.paymentScope !== 'curso') {
     const taxa = Number(reg.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
     return { escopo: 'taxa', valor: taxa > 0 ? taxa : 0, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
+  }
+
+  // Curso com tabela de preços por meio: o curso inteiro, pela condição do
+  // meio que a pessoa escolher. Vence o plano do ERP, que só sabe cobrar a
+  // 1ª mensalidade.
+  const tabela = lerTabelaDePrecos(of?.tabelaPrecos)
+  if (tabela) {
+    return { escopo: 'curso', valor: tabela.aVista, rotulo: 'Curso', fonte: 'tabela', contexto, tabela }
   }
 
   // Curso: plano de pagamento ativo da oferta (ERP) primeiro.

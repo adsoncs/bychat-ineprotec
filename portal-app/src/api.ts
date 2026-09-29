@@ -18,6 +18,11 @@ export interface Oferta {
   complemento?: string | null
   valorMensalidade?: string | number | null
   valorMatricula?: string | number | null
+  /**
+   * Tabela de preços por meio (a do site): à vista no Pix/boleto, cartão e
+   * boleto parcelado. Quando existe, é ela que o seletor e o resumo mostram.
+   */
+  tabelaPrecos?: TabelaPrecos | null
   courseId?: number
   levelId?: number | null
   modalityId?: number | null
@@ -26,6 +31,12 @@ export interface Oferta {
   modality?: { id: number; nome: string } | null
   /** Polos onde a oferta acontece (já filtrados pelo que o portal permite). */
   campuses?: { campus: { id: number; nome: string; cidade?: string | null; estado?: string | null } }[]
+}
+
+export interface TabelaPrecos {
+  aVista: number
+  cartao?: { parcelas: number; valorParcela: number } | null
+  boleto?: { parcelas: number; valorParcela: number } | null
 }
 
 export interface Passo { id: string; name: string; fields: Campo[] }
@@ -544,6 +555,8 @@ export interface OpcoesDePagamento {
   valor: number
   /** Preço antes de qualquer desconto. */
   valorTabela?: number
+  /** Tabela de preços da oferta: cada meio tem o seu preço (o do site). */
+  tabela?: TabelaPrecos | null
   cupom?: CupomNaTela | null
   meios: {
     pix: { ativo: boolean; valor?: number; descontoPct?: number; expiraHoras?: number }
