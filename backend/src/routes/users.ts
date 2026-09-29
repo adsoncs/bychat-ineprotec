@@ -9,7 +9,7 @@ import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
-import { resolvePermissions, invalidatePermCache, getActiveModuleIds } from '../lib/permissions.js'
+import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole } from '../lib/permissions.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { MODULE_REGISTRY } from '../lib/moduleRegistry.js'
 import { redis } from '../lib/redis.js'
@@ -787,7 +787,7 @@ export async function usersRoutes(app: FastifyInstance) {
     for (const p of permissions) {
       await prisma.modulePermission.upsert({
         where: { moduleId_role: { moduleId: p.moduleId, role: p.role as any } },
-        create: { moduleId: p.moduleId, role: p.role as any, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete },
+        create: { moduleId: p.moduleId, role: p.role as any, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete, scope: defaultScopeForRole(p.role) },
         update: { canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete },
       })
     }

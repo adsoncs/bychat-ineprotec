@@ -5,7 +5,7 @@
 
 import { prisma } from './prisma.js'
 import { MODULE_REGISTRY, ModuleDefinition, getModuleDependencies } from './moduleRegistry.js'
-import { invalidatePermCache, invalidateModulesCache } from './permissions.js'
+import { invalidatePermCache, invalidateModulesCache, defaultScopeForRole } from './permissions.js'
 
 const SETTING_PREFIX = 'module.'
 const SETTING_SUFFIX = '.enabled'
@@ -114,7 +114,9 @@ async function syncModulePermissions(moduleId: string, enabled: boolean) {
     try {
       await prisma.modulePermission.upsert({
         where: { moduleId_role: { moduleId, role: role as any } },
-        create: { moduleId, role: role as any, ...data },
+        // Sem `scope` a linha nasce com o default da coluna ('team') — e ADMIN
+        // com 'team' não opera conversa de setor em que não é membro.
+        create: { moduleId, role: role as any, ...data, scope: defaultScopeForRole(role) },
         update: data,
       })
     } catch {
