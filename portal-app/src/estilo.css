@@ -144,7 +144,9 @@ button.secundario { background: transparent; color: var(--tinta-2); border-color
   color: var(--marca); background: var(--marca-suave);
 }
 
-.rodape { margin-top: 26px; text-align: center; font-size: 12.5px; color: var(--tinta-3); line-height: 1.5; }
+/* pre-line: o texto do rodapé vem do builder com quebras de linha (portaria,
+   CNPJ, direitos) — sem isto tudo saía emendado numa linha só. */
+.rodape { margin-top: 26px; text-align: center; font-size: 12.5px; color: var(--tinta-3); line-height: 1.5; white-space: pre-line; }
 .rodape a { color: var(--tinta-2); }
 
 /* ── Esqueleto de carregamento ───────────────────────────────── */
