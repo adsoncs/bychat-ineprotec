@@ -114,7 +114,7 @@ body {
 
 /* Curso vindo do link, no topo do formulário — só onde o resumo não está ao lado. */
 .curso-do-link {
-  margin: 6px 0 0; padding: 8px 12px; border-radius: calc(var(--raio) - 4px);
+  margin: 6px 0 16px; padding: 8px 12px; border-radius: calc(var(--raio) - 4px);
   background: var(--marca-suave); color: var(--tinta-2); font-size: 14px;
 }
 .curso-do-link b { color: var(--tinta); }
