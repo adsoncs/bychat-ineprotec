@@ -406,6 +406,11 @@ export function App() {
           <>
             <h2>{passoAtual?.name}</h2>
             {totalPassos > 1 && <p class="sub">Etapa {passo + 1} de {totalPassos}</p>}
+            {/* Link de um curso: no celular o resumo fica lá embaixo, e a pessoa
+                preencheria os dados sem ver para qual curso. */}
+            {dados?.cursoDoLink && ofertaEscolhida && !naRevisao && (
+              <p class="curso-do-link">Curso: <b>{ofertaEscolhida.nome}</b></p>
+            )}
             <div class="campos">{camposNaTela}</div>
           </>
         )}
