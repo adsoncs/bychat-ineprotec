@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Lead } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { redis } from '../lib/redis.js'
 import { onlyDigits } from '../lib/phone.js'
@@ -210,11 +211,31 @@ export interface GroupLeadInput {
  * instância), igual a qualquer lead que chega por ela — decisão de produto: um
  * grupo sem dono viraria conversa órfã numa fila que ninguém olha.
  */
-export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInput) {
+export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInput, tentativa = 0): Promise<Lead> {
   const existing = await prisma.lead.findFirst({
     where: { groupJid },
     orderBy: { createdAt: 'asc' },
   })
+
+  // Criação com trava. Duas mensagens do mesmo grupo chegando juntas (as duas
+  // linhas da empresa no grupo, ou uma rajada) não achavam a conversa e as duas
+  // a criavam — o grupo virava dois chats (kobogo: 3 grupos, criados com menos
+  // de 1 s de diferença). Quem pega a trava cria; quem perde espera a conversa
+  // aparecer e usa a mesma.
+  // A trava é solta logo depois de criar (fim da função); quem espera tenta
+  // pegá-la de novo a cada volta, em vez de todos criarem quando o prazo acaba.
+  let travaCriacao: string | null = null
+  if (!existing) {
+    let criaAqui = true
+    try {
+      criaAqui = (await redis.set(`grpnovo:${groupJid}`, '1', 'EX', 15, 'NX')) !== null
+    } catch { /* Redis fora: cria (comportamento antigo) */ }
+    if (!criaAqui && tentativa < 50) {
+      await new Promise((r) => setTimeout(r, 200))
+      return resolveGroupLead({ groupJid, instanceName }, tentativa + 1)
+    }
+    if (criaAqui) travaCriacao = `grpnovo:${groupJid}`
+  }
 
   if (existing) {
     // Titular do grupo: adota este número quando o grupo ainda não tem um (é o
@@ -268,6 +289,8 @@ export async function resolveGroupLead({ groupJid, instanceName }: GroupLeadInpu
       assignedAt: routing.userId ? new Date() : null,
     },
   })
+  // Conversa criada: solta a trava para quem estava esperando achá-la já.
+  if (travaCriacao) await redis.del(travaCriacao).catch(() => {})
 
   // Foto em segundo plano: o grupo já aparece na lista sem ela, e a mensagem
   // que criou a conversa não pode esperar um download.

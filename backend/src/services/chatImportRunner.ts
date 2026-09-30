@@ -166,8 +166,15 @@ export async function importarChat(jobId: number): Promise<void> {
     // (ou criado) pelo `groupJid` e cada mensagem guarda QUEM falou dentro dele.
     const ehGrupo = job.remoteJid.endsWith('@g.us')
 
-    // 1. Lead: reaproveita pelo telefone canônico; só cria se não houver.
+    // 1. Lead: reaproveita pelo telefone canônico DESTA LINHA; só cria se não
+    //    houver. Um lead por telefone por linha — o job pode ter vindo com o
+    //    lead de outra linha (a tela casava só pelo telefone) e aí despejava o
+    //    histórico desta na conversa daquela (kobogo, 21/09: 1.371 mensagens).
     let leadId = job.leadId
+    if (leadId && !ehGrupo) {
+      const doJob = await prisma.lead.findUnique({ where: { id: leadId }, select: { instanceName: true } })
+      if (!doJob || (doJob.instanceName && doJob.instanceName !== job.instanceName)) leadId = null
+    }
     if (!leadId && ehGrupo) {
       // Mesma porta de entrada do inbound de grupo: assunto do grupo, dedup por
       // groupJid e roteamento pelo dono da conexão. Sem isso a importação criaria
@@ -179,11 +186,19 @@ export async function importarChat(jobId: number): Promise<void> {
     if (!leadId) {
       const chave = phoneKey(job.telefone)
       if (!chave) throw new Error('Telefone do chat não é válido.')
-      const existente = await prisma.lead.findFirst({
-        where: { phoneKey: chave }, orderBy: { createdAt: 'desc' }, select: { id: true },
-      })
+      const existente =
+        await prisma.lead.findFirst({
+          where: { phoneKey: chave, isGroup: false, instanceName: job.instanceName }, orderBy: { createdAt: 'desc' }, select: { id: true, instanceName: true },
+        })
+        ?? await prisma.lead.findFirst({
+          where: { phoneKey: chave, isGroup: false, instanceName: null }, orderBy: { createdAt: 'desc' }, select: { id: true, instanceName: true },
+        })
       if (existente) {
         leadId = existente.id
+        // Sem linha ainda: passa a ser desta (é o que o inbound também faz).
+        if (!existente.instanceName) {
+          await prisma.lead.update({ where: { id: existente.id }, data: { instanceName: job.instanceName } }).catch(() => {})
+        }
       } else {
         const { resolveDefaultTeamId } = await import('./teamRouting.js')
         const novo = await prisma.lead.create({
@@ -197,6 +212,7 @@ export async function importarChat(jobId: number): Promise<void> {
             nomeWhatsappAgenda: job.nome || null,
             whatsapp: onlyDigits(job.telefone),
             phoneKey: chave,
+            instanceName: job.instanceName,
             email: '', empresa: '', scores: {},
             status: 'NOVO',
             source: 'whatsapp_import',

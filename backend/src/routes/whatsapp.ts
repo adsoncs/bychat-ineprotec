@@ -1101,10 +1101,30 @@ export async function whatsappRoutes(app: FastifyInstance) {
                 // busca global fazia a segunda ser descartada. Em grupo o
                 // escopo por lead é justamente o que encontra o eco da linha
                 // irmã — as duas estão na mesma conversa.
-                const jaTem = await prisma.message.findFirst({
+                // Grupo: a MESMA trava do ramo recebido (`evogrp:`). As duas
+                // entregas chegam com milissegundos de diferença, e consultar o
+                // banco aqui não bastava — a cópia da linha irmã ainda não
+                // tinha gravado, e as duas gravavam (kobogo: 58 bolhas
+                // repetidas em 14 dias, todas assim). Quem pega a trava grava;
+                // quem perde espera a outra aparecer e só a ajusta.
+                let perdeuTrava = false
+                if (isGroupMsg) {
+                  try {
+                    perdeuTrava = (await redis.set(`evogrp:${lead.id}:${messageId}`, '1', 'EX', 86400, 'NX')) === null
+                  } catch { /* Redis fora: fica a checagem em banco */ }
+                }
+                const acharJaGravada = () => prisma.message.findFirst({
                   where: { leadId: lead.id, externalId: messageId },
                   select: { id: true, fromMe: true },
                 })
+                let jaTem = await acharJaGravada()
+                // A linha irmã pegou a trava e está gravando: até 3 s para a
+                // cópia dela aparecer. Se não aparecer (ela falhou), grava aqui
+                // — perder a mensagem seria pior que repeti-la.
+                for (let i = 0; perdeuTrava && !jaTem && i < 15; i++) {
+                  await new Promise((r) => setTimeout(r, 200))
+                  jaTem = await acharJaGravada()
+                }
                 if (jaTem && !jaTem.fromMe) {
                   // O eco venceu a corrida: a linha irmã entregou a mensagem
                   // como recebida antes de a nossa confirmar o envio. É nossa —

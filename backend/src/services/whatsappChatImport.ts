@@ -112,13 +112,17 @@ export async function listarChatsDoAparelho(instanceName: string): Promise<ChatD
     if (k) chaves.set(jid, k)
   }
 
+  // Um lead por telefone POR LINHA: o mesmo número tem uma conversa em cada
+  // linha da empresa. Casar só pelo telefone pegava a conversa da OUTRA linha,
+  // e a importação despejava lá o histórico desta (kobogo: 8.444 mensagens em
+  // 29 conversas erradas). Vale a desta linha; a sem linha, na falta dela.
   const leads = chaves.size
     ? await prisma.lead.findMany({
-        where: { phoneKey: { in: [...new Set(chaves.values())] } },
-        select: { id: true, nome: true, phoneKey: true },
+        where: { phoneKey: { in: [...new Set(chaves.values())] }, isGroup: false, OR: [{ instanceName }, { instanceName: null }] },
+        select: { id: true, nome: true, phoneKey: true, instanceName: true },
       })
     : []
-  const porChave = new Map(leads.map((l) => [l.phoneKey!, l]))
+  const porChave = leadPorTelefoneDaLinha(leads, instanceName)
 
   // Grupo não tem telefone: a conversa dele no painel é achada pelo `groupJid`.
   // Sem este cruzamento a tela mostraria "novo" para todo grupo que já está no
@@ -412,11 +416,11 @@ export async function listarContatosDaAgenda(instanceName: string): Promise<Cont
 
   const leads = chaves.size
     ? await prisma.lead.findMany({
-        where: { phoneKey: { in: [...new Set(chaves.values())] } },
-        select: { id: true, phoneKey: true },
+        where: { phoneKey: { in: [...new Set(chaves.values())] }, isGroup: false, OR: [{ instanceName }, { instanceName: null }] },
+        select: { id: true, phoneKey: true, instanceName: true },
       })
     : []
-  const porChave = new Map(leads.map((l) => [l.phoneKey!, l.id]))
+  const porChave = new Map([...leadPorTelefoneDaLinha(leads, instanceName)].map(([k, l]) => [k, l.id]))
 
   return lista.map((c): ContatoDaAgenda => {
     const jid = String(c?.remoteJid || '')
@@ -433,4 +437,21 @@ export async function listarContatosDaAgenda(instanceName: string): Promise<Cont
       importavel: !isGroup && !!tel,
     }
   })
+}
+
+/**
+ * telefone → lead, preferindo o desta linha ao sem linha. Nunca o de outra
+ * linha (a consulta já os exclui; aqui só se decide o desempate).
+ */
+export function leadPorTelefoneDaLinha<T extends { phoneKey: string | null; instanceName: string | null }>(
+  leads: T[],
+  instanceName: string,
+): Map<string, T> {
+  const mapa = new Map<string, T>()
+  for (const l of leads) {
+    if (!l.phoneKey) continue
+    const atual = mapa.get(l.phoneKey)
+    if (!atual || (atual.instanceName !== instanceName && l.instanceName === instanceName)) mapa.set(l.phoneKey, l)
+  }
+  return mapa
 }
