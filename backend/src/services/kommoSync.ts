@@ -66,7 +66,7 @@ async function ensureUserForKommo(u: any): Promise<number> {
 // Mapping helpers (KommoMapping)
 // ─────────────────────────────────────────────────────────────
 
-type EntityType = 'lead' | 'contact' | 'pipeline' | 'status' | 'tag' | 'note' | 'task' | 'custom_field' | 'user' | 'chat_template' | 'catalog' | 'catalog_element'
+type EntityType = 'lead' | 'contact' | 'pipeline' | 'status' | 'stage' | 'tag' | 'note' | 'task' | 'custom_field' | 'user' | 'chat_template' | 'catalog' | 'catalog_element'
 
 async function setMapping(entityType: EntityType, kommoId: string | number, localId: number, meta?: any): Promise<void> {
   const kid = String(kommoId)
@@ -392,7 +392,12 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
   await syncCatalogProducts()
 
   // ── Pipelines → Funnels ; statuses → Stages ──
+  // `stage` indexa por FUNIL + etapa ("<pipelineId>:<statusId>"): os ids 142/143
+  // (ganho/perdido) se repetem em todos os pipelines da Kommo, e a instituição
+  // pode ter dado a cada etapa uma chave própria (ineprotec, 30/09). A chave que
+  // estiver lá é respeitada — a sincronização não recria `kommo_<id>`.
   const pipeMap = await loadMappingDict('pipeline')
+  const etapasMapeadas = await loadMappingDict('stage')
   for await (const batch of kommoPaginate('leads/pipelines', '', config)) {
     for (const p of batch) {
       const existing = pipeMap.get(String(p.id))
@@ -408,12 +413,22 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
       funnels++
       const statuses: any[] = p?._embedded?.statuses ?? []
       for (const s of statuses) {
-        const key = `kommo_${s.id}`
-        await prisma.stage.upsert({
-          where: { funnelId_key: { funnelId, key } },
-          create: { funnelId, key, name: s.name, color: typeof s.color === 'string' ? s.color.substring(0, 20) : '#6B7280', position: s.sort ?? 0, active: true },
-          update: { name: s.name, position: s.sort ?? 0 },
-        })
+        const chaveEtapa = `${p.id}:${s.id}`
+        const mapeada = etapasMapeadas.get(chaveEtapa)
+        const atual = mapeada ? await prisma.stage.findUnique({ where: { id: mapeada.localId }, select: { id: true, key: true, funnelId: true } }) : null
+        let key: string
+        if (atual && atual.funnelId === funnelId) {
+          key = atual.key
+          await prisma.stage.update({ where: { id: atual.id }, data: { name: s.name, position: s.sort ?? 0 } })
+        } else {
+          key = `kommo_${s.id}`
+          const etapa = await prisma.stage.upsert({
+            where: { funnelId_key: { funnelId, key } },
+            create: { funnelId, key, name: s.name, color: typeof s.color === 'string' ? s.color.substring(0, 20) : '#6B7280', position: s.sort ?? 0, active: true },
+            update: { name: s.name, position: s.sort ?? 0 },
+          })
+          await setMapping('stage', chaveEtapa, etapa.id, { key, pipelineId: p.id, statusId: s.id })
+        }
         await setMapping('status', s.id, funnelId, { key, pipelineId: p.id, name: s.name })
         stages++
       }
@@ -535,6 +550,7 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
     loadMappingDict('user'), loadMappingDict('contact'), loadMappingDict('tag'), loadMappingDict('lead'),
     loadMappingDict('catalog_element'),
   ])
+  const stageMap = await loadMappingDict('stage')
 
   const query = since ? `filter[updated_at][from]=${since}` : ''
   const data = await kommoFetch(`/leads?limit=250&with=contacts&page=${page}${query ? '&' + query : ''}`, config)
@@ -552,7 +568,9 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       const pipe = pipeMap.get(String(l.pipeline_id))
       const funnelId = pipe?.localId ?? null
       const st = statusMap.get(String(l.status_id))
-      const stageKey = st?.meta?.key ?? 'NOVO'
+      // Etapa pelo par funil+etapa (142/143 existem em todo pipeline); o mapa
+      // antigo, só por id, fica de reserva.
+      const stageKey = stageMap.get(`${l.pipeline_id}:${l.status_id}`)?.meta?.key ?? st?.meta?.key ?? 'NOVO'
       const pipelineName = pipe?.meta?.name ?? ''
 
       // custom fields do lead
@@ -783,8 +801,9 @@ export async function importEventsPage(
   until?: number,
 ): Promise<{ processed: number; created: number; movements: number; hasNext: boolean; newestAt: number; oldestAt: number }> {
   const config = cfg ?? (await getKommoConfig(true))
-  const [leadMap, userMap, statusMap, pipeMap, stageNames] = await Promise.all([
+  const [leadMap, userMap, statusMap, pipeMap, stageNames, stageMap] = await Promise.all([
     loadMappingDict('lead'), loadMappingDict('user'), loadMappingDict('status'), loadMappingDict('pipeline'), loadStageNames(),
+    loadMappingDict('stage'),
   ])
 
   const filt = eventTypeFilter()
@@ -828,8 +847,8 @@ export async function importEventsPage(
       const fromPipe = before?.lead_status?.pipeline_id, toPipe = after?.lead_status?.pipeline_id
       const fromFunnel = fromPipe ? pipeMap.get(String(fromPipe))?.localId ?? null : null
       const toFunnel = toPipe ? pipeMap.get(String(toPipe))?.localId ?? null : null
-      const fromKey = fromId ? `kommo_${fromId}` : null
-      const toKey = toId ? `kommo_${toId}` : null
+      const fromKey = fromId ? (stageMap.get(`${fromPipe}:${fromId}`)?.meta?.key ?? `kommo_${fromId}`) : null
+      const toKey = toId ? (stageMap.get(`${toPipe}:${toId}`)?.meta?.key ?? `kommo_${toId}`) : null
       oldValue = fromKey ? stageNames.get(`${fromFunnel}::${fromKey}`) ?? fromKey : null
       newValue = toKey ? stageNames.get(`${toFunnel}::${toKey}`) ?? toKey : null
       if (toKey) {
