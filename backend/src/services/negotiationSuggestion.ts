@@ -15,8 +15,12 @@
 
 import { prisma } from '../lib/prisma.js'
 
-/** Campos derivados pelo import (nossos, não da Kommo) — ver kommoSync. */
-const CF_CURSO_VALOR = 'kommo_curso_valor'
+/**
+ * Valor do curso derivado pelo import (kommoSync.CAMPOS_DERIVADOS). A chave
+ * antiga fica de reserva: base importada antes da renomeação de 30/09.
+ */
+const CF_CURSO_VALOR = 'curso_valor'
+const CF_CURSO_VALOR_ANTIGO = 'kommo_curso_valor'
 
 export interface NegotiationSuggestionItem {
   productId: number | null
@@ -137,7 +141,7 @@ export function buildSuggestionFromFields(cf: Record<string, any>, ctx: Suggesti
     // Preço: o do catálogo local (fonte da verdade hoje) e, se o produto não
     // existir, o valor que o import derivou do catálogo da Kommo.
     const product = productsByName.get(nome.trim().toLowerCase())
-    const precoUnit = product?.preco != null ? product.preco : (toNumber(cf[CF_CURSO_VALOR]) ?? 0)
+    const precoUnit = product?.preco != null ? product.preco : (toNumber(cf[CF_CURSO_VALOR]) ?? toNumber(cf[CF_CURSO_VALOR_ANTIGO]) ?? 0)
     items.push({
       productId: product?.id ?? null, nome, quantidade: 1, precoUnit, descontoItem: 0,
       cobranca: product?.cobranca === 'recorrente' ? 'recorrente' : 'unico',

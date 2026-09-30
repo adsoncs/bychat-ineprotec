@@ -12,7 +12,7 @@
 // Decisões (ver memória project-bychat-kommo-integration):
 //  - 6 pipelines → Funnels; status → Stages (key=kommo_<id>, Lead.status=key).
 //  - contato principal do lead fornece whatsapp/email (Lead exige ambos).
-//  - dono (responsible_user_id) → custom field 'kommo_responsavel' (NÃO cria User).
+//  - dono (responsible_user_id) → custom field 'responsavel_crm_anterior' (CAMPOS_DERIVADOS) (NÃO cria User).
 //  - tags/notas/tarefas/custom fields importados.
 
 import bcrypt from 'bcryptjs'
@@ -349,17 +349,30 @@ export async function syncCatalogProducts(): Promise<{ created: number; updated:
  * nome do curso, e valor/escola/grupo é o que permite segmentar a base.
  * Idempotente — chamado pelo importMetadata e pelo backfill.
  */
+/**
+ * Chaves dos campos derivados. Sem "kommo" no nome: o dado é da instituição
+ * (curso, valor, quem atendia), não do CRM de onde veio — e a instituição pode
+ * deixar de usar a Kommo sem que os campos percam o sentido (ineprotec, 30/09).
+ */
+export const CAMPOS_DERIVADOS = {
+  responsavel: 'responsavel_crm_anterior',
+  funil: 'funil_crm_anterior',
+  cursoValor: 'curso_valor',
+  cursoEscola: 'escola_certificadora',
+  cursoGrupo: 'curso_grupo',
+} as const
+
 export async function ensureKommoAuxFields(): Promise<void> {
-  for (const [key, label, type] of [
-    ['kommo_responsavel', 'Responsável (Kommo)', 'text'],
-    ['kommo_pipeline', 'Funil de origem (Kommo)', 'text'],
-    ['kommo_curso_valor', 'Valor do curso (Kommo)', 'number'],
-    ['kommo_curso_escola', 'Escola certificadora (Kommo)', 'text'],
-    ['kommo_curso_grupo', 'Grupo do curso (Kommo)', 'text'],
+  for (const [key, label, type, group] of [
+    [CAMPOS_DERIVADOS.responsavel, 'Responsável no CRM anterior', 'text', 'historico'],
+    [CAMPOS_DERIVADOS.funil, 'Funil no CRM anterior', 'text', 'historico'],
+    [CAMPOS_DERIVADOS.cursoValor, 'Valor do curso', 'number', 'matricula'],
+    [CAMPOS_DERIVADOS.cursoEscola, 'Escola certificadora', 'text', 'matricula'],
+    [CAMPOS_DERIVADOS.cursoGrupo, 'Grupo do curso', 'text', 'matricula'],
   ] as const) {
     await prisma.customField.upsert({
       where: { key },
-      create: { key, label, type, group: 'kommo', active: true, showInList: false, showInKanban: false, showInForm: false },
+      create: { key, label, type, group, active: true, showInList: false, showInKanban: false, showInForm: false },
       update: {},
     })
   }
@@ -409,11 +422,22 @@ export async function importMetadata(cfg?: KommoConfig): Promise<{ funnels: numb
 
   // ── Custom fields (leads + contacts) → CustomField ──
   // Pula PHONE/EMAIL (vão direto pra Lead.whatsapp/email).
+  // Campos que a instituição renomeou, juntou ou removeu depois do import: o
+  // mapeamento guarda a decisão, e a sincronização a respeita em vez de
+  // recriar `kommo_<id>`.
+  const cfJaMapeados = await loadMappingDict('custom_field')
   for (const entity of ['leads', 'contacts'] as const) {
     for await (const batch of kommoPaginate(`${entity}/custom_fields`, '', config)) {
       for (const c of batch) {
         if (c.code === 'PHONE' || c.code === 'EMAIL') {
           await setMapping('custom_field', c.id, 0, { code: c.code, entity, name: c.name, special: true })
+          continue
+        }
+        const anterior = cfJaMapeados.get(String(c.id))
+        if (anterior?.meta?.removido) continue
+        if (anterior?.meta?.key && anterior.meta.key !== `kommo_${c.id}`) {
+          await setMapping('custom_field', c.id, anterior.localId, { ...anterior.meta, code: c.code, entity, name: c.name })
+          customFields++
           continue
         }
         const key = `kommo_${c.id}`
@@ -542,9 +566,9 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       // atributos do curso principal (elemento de catálogo do "Curso de Interesse 1")
       const elId = primaryCatalogElementId(l.custom_fields_values ?? [])
       const el = elId != null ? catalogMap.get(String(elId))?.meta : null
-      if (el?.price != null) cf['kommo_curso_valor'] = el.price
-      if (el?.escola) cf['kommo_curso_escola'] = el.escola
-      if (el?.group) cf['kommo_curso_grupo'] = el.group
+      if (el?.price != null) cf[CAMPOS_DERIVADOS.cursoValor] = el.price
+      if (el?.escola) cf[CAMPOS_DERIVADOS.cursoEscola] = el.escola
+      if (el?.group) cf[CAMPOS_DERIVADOS.cursoGrupo] = el.group
       // custom fields herdados do contato (CPF/RG/etc)
       if (contact?.cf) for (const [k, v] of Object.entries(contact.cf)) if (cf[k] == null) cf[k] = v
       // tracking (UTM/gclid/fbclid) → colunas nativas, além do custom field
@@ -552,8 +576,8 @@ export async function importLeadsPage(page: number, defaultTeamId: number | null
       // dono + pipeline origem
       const ownerEntry = userMap.get(String(l.responsible_user_id))
       const ownerLocalId = ownerEntry && ownerEntry.localId > 0 ? ownerEntry.localId : null
-      if (ownerEntry?.meta?.name) cf['kommo_responsavel'] = ownerEntry.meta.name
-      if (pipelineName) cf['kommo_pipeline'] = pipelineName
+      if (ownerEntry?.meta?.name) cf[CAMPOS_DERIVADOS.responsavel] = ownerEntry.meta.name
+      if (pipelineName) cf[CAMPOS_DERIVADOS.funil] = pipelineName
 
       const nome = (contact?.name || l.name || '').substring(0, 191)
       const whatsapp = (contact?.phone || '').substring(0, 30)

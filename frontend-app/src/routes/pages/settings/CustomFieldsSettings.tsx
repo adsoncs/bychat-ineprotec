@@ -58,6 +58,12 @@ const GROUP_OPTIONS: GroupMeta[] = [
   { id: 'contato',     label: 'Contato',           aliases: ['contact'] },
   { id: 'empresa',     label: 'Empresa',           aliases: ['company'] },
   { id: 'financeiro',  label: 'Financeiro',        aliases: ['sales'] },
+  // Sem estes, campo de outro grupo aparecia como "Outros" — e, ao editar,
+  // era gravado como "Outros", perdendo o grupo de verdade.
+  { id: 'matricula',   label: 'Matrícula',         aliases: [] },
+  { id: 'academico',   label: 'Acadêmico',         aliases: [] },
+  { id: 'rastreamento', label: 'Rastreamento e origem', aliases: ['tracking'] },
+  { id: 'historico',   label: 'Histórico (CRM anterior)', aliases: [] },
   { id: 'custom',      label: 'Outros',            aliases: ['general'] },
 ]
 
