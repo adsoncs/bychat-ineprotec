@@ -401,6 +401,9 @@ const migratedPages: Record<string, ComponentType> = {
   'edu-cupons': lazy(() =>
     import('./pages/educational/EducationalCuponsPage').then((m) => ({ default: m.EducationalCuponsPage })),
   ),
+  'edu-contratos': lazy(() =>
+    import('./pages/educational/EducationalContratosPage').then((m) => ({ default: m.EducationalContratosPage })),
+  ),
   users: lazy(() =>
     import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })),
   ),

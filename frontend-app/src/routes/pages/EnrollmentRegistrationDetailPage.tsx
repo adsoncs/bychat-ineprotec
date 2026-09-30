@@ -28,6 +28,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { downloadFile } from '@/lib/download'
+import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
@@ -108,6 +109,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <RegistrationCard review={review} />
           <EnemBlock registrationId={review.registration.id} />
           <PaymentMethodsBlock registrationId={review.registration.id} />
+          <ContratoDaInscricaoCard registrationId={review.registration.id} />
           <CandidatePortalCard review={review} />
           {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
           <SlotsCard review={review} />

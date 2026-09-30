@@ -279,6 +279,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'enrollment-portals', label: 'Portal de Matrículas', href: '/app/enrollment-portals', icon: 'School', permission: 'enrollment_portals' },
         { id: 'edu-portal-financeiro', label: 'Financeiro do portal', href: '/app/educational/portal-financeiro', icon: 'Wallet', permission: 'enrollment_portals' },
         { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'enrollment_portals' },
+        { id: 'edu-contratos', label: 'Contratos', href: '/app/educational/contratos', icon: 'FileSignature', permission: 'enrollment_portals' },
       ],
       initiallyCollapsed: true,
     },

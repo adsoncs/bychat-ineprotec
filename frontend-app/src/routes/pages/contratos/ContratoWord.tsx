@@ -1,6 +1,9 @@
 // Contrato em Word no modelo de contrato: o arquivo da instituição (.docx com
 // {{campos}}), a pré-visualização em PDF e onde o modelo vale na inscrição do
 // portal (portais e cursos). Backend: routes/acaAssinatura.ts (…/word, …/previa).
+//
+// `base` é a rota do módulo em que a tela está: Portal de Matrículas (dono dos
+// modelos, funciona sem ERP) ou ERP (mesmos dados, pela permissão do ERP).
 import { useState } from 'preact/hooks'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Upload, Download, Trash2, Eye, AlertTriangle, ChevronDown, ChevronRight, Copy } from 'lucide-preact'
@@ -17,8 +20,12 @@ interface Opcoes { portais: Array<{ id: number; nome: string; slug: string }>; c
 const token = () => { try { return localStorage.getItem(env.authTokenKey) } catch { return null } }
 const autorizacao = (): Record<string, string> => { const t = token(); return t ? { Authorization: `Bearer ${t}` } : {} }
 
-export const useCamposWord = () => useQuery({ queryKey: ['aca-ct-campos-word'], queryFn: () => api.get<{ campos: CampoContrato[] }>('/admin/aca/assinatura/campos-word'), staleTime: 300_000 })
-export const useOpcoesVinculo = () => useQuery({ queryKey: ['aca-ct-opcoes-vinculo'], queryFn: () => api.get<Opcoes>('/admin/aca/assinatura/opcoes-vinculo'), staleTime: 60_000 })
+/** Rotas dos modelos de contrato: a do Portal de Matrículas e a do ERP (mesmos dados). */
+export const BASE_CONTRATOS_PORTAL = '/admin/enrollment-portals/contratos'
+export const BASE_CONTRATOS_ERP = '/admin/aca/assinatura'
+
+export const useCamposWord = (base: string) => useQuery({ queryKey: ['ct-campos-word', base], queryFn: () => api.get<{ campos: CampoContrato[] }>(`${base}/campos-word`), staleTime: 300_000 })
+export const useOpcoesVinculo = (base: string) => useQuery({ queryKey: ['ct-opcoes-vinculo', base], queryFn: () => api.get<Opcoes>(`${base}/opcoes-vinculo`), staleTime: 60_000 })
 
 /** Lê o arquivo escolhido como base64 (sem o prefixo data:). */
 export function lerBase64(arquivo: File): Promise<string> {
@@ -30,8 +37,8 @@ export function lerBase64(arquivo: File): Promise<string> {
   })
 }
 
-export async function enviarWord(templateId: number, arquivo: File): Promise<{ campos: string[]; desconhecidos: string[] }> {
-  return api.put(`/admin/aca/assinatura/templates/${templateId}/word`, { nome: arquivo.name, base64: await lerBase64(arquivo) })
+export async function enviarWord(base: string, templateId: number, arquivo: File): Promise<{ campos: string[]; desconhecidos: string[] }> {
+  return api.put(`${base}/templates/${templateId}/word`, { nome: arquivo.name, base64: await lerBase64(arquivo) })
 }
 
 async function baixar(caminho: string, nome: string) {
@@ -44,6 +51,7 @@ async function baixar(caminho: string, nome: string) {
 
 /** Seção "Arquivo Word" do modelo. `templateId` nulo = modelo novo (o arquivo sobe ao salvar). */
 export function ArquivoWord(p: {
+  base: string
   templateId: number | null
   nomeArquivo: string | null
   campos: string[] | null
@@ -51,7 +59,7 @@ export function ArquivoWord(p: {
   onPendente: (f: File | null) => void
   onMudou: () => void
 }) {
-  const camposQ = useCamposWord()
+  const camposQ = useCamposWord(p.base)
   const [enviando, setEnviando] = useState(false)
   const [desconhecidos, setDesconhecidos] = useState<string[]>([])
   const [inscricao, setInscricao] = useState('')
@@ -69,7 +77,7 @@ export function ArquivoWord(p: {
     if (!p.templateId) { p.onPendente(f); return }
     setEnviando(true)
     try {
-      const r = await enviarWord(p.templateId, f)
+      const r = await enviarWord(p.base, p.templateId, f)
       setDesconhecidos(r.desconhecidos)
       toast(r.desconhecidos.length ? `Arquivo salvo — ${r.desconhecidos.length} campo(s) não reconhecido(s)` : `Arquivo salvo — ${r.campos.length} campo(s) encontrados`, r.desconhecidos.length ? 'warning' : 'success')
       p.onMudou()
@@ -78,7 +86,7 @@ export function ArquivoWord(p: {
 
   const remover = async () => {
     if (!p.templateId || !confirm('Remover o arquivo Word deste modelo? Ele deixa de ser usado nos contratos novos.')) return
-    try { await api.delete(`/admin/aca/assinatura/templates/${p.templateId}/word`); setDesconhecidos([]); p.onMudou() }
+    try { await api.delete(`${p.base}/templates/${p.templateId}/word`); setDesconhecidos([]); p.onMudou() }
     catch (err: any) { toast(err?.message || 'Falha', 'danger') }
   }
 
@@ -87,7 +95,7 @@ export function ArquivoWord(p: {
     setGerando(true)
     const janela = window.open('', '_blank')
     try {
-      const res = await fetch(`${env.apiBase}/admin/aca/assinatura/templates/${p.templateId}/previa`, {
+      const res = await fetch(`${env.apiBase}${p.base}/templates/${p.templateId}/previa`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...autorizacao() }, body: JSON.stringify({ inscricao: inscricao.trim() || undefined }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Falha ao gerar a prévia')
@@ -122,7 +130,7 @@ export function ArquivoWord(p: {
             <Badge tone={p.pendente ? 'warning' : 'success'}>{p.pendente ? 'será enviado ao salvar' : 'arquivo atual'}</Badge>
             <span class="truncate max-w-[16rem]">{p.pendente?.name ?? p.nomeArquivo}</span>
           </span>
-        ) : <span class="text-sm text-fg-muted">Nenhum arquivo — o modelo usa o texto abaixo.</span>}
+        ) : <span class="text-sm text-fg-muted">Nenhum arquivo enviado ainda.</span>}
         <div class="flex-1" />
         <label class="inline-flex">
           <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="hidden" onChange={escolher} />
@@ -130,13 +138,13 @@ export function ArquivoWord(p: {
             <Upload size={14} /> {enviando ? 'Enviando…' : p.nomeArquivo || p.pendente ? 'Trocar arquivo' : 'Subir Word'}
           </span>
         </label>
-        {p.nomeArquivo && p.templateId && <Button size="sm" variant="ghost" onClick={() => baixar(`/admin/aca/assinatura/templates/${p.templateId}/word`, p.nomeArquivo || 'contrato.docx').catch((e) => toast(e.message, 'danger'))}><Download size={14} /> Baixar</Button>}
+        {p.nomeArquivo && p.templateId && <Button size="sm" variant="ghost" onClick={() => baixar(`${p.base}/templates/${p.templateId}/word`, p.nomeArquivo || 'contrato.docx').catch((e) => toast(e.message, 'danger'))}><Download size={14} /> Baixar</Button>}
         {p.nomeArquivo && p.templateId && <Button size="sm" variant="ghost" onClick={remover}><Trash2 size={14} /> Remover</Button>}
         {p.pendente && <Button size="sm" variant="ghost" onClick={() => p.onPendente(null)}>Desfazer</Button>}
       </div>
 
       {!p.nomeArquivo && !p.pendente && (
-        <button class="text-xs text-accent hover:underline inline-flex items-center gap-1" onClick={() => baixar('/admin/aca/assinatura/modelo-exemplo.docx', 'modelo-de-contrato.docx').catch((e) => toast(e.message, 'danger'))}>
+        <button class="text-xs text-accent hover:underline inline-flex items-center gap-1" onClick={() => baixar(`${p.base}/modelo-exemplo.docx`, 'modelo-de-contrato.docx').catch((e) => toast(e.message, 'danger'))}>
           <Download size={12} /> Baixar um modelo de exemplo com todos os campos
         </button>
       )}
@@ -184,8 +192,8 @@ export function ArquivoWord(p: {
 }
 
 /** Onde o modelo vale na inscrição: portais e cursos (curso tem prioridade). */
-export function OndeVale(p: { portalIds: number[]; cursoIds: number[]; onChange: (v: { portalIds: number[]; cursoIds: number[] }) => void }) {
-  const q = useOpcoesVinculo()
+export function OndeVale(p: { base: string; portalIds: number[]; cursoIds: number[]; onChange: (v: { portalIds: number[]; cursoIds: number[] }) => void }) {
+  const q = useOpcoesVinculo(p.base)
   const [busca, setBusca] = useState('')
   const alterna = (lista: number[], id: number) => (lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id])
   const cursos = (q.data?.cursos ?? []).filter((c) => !busca.trim() || c.nome.toLowerCase().includes(busca.trim().toLowerCase()))
@@ -195,7 +203,7 @@ export function OndeVale(p: { portalIds: number[]; cursoIds: number[]; onChange:
       <div class="text-sm font-semibold text-fg">Onde este contrato vale na inscrição</div>
       <p class="text-xs text-fg-muted">
         Marque os portais em que ele é o contrato padrão. Para um curso com contrato próprio, crie outro modelo marcando o curso — <b>o do curso ganha do do portal</b>.
-        {semVinculo && ' Sem portal nem curso marcado, o modelo não aparece na inscrição: fica só para os gatilhos do ERP (pelo tipo de negócio).'}
+        {semVinculo && ' Sem portal nem curso marcado, o modelo não é usado em nenhuma inscrição (com o ERP instalado, pode servir aos gatilhos dele).'}
       </p>
       <div>
         <div class="text-2xs uppercase tracking-wide text-fg-muted mb-1">Portais {p.portalIds.length ? `(${p.portalIds.length})` : ''}</div>
@@ -203,7 +211,7 @@ export function OndeVale(p: { portalIds: number[]; cursoIds: number[]; onChange:
           {(q.data?.portais ?? []).map((po) => {
             const on = p.portalIds.includes(po.id)
             return (
-              <button key={po.id} onClick={() => p.onChange({ ...p, portalIds: alterna(p.portalIds, po.id) })}
+              <button key={po.id} onClick={() => p.onChange({ portalIds: alterna(p.portalIds, po.id), cursoIds: p.cursoIds })}
                 class={`text-xs px-2 py-1 rounded-md border ${on ? 'bg-accent/15 border-accent text-fg' : 'border-border text-fg-muted hover:text-fg'}`}>
                 {on ? '✓ ' : ''}{po.nome}
               </button>
@@ -221,7 +229,7 @@ export function OndeVale(p: { portalIds: number[]; cursoIds: number[]; onChange:
         <div class="max-h-40 overflow-auto grid sm:grid-cols-2 gap-x-3">
           {cursos.map((c) => (
             <label key={c.id} class="flex items-center gap-2 text-xs text-fg-muted py-0.5 cursor-pointer hover:text-fg">
-              <input type="checkbox" checked={p.cursoIds.includes(c.id)} onChange={() => p.onChange({ ...p, cursoIds: alterna(p.cursoIds, c.id) })} />
+              <input type="checkbox" checked={p.cursoIds.includes(c.id)} onChange={() => p.onChange({ portalIds: p.portalIds, cursoIds: alterna(p.cursoIds, c.id) })} />
               <span class="truncate">{c.nome}</span>
             </label>
           ))}
