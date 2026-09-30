@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import { phoneKey } from './phone.js'
-import { decryptSettingValue, encryptSettingValue, isSecretSettingKey } from './secretSettings.js'
+import { decryptSettingValue, encryptSettingValue, isSecretSettingKey, isEncrypted } from './secretSettings.js'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
@@ -71,7 +71,10 @@ function encryptSettingData(data: any): void {
 
 function decryptSettingRow(row: any): any {
   if (!row || typeof row !== 'object') return row
-  if (isSecretSettingKey(row.key) && 'value' in row) row.value = decryptSettingValue(row.value)
+  // Pelo prefixo também: leitura com `select: { value: true }` não traz a key, e
+  // o valor saía CIFRADO para quem pediu — a Autentique recebia o envelope
+  // "enc:v1:…" como token e respondia 401 (ineprotec, 30/09).
+  if ('value' in row && (isSecretSettingKey(row.key) || isEncrypted(row.value))) row.value = decryptSettingValue(row.value)
   return row
 }
 
