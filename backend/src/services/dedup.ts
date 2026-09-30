@@ -374,6 +374,83 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
 
 // ── Lead Merge ──────────────────────────────────────────────
 
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
+/**
+ * Move para `keepId` tudo o que aponta para `mergeId`.
+ *
+ * Onde há unicidade por lead (etiqueta, funil, cadência, fixação, inscrição no
+ * processo por oferta, aluno, conta do portal), o registro só vem se o
+ * principal ainda não tiver o equivalente; o que sobrar é duplicata e sai com
+ * o lead absorvido. Duas inscrições no MESMO curso: as referências da do
+ * secundário (inscrição do portal, notas, ensalamento, extras) passam para a
+ * do principal.
+ */
+export async function transferirRelacoesDoLead(tx: Tx, mergeId: number, keepId: number): Promise<void> {
+  const mover = { where: { leadId: mergeId }, data: { leadId: keepId } }
+  await tx.message.updateMany(mover)
+  await tx.leadEvent.updateMany(mover)
+  await tx.activity.updateMany(mover)
+  await tx.leadNote.updateMany(mover)
+  await tx.leadAttachment.updateMany(mover)
+  await tx.leadEnrichment.updateMany(mover)
+  await tx.leadStageMovement.updateMany(mover)
+  await tx.leadStageSuggestion.updateMany(mover)
+  await tx.leadStatusHistory.updateMany(mover)
+  await tx.leadTransferRequest.updateMany(mover)
+  await tx.scheduledMessage.updateMany(mover)
+  await tx.conversationAudit.updateMany(mover)
+  await tx.detectedSale.updateMany(mover)
+  await tx.booking.updateMany(mover)
+  await tx.chatImportJob.updateMany(mover)
+  await tx.outboundSend.updateMany(mover)
+  await tx.enrollmentRegistration.updateMany(mover)
+
+  // Unicidade (leadId, X): só o que o principal ainda não tem.
+  const tags = new Set((await tx.leadTag.findMany({ where: { leadId: keepId }, select: { tagId: true } })).map((t) => t.tagId))
+  await tx.leadTag.updateMany({ where: { leadId: mergeId, tagId: { notIn: [...tags, -1] } }, data: { leadId: keepId } })
+  const funis = new Set((await tx.leadFunnel.findMany({ where: { leadId: keepId }, select: { funnelId: true } })).map((f) => f.funnelId))
+  await tx.leadFunnel.updateMany({ where: { leadId: mergeId, funnelId: { notIn: [...funis, -1] } }, data: { leadId: keepId } })
+  const cadencias = new Set((await tx.cadenceEnrollment.findMany({ where: { leadId: keepId }, select: { cadenceId: true } })).map((c) => c.cadenceId))
+  await tx.cadenceEnrollment.updateMany({ where: { leadId: mergeId, cadenceId: { notIn: [...cadencias, -1] } }, data: { leadId: keepId } })
+  const fixados = new Set((await tx.conversationPin.findMany({ where: { leadId: keepId }, select: { userId: true } })).map((c) => c.userId))
+  await tx.conversationPin.updateMany({ where: { leadId: mergeId, userId: { notIn: [...fixados, -1] } }, data: { leadId: keepId } })
+
+  // Inscrição no processo seletivo: única por (lead, oferta).
+  const prsKeep = await tx.processRegistration.findMany({ where: { leadId: keepId }, select: { id: true, offeringId: true } })
+  const prKeepPorOferta = new Map(prsKeep.map((p) => [p.offeringId, p.id]))
+  for (const pr of await tx.processRegistration.findMany({ where: { leadId: mergeId }, select: { id: true, offeringId: true } })) {
+    const doPrincipal = prKeepPorOferta.get(pr.offeringId)
+    if (!doPrincipal) {
+      await tx.processRegistration.update({ where: { id: pr.id }, data: { leadId: keepId } })
+      continue
+    }
+    // Mesmo curso nos dois: tudo passa a apontar para a do principal. Notas,
+    // ensalamento e extras guardam só o id (sem FK) — sem isto ficariam órfãos.
+    await tx.enrollmentRegistration.updateMany({ where: { processRegistrationId: pr.id }, data: { processRegistrationId: doPrincipal } })
+    const notasKeep = new Set((await tx.acaProcessoNota.findMany({ where: { processRegistrationId: doPrincipal }, select: { componenteId: true } })).map((n) => n.componenteId))
+    await tx.acaProcessoNota.updateMany({ where: { processRegistrationId: pr.id, componenteId: { notIn: [...notasKeep, -1] } }, data: { processRegistrationId: doPrincipal } })
+    if (!(await tx.acaProcessoEnsalamento.findUnique({ where: { processRegistrationId: doPrincipal }, select: { id: true } }))) {
+      await tx.acaProcessoEnsalamento.updateMany({ where: { processRegistrationId: pr.id }, data: { processRegistrationId: doPrincipal } })
+    }
+    if (!(await tx.acaInscricaoExtra.findUnique({ where: { processRegistrationId: doPrincipal }, select: { id: true } }))) {
+      await tx.acaInscricaoExtra.updateMany({ where: { processRegistrationId: pr.id }, data: { processRegistrationId: doPrincipal } })
+    }
+  }
+
+  // Um por lead. Aluno em conflito é barrado antes (mergeLeads).
+  if (!(await tx.aluno.findUnique({ where: { leadId: keepId }, select: { id: true } }))) {
+    await tx.aluno.updateMany(mover)
+  }
+  // Conta do portal: vale a que tem senha; o principal mantém a sua se ambas têm.
+  const contaKeep = await tx.portalAccount.findUnique({ where: { leadId: keepId }, select: { id: true, senhaHash: true } })
+  const contaMerge = await tx.portalAccount.findUnique({ where: { leadId: mergeId }, select: { id: true, senhaHash: true } })
+  if (contaMerge && (!contaKeep || (!contaKeep.senhaHash && contaMerge.senhaHash))) {
+    if (contaKeep) await tx.portalAccount.delete({ where: { id: contaKeep.id } })
+    await tx.portalAccount.update({ where: { id: contaMerge.id }, data: { leadId: keepId } })
+  }
+}
+
 interface MergeOptions {
   keepId: number     // ID do lead que será mantido (principal)
   mergeId: number    // ID do lead que será mesclado (secundário)
@@ -395,6 +472,17 @@ export async function mergeLeads(opts: MergeOptions) {
 
   if (!keep || !merge) throw new Error('Lead não encontrado')
   if (keepId === mergeId) throw new Error('Não é possível mesclar um lead consigo mesmo')
+
+  // Dois alunos (ficha acadêmica, matrícula, notas) não se juntam por aqui: um
+  // teria de ser apagado, e com ele o histórico acadêmico. Isso é trabalho da
+  // secretaria no ERP, antes da mesclagem.
+  const [alunoKeep, alunoMerge] = await Promise.all([
+    prisma.aluno.findUnique({ where: { leadId: keepId }, select: { id: true } }),
+    prisma.aluno.findUnique({ where: { leadId: mergeId }, select: { id: true } }),
+  ])
+  if (alunoKeep && alunoMerge) {
+    throw new Error('Os dois contatos já têm cadastro de aluno no acadêmico. Unifique os alunos no ERP antes de mesclar.')
+  }
 
   // 1. Mesclar dados: preencher campos vazios do principal com dados do secundário
   const updateData: any = {}
@@ -480,12 +568,11 @@ export async function mergeLeads(opts: MergeOptions) {
     }
   }
 
-  // 2. Mover relacionamentos: mensagens, eventos, atividades
-  await Promise.all([
-    prisma.message.updateMany({ where: { leadId: mergeId }, data: { leadId: keepId } }),
-    prisma.leadEvent.updateMany({ where: { leadId: mergeId }, data: { leadId: keepId } }),
-    prisma.activity.updateMany({ where: { leadId: mergeId }, data: { leadId: keepId } }),
-  ])
+  // 2. Mover TUDO o que pertence ao lead absorvido. O passo 6 o apaga, e as
+  // relações com onDelete: Cascade iriam junto — antes, só mensagens, eventos e
+  // atividades eram movidos, e mesclar apagava aluno, inscrição no processo
+  // seletivo, conta do portal, notas, etiquetas, anexos e funis do secundário.
+  await prisma.$transaction((tx) => transferirRelacoesDoLead(tx, mergeId, keepId))
 
   // 3. Atualizar contadores
   const msgCount = await prisma.message.count({ where: { leadId: keepId } })

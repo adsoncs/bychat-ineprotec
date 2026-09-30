@@ -4696,11 +4696,18 @@ model EnrollmentRegistration {
   /// { termo, nome, ip, userAgent, em, plano }. Reaproveitado quando a matrícula
   /// é efetivada — o contrato do ERP já nasce assinado.
   contratoAceite Json?
+  /// Mesclada em outra inscrição da mesma pessoa (services/inscricaoDuplicada).
+  /// Fica com status 'merged' e sai da lista padrão; o status de antes permite desfazer.
+  mergedIntoId        Int?
+  statusAntesDaMescla String? @db.VarChar(30)
+  /// "Manter separadas": a secretaria viu o aviso de duplicidade e decidiu que não é.
+  duplicataIgnorada   Boolean @default(false)
 
   @@index([portalId])
   @@index([status])
   @@index([paymentStatus])
   @@index([leadId])
+  @@index([mergedIntoId])
   @@index([createdAt])
   @@map("bychat_enrollment_registrations")
 }

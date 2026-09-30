@@ -135,6 +135,20 @@ export async function createAsaasPayment(config: AsaasConfig, input: AsaasPaymen
   }
 }
 
+/**
+ * Cancela (remove) uma cobrança em aberto no Asaas. Cobrança que já não existe
+ * lá conta como cancelada — o objetivo é ela não poder mais ser paga.
+ */
+export async function cancelarCobrancaAsaas(config: AsaasConfig, paymentId: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`, 'DELETE')
+    return { ok: true }
+  } catch (e: any) {
+    if (e?.status === 404) return { ok: true }
+    return { ok: false, message: e?.message || 'falha ao cancelar no Asaas' }
+  }
+}
+
 export async function getAsaasPaymentStatus(config: AsaasConfig, paymentId: string): Promise<any> {
   return asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}`)
 }

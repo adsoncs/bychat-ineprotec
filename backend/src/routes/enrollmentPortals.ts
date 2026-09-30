@@ -1122,7 +1122,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const limit  = Math.min(Math.max(parseInt(q.limit)  || 50, 1), 200)
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const where: any = { portalId }
+    // Mesclada é passado de uma mesclagem: só aparece quando pedida.
     if (q.status) where.status = q.status
+    else where.status = { not: 'merged' }
+    // Duplicidade: grupos vivos (services/inscricaoDuplicada) — o selo em cada
+    // linha e o filtro "só possíveis duplicidades".
+    const { tamanhoDosGrupos } = await import('../services/inscricaoDuplicada.js')
+    const duplicidade = await tamanhoDosGrupos(portalId)
+    if (q.duplicates === '1') where.id = { in: [...duplicidade.keys(), -1] }
     if (q.paymentStatus) where.paymentStatus = q.paymentStatus
     if (q.leadStatus) where.lead = { status: q.leadStatus }
     if (q.utmSource) where.utmSource = q.utmSource
@@ -1188,7 +1195,44 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }),
     ])
 
-    return { items, total, portal, kpis: { total, today: todayCount, week: weekCount, conversions } }
+    return {
+      items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0 })),
+      total, portal,
+      kpis: { total, today: todayCount, week: weekCount, conversions, duplicidades: duplicidade.size },
+    }
+  })
+
+  // ── Duplicidade de inscrições no portal (services/inscricaoDuplicada) ──
+  app.get('/api/admin/enrollment-portals/:id/duplicates', { preHandler: authMiddleware }, async (req) => {
+    const { gruposDeDuplicidade } = await import('../services/inscricaoDuplicada.js')
+    return { grupos: await gruposDeDuplicidade(parseInt((req.params as any).id)) }
+  })
+
+  app.post('/api/admin/enrollment-portals/:id/duplicates/merge', { preHandler: adminOnly }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const b = (req.body as any) || {}
+    const { mesclarInscricoes } = await import('../services/inscricaoDuplicada.js')
+    const r = await mesclarInscricoes({
+      portalId: parseInt((req.params as any).id),
+      principalId: parseInt(b.principalId),
+      outrasIds: (Array.isArray(b.outrasIds) ? b.outrasIds : []).map((x: any) => parseInt(x)).filter(Boolean),
+      operador: { userId: user.userId, nome: user.name || user.email },
+    })
+    return r.ok ? r : reply.code(400).send({ error: r.erro })
+  })
+
+  app.post('/api/admin/enrollment-portals/:id/duplicates/keep-separate', { preHandler: adminOnly }, async (req) => {
+    const b = (req.body as any) || {}
+    const { manterSeparadas } = await import('../services/inscricaoDuplicada.js')
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((x: any) => parseInt(x)).filter(Boolean)
+    return { ok: true, atualizadas: await manterSeparadas(parseInt((req.params as any).id), ids) }
+  })
+
+  app.post('/api/admin/enrollment-registrations/:id/unmerge', { preHandler: adminOnly }, async (req, reply) => {
+    const user = (req as any).user as JwtPayload
+    const { desfazerMescla } = await import('../services/inscricaoDuplicada.js')
+    const r = await desfazerMescla(parseInt((req.params as any).id), { userId: user.userId, nome: user.name || user.email })
+    return r.ok ? { ok: true } : reply.code(400).send({ error: r.erro })
   })
 
   // GET /api/admin/enrollment-portals/:id/registrations.csv — exportação
@@ -1196,7 +1240,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const q = req.query as any
     const where: any = { portalId: parseInt(id) }
+    // Como na lista: mesclada só sai quando pedida.
     if (q.status) where.status = q.status
+    else where.status = { not: 'merged' }
     if (q.paymentStatus) where.paymentStatus = q.paymentStatus
     if (q.utmSource) where.utmSource = q.utmSource
     if (q.utmMedium) where.utmMedium = q.utmMedium
@@ -2106,6 +2152,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Fase 24 (Categoria A): SEM dedup automático na inscrição. Sempre cria lead novo
     // e sinaliza match via flagDuplicate. Continuação por magic link (acima) mantém
     // o lead original — é a mesma inscrição, não uma nova.
+    //
+    // Exceção: a MESMA pessoa (CPF) com inscrição ABERTA neste portal (sem
+    // pagamento, não cancelada nem mesclada). Reenviar retoma essa inscrição —
+    // mesmo código, mesmo lead — em vez de criar outra: era assim que um
+    // candidato testando o formulário gerava três inscrições e três leads.
+    const { inscricaoAbertaDoCpf, cancelarCobrancasAbertas } = await import('../services/inscricaoDuplicada.js')
+    const retomada = cpf ? await inscricaoAbertaDoCpf(portal.id, cpf).catch(() => null) : null
+    if (retomada?.leadId && !lead) lead = await prisma.lead.findUnique({ where: { id: retomada.leadId } })
 
     // Resolve funil: portal.funnelId > default do sistema > null
     let resolvedFunnelId: number | null = portal.funnelId || null
@@ -2288,30 +2342,40 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }
     }
 
-    // Gera candidateCode único
-    const candidateCode = await generateCandidateCode(portal.id)
+    // Gera candidateCode único (ou mantém o da inscrição retomada)
+    const candidateCode = retomada ? retomada.candidateCode : await generateCandidateCode(portal.id)
 
-    // Cria EnrollmentRegistration
-    const enrollment = await prisma.enrollmentRegistration.create({
-      data: {
-        portalId: portal.id,
-        processRegistrationId: processRegistration?.id || null,
-        candidateCode,
-        // 'pending'   = aguardando pagamento (só faz sentido se portal.requirePayment=true)
-        // 'submitted' = inscrição recebida; sem cobrança a fazer (portal sem requirePayment)
-        status: portal.requirePayment ? 'pending' : 'submitted',
-        formData: fd,
-        leadId: lead.id,
-        ipAddress: (req.ip || '').substring(0, 45),
-        userAgent: (headers['user-agent'] || '').toString().substring(0, 500),
-        utmSource: fd.utm_source || null,
-        utmMedium: fd.utm_medium || null,
-        utmCampaign: fd.utm_campaign || null,
-        fbclid: fd.fbclid || null,
-        gclid: fd.gclid || null,
-        referrer: fd.referrer || null,
-      },
-    })
+    const dadosDoEnvio = {
+      processRegistrationId: processRegistration?.id || null,
+      formData: fd,
+      leadId: lead.id,
+      ipAddress: (req.ip || '').substring(0, 45),
+      userAgent: (headers['user-agent'] || '').toString().substring(0, 500),
+      utmSource: fd.utm_source || null,
+      utmMedium: fd.utm_medium || null,
+      utmCampaign: fd.utm_campaign || null,
+      fbclid: fd.fbclid || null,
+      gclid: fd.gclid || null,
+      referrer: fd.referrer || null,
+    }
+    // Retomada: a cobrança que estava aberta pode ser de outro curso ou outro
+    // preço — cancela no gateway; a pessoa gera a nova no checkout.
+    if (retomada) {
+      const avisos = await cancelarCobrancasAbertas(retomada.id, 'Substituída por novo envio da mesma pessoa').catch(() => [] as string[])
+      if (avisos.length) req.log.warn(`[enrollment] retomada ${candidateCode}: ${avisos.join(' | ')}`)
+    }
+    const enrollment = retomada
+      ? await prisma.enrollmentRegistration.update({ where: { id: retomada.id }, data: dadosDoEnvio })
+      : await prisma.enrollmentRegistration.create({
+          data: {
+            ...dadosDoEnvio,
+            portalId: portal.id,
+            candidateCode,
+            // 'pending'   = aguardando pagamento (só faz sentido se portal.requirePayment=true)
+            // 'submitted' = inscrição recebida; sem cobrança a fazer (portal sem requirePayment)
+            status: portal.requirePayment ? 'pending' : 'submitted',
+          },
+        })
 
     // Conta do portal: quem se inscreve já sai daqui com credencial própria.
     // Se o formulário pediu senha, ela vale desde agora; senão a conta nasce
@@ -2329,17 +2393,19 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       req.log.warn(`[enrollment] conta do portal não criada: ${err.message}`)
     }
 
-    // Atualiza counters no portal
-    await prisma.enrollmentPortal.update({
-      where: { id: portal.id },
-      data: { submissions: { increment: 1 } },
-    })
+    // Atualiza counters no portal (retomada não é inscrição nova)
+    if (!retomada) {
+      await prisma.enrollmentPortal.update({
+        where: { id: portal.id },
+        data: { submissions: { increment: 1 } },
+      })
+    }
 
     logEvent({
       leadId: lead.id,
       type: 'enrollment_submitted',
       category: 'lifecycle',
-      title: `Inscrição submetida: ${candidateCode}`,
+      title: retomada ? `Inscrição retomada (novo envio da mesma pessoa): ${candidateCode}` : `Inscrição submetida: ${candidateCode}`,
       channel: 'portal',
       source: 'enrollment_portal',
       actorType: 'lead',

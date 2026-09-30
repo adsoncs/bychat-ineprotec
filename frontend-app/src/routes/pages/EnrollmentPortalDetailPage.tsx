@@ -16,6 +16,7 @@ import {
   useCreateEnrollmentRegistration,
   useUpdateEnrollmentRegistration,
   useDeleteEnrollmentRegistration,
+  useUnmergeRegistration,
   usePortalAnalytics,
   type EnrollmentPortal,
   type EnrollmentRegistration,
@@ -37,6 +38,7 @@ import { PortalPaymentTab } from './enrollmentPortal/PortalPaymentTab'
 import { PortalEtapasTab } from './enrollmentPortal/PortalEtapasTab'
 import { PortalAnalyticsTab } from './enrollmentPortal/PortalAnalyticsTab'
 import { PortalFormTab } from './enrollmentPortal/PortalFormTab'
+import { AvisoDuplicidade, DuplicidadesModal } from './enrollmentPortal/DuplicidadesPanel'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
@@ -61,6 +63,7 @@ const STATUS_LABELS: Record<RegistrationStatus, string> = {
   rejected: 'Rejeitada',
   cancelled: 'Cancelada',
   expired: 'Expirada',
+  merged: 'Mesclada',
 }
 
 const STATUS_COLORS: Record<RegistrationStatus, string> = {
@@ -78,6 +81,7 @@ const STATUS_COLORS: Record<RegistrationStatus, string> = {
   rejected: 'text-danger',
   cancelled: 'text-fg-muted',
   expired: 'text-fg-muted',
+  merged: 'text-fg-muted',
 }
 
 const PAYMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -671,6 +675,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
+  const [soDuplicidades, setSoDuplicidades] = useState(false)
+  const [revisando, setRevisando] = useState(false)
   const [page, setPage] = useState(0)
   const limit = 50
 
@@ -682,9 +688,10 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
+    ...(soDuplicidades ? { duplicates: '1' as const } : {}),
     limit,
     offset: page * limit,
-  }), [status, paymentStatus, utmSource, utmMedium, dateFrom, dateTo, search, page])
+  }), [status, paymentStatus, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, page])
 
   const { data, isLoading } = usePortalRegistrations(portal.id, filters)
   const items = data?.items ?? []
@@ -695,12 +702,13 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const resend = useResendRegistrationLink()
   const ensureLead = useEnsureRegistrationLead(portal.id)
   const deleteReg = useDeleteEnrollmentRegistration(portal.id)
+  const unmerge = useUnmergeRegistration()
   const [cancelling, setCancelling] = useState<EnrollmentRegistration | null>(null)
   const [editing, setEditing] = useState<EnrollmentRegistration | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<EnrollmentRegistration | null>(null)
 
-  const activeFiltersCount = [status, paymentStatus, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo].filter(Boolean).length
+  const activeFiltersCount = [status, paymentStatus, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
 
   function handleExport() {
     const qs = new URLSearchParams()
@@ -742,12 +750,14 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
 
   function handleClearFilters() {
     setStatus(''); setPaymentStatus(''); setUtmSource(''); setUtmMedium('')
-    setDateFrom(''); setDateTo(''); setSearch(''); setPage(0)
+    setDateFrom(''); setDateTo(''); setSearch(''); setSoDuplicidades(false); setPage(0)
   }
 
   return (
     <div class="space-y-3">
       {kpis && <KpiRow kpis={kpis} />}
+
+      <AvisoDuplicidade quantidade={kpis?.duplicidades ?? 0} onRevisar={() => setRevisando(true)} />
 
       <Card>
         <div class="space-y-3">
@@ -812,6 +822,10 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               value={dateTo}
               onInput={(e) => { setDateTo((e.target as HTMLInputElement).value); setPage(0) }}
             />
+            <label class="flex items-center gap-2 self-end pb-2 text-sm text-fg-muted">
+              <input type="checkbox" checked={soDuplicidades} onChange={(e) => { setSoDuplicidades((e.target as HTMLInputElement).checked); setPage(0) }} />
+              Só possíveis duplicidades
+            </label>
             {activeFiltersCount > 0 && (
               <Button size="sm" variant="ghost" onClick={handleClearFilters} class="self-end">
                 Limpar filtros ({activeFiltersCount})
@@ -864,7 +878,11 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                     onEnsureLead={() => handleEnsureLead(r)}
                     onEdit={() => setEditing(r)}
                     onDelete={() => setDeleting(r)}
-                    busy={resend.isPending || ensureLead.isPending}
+                    onUnmerge={() => unmerge.mutate(r.id, {
+                      onSuccess: () => toast(`Mesclagem de ${r.candidateCode} desfeita`, 'success'),
+                      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                    })}
+                    busy={resend.isPending || ensureLead.isPending || unmerge.isPending}
                   />
                 ))}
               </tbody>
@@ -881,6 +899,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
           onChange={(off) => setPage(Math.floor(off / limit))}
         />
       )}
+
+      {revisando && <DuplicidadesModal portalId={portal.id} onClose={() => setRevisando(false)} />}
 
       {cancelling && (
         <CancelRegistrationDialog
@@ -941,7 +961,7 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
 }
 
 function RegistrationRow({
-  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, busy,
+  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, onUnmerge, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
@@ -952,6 +972,7 @@ function RegistrationRow({
   onEnsureLead: () => void
   onEdit: () => void
   onDelete: () => void
+  onUnmerge: () => void
   busy: boolean
 }) {
   const fd = (r.formData ?? {})
@@ -969,6 +990,11 @@ function RegistrationRow({
     >
       <td class="py-2 px-2">
         <code class="text-xs text-fg">{r.candidateCode}</code>
+        {!!r.duplicidade && (
+          <div class="mt-0.5 text-2xs font-medium text-warning" title="A mesma pessoa tem outras inscrições neste portal">
+            possível duplicidade ({r.duplicidade})
+          </div>
+        )}
       </td>
       <td class="py-2 px-2">
         <div class="min-w-0">
@@ -981,6 +1007,12 @@ function RegistrationRow({
         <span class={`text-xs uppercase tracking-wider font-medium ${STATUS_COLORS[statusKey] ?? 'text-fg-muted'}`}>
           {STATUS_LABELS[statusKey] ?? r.status}
         </span>
+        {r.status === 'merged' && (
+          <button type="button" class="block text-2xs text-accent underline" disabled={busy}
+            onClick={(e) => { e.stopPropagation(); onUnmerge() }}>
+            desfazer
+          </button>
+        )}
       </td>
       <td class="py-2 px-2 text-xs">
         {r.paymentStatus
@@ -1255,7 +1287,7 @@ function RegistrationFormModal({
         <Input label="E-mail" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} />
         <Input label="CPF" value={cpf} onInput={(e) => setCpf((e.target as HTMLInputElement).value)} />
         <Select label="Status" value={status} onChange={(e) => setStatus((e.target as HTMLSelectElement).value as RegistrationStatus)}>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          {Object.entries(STATUS_LABELS).filter(([k]) => k !== 'merged').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select>
         <Select label="Pagamento" value={paymentStatus} onChange={(e) => setPaymentStatus((e.target as HTMLSelectElement).value)}>
           <option value="">Sem pagamento</option>

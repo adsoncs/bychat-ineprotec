@@ -305,23 +305,16 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { leadId: true, candidateCode: true, paymentStatus: true } })
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     if (reg.paymentStatus === 'paid') return reply.code(400).send({ error: 'Cobrança já paga — para devolver, use o estorno' })
-    const abertas = await prisma.enrollmentPaymentMethod.findMany({ where: { registrationId: id, status: 'pending' } })
-    const cfg = abertas.some((m) => m.provider === 'iugu') ? await conexaoIuguDa(id) : null
-    const avisos: string[] = []
-    for (const m of abertas) {
-      if (m.provider === 'iugu' && m.externalId) {
-        const r = cfg ? await cancelarFaturaIugu(cfg, m.externalId) : { ok: false, message: 'conexão iugu indisponível' }
-        if (!r.ok) avisos.push(`Fatura ${m.externalId}: ${r.message}`)
-      } else if (m.provider !== 'simulado' && m.externalId) {
-        avisos.push(`${m.provider}: cancele também no painel do gateway (${m.externalId})`)
-      }
-      await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'failed', lastErrorMessage: 'Cancelada pela secretaria' } })
-    }
+    // Asaas e iugu cancelados de verdade no gateway (antes o Asaas só gerava
+    // aviso para cancelar à mão) — mesma rotina da mesclagem de inscrições.
+    const abertas = await prisma.enrollmentPaymentMethod.count({ where: { registrationId: id, status: 'pending' } })
+    const { cancelarCobrancasAbertas } = await import('../services/inscricaoDuplicada.js')
+    const avisos = await cancelarCobrancasAbertas(id, 'Cancelada pela secretaria')
     await prisma.enrollmentRegistration.update({ where: { id }, data: { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null } })
     if (reg.leadId) {
       logEvent({ leadId: reg.leadId, type: 'payment_canceled', category: 'lifecycle', channel: 'payment', source: 'manual', title: `Cobrança cancelada pela secretaria — ${reg.candidateCode}`, actorType: 'operator', userId: user.userId, userName: user.name, metadata: { registrationId: id } })
     }
-    return { ok: true, canceladas: abertas.length, avisos }
+    return { ok: true, canceladas: abertas, avisos }
   })
 
   // Estorno (iugu: cartão e PIX; parcial só no cartão).

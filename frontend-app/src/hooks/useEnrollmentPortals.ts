@@ -371,6 +371,8 @@ export type RegistrationStatus =
   | 'docs_uploaded' | 'docs_reviewing' | 'docs_approved' | 'docs_rejected'
   | 'reviewing' | 'approved' | 'enrolled'
   | 'rejected' | 'cancelled' | 'expired'
+  /** Mesclada em outra inscrição da mesma pessoa (reversível). */
+  | 'merged'
 
 export interface EnrollmentRegistration {
   id: number
@@ -400,6 +402,9 @@ export interface EnrollmentRegistration {
     offering?: { nome: string } | null
   } | null
   _count?: { documents: number }
+  /** Tamanho do grupo de possível duplicidade (0 = nenhum). */
+  duplicidade?: number
+  mergedIntoId?: number | null
 }
 
 export interface RegistrationsKpis {
@@ -407,6 +412,8 @@ export interface RegistrationsKpis {
   today: number
   week: number
   conversions: number
+  /** Inscrições em grupos de possível duplicidade ainda não decididos. */
+  duplicidades?: number
 }
 
 export interface RegistrationsResponse {
@@ -435,8 +442,75 @@ export interface RegistrationFilters {
   dateFrom?: string
   dateTo?: string
   search?: string
+  /** '1' = só inscrições em possível duplicidade. */
+  duplicates?: '1'
   limit?: number
   offset?: number
+}
+
+// ── Duplicidade de inscrições no portal ───────────────────────
+
+export interface MembroDuplicidade {
+  id: number
+  candidateCode: string
+  nome: string
+  curso: string | null
+  status: RegistrationStatus
+  paymentStatus: string | null
+  documentos: number
+  contratoAceito: boolean
+  criadaEm: string
+  paga: boolean
+  leadId: number | null
+  ignorada: boolean
+}
+
+export interface GrupoDuplicidade {
+  porque: Array<'cpf' | 'tel' | 'email'>
+  membros: MembroDuplicidade[]
+  sugestaoPrincipalId: number
+  ignorado: boolean
+  outrosPortais: { portal: string; candidateCode: string }[]
+}
+
+export function usePortalDuplicates(portalId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['portal-duplicates', portalId],
+    queryFn: () => api.get<{ grupos: GrupoDuplicidade[] }>(`/admin/enrollment-portals/${portalId}/duplicates`),
+    enabled,
+    staleTime: 10_000,
+  })
+}
+
+function invalidarDuplicidade(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['portal-duplicates'] })
+  void qc.invalidateQueries({ queryKey: ['portal-registrations'] })
+}
+
+export function useMergeRegistrations(portalId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { principalId: number; outrasIds: number[] }) =>
+      api.post<{ ok: true; mescladas: number; avisos: string[] }>(`/admin/enrollment-portals/${portalId}/duplicates/merge`, input),
+    onSuccess: () => invalidarDuplicidade(qc),
+  })
+}
+
+export function useKeepSeparate(portalId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: number[]) =>
+      api.post<{ ok: true; atualizadas: number }>(`/admin/enrollment-portals/${portalId}/duplicates/keep-separate`, { ids }),
+    onSuccess: () => invalidarDuplicidade(qc),
+  })
+}
+
+export function useUnmergeRegistration() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<{ ok: true }>(`/admin/enrollment-registrations/${id}/unmerge`, {}),
+    onSuccess: () => invalidarDuplicidade(qc),
+  })
 }
 
 // ── Detalhe de inscrição (document-review) ─────────────────────
