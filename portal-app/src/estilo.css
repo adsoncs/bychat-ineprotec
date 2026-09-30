@@ -626,6 +626,17 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 
 .sub.legal { margin: 12px 0 0; font-size: 12.5px; color: var(--tinta-3); line-height: 1.5; }
 
+/* Contrato em Word: o PDF na tela larga (no celular vai pelo botão), quem
+   assina e em que pé está cada assinatura. */
+.contrato-pdf { display: block; width: 100%; height: 60vh; margin-bottom: 12px; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); background: var(--fundo); }
+.signatarios { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.signatarios li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 10px 12px; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); font-size: 14px; }
+.signatarios .situacao { color: var(--tinta-3); font-size: 13px; }
+.signatarios .situacao.ok { color: var(--ok, #15803d); font-weight: 600; }
+.signatarios .sub { flex-basis: 100%; margin: 0; font-size: 13px; word-break: break-all; }
+label.caixa { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px; font-size: 14px; color: var(--tinta-2); cursor: pointer; }
+label.caixa input { margin-top: 3px; }
+
 /* Erro ao gerar a cobrança de uma parcela, dentro da própria linha. */
 .parcela-erro { display: block; margin-top: 6px; font-size: 12.5px; color: var(--erro); line-height: 1.45; }
 

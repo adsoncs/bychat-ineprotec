@@ -8527,12 +8527,15 @@ model AcaAssinatura {
   refusable          Boolean             @default(true) // signatário pode recusar
   mensagem           String?             @db.Text // mensagem no convite
   pastaExternaId     String?             @db.VarChar(120)
+  /// Assinado ainda na inscrição do portal (antes de existir aluno/matrícula).
+  registrationId     Int?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   signatarios        AcaSignatario[]
 
   @@index([alunoId])
   @@index([status])
+  @@index([registrationId])
 }
 
 model AcaSignatario {
@@ -8576,6 +8579,7 @@ enum AcaDelivery {
   EMAIL
   SMS
   WHATSAPP
+  LINK // assina na hora pelo link (portal), sem convite
 }
 
 enum AcaTipoNegocio {
@@ -8608,6 +8612,15 @@ model AcaContratoTemplate {
   signatariosPadrao Json?          @db.Json // [{papel, acao, deliveryMethod, exigeCpf, exigeSelfie}]
   ativo             Boolean        @default(true)
   ordem             Int            @default(0)
+  /// Contrato em Word (.docx, base64) com {{campos}} — quando existe, é ele que
+  /// vira o PDF assinado, e não o corpoTexto. Ver services/contratoWord.ts.
+  arquivoDocx       String?        @db.LongText
+  arquivoDocxNome   String?        @db.VarChar(191)
+  camposDocx        Json?          @db.Json // campos que o arquivo usa
+  /// Onde vale na inscrição: portais e cursos (ids). Curso ganha de portal;
+  /// lista vazia = qualquer. Ver services/contratoDoPortal.ts.
+  portalIds         Json?          @db.Json
+  cursoIds          Json?          @db.Json
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 }

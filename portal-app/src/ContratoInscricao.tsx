@@ -2,7 +2,10 @@
 // Mesmo aceite do portal logado: rolar até o fim, nome completo, e o texto
 // congelado no momento da assinatura. A efetivação da matrícula reaproveita.
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { carregarContratoDaInscricao, assinarContratoDaInscricao, type ContratoDaInscricao as Dados } from './api'
+import { carregarContratoDaInscricao, assinarContratoDaInscricao, type ContratoDaInscricao, type ContratoWord } from './api'
+import { ContratoWordInscricao } from './ContratoWordInscricao'
+
+type Dados = ContratoDaInscricao & { word: ContratoWord | null }
 
 const money = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const soLetras = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/gi, '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -30,6 +33,8 @@ export function ContratoInscricao(props: { codigo: string; token: string; aoAssi
 
   if (falha) return <div class="aviso erro">{falha}</div>
   if (!dados) return <div class="esqueleto" style="height:260px" />
+  // Contrato em Word da instituição (portal/curso com modelo próprio).
+  if (dados.word) return <ContratoWordInscricao codigo={props.codigo} token={props.token} dados={dados} word={dados.word} aoAssinar={props.aoAssinar} />
 
   const nomeConfere = soLetras(nome) === soLetras(dados.aluno)
   const podeAssinar = !dados.assinado && leuTudo && nome.trim().includes(' ') && nome.trim().length >= 5

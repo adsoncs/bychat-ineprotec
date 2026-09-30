@@ -18,6 +18,8 @@ import {
   type ContratoTemplate, type ContratoGatilho,
 } from '@/hooks/useAcaAssinatura'
 
+import { ArquivoWord, OndeVale, enviarWord } from './acaAssinatura/ContratoWord'
+
 type Aba = 'contratos' | 'templates' | 'gatilhos'
 
 export function AcademicoAssinaturaPage() {
@@ -270,6 +272,8 @@ function Templates() {
           {ts.map((t) => (
             <div key={t.id} class="px-4 py-2.5 flex items-center gap-3 text-sm cursor-pointer hover:bg-surface-2" onClick={() => setEdit(t)}>
               <span class="flex-1 min-w-0"><span class="block truncate text-fg">{t.nome}</span><span class="block text-xs text-fg-muted">{t.descricao || '—'}</span></span>
+              {t.temWord && <Badge tone="success">Word</Badge>}
+              {((t.portalIds?.length ?? 0) > 0 || (t.cursoIds?.length ?? 0) > 0) && <Badge tone="accent">{t.cursoIds?.length ? `${t.cursoIds.length} curso(s)` : `${t.portalIds!.length} portal(is)`}</Badge>}
               <Badge tone="info">{tipoNegocioLabel(t.tipoNegocio)}</Badge>
               {!t.ativo && <Badge tone="neutral">inativo</Badge>}
             </div>
@@ -284,33 +288,53 @@ function Templates() {
 function TemplateModal({ template, onClose }: { template: ContratoTemplate | null; onClose: () => void }) {
   const mut = useTemplateMut()
   const vars = useVariaveis()
+  const lista = useTemplates()
+  // O modal abre com a linha da lista; depois de subir/remover o Word, a lista
+  // recarrega e é dela que vêm nome do arquivo e campos atualizados.
+  const atual = (template && lista.data?.templates.find((t) => t.id === template.id)) || template
   const c = (template?.config as any) || {}
   const [f, setF] = useState<any>({
     nome: template?.nome || '', tipoNegocio: template?.tipoNegocio || 'GRADUACAO', descricao: template?.descricao || '',
     corpoTexto: template?.corpoTexto || '', ativo: template?.ativo ?? true,
     deadlineDias: c.deadlineDias ?? '', reminder: c.reminder || '', sortable: !!c.sortable, refusable: c.refusable !== false, mensagem: c.mensagem || '',
+    portalIds: template?.portalIds ?? [], cursoIds: template?.cursoIds ?? [],
   })
+  const [wordPendente, setWordPendente] = useState<File | null>(null)
+  const [salvando, setSalvando] = useState(false)
+  const temWord = !!atual?.temWord || !!wordPendente
   const set = (k: string, v: any) => setF({ ...f, [k]: v })
-  const salvar = () => {
+  const salvar = async () => {
     const body: any = { nome: f.nome, tipoNegocio: f.tipoNegocio, descricao: f.descricao, corpoTexto: f.corpoTexto, ativo: f.ativo,
+      portalIds: f.portalIds, cursoIds: f.cursoIds,
       config: { deadlineDias: f.deadlineDias ? Number(f.deadlineDias) : null, reminder: f.reminder || null, sortable: f.sortable, refusable: f.refusable, mensagem: f.mensagem || null },
       signatariosPadrao: template?.signatariosPadrao || [{ papel: 'ALUNO', acao: 'SIGN', deliveryMethod: 'EMAIL' }, { papel: 'RESPONSAVEL', acao: 'SIGN', deliveryMethod: 'EMAIL' }] }
-    const opts = { onSuccess: () => { toast('Template salvo', 'success'); onClose() }, onError: (e: any) => toast(e?.message || 'Erro', 'danger') }
-    if (template) mut.atualizar.mutate({ id: template.id, ...body }, opts); else mut.criar.mutate(body, opts)
+    setSalvando(true)
+    try {
+      const r: any = template ? await mut.atualizar.mutateAsync({ id: template.id, ...body }) : await mut.criar.mutateAsync(body)
+      if (wordPendente) {
+        const w = await enviarWord(r.template.id, wordPendente)
+        if (w.desconhecidos.length) toast(`Campos não reconhecidos no Word: ${w.desconhecidos.join(', ')}`, 'warning', 8000)
+        await lista.refetch()
+      }
+      toast('Template salvo', 'success'); onClose()
+    } catch (e: any) { toast(e?.message || 'Erro', 'danger') } finally { setSalvando(false) }
   }
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={template ? 'Editar template' : 'Novo template'} size="lg"
-      footer={<><div class="flex-1">{template && <Button variant="ghost" onClick={() => mut.excluir.mutate(template.id, { onSuccess: () => { toast('Excluído', 'success'); onClose() } })}><Trash2 size={14} /> Excluir</Button>}</div><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={mut.criar.isPending || mut.atualizar.isPending} disabled={!f.nome || !f.corpoTexto} onClick={salvar}>Salvar</Button></>}>
+      footer={<><div class="flex-1">{template && <Button variant="ghost" onClick={() => mut.excluir.mutate(template.id, { onSuccess: () => { toast('Excluído', 'success'); onClose() } })}><Trash2 size={14} /> Excluir</Button>}</div><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button variant="primary" loading={salvando} disabled={!f.nome || (!f.corpoTexto && !temWord)} onClick={salvar}>Salvar</Button></>}>
       <div class="space-y-3">
         <div class="grid sm:grid-cols-2 gap-3">
           <Input label="Nome" value={f.nome} onInput={(e: any) => set('nome', e.currentTarget.value)} />
           <Select label="Tipo de negócio" value={f.tipoNegocio} onChange={(e: any) => set('tipoNegocio', e.currentTarget.value)}>{TIPO_NEGOCIO.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}</Select>
         </div>
         <Input label="Descrição" value={f.descricao} onInput={(e: any) => set('descricao', e.currentTarget.value)} />
-        <div class="space-y-1">
-          <Textarea label="Corpo do contrato (use variáveis {{...}})" rows={9} value={f.corpoTexto} onInput={(e: any) => set('corpoTexto', e.currentTarget.value)} />
+        <ArquivoWord templateId={template?.id ?? null} nomeArquivo={atual?.arquivoDocxNome ?? null} campos={atual?.camposDocx ?? null}
+          pendente={wordPendente} onPendente={setWordPendente} onMudou={() => void lista.refetch()} />
+        <OndeVale portalIds={f.portalIds} cursoIds={f.cursoIds} onChange={(v) => setF({ ...f, ...v })} />
+        {!temWord && <div class="space-y-1">
+          <Textarea label="Corpo do contrato em texto (sem arquivo Word; use variáveis {{...}})" rows={9} value={f.corpoTexto} onInput={(e: any) => set('corpoTexto', e.currentTarget.value)} />
           <div class="flex flex-wrap gap-1">{(vars.data?.variaveis ?? []).map((v) => <button key={v.chave} title={v.desc} class="text-[0.7rem] px-2 py-0.5 rounded bg-surface-2 border border-border text-fg-muted hover:text-fg" onClick={() => set('corpoTexto', `${f.corpoTexto}{{${v.chave}}}`)}>{`{{${v.chave}}}`}</button>)}</div>
-        </div>
+        </div>}
         <div class="grid sm:grid-cols-2 gap-2">
           <Input label="Prazo padrão (dias)" type="number" value={f.deadlineDias} onInput={(e: any) => set('deadlineDias', e.currentTarget.value)} />
           <Select label="Lembrete" value={f.reminder} onChange={(e: any) => set('reminder', e.currentTarget.value)}><option value="">Sem lembrete</option><option value="DAILY">Diário</option><option value="WEEKLY">Semanal</option></Select>

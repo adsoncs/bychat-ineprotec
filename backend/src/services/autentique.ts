@@ -73,12 +73,12 @@ async function gql<T>(token: string, query: string, variables: any): Promise<T> 
   return j.data
 }
 
-const DELIVERY: Record<string, string> = { EMAIL: 'DELIVERY_METHOD_EMAIL', SMS: 'DELIVERY_METHOD_SMS', WHATSAPP: 'DELIVERY_METHOD_WHATSAPP' }
+const DELIVERY: Record<string, string> = { EMAIL: 'DELIVERY_METHOD_EMAIL', SMS: 'DELIVERY_METHOD_SMS', WHATSAPP: 'DELIVERY_METHOD_WHATSAPP', LINK: 'DELIVERY_METHOD_LINK' }
 
 export interface CriarDocSigner {
   nome: string; email?: string | null; telefone?: string | null
   acao?: string          // SIGN | APPROVE | RECOGNIZE | WITNESS
-  delivery?: string      // EMAIL | SMS | WHATSAPP
+  delivery?: string      // EMAIL | SMS | WHATSAPP | LINK
   exigeCpf?: boolean; exigeSelfie?: boolean; cpf?: string | null
   positions?: Array<{ x: number; y: number; z: number; element?: string }>
 }
@@ -113,7 +113,8 @@ export async function criarDocumento(token: string, sandbox: boolean, name: stri
     document,
     signers: signers.map((s, i) => {
       const sig: any = { action: s.acao || 'SIGN' }
-      if (s.email) sig.email = s.email
+      // Por link, a pessoa assina na hora pelo portal: sem convite por e-mail.
+      if (s.email && s.delivery !== 'LINK') sig.email = s.email
       if (s.nome) sig.name = s.nome
       if (s.telefone && (s.delivery === 'SMS' || s.delivery === 'WHATSAPP')) sig.phone = s.telefone
       if (s.delivery && DELIVERY[s.delivery]) sig.delivery_method = DELIVERY[s.delivery]

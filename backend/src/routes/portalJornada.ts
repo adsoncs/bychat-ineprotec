@@ -11,6 +11,10 @@ import { verifyCandidateToken, signCandidateToken } from '../lib/candidateAuth.j
 import { contaDaRequisicao } from '../lib/portalSession.js'
 import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada } from '../services/portalJornada.js'
 import {
+  dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
+  iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva,
+} from '../services/contratoDoPortal.js'
+import {
   dadosEfetivos, camposDaEtapa, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
   CATALOGO, ROTULO_ETAPA, SUGESTAO, lerPadraoInstituicao, gravarPadraoInstituicao, pendenciasParaMatricular,
 } from '../services/dadosCadastro.js'
@@ -27,6 +31,34 @@ async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
   const valores = await valoresAtuais(reg, campos.map((c) => c.name))
   const faltando = campos.filter((c) => c.required && String(valores[c.name] ?? '').trim() === '').length
   return { reg, campos, valores, faltando }
+}
+
+/**
+ * O que impede assinar agora: etapa desligada no portal (contrato não se assina
+ * por fora da jornada) ou dados da etapa do contrato ainda faltando (ex.:
+ * responsável financeiro) — eles entram no contrato, então vêm antes.
+ */
+async function impedimentoParaAssinar(registrationId: number): Promise<string | null> {
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portal: { select: { jornadaEtapas: true } } } })
+  const cfg = lerJornada(reg?.portal?.jornadaEtapas)
+  const ligada = [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'contrato' && e.ativo)
+  if (!ligada) return 'Este portal não pede contrato nesta etapa.'
+  const dc = await dadosDaEtapa(registrationId, 'contrato')
+  if (dc && dc.faltando > 0) return 'Preencha os dados pedidos antes de assinar o contrato.'
+  return null
+}
+
+/** Contrato em Word que vale para a inscrição (null = termo de aceite de sempre). */
+async function contratoWordDaInscricao(registrationId: number) {
+  const d = await dadosDoContratoDaInscricao(registrationId)
+  const modelo = d ? await modeloDoPortal(d.portalId, d.courseId) : null
+  if (!d || !modelo) return null
+  return {
+    modelo: { id: modelo.id, nome: modelo.nome },
+    eletronica: await assinaturaEletronicaAtiva(),
+    menorSemResponsavel: d.menor && !d.responsavel,
+    assinatura: await estadoDaAssinaturaDaInscricao(registrationId),
+  }
 }
 
 /** Token da inscrição (Bearer) — o mesmo que o /register devolve. */
@@ -131,20 +163,58 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
     const c = await contratoDaInscricao(s.enrollmentId)
     if (!c) return reply.code(404).send({ error: 'Escolha o curso na inscrição para gerar o contrato.' })
-    return { contrato: c }
+    return { contrato: c, word: await contratoWordDaInscricao(s.enrollmentId) }
+  })
+
+  // PDF do contrato em Word: o do envelope, quando já existe (congelado), ou
+  // gerado na hora com os dados atuais — é o que a pessoa lê antes de assinar.
+  app.get('/api/public/registrations/:code/contrato/pdf', async (req, reply) => {
+    const s = sessaoDoCandidato(req, (req.params as any).code)
+    if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const env = await envelopeDaInscricao(s.enrollmentId)
+    let pdf: Buffer | null = null
+    if (env?.arquivoBase64) pdf = Buffer.from(env.arquivoBase64, 'base64')
+    else pdf = (await pdfDoContratoDaInscricao(s.enrollmentId))?.pdf ?? null
+    if (!pdf) return reply.code(404).send({ error: 'Não há contrato configurado para este curso.' })
+    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', 'inline; filename="contrato.pdf"')
+      .header('Cache-Control', 'no-store').send(pdf)
+  })
+
+  // Assinatura eletrônica (Autentique): gera o envelope e devolve o link.
+  app.post('/api/public/registrations/:code/contrato/iniciar', async (req, reply) => {
+    const s = sessaoDoCandidato(req, (req.params as any).code)
+    if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const impedimento = await impedimentoParaAssinar(s.enrollmentId)
+    if (impedimento) return reply.code(400).send({ error: impedimento })
+    const r = await iniciarAssinaturaDaInscricao(s.enrollmentId)
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    return { assinatura: r.assinatura }
+  })
+
+  // Situação da assinatura (a tela consulta enquanto a pessoa assina na Autentique).
+  app.get('/api/public/registrations/:code/contrato/status', async (req, reply) => {
+    const s = sessaoDoCandidato(req, (req.params as any).code)
+    if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    return { assinatura: await estadoDaAssinaturaDaInscricao(s.enrollmentId, true) }
   })
 
   app.post('/api/public/registrations/:code/contrato/assinar', async (req, reply) => {
     const s = sessaoDoCandidato(req, (req.params as any).code)
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
-    // A etapa precisa estar ligada no portal: contrato não se assina por fora da jornada.
-    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: s.enrollmentId }, select: { leadId: true, candidateCode: true, portal: { select: { jornadaEtapas: true } } } })
-    const cfg = lerJornada(reg?.portal?.jornadaEtapas)
-    const ligada = [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'contrato' && e.ativo)
-    if (!ligada) return reply.code(400).send({ error: 'Este portal não pede contrato nesta etapa.' })
-    // Dados pedidos na etapa do contrato (ex.: responsável financeiro) vêm antes da assinatura.
-    const dc = await dadosDaEtapa(s.enrollmentId, 'contrato')
-    if (dc && dc.faltando > 0) return reply.code(400).send({ error: 'Preencha os dados pedidos antes de assinar o contrato.' })
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: s.enrollmentId }, select: { leadId: true, candidateCode: true } })
+    const impedimento = await impedimentoParaAssinar(s.enrollmentId)
+    if (impedimento) return reply.code(400).send({ error: impedimento })
+    // Contrato em Word: com Autentique, a assinatura é lá (rota /iniciar); sem
+    // ela, o aceite é aqui mesmo, mas sobre o PDF do contrato de verdade.
+    const word = await contratoWordDaInscricao(s.enrollmentId)
+    if (word) {
+      if (word.eletronica) return reply.code(400).send({ error: 'Este contrato é assinado eletronicamente — use o botão "Assinar".' })
+      const nome = String((req.body as any)?.nome || '').trim()
+      if (nome.length < 5 || !nome.includes(' ')) return reply.code(400).send({ error: 'Escreva seu nome completo para assinar.' })
+      const r = await aceitarContratoNoPortal(s.enrollmentId, nome)
+      if (!r.ok) return reply.code(400).send({ error: r.erro })
+      return { ok: true, jaAssinado: false }
+    }
     const r = await assinarContratoDaInscricao({
       registrationId: s.enrollmentId, nome: String((req.body as any)?.nome || ''), ip: ipDe(req),
       userAgent: (req.headers['user-agent'] as string) || null,

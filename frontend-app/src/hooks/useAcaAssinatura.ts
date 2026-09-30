@@ -50,7 +50,13 @@ export const SIG_STATUS: Record<string, { label: string; tone: 'neutral' | 'info
 }
 export const PAPEL_LABEL: Record<string, string> = { ALUNO: 'Aluno', RESPONSAVEL: 'Responsável', FIADOR: 'Fiador', INSTITUICAO: 'Instituição', TESTEMUNHA: 'Testemunha' }
 
-export interface ContratoTemplate { id: number; nome: string; tipoNegocio: string; descricao: string | null; corpoTexto: string; config: any; signatariosPadrao: any; ativo: boolean; ordem: number }
+export interface ContratoTemplate {
+  id: number; nome: string; tipoNegocio: string; descricao: string | null; corpoTexto: string; config: any; signatariosPadrao: any; ativo: boolean; ordem: number
+  /** Contrato em Word (o arquivo não vem na lista, só se existe). */
+  temWord?: boolean; arquivoDocxNome?: string | null; camposDocx?: string[] | null
+  /** Onde vale na inscrição do portal. */
+  portalIds?: number[] | null; cursoIds?: number[] | null
+}
 export interface ContratoGatilho { id: number; nome: string; evento: string; templateId: number | null; autoPorTipo: boolean; templateNome: string | null; filtroTipoNegocio: string | null; autoEnviar: boolean; ativo: boolean }
 export interface Variavel { chave: string; desc: string }
 

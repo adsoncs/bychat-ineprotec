@@ -5,9 +5,13 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import * as svc from '../services/acaAssinatura.js'
+import { validarModelo, gerarPdfDoModelo } from '../services/contratoWord.js'
+import { CAMPOS_CONTRATO, camposDesconhecidos, varsDeExemplo, dadosDoContratoDaInscricao } from '../services/contratoDoPortal.js'
 import { getConfig, setConfig, verificarAssinaturaWebhook } from '../services/autentique.js'
 
 const ENV_INCLUDE = { signatarios: { orderBy: { ordem: 'asc' as const } } }
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const listaDeIds = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(Number).filter((n) => Number.isInteger(n) && n > 0))] : [])
 
 /**
  * Contratos assinados no Portal — Fase 5.
@@ -136,17 +140,21 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
   })
 
   // ── Templates de contrato (por tipo de negócio) ──
+  // O .docx (base64) não vai na lista: pesa, e a tela só precisa saber que existe.
+  const semArquivo = ({ arquivoDocx, ...t }: any) => ({ ...t, temWord: !!arquivoDocx })
   app.get('/api/admin/aca/assinatura/templates', { preHandler: authMiddleware }, async () =>
-    ({ templates: await prisma.acaContratoTemplate.findMany({ orderBy: [{ ordem: 'asc' }, { id: 'asc' }] }) }))
+    ({ templates: (await prisma.acaContratoTemplate.findMany({ orderBy: [{ ordem: 'asc' }, { id: 'asc' }] })).map(semArquivo) }))
   app.post('/api/admin/aca/assinatura/templates', { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
-    if (!b.nome || !b.corpoTexto) return reply.code(400).send({ error: 'nome e corpo obrigatórios' })
+    // Modelo em Word pode nascer sem texto: o arquivo sobe logo depois.
+    if (!b.nome) return reply.code(400).send({ error: 'nome obrigatório' })
     const t = await prisma.acaContratoTemplate.create({ data: {
       nome: String(b.nome).slice(0, 191), tipoNegocio: b.tipoNegocio || 'OUTRO', descricao: b.descricao || null,
-      corpoTexto: String(b.corpoTexto), config: b.config ?? null, signatariosPadrao: b.signatariosPadrao ?? null,
+      corpoTexto: String(b.corpoTexto ?? ''), config: b.config ?? null, signatariosPadrao: b.signatariosPadrao ?? null,
       ativo: b.ativo !== false, ordem: Number(b.ordem) || 0,
+      portalIds: listaDeIds(b.portalIds), cursoIds: listaDeIds(b.cursoIds),
     } })
-    return reply.code(201).send({ template: t })
+    return reply.code(201).send({ template: semArquivo(t) })
   })
   app.put('/api/admin/aca/assinatura/templates/:id', { preHandler: authMiddleware }, async (req) => {
     const b = (req.body as any) || {}; const data: any = {}
@@ -155,7 +163,70 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
     if ('signatariosPadrao' in b) data.signatariosPadrao = b.signatariosPadrao ?? null
     if ('ativo' in b) data.ativo = !!b.ativo
     if ('ordem' in b) data.ordem = Number(b.ordem) || 0
-    return { template: await prisma.acaContratoTemplate.update({ where: { id: Number((req.params as any).id) }, data }) }
+    if ('portalIds' in b) data.portalIds = listaDeIds(b.portalIds)
+    if ('cursoIds' in b) data.cursoIds = listaDeIds(b.cursoIds)
+    return { template: semArquivo(await prisma.acaContratoTemplate.update({ where: { id: Number((req.params as any).id) }, data })) }
+  })
+
+  // ── Contrato em Word (.docx com {{campos}}) ──
+  app.get('/api/admin/aca/assinatura/campos-word', { preHandler: authMiddleware }, async () => ({ campos: CAMPOS_CONTRATO }))
+
+  // Onde o modelo vale: portais e cursos, para os seletores da tela.
+  app.get('/api/admin/aca/assinatura/opcoes-vinculo', { preHandler: authMiddleware }, async () => ({
+    portais: await prisma.enrollmentPortal.findMany({ select: { id: true, nome: true, slug: true }, orderBy: { nome: 'asc' } }),
+    cursos: await prisma.course.findMany({ where: { active: true }, select: { id: true, nome: true }, orderBy: { nome: 'asc' } }),
+  }))
+
+  // Modelo de exemplo com todos os campos — ponto de partida para o jurídico.
+  app.get('/api/admin/aca/assinatura/modelo-exemplo.docx', { preHandler: authMiddleware }, async (_req, reply) => {
+    const { readFile } = await import('node:fs/promises')
+    const buf = await readFile(new URL('../../assets/contratos/modelo-exemplo.docx', import.meta.url))
+    return reply.header('Content-Type', DOCX).header('Content-Disposition', 'attachment; filename="modelo-de-contrato.docx"').send(buf)
+  })
+
+  app.put('/api/admin/aca/assinatura/templates/:id/word', { preHandler: authMiddleware, bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
+    const b = (req.body as any) || {}
+    const buf = Buffer.from(String(b.base64 || '').replace(/^data:[^,]+,/, ''), 'base64')
+    if (!buf.length) return reply.code(400).send({ error: 'Envie o arquivo .docx.' })
+    if (buf.length > 12 * 1024 * 1024) return reply.code(400).send({ error: 'Arquivo acima de 12 MB — reduza as imagens do Word.' })
+    const v = validarModelo(buf)
+    if (!v.ok) return reply.code(400).send({ error: v.erro })
+    const t = await prisma.acaContratoTemplate.update({
+      where: { id: Number((req.params as any).id) },
+      data: { arquivoDocx: buf.toString('base64'), arquivoDocxNome: String(b.nome || 'contrato.docx').slice(0, 191), camposDocx: v.campos },
+    })
+    return { template: semArquivo(t), campos: v.campos, desconhecidos: camposDesconhecidos(v.campos) }
+  })
+  app.delete('/api/admin/aca/assinatura/templates/:id/word', { preHandler: authMiddleware }, async (req) => {
+    const t = await prisma.acaContratoTemplate.update({
+      where: { id: Number((req.params as any).id) }, data: { arquivoDocx: null, arquivoDocxNome: null, camposDocx: undefined },
+    })
+    return { template: semArquivo(t) }
+  })
+  app.get('/api/admin/aca/assinatura/templates/:id/word', { preHandler: authMiddleware }, async (req, reply) => {
+    const t = await prisma.acaContratoTemplate.findUnique({ where: { id: Number((req.params as any).id) }, select: { arquivoDocx: true, arquivoDocxNome: true } })
+    if (!t?.arquivoDocx) return reply.code(404).send({ error: 'Este modelo não tem arquivo Word.' })
+    const nome = (t.arquivoDocxNome || 'contrato.docx').replace(/[^\w.\- ]+/g, '_')
+    return reply.header('Content-Type', DOCX).header('Content-Disposition', `attachment; filename="${nome}"`).send(Buffer.from(t.arquivoDocx, 'base64'))
+  })
+
+  // Pré-visualização em PDF: com dados de exemplo, ou de uma inscrição real
+  // (código da inscrição) — os campos sem valor voltam no cabeçalho.
+  app.post('/api/admin/aca/assinatura/templates/:id/previa', { preHandler: authMiddleware }, async (req, reply) => {
+    const t = await prisma.acaContratoTemplate.findUnique({ where: { id: Number((req.params as any).id) }, select: { arquivoDocx: true } })
+    if (!t?.arquivoDocx) return reply.code(404).send({ error: 'Suba o arquivo Word antes de pré-visualizar.' })
+    const codigo = String((req.body as any)?.inscricao || '').trim()
+    let vars = varsDeExemplo()
+    if (codigo) {
+      const reg = await prisma.enrollmentRegistration.findFirst({ where: { OR: [{ candidateCode: codigo }, ...(/^\d+$/.test(codigo) ? [{ id: Number(codigo) }] : [])] }, select: { id: true } })
+      const d = reg ? await dadosDoContratoDaInscricao(reg.id) : null
+      if (!d) return reply.code(404).send({ error: 'Inscrição não encontrada ou sem curso escolhido.' })
+      vars = d.vars
+    }
+    try {
+      const { pdf, faltando } = await gerarPdfDoModelo(Buffer.from(t.arquivoDocx, 'base64'), vars)
+      return reply.header('Content-Type', 'application/pdf').header('X-Campos-Faltando', encodeURIComponent(faltando.join(','))).send(pdf)
+    } catch (e: any) { return reply.code(400).send({ error: e?.message || 'Falha ao gerar o PDF' }) }
   })
   app.delete('/api/admin/aca/assinatura/templates/:id', { preHandler: authMiddleware }, async (req) => {
     await prisma.acaContratoTemplate.delete({ where: { id: Number((req.params as any).id) } }).catch(() => {})

@@ -79,6 +79,7 @@ export interface CriarEnvelope {
   alunoId?: number | null; matriculaId?: number | null; contratoId?: number | null
   titulo: string; origem?: string; templateId?: number | null; tipoNegocio?: string | null
   corpoTexto?: string | null; arquivoBase64?: string | null; arquivoNome?: string | null
+  registrationId?: number | null
   deadlineEm?: string | null; reminder?: string | null; sortable?: boolean; refusable?: boolean; mensagem?: string | null
   signatarios?: NovoSignatario[]
 }
@@ -169,6 +170,7 @@ export async function criar(p: CriarEnvelope) {
   const env = await prisma.acaAssinatura.create({
     data: {
       alunoId: p.alunoId ?? null, matriculaId: p.matriculaId ?? null, contratoId: p.contratoId ?? null,
+      registrationId: p.registrationId ?? null,
       titulo: p.titulo.slice(0, 191), origem: (p.origem as any) || 'ESCRITO', templateId: p.templateId ?? null,
       tipoNegocio: p.tipoNegocio || null, corpoTexto: p.corpoTexto || null,
       arquivoBase64: p.arquivoBase64 || null, arquivoNome: p.arquivoNome || null,
@@ -201,10 +203,19 @@ export async function criarDeTemplate(templateId: number, ctx: { alunoId?: numbe
       signatarios = padrao.map((cfgS: any, i: number) => ({ ...(auto[i] || auto[0] || { nome: vars['aluno.nome'] || 'Contratante' }), papel: cfgS.papel || auto[i]?.papel || 'ALUNO', acao: cfgS.acao || 'SIGN', deliveryMethod: cfgS.deliveryMethod || 'EMAIL', exigeCpf: !!cfgS.exigeCpf, exigeSelfie: !!cfgS.exigeSelfie }))
     } else signatarios = auto
   }
+  // Modelo em Word: o PDF sai do arquivo da instituição, com os dados do aluno,
+  // e fica congelado no envelope (origem UPLOAD) — é ele que vai para assinatura.
+  let arquivo: { arquivoBase64: string; arquivoNome: string } | null = null
+  if (t.arquivoDocx) {
+    const { varsDoAluno } = await import('./contratoDoPortal.js')
+    const { gerarPdfDoModelo } = await import('./contratoWord.js')
+    const { pdf } = await gerarPdfDoModelo(Buffer.from(t.arquivoDocx, 'base64'), { ...(await varsDoAluno(ctx)), ...vars })
+    arquivo = { arquivoBase64: pdf.toString('base64'), arquivoNome: `${t.nome}.pdf` }
+  }
   return criar({
     alunoId: ctx.alunoId, matriculaId: ctx.matriculaId, contratoId: ctx.contratoId,
-    titulo: ctx.titulo || interpolar(t.nome, vars), origem: 'TEMPLATE', templateId: t.id, tipoNegocio: t.tipoNegocio,
-    corpoTexto: t.corpoTexto, signatarios,
+    titulo: ctx.titulo || interpolar(t.nome, vars), origem: arquivo ? 'UPLOAD' : 'TEMPLATE', templateId: t.id, tipoNegocio: t.tipoNegocio,
+    corpoTexto: arquivo ? null : t.corpoTexto, ...(arquivo ?? {}), signatarios,
     deadlineEm: cfg.deadlineDias ? new Date(Date.now() + cfg.deadlineDias * 864e5).toISOString() : null,
     reminder: cfg.reminder || null, sortable: !!cfg.sortable, refusable: cfg.refusable !== false, mensagem: cfg.mensagem || null,
   })
@@ -241,8 +252,14 @@ export async function enviar(envelopeId: number) {
     const opts: aut.DocOptions = { message: env.mensagem, reminder: env.reminder, sortable: env.sortable, refusable: env.refusable, deadlineAt: env.deadlineEm?.toISOString() || null }
     const signers: aut.CriarDocSigner[] = env.signatarios.map((s) => ({ nome: s.nome, email: s.email, telefone: s.telefone, acao: s.acao, delivery: s.deliveryMethod, cpf: s.cpf, exigeCpf: s.exigeCpf, exigeSelfie: s.exigeSelfie }))
     const doc = await aut.criarDocumento(cfg.token, cfg.sandbox, env.titulo, signers, buffer, opts)
+    const usadas = new Set<string>()
     for (const s of env.signatarios) {
-      const sig = doc.signatures.find((x) => (x.email || '').toLowerCase() === (s.email || '').toLowerCase()) || doc.signatures.find((x) => (x.name || '') === s.nome)
+      // Por e-mail só quando há e-mail e ele foi mandado; senão pela ordem/nome —
+      // dois signatários por link (sem e-mail) não podem cair na mesma assinatura.
+      const livres = doc.signatures.filter((x) => !usadas.has(x.public_id))
+      const sig = (s.email && s.deliveryMethod !== 'LINK' ? livres.find((x) => (x.email || '').toLowerCase() === s.email!.toLowerCase()) : null)
+        || livres.find((x) => (x.name || '') === s.nome) || livres.find((x) => !x.email && !x.name)
+      if (sig) usadas.add(sig.public_id)
       if (sig) await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: sig.public_id, linkAssinatura: sig.link?.short_link || null } })
     }
     await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { provider: 'AUTENTIQUE', documentoExternoId: doc.id, status: 'ENVIADO', enviadoEm: new Date(), metaJson: doc as any } })
@@ -262,7 +279,8 @@ export async function sincronizar(envelopeId: number) {
     if (cfg.token) {
       const doc = await aut.consultarDocumento(cfg.token, env.documentoExternoId)
       for (const s of env.signatarios) {
-        const sig = doc.signatures.find((x) => x.public_id === s.publicId) || doc.signatures.find((x) => (x.email || '').toLowerCase() === (s.email || '').toLowerCase())
+        const sig = doc.signatures.find((x) => x.public_id === s.publicId)
+          || (s.email ? doc.signatures.find((x) => (x.email || '').toLowerCase() === s.email!.toLowerCase()) : undefined)
         if (!sig) continue
         const status = sig.rejected ? 'REJEITADO' : sig.signed ? 'ASSINADO' : sig.viewed ? 'VISUALIZADO' : 'PENDENTE'
         await prisma.acaSignatario.update({ where: { id: s.id }, data: {
@@ -316,6 +334,11 @@ async function recompute(envelopeId: number) {
   // Contrato fechado efetiva a matrícula (ponte com o ERP). Só na transição,
   // para não reescrever a matrícula a cada sincronização com o provedor.
   if (novo === 'ASSINADO' && env.status !== 'ASSINADO') {
+    if (env.registrationId) {
+      const { aceiteDaInscricaoPeloEnvelope } = await import('./contratoDoPortal.js')
+      await aceiteDaInscricaoPeloEnvelope(envelopeId).catch((e) =>
+        console.warn('[acaAssinatura] contrato da inscrição assinado, mas o aceite não gravou:', e?.message || e))
+    }
     await efetivarPorContratoAssinado(envelopeId).catch((e) =>
       console.warn('[acaAssinatura] contrato assinado, mas a matrícula não efetivou:', e?.message || e))
     await arquivarContratoNoGed(envelopeId).catch((e) =>
@@ -369,6 +392,16 @@ export async function resolverTipoNegocio(matriculaId?: number | null): Promise<
 
 /** Dispara os gatilhos ativos de um evento. Fire-and-forget nos pontos de origem. */
 export async function dispararEvento(evento: string, ctx: { alunoId?: number | null; matriculaId?: number | null; contratoId?: number | null; tipoNegocio?: string | null }): Promise<number[]> {
+  // Contrato já assinado (ou em assinatura) na inscrição do portal: ele passa a
+  // ser o contrato desta matrícula, e nenhum gatilho cria um segundo.
+  if (evento === 'MATRICULA_CRIADA' || evento === 'CONTRATO_FINANCEIRO_CRIADO') {
+    const { adotarEnvelopeDaInscricao } = await import('./contratoDoPortal.js')
+    const adotado = await adotarEnvelopeDaInscricao(ctx).catch((e) => {
+      console.warn('[acaAssinatura] envelope da inscrição não foi ligado à matrícula:', e?.message || e)
+      return null
+    })
+    if (adotado) return []
+  }
   if (!ctx.tipoNegocio && ctx.matriculaId) ctx = { ...ctx, tipoNegocio: await resolverTipoNegocio(ctx.matriculaId).catch(() => null) }
   const gatilhos = await prisma.acaContratoGatilho.findMany({ where: { evento: evento as any, ativo: true } })
   const criados: number[] = []

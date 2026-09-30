@@ -644,8 +644,41 @@ export interface ContratoDaInscricao {
   assinadoPor: string | null
 }
 
+/** Contrato em Word da instituição, assinado na Autentique (null = termo de aceite). */
+export interface AssinaturaDoContrato {
+  envelopeId: number
+  status: string
+  provedor: string
+  assinadoEm: string | null
+  signatarios: Array<{ id: number; papel: string; nome: string; status: string; link: string | null; porEmail: boolean }>
+}
+export interface ContratoWord {
+  modelo: { id: number; nome: string }
+  eletronica: boolean
+  menorSemResponsavel: boolean
+  assinatura: AssinaturaDoContrato | null
+}
+
 export const carregarContratoDaInscricao = (code: string, token: string) =>
-  pedir<{ contrato: ContratoDaInscricao }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato`, comToken(token)).then((r) => r.contrato)
+  pedir<{ contrato: ContratoDaInscricao; word?: ContratoWord | null }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato`, comToken(token))
+    .then((r) => ({ ...r.contrato, word: r.word ?? null }))
+
+/** PDF do contrato (precisa do token: vem como blob, a tela abre por URL local). */
+export async function pdfDoContratoDaInscricao(code: string, token: string): Promise<string> {
+  let r: Response
+  try { r = await fetch(`/api/public/registrations/${encodeURIComponent(code)}/contrato/pdf`, comToken(token)) }
+  catch { throw new Error('Não conseguimos falar com o servidor. Verifique sua conexão e tente de novo.') }
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || 'Não foi possível abrir o contrato.')
+  return URL.createObjectURL(await r.blob())
+}
+
+export const iniciarAssinaturaDoContrato = (code: string, token: string) =>
+  pedir<{ assinatura: AssinaturaDoContrato }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato/iniciar`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` },
+  }).then((r) => r.assinatura)
+
+export const situacaoDaAssinaturaDoContrato = (code: string, token: string) =>
+  pedir<{ assinatura: AssinaturaDoContrato | null }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato/status`, comToken(token)).then((r) => r.assinatura)
 
 export const assinarContratoDaInscricao = (code: string, token: string, nome: string) =>
   pedir<{ ok: boolean; jaAssinado: boolean }>(`/api/public/registrations/${encodeURIComponent(code)}/contrato/assinar`, {
