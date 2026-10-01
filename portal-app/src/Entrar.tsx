@@ -48,7 +48,7 @@ export function Entrar() {
   return (
     <Moldura marca={marca}>
       <form class="cartao" onSubmit={entrar}>
-        <h2>Acesse sua inscrição</h2>
+        <h2 style="margin-bottom:16px">Acesse sua inscrição</h2>
         {erro && <div class="aviso erro">{erro}</div>}
         {aviso && <div class="aviso info">{aviso}</div>}
         <div class="campo">
