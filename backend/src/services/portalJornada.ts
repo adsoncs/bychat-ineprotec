@@ -131,8 +131,8 @@ async function contexto(registrationId: number) {
           selectionProcess: {
             select: {
               useCustomDocuments: true,
-              documentRequirements: { select: { required: true, documentType: { select: { code: true } } } },
-              entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, documentType: { select: { code: true } } } } } },
+              documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } },
+              entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } } } },
             },
           },
         },
@@ -153,7 +153,7 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
   const cfg = lerJornada(reg.portal?.jornadaEtapas)
   const lista = onde === 'inscricao' ? cfg.inscricao : (cfg.painel ?? cfg.inscricao)
   const sp = reg.processRegistration?.selectionProcess as any
-  const exigidos: Array<{ required: boolean; documentType: { code: string } }> = sp
+  const exigidos: Array<{ required: boolean; documentType: { code: string; name: string } }> = sp
     ? (sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []))
     : []
   const obrigatorios = exigidos.filter((e) => e.required)
@@ -204,10 +204,23 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       const entregues = obrigatorios.filter((x) => { const st = porTipo.get(x.documentType.code); return st && st !== 'rejected' }).length
       const aprovados = obrigatorios.filter((x) => porTipo.get(x.documentType.code) === 'approved').length
       const tudo = entregues >= obrigatorios.length
+      // O que falta enviar — obrigatório OU opcional. Antes só contavam os
+      // obrigatórios: com um opcional faltando, a etapa dizia "Enviados, em
+      // análise" e a pessoa não sabia que ainda havia documento a mandar.
+      const faltam = exigidos.filter((x) => { const st = porTipo.get(x.documentType.code); return !st || st === 'rejected' })
+      const faltamObrig = faltam.filter((x) => x.required)
+      const faltamOpc = faltam.filter((x) => !x.required)
+      const nomes = (l: typeof faltam) => l.map((x) => x.documentType.name).join(', ')
+      const falta = (n: number) => (n === 1 ? 'falta enviar 1' : `faltam enviar ${n}`)
+      let detalhe: string
+      if (recusados) detalhe = `${recusados} recusado(s) — reenvie`
+      else if (!tudo) detalhe = `${entregues} de ${obrigatorios.length} obrigatórios enviados — ${falta(faltamObrig.length)}: ${nomes(faltamObrig)}`
+      else detalhe = aprovados >= obrigatorios.length ? 'Obrigatórios aprovados' : 'Obrigatórios enviados, em análise'
+      if (!recusados && faltamOpc.length) detalhe += ` · ${falta(faltamOpc.length)} opcional: ${nomes(faltamOpc)}`
       etapas.push({
         chave: 'documentos', titulo: ROTULO.documentos, obrigatoria: e.obrigatoria,
         situacao: recusados ? 'pendente' : tudo ? (aprovados >= obrigatorios.length ? 'feito' : 'aguardando') : 'pendente',
-        detalhe: recusados ? `${recusados} recusado(s) — reenvie` : tudo ? (aprovados >= obrigatorios.length ? 'Todos aprovados' : 'Enviados, em análise') : `${entregues} de ${obrigatorios.length} enviados`,
+        detalhe,
       })
     } else if (e.chave === 'contrato') {
       if (!reg.processRegistration?.offering) continue
