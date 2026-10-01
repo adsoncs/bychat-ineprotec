@@ -62,7 +62,9 @@ const SELECT_LINHA = {
 function linha(r: any) {
   const plano = (r.paymentPlan ?? {}) as Record<string, any>
   const escopo = plano.escopo === 'curso' || (!plano.escopo && r.portal?.paymentScope === 'curso') ? 'curso' : 'taxa'
-  const valorTabela = Number(plano.valorTabela ?? (escopo === 'taxa' ? r.processRegistration?.selectionProcess?.taxaInscricao : 0) ?? 0) || null
+  // Valor cheio (antes de cupom e desconto): valorCheio é gravado desde o
+  // cupom; nas cobranças antigas, o de tabela é o cheio.
+  const valorTabela = Number(plano.valorCheio ?? plano.valorTabela ?? (escopo === 'taxa' ? r.processRegistration?.selectionProcess?.taxaInscricao : 0) ?? 0) || null
   const descontoCupom = Number(plano.descontoCupom ?? 0)
   const descontoAVista = Number(plano.descontoAVista ?? 0)
   const ultimo = r.paymentMethods?.[0]
@@ -85,7 +87,15 @@ function linha(r: any) {
     descontoAVista,
     cupom: plano.cupom ?? null,
     acrescimo: Number(plano.acrescimo ?? 0),
-    valorCobrado: r.paymentAmount != null ? Number(r.paymentAmount) : plano.valorCobrado != null ? Number(plano.valorCobrado) : null,
+    // O que a instituição recebe de fato (cupom e desconto já aplicados; antes
+    // das taxas do gateway). Pago: o valor confirmado. Em aberto: o da cobrança
+    // vigente, gravado no plano — o paymentAmount já foi sujo por sincronização
+    // de cobrança antiga (R$ 2.508 numa inscrição de boleto de R$ 5,02).
+    valorCobrado: r.paymentStatus === 'paid'
+      ? (r.paymentAmount != null ? Number(r.paymentAmount) : plano.valorCobrado != null ? Number(plano.valorCobrado) : null)
+      : (plano.valorCobrado != null ? Number(plano.valorCobrado) : r.paymentAmount != null ? Number(r.paymentAmount) : null),
+    /** Inscrições da mesma pessoa mescladas nesta (preenchido na consulta). */
+    mescladas: [] as string[],
     parcelas: Number(plano.parcelas ?? 1) || 1,
     meio: meioDe(plano.meio ?? r.paymentMethod),
     gateway: ultimo?.provider ?? r.portal?.paymentConnection?.provider ?? null,
@@ -101,7 +111,8 @@ function linha(r: any) {
 }
 
 function filtros(q: any) {
-  const where: any = { OR: [{ paymentId: { not: null } }, { portal: { requirePayment: true } }] }
+  // Mesclada em outra (duplicidade) não é linha própria: entra na principal.
+  const where: any = { OR: [{ paymentId: { not: null } }, { portal: { requirePayment: true } }], status: { not: 'merged' } }
   const de = q.de ? new Date(`${q.de}T00:00:00-03:00`) : null
   const ate = q.ate ? new Date(`${q.ate}T23:59:59.999-03:00`) : null
   if (de || ate) where.createdAt = { ...(de ? { gte: de } : {}), ...(ate ? { lte: ate } : {}) }
@@ -170,6 +181,18 @@ function indicadores(itens: ReturnType<typeof linha>[]) {
   }
 }
 
+/** Junta em cada linha os códigos das inscrições mescladas nela. */
+async function comMescladas<T extends { id: number; mescladas: string[] }>(itens: T[]): Promise<T[]> {
+  if (!itens.length) return itens
+  const filhas = await prisma.enrollmentRegistration.findMany({
+    where: { mergedIntoId: { in: itens.map((l) => l.id) } }, select: { mergedIntoId: true, candidateCode: true },
+  })
+  const por = new Map<number, string[]>()
+  for (const f of filhas) por.set(f.mergedIntoId!, [...(por.get(f.mergedIntoId!) ?? []), f.candidateCode])
+  for (const l of itens) l.mescladas = por.get(l.id) ?? []
+  return itens
+}
+
 async function conexaoIuguDa(regId: number) {
   const r = await prisma.enrollmentRegistration.findUnique({
     where: { id: regId },
@@ -188,7 +211,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const rows = await prisma.enrollmentRegistration.findMany({
       where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 5000,
     })
-    const itens = filtrarLinhas(rows.map(linha), q)
+    const itens = filtrarLinhas(await comMescladas(rows.map(linha)), q)
     const ordem = String(q.ordenar || 'recentes')
     if (ordem === 'valor') itens.sort((a, b) => (b.valorCobrado ?? 0) - (a.valorCobrado ?? 0))
     if (ordem === 'pagamento') itens.sort((a, b) => +new Date(b.pagoEm ?? 0) - +new Date(a.pagoEm ?? 0))
@@ -201,7 +224,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   app.get(`${BASE}/export.csv`, { preHandler: adminOnly }, async (req, reply) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({ where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 20000 })
-    const itens = filtrarLinhas(rows.map(linha), q)
+    const itens = filtrarLinhas(await comMescladas(rows.map(linha)), q)
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
     const n = (v: number | null) => (v == null ? '' : v.toFixed(2).replace('.', ','))
     const dt = (d: Date | string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '')
@@ -218,19 +241,25 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   // Detalhe: tentativas, avisos do gateway, cupom, linha do tempo
   app.get(`${BASE}/:id`, { preHandler: adminOnly }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
-    const r = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: SELECT_LINHA })
-    if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    const r0 = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { ...SELECT_LINHA, mergedIntoId: true } })
+    if (!r0) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    // Aberta pela mesclada: mostra a principal — é ela que vale.
+    const r = r0.mergedIntoId
+      ? (await prisma.enrollmentRegistration.findUnique({ where: { id: r0.mergedIntoId }, select: { ...SELECT_LINHA, mergedIntoId: true } })) ?? r0
+      : r0
+    const filhas = await prisma.enrollmentRegistration.findMany({ where: { mergedIntoId: r.id }, select: { id: true, candidateCode: true } })
+    const codigoDe = new Map([[r.id, r.candidateCode], ...filhas.map((f) => [f.id, f.candidateCode] as [number, string])])
     const [tentativas, avisos, resgate, eventos] = await Promise.all([
       prisma.enrollmentPaymentMethod.findMany({
-        where: { registrationId: id }, orderBy: { createdAt: 'desc' },
-        select: { id: true, provider: true, method: true, status: true, amount: true, externalId: true, createdAt: true, paidAt: true, expiresAt: true, boletoLine: true, boletoPdfUrl: true, qrCode: true, cardBrand: true, cardLastDigits: true, lastErrorMessage: true },
+        where: { registrationId: { in: [r.id, ...filhas.map((f) => f.id)] } }, orderBy: { createdAt: 'desc' },
+        select: { id: true, registrationId: true, provider: true, method: true, status: true, amount: true, externalId: true, createdAt: true, paidAt: true, expiresAt: true, boletoLine: true, boletoPdfUrl: true, qrCode: true, cardBrand: true, cardLastDigits: true, lastErrorMessage: true },
       }),
       prisma.paymentWebhookHit.findMany({
-        where: { OR: [{ registrationId: id }, ...(r.paymentId ? [{ externalId: r.paymentId }] : [])] },
+        where: { OR: [{ registrationId: r.id }, ...(r.paymentId ? [{ externalId: r.paymentId }] : [])] },
         orderBy: { receivedAt: 'desc' }, take: 50,
         select: { id: true, provider: true, eventType: true, status: true, receivedAt: true, errorMessage: true },
       }),
-      prisma.couponRedemption.findFirst({ where: { registrationId: id }, include: { coupon: { select: { id: true, code: true, description: true } } } }),
+      prisma.couponRedemption.findFirst({ where: { registrationId: r.id }, include: { coupon: { select: { id: true, code: true, description: true } } } }),
       r.lead?.id
         ? prisma.leadEvent.findMany({
             where: { leadId: r.lead.id, type: { startsWith: 'payment' } }, orderBy: { createdAt: 'desc' }, take: 30,
@@ -238,11 +267,16 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
           }).catch(() => [])
         : Promise.resolve([]),
     ])
+    const [l] = await comMescladas([linha(r)])
     return {
-      linha: linha(r),
+      linha: l,
       plano: r.paymentPlan,
       paymentUrl: r.paymentUrl,
-      tentativas: tentativas.map((t) => ({ ...t, amount: t.amount != null ? Number(t.amount) : null })),
+      tentativas: tentativas.map((t) => ({
+        ...t, amount: t.amount != null ? Number(t.amount) : null,
+        // Tentativa de uma inscrição mesclada nesta: a tela marca de qual veio.
+        deInscricao: t.registrationId !== r.id ? codigoDe.get(t.registrationId) ?? null : null,
+      })),
       avisos,
       cupom: resgate ? { ...resgate.coupon, desconto: Number(resgate.discountValue), em: resgate.redeemedAt } : null,
       eventos,

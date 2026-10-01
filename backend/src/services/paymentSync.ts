@@ -98,7 +98,9 @@ async function fetchNormalizedFromProvider(
     const m = refRaw.match(/^enrollment-(\d+)$/)
     return {
       externalId: data.id,
-      status: ASAAS_STATUS_MAP[data.status] || 'pending',
+      // Apagada no Asaas continua com status PENDING e `deleted: true`: sem
+      // olhar o `deleted`, a cobrança cancelada voltava a "pendente".
+      status: data.deleted ? 'canceled' : (ASAAS_STATUS_MAP[data.status] || 'pending'),
       paidAt: data.paymentDate
         ? new Date(data.paymentDate)
         : (data.confirmedDate ? new Date(data.confirmedDate) : null),
@@ -176,11 +178,16 @@ export async function syncChargeFromProvider(
   const enrollment = await prisma.enrollmentRegistration.findUnique({
     where: { id: enrollmentRefId },
     select: {
-      id: true, leadId: true, candidateCode: true,
+      id: true, leadId: true, candidateCode: true, paymentId: true,
       paymentStatus: true, paymentPaidAt: true, status: true, portalId: true,
     },
   })
   if (!enrollment) return { ok: false, error: 'Inscrição não encontrada' }
+  // Só a cobrança ATUAL da inscrição (ou um pagamento confirmado) mexe no
+  // pagamento da inscrição. Consultar uma cobrança antiga — apagada, trocada
+  // por outra — gravava o valor e o meio dela por cima ("R$ 2.508 · PIX" numa
+  // inscrição cujo boleto vigente era de R$ 5,02).
+  const ehAtual = norm.status === 'paid' || !enrollment.paymentId || enrollment.paymentId === norm.externalId
 
   const wasPaid = enrollment.paymentStatus === 'paid'
   const isPaidNow = norm.status === 'paid'
@@ -220,8 +227,12 @@ export async function syncChargeFromProvider(
         await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
       }
     }
-  } else {
-    await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+  } else if (ehAtual) {
+    // A atual foi cancelada: a inscrição fica sem cobrança vigente.
+    await prisma.enrollmentRegistration.update({
+      where: { id: enrollment.id },
+      data: norm.status === 'canceled' ? { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null } : updates,
+    })
   }
 
   // Upsert do EnrollmentPaymentMethod

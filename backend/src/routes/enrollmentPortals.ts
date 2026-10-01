@@ -2973,6 +2973,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Preenchida no ramo Asaas quando a cobrança tem página de pagamento.
     let urlDaPagina: string | null = null
 
+    // O que cada ramo tentou cobrar (cupom, condição): é o valor que fica na
+    // tentativa que falhar — o cheio da tabela não é o que se tentou cobrar.
+    let valorTentado: number | null = null
     try {
       let methodRow: any
       if (ehSimulado(conn.provider)) {
@@ -2991,6 +2994,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           parcelamosNos: method === 'credit_card',
         })
         if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
+        valorTentado = conta.valorCobrado
         // Mesma forma de resposta dos provedores reais — o que muda é que nada
         // sai daqui para uma API externa.
         const sim = criarCobrancaSimulada({
@@ -3100,6 +3104,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           parcelamosNos,
         })
         if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
+        valorTentado = conta.valorCobrado
         const { valorCobrado, parcelasCartao } = conta
 
         const order = await createAsaasOrder(cfg, {
@@ -3185,6 +3190,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           parcelamosNos: method === 'credit_card',
         })
         if ('erro' in conta) return reply.code(400).send({ error: conta.erro })
+        valorTentado = conta.valorCobrado
         const { valorCobrado, parcelasCartao } = conta
 
         // Cada clique em "pagar" é uma tentativa, com chave própria: a rede
@@ -3302,7 +3308,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           provider: conn.provider,
           method,
           status: 'failed',
-          amount: Number(taxaInscricao),
+          amount: valorTentado ?? Number(taxaInscricao),
           lastErrorMessage: e.message?.substring(0, 1000) || 'Falha desconhecida',
         },
       }).catch(() => {})
@@ -4676,9 +4682,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       return { ok: true, notFound: true }
     }
 
-    const newPaymentStatus = ASAAS_STATUS_MAP[payment.status] || 'pending'
+    // Apagada no Asaas: o status continua PENDING, com `deleted: true` (ou o
+    // evento PAYMENT_DELETED). Sem isto a cobrança cancelada voltava a pendente.
+    const apagada = event === 'PAYMENT_DELETED' || payment.deleted === true
+    const newPaymentStatus = apagada ? 'canceled' : (ASAAS_STATUS_MAP[payment.status] || 'pending')
     const wasPaid = enrollment.paymentStatus === 'paid'
     const isPaidNow = newPaymentStatus === 'paid'
+    // Só a cobrança atual da inscrição (ou um pagamento confirmado) mexe no
+    // pagamento da inscrição; evento de cobrança antiga atualiza só ela.
+    const ehAtual = isPaidNow || !enrollment.paymentId || enrollment.paymentId === payment.id
 
     const updates: any = {
       paymentStatus: newPaymentStatus,
@@ -4710,8 +4722,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: semMarco })
         }
       }
-    } else {
-      await prisma.enrollmentRegistration.update({ where: { id: enrollment.id }, data: updates })
+    } else if (ehAtual) {
+      await prisma.enrollmentRegistration.update({
+        where: { id: enrollment.id },
+        data: apagada ? { paymentStatus: null, paymentId: null, paymentUrl: null, paymentExpiresAt: null } : updates,
+      })
     }
 
     // Espelha no EnrollmentPaymentMethod (checkout transparente) — match pelo externalId.

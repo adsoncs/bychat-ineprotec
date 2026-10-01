@@ -12,7 +12,13 @@ import { ContratoInscricao } from './ContratoInscricao'
 import { Redacao } from './Redacao'
 import { DadosEtapa } from './DadosEtapa'
 
-const SITUACAO = { feito: 'Concluído', aguardando: 'Em análise', pendente: 'Pendente' } as const
+const SITUACAO = { feito: 'Concluída', aguardando: 'Em análise', pendente: 'Pendente' } as const
+/** Etapa pendente por recusa (ex.: documento recusado): pede correção, não início. */
+const temRecusa = (e: EtapaDaJornada) => e.situacao === 'pendente' && /recusad|reenvi/i.test(e.detalhe)
+/** Relógio: "em análise" — já fez a parte dela, agora é com a instituição. */
+const Relogio = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+)
 
 export function Jornada(props: {
   codigo: string
@@ -59,7 +65,8 @@ export function Jornada(props: {
     ? etapas.find((e) => !resolvida(e) && !adiadas.includes(e.chave)) ?? null
     : null
   const tudoFeito = tudoPronto
-  const concluidas = etapas.filter(resolvida).length
+  // "Concluída" é só o que terminou; em análise ainda não conta.
+  const concluidas = etapas.filter((e) => e.situacao === 'feito').length
 
   const conteudo = (e: EtapaDaJornada) => {
     if (e.chave === 'cadastro') return <DadosEtapa codigo={props.codigo} token={props.token} etapa="cadastro" aoSalvar={recarregar} />
@@ -78,20 +85,23 @@ export function Jornada(props: {
     <div class={`jornada jornada-${props.contexto}`} id="jornada">
       <div class="jornada-topo">
         <h2>{props.contexto === 'inscricao' ? 'Próximos passos' : 'O que falta na sua inscrição'}</h2>
-        <span class="sub">{concluidas} de {etapas.length} concluído(s)</span>
+        <span class="sub">{concluidas} de {etapas.length} concluída(s)</span>
+      </div>
+      <div class="jornada-progresso" role="progressbar" aria-valuemin={0} aria-valuemax={etapas.length} aria-valuenow={etapas.filter((e) => e.situacao === 'feito').length}>
+        {etapas.map((e) => <span key={e.chave} class={e.situacao} />)}
       </div>
       <ol class="jornada-lista">
         {etapas.map((e, i) => {
           const expandida = props.contexto === 'inscricao' ? daVez?.chave === e.chave : aberta === e.chave
           return (
-            <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${e.situacao} ${expandida ? 'aberta' : ''}`}>
+            <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${e.situacao} ${temRecusa(e) ? 'alerta' : ''} ${expandida ? 'aberta' : ''}`}>
               <div class="etapa-cabeca">
-                <span class="etapa-num" aria-hidden="true">{resolvida(e) ? '✓' : i + 1}</span>
+                <span class="etapa-num" aria-hidden="true">{e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? <Relogio /> : temRecusa(e) ? '!' : i + 1}</span>
                 <div class="etapa-txt">
                   <b>{e.titulo}</b>
                   <span class="sub">{e.detalhe}</span>
                 </div>
-                <span class={`etapa-status ${e.situacao}`}>{SITUACAO[e.situacao]}</span>
+                <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? 'Corrigir' : SITUACAO[e.situacao]}</span>
                 {!expandida && (props.contexto === 'painel' || adiadas.includes(e.chave)) && e.situacao !== 'feito' && (
                   <button class="link etapa-acao" type="button" onClick={() => {
                     if (props.contexto === 'inscricao') setAdiadas((a) => a.filter((x) => x !== e.chave))

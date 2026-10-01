@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { carregarMarca, type MarcaDoPortal } from './marca'
 import { Moldura, AcessoSair } from './Moldura'
 import { Jornada } from './Jornada'
+import { ResumoDoCandidato } from './ResumoDoCandidato'
 import { carregarJornadaDoPortal } from './api'
 import { carregarPainelAluno, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
 
@@ -64,10 +65,9 @@ export function Aluno() {
   if (soCandidato && jornada) {
     return (
       <Moldura marca={marca} acesso={<AcessoSair />}>
-        <div class="cartao">
-          <h2>Minha inscrição</h2>
-          <p class="sub" style="margin:0">Código {jornada.inscricao.candidateCode}{jornada.portal ? ` · ${jornada.portal.nome}` : ''}</p>
-        </div>
+        <ResumoDoCandidato codigo={jornada.inscricao.candidateCode} token={jornada.token}>
+          <a href="/portal/senha">Senha de acesso</a>
+        </ResumoDoCandidato>
         <div class="cartao">
           {jornada.etapas.length
             ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />

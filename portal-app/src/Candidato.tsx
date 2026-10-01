@@ -8,6 +8,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { carregarMarca, type MarcaDoPortal } from './marca'
 import { Moldura, AcessoSair, AcessoEntrar } from './Moldura'
 import { Jornada } from './Jornada'
+import { ResumoDoCandidato } from './ResumoDoCandidato'
 
 const CHAVE = (codigo: string) => `bh_candidato_${codigo}`
 const lerToken = (codigo: string) => { try { return sessionStorage.getItem(CHAVE(codigo)) } catch { return null } }
@@ -32,8 +33,6 @@ export function Candidato() {
     const t = doLink ? lerToken(doLink) : null
     return tokenValido(t) ? t : null
   })
-  const [nome, setNome] = useState<string | null>(null)
-  const [portal, setPortal] = useState<string | null>(null)
   const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [entrando, setEntrando] = useState(false)
@@ -53,7 +52,7 @@ export function Candidato() {
       const j = await r.json().catch(() => ({}))
       if (!r.ok || !j.token) throw new Error(j.error || 'Não foi possível entrar.')
       gravarToken(cod, j.token)
-      setCodigo(cod); setNome(j.candidate?.name ?? null); setPortal(j.candidate?.portalName ?? null)
+      setCodigo(cod)
       if (location.pathname.split('/')[2]?.toUpperCase() !== cod) history.replaceState(null, '', `/candidato/${cod}${location.hash}`)
       setToken(j.token)
     } catch (e: any) { setErro(e.message) } finally { setEntrando(false) }
@@ -87,14 +86,9 @@ export function Candidato() {
 
   return (
     <Moldura marca={marca} acesso={<AcessoSair aoSair={sair} />}>
-      <div class="cartao" style="margin-bottom:14px">
-        <h2>{nome ? `Olá, ${nome.split(' ')[0]}` : 'Minha inscrição'}</h2>
-        <p class="sub" style="margin:0">Código {codigo}{portal ? ` · ${portal}` : ''}</p>
-        <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
-          <a href={`/api/candidate/receipt.pdf`} onClick={(e) => { e.preventDefault(); void baixarComprovante(token) }}>Comprovante de inscrição</a>
-          <button class="link" type="button" onClick={sair}>Sair</button>
-        </div>
-      </div>
+      <ResumoDoCandidato codigo={codigo} token={token}>
+        <a href={`/api/candidate/receipt.pdf`} onClick={(e) => { e.preventDefault(); void baixarComprovante(token) }}>Comprovante de inscrição</a>
+      </ResumoDoCandidato>
       <div class="cartao">
         <Jornada key={token} codigo={codigo} token={token} contexto="painel" />
       </div>

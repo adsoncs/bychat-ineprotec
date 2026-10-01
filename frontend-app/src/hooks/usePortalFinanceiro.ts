@@ -34,6 +34,8 @@ export interface LinhaFinanceiro {
   venceEm: string | null
   criadoEm: string
   tentativas: number
+  /** Inscrições da mesma pessoa mescladas nesta (somem da lista; a principal vale). */
+  mescladas?: string[]
   temLink: boolean
 }
 
@@ -92,7 +94,7 @@ export interface DetalheFin {
   linha: LinhaFinanceiro
   plano: Record<string, any> | null
   paymentUrl: string | null
-  tentativas: Array<{ id: number; provider: string; method: string; status: string; amount: number | null; externalId: string | null; createdAt: string; paidAt: string | null; expiresAt: string | null; boletoLine: string | null; boletoPdfUrl: string | null; qrCode: string | null; cardBrand: string | null; cardLastDigits: string | null; lastErrorMessage: string | null }>
+  tentativas: Array<{ id: number; provider: string; method: string; status: string; amount: number | null; externalId: string | null; createdAt: string; paidAt: string | null; expiresAt: string | null; boletoLine: string | null; boletoPdfUrl: string | null; qrCode: string | null; cardBrand: string | null; cardLastDigits: string | null; lastErrorMessage: string | null; deInscricao?: string | null }>
   avisos: Array<{ id: number; provider: string; eventType: string; status: string; receivedAt: string; errorMessage: string | null }>
   cupom: { id: number; code: string; description: string | null; desconto: number; em: string } | null
   eventos: Array<{ id: number; type: string; title: string; description: string | null; createdAt: string; userName: string | null }>

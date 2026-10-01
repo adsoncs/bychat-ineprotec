@@ -31,6 +31,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/apiClient'
+import { agruparCobrancas, resumoDoPlano, reais } from '@/lib/cobrancas'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
@@ -198,6 +199,8 @@ function EnemBlock({ registrationId }: { registrationId: number }) {
 
 function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
   const { data } = useRegistrationFull(registrationId)
+  // Antes de qualquer return: hook sempre na mesma ordem.
+  const [abertos, setAbertos] = useState<string[]>([])
   const sync = useSyncRegistrationPayment(registrationId)
   const methods = data?.registration.paymentMethods ?? []
   const paymentStatus = data?.registration.paymentStatus
@@ -212,6 +215,9 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
   const statusLabel = paymentStatusLabel
 
   const hasPending = methods.some(m => m.status !== 'paid') || paymentStatus !== 'paid'
+  // Tentativas iguais juntas (abre para ver cada uma) e o valor real do plano.
+  const grupos = agruparCobrancas(methods)
+  const resumo = resumoDoPlano(data?.registration.paymentPlan, { status: paymentStatus ?? null, valor: data?.registration.paymentAmount ?? null })
 
   function handleSync() {
     sync.mutate(undefined, {
@@ -255,59 +261,84 @@ function PaymentMethodsBlock({ registrationId }: { registrationId: number }) {
           )}
         </div>
       )}
+      {resumo && (
+        <div class="rounded-md border border-border bg-surface-2 p-3 mb-3">
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-2">Valor real da cobrança</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div><div class="text-2xs text-fg-muted">Valor cheio</div><div class="tabular-nums">{reais(resumo.valorCheio)}</div></div>
+            <div>
+              <div class="text-2xs text-fg-muted">Descontos</div>
+              <div class="tabular-nums text-success">{resumo.descontoCupom + resumo.descontoAVista > 0 ? `−${reais(resumo.descontoCupom + resumo.descontoAVista)}` : '—'}</div>
+              {(resumo.cupom || resumo.descontoAVista > 0) && (
+                <div class="text-2xs text-fg-muted">{[resumo.cupom && `cupom ${resumo.cupom}`, resumo.descontoAVista > 0 && 'à vista'].filter(Boolean).join(' · ')}</div>
+              )}
+            </div>
+            {resumo.acrescimo > 0 && <div><div class="text-2xs text-fg-muted">Juros</div><div class="tabular-nums">+{reais(resumo.acrescimo)}</div></div>}
+            <div>
+              <div class="text-2xs text-fg-muted">{paymentStatus === 'paid' ? 'Recebido' : 'A receber'}</div>
+              <div class="tabular-nums font-semibold text-fg">{reais(resumo.valorCobrado)}</div>
+              <div class="text-2xs text-fg-muted">{[resumo.meio && methodLabel(resumo.meio), resumo.parcelas > 1 && `${resumo.parcelas}x`].filter(Boolean).join(' · ')}{' · antes das taxas do gateway'}</div>
+            </div>
+          </div>
+        </div>
+      )}
       <ul class="space-y-2">
-        {methods.map((m) => (
-          <li key={m.id} class="rounded-md border border-border p-3 bg-surface">
-            <div class="flex items-start gap-3 flex-wrap mb-2">
+        {grupos.map((g) => {
+          const m = g.principal
+          const varias = g.itens.length > 1
+          const aberto = abertos.includes(g.chave)
+          return (
+          <li key={g.chave} class={`rounded-md border p-3 ${m.status === 'pending' ? 'border-warning/40 bg-warning/5' : m.status === 'paid' ? 'border-success/40 bg-success/5' : 'border-border bg-surface'}`}>
+            <div class="flex items-start gap-3 flex-wrap">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 flex-wrap mb-1">
+                  {varias && <span class="text-xs font-semibold text-fg tabular-nums">{g.itens.length}×</span>}
                   <span class="text-sm font-medium text-fg">{methodLabel(m.method)}</span>
                   <span class="text-2xs text-fg-muted">via {providerLabel(m.provider)}</span>
                   <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
-                  {m.externalId && (
-                    <code class="text-2xs text-fg-muted font-mono truncate max-w-[180px]" title={m.externalId}>
-                      {m.externalId}
-                    </code>
-                  )}
+                  {m.status === 'pending' && <span class="text-2xs font-medium text-warning">cobrança vigente</span>}
                 </div>
                 <div class="text-xs text-fg-muted">
-                  Valor: <strong class="text-fg">R$ {Number(m.amount ?? 0).toFixed(2)}</strong>
-                  {m.expiresAt && (
-                    <span class="text-fg-muted"> · expira {formatRelative(m.expiresAt)}</span>
-                  )}
-                  {m.paidAt && (
-                    <span class="text-success"> · pago {formatRelative(m.paidAt)}</span>
-                  )}
+                  Valor: <strong class="text-fg">{reais(m.amount)}</strong>
+                  {/* Vencimento é data (dia), não hora: "vence agora" confundia num boleto que vence amanhã. */}
+                  {!varias && m.expiresAt && m.status === 'pending' && <span> · vence em {new Date(m.expiresAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span>}
+                  {m.paidAt && <span class="text-success"> · pago {formatRelative(m.paidAt)}</span>}
+                  {varias && <span> · última em {new Date(m.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>}
                 </div>
                 {m.method === 'credit_card' && (m.cardBrand || m.cardLastDigits) && (
-                  <div class="text-2xs text-fg-muted mt-1">
-                    {m.cardBrand || 'Cartão'} •••• {m.cardLastDigits || '????'}
-                  </div>
+                  <div class="text-2xs text-fg-muted mt-1">{m.cardBrand || 'Cartão'} •••• {m.cardLastDigits || '????'}</div>
                 )}
                 {m.method === 'boleto' && m.boletoLine && (
-                  <div class="text-2xs text-fg-muted mt-1 font-mono truncate" title={m.boletoLine}>
-                    {m.boletoLine}
-                  </div>
+                  <div class="text-2xs text-fg-muted mt-1 font-mono truncate" title={m.boletoLine}>{m.boletoLine}</div>
                 )}
-                {m.lastErrorMessage && (
-                  <div class="text-2xs text-danger mt-1 italic">
-                    {m.lastErrorMessage}
-                  </div>
+                {m.lastErrorMessage && <div class="text-2xs text-danger mt-1">{m.lastErrorMessage}</div>}
+                {varias && (
+                  <button type="button" class="text-2xs text-accent hover:underline mt-1"
+                    onClick={() => setAbertos((x) => (aberto ? x.filter((k) => k !== g.chave) : [...x, g.chave]))}>
+                    {aberto ? 'Ocultar tentativas' : `Ver as ${g.itens.length} tentativas`}
+                  </button>
+                )}
+                {varias && aberto && (
+                  <ul class="mt-2 space-y-1 border-t border-border pt-2">
+                    {g.itens.map((t) => (
+                      <li key={t.id} class="text-2xs text-fg-muted flex flex-wrap gap-x-3">
+                        <span>{new Date(t.createdAt).toLocaleString('pt-BR')}</span>
+                        <span class="tabular-nums">{reais(t.amount)}</span>
+                        {t.externalId && <code class="font-mono">{t.externalId}</code>}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
               {m.boletoPdfUrl && (
-                <a
-                  href={m.boletoPdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-2xs text-accent underline inline-flex items-center gap-1"
-                >
+                <a href={m.boletoPdfUrl} target="_blank" rel="noopener noreferrer" class="text-2xs text-accent underline inline-flex items-center gap-1">
                   <ExternalLink size={10} /> PDF
                 </a>
               )}
             </div>
           </li>
-        ))}
+          )
+        })}
       </ul>
     </Card>
   )

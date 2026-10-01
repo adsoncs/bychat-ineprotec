@@ -16,6 +16,8 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Pagination } from '@/components/ui/Pagination'
 import { toast } from '@/lib/toast'
+import { agruparCobrancas } from '@/lib/cobrancas'
+import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { baixarCsv } from '@/lib/baixarCsv'
 import {
   usePortalFinanceiro, useDetalheFinanceiro, useBaixaManual, useCancelarCobranca, useEstornar,
@@ -228,7 +230,7 @@ export function EducationalPortalFinanceiroPage() {
               <THead>
                 <TR>
                   <TH>Candidato</TH><TH>Curso / oferta</TH><TH>Cobrança</TH><TH align="right">Tabela</TH><TH align="right">Desconto</TH>
-                  <TH align="right">Cobrado</TH><TH>Meio</TH><TH>Situação</TH><TH>Pago / vence</TH><TH> </TH>
+                  <TH align="right">A receber</TH><TH>Meio</TH><TH>Situação</TH><TH>Pago / vence</TH><TH> </TH>
                 </TR>
               </THead>
               <TBody>
@@ -237,6 +239,7 @@ export function EducationalPortalFinanceiroPage() {
                     <TD>
                       <div class="font-medium text-sm">{l.nome ?? '—'}</div>
                       <div class="text-2xs text-fg-muted font-mono">{l.candidateCode}</div>
+                      {!!l.mescladas?.length && <div class="text-2xs text-fg-muted" title="Inscrições da mesma pessoa mescladas nesta">inclui {l.mescladas.join(', ')}</div>}
                     </TD>
                     <TD>
                       <div class="text-sm">{l.curso?.nome ?? '—'}</div>
@@ -270,6 +273,7 @@ export function EducationalPortalFinanceiroPage() {
 }
 
 function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
+  const [abertos, setAbertos] = useState<string[]>([])
   const q = useDetalheFinanceiro(id)
   const sync = useSincronizarPagamento()
   const reenviar = useReenviarLink()
@@ -299,7 +303,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
           <div class="grid gap-3 sm:grid-cols-4">
             <Resumo rotulo="Valor de tabela" valor={brl(l.valorTabela)} />
             <Resumo rotulo="Descontos" valor={l.descontoCupom + l.descontoAVista > 0 ? `−${brl(l.descontoCupom + l.descontoAVista)}` : '—'} extra={[l.cupom && `cupom ${l.cupom}`, l.descontoAVista > 0 && 'à vista PIX'].filter(Boolean).join(' · ')} />
-            <Resumo rotulo="Cobrado" valor={brl(l.valorCobrado)} extra={l.parcelas > 1 ? `${l.parcelas}x${l.acrescimo ? ` · +${brl(l.acrescimo)} juros` : ''}` : undefined} />
+            <Resumo rotulo={l.situacao === 'pago' ? 'Recebido' : 'A receber'} valor={brl(l.valorCobrado)} extra={l.parcelas > 1 ? `${l.parcelas}x${l.acrescimo ? ` · +${brl(l.acrescimo)} juros` : ''}` : undefined} />
             <Resumo rotulo={l.situacao === 'pago' ? 'Pago em' : 'Vence em'} valor={l.situacao === 'pago' ? data(l.pagoEm, true) : data(l.venceEm, true)} extra={l.meio ? `${MEIO[l.meio]}${l.gateway ? ` · ${GATEWAY[l.gateway] ?? l.gateway}` : ''}` : undefined} />
           </div>
 
@@ -332,13 +336,22 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
 
           <div>
             <div class="text-sm font-semibold mb-2">Tentativas de pagamento ({d.tentativas.length})</div>
+            {!!l.mescladas?.length && <div class="text-xs text-fg-muted mb-2">Inclui as tentativas de {l.mescladas.join(', ')}, mescladas nesta inscrição.</div>}
             {!d.tentativas.length ? <div class="text-xs text-fg-muted">Nenhuma cobrança gerada ainda.</div> : (
               <Table minWidth="44rem">
                 <THead><TR><TH>Quando</TH><TH>Meio</TH><TH>Gateway</TH><TH align="right">Valor</TH><TH>Status</TH><TH>Detalhe</TH></TR></THead>
                 <TBody>
-                  {d.tentativas.map((t) => (
-                    <TR key={t.id}>
-                      <TD><span class="text-xs">{data(t.createdAt, true)}</span></TD>
+                  {agruparCobrancas(d.tentativas).flatMap((g) => (abertos.includes(g.chave) ? g.itens : [g.principal]).map((t, i) => (
+                    <TR key={t.id} class={i > 0 ? 'bg-surface-2' : ''}>
+                      <TD>
+                        <span class="text-xs">{data(t.createdAt, true)}</span>
+                        {i === 0 && g.itens.length > 1 && (
+                          <button class="block text-2xs text-accent hover:underline" onClick={() => setAbertos((x) => (x.includes(g.chave) ? x.filter((k) => k !== g.chave) : [...x, g.chave]))}>
+                            {abertos.includes(g.chave) ? 'ocultar iguais' : `+${g.itens.length - 1} iguais`}
+                          </button>
+                        )}
+                        {t.deInscricao && <span class="block text-2xs text-fg-muted font-mono">de {t.deInscricao}</span>}
+                      </TD>
                       <TD>
                         <span class="inline-flex items-center gap-1 text-xs">
                           {t.method === 'pix' ? <QrCode size={12} /> : t.method === 'boleto' ? <FileText size={12} /> : t.method === 'credit_card' ? <CreditCard size={12} /> : <Banknote size={12} />}
@@ -347,7 +360,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
                       </TD>
                       <TD><span class="text-xs">{GATEWAY[t.provider] ?? t.provider}</span></TD>
                       <TD align="right" class="tabular-nums">{brl(t.amount)}</TD>
-                      <TD><Badge tone={t.status === 'paid' ? 'success' : t.status === 'pending' ? 'warning' : t.status === 'refunded' ? 'info' : 'danger'}>{t.status}</Badge></TD>
+                      <TD><Badge tone={paymentStatusTone(t.status)}>{paymentStatusLabel(t.status)}</Badge></TD>
                       <TD>
                         <div class="text-2xs text-fg-muted max-w-[18rem] break-words">
                           {t.cardLastDigits && `${t.cardBrand ?? 'Cartão'} final ${t.cardLastDigits} · `}
@@ -359,7 +372,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
                         </div>
                       </TD>
                     </TR>
-                  ))}
+                  )))}
                 </TBody>
               </Table>
             )}

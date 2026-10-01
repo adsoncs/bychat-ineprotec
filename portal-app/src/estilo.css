@@ -845,3 +845,51 @@ label.caixa input { margin-top: 3px; }
   .conteudo-logado form.cartao > button.secundario,
   .conteudo-logado .acoes-linha > button { width: 100%; }
 }
+
+/* ── Resumo do candidato (bloco de cima do portal) ─────────────────────── */
+.resumo-candidato .rc-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.resumo-candidato .rc-situacao {
+  font-size: 12.5px; font-weight: 600; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+  color: var(--marca); background: var(--marca-suave);
+}
+.rc-dados { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 18px; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--linha); }
+.rc-dados > div { min-width: 0; }
+.rc-dados .rc-largo { grid-column: span 3; }
+.rc-dados dt { font-size: 12px; color: var(--tinta-3); margin: 0 0 2px; }
+.rc-dados dd { margin: 0; font-size: 14.5px; overflow-wrap: anywhere; }
+.rc-dados .rc-mini { display: block; font-size: 12.5px; color: var(--tinta-3); margin-top: 2px; }
+.rc-acoes { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linha); font-size: 14px; }
+@media (max-width: 560px) {
+  .rc-dados { grid-template-columns: 1fr; gap: 10px; }
+  .rc-dados .rc-largo { grid-column: auto; }
+}
+
+/* ── Etapas: cada situação com a sua cor (suave, a partir da marca e das
+   cores padrão de alerta). Concluída = verde; em análise = tom da marca;
+   não iniciada = branco; com recusa = vermelho suave. Igual ao painel. ── */
+.jornada-progresso { display: flex; gap: 4px; margin: -4px 0 14px; }
+.jornada-progresso span { flex: 1; height: 4px; border-radius: 999px; background: var(--linha); }
+.jornada-progresso span.feito { background: var(--ok); }
+.jornada-progresso span.aguardando { background: color-mix(in srgb, var(--marca) 55%, transparent); }
+
+.etapa-jornada { background: var(--papel); transition: border-color .2s ease, background .2s ease; }
+.etapa-jornada.feito {
+  background: color-mix(in srgb, var(--ok) 7%, var(--papel));
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--linha));
+}
+.etapa-jornada.feito .etapa-num { background: var(--ok); border-color: var(--ok); color: #fff; }
+.etapa-jornada.aguardando {
+  background: color-mix(in srgb, var(--marca) 5%, var(--papel));
+  border-color: color-mix(in srgb, var(--marca) 28%, var(--linha));
+}
+.etapa-jornada.aguardando .etapa-num { background: var(--marca-suave); border-color: color-mix(in srgb, var(--marca) 45%, transparent); color: var(--marca); }
+.etapa-jornada.alerta {
+  background: color-mix(in srgb, var(--erro) 5%, var(--papel));
+  border-color: color-mix(in srgb, var(--erro) 30%, var(--linha));
+}
+.etapa-jornada.alerta .etapa-num { background: color-mix(in srgb, var(--erro) 12%, transparent); border-color: color-mix(in srgb, var(--erro) 45%, transparent); color: var(--erro); }
+.etapa-jornada.aberta { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
+
+.etapa-status.pendente { color: var(--tinta-2); background: var(--fundo); }
+.etapa-status.alerta { color: var(--erro); background: color-mix(in srgb, var(--erro) 10%, transparent); }
+.etapa-num svg { display: block; }

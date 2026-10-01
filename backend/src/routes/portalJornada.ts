@@ -61,6 +61,22 @@ async function contratoWordDaInscricao(registrationId: number) {
   }
 }
 
+// Máscaras (LGPD): o suficiente para a pessoa reconhecer o próprio dado.
+function mascararEmail(v: unknown): string | null {
+  const e = String(v ?? '').trim()
+  const [u, d] = e.split('@')
+  if (!u || !d) return null
+  return `${u.slice(0, 2)}${'*'.repeat(Math.max(2, Math.min(6, u.length - 2)))}@${d}`
+}
+function mascararTelefone(v: unknown): string | null {
+  const d = String(v ?? '').replace(/\D/g, '')
+  return d.length >= 8 ? `(**) *****-${d.slice(-4)}` : null
+}
+function mascararCpf(v: unknown): string | null {
+  const d = String(v ?? '').replace(/\D/g, '')
+  return d.length === 11 ? `***.${d.slice(3, 6)}.***-**` : null
+}
+
 /** Token da inscrição (Bearer) — o mesmo que o /register devolve. */
 function sessaoDoCandidato(req: any, code: string): { enrollmentId: number; candidateCode: string } | null {
   const s = verifyCandidateToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''))
@@ -108,6 +124,56 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   })
 
   // Na inscrição, logo depois do envio
+  // Resumo da inscrição para o topo do portal do candidato — anonimizado aqui
+  // no servidor (LGPD): o dado completo não chega ao navegador. Nome só com o
+  // primeiro nome e a inicial; e-mail, WhatsApp e CPF mascarados. O valor é o
+  // real da cobrança (cupom e desconto aplicados), não o de tabela.
+  app.get('/api/public/registrations/:code/resumo', async (req, reply) => {
+    const s = sessaoDoCandidato(req, (req.params as any).code)
+    if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const r = await prisma.enrollmentRegistration.findUnique({
+      where: { id: s.enrollmentId },
+      select: {
+        candidateCode: true, status: true, createdAt: true, formData: true, paymentStatus: true, paymentAmount: true, paymentPlan: true,
+        lead: { select: { nome: true, email: true, whatsapp: true } },
+        portal: { select: { nome: true } },
+        processRegistration: { select: { offering: { select: { nome: true, turno: true, course: { select: { nome: true } }, modality: { select: { nome: true } } } } } },
+      },
+    })
+    if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    const fd = (r.formData ?? {}) as Record<string, any>
+    const nome = String(r.lead?.nome ?? fd.nome ?? '').trim()
+    const partes = nome.split(/\s+/).filter(Boolean)
+    const plano = (r.paymentPlan ?? {}) as Record<string, any>
+    const num = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v))
+    const pago = r.paymentStatus === 'paid'
+    return {
+      candidato: {
+        nome: partes.length > 1 ? `${partes[0]} ${partes[partes.length - 1][0]}.` : (partes[0] ?? ''),
+        email: mascararEmail(r.lead?.email ?? fd.email),
+        whatsapp: mascararTelefone(r.lead?.whatsapp ?? fd.whatsapp),
+        cpf: mascararCpf(fd.cpf),
+      },
+      inscricao: {
+        codigo: r.candidateCode, situacao: r.status, criadaEm: r.createdAt,
+        portal: r.portal?.nome ?? null,
+        curso: r.processRegistration?.offering?.course?.nome ?? null,
+        oferta: r.processRegistration?.offering?.nome ?? null,
+        modalidade: r.processRegistration?.offering?.modality?.nome ?? null,
+        turno: r.processRegistration?.offering?.turno ?? null,
+      },
+      pagamento: plano.valorCobrado != null || plano.valorTabela != null ? {
+        valorCheio: num(plano.valorCheio) ?? num(plano.valorTabela),
+        cupom: plano.cupom ?? null,
+        desconto: (num(plano.descontoCupom) ?? 0) + (num(plano.descontoAVista) ?? 0),
+        valor: pago ? (num(r.paymentAmount) ?? num(plano.valorCobrado)) : num(plano.valorCobrado),
+        meio: plano.meio ?? null,
+        parcelas: num(plano.parcelas) ?? 1,
+        pago,
+      } : null,
+    }
+  })
+
   app.get('/api/public/registrations/:code/jornada', async (req, reply) => {
     const s = sessaoDoCandidato(req, (req.params as any).code)
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })

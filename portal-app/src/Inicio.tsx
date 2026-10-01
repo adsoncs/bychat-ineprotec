@@ -5,6 +5,7 @@ import { useEffect, useState } from 'preact/hooks'
 import { carregarMarca, type MarcaDoPortal } from './marca'
 import { Moldura, AcessoSair } from './Moldura'
 import { Jornada } from './Jornada'
+import { ResumoDoCandidato } from './ResumoDoCandidato'
 import { carregarJornadaDoPortal } from './api'
 
 interface Eu {
@@ -47,15 +48,17 @@ export function Inicio() {
       {q.get('aviso') && <div class="aviso info">{q.get('aviso')}</div>}
       {!eu ? <div class="esqueleto" style="height:220px" /> : (
         <>
-          <div class="cartao">
-            <h2>Olá, {eu.nome.split(' ')[0]}</h2>
-            <p class="sub" style="margin:0">{eu.aluno ? `Aluno · RA ${eu.aluno.ra ?? '—'}` : 'Candidato'}</p>
-          </div>
-
-          {!eu.temSenha && (
-            <div class="cartao" style="border-left:4px solid var(--marca)">
-              <p class="sub" style="margin:0 0 12px">Você está entrando com a <b>senha padrão</b> (o seu CPF). Crie uma senha só sua para proteger seus documentos e o contrato.</p>
-              <button class="principal" type="button" onClick={() => { location.href = '/portal/senha' }}>Criar minha senha</button>
+          {/* Bloco de cima: tudo do candidato num cartão só (anonimizado). */}
+          {jornada ? (
+            <ResumoDoCandidato codigo={jornada.inscricao.candidateCode} token={jornada.token}>
+              {!eu.temSenha && <span class="sub" style="margin:0;flex-basis:100%">Você está entrando com a senha padrão (o seu CPF). Crie uma senha só sua.</span>}
+              <a href="/portal/senha">{eu.temSenha ? 'Trocar senha' : 'Criar minha senha'}</a>
+            </ResumoDoCandidato>
+          ) : (
+            <div class="cartao">
+              <h2>Olá, {eu.nome.split(' ')[0]}</h2>
+              <p class="sub" style="margin:0">{eu.aluno ? `Aluno · RA ${eu.aluno.ra ?? '—'}` : 'Candidato'}</p>
+              <div class="rc-acoes"><a href="/portal/senha">{eu.temSenha ? 'Trocar senha' : 'Criar minha senha'}</a></div>
             </div>
           )}
 
@@ -69,7 +72,6 @@ export function Inicio() {
 
           {jornada && (
             <div class="cartao">
-              <p class="sub" style="margin:0 0 12px">Inscrição <b>{jornada.inscricao.candidateCode}</b>{jornada.portal ? ` · ${jornada.portal.nome}` : ''}</p>
               {jornada.etapas.length
                 ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
                 : <p class="sub" style="margin:0">Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.</p>}
@@ -85,14 +87,6 @@ export function Inicio() {
             </div>
           )}
 
-          <div class="cartao">
-            <h2 style="font-size:17px">Conta</h2>
-            <div class="item-conta"><span>{eu.email || '—'}</span><span class="rotulo">e-mail</span></div>
-            <div class="item-conta"><span>{eu.whatsapp || '—'}</span><span class="rotulo">WhatsApp</span></div>
-            <div class="acoes-linha">
-              <button class="secundario" type="button" onClick={() => { location.href = '/portal/senha' }}>{eu.temSenha ? 'Trocar senha' : 'Criar senha'}</button>
-            </div>
-          </div>
         </>
       )}
     </Moldura>

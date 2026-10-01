@@ -700,6 +700,8 @@ export interface RegistrationFull {
     paymentStatus: string | null
     paymentAmount: string | number | null
     paymentUrl: string | null
+    /** O que foi escolhido no checkout: meio, cupom, descontos, valor cobrado. */
+    paymentPlan?: Record<string, unknown> | null
     formData: Record<string, unknown> | null
     createdAt: string
     enemScoreImports?: EnemImportFull[]
