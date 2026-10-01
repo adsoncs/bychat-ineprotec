@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy,
@@ -28,6 +29,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { downloadFile } from '@/lib/download'
+import { api } from '@/lib/apiClient'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
@@ -483,7 +485,23 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
   )
 }
 
+interface EtapaAdmin { chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean }
+const SITUACAO_ETAPA: Record<string, { tone: 'success' | 'info' | 'warning'; icon: any; rotulo: string }> = {
+  feito: { tone: 'success', icon: <CheckCircle size={11} />, rotulo: 'concluído' },
+  aguardando: { tone: 'info', icon: <Clock size={11} />, rotulo: 'em análise' },
+  pendente: { tone: 'warning', icon: <AlertCircle size={11} />, rotulo: 'pendente' },
+}
+
 function StatusBanner({ review }: { review: RegistrationReview }) {
+  // Etapas configuradas no portal (aba Etapas), na ordem da tela de inscrição —
+  // o mesmo que o candidato vê. Os badges fixos (documentos, pagamento)
+  // ignoravam a configuração: o contrato nem aparecia.
+  const etapasQ = useQuery({
+    queryKey: ['registration-etapas', review.registration.id],
+    queryFn: () => api.get<{ inscricao: EtapaAdmin[]; painel: EtapaAdmin[] }>(`/admin/enrollment-registrations/${review.registration.id}/etapas`),
+    staleTime: 15_000,
+  })
+  const etapas = etapasQ.data?.inscricao ?? []
   const inscStatus = review.registration.status
   const inscLabel = REGISTRATION_STATUS_LABELS[inscStatus] ?? inscStatus
   const inscTone = REGISTRATION_STATUS_TONE[inscStatus] ?? 'info'
@@ -520,12 +538,27 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
             <FileCheck2 size={11} /> {inscLabel}
           </span>
         </Badge>
+        {etapas.length > 0 && etapas.map((e, i) => {
+          const sit = SITUACAO_ETAPA[e.situacao] ?? SITUACAO_ETAPA.pendente
+          return (
+            <span key={e.chave} title={e.detalhe}>
+              <Badge tone={sit.tone}>
+                <span class="inline-flex items-center gap-1">
+                  {sit.icon} <span class="font-mono opacity-70">{i + 1}.</span> {e.titulo}: {sit.rotulo}
+                  {e.chave === 'pagamento' && payAmount != null && <span class="font-mono">· {payAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>}
+                </span>
+              </Badge>
+            </span>
+          )
+        })}
+        {etapas.length === 0 && !etapasQ.isLoading && (
         <Badge tone={docsConfig.tone}>
           <span class="inline-flex items-center gap-1">
             {docsConfig.icon} {docsConfig.label}
           </span>
         </Badge>
-        {essayBadge && (
+        )}
+        {essayBadge && !etapas.some((e) => e.chave === 'prova') && (
           <Badge tone={essayBadge.tone}>
             <span class="inline-flex items-center gap-1">
               {essayBadge.icon} {essayBadge.label}
@@ -533,7 +566,7 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
             </span>
           </Badge>
         )}
-        {payStatus && (
+        {payStatus && !etapas.some((e) => e.chave === 'pagamento') && (
           <Badge tone={paymentStatusTone(payStatus)}>
             <span class="inline-flex items-center gap-1">
               <CreditCard size={11} /> {paymentStatusLabel(payStatus)}

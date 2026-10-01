@@ -140,7 +140,7 @@ export function Aluno() {
         </ol>
       </div>
 
-      {jornada && d.passos.some((p) => p.acao?.href === '#jornada') && (
+      {jornada && d.passos.some((p) => p.acao?.href === '#jornada' || p.acao?.href?.startsWith('#etapa-')) && (
         <div class="cartao" style="margin-bottom:14px">
           <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas.filter((e) => e.situacao !== 'feito')} />
         </div>

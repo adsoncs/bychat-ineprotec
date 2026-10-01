@@ -22,8 +22,17 @@ import {
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
 import { avisos, esc } from '../lib/portalHtml.js'
+import { etapasDaInscricao } from '../services/portalJornada.js'
 import { paginaComMarca, marcaDoAcesso } from '../lib/portalMarca.js'
 import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
+
+/** Situação da inscrição em português (a lista do portal mostrava o código cru, ex. "pending"). */
+const STATUS_INSCRICAO: Record<string, string> = {
+  draft: 'Rascunho', pending: 'Em andamento', submitted: 'Enviada', paid: 'Paga',
+  docs_uploaded: 'Documentos enviados', docs_reviewing: 'Documentos em análise', docs_approved: 'Documentos aprovados',
+  docs_rejected: 'Documentos recusados', reviewing: 'Em análise', approved: 'Aprovada', enrolled: 'Matriculado',
+  rejected: 'Não aprovada', cancelled: 'Cancelada', expired: 'Expirada',
+}
 
 /** Sessão da requisição, ou null. Usado pelas rotas do próprio portal. */
 export async function sessaoDaRequisicao(req: any): Promise<{ accountId: number } | null> {
@@ -351,8 +360,30 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const eu = await quemE(s.accountId)
     const q = (req.query as any) || {}
 
-    const inscricoes = (eu?.inscricoes ?? []).map((i) =>
-      `<div class="item"><span><b>${esc(i.candidateCode)}</b></span><span class="tag">${esc(i.status)}</span></div>`).join('')
+    // A inscrição em andamento mostra as etapas NA ORDEM do portal (aba Etapas
+    // › portal logado), cada uma com a situação e o atalho que abre a etapa no
+    // painel. Antes eram botões fixos ("Enviar documentos") e o contrato, o
+    // pagamento e a ordem configurada não apareciam aqui.
+    const ativas = (eu?.inscricoes ?? []).filter((i) => i.status !== 'merged')
+    const jornada = ativas[0] ? await etapasDaInscricao(ativas[0].id, 'painel').catch(() => null) : null
+    const etapas = jornada?.etapas ?? []
+    const proxima = etapas.find((e) => e.situacao === 'pendente')
+    const SIT: Record<string, { rotulo: string; cor: string }> = {
+      feito: { rotulo: 'Concluído', cor: 'var(--ok, #15803d)' },
+      aguardando: { rotulo: 'Em análise', cor: 'var(--marca, #2563eb)' },
+      pendente: { rotulo: 'Pendente', cor: '#b45309' },
+    }
+    const listaEtapas = etapas.length ? `<ol style="list-style:none;margin:10px 0 12px;padding:0;display:grid;gap:8px">${etapas.map((e, n) => {
+      const sit = SIT[e.situacao] ?? SIT.pendente
+      const acao = e.situacao === 'feito' ? '' : `<a href="/portal/aluno#etapa-${esc(e.chave)}" style="font-size:13px;font-weight:600;white-space:nowrap">${e.situacao === 'aguardando' ? 'Ver' : 'Fazer agora'}</a>`
+      return `<li style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(0,0,0,.08);border-radius:10px">
+        <span style="flex:0 0 22px;height:22px;border-radius:999px;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:${e.situacao === 'pendente' ? '#9ca3af' : sit.cor}">${e.situacao === 'feito' ? '✓' : n + 1}</span>
+        <span style="flex:1;min-width:0"><b style="display:block">${esc(e.titulo)}</b><span class="sub" style="margin:0;font-size:13px">${esc(e.detalhe)}</span>
+          <span style="display:flex;gap:12px;align-items:center;margin-top:4px"><span style="font-size:12px;font-weight:600;color:${sit.cor}">${sit.rotulo}</span>${acao}</span></span>
+      </li>`
+    }).join('')}</ol>` : ''
+    const inscricoes = ativas.map((i, n) =>
+      `<div class="item"><span><b>${esc(i.candidateCode)}</b>${n === 0 && jornada?.portal ? `<span class="sub" style="display:block;margin:0;font-size:12px">${esc(jornada.portal.nome)}</span>` : ''}</span><span class="tag">${esc(STATUS_INSCRICAO[i.status] ?? i.status)}</span></div>${n === 0 ? listaEtapas : ''}`).join('')
 
     const bloco = (titulo: string, corpo: string) =>
       `<div class="card" style="margin-bottom:14px"><h1 style="font-size:16px;margin-bottom:10px">${titulo}</h1>${corpo}</div>`
@@ -369,8 +400,9 @@ export async function portalAuthRoutes(app: FastifyInstance) {
       ${inscricoes ? bloco('Minhas inscrições', inscricoes
         // Quem ainda não é aluno segue a jornada da inscrição (pagamento,
         // documentos, contrato, redação) na ordem do portal, em /portal/aluno.
-        + (eu?.aluno ? '' : '<a href="/portal/aluno"><button type="button">Continuar minha inscrição</button></a>')
-        + '<a href="/portal/documentos"><button class="sec" type="button">Enviar documentos</button></a>') : ''}
+        + (proxima
+          ? `<a href="/portal/aluno#etapa-${esc(proxima.chave)}"><button type="button">Continuar: ${esc(proxima.titulo.toLowerCase())}</button></a>`
+          : (eu?.aluno ? '' : '<a href="/portal/aluno"><button class="sec" type="button">Ver minha inscrição</button></a>'))) : ''}
       ${bloco('Conta', `<div class="item"><span>${esc(eu?.email ?? '—')}</span><span class="tag">e-mail</span></div>
         <div class="item"><span>${esc(eu?.whatsapp ?? '—')}</span><span class="tag">WhatsApp</span></div>
         <a href="/portal/senha"><button class="sec" type="button">Trocar senha</button></a>

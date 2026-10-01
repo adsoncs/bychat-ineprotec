@@ -72,7 +72,8 @@ async function inscricaoDaConta(req: any) {
   const conta = await contaDaRequisicao(req)
   if (!conta) return null
   return prisma.enrollmentRegistration.findFirst({
-    where: { leadId: conta.leadId }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
+    // Mesclada em outra (duplicidade) não é a inscrição da pessoa.
+    where: { leadId: conta.leadId, status: { not: 'merged' } }, orderBy: { id: 'desc' }, select: { id: true, candidateCode: true },
   })
 }
 
@@ -96,6 +97,15 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   app.get('/api/admin/aca/inscricoes-portal/:id/pendencias', { preHandler: authMiddleware }, async (req) => ({
     faltam: await pendenciasParaMatricular(Number((req.params as any).id)),
   }))
+
+  // Admin: as etapas da inscrição como o candidato as vê — na tela de inscrição
+  // e no portal logado — para a secretaria saber o que falta, na mesma ordem.
+  app.get('/api/admin/enrollment-registrations/:id/etapas', { preHandler: authMiddleware }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const [inscricao, painel] = await Promise.all([etapasDaInscricao(id, 'inscricao'), etapasDaInscricao(id, 'painel')])
+    if (!inscricao) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    return { inscricao: inscricao.etapas, painel: painel?.etapas ?? [] }
+  })
 
   // Na inscrição, logo depois do envio
   app.get('/api/public/registrations/:code/jornada', async (req, reply) => {

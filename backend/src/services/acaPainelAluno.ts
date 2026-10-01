@@ -223,7 +223,7 @@ export async function painelDoAluno(alunoId: number) {
         titulo: e.titulo,
         detalhe: e.detalhe,
         situacao: e.situacao === 'feito' ? 'feito' : 'pendente',
-        acao: e.situacao === 'pendente' ? { rotulo: e.chave === 'prova' ? 'Fazer a redação' : e.chave === 'pagamento' ? 'Pagar' : e.chave === 'contrato' ? 'Ler e assinar' : 'Enviar documentos', href: '#jornada' } : null,
+        acao: e.situacao === 'pendente' ? { rotulo: e.chave === 'prova' ? 'Fazer a redação' : e.chave === 'pagamento' ? 'Pagar' : e.chave === 'contrato' ? 'Ler e assinar' : e.chave === 'cadastro' ? 'Completar dados' : 'Enviar documentos', href: `#etapa-${e.chave}` } : null,
       })
     }
     passos = [...inicio, ...meio, ...fim]

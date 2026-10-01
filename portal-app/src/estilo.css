@@ -759,9 +759,15 @@ label.caixa input { margin-top: 3px; }
 .etapa-corpo .adiar { display: block; margin: 12px auto 0; }
 .docs-embutidos > .cartao { box-shadow: none; border: 0; padding: 0; }
 .docs-embutidos > .cartao + .cartao, .docs-embutidos .doc { margin-top: 10px; }
+/* A ação da etapa é um botão de verdade, não um sublinhado perdido no texto. */
+.etapa-cabeca .etapa-acao { font-size: 13px; font-weight: 600; color: var(--marca); text-decoration: none; padding: 5px 12px; border: 1px solid var(--marca); border-radius: 999px; white-space: nowrap; }
+.etapa-jornada { scroll-margin-top: 16px; }
 @media (max-width: 560px) {
-  .etapa-cabeca { flex-wrap: wrap; }
+  /* Celular: título e detalhe ocupam a linha toda; situação e ação descem juntas. */
+  .etapa-cabeca { flex-wrap: wrap; row-gap: 8px; }
+  .etapa-txt { flex-basis: calc(100% - 40px); }
   .etapa-status { order: 3; margin-left: 40px; }
+  .etapa-cabeca .etapa-acao { order: 4; margin-left: auto; }
 }
 
 /* ── Redação online ────────────────────────────────────────────────── */

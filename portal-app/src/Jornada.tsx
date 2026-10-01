@@ -25,7 +25,19 @@ export function Jornada(props: {
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(props.etapas ?? null)
   const [falha, setFalha] = useState<string | null>(null)
   const [adiadas, setAdiadas] = useState<string[]>([])
-  const [aberta, setAberta] = useState<string | null>(null)
+  // Painel: o link "#etapa-contrato" (início do portal, passos do aluno) abre
+  // a etapa direto, em vez de deixar a pessoa procurando onde clicar.
+  const daAncora = () => (/^#etapa-(\w+)/.exec(location.hash)?.[1] ?? null)
+  const [aberta, setAberta] = useState<string | null>(props.contexto === 'painel' ? daAncora() : null)
+  useEffect(() => {
+    if (props.contexto !== 'painel') return
+    const aoMudar = () => { const c = daAncora(); if (c) setAberta(c) }
+    window.addEventListener('hashchange', aoMudar)
+    return () => window.removeEventListener('hashchange', aoMudar)
+  }, [])
+  useEffect(() => {
+    if (aberta && props.contexto === 'painel') document.getElementById(`etapa-${aberta}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [aberta, !!etapas])
 
   async function recarregar() {
     try {
@@ -72,7 +84,7 @@ export function Jornada(props: {
         {etapas.map((e, i) => {
           const expandida = props.contexto === 'inscricao' ? daVez?.chave === e.chave : aberta === e.chave
           return (
-            <li key={e.chave} class={`etapa-jornada ${e.situacao} ${expandida ? 'aberta' : ''}`}>
+            <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${e.situacao} ${expandida ? 'aberta' : ''}`}>
               <div class="etapa-cabeca">
                 <span class="etapa-num" aria-hidden="true">{resolvida(e) ? '✓' : i + 1}</span>
                 <div class="etapa-txt">
@@ -81,13 +93,13 @@ export function Jornada(props: {
                 </div>
                 <span class={`etapa-status ${e.situacao}`}>{SITUACAO[e.situacao]}</span>
                 {!expandida && (props.contexto === 'painel' || adiadas.includes(e.chave)) && e.situacao !== 'feito' && (
-                  <button class="link" type="button" onClick={() => {
+                  <button class="link etapa-acao" type="button" onClick={() => {
                     if (props.contexto === 'inscricao') setAdiadas((a) => a.filter((x) => x !== e.chave))
                     else setAberta(e.chave)
                   }}>{e.situacao === 'aguardando' ? 'Ver' : 'Fazer agora'}</button>
                 )}
                 {expandida && props.contexto === 'painel' && (
-                  <button class="link" type="button" onClick={() => setAberta(null)}>Fechar</button>
+                  <button class="link etapa-acao" type="button" onClick={() => setAberta(null)}>Fechar</button>
                 )}
               </div>
               {expandida && (
