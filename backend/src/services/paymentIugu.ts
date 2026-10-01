@@ -117,7 +117,11 @@ export const IUGU_STATUS_MAP: Record<string, string> = {
   refunded: 'refunded',
   chargeback: 'refunded',
   expired: 'overdue',
-  canceled: 'failed',
+  // Cancelada não é "falhou": ninguém tentou pagar e deu erro, a cobrança foi
+  // encerrada (pela secretaria, por substituição ou no painel da iugu). Com
+  // 'failed' a tela mostrava "Falhou" e o sync não limpava a cobrança vigente
+  // da inscrição — o ramo `canceled` do paymentSync nunca disparava para a iugu.
+  canceled: 'canceled',
 }
 
 export function statusIugu(bruto: unknown): string {
@@ -260,6 +264,19 @@ export async function buscarFaturaIugu(cfg: IuguConfig, id: string): Promise<Iug
 export async function cancelarFaturaIugu(cfg: IuguConfig, id: string): Promise<{ ok: boolean; message?: string }> {
   try {
     await chamar(cfg, 'PUT', `/invoices/${encodeURIComponent(id)}/cancel`)
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, message: e?.message }
+  }
+}
+
+/**
+ * Reenvia a fatura por e-mail, pelo próprio e-mail da iugu (com PIX, boleto e
+ * link de pagamento). Vai para o e-mail gravado na fatura.
+ */
+export async function enviarFaturaPorEmailIugu(cfg: IuguConfig, id: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await chamar(cfg, 'POST', `/invoices/${encodeURIComponent(id)}/send_email`)
     return { ok: true }
   } catch (e: any) {
     return { ok: false, message: e?.message }

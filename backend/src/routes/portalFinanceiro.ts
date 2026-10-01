@@ -12,7 +12,8 @@ import { prisma } from '../lib/prisma.js'
 import { adminOnly, type JwtPayload } from '../lib/auth.js'
 import { logEvent } from '../services/leadHistory.js'
 import { consumirCupom } from '../services/portalCupom.js'
-import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu } from '../services/paymentIugu.js'
+import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu, buscarFaturaIugu, enviarFaturaPorEmailIugu } from '../services/paymentIugu.js'
+import { appUrl } from '../lib/appUrl.js'
 
 type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'sem_cobranca'
 
@@ -312,7 +313,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     const cfg = abertas.some((m) => m.provider === 'iugu') ? await conexaoIuguDa(id) : null
     for (const m of abertas) {
       if (m.provider === 'iugu' && cfg) await baixaExternaIugu(cfg, m.externalId!, `inscricao-${id}`, 'Baixa manual na secretaria')
-      await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'failed', lastErrorMessage: 'Substituída por baixa manual' } }).catch(() => {})
+      await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'canceled', lastErrorMessage: 'Substituída por baixa manual' } }).catch(() => {})
     }
     await prisma.enrollmentPaymentMethod.create({
       data: { registrationId: id, provider: 'manual', method: forma, status: 'paid', amount: valor, paidAt: quando, lastErrorMessage: obs || null },
@@ -351,6 +352,86 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     return { ok: true, canceladas: abertas, avisos }
   })
 
+  // Reenviar a COBRANÇA (não o acesso ao portal). Duas entregas, como no
+  // reenvio de link: a secretaria muitas vezes já está falando com a pessoa no
+  // Conversas — então a rota monta a mensagem pronta (valor, vencimento, PIX,
+  // linha digitável, link) para ela copiar; e, na iugu, também dispara o e-mail
+  // oficial da fatura, que já vai com boleto e PIX.
+  async function cobrancaAberta(id: number) {
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id },
+      select: {
+        id: true, leadId: true, candidateCode: true, paymentStatus: true, paymentUrl: true, paymentExpiresAt: true,
+        lead: { select: { nome: true, email: true, whatsapp: true } },
+        portal: { select: { nome: true } },
+      },
+    })
+    if (!reg) return null
+    const abertas = await prisma.enrollmentPaymentMethod.findMany({
+      where: { registrationId: id, status: 'pending' }, orderBy: { createdAt: 'desc' },
+    })
+    return { reg, abertas }
+  }
+
+  app.get(`${BASE}/:id/cobranca-mensagem`, { preHandler: adminOnly }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    const c = await cobrancaAberta(id)
+    if (!c) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    const { reg, abertas } = c
+    if (reg.paymentStatus === 'paid') return reply.code(400).send({ error: 'Esta inscrição já está paga' })
+    if (!abertas.length) return reply.code(400).send({ error: 'Não há cobrança em aberto — o candidato gera uma nova pelo portal' })
+
+    const pix = abertas.find((m) => m.qrCode)?.qrCode ?? null
+    const boleto = abertas.find((m) => m.boletoLine || m.boletoPdfUrl) ?? null
+    let link = reg.paymentUrl || null
+    const iugu = abertas.find((m) => m.provider === 'iugu' && m.externalId)
+    if (iugu && !link) {
+      const cfg = await conexaoIuguDa(id)
+      const f = cfg ? await buscarFaturaIugu(cfg, iugu.externalId!).catch(() => null) : null
+      link = f?.urlSegura ?? null
+    }
+    const valor = Number(abertas[0]!.amount)
+    const vence = abertas[0]!.expiresAt ?? abertas[0]!.boletoDueAt ?? reg.paymentExpiresAt
+    const base = appUrl()
+    const linhas = [
+      `Olá${reg.lead?.nome ? `, ${reg.lead.nome.split(' ')[0]}` : ''}! Segue a cobrança da sua inscrição ${reg.candidateCode}${reg.portal?.nome ? ` em ${reg.portal.nome}` : ''}.`,
+      '',
+      `Valor: ${valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}${vence ? ` · vence em ${new Date(vence).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}`,
+      ...(pix ? ['', 'PIX copia e cola:', pix] : []),
+      ...(boleto?.boletoLine ? ['', 'Boleto — linha digitável:', boleto.boletoLine] : []),
+      ...(boleto?.boletoPdfUrl ? [`Boleto em PDF: ${boleto.boletoPdfUrl}`] : []),
+      ...(link ? ['', `Pagar online: ${link}`] : []),
+      ...(base ? ['', `Acompanhe sua inscrição: ${base}/candidato/${reg.candidateCode}`] : []),
+    ]
+    return {
+      texto: linhas.join('\n'),
+      whatsapp: reg.lead?.whatsapp ?? null,
+      email: reg.lead?.email ?? null,
+      leadId: reg.leadId,
+      // E-mail oficial da fatura: só na iugu.
+      emailIugu: !!iugu,
+    }
+  })
+
+  app.post(`${BASE}/:id/reenviar-cobranca-email`, { preHandler: adminOnly }, async (req, reply) => {
+    const id = parseInt((req.params as any).id)
+    const user = (req as any).user as JwtPayload
+    const c = await cobrancaAberta(id)
+    if (!c) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    if (c.reg.paymentStatus === 'paid') return reply.code(400).send({ error: 'Esta inscrição já está paga' })
+    const iugu = c.abertas.filter((m) => m.provider === 'iugu' && m.externalId)
+    if (!iugu.length) return reply.code(400).send({ error: 'Envio por e-mail disponível para cobranças da iugu. Para os outros gateways, copie a mensagem.' })
+    const cfg = await conexaoIuguDa(id)
+    if (!cfg) return reply.code(400).send({ error: 'Conexão iugu indisponível' })
+    // Uma fatura por meio pode estar aberta (PIX e boleto): reenvia a mais recente.
+    const r = await enviarFaturaPorEmailIugu(cfg, iugu[0]!.externalId!)
+    if (!r.ok) return reply.code(502).send({ error: r.message || 'A iugu não enviou o e-mail' })
+    if (c.reg.leadId) {
+      logEvent({ leadId: c.reg.leadId, type: 'payment_resent', category: 'lifecycle', channel: 'payment', source: 'iugu', title: `Cobrança reenviada por e-mail — ${c.reg.candidateCode}`, actorType: 'operator', userId: user.userId, userName: user.name, metadata: { registrationId: id, fatura: iugu[0]!.externalId } })
+    }
+    return { ok: true, email: c.reg.lead?.email ?? null }
+  })
+
   // Estorno (iugu: cartão e PIX; parcial só no cartão).
   app.post(`${BASE}/:id/estornar`, { preHandler: adminOnly }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
@@ -363,11 +444,19 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     if (!paga) return reply.code(400).send({ error: 'Pagamento não encontrado' })
     if (paga.provider === 'manual') return reply.code(400).send({ error: 'Baixa manual: devolva o valor por fora e cancele a inscrição, se for o caso' })
     if (paga.provider !== 'iugu') return reply.code(400).send({ error: `Estorno pelo sistema disponível para a iugu. Para ${paga.provider}, faça no painel do gateway` })
-    if (paga.method === 'boleto') return reply.code(400).send({ error: 'Boleto não tem estorno automático na iugu — devolva por transferência' })
     const cfg = await conexaoIuguDa(id)
     if (!cfg || !paga.externalId) return reply.code(400).send({ error: 'Conexão iugu indisponível' })
+    // Pago pelo link da iugu, o registro guarda method 'link': o meio de verdade
+    // (cartão, PIX ou boleto) só a fatura sabe. Sem isso, o estorno parcial de
+    // um cartão pago pelo link era recusado como se não fosse cartão.
+    let meio = paga.method
+    if (meio !== 'pix' && meio !== 'boleto' && meio !== 'credit_card') {
+      const f = await buscarFaturaIugu(cfg, paga.externalId).catch(() => null)
+      meio = f?.meio === 'CREDIT_CARD' ? 'credit_card' : f?.meio === 'PIX' ? 'pix' : f?.meio === 'BOLETO' ? 'boleto' : meio
+    }
+    if (meio === 'boleto') return reply.code(400).send({ error: 'Boleto não tem estorno automático na iugu — devolva por transferência' })
     const parcial = b.valor ? Math.round(Number(b.valor) * 100) : undefined
-    if (parcial && paga.method !== 'credit_card') return reply.code(400).send({ error: 'Estorno parcial só no cartão' })
+    if (parcial && meio !== 'credit_card') return reply.code(400).send({ error: 'Estorno parcial só no cartão' })
     try {
       const f = await estornarFaturaIugu(cfg, paga.externalId, parcial)
       await prisma.enrollmentPaymentMethod.update({ where: { id: paga.id }, data: { status: f.status === 'refunded' || !parcial ? 'refunded' : paga.status } })

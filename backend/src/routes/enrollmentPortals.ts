@@ -1509,7 +1509,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       for (const m of pendentesIugu) {
         const r = cfg ? await cancelarFaturaIugu(cfg, m.externalId!) : { ok: false, message: 'conexão iugu indisponível' }
         if (r.ok) {
-          await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'failed', lastErrorMessage: 'Cancelada junto com a inscrição' } }).catch(() => {})
+          await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'canceled', lastErrorMessage: 'Cancelada junto com a inscrição' } }).catch(() => {})
         } else {
           req.log.warn(`[enrollment-cancel] fatura iugu ${m.externalId} não cancelada: ${r.message}`)
         }

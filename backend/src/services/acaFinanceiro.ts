@@ -517,7 +517,7 @@ export async function aplicarFaturaIuguNaParcela(fatura: IuguFatura): Promise<{ 
     if (baixou) await quitarSeCompleto(parcela.contratoId)
   } else if (fatura.status === 'overdue' && parcela.situacao === 'ABERTA') {
     await prisma.acaParcela.update({ where: { id: parcela.id }, data: { situacao: 'VENCIDA', gatewaySyncAt: new Date() } })
-  } else if (fatura.status === 'failed' && parcela.situacao !== 'PAGA') {
+  } else if ((fatura.status === 'canceled' || fatura.status === 'failed') && parcela.situacao !== 'PAGA') {
     // Fatura cancelada na iugu (pelo painel, ou substituída): a parcela volta a
     // não ter cobrança, e o botão "Cobrar" reaparece em vez de apontar para um
     // boleto que o banco não aceita mais.

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import {
   Wallet, Clock, AlertTriangle, TrendingUp, Receipt, Percent, Download, RefreshCw, X,
-  CheckCircle2, Ban, Undo2, Send, Copy, Eye, QrCode, FileText, CreditCard, Banknote, Filter,
+  CheckCircle2, Ban, Undo2, Send, Copy, Eye, QrCode, FileText, CreditCard, Banknote, Filter, Mail,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -21,7 +21,7 @@ import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
 import { baixarCsv } from '@/lib/baixarCsv'
 import {
   usePortalFinanceiro, useDetalheFinanceiro, useBaixaManual, useCancelarCobranca, useEstornar,
-  useSincronizarPagamento, useReenviarLink, qsDe,
+  useSincronizarPagamento, useReenviarLink, useMensagemCobranca, useReenviarCobrancaEmail, qsDe,
   type FiltrosFin, type LinhaFinanceiro, type SituacaoFin,
 } from '@/hooks/usePortalFinanceiro'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
@@ -280,6 +280,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
   const cancelar = useCancelarCobranca()
   const [baixa, setBaixa] = useState(false)
   const [estorno, setEstorno] = useState(false)
+  const [reenvioCobranca, setReenvioCobranca] = useState(false)
   const [confirmaCancelar, setConfirmaCancelar] = useState(false)
   const d = q.data
   const l = d?.linha
@@ -319,8 +320,16 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
             </Button>
             {l.situacao !== 'pago' && l.situacao !== 'estornado' && (
               <>
-                <Button size="sm" variant="secondary" disabled={reenviar.isPending} onClick={() => reenviar.mutate(l.id, { onSuccess: () => toast('Link de pagamento reenviado ao candidato', 'success'), onError: falhou })}>
-                  <Send size={12} /> Reenviar link
+                {(l.situacao === 'pendente' || l.situacao === 'vencido') && (
+                  <Button size="sm" variant="secondary" onClick={() => setReenvioCobranca(true)}>
+                    <Send size={12} /> Reenviar cobrança
+                  </Button>
+                )}
+                {/* Reenvia o ACESSO ao portal (link assinado de continuação), não a
+                  * cobrança — o rótulo antigo "Reenviar link" e o aviso "link de
+                  * pagamento reenviado" faziam a secretaria achar que o boleto tinha ido. */}
+                <Button size="sm" variant="ghost" disabled={reenviar.isPending} onClick={() => reenviar.mutate(l.id, { onSuccess: () => toast('Acesso ao portal reenviado ao candidato', 'success'), onError: falhou })}>
+                  <Send size={12} /> Reenviar acesso ao portal
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => setBaixa(true)}><CheckCircle2 size={12} /> Dar baixa manual</Button>
                 {(l.situacao === 'pendente' || l.situacao === 'vencido') && (
@@ -406,6 +415,7 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
 
       {baixa && l && <BaixaManualModal linha={l} onClose={() => { setBaixa(false); q.refetch() }} />}
       {estorno && l && <EstornoModal linha={l} onClose={() => { setEstorno(false); q.refetch() }} />}
+      {reenvioCobranca && l && <ReenvioCobrancaModal linha={l} onClose={() => setReenvioCobranca(false)} />}
       <ConfirmDialog
         open={confirmaCancelar}
         onOpenChange={setConfirmaCancelar}
@@ -479,7 +489,7 @@ function EstornoModal({ linha, onClose }: { linha: LinhaFinanceiro; onClose: () 
     <Modal
       open onOpenChange={(o) => { if (!o) onClose() }}
       title="Estornar pagamento"
-      description={`${brl(linha.valorCobrado)} pago por ${linha.meio === 'cartao' ? 'cartão' : 'PIX'} na iugu. O valor volta para quem pagou${linha.meio === 'cartao' ? ' (na fatura do cartão)' : ''}.`}
+      description={`${brl(linha.valorCobrado)} pago ${linha.meio === 'cartao' ? 'por cartão' : linha.meio === 'link' ? 'pelo link da iugu' : 'por PIX'} na iugu. O valor volta para quem pagou${linha.meio === 'cartao' ? ' (na fatura do cartão)' : ''}.`}
       size="md"
       footer={<div class="flex justify-end gap-2 w-full">
         <Button variant="secondary" size="sm" onClick={onClose}>Voltar</Button>
@@ -490,8 +500,8 @@ function EstornoModal({ linha, onClose }: { linha: LinhaFinanceiro; onClose: () 
       </div>}
     >
       <div class="space-y-3">
-        {linha.meio === 'cartao' && (
-          <Input label="Valor parcial (opcional)" value={parcial} onInput={(e) => setParcial((e.target as HTMLInputElement).value)} placeholder="Vazio = estorno total" inputMode="decimal" hint="Estorno parcial só existe no cartão." />
+        {(linha.meio === 'cartao' || linha.meio === 'link') && (
+          <Input label="Valor parcial (opcional)" value={parcial} onInput={(e) => setParcial((e.target as HTMLInputElement).value)} placeholder="Vazio = estorno total" inputMode="decimal" hint={linha.meio === 'link' ? 'Estorno parcial só existe no cartão — se foi pago por PIX, deixe vazio.' : 'Estorno parcial só existe no cartão.'} />
         )}
         <Textarea label="Motivo" rows={3} value={motivo} onInput={(e) => setMotivo((e.target as HTMLTextAreaElement).value)} />
       </div>
@@ -500,3 +510,45 @@ function EstornoModal({ linha, onClose }: { linha: LinhaFinanceiro; onClose: () 
 }
 
 export default EducationalPortalFinanceiroPage
+
+/** Reenvio da COBRANÇA: mensagem pronta para o WhatsApp/Conversas e, na iugu,
+ * o e-mail oficial da fatura (com PIX e boleto). */
+function ReenvioCobrancaModal({ linha, onClose }: { linha: LinhaFinanceiro; onClose: () => void }) {
+  const msg = useMensagemCobranca(linha.id)
+  const email = useReenviarCobrancaEmail()
+  const d = msg.data
+  const wa = d?.whatsapp ? d.whatsapp.replace(/\D/g, '') : ''
+  const copiar = (t: string) => navigator.clipboard.writeText(t).then(() => toast('Mensagem copiada', 'success')).catch(() => toast('Não foi possível copiar', 'danger'))
+  return (
+    <Modal
+      open onOpenChange={(o) => { if (!o) onClose() }}
+      title="Reenviar cobrança"
+      description={`${linha.nome ?? 'Candidato'} · ${linha.candidateCode} · ${brl(linha.valorCobrado ?? linha.valorTabela)}`}
+      size="md"
+      footer={<div class="flex flex-wrap justify-end gap-2 w-full">
+        <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
+        {d?.emailIugu && (
+          <Button variant="secondary" size="sm" disabled={email.isPending} onClick={() => email.mutate(linha.id, {
+            onSuccess: (r) => toast(`E-mail da iugu enviado${r.email ? ` para ${r.email}` : ''}`, 'success'),
+            onError: (e) => toast((e as Error).message, 'danger'),
+          })}><Mail size={12} /> {email.isPending ? 'Enviando…' : 'Enviar e-mail da iugu'}</Button>
+        )}
+        {d && <Button size="sm" onClick={() => copiar(d.texto)}><Copy size={12} /> Copiar mensagem</Button>}
+      </div>}
+    >
+      {msg.isLoading ? <Skeleton class="h-40" /> : msg.isError ? (
+        <div class="text-sm text-danger">{(msg.error as Error).message}</div>
+      ) : d ? (
+        <div class="space-y-3">
+          <Textarea label="Mensagem para o candidato" rows={10} value={d.texto} readOnly />
+          <div class="text-xs text-fg-muted space-y-1">
+            <div>Copie e envie pelo Conversas{d.leadId ? <> (<a class="text-accent hover:underline" href={`/app/leads/${d.leadId}`}>abrir lead</a>)</> : null}{wa ? <> ou pelo <a class="text-accent hover:underline" href={`https://wa.me/${wa}?text=${encodeURIComponent(d.texto)}`} target="_blank" rel="noopener">WhatsApp Web</a></> : null}.</div>
+            {d.emailIugu
+              ? <div>"Enviar e-mail da iugu" manda o e-mail oficial da fatura{d.email ? ` para ${d.email}` : ''}, com PIX, boleto e link de pagamento.</div>
+              : <div>Envio automático por e-mail só existe para cobranças da iugu.</div>}
+          </div>
+        </div>
+      ) : null}
+    </Modal>
+  )
+}

@@ -118,3 +118,12 @@ export const useCancelarCobranca = () => useAcao((id: number) => api.post<{ ok: 
 export const useEstornar = () => useAcao((v: { id: number; valor?: number; motivo?: string }) => api.post(`${BASE}/${v.id}/estornar`, v))
 export const useSincronizarPagamento = () => useAcao((id: number) => api.post<{ ok: boolean; transitionedToPaid: boolean }>(`/admin/enrollment-registrations/${id}/sync-payment`))
 export const useReenviarLink = () => useAcao((id: number) => api.post(`/admin/enrollment-registrations/${id}/resend-link`, {}))
+export interface MensagemCobranca { texto: string; whatsapp: string | null; email: string | null; leadId: number | null; emailIugu: boolean }
+export const useMensagemCobranca = (id: number | null) => useQuery({
+  queryKey: ['portal-financeiro', 'cobranca-mensagem', id],
+  enabled: !!id,
+  retry: false,
+  staleTime: 0,
+  queryFn: () => api.get<MensagemCobranca>(`${BASE}/${id}/cobranca-mensagem`),
+})
+export const useReenviarCobrancaEmail = () => useAcao((id: number) => api.post<{ ok: boolean; email: string | null }>(`${BASE}/${id}/reenviar-cobranca-email`, {}))

@@ -218,21 +218,26 @@ export async function cancelarCobrancasAbertas(registrationId: number, motivo: s
   }
 
   for (const m of abertas) {
+    // Cancelada de fato no gateway (ou sem nada lá para cancelar) = 'canceled';
+    // se o gateway recusou, fica 'failed' com o aviso, porque a cobrança pode
+    // continuar pagável lá fora.
+    let cancelouNoGateway = true
     if (m.externalId && m.provider === 'asaas') {
       const { cancelarCobrancaAsaas } = await import('./paymentAsaas.js')
       const r = chave && conn?.provider === 'asaas'
         ? await cancelarCobrancaAsaas({ apiKey: chave, environment: conn.environment === 'production' ? 'production' : 'sandbox' }, m.externalId)
         : { ok: false, message: 'conexão Asaas indisponível' }
-      if (!r.ok) avisos.push(`Asaas ${m.externalId}: ${r.message} — cancele no painel do Asaas`)
+      if (!r.ok) { cancelouNoGateway = false; avisos.push(`Asaas ${m.externalId}: ${r.message} — cancele no painel do Asaas`) }
     } else if (m.externalId && m.provider === 'iugu') {
       const { iuguDaConexao, cancelarFaturaIugu } = await import('./paymentIugu.js')
       const cfg = conn?.provider === 'iugu' ? iuguDaConexao(conn) : null
       const r = cfg ? await cancelarFaturaIugu(cfg, m.externalId) : { ok: false, message: 'conexão iugu indisponível' }
-      if (!r.ok) avisos.push(`iugu ${m.externalId}: ${r.message} — cancele no painel da iugu`)
+      if (!r.ok) { cancelouNoGateway = false; avisos.push(`iugu ${m.externalId}: ${r.message} — cancele no painel da iugu`) }
     } else if (m.externalId && m.provider !== 'simulado') {
+      cancelouNoGateway = false
       avisos.push(`${m.provider} ${m.externalId}: cancele no painel do gateway`)
     }
-    await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: 'failed', lastErrorMessage: motivo } })
+    await prisma.enrollmentPaymentMethod.update({ where: { id: m.id }, data: { status: cancelouNoGateway ? 'canceled' : 'failed', lastErrorMessage: motivo } })
   }
   await prisma.enrollmentRegistration.update({
     where: { id: registrationId },
