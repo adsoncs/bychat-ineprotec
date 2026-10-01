@@ -457,9 +457,11 @@ await app.register(staticFiles, {
   },
 })
 
-// ── RAW BODY CAPTURE (Cloud API webhook signature validation) ──
+// ── RAW BODY CAPTURE (assinatura dos webhooks: Cloud API, Meta, Autentique) ──
+// A Autentique assina o corpo cru (HMAC); sem ele, todo aviso era descartado
+// como "assinatura inválida" assim que o segredo do webhook fosse configurado.
 app.addHook('preParsing', async (req, _reply, payload) => {
-  if ((req.url === '/api/cloud-api/webhook' || req.url.startsWith('/api/meta/webhook')) && req.method === 'POST') {
+  if ((req.url === '/api/cloud-api/webhook' || req.url.startsWith('/api/meta/webhook') || req.url === '/api/webhooks/autentique') && req.method === 'POST') {
     const chunks: Buffer[] = []
     for await (const chunk of payload as any) {
       chunks.push(chunk as Buffer)
