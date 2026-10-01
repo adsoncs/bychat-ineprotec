@@ -11,6 +11,7 @@ import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
 import { signCandidateToken, verifyCandidateToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
+import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
 import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -28,7 +29,7 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
   const conta = await contaDaRequisicao(req)
   if (conta) {
     const reg = await prisma.enrollmentRegistration.findFirst({
-      where: { leadId: conta.leadId },
+      where: { leadId: conta.leadId, status: { not: 'merged' } },
       orderBy: { id: 'desc' },
       select: { id: true, candidateCode: true },
     })
@@ -38,6 +39,34 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
   const session = verifyCandidateToken(auth)
   if (!session) { reply.code(401).send({ error: 'Sessão inválida ou expirada' }); return null }
   return session
+}
+
+/**
+ * /candidato e /candidato/<código>: o MESMO portal de /portal (aplicação nova).
+ *
+ * Eram duas implementações: esta, antiga (candidate-portal.js), não conhecia a
+ * ordem das etapas, o contrato nem a tabela de preços — o candidato via coisas
+ * diferentes conforme o link que abriu. Agora: quem já tem sessão no portal (e
+ * é dono da inscrição) vai para o painel; os demais entram com código + CPF na
+ * tela "Minha inscrição" da aplicação, com a mesma jornada. A página antiga só
+ * fica de reserva para instalação sem a aplicação publicada.
+ */
+async function portalDoCandidato(req: any, reply: any, portal: any, leadDaInscricao: number | null) {
+  const conta = await contaDaRequisicao(req).catch(() => null)
+  if (conta && (!leadDaInscricao || leadDaInscricao === conta.leadId) && portalAppDisponivel()) {
+    return reply.code(303).header('location', '/portal/aluno').send()
+  }
+  if (portal?.slug) reply.header('x-portal-slug', portal.slug)
+  if (!portalAppDisponivel()) return reply.type('text/html').send(renderCandidatePortalHtml(portal))
+  const html = paginaDoPortal({
+    nome: 'Minha inscrição', slug: portal?.slug || 'candidato',
+    metaTitle: 'Minha inscrição', metaDescription: 'Acompanhe e conclua sua inscrição.',
+    brandFaviconUrl: portal?.brandFaviconUrl ?? null, brandPrimaryColor: portal?.brandPrimaryColor ?? null,
+  }, process.env.APP_URL || '')
+  // data-marca-portal: a aplicação aplica a marca sozinha — o gancho das
+  // páginas SSR (lib/portalMarca) não deve injetar a dele por cima.
+  return reply.type('text/html').header('cache-control', 'no-store')
+    .send(html.replace('</head>', '<meta name="portal-app" data-marca-portal="app"></head>'))
 }
 
 export async function candidatePortalRoutes(app: FastifyInstance) {
@@ -358,10 +387,12 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     const { code } = req.params as any
     const codeStr = String(code || '').trim().toUpperCase()
     let portal: any = null
+    let leadDaInscricao: number | null = null
     if (codeStr && /^[A-Z0-9-]{4,40}$/.test(codeStr)) {
       const reg = await prisma.enrollmentRegistration.findUnique({
         where: { candidateCode: codeStr },
         select: {
+          leadId: true,
           portal: {
             select: {
               slug: true,
@@ -373,18 +404,15 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         },
       }).catch(() => null)
       portal = reg?.portal || null
+      leadDaInscricao = reg?.leadId ?? null
     }
-    // O gancho de marca (lib/portalMarca) completa o Branding deste portal.
-    if (portal?.slug) reply.header('x-portal-slug', portal.slug)
-    return reply.type('text/html').send(renderCandidatePortalHtml(portal))
+    return portalDoCandidato(req, reply, portal, leadDaInscricao)
   })
 
   // ── GET /candidato e /candidato/ — tela genérica de login ──
   // Sem :code na URL, exibimos o formulário pedindo código + CPF. Branding
   // genérico (sem portal vinculado), aplicado depois pelo /candidate/me.
-  const renderGenericLogin = async (_req: any, reply: any) => {
-    return reply.type('text/html').send(renderCandidatePortalHtml(null))
-  }
+  const renderGenericLogin = async (req: any, reply: any) => portalDoCandidato(req, reply, null, null)
   app.get('/candidato', renderGenericLogin)
   app.get('/candidato/', renderGenericLogin)
 

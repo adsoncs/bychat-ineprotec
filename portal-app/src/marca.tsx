@@ -103,9 +103,11 @@ export function aplicarMarca(p: MarcaDoPortal) {
  * veio: o backend resolve (inscrição de quem está logado, último portal
  * visitado, portal principal). Nunca lança — sem marca, fica o tema padrão.
  */
-export async function carregarMarca(): Promise<MarcaDoPortal | null> {
+export async function carregarMarca(inscricao?: string): Promise<MarcaDoPortal | null> {
   try {
-    const r = await fetch('/api/public/portal/marca', { credentials: 'same-origin' })
+    // Pelo código da inscrição (/candidato/<código>) a marca é a do portal dela.
+    const q = inscricao ? `?inscricao=${encodeURIComponent(inscricao)}` : ''
+    const r = await fetch(`/api/public/portal/marca${q}`, { credentials: 'same-origin' })
     if (!r.ok) return null
     const { marca } = (await r.json()) as { marca: MarcaDoPortal | null }
     if (marca) aplicarMarca(marca)

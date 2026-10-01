@@ -258,7 +258,13 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   // Mesma regra do login (portal pedido › inscrição de quem está logado ›
   // último portal visitado › portal principal). Só dados públicos do Branding.
   app.get('/api/public/portal/marca', async (req, reply) => {
-    const m = await marcaDoAcesso(req, reply).catch(() => null)
+    // Pelo código da inscrição (/candidato/<código>): a marca do portal dela já
+    // na tela de entrada, antes do login.
+    const cod = String((req.query as any)?.inscricao || '').trim().toUpperCase()
+    const slugDaInscricao = /^[A-Z0-9-]{4,40}$/.test(cod)
+      ? (await prisma.enrollmentRegistration.findUnique({ where: { candidateCode: cod }, select: { portal: { select: { slug: true } } } }).catch(() => null))?.portal?.slug ?? null
+      : null
+    const m = await marcaDoAcesso(req, reply, slugDaInscricao).catch(() => null)
     reply.header('cache-control', 'no-store')
     return { marca: m ? { ...m.bruto } : null }
   })

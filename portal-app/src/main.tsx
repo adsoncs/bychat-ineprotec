@@ -1,6 +1,7 @@
 import { render } from 'preact'
 import { App } from './App'
 import { Aluno } from './Aluno'
+import { Candidato } from './Candidato'
 import { Documentos } from './Documentos'
 import { Contrato } from './Contrato'
 import './estilo.css'
@@ -8,7 +9,9 @@ import './estilo.css'
 // Roteamento mínimo: o formulário público e as telas da área logada moram na
 // mesma aplicação, e um `switch` custa menos que um roteador no bundle.
 const caminho = location.pathname.replace(/\/+$/, '')
-const tela = caminho.endsWith('/documentos')
+const tela = caminho.startsWith('/candidato')
+  ? <Candidato />
+  : caminho.endsWith('/documentos')
   ? <Documentos />
   : caminho.endsWith('/contrato')
     ? <Contrato />
