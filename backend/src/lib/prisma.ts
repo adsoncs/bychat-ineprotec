@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { phoneKey } from './phone.js'
+import { numeroDiscavel, phoneKey } from './phone.js'
 import { decryptSettingValue, encryptSettingValue, isSecretSettingKey, isEncrypted } from './secretSettings.js'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
@@ -40,10 +40,13 @@ function applyPhoneKey(data: any): void {
   const key = phoneKey(raw)
   if (!('phoneKey' in data)) data.phoneKey = key
 
+  // O `whatsapp` é o número discável: igual à chave, menos o 9 que a chave põe
+  // em telefone FIXO (ver lib/phone.ts → numeroDiscavel).
+  const discavel = numeroDiscavel(raw)
   // JID completo (@lid, @g.us) é identificador de sessão, não telefone — intacto.
-  if (key && !raw.includes('@') && raw.replace(/\D/g, '') !== key) {
-    if (isSet) w.set = key
-    else data.whatsapp = key
+  if (discavel && !raw.includes('@') && raw.replace(/\D/g, '') !== discavel) {
+    if (isSet) w.set = discavel
+    else data.whatsapp = discavel
   }
 }
 

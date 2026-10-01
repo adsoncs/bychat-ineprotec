@@ -21,7 +21,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { variantesDeDiscagem, phoneKey } from '../src/lib/phone.js'
+import { variantesDeDiscagem, phoneKey, numeroDiscavel, toWaNumber, displayPhone } from '../src/lib/phone.js'
 
 describe('fixo que ganhou o nono dígito por engano', () => {
   test('o caso da Ideal Cartuchos', () => {
@@ -82,4 +82,40 @@ describe('a variante é sempre um número discável diferente do original', () =
       }
     })
   }
+})
+
+// 01/10/2026: a Ideal Cartuchos de novo, agora lead 1334. A operadora editou o
+// contato várias vezes tirando o 9 e ele voltava: a gravação passa o `whatsapp`
+// pela normalização, que punha o 9 de volta. O número discável (o que se grava e
+// se disca) não tem mais esse 9; a chave de match continua igual.
+describe('número discável: fixo sem o nono dígito, chave intacta', () => {
+  test('o fixo digitado sem o 9 fica sem o 9', () => {
+    for (const n of ['551836234401', '1836234401', '(18) 3623-4401', '+55 18 3623-4401']) {
+      assert.equal(numeroDiscavel(n), '551836234401', n)
+      assert.equal(toWaNumber(n), '551836234401', n)
+      assert.equal(displayPhone(n), '551836234401', n)
+    }
+  })
+
+  test('a chave continua a mesma: a conversa antiga não se separa do lead', () => {
+    assert.equal(phoneKey('551836234401'), '5518936234401')
+    assert.equal(phoneKey('5518936234401'), '5518936234401')
+  })
+
+  test('9 digitado por quem preencheu é respeitado (celular de SP em 9 5xxx existe)', () => {
+    assert.equal(numeroDiscavel('5511955551234'), '5511955551234')
+    assert.equal(numeroDiscavel('11 95555-1234'), '5511955551234')
+    assert.equal(numeroDiscavel('5518936234401'), '5518936234401')
+  })
+
+  test('celular antigo sem o 9 continua ganhando o 9', () => {
+    assert.equal(numeroDiscavel('551891225798'), '5518991225798')
+    assert.equal(numeroDiscavel('1881233917'), '5518981233917')
+  })
+
+  test('celular completo, estrangeiro e LID não mudam', () => {
+    assert.equal(numeroDiscavel('5518991225798'), '5518991225798')
+    assert.equal(numeroDiscavel('+1 (689) 206-4057'), phoneKey('+1 (689) 206-4057'))
+    assert.equal(numeroDiscavel('273228723392569@lid'), null)
+  })
 })

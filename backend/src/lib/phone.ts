@@ -260,9 +260,35 @@ export function phoneKey(raw: string | null | undefined): string | null {
   return '55' + ddd + num
 }
 
-/** Telefone para EXIBIÇÃO/ENVIO (canônico se BR; senão os dígitos). */
+/**
+ * O telefone como se DISCA e se GUARDA em `Lead.whatsapp`: o `phoneKey` sem o 9
+ * que ele mesmo põe em número FIXO.
+ *
+ * `phoneKey` insere o nono dígito em todo número de 8 dígitos, regra que só vale
+ * para celular. Fixo começa em 2-5 e não tem nono dígito; comércio atende em
+ * fixo com WhatsApp Business o tempo todo. O "Ideal Cartuchos", fixo
+ * (18) 3623-4401 do severiano, virava 5518936234401, um número que não existe, e
+ * editar o contato não resolvia: a gravação normalizava de novo e o 9 voltava
+ * (01/10/2026).
+ *
+ * A chave (`phoneKey`) fica como está, porque é ela que junta lead, mensagem e
+ * conversa. Este valor tira só o 9 que a NORMALIZAÇÃO inseriu: se quem preencheu
+ * digitou o 9, ele fica. Celular de SP começando em 9 5xxx (que existe) não é
+ * afetado.
+ */
+export function numeroDiscavel(raw: string | null | undefined): string | null {
+  const key = phoneKey(raw)
+  if (!key) return null
+  const m = /^55([1-9][1-9])9([2-5]\d{7})$/.exec(key)
+  if (!m) return key
+  // O 9 veio de quem preencheu: respeita.
+  if (onlyDigits(raw).endsWith(m[1] + '9' + m[2])) return key
+  return '55' + m[1] + m[2]
+}
+
+/** Telefone para EXIBIÇÃO/ENVIO (canônico se BR, fixo sem nono dígito; senão os dígitos). */
 export function displayPhone(raw: string | null | undefined): string {
-  return phoneKey(raw) ?? onlyDigits(raw)
+  return numeroDiscavel(raw) ?? onlyDigits(raw)
 }
 
 /**
@@ -276,7 +302,7 @@ export function displayPhone(raw: string | null | undefined): string {
  * sessão, não telefone — quem envia deve repassá-lo intacto.
  */
 export function toWaNumber(raw: string | null | undefined): string | null {
-  const key = phoneKey(raw)
+  const key = numeroDiscavel(raw)
   if (!key) return null
   // Teto e piso do E.164. Número estrangeiro curto (Faroé, Groenlândia) só
   // passa quando o plano do país o reconheceu — foi o passo 4 do phoneKey.
