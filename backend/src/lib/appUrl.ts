@@ -30,6 +30,18 @@ export function appUrlObrigatoria(): string {
   return base
 }
 
+/**
+ * Endereço público de um portal de matrícula: o domínio próprio da instituição
+ * quando o portal tem um (`customDomain`), senão o do painel. Links que vão
+ * para o aluno precisam sair no MESMO endereço em que ele se inscreveu: a
+ * sessão do portal é um cookie do endereço, e um link no domínio do painel o
+ * obrigava a entrar de novo.
+ */
+export function baseDoPortal(customDomain?: string | null): string | null {
+  const d = String(customDomain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  return d ? `https://${d}` : appUrl()
+}
+
 /** Caminho absoluto no painel (`/painel` → `https://…/painel`), ou `null`. */
 export function urlNoPainel(path: string): string | null {
   const base = appUrl()

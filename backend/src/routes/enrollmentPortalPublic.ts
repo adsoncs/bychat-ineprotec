@@ -23,6 +23,27 @@ function getAppHost(req: FastifyRequest): string {
   return host
 }
 
+/**
+ * Domínio próprio de portal (customDomain): para onde a RAIZ desse domínio leva —
+ * `/portal/<slug>` com a query preservada (?t= da continuação, ?curso=) — ou
+ * null quando o Host não é domínio de portal. Chamado pela rota GET / do
+ * server.ts: um gancho aqui dentro não valia para ela (plugin encapsulado do
+ * Fastify), e por isso a raiz do domínio próprio caía no /app do painel. É
+ * redirecionamento, não reescrita interna: o portal-app descobre o portal pelo
+ * caminho do navegador.
+ */
+export async function destinoDoDominioProprio(req: FastifyRequest): Promise<string | null> {
+  const host = getAppHost(req).split(':')[0].toLowerCase()
+  if (!host) return null
+  const primaryHost = (process.env.APP_URL || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()
+  if (primaryHost && host === primaryHost) return null
+  const portal = await resolvePortalByHost(host)
+  if (!portal?.active) return null
+  const url = req.raw.url || ''
+  const query = url.includes('?') ? url.slice(url.indexOf('?')) : ''
+  return `/portal/${encodeURIComponent(portal.slug)}${query}`
+}
+
 // Resolve portal a partir do hostname recebido (para domínios próprios)
 async function resolvePortalByHost(host: string) {
   if (!host) return null
@@ -364,6 +385,7 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
         limpo,
         nome: portal.nome,
         slug: portal.slug,
+        customDomain: portal.customDomain,
         cursoSlug: cursoValido ? cursoSlug : null,
         metaTitle: cursoValido ? `${cursoValido.nome} — ${portal.metaTitle || portal.nome}` : portal.metaTitle,
         metaDescription: portal.metaDescription,
@@ -378,26 +400,6 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
     }
     reply.type('text/html').send(renderPortalHtml(portal, req, offerings))
   }
-
-  // Hook: se o Host do request for um customDomain de portal, reescreve a URL
-  // para /portal/:slug internamente. Assim não colide com o static-files em GET /.
-  app.addHook('onRequest', async (req) => {
-    const url = (req.raw.url || '').split('?')[0]
-    // Só atua na raiz (e sem slug) — paths de API ou assets continuam normais
-    if (url !== '/' && url !== '/index.html') return
-    const host = getAppHost(req)
-    if (!host) return
-    // Ignora o domínio principal (evita query desnecessária)
-    const primaryHost = (process.env.APP_URL || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-    if (primaryHost && host === primaryHost) return
-
-    const portal = await resolvePortalByHost(host)
-    if (portal && portal.active) {
-      // Reescreve URL pro endpoint de portal — query string preservada
-      const query = req.raw.url?.includes('?') ? req.raw.url.slice(req.raw.url.indexOf('?')) : ''
-      req.raw.url = `/portal/${portal.slug}${query}`
-    }
-  })
 
   // GET /sitemap.xml — SEO
   app.get('/sitemap.xml', async (req, reply) => {

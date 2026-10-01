@@ -1304,6 +1304,12 @@ async function serveLandingPage(reply: any, file = 'landing.html'): Promise<unkn
 
 // Rotas explícitas (antes do static plugin interceptar)
 app.get('/', async (req, reply) => {
+  // Domínio próprio de portal de matrícula: a raiz leva ao portal.
+  {
+    const { destinoDoDominioProprio } = await import('./routes/enrollmentPortalPublic.js')
+    const destino = await destinoDoDominioProprio(req).catch(() => null)
+    if (destino) return reply.redirect(destino, 302)
+  }
   const host = String(req.headers.host || '').split(':')[0].toLowerCase()
   // Vitrine pública só na instalação PRINCIPAL (MARKETING_HOST explícito).
   // O `isPrimaryInstall()` evita que filhas, onde resolveMarketingHost()

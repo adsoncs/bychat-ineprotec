@@ -12,7 +12,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
-import { appUrlObrigatoria } from '../lib/appUrl.js'
+import { appUrlObrigatoria, baseDoPortal } from '../lib/appUrl.js'
 
 function getAppUrl() { return appUrlObrigatoria() }
 
@@ -26,7 +26,7 @@ async function buildEnrollmentPayload(enrollmentId: number) {
     where: { id: enrollmentId },
     include: {
       lead: { select: { id: true, nome: true, email: true, whatsapp: true } },
-      portal: { select: { id: true, nome: true, slug: true, ctaMessage: true, unit: { select: { nome: true } } } },
+      portal: { select: { id: true, nome: true, slug: true, ctaMessage: true, customDomain: true, unit: { select: { nome: true } } } },
       processRegistration: { include: { offering: { select: { nome: true, course: { select: { nome: true } } } } } },
     },
   })
@@ -34,7 +34,8 @@ async function buildEnrollmentPayload(enrollmentId: number) {
   const courseName = e.processRegistration?.offering?.course?.nome || e.processRegistration?.offering?.nome || ''
   const amount = e.paymentAmount ? `R$ ${Number(e.paymentAmount).toFixed(2).replace('.', ',')}` : ''
   const deadline = e.paymentExpiresAt ? new Date(e.paymentExpiresAt).toLocaleString('pt-BR') : ''
-  const candidateUrl = `${getAppUrl()}/candidato/${e.candidateCode}`
+  // No endereço em que a pessoa se inscreveu (domínio próprio do portal, se houver).
+  const candidateUrl = `${baseDoPortal(e.portal?.customDomain) ?? getAppUrl()}/candidato/${e.candidateCode}`
   return {
     enrollment: e,
     lead: e.lead,

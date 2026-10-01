@@ -179,7 +179,7 @@ function PortalCard({
 }) {
   const formModeLabel = p.formMode === 'interest' ? 'Interesse (curto)' : 'Inscrição completa'
   const publicUrl = p.customDomain
-    ? `https://${p.customDomain}/${p.slug}`
+    ? `https://${p.customDomain}/portal/${p.slug}`
     : `${window.location.origin}/portal/${p.slug}`
 
   return (

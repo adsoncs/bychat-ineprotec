@@ -464,7 +464,7 @@ function buildIncompleteWarnings(p: EnrollmentPortal): IncompleteWarning[] {
 
 function portalPublicUrl(p: EnrollmentPortal): string {
   return p.customDomain
-    ? `https://${p.customDomain}/${p.slug}`
+    ? `https://${p.customDomain}/portal/${p.slug}`
     : `${window.location.origin}/portal/${p.slug}`
 }
 
@@ -1075,7 +1075,7 @@ function RowActionsMenu({
 
   function copyPublicLink() {
     const base = portal.customDomain
-      ? `https://${portal.customDomain}/${portal.slug}`
+      ? `https://${portal.customDomain}/portal/${portal.slug}`
       : `${window.location.origin}/portal/${portal.slug}`
     const url = `${base}?c=${encodeURIComponent(r.candidateCode)}`
     void navigator.clipboard.writeText(url).then(() => toast('Link da inscrição copiado', 'success'))
