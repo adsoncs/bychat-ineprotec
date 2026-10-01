@@ -193,6 +193,22 @@ export async function fetchAsaasPixQr(config: AsaasConfig, paymentId: string): P
   return null
 }
 
+/**
+ * Linha digitável do boleto. O Asaas não a devolve na criação da cobrança (só
+ * o PDF): vem de /identificationField. Sem isto o portal mostrava o boleto sem
+ * a linha para copiar.
+ */
+export async function fetchAsaasBoletoLinha(config: AsaasConfig, paymentId: string): Promise<{ linha: string; codigoBarras: string | null } | null> {
+  for (const espera of [0, 800]) {
+    if (espera) await new Promise((r) => setTimeout(r, espera))
+    try {
+      const r = await asaasFetch(config, `/payments/${encodeURIComponent(paymentId)}/identificationField`)
+      if (r?.identificationField) return { linha: String(r.identificationField), codigoBarras: r.barCode ? String(r.barCode) : null }
+    } catch { /* tenta de novo */ }
+  }
+  return null
+}
+
 export type AsaasOrderMethod = 'pix' | 'boleto' | 'credit_card'
 
 export interface AsaasOrderInput {
@@ -323,6 +339,10 @@ export async function createAsaasOrder(config: AsaasConfig, input: AsaasOrderInp
   } else if (input.method === 'boleto') {
     if (p.identificationField) result.boletoLine = p.identificationField
     if (p.nossoNumero) result.boletoBarcode = p.nossoNumero
+    if (!result.boletoLine) {
+      const l = await fetchAsaasBoletoLinha(config, p.id).catch(() => null)
+      if (l) { result.boletoLine = l.linha; if (l.codigoBarras) result.boletoBarcode = l.codigoBarras }
+    }
     if (p.bankSlipUrl) result.boletoPdfUrl = p.bankSlipUrl
     if (p.dueDate) result.boletoDueAt = p.dueDate
   } else if (input.method === 'credit_card') {

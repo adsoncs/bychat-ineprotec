@@ -19,6 +19,22 @@ const ENCERRADAS = ['overdue', 'expired', 'canceled', 'cancelled', 'failed', 're
 
 type Meio = 'pix' | 'boleto' | 'credit_card'
 
+/**
+ * A cobrança que ainda dá para pagar: a mais recente de Pix ou boleto, não
+ * encerrada, com o QR/linha em mãos e dentro do vencimento (vale o dia todo
+ * do vencimento — o status do provedor é quem diz se venceu de fato).
+ * Cartão não entra: cada tentativa de cartão é uma transação nova.
+ */
+function ultimaCobrancaValida(lista: MetodoPagamento[]): MetodoPagamento | null {
+  const agora = Date.now()
+  return lista.find((m) =>
+    (m.method === 'pix' || m.method === 'boleto')
+    && !ENCERRADAS.includes(m.status) && m.status !== 'paid'
+    && temComoPagar(m, m.method as Meio)
+    && (!m.expiresAt || new Date(m.expiresAt).getTime() + 86_400_000 > agora),
+  ) ?? null
+}
+
 /** O que a pessoa precisa ter em mãos para pagar, por método. */
 function temComoPagar(m: MetodoPagamento | null, metodo: Meio) {
   if (!m) return false
@@ -53,6 +69,10 @@ export function Pagamento(props: {
   const [cupomAtivo, setCupomAtivo] = useState('')
   const [validandoCupom, setValidandoCupom] = useState(false)
   const confirmado = useRef(false)
+  // Abrindo a etapa de novo: procura a cobrança já gerada antes de oferecer a
+  // escolha do meio. Sem isto, cada "Fazer agora" recomeçava do zero e a pessoa
+  // gerava outro Pix/boleto — o anterior, ainda válido, ficava perdido.
+  const [restaurando, setRestaurando] = useState(true)
 
   const pronto = temComoPagar(cobranca, metodo ?? 'pix')
   const encerrada = !!cobranca && ENCERRADAS.includes(cobranca.status)
@@ -77,6 +97,23 @@ export function Pagamento(props: {
       })
     return () => { vivo = false }
   }, [props.codigo, props.token, cupomAtivo])
+
+  useEffect(() => {
+    let vivo = true
+    consultarPagamento(props.codigo, props.token)
+      .then((r) => {
+        if (!vivo || !r) return
+        if (r.paymentStatus === 'paid' || r.paymentPaidAt) {
+          if (!confirmado.current) { confirmado.current = true; props.aoConfirmar() }
+          return
+        }
+        const valida = ultimaCobrancaValida(r.methods ?? [])
+        if (valida) { setMetodo(valida.method as Meio); setCobranca(valida) }
+      })
+      .catch(() => {})
+      .finally(() => { if (vivo) setRestaurando(false) })
+    return () => { vivo = false }
+  }, [props.codigo, props.token])
 
   async function sincronizar(): Promise<boolean> {
     const r = await consultarPagamento(props.codigo, props.token).catch(() => null)
@@ -214,6 +251,15 @@ export function Pagamento(props: {
   }
 
   // ── escolha do meio ──
+  if (!metodo && restaurando) {
+    return (
+      <div class="cartao">
+        <h2>Pagamento</h2>
+        <p class="sub">Conferindo se já existe uma cobrança para você…</p>
+        <div class="esqueleto" style="height:150px" />
+      </div>
+    )
+  }
   if (!metodo) {
     // Enquanto as opções não chegam, esqueleto. Desenhar dois botões e depois
     // acrescentar um terceiro faz a lista pular embaixo do dedo de quem já ia
@@ -517,7 +563,7 @@ export function Pagamento(props: {
             <div class="qr-caixa"><img src={cobranca.qrCodeUrl} alt="QR Code do PIX" width={240} height={240} /></div>
           )}
           <p class="ajuda" style="text-align:center">Abra o aplicativo do banco e leia o código.</p>
-          <button class="principal" onClick={() => copiar(cobranca.qrCode!)}>
+          <button class="principal" style="width:100%" onClick={() => copiar(cobranca.qrCode!)}>
             {copiado ? 'Código copiado' : 'Copiar código PIX'}
           </button>
           <details style="margin-top:12px">
@@ -527,15 +573,20 @@ export function Pagamento(props: {
         </>
       )}
 
-      {!encerrada && metodo === 'boleto' && cobranca?.boletoLine && (
+      {!encerrada && metodo === 'boleto' && (cobranca?.boletoLine || cobranca?.boletoPdfUrl) && (
         <>
-          <p class="codigo-longo" style="text-align:center">{cobranca.boletoLine}</p>
-          <button class="principal" onClick={() => copiar(cobranca.boletoLine!)}>
-            {copiado ? 'Linha copiada' : 'Copiar linha digitável'}
-          </button>
+          {cobranca.boletoLine && (
+            <>
+              <p class="codigo-longo" style="text-align:center">{cobranca.boletoLine}</p>
+              <button class="principal" style="width:100%" onClick={() => copiar(cobranca.boletoLine!)}>
+                {copiado ? 'Linha copiada' : 'Copiar linha digitável'}
+              </button>
+            </>
+          )}
+          {/* O PDF aparece mesmo sem a linha (ela pode chegar um pouco depois). */}
           {cobranca.boletoPdfUrl && (
             <a href={cobranca.boletoPdfUrl} target="_blank" rel="noopener">
-              <button class="secundario" style="width:100%;margin-top:8px">Abrir boleto em PDF</button>
+              <button class={cobranca.boletoLine ? 'secundario' : 'principal'} style="width:100%;margin-top:8px">Abrir boleto em PDF</button>
             </a>
           )}
         </>
@@ -555,6 +606,14 @@ export function Pagamento(props: {
       {cobranca?.provider === 'simulado' && !encerrada && (
         <button class="secundario" style="width:100%;margin-top:10px" onClick={confirmarSimulado} disabled={simulando}>
           {simulando ? 'Confirmando…' : 'Simular pagamento confirmado'}
+        </button>
+      )}
+
+      {/* Trocar de meio: a cobrança atual continua valendo até vencer; a nova
+          é gerada só quando a pessoa escolher outro meio. */}
+      {!encerrada && !noCartao && pronto && (
+        <button class="link" type="button" style="display:block;margin:14px auto 0" onClick={novaCobranca}>
+          Pagar de outra forma
         </button>
       )}
     </div>

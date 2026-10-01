@@ -21,7 +21,7 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
 import { logTitularConsent } from './consent.js'
 import { flagDuplicate } from '../services/dedup.js'
-import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, type AsaasOrderMethod } from '../services/paymentAsaas.js'
+import { createAsaasPayment, createOrFindAsaasCustomer, parseAsaasConfig, isAsaasPaymentEvent, ASAAS_STATUS_MAP, createAsaasOrder, fetchAsaasPixQr, fetchAsaasBoletoLinha, type AsaasOrderMethod } from '../services/paymentAsaas.js'
 import { createPagarmePayment, createOrFindPagarmeCustomer, isPagarmePaymentEvent, parsePagarmeWebhookPayload, detectPagarmeEnvironment, createPagarmeOrder, type PagarmeConfig, type PagarmeOrderMethod } from '../services/paymentPagarme.js'
 import { decryptToken } from '../services/cloudApi.js'
 import {
@@ -3124,7 +3124,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           method,
           externalId: order.paymentId,
           status: order.status,
-          amount: Number(taxaInscricao),
+          // O que foi COBRADO (cupom, condição da tabela, entrada do boleto),
+          // não o valor cheio: é este que a tela mostra ao lado do QR/boleto.
+          amount: valorCobrado,
           dueDate,
           pixQrCode: order.pixQrCode,
           pixQrCodeUrl: order.pixQrCodeUrl,
@@ -3400,6 +3402,26 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         }
       } catch (e: any) {
         req.log.warn(`[payment-status] falha ao recuperar QR do PIX: ${e?.message}`)
+      }
+    }
+    // Boleto sem linha digitável (o Asaas só a entrega em consulta separada):
+    // busca uma vez e grava, para a tela ter o que copiar.
+    const boletoSemLinha = enrollment.paymentMethods.find(
+      (m: any) => m.method === 'boleto' && m.status === 'pending' && !m.boletoLine && m.externalId,
+    ) as any
+    if (boletoSemLinha && connStatus?.active && connStatus.provider === 'asaas') {
+      try {
+        const chave = decryptToken(connStatus.apiKey)
+        const l = chave ? await fetchAsaasBoletoLinha({ apiKey: chave, environment: connStatus.environment as any }, boletoSemLinha.externalId) : null
+        if (l) {
+          const atualizado = await prisma.enrollmentPaymentMethod.update({
+            where: { id: boletoSemLinha.id },
+            data: { boletoLine: l.linha, ...(l.codigoBarras ? { boletoBarcode: l.codigoBarras } : {}) },
+          })
+          Object.assign(boletoSemLinha, atualizado)
+        }
+      } catch (e: any) {
+        req.log.warn(`[payment-status] falha ao recuperar linha do boleto: ${e?.message}`)
       }
     }
     if (pixSemQr && connStatus?.active && connStatus.provider === 'iugu') {
