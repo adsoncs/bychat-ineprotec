@@ -158,6 +158,9 @@ async function main() {
             valorTabela: valorTabela > 0 ? valorTabela : valorFinal,
             descontoTipo, descontoValor,
             valorFinal,
+            // Itens da Kommo são sempre pagamento único. Sem estes dois, a lista e os
+            // KPIs de "único" (que somam valorUnico) ignoravam a proposta.
+            valorUnico: valorFinal, valorRecorrente: 0,
             pagamentoForma: sug?.pagamentoForma ?? null,
             parcelas: sug?.parcelas ?? null,
             condicaoPagamento: sug?.condicaoPagamento ?? null,

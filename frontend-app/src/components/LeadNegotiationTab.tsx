@@ -462,7 +462,10 @@ export function NegotiationEditor({ leadId, id, onBack, hideBack }: { leadId: nu
           <div>
             <label class="block text-xs font-medium text-fg mb-1">Status</label>
             <Select value={f.status} disabled={closed} onChange={(e) => patch({ status: (e.target as HTMLSelectElement).value })}>
-              {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              {/* Aceita/Recusada não se escolhem aqui: só o fechamento (Ganha/Perdida)
+                * grava o resultado que a Visão Geral e a receita contam. Ficam na
+                * lista apenas se já forem o status atual, para o select não ficar vazio. */}
+              {Object.entries(STATUS).filter(([k]) => (k !== 'aceita' && k !== 'recusada') || k === f.status).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </Select>
           </div>
           {/* Em qual processo esta venda acontece.

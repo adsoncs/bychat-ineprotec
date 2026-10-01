@@ -116,6 +116,12 @@ function computeTotals(items: { subtotal: number; cobranca?: string }[], d: Disc
 function round2(n: number): number { return Math.round(n * 100) / 100 }
 
 const STATUSES = ['rascunho', 'enviada', 'em_negociacao', 'aceita', 'recusada', 'expirada']
+// Status que só o FECHAMENTO grava (rota /close ou desfecho do lead). Escolhidos
+// à mão no select, viravam rótulo sem resultado/fechadaEm: a proposta "aceita"
+// seguia contada como em negociação e a receita não chegava à Visão Geral (40
+// assim no ineprotec em 09/2026). Criar/editar não aceita mais esses dois.
+const STATUSES_DE_FECHAMENTO = ['aceita', 'recusada']
+const statusEditavel = (s: unknown) => typeof s === 'string' && STATUSES.includes(s) && !STATUSES_DE_FECHAMENTO.includes(s)
 
 /**
  * Nome/cor da etapa de cada lead, indexado por "funnelId:status".
@@ -380,7 +386,7 @@ export async function negotiationsRoutes(app: FastifyInstance) {
         // que a meta e a comissão contam — e é uma negociação, um funil, para
         // a mesma receita não ser contada em dois lugares.
         funnelId: await funilDaNegociacao(Number(b.leadId), b.funnelId, leadDono?.funnelId ?? null),
-        status: STATUSES.includes(b.status) ? b.status : 'rascunho',
+        status: statusEditavel(b.status) ? b.status : 'rascunho',
         valorTabela, descontoTipo, descontoValor, frete, valorFinal, valorUnico, valorRecorrente,
         descontoRecTipo, descontoRecValor,
         pagamentoFormaRec: b.pagamentoFormaRec ? String(b.pagamentoFormaRec).slice(0, 20) : null,
@@ -422,7 +428,8 @@ export async function negotiationsRoutes(app: FastifyInstance) {
     if (b.pagamentoFormaRec !== undefined) data.pagamentoFormaRec = b.pagamentoFormaRec ? String(b.pagamentoFormaRec).slice(0, 20) : null
     if (b.vencimentoDiaRec !== undefined) data.vencimentoDiaRec = diaDoMes(b.vencimentoDiaRec)
     if (b.titulo !== undefined) data.titulo = String(b.titulo).slice(0, 191)
-    if (b.status !== undefined && STATUSES.includes(b.status)) data.status = b.status
+    // Reenviar o status que já está gravado é inofensivo (o form manda tudo).
+    if (b.status !== undefined && b.status !== cur.status && statusEditavel(b.status)) data.status = b.status
     if (b.pagamentoForma !== undefined) data.pagamentoForma = b.pagamentoForma ? String(b.pagamentoForma).slice(0, 20) : null
     if (b.parcelas !== undefined) data.parcelas = num(b.parcelas) ? Math.round(num(b.parcelas)!) : null
     if (b.entrada !== undefined) data.entrada = num(b.entrada)
