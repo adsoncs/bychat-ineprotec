@@ -180,7 +180,7 @@ export async function login(
     const usuarioEhCpf = soDigitos(identificador).length === 11 && soDigitos(identificador) === cpf
     if (!cpf) return { ok: false, precisaDefinirSenha: true, erro: 'Você ainda não criou uma senha. Peça um link de acesso para criar a sua.' }
     if (usuarioEhCpf) {
-      return { ok: false, erro: 'Primeiro acesso: entre com o seu e-mail ou o código da inscrição no usuário e o CPF (só números) como senha.' }
+      return { ok: false, erro: 'Entre com o seu e-mail.' }
     }
     senhaPadrao = soDigitos(senha) === cpf && soDigitos(senha).length === String(senha).replace(/[.\-\s]/g, '').length
   }

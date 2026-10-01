@@ -48,13 +48,12 @@ export function Entrar() {
   return (
     <Moldura marca={marca}>
       <form class="cartao" onSubmit={entrar}>
-        <h2>Entrar no portal</h2>
-        <p class="sub"><b>Primeiro acesso?</b> No usuário, o seu e-mail ou o código da inscrição; na senha, o seu CPF (só números). Depois você cria a sua senha.</p>
+        <h2>Acesse sua inscrição</h2>
         {erro && <div class="aviso erro">{erro}</div>}
         {aviso && <div class="aviso info">{aviso}</div>}
         <div class="campo">
-          <label for="ent-usuario">E-mail, código da inscrição, CPF ou RA</label>
-          <input id="ent-usuario" value={usuario} required autocomplete="username" autocapitalize="off" autocorrect="off"
+          <label for="ent-usuario">E-mail</label>
+          <input id="ent-usuario" type="email" inputMode="email" value={usuario} required autocomplete="username" autocapitalize="off" autocorrect="off"
             onInput={(e: any) => setUsuario(e.currentTarget.value)} />
         </div>
         <div class="campo">
@@ -68,8 +67,8 @@ export function Entrar() {
         <h2 style="font-size:16px">Esqueceu a senha?</h2>
         <p class="sub">Mandamos um link pelo WhatsApp ou e-mail do seu cadastro. Ele vale 48 horas e serve uma vez.</p>
         <div class="campo">
-          <label for="ent-rec">CPF, e-mail ou RA</label>
-          <input id="ent-rec" value={recuperar} required onInput={(e: any) => setRecuperar(e.currentTarget.value)} />
+          <label for="ent-rec">E-mail</label>
+          <input id="ent-rec" type="email" inputMode="email" value={recuperar} required onInput={(e: any) => setRecuperar(e.currentTarget.value)} />
         </div>
         <button class="secundario" type="submit">Receber link de acesso</button>
       </form>

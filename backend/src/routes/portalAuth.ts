@@ -293,16 +293,15 @@ export async function portalAuthRoutes(app: FastifyInstance) {
 
   // ── GET /portal/login ──
   app.get('/portal/login', async (req, reply) => {
-    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Entrar no portal')
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Acesse sua inscrição')
     const q = (req.query as any) || {}
-    return reply.type('text/html').send(await paginaComMarca(req, reply, 'Entrar no portal', `
+    return reply.type('text/html').send(await paginaComMarca(req, reply, 'Acesse sua inscrição', `
       <div class="card">
-        <h1>Entrar no portal</h1>
-        <p class="sub"><b>Primeiro acesso?</b> No usuário, o seu e-mail ou o código da inscrição; na senha, o seu CPF (só números). Depois você cria a sua senha.</p>
+        <h1>Acesse sua inscrição</h1>
         ${avisos(q.erro, q.aviso)}
         <form method="post" action="/api/public/portal/login">
-          <label for="id">E-mail, código da inscrição, CPF ou RA</label>
-          <input id="id" name="identificador" required autocomplete="username" autocapitalize="off" autocorrect="off">
+          <label for="id">E-mail</label>
+          <input id="id" name="identificador" type="email" required autocomplete="username" autocapitalize="off" autocorrect="off">
           <label for="s">Senha</label>
           <input id="s" name="senha" type="password" required autocomplete="current-password">
           <button type="submit">Entrar</button>
@@ -310,7 +309,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
         <div class="sep">
           <p class="sub" style="margin-bottom:6px">Primeiro acesso ou esqueceu a senha?</p>
           <form method="post" action="/api/public/portal/recuperar">
-            <input name="identificador" required placeholder="CPF, e-mail ou RA" aria-label="CPF, e-mail ou RA">
+            <input name="identificador" type="email" required placeholder="E-mail" aria-label="E-mail">
             <button class="sec" type="submit">Receber link de acesso</button>
           </form>
           <p class="dica">Mandamos um link pelo WhatsApp ou e-mail do seu cadastro. Ele vale 48 horas e serve uma vez.</p>
