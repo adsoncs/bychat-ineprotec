@@ -102,11 +102,14 @@ export function Jornada(props: {
                   <span class="sub">{e.detalhe}</span>
                 </div>
                 <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? 'Corrigir' : SITUACAO[e.situacao]}</span>
-                {!expandida && (props.contexto === 'painel' || adiadas.includes(e.chave)) && e.situacao !== 'feito' && (
+                {/* Concluída também abre quando há o que consultar: contrato assinado
+                    (PDF) e documentos enviados — como o boleto mostra a cobrança. */}
+                {!expandida && (props.contexto === 'painel' || adiadas.includes(e.chave))
+                  && (e.situacao !== 'feito' || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
                   <button class="link etapa-acao" type="button" onClick={() => {
                     if (props.contexto === 'inscricao') setAdiadas((a) => a.filter((x) => x !== e.chave))
                     else setAberta(e.chave)
-                  }}>{e.situacao === 'aguardando' ? 'Ver' : 'Fazer agora'}</button>
+                  }}>{e.situacao === 'pendente' ? 'Fazer agora' : 'Ver'}</button>
                 )}
                 {expandida && props.contexto === 'painel' && (
                   <button class="link etapa-acao" type="button" onClick={() => setAberta(null)}>Fechar</button>

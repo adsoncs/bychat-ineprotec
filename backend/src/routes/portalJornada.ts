@@ -249,10 +249,19 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
     const env = await envelopeDaInscricao(s.enrollmentId)
     let pdf: Buffer | null = null
-    if (env?.arquivoBase64) pdf = Buffer.from(env.arquivoBase64, 'base64')
-    else pdf = (await pdfDoContratoDaInscricao(s.enrollmentId))?.pdf ?? null
+    // Assinado: a via assinada do provedor (com a trilha das assinaturas). Se
+    // não der para buscar, o documento que foi para assinatura.
+    if (env?.status === 'ASSINADO' && env.arquivoAssinadoUrl?.startsWith('http')) {
+      pdf = await fetch(env.arquivoAssinadoUrl, { signal: AbortSignal.timeout(15_000) })
+        .then(async (r) => (r.ok && String(r.headers.get('content-type')).includes('pdf') ? Buffer.from(await r.arrayBuffer()) : null))
+        .catch(() => null)
+    }
+    if (!pdf && env?.arquivoBase64) pdf = Buffer.from(env.arquivoBase64, 'base64')
+    // Sem envelope ainda: o contrato gerado agora, com os dados atuais.
+    if (!pdf) pdf = (await pdfDoContratoDaInscricao(s.enrollmentId))?.pdf ?? null
     if (!pdf) return reply.code(404).send({ error: 'Não há contrato configurado para este curso.' })
-    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', 'inline; filename="contrato.pdf"')
+    const nome = env?.status === 'ASSINADO' ? 'contrato-assinado.pdf' : 'contrato.pdf'
+    return reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${nome}"`)
       .header('Cache-Control', 'no-store').send(pdf)
   })
 

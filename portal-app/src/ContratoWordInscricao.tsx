@@ -88,7 +88,9 @@ export function ContratoWordInscricao(props: {
       </dl>
 
       {pdf ? <iframe class="contrato-pdf" src={pdf} title="Contrato" /> : null}
-      <button class="secundario" type="button" onClick={abrirPdf}>Ler o contrato completo (PDF)</button>
+      <button class={assinado ? 'principal' : 'secundario'} type="button" onClick={abrirPdf}>
+        {assinado ? 'Ver contrato assinado (PDF)' : 'Ler o contrato completo (PDF)'}
+      </button>
 
       {assinado ? (
         <div class="assinado" style="margin-top:16px">
