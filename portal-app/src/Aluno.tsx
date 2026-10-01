@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks'
-import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
+import { carregarMarca, type MarcaDoPortal } from './marca'
+import { Moldura, AcessoSair } from './Moldura'
 import { Jornada } from './Jornada'
 import { carregarJornadaDoPortal } from './api'
 import { carregarPainelAluno, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
@@ -51,20 +52,19 @@ export function Aluno() {
 
   if (falha) {
     return (
-      <div class="pagina">
-        <div class="cartao" style="margin-top:40px">
+      <Moldura marca={marca} acesso={<AcessoSair />}>
+        <div class="cartao">
           <h2>Não foi possível abrir seu portal</h2>
           <p class="sub">{falha}</p>
           <button class="principal" onClick={() => location.reload()}>Tentar de novo</button>
         </div>
-      </div>
+      </Moldura>
     )
   }
   if (soCandidato && jornada) {
     return (
-      <div class="pagina">
-        <TopoDaMarca marca={marca} />
-        <div class="cartao" style="margin-bottom:14px">
+      <Moldura marca={marca} acesso={<AcessoSair />}>
+        <div class="cartao">
           <h2>Minha inscrição</h2>
           <p class="sub" style="margin:0">Código {jornada.inscricao.candidateCode}{jornada.portal ? ` · ${jornada.portal.nome}` : ''}</p>
         </div>
@@ -73,17 +73,16 @@ export function Aluno() {
             ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
             : <p class="sub">Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.</p>}
         </div>
-      </div>
+      </Moldura>
     )
   }
 
   if (!d) {
     return (
-      <div class="pagina" aria-busy="true">
-        <div class="topo"><div class="esqueleto" style="width:170px;height:26px" /></div>
-        <div class="esqueleto" style="height:130px;margin-bottom:14px" />
+      <Moldura marca={marca}>
+        <div class="esqueleto" style="height:130px" />
         <div class="esqueleto" style="height:260px" />
-      </div>
+      </Moldura>
     )
   }
 
@@ -93,8 +92,7 @@ export function Aluno() {
   ).length
 
   return (
-    <div class="pagina">
-      <TopoDaMarca marca={marca} />
+    <Moldura marca={marca} acesso={<AcessoSair />}>
       <div class="cartao" style="margin-bottom:14px">
         <h2>{d.aluno.nome}</h2>
         <p class="sub" style="margin:0">
@@ -314,7 +312,7 @@ export function Aluno() {
           <button class="secundario" type="submit" style="width:100%">Sair do portal</button>
         </form>
       </div>
-    </div>
+    </Moldura>
   )
 }
 

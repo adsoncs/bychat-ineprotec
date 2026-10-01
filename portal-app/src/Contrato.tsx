@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
+import { carregarMarca, type MarcaDoPortal } from './marca'
+import { Moldura, AcessoSair } from './Moldura'
 import { carregarContrato, assinarContrato, type ContratoDoAluno } from './api'
 
 // Contrato de matrícula — Fase 5 da consolidação ERP × Portal.
@@ -82,23 +83,22 @@ export function Contrato() {
 
   if (falha) {
     return (
-      <div class="pagina">
+      <Moldura marca={marca} acesso={<AcessoSair />}>
         <div class="cartao">
           <h2>Contrato</h2>
           <p class="sub">{falha}</p>
           <a href="/portal/aluno"><button class="secundario" type="button">Voltar ao meu portal</button></a>
         </div>
-      </div>
+      </Moldura>
     )
   }
 
   if (!dados) {
-    return <div class="pagina" aria-busy="true"><div class="topo" /><div class="esqueleto" style="height:320px" /></div>
+    return <Moldura marca={marca}><div class="esqueleto" style="height:320px" /></Moldura>
   }
 
   return (
-    <div class="pagina">
-      <TopoDaMarca marca={marca} />
+    <Moldura marca={marca} acesso={<AcessoSair />}>
       <div class="cartao contrato">
         <h2>{dados.titulo}</h2>
         <p class="sub">{dados.curso} · {dados.turma}</p>
@@ -165,6 +165,6 @@ export function Contrato() {
           </>
         )}
       </div>
-    </div>
+    </Moldura>
   )
 }

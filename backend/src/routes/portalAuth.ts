@@ -34,6 +34,23 @@ const STATUS_INSCRICAO: Record<string, string> = {
   rejected: 'Não aprovada', cancelled: 'Cancelada', expired: 'Expirada',
 }
 
+/**
+ * Telas do /portal (início, entrar, senha) servidas pela aplicação do portal —
+ * a mesma moldura, marca e componentes da inscrição. A cor e o favicon da
+ * marca já vão no HTML, para a primeira pintura não piscar no tom padrão.
+ * Sem a aplicação publicada, as rotas caem na versão do servidor (reserva).
+ */
+async function telaDoApp(req: any, reply: any, titulo: string) {
+  const m = await marcaDoAcesso(req, reply).catch(() => null)
+  const html = paginaDoPortal({
+    nome: titulo, slug: m?.slug || 'portal', metaTitle: titulo,
+    metaDescription: 'Portal do candidato e do aluno.',
+    brandPrimaryColor: (m?.bruto as any)?.brandPrimaryColor ?? null,
+    brandFaviconUrl: (m?.bruto as any)?.brandFaviconUrl ?? null,
+  }, process.env.APP_URL || '')
+  return reply.type('text/html').header('cache-control', 'no-store').send(html)
+}
+
 /** Sessão da requisição, ou null. Usado pelas rotas do próprio portal. */
 export async function sessaoDaRequisicao(req: any): Promise<{ accountId: number } | null> {
   const r = await validarSessao(cookieDaRequisicao(req))
@@ -276,6 +293,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
 
   // ── GET /portal/login ──
   app.get('/portal/login', async (req, reply) => {
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Entrar no portal')
     const q = (req.query as any) || {}
     return reply.type('text/html').send(await paginaComMarca(req, reply, 'Entrar no portal', `
       <div class="card">
@@ -304,6 +322,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   app.get('/portal/senha', async (req, reply) => {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+criar+sua+senha.').send()
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Criar senha')
     const q = (req.query as any) || {}
     const eu = await quemE(s.accountId)
     // "depois": para onde seguir no "agora não" (só caminho interno do portal).
@@ -372,6 +391,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   app.get('/portal', async (req, reply) => {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login').send()
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Meu portal')
     const eu = await quemE(s.accountId)
     const q = (req.query as any) || {}
 

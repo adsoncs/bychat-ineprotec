@@ -5,7 +5,8 @@
 // agora mostra a MESMA jornada do portal logado. Quem já tem sessão no portal
 // nem chega aqui: o servidor manda para /portal/aluno.
 import { useEffect, useState } from 'preact/hooks'
-import { carregarMarca, TopoDaMarca, type MarcaDoPortal } from './marca'
+import { carregarMarca, type MarcaDoPortal } from './marca'
+import { Moldura, AcessoSair, AcessoEntrar } from './Moldura'
 import { Jornada } from './Jornada'
 
 const CHAVE = (codigo: string) => `bh_candidato_${codigo}`
@@ -62,9 +63,8 @@ export function Candidato() {
 
   if (!token) {
     return (
-      <div class="pagina">
-        <TopoDaMarca marca={marca} />
-        <form class="cartao" style="margin-top:14px" onSubmit={entrar}>
+      <Moldura marca={marca} acesso={<AcessoEntrar slug={marca?.slug} />}>
+        <form class="cartao" onSubmit={entrar}>
           <h2>Minha inscrição</h2>
           <p class="sub">Entre com o código da inscrição e o seu CPF para acompanhar e concluir as etapas.</p>
           <div class="campo">
@@ -81,13 +81,12 @@ export function Candidato() {
           <button class="principal" type="submit" disabled={entrando}>{entrando ? 'Entrando…' : 'Entrar'}</button>
           <p class="sub legal">Tem senha do portal? <a href="/portal/login">Entre pelo portal</a>.</p>
         </form>
-      </div>
+      </Moldura>
     )
   }
 
   return (
-    <div class="pagina">
-      <TopoDaMarca marca={marca} />
+    <Moldura marca={marca} acesso={<AcessoSair aoSair={sair} />}>
       <div class="cartao" style="margin-bottom:14px">
         <h2>{nome ? `Olá, ${nome.split(' ')[0]}` : 'Minha inscrição'}</h2>
         <p class="sub" style="margin:0">Código {codigo}{portal ? ` · ${portal}` : ''}</p>
@@ -99,7 +98,7 @@ export function Candidato() {
       <div class="cartao">
         <Jornada key={token} codigo={codigo} token={token} contexto="painel" />
       </div>
-    </div>
+    </Moldura>
   )
 }
 

@@ -41,6 +41,8 @@ const CAMPOS = {
   slug: true, nome: true, brandHeaderStyle: true, brandStepStyle: true, brandTypeScale: true, brandContentWidth: true, brandFooterText: true, brandPrimaryColor: true, brandSecondaryColor: true, brandFontFamily: true,
   brandRadiusScale: true, brandLogoUrl: true, brandLogoLink: true, brandFaviconUrl: true,
   brandBackdropFrom: true, brandBackdropTo: true, brandButtonShape: true, brandButtonUppercase: true,
+  // Layout e selo: as telas do /portal usam a mesma moldura da inscrição.
+  brandTemplate: true, brandSecurityNote: true,
 } as const
 
 function doCookie(req: FastifyRequest): string | null {

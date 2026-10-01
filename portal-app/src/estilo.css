@@ -823,3 +823,25 @@ label.caixa input { margin-top: 3px; }
 .mensagem-final { margin: 8px 0 12px; font-size: 16px; color: var(--tinta); white-space: pre-line; }
 .me-ajude { margin: 0 0 8px; }
 .quiz-curso { border: 1px dashed var(--linha); border-radius: var(--raio); padding: 14px; margin-bottom: 14px; }
+
+/* ── Telas do portal fora do formulário (Moldura) ─────────────────────────
+   Mesma marca e topo da inscrição. A grade de duas colunas é do formulário
+   (form + resumo): aqui os cartões empilham numa coluna só. */
+[data-template='duas-colunas'] .pagina.logada { display: block; max-width: 720px; }
+/* A grade de duas colunas manda todo .cartao para a área "form" — aqui eles
+   se sobreporiam. Na moldura, cada um ocupa a sua linha. */
+[data-template='duas-colunas'] .conteudo-logado > *,
+[data-template='duas-colunas'] .pagina.logada > * { grid-area: auto; }
+.conteudo-logado { display: grid; gap: 14px; }
+.conteudo-logado > .cartao { margin: 0; }
+.cartao .acoes-linha { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.cartao .acoes-linha > * { flex: 1 1 200px; }
+.item-conta { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--linha); font-size: 14.5px; }
+.item-conta:last-of-type { border-bottom: 0; }
+.item-conta .rotulo { color: var(--tinta-3); font-size: 13px; }
+/* No celular, botão principal na largura toda — como no formulário de inscrição. */
+@media (max-width: 560px) {
+  .conteudo-logado form.cartao > button.principal,
+  .conteudo-logado form.cartao > button.secundario,
+  .conteudo-logado .acoes-linha > button { width: 100%; }
+}

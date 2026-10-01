@@ -23,6 +23,7 @@ export interface MarcaDoPortal {
   brandLogoLink?: string | null
   brandFaviconUrl?: string | null
   brandFooterText?: string | null
+  brandSecurityNote?: string | null
 }
 
 // Escala de arredondamento do builder: valores nomeados, não número.
@@ -103,10 +104,11 @@ export function aplicarMarca(p: MarcaDoPortal) {
  * veio: o backend resolve (inscrição de quem está logado, último portal
  * visitado, portal principal). Nunca lança — sem marca, fica o tema padrão.
  */
-export async function carregarMarca(inscricao?: string): Promise<MarcaDoPortal | null> {
+export async function carregarMarca(inscricao?: string, portal?: string): Promise<MarcaDoPortal | null> {
   try {
-    // Pelo código da inscrição (/candidato/<código>) a marca é a do portal dela.
-    const q = inscricao ? `?inscricao=${encodeURIComponent(inscricao)}` : ''
+    // Pelo código da inscrição (/candidato/<código>) a marca é a do portal dela;
+    // pelo slug (/portal/login?portal=…), a do portal de onde a pessoa veio.
+    const q = inscricao ? `?inscricao=${encodeURIComponent(inscricao)}` : portal ? `?portal=${encodeURIComponent(portal)}` : ''
     const r = await fetch(`/api/public/portal/marca${q}`, { credentials: 'same-origin' })
     if (!r.ok) return null
     const { marca } = (await r.json()) as { marca: MarcaDoPortal | null }

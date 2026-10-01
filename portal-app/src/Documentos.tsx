@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { carregarMarca } from './marca'
+import { carregarMarca, type MarcaDoPortal } from './marca'
+import { Moldura, AcessoSair } from './Moldura'
 import {
   carregarCandidato, enviarDocumento, removerDocumento,
   type Candidato, type DocumentoEnviado, type Exigencia,
@@ -27,12 +28,13 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
   const [enviando, setEnviando] = useState<string | null>(null)
   const [erros, setErros] = useState<Record<string, string>>({})
   const [notas, setNotas] = useState<Record<string, string>>({})
+  const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
 
   async function recarregar() {
     try {
       const d = await carregarCandidato(props.token)
       // Branding completo (fonte, cantos, fundo, botões); a cor vem logo abaixo.
-      if (!props.embutido) void carregarMarca()
+      if (!props.embutido && !marca) void carregarMarca().then(setMarca)
       // A identidade da instituição vale na área logada também: sem isto a
       // pessoa sai do portal roxo e cai numa tela com a cor padrão do sistema.
       if (d.portal?.brandPrimaryColor) {
@@ -52,21 +54,20 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
 
   if (falha) {
     return (
-      <div class="pagina">
-        <div class="cartao" style="margin-top:40px">
+      <Moldura marca={marca} acesso={<AcessoSair />}>
+        <div class="cartao">
           <h2>Não foi possível abrir seus documentos</h2>
           <p class="sub">{falha}</p>
           <button class="principal" onClick={() => location.reload()}>Tentar de novo</button>
         </div>
-      </div>
+      </Moldura>
     )
   }
   if (!dados) {
     return (
-      <div class="pagina" aria-busy="true">
-        <div class="topo"><div class="esqueleto" style="width:160px;height:26px" /></div>
-        <div class="esqueleto" style="height:300px" />
-      </div>
+      props.embutido
+        ? <div class="esqueleto" style="height:300px" />
+        : <Moldura marca={marca}><div class="esqueleto" style="height:300px" /></Moldura>
     )
   }
 
@@ -112,15 +113,14 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
     props.aoMudar?.()
   }
 
-  return (
-    <div class={props.embutido ? 'docs-embutidos' : 'pagina'}>
-      {!props.embutido && (
-        <div class="topo">
-          {dados.portal.brandLogoUrl
-            ? <img src={dados.portal.brandLogoUrl} alt={dados.portal.nome} />
-            : <span class="nome">{dados.portal.nome}</span>}
-        </div>
-      )}
+  // Fora da jornada (/portal/documentos): a moldura do portal, igual às demais telas.
+  // (Função, não componente: um componente criado aqui seria outro a cada
+  // render, e os filhos — upload em andamento incluído — seriam recriados.)
+  const envolver = (conteudo: any) => props.embutido
+    ? <div class="docs-embutidos">{conteudo}</div>
+    : <Moldura marca={marca} acesso={<AcessoSair />}>{conteudo}</Moldura>
+  return envolver(
+    <>
 
       <div class="cartao" style="margin-bottom:14px">
         <h2>Seus documentos</h2>
@@ -158,8 +158,7 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
         />
       ))}
 
-      {!props.embutido && dados.portal.brandFooterText && <div class="rodape">{dados.portal.brandFooterText}</div>}
-    </div>
+    </>,
   )
 }
 
