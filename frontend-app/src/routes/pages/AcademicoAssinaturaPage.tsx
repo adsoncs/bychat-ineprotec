@@ -28,7 +28,7 @@ export function AcademicoAssinaturaPage() {
   const [sel, setSel] = useState<number | null>(null)
   if (sel !== null) return <Detalhe id={sel} onBack={() => setSel(null)} />
   return (
-    <Page title="Assinatura de Contratos" description="Templates por negócio, criação (escrever/upload/template), gatilhos e assinatura via Autentique.">
+    <Page title="Assinatura de Contratos" description="Templates por negócio, criação (escrever/upload/template), gatilhos e assinatura eletrônica (Autentique ou Clicksign).">
       <div class="flex gap-1 border-b border-border">
         {([['contratos', 'Contratos', FileSignature], ['templates', 'Templates', FileStack], ['gatilhos', 'Gatilhos', Zap]] as [Aba, string, any][]).map(([k, l, Ico]) => (
           <button key={k} class={`text-sm px-3 py-2 -mb-px border-b-2 flex items-center gap-1 ${aba === k ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`} onClick={() => setAba(k)}><Ico size={14} /> {l}</button>
@@ -54,7 +54,7 @@ function Contratos({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-2 flex-wrap">
-        {config.data && <Badge tone={config.data.modo === 'AUTENTIQUE' ? 'success' : 'warning'}>{config.data.modo === 'AUTENTIQUE' ? 'Autentique' : 'Modo simulado'}</Badge>}
+        {config.data && (() => { const at = config.data.provedorAtivo ?? (config.data.modo === 'AUTENTIQUE' ? 'AUTENTIQUE' : 'SIMULADO'); return <Badge tone={at !== 'SIMULADO' ? 'success' : 'warning'}>{at === 'AUTENTIQUE' ? 'Autentique' : at === 'CLICKSIGN' ? 'Clicksign' : 'Modo simulado'}</Badge> })()}
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => setCfg(true)}><Settings size={14} /> Configurar</Button>
           <Button variant="primary" size="sm" onClick={() => setNovo(true)}><Plus size={14} /> Novo contrato</Button>
@@ -112,7 +112,7 @@ function Detalhe({ id, onBack }: { id: number; onBack: () => void }) {
   const act = (fn: any, arg: any, msg: string) => fn.mutate(arg, { onSuccess: () => toast(msg, 'success'), onError: (err: any) => toast(err?.message || 'Erro', 'danger') })
   const simulado = e.provider === 'SIMULADO'
   return (
-    <Page title={e.titulo} description={`${e.provider === 'AUTENTIQUE' ? 'Autentique' : 'Simulado'}${e.origem ? ` · ${e.origem.toLowerCase()}` : ''}${e.documentoExternoId ? ` · doc ${e.documentoExternoId}` : ''}`}>
+    <Page title={e.titulo} description={`${e.provider === 'AUTENTIQUE' ? 'Autentique' : e.provider === 'CLICKSIGN' ? 'Clicksign' : 'Simulado'}${e.origem ? ` · ${e.origem.toLowerCase()}` : ''}${e.documentoExternoId ? ` · doc ${e.documentoExternoId}` : ''}`}>
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft size={14} /> Voltar</Button>
         <div class="flex items-center gap-2 flex-wrap">
@@ -121,7 +121,7 @@ function Detalhe({ id, onBack }: { id: number; onBack: () => void }) {
           {e.arquivoAssinadoUrl && <a href={e.arquivoAssinadoUrl} target="_blank" rel="noreferrer"><Button variant="ghost" size="sm"><Download size={14} /> PDF assinado</Button></a>}
           {e.status === 'RASCUNHO' && <Button variant="primary" size="sm" loading={mut.enviar.isPending} onClick={() => act(mut.enviar, id, 'Enviado para assinatura')}><Send size={14} /> Enviar</Button>}
           {(e.status === 'ENVIADO' || e.status === 'PARCIAL') && <Button variant="secondary" size="sm" loading={mut.reenviar.isPending} onClick={() => act(mut.reenviar, id, 'Convites reenviados')}><Send size={14} /> Reenviar</Button>}
-          {(e.status === 'ENVIADO' || e.status === 'PARCIAL') && e.provider === 'AUTENTIQUE' && <Button variant="secondary" size="sm" loading={mut.sincronizar.isPending} onClick={() => act(mut.sincronizar, id, 'Status atualizado')}><RefreshCw size={14} /> Sincronizar</Button>}
+          {(e.status === 'ENVIADO' || e.status === 'PARCIAL') && (e.provider === 'AUTENTIQUE' || e.provider === 'CLICKSIGN') && <Button variant="secondary" size="sm" loading={mut.sincronizar.isPending} onClick={() => act(mut.sincronizar, id, 'Status atualizado')}><RefreshCw size={14} /> Sincronizar</Button>}
           {e.status !== 'ASSINADO' && e.status !== 'CANCELADO' && <Button variant="ghost" size="sm" onClick={() => act(mut.cancelar, id, 'Cancelado')}><X size={14} /> Cancelar</Button>}
         </div>
       </div>

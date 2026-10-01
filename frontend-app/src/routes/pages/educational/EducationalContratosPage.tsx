@@ -20,7 +20,7 @@ import { api } from '@/lib/apiClient'
 import { env } from '@/lib/env'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { BASE_CONTRATOS_PORTAL } from '../contratos/ContratoWord'
-import { ListaDeModelos, ConfigAssinaturaModal, useConfigAssinatura } from '../contratos/Modelos'
+import { ListaDeModelos, ConfigAssinaturaModal, useConfigAssinatura, NOME_PROVEDOR } from '../contratos/Modelos'
 
 interface ContratoDaInscricao {
   registrationId: number; candidateCode: string; portalId: number; portalNome: string | null
@@ -36,7 +36,7 @@ export const STATUS_CONTRATO: Record<string, { rotulo: string; tom: 'success' | 
   RASCUNHO: { rotulo: 'Rascunho', tom: 'neutral' },
   REJEITADO: { rotulo: 'Recusado', tom: 'danger' },
 }
-const PROVEDOR: Record<string, string> = { AUTENTIQUE: 'Autentique', PORTAL: 'Aceite no portal', TERMO: 'Termo de aceite', SIMULADO: 'Simulado' }
+const PROVEDOR: Record<string, string> = { AUTENTIQUE: 'Autentique', CLICKSIGN: 'Clicksign', PORTAL: 'Aceite no portal', TERMO: 'Termo de aceite', SIMULADO: 'Simulado' }
 
 /** Abre o PDF do contrato (rota autenticada: vem como blob). */
 export async function abrirPdfDoEnvelope(envelopeId: number) {
@@ -58,19 +58,23 @@ export function EducationalContratosPage() {
   const [cfg, setCfg] = useState(false)
   const config = useConfigAssinatura(BASE_CONTRATOS_PORTAL)
   const c = config.data
+  // Provedor em uso e se está em sandbox (cada um tem o seu).
+  const ativo = c?.provedorAtivo ?? (c?.modo === 'AUTENTIQUE' ? 'AUTENTIQUE' : 'SIMULADO')
+  const nomeAtivo = NOME_PROVEDOR[ativo] ?? ativo
+  const emSandbox = ativo === 'CLICKSIGN' ? !!c?.clicksign?.sandbox : ativo === 'AUTENTIQUE' ? !!c?.sandbox : false
   return (
     <Page title="Contratos" description="Modelos de contrato do Portal de Matrículas, assinatura eletrônica e os contratos assinados nas inscrições."
       actions={<>
-        {c && <Badge tone={c.modo === 'AUTENTIQUE' && !c.sandbox ? 'success' : 'warning'}>{c.modo === 'AUTENTIQUE' ? (c.sandbox ? 'Autentique · sandbox' : 'Autentique') : 'Aceite no portal (sem Autentique)'}</Badge>}
+        {c && <Badge tone={ativo !== 'SIMULADO' && !emSandbox ? 'success' : 'warning'}>{ativo !== 'SIMULADO' ? (emSandbox ? `${nomeAtivo} · sandbox` : nomeAtivo) : 'Aceite no portal (sem assinatura eletrônica)'}</Badge>}
         <Button variant="secondary" size="sm" onClick={() => setCfg(true)}><Settings size={14} /> Assinatura eletrônica</Button>
       </>}>
-      {c && (c.modo !== 'AUTENTIQUE' || c.sandbox) && (
+      {c && (ativo === 'SIMULADO' || emSandbox) && (
         <div class="flex gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-fg">
           <AlertTriangle size={16} class="text-warning shrink-0 mt-0.5" />
           <span>
-            {c.modo !== 'AUTENTIQUE'
-              ? 'A Autentique não está configurada: o aluno lê o contrato e aceita no próprio portal digitando o nome. Para assinatura eletrônica com validade jurídica, configure o token em "Assinatura eletrônica".'
-              : 'A Autentique está em modo sandbox (teste): as assinaturas não têm validade jurídica. Desmarque "Sandbox" em "Assinatura eletrônica" para valer de verdade.'}
+            {ativo === 'SIMULADO'
+              ? 'Nenhum provedor de assinatura eletrônica está configurado: o aluno lê o contrato e aceita no próprio portal digitando o nome. Para assinatura com validade jurídica, escolha a Autentique ou a Clicksign em "Assinatura eletrônica".'
+              : `A ${nomeAtivo} está em modo sandbox (teste): as assinaturas não têm validade jurídica. Desmarque "Sandbox" em "Assinatura eletrônica" para valer de verdade.`}
           </span>
         </div>
       )}

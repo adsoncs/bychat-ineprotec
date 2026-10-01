@@ -8,6 +8,8 @@ import { arquivarContratoNoGed, efetivarPorContratoAssinado } from './acaEfetiva
 import { getDocHeader, dataExtenso } from './acaDocRender.js'
 import { pdfContrato } from './acaPdf.js'
 import * as aut from './autentique.js'
+import * as cs from './clicksign.js'
+import { provedorAtivo } from './assinaturaProvedor.js'
 
 const PAPEL_LABEL: Record<string, string> = { ALUNO: 'Aluno(a)', RESPONSAVEL: 'Responsável', FIADOR: 'Fiador(a)', INSTITUICAO: 'Instituição', TESTEMUNHA: 'Testemunha' }
 function reais(c: number) { return (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
@@ -246,9 +248,30 @@ export async function enviar(envelopeId: number) {
     if ((s.deliveryMethod === 'SMS' || s.deliveryMethod === 'WHATSAPP') && !s.telefone) throw new Error(`Signatário ${s.nome}: telefone obrigatório p/ ${s.deliveryMethod}`)
   }
   const { buffer } = await gerarPdf(envelopeId)
+  const provedor = await provedorAtivo()
   const cfg = await aut.getConfig()
 
-  if (cfg.modo === 'AUTENTIQUE' && cfg.token) {
+  if (provedor === 'CLICKSIGN') {
+    const csCfg = await cs.getConfig()
+    // A Clicksign não devolve link: sem o Widget, quem assina "por link" nunca
+    // receberia nada. Barra aqui, antes de gastar um envelope.
+    const semCanal = env.signatarios.find((s) => s.deliveryMethod === 'LINK' && !csCfg.widget)
+    if (semCanal) throw new Error(`Signatário ${semCanal.nome}: a Clicksign não gera link de assinatura — escolha e-mail, WhatsApp ou SMS (ou contrate o Widget Embedded)`)
+    const r = await cs.criarEnvelope(csCfg, env.titulo, buffer, env.signatarios.map((s) => ({
+      nome: s.nome, email: s.email, telefone: s.telefone, cpf: s.cpf, acao: s.acao, delivery: s.deliveryMethod, exigeCpf: s.exigeCpf, exigeSelfie: s.exigeSelfie,
+    })), { mensagem: env.mensagem, lembrete: env.reminder, ordenado: env.sortable, recusavel: env.refusable, prazo: env.deadlineEm?.toISOString() || null })
+    // Mesma ordem em que foram mandados: associa por posição.
+    for (const [i, s] of env.signatarios.entries()) {
+      await prisma.acaSignatario.update({ where: { id: s.id }, data: { publicId: r.signatarios[i] ?? null, linkAssinatura: null } })
+    }
+    await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: {
+      provider: 'CLICKSIGN', documentoExternoId: r.documentoId, pastaExternaId: r.envelopeId,
+      status: 'ENVIADO', enviadoEm: new Date(),
+      // O ambiente vai junto: consultas futuras falam com o mesmo host, mesmo
+      // que a configuração mude de sandbox para produção depois.
+      metaJson: { envelopeId: r.envelopeId, documentoId: r.documentoId, sandbox: csCfg.sandbox, signatarios: r.signatarios } as any,
+    } })
+  } else if (provedor === 'AUTENTIQUE' && cfg.token) {
     const opts: aut.DocOptions = { message: env.mensagem, reminder: env.reminder, sortable: env.sortable, refusable: env.refusable, deadlineAt: env.deadlineEm?.toISOString() || null }
     const signers: aut.CriarDocSigner[] = env.signatarios.map((s) => ({ nome: s.nome, email: s.email, telefone: s.telefone, acao: s.acao, delivery: s.deliveryMethod, cpf: s.cpf, exigeCpf: s.exigeCpf, exigeSelfie: s.exigeSelfie }))
     const doc = await aut.criarDocumento(cfg.token, cfg.sandbox, env.titulo, signers, buffer, opts)
@@ -293,8 +316,56 @@ export async function sincronizar(envelopeId: number) {
       }
       if (doc.files?.signed) await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { arquivoAssinadoUrl: doc.files.signed } })
     }
+  } else if (env.provider === 'CLICKSIGN' && env.documentoExternoId && env.pastaExternaId) {
+    await sincronizarClicksign(env)
   }
   return recompute(envelopeId)
+}
+
+/** Config da Clicksign no ambiente em que o envelope nasceu. */
+async function clicksignDoEnvelope(meta: unknown): Promise<cs.ClicksignConfig> {
+  const cfg = await cs.getConfig()
+  const sandbox = (meta as any)?.sandbox
+  return typeof sandbox === 'boolean' ? { ...cfg, sandbox } : cfg
+}
+
+async function sincronizarClicksign(env: { id: number; alunoId: number | null; status: string; documentoExternoId: string | null; pastaExternaId: string | null; arquivoAssinadoUrl: string | null; metaJson: unknown; signatarios: Array<{ id: number; publicId: string | null; email: string | null; telefone: string | null; status: string }> }) {
+  const cfg = await clicksignDoEnvelope(env.metaJson)
+  if (!cfg.token) return
+  const sit = await cs.consultar(cfg, env.pastaExternaId!, env.documentoExternoId!)
+  const fechado = sit.envelope === 'closed' || sit.documento === 'closed'
+  for (const s of env.signatarios) {
+    const tel = cs.telefoneClicksign(s.telefone)
+    const ev = sit.signatarios.find((x) => (x.id && x.id === s.publicId))
+      || (s.email ? sit.signatarios.find((x) => x.email === s.email!.toLowerCase()) : undefined)
+      || (tel ? sit.signatarios.find((x) => x.telefone === tel) : undefined)
+    // Envelope fechado = todos assinaram, mesmo que o evento ainda não tenha chegado.
+    const status = ev?.status ?? (fechado ? 'ASSINADO' : null)
+    if (!status || status === s.status) continue
+    await prisma.acaSignatario.update({ where: { id: s.id }, data: {
+      status: status as any,
+      ...(status === 'ASSINADO' ? { assinadoEm: ev?.em ?? new Date() } : { rejeitadoEm: ev?.em ?? new Date() }),
+    } })
+  }
+  // Os links de download da Clicksign expiram em minutos: a via assinada é
+  // baixada uma vez e guardada aqui, onde o portal, o painel e o GED a leem.
+  if (fechado && !env.arquivoAssinadoUrl) {
+    const pdf = await cs.baixarPdfAssinado(cfg, env.pastaExternaId!, env.documentoExternoId!).catch(() => null)
+    if (pdf) {
+      const { uploadsPath } = await import('../lib/uploadsDir.js')
+      const fs = await import('node:fs/promises')
+      const crypto = await import('node:crypto')
+      const dir = uploadsPath('contratos')
+      await fs.mkdir(dir, { recursive: true })
+      // Sufixo aleatório: /uploads é público, o nome não pode ser adivinhado.
+      const nome = `assinado-${env.id}-${crypto.randomBytes(12).toString('hex')}.pdf`
+      await fs.writeFile(`${dir}/${nome}`, pdf)
+      await prisma.acaAssinatura.update({ where: { id: env.id }, data: { arquivoAssinadoUrl: `/uploads/contratos/${nome}` } })
+    }
+  }
+  if (sit.envelope === 'canceled' && env.status !== 'ASSINADO' && env.status !== 'CANCELADO') {
+    await prisma.acaAssinatura.update({ where: { id: env.id }, data: { status: 'CANCELADO' } })
+  }
 }
 
 export async function simularAssinatura(envelopeId: number, signatarioId: number) {
@@ -305,10 +376,13 @@ export async function simularAssinatura(envelopeId: number, signatarioId: number
 }
 
 export async function cancelar(envelopeId: number) {
-  const env = await prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, select: { provider: true, documentoExternoId: true } })
+  const env = await prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, select: { provider: true, documentoExternoId: true, pastaExternaId: true, metaJson: true } })
   if (env?.provider === 'AUTENTIQUE' && env.documentoExternoId) {
     const cfg = await aut.getConfig()
     if (cfg.token) await aut.removerDocumento(cfg.token, env.documentoExternoId).catch(() => {})
+  } else if (env?.provider === 'CLICKSIGN' && env.pastaExternaId) {
+    const cfg = await clicksignDoEnvelope(env.metaJson)
+    if (cfg.token) await cs.cancelar(cfg, env.pastaExternaId).catch(() => {})
   }
   await prisma.acaAssinatura.update({ where: { id: envelopeId }, data: { status: 'CANCELADO' } })
   return prisma.acaAssinatura.findUnique({ where: { id: envelopeId }, include: { signatarios: { orderBy: { ordem: 'asc' } } } })
@@ -321,6 +395,9 @@ export async function reenviar(envelopeId: number) {
     const cfg = await aut.getConfig()
     const pend = env.signatarios.filter((s) => s.status !== 'ASSINADO' && s.publicId).map((s) => s.publicId!)
     if (cfg.token && pend.length) await aut.reenviarAssinaturas(cfg.token, pend)
+  } else if (env.provider === 'CLICKSIGN' && env.pastaExternaId) {
+    const cfg = await clicksignDoEnvelope(env.metaJson)
+    if (cfg.token && env.signatarios.some((s) => s.status !== 'ASSINADO')) await cs.reenviar(cfg, env.pastaExternaId, env.mensagem)
   }
   return { ok: true }
 }
@@ -353,7 +430,8 @@ function coletarIds(obj: any, acc = new Set<string>(), depth = 0): Set<string> {
   if (Array.isArray(obj)) { for (const v of obj) coletarIds(v, acc, depth + 1); return acc }
   if (typeof obj === 'object') {
     for (const [k, v] of Object.entries(obj)) {
-      if ((k === 'id' || k === 'uuid' || k === 'document_id' || k === 'documentId') && (typeof v === 'string' || typeof v === 'number')) acc.add(String(v))
+      // `key`: a Clicksign identifica o documento por `document.key`.
+      if ((k === 'id' || k === 'key' || k === 'uuid' || k === 'document_id' || k === 'documentId') && (typeof v === 'string' || typeof v === 'number')) acc.add(String(v))
       else if (v && typeof v === 'object') coletarIds(v, acc, depth + 1)
     }
   }
@@ -363,7 +441,7 @@ function coletarIds(obj: any, acc = new Set<string>(), depth = 0): Set<string> {
 export async function processarWebhook(body: any): Promise<{ ok: boolean; envelopeId?: number }> {
   const ids = [...coletarIds(body)]
   if (!ids.length) return { ok: true }
-  const env = await prisma.acaAssinatura.findFirst({ where: { documentoExternoId: { in: ids } }, select: { id: true } })
+  const env = await prisma.acaAssinatura.findFirst({ where: { OR: [{ documentoExternoId: { in: ids } }, { pastaExternaId: { in: ids } }] }, select: { id: true } })
   if (!env) return { ok: true }
   await sincronizar(env.id).catch(() => {})
   return { ok: true, envelopeId: env.id }

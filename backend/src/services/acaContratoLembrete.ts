@@ -45,7 +45,7 @@ export async function varrerContratosParados(opts: { simular?: boolean } = {}): 
   const envelopes = await prisma.acaAssinatura.findMany({
     where: { status: { in: ['ENVIADO', 'PARCIAL'] }, enviadoEm: { not: null } },
     select: {
-      id: true, titulo: true, enviadoEm: true, alunoId: true,
+      id: true, titulo: true, enviadoEm: true, alunoId: true, provider: true,
       signatarios: { select: { id: true, nome: true, status: true, email: true, telefone: true, deliveryMethod: true, linkAssinatura: true } },
     },
   })
@@ -67,6 +67,16 @@ export async function varrerContratosParados(opts: { simular?: boolean } = {}): 
     if (!pendentes.length) continue
 
     let algumEnviado = false
+    // Clicksign não tem link para pôr na mensagem: o lembrete é o reenvio do
+    // convite pela própria Clicksign (que já leva o link de assinatura).
+    if (env.provider === 'CLICKSIGN') {
+      const ok = opts.simular ? true : await import('./acaAssinatura.js').then((m) => m.reenviar(env.id)).then(() => true).catch(() => false)
+      for (const s of pendentes) {
+        if (ok) { out.enviados++; out.detalhes.push({ envelopeId: env.id, signatario: s.nome, canal: 'clicksign', diasParado }) } else out.falhas++
+      }
+      if (ok && !opts.simular) mapa[String(env.id)] = [...feitos, marco]
+      continue
+    }
     for (const s of pendentes) {
       const canal = await cobrar(env, s, diasParado, opts.simular === true)
       if (canal) {

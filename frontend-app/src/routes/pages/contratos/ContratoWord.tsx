@@ -119,7 +119,7 @@ export function ArquivoWord(p: {
           <div class="font-semibold text-fg">Contrato em Word</div>
           <p class="text-xs text-fg-muted">
             Suba o contrato da instituição (.docx) com os campos escritos entre chaves duplas — por exemplo <code>{'{{nome}}'}</code>, <code>{'{{cpf}}'}</code>, <code>{'{{curso}}'}</code>, <code>{'{{valor_total}}'}</code>.
-            O sistema preenche com os dados da inscrição, gera o PDF mantendo a formatação do Word e envia para assinatura na Autentique.
+            O sistema preenche com os dados da inscrição, gera o PDF mantendo a formatação do Word e envia para assinatura eletrônica (Autentique ou Clicksign, conforme a configuração).
           </p>
         </div>
       </div>

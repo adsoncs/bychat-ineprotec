@@ -376,37 +376,67 @@ export interface EstadoDaAssinatura {
   status: string
   provedor: string
   assinadoEm: string | null
-  signatarios: Array<{ id: number; papel: string; nome: string; status: string; link: string | null; porEmail: boolean }>
+  /** Clicksign com Widget Embedded: o portal monta a assinatura na própria página. */
+  widget: { endpoint: string } | null
+  signatarios: Array<{
+    id: number; papel: string; nome: string; status: string; link: string | null; porEmail: boolean
+    /** Canal do convite (EMAIL|WHATSAPP|SMS|LINK) — sem link, o portal diz onde procurar. */
+    canal: string
+    /** Id do signatário na Clicksign, para o widget (só quando há widget). */
+    widgetId: string | null
+  }>
 }
 
-function estado(env: NonNullable<Awaited<ReturnType<typeof envelopeDaInscricao>>>): EstadoDaAssinatura {
+function estado(env: NonNullable<Awaited<ReturnType<typeof envelopeDaInscricao>>>, widget: { endpoint: string } | null = null): EstadoDaAssinatura {
   return {
     envelopeId: env.id, status: env.status, provedor: env.provider,
     assinadoEm: env.finalizadoEm?.toISOString() ?? null,
+    widget,
     signatarios: env.signatarios.map((s) => ({
       id: s.id, papel: s.papel, nome: s.nome, status: s.status,
       // Link simulado não abre nada: não vai para a tela.
       link: s.linkAssinatura && !s.linkAssinatura.includes('assinatura.simulada') ? s.linkAssinatura : null,
       porEmail: s.deliveryMethod === 'EMAIL',
+      canal: s.deliveryMethod,
+      widgetId: widget && s.deliveryMethod === 'LINK' ? s.publicId : null,
     })),
   }
 }
 
+/** Widget da Clicksign para este envelope (host do ambiente em que ele nasceu). */
+async function widgetDoEnvelope(env: { provider: string; metaJson: unknown }): Promise<{ endpoint: string } | null> {
+  if (env.provider !== 'CLICKSIGN') return null
+  const cs = await import('./clicksign.js')
+  const cfg = await cs.getConfig()
+  if (!cfg.widget) return null
+  const sandbox = (env.metaJson as any)?.sandbox
+  return { endpoint: cs.host(typeof sandbox === 'boolean' ? sandbox : cfg.sandbox) }
+}
+
+// A Clicksign proíbe polling: o status chega pelo webhook. A tela do portal
+// pergunta a cada 6 s; à Clicksign vai no máximo uma consulta a cada 2 min por
+// envelope — rede de segurança para webhook atrasado ou mal configurado.
+const ultimaConsultaClicksign = new Map<number, number>()
+
 export async function estadoDaAssinaturaDaInscricao(registrationId: number, atualizar = false): Promise<EstadoDaAssinatura | null> {
   let env = await envelopeDaInscricao(registrationId)
-  if (env && atualizar && env.provider === 'AUTENTIQUE' && env.status !== 'ASSINADO') {
+  const consultar = env && atualizar && env.status !== 'ASSINADO' && (
+    env.provider === 'AUTENTIQUE'
+    || (env.provider === 'CLICKSIGN' && Date.now() - (ultimaConsultaClicksign.get(env.id) ?? 0) > 120_000)
+  )
+  if (env && consultar) {
+    if (env.provider === 'CLICKSIGN') ultimaConsultaClicksign.set(env.id, Date.now())
     const { sincronizar } = await import('./acaAssinatura.js')
     await sincronizar(env.id).catch(() => {})
     env = await envelopeDaInscricao(registrationId)
   }
-  return env ? estado(env) : null
+  return env ? estado(env, await widgetDoEnvelope(env)) : null
 }
 
-/** A Autentique está configurada de verdade (token + modo)? Sem ela, o aceite é no portal. */
+/** Há provedor de assinatura configurado de verdade (credencial)? Sem ele, o aceite é no portal. */
 export async function assinaturaEletronicaAtiva(): Promise<boolean> {
-  const { getConfig } = await import('./autentique.js')
-  const cfg = await getConfig()
-  return cfg.modo === 'AUTENTIQUE' && !!cfg.token
+  const { provedorAtivo } = await import('./assinaturaProvedor.js')
+  return (await provedorAtivo()) !== 'SIMULADO'
 }
 
 type Resultado = { ok: true; assinatura: EstadoDaAssinatura } | { ok: false; erro: string }
@@ -435,11 +465,27 @@ export async function iniciarAssinaturaDaInscricao(registrationId: number): Prom
     if (dados.menor && !dados.responsavel) {
       return { ok: false, erro: 'Aluno menor de idade: informe os dados do responsável financeiro para gerar o contrato.' }
     }
+    // Canal de cada um. Autentique devolve link: o aluno assina na hora, pelo
+    // portal. Clicksign não devolve link: com o Widget o aluno assina dentro da
+    // página; sem ele, o convite vai pelo WhatsApp (ou e-mail) que a pessoa deu.
+    const { provedorAtivo } = await import('./assinaturaProvedor.js')
+    const clicksign = (await provedorAtivo()) === 'CLICKSIGN'
+    const widget = clicksign ? (await (await import('./clicksign.js')).getConfig()).widget : false
+    const { telefoneClicksign } = await import('./clicksign.js')
+    const canalSemLink = (p: { email: string | null; telefone: string | null }) =>
+      telefoneClicksign(p.telefone) ? 'WHATSAPP' : p.email ? 'EMAIL' : null
+    const canalAluno = !clicksign || widget ? 'LINK' : canalSemLink(dados.aluno)
+    if (!canalAluno) return { ok: false, erro: 'Para assinar o contrato, informe seu WhatsApp ou e-mail nos dados da inscrição.' }
+    const canalResp = !dados.responsavel ? null
+      : dados.responsavel.email ? 'EMAIL'
+      : !clicksign ? 'LINK'
+      : canalSemLink(dados.responsavel)
+    if (dados.responsavel && !canalResp) return { ok: false, erro: 'Informe o WhatsApp ou o e-mail do responsável para ele receber o contrato.' }
     const signatarios = [
-      { nome: dados.aluno.nome, email: dados.aluno.email, telefone: dados.aluno.telefone, cpf: dados.aluno.cpf, papel: 'ALUNO', deliveryMethod: 'LINK' },
+      { nome: dados.aluno.nome, email: dados.aluno.email, telefone: dados.aluno.telefone, cpf: dados.aluno.cpf, papel: 'ALUNO', deliveryMethod: canalAluno },
       ...(dados.responsavel ? [{
         nome: dados.responsavel.nome, email: dados.responsavel.email, telefone: dados.responsavel.telefone, cpf: dados.responsavel.cpf,
-        papel: 'RESPONSAVEL', deliveryMethod: dados.responsavel.email ? 'EMAIL' : 'LINK',
+        papel: 'RESPONSAVEL', deliveryMethod: canalResp!,
       }] : []),
     ]
     const cfg = (modelo.config as any) || {}
@@ -496,7 +542,7 @@ export async function aceiteDaInscricaoPeloEnvelope(envelopeId: number): Promise
   const dados = await dadosDoContratoDaInscricao(env.registrationId).catch(() => null)
   const aluno = env.signatarios.find((s) => s.papel === 'ALUNO') ?? env.signatarios[0]
   const aceite = {
-    termo: `${env.titulo} — assinado eletronicamente${env.provider === 'AUTENTIQUE' ? ` na Autentique (documento ${env.documentoExternoId})` : ' no portal'}.`,
+    termo: `${env.titulo} — assinado eletronicamente${env.provider === 'AUTENTIQUE' || env.provider === 'CLICKSIGN' ? ` na ${env.provider === 'CLICKSIGN' ? 'Clicksign' : 'Autentique'} (documento ${env.documentoExternoId})` : ' no portal'}.`,
     nome: aluno?.nome ?? '', ip: '', userAgent: '', em: (env.finalizadoEm ?? new Date()).toISOString(),
     via: env.provider, envelopeId: env.id,
     plano: dados?.plano ?? null,

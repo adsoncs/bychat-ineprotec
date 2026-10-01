@@ -644,17 +644,26 @@ export interface ContratoDaInscricao {
   assinadoPor: string | null
 }
 
-/** Contrato em Word da instituição, assinado na Autentique (null = termo de aceite). */
+/** Contrato em Word da instituição, assinado na Autentique ou na Clicksign (null = termo de aceite). */
 export interface AssinaturaDoContrato {
   envelopeId: number
   status: string
   provedor: string
   assinadoEm: string | null
-  signatarios: Array<{ id: number; papel: string; nome: string; status: string; link: string | null; porEmail: boolean }>
+  /** Clicksign com Widget Embedded: a assinatura acontece nesta página. */
+  widget?: { endpoint: string } | null
+  signatarios: Array<{
+    id: number; papel: string; nome: string; status: string; link: string | null; porEmail: boolean
+    canal?: string; widgetId?: string | null
+  }>
 }
 export interface ContratoWord {
   modelo: { id: number; nome: string }
   eletronica: boolean
+  /** AUTENTIQUE | CLICKSIGN | SIMULADO */
+  provedor?: string
+  /** Clicksign com Widget Embedded contratado. */
+  widget?: boolean
   menorSemResponsavel: boolean
   assinatura: AssinaturaDoContrato | null
 }

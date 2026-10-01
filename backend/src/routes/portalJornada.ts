@@ -53,9 +53,16 @@ async function contratoWordDaInscricao(registrationId: number) {
   const d = await dadosDoContratoDaInscricao(registrationId)
   const modelo = d ? await modeloDoPortal(d.portalId, d.courseId) : null
   if (!d || !modelo) return null
+  // Provedor ANTES de iniciar: a tela decide o fluxo no clique (Autentique abre
+  // o link numa nova aba; Clicksign assina no widget ou manda o convite).
+  const { provedorAtivo } = await import('../services/assinaturaProvedor.js')
+  const provedor = await provedorAtivo()
+  const widgetClicksign = provedor === 'CLICKSIGN' && (await (await import('../services/clicksign.js')).getConfig()).widget
   return {
     modelo: { id: modelo.id, nome: modelo.nome },
     eletronica: await assinaturaEletronicaAtiva(),
+    provedor,
+    widget: widgetClicksign,
     menorSemResponsavel: d.menor && !d.responsavel,
     assinatura: await estadoDaAssinaturaDaInscricao(registrationId),
   }
@@ -251,10 +258,9 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     let pdf: Buffer | null = null
     // Assinado: a via assinada do provedor (com a trilha das assinaturas). Se
     // não der para buscar, o documento que foi para assinatura.
-    if (env?.status === 'ASSINADO' && env.arquivoAssinadoUrl?.startsWith('http')) {
-      pdf = await fetch(env.arquivoAssinadoUrl, { signal: AbortSignal.timeout(15_000) })
-        .then(async (r) => (r.ok && String(r.headers.get('content-type')).includes('pdf') ? Buffer.from(await r.arrayBuffer()) : null))
-        .catch(() => null)
+    if (env?.status === 'ASSINADO' && env.arquivoAssinadoUrl) {
+      const { lerPdfAssinado } = await import('../services/assinaturaProvedor.js')
+      pdf = await lerPdfAssinado(env.arquivoAssinadoUrl)
     }
     if (!pdf && env?.arquivoBase64) pdf = Buffer.from(env.arquivoBase64, 'base64')
     // Sem envelope ainda: o contrato gerado agora, com os dados atuais.

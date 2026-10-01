@@ -62,10 +62,10 @@ export function ContratoDaInscricaoCard({ registrationId }: { registrationId: nu
         {!a && d.aceite && (
           <div class="text-xs text-fg-muted">Aceito por {d.aceite.nome ?? '—'} em {new Date(d.aceite.em).toLocaleString('pt-BR')}{d.aceite.ip ? ` · IP ${d.aceite.ip}` : ''}</div>
         )}
-        {a?.assinadoEm && <div class="text-xs text-fg-muted">Concluído em {new Date(a.assinadoEm).toLocaleString('pt-BR')} ({a.provedor === 'AUTENTIQUE' ? 'Autentique' : 'aceite no portal'})</div>}
+        {a?.assinadoEm && <div class="text-xs text-fg-muted">Concluído em {new Date(a.assinadoEm).toLocaleString('pt-BR')} ({a.provedor === 'AUTENTIQUE' ? 'Autentique' : a.provedor === 'CLICKSIGN' ? 'Clicksign' : 'aceite no portal'})</div>}
         <div class="flex flex-wrap gap-2 pt-1">
           {a && <Button size="sm" variant="secondary" onClick={() => abrirPdfDoEnvelope(a.envelopeId)}><FileText size={14} /> {a.status === 'ASSINADO' ? 'PDF assinado' : 'PDF do contrato'}</Button>}
-          {a && a.provedor === 'AUTENTIQUE' && a.status !== 'ASSINADO' && <Button size="sm" variant="ghost" loading={sinc.isPending} onClick={() => sinc.mutate()}><RefreshCw size={14} /> Atualizar situação</Button>}
+          {a && (a.provedor === 'AUTENTIQUE' || a.provedor === 'CLICKSIGN') && a.status !== 'ASSINADO' && <Button size="sm" variant="ghost" loading={sinc.isPending} onClick={() => sinc.mutate()}><RefreshCw size={14} /> Atualizar situação</Button>}
         </div>
       </div>
     </Card>

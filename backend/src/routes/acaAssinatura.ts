@@ -57,18 +57,43 @@ async function aceitesDoPortal(q: any) {
  */
 export const BASE_CONTRATOS_PORTAL = '/api/admin/enrollment-portals/contratos'
 function rotasDosModelos(app: FastifyInstance, base: string) {
-  // ── Config (sem expor o token) ──
-  app.get(`${base}/config`, { preHandler: authMiddleware }, async () => {
+  // ── Config (sem expor tokens) ──
+  // Um provedor escolhido por cliente (Autentique, Clicksign ou só o aceite no
+  // portal); cada um com a sua credencial. `modo` segue na resposta para a tela
+  // antiga do ERP, que só conhece SIMULADO|AUTENTIQUE.
+  const configPublica = async () => {
     const c = await getConfig()
     const { getWebhookSecret } = await import('../services/autentique.js')
-    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token, webhookSecretConfigurado: !!(await getWebhookSecret()) }
-  })
-  app.put(`${base}/config`, { preHandler: authMiddleware }, async (req) => {
+    const cs = await import('../services/clicksign.js')
+    const { provedorEscolhido, provedorAtivo } = await import('../services/assinaturaProvedor.js')
+    const k = await cs.getConfig()
+    return {
+      provedor: await provedorEscolhido(), provedorAtivo: await provedorAtivo(),
+      modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token, webhookSecretConfigurado: !!(await getWebhookSecret()),
+      clicksign: { sandbox: k.sandbox, widget: k.widget, tokenConfigurado: !!k.token, webhookSecretConfigurado: !!k.webhookSecret },
+    }
+  }
+  app.get(`${base}/config`, { preHandler: authMiddleware }, async () => configPublica())
+  app.put(`${base}/config`, { preHandler: authMiddleware }, async (req, reply) => {
     const b = (req.body as any) || {}
-    await setConfig({ modo: b.modo, token: b.token, sandbox: b.sandbox, webhookSecret: b.webhookSecret })
-    const c = await getConfig()
-    const { getWebhookSecret } = await import('../services/autentique.js')
-    return { modo: c.modo, sandbox: c.sandbox, tokenConfigurado: !!c.token, webhookSecretConfigurado: !!(await getWebhookSecret()) }
+    if (b.provedor === undefined) {
+      // Tela antiga (só Autentique): mesmo comportamento de antes.
+      await setConfig({ modo: b.modo, token: b.token, sandbox: b.sandbox, webhookSecret: b.webhookSecret })
+    } else {
+      const { setProvedor } = await import('../services/assinaturaProvedor.js')
+      try { await setProvedor(String(b.provedor)) } catch (e: any) { return reply.code(400).send({ error: e.message }) }
+      if (b.autentique) await setConfig({ token: b.autentique.token, sandbox: b.autentique.sandbox, webhookSecret: b.autentique.webhookSecret, modo: b.provedor === 'AUTENTIQUE' ? 'AUTENTIQUE' : 'SIMULADO' })
+      if (b.clicksign) {
+        const cs = await import('../services/clicksign.js')
+        await cs.setConfig({ token: b.clicksign.token, sandbox: b.clicksign.sandbox, webhookSecret: b.clicksign.webhookSecret, widget: b.clicksign.widget })
+      }
+    }
+    return configPublica()
+  })
+  // Testa a credencial da Clicksign sem criar nada (lista 1 envelope).
+  app.post(`${base}/config/testar-clicksign`, { preHandler: authMiddleware }, async () => {
+    const cs = await import('../services/clicksign.js')
+    return cs.ping(await cs.getConfig())
   })
 
   app.get(`${base}/variaveis`, { preHandler: authMiddleware }, async () => ({ variaveis: svc.VARIAVEIS_DISPONIVEIS }))
@@ -236,13 +261,14 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
     return { assinatura: await estadoDaAssinaturaDaInscricao(Number((req.params as any).regId), true) }
   })
 
-  // PDF: o assinado (Autentique) quando existe; senão o que foi para assinatura.
+  // PDF: o assinado (do provedor, ou a cópia guardada aqui) quando existe; senão o que foi para assinatura.
   app.get(`${base}/envelope/:id/pdf`, { preHandler: authMiddleware }, async (req, reply) => {
     const env = await prisma.acaAssinatura.findUnique({ where: { id: Number((req.params as any).id) }, select: { id: true, registrationId: true, titulo: true, arquivoAssinadoUrl: true } })
     if (!env?.registrationId) return reply.code(404).send({ error: 'Contrato não encontrado' })
     let pdf: Buffer | null = null
-    if (env.arquivoAssinadoUrl?.startsWith('http')) {
-      pdf = await fetch(env.arquivoAssinadoUrl).then(async (r) => (r.ok ? Buffer.from(await r.arrayBuffer()) : null)).catch(() => null)
+    if (env.arquivoAssinadoUrl) {
+      const { lerPdfAssinado } = await import('../services/assinaturaProvedor.js')
+      pdf = await lerPdfAssinado(env.arquivoAssinadoUrl)
     }
     if (!pdf) pdf = (await svc.gerarPdf(env.id)).buffer
     const nome = `contrato-${env.registrationId}.pdf`
@@ -372,6 +398,20 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
       reply.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${titulo.replace(/[^\w.-]/g, '_')}.pdf"`)
       return reply.send(buffer)
     } catch (e: any) { return reply.code(404).send({ error: e?.message || 'PDF indisponível' }) }
+  })
+
+  // ── Webhook público da Clicksign (sem auth; HMAC em Content-Hmac) ──
+  // Mesmo modelo da Autentique: o aviso só diz "mudou algo neste documento" —
+  // o status é sempre reconsultado na API. Resposta 200 sempre: a Clicksign
+  // trata qualquer outra coisa como falha e reenvia.
+  app.post('/api/webhooks/clicksign', async (req, reply) => {
+    try {
+      const cs = await import('../services/clicksign.js')
+      const v = await cs.verificarAssinaturaWebhook((req as any).rawBody, (req.headers['content-hmac'] as string) || undefined)
+      if (v === 'invalida') { req.log?.warn?.('clicksign webhook: HMAC inválido'); return reply.code(200).send({ ok: true, ignored: 'signature' }) }
+      const r = await svc.processarWebhook(req.body)
+      return reply.code(200).send(r)
+    } catch { return reply.code(200).send({ ok: true }) }
   })
 
   // ── Webhook público da Autentique (sem auth) ──
