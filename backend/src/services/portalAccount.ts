@@ -105,6 +105,15 @@ export async function acharConta(identificador: string) {
     }
   }
 
+  // Código da inscrição (MAT-26-000004-LKGW): o mesmo dado do /candidato.
+  if (/^[A-Za-z]{2,5}-\d{2}-\d{3,}-[A-Za-z0-9]{3,}$/.test(bruto)) {
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { candidateCode: bruto.toUpperCase() }, select: { leadId: true } })
+    if (reg?.leadId) {
+      const c = await prisma.portalAccount.findUnique({ where: { leadId: reg.leadId }, select: { id: true } })
+      if (c) return contaPorId(c.id)
+    }
+  }
+
   // RA: identidade do aluno já matriculado.
   const porRa = await prisma.aluno.findFirst({ where: { ra: bruto }, select: { leadId: true } })
   if (porRa) {
@@ -131,6 +140,18 @@ export interface ResultadoLogin {
   accountId?: number
   erro?: string
   precisaDefinirSenha?: boolean
+  /** Entrou com a senha padrão (CPF): a tela seguinte oferece criar a própria. */
+  senhaPadrao?: boolean
+}
+
+/** CPF da pessoa (dígitos): o da conta, o do aluno ou o da inscrição mais recente. */
+async function cpfDaConta(conta: { leadId: number; cpf: string | null }): Promise<string | null> {
+  if (soDigitos(conta.cpf).length === 11) return soDigitos(conta.cpf)
+  const aluno = await prisma.aluno.findUnique({ where: { leadId: conta.leadId }, select: { cpf: true } }).catch(() => null)
+  if (soDigitos(aluno?.cpf).length === 11) return soDigitos(aluno?.cpf)
+  const reg = await prisma.enrollmentRegistration.findFirst({ where: { leadId: conta.leadId }, orderBy: { id: 'desc' }, select: { formData: true } }).catch(() => null)
+  const doForm = soDigitos(String((reg?.formData as any)?.cpf ?? ''))
+  return doForm.length === 11 ? doForm : null
 }
 
 /** Login por CPF, e-mail ou RA + senha. Devolve a sessão a ser posta no cookie. */
@@ -142,17 +163,28 @@ export async function login(
   const conta = await acharConta(identificador)
   // Mesma mensagem para "não existe" e "senha errada": diferenciar as duas
   // transformaria o login em consulta de quem estuda aqui.
-  const generico = { ok: false, erro: 'CPF, e-mail ou senha incorretos.' }
+  const generico = { ok: false, erro: 'Usuário ou senha incorretos.' }
   if (!conta || !conta.ativo) return generico
 
   if (conta.bloqueadoAte && conta.bloqueadoAte.getTime() > Date.now()) {
     const min = Math.ceil((conta.bloqueadoAte.getTime() - Date.now()) / 60000)
     return { ok: false, erro: `Muitas tentativas. Tente de novo em ${min} minuto(s) ou peça um link de acesso.` }
   }
+  // Primeiro acesso, sem senha própria: a senha padrão é o CPF — o mesmo par
+  // do /candidato (código da inscrição + CPF). Só vale com e-mail, código da
+  // inscrição ou RA no usuário: CPF no usuário E na senha seria entrar sabendo
+  // só o CPF, dado que circula demais para proteger documentos e contrato.
+  let senhaPadrao = false
   if (!conta.senhaHash) {
-    return { ok: false, precisaDefinirSenha: true, erro: 'Você ainda não criou uma senha. Peça um link de acesso para criar a sua.' }
+    const cpf = await cpfDaConta(conta)
+    const usuarioEhCpf = soDigitos(identificador).length === 11 && soDigitos(identificador) === cpf
+    if (!cpf) return { ok: false, precisaDefinirSenha: true, erro: 'Você ainda não criou uma senha. Peça um link de acesso para criar a sua.' }
+    if (usuarioEhCpf) {
+      return { ok: false, erro: 'Primeiro acesso: entre com o seu e-mail ou o código da inscrição no usuário e o CPF (só números) como senha.' }
+    }
+    senhaPadrao = soDigitos(senha) === cpf && soDigitos(senha).length === String(senha).replace(/[.\-\s]/g, '').length
   }
-  if (!(await bcrypt.compare(senha, conta.senhaHash))) {
+  if (!senhaPadrao && (!conta.senhaHash || !(await bcrypt.compare(senha, conta.senhaHash)))) {
     const tentativas = (conta.tentativas || 0) + 1
     await prisma.portalAccount.update({
       where: { id: conta.id },
@@ -169,7 +201,7 @@ export async function login(
     data: { tentativas: 0, bloqueadoAte: null, ultimoLoginEm: new Date() },
   })
   const s = await emitirSessao({ accountId: conta.id, userAgent: ctx.userAgent, ip: ctx.ip })
-  return { ok: true, raw: s.raw, expiresAt: s.expiresAt, accountId: conta.id }
+  return { ok: true, raw: s.raw, expiresAt: s.expiresAt, accountId: conta.id, senhaPadrao }
 }
 
 /**

@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks'
+import { Fragment } from 'preact'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
@@ -65,6 +66,13 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
   const [, navigate] = useLocation()
 
   const review = data
+  // Mesma consulta do cabeçalho (cache compartilhado): ordena os cards das etapas.
+  const etapasDaPagina = useQuery({
+    queryKey: ['registration-etapas', regId],
+    queryFn: () => api.get<{ inscricao: EtapaAdmin[]; painel: EtapaAdmin[] }>(`/admin/enrollment-registrations/${regId}/etapas`),
+    enabled: Number.isFinite(regId),
+    staleTime: 15_000,
+  })
 
   function handleReceipt() {
     downloadFile(
@@ -107,16 +115,29 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
       {review && (
         <>
           <StatusBanner review={review} />
+          {/* Padrão da tela: o acesso do candidato sempre primeiro; depois quem
+              é e o que se inscreveu; depois as etapas NA ORDEM do portal (aba
+              Etapas › tela de inscrição) — a mesma do cabeçalho e do candidato. */}
+          <CandidatePortalCard review={review} />
           <CandidateCard review={review} />
           <RegistrationCard review={review} />
-          <EnemBlock registrationId={review.registration.id} />
-          <PaymentMethodsBlock registrationId={review.registration.id} />
-          <ContratoDaInscricaoCard registrationId={review.registration.id} />
-          <CandidatePortalCard review={review} />
-          {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
-          <SlotsCard review={review} />
-          {review.extras.length > 0 && <ExtrasCard extras={review.extras} registrationId={review.registration.id} />}
-          <BulkActionsCard registrationId={review.registration.id} />
+          {ordemDasEtapas(etapasDaPagina.data?.inscricao).map((chave) => {
+            const id = review.registration.id
+            if (chave === 'pagamento') return <PaymentMethodsBlock key={chave} registrationId={id} />
+            if (chave === 'contrato') return <ContratoDaInscricaoCard key={chave} registrationId={id} />
+            if (chave === 'prova') return <EnemBlock key={chave} registrationId={id} />
+            if (chave === 'documentos') {
+              return (
+                <Fragment key={chave}>
+                  <SlotsCard review={review} />
+                  {review.extras.length > 0 && <ExtrasCard extras={review.extras} registrationId={id} />}
+                  {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
+                  <BulkActionsCard registrationId={id} />
+                </Fragment>
+              )
+            }
+            return null
+          })}
         </>
       )}
     </Page>
@@ -483,6 +504,17 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
       )}
     </Card>
   )
+}
+
+/**
+ * Ordem dos blocos de etapa: primeiro as configuradas no portal (na ordem
+ * dele), depois as que existem mas não estão na jornada — cobrança antiga ou
+ * documento enviado continuam visíveis, só que no fim.
+ */
+const BLOCOS_DE_ETAPA = ['pagamento', 'documentos', 'contrato', 'prova']
+function ordemDasEtapas(etapas: Array<{ chave: string }> | undefined): string[] {
+  const configuradas = (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
+  return [...configuradas, ...BLOCOS_DE_ETAPA.filter((c) => !configuradas.includes(c))]
 }
 
 interface EtapaAdmin { chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean }

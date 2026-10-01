@@ -123,8 +123,13 @@ export async function portalAuthRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: r.erro, precisaDefinirSenha: !!r.precisaDefinirSenha })
     }
     gravarCookie(reply, r.raw!, r.expiresAt!)
-    if (querHtml) return reply.code(303).header('location', String(b.destino || '/portal')).send()
-    return { ok: true, expiraEm: r.expiresAt }
+    // Primeiro acesso com a senha padrão (CPF): oferece criar a própria — com
+    // "agora não", que segue para onde a pessoa ia.
+    const destino = String(b.destino || '/portal')
+    if (querHtml) {
+      return reply.code(303).header('location', r.senhaPadrao ? `/portal/senha?primeiro=1&depois=${encodeURIComponent(destino)}` : destino).send()
+    }
+    return { ok: true, expiraEm: r.expiresAt, senhaPadrao: !!r.senhaPadrao }
   })
 
   // ── POST /api/public/portal/sair ──
@@ -275,10 +280,10 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     return reply.type('text/html').send(await paginaComMarca(req, reply, 'Entrar no portal', `
       <div class="card">
         <h1>Entrar no portal</h1>
-        <p class="sub">Use o CPF ou o e-mail do seu cadastro.</p>
+        <p class="sub"><b>Primeiro acesso?</b> No usuário, o seu e-mail ou o código da inscrição; na senha, o seu CPF (só números). Depois você cria a sua senha.</p>
         ${avisos(q.erro, q.aviso)}
         <form method="post" action="/api/public/portal/login">
-          <label for="id">CPF, e-mail ou RA</label>
+          <label for="id">E-mail, código da inscrição, CPF ou RA</label>
           <input id="id" name="identificador" required autocomplete="username" autocapitalize="off" autocorrect="off">
           <label for="s">Senha</label>
           <input id="s" name="senha" type="password" required autocomplete="current-password">
@@ -301,10 +306,13 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+criar+sua+senha.').send()
     const q = (req.query as any) || {}
     const eu = await quemE(s.accountId)
+    // "depois": para onde seguir no "agora não" (só caminho interno do portal).
+    const depois = /^\/(portal|candidato)(\/|$|\?|#)/.test(String(q.depois || '')) ? String(q.depois) : '/portal'
+    const primeiro = !eu?.temSenha
     return reply.type('text/html').send(await paginaComMarca(req, reply, 'Criar senha', `
       <div class="card">
         <h1>${eu?.temSenha ? 'Trocar senha' : 'Criar sua senha'}</h1>
-        <p class="sub">${eu?.temSenha ? 'A senha atual deixa de valer e os outros aparelhos saem do portal.' : `Olá, ${esc(eu?.nome ?? '')}. Escolha uma senha para entrar quando quiser, sem depender do link.`}</p>
+        <p class="sub">${eu?.temSenha ? 'A senha atual deixa de valer e os outros aparelhos saem do portal.' : `Olá, ${esc((eu?.nome ?? '').split(' ')[0])}. Você entrou com a senha padrão (o seu CPF). Crie uma senha só sua — a partir daí o CPF deixa de valer como senha.`}</p>
         ${avisos(q.erro, q.aviso)}
         <form method="post" action="/api/public/portal/senha">
           <label for="p1">Senha</label>
@@ -314,6 +322,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
           <button type="submit">Salvar senha</button>
         </form>
         <p class="dica">Ao menos 8 caracteres, misturando letras e números.</p>
+        ${primeiro ? `<a href="${esc(depois)}"><button class="sec" type="button">Agora não, continuar</button></a>` : ''}
       </div>`))
   })
 
@@ -400,6 +409,9 @@ export async function portalAuthRoutes(app: FastifyInstance) {
         <h1>Olá, ${esc((eu?.nome ?? '').split(' ')[0])}</h1>
         <p class="sub" style="margin:0">${eu?.aluno ? `Aluno · RA ${esc(eu.aluno.ra ?? '—')}` : 'Candidato'}</p>
       </div>
+      ${eu && !eu.temSenha
+        ? `<div class="card" style="margin-bottom:14px;border-left:4px solid #b45309"><p class="sub" style="margin:0 0 10px">Você está entrando com a <b>senha padrão</b> (o seu CPF). Crie uma senha só sua para proteger seus documentos e o contrato.</p><a href="/portal/senha"><button type="button">Criar minha senha</button></a></div>`
+        : ''}
       ${eu?.aluno
         ? bloco('Vida acadêmica', '<p class="sub" style="margin:0 0 10px">Situação da matrícula, financeiro, documentos e contrato.</p><a href="/portal/aluno"><button class="sec" type="button">Abrir meu portal</button></a>')
         : ''}
