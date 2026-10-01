@@ -10,8 +10,9 @@ import { prisma } from '../lib/prisma.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
 import { signCandidateToken, verifyCandidateToken } from '../lib/candidateAuth.js'
-import { contaDaRequisicao } from '../lib/portalSession.js'
-import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
+import { contaDaRequisicao, emitirSessao, gravarCookie, ipDaRequisicao } from '../lib/portalSession.js'
+import { garantirConta } from '../services/portalAccount.js'
+import { portalAppDisponivel } from '../lib/portalApp.js'
 import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -42,31 +43,65 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
 }
 
 /**
- * /candidato e /candidato/<código>: o MESMO portal de /portal (aplicação nova).
+ * /candidato e /candidato/<código>: entrada do portal único.
  *
- * Eram duas implementações: esta, antiga (candidate-portal.js), não conhecia a
- * ordem das etapas, o contrato nem a tabela de preços — o candidato via coisas
- * diferentes conforme o link que abriu. Agora: quem já tem sessão no portal (e
- * é dono da inscrição) vai para o painel; os demais entram com código + CPF na
- * tela "Minha inscrição" da aplicação, com a mesma jornada. A página antiga só
- * fica de reserva para instalação sem a aplicação publicada.
+ * Era uma terceira tela de "minha inscrição" (código + CPF), com layout e
+ * token próprios. Agora: quem já tem sessão no portal (e é dono da inscrição)
+ * vai para /portal; os demais vão para o login do portal já na aba "Código da
+ * inscrição", com o código preenchido e a marca do portal da inscrição. A
+ * página antiga só fica de reserva para instalação sem a aplicação publicada.
  */
-async function portalDoCandidato(req: any, reply: any, portal: any, leadDaInscricao: number | null) {
-  const conta = await contaDaRequisicao(req).catch(() => null)
-  if (conta && (!leadDaInscricao || leadDaInscricao === conta.leadId) && portalAppDisponivel()) {
-    return reply.code(303).header('location', '/portal/aluno').send()
+async function portalDoCandidato(req: any, reply: any, portal: any, leadDaInscricao: number | null, codigo?: string) {
+  if (portalAppDisponivel()) {
+    const conta = await contaDaRequisicao(req).catch(() => null)
+    if (conta && (!leadDaInscricao || leadDaInscricao === conta.leadId)) {
+      return reply.code(303).header('location', '/portal').send()
+    }
+    const qs = new URLSearchParams()
+    if (codigo) qs.set('codigo', codigo); else qs.set('modo', 'codigo')
+    if (portal?.slug) qs.set('portal', portal.slug)
+    return reply.code(303).header('location', `/portal/login?${qs.toString()}`).send()
   }
   if (portal?.slug) reply.header('x-portal-slug', portal.slug)
-  if (!portalAppDisponivel()) return reply.type('text/html').send(renderCandidatePortalHtml(portal))
-  const html = paginaDoPortal({
-    nome: 'Minha inscrição', slug: portal?.slug || 'candidato',
-    metaTitle: 'Minha inscrição', metaDescription: 'Acompanhe e conclua sua inscrição.',
-    brandFaviconUrl: portal?.brandFaviconUrl ?? null, brandPrimaryColor: portal?.brandPrimaryColor ?? null,
-  }, process.env.APP_URL || '')
-  // data-marca-portal: a aplicação aplica a marca sozinha — o gancho das
-  // páginas SSR (lib/portalMarca) não deve injetar a dele por cima.
-  return reply.type('text/html').header('cache-control', 'no-store')
-    .send(html.replace('</head>', '<meta name="portal-app" data-marca-portal="app"></head>'))
+  return reply.type('text/html').send(renderCandidatePortalHtml(portal))
+}
+
+/**
+ * Código da inscrição + CPF conferem? Mesmo bloqueio contra força bruta para
+ * as duas entradas (token do candidato e sessão do portal): 20 falhas por IP
+ * ou 8 por código em 15 min. Resposta genérica — não revela se o código existe.
+ * Devolve a inscrição, ou null com a resposta já enviada.
+ */
+async function conferirCodigoECpf(req: any, reply: any, candidateCode: string, cpf: string) {
+  const ipKey = `candlogin:ip:${req.ip}`
+  const codeKey = `candlogin:code:${candidateCode}`
+  try {
+    const [ipFails, codeFails] = await Promise.all([redis.get(ipKey), redis.get(codeKey)])
+    if (Number(ipFails) >= 20 || Number(codeFails) >= 8) {
+      await logSecurityEvent({ ip: req.ip, type: 'candidate_login_lockout', severity: 'medium', path: req.url, details: `code=${candidateCode}` }).catch(() => {})
+      reply.code(429).send({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' })
+      return null
+    }
+  } catch { /* redis indisponível — não bloqueia login legítimo */ }
+  const falhou = async () => {
+    try {
+      await Promise.all([
+        redis.incr(ipKey).then(() => redis.expire(ipKey, 900)),
+        redis.incr(codeKey).then(() => redis.expire(codeKey, 900)),
+      ])
+    } catch { /* ignore */ }
+    reply.code(401).send({ error: 'Código da inscrição ou CPF inválido' })
+    return null
+  }
+  const enrollment = await prisma.enrollmentRegistration.findUnique({
+    where: { candidateCode },
+    include: { lead: true, portal: { select: { id: true, nome: true } } },
+  })
+  if (!enrollment) return falhou()
+  const storedCpf = normalizeCpf(String((enrollment.formData as any)?.cpf || ''))
+  if (!storedCpf || storedCpf !== cpf) return falhou()
+  try { await Promise.all([redis.del(ipKey), redis.del(codeKey)]) } catch { /* ignore */ }
+  return enrollment
 }
 
 export async function candidatePortalRoutes(app: FastifyInstance) {
@@ -79,44 +114,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     const cpf = normalizeCpf(String(body.cpf || ''))
     if (!candidateCode || !cpf) return reply.code(400).send({ error: 'Informe o código do candidato e CPF' })
 
-    // ── Lockout anti-brute-force (por IP e por código) ────────────────────
-    // Impede enumeração de código + força bruta de CPF. Janela de 15 min.
-    const ipKey = `candlogin:ip:${req.ip}`
-    const codeKey = `candlogin:code:${candidateCode}`
-    try {
-      const [ipFails, codeFails] = await Promise.all([redis.get(ipKey), redis.get(codeKey)])
-      if (Number(ipFails) >= 20 || Number(codeFails) >= 8) {
-        await logSecurityEvent({ ip: req.ip, type: 'candidate_login_lockout', severity: 'medium', path: req.url, details: `code=${candidateCode}` }).catch(() => {})
-        return reply.code(429).send({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' })
-      }
-    } catch { /* redis indisponível — não bloqueia login legítimo */ }
-
-    // Resposta 401 genérica para código inexistente E CPF divergente — sem
-    // oráculo de enumeração (não revela se o código existe).
-    const fail = async () => {
-      try {
-        await Promise.all([
-          redis.incr(ipKey).then(() => redis.expire(ipKey, 900)),
-          redis.incr(codeKey).then(() => redis.expire(codeKey, 900)),
-        ])
-      } catch { /* ignore */ }
-      return reply.code(401).send({ error: 'Código do candidato ou CPF inválido' })
-    }
-
-    const enrollment = await prisma.enrollmentRegistration.findUnique({
-      where: { candidateCode },
-      include: { lead: true, portal: { select: { id: true, nome: true } } },
-    })
-    if (!enrollment) return fail()
-
-    // Valida CPF bate com o salvo em formData
-    const storedCpf = normalizeCpf(String((enrollment.formData as any)?.cpf || ''))
-    if (!storedCpf || storedCpf !== cpf) {
-      return fail()
-    }
-
-    // Sucesso — zera contadores de falha
-    try { await Promise.all([redis.del(ipKey), redis.del(codeKey)]) } catch { /* ignore */ }
+    const enrollment = await conferirCodigoECpf(req, reply, candidateCode, cpf)
+    if (!enrollment) return reply
 
     const token = signCandidateToken(enrollment.id, enrollment.candidateCode)
     return {
@@ -128,6 +127,30 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         portalName: enrollment.portal.nome,
       },
     }
+  })
+
+  // ── POST /api/public/portal/entrar-codigo — código da inscrição + CPF ──
+  // Abre a sessão do PORTAL (a mesma do e-mail + senha), para tudo cair no
+  // /portal único. Vale enquanto a pessoa não criou senha própria — mesma regra
+  // do CPF como senha padrão: depois disso, só a senha dela (ou o link de acesso).
+  app.post('/api/public/portal/entrar-codigo', async (req, reply) => {
+    const body = (req.body as any) || {}
+    const candidateCode = String(body.codigo || '').trim().toUpperCase()
+    const cpf = normalizeCpf(String(body.cpf || ''))
+    if (!candidateCode || !cpf) return reply.code(400).send({ error: 'Informe o código da inscrição e o CPF.' })
+    const enrollment = await conferirCodigoECpf(req, reply, candidateCode, cpf)
+    if (!enrollment) return reply
+    if (!enrollment.leadId) return reply.code(400).send({ error: 'Esta inscrição ainda não tem cadastro no portal. Fale com a secretaria.' })
+    const conta = await garantirConta(enrollment.leadId, cpf)
+    const situacao = await prisma.portalAccount.findUnique({ where: { id: conta.id }, select: { ativo: true, bloqueadoAte: true } })
+    if (situacao?.ativo === false) return reply.code(403).send({ error: 'Acesso desativado. Fale com a secretaria.' })
+    if (situacao?.bloqueadoAte && situacao.bloqueadoAte > new Date()) return reply.code(429).send({ error: 'Acesso bloqueado por tentativas. Tente de novo mais tarde.' })
+    if (conta.senhaHash) {
+      return reply.code(409).send({ temSenha: true, error: 'Você já criou uma senha. Entre com seu e-mail e senha — ou use "Esqueceu a senha?".' })
+    }
+    const s = await emitirSessao({ accountId: conta.id, userAgent: (req.headers['user-agent'] as string) ?? null, ip: ipDaRequisicao(req) })
+    gravarCookie(reply, s.raw, s.expiresAt)
+    return { ok: true, senhaPadrao: true }
   })
 
   // ── GET /api/candidate/me — dashboard ──
@@ -406,7 +429,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       portal = reg?.portal || null
       leadDaInscricao = reg?.leadId ?? null
     }
-    return portalDoCandidato(req, reply, portal, leadDaInscricao)
+    return portalDoCandidato(req, reply, portal, leadDaInscricao, codeStr || undefined)
   })
 
   // ── GET /candidato e /candidato/ — tela genérica de login ──

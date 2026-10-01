@@ -18,6 +18,8 @@
   --erro: #a3372e;
   --erro-suave: #fbeceb;
   --ok: #2c7a4b;
+  /* Pendente (falta a pessoa fazer): laranja em todos os selos de situação. */
+  --pendente: #d97000;
   --sombra: 0 1px 2px rgba(20, 33, 31, .06), 0 8px 24px -16px rgba(20, 33, 31, .3);
 }
 
@@ -193,6 +195,7 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
 .selo.ok { color: var(--ok); border-color: var(--ok); }
 .selo.analise { color: var(--tinta-2); border-color: var(--linha); }
 .selo.ruim { color: var(--erro); border-color: var(--erro); }
+.selo.pendente { color: var(--pendente); border-color: var(--pendente); }
 
 .doc-arquivo {
   display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 9px 12px;
@@ -751,6 +754,10 @@ label.caixa input { margin-top: 3px; }
 .etapa-jornada.feito .etapa-num, .etapa-jornada.aguardando .etapa-num { background: var(--marca); border-color: var(--marca); color: #fff; }
 .etapa-txt { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .etapa-txt .sub { margin: 0; font-size: 13px; }
+/* Ícone da etapa ao lado do título (Jornada.tsx › IconeDaEtapa). */
+.etapa-titulo { display: inline-flex; align-items: center; gap: 8px; }
+.etapa-icone { flex: 0 0 auto; color: var(--marca); }
+.etapa-jornada.feito .etapa-icone { color: var(--ok); }
 .etapa-status { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--fundo); color: var(--tinta-2); white-space: nowrap; }
 .etapa-status.feito { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .etapa-status.aguardando { color: var(--marca); background: var(--marca-suave); }
@@ -761,6 +768,10 @@ label.caixa input { margin-top: 3px; }
 .docs-embutidos > .cartao + .cartao, .docs-embutidos .doc { margin-top: 10px; }
 /* A ação da etapa é um botão de verdade, não um sublinhado perdido no texto. */
 .etapa-cabeca .etapa-acao { font-size: 13px; font-weight: 600; color: var(--marca); text-decoration: none; padding: 5px 12px; border: 1px solid var(--marca); border-radius: 999px; white-space: nowrap; }
+/* Ação em forma de botão de contorno, com o mesmo visual do "Fazer agora" das
+   etapas — para links de ação fora da lista (ex.: "Criar minha senha"). */
+a.botao-contorno, button.botao-contorno { display: inline-block; font-family: inherit; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--marca); text-decoration: none; padding: 5px 12px; border: 1px solid var(--marca); border-radius: 999px; white-space: nowrap; background: transparent; }
+a.botao-contorno:hover, button.botao-contorno:hover { background: var(--marca-suave); }
 .etapa-jornada { scroll-margin-top: 16px; }
 @media (max-width: 560px) {
   /* Celular: título e detalhe ocupam a linha toda; situação e ação descem juntas. */
@@ -846,16 +857,55 @@ label.caixa input { margin-top: 3px; }
   .conteudo-logado .acoes-linha > button { width: 100%; }
 }
 
+/* ── Telas logadas (Moldura): barra do topo alinhada aos cards ───────────
+   Login, senha, portal, documentos e contrato: logo e botão do topo na mesma
+   largura e com o mesmo respiro (16px) dos cards da tela — a barra fixa tinha
+   largura própria (1240px) e ficava mais larga que o conteúdo. Larguras da
+   página: 720px (padrão e template "duas-colunas", que fixa 720 nas telas
+   logadas), 620px (estreita) e 860px (ampla). */
+.pagina.logada .barra-topo { padding-inline: 16px; }
+.pagina.logada .barra-conteudo { max-width: calc(720px - 32px); }
+:root[data-largura='estreita']:not([data-template='duas-colunas']) .pagina.logada .barra-conteudo { max-width: calc(620px - 32px); }
+:root[data-largura='ampla']:not([data-template='duas-colunas']) .pagina.logada .barra-conteudo { max-width: calc(860px - 32px); }
+
+/* ── /portal: dados e etapas lado a lado no desktop ─────────────────────
+   No celular as colunas empilham, como as outras telas logadas. A partir de
+   1000px os dados ficam numa coluna à esquerda (fixa ao rolar) e as etapas /
+   vida acadêmica ocupam o resto, com a página mais larga que os 720px das
+   telas de uma coluna. */
+.lado-a-lado, .lado-a-lado > .coluna-dados, .lado-a-lado > .coluna-principal { display: grid; gap: 14px; align-content: start; min-width: 0; }
+/* O template "duas-colunas" põe todo .cartao na área "form" da grade do
+   formulário — aqui os blocos cairiam um em cima do outro. E as seções do
+   aluno trazem margem própria, que somaria com o espaçamento da coluna. */
+:root .pagina .lado-a-lado > *, :root .pagina .lado-a-lado .cartao, :root .pagina .lado-a-lado .resumo { grid-area: auto; }
+.lado-a-lado .coluna-dados > *, .lado-a-lado .coluna-principal > * { margin: 0 !important; }
+@media (min-width: 1000px) {
+  :root .pagina.logada:has(.lado-a-lado) { max-width: 1180px; }
+  /* No portal de duas colunas, a barra acompanha a página mais larga. */
+  :root .pagina.logada:has(.lado-a-lado) .barra-topo .barra-conteudo { max-width: calc(1180px - 32px); }
+  .lado-a-lado { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .lado-a-lado > .coluna-dados { position: sticky; top: 20px; }
+  :root[data-topo='barra'] .lado-a-lado > .coluna-dados { top: calc(var(--altura-barra, 68px) + 20px); }
+  .lado-a-lado .rc-dados { grid-template-columns: 1fr; gap: 10px; }
+  .lado-a-lado .rc-dados .rc-largo { grid-column: auto; }
+}
+
 /* ── Resumo do candidato (bloco de cima do portal) ─────────────────────── */
 .resumo-candidato .rc-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .resumo-candidato .rc-situacao {
   font-size: 12.5px; font-weight: 600; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
   color: var(--marca); background: var(--marca-suave);
 }
+/* Situação da inscrição pela mesma regra dos outros selos: em andamento =
+   laranja, concluída = verde, cancelada/recusada = vermelho. */
+.rc-situacao.pendente { color: var(--pendente); background: color-mix(in srgb, var(--pendente) 12%, transparent); }
+.rc-situacao.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.rc-situacao.erro { color: var(--erro); background: color-mix(in srgb, var(--erro) 10%, transparent); }
+.item-conta .rc-situacao { font-size: 12px; padding: 2px 9px; }
 .rc-dados { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 18px; margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--linha); }
 .rc-dados > div { min-width: 0; }
 .rc-dados .rc-largo { grid-column: span 3; }
-.rc-dados dt { font-size: 12px; color: var(--tinta-3); margin: 0 0 2px; }
+.rc-dados dt { font-size: 12px; font-weight: 700; color: var(--tinta-2); margin: 0 0 2px; }
 .rc-dados dd { margin: 0; font-size: 14.5px; overflow-wrap: anywhere; }
 .rc-dados .rc-mini { display: block; font-size: 12.5px; color: var(--tinta-3); margin-top: 2px; }
 .rc-acoes { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--linha); font-size: 14px; }
@@ -890,6 +940,60 @@ label.caixa input { margin-top: 3px; }
 .etapa-jornada.alerta .etapa-num { background: color-mix(in srgb, var(--erro) 12%, transparent); border-color: color-mix(in srgb, var(--erro) 45%, transparent); color: var(--erro); }
 .etapa-jornada.aberta { border-color: var(--marca); box-shadow: 0 0 0 3px var(--marca-suave); }
 
-.etapa-status.pendente { color: var(--tinta-2); background: var(--fundo); }
+.etapa-status.pendente { color: var(--pendente); background: color-mix(in srgb, var(--pendente) 12%, transparent); }
 .etapa-status.alerta { color: var(--erro); background: color-mix(in srgb, var(--erro) 10%, transparent); }
 .etapa-num svg { display: block; }
+
+/* ── Login: e-mail e senha | código da inscrição ───────────────────────── */
+.modo-entrar { display: flex; gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: var(--raio); background: var(--marca-suave); }
+.modo-entrar button {
+  flex: 1; padding: 9px 10px; border: 0; border-radius: calc(var(--raio) - 2px); background: transparent;
+  color: var(--tinta-2, var(--tinta)); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.modo-entrar button.ativo { background: #fff; color: var(--marca); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+
+/* ── Padrão único de botões (segue o Branding do portal) ─────────────────
+   Os botões compactos — ações das etapas ("Fazer agora", "Fechar", "Ver"),
+   "Criar minha senha" e Entrar/Sair do topo — tinham formato próprio (cápsula)
+   e ignoravam a caixa alta. Agora todos seguem o mesmo Branding dos botões
+   principais: formato reto ou cápsula, e caixa alta quando ligada. A cor
+   mantém a hierarquia: principal preenchido, ação com contorno da marca,
+   secundário com contorno neutro. (Fica no fim do arquivo de propósito: vence
+   as regras de formato definidas antes para cada botão.) */
+.etapa-cabeca .etapa-acao, .botao-contorno, .acesso-topo { border-radius: calc(var(--raio) - 4px); }
+:root[data-botao='pill'] .etapa-cabeca .etapa-acao,
+:root[data-botao='pill'] .botao-contorno,
+:root[data-botao='pill'] .acesso-topo { border-radius: 999px; }
+:root[data-caixa-alta='sim'] button.secundario,
+:root[data-caixa-alta='sim'] .etapa-cabeca .etapa-acao,
+:root[data-caixa-alta='sim'] .botao-contorno,
+:root[data-caixa-alta='sim'] .acesso-topo { text-transform: uppercase; letter-spacing: .06em; }
+
+/* ── Editar meus dados (cartão de dados do portal) ───────────────────── */
+.rc-editar { margin-top: 12px; }
+.rc-form { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--linha); }
+.rc-form .campo { margin-bottom: 12px; }
+.rc-form input:disabled { background: var(--fundo); color: var(--tinta-3); cursor: not-allowed; }
+.rc-form .rc-aviso { font-size: 13px; margin: 2px 0 12px; }
+.rc-form .acoes button { flex: 1 1 auto; }
+
+/* ── Menu da conta (topo do portal logado) ─────────────────────────────── */
+.menu-conta { position: relative; flex-shrink: 0; }
+.menu-conta-botao { display: inline-flex; align-items: center; gap: 7px; }
+.menu-conta-seta { opacity: .7; transition: transform .15s ease; }
+.menu-conta-botao[aria-expanded='true'] .menu-conta-seta { transform: rotate(180deg); }
+.menu-conta-ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--pendente, #d97000); }
+.menu-conta-lista {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 40; min-width: 230px;
+  display: grid; padding: 6px; background: var(--papel, #fff); border: 1px solid var(--linha);
+  border-radius: var(--raio); box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+}
+.menu-conta-lista > a, .menu-conta-lista > button {
+  display: grid; gap: 2px; padding: 10px 12px; border: 0; border-radius: calc(var(--raio) - 4px);
+  background: transparent; color: var(--tinta); font: inherit; font-size: 14px; font-weight: 600;
+  text-align: left; text-decoration: none; cursor: pointer;
+}
+.menu-conta-lista > a:hover, .menu-conta-lista > button:hover,
+.menu-conta-lista > a:focus-visible, .menu-conta-lista > button:focus-visible { background: var(--marca-suave); color: var(--marca); outline: none; }
+.menu-conta-lista small { font-size: 12px; font-weight: 500; color: var(--pendente, #d97000); }
+.menu-conta-lista .menu-conta-sair { border-top: 1px solid var(--linha); border-radius: 0 0 calc(var(--raio) - 4px) calc(var(--raio) - 4px); margin-top: 4px; padding-top: 12px; }

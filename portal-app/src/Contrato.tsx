@@ -87,7 +87,7 @@ export function Contrato() {
         <div class="cartao">
           <h2>Contrato</h2>
           <p class="sub">{falha}</p>
-          <a href="/portal/aluno"><button class="secundario" type="button">Voltar ao meu portal</button></a>
+          <a href="/portal"><button class="secundario" type="button">Voltar ao meu portal</button></a>
         </div>
       </Moldura>
     )
@@ -128,7 +128,7 @@ export function Contrato() {
               {dados.assinadoEm ? ` em ${new Date(dados.assinadoEm).toLocaleDateString('pt-BR')}` : ''}
             </span>
             {pronto?.efetivou && <span class="sub">Sua matrícula foi efetivada.</span>}
-            <a href="/portal/aluno"><button class="principal" type="button">Voltar ao meu portal</button></a>
+            <a href="/portal"><button class="principal" type="button">Voltar ao meu portal</button></a>
           </div>
         ) : (
           <>

@@ -33,7 +33,7 @@ export async function acaPortalPwaRoutes(app: FastifyInstance) {
       description: 'Boletim, frequência, financeiro e documentos.',
       // Abre no painel novo onde ele existe; onde não existe, no portal antigo,
       // que continua servindo os links de aviso já enviados.
-      start_url: portalAppDisponivel() ? '/portal/aluno' : '/portal/aca/aluno',
+      start_url: portalAppDisponivel() ? '/portal' : '/portal/aca/aluno',
       // Escopo do portal inteiro: o atalho instalado passeia entre o painel, os
       // documentos e o login sem sair do aplicativo.
       scope: '/portal/',

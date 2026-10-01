@@ -98,7 +98,7 @@ export function Jornada(props: {
               <div class="etapa-cabeca">
                 <span class="etapa-num" aria-hidden="true">{e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? <Relogio /> : temRecusa(e) ? '!' : i + 1}</span>
                 <div class="etapa-txt">
-                  <b>{e.titulo}</b>
+                  <b class="etapa-titulo"><IconeDaEtapa chave={e.chave} />{e.titulo}</b>
                   <span class="sub">{e.detalhe}</span>
                 </div>
                 <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? 'Corrigir' : SITUACAO[e.situacao]}</span>
@@ -134,5 +134,26 @@ export function Jornada(props: {
       )}
       {tudoFeito && <div class="aviso info" style="color:var(--ok);border-color:var(--ok)"><b>Tudo certo por aqui.</b> Acompanhe o andamento pelo seu portal.</div>}
     </div>
+  )
+}
+
+/**
+ * Ícone de cada etapa, ao lado do título — reconhecimento rápido do que é a
+ * etapa antes de ler. Traço fino na cor da marca (desenhos do conjunto Lucide,
+ * licença ISC). Etapa sem ícone próprio fica só com o título.
+ */
+const DESENHOS: Record<string, string> = {
+  cadastro: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  pagamento: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
+  documentos: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="m9 13 3-3 3 3"/>',
+  contrato: '<path d="M20 19.5v.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8.5L18 5.5"/><path d="M8 18h1"/><path d="M18.42 9.61a2.1 2.1 0 1 1 2.97 2.97L16.95 17 13 18l.99-3.95 4.43-4.44Z"/>',
+  prova: '<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>',
+}
+function IconeDaEtapa({ chave }: { chave: string }) {
+  const d = DESENHOS[chave]
+  if (!d) return null
+  return (
+    <svg class="etapa-icone" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+      stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: d }} />
   )
 }

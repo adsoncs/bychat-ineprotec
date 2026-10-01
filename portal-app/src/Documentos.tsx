@@ -140,7 +140,7 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
           </div>
         ) : (
           <div class="aviso info" style="color:var(--ok);border-color:var(--ok)">
-            <b>Tudo enviado.</b> A secretaria confere e avisa você pelo WhatsApp.
+            <b>Documentos recebidos!</b> Eles estão em análise pela secretaria — avisaremos você assim que a conferência for concluída.
           </div>
         )}
       </div>

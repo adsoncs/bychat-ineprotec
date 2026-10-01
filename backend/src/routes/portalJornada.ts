@@ -144,7 +144,12 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
         candidateCode: true, status: true, createdAt: true, formData: true, paymentStatus: true, paymentAmount: true, paymentPlan: true,
         lead: { select: { nome: true, email: true, whatsapp: true } },
         portal: { select: { nome: true } },
-        processRegistration: { select: { offering: { select: { nome: true, turno: true, course: { select: { nome: true } }, modality: { select: { nome: true } } } } } },
+        processRegistration: {
+          select: {
+            offering: { select: { nome: true, turno: true, course: { select: { nome: true } }, modality: { select: { nome: true } }, unit: { select: { nome: true } } } },
+            selectionProcess: { select: { entryMode: { select: { name: true } } } },
+          },
+        },
       },
     })
     if (!r) return reply.code(404).send({ error: 'Inscrição não encontrada' })
@@ -168,6 +173,9 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
         oferta: r.processRegistration?.offering?.nome ?? null,
         modalidade: r.processRegistration?.offering?.modality?.nome ?? null,
         turno: r.processRegistration?.offering?.turno ?? null,
+        unidade: r.processRegistration?.offering?.unit?.nome ?? null,
+        polo: typeof fd.campusNome === 'string' && fd.campusNome.trim() ? fd.campusNome.trim() : null,
+        ingresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? null,
       },
       pagamento: plano.valorCobrado != null || plano.valorTabela != null ? {
         valorCheio: num(plano.valorCheio) ?? num(plano.valorTabela),

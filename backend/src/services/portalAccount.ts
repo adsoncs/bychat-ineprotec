@@ -82,8 +82,11 @@ export async function acharConta(identificador: string) {
   if (!bruto) return null
 
   if (bruto.includes('@')) {
+    // O lead QUE TEM conta no portal: o mesmo e-mail pode estar em outros leads
+    // do CRM (duplicatas, importação) e, sem este filtro, o primeiro achado
+    // podia ser um deles — e o login falhava para quem tem a conta.
     const lead = await prisma.lead.findFirst({
-      where: { email: bruto.toLowerCase() },
+      where: { email: bruto.toLowerCase(), portalAccount: { isNot: null } },
       select: { id: true, portalAccount: { select: { id: true } } },
     })
     if (lead?.portalAccount) return contaPorId(lead.portalAccount.id)

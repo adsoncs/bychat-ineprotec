@@ -1,10 +1,6 @@
-import { useEffect, useState } from 'preact/hooks'
-import { carregarMarca, type MarcaDoPortal } from './marca'
-import { Moldura, AcessoSair } from './Moldura'
+import { useState } from 'preact/hooks'
 import { Jornada } from './Jornada'
-import { ResumoDoCandidato } from './ResumoDoCandidato'
-import { carregarJornadaDoPortal } from './api'
-import { carregarPainelAluno, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
+import { type carregarJornadaDoPortal, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
 
 const dinheiro = (centavos: number) =>
   (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -12,94 +8,28 @@ const dinheiro = (centavos: number) =>
 const data = (v: string | Date) => new Date(v).toLocaleDateString('pt-BR')
 
 const SITUACAO_PARCELA: Record<string, { rotulo: string; classe: string }> = {
-  ABERTA: { rotulo: 'Em aberto', classe: 'analise' },
+  ABERTA: { rotulo: 'Em aberto', classe: 'pendente' },
   PAGA: { rotulo: 'Paga', classe: 'ok' },
-  CANCELADA: { rotulo: 'Cancelada', classe: 'analise' },
+  CANCELADA: { rotulo: 'Cancelada', classe: 'ruim' },
   RENEGOCIADA: { rotulo: 'Renegociada', classe: 'analise' },
 }
 
-export function Aluno() {
-  const [d, setD] = useState<PainelAluno | null>(null)
-  const [falha, setFalha] = useState<string | null>(null)
-  const [marca, setMarca] = useState<MarcaDoPortal | null>(null)
-  // Etapas da inscrição (ordem do portal logado) e o token para resolvê-las aqui.
-  const [jornada, setJornada] = useState<Awaited<ReturnType<typeof carregarJornadaDoPortal>> | null>(null)
-  // Quem ainda não virou aluno não tem painel acadêmico: vê só a jornada.
-  const [soCandidato, setSoCandidato] = useState(false)
+type JornadaDoPortal = Awaited<ReturnType<typeof carregarJornadaDoPortal>>
 
-  useEffect(() => {
-    // Branding completo do portal (cores, fonte, cantos, fundo, logo).
-    void carregarMarca().then(setMarca)
-    carregarPainelAluno()
-      .then((p) => {
-        setD(p)
-        if (p.marca && !marca) {
-          document.documentElement.style.setProperty('--marca', p.marca)
-          document.documentElement.style.setProperty('--marca-suave', `color-mix(in srgb, ${p.marca} 12%, transparent)`)
-        }
-      })
-      .catch(async (e) => {
-        if (/Entre no portal|expirad|Aluno não encontrado/i.test(e.message)) {
-          // Candidato (ainda sem matrícula): a jornada da inscrição é a tela dele.
-          const j = await carregarJornadaDoPortal().catch(() => null)
-          if (j) { setJornada(j); setSoCandidato(true); return }
-          location.href = '/portal/login'
-          return
-        }
-        setFalha(e.message)
-      })
-    carregarJornadaDoPortal().then(setJornada).catch(() => {})
-  }, [])
-
-  if (falha) {
-    return (
-      <Moldura marca={marca} acesso={<AcessoSair />}>
-        <div class="cartao">
-          <h2>Não foi possível abrir seu portal</h2>
-          <p class="sub">{falha}</p>
-          <button class="principal" onClick={() => location.reload()}>Tentar de novo</button>
-        </div>
-      </Moldura>
-    )
-  }
-  if (soCandidato && jornada) {
-    return (
-      <Moldura marca={marca} acesso={<AcessoSair />}>
-        <ResumoDoCandidato codigo={jornada.inscricao.candidateCode} token={jornada.token}>
-          <a href="/portal/senha">Senha de acesso</a>
-        </ResumoDoCandidato>
-        <div class="cartao">
-          {jornada.etapas.length
-            ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
-            : <p class="sub">Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.</p>}
-        </div>
-      </Moldura>
-    )
-  }
-
-  if (!d) {
-    return (
-      <Moldura marca={marca}>
-        <div class="esqueleto" style="height:130px" />
-        <div class="esqueleto" style="height:260px" />
-      </Moldura>
-    )
-  }
-
+/**
+ * Vida acadêmica do aluno matriculado: passos, financeiro, horário, datas,
+ * materiais, estágio, boletim, rematrícula, requerimentos e conta. Era a tela
+ * /portal/aluno; agora é a coluna principal do portal único (Portal.tsx) —
+ * /portal/aluno redireciona para /portal.
+ */
+export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: JornadaDoPortal | null }) {
   const pendentes = d.passos.filter((p) => p.situacao !== 'feito')
   const semCobranca = d.financeiro.parcelas.filter(
     (p) => p.situacao === 'ABERTA' && !p.pix && !p.linhaDigitavel,
   ).length
 
   return (
-    <Moldura marca={marca} acesso={<AcessoSair />}>
-      <div class="cartao" style="margin-bottom:14px">
-        <h2>{d.aluno.nome}</h2>
-        <p class="sub" style="margin:0">
-          {d.aluno.ra ? `RA ${d.aluno.ra}` : 'Candidato'}
-          {d.matricula ? ` · ${d.matricula.turma}` : ''}
-        </p>
-      </div>
+    <>
 
       {d.bloqueio?.bloqueado && (
         <div class="aviso erro" role="alert" style="margin-bottom:14px">
@@ -312,7 +242,7 @@ export function Aluno() {
           <button class="secundario" type="submit" style="width:100%">Sair do portal</button>
         </form>
       </div>
-    </Moldura>
+    </>
   )
 }
 

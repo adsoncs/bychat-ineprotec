@@ -159,6 +159,61 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 
+  // ── POST /api/public/portal/meus-dados — o candidato corrige os dados dele ──
+  // Só os dados de contato da pessoa: nome, e-mail e WhatsApp. CPF e os dados
+  // da inscrição (unidade, forma de ingresso, curso, modalidade) não mudam por
+  // aqui — errou a inscrição, faz outra. O e-mail é o login do portal: não pode
+  // ser de outra conta. A troca fica no histórico do lead, para a equipe ver.
+  app.post('/api/public/portal/meus-dados', async (req, reply) => {
+    const s = await sessaoDaRequisicao(req)
+    if (!s) return reply.code(401).send({ error: 'Sessão expirada. Entre de novo.' })
+    const conta = await prisma.portalAccount.findUnique({
+      where: { id: s.accountId },
+      select: { leadId: true, lead: { select: { nome: true, email: true, whatsapp: true } } },
+    })
+    if (!conta) return reply.code(404).send({ error: 'Conta não encontrada.' })
+    const b = (req.body as any) || {}
+    const nome = String(b.nome ?? '').trim().replace(/\s+/g, ' ')
+    const email = String(b.email ?? '').trim().toLowerCase()
+    const whatsapp = String(b.whatsapp ?? '').trim()
+    const erros: Record<string, string> = {}
+    if (nome.length < 5 || nome.length > 120 || nome.split(' ').length < 2) erros.nome = 'Informe o nome completo.'
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 191) erros.email = 'E-mail inválido.'
+    const { phoneKey } = await import('../lib/phone.js')
+    if (!phoneKey(whatsapp)) erros.whatsapp = 'WhatsApp inválido — informe com DDD.'
+    if (Object.keys(erros).length) return reply.code(400).send({ error: Object.values(erros)[0], erros })
+    const dono = await prisma.lead.findFirst({
+      where: { email, id: { not: conta.leadId }, portalAccount: { isNot: null } },
+      select: { id: true },
+    })
+    if (dono) return reply.code(409).send({ error: 'Este e-mail já é usado por outra conta do portal.', erros: { email: 'E-mail já usado por outra conta.' } })
+
+    const antes = conta.lead
+    await prisma.lead.update({ where: { id: conta.leadId }, data: { nome, email, whatsapp } })
+    const depois = await prisma.lead.findUnique({ where: { id: conta.leadId }, select: { nome: true, email: true, whatsapp: true } })
+    // As inscrições guardam os dados como foram enviados; atualiza só os de
+    // contato (CPF, curso e o resto da inscrição ficam como estão).
+    const regs = await prisma.enrollmentRegistration.findMany({
+      where: { leadId: conta.leadId, status: { not: 'merged' } }, select: { id: true, formData: true },
+    })
+    for (const r of regs) {
+      const fd = { ...((r.formData as Record<string, unknown>) || {}), nome, email, whatsapp: depois?.whatsapp ?? whatsapp }
+      await prisma.enrollmentRegistration.update({ where: { id: r.id }, data: { formData: fd as any } })
+    }
+    const mudou = (['nome', 'email', 'whatsapp'] as const).filter((k) => String(antes?.[k] ?? '') !== String(depois?.[k] ?? ''))
+    if (mudou.length) {
+      const { logEvent, EVENT_TYPES } = await import('../services/leadHistory.js')
+      const rotulo: Record<string, string> = { nome: 'nome', email: 'e-mail', whatsapp: 'WhatsApp' }
+      logEvent({
+        leadId: conta.leadId, type: EVENT_TYPES.LEAD_EDITED, category: 'lifecycle', source: 'portal', actorType: 'lead',
+        title: `Candidato atualizou ${mudou.map((k) => rotulo[k]).join(', ')} no portal`,
+        description: mudou.map((k) => `${rotulo[k]}: ${antes?.[k] ?? '—'} → ${depois?.[k] ?? '—'}`).join('\n'),
+        metadata: { campos: mudou, antes: Object.fromEntries(mudou.map((k) => [k, antes?.[k] ?? null])), depois: Object.fromEntries(mudou.map((k) => [k, depois?.[k] ?? null])) },
+      })
+    }
+    return { ok: true, eu: await quemE(s.accountId) }
+  })
+
   // ── GET /api/public/portal/eu — quem está logado ──
   app.get('/api/public/portal/eu', async (req, reply) => {
     const s = await sessaoDaRequisicao(req)
@@ -346,18 +401,10 @@ export async function portalAuthRoutes(app: FastifyInstance) {
 
 
 
-  // ── GET /portal/aluno — painel do aluno (aplicação) ──
-  // O SSR em /portal/aca/aluno continua no ar: é ele que atende os links de
-  // aviso já enviados e quem estiver sem JavaScript.
-  app.get('/portal/aluno', async (req, reply) => {
-    const s = await sessaoDaRequisicao(req)
-    if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+ver+seu+portal.').send()
-    if (!portalAppDisponivel()) return reply.code(303).header('location', '/portal').send()
-    return reply.type('text/html').send(paginaDoPortal({
-      nome: 'Meu portal', slug: 'aluno',
-      metaTitle: 'Meu portal', metaDescription: 'Situação da matrícula, financeiro e documentos.',
-    }, process.env.APP_URL || ''))
-  })
+  // ── GET /portal/aluno — virou o portal único (/portal) ──
+  // A vida acadêmica é uma seção do /portal. Links antigos (avisos, PWA
+  // instalado) continuam valendo por este redirecionamento.
+  app.get('/portal/aluno', async (_req, reply) => reply.code(303).header('location', '/portal').send())
 
   // ── GET /portal/documentos — área logada, servida pela mesma aplicação ──
   app.get('/portal/documentos', async (req, reply) => {
@@ -409,7 +456,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     }
     const listaEtapas = etapas.length ? `<ol style="list-style:none;margin:10px 0 12px;padding:0;display:grid;gap:8px">${etapas.map((e, n) => {
       const sit = SIT[e.situacao] ?? SIT.pendente
-      const acao = e.situacao === 'feito' ? '' : `<a href="/portal/aluno#etapa-${esc(e.chave)}" style="font-size:13px;font-weight:600;white-space:nowrap">${e.situacao === 'aguardando' ? 'Ver' : 'Fazer agora'}</a>`
+      const acao = e.situacao === 'feito' ? '' : `<a href="/portal#etapa-${esc(e.chave)}" style="font-size:13px;font-weight:600;white-space:nowrap">${e.situacao === 'aguardando' ? 'Ver' : 'Fazer agora'}</a>`
       return `<li style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid rgba(0,0,0,.08);border-radius:10px">
         <span style="flex:0 0 22px;height:22px;border-radius:999px;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:${e.situacao === 'pendente' ? '#9ca3af' : sit.cor}">${e.situacao === 'feito' ? '✓' : n + 1}</span>
         <span style="flex:1;min-width:0"><b style="display:block">${esc(e.titulo)}</b><span class="sub" style="margin:0;font-size:13px">${esc(e.detalhe)}</span>
@@ -432,14 +479,14 @@ export async function portalAuthRoutes(app: FastifyInstance) {
         ? `<div class="card" style="margin-bottom:14px;border-left:4px solid #b45309"><p class="sub" style="margin:0 0 10px">Você está entrando com a <b>senha padrão</b> (o seu CPF). Crie uma senha só sua para proteger seus documentos e o contrato.</p><a href="/portal/senha"><button type="button">Criar minha senha</button></a></div>`
         : ''}
       ${eu?.aluno
-        ? bloco('Vida acadêmica', '<p class="sub" style="margin:0 0 10px">Situação da matrícula, financeiro, documentos e contrato.</p><a href="/portal/aluno"><button class="sec" type="button">Abrir meu portal</button></a>')
+        ? bloco('Vida acadêmica', '<p class="sub" style="margin:0 0 10px">Situação da matrícula, financeiro, documentos e contrato.</p><a href="/portal#financeiro"><button class="sec" type="button">Abrir meu portal</button></a>')
         : ''}
       ${inscricoes ? bloco('Minhas inscrições', inscricoes
         // Quem ainda não é aluno segue a jornada da inscrição (pagamento,
-        // documentos, contrato, redação) na ordem do portal, em /portal/aluno.
+        // documentos, contrato, redação) na ordem do portal, em /portal.
         + (proxima
-          ? `<a href="/portal/aluno#etapa-${esc(proxima.chave)}"><button type="button">Continuar: ${esc(proxima.titulo.toLowerCase())}</button></a>`
-          : (eu?.aluno ? '' : '<a href="/portal/aluno"><button class="sec" type="button">Ver minha inscrição</button></a>'))) : ''}
+          ? `<a href="/portal#etapa-${esc(proxima.chave)}"><button type="button">Continuar: ${esc(proxima.titulo.toLowerCase())}</button></a>`
+          : (eu?.aluno ? '' : '<a href="/portal"><button class="sec" type="button">Ver minha inscrição</button></a>'))) : ''}
       ${bloco('Conta', `<div class="item"><span>${esc(eu?.email ?? '—')}</span><span class="tag">e-mail</span></div>
         <div class="item"><span>${esc(eu?.whatsapp ?? '—')}</span><span class="tag">WhatsApp</span></div>
         <a href="/portal/senha"><button class="sec" type="button">Trocar senha</button></a>
