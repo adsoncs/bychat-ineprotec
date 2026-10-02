@@ -40,6 +40,7 @@ import { ConnectionFunnelPicker } from '@/components/ConnectionFunnelPicker'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { api } from '@/lib/apiClient'
 import { cn } from '@/lib/cn'
 import { CANAL_CORES } from '@/lib/channelColors'
 
@@ -52,6 +53,18 @@ interface QrFlow {
 }
 
 const QR_TTL_MS = 3 * 60 * 1000
+// O WhatsApp troca o QR a cada ~20 s (o 1º dura ~60 s). Mostrar só a imagem
+// da 1ª resposta deixava na tela um código morto que o celular recusava —
+// kobogo, 02/10. Enquanto o QR está aberto, buscamos o vigente na Evolution.
+const QR_REFRESH_MS = 15 * 1000
+
+function extrairQr(r: unknown): string | undefined {
+  const resp = r as { qrcode?: unknown; base64?: string }
+  const qr = resp.qrcode
+  if (typeof qr === 'string') return qr
+  if (qr && typeof qr === 'object' && 'base64' in qr) return (qr as { base64?: string }).base64 ?? resp.base64
+  return resp.base64
+}
 
 function formatPhone(jidOrPhone: string): string {
   const digits = String(jidOrPhone).replace(/@.+$/, '').replace(/\D/g, '')
@@ -114,6 +127,25 @@ export function WhatsappPage() {
     return undefined
   }, [polling.data?.state, qrFlow, qc])
 
+  // Renova a imagem do QR enquanto ele está aberto (ver QR_REFRESH_MS).
+  // Falha de rede numa renovação não fecha o fluxo: a próxima tenta de novo.
+  const qrAbertoDe = qrFlow?.status === 'ready' && qrFlow.qrcode ? qrFlow.instanceId : null
+  useEffect(() => {
+    if (qrAbertoDe == null) return
+    let vivo = true
+    const t = window.setInterval(async () => {
+      try {
+        const r = await api.post<{ qrcode?: string; base64?: string }>(`/admin/instances/${qrAbertoDe}/connect`)
+        const novo = extrairQr(r)
+        if (!vivo || !novo) return
+        setQrFlow((curr) => (curr?.instanceId === qrAbertoDe && curr.status === 'ready'
+          ? { ...curr, qrcode: novo }
+          : curr))
+      } catch { /* tenta na próxima volta */ }
+    }, QR_REFRESH_MS)
+    return () => { vivo = false; window.clearInterval(t) }
+  }, [qrAbertoDe])
+
   // Expiração do QR (3 min)
   useEffect(() => {
     if (qrFlow?.status !== 'ready') return
@@ -134,11 +166,7 @@ export function WhatsappPage() {
     setQrFlow({ instanceId: inst.id, startedAt: Date.now(), status: 'loading' })
     connect.mutate(inst.id, {
       onSuccess: (r) => {
-        const qr = (r as { qrcode?: unknown; base64?: string; pairingCode?: string }).qrcode
-        const qrStr = typeof qr === 'string'
-          ? qr
-          : (qr && typeof qr === 'object' && 'base64' in qr ? (qr as { base64?: string }).base64 : undefined)
-            ?? (r as { base64?: string }).base64
+        const qrStr = extrairQr(r)
         if (qrStr) {
           setQrFlow({ instanceId: inst.id, qrcode: qrStr, startedAt: Date.now(), status: 'ready' })
         } else if (r.pairingCode) {
@@ -474,7 +502,7 @@ function QrInline({ qrFlow, onCancel, onRetry }: { qrFlow: QrFlow; onCancel: () 
           Abra o WhatsApp → Aparelhos conectados → Conectar aparelho
         </div>
         <div class="text-2xs text-fg-muted mt-1">
-          Aguardando leitura… <CountdownLabel startedAt={qrFlow.startedAt} />
+          Aguardando leitura… o código se renova sozinho · <CountdownLabel startedAt={qrFlow.startedAt} />
         </div>
         <div class="flex gap-2 justify-center mt-2">
           <Button size="sm" variant="ghost" onClick={onRetry}>
@@ -517,7 +545,7 @@ function CountdownLabel({ startedAt }: { startedAt: number }) {
   const remaining = Math.max(0, QR_TTL_MS - (now - startedAt))
   const m = Math.floor(remaining / 60_000)
   const s = Math.floor((remaining % 60_000) / 1000)
-  return <span>expira em {m}:{String(s).padStart(2, '0')}</span>
+  return <span>fecha em {m}:{String(s).padStart(2, '0')}</span>
 }
 
 function StatusBadge({ status }: { status: WhatsAppInstance['status'] }) {
