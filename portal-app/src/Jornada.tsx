@@ -30,7 +30,6 @@ export function Jornada(props: {
 }) {
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(props.etapas ?? null)
   const [falha, setFalha] = useState<string | null>(null)
-  const [adiadas, setAdiadas] = useState<string[]>([])
   // Painel: o link "#etapa-contrato" (início do portal, passos do aluno) abre
   // a etapa direto, em vez de deixar a pessoa procurando onde clicar.
   const daAncora = () => (/^#etapa-(\w+)/.exec(location.hash)?.[1] ?? null)
@@ -60,9 +59,11 @@ export function Jornada(props: {
   if (!etapas.length) return null
 
   const resolvida = (e: EtapaDaJornada) => e.situacao !== 'pendente'
-  // Na inscrição, a etapa da vez é a primeira que falta e não foi adiada.
+  // Na inscrição, a etapa da vez (aberta de início) é a primeira que falta. A
+  // pessoa pode abrir qualquer outra pelo "Fazer agora" — não há mais o "Deixar
+  // para depois" (era o único jeito de chegar à etapa seguinte).
   const daVez = props.contexto === 'inscricao'
-    ? etapas.find((e) => !resolvida(e) && !adiadas.includes(e.chave)) ?? null
+    ? etapas.find((e) => !resolvida(e)) ?? null
     : null
   const tudoFeito = tudoPronto
   // "Concluída" é só o que terminou; em análise ainda não conta.
@@ -92,7 +93,8 @@ export function Jornada(props: {
       </div>
       <ol class="jornada-lista">
         {etapas.map((e, i) => {
-          const expandida = props.contexto === 'inscricao' ? daVez?.chave === e.chave : aberta === e.chave
+          // Inscrição: a da vez abre sozinha até a pessoa escolher outra (ou fechar).
+          const expandida = props.contexto === 'inscricao' && aberta === null ? daVez?.chave === e.chave : aberta === e.chave
           return (
             <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${e.situacao} ${temRecusa(e) ? 'alerta' : ''} ${expandida ? 'aberta' : ''}`}>
               <div class="etapa-cabeca">
@@ -104,33 +106,28 @@ export function Jornada(props: {
                 <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? 'Corrigir' : SITUACAO[e.situacao]}</span>
                 {/* Concluída também abre quando há o que consultar: contrato assinado
                     (PDF) e documentos enviados — como o boleto mostra a cobrança. */}
-                {!expandida && (props.contexto === 'painel' || adiadas.includes(e.chave))
+                {!expandida
                   && (e.situacao !== 'feito' || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
-                  <button class="link etapa-acao" type="button" onClick={() => {
-                    if (props.contexto === 'inscricao') setAdiadas((a) => a.filter((x) => x !== e.chave))
-                    else setAberta(e.chave)
-                  }}>{e.situacao === 'pendente' ? 'Fazer agora' : 'Ver'}</button>
+                  <button class="link etapa-acao" type="button" onClick={() => setAberta(e.chave)}>
+                    {e.situacao === 'pendente' ? 'Fazer agora' : 'Ver'}
+                  </button>
                 )}
-                {expandida && props.contexto === 'painel' && (
-                  <button class="link etapa-acao" type="button" onClick={() => setAberta(null)}>Fechar</button>
+                {expandida && (
+                  // Na inscrição, '' = nenhuma aberta (null volta a abrir a da vez).
+                  <button class="link etapa-acao" type="button" onClick={() => setAberta(props.contexto === 'inscricao' ? '' : null)}>Fechar</button>
                 )}
               </div>
               {expandida && (
                 <div class="etapa-corpo">
                   {conteudo(e)}
-                  {props.contexto === 'inscricao' && !e.obrigatoria && !resolvida(e) && (
-                    <button class="link adiar" type="button" onClick={() => setAdiadas((a) => [...a, e.chave])}>
-                      Deixar para depois
-                    </button>
-                  )}
                 </div>
               )}
             </li>
           )
         })}
       </ol>
-      {props.contexto === 'inscricao' && !daVez && !tudoFeito && (
-        <div class="aviso info">Você pode concluir o que ficou para depois quando quiser, entrando no seu portal.</div>
+      {props.contexto === 'inscricao' && !tudoFeito && (
+        <div class="aviso info">Você pode fazer as etapas agora ou depois, quando quiser, entrando no seu portal.</div>
       )}
       {tudoFeito && <div class="aviso info" style="color:var(--ok);border-color:var(--ok)"><b>Tudo certo por aqui.</b> Acompanhe o andamento pelo seu portal.</div>}
     </div>
