@@ -181,7 +181,35 @@ export function App() {
       if (!Array.isArray(exigidos) || exigidos.length === 0) return true
       // Sem curso escolhido ainda, esconde o condicional em vez de exigir cego.
       return !!modo && exigidos.includes(modo)
-    })
+    }).flatMap((c) => (c.type === 'offering-picker' ? [c, ...extrasDoIngresso(oferta)] : [c]))
+  }
+
+  /**
+   * Dados que a FORMA DE INGRESSO escolhida pede (EntryMode.defaultFormExtras):
+   * Segunda Graduação → curso e IES já concluídos; Transferência → IES e curso
+   * de origem; ENEM → nº de inscrição e ano. Entram logo depois da escolha do
+   * curso. O servidor já exigia esses campos, mas o formulário não os mostrava —
+   * e a inscrição travava em "Campos obrigatórios não preenchidos". Campo que o
+   * formulário do portal já tem (aba Formulário) não se repete.
+   */
+  const nomesNoFormulario = new Set(passos.flatMap((p) => ((p.fields ?? []) as Campo[]).map((c) => c.name)))
+  function extrasDoIngresso(oferta: (typeof offertasDisponiveis)[number] | undefined): Campo[] {
+    const extras = oferta?.selectionProcess?.entryMode?.defaultFormExtras ?? []
+    const tipos = new Set(['text', 'email', 'phone', 'cpf', 'date', 'cep', 'select', 'textarea', 'number', 'rg'])
+    return extras
+      .filter((x) => x?.name && !nomesNoFormulario.has(x.name))
+      .map((x) => {
+        const sim = x.type === 'checkbox' // caixa de marcar vira Sim/Não
+        return {
+          type: (sim ? 'select' : tipos.has(String(x.type)) ? x.type : 'text') as Campo['type'],
+          name: x.name,
+          label: x.label || x.name,
+          required: !!x.required,
+          ...(sim ? { options: ['Sim', 'Não'] } : Array.isArray(x.options) && x.options.length ? { options: x.options } : {}),
+          ...(x.placeholder ? { placeholder: x.placeholder } : {}),
+          ...(x.helpText ? { helpText: x.helpText } : {}),
+        }
+      })
   }
 
   // Um passo cujos campos são todos condicionais e não se aplicam vira etapa em
@@ -399,6 +427,7 @@ export function App() {
             passos={passosVisiveis}
             valores={valores}
             oferta={ofertaEscolhida}
+            extras={extrasDoIngresso(ofertaEscolhida ?? undefined)}
             portal={portal}
             aoEditar={(i) => setPasso(i)}
           />
@@ -825,6 +854,8 @@ function Revisao(props: {
   passos: Passo[]
   valores: Valores
   oferta: Oferta | null
+  /** Dados da forma de ingresso (ex.: curso e IES já concluídos) — mostrados junto do curso. */
+  extras: Campo[]
   portal: DadosPortal['portal']
   aoEditar: (indice: number) => void
 }) {
@@ -853,6 +884,12 @@ function Revisao(props: {
             {(p.fields ?? []).some((c) => c.type === 'offering-picker') && (props.oferta?.campuses?.length ?? 0) > 1 && (
               <div class="item"><span>Polo</span><b>{props.oferta?.campuses?.find((x) => String(x.campus.id) === String(props.valores.campusId))?.campus.nome ?? '—'}</b></div>
             )}
+            {(p.fields ?? []).some((c) => c.type === 'offering-picker') && props.extras.map((c) => (
+              <div class="item" key={c.name}>
+                <span>{c.label}</span>
+                <b>{String(props.valores[c.name] ?? '') || '—'}</b>
+              </div>
+            ))}
           </div>
         )
       })}

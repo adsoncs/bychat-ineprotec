@@ -12,7 +12,11 @@ export interface Oferta {
     nome: string
     /** Taxa de inscrição: é o valor que o resumo mostra antes do contrato. */
     taxaInscricao?: string | number | null
-    entryMode?: { id: number; code: string; name: string } | null
+    entryMode?: {
+      id: number; code: string; name: string
+      /** Dados que a forma de ingresso pede (ex.: Segunda Graduação → curso e IES já concluídos). */
+      defaultFormExtras?: Array<{ name: string; type?: string; label?: string; required?: boolean; options?: string[]; placeholder?: string; helpText?: string }> | null
+    } | null
   } | null
   turno?: string | null
   complemento?: string | null
