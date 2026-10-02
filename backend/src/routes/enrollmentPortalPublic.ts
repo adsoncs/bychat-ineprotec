@@ -47,8 +47,13 @@ export async function destinoDoDominioProprio(req: FastifyRequest): Promise<stri
 // Resolve portal a partir do hostname recebido (para domínios próprios)
 async function resolvePortalByHost(host: string) {
   if (!host) return null
+  // O mesmo domínio pode servir a vários portais da instituição (ex.:
+  // matricula.fabad.edu.br para Graduação, Pós e Extensão — cada um em
+  // /portal/<slug>, e os links de e-mail saem todos no domínio). A RAIZ leva ao
+  // portal de menor id: escolha fixa, não a ordem que o banco devolver.
   return await prisma.enrollmentPortal.findFirst({
     where: { customDomain: host, active: true },
+    orderBy: { id: 'asc' },
     select: portalSelect,
   })
 }
