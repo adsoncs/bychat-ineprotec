@@ -1123,7 +1123,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const where: any = { portalId }
     // Mesclada é passado de uma mesclagem: só aparece quando pedida.
-    if (q.status) where.status = q.status
+    // `situacao` (filtro da lista): cancelada/expirada/mesclada vêm do status;
+    // "em andamento" e "etapas concluídas" saem das etapas (calculadas abaixo).
+    const situacao = String(q.situacao || '')
+    if (['cancelled', 'expired', 'merged'].includes(situacao)) where.status = situacao
+    else if (situacao === 'andamento' || situacao === 'concluida') where.status = { notIn: ['cancelled', 'expired', 'merged'] }
+    else if (q.status) where.status = q.status
     else where.status = { not: 'merged' }
     // Duplicidade: grupos vivos (services/inscricaoDuplicada) — o selo em cada
     // linha e o filtro "só possíveis duplicidades".
@@ -1161,6 +1166,65 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }
     }
 
+    // ── Etapas do portal: colunas da lista e filtros por etapa ─────────────
+    // As colunas são as etapas LIGADAS no portal (aba Etapas), na ordem da
+    // tela de inscrição — mudam de portal para portal. Só entram as que se
+    // aplicam a este portal: pagamento só se cobra; redação só se algum
+    // processo do portal tem redação online; completar cadastro só se há dado
+    // configurado para ela.
+    const { lerJornada, etapasDaInscricao, ROTULO } = await import('../services/portalJornada.js')
+    const { dadosEfetivos, camposDaEtapa } = await import('../services/dadosCadastro.js')
+    const cfgPortal = await prisma.enrollmentPortal.findUnique({
+      where: { id: portalId }, select: { jornadaEtapas: true, requirePayment: true, selectionProcessIds: true },
+    })
+    const procIds = Array.isArray(cfgPortal?.selectionProcessIds) ? (cfgPortal!.selectionProcessIds as any[]).map(Number).filter(Boolean) : []
+    const temProva = procIds.length > 0 && (await prisma.selectionProcess.count({
+      where: { id: { in: procIds }, entryMode: { evaluationType: 'exam_online' } },
+    })) > 0
+    const cfgDados = await dadosEfetivos({ jornadaEtapas: cfgPortal?.jornadaEtapas }).catch(() => null)
+    const colunas = lerJornada(cfgPortal?.jornadaEtapas).inscricao
+      .filter((e) => e.ativo)
+      .filter((e) => e.chave !== 'pagamento' || !!cfgPortal?.requirePayment)
+      .filter((e) => e.chave !== 'prova' || temProva)
+      .filter((e) => e.chave !== 'cadastro' || (!!cfgDados && camposDaEtapa(cfgDados, 'cadastro').length > 0))
+      .map((e) => ({ chave: e.chave, titulo: e.chave === 'prova' ? 'Redação' : ROTULO[e.chave] }))
+
+    type Etapas = NonNullable<Awaited<ReturnType<typeof etapasDaInscricao>>>['etapas']
+    const etapasDe = async (ids: number[]) => {
+      const mapa = new Map<number, Etapas>()
+      for (let i = 0; i < ids.length; i += 10) {
+        const lote = ids.slice(i, i + 10)
+        const res = await Promise.all(lote.map((rid) => etapasDaInscricao(rid, 'inscricao').catch(() => null)))
+        lote.forEach((rid, k) => mapa.set(rid, res[k]?.etapas ?? []))
+      }
+      return mapa
+    }
+    // Filtro por etapa ("Documentos: pendente") ou por andamento: depende das
+    // etapas de cada inscrição — calcula para as que passam nos outros filtros
+    // e pagina depois. Sem esses filtros, a paginação continua no banco.
+    const etapaFiltro = String(q.etapa || '')
+    const etapaSituacao = String(q.etapaSituacao || '')
+    const filtraPorEtapa = (!!etapaFiltro && !!etapaSituacao) || situacao === 'andamento' || situacao === 'concluida'
+    let idsDaPagina: number[] | null = null
+    let totalFiltrado: number | null = null
+    let etapasCalculadas = new Map<number, Etapas>()
+    if (filtraPorEtapa) {
+      const candidatos = await prisma.enrollmentRegistration.findMany({ where, orderBy: { createdAt: 'desc' }, take: 3000, select: { id: true } })
+      etapasCalculadas = await etapasDe(candidatos.map((c) => c.id))
+      const passa = candidatos.filter(({ id: rid }) => {
+        const et = etapasCalculadas.get(rid) ?? []
+        if (etapaFiltro && etapaSituacao) {
+          const e = et.find((x) => x.chave === etapaFiltro)
+          if (!e || e.situacao !== etapaSituacao) return false
+        }
+        if (situacao === 'concluida' && !(et.length > 0 && et.every((x) => x.situacao === 'feito'))) return false
+        if (situacao === 'andamento' && et.length > 0 && et.every((x) => x.situacao === 'feito')) return false
+        return true
+      })
+      totalFiltrado = passa.length
+      idsDaPagina = passa.slice(offset, offset + limit).map((c) => c.id)
+    }
+
     const [portal, items, total, todayCount, weekCount, conversions] = await Promise.all([
       prisma.enrollmentPortal.findUnique({
         where: { id: portalId },
@@ -1176,14 +1240,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         },
       }),
       prisma.enrollmentRegistration.findMany({
-        where, orderBy: { createdAt: 'desc' }, take: limit, skip: offset,
+        where: idsDaPagina ? { id: { in: idsDaPagina } } : where,
+        orderBy: { createdAt: 'desc' },
+        ...(idsDaPagina ? {} : { take: limit, skip: offset }),
         include: {
           lead: { select: { id: true, nome: true, email: true, whatsapp: true, status: true, funnelId: true } },
           processRegistration: { select: { id: true, status: true, offering: { select: { nome: true } } } },
           _count: { select: { documents: true } },
         },
       }),
-      prisma.enrollmentRegistration.count({ where }),
+      totalFiltrado != null ? Promise.resolve(totalFiltrado) : prisma.enrollmentRegistration.count({ where }),
       prisma.enrollmentRegistration.count({
         where: { portalId, createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
       }),
@@ -1195,9 +1261,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }),
     ])
 
+    // Etapas de cada linha da página (as do filtro já vieram calculadas).
+    const faltam = items.map((r) => r.id).filter((rid) => !etapasCalculadas.has(rid))
+    const etapasDaPagina = faltam.length ? await etapasDe(faltam) : new Map<number, Etapas>()
+    const etapasDaLinha = (rid: number) => (etapasCalculadas.get(rid) ?? etapasDaPagina.get(rid) ?? [])
+      .map((e) => ({ chave: e.chave, situacao: e.situacao, detalhe: e.detalhe, ...(e.progresso ? { progresso: e.progresso } : {}) }))
+
     return {
-      items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0 })),
-      total, portal,
+      items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0, etapas: etapasDaLinha(r.id) })),
+      total, portal, colunas,
       kpis: { total, today: todayCount, week: weekCount, conversions, duplicidades: duplicidade.size },
     }
   })

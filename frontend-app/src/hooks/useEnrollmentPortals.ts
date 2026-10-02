@@ -405,6 +405,17 @@ export interface EnrollmentRegistration {
   /** Tamanho do grupo de possível duplicidade (0 = nenhum). */
   duplicidade?: number
   mergedIntoId?: number | null
+  /** Situação de cada etapa da jornada (colunas da lista). */
+  etapas?: EtapaDaLinha[]
+}
+
+/** Etapa de uma inscrição na lista do portal (services/portalJornada no servidor). */
+export interface EtapaDaLinha {
+  chave: string
+  situacao: 'feito' | 'aguardando' | 'pendente'
+  detalhe: string
+  /** Documentos: obrigatórios enviados/aprovados/recusados. */
+  progresso?: { enviados: number; total: number; aprovados: number; recusados: number }
 }
 
 export interface RegistrationsKpis {
@@ -419,6 +430,8 @@ export interface RegistrationsKpis {
 export interface RegistrationsResponse {
   items: EnrollmentRegistration[]
   total: number
+  /** Etapas ligadas no portal, na ordem configurada — as colunas da lista. */
+  colunas?: Array<{ chave: string; titulo: string }>
   portal: {
     id: number
     nome: string
@@ -444,6 +457,11 @@ export interface RegistrationFilters {
   search?: string
   /** '1' = só inscrições em possível duplicidade. */
   duplicates?: '1'
+  /** andamento | concluida | cancelled | expired | merged */
+  situacao?: string
+  /** Filtro por etapa: chave da etapa + situação dela (feito | aguardando | pendente). */
+  etapa?: string
+  etapaSituacao?: string
   limit?: number
   offset?: number
 }

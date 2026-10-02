@@ -115,6 +115,8 @@ export interface EtapaDaInscricao {
   obrigatoria: boolean
   /** Dados obrigatórios desta etapa ainda em branco (a etapa pede antes da ação). */
   dadosFaltando?: number
+  /** Documentos: contagem dos OBRIGATÓRIOS (lista do admin mostra "4/6"). */
+  progresso?: { enviados: number; total: number; aprovados: number; recusados: number }
 }
 
 async function contexto(registrationId: number) {
@@ -221,6 +223,7 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
         chave: 'documentos', titulo: ROTULO.documentos, obrigatoria: e.obrigatoria,
         situacao: recusados ? 'pendente' : tudo ? (aprovados >= obrigatorios.length ? 'feito' : 'aguardando') : 'pendente',
         detalhe,
+        progresso: { enviados: entregues, total: obrigatorios.length, aprovados, recusados },
       })
     } else if (e.chave === 'contrato') {
       if (!reg.processRegistration?.offering) continue

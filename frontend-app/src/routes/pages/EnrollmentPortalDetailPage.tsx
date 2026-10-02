@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard, ListOrdered,
+  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard, ListOrdered, Filter,
 } from '@/components/ui/icon-set'
 import {
   useEnrollmentPortal,
@@ -20,6 +20,7 @@ import {
   usePortalAnalytics,
   type EnrollmentPortal,
   type EnrollmentRegistration,
+  type EtapaDaLinha,
   type RegistrationStatus,
   type RegistrationUpsertInput,
   type RegistrationsKpis,
@@ -668,8 +669,12 @@ function InteressadosTab({ portal }: { portal: EnrollmentPortal }) {
 
 function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [, navigate] = useLocation()
-  const [status, setStatus] = useState<RegistrationStatus | ''>('')
-  const [paymentStatus, setPaymentStatus] = useState('')
+  // Situação geral (andamento/concluída/cancelada…) e filtro por etapa
+  // ("Documentos: pendente") — as etapas são as do portal (colunas da lista).
+  const [situacao, setSituacao] = useState('')
+  const [etapa, setEtapa] = useState('')
+  const [etapaSituacao, setEtapaSituacao] = useState('')
+  const [maisFiltros, setMaisFiltros] = useState(false)
   const [utmSource, setUtmSource] = useState('')
   const [utmMedium, setUtmMedium] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -681,8 +686,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const limit = 50
 
   const filters: RegistrationFilters = useMemo(() => ({
-    ...(status ? { status } : {}),
-    ...(paymentStatus ? { paymentStatus } : {}),
+    ...(situacao ? { situacao } : {}),
+    ...(etapa && etapaSituacao ? { etapa, etapaSituacao } : {}),
     ...(utmSource.trim() ? { utmSource: utmSource.trim() } : {}),
     ...(utmMedium.trim() ? { utmMedium: utmMedium.trim() } : {}),
     ...(dateFrom ? { dateFrom } : {}),
@@ -691,12 +696,13 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
     ...(soDuplicidades ? { duplicates: '1' as const } : {}),
     limit,
     offset: page * limit,
-  }), [status, paymentStatus, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, page])
+  }), [situacao, etapa, etapaSituacao, utmSource, utmMedium, dateFrom, dateTo, search, soDuplicidades, page])
 
   const { data, isLoading } = usePortalRegistrations(portal.id, filters)
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const kpis = data?.kpis
+  const colunas = data?.colunas ?? []
 
   const cancel = useCancelRegistration(portal.id)
   const resend = useResendRegistrationLink()
@@ -708,12 +714,12 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<EnrollmentRegistration | null>(null)
 
-  const activeFiltersCount = [status, paymentStatus, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
+  const activeFiltersCount = [situacao, etapa && etapaSituacao, utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
+  const maisFiltrosAtivos = [utmSource.trim(), utmMedium.trim(), dateFrom, dateTo, soDuplicidades].filter(Boolean).length
 
   function handleExport() {
     const qs = new URLSearchParams()
-    if (status) qs.set('status', status)
-    if (paymentStatus) qs.set('paymentStatus', paymentStatus)
+    if (['cancelled', 'expired', 'merged'].includes(situacao)) qs.set('status', situacao)
     if (utmSource.trim()) qs.set('utmSource', utmSource.trim())
     if (utmMedium.trim()) qs.set('utmMedium', utmMedium.trim())
     if (dateFrom) qs.set('dateFrom', dateFrom)
@@ -749,7 +755,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
   }
 
   function handleClearFilters() {
-    setStatus(''); setPaymentStatus(''); setUtmSource(''); setUtmMedium('')
+    setSituacao(''); setEtapa(''); setEtapaSituacao(''); setUtmSource(''); setUtmMedium('')
     setDateFrom(''); setDateTo(''); setSearch(''); setSoDuplicidades(false); setPage(0)
   }
 
@@ -770,26 +776,43 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               class="min-w-56"
             />
             <Select
-              label="Status"
-              value={status}
-              onChange={(e) => {
-                const v = (e.target as HTMLSelectElement).value as RegistrationStatus | ''
-                setStatus(v); setPage(0)
-              }}
+              label="Situação"
+              value={situacao}
+              onChange={(e) => { setSituacao((e.target as HTMLSelectElement).value); setPage(0) }}
             >
-              <option value="">Todos</option>
-              {Object.entries(STATUS_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
+              <option value="">Todas (exceto mescladas)</option>
+              <option value="andamento">Em andamento</option>
+              <option value="concluida">Todas as etapas concluídas</option>
+              <option value="cancelled">Cancelada</option>
+              <option value="expired">Expirada</option>
+              <option value="merged">Mesclada</option>
             </Select>
-            <Select
-              label="Pagamento"
-              value={paymentStatus}
-              onChange={(e) => { setPaymentStatus((e.target as HTMLSelectElement).value); setPage(0) }}
-            >
-              <option value="">Todos</option>
-              {PAYMENT_STATUS_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </Select>
+            {colunas.length > 0 && (
+              <>
+                <Select
+                  label="Etapa"
+                  value={etapa}
+                  onChange={(e) => {
+                    const v = (e.target as HTMLSelectElement).value
+                    setEtapa(v); if (v && !etapaSituacao) setEtapaSituacao('pendente'); if (!v) setEtapaSituacao(''); setPage(0)
+                  }}
+                >
+                  <option value="">Qualquer etapa</option>
+                  {colunas.map((c) => <option key={c.chave} value={c.chave}>{c.titulo}</option>)}
+                </Select>
+                <Select
+                  label="Situação da etapa"
+                  value={etapaSituacao}
+                  disabled={!etapa}
+                  onChange={(e) => { setEtapaSituacao((e.target as HTMLSelectElement).value); setPage(0) }}
+                >
+                  {!etapa && <option value="">Escolha a etapa</option>}
+                  <option value="pendente">{rotuloSituacaoEtapa(etapa, 'pendente')}</option>
+                  <option value="aguardando">{rotuloSituacaoEtapa(etapa, 'aguardando')}</option>
+                  <option value="feito">{rotuloSituacaoEtapa(etapa, 'feito')}</option>
+                </Select>
+              </>
+            )}
             <Button size="sm" variant="primary" onClick={() => setCreating(true)} class="ml-auto self-end">
               <Plus size={12} /> Nova inscrição
             </Button>
@@ -797,6 +820,17 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               <Download size={12} /> Exportar CSV
             </Button>
           </div>
+          <div class="flex items-center gap-3">
+            <Button size="sm" variant="ghost" onClick={() => setMaisFiltros(!maisFiltros)}>
+              <Filter size={12} /> {maisFiltros ? 'Menos filtros' : 'Mais filtros'}{!maisFiltros && maisFiltrosAtivos > 0 ? ` (${maisFiltrosAtivos})` : ''}
+            </Button>
+            {activeFiltersCount > 0 && (
+              <Button size="sm" variant="ghost" onClick={handleClearFilters}>
+                Limpar filtros ({activeFiltersCount})
+              </Button>
+            )}
+          </div>
+          {maisFiltros && (
           <div class="flex flex-wrap items-end gap-3">
             <Input
               label="UTM Source"
@@ -826,12 +860,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
               <input type="checkbox" checked={soDuplicidades} onChange={(e) => { setSoDuplicidades((e.target as HTMLInputElement).checked); setPage(0) }} />
               Só possíveis duplicidades
             </label>
-            {activeFiltersCount > 0 && (
-              <Button size="sm" variant="ghost" onClick={handleClearFilters} class="self-end">
-                Limpar filtros ({activeFiltersCount})
-              </Button>
-            )}
           </div>
+          )}
         </div>
       </Card>
 
@@ -855,10 +885,8 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                   <th class="py-2 px-2 font-medium">Código</th>
                   <th class="py-2 px-2 font-medium">Candidato</th>
                   <th class="py-2 px-2 font-medium">Oferta</th>
-                  <th class="py-2 px-2 font-medium">Status</th>
-                  <th class="py-2 px-2 font-medium">Pagamento</th>
-                  <th class="py-2 px-2 font-medium">Docs</th>
-                  <th class="py-2 px-2 font-medium">Origem</th>
+                  {/* Uma coluna por etapa ligada no portal, na ordem da configuração. */}
+                  {colunas.map((c) => <th key={c.chave} class="py-2 px-2 font-medium whitespace-nowrap">{c.titulo}</th>)}
                   <th class="py-2 px-2 font-medium">Criada</th>
                   <th class="py-2 px-2 font-medium w-8"></th>
                 </tr>
@@ -869,6 +897,7 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                     key={r.id}
                     r={r}
                     portal={portal}
+                    colunas={colunas}
                     onClick={() => navigate(`/enrollment-portals/${portal.id}/registrations/${r.id}`)}
                     onResend={() => handleResend(r)}
                     onCancel={() => setCancelling(r)}
@@ -961,10 +990,11 @@ function KpiRow({ kpis }: { kpis: RegistrationsKpis }) {
 }
 
 function RegistrationRow({
-  r, portal, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, onUnmerge, busy,
+  r, portal, colunas, onClick, onResend, onCancel, onOpenLead, onEnsureLead, onEdit, onDelete, onUnmerge, busy,
 }: {
   r: EnrollmentRegistration
   portal: EnrollmentPortal
+  colunas: Array<{ chave: string; titulo: string }>
   onClick: () => void
   onResend: () => void
   onCancel: () => void
@@ -995,6 +1025,18 @@ function RegistrationRow({
             possível duplicidade ({r.duplicidade})
           </div>
         )}
+        {/* Situação fora do andamento normal: selo debaixo do código. */}
+        {(r.status === 'cancelled' || r.status === 'expired' || r.status === 'merged') && (
+          <div class="mt-0.5 text-2xs font-medium text-danger uppercase tracking-wider">
+            {STATUS_LABELS[statusKey] ?? r.status}
+            {r.status === 'merged' && (
+              <button type="button" class="ml-1 text-accent underline normal-case" disabled={busy}
+                onClick={(e) => { e.stopPropagation(); onUnmerge() }}>
+                desfazer
+              </button>
+            )}
+          </div>
+        )}
       </td>
       <td class="py-2 px-2">
         <div class="min-w-0">
@@ -1003,33 +1045,11 @@ function RegistrationRow({
         </div>
       </td>
       <td class="py-2 px-2 text-xs text-fg-muted truncate max-w-48" title={offering}>{offering}</td>
-      <td class="py-2 px-2">
-        <span class={`text-xs uppercase tracking-wider font-medium ${STATUS_COLORS[statusKey] ?? 'text-fg-muted'}`}>
-          {STATUS_LABELS[statusKey] ?? r.status}
-        </span>
-        {r.status === 'merged' && (
-          <button type="button" class="block text-2xs text-accent underline" disabled={busy}
-            onClick={(e) => { e.stopPropagation(); onUnmerge() }}>
-            desfazer
-          </button>
-        )}
-      </td>
-      <td class="py-2 px-2 text-xs">
-        {r.paymentStatus
-          ? <>
-              <div class={`font-medium ${paymentStatusTone(r.paymentStatus) === 'success' ? 'text-success' : paymentStatusTone(r.paymentStatus) === 'danger' ? 'text-danger' : paymentStatusTone(r.paymentStatus) === 'warning' ? 'text-warning' : 'text-fg'}`}>
-                {paymentStatusLabel(r.paymentStatus)}
-              </div>
-              {amount != null && <div class="text-fg-muted tabular-nums">R$ {amount.toFixed(2)}</div>}
-            </>
-          : <span class="text-fg-muted">—</span>}
-      </td>
-      <td class="py-2 px-2 text-xs text-fg-muted tabular-nums">
-        {r._count?.documents ?? 0}
-      </td>
-      <td class="py-2 px-2 text-xs text-fg-muted truncate max-w-24" title={[r.utmSource, r.utmMedium].filter(Boolean).join(' · ') || ''}>
-        {r.utmSource ?? '—'}
-      </td>
+      {colunas.map((c) => (
+        <td key={c.chave} class="py-2 px-2 text-xs whitespace-nowrap">
+          <CelulaDaEtapa chave={c.chave} etapa={r.etapas?.find((e) => e.chave === c.chave)} valor={c.chave === 'pagamento' ? amount : null} />
+        </td>
+      ))}
       <td class="py-2 px-2 text-xs text-fg-muted whitespace-nowrap">
         {formatRelative(r.createdAt)}
       </td>
@@ -1329,3 +1349,43 @@ function DeleteRegistrationDialog({
   )
 }
 
+/**
+ * Como cada etapa aparece na lista e no filtro — o que o time precisa ler de
+ * relance: redação feita? contrato assinado? quantos documentos? pagou?
+ */
+const ROTULO_SITUACAO_ETAPA: Record<string, Record<'feito' | 'aguardando' | 'pendente', string>> = {
+  prova: { feito: 'Sim (aprovada)', aguardando: 'Em correção', pendente: 'Não feita' },
+  contrato: { feito: 'Assinado', aguardando: 'Em assinatura', pendente: 'Não assinado' },
+  documentos: { feito: 'Todos aprovados', aguardando: 'Enviados, em análise', pendente: 'Faltando ou recusado' },
+  pagamento: { feito: 'Realizado', aguardando: 'Aguardando', pendente: 'Não realizado' },
+  cadastro: { feito: 'Completo', aguardando: 'Em análise', pendente: 'Incompleto' },
+}
+function rotuloSituacaoEtapa(chave: string, situacao: 'feito' | 'aguardando' | 'pendente'): string {
+  return ROTULO_SITUACAO_ETAPA[chave]?.[situacao] ?? ({ feito: 'Concluída', aguardando: 'Em análise', pendente: 'Pendente' })[situacao]
+}
+
+function CelulaDaEtapa({ chave, etapa, valor }: { chave: string; etapa: EtapaDaLinha | undefined; valor: number | null }) {
+  // Etapa que não se aplica a esta inscrição (ex.: redação numa inscrição pelo ENEM).
+  if (!etapa) return <span class="text-fg-subtle" title="Não se aplica a esta inscrição">—</span>
+  const tom = etapa.situacao === 'feito' ? 'text-success' : etapa.situacao === 'aguardando' ? 'text-info' : 'text-warning'
+  if (chave === 'documentos' && etapa.progresso) {
+    const p = etapa.progresso
+    const cor = p.recusados > 0 ? 'text-danger' : tom
+    return (
+      <span class={`font-semibold tabular-nums ${cor}`} title={etapa.detalhe}>
+        {p.enviados}/{p.total}
+        {p.recusados > 0 && <span class="ml-1 font-medium">· {p.recusados} recusado{p.recusados > 1 ? 's' : ''}</span>}
+        {p.recusados === 0 && p.total > 0 && p.enviados === p.total && p.aprovados < p.total && <span class="ml-1 font-medium">· em análise</span>}
+      </span>
+    )
+  }
+  // Pagamento com cobrança gerada e não paga = aguardando (o detalhe diz).
+  const situacao = chave === 'pagamento' && etapa.situacao === 'pendente' && /aguardando/i.test(etapa.detalhe) ? 'aguardando' : etapa.situacao
+  const cor = situacao === 'feito' ? 'text-success' : situacao === 'aguardando' ? 'text-info' : 'text-warning'
+  return (
+    <span class={`font-semibold ${cor}`} title={etapa.detalhe}>
+      {rotuloSituacaoEtapa(chave, situacao)}
+      {chave === 'pagamento' && valor != null && <span class="block font-normal text-fg-muted tabular-nums">R$ {valor.toFixed(2)}</span>}
+    </span>
+  )
+}
