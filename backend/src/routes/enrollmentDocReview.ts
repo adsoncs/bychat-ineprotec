@@ -470,12 +470,16 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       reviewerName: d.reviewedBy ? (reviewerMap.get(d.reviewedBy) || `User #${d.reviewedBy}`) : null,
     })
 
-    // Status agregado da redação — só relevante quando entryMode usa avaliação por redação
+    // Status agregado da redação — só relevante quando entryMode usa avaliação por redação.
+    // Os dois tipos têm redação: 'essay' e 'exam_online' (redação online feita no
+    // portal — o Vestibular da FABAD). Antes só 'essay' contava, e a redação do
+    // vestibular online não aparecia no admin.
     const entryEval = (reg.processRegistration?.selectionProcess as any)?.entryMode?.evaluationType
+    const temRedacao = entryEval === 'essay' || entryEval === 'exam_online'
     const last = (reg as any).essaySubmissions?.[0]
     let essayStatus: 'not-required' | 'pending' | 'submitted' | 'reviewing' | 'approved' | 'rejected' = 'not-required'
     let essayScore: number | null = null
-    if (entryEval === 'essay') {
+    if (temRedacao) {
       if (!last) essayStatus = 'pending'
       else if (last.status === 'approved') essayStatus = 'approved'
       else if (last.status === 'rejected' || last.status === 'expired') essayStatus = 'rejected'
@@ -499,7 +503,11 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
       portal: reg.portal,
       processRegistration: reg.processRegistration,
       completion,  // 'pending' | 'rejected' | 'complete'
-      essay: { status: essayStatus, score: essayScore, required: entryEval === 'essay' },
+      essay: {
+        status: essayStatus, score: essayScore, required: temRedacao,
+        // Para o card da redação no admin: abrir a correção e dizer em que pé está.
+        submissionId: last?.id ?? null, situacao: last?.status ?? null, enviadaEm: last?.submittedAt ?? null,
+      },
       slots: slots.map(s => ({ ...s, latestDoc: s.latestDoc ? enrichDoc(s.latestDoc) : null })),
       extras: extras.map(enrichDoc),
       // Config do portal pra mostrar info do auto-avanço

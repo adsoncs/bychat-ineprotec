@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { Fragment } from 'preact'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy,
@@ -33,6 +33,8 @@ import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/apiClient'
 import { agruparCobrancas, resumoDoPlano, reais } from '@/lib/cobrancas'
 import { ContratoDaInscricaoCard } from './contratos/ContratoDaInscricaoCard'
+import { EssayReviewModal } from './educational/EducationalEvaluationsPage'
+import { useEssaySubmission } from '@/hooks/useEducationalReview'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
@@ -126,7 +128,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
             const id = review.registration.id
             if (chave === 'pagamento') return <PaymentMethodsBlock key={chave} registrationId={id} />
             if (chave === 'contrato') return <ContratoDaInscricaoCard key={chave} registrationId={id} />
-            if (chave === 'prova') return <EnemBlock key={chave} registrationId={id} />
+            if (chave === 'prova') return <RedacaoCard key={chave} review={review} />
             if (chave === 'documentos') {
               return (
                 <Fragment key={chave}>
@@ -139,6 +141,8 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
             }
             return null
           })}
+          {/* Notas do ENEM: não é etapa da jornada; o bloco some sozinho sem nota importada. */}
+          <EnemBlock registrationId={review.registration.id} />
         </>
       )}
     </Page>
@@ -538,14 +542,72 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
 }
 
 /**
- * Ordem dos blocos de etapa: primeiro as configuradas no portal (na ordem
- * dele), depois as que existem mas não estão na jornada — cobrança antiga ou
- * documento enviado continuam visíveis, só que no fim.
+ * Blocos de etapa: SÓ as etapas que o portal desta inscrição tem ligadas (aba
+ * Etapas), na ordem configurada lá — muda de portal para portal. A lista vem do
+ * servidor (/enrollment-registrations/:id/etapas) já filtrada pelo que se aplica
+ * à inscrição (sem cobrança não há pagamento; sem redação online não há prova).
+ * Antes, as etapas fora da jornada também entravam no fim, e a ordem da tela
+ * deixava de ser a do portal.
  */
 const BLOCOS_DE_ETAPA = ['pagamento', 'documentos', 'contrato', 'prova']
 function ordemDasEtapas(etapas: Array<{ chave: string }> | undefined): string[] {
-  const configuradas = (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
-  return [...configuradas, ...BLOCOS_DE_ETAPA.filter((c) => !configuradas.includes(c))]
+  return (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
+}
+
+/**
+ * Etapa "Redação online": situação, nota e a correção completa (o mesmo modal
+ * da tela Avaliações › Redação). Antes a etapa abria o bloco do ENEM — que fica
+ * vazio numa inscrição de vestibular — e a redação não aparecia.
+ */
+const SITUACAO_REDACAO: Record<string, { tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; rotulo: string }> = {
+  sem: { tone: 'warning', rotulo: 'Não iniciada' },
+  draft: { tone: 'warning', rotulo: 'Em andamento' },
+  submitted: { tone: 'info', rotulo: 'Enviada' },
+  ai_reviewing: { tone: 'info', rotulo: 'Em correção pela IA' },
+  needs_human: { tone: 'warning', rotulo: 'Aguardando correção' },
+  approved: { tone: 'success', rotulo: 'Aprovada' },
+  rejected: { tone: 'danger', rotulo: 'Reprovada' },
+  expired: { tone: 'danger', rotulo: 'Tempo esgotado' },
+}
+function RedacaoCard({ review }: { review: RegistrationReview }) {
+  const e = review.essay
+  const qc = useQueryClient()
+  const [abrir, setAbrir] = useState(false)
+  // Fechou a correção: atualiza a inscrição (card, cabeçalho e etapas).
+  function fechar() {
+    setAbrir(false)
+    void qc.invalidateQueries({ queryKey: ['registration-review', review.registration.id] })
+    void qc.invalidateQueries({ queryKey: ['registration-etapas', review.registration.id] })
+  }
+  const detalhe = useEssaySubmission(abrir && e?.submissionId ? e.submissionId : null)
+  const sit = SITUACAO_REDACAO[e?.situacao ?? 'sem'] ?? { tone: 'neutral' as const, rotulo: e?.situacao ?? '—' }
+  const podeAbrir = !!e?.submissionId && e.situacao !== 'draft'
+  const aCorrigir = e?.situacao === 'submitted' || e?.situacao === 'needs_human' || e?.situacao === 'ai_reviewing'
+  return (
+    <Card>
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="text-xs uppercase tracking-wider text-fg-muted inline-flex items-center gap-2">
+          <Pencil size={12} /> Redação online
+        </div>
+        <Badge tone={sit.tone}>{sit.rotulo}{e?.score != null && <span class="font-mono"> · nota {Math.round(e.score)}</span>}</Badge>
+      </div>
+      <div class="mt-3 flex items-center justify-between gap-3 flex-wrap">
+        <p class="text-sm text-fg-muted m-0">
+          {!e?.submissionId
+            ? 'O candidato ainda não começou a redação.'
+            : e.situacao === 'draft'
+              ? 'O candidato começou a redação e ainda não enviou.'
+              : `Enviada${e.enviadaEm ? ` ${formatRelative(e.enviadaEm)}` : ''}.${aCorrigir ? ' Falta a correção.' : ''}`}
+        </p>
+        {podeAbrir && (
+          <Button size="sm" variant={aCorrigir ? 'primary' : 'secondary'} onClick={() => setAbrir(true)}>
+            <FileText size={12} /> {aCorrigir ? 'Corrigir redação' : 'Ver redação'}
+          </Button>
+        )}
+      </div>
+      {abrir && detalhe.data?.item && <EssayReviewModal essay={detalhe.data.item} onClose={fechar} />}
+    </Card>
+  )
 }
 
 interface EtapaAdmin { chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean }

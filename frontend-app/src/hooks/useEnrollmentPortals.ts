@@ -593,7 +593,11 @@ export interface RegistrationReview {
     }
   } | null
   completion: CompletionStatus
-  essay?: { status: EssayStatus; score: number | null; required: boolean }
+  essay?: {
+    status: EssayStatus; score: number | null; required: boolean
+    /** Última redação (para abrir a correção) e a situação dela como está no banco. */
+    submissionId?: number | null; situacao?: string | null; enviadaEm?: string | null
+  }
   slots: DocumentSlot[]
   extras: EnrollmentDocument[]
   autoAdvance:

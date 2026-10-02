@@ -1071,7 +1071,9 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
   )
 }
 
-function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose: () => void }) {
+/** Correção da redação (texto, análise da IA, nota, aprovar/reprovar). Exportado
+ *  para abrir também do detalhe da inscrição (card "Redação online"). */
+export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose: () => void }) {
   const { data, isLoading } = useEssaySubmission(essay.id)
   const review = useReviewEssay()
   const [humanScore, setHumanScore] = useState(essay.humanScore?.toString() ?? '')
