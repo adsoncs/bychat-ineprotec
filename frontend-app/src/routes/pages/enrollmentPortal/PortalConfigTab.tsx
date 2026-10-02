@@ -16,8 +16,9 @@ import {
 import { useFunnels, useFunnel } from '@/hooks/useFunnels'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input, Select, Textarea, Checkbox } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
+import { useHerancaDoPortal } from '@/components/educational/HerancaDoPortal'
 
 export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   // Filtros (allowed*Ids)
@@ -56,6 +57,16 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   // Domínio + SEO
   const [customDomain, setCustomDomain] = useState(portal.customDomain ?? '')
   const [ogImageUrl, setOgImageUrl] = useState(portal.ogImageUrl ?? '')
+  // SEO por tela: inscrição (metaTitle/metaDescription), acesso e área logada.
+  const seo0 = portal.seoTelas ?? {}
+  const [metaTitle, setMetaTitle] = useState(portal.metaTitle ?? '')
+  const [metaDescription, setMetaDescription] = useState(portal.metaDescription ?? '')
+  const [seoMarca, setSeoMarca] = useState(seo0.marca ?? '')
+  const [loginTitulo, setLoginTitulo] = useState(seo0.login?.titulo ?? '')
+  const [loginDescricao, setLoginDescricao] = useState(seo0.login?.descricao ?? '')
+  const [areaDescricao, setAreaDescricao] = useState(seo0.area?.descricao ?? '')
+  const [indexarInscricao, setIndexarInscricao] = useState(seo0.indexarInscricao !== false)
+  const [indexarLogin, setIndexarLogin] = useState(seo0.indexarLogin !== false)
 
   // Custom code
   const [customCss, setCustomCss] = useState(portal.customCss ?? '')
@@ -71,6 +82,10 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   const [linkedinPartnerId, setLinkedinPartnerId] = useState(initialPixel.linkedinPartnerId ?? '')
 
   const [dirty, setDirty] = useState(false)
+  const { heranca: herancaPortal } = useHerancaDoPortal(portal.id)
+  // Prévia do Google: endereço oficial e nome que vai depois do "|".
+  const dominio = (customDomain.trim() || location.host).toLowerCase()
+  const marcaPadrao = portal.unit?.nome || portal.nome
   const update = useUpdateEnrollmentPortal()
 
   useEffect(() => { setDirty(false) }, [portal.id, portal.updatedAt])
@@ -109,6 +124,15 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
       finalApprovalStageKey: finalApprovalStageKey || null,
       customDomain: customDomain.trim() || null,
       ogImageUrl: ogImageUrl.trim() || null,
+      metaTitle: metaTitle.trim() || null,
+      metaDescription: metaDescription.trim() || null,
+      seoTelas: {
+        marca: seoMarca.trim() || null,
+        login: { titulo: loginTitulo.trim() || null, descricao: loginDescricao.trim() || null },
+        area: { descricao: areaDescricao.trim() || null },
+        indexarInscricao,
+        indexarLogin,
+      },
       customCss: customCss || null,
       customHeadJs: customHeadJs || null,
       customBodyJs: customBodyJs || null,
@@ -284,32 +308,123 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
 
       <Card>
         <SectionTitle>Domínio + SEO</SectionTitle>
-        <div class="space-y-3">
-          <Input
-            label="Domínio próprio"
-            value={customDomain ?? ''}
-            onInput={(e) => mark(setCustomDomain)((e.target as HTMLInputElement).value)}
-            placeholder="inscricoes.suainstituicao.com.br"
-            hint="Configurar SSL via DNS é responsabilidade do operador"
-          />
+        <div class="space-y-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Domínio próprio"
+              value={customDomain ?? ''}
+              onInput={(e) => mark(setCustomDomain)((e.target as HTMLInputElement).value)}
+              placeholder="inscricoes.suainstituicao.com.br"
+              hint="Configurar SSL via DNS é responsabilidade do operador"
+            />
+            <Input
+              label="Nome da instituição nos títulos"
+              value={seoMarca}
+              onInput={(e) => mark(setSeoMarca)((e.target as HTMLInputElement).value)}
+              placeholder={marcaPadrao}
+              hint={`Vai depois do "|" na aba do navegador: "Meu portal | ${seoMarca.trim() || marcaPadrao}"`}
+              maxLength={80}
+            />
+          </div>
           {portal.sslStatus && (
-            <div class="text-2xs text-fg-muted">
+            <div class="text-2xs text-fg-muted -mt-3">
               SSL: <code class="text-fg">{portal.sslStatus}</code>
             </div>
           )}
-          <Input
-            label="OG Image URL"
-            type="url"
-            value={ogImageUrl ?? ''}
-            onInput={(e) => mark(setOgImageUrl)((e.target as HTMLInputElement).value)}
-            placeholder="https://"
-            hint="Imagem de preview ao compartilhar em redes sociais"
-          />
+
+          <SeoBloco titulo="Página de inscrição" endereco={`${dominio}/portal/${portal.slug}`}
+            previa={{ titulo: metaTitle.trim() || portal.nome, descricao: metaDescription.trim() || `Faça sua inscrição em ${portal.nome}.` }}
+            indexar={indexarInscricao}>
+            <Input
+              label="Título"
+              value={metaTitle}
+              onInput={(e) => mark(setMetaTitle)((e.target as HTMLInputElement).value)}
+              placeholder={portal.nome}
+              hint={contador(metaTitle, 60, 'Aparece na aba e no Google.')}
+              maxLength={191}
+            />
+            <Textarea
+              label="Descrição"
+              rows={2}
+              value={metaDescription}
+              onInput={(e) => mark(setMetaDescription)((e.target as HTMLTextAreaElement).value)}
+              placeholder={`Faça sua inscrição em ${portal.nome}.`}
+              hint={contador(metaDescription, 160, 'Texto abaixo do título no Google e no preview do WhatsApp.')}
+              maxLength={500}
+            />
+            <Checkbox
+              checked={indexarInscricao}
+              onChange={(e) => mark(setIndexarInscricao)((e.target as HTMLInputElement).checked)}
+              label="Mostrar no Google"
+              hint="Desmarcado, a página continua no ar pelo link, só não aparece nas buscas. Os links de curso seguem a mesma regra."
+            />
+          </SeoBloco>
+
+          <SeoBloco titulo="Tela de acesso (login)" endereco={`${dominio}/portal/login`}
+            previa={{ titulo: loginTitulo.trim() || `Acesse sua inscrição | ${seoMarca.trim() || marcaPadrao}`, descricao: loginDescricao.trim() || `Acompanhe sua inscrição na ${seoMarca.trim() || marcaPadrao}: etapas, documentos, contrato e pagamento.` }}
+            indexar={indexarLogin}>
+            <Input
+              label="Título"
+              value={loginTitulo}
+              onInput={(e) => mark(setLoginTitulo)((e.target as HTMLInputElement).value)}
+              placeholder={`Acesse sua inscrição | ${seoMarca.trim() || marcaPadrao}`}
+              hint={contador(loginTitulo, 60, 'Vazio = o texto de exemplo.')}
+              maxLength={120}
+            />
+            <Textarea
+              label="Descrição"
+              rows={2}
+              value={loginDescricao}
+              onInput={(e) => mark(setLoginDescricao)((e.target as HTMLTextAreaElement).value)}
+              placeholder={`Acompanhe sua inscrição na ${seoMarca.trim() || marcaPadrao}: etapas, documentos, contrato e pagamento.`}
+              hint={contador(loginDescricao, 160, 'Vazio = o texto de exemplo.')}
+              maxLength={300}
+            />
+            <Checkbox
+              checked={indexarLogin}
+              onChange={(e) => mark(setIndexarLogin)((e.target as HTMLInputElement).checked)}
+              label="Mostrar no Google"
+              hint="Ajuda o aluno que busca “portal do aluno” a achar a entrada. Vale para quem entra por este portal."
+            />
+          </SeoBloco>
+
+          <SeoBloco titulo="Área logada" endereco={`${dominio}/portal`}
+            previa={{ titulo: `Meu portal | ${seoMarca.trim() || marcaPadrao}`, descricao: areaDescricao.trim() || `Portal do candidato e do aluno — ${seoMarca.trim() || marcaPadrao}.` }}
+            indexar={false}>
+            <Textarea
+              label="Descrição"
+              rows={2}
+              value={areaDescricao}
+              onInput={(e) => mark(setAreaDescricao)((e.target as HTMLTextAreaElement).value)}
+              placeholder={`Portal do candidato e do aluno — ${seoMarca.trim() || marcaPadrao}.`}
+              hint="Aparece quando alguém compartilha um link da área logada. Os títulos são fixos (Meu portal, Meus documentos, Meu contrato, Criar senha) e essas telas nunca entram no Google: são pessoais."
+              maxLength={300}
+            />
+          </SeoBloco>
+
+          <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
+            <Input
+              label="Imagem de compartilhamento"
+              type="url"
+              value={ogImageUrl ?? ''}
+              onInput={(e) => mark(setOgImageUrl)((e.target as HTMLInputElement).value)}
+              placeholder="https://"
+              hint="Preview ao compartilhar no WhatsApp e redes sociais, em todas as telas do portal. Ideal 1200×630."
+            />
+            {ogImageUrl.trim() && (
+              <img src={ogImageUrl.trim()} alt="" class="h-[63px] w-[120px] rounded border border-border object-cover sm:mt-5" />
+            )}
+          </div>
         </div>
       </Card>
 
       <Card>
         <SectionTitle>Tracking · Pixels</SectionTitle>
+        {herancaPortal.seo && (
+          <div class="mb-3 text-xs rounded-md border border-accent/40 bg-accent/5 text-fg px-3 py-2">
+            Este portal segue o <b>SEO e medição</b> das Configurações Gerais: os pixels e a imagem de compartilhamento preenchidos lá valem por cima dos daqui.
+          </div>
+        )}
         <div class="text-xs text-fg-muted mb-3">
           IDs disparam scripts oficiais no portal público (server-rendered). Deixe vazio para desativar.
           Para tags customizadas use o campo <strong>JS no &lt;head&gt;</strong> abaixo.
@@ -378,6 +493,39 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
           />
         </div>
       </Card>
+    </div>
+  )
+}
+
+/** "42/60 · dica" — o Google corta título em ~60 e descrição em ~160 caracteres. */
+function contador(v: string, ideal: number, dica: string): string {
+  const n = v.trim().length
+  return n ? `${n}/${ideal}${n > ideal ? ' · longo, o Google pode cortar' : ''} · ${dica}` : dica
+}
+
+/** Uma tela do portal: os campos à esquerda e a prévia do resultado no Google à direita. */
+function SeoBloco({ titulo, endereco, previa, indexar, children }: {
+  titulo: string
+  endereco: string
+  previa: { titulo: string; descricao: string }
+  indexar: boolean
+  children: preact.ComponentChildren
+}) {
+  return (
+    <div class="rounded-md border border-border p-3">
+      <div class="text-sm font-medium text-fg mb-3">{titulo}</div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="space-y-3 min-w-0">{children}</div>
+        <div class="min-w-0">
+          <div class="text-2xs uppercase tracking-wider text-fg-muted mb-1.5">Como aparece no Google</div>
+          <div class={`rounded-md border border-border bg-surface p-3 ${indexar ? '' : 'opacity-60'}`}>
+            <div class="text-2xs text-fg-muted truncate">{endereco}</div>
+            <div class="text-[15px] leading-snug text-accent line-clamp-1 mt-0.5">{previa.titulo}</div>
+            <div class="text-xs text-fg-muted leading-snug line-clamp-2 mt-1">{previa.descricao}</div>
+          </div>
+          {!indexar && <div class="text-2xs text-fg-muted mt-1.5">Fora do Google: esta prévia vale só para o link compartilhado.</div>}
+        </div>
+      </div>
     </div>
   )
 }

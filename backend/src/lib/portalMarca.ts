@@ -38,11 +38,16 @@ export interface MarcaDoAcesso {
 }
 
 const CAMPOS = {
-  slug: true, nome: true, brandHeaderStyle: true, brandStepStyle: true, brandTypeScale: true, brandContentWidth: true, brandFooterText: true, brandPrimaryColor: true, brandSecondaryColor: true, brandFontFamily: true,
+  // id: chave do que o portal segue das Configurações Gerais (lib/eduGeral.ts).
+  id: true, slug: true, nome: true, brandHeaderStyle: true, brandStepStyle: true, brandTypeScale: true, brandContentWidth: true, brandFooterText: true, brandPrimaryColor: true, brandSecondaryColor: true, brandFontFamily: true,
   brandRadiusScale: true, brandLogoUrl: true, brandLogoLink: true, brandFaviconUrl: true,
   brandBackdropFrom: true, brandBackdropTo: true, brandButtonShape: true, brandButtonUppercase: true,
   // Layout e selo: as telas do /portal usam a mesma moldura da inscrição.
   brandTemplate: true, brandSecurityNote: true,
+  // Capa: o painel da marca na tela de entrar (/portal/login).
+  brandHeroEnabled: true, brandHeroUrl: true, brandHeroTitle: true, brandHeroSubtitle: true,
+  // Prefixo do código da inscrição (MAT-…): a tela de entrar mostra o certo.
+  codePrefix: true,
 } as const
 
 function doCookie(req: FastifyRequest): string | null {

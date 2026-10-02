@@ -17,6 +17,7 @@ import { ColorPicker } from '@/components/ui/ColorPicker'
 import { FormLimpoEditor, type FormLimpoEstilo } from './FormLimpoEditor'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { ChavesDeHeranca, useHerancaDoPortal } from '@/components/educational/HerancaDoPortal'
 
 const FONT_OPTIONS: { value: FontFamily; label: string }[] = [
   { value: 'inter',   label: 'Inter (moderna)' },
@@ -237,6 +238,7 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
     })
   }
 
+  const { heranca: herancaPortal } = useHerancaDoPortal(portal.id)
   return (
     <div class="space-y-3">
       {dirty && (
@@ -249,6 +251,23 @@ export function PortalBrandingTab({ portal }: { portal: EnrollmentPortal }) {
           </Button>
         </div>
       )}
+      <Card>
+        <div class="text-sm font-medium text-fg">Configurações Gerais</div>
+        <div class="text-xs text-fg-muted mt-0.5 mb-3">
+          O que este portal segue da instituição. Ligado, o que estiver preenchido em Educacional › Configurações Gerais vale por cima dos campos abaixo.
+        </div>
+        <ChavesDeHeranca portalId={portal.id} />
+        {herancaPortal.marca && (
+          <div class="mt-3 text-xs rounded-md border border-accent/40 bg-accent/5 text-fg px-3 py-2">
+            Este portal segue a <b>aparência</b> das Configurações Gerais: logo, ícone, rodapé, cores, fonte e botões preenchidos lá substituem os daqui. Os campos abaixo valem só no que as Gerais deixarem em branco.
+          </div>
+        )}
+        {herancaPortal.textos && (
+          <div class="mt-2 text-xs rounded-md border border-accent/40 bg-accent/5 text-fg px-3 py-2">
+            Este portal segue os <b>textos</b> das Configurações Gerais: os textos próprios do formulário (abaixo) não são usados enquanto a chave estiver ligada.
+          </div>
+        )}
+      </Card>
       <Card>
         <div class="flex items-center justify-between gap-3 flex-wrap">
           <div>

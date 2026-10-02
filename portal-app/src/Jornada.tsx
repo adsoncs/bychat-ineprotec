@@ -11,8 +11,14 @@ import { Documentos } from './Documentos'
 import { ContratoInscricao } from './ContratoInscricao'
 import { Redacao } from './Redacao'
 import { DadosEtapa } from './DadosEtapa'
+import { t as tx } from './textos'
 
-const SITUACAO = { feito: 'Concluída', aguardando: 'Em análise', pendente: 'Pendente' } as const
+// Textos: Configurações Gerais › Textos › Etapas (lidos na hora de desenhar).
+const SITUACAO = {
+  get feito() { return tx('etapas.feito', 'Concluída') },
+  get aguardando() { return tx('etapas.aguardando', 'Em análise') },
+  get pendente() { return tx('etapas.pendente', 'Pendente') },
+}
 /** Etapa pendente por recusa (ex.: documento recusado): pede correção, não início. */
 const temRecusa = (e: EtapaDaJornada) => e.situacao === 'pendente' && /recusad|reenvi/i.test(e.detalhe)
 /** Relógio: "em análise" — já fez a parte dela, agora é com a instituição. */
@@ -85,7 +91,7 @@ export function Jornada(props: {
   return (
     <div class={`jornada jornada-${props.contexto}`} id="jornada">
       <div class="jornada-topo">
-        <h2>{props.contexto === 'inscricao' ? 'Próximos passos' : 'O que falta na sua inscrição'}</h2>
+        <h2>{props.contexto === 'inscricao' ? tx('etapas.tituloInscricao', 'Próximos passos') : tx('etapas.tituloPainel', 'O que falta na sua inscrição')}</h2>
         <span class="sub">{concluidas} de {etapas.length} concluída(s)</span>
       </div>
       <div class="jornada-progresso" role="progressbar" aria-valuemin={0} aria-valuemax={etapas.length} aria-valuenow={etapas.filter((e) => e.situacao === 'feito').length}>
@@ -100,16 +106,16 @@ export function Jornada(props: {
               <div class="etapa-cabeca">
                 <span class="etapa-num" aria-hidden="true">{e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? <Relogio /> : temRecusa(e) ? '!' : i + 1}</span>
                 <div class="etapa-txt">
-                  <b class="etapa-titulo"><IconeDaEtapa chave={e.chave} />{e.titulo}</b>
+                  <b class="etapa-titulo"><IconeDaEtapa chave={e.chave} />{tx(`etapas.nome.${e.chave}`, e.titulo)}</b>
                   <span class="sub">{e.detalhe}</span>
                 </div>
-                <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? 'Corrigir' : SITUACAO[e.situacao]}</span>
+                <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? tx('etapas.corrigir', 'Corrigir') : SITUACAO[e.situacao]}</span>
                 {/* Concluída também abre quando há o que consultar: contrato assinado
                     (PDF) e documentos enviados — como o boleto mostra a cobrança. */}
                 {!expandida
                   && (e.situacao !== 'feito' || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
                   <button class="link etapa-acao" type="button" onClick={() => setAberta(e.chave)}>
-                    {e.situacao === 'pendente' ? 'Fazer agora' : 'Ver'}
+                    {e.situacao === 'pendente' ? tx('etapas.fazerAgora', 'Fazer agora') : tx('etapas.ver', 'Ver')}
                   </button>
                 )}
                 {expandida && (
@@ -127,9 +133,9 @@ export function Jornada(props: {
         })}
       </ol>
       {props.contexto === 'inscricao' && !tudoFeito && (
-        <div class="aviso info">Você pode fazer as etapas agora ou depois, quando quiser, entrando no seu portal.</div>
+        <div class="aviso info">{tx('etapas.avisoDepois', 'Você pode fazer as etapas agora ou depois, quando quiser, entrando no seu portal.')}</div>
       )}
-      {tudoFeito && <div class="aviso info" style="color:var(--ok);border-color:var(--ok)"><b>Tudo certo por aqui.</b> Acompanhe o andamento pelo seu portal.</div>}
+      {tudoFeito && <div class="aviso info" style="color:var(--ok);border-color:var(--ok)"><b>{tx('etapas.tudoCerto', 'Tudo certo por aqui.')}</b> {tx('etapas.tudoCertoTexto', 'Acompanhe o andamento pelo seu portal.')}</div>}
     </div>
   )
 }

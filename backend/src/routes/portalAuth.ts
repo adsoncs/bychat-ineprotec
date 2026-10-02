@@ -18,6 +18,7 @@ import { verifyCandidateToken } from '../lib/candidateAuth.js'
 import {
   acharConta, consumirLinkDeAcesso, criarLinkDeAcesso, definirSenha, garantirConta,
   login, quemE, validarSenha,
+  LINK_TTL_HORAS,
 } from '../services/portalAccount.js'
 import { getProviderForLeadOwner } from '../services/whatsappProvider.js'
 import { getEmailConfig, getFromAddress, sendEmailGeneric } from '../services/notify.js'
@@ -25,6 +26,8 @@ import { avisos, esc } from '../lib/portalHtml.js'
 import { etapasDaInscricao } from '../services/portalJornada.js'
 import { paginaComMarca, marcaDoAcesso } from '../lib/portalMarca.js'
 import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
+import { cabecalhoDaTela, type TelaDoPortal } from '../lib/portalSeo.js'
+import { lerEduGeral, vestirMarca, loginResolvido } from '../lib/eduGeral.js'
 
 /** Situação da inscrição em português (a lista do portal mostrava o código cru, ex. "pending"). */
 const STATUS_INSCRICAO: Record<string, string> = {
@@ -40,14 +43,11 @@ const STATUS_INSCRICAO: Record<string, string> = {
  * marca já vão no HTML, para a primeira pintura não piscar no tom padrão.
  * Sem a aplicação publicada, as rotas caem na versão do servidor (reserva).
  */
-async function telaDoApp(req: any, reply: any, titulo: string) {
+// Título, descrição, imagem e indexação de cada tela vêm do portal da marca
+// (Configurações › Domínio + SEO). Ver lib/portalSeo.ts.
+async function telaDoApp(req: any, reply: any, tela: TelaDoPortal) {
   const m = await marcaDoAcesso(req, reply).catch(() => null)
-  const html = paginaDoPortal({
-    nome: titulo, slug: m?.slug || 'portal', metaTitle: titulo,
-    metaDescription: 'Portal do candidato e do aluno.',
-    brandPrimaryColor: (m?.bruto as any)?.brandPrimaryColor ?? null,
-    brandFaviconUrl: (m?.bruto as any)?.brandFaviconUrl ?? null,
-  }, process.env.APP_URL || '')
+  const html = paginaDoPortal(await cabecalhoDaTela(m?.slug, tela), process.env.APP_URL || '')
   return reply.type('text/html').header('cache-control', 'no-store').send(html)
 }
 
@@ -65,7 +65,7 @@ async function enviarLink(leadId: number, url: string, finalidade: string): Prom
   if (!lead) return null
   const acao = finalidade === 'recuperacao' ? 'criar uma nova senha' : 'entrar no portal e criar sua senha'
   const texto = `Olá, ${lead.nome ?? 'tudo bem'}! Use o link abaixo para ${acao}:\n\n${url}\n\n` +
-    'O link vale por 48 horas, serve uma vez só e é de uso pessoal.'
+    `O link vale por ${LINK_TTL_HORAS} horas, serve uma vez só e é de uso pessoal.`
 
   if (lead.whatsapp) {
     try {
@@ -343,12 +343,17 @@ export async function portalAuthRoutes(app: FastifyInstance) {
       : null
     const m = await marcaDoAcesso(req, reply, slugDaInscricao).catch(() => null)
     reply.header('cache-control', 'no-store')
-    return { marca: m ? { ...m.bruto } : null }
+    // Configurações Gerais: completam o que o portal deixou vazio, trazem o
+    // tema geral (cores neutras, espaçamento) e os textos da tela de entrar.
+    const g = await lerEduGeral()
+    const marca = m || g.identidade.nome || g.aparencia.corPrincipal ? vestirMarca(m ? { ...m.bruto } : null, g) : null
+    const login = loginResolvido(g, { linkHoras: LINK_TTL_HORAS, prefixoCodigo: (m?.bruto as any)?.codePrefix ?? null })
+    return { marca, login }
   })
 
   // ── GET /portal/login ──
   app.get('/portal/login', async (req, reply) => {
-    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Acesse sua inscrição')
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'login')
     const q = (req.query as any) || {}
     return reply.type('text/html').send(await paginaComMarca(req, reply, 'Acesse sua inscrição', `
       <div class="card">
@@ -376,7 +381,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
   app.get('/portal/senha', async (req, reply) => {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+criar+sua+senha.').send()
-    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Criar senha')
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'senha')
     const q = (req.query as any) || {}
     const eu = await quemE(s.accountId)
     // "depois": para onde seguir no "agora não" (só caminho interno do portal).
@@ -413,11 +418,7 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     if (!portalAppDisponivel()) {
       return reply.code(503).type('text/html').send(await paginaComMarca(req, reply, 'Documentos', '<div class="card"><h1>Indisponível</h1><p class="sub">A tela de documentos ainda não foi publicada nesta instalação.</p></div>'))
     }
-    return reply.type('text/html').send(paginaDoPortal({
-      nome: 'Meus documentos', slug: 'documentos',
-      metaTitle: 'Meus documentos',
-      metaDescription: 'Envio de documentos da sua inscrição.',
-    }, process.env.APP_URL || ''))
+    return telaDoApp(req, reply, 'documentos')
   })
 
   // ── GET /portal/contrato — leitura e assinatura do contrato (Fase 5) ──
@@ -426,18 +427,14 @@ export async function portalAuthRoutes(app: FastifyInstance) {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login?erro=Entre+para+ver+seu+contrato.').send()
     if (!portalAppDisponivel()) return reply.code(303).header('location', '/portal').send()
-    return reply.type('text/html').send(paginaDoPortal({
-      nome: 'Meu contrato', slug: 'contrato',
-      metaTitle: 'Meu contrato',
-      metaDescription: 'Contrato de matrícula: leitura e assinatura.',
-    }, process.env.APP_URL || ''))
+    return telaDoApp(req, reply, 'contrato')
   })
 
   // ── GET /portal — o que a pessoa tem aqui dentro ──
   app.get('/portal', async (req, reply) => {
     const s = await sessaoDaRequisicao(req)
     if (!s) return reply.code(303).header('location', '/portal/login').send()
-    if (portalAppDisponivel()) return telaDoApp(req, reply, 'Meu portal')
+    if (portalAppDisponivel()) return telaDoApp(req, reply, 'portal')
     const eu = await quemE(s.accountId)
     const q = (req.query as any) || {}
 

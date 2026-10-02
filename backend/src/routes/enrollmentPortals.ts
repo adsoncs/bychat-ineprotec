@@ -44,6 +44,9 @@ import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLin
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
 import QRCode from 'qrcode'
+import { Prisma } from '@prisma/client'
+import { normalizarSeoTelas } from '../lib/portalSeo.js'
+import { lerEduGeral, vestirMarca, salvarHeranca, herancaDoPortal, esquecerHeranca } from '../lib/eduGeral.js'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -723,6 +726,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         createdBy: user.userId,
       },
     })
+    // Portal novo nasce seguindo as Configurações Gerais (marca, textos, SEO).
+    // Os que já existiam ficam como estavam; a chave fica no Branding do portal.
+    await salvarHeranca(portal.id, { marca: true, textos: true, seo: true }).catch(() => {})
     return reply.code(201).send({ ok: true, portal })
   })
 
@@ -805,6 +811,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (body.metaTitle !== undefined) data.metaTitle = body.metaTitle || null
     if (body.metaDescription !== undefined) data.metaDescription = body.metaDescription || null
     if (body.ogImageUrl !== undefined) data.ogImageUrl = body.ogImageUrl || null
+    if (body.seoTelas !== undefined) data.seoTelas = normalizarSeoTelas(body.seoTelas) ?? Prisma.DbNull
     if (body.customCss !== undefined) data.customCss = body.customCss || null
     if (body.customHeadJs !== undefined) data.customHeadJs = body.customHeadJs || null
     if (body.customBodyJs !== undefined) data.customBodyJs = body.customBodyJs || null
@@ -940,6 +947,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const existing = await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) }, select: { nome: true, slug: true } })
     try {
       await prisma.enrollmentPortal.delete({ where: { id: parseInt(id) } })
+      await esquecerHeranca(parseInt(id)).catch(() => {})
       void logUserAudit({
         action: 'portal.deleted',
         targetType: 'portal',
@@ -1002,6 +1010,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           createdBy: user.userId,
         },
       })
+      // A cópia segue das Gerais o mesmo que o original.
+      await lerEduGeral().then((g) => salvarHeranca(portal.id, herancaDoPortal(g, src.id))).catch(() => {})
       return reply.code(201).send({ ok: true, portal })
     } catch (err: any) {
       req.log.error(`[enrollment-portals] duplicate failed: ${err.message}`)
@@ -2010,10 +2020,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const pedido = cursoPedido(null, (req.query as any)?.curso)
     const doLink = pedido ? offerings.find((o) => o.slug === pedido) ?? null : null
     return {
-      portal: {
+      // Configurações Gerais completam a marca onde o portal deixou vazio.
+      portal: vestirMarca({
         ...publico, formConfig,
         continuationPortal: continuationPortal ? { slug: continuationPortal.slug, nome: continuationPortal.nome } : null,
-      },
+      }, await lerEduGeral()),
       offerings: doLink ? [doLink] : offerings,
       cursoDoLink: doLink ? { slug: doLink.slug, offeringId: doLink.id, nome: doLink.nome } : null,
     }

@@ -17,7 +17,7 @@ import { emitirSessao } from '../lib/portalSession.js'
 const MAX_TENTATIVAS = 5
 const BLOQUEIO_MINUTOS = 15
 const MIN_SENHA = 8
-const LINK_TTL_HORAS = Number(process.env.PORTAL_LINK_TTL_HORAS || 48)
+export const LINK_TTL_HORAS = Number(process.env.PORTAL_LINK_TTL_HORAS || 48)
 
 export const soDigitos = (s: string | null | undefined) => String(s || '').replace(/\D/g, '')
 

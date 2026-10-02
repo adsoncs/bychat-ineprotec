@@ -2,6 +2,7 @@
 // nada de "Failed to fetch" chegando à tela.
 
 import type { Campo } from './validacao'
+import { t } from './textos'
 
 export interface Oferta {
   id: number
@@ -516,8 +517,9 @@ export const TEXTOS_PADRAO: Record<string, string> = {
 /** Texto da tela: o que a instituição escreveu, ou o padrão.
     Chama-se `rotulo` porque `texto` já é nome de variável local em `pedir`. */
 export function rotulo(portal: Portal | null | undefined, chave: string): string {
+  // Portal (Branding › Textos) › Configurações Gerais › padrão.
   const escolhido = portal?.brandLabels?.[chave]
-  return (typeof escolhido === 'string' && escolhido.trim()) || TEXTOS_PADRAO[chave] || ''
+  return (typeof escolhido === 'string' && escolhido.trim()) || t(`form.${chave}`, TEXTOS_PADRAO[chave] || '')
 }
 
 // ── Opções de pagamento ──────────────────────────────────────────────────────

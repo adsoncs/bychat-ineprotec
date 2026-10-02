@@ -13,12 +13,13 @@
 import { FastifyInstance } from 'fastify'
 import { portalAppDisponivel } from '../lib/portalApp.js'
 import { getDocHeader } from '../services/acaDocRender.js'
+import { lerEduGeral } from '../lib/eduGeral.js'
 
 /** Ícone gerado a partir da inicial da instituição — evita depender de upload. */
-function iconeSvg(nome: string, tamanho = 512): string {
+function iconeSvg(nome: string, tamanho = 512, cor = '#111827'): string {
   const inicial = (nome.trim()[0] || 'A').toUpperCase()
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${tamanho}" height="${tamanho}">
-  <rect width="512" height="512" rx="96" fill="#111827"/>
+  <rect width="512" height="512" rx="96" fill="${/^#[0-9a-f]{6}$/i.test(cor) ? cor : '#111827'}"/>
   <text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif"
         font-size="260" font-weight="700" fill="#ffffff">${inicial.replace(/[<>&]/g, '')}</text>
 </svg>`
@@ -27,8 +28,12 @@ function iconeSvg(nome: string, tamanho = 512): string {
 export async function acaPortalPwaRoutes(app: FastifyInstance) {
   app.get('/portal/aca/manifest.webmanifest', async (_req, reply) => {
     const h = await getDocHeader()
+    // Configurações Gerais › Identidade/Aparência: nome e cor da instituição no
+    // app instalado. Sem nada salvo, fica como era (nome do cadastro, cinza).
+    const g = await lerEduGeral().catch(() => null)
+    const nome = g?.identidade.nome || h.instituicao
     const manifest = {
-      name: `${h.instituicao} — Portal`,
+      name: `${nome} — Portal`,
       short_name: 'Portal',
       description: 'Boletim, frequência, financeiro e documentos.',
       // Abre no painel novo onde ele existe; onde não existe, no portal antigo,
@@ -40,7 +45,7 @@ export async function acaPortalPwaRoutes(app: FastifyInstance) {
       display: 'standalone',
       orientation: 'portrait',
       background_color: '#f7f8fa',
-      theme_color: '#111827',
+      theme_color: g?.aparencia.corPrincipal || '#111827',
       icons: [
         { src: '/portal/aca/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
         { src: '/portal/aca/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
@@ -51,10 +56,11 @@ export async function acaPortalPwaRoutes(app: FastifyInstance) {
 
   app.get('/portal/aca/icon.svg', async (_req, reply) => {
     const h = await getDocHeader()
+    const g = await lerEduGeral().catch(() => null)
     return reply
       .header('content-type', 'image/svg+xml; charset=utf-8')
       .header('cache-control', 'public, max-age=86400')
-      .send(iconeSvg(h.instituicao))
+      .send(iconeSvg(g?.identidade.nome || h.instituicao, 512, g?.aparencia.corPrincipal || undefined))
   })
 
   app.get('/portal/aca/offline', async (_req, reply) => {

@@ -4052,6 +4052,10 @@ model EnrollmentPortal {
   metaTitle       String? @db.VarChar(191)
   metaDescription String? @db.VarChar(500)
   ogImageUrl      String? @db.Text
+  // SEO das outras telas do portal (login, área logada) e indexação.
+  // { marca, login: { titulo, descricao }, area: { descricao },
+  //   indexarInscricao, indexarLogin } — ver lib/portalSeo.ts.
+  seoTelas        Json?   @db.Json
 
   // Branding visual (aba 🎨 Visual no admin) — compartilhado por
   // /portal/:slug (vestibular) e /candidato/:code (candidato).

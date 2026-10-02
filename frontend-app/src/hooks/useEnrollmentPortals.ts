@@ -62,6 +62,7 @@ export interface EnrollmentPortal {
   metaTitle: string | null
   metaDescription: string | null
   ogImageUrl: string | null
+  seoTelas: SeoTelas | null
   customDomain: string | null
   sslStatus: string | null
 
@@ -129,6 +130,15 @@ export interface PortalFormConfig {
   steps: PortalStep[]
 }
 
+/** SEO das telas além da inscrição (backend: lib/portalSeo.ts). */
+export interface SeoTelas {
+  marca?: string | null
+  login?: { titulo?: string | null; descricao?: string | null }
+  area?: { descricao?: string | null }
+  indexarInscricao?: boolean
+  indexarLogin?: boolean
+}
+
 export interface EnrollmentPortalInput {
   nome?: string | undefined
   unitId?: number | undefined
@@ -167,6 +177,7 @@ export interface EnrollmentPortalInput {
   metaTitle?: string | null | undefined
   metaDescription?: string | null | undefined
   ogImageUrl?: string | null | undefined
+  seoTelas?: SeoTelas | null | undefined
   customDomain?: string | null | undefined
   customCss?: string | null | undefined
   customHeadJs?: string | null | undefined

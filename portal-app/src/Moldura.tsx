@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
 import type { MarcaDoPortal } from './marca'
+import { t as tx } from './textos'
 
 function Logo({ marca }: { marca: MarcaDoPortal }) {
   if (!marca.brandLogoUrl) return <span class="nome">{marca.nome}</span>
@@ -62,7 +63,7 @@ export function AcessoSair(props: { aoSair?: () => void }) {
   async function sair() {
     if (props.aoSair) return props.aoSair()
     await fetch('/api/public/portal/sair', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } }).catch(() => null)
-    location.href = '/portal/login?aviso=' + encodeURIComponent('Você saiu do portal.')
+    location.href = '/portal/login?aviso=' + encodeURIComponent(tx('portal.saiu', 'Você saiu do portal.'))
   }
   return <button class="acesso-topo" type="button" onClick={sair}>Sair</button>
 }
@@ -86,7 +87,7 @@ export function MenuDaConta(props: { nome: string; temSenha: boolean; aoEditar?:
   }, [aberto])
   async function sair() {
     await fetch('/api/public/portal/sair', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } }).catch(() => null)
-    location.href = '/portal/login?aviso=' + encodeURIComponent('Você saiu do portal.')
+    location.href = '/portal/login?aviso=' + encodeURIComponent(tx('portal.saiu', 'Você saiu do portal.'))
   }
   const primeiro = props.nome.trim().split(/\s+/)[0] || 'Minha conta'
   return (
@@ -102,11 +103,11 @@ export function MenuDaConta(props: { nome: string; temSenha: boolean; aoEditar?:
       {aberto && (
         <div class="menu-conta-lista" role="menu">
           {props.aoEditar && (
-            <button type="button" role="menuitem" onClick={() => { setAberto(false); props.aoEditar!() }}>Editar meus dados</button>
+            <button type="button" role="menuitem" onClick={() => { setAberto(false); props.aoEditar!() }}>{tx('portal.menuEditar', 'Editar meus dados')}</button>
           )}
           <a role="menuitem" href="/portal/senha">
-            {props.temSenha ? 'Trocar senha' : 'Criar minha senha'}
-            {!props.temSenha && <small>Você ainda entra com o CPF como senha.</small>}
+            {props.temSenha ? tx('portal.menuTrocarSenha', 'Trocar senha') : tx('portal.menuCriarSenha', 'Criar minha senha')}
+            {!props.temSenha && <small>{tx('portal.menuCpfAviso', 'Você ainda entra com o CPF como senha.')}</small>}
           </a>
           <button type="button" role="menuitem" class="menu-conta-sair" onClick={sair}>Sair</button>
         </div>

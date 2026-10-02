@@ -4,8 +4,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { paginaDoPortal, portalAppDisponivel } from '../lib/portalApp.js'
+import { lerSeoTelas, marcaDoSeo } from '../lib/portalSeo.js'
 import { renderPixels } from '../lib/portalPixels.js'
 import { renderBrandingHead, renderBrandHeader, renderBrandHero, renderBrandFooter } from '../lib/portalBranding.js'
+import { lerEduGeral, vestirMarca } from '../lib/eduGeral.js'
 
 function esc(s: string | null | undefined): string {
   if (!s) return ''
@@ -61,7 +63,7 @@ async function resolvePortalByHost(host: string) {
 const portalSelect = {
   id: true, slug: true, nome: true, active: true,
   unit: { select: { nome: true } },
-  metaTitle: true, metaDescription: true, ogImageUrl: true,
+  metaTitle: true, metaDescription: true, ogImageUrl: true, seoTelas: true,
   customCss: true, customHeadJs: true, customBodyJs: true,
   pixelConfig: true,
   customDomain: true,
@@ -185,6 +187,7 @@ window.bychOnMarketingConsent=window.bychOnMarketingConsent||function(f){(window
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${title}</title>
 <meta name="description" content="${desc}">
+<meta name="robots" content="${lerSeoTelas(portal.seoTelas).indexarInscricao === false ? 'noindex, nofollow' : 'index, follow'}">
 <link rel="canonical" href="${esc(canonicalUrl)}">
 ${brand.faviconLink}
 
@@ -386,6 +389,12 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
       // Captura de interesse também: é o formulário curto feito para LPs e sites.
       const extra = await prisma.enrollmentPortal.findUnique({ where: { id: portal.id }, select: { jornadaEtapas: true, formMode: true } })
       const limpo = extra?.formMode === 'interest' || (await dadosEfetivos(extra))?.modo === 'simplificado'
+      // Configurações Gerais: completam o vazio e valem por cima no que o portal segue.
+      const g = await lerEduGeral()
+      const v = vestirMarca({
+        id: portal.id, brandFaviconUrl: portal.brandFaviconUrl, brandPrimaryColor: portal.brandPrimaryColor,
+        ogImageUrl: portal.ogImageUrl, pixelConfig: portal.pixelConfig,
+      }, g)
       return reply.type('text/html').send(paginaDoPortal({
         limpo,
         nome: portal.nome,
@@ -394,11 +403,14 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
         cursoSlug: cursoValido ? cursoSlug : null,
         metaTitle: cursoValido ? `${cursoValido.nome} — ${portal.metaTitle || portal.nome}` : portal.metaTitle,
         metaDescription: portal.metaDescription,
-        ogImageUrl: portal.ogImageUrl,
-        brandFaviconUrl: portal.brandFaviconUrl,
-        brandPrimaryColor: portal.brandPrimaryColor,
+        ogImageUrl: v.ogImageUrl,
+        nomeDoSite: marcaDoSeo(portal, g.identidade.nome),
+        // Formulário limpo é para embutir: a página oficial é a do site que hospeda.
+        indexar: !limpo && lerSeoTelas(portal.seoTelas).indexarInscricao !== false,
+        brandFaviconUrl: v.brandFaviconUrl,
+        brandPrimaryColor: v.brandPrimaryColor,
         customCss: portal.customCss,
-        pixelConfig: portal.pixelConfig,
+        pixelConfig: v.pixelConfig,
         customHeadJs: portal.customHeadJs,
         customBodyJs: portal.customBodyJs,
       }, process.env.APP_URL || ''))
@@ -410,24 +422,35 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
   app.get('/sitemap.xml', async (req, reply) => {
     const host = getAppHost(req)
     const scheme = (req.headers['x-forwarded-proto'] || 'https').toString()
-    // Se for customDomain: sitemap daquele portal específico
+    // Domínio próprio: os portais que moram nele (vários podem dividir o mesmo
+    // domínio) e a tela de acesso — só o que está liberado para o Google em
+    // Configurações › Domínio + SEO.
     const portalByHost = await resolvePortalByHost(host)
     if (portalByHost) {
-      const url = `${scheme}://${host}/`
+      const doDominio = await prisma.enrollmentPortal.findMany({
+        where: { customDomain: host, active: true }, orderBy: { id: 'asc' },
+        select: { slug: true, seoTelas: true, updatedAt: true },
+      })
+      const linhas = doDominio
+        .filter((p) => lerSeoTelas(p.seoTelas).indexarInscricao !== false)
+        .map((p, i) => `<url><loc>${esc(`${scheme}://${host}/portal/${p.slug}`)}</loc><lastmod>${p.updatedAt.toISOString().slice(0, 10)}</lastmod><changefreq>daily</changefreq><priority>${i === 0 ? '1.0' : '0.8'}</priority></url>`)
+      if (lerSeoTelas(doDominio[0]?.seoTelas).indexarLogin !== false) {
+        linhas.push(`<url><loc>${esc(`${scheme}://${host}/portal/login`)}</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>`)
+      }
       reply.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>${esc(url)}</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  ${linhas.join('\n  ')}
 </urlset>`)
       return
     }
     // Caso contrário, lista todos portais ativos (útil para o domínio principal)
     const portals = await prisma.enrollmentPortal.findMany({
       where: { active: true, publishedAt: { not: null } },
-      select: { slug: true, customDomain: true, updatedAt: true },
+      select: { slug: true, customDomain: true, updatedAt: true, seoTelas: true },
     })
     const base = `${scheme}://${host}`
-    const urls = portals.map(p => {
-      const loc = p.customDomain ? `${scheme}://${p.customDomain}/` : `${base}/portal/${p.slug}`
+    const urls = portals.filter((p) => lerSeoTelas(p.seoTelas).indexarInscricao !== false).map(p => {
+      const loc = p.customDomain ? `${scheme}://${p.customDomain}/portal/${p.slug}` : `${base}/portal/${p.slug}`
       const lastmod = p.updatedAt.toISOString().slice(0, 10)
       return `<url><loc>${esc(loc)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq></url>`
     }).join('\n  ')
@@ -444,7 +467,7 @@ export async function enrollmentPortalPublicRoutes(app: FastifyInstance) {
     const portalByHost = await resolvePortalByHost(host)
     reply.type('text/plain').send(
       portalByHost
-        ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /candidato/\nSitemap: ${scheme}://${host}/sitemap.xml\n`
+        ? `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin\nDisallow: /app\nDisallow: /candidato/\nDisallow: /portal/documentos\nDisallow: /portal/contrato\nDisallow: /portal/senha\nSitemap: ${scheme}://${host}/sitemap.xml\n`
         : `User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /candidato/\nAllow: /portal/\nSitemap: ${scheme}://${host}/sitemap.xml\n`
     )
   })

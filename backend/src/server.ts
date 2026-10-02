@@ -42,6 +42,7 @@ import { channelGovernanceRoutes } from './routes/channelGovernance.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { salesCadencesRoutes } from './routes/salesCadences.js'
 import { enrollmentPortalsRoutes } from './routes/enrollmentPortals.js'
+import { eduGeralRoutes } from './routes/eduGeral.js'
 import { enrollmentPortalPublicRoutes } from './routes/enrollmentPortalPublic.js'
 import { candidatePortalRoutes } from './routes/candidatePortal.js'
 import { portalAuthRoutes } from './routes/portalAuth.js'
@@ -777,6 +778,7 @@ await app.register(channelGovernanceRoutes)
 await app.register(preferencesRoutes)
 await app.register(salesCadencesRoutes)
 await app.register(enrollmentPortalsRoutes)
+await app.register(eduGeralRoutes)
 await app.register(enrollmentPortalPublicRoutes)
   await app.register(portalAuthRoutes)
 await app.register(candidatePortalRoutes)

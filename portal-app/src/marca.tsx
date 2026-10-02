@@ -3,6 +3,8 @@
 // para a pessoa não sair do portal da instituição e cair num tema genérico.
 
 /** Os campos brand* do portal, como o backend devolve. */
+import { definirTextos } from './textos'
+
 export interface MarcaDoPortal {
   nome?: string | null
   slug?: string | null
@@ -24,6 +26,19 @@ export interface MarcaDoPortal {
   brandFaviconUrl?: string | null
   brandFooterText?: string | null
   brandSecurityNote?: string | null
+  brandHeroEnabled?: boolean | null
+  brandHeroUrl?: string | null
+  brandHeroTitle?: string | null
+  brandHeroSubtitle?: string | null
+  codePrefix?: string | null
+  /** Configurações Gerais › Textos: só os editados. */
+  textos?: Record<string, string> | null
+  /** Configurações Gerais › Aparência: o que só existe lá e vale em todas as telas. */
+  geral?: {
+    espacamento?: string | null
+    corTexto?: string | null; corTextoSuave?: string | null; corFundo?: string | null; corCartao?: string | null
+    corLinha?: string | null; corSucesso?: string | null; corPendente?: string | null; corErro?: string | null
+  } | null
 }
 
 // Escala de arredondamento do builder: valores nomeados, não número.
@@ -39,6 +54,8 @@ export const FONTES: Record<string, { familia: string; href?: string }> = {
 }
 
 export function aplicarMarca(p: MarcaDoPortal) {
+  aplicarTemaGeral(p.geral)
+  definirTextos(p.textos)
 
   const raiz = document.documentElement
   if (p.brandPrimaryColor) {
@@ -99,11 +116,52 @@ export function aplicarMarca(p: MarcaDoPortal) {
   }
 }
 
+// Configurações Gerais: cores neutras e espaçamento. Só mexe no que foi
+// configurado — sem nada salvo, valem as cores do estilo.css.
+const NEUTRAS: Array<[keyof NonNullable<MarcaDoPortal['geral']>, string]> = [
+  ['corTexto', '--tinta'], ['corTextoSuave', '--tinta-2'], ['corFundo', '--fundo'], ['corCartao', '--papel'],
+  ['corLinha', '--linha'], ['corSucesso', '--ok'], ['corPendente', '--pendente'], ['corErro', '--erro'],
+]
+function aplicarTemaGeral(g: MarcaDoPortal['geral']) {
+  if (!g) return
+  const raiz = document.documentElement
+  for (const [campo, variavel] of NEUTRAS) {
+    const v = g[campo]
+    if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) raiz.style.setProperty(variavel, v)
+  }
+  if (g.corErro) raiz.style.setProperty('--erro-suave', `color-mix(in srgb, ${g.corErro} 9%, white)`)
+  if (g.espacamento === 'compacto' || g.espacamento === 'arejado') raiz.dataset.espacamento = g.espacamento
+}
+
 /**
  * Marca para as telas logadas, que não sabem sozinhas de qual portal a pessoa
  * veio: o backend resolve (inscrição de quem está logado, último portal
  * visitado, portal principal). Nunca lança — sem marca, fica o tema padrão.
  */
+/** Textos e opções da tela de entrar (Configurações Gerais › Tela de login), já resolvidos. */
+export interface LoginDoPortal {
+  painelTitulo: string; painelSubtitulo: string; painelItens: string[]
+  painelImagemUrl: string | null; painelVeu: number | null; painelLado: string
+  painelCorDe: string | null; painelCorPara: string | null
+  formTitulo: string; formSubtitulo: string
+  modoEmail: boolean; modoCodigo: boolean
+  esqueciTexto: string; recuperarTitulo: string; recuperarTexto: string
+  linkHoras: number; prefixoCodigo: string
+}
+
+/** Marca + textos do login, numa ida só (a tela de entrar usa os dois). */
+export async function carregarAcesso(portal?: string): Promise<{ marca: MarcaDoPortal | null; login: LoginDoPortal | null }> {
+  try {
+    const r = await fetch(`/api/public/portal/marca${portal ? `?portal=${encodeURIComponent(portal)}` : ''}`, { credentials: 'same-origin' })
+    if (!r.ok) return { marca: null, login: null }
+    const j = (await r.json()) as { marca: MarcaDoPortal | null; login?: LoginDoPortal | null }
+    if (j.marca) aplicarMarca(j.marca)
+    return { marca: j.marca, login: j.login ?? null }
+  } catch {
+    return { marca: null, login: null }
+  }
+}
+
 export async function carregarMarca(inscricao?: string, portal?: string): Promise<MarcaDoPortal | null> {
   try {
     // Pelo código da inscrição (/candidato/<código>) a marca é a do portal dela;

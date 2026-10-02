@@ -280,6 +280,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-portal-financeiro', label: 'Financeiro do portal', href: '/app/educational/portal-financeiro', icon: 'Wallet', permission: 'enrollment_portals' },
         { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'enrollment_portals' },
         { id: 'edu-contratos', label: 'Contratos', href: '/app/educational/contratos', icon: 'FileSignature', permission: 'enrollment_portals' },
+        { id: 'edu-geral', label: 'Configurações Gerais', href: '/app/educational/configuracoes', icon: 'SlidersHorizontal', permission: 'enrollment_portals' },
       ],
       initiallyCollapsed: true,
     },

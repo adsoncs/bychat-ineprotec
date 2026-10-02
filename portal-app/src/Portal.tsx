@@ -14,6 +14,7 @@ import { Jornada } from './Jornada'
 import { ResumoDoCandidato, tomDaSituacao } from './ResumoDoCandidato'
 import { SecoesDoAluno } from './Aluno'
 import { carregarJornadaDoPortal, carregarPainelAluno, type PainelAluno } from './api'
+import { t as tx } from './textos'
 
 interface Eu {
   nome: string; email: string | null; whatsapp: string | null; temSenha: boolean
@@ -61,7 +62,7 @@ export function Portal() {
           })
           .catch(() => setPainel(null))
       })
-      .catch(() => setFalha('Não foi possível abrir o seu portal. Verifique a conexão e tente de novo.'))
+      .catch(() => setFalha(tx('portal.falha', 'Não foi possível abrir o seu portal. Verifique a conexão e tente de novo.')))
     carregarJornadaDoPortal().then(setJornada).catch(() => {})
   }, [])
 
@@ -94,12 +95,12 @@ export function Portal() {
             ) : !painel && (
               <div class="cartao">
                 <h2>Olá, {eu.nome.split(' ')[0]} <span aria-hidden="true">👋</span></h2>
-                <p class="sub" style="margin:0">{eu.aluno ? `Aluno · RA ${eu.aluno.ra ?? '—'}` : 'Candidato'}</p>
+                <p class="sub" style="margin:0">{eu.aluno ? `Aluno · RA ${eu.aluno.ra ?? '—'}` : tx('portal.candidato', 'Candidato')}</p>
               </div>
             )}
             {outras.length > 0 && (
               <div class="cartao">
-                <h2 style="font-size:17px">Outras inscrições</h2>
+                <h2 style="font-size:17px">{tx('portal.outrasInscricoes', 'Outras inscrições')}</h2>
                 {outras.map((i) => (
                   <div class="item-conta" key={i.id}><span><b>{i.candidateCode}</b></span><span class={`rc-situacao ${tomDaSituacao(i.status)}`}>{STATUS[i.status] ?? i.status}</span></div>
                 ))}
@@ -115,7 +116,7 @@ export function Portal() {
                 <div class="cartao">
                   {jornada.etapas.length
                     ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
-                    : <p class="sub" style="margin:0">Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.</p>}
+                    : <p class="sub" style="margin:0">{tx('portal.nadaPendente', 'Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.')}</p>}
                 </div>
               )}
             {painel === undefined && <div class="esqueleto" style="height:260px" />}

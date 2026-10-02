@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks'
 import { Jornada } from './Jornada'
 import { type carregarJornadaDoPortal, gerarCobrancaDaParcela, type PainelAluno, type Parcela } from './api'
+import { t as tx } from './textos'
 
 const dinheiro = (centavos: number) =>
   (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -42,13 +43,13 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
       <div class="cartao" style="margin-bottom:14px">
         <h2 style="font-size:17px">
           {pendentes.length === 0
-            ? 'Está tudo em dia'
+            ? tx('aluno.emDia', 'Está tudo em dia')
             : pendentes.length === 1 ? 'Falta 1 passo' : `Faltam ${pendentes.length} passos`}
         </h2>
         <p class="sub">
           {pendentes.length === 0
-            ? 'Nada pendente da sua parte.'
-            : 'O que ainda depende de você ou da secretaria.'}
+            ? tx('aluno.emDiaTexto', 'Nada pendente da sua parte.')
+            : tx('aluno.pendentesTexto', 'O que ainda depende de você ou da secretaria.')}
         </p>
         <ol class="passos">
           {d.passos.map((p) => (
@@ -76,7 +77,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.financeiro.parcelas.length > 0 && (
         <div class="cartao" style="margin-bottom:14px" id="financeiro">
-          <h2 style="font-size:17px">Financeiro</h2>
+          <h2 style="font-size:17px">{tx('aluno.financeiro', 'Financeiro')}</h2>
           <p class="sub">
             {d.financeiro.vencidas > 0
               ? `${d.financeiro.vencidas} parcela(s) vencida(s).`
@@ -100,7 +101,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.grade.length > 0 && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Horário das aulas</h2>
+          <h2 style="font-size:17px">{tx('aluno.horario', 'Horário das aulas')}</h2>
           <div class="grade">
             {DIAS_SEMANA.map((nome, dia) => {
               const doDia = d.grade.filter((h) => h.diaSemana === dia)
@@ -126,7 +127,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.eventos.length > 0 && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Próximas datas</h2>
+          <h2 style="font-size:17px">{tx('aluno.datas', 'Próximas datas')}</h2>
           {d.eventos.map((e, i) => (
             <div key={i} class="evento">
               <span class="evento-data">
@@ -143,7 +144,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.materiais.length > 0 && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Materiais de estudo</h2>
+          <h2 style="font-size:17px">{tx('aluno.materiais', 'Materiais de estudo')}</h2>
           {d.materiais.map((g) => (
             <div key={g.disciplina} class="material-grupo">
               <div class="material-disc">{g.disciplina}</div>
@@ -160,7 +161,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.horas && (d.horas.estagio.meta > 0 || d.horas.atividades.meta > 0) && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Estágio e atividades</h2>
+          <h2 style="font-size:17px">{tx('aluno.estagio', 'Estágio e atividades')}</h2>
           {d.horas.estagio.meta > 0 && (
             <BarraDeHoras rotulo="Estágio" atual={d.horas.estagio.horas} meta={d.horas.estagio.meta} cumprido={d.horas.estagio.cumprido} />
           )}
@@ -178,9 +179,9 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.boletim.length > 0 && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Boletim</h2>
+          <h2 style="font-size:17px">{tx('aluno.boletim', 'Boletim')}</h2>
           {d.bloqueio?.bloqueado ? (
-            <p class="sub">Indisponível enquanto houver pendência financeira.</p>
+            <p class="sub">{tx('aluno.boletimBloqueado', 'Indisponível enquanto houver pendência financeira.')}</p>
           ) : d.boletim.map((t) => (
             <div key={t.turma} style="margin-top:10px">
               <h3 style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--tinta-3);margin:0 0 6px">{t.turma}</h3>
@@ -197,8 +198,8 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {d.rematricula?.disponivel && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Rematrícula aberta</h2>
-          <p class="sub">Há turma disponível para você continuar no próximo período.</p>
+          <h2 style="font-size:17px">{tx('aluno.rematricula', 'Rematrícula aberta')}</h2>
+          <p class="sub">{tx('aluno.rematriculaTexto', 'Há turma disponível para você continuar no próximo período.')}</p>
           {d.rematricula.ofertas.slice(0, 3).map((o) => (
             <div class="item" key={o.turmaId}><span>{o.nome}</span></div>
           ))}
@@ -210,11 +211,11 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
 
       {(d.requerimentos?.lista.length > 0 || d.requerimentos?.tipos.length > 0) && (
         <div class="cartao" style="margin-bottom:14px">
-          <h2 style="font-size:17px">Requerimentos</h2>
+          <h2 style="font-size:17px">{tx('aluno.requerimentos', 'Requerimentos')}</h2>
           <p class="sub">
             {d.requerimentos.abertos > 0
               ? `${d.requerimentos.abertos} em andamento.`
-              : 'Declarações, histórico e outros pedidos à secretaria.'}
+              : tx('aluno.requerimentosTexto', 'Declarações, histórico e outros pedidos à secretaria.')}
           </p>
           {d.requerimentos.lista.slice(0, 5).map((r) => (
             <div class="item" key={r.id}>
@@ -231,7 +232,7 @@ export function SecoesDoAluno({ d, jornada }: { d: PainelAluno; jornada: Jornada
       )}
 
       <div class="cartao">
-        <h2 style="font-size:17px">Sua conta</h2>
+        <h2 style="font-size:17px">{tx('aluno.conta', 'Sua conta')}</h2>
         <div class="item"><span>{d.aluno.email ?? '—'}</span><span class="tag">e-mail</span></div>
         <div class="item"><span>{d.aluno.whatsapp ?? '—'}</span><span class="tag">WhatsApp</span></div>
         <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">

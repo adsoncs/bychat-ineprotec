@@ -997,3 +997,98 @@ a.botao-contorno:hover, button.botao-contorno:hover { background: var(--marca-su
 .menu-conta-lista > a:focus-visible, .menu-conta-lista > button:focus-visible { background: var(--marca-suave); color: var(--marca); outline: none; }
 .menu-conta-lista small { font-size: 12px; font-weight: 500; color: var(--pendente, #d97000); }
 .menu-conta-lista .menu-conta-sair { border-top: 1px solid var(--linha); border-radius: 0 0 calc(var(--raio) - 4px) calc(var(--raio) - 4px); margin-top: 4px; padding-top: 12px; }
+
+/* ── Tela de entrar dividida (/portal/login) ──────────────────────────────
+   Como o login do sistema: painel da marca à esquerda, formulário à direita.
+   O painel usa a cor principal e a de apoio do Branding (ou a imagem da
+   capa, com véu da cor principal para o texto ler). Abaixo de 900px o
+   painel some e fica o formulário com o logo. */
+:root.tela-login body { background: var(--papel); }
+.login-dividido { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; }
+
+.login-painel {
+  position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  padding: 56px; color: #fff;
+  background: linear-gradient(150deg, var(--painel-de, var(--marca)) 0%, var(--painel-para, color-mix(in srgb, var(--marca) 55%, var(--apoio, var(--marca)))) 100%);
+}
+.login-painel.com-capa { background-size: cover; background-position: center; }
+.login-painel.com-capa::before {
+  content: ''; position: absolute; inset: 0;
+  /* Véu: a força vem das Configurações Gerais (0–100%); padrão ≈ 80%. */
+  background: linear-gradient(150deg, var(--painel-de, var(--marca)), var(--painel-para, var(--painel-de, var(--marca))));
+  opacity: var(--painel-veu, 81%);
+}
+/* Formas suaves no fundo: dão profundidade sem imagem nenhuma. */
+.login-painel:not(.com-capa)::before, .login-painel:not(.com-capa)::after {
+  content: ''; position: absolute; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 255, .14), rgba(255, 255, 255, 0) 70%);
+}
+.login-painel:not(.com-capa)::before { width: 620px; height: 620px; top: -220px; right: -200px; }
+.login-painel:not(.com-capa)::after { width: 480px; height: 480px; bottom: -200px; left: -160px; }
+
+.login-painel-texto { position: relative; max-width: 440px; }
+.login-painel h1 { margin: 0 0 14px; font-size: clamp(28px, 2.6vw, 38px); line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
+.login-painel p { margin: 0 0 28px; font-size: 17px; line-height: 1.55; opacity: .88; text-wrap: pretty; }
+.login-painel ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.login-painel li { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 500; }
+.login-painel li span {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, .16);
+}
+
+.login-lado { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px 24px; background: var(--papel); }
+.login-caixa { width: 100%; max-width: 400px; margin: auto 0; }
+.login-logo { display: block; max-height: 56px; max-width: 220px; margin: 0 auto 28px; }
+.login-logo-nome { text-align: center; font-weight: 700; font-size: 20px; margin-bottom: 28px; color: var(--marca); }
+.login-titulo { margin: 0 0 6px; font-size: 26px; line-height: 1.2; letter-spacing: -.02em; text-align: center; }
+.login-sub { margin: 0 0 24px; color: var(--tinta-2); font-size: 14.5px; text-align: center; text-wrap: pretty; }
+.login-caixa .modo-entrar { margin-bottom: 20px; }
+.login-caixa button.largo { width: 100%; margin-top: 6px; }
+
+.campo-senha { position: relative; }
+.campo-senha input { padding-right: 46px; }
+.ver-senha {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  border: 0; border-radius: calc(var(--raio) - 4px); background: transparent; color: var(--tinta-3); cursor: pointer;
+}
+.ver-senha:hover, .ver-senha:focus-visible { color: var(--marca); background: var(--marca-suave); outline: none; }
+
+.login-esqueci, .login-voltar {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 18px; padding: 6px;
+  border: 0; background: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--marca); cursor: pointer;
+}
+.login-esqueci:hover, .login-voltar:hover { text-decoration: underline; }
+.login-rodape { margin-top: 32px; font-size: 12.5px; color: var(--tinta-3); text-align: center; }
+
+@media (max-width: 900px) {
+  .login-dividido { grid-template-columns: minmax(0, 1fr); }
+  .login-painel { display: none; }
+  .login-lado { padding: 40px 16px 24px; justify-content: flex-start; }
+  .login-caixa { margin: 0; }
+  .login-titulo { font-size: 23px; }
+}
+
+/* ── Espaçamento (Configurações Gerais › Aparência) ───────────────────────
+   "padrão" é o que já existia; compacto e arejado só ajustam os respiros
+   principais — cartões, campos e a distância entre os blocos. */
+:root[data-espacamento='compacto'] .cartao { padding: 16px 16px; }
+:root[data-espacamento='compacto'] .campo { margin-bottom: 11px; }
+:root[data-espacamento='compacto'] .lado-a-lado,
+:root[data-espacamento='compacto'] .lado-a-lado > .coluna-dados,
+:root[data-espacamento='compacto'] .lado-a-lado > .coluna-principal { gap: 10px; }
+:root[data-espacamento='arejado'] .cartao { padding: 28px 26px; }
+:root[data-espacamento='arejado'] .campo { margin-bottom: 22px; }
+:root[data-espacamento='arejado'] .lado-a-lado,
+:root[data-espacamento='arejado'] .lado-a-lado > .coluna-dados,
+:root[data-espacamento='arejado'] .lado-a-lado > .coluna-principal { gap: 22px; }
+@media (min-width: 900px) {
+  :root[data-espacamento='compacto'][data-template='duas-colunas'] .cartao { padding: 24px 24px; }
+  :root[data-espacamento='arejado'][data-template='duas-colunas'] .cartao { padding: 44px 42px; }
+  :root[data-espacamento='arejado'] .lado-a-lado { gap: 30px; }
+}
+:root[data-espacamento='compacto'] .login-sub { margin-bottom: 16px; }
+:root[data-espacamento='arejado'] .login-sub { margin-bottom: 32px; }
+
+/* Painel do login à direita (Configurações Gerais › Tela de login). */
+.login-dividido.painel-direita .login-painel { order: 2; }

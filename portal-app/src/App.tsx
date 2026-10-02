@@ -10,6 +10,7 @@ import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
 import { conclusaoDoPortal, irPara, recomendarCursos, type Recomendacao } from './api'
 import { erroDoCampo, mascarar, modoEntrada, type Campo } from './validacao'
+import { t as tx } from './textos'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Estado do preenchimento
@@ -960,13 +961,13 @@ function Concluido(props: {
     return (
       <div class="form-limpo fim" {...estiloDoFormLimpo(props.portal)}>
         <div class="marca" aria-hidden="true">✓</div>
-        <h2>Inscrição recebida</h2>
+        <h2>{tx('conc.titulo', 'Inscrição recebida')}</h2>
         <div class="codigo">{props.codigo}</div>
         {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
         {props.pagamentoUrl ? (
-          <a href={props.pagamentoUrl} target="_top"><button class="principal">Pagar agora</button></a>
+          <a href={props.pagamentoUrl} target="_top"><button class="principal">{tx('conc.pagarAgora', 'Pagar agora')}</button></a>
         ) : !props.token && !props.mensagem ? (
-          <p class="sub">Enviamos os próximos passos para o seu WhatsApp.</p>
+          <p class="sub">{tx('conc.whatsapp', 'Enviamos os próximos passos para o seu WhatsApp.')}</p>
         ) : null}
         {props.token && !props.pagamentoUrl && (
           <div style="margin-top:14px;text-align:left">
@@ -998,8 +999,8 @@ function Concluido(props: {
       />
       <div class="cartao fim">
         <div class="marca" aria-hidden="true">✓</div>
-        <h2>Inscrição recebida</h2>
-        <p class="sub">Guarde este código — ele identifica sua inscrição.</p>
+        <h2>{tx('conc.titulo', 'Inscrição recebida')}</h2>
+        <p class="sub">{tx('conc.guardeCodigo', 'Guarde este código — ele identifica sua inscrição.')}</p>
         <div class="codigo">{props.codigo}</div>
         {props.oferta && <p class="sub">{props.oferta.nome}</p>}
         {/* A mensagem configurada (janela do portal / bloco Conclusão) vem
@@ -1008,13 +1009,13 @@ function Concluido(props: {
         {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
         {props.pagamentoUrl ? (
           <>
-            <p class="sub">Falta concluir o pagamento para a inscrição valer.</p>
-            <a href={props.pagamentoUrl}><button class="principal">Pagar agora</button></a>
+            <p class="sub">{tx('conc.faltaPagamento', 'Falta concluir o pagamento para a inscrição valer.')}</p>
+            <a href={props.pagamentoUrl}><button class="principal">{tx('conc.pagarAgora', 'Pagar agora')}</button></a>
           </>
         ) : props.token && !pago ? (
-          <p class="sub">Siga os próximos passos abaixo para concluir.</p>
+          <p class="sub">{tx('conc.sigaPassos', 'Siga os próximos passos abaixo para concluir.')}</p>
         ) : !props.mensagem ? (
-          <p class="sub">Enviamos os próximos passos para o seu WhatsApp.</p>
+          <p class="sub">{tx('conc.whatsapp', 'Enviamos os próximos passos para o seu WhatsApp.')}</p>
         ) : null}
 
         {/* O painel de senha deixou de vir aberto; sem este convite, criar
@@ -1023,9 +1024,9 @@ function Concluido(props: {
         {props.token && !pronto && !props.temSenha && !props.abrirSenha && (
           <p class="convite-senha">
             <button type="button" class="como-link" onClick={props.aoAbrirSenha}>
-              Criar uma senha
+              {tx('conc.conviteSenhaLink', 'Criar uma senha')}
             </button>{' '}
-            para acompanhar sua inscrição sem precisar achar esta página de novo.
+            {tx('conc.conviteSenhaTexto', 'para acompanhar sua inscrição sem precisar achar esta página de novo.')}
           </p>
         )}
       </div>
@@ -1042,10 +1043,9 @@ function Concluido(props: {
 
       {props.token && !pronto && !props.temSenha && props.abrirSenha && (
         <div class="cartao painel-senha" ref={painelSenha} style="margin-top:14px;text-align:left">
-          <h2 style="font-size:17px">Crie uma senha para acompanhar</h2>
+          <h2 style="font-size:17px">{tx('conc.senhaTitulo', 'Crie uma senha para acompanhar')}</h2>
           <p class="sub">
-            Com ela você entra quando quiser para enviar documentos, assinar o
-            contrato e ver o que falta — sem depender de achar esta página de novo.
+            {tx('conc.senhaTexto', 'Com ela você entra quando quiser para enviar documentos, assinar o contrato e ver o que falta — sem depender de achar esta página de novo.')}
           </p>
           {erro && <div class="aviso erro" role="alert">{erro}</div>}
           <form onSubmit={salvarSenha}>
@@ -1062,16 +1062,16 @@ function Concluido(props: {
             </button>
           </form>
           <p class="ajuda" style="text-align:center;margin-top:12px">
-            Pode deixar para depois: dá para criar a senha pelo link que enviamos no WhatsApp.
+            {tx('conc.senhaDepois', 'Pode deixar para depois: dá para criar a senha pelo link que enviamos no WhatsApp.')}
           </p>
         </div>
       )}
 
       {pronto && (
         <div class="cartao" style="margin-top:14px;text-align:center">
-          <h2 style="font-size:17px">Senha criada</h2>
-          <p class="sub">Você já está identificado neste aparelho.</p>
-          <a href="/portal"><button class="principal">Ir para meu portal</button></a>
+          <h2 style="font-size:17px">{tx('conc.senhaCriadaTitulo', 'Senha criada')}</h2>
+          <p class="sub">{tx('conc.senhaCriadaTexto', 'Você já está identificado neste aparelho.')}</p>
+          <a href="/portal"><button class="principal">{tx('conc.irPortal', 'Ir para meu portal')}</button></a>
         </div>
       )}
       <Rodape portal={props.portal} />
@@ -1086,8 +1086,8 @@ function Rodape({ portal }: { portal: DadosPortal['portal'] }) {
 
 function AjudaFlutuante({ portal }: { portal: DadosPortal['portal'] }) {
   if (portal.ctaBehavior !== 'whatsapp' || !portal.ctaTarget) return null
-  const url = `https://wa.me/${String(portal.ctaTarget).replace(/\D/g, '')}?text=${encodeURIComponent(portal.ctaMessage || 'Olá! Preciso de ajuda com a inscrição.')}`
-  return <a class="ajuda-flutuante" href={url} target="_blank" rel="noopener">Falar com a gente</a>
+  const url = `https://wa.me/${String(portal.ctaTarget).replace(/\D/g, '')}?text=${encodeURIComponent(portal.ctaMessage || tx('conc.ajudaMensagem', 'Olá! Preciso de ajuda com a inscrição.'))}`
+  return <a class="ajuda-flutuante" href={url} target="_blank" rel="noopener">{tx('conc.ajudaBotao', 'Falar com a gente')}</a>
 }
 
 function Esqueleto() {
@@ -1173,8 +1173,8 @@ function FormInteresse(props: { slug: string; portal: DadosPortal['portal']; ofe
         {conclusaoDoPortal(props.portal)?.message
           ? <p class="mensagem-final">{conclusaoDoPortal(props.portal)!.message}</p>
           : <>
-              <h2>Recebemos seu interesse</h2>
-              <p class="sub">Enviamos no seu WhatsApp o link para continuar a inscrição.</p>
+              <h2>{tx('conc.interesseTitulo', 'Recebemos seu interesse')}</h2>
+              <p class="sub">{tx('conc.interesseTexto', 'Enviamos no seu WhatsApp o link para continuar a inscrição.')}</p>
             </>}
       </div>
     )

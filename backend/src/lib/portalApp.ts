@@ -42,6 +42,12 @@ export interface CabecalhoPortal {
   cursoSlug?: string | null
   /** Domínio próprio do portal: é ele o endereço oficial (canonical/og:url). */
   customDomain?: string | null
+  /** Endereço da tela quando não é o formulário (/portal/login, /portal…). */
+  caminho?: string | null
+  /** Nome da instituição: og:site_name. */
+  nomeDoSite?: string | null
+  /** false = fora do Google (noindex). Padrão: entra. */
+  indexar?: boolean
 }
 
 /**
@@ -54,17 +60,29 @@ export function paginaDoPortal(p: CabecalhoPortal, appUrl: string): string {
   const titulo = p.metaTitle || p.nome
   const descricao = p.metaDescription || `Faça sua inscrição em ${p.nome}.`
   const base = p.customDomain ? `https://${String(p.customDomain).trim().toLowerCase()}` : appUrl.replace(/\/$/, '')
-  const url = `${base}/portal/${encodeURIComponent(p.slug)}${p.cursoSlug ? `/${encodeURIComponent(p.cursoSlug)}` : ''}`
+  const url = p.caminho
+    ? `${base}${p.caminho}`
+    : `${base}/portal/${encodeURIComponent(p.slug)}${p.cursoSlug ? `/${encodeURIComponent(p.cursoSlug)}` : ''}`
+
+  // Imagem de compartilhamento: robô do WhatsApp/Facebook precisa do endereço
+  // completo — upload devolve caminho (/uploads/…).
+  const ogImagem = p.ogImageUrl && p.ogImageUrl.startsWith('/') ? `${base}${p.ogImageUrl}` : p.ogImageUrl
 
   const head = [
     `<title>${esc(titulo)}</title>`,
     `<meta name="description" content="${esc(descricao)}">`,
+    `<meta name="robots" content="${p.indexar === false ? 'noindex, nofollow' : 'index, follow'}">`,
     `<meta property="og:type" content="website">`,
+    `<meta property="og:locale" content="pt_BR">`,
+    p.nomeDoSite ? `<meta property="og:site_name" content="${esc(p.nomeDoSite)}">` : '',
     `<meta property="og:title" content="${esc(titulo)}">`,
     `<meta property="og:description" content="${esc(descricao)}">`,
     `<meta property="og:url" content="${esc(url)}">`,
-    p.ogImageUrl ? `<meta property="og:image" content="${esc(p.ogImageUrl)}">` : '',
+    ogImagem ? `<meta property="og:image" content="${esc(ogImagem)}">` : '',
     `<meta name="twitter:card" content="${p.ogImageUrl ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${esc(titulo)}">`,
+    `<meta name="twitter:description" content="${esc(descricao)}">`,
+    ogImagem ? `<meta name="twitter:image" content="${esc(ogImagem)}">` : '',
     p.brandFaviconUrl ? `<link rel="icon" href="${esc(p.brandFaviconUrl)}">` : '',
     p.brandPrimaryColor ? `<meta name="theme-color" content="${esc(p.brandPrimaryColor)}">` : '',
     `<link rel="canonical" href="${esc(url)}">`,

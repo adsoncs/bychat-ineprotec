@@ -6,6 +6,7 @@ import {
   type Candidato, type DocumentoEnviado, type Exigencia,
 } from './api'
 import { comprimirSePreciso } from './imagem'
+import { t as tx } from './textos'
 
 // Situação de cada documento na linguagem de quem enviou, não a do banco.
 const SITUACAO: Record<string, { rotulo: string; classe: string }> = {
@@ -123,14 +124,13 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
     <>
 
       <div class="cartao" style="margin-bottom:14px">
-        <h2>Seus documentos</h2>
+        <h2>{tx('docs.titulo', 'Seus documentos')}</h2>
         <p class="sub" style="margin-bottom:12px">
           Inscrição {dados.enrollment.candidateCode} · {dados.lead.nome}
         </p>
         {exigencias.length === 0 ? (
           <div class="aviso info">
-            Ainda não há documentos a enviar para esta inscrição. Se a secretaria
-            pedir algum, ele aparece aqui.
+            {tx('docs.nenhum', 'Ainda não há documentos a enviar para esta inscrição. Se a secretaria pedir algum, ele aparece aqui.')}
           </div>
         ) : faltam > 0 ? (
           <div class="aviso info">
