@@ -3,7 +3,7 @@ import { Fragment } from 'preact'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
-  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy,
+  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye,
 } from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
@@ -928,16 +928,6 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
         {doc.fileName && <span class="truncate max-w-48" title={doc.fileName}>{doc.fileName}</span>}
         {sizeKb != null && <span class="tabular-nums">{sizeKb} KB</span>}
         <span>· enviado {formatRelative(doc.uploadedAt)}</span>
-        {doc.fileUrl && (
-          <a
-            href={doc.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-accent hover:underline inline-flex items-center gap-1"
-          >
-            Abrir <ExternalLink size={10} />
-          </a>
-        )}
       </div>
 
       {doc.aiSuggestion && <AiSummary doc={doc} />}
@@ -954,6 +944,21 @@ function DocBody({ doc, registrationId }: { doc: EnrollmentDocument; registratio
       )}
 
       <div class="flex flex-wrap gap-1.5">
+        {/* Abrir o arquivo é o primeiro passo da análise: botão em destaque
+            (laranja enquanto aguarda análise), não um link miúdo no meio das
+            informações do arquivo — o time bate o olho e sabe o que falta ver. */}
+        {doc.fileUrl && (
+          <a
+            href={doc.fileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class={doc.status === 'pending'
+              ? 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold border border-warning bg-warning/10 text-warning hover:bg-warning/20 btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+              : 'inline-flex items-center justify-center h-8 px-3 gap-1.5 rounded-md text-xs font-semibold bg-surface-2 text-fg border border-border hover:bg-surface-3 surface-raised btn-motion focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'}
+          >
+            <Eye size={12} /> {doc.status === 'pending' ? 'Analisar documento' : 'Ver documento'} <ExternalLink size={10} />
+          </a>
+        )}
         {doc.status !== 'approved' && (
           <Button
             size="sm"
