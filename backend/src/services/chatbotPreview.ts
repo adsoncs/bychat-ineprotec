@@ -24,9 +24,11 @@ import { msg, questionText, stripTags } from './scriptedChatbotFlow.js'
 import {
   buildSystemPrompt as aiBuildSystemPrompt, llmTurn as aiLlmTurn,
   extractOptions as aiExtractOptions, getCatalogSummary as aiGetCatalogSummary,
-  mapSelectValue as aiMapSelectValue,
+  mapSelectValue as aiMapSelectValue, ferramentasDaJornada as aiFerramentas, instrucaoDepartamentoEdu,
   type AiState, type LlmMsg,
 } from './aiJourneyEngine.js'
+import type { FastifyInstance } from 'fastify'
+import { eduSdrLigado, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera } from './journey/eduSdr.js'
 
 // O fluxo de atendimento/triagem (supportFlow) existe apenas em alguns tenants
 // (ex.: terram). Carregamos o módulo DINAMICAMENTE: onde ele não existe, o preview
@@ -74,6 +76,10 @@ interface PreviewSession {
   // Estado do modo ai_journey (só quando kind === 'ai').
   aiState?: AiState
   aiMessages?: LlmMsg[]
+  /** Consultor educacional: leituras do portal são reais (via app.inject). */
+  app?: FastifyInstance
+  /** Lead real cujo CONTEXTO o teste usa (só leitura — nada é gravado nele). */
+  contextLeadId?: number | null
   createdAt: number
 }
 
@@ -234,6 +240,11 @@ async function executeToolPreview(name: string, input: any, form: any, state: Ai
       const opt = routeField.options.find((o: any) => String(o.value) === String(value))
       if (!opt?.route) return JSON.stringify({ ok: false, erro: 'Setor não reconhecido.', instrucao: 'Tente identificar melhor o que o lead procura.' })
       state.answers[routeField.key] = opt.value
+      if (eduSdrLigado(form)) {
+        state.phase = 'handoff'
+        const r = opt.route || {}
+        return JSON.stringify({ ok: true, simulacao: true, setor: stripTags(opt.label), noWhatsAppReal: `funil ${r.funnelId ?? '-'} / etapa ${r.stageKey ?? '-'} / equipe ${r.teamId ?? '-'}`, instrucao: instrucaoDepartamentoEdu(stripTags(opt.label)) })
+      }
       return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado nos bastidores. NÃO mencione "setor"/"encaminhamento"; siga ajudando com naturalidade.' })
     }
     if (name === 'avaliar_qualificacao') {
@@ -298,13 +309,23 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   const state = sess.aiState!
   const messages = sess.aiMessages!
   const catalogSummary = await aiGetCatalogSummary().catch(() => '')
+  const edu = eduSdrLigado(form) && !!sess.app
   // lead "web novo": sem nome/whats reais → a IA coleta o contato (como no canal web).
-  const lead = { nome: '', whatsapp: '', email: '', cidade: '' }
-  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary)
+  // Com um lead de contexto escolhido no teste, a IA enxerga o que o sistema sabe dele.
+  const real = sess.contextLeadId
+    ? await prisma.lead.findUnique({ where: { id: sess.contextLeadId } }).catch(() => null)
+    : null
+  const lead = real ?? { nome: '', whatsapp: '', email: '', cidade: '' }
+  const eduBloco = edu
+    ? protocoloEdu(await resumoDoCatalogo(sess.app!).catch(() => ''), await contextoDoLead(sess.contextLeadId ?? null).catch(() => ''), true)
+    : null
+  const bh = edu ? await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null) : undefined
+  const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, eduBloco)
+  const tools = aiFerramentas(form)
   let replied = false
-  for (let i = 0; i < AI_MAX_ITERS; i++) {
+  for (let i = 0; i < (edu ? 10 : AI_MAX_ITERS); i++) {
     let turn
-    try { turn = await aiLlmTurn(system, messages) }
+    try { turn = await aiLlmTurn(system, messages, tools) }
     catch {
       out.push('⚠️ Não consegui falar com a IA no preview. Verifique se a chave de IA está configurada (Configurações › APIs).')
       return
@@ -319,16 +340,18 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
     // ferramentas, igual ao loop de produção em aiJourneyEngine. Sem isso o preview
     // engolia a resposta e caía no "deixa eu verificar" — fazendo parecer erro de
     // prompt o que era só o simulador descartando o que a IA tinha escrito.
-    if (turn.text.trim()) {
+    if (turn.text.trim() && !edu) {
       const { text: pre, options: preOpts } = aiExtractOptions(turn.text)
       const body = preOpts.length ? `${pre}\n\n${preOpts.map((o: string, idx: number) => `${idx + 1}) ${o}`).join('\n')}` : pre
       if (body) { out.push(body); replied = true }
     }
 
-    messages.push({ role: 'assistant', content: turn.assistant })
+    messages.push({ role: 'assistant', content: edu ? semTextoDeEspera(turn.assistant) : turn.assistant })
     const results: any[] = []
     for (const call of turn.calls) {
-      const r = await executeToolPreview(call.name, call.input, form, state)
+      const r = edu && EDU_TOOL_NAMES.has(call.name)
+        ? await executarFerramentaEdu(call.name, call.input, { app: sess.app!, leadId: sess.contextLeadId ?? null, state, dryRun: true })
+        : await executeToolPreview(call.name, call.input, form, state)
       results.push({ type: 'tool_result', tool_use_id: call.id, content: r })
     }
     messages.push({ role: 'user', content: results })
@@ -340,7 +363,10 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
 
 export interface PreviewResult { sessionId: string; messages: string[]; phase: string; ended: boolean }
 
-export async function startPreview(chatbotId: number): Promise<PreviewResult | { error: string }> {
+export async function startPreview(
+  chatbotId: number,
+  opts: { app?: FastifyInstance; contextLeadId?: number | null } = {},
+): Promise<PreviewResult | { error: string }> {
   gc()
   const chatbot = await prisma.chatbot.findUnique({ where: { id: chatbotId } })
   // Chatbot INATIVO pode ser testado: testar antes de ativar é justamente o uso do
@@ -358,7 +384,7 @@ export async function startPreview(chatbotId: number): Promise<PreviewResult | {
     if (!aform || !Array.isArray((aform as any).fields)) return { error: 'Formulário do chatbot não encontrado' }
     const aiState: AiState = { leadId: null, phase: 'active', answers: {} }
     const aiMessages: LlmMsg[] = [{ role: 'user', content: 'Olá' }]
-    const sess: PreviewSession = { chatbotId, chatbot, form: aform, kind: 'ai', state: { stepIndex: 0, answers: {}, phase: 'asking', fallbackCount: 0 }, aiState, aiMessages, createdAt: Date.now() }
+    const sess: PreviewSession = { chatbotId, chatbot, form: aform, kind: 'ai', state: { stepIndex: 0, answers: {}, phase: 'asking', fallbackCount: 0 }, aiState, aiMessages, app: opts.app, contextLeadId: opts.contextLeadId ?? null, createdAt: Date.now() }
     await runAiLoop(sess, out)
     const sid = genId()
     sessions.set(sid, sess)

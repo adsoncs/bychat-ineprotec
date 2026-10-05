@@ -24,12 +24,22 @@ import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.j
 import { pickOperatorForTeam } from './teamRouting.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
+import { eduSdrLigado, EDU_TOOLS, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera, type EduState } from './journey/eduSdr.js'
 
 const MAX_TOOL_ITERS = 6
 const HISTORY_LIMIT = 24
 const LLM_TIMEOUT_MS = 30000   // teto por chamada ao LLM (evita travar a conversa)
 const TOOL_TIMEOUT_MS = 20000  // teto por execução de ferramenta (ex.: slots/Google)
 const TURN_BUDGET_MS = 90000   // teto total do turno (libera o lock no pior caso)
+// Consultor educacional (journey/eduSdr): a matrícula pede várias ferramentas no
+// mesmo turno (situação → ficha → inscrição), e a conversa é longa.
+const EDU_MAX_TOOL_ITERS = 10
+const EDU_HISTORY_LIMIT = 40
+// Mensagens em sequência ("tem estágio?" / "qual valor?" / "quanto tempo?")
+// viram UMA resposta: espera este silêncio antes de responder, e só a última
+// da rajada responde — com todas no histórico.
+const EDU_JANELA_MS = 4000
+const EDU_JANELA_MAX_MS = 12000
 
 // fetch com timeout (AbortController) — nenhuma chamada externa pode pendurar o turno.
 async function fetchWithTimeout(url: string, opts: any, ms: number): Promise<Response> {
@@ -48,9 +58,15 @@ interface AiState {
   phase: 'active' | 'done' | 'disqualified' | 'handoff'
   answers: Record<string, any>
   bookingId?: number | null
+  /** Consultor educacional: inscrição em foco, anexos usados (journey/eduSdr). */
+  edu?: EduState
 }
 
 const locks = new Map<string, Promise<void>>()
+// Rajada de mensagens (consultor educacional): quantas estão na fila por
+// telefone e quando chegou a última.
+const pendentes = new Map<string, number>()
+const ultimaChegada = new Map<string, number>()
 
 function stripTags(s: string | null | undefined): string {
   return String(s ?? '')
@@ -171,6 +187,37 @@ const TOOLS = [
   },
 ]
 
+type ToolDef = { name: string; description: string; input_schema: any }
+
+// Consultor educacional: as ferramentas do portal + as genéricas que fazem
+// sentido nele. Fica de fora o que é de outro tipo de jornada (setor, nota de
+// qualificação, agenda, catálogo de produtos) — e `encerrar`, porque quem volta
+// semana que vem para pagar ou mandar documento tem de ser atendido.
+const EDU_BASE = new Set(['salvar_dados', 'transferir_humano'])
+/** O formulário tem menu de departamentos (campo select com `route`)? */
+export function temDepartamentos(form: any): boolean {
+  return (form?.fields || []).some((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+}
+export function ferramentasDaJornada(form: any): ToolDef[] {
+  if (!eduSdrLigado(form)) return TOOLS
+  // rotear_setor entra só quando há departamentos configurados: quem escreve
+  // sobre boleto, histórico ou acesso à plataforma não é matrícula e tem de
+  // chegar à equipe certa.
+  const base = new Set(EDU_BASE)
+  if (temDepartamentos(form)) base.add('rotear_setor')
+  return [...TOOLS.filter((t) => base.has(t.name)), ...EDU_TOOLS]
+}
+
+/** Instrução depois de rotear no modo educacional: aqui o encaminhamento É o
+ *  atendimento (o bot não resolve boleto nem histórico), então a pessoa é
+ *  avisada — ao contrário da triagem silenciosa das outras jornadas. */
+export function instrucaoDepartamentoEdu(rotulo: string): string {
+  // O rótulo da opção traz o escopo entre parênteses para a IA escolher; para
+  // falar com a pessoa basta o nome do departamento.
+  const setor = rotulo.replace(/\s*\(.*\)\s*$/, '').trim() || rotulo
+  return `Assunto encaminhado para: ${setor} (a equipe já foi atribuída). Diga à pessoa, numa mensagem curta e acolhedora, que o assunto dela fica com a equipe de ${setor} e que a equipe continua o atendimento por aqui mesmo, neste WhatsApp, em horário comercial. Se ela já contou o problema, não peça para repetir; se ainda não contou, peça que descreva em uma mensagem para a equipe já pegar com tudo. NÃO tente resolver o assunto você mesmo e NÃO chame transferir_humano depois disto.`
+}
+
 // ── System prompt: prompt-mestre + dados a coletar (dos fields do form) + protocolo ──
 // Tradução do `originType` (lib/leadOrigin.ts) para uma frase que a IA pode
 // usar na abertura sem inventar canal. Só cobre os casos em que dá pra falar
@@ -189,7 +236,7 @@ const ORIGEM_DESCRICAO: Partial<Record<string, string>> = {
   enrollment_portal: 'já estava no nosso portal de matrículas',
 }
 
-export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null): string {
+export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiState, catalogSummary: string, businessHours?: string | null, edu?: string | null): string {
   const fields: any[] = form?.fields || []
   const collect = fields
     .filter((f) => f && f.type !== 'statement' && f.type !== 'scheduling')
@@ -288,7 +335,8 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
   return [
     base,
     `\n## Dados a coletar (use estas chaves ao chamar salvar_dados)\n${collect || '(nenhum)'}`,
-    setores ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
+    setores && edu ? `\n## Departamentos (use rotear_setor)\n${setores}\n\nQuando a pessoa trouxer um assunto que NÃO é conhecer cursos ou fazer/continuar a inscrição (ex.: aluno com dúvida de boleto, histórico, acesso à plataforma, estágio), identifique o departamento e chame **rotear_setor** com a chave certa — uma única vez. Na dúvida entre dois, pergunte uma coisa só para decidir. Se for algo que nenhum departamento cobre, use transferir_humano.` : '',
+    setores && !edu ? `\n## Setores disponíveis (use rotear_setor)\n${setores}\n\nQuando entender o que o lead procura, identifique o setor — mas só chame **rotear_setor** DEPOIS de já ter coletado e salvo os dados de contato (veja "Dados de contato"). Chame uma única vez; encaminha o lead à equipe certa nos bastidores — siga com naturalidade, sem anunciar o encaminhamento.` : '',
     contactWanted.length ? `\n## Dados de contato (obrigatório antes de encaminhar para humano)\nAntes de chamar rotear_setor ou transferir_humano, você PRECISA ter coletado e salvo (via salvar_dados) os dados de contato do lead: ${contactLabels}. Peça apenas o que ainda não souber (veja "Já sabemos"/"Respostas já coletadas"), de forma natural e UMA pergunta por vez. Não encaminhe ao atendimento humano sem esses dados.` : '',
     known ? `\n## Já sabemos sobre o lead\n${known}` : '',
     customFieldsList ? `\n## Campos personalizados do lead (contexto adicional, já preenchidos antes desta conversa)\n${customFieldsList}` : '',
@@ -296,14 +344,16 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     previamenteConhecidos ? `\n## O lead já respondeu isto ANTES desta conversa (não pergunte de novo — confirme/aproveite)\n${previamenteConhecidos}` : '',
     already.length ? `\n## Respostas já coletadas nesta conversa\n${already.map((k) => `- ${k}: ${state.answers[k]}`).join('\n')}` : '',
     greeting ? `\n## Abertura da conversa (mensagem padrão)\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
-    `\n## Como agir
+    // Consultor educacional: o protocolo dele (portal como fonte da verdade,
+    // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
+    edu ? edu : `\n## Como agir
 - Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
 - Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
 - Se qualificado${hasSched ? ' e houver agendamento: chame **listar_horarios**, ofereça os horários ao lead, e ao ele escolher chame **agendar** com o startAt exato. Só diga que está agendado depois de agendar retornar ok=true.' : ': agradeça e finalize com **encerrar**.'}
 - Se desqualificado: agradeça cordialmente, NÃO ofereça agendamento, e chame **encerrar**.
 - Se o lead pedir um humano ou fugir do escopo, chame **transferir_humano**.`,
-    catalogSummary ? `\n## Catálogo (FONTE DA VERDADE)
+    !edu && catalogSummary ? `\n## Catálogo (FONTE DA VERDADE)
 O catálogo tem estas categorias: ${catalogSummary}.
 - SEMPRE que o lead perguntar sobre itens, preços, condições ou disponibilidade, chame a ferramenta **consultar_catalogo** e responda SOMENTE com o que ela retornar.
 - REGRA ABSOLUTA: você só pode citar o nome/marca/preço de um item se ele tiver vindo de **consultar_catalogo** NESTA conversa. NUNCA mencione um item específico que não veio da ferramenta — nem como resposta, nem como sugestão ou alternativa. Nada de "temos o X" se X não veio da ferramenta.
@@ -369,6 +419,9 @@ async function executeTool(
   const { leadId, phone, form, state, promoteFunnelId, app, chatbot } = ctx
   const fields: any[] = form?.fields || []
   const settings: any = form?.settings || {}
+  if (EDU_TOOL_NAMES.has(name) && eduSdrLigado(form)) {
+    return executarFerramentaEdu(name, input, { app, leadId, state, dryRun: false })
+  }
   try {
     if (name === 'salvar_dados') {
       const campos: Array<{ chave: string; valor: string }> = Array.isArray(input?.campos) ? input.campos : []
@@ -470,6 +523,10 @@ async function executeTool(
         }).catch(() => {})
       }
       logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Jornada IA: encaminhado para ${stripTags(opt.label) || route.stageKey}`, channel: 'whatsapp', source: 'chatbot', actorType: 'lead', metadata: { teamId: route.teamId, funnelId: route.funnelId, stageKey: route.stageKey } })
+      if (eduSdrLigado(form)) {
+        state.phase = 'handoff'
+        return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: instrucaoDepartamentoEdu(stripTags(opt.label)) })
+      }
       return JSON.stringify({ ok: true, setor: stripTags(opt.label), instrucao: 'Lead encaminhado ao setor certo nos bastidores. NÃO mencione "setor" nem "encaminhamento" — apenas siga ajudando o lead com naturalidade.' })
     }
 
@@ -613,7 +670,7 @@ async function getSetting(key: string): Promise<string | null> {
   return s ? String(s.value).replace(/^"|"$/g, '') : null
 }
 
-async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+async function anthropicTurn(system: string, messages: LlmMsg[], tools: ToolDef[]): Promise<LlmTurn> {
   // Chave/modelo via Settings (Configurações > APIs) → fallback env. NÃO ler
   // process.env direto: o admin configura as chaves pela UI (bychat_settings).
   const apiKey = await getAnthropicKey()
@@ -625,7 +682,7 @@ async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTur
     body: JSON.stringify({
       model, max_tokens: 1500,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools: TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
       messages,
     }),
   }, LLM_TIMEOUT_MS)
@@ -638,7 +695,7 @@ async function anthropicTurn(system: string, messages: LlmMsg[]): Promise<LlmTur
   return { kind: 'text', text }
 }
 
-async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+async function openaiTurn(system: string, messages: LlmMsg[], tools: ToolDef[]): Promise<LlmTurn> {
   const apiKey = await getOpenAiKey()
   if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
   const model = (await getSetting('ai.journey_model_openai')) || await getOpenAiModel()
@@ -661,7 +718,7 @@ async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> 
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model, max_tokens: 1500, messages: oaMsgs,
-      tools: TOOLS.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+      tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
     }),
   }, LLM_TIMEOUT_MS)
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
@@ -681,17 +738,17 @@ async function openaiTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> 
 
 function safeJson(s: any): any { try { return JSON.parse(s || '{}') } catch { return {} } }
 
-export async function llmTurn(system: string, messages: LlmMsg[]): Promise<LlmTurn> {
+export async function llmTurn(system: string, messages: LlmMsg[], tools: ToolDef[] = TOOLS): Promise<LlmTurn> {
   const primary = await getPrimaryProvider()
   const { noteLlmFailure, noteLlmSuccess } = await import('./aiProviderHealth.js')
   try {
-    const r = primary === 'openai' ? await openaiTurn(system, messages) : await anthropicTurn(system, messages)
+    const r = primary === 'openai' ? await openaiTurn(system, messages, tools) : await anthropicTurn(system, messages, tools)
     await noteLlmSuccess()
     return r
   } catch (e) {
     // Fallback para o outro provider.
     try {
-      const r = primary === 'openai' ? await anthropicTurn(system, messages) : await openaiTurn(system, messages)
+      const r = primary === 'openai' ? await anthropicTurn(system, messages, tools) : await openaiTurn(system, messages, tools)
       await noteLlmSuccess()
       return r
     } catch (e2) {
@@ -721,10 +778,20 @@ export async function processAiJourneyMessage(
   // fechada com o contato acabando de escrever.
   cloudApiConnectionId?: number | null,
 ): Promise<void> {
+  const rajada = eduSdrLigado(form)
+  if (rajada) {
+    pendentes.set(phone, (pendentes.get(phone) ?? 0) + 1)
+    ultimaChegada.set(phone, Date.now())
+  }
   const prev = locks.get(phone) ?? Promise.resolve()
   const run = prev.then(() =>
     _process(phone, text, app, messageId, sendFn, provider, originData, chatbotId, instanceName, chatbot, form, sendInteractiveFn, promoteFunnelId, promoteStageKey, contactName, cloudApiConnectionId)
-      .catch((e) => app.log.error(`[aiJourney] erro: ${e?.stack || e}`)),
+      .catch((e) => app.log.error(`[aiJourney] erro: ${e?.stack || e}`))
+      .finally(() => {
+        if (!rajada) return
+        const n = (pendentes.get(phone) ?? 1) - 1
+        if (n > 0) pendentes.set(phone, n); else { pendentes.delete(phone); ultimaChegada.delete(phone) }
+      }),
   )
   locks.set(phone, run.then(() => undefined))
   await run
@@ -860,9 +927,23 @@ async function _process(
 
   await saveIncoming(leadId, text)
 
+  const edu = eduSdrLigado(form)
+  if (edu) {
+    // Espera a pessoa terminar de escrever. Se outra mensagem dela já está na
+    // fila, esta fica só gravada: a última da rajada responde a todas.
+    const inicio = Date.now()
+    while (Date.now() - (ultimaChegada.get(phone) ?? 0) < EDU_JANELA_MS && Date.now() - inicio < EDU_JANELA_MAX_MS) {
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    if ((pendentes.get(phone) ?? 1) > 1) {
+      await prisma.lead.update({ where: { id: leadId }, data: { formData: { ...(((await prisma.lead.findUnique({ where: { id: leadId }, select: { formData: true } }))?.formData as any) || {}), _aiJourney: state } } }).catch(() => {})
+      return
+    }
+  }
+
   // ── Histórico p/ o LLM (mensagens anteriores do lead) ──
   const hist = await prisma.message.findMany({
-    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: HISTORY_LIMIT,
+    where: { leadId, isInternal: false }, orderBy: { id: 'desc' }, take: edu ? EDU_HISTORY_LIMIT : HISTORY_LIMIT,
     select: { fromMe: true, body: true },
   })
   const messages: LlmMsg[] = hist.reverse()
@@ -876,7 +957,12 @@ async function _process(
   // Horário de atendimento humano (Cadastros › Atendimento) — o bot precisa dele
   // para responder "quando vocês respondem?" com o que a empresa cadastrou.
   const bhText = await (await import('./businessHours.js')).getConfiguredBusinessHours().catch(() => null)
-  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText)
+  const eduBloco = edu
+    ? protocoloEdu(await resumoDoCatalogo(app).catch(() => ''), await contextoDoLead(leadId).catch(() => ''), false)
+    : null
+  const system = buildSystemPrompt(chatbot, form, lead ? await withSourceLabel(lead) : lead, state, catalogSummary, bhText, eduBloco)
+  const tools = ferramentasDaJornada(form)
+  const maxIters = edu ? EDU_MAX_TOOL_ITERS : MAX_TOOL_ITERS
 
   // ── Loop de orquestração: IA pede ação → servidor executa → devolve → repete ──
   // Tudo com teto de tempo: nenhuma chamada (LLM ou ferramenta) pode pendurar o turno
@@ -889,10 +975,10 @@ async function _process(
   // falha se repete junto — cinco dias disso no severiano renderam 66 mensagens
   // de erro e nenhuma resposta de verdade. Ver services/aiProviderHealth.ts.
   let indisponivel = false
-  for (let i = 0; i < MAX_TOOL_ITERS; i++) {
+  for (let i = 0; i < maxIters; i++) {
     if (Date.now() - startedAt > TURN_BUDGET_MS) { app.log.warn('[aiJourney] orçamento do turno esgotado'); failed = true; break }
     let turn: LlmTurn
-    try { turn = await llmTurn(system, messages) }
+    try { turn = await llmTurn(system, messages, tools) }
     catch (e: any) {
       app.log.error(`[aiJourney] LLM: ${e?.message || e}`)
       failed = true
@@ -909,13 +995,13 @@ async function _process(
     // Texto escrito JUNTO da chamada de ferramenta: entrega ao lead antes de executar
     // as ferramentas. Sem isso o modelo "acha" que já cumprimentou (o bloco está no
     // histórico que ele recebe de volta) e a mensagem seguinte começa no meio do assunto.
-    if (turn.text.trim()) {
+    if (turn.text.trim() && !edu) {
       const { text: pre, options: preOpts } = extractOptions(turn.text)
       if (pre) { await send(leadId, pre, preOpts).catch(() => {}); replied = true }
     }
 
     // tool_use: executa as ferramentas pedidas (cada uma com timeout) e devolve os resultados.
-    messages.push({ role: 'assistant', content: turn.assistant })
+    messages.push({ role: 'assistant', content: edu ? semTextoDeEspera(turn.assistant) : turn.assistant })
     const results: any[] = []
     for (const call of turn.calls) {
       const out = await Promise.race([

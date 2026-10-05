@@ -438,6 +438,11 @@ export async function chatbotsRoutes(app: FastifyInstance) {
     }
   })
 
+  // O nginx guarda todo .js por 7 dias como "immutable": sem um parâmetro que
+  // mude a cada deploy, a página de teste seguia rodando o script antigo (o que
+  // ainda não mandava o token) e dava "Token não fornecido".
+  const EMBED_VERSAO = Date.now().toString(36)
+
   // GET /api/chatbots/embed/:id.js — Script embed do widget de chat
   app.get('/api/chatbots/embed/:idjs', async (req, reply) => {
     const idjs = (req.params as any).idjs
@@ -471,6 +476,14 @@ export async function chatbotsRoutes(app: FastifyInstance) {
       var botName=\`${botName}\`;
       var chatbotId='${id}';
       var isPreview=self.hasAttribute('preview');
+      // O simulador exige login (as rotas /preview usam authMiddleware). A
+      // página de preview abre no mesmo domínio do painel, então usa o token
+      // que o painel já guardou (env.authTokenKey = 'bh_token').
+      function previewHeaders(){
+        var h={'Content-Type':'application/json'};
+        try{var t=localStorage.getItem('bh_token');if(t)h.Authorization='Bearer '+t}catch(e){}
+        return h;
+      }
 
       this.shadowRoot.innerHTML=\`
 <style>
@@ -632,7 +645,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
         showTyping(true);
         if(isPreview){
           fetch(baseUrl+'/api/chatbots/'+chatbotId+'/preview/start',{
-            method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+            method:'POST',headers:previewHeaders(),body:'{}'
           })
           .then(function(r){return r.json()})
           .then(function(data){
@@ -684,7 +697,7 @@ export async function chatbotsRoutes(app: FastifyInstance) {
         var body=isPreview?JSON.stringify({sessionId:self._sessionId,message:text}):JSON.stringify({leadId:self._leadId,message:text});
         fetch(url,{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:isPreview?previewHeaders():{'Content-Type':'application/json'},
           body:body
         })
         .then(function(r){return r.json()})
@@ -755,7 +768,7 @@ p{font-size:14px;color:#5f6368;line-height:1.5}
     <p>Esta é uma página de demonstração. O widget aparece no canto inferior direito — clique no botão para conversar com o chatbot.</p>
     <div class="hint">Apenas um preview. Use o snippet de embed para colocar em sua própria página.</div>
   </div>
-  <script src="${baseUrl}/api/chatbots/embed/${chatbotId}.js" defer></script>
+  <script src="${baseUrl}/api/chatbots/embed/${chatbotId}.js?v=${EMBED_VERSAO}" defer></script>
   <beyond-chatbot chatbot-id="${chatbotId}" preview></beyond-chatbot>
 </body>
 </html>`
@@ -770,7 +783,18 @@ p{font-size:14px;color:#5f6368;line-height:1.5}
   app.post('/api/chatbots/:id/preview/start', async (req, reply) => {
     const chatbotId = Number((req.params as any).id)
     if (isNaN(chatbotId)) return reply.code(400).send({ error: 'id inválido' })
-    const r = await startPreview(chatbotId)
+    // Teste com o CONTEXTO de um lead real (consultor educacional): só para quem
+    // está logado no painel — a rota é pública (embed), e o contexto traz
+    // anotações, negociações e dados pessoais do contato.
+    const pedido = Number((req.body as any)?.contextLeadId) || null
+    let contextLeadId: number | null = null
+    if (pedido) {
+      const { verifyToken } = await import('../lib/auth.js')
+      try { verifyToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')) }
+      catch { return reply.code(401).send({ error: 'Entre no painel para testar com o contexto de um lead.' }) }
+      contextLeadId = pedido
+    }
+    const r = await startPreview(chatbotId, { app, contextLeadId })
     if ('error' in r) return reply.code(404).send(r)
     return reply.header('Access-Control-Allow-Origin', '*').send(r)
   })

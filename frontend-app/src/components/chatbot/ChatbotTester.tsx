@@ -40,6 +40,9 @@ export function ChatbotTester({ chatbotId }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  // Teste com o contexto de um lead real (campos, etiquetas, anotações,
+  // inscrições): a IA lê o que o sistema sabe dele, mas nada é gravado.
+  const [contextLeadId, setContextLeadId] = useState('')
 
   const [step, setStep] = useState(0) // index na fila de perguntas ativas
   const [messages, setMessages] = useState<Msg[]>([])
@@ -74,7 +77,8 @@ export function ChatbotTester({ chatbotId }: Props) {
   async function startAiSession() {
     setMessages([]); setDraft(''); setDone(false); setAiError(null); setAiLoading(true)
     try {
-      const r = await api.post<PreviewReply>(`/chatbots/${chatbotId}/preview/start`, {})
+      const leadId = Number(contextLeadId) || undefined
+      const r = await api.post<PreviewReply>(`/chatbots/${chatbotId}/preview/start`, leadId ? { contextLeadId: leadId } : {})
       setSessionId(r.sessionId)
       for (const m of r.messages ?? []) pushBot(m)
       if (r.ended) setDone(true)
@@ -219,9 +223,22 @@ export function ChatbotTester({ chatbotId }: Props) {
             ? 'Conversa real com a IA — em memória, sem criar lead nem enviar mensagens'
             : 'Simulação local — não envia mensagens reais'}
         </div>
-        <Button size="sm" variant="ghost" onClick={reset}>
-          <RotateCcw size={11} /> Reiniciar
-        </Button>
+        <div class="inline-flex items-center gap-1.5">
+          {isAiBot && (
+            <input
+              type="number"
+              min={1}
+              value={contextLeadId}
+              onInput={(e) => setContextLeadId((e.target as HTMLInputElement).value)}
+              placeholder="ID do lead (contexto)"
+              title="Opcional: a IA lê o contexto deste lead (campos, etiquetas, anotações, inscrições) sem gravar nada nele. Clique em Reiniciar para aplicar."
+              class="w-36 h-7 rounded-md border border-border bg-surface px-2 text-xs"
+            />
+          )}
+          <Button size="sm" variant="ghost" onClick={reset}>
+            <RotateCcw size={11} /> Reiniciar
+          </Button>
+        </div>
       </header>
 
       <div ref={scrollRef} class="flex-1 overflow-y-auto p-3 space-y-2 bg-surface-2">

@@ -1951,8 +1951,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!portal || !portal.active) return reply.code(404).send({ error: 'Portal indisponível' })
 
-    // Incrementa views (fire-and-forget)
-    prisma.enrollmentPortal.update({ where: { id: portal.id }, data: { views: { increment: 1 } } }).catch(() => {})
+    // Incrementa views (fire-and-forget). Leitura interna (chatbot consultando o
+    // catálogo — journey/eduSdr) não é visita.
+    if (!(req.headers as any)['x-attrae-interno']) {
+      prisma.enrollmentPortal.update({ where: { id: portal.id }, data: { views: { increment: 1 } } }).catch(() => {})
+    }
 
     // Carrega ofertas filtradas pelos processos + filtros de permissão.
     // Processos de modos desligados no editor ficam de fora (services/portalModos).

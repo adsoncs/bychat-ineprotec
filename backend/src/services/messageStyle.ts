@@ -46,6 +46,10 @@ export function limparEstilo(texto: string): string {
   if (!texto) return ''
   return texto
     .replace(EMOJI, '')
+    // Em item de lista ("1. *Contrato* — ler e assinar") o travessão separa o
+    // título da explicação: vira dois-pontos. Quebrar ali partia a lista em
+    // pedaços soltos ("Leitura e assinatura\n2. *Documentos*").
+    .split('\n').map((l) => (ehItemDeLista(l) ? l.replace(TRAVESSAO_ESPACADO, ': ') : l)).join('\n')
     .replace(TRAVESSAO_ESPACADO, '\n\n')
     .replace(TRAVESSAO_COLADO, ', ')
     .replace(/[ \t]{2,}/g, ' ')
