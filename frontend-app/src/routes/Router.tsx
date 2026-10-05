@@ -149,6 +149,9 @@ const migratedPages: Record<string, ComponentType> = {
   'whatsapp-dispatch': lazy(() =>
     import('./pages/WhatsappDispatchPage').then((m) => ({ default: m.WhatsappDispatchPage })),
   ),
+  'whatsapp-trafego': lazy(() =>
+    import('./pages/WhatsappTrafegoPage').then((m) => ({ default: m.WhatsappTrafegoPage })),
+  ),
   broadcast: lazy(() =>
     import('./pages/BroadcastPage').then((m) => ({ default: m.BroadcastPage })),
   ),

@@ -83,6 +83,7 @@ import { backfillUids } from './services/dedup.js'
 import { securityRoutes } from './routes/security.js'
 import { leadBlocklistRoutes } from './routes/leadBlocklist.js'
 import { cloudApiSetupRoutes } from './routes/cloudApiSetup.js'
+import { whatsappTrafegoRoutes } from './routes/whatsappTrafego.js'
 import { broadcastRoutes } from './routes/broadcast.js'
 import { smartBroadcastRoutes } from './routes/smartBroadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
@@ -815,6 +816,7 @@ await app.register(educationalRoutes)
 await app.register(modulesRoutes)
 await app.register(salesRoutes)
 await app.register(cloudApiSetupRoutes)
+await app.register(whatsappTrafegoRoutes)
 await app.register(broadcastRoutes)
 await app.register(smartBroadcastRoutes)
 await app.register(cloudApiWebhookRoutes)

@@ -191,6 +191,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'cloud-api', label: 'WhatsApp API', href: '/app/cloud-api', icon: 'Cloud', permission: 'whatsapp' },
         { id: 'whatsapp-templates', label: 'Modelos de Mensagem', href: '/app/whatsapp-templates', icon: 'FileText', permission: 'whatsapp' },
         { id: 'whatsapp-dispatch', label: 'Disparos & Custos', href: '/app/whatsapp-dispatch', icon: 'BarChart3', permission: 'whatsapp' },
+        { id: 'whatsapp-trafego', label: 'Tráfego WhatsApp', href: '/app/whatsapp-trafego', icon: 'Activity', permission: 'whatsapp' },
         { id: 'broadcast', label: 'Disparos em Massa', href: '/app/broadcast', icon: 'Megaphone', permission: 'broadcast' },
         { id: 'surveys', label: 'Pesquisas', href: '/app/surveys', icon: 'ClipboardList', permission: 'surveys' },
         { id: 'smart-broadcast', label: 'Disparos Inteligentes', href: '/app/smart-broadcast', icon: 'BrainCircuit', permission: 'smart_broadcast' },
