@@ -115,7 +115,7 @@ import {
   type DeliveryError,
   type TicketLeadInfo,
 } from '@/hooks/useChat'
-import { useTeams, useTeamMembers } from '@/hooks/useTeams'
+import { useDestinos } from '@/hooks/useDestinos'
 import {
   useUpdateLeadContact,
   useUnqualifyLead,
@@ -4728,20 +4728,24 @@ function TransferModal({
   currentUserId: number | null
   onClose: () => void
 }) {
-  const { data: teamsData } = useTeams()
+  // Lista do dia a dia (ver hooks/useDestinos): as de administração voltavam
+  // 403 para o agente, e a janela só oferecia "fila geral" — e transferia
+  // para lá sem querer.
+  const destinosQ = useDestinos()
   const [teamId, setTeamId] = useState<number | ''>(currentTeamId ?? '')
   const [userId, setUserId] = useState<number | ''>(currentUserId ?? '')
   const [reason, setReason] = useState('')
 
-  const { data: membersData } = useTeamMembers(typeof teamId === 'number' ? teamId : null)
   const assign = useAssignTicket()
-  const teams = teamsData?.teams ?? []
-  const members = membersData?.members ?? []
+  const teams = destinosQ.data?.equipes ?? []
+  const equipe = typeof teamId === 'number' ? teams.find((t) => t.id === teamId) : undefined
+  const members = equipe?.members ?? []
+  const semDestinos = destinosQ.isLoading || destinosQ.isError
 
   // Quando muda team, limpa user se ele não pertence à nova team.
   useEffect(() => {
     if (typeof userId === 'number' && members.length > 0) {
-      const stillMember = members.some((m) => m.user.id === userId)
+      const stillMember = members.some((m) => m.id === userId)
       if (!stillMember) setUserId('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4767,13 +4771,16 @@ function TransferModal({
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={assign.isPending}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={assign.isPending}>
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={assign.isPending || semDestinos}>
             {assign.isPending ? 'Transferindo…' : 'Transferir'}
           </Button>
         </>
       }
     >
       <div class="space-y-3">
+        {destinosQ.isError && (
+          <p class="text-sm text-danger">Não foi possível carregar os destinos. Peça a um gestor para transferir esta conversa.</p>
+        )}
         <Select
           label="Equipe destino"
           value={teamId === '' ? '' : String(teamId)}
@@ -4783,7 +4790,7 @@ function TransferModal({
           }}
         >
           <option value="">Sem equipe (fila geral)</option>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}{t.minha ? ' (sua equipe)' : ''}</option>)}
         </Select>
         <Select
           label="Operador destino"
@@ -4792,13 +4799,17 @@ function TransferModal({
             const v = (e.target as HTMLSelectElement).value
             setUserId(v ? Number(v) : '')
           }}
-          disabled={typeof teamId !== 'number'}
-          hint={typeof teamId !== 'number' ? 'Selecione uma equipe primeiro' : 'Operador deve pertencer à equipe'}
+          disabled={typeof teamId !== 'number' || !equipe?.membrosVisiveis}
+          hint={typeof teamId !== 'number'
+            ? 'Selecione uma equipe primeiro'
+            : equipe && !equipe.membrosVisiveis
+              ? 'A conversa vai para a fila desta equipe — quem é dela assume.'
+              : 'Operador deve pertencer à equipe'}
         >
           <option value="">Deixar em fila (sem operador específico)</option>
           {members.map((m) => (
-            <option key={m.user.id} value={m.user.id}>
-              {m.user.name ?? m.user.email}{m.isLeader ? ' (líder)' : ''}
+            <option key={m.id} value={m.id}>
+              {m.name}{m.isLeader ? ' (líder)' : ''}
             </option>
           ))}
         </Select>

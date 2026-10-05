@@ -1122,6 +1122,75 @@ export async function leadsRoutes(app: FastifyInstance) {
   // tocar no funil deixaria esse lead legado escapar pela borda — qualificado,
   // dentro de um funil, e ainda assim órfão. Só o lead que nasce e continua
   // sem funil nenhum segue sem exigir responsável.
+  // ── GET /api/bychat/leads/destinos — para quem dá para transferir ou atribuir ──
+  //
+  // Promover a lead, Transferir (Conversas) e Transferir (Leads) montavam o
+  // seletor de pessoas com listas de ADMINISTRAÇÃO (/admin/users, /admin/teams,
+  // /admin/agents). Para o agente as três voltavam 403: a janela de promover
+  // travava, a de Leads vinha vazia e a do Conversas só oferecia a fila geral —
+  // e transferia para lá sem querer (elementus, 05/10/2026).
+  //
+  // Esta lista existe para o dia a dia, e o recorte é feito AQUI:
+  //  • equipes: todas as ativas, só o nome — mandar para a fila de outro setor
+  //    é legítimo para qualquer um;
+  //  • membros e pessoas: o administrador vê todos; os demais, só os colegas
+  //    das equipes de que fazem parte.
+  // Só nome, papel e liderança. E-mail e o resto do cadastro continuam nas
+  // telas de administração.
+  app.get('/api/bychat/leads/destinos', { preHandler: authMiddleware }, async (req) => {
+    const user = (req as any).user as JwtPayload
+    const admin = user.role === 'SUPERADMIN' || user.role === 'ADMIN'
+    const nome = (u: { name: string | null; email: string }) => u.name || u.email.split('@')[0]
+
+    const [teams, minhas] = await Promise.all([
+      prisma.team.findMany({
+        where: { active: true },
+        orderBy: [{ position: 'asc' }, { name: 'asc' }],
+        select: {
+          id: true, name: true,
+          members: {
+            where: { user: { active: true, role: { not: 'VIEWER' } } },
+            orderBy: [{ isLeader: 'desc' }, { createdAt: 'asc' }],
+            select: { isLeader: true, user: { select: { id: true, name: true, email: true, role: true } } },
+          },
+        },
+      }),
+      admin ? Promise.resolve([]) : prisma.teamMember.findMany({ where: { userId: user.userId }, select: { teamId: true } }),
+    ])
+    const minhasEquipes = new Set(minhas.map((m) => m.teamId))
+    const vejoMembros = (teamId: number) => admin || minhasEquipes.has(teamId)
+
+    const equipes = teams.map((t) => ({
+      id: t.id,
+      name: t.name,
+      minha: minhasEquipes.has(t.id),
+      membrosVisiveis: vejoMembros(t.id),
+      members: vejoMembros(t.id)
+        ? t.members.map((m) => ({ id: m.user.id, name: nome(m.user), role: m.user.role, isLeader: m.isLeader }))
+        : [],
+    }))
+
+    let pessoas: Array<{ id: number; name: string; role: string }>
+    if (admin) {
+      const todos = await prisma.user.findMany({
+        where: { active: true, role: { not: 'VIEWER' } },
+        orderBy: [{ name: 'asc' }, { email: 'asc' }],
+        select: { id: true, name: true, email: true, role: true },
+      })
+      pessoas = todos.map((u) => ({ id: u.id, name: nome(u), role: u.role }))
+    } else {
+      const porId = new Map<number, { id: number; name: string; role: string }>()
+      for (const t of equipes) for (const m of t.members) porId.set(m.id, { id: m.id, name: m.name, role: m.role })
+      // A própria pessoa sempre entra — mesmo sem equipe ela pode ficar com o lead.
+      if (!porId.has(user.userId) && user.role !== 'VIEWER') {
+        const eu = await prisma.user.findUnique({ where: { id: user.userId }, select: { id: true, name: true, email: true, role: true, active: true } })
+        if (eu?.active) porId.set(eu.id, { id: eu.id, name: nome(eu), role: eu.role })
+      }
+      pessoas = [...porId.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+    }
+    return { equipes, pessoas, completo: admin }
+  })
+
   app.post('/api/bychat/leads/:id/qualify', { preHandler: authMiddleware }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return

@@ -4,7 +4,7 @@ import { Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 import { ApiError } from '@/lib/apiClient'
-import { useAgents } from '@/hooks/useRouting'
+import { useDestinos } from '@/hooks/useDestinos'
 import { useCreateTransferRequest } from '@/hooks/useTransferRequests'
 import { useUserStore } from '@/stores/user'
 
@@ -15,14 +15,16 @@ interface Props {
 }
 
 export function TransferLeadModal({ leadId, leadLabel, onClose }: Props) {
-  const { data: agentsData } = useAgents()
+  // Lista do dia a dia (ver hooks/useDestinos). /admin/agents é só de
+  // administrador: para o agente a lista vinha vazia e não havia a quem pedir.
+  const destinosQ = useDestinos()
   const create = useCreateTransferRequest()
   const me = useUserStore((s) => s.user)
   const [toUserId, setToUserId] = useState<number | ''>('')
   const [reason, setReason] = useState('')
 
-  const candidates = (agentsData?.agents ?? []).filter(
-    (a) => a.active && a.id !== (me?.id ? Number(me.id) : 0) && a.role !== 'VIEWER',
+  const candidates = (destinosQ.data?.pessoas ?? []).filter(
+    (a) => a.id !== (me?.id ? Number(me.id) : 0),
   )
 
   const handleSubmit = async () => {
@@ -50,7 +52,7 @@ export function TransferLeadModal({ leadId, leadLabel, onClose }: Props) {
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={create.isPending}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={create.isPending}>
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={create.isPending || candidates.length === 0}>
             {create.isPending ? 'Enviando…' : 'Solicitar transferência'}
           </Button>
         </>
@@ -70,6 +72,12 @@ export function TransferLeadModal({ leadId, leadLabel, onClose }: Props) {
             <option key={a.id} value={String(a.id)}>{a.name} ({a.role})</option>
           ))}
         </Select>
+        {destinosQ.data && !destinosQ.data.completo && (
+          <p class="text-xs text-fg-muted -mt-1">Aparecem os colegas das suas equipes.</p>
+        )}
+        {destinosQ.isSuccess && candidates.length === 0 && (
+          <p class="text-xs text-fg-muted -mt-1">Nenhum colega disponível. Peça a um gestor para transferir este lead.</p>
+        )}
         <Textarea
           label="Motivo (opcional)"
           value={reason}

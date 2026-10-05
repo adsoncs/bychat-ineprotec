@@ -3,8 +3,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useFunnels, useFunnel } from '@/hooks/useFunnels'
-import { useTeams, useTeamMembers } from '@/hooks/useTeams'
-import { useUsers } from '@/hooks/useUsers'
+import { useDestinos } from '@/hooks/useDestinos'
 import { useQualifyLead, useBulkQualifyLeads, useLead, type BulkQualifyResult } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
 import { Target, Users } from '@/components/ui/icon-set'
@@ -32,9 +31,10 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   const euId = useUserStore((st) => (st.user?.id != null ? Number(st.user.id) : null))
   const [responsavelMexido, setResponsavelMexido] = useState(false)
   const funnelDetailQ = useFunnel(funnelId)
-  const teamsQ = useTeams()
-  const teamMembersQ = useTeamMembers(teamId)
-  const usersQ = useUsers()
+  // Equipes e pessoas vêm da lista do dia a dia (ver hooks/useDestinos): as de
+  // administração (/admin/users, /admin/teams) voltavam 403 para o agente e o
+  // campo obrigatório de responsável ficava vazio (elementus, 05/10/2026).
+  const destinosQ = useDestinos()
   const qualify = useQualifyLead()
   const bulkQualify = useBulkQualifyLeads()
   // Lead que já tinha um funil de antes (resquício do bug do card de funil,
@@ -86,20 +86,20 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   // TransferModal. Sem equipe, qualquer operador elegível (ativo, não-VIEWER)
   // vale, porque nem todo funil tem um setor dono. Troca de equipe descarta
   // um operador que não é mais válido na lista nova.
-  const membrosDaEquipe = teamMembersQ.data?.members ?? []
-  // A lista de usuários é só de administrador (/admin/users): para o agente ela
-  // volta 403 e o campo obrigatório ficava sem opção nenhuma — nem o próprio
-  // nome —, travando o botão de quem tem permissão para promover (elementus,
-  // 05/10/2026). Sem a lista, a própria pessoa é o responsável possível; um
-  // gestor redistribui depois, se precisar.
+  // Só equipes cujos membros esta pessoa enxerga: o responsável precisa ser da
+  // equipe, e numa equipe de outro setor não haveria quem escolher.
+  const equipesComMembros = (destinosQ.data?.equipes ?? []).filter((t) => t.membrosVisiveis)
+  const membrosDaEquipe = equipesComMembros.find((t) => t.id === teamId)?.members ?? []
+  // Se nem a lista do dia a dia carregar, a própria pessoa continua sendo uma
+  // opção: o lead fica com ela e um gestor redistribui depois.
   const eu = useUserStore((st) => st.user)
-  const semListaDeUsuarios = usersQ.isError
+  const semListaDeUsuarios = destinosQ.isError
   const todosElegiveis = semListaDeUsuarios
-    ? (eu && euId != null && eu.role !== 'VIEWER' ? [{ id: euId, name: `${eu.name || eu.email} (você)`, email: eu.email }] : [])
-    : (usersQ.data?.users ?? []).filter((u) => u.active && u.role !== 'VIEWER')
+    ? (eu && euId != null && eu.role !== 'VIEWER' ? [{ id: euId, name: `${eu.name || eu.email} (você)` }] : [])
+    : (destinosQ.data?.pessoas ?? []).map((u) => ({ id: u.id, name: u.id === euId ? `${u.name} (você)` : u.name }))
   const opcoesResponsavel = teamId !== null
-    ? membrosDaEquipe.map((m) => ({ id: m.user.id, label: m.user.name ?? m.user.email, isLeader: m.isLeader }))
-    : todosElegiveis.map((u) => ({ id: u.id, label: u.name ?? u.email, isLeader: false }))
+    ? membrosDaEquipe.map((m) => ({ id: m.id, label: m.id === euId ? `${m.name} (você)` : m.name, isLeader: m.isLeader }))
+    : todosElegiveis.map((u) => ({ id: u.id, label: u.name, isLeader: false }))
   useEffect(() => {
     if (userId !== null && opcoesResponsavel.length > 0 && !opcoesResponsavel.some((o) => o.id === userId)) setUserId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,8 +263,8 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                 Este contato já está num funil (de antes) — escolha um responsável para promovê-lo de verdade.
               </p>
             )}
-            {/* Sem acesso ao módulo Equipes a lista volta vazia: o campo só confundiria. */}
-            {!teamsQ.isError && (
+            {/* Só aparece quando há equipe com membros visíveis — sem isso o campo só confundiria. */}
+            {equipesComMembros.length > 0 && (
             <div>
               <label class="block text-xs font-medium text-fg mb-1">Equipe (opcional)</label>
               <select
@@ -277,7 +277,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                 disabled={submitting}
               >
                 <option value="">Sem equipe</option>
-                {(teamsQ.data?.teams ?? []).map((t) => (
+                {equipesComMembros.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
@@ -285,7 +285,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
             )}
             <div>
               <label class="block text-xs font-medium text-fg mb-1">Responsável *</label>
-              {(teamId !== null && teamMembersQ.isLoading) || (teamId === null && usersQ.isLoading) ? (
+              {destinosQ.isLoading ? (
                 <Skeleton class="h-9 w-full" />
               ) : (
                 <select
@@ -306,7 +306,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                   ))}
                 </select>
               )}
-              {semListaDeUsuarios && teamId === null && (
+              {(semListaDeUsuarios || (destinosQ.data && !destinosQ.data.completo && opcoesResponsavel.length <= 1)) && teamId === null && (
                 <p class="mt-1 text-xs text-fg-muted">O lead fica com você. Um gestor pode redistribuir depois.</p>
               )}
             </div>
