@@ -956,6 +956,29 @@ export async function whatsappRoutes(app: FastifyInstance) {
       const message = data.message || {}
       const key = data.key || {}
       const messageId = key.id || ''
+
+      // Horário REAL da mensagem no WhatsApp. A tela de conversa ordena
+      // EXCLUSIVAMENTE por `timestamp` (routes/atendimento.ts), então carimbar a
+      // hora de RECEPÇÃO no servidor (`new Date()`) jogava toda mensagem de
+      // backfill/reconexão para o fim da conversa, fora de ordem — foi o que
+      // deixou conversas do kobogo "sem sentido lógico" (ex.: eco de broadcast
+      // chegando ~15h depois, medido em 05/10). O `messageTimestamp` (segundos)
+      // vem SEMPRE no payload de `messages.upsert` (coluna `messageTimestamp
+      // integer NOT NULL` da Evolution) — é o mesmo campo que a importação de
+      // histórico já usa (chatImportRunner.ts). Trava de sanidade: só aceita um
+      // instante plausível (entre 2015 e agora+1 dia); qualquer valor ausente ou
+      // absurdo cai no fallback de recepção — exatamente o comportamento antigo,
+      // sem regressão quando o campo falta.
+      const eventTs: Date = (() => {
+        const sec = Number((data as any).messageTimestamp)
+        if (!Number.isFinite(sec) || sec <= 0) return new Date()
+        const d = new Date(sec * 1000)
+        const t = d.getTime()
+        const min = Date.UTC(2015, 0, 1)
+        const max = Date.now() + 24 * 60 * 60 * 1000
+        return t >= min && t <= max ? d : new Date()
+      })()
+
       // Instância real que recebeu a mensagem (vem no payload da Evolution).
       // Crítico para roteamento de equipe e lookup de chatbot vinculado: cada
       // instância pode ter defaultTeamId/chatbotId distintos. Usar evoInstance()
@@ -1198,7 +1221,9 @@ export async function whatsappRoutes(app: FastifyInstance) {
                         senderName: 'Equipe (pelo celular)',
                         externalId: messageId,
                         ack: 1,
-                        timestamp: new Date(),
+                        // Eco de resposta dada PELO CELULAR: já aconteceu, usa o
+                        // horário real (os piores desvios — ~15h — eram ecos assim).
+                        timestamp: eventTs,
                       },
                     })
                     await prisma.lead.update({
@@ -1467,7 +1492,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             quotedExternalId,
             provider: 'evolution',
             evolutionInstance: inboundInstance,
-            timestamp: new Date(),
+            timestamp: eventTs,
           },
         })
         await prisma.lead.update({
@@ -1530,7 +1555,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
               externalId: messageId || null,
               provider: 'evolution',
               evolutionInstance: inboundInstance,
-              timestamp: new Date()
+              timestamp: eventTs
             }
           })
           await prisma.lead.update({
@@ -1715,7 +1740,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
             externalId: messageId || null,
             quotedMsgId,
             quotedExternalId,
-            timestamp: new Date()
+            timestamp: eventTs
           }
         })
         await prisma.lead.update({
