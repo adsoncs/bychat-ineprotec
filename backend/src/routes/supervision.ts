@@ -469,6 +469,9 @@ export async function supervisionRoutes(app: FastifyInstance) {
       // tempo sem nova consulta e sem passar pela busca. O número que interessa
       // ao gestor é o nome.
       const idsEsperando = esperando.slice(0, AMOSTRA_GAVETA).map((e) => Number(e.id))
+      // O trecho não sai de mensagem de número reservado que o gestor não lê.
+      const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+      const trechoVisivel = (await filtroDeMensagensVisiveis(((req as any).user as JwtPayload).userId, ((req as any).user as JwtPayload).role, false)) ?? {}
       const detalhesEsperando = idsEsperando.length
         ? await prisma.lead.findMany({
             where: { id: { in: idsEsperando } },
@@ -476,7 +479,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
               id: true, nome: true, empresa: true,
               assignedUser: { select: { name: true, email: true } },
               messages: {
-                where: { isInternal: false },
+                where: { isInternal: false, ...trechoVisivel },
                 orderBy: { timestamp: 'desc' },
                 take: 1,
                 select: { body: true, timestamp: true },
@@ -780,6 +783,9 @@ export async function supervisionRoutes(app: FastifyInstance) {
       }
       const orderBy = ORDENACOES[sort] ?? ORDENACOES.recent
 
+      // A prévia não sai de mensagem de número reservado que o gestor não lê.
+      const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+      const previaVisivel = (await filtroDeMensagensVisiveis(((req as any).user as JwtPayload).userId, ((req as any).user as JwtPayload).role, false)) ?? {}
       const [rows, total] = await Promise.all([
         prisma.lead.findMany({
           where,
@@ -798,6 +804,7 @@ export async function supervisionRoutes(app: FastifyInstance) {
             team: { select: { id: true, name: true, color: true } },
             funnel: { select: { id: true, name: true } },
             messages: {
+              where: previaVisivel,
               orderBy: { timestamp: 'desc' },
               take: 1,
               select: {

@@ -117,6 +117,9 @@ export async function instancesRoutes(app: FastifyInstance) {
     const { podarCanaisReservados } = await import('../services/channelVisibility.js')
     const instances = await podarCanaisReservados(
       todasInstances, user.userId, user.role, (i) => ({ instanceName: i.instanceName }),
+      // Tela de configuração: o superadmin vê o número para decidir quem o
+      // acompanha, mesmo sem ler as conversas dele.
+      { gerenciar: true },
     )
 
     // Batch fetch: 1 chamada à Evolution retorna todas as instâncias com ownerJid
@@ -299,6 +302,22 @@ export async function instancesRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const inst = await prisma.whatsAppInstance.findUnique({ where: { id: Number(id) } })
     if (!inst) return reply.code(404).send({ error: 'Instância não encontrada' })
+
+    // Número reservado com histórico: a reserva vale pelo nome da instância
+    // gravado em cada mensagem, e o cadastro é o que diz que esse nome é
+    // reservado. Apagar o cadastro devolveria à equipe inteira tudo que passou
+    // pela linha — foi assim que a linha pessoal do kobogo vazou (05/10/2026).
+    if (inst.visibility === 'restricted') {
+      const { historicoDoCanalReservado } = await import('../services/channelVisibility.js')
+      const total = await historicoDoCanalReservado({ instanceName: inst.instanceName })
+      if (total > 0) {
+        return reply.code(409).send({
+          code: 'reserved_has_history',
+          error: `Este número é reservado e ainda tem ${total} mensagem(ns) no histórico. Apagar o cadastro deixaria essas conversas visíveis para toda a equipe. Desative o número (ele continua reservado) ou peça a limpeza do histórico antes de apagar.`,
+          messageCount: total,
+        })
+      }
+    }
 
     // Try to disconnect on Evolution API
     try { await evoFetch(`/instance/logout/${inst.instanceName}`, 'DELETE') } catch {}

@@ -140,6 +140,7 @@ const SELECAO_TICKET = {
           timestamp: true,
           provider: true,
           evolutionInstance: true,
+          cloudApiConnectionId: true,
           cloudApiConnection: { select: { displayPhone: true, displayName: true, color: true } },
         },
       },
@@ -646,9 +647,29 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         for (const l of linhas) ultimaVisivel.set(Number(l.leadId), !!Number(l.fromMe))
       }
 
+      // Conversa individual que também passou por um número reservado: a prévia
+      // e o rótulo não podem sair da mensagem que este usuário não lê. Troca
+      // pela última que ele lê (ver services/channelVisibility.ts).
+      const { canaisOcultosPara, mensagemOculta, filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+      const ocultosDoUsuario = await canaisOcultosPara(user.userId, user.role)
+      const ultimaLegivel = new Map<number, any>()
+      if (ocultosDoUsuario.instancias.length || ocultosDoUsuario.conexoes.length) {
+        const visivel = await filtroDeMensagensVisiveis(user.userId, user.role, false)
+        for (const t of [...ticketsFixados, ...tickets]) {
+          const last = t.messages[0]
+          if (t.isGroup || !last || !mensagemOculta(last, ocultosDoUsuario)) continue
+          ultimaLegivel.set(t.id, await prisma.message.findFirst({
+            where: { leadId: t.id, ...visivel },
+            orderBy: { timestamp: 'desc' },
+            select: SELECAO_TICKET.messages.select,
+          }))
+        }
+      }
+
       const result = [...ticketsFixados, ...tickets].map(t => {
-        const last = t.messages[0] || null
-        const efetivo = canalPorLead.get(t.id)
+        const last = ultimaLegivel.has(t.id) ? ultimaLegivel.get(t.id) : (t.messages[0] || null)
+        const efetivoBruto = canalPorLead.get(t.id)
+        const efetivo = efetivoBruto && !t.isGroup && mensagemOculta(efetivoBruto as any, ocultosDoUsuario) ? undefined : efetivoBruto
         // `last` ainda alimenta a prévia da conversa; o canal vem do efetivo,
         // com a última mensagem como retaguarda (conversa sem histórico útil).
         const paraCanal = efetivo
@@ -802,13 +823,22 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       if (before) {
         where.id = { lt: before }
       }
+      // Conversa individual que também passou por um número reservado: abre sem
+      // as mensagens dele (ver services/channelVisibility.ts).
+      {
+        const leitor = (req as any).user as JwtPayload
+        const doLead = await prisma.lead.findUnique({ where: { id: lid }, select: { isGroup: true } })
+        const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+        const visivel = await filtroDeMensagensVisiveis(leitor.userId, leitor.role, !!doLead?.isGroup)
+        if (visivel) where.AND = [visivel]
+      }
       // `desde`: tudo do instante da mensagem X até a mais antiga já carregada
       // (`before`). É o "ir até a mensagem" da busca — o resultado pode ser de
       // meses atrás, e rolar página por página até lá não é caminho.
       const desde = query.desde ? parseInt(query.desde) : null
       if (desde) {
         const [alvo, limite] = await Promise.all([
-          prisma.message.findFirst({ where: { id: desde, leadId: lid }, select: { timestamp: true } }),
+          prisma.message.findFirst({ where: { id: desde, leadId: lid, ...(where.AND ? { AND: where.AND } : {}) }, select: { timestamp: true } }),
           before ? prisma.message.findFirst({ where: { id: before, leadId: lid }, select: { timestamp: true } }) : null,
         ])
         if (!alvo) return reply.code(404).send({ error: 'Mensagem não encontrada nesta conversa' })
@@ -910,7 +940,8 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
       if (citadasIds.length) {
         const citadas = await prisma.message.findMany({
-          where: { id: { in: citadasIds } },
+          // Mesma condição da página: citação de mensagem oculta não vira prévia.
+          where: { id: { in: citadasIds }, ...(where.AND ? { AND: where.AND } : {}) },
           select: { id: true, body: true, fromMe: true, senderName: true, mediaType: true, deletedForAll: true },
         })
         const porId = new Map(citadas.map(c => [c.id, c]))

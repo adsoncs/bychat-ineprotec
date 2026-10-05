@@ -76,10 +76,14 @@ async function resolveLeadRecipients(leadId: number): Promise<Set<number>> {
   // Sem isto o aviso de mensagem nova aparecia para conversa que a lista
   // esconde: o bipe tocava, o operador procurava e não achava nada.
   const { mapaDeAcesso, permissoesNaConversa } = await import('../services/conversationAccess.js')
+  const { podeVerConversa } = await import('../services/channelVisibility.js')
   for (const s of sockets) {
     const u = s.user
     if (allowed.has(u.userId)) continue
     try {
+      // Número reservado é teto: nem a matriz nem o escopo devolvem o aviso de
+      // uma conversa que a lista esconde.
+      if (!await podeVerConversa(leadId, u.userId, u.role)) continue
       const mapa = await mapaDeAcesso(u.userId, u.role)
       if (mapa.configurado) {
         const perms = await permissoesNaConversa(mapa, leadId)
@@ -101,16 +105,47 @@ export function invalidateLeadAccessCache(leadId?: number) {
   else leadAccessCache.clear()
 }
 
+/**
+ * Quem NÃO deve receber o aviso desta mensagem: ela veio por um número
+ * reservado e a conversa é individual (grupo liberado aparece inteiro). O
+ * payload leva a prévia do texto — sem isto a conversa mista mostraria no
+ * aviso a mensagem que a tela esconde.
+ */
+async function bloqueadosPelaMensagem(leadId: number, messageId: number): Promise<Set<number>> {
+  const bloqueados = new Set<number>()
+  const m = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: { leadId: true, provider: true, evolutionInstance: true, cloudApiConnectionId: true, lead: { select: { isGroup: true } } },
+  })
+  if (!m || m.leadId !== leadId || m.lead.isGroup) return bloqueados
+  const { canaisOcultosPara, mensagemOculta } = await import('../services/channelVisibility.js')
+  const vistos = new Set<number>()
+  for (const s of sockets) {
+    if (vistos.has(s.user.userId)) continue
+    vistos.add(s.user.userId)
+    if (mensagemOculta(m, await canaisOcultosPara(s.user.userId, s.user.role))) bloqueados.add(s.user.userId)
+  }
+  return bloqueados
+}
+
 export async function broadcastRealtimeEvent(event: RealtimeEvent): Promise<void> {
   const data = JSON.stringify(event)
   // Resolve filtro de leadId (assíncrono) ANTES de enviar.
   let leadAllowed: Set<number> | null = null
+  let bloqueados: Set<number> | null = null
   if (event.scope?.leadId) {
     leadAllowed = await resolveLeadRecipients(event.scope.leadId)
+    const messageId = Number((event.payload as any)?.messageId)
+    if (Number.isFinite(messageId) && messageId > 0 && sockets.size) {
+      // Fail-closed, como a resolução de destinatários: sem saber o canal da
+      // mensagem, o aviso não sai (a tela se atualiza na próxima consulta).
+      try { bloqueados = await bloqueadosPelaMensagem(event.scope.leadId, messageId) } catch { return }
+    }
   }
   for (const s of sockets) {
     if (event.scope?.userId && event.scope.userId !== s.user.userId) continue
     if (leadAllowed && !leadAllowed.has(s.user.userId)) continue
+    if (bloqueados?.has(s.user.userId)) continue
     try {
       s.socket.send(data)
     } catch {

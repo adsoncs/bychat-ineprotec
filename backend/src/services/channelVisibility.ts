@@ -12,20 +12,30 @@
 // Aqui o número declara quem pode acompanhá-lo. Regras, na ordem:
 //
 //   1. número `all` (padrão) — nada muda, vale a permissão do lead;
-//   2. número `restricted` — só o SUPERADMIN, o agente dono e os observadores
-//      escolhidos veem qualquer conversa que tenha passado por ele.
+//   2. número `restricted` — só o dono e os observadores escolhidos veem o que
+//      passou por ele. Vale também para o SUPERADMIN: administrar a instalação
+//      não é motivo para ler a linha pessoal de outra pessoa (kobogo, 05/10/2026).
+//      O superadmin continua vendo o NÚMERO na tela de configuração
+//      (`gerenciar`), que é onde ele decide quem acompanha.
 //
-// "Qualquer conversa que tenha passado por ele" é proposital, e não "conversa
-// que hoje pertence a ele": se o contato falou uma vez pela linha pessoal e
-// depois pela corporativa, abrir a conversa mostraria o histórico inteiro —
-// esconder só metade seria uma proteção que não protege.
+// Conversa individual que só passou pela linha reservada some inteira. A que
+// passou por ela E por um número da empresa continua visível, sem as mensagens
+// da linha reservada (`filtroDeMensagensVisiveis`): esconder a conversa toda
+// tirava da equipe um cliente da empresa por causa de uma conversa pessoal
+// antiga, e mostrar tudo expunha a parte pessoal.
 //
-// Exceção: GRUPO que hoje fala por um número da empresa. O grupo é compartilhado
-// com todos os participantes — o que passou nele pela linha pessoal nunca foi
-// privado de ninguém —, e escondê-lo tirava da equipe um grupo de trabalho só
-// porque o dono o usou pela linha pessoal antes de colocar o número da empresa
-// (kobogo, "Suporte Attrae | Kobogó", 24/09/2026). Grupo cujo número de hoje é a
-// linha reservada continua escondido; conversa individual segue a regra acima.
+// Exceção: GRUPO que hoje fala por um número da empresa aparece inteiro. O grupo
+// é compartilhado com todos os participantes — o que passou nele pela linha
+// pessoal nunca foi privado de ninguém —, e escondê-lo tirava da equipe um grupo
+// de trabalho só porque o dono o usou pela linha pessoal antes de colocar o
+// número da empresa (kobogo, "Suporte Attrae | Kobogó", 24/09/2026). Grupo cujo
+// número de hoje é a linha reservada continua escondido.
+//
+// A reserva vale pelo NOME da instância gravado em cada mensagem. Apagar o
+// cadastro de um número reservado com histórico tira a proteção de tudo que
+// passou por ele — foi assim que 9.692 mensagens pessoais voltaram a aparecer
+// no kobogo. Por isso a exclusão é barrada enquanto houver histórico
+// (`historicoDoCanalReservado`).
 
 import { prisma } from '../lib/prisma.js'
 
@@ -41,13 +51,17 @@ const VAZIO: CanaisOcultos = { instancias: [], conexoes: [] }
 /**
  * Os canais reservados aos quais o usuário NÃO tem acesso.
  *
- * Devolve vazio para superadmin e quando não há canal reservado nenhum — que é
- * o caso de toda instalação que nunca mexeu nisso.
+ * Devolve vazio quando não há canal reservado nenhum — que é o caso de toda
+ * instalação que nunca mexeu nisso. `gerenciar` é a tela de configuração dos
+ * números: lá o superadmin precisa ver a linha para decidir quem a acompanha,
+ * mesmo sem poder ler as conversas dela.
  */
-export async function canaisOcultosPara(userId: number, role: string): Promise<CanaisOcultos> {
-  // Superadmin administra a instalação: esconder dele seria esconder de quem
-  // configura a própria regra.
-  if (role === 'SUPERADMIN') return VAZIO
+export async function canaisOcultosPara(
+  userId: number,
+  role: string,
+  opts: { gerenciar?: boolean } = {},
+): Promise<CanaisOcultos> {
+  if (opts.gerenciar && role === 'SUPERADMIN') return VAZIO
 
   const [instancias, conexoes] = await Promise.all([
     prisma.whatsAppInstance.findMany({
@@ -108,25 +122,99 @@ function numeroDeHojeOculto(
 }
 
 /**
- * Grupos que passaram por canal oculto mas hoje falam por um número da empresa.
+ * Condição de `bychat_messages` para "mensagem que NÃO veio por canal oculto".
+ *
+ * Escrita por extenso em vez de `NOT: { OR: alvos }`: com `evolutionInstance`
+ * nulo o NOT do SQL vira nulo e a mensagem sumiria junto — e há mensagens
+ * antigas sem instância gravada.
+ */
+function condicaoMensagemVisivel(ocultos: CanaisOcultos): any | null {
+  const e: any[] = []
+  if (ocultos.instancias.length) {
+    e.push({ OR: [{ provider: { not: 'evolution' } }, { evolutionInstance: null }, { evolutionInstance: { notIn: ocultos.instancias } }] })
+  }
+  if (ocultos.conexoes.length) {
+    e.push({ OR: [{ provider: { not: 'cloud_api' } }, { cloudApiConnectionId: null }, { cloudApiConnectionId: { notIn: ocultos.conexoes } }] })
+  }
+  return e.length ? { AND: e } : null
+}
+
+/**
+ * Conversas que passaram por canal oculto mas continuam visíveis:
+ *  - GRUPO que hoje fala por um número da empresa (aparece inteiro);
+ *  - conversa INDIVIDUAL que também passou por número da empresa (aparece sem
+ *    as mensagens do canal oculto — ver `filtroDeMensagensVisiveis`).
  *
  * Calculado à parte e entregue como lista de ids — e não como mais uma
  * subconsulta em `bychat_messages` dentro da listagem: empilhar essas
  * subconsultas com as da matriz derrubou o MySQL 8.0.46 do kobogo (signal 11).
  */
-async function gruposLiberados(ocultos: CanaisOcultos): Promise<number[]> {
+async function conversasLiberadas(ocultos: CanaisOcultos): Promise<number[]> {
   const alvos = alvosOcultos(ocultos)
   if (!alvos.length) return []
   const tocaram = await prisma.message.findMany({
-    where: { OR: alvos, lead: { isGroup: true } },
+    where: { OR: alvos },
     distinct: ['leadId'],
-    select: { leadId: true },
+    select: { leadId: true, lead: { select: { isGroup: true } } },
   })
   if (!tocaram.length) return []
-  const ids = tocaram.map((m) => m.leadId)
-  const { canalEfetivoDeLeads } = await import('./whatsappProvider.js')
-  const efetivos = await canalEfetivoDeLeads(ids)
-  return ids.filter((id) => !numeroDeHojeOculto(efetivos.get(id), ocultos))
+  const grupos = tocaram.filter((m) => m.lead.isGroup).map((m) => m.leadId)
+  const individuais = tocaram.filter((m) => !m.lead.isGroup).map((m) => m.leadId)
+
+  const liberados: number[] = []
+  if (grupos.length) {
+    const { canalEfetivoDeLeads } = await import('./whatsappProvider.js')
+    const efetivos = await canalEfetivoDeLeads(grupos)
+    liberados.push(...grupos.filter((id) => !numeroDeHojeOculto(efetivos.get(id), ocultos)))
+  }
+  const visivel = condicaoMensagemVisivel(ocultos)
+  if (individuais.length && visivel) {
+    const mistas = await prisma.message.findMany({
+      where: { leadId: { in: individuais }, ...visivel },
+      distinct: ['leadId'],
+      select: { leadId: true },
+    })
+    liberados.push(...mistas.map((m) => m.leadId))
+  }
+  return liberados
+}
+
+/**
+ * Condição extra para as mensagens que ESTE usuário lê nesta conversa, ou
+ * `null` quando não há o que tirar. Só conversa individual: grupo liberado
+ * aparece inteiro (ver o topo do arquivo).
+ */
+export async function filtroDeMensagensVisiveis(
+  userId: number,
+  role: string,
+  isGroup: boolean,
+): Promise<any | null> {
+  if (isGroup) return null
+  return condicaoMensagemVisivel(await canaisOcultosPara(userId, role))
+}
+
+/** A mensagem veio por um canal que este conjunto esconde? (para eventos em tempo real) */
+export function mensagemOculta(
+  m: { provider: string | null; evolutionInstance: string | null; cloudApiConnectionId: number | null },
+  ocultos: CanaisOcultos,
+): boolean {
+  if (m.provider === 'evolution') return !!m.evolutionInstance && ocultos.instancias.includes(m.evolutionInstance)
+  if (m.provider === 'cloud_api') return m.cloudApiConnectionId != null && ocultos.conexoes.includes(m.cloudApiConnectionId)
+  return false
+}
+
+/**
+ * Quantas mensagens passaram por este canal — o que deixaria de estar
+ * protegido se o cadastro reservado fosse apagado.
+ */
+export async function historicoDoCanalReservado(
+  canal: { instanceName: string } | { conexaoId: number },
+): Promise<number> {
+  return prisma.message.count({
+    where: 'instanceName' in canal
+      ? { provider: 'evolution', evolutionInstance: canal.instanceName }
+      : { provider: 'cloud_api', cloudApiConnectionId: canal.conexaoId },
+  })
 }
 
 /** Atalho: a cláusula pronta para um usuário (ou `null` quando não há o que esconder). */
@@ -134,7 +222,7 @@ export async function filtroDeCanaisVisiveis(userId: number, role: string): Prom
   const ocultos = await canaisOcultosPara(userId, role)
   const base = clausulaDeOcultacao(ocultos)
   if (!base) return null
-  const liberados = await gruposLiberados(ocultos)
+  const liberados = await conversasLiberadas(ocultos)
   return liberados.length ? { OR: [base, { id: { in: liberados } }] } : base
 }
 
@@ -156,8 +244,9 @@ export async function podarCanaisReservados<T>(
   userId: number,
   role: string,
   ler: (item: T) => { instanceName?: string | null; conexaoId?: number | null },
+  opts: { gerenciar?: boolean } = {},
 ): Promise<T[]> {
-  const ocultos = await canaisOcultosPara(userId, role)
+  const ocultos = await canaisOcultosPara(userId, role, opts)
   if (!ocultos.instancias.length && !ocultos.conexoes.length) return itens
   const instancias = new Set(ocultos.instancias)
   const conexoes = new Set(ocultos.conexoes)
@@ -179,9 +268,17 @@ export async function podeVerConversa(leadId: number, userId: number, role: stri
     select: { id: true },
   })
   if (!tocou) return true
-  // Grupo que hoje fala por um número da empresa: liberado (ver o topo do arquivo).
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { isGroup: true } })
-  if (!lead?.isGroup) return false
+  if (!lead) return false
+  if (!lead.isGroup) {
+    // Individual que também passou por número da empresa: abre, sem as
+    // mensagens do canal oculto (ver o topo do arquivo).
+    const visivel = condicaoMensagemVisivel(ocultos)
+    if (!visivel) return false
+    const outra = await prisma.message.findFirst({ where: { leadId, ...visivel }, select: { id: true } })
+    return !!outra
+  }
+  // Grupo que hoje fala por um número da empresa: liberado (ver o topo do arquivo).
   const { canalEfetivoDeLeads } = await import('./whatsappProvider.js')
   const efetivo = (await canalEfetivoDeLeads([leadId])).get(leadId)
   return !numeroDeHojeOculto(efetivo, ocultos)

@@ -611,8 +611,22 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const existing = await prisma.cloudApiConnection.findUnique({
       where: { id: parseInt(id) },
-      select: { displayName: true, phoneNumberId: true, wabaId: true },
+      select: { displayName: true, phoneNumberId: true, wabaId: true, visibility: true },
     })
+    // Número reservado com histórico: apagar a conexão zera o vínculo das
+    // mensagens (onDelete SetNull) e a reserva deixa de alcançá-las — a equipe
+    // inteira passaria a ver o que passou por ele. Ver channelVisibility.ts.
+    if (existing?.visibility === 'restricted') {
+      const { historicoDoCanalReservado } = await import('../services/channelVisibility.js')
+      const total = await historicoDoCanalReservado({ conexaoId: parseInt(id) })
+      if (total > 0) {
+        return reply.code(409).send({
+          code: 'reserved_has_history',
+          error: `Este número é reservado e ainda tem ${total} mensagem(ns) no histórico. Apagar a conexão deixaria essas conversas visíveis para toda a equipe. Desative o número (ele continua reservado) ou peça a limpeza do histórico antes de apagar.`,
+          messageCount: total,
+        })
+      }
+    }
     await prisma.cloudApiConnection.delete({ where: { id: parseInt(id) } })
     await limparCacheDaConexao(parseInt(id))
     void logUserAudit({

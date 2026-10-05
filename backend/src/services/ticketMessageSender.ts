@@ -485,6 +485,8 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   broadcastRealtimeEvent({
     type: 'message:sent',
     payload: { leadId: lid, messageId: message.id, fromMe: true },
+    // Só quem enxerga a conversa recebe o aviso (escopo, matriz e reserva).
+    scope: { leadId: lid },
   })
 
   await prisma.lead.update({ where: { id: lid }, data: { lastMessageAt: new Date() } })

@@ -43,6 +43,31 @@ function getTrackingDescription(evt: any): string {
   return parts.join(' · ')
 }
 
+/**
+ * Eventos de mensagem guardam o começo do texto em `description`. Na conversa
+ * individual que também passou por um número reservado, o texto das mensagens
+ * desse número sai do histórico de quem não as lê — o evento fica, sem o texto.
+ */
+async function semTextoDeMensagemOculta(eventos: any[], leadId: number, user: { userId: number; role: string }): Promise<any[]> {
+  const externos = eventos
+    .filter((e) => e.category === 'communication' && typeof e.metadata?.messageId === 'string')
+    .map((e) => e.metadata.messageId as string)
+  if (!externos.length) return eventos
+  const { canaisOcultosPara, mensagemOculta } = await import('../services/channelVisibility.js')
+  const ocultos = await canaisOcultosPara(user.userId, user.role)
+  if (!ocultos.instancias.length && !ocultos.conexoes.length) return eventos
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { isGroup: true } })
+  if (lead?.isGroup) return eventos
+  const msgs = await prisma.message.findMany({
+    where: { leadId, externalId: { in: externos } },
+    select: { externalId: true, provider: true, evolutionInstance: true, cloudApiConnectionId: true },
+  })
+  const escondidas = new Set(msgs.filter((m) => mensagemOculta(m, ocultos)).map((m) => m.externalId))
+  return eventos.map((e) => escondidas.has(e.metadata?.messageId)
+    ? { ...e, description: null, metadata: { ...e.metadata, reservado: true } }
+    : e)
+}
+
 export async function leadHistoryRoutes(app: FastifyInstance) {
 
   // ── GET /api/leads/:id/history — Timeline completa de eventos (inclui tracking) ──
@@ -54,6 +79,12 @@ export async function leadHistoryRoutes(app: FastifyInstance) {
         const _user = (req as any).user as { userId: number; role: string }
         const _ok = await canUserAccessLead(_user.userId, _user.role as AccessRole, parseInt(id))
         if (!_ok) return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+        // O histórico traz o texto das mensagens: conversa escondida por número
+        // reservado não pode abrir por aqui.
+        const { podeVerConversa } = await import('../services/channelVisibility.js')
+        if (!await podeVerConversa(parseInt(id), _user.userId, _user.role)) {
+          return reply.code(403).send({ error: 'Sem permissão sobre este lead' })
+        }
       }
       const query = req.query as any
       const limit = Math.min(parseInt(query.limit) || 50, 200)
@@ -86,6 +117,7 @@ export async function leadHistoryRoutes(app: FastifyInstance) {
           }),
           prisma.leadEvent.count({ where })
         ])
+        leadEvents = await semTextoDeMensagemOculta(leadEvents, leadId, (req as any).user)
       }
 
       // Buscar tracking events se o lead tem trackingVisitorId

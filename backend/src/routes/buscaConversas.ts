@@ -79,9 +79,19 @@ export async function buscaConversasRoutes(app: FastifyInstance) {
     const tickets = (r.json() as { tickets: any[] }).tickets ?? []
     if (!tickets.length) return { mensagens: [], conversas: {}, mais: false }
 
+    // Conversa individual que também passou por número reservado entra na
+    // lista, mas as mensagens do número reservado não entram na busca.
+    const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+    const usuario = (req as any).user as JwtPayload
+    const visivelIndividual = await filtroDeMensagensVisiveis(usuario.userId, usuario.role, false)
+    const idsGrupo = tickets.filter((t) => t.isGroup).map((t) => t.id)
+    const idsIndividual = tickets.filter((t) => !t.isGroup).map((t) => t.id)
     const achadas = await prisma.message.findMany({
       where: {
-        leadId: { in: tickets.map((t) => t.id) },
+        OR: [
+          { leadId: { in: idsGrupo } },
+          { leadId: { in: idsIndividual }, ...(visivelIndividual ?? {}) },
+        ],
         body: { contains: q },
         isDeleted: false,
         deletedForAll: false,
@@ -121,6 +131,13 @@ export async function buscaConversasRoutes(app: FastifyInstance) {
     const where: any = { leadId: lid, isDeleted: false, deletedForAll: false }
     // Texto da mensagem e nome do arquivo (o WhatsApp acha o PDF pelo nome).
     if (q) where.OR = [{ body: { contains: q } }, { mediaName: { contains: q } }]
+    {
+      const usuario = (req as any).user as JwtPayload
+      const doLead = await prisma.lead.findUnique({ where: { id: lid }, select: { isGroup: true } })
+      const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+      const visivel = await filtroDeMensagensVisiveis(usuario.userId, usuario.role, !!doLead?.isGroup)
+      if (visivel) where.AND = [visivel]
+    }
     if (dia) {
       const ini = new Date(`${dia}T00:00:00${FUSO}`)
       where.timestamp = { gte: ini, lt: new Date(ini.getTime() + 86_400_000) }
