@@ -87,7 +87,16 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
   // vale, porque nem todo funil tem um setor dono. Troca de equipe descarta
   // um operador que não é mais válido na lista nova.
   const membrosDaEquipe = teamMembersQ.data?.members ?? []
-  const todosElegiveis = (usersQ.data?.users ?? []).filter((u) => u.active && u.role !== 'VIEWER')
+  // A lista de usuários é só de administrador (/admin/users): para o agente ela
+  // volta 403 e o campo obrigatório ficava sem opção nenhuma — nem o próprio
+  // nome —, travando o botão de quem tem permissão para promover (elementus,
+  // 05/10/2026). Sem a lista, a própria pessoa é o responsável possível; um
+  // gestor redistribui depois, se precisar.
+  const eu = useUserStore((st) => st.user)
+  const semListaDeUsuarios = usersQ.isError
+  const todosElegiveis = semListaDeUsuarios
+    ? (eu && euId != null && eu.role !== 'VIEWER' ? [{ id: euId, name: `${eu.name || eu.email} (você)`, email: eu.email }] : [])
+    : (usersQ.data?.users ?? []).filter((u) => u.active && u.role !== 'VIEWER')
   const opcoesResponsavel = teamId !== null
     ? membrosDaEquipe.map((m) => ({ id: m.user.id, label: m.user.name ?? m.user.email, isLeader: m.isLeader }))
     : todosElegiveis.map((u) => ({ id: u.id, label: u.name ?? u.email, isLeader: false }))
@@ -254,6 +263,8 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                 Este contato já está num funil (de antes) — escolha um responsável para promovê-lo de verdade.
               </p>
             )}
+            {/* Sem acesso ao módulo Equipes a lista volta vazia: o campo só confundiria. */}
+            {!teamsQ.isError && (
             <div>
               <label class="block text-xs font-medium text-fg mb-1">Equipe (opcional)</label>
               <select
@@ -271,6 +282,7 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                 ))}
               </select>
             </div>
+            )}
             <div>
               <label class="block text-xs font-medium text-fg mb-1">Responsável *</label>
               {(teamId !== null && teamMembersQ.isLoading) || (teamId === null && usersQ.isLoading) ? (
@@ -293,6 +305,9 @@ export function PromoteLeadDialog({ open, mode, onOpenChange, onDone }: Props) {
                     </option>
                   ))}
                 </select>
+              )}
+              {semListaDeUsuarios && teamId === null && (
+                <p class="mt-1 text-xs text-fg-muted">O lead fica com você. Um gestor pode redistribuir depois.</p>
               )}
             </div>
           </div>
