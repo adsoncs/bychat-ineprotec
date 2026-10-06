@@ -21,10 +21,14 @@
 // também é recusado: por isso a decisão aqui olha o CODEC pelo ffprobe, nunca
 // só a extensão do arquivo.
 //
-// A conversão de áudio quase sempre é troca de contêiner sem recodificar
-// (`-c:a copy`): o WebM do navegador já vem em Opus, que é exatamente o codec
-// que o WhatsApp usa nas notas de voz. Um áudio de 6 s levou 100.760 → 100.486
-// bytes, instantâneo e sem perda.
+// A conversão de áudio recodifica para Opus mono 48 kHz SEMPRE normalizando o
+// volume (loudnorm, EBU R128). O WebM do navegador já vem em Opus, mas as
+// gravações do painel saíam baixas demais (volume médio -22 a -29 dB, contra
+// ~-16 dB de uma nota de voz nativa) porque o microfone do computador fica
+// longe da boca — e o WhatsApp não normaliza na reprodução, então no celular
+// do lead o áudio ficava quase inaudível. Normalizar resolve isso de forma
+// genérica e o re-encode de uma nota de voz curta é instantâneo (>20x o tempo
+// real). Ver o detalhe dos parâmetros em `converterParaFormatoAceito`.
 //
 // Sem ffmpeg instalado nada disso acontece: o arquivo segue como está, que é o
 // comportamento antigo. Converter é melhoria; não converter não pode derrubar
@@ -147,12 +151,20 @@ export async function converterParaFormatoAceito(caminho: string, tipo: TipoMidi
   const destino = caminhoDerivado(caminho, ehAudio ? 'ogg' : 'mp4')
   if (existsSync(destino)) return destino // já convertido antes
 
-  // Opus dentro de WebM só precisa mudar de caixa; qualquer outro codec de
-  // áudio é recodificado em Opus mono 32 kbps, que é o perfil de nota de voz.
+  // Todo áudio é recodificado em Opus mono 32 kbps, que é o perfil de nota de
+  // voz, SEMPRE passando por normalização de volume (loudnorm, padrão EBU R128
+  // I=-16 LUFS). O áudio gravado no painel sai pelo microfone do computador,
+  // longe da boca e com ruído de sala: medindo as gravações do ineprotec o
+  // volume médio caía em -22 a -29 dB, contra os ~-16 dB de uma nota de voz
+  // nativa do WhatsApp — que NÃO normaliza na reprodução. No alto-falante do
+  // celular do lead isso vira "mal dá pra ouvir". O loudnorm sobe o volume ao
+  // alvo e o limitador de pico real (TP=-1.5) impede clipar mesmo quando o
+  // original já tinha pico perto de 0. Por isso o antigo `-c:a copy` do Opus
+  // foi abandonado: continua instantâneo (re-encode de voz curta roda >20x o
+  // tempo real) e de quebra entrega um OGG sempre limpo.
   const args = ehAudio
-    ? (sonda.audio === 'opus'
-        ? ['-v', 'error', '-y', '-i', caminho, '-vn', '-c:a', 'copy', '-f', 'ogg', destino]
-        : ['-v', 'error', '-y', '-i', caminho, '-vn', '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', destino])
+    ? ['-v', 'error', '-y', '-i', caminho, '-vn', '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+       '-c:a', 'libopus', '-b:a', '32k', '-ar', '48000', '-ac', '1', '-f', 'ogg', destino]
     : aceito
       ? ['-v', 'error', '-y', '-i', caminho, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', destino]
       : ['-v', 'error', '-y', '-i', caminho, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28',
