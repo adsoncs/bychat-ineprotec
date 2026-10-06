@@ -259,7 +259,7 @@ export const ROTULOS_DO_PORTAL = [
   'continuar', 'voltar', 'enviar',
   'revisao', 'revisaoTitulo', 'revisaoSubtitulo',
   'resumoTitulo', 'resumoVazio', 'resumoTaxa', 'resumoMatricula',
-  'resumoMensalidade', 'resumoObservacao',
+  'resumoMensalidade', 'resumoObservacao', 'resumoCurso', 'resumoAVista',
 ] as const
 
 async function resolveUniquePortalSlug(requested: string | null | undefined, fallbackSeed: string, excludeId: number | null): Promise<string | null> {

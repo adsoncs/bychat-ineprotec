@@ -834,7 +834,7 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
             <div class="linha"><span>Boleto parcelado</span><b>{tabela.boleto.parcelas}x {dinheiro(tabela.boleto.valorParcela)}</b></div>
           )}
           <div class="destaque">
-            <span>À vista no Pix ou boleto</span>
+            <span>{rotulo(portal, 'resumoAVista')}</span>
             <b>{dinheiro(tabela.aVista)}</b>
           </div>
         </>

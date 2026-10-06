@@ -511,6 +511,8 @@ export const TEXTOS_PADRAO: Record<string, string> = {
   resumoTaxa: 'Taxa de inscrição',
   resumoMatricula: 'Taxa de matrícula',
   resumoMensalidade: 'Mensalidade',
+  resumoCurso: 'Curso',
+  resumoAVista: 'À vista no Pix ou boleto',
   resumoObservacao: 'Os valores são confirmados no contrato, depois da análise dos documentos.',
 }
 

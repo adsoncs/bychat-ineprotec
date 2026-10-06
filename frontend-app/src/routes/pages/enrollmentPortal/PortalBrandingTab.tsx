@@ -84,6 +84,8 @@ const TEXTOS: { chave: string; label: string; padrao: string }[] = [
   { chave: 'resumoTaxa', label: 'Rótulo da taxa de inscrição', padrao: 'Taxa de inscrição' },
   { chave: 'resumoMatricula', label: 'Rótulo da taxa de matrícula', padrao: 'Taxa de matrícula' },
   { chave: 'resumoMensalidade', label: 'Rótulo da mensalidade', padrao: 'Mensalidade' },
+  { chave: 'resumoCurso', label: 'Nome do valor do curso (tabela de preços) no pagamento e na fatura', padrao: 'Curso' },
+  { chave: 'resumoAVista', label: 'Linha do à vista (tabela de preços)', padrao: 'À vista no Pix ou boleto' },
   { chave: 'resumoObservacao', label: 'Observação do resumo', padrao: 'Os valores são confirmados no contrato, depois da análise dos documentos.' },
 ]
 

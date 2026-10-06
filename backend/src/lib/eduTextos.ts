@@ -44,6 +44,8 @@ export const CATALOGO_TEXTOS: GrupoDeTextos[] = [
       { chave: 'form.resumoTaxa', rotulo: 'Linha da taxa de inscrição', padrao: 'Taxa de inscrição' },
       { chave: 'form.resumoMatricula', rotulo: 'Linha da taxa de matrícula', padrao: 'Taxa de matrícula' },
       { chave: 'form.resumoMensalidade', rotulo: 'Linha da mensalidade', padrao: 'Mensalidade' },
+      { chave: 'form.resumoCurso', rotulo: 'Nome do valor do curso (tabela de preços) no pagamento e na fatura', padrao: 'Curso' },
+      { chave: 'form.resumoAVista', rotulo: 'Linha do à vista (tabela de preços)', padrao: 'À vista no Pix ou boleto' },
       { chave: 'form.resumoObservacao', rotulo: 'Observação do resumo', padrao: 'Os valores são confirmados no contrato, depois da análise dos documentos.', longo: true },
     ],
   },

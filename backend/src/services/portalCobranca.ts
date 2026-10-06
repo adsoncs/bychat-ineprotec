@@ -22,8 +22,11 @@ export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
   /** Em reais. 0 quando não há valor configurado. */
   valor: number
-  /** Como a cobrança aparece para a pessoa e no financeiro. */
-  rotulo: 'Taxa de inscrição' | 'Matrícula' | '1ª mensalidade' | 'Curso'
+  /** Como a cobrança aparece para a pessoa e no financeiro. Matrícula e 1ª
+   *  mensalidade usam o texto do resumo quando o portal personalizou
+   *  (Branding › Textos: resumoMatricula / resumoMensalidade); o curso pela
+   *  tabela de preços usa resumoCurso. */
+  rotulo: string
   /** De onde veio o valor — ajuda a secretaria a achar onde corrigir. */
   fonte: 'processo' | 'plano_erp' | 'oferta' | 'tabela' | 'nenhuma'
   contexto: ContextoDaInscricao
@@ -51,7 +54,7 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
     select: {
       portalId: true, formData: true,
       lead: { select: { email: true } },
-      portal: { select: { paymentScope: true } },
+      portal: { select: { paymentScope: true, brandLabels: true } },
       processRegistration: {
         select: {
           selectionProcessId: true,
@@ -80,6 +83,17 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
     email: String(reg.lead?.email || fd.email || '').trim().toLowerCase() || null,
   }
 
+  // O nome que a instituição deu no resumo vale também para a cobrança — senão
+  // o resumo diz "1ª parcela" e o pagamento/fatura dizem "1ª mensalidade".
+  const textos = (reg.portal?.brandLabels ?? {}) as Record<string, unknown>
+  const texto = (chave: string, padrao: string) => {
+    const v = typeof textos[chave] === 'string' ? (textos[chave] as string).trim() : ''
+    return v || padrao
+  }
+  const MATRICULA = texto('resumoMatricula', 'Matrícula')
+  const MENSALIDADE = texto('resumoMensalidade', '1ª mensalidade')
+  const CURSO = texto('resumoCurso', 'Curso')
+
   if (reg.portal?.paymentScope !== 'curso') {
     const taxa = Number(reg.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
     return { escopo: 'taxa', valor: taxa > 0 ? taxa : 0, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
@@ -90,7 +104,7 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   // 1ª mensalidade.
   const tabela = lerTabelaDePrecos(of?.tabelaPrecos)
   if (tabela) {
-    return { escopo: 'curso', valor: tabela.aVista, rotulo: 'Curso', fonte: 'tabela', contexto, tabela }
+    return { escopo: 'curso', valor: tabela.aVista, rotulo: CURSO, fonte: 'tabela', contexto, tabela }
   }
 
   // Curso: plano de pagamento ativo da oferta (ERP) primeiro.
@@ -101,15 +115,15 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
       select: { taxaMatriculaCentavos: true, valorParcelaCentavos: true },
     }).catch(() => null)
     if (plano && plano.taxaMatriculaCentavos > 0) {
-      return { escopo: 'curso', valor: plano.taxaMatriculaCentavos / 100, rotulo: 'Matrícula', fonte: 'plano_erp', contexto }
+      return { escopo: 'curso', valor: plano.taxaMatriculaCentavos / 100, rotulo: MATRICULA, fonte: 'plano_erp', contexto }
     }
     if (plano && plano.valorParcelaCentavos > 0) {
-      return { escopo: 'curso', valor: plano.valorParcelaCentavos / 100, rotulo: '1ª mensalidade', fonte: 'plano_erp', contexto }
+      return { escopo: 'curso', valor: plano.valorParcelaCentavos / 100, rotulo: MENSALIDADE, fonte: 'plano_erp', contexto }
     }
     const matricula = Number(of.valorMatricula ?? 0)
-    if (matricula > 0) return { escopo: 'curso', valor: matricula, rotulo: 'Matrícula', fonte: 'oferta', contexto }
+    if (matricula > 0) return { escopo: 'curso', valor: matricula, rotulo: MATRICULA, fonte: 'oferta', contexto }
     const mensalidade = Number(of.valorMensalidade ?? 0)
-    if (mensalidade > 0) return { escopo: 'curso', valor: mensalidade, rotulo: '1ª mensalidade', fonte: 'oferta', contexto }
+    if (mensalidade > 0) return { escopo: 'curso', valor: mensalidade, rotulo: MENSALIDADE, fonte: 'oferta', contexto }
   }
-  return { escopo: 'curso', valor: 0, rotulo: 'Matrícula', fonte: 'nenhuma', contexto }
+  return { escopo: 'curso', valor: 0, rotulo: MATRICULA, fonte: 'nenhuma', contexto }
 }
