@@ -247,7 +247,8 @@ export function App() {
     const out: Record<string, string> = {}
     for (const c of camposDoPasso(p)) {
       if (c.type === 'offering-picker') {
-        if (escolha.formaNecessaria && !valores._formaIngresso) out[c.name] = 'Escolha a forma de ingresso.'
+        if (escolha.nivelNecessario && !escolha.nivel) out[c.name] = 'Escolha o tipo de curso.'
+        else if (escolha.formaNecessaria && !valores._formaIngresso) out[c.name] = 'Escolha a forma de ingresso.'
         else if (c.required && !valores[c.name]) out[c.name] = 'Escolha um curso para continuar.'
         else if (escolha.poloNecessario && !valores.campusId) out[c.name] = 'Escolha o polo onde vai estudar.'
         continue
@@ -1232,8 +1233,8 @@ function estiloDoFormLimpo(portal: DadosPortal['portal']): { style?: string; 'da
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Escolha da oferta: forma de ingresso → curso → polo, perguntando só o que
-// tem mais de uma opção.
+// Escolha da oferta: tipo de curso (nível) → forma de ingresso → curso → polo,
+// perguntando só o que tem mais de uma opção.
 
 type Escolha = ReturnType<typeof useEscolhaDeOferta>
 
@@ -1243,22 +1244,37 @@ function useEscolhaDeOferta(
   definir: (nome: string, valor: string | number) => void,
   comPolo: boolean,
 ) {
+  const oferta = ofertas.find((o) => String(o.id) === String(valores.offeringId ?? '')) ?? null
+  // Tipo de curso: portal com cursos de mais de um nível (ex.: o de um polo,
+  // com graduação, pós e extensão) pergunta isso primeiro, e o resto da escolha
+  // fica só com os cursos daquele nível. Curso já escolhido (rascunho, link)
+  // diz o nível sozinho.
+  const niveis = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const o of ofertas) if (o.level?.id) m.set(o.level.id, o.level.nome)
+    return [...m].sort((a, b) => a[0] - b[0]).map(([id, nome]) => ({ id, nome }))
+  }, [ofertas])
+  const nivelNecessario = niveis.length > 1
+  const nivel = nivelNecessario ? String(valores._nivel || oferta?.level?.id || '') : ''
+  const doNivel = useMemo(
+    () => (nivelNecessario ? (nivel ? ofertas.filter((o) => String(o.level?.id ?? '') === nivel) : []) : ofertas),
+    [ofertas, nivelNecessario, nivel],
+  )
   const modos = useMemo(() => {
     const m = new Map<string, string>()
-    for (const o of ofertas) {
+    for (const o of doNivel) {
       const em = o.selectionProcess?.entryMode
       if (em?.code) m.set(em.code, em.name)
     }
     return [...m].map(([code, name]) => ({ code, name }))
-  }, [ofertas])
+  }, [doNivel])
   const formaNecessaria = modos.length > 1
   const forma = formaNecessaria ? String(valores._formaIngresso ?? '') : (modos[0]?.code ?? '')
   const filtradas = formaNecessaria
-    ? (forma ? ofertas.filter((o) => o.selectionProcess?.entryMode?.code === forma) : [])
-    : ofertas
-  const oferta = ofertas.find((o) => String(o.id) === String(valores.offeringId ?? '')) ?? null
+    ? (forma ? doNivel.filter((o) => o.selectionProcess?.entryMode?.code === forma) : [])
+    : doNivel
   const polos = comPolo ? (oferta?.campuses ?? []).map((c) => c.campus) : []
-  const cursoNecessario = filtradas.length > 1 || (formaNecessaria && !forma)
+  const cursoNecessario = filtradas.length > 1 || (formaNecessaria && !forma) || (nivelNecessario && !nivel)
   const poloNecessario = polos.length > 1
 
   // Uma opção só: escolhe sozinho. Trocar a forma de ingresso limpa o curso
@@ -1267,7 +1283,7 @@ function useEscolhaDeOferta(
     if (!ofertas.length) return
     if (oferta && !filtradas.some((o) => o.id === oferta.id)) { definir('offeringId', ''); definir('campusId', ''); return }
     if (filtradas.length === 1 && String(valores.offeringId ?? '') !== String(filtradas[0]!.id)) definir('offeringId', filtradas[0]!.id)
-  }, [ofertas, forma, filtradas.length, oferta?.id])
+  }, [ofertas, nivel, forma, filtradas.length, oferta?.id])
   useEffect(() => {
     if (!comPolo) return
     if (polos.length === 1 && String(valores.campusId ?? '') !== String(polos[0]!.id)) definir('campusId', polos[0]!.id)
@@ -1275,8 +1291,9 @@ function useEscolhaDeOferta(
   }, [oferta?.id, polos.length])
 
   return {
+    niveis, nivelNecessario, nivel,
     modos, formaNecessaria, forma, filtradas, oferta, polos, cursoNecessario, poloNecessario,
-    algoAEscolher: formaNecessaria || cursoNecessario || poloNecessario,
+    algoAEscolher: nivelNecessario || formaNecessaria || cursoNecessario || poloNecessario,
   }
 }
 
@@ -1300,6 +1317,20 @@ function EscolhaDeOferta(props: {
   const [quizAberto, setQuizAberto] = useState(modoPicker === 'quiz' && !props.valores.offeringId)
   return (
     <>
+      {e.nivelNecessario && (
+        <div class="campo">
+          <label for="c_nivel">Tipo de curso</label>
+          <select id="c_nivel" name="_nivel" value={e.nivel}
+            onChange={(ev) => {
+              // Outro nível, outras formas de ingresso: a escolhida antes não vale mais.
+              props.definir('_nivel', (ev.target as HTMLSelectElement).value)
+              props.definir('_formaIngresso', '')
+            }}>
+            <option value="">Selecione…</option>
+            {e.niveis.map((n) => <option key={n.id} value={String(n.id)}>{n.nome}</option>)}
+          </select>
+        </div>
+      )}
       {e.formaNecessaria && (
         <div class="campo">
           <label for="c_forma">Forma de ingresso</label>
