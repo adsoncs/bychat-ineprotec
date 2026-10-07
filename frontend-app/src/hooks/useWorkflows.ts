@@ -7,6 +7,10 @@ export interface WorkflowTriggerConfig {
   newValue?: string | undefined
   tagName?: string | undefined
   channel?: string | undefined
+  /** message.received/sent: dispara se o texto tiver algum destes trechos (um por linha). */
+  textContains?: string[] | undefined
+  /** ...e não tiver nenhum destes. */
+  textNotContains?: string[] | undefined
   /**
    * Origem do lead na condição.
    *

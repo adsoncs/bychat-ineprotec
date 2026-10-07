@@ -4,7 +4,7 @@
 import { prisma } from '../lib/prisma.js'
 import { eventBus, type DomainEvent } from '../lib/eventBus.js'
 import { queues } from '../lib/queues.js'
-import { evaluateCondition } from './workflowConditions.js'
+import { evaluateCondition, textContainsAny } from './workflowConditions.js'
 import { dispatchAction } from './workflowActions.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 
@@ -46,6 +46,20 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
 
     if (key === 'oldValue') {
       if (!valueMatches(event.payload?.oldValue, expected)) return false
+      continue
+    }
+
+    // Texto da mensagem (message.received): "contém algum destes trechos" /
+    // "não contém nenhum". Sem acento e sem diferenciar maiúscula.
+    if (key === 'textContains') {
+      const lista = Array.isArray(expected) ? expected : [expected]
+      if (lista.length === 0) continue
+      if (!textContainsAny(event.payload?.text, lista)) return false
+      continue
+    }
+    if (key === 'textNotContains') {
+      const lista = Array.isArray(expected) ? expected : [expected]
+      if (lista.length > 0 && textContainsAny(event.payload?.text, lista)) return false
       continue
     }
 
@@ -281,7 +295,7 @@ export async function executeNextStep(executionId: number, stepId: number | null
       }
 
       case 'condition': {
-        const result = await evaluateCondition(config, execution.leadId)
+        const result = await evaluateCondition(config, execution.leadId, execution.triggerData as any)
 
         await prisma.workflowStepExecution.create({
           data: {
@@ -308,7 +322,7 @@ export async function executeNextStep(executionId: number, stepId: number | null
         let matched = false
 
         for (const cond of conditions) {
-          const result = await evaluateCondition(cond, execution.leadId)
+          const result = await evaluateCondition(cond, execution.leadId, execution.triggerData as any)
           if (result && cond.nextStepId) {
             await prisma.workflowStepExecution.create({
               data: {

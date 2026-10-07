@@ -4,7 +4,7 @@
 import { prisma } from '../lib/prisma.js'
 
 interface ConditionConfig {
-  type?: string       // has_tag, not_has_tag, time_since, stage_is, source_is, lost_reason_in
+  type?: string       // has_tag, not_has_tag, time_since, stage_is, source_is, lost_reason_in, message_contains
   field?: string      // lead.status, lead.source, lead.originType, lead.funnelId, lead.customFields.cargo, lead.lostReason.name
   operator?: string   // equals, not_equals, contains, gt, lt, gte, lte, in
   value?: any
@@ -20,7 +20,38 @@ function valueList(value: any): string[] {
   return String(value).split(',').map((v) => v.trim()).filter(Boolean)
 }
 
-export async function evaluateCondition(config: ConditionConfig, leadId: number): Promise<boolean> {
+/** Minúsculas e sem acento: "Matrícula EAD" casa com "matricula ead". */
+function normalizeText(s: unknown): string {
+  return String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * O texto contém algum dos trechos? Lista vem como array, CSV não serve (trecho
+ * pode ter vírgula), então string = um trecho por linha.
+ */
+export function textContainsAny(text: unknown, trechos: unknown): boolean {
+  const lista = Array.isArray(trechos)
+    ? trechos
+    : String(trechos ?? '').split('\n')
+  const alvo = normalizeText(text)
+  if (!alvo) return false
+  return lista.map(normalizeText).filter(Boolean).some((t) => alvo.includes(t))
+}
+
+export async function evaluateCondition(
+  config: ConditionConfig,
+  leadId: number,
+  triggerData?: { payload?: { text?: string } } | null,
+): Promise<boolean> {
+  // Texto da mensagem que disparou o fluxo (gatilho "Mensagem recebida").
+  // Não depende do lead — vem antes da busca.
+  if (config.type === 'message_contains' || config.type === 'message_not_contains') {
+    const lista = Array.isArray(config.value) ? config.value : String(config.value ?? '').split('\n')
+    if (!lista.some((v: any) => String(v).trim())) return false // condição incompleta
+    const bate = textContainsAny(triggerData?.payload?.text, lista)
+    return config.type === 'message_contains' ? bate : !bate
+  }
+
   const lead = await prisma.lead.findUnique({
     where: { id: leadId },
     include: {

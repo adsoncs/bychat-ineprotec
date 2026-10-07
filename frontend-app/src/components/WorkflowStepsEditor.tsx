@@ -90,6 +90,8 @@ const CONDITION_TYPES = [
   { value: 'time_since', label: 'Tempo desde última atividade' },
   { value: 'stage_is', label: 'O lead está em uma etapa específica' },
   { value: 'source_is', label: 'A origem do lead é' },
+  { value: 'message_contains', label: 'A mensagem recebida contém' },
+  { value: 'message_not_contains', label: 'A mensagem recebida NÃO contém' },
   { value: 'lost_reason_in', label: 'Lead perdido por uma destas objeções' },
   { value: 'lost_reason_not_in', label: 'Lead NÃO perdido por estas objeções' },
 ]
@@ -191,6 +193,11 @@ function stepSummary(s: WorkflowStep): string {
     const ct = getStr(cfg, 'type')
     if (ct === 'has_tag') return `Tem etiqueta "${getStr(cfg, 'tagName')}"`
     if (ct === 'not_has_tag') return `Sem etiqueta "${getStr(cfg, 'tagName')}"`
+    if (ct === 'message_contains' || ct === 'message_not_contains') {
+      const v = cfg.value
+      const lista = (Array.isArray(v) ? v.map(String) : String(v ?? '').split('\n')).map((x) => x.trim()).filter(Boolean)
+      return `Mensagem ${ct === 'message_contains' ? 'contém' : 'NÃO contém'} "${lista[0] ?? '?'}"${lista.length > 1 ? ` (+${lista.length - 1})` : ''}`
+    }
     if (ct === 'time_since') return `${getStr(cfg, 'value')}h desde ${getStr(cfg, 'field') || 'última mensagem'}`
     if (ct === 'lost_reason_in') {
       const ids = (cfg.reasonIds as number[] | undefined) ?? []
@@ -733,6 +740,18 @@ function ConditionFields({
           hint="Segue se o lead estiver nesta etapa do funil"
           value={getStr(config, 'value')}
           onChange={(v) => onPatch({ value: v })}
+        />
+      )}
+
+      {(condType === 'message_contains' || condType === 'message_not_contains') && (
+        <Textarea
+          label="Trechos da mensagem"
+          rows={4}
+          value={Array.isArray(config.value) ? (config.value as unknown[]).map(String).join('\n') : getStr(config, 'value')}
+          onInput={(e) => onPatch({ value: (e.target as HTMLTextAreaElement).value.split('\n') })}
+          hint={condType === 'message_contains'
+            ? 'Um trecho por linha — segue se a mensagem que disparou o fluxo tiver QUALQUER um. Ignora maiúsculas e acentos. Só funciona com o gatilho "Mensagem recebida".'
+            : 'Um trecho por linha — segue se a mensagem NÃO tiver nenhum deles. Só funciona com o gatilho "Mensagem recebida".'}
         />
       )}
 

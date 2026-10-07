@@ -495,7 +495,7 @@ function TriggerFiltersEditor({
   const { data: funnelDetail } = useFunnel(funnelId)
   const stages = funnelDetail?.stages ?? []
 
-  function patch(k: keyof WorkflowTriggerConfig, v: string | number | undefined) {
+  function patch(k: keyof WorkflowTriggerConfig, v: string | number | string[] | undefined) {
     const next = { ...value }
     if (v === undefined || v === '' || v === 0) delete next[k]
     else (next as Record<string, unknown>)[k] = v
@@ -541,11 +541,32 @@ function TriggerFiltersEditor({
 
   if (triggerEvent === 'message.received' || triggerEvent === 'message.sent') {
     const verb = triggerEvent === 'message.received' ? 'recebimento' : 'envio'
+    // Um trecho por linha. Linhas vazias ficam (senão não dá pra digitar Enter);
+    // o backend ignora trecho vazio.
+    const linhas = (v: string) => (v.trim() ? v.split('\n') : undefined)
     return (
-      <Select label="Canal da mensagem" value={value.channel ?? ''} onChange={(e) => patch('channel', (e.target as HTMLSelectElement).value || undefined)} hint={`Filtrar por canal de ${verb}`}>
-        <option value="">Qualquer canal</option>
-        {MESSAGE_CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-      </Select>
+      <div class="space-y-3">
+        <Select label="Canal da mensagem" value={value.channel ?? ''} onChange={(e) => patch('channel', (e.target as HTMLSelectElement).value || undefined)} hint={`Filtrar por canal de ${verb}`}>
+          <option value="">Qualquer canal</option>
+          {MESSAGE_CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </Select>
+        <div class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          <Textarea
+            label="A mensagem contém (opcional)"
+            rows={4}
+            value={(value.textContains ?? []).join('\n')}
+            onInput={(e) => patch('textContains', linhas((e.target as HTMLTextAreaElement).value))}
+            hint="Um trecho por linha — dispara se tiver QUALQUER um. Ignora maiúsculas e acentos."
+          />
+          <Textarea
+            label="E NÃO contém (opcional)"
+            rows={4}
+            value={(value.textNotContains ?? []).join('\n')}
+            onInput={(e) => patch('textNotContains', linhas((e.target as HTMLTextAreaElement).value))}
+            hint="Um trecho por linha — não dispara se tiver qualquer um destes."
+          />
+        </div>
+      </div>
     )
   }
 

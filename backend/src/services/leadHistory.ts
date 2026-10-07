@@ -183,7 +183,9 @@ export function logEvent(params: LogEventParams): void {
       leadId,
       chatbotId: metadata?.chatbotId,
       funnelId: metadata?.funnelId,
-      payload: { oldValue, newValue, metadata, channel, source },
+      // `text`: o texto da mensagem (description) — é o que os filtros/condições
+      // "a mensagem contém" dos fluxos leem em message.received.
+      payload: { oldValue, newValue, metadata, channel, source, text: description },
       timestamp: new Date(),
     })
   }
