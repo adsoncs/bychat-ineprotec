@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Painel Gerencial · INEPROTEC</title>
+<style>
+  :root{
+    --bg:#f3f4f6; --panel:#ffffff; --panel2:#fafafa; --ink:#111827; --muted:#6b7280;
+    --line:#e5e7eb; --brand:#1f6feb; --green:#15803d; --greenbg:#dcfce7; --red:#b91c1c; --redbg:#fee2e2;
+    --amber:#b45309; --accent:#7c3aed; --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0f17; --panel:#111827; --panel2:#0f1623; --ink:#e5e7eb; --muted:#94a3b8;
+    --line:#1f2937; --brand:#60a5fa; --green:#4ade80; --greenbg:#052e1a; --red:#f87171; --redbg:#3b0d0d;
+    --amber:#fbbf24; --accent:#a78bfa; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  a{color:inherit}
+  .app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+  /* sidebar */
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+  .brand{font-weight:800;letter-spacing:.3px;padding:6px 10px 14px;font-size:15px}
+  .brand small{display:block;color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.5px;text-transform:uppercase}
+  .navsec{margin:10px 0 2px;padding:0 10px;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+  .navi{display:block;padding:8px 10px;border-radius:8px;color:var(--ink);text-decoration:none;cursor:pointer;font-weight:500}
+  .navi:hover{background:var(--panel2)}
+  .navi.active{background:var(--brand);color:#fff}
+  .navi.sub{padding-left:22px;font-size:13px;color:var(--muted)}
+  .navi.sub.active{color:#fff}
+  /* main */
+  .main{padding:18px 22px 60px;max-width:1280px}
+  .top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .h1{font-size:20px;font-weight:800;margin:0}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select,input[type=date],button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+  button{cursor:pointer}
+  button.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+  .ghost{background:transparent}
+  /* cards */
+  .grid{display:grid;gap:12px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+  .k-label{color:var(--muted);font-size:12px;font-weight:600}
+  .k-val{font-size:26px;font-weight:800;margin-top:4px;letter-spacing:-.5px}
+  .k-sub{font-size:12px;margin-top:4px;color:var(--muted)}
+  .delta{display:inline-flex;align-items:center;gap:3px;font-weight:700;font-size:12px;padding:2px 7px;border-radius:999px}
+  .delta.up{color:var(--green);background:var(--greenbg)} .delta.dn{color:var(--red);background:var(--redbg)} .delta.fl{color:var(--muted);background:var(--panel2)}
+  .section-h{font-size:14px;font-weight:700;margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+  .two{grid-template-columns:1fr 1fr}
+  @media(max-width:900px){.app{grid-template-columns:1fr}.side{position:static;height:auto}.two{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar-row{display:grid;grid-template-columns:150px 1fr 60px;gap:10px;align-items:center;margin:6px 0;font-size:13px}
+  .bar-track{background:var(--panel2);border-radius:6px;height:16px;overflow:hidden}
+  .bar-fill{height:100%;background:var(--brand);border-radius:6px}
+  .bar-fill.won{background:var(--green)} .bar-fill.lost{background:var(--red)}
+  .pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--panel2);color:var(--muted)}
+  .empty{color:var(--muted);padding:26px;text-align:center;border:1px dashed var(--line);border-radius:12px}
+  .flag{display:inline-block;font-size:11px;font-weight:700;color:var(--amber);background:var(--panel2);border:1px solid var(--line);padding:2px 8px;border-radius:999px}
+  .muted{color:var(--muted)}
+  .right{text-align:right}
+  .loading{opacity:.5}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">Painel Gerencial<small>INEPROTEC · Fechamento</small></div>
+    <nav id="nav"></nav>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div>
+        <h1 class="h1" id="pageTitle">Visão Executiva</h1>
+        <div class="sub" id="pageSub"></div>
+      </div>
+      <div class="controls">
+        <select id="monthSel" title="Mês"></select>
+        <input type="date" id="fromD" title="De" />
+        <input type="date" id="toD" title="Até" />
+        <button class="primary" id="applyBtn">Aplicar</button>
+        <button class="ghost" id="themeBtn" title="Tema">◐</button>
+      </div>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<script>
+(function(){
+  "use strict";
+  var qs = new URLSearchParams(location.search);
+  var TOKEN = qs.get('token') || '';
+  var state = { page:'exec', from:null, to:null, data:null, loading:false, err:null };
+
+  // ---------- estrutura de navegação ----------
+  var NAV = [
+    { id:'exec', label:'Visão Executiva' },
+    { group:'Comercial', items:[
+      ['com_vg','Visão Geral'],['com_pipe','Pipeline & Contato'],['com_orig','Origem, Canal & Região'],
+      ['com_jor','Jornada & Origem'],['com_met','Metas & Comissões'],['com_vend','Vendedores'],
+      ['com_mat','Matrículas & Auditoria'],['com_funil','Funil & Perdas'],['com_sdr','Agente SDR'],
+      ['com_fin','Financeiro & Produto'] ]},
+    { group:'Marketing', items:[
+      ['mkt_vg','Visão Geral'],['mkt_google','Google Ads'],['mkt_meta','Meta Ads'],['mkt_org','Redes Orgânicas'] ]},
+  ];
+  var TITLES = {exec:'Visão Executiva',com_vg:'Comercial · Visão Geral',com_pipe:'Pipeline & Contato',
+    com_orig:'Origem, Canal & Região',com_jor:'Jornada & Origem',com_met:'Metas & Comissões',
+    com_vend:'Vendedores',com_mat:'Matrículas & Auditoria',com_funil:'Funil & Perdas',com_sdr:'Agente SDR',
+    com_fin:'Financeiro & Produto',mkt_vg:'Marketing · Visão Geral',mkt_google:'Google Ads',mkt_meta:'Meta Ads',mkt_org:'Redes Orgânicas'};
+
+  function buildNav(){
+    var el = document.getElementById('nav'); el.innerHTML='';
+    NAV.forEach(function(n){
+      if(n.id){ el.appendChild(navItem(n.id,n.label,false)); return; }
+      var h=document.createElement('div'); h.className='navsec'; h.textContent=n.group; el.appendChild(h);
+      n.items.forEach(function(it){ el.appendChild(navItem(it[0],it[1],true)); });
+    });
+  }
+  function navItem(id,label,sub){
+    var a=document.createElement('a'); a.className='navi'+(sub?' sub':'')+(state.page===id?' active':'');
+    a.textContent=label; a.onclick=function(){ go(id); }; a.dataset.id=id; return a;
+  }
+  function go(id){ state.page=id; location.hash=id; buildNav(); render(); }
+
+  // ---------- período ----------
+  function ym(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+  function fillMonths(){
+    var sel=document.getElementById('monthSel'); sel.innerHTML='';
+    var now=new Date(); var opt=document.createElement('option'); opt.value='custom'; opt.textContent='Personalizado';
+    for(var i=0;i<14;i++){
+      var d=new Date(now.getFullYear(),now.getMonth()-i,1);
+      var o=document.createElement('option'); o.value=ym(d);
+      o.textContent=d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); sel.appendChild(o);
+    }
+    sel.appendChild(opt);
+    // default: mês anterior completo
+    var prev=new Date(now.getFullYear(),now.getMonth()-1,1);
+    sel.value=ym(prev); applyMonth(ym(prev));
+    sel.onchange=function(){ if(sel.value==='custom'){ return; } applyMonth(sel.value); load(); };
+  }
+  function applyMonth(v){
+    var p=v.split('-'); var y=+p[0], m=+p[1];
+    var from=new Date(Date.UTC(y,m-1,1)); var to=new Date(Date.UTC(y,m,1));
+    state.from=from.toISOString().slice(0,10); state.to=new Date(to-864e5).toISOString().slice(0,10);
+    document.getElementById('fromD').value=state.from; document.getElementById('toD').value=state.to;
+  }
+
+  // ---------- fetch ----------
+  function load(){
+    if(!TOKEN){ state.err='token'; render(); return; }
+    state.loading=true; render();
+    var p='token='+encodeURIComponent(TOKEN)+'&from='+state.from+'&to='+state.to;
+    var get=function(path){ return fetch('/api/painel/'+path+'?'+p).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }); };
+    Promise.all([get('comercial'), get('marketing').catch(function(){return null;})])
+      .then(function(res){ state.data=res[0]; state.mkt=res[1]; state.err=null; state.loading=false; render(); })
+      .catch(function(e){ state.err=String(e.message||e); state.loading=false; render(); });
+  }
+
+  // ---------- formatação ----------
+  var fBRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+  var fNum=new Intl.NumberFormat('pt-BR');
+  function brl(v){ return fBRL.format(v||0); }
+  function num(v){ return fNum.format(v||0); }
+  function pct(v){ return ((v||0)*100).toFixed(1).replace('.',',')+'%'; }
+  function deltaEl(cur,ant,inv){
+    if(ant==null){ return ''; }
+    var d = cur-ant; var rel = ant!==0 ? d/Math.abs(ant) : (cur>0?1:0);
+    var up = d>0, fl = d===0;
+    var good = inv ? d<0 : d>0;
+    var cls = fl?'fl':(good?'up':'dn');
+    var arrow = fl?'→':(up?'▲':'▼');
+    return '<span class="delta '+cls+'">'+arrow+' '+Math.abs(rel*100).toFixed(0)+'%</span>';
+  }
+
+  // ---------- componentes ----------
+  function kpi(label,val,sub){ return '<div class="card"><div class="k-label">'+label+'</div><div class="k-val">'+val+'</div>'+(sub?'<div class="k-sub">'+sub+'</div>':'')+'</div>'; }
+  function kpiD(label,val,cur,ant,inv,subTxt){
+    var sub=(ant!=null? deltaEl(cur,ant,inv)+' <span class="muted">vs. período ant.</span>':'')+(subTxt?(' '+subTxt):'');
+    return kpi(label,val,sub);
+  }
+  function bars(rows,getLabel,getVal,cls){
+    if(!rows||!rows.length) return '<div class="empty">Sem dados no período</div>';
+    var max=Math.max.apply(null,rows.map(getVal).concat([1]));
+    return rows.map(function(r){ var v=getVal(r); var w=Math.max(2,Math.round(v/max*100));
+      var c=cls? (typeof cls==='function'?cls(r):cls):'';
+      return '<div class="bar-row"><div>'+getLabel(r)+'</div><div class="bar-track"><div class="bar-fill '+c+'" style="width:'+w+'%"></div></div><div class="num">'+num(v)+'</div></div>';
+    }).join('');
+  }
+  function lineChart(series){ // series: [{dia,leads,matriculas}]
+    if(!series||!series.length) return '<div class="empty">Sem série no período</div>';
+    var W=760,H=180,pad=24; var n=series.length;
+    var maxL=Math.max.apply(null,series.map(function(s){return s.leads}).concat([1]));
+    var xs=function(i){return pad+ (n<=1?0:i*(W-2*pad)/(n-1))};
+    var ysL=function(v){return H-pad-(v/maxL)*(H-2*pad)};
+    function path(key){ return series.map(function(s,i){return (i?'L':'M')+xs(i).toFixed(1)+' '+ysL(s[key]).toFixed(1)}).join(' '); }
+    var area='M'+xs(0)+' '+(H-pad)+' '+series.map(function(s,i){return 'L'+xs(i).toFixed(1)+' '+ysL(s.leads).toFixed(1)}).join(' ')+' L'+xs(n-1)+' '+(H-pad)+' Z';
+    return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-height:200px">'+
+      '<path d="'+area+'" fill="var(--brand)" opacity=".10"/>'+
+      '<path d="'+path('leads')+'" fill="none" stroke="var(--brand)" stroke-width="2"/>'+
+      '<path d="'+path('matriculas')+'" fill="none" stroke="var(--green)" stroke-width="2"/>'+
+      '</svg><div class="muted" style="font-size:12px;margin-top:4px"><span style="color:var(--brand)">●</span> Leads &nbsp; <span style="color:var(--green)">●</span> Matrículas</div>';
+  }
+  function tbl(cols,rows,render){
+    if(!rows||!rows.length) return '<div class="empty">Sem dados no período</div>';
+    var h='<table><thead><tr>'+cols.map(function(c){return '<th class="'+(c.num?'num':'')+'">'+c.t+'</th>'}).join('')+'</tr></thead><tbody>';
+    h+=rows.map(render).join(''); h+='</tbody></table>'; return h;
+  }
+
+  // ---------- páginas ----------
+  function render(){
+    document.getElementById('pageTitle').textContent=TITLES[state.page]||'Painel';
+    var v=document.getElementById('view');
+    if(state.err==='token'){ v.innerHTML='<div class="empty">🔒 Link sem token de acesso.<br>Use o link completo: <code>/painel?token=…</code></div>'; setSub(''); return; }
+    if(state.err){ v.innerHTML='<div class="empty">Não foi possível carregar ('+state.err+'). Tente novamente.</div>'; return; }
+    if(state.loading || !state.data){ v.innerHTML='<div class="empty loading">Carregando dados…</div>'; return; }
+    var d=state.data; setSub(periodLabel(d));
+    var fn = PAGES[state.page] || pageSoon;
+    var arg = (state.page.indexOf('mkt_')===0) ? state.mkt : d;
+    v.innerHTML = fn(arg);
+  }
+  function setSub(t){ document.getElementById('pageSub').innerHTML=t; }
+  function periodLabel(d){
+    var f=new Date(d.periodo.from), t=new Date(d.periodo.to);
+    return 'Período: '+f.toLocaleDateString('pt-BR')+' – '+t.toLocaleDateString('pt-BR')+' · funil INE';
+  }
+
+  var PAGES = {
+    exec:function(d){ var g=d.visao_geral,a=d.visao_ant;
+      return '<div class="grid kpis">'+
+        kpiD('Leads recebidos',num(g.leads),g.leads,a.leads)+
+        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas)+
+        kpiD('Conversão',pct(g.conversao),g.conversao,a.conversao)+
+        kpiD('Faturamento',brl(g.faturamento),g.faturamento,a.faturamento)+
+        kpiD('Ticket médio',brl(g.ticket_medio),g.ticket_medio,a.ticket_medio)+
+        kpiD('Em aberto',num(g.em_aberto),g.em_aberto,a.em_aberto)+
+        kpiD('Perdas',num(g.perdas),g.perdas,a.perdas,true)+
+      '</div>'+
+      '<div class="section-h">Entrada de leads × matrículas por dia</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
+      '<div class="grid two" style="margin-top:14px">'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Top cursos (matrículas)</div>'+bars(d.cursos.slice(0,6),function(r){return r.curso},function(r){return r.matriculas})+'</div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Motivos de perda</div>'+bars(d.motivos_perda.slice(0,6),function(r){return r.motivo},function(r){return r.qtd},'lost')+'</div>'+
+      '</div>';
+    },
+    com_vg:function(d){ var g=d.visao_geral,a=d.visao_ant;
+      return '<div class="grid kpis">'+
+        kpiD('Leads',num(g.leads),g.leads,a.leads)+kpiD('Em aberto',num(g.em_aberto),g.em_aberto,a.em_aberto)+
+        kpiD('Matrículas',num(g.matriculas),g.matriculas,a.matriculas)+kpiD('Perdas',num(g.perdas),g.perdas,a.perdas,true)+
+        kpiD('Faturamento',brl(g.faturamento),g.faturamento,a.faturamento)+kpiD('Conversão',pct(g.conversao),g.conversao,a.conversao)+
+      '</div>'+
+      '<div class="section-h">Funil dos leads criados no período</div><div class="card">'+
+        bars(d.funil.filter(function(s){return s.qtd>0}),function(r){return r.name},function(r){return r.qtd},function(r){return r.tipo==='won'?'won':(r.tipo==='lost'?'lost':'')})+'</div>'+
+      '<div class="section-h">Entrada de leads × matrículas por dia</div><div class="card">'+lineChart(d.serie_diaria)+'</div>'+
+      '<div class="grid two" style="margin-top:14px">'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Vendedores</div>'+tbl(
+          [{t:'Vendedor'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'Fatur.',num:1}], d.vendedores,
+          function(r){return '<tr><td>'+r.vendedor+'</td><td class="num">'+num(r.leads_atribuidos)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td></tr>'})+'</div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Motivos de perda</div>'+bars(d.motivos_perda.slice(0,8),function(r){return r.motivo},function(r){return r.qtd},'lost')+'</div>'+
+      '</div>';
+    },
+    com_vend:function(d){
+      return '<div class="card">'+tbl(
+        [{t:'Vendedor'},{t:'Leads atrib.',num:1},{t:'Matrículas',num:1},{t:'Faturamento',num:1},{t:'Ticket',num:1},{t:'Parados 7d+',num:1}],
+        d.vendedores,function(r){return '<tr><td>'+r.vendedor+'</td><td class="num">'+num(r.leads_atribuidos)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td><td class="num">'+brl(r.ticket_medio)+'</td><td class="num">'+num(r.parados_7d)+'</td></tr>'})+'</div>';
+    },
+    com_funil:function(d){
+      return '<div class="section-h" style="margin-top:0">Funil dos leads criados no período</div><div class="card">'+
+        bars(d.funil.filter(function(s){return s.qtd>0}),function(r){return r.name},function(r){return r.qtd},function(r){return r.tipo==='won'?'won':(r.tipo==='lost'?'lost':'')})+'</div>'+
+        '<div class="section-h">Perdas por motivo</div><div class="card">'+bars(d.motivos_perda,function(r){return r.motivo},function(r){return r.qtd},'lost')+'</div>';
+    },
+    com_orig:function(d){
+      return '<div class="grid two">'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Leads por origem</div>'+tbl(
+          [{t:'Origem'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'%',num:1}],d.origens,
+          function(r){return '<tr><td>'+r.origem+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+pct(r.pct)+'</td></tr>'})+
+          '<div class="k-sub" style="margin-top:8px">⚠ origem por canal (<code>source</code>); detalhamento por mídia/UTM entra na próxima fase.</div></div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Regiões que mais vendem (por DDD)</div>'+tbl(
+          [{t:'DDD'},{t:'Estado'},{t:'Leads',num:1},{t:'Matríc.',num:1},{t:'Fatur.',num:1}],d.regioes,
+          function(r){return '<tr><td><b>'+r.ddd+'</b></td><td>'+r.estado+(r.uf&&r.uf!=="?"?' <span class="pill">'+r.uf+'</span>':'')+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td></tr>'})+
+          '<div class="k-sub" style="margin-top:8px">Região pelo DDD do telefone (o campo cidade é pouco preenchido).</div></div>'+
+      '</div>';
+    },
+    com_fin:function(d){
+      return '<div class="section-h" style="margin-top:0">Ranking de cursos (matrículas · faturamento · ticket)</div><div class="card">'+tbl(
+        [{t:'Curso'},{t:'Leads',num:1},{t:'Matrículas',num:1},{t:'Faturamento',num:1},{t:'Ticket',num:1}],d.cursos,
+        function(r){return '<tr><td>'+r.curso+'</td><td class="num">'+num(r.leads)+'</td><td class="num">'+num(r.matriculas)+'</td><td class="num">'+brl(r.faturamento)+'</td><td class="num">'+brl(r.ticket_medio)+'</td></tr>'})+'</div>';
+    },
+    com_pipe:function(d){ var p=d.pipeline||{por_etapa:[]};
+      return '<div class="grid kpis">'+kpi('Em aberto (agora)',num(p.abertos))+kpi('Parados 7d+',num(p.parados_7d))+'</div>'+
+      '<div class="section-h">Aging por etapa — situação atual do funil</div><div class="card">'+tbl(
+        [{t:'Etapa'},{t:'Em aberto',num:1},{t:'Dias parados (méd.)',num:1},{t:'Parados 7d+',num:1}],p.por_etapa,
+        function(r){return '<tr><td>'+r.etapa+'</td><td class="num">'+num(r.qtd)+'</td><td class="num">'+num(r.dias_medio)+'</td><td class="num">'+num(r.parados_7d)+'</td></tr>'})+
+        '<div class="k-sub" style="margin-top:8px">Snapshot do momento (todos os leads abertos no funil), não só do período.</div></div>';
+    },
+    com_jor:function(d){ var j=d.jornada||{movimentos_por_etapa:[],origem_matricula:[]};
+      return '<div class="grid kpis">'+kpi('Ciclo médio até matrícula',num(j.ciclo_medio_dias)+' dias')+kpi('Preenchimento de origem',pct(j.preenchimento_origem))+'</div>'+
+      '<div class="grid two" style="margin-top:14px">'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Movimentações por etapa (período)</div>'+bars(j.movimentos_por_etapa,function(r){return r.etapa},function(r){return r.movs})+'</div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Origem das matrículas</div>'+bars(j.origem_matricula,function(r){return r.origem},function(r){return r.qtd},'won')+'</div>'+
+      '</div>';
+    },
+    com_mat:function(d){ var m=d.matriculas||{pendencias:{},por_forma:[],lista:[]}; var pe=m.pendencias||{};
+      return '<div class="grid kpis">'+
+        kpi('Matrículas fechadas no mês',num(m.efetivadas_evento),'por data de pagamento')+kpi('Faturamento',brl(m.faturamento_pago))+
+        kpi('Ganhos sem data',num(pe.sem_data),'não entram até lançar a data')+kpi('Sem forma',num(pe.sem_forma))+kpi('Entraram no mês (coorte)',num(m.coorte),'por data de entrada')+'</div>'+
+      '<div class="grid two" style="margin-top:14px">'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Por forma de pagamento</div>'+tbl([{t:'Forma'},{t:'Qtd',num:1},{t:'Valor',num:1}],m.por_forma,function(r){return '<tr><td>'+(r.forma||'—')+'</td><td class="num">'+num(r.qtd)+'</td><td class="num">'+brl(r.valor)+'</td></tr>'})+'</div>'+
+        '<div class="card"><div class="section-h" style="margin-top:0">Auditoria de pendências</div><div class="k-sub">'+num(pe.total)+' matrículas fechadas no mês · '+num(pe.sem_data)+' ganhos sem data de pgto (fora da conta) · '+num(pe.sem_forma)+' sem forma · '+num(pe.sem_registro)+' sem registro de atendimento.</div></div>'+
+      '</div>'+
+      '<div class="section-h">Relatório nominal — matrículas fechadas no mês</div><div class="card" style="overflow:auto;max-height:520px">'+tbl(
+        [{t:'Nome'},{t:'Curso'},{t:'Vendedor'},{t:'Valor',num:1},{t:'Forma'},{t:'Ganho'},{t:'Pgto'}],m.lista,
+        function(r){return '<tr><td>'+(r.nome||'')+'</td><td>'+(r.curso||'—')+'</td><td>'+(r.vendedor||'—')+'</td><td class="num">'+brl(r.valor)+'</td><td>'+(r.forma||'—')+'</td><td>'+(r.data_ganho||'—')+'</td><td>'+(r.data_pgto||'—')+'</td></tr>'})+'</div>';
+    },
+    com_met:function(d){ var m=d.metas||{};
+      if(!m.disponivel) return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">Metas e comissões não configuradas.</div></div>';
+      var t=m.totais||{};
+      var kpis='<div class="grid kpis">'+kpi('Matrículas no período',num(t.matriculas))+kpi('Comissão total',brl(t.comissao))+
+        (t.sem_forma?kpi('Sem forma classificada',num(t.sem_forma),'não comissionadas'):'')+'</div>';
+      var tv='<div class="section-h">Comissão por vendedor</div><div class="card">'+tbl(
+        [{t:'Vendedor'},{t:'Matr.',num:1},{t:'Boleto',num:1},{t:'Cartão',num:1},{t:'PIX',num:1},{t:'Faixa'},{t:'Comissão',num:1},{t:'Próxima meta'}],
+        m.vendedores, function(v){ return '<tr><td>'+v.vendedor+'</td><td class="num">'+num(v.total)+'</td><td class="num">'+num(v.boleto)+'</td><td class="num">'+num(v.cartao)+'</td><td class="num">'+num(v.pix)+'</td><td><span class="pill">'+v.faixa+'</span></td><td class="num"><b>'+brl(v.comissao)+'</b></td><td class="num">'+(v.proxima?('faltam '+num(v.proxima.faltam)+' p/ '+v.proxima.nome):'—')+'</td></tr>'; })+'</div>';
+      var fx='<div class="section-h">Tabela de faixas (comissão por matrícula)</div><div class="card">'+tbl(
+        [{t:'Faixa'},{t:'A partir de',num:1},{t:'Boleto',num:1},{t:'Cartão',num:1},{t:'PIX',num:1}],
+        m.faixas, function(f){ return '<tr><td>'+f.nome+'</td><td class="num">'+num(f.min)+'</td><td class="num">'+brl(f.boleto)+'</td><td class="num">'+brl(f.cartao)+'</td><td class="num">'+brl(f.pix)+'</td></tr>'; })+'</div>';
+      return kpis+tv+fx+'<div class="muted" style="font-size:12px;margin-top:8px">Base: matrículas efetivadas por <b>data de pagamento</b>. A faixa é definida pela quantidade total de matrículas do vendedor no período; a comissão aplica a taxa da faixa por forma de pagamento. Matrículas sem forma preenchida entram na contagem da faixa, mas não geram comissão até a forma ser lançada.</div>';
+    },
+    mkt_vg:function(k){ if(!k) return '<div class="empty">Sem dados de marketing.</div>'; var m=k.meta;
+      return '<div class="grid kpis">'+
+        kpi('Investimento (Meta)',brl(m.investimento))+kpi('Impressões',num(m.impressoes))+kpi('Cliques',num(m.cliques))+
+        kpi('CTR',pct(m.ctr))+kpi('CPC',brl(m.cpc))+kpi('Leads de mídia',num(k.leads_midia),num(k.matriculas_midia)+' matrículas')+'</div>'+
+      '<div class="card" style="margin-top:12px"><div class="k-sub">⚠ '+k.cpl_cac_nota+'</div></div>'+
+      '<div class="section-h">Leads de mídia por canal</div><div class="card">'+bars(k.por_canal,function(r){return r.canal||'(sem canal)'},function(r){return r.leads})+'</div>';
+    },
+    mkt_meta:function(k){ if(!k||!k.meta) return '<div class="empty">Sem dados.</div>'; var m=k.meta;
+      return '<div class="grid kpis">'+kpi('Investimento',brl(m.investimento))+kpi('Impressões',num(m.impressoes))+kpi('Cliques',num(m.cliques))+kpi('CTR',pct(m.ctr))+kpi('CPC',brl(m.cpc))+kpi('CPM',brl(m.cpm))+'</div>'+
+      '<div class="section-h">Campanhas</div><div class="card" style="overflow:auto">'+tbl(
+        [{t:'Campanha'},{t:'Investim.',num:1},{t:'Impr.',num:1},{t:'Cliques',num:1},{t:'CTR',num:1},{t:'CPC',num:1}],m.campanhas,
+        function(r){return '<tr><td>'+r.campanha+'</td><td class="num">'+brl(r.spend)+'</td><td class="num">'+num(r.impr)+'</td><td class="num">'+num(r.clicks)+'</td><td class="num">'+pct(r.ctr)+'</td><td class="num">'+brl(r.cpc)+'</td></tr>'})+
+        '<div class="k-sub" style="margin-top:8px">Custo fresco (source meta_api). Sem atribuição de lead por campanha neste tenant.</div></div>';
+    },
+    mkt_google:function(k){ var g=((k&&k.por_canal)||[]).filter(function(r){return r.canal==='google_ads'});
+      var leads=g.reduce(function(a,b){return a+b.leads},0), mat=g.reduce(function(a,b){return a+b.matriculas},0);
+      return '<div class="empty"><span class="flag">SEM CUSTO</span><div style="margin-top:10px">Google Ads: <b>'+num(leads)+'</b> leads e <b>'+num(mat)+'</b> matrículas rastreados por origem — mas sem dado de custo no tenant, então CPL/ROAS não são calculáveis.</div></div>';
+    },
+    mkt_org:function(){ return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">Fonte de redes orgânicas ainda não conectada a este tenant.</div></div>'; },
+  };
+  function pageSoon(){
+    var gaps={com_sdr:'Agente SDR está desligado no ineprotec (sem chatbot ativo) — sem dado.',
+      mkt_google:'Sem dado de custo do Google Ads neste tenant.',mkt_org:'Fonte de redes orgânicas ainda não conectada.'};
+    var g=gaps[state.page];
+    if(g) return '<div class="empty"><span class="flag">SEM DADO</span><div style="margin-top:10px">'+g+'</div></div>';
+    return '<div class="empty"><span class="flag">EM CONSTRUÇÃO</span><div style="margin-top:10px">Esta página entra nas próximas fases (dados já existem no banco).</div></div>';
+  }
+
+  // ---------- init ----------
+  document.getElementById('themeBtn').onclick=function(){
+    var cur=document.documentElement.getAttribute('data-theme')==='dark'?'':'dark';
+    document.documentElement.setAttribute('data-theme',cur); try{localStorage.setItem('painel_theme',cur)}catch(e){}
+  };
+  try{ var th=localStorage.getItem('painel_theme'); if(th)document.documentElement.setAttribute('data-theme',th);}catch(e){}
+  document.getElementById('applyBtn').onclick=function(){
+    var f=document.getElementById('fromD').value,t=document.getElementById('toD').value;
+    if(f&&t){ state.from=f; state.to=t; document.getElementById('monthSel').value='custom'; load(); }
+  };
+  if(location.hash && TITLES[location.hash.slice(1)]) state.page=location.hash.slice(1);
+  buildNav(); fillMonths(); render(); load();
+})();
+</script>
+</body>
+</html>

@@ -89,6 +89,7 @@ import { smartBroadcastRoutes } from './routes/smartBroadcast.js'
 import { cloudApiWebhookRoutes } from './routes/cloudApiWebhook.js'
 import { metaAdsReportRoutes } from './routes/metaAdsReport.js'
 import { funnelReportRoutes } from './routes/funnelReport.js'
+import { painelGerencialRoutes } from './routes/painelGerencial.js'
 import { trackableLinksRoutes } from './routes/trackableLinks.js'
 import { pixelRoutes } from './routes/pixel.js'
 import { educationalRoutes } from './routes/educational.js'
@@ -810,6 +811,7 @@ await app.register(securityRoutes)
 await app.register(leadBlocklistRoutes)
 await app.register(metaAdsReportRoutes)
 await app.register(funnelReportRoutes)
+await app.register(painelGerencialRoutes)
 await app.register(trackableLinksRoutes)
 await app.register(pixelRoutes)
 await app.register(educationalRoutes)

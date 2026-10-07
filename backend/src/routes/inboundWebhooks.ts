@@ -337,6 +337,23 @@ export async function inboundWebhooksRoutes(app: FastifyInstance) {
         ipAddress: ip,
       })
 
+      // "Lead criado" é o evento que acorda os fluxos (gatilho lead.created),
+      // as pontuações e a checagem do número. Este caminho só registrava o
+      // recebimento do webhook: os leads de site/formulário externo entravam e
+      // nenhum fluxo de 1ª interação disparava (ineprotec, 05/10/2026 — ~335
+      // leads/mês sem mensagem automática).
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.LEAD_CREATED,
+        category: 'lifecycle',
+        title: `Lead criado via webhook de entrada: ${webhook.name}`,
+        channel: 'webhook',
+        source,
+        actorType: 'lead',
+        metadata: { webhookId: webhook.id, webhookName: webhook.name, funnelId: targetFunnelId },
+        ipAddress: ip,
+      })
+
       if (routedRuleId) {
         logEvent({
           leadId,
