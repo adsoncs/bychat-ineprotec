@@ -56,6 +56,22 @@ export function isFormSource(value: string | null | undefined): boolean {
   return !!value && FORM_RE.test(value)
 }
 
+// Idem para portais de matrícula com "Nome da origem": `enrollment_portal:<id>`
+// (ou `enrollment_portal_interest:<id>`), rótulo de EnrollmentPortal.sourceLabel.
+// Populado pelo AppShell via useEnrollmentPortalSourceLabels().
+let portalSourceNames: Record<number, string> = {}
+export function setPortalSourceNames(map: Record<number, string>): void {
+  portalSourceNames = map
+}
+
+const PORTAL_RE = /^(enrollment_portal|enrollment_portal_interest):(\d+)$/
+
+/** `enrollment_portal:3` → `enrollment_portal`: ícone, cor e regras olham o tipo de origem. */
+export function baseLeadSource<T extends string | null | undefined>(value: T): T | 'enrollment_portal' | 'enrollment_portal_interest' {
+  const m = value ? PORTAL_RE.exec(value) : null
+  return m ? (m[1] as 'enrollment_portal' | 'enrollment_portal_interest') : value
+}
+
 /**
  * Cor da origem do lead.
  *
@@ -97,7 +113,7 @@ export function leadSourceColor(value: string | null | undefined): string {
   const m = DB_CONNECTOR_RE.exec(value)
   if (m) return 'var(--color-fg-muted)'
   if (FORM_RE.test(value)) return LEAD_SOURCE_COLORS.form!
-  return LEAD_SOURCE_COLORS[value] ?? 'var(--color-fg-muted)'
+  return LEAD_SOURCE_COLORS[baseLeadSource(value)] ?? 'var(--color-fg-muted)'
 }
 
 export function leadSourceLabel(value: string | null | undefined): string {
@@ -106,5 +122,11 @@ export function leadSourceLabel(value: string | null | undefined): string {
   if (m) return dbConnectorNames[Number(m[1])] ?? 'Banco de Dados'
   const f = FORM_RE.exec(value)
   if (f) return formSourceNames[Number(f[1])] ?? 'Formulário'
+  const p = PORTAL_RE.exec(value)
+  if (p) {
+    const name = portalSourceNames[Number(p[2])]
+    if (!name) return LEAD_SOURCE_LABELS[p[1]!]!
+    return p[1] === 'enrollment_portal_interest' ? `${name} (Interesse)` : name
+  }
   return LEAD_SOURCE_LABELS[value] ?? value
 }

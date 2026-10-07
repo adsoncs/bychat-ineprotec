@@ -24,6 +24,7 @@ export interface EnrollmentPortal {
   magicLinkTtlDays: number
   alwaysCreateNew: boolean
   codePrefix: string
+  sourceLabel: string | null
   active: boolean
   publishedAt: string | null
 
@@ -147,6 +148,7 @@ export interface EnrollmentPortalInput {
   continuationPortalId?: number | null | undefined
   selectionProcessIds?: number[] | undefined
   codePrefix?: string | undefined
+  sourceLabel?: string | null | undefined
   magicLinkTtlDays?: number | undefined
   alwaysCreateNew?: boolean | undefined
   ctaBehavior?: 'message' | 'redirect' | undefined
@@ -219,6 +221,17 @@ export interface BrandingInput {
   brandLabels?: Record<string, string> | null | undefined
   /** Aparência do formulário limpo (embed). Ver FormLimpoEditor. */
   brandFormStyle?: Record<string, unknown> | null | undefined
+}
+
+/** Mapa id→"Nome da origem" dos portais, p/ resolver `source = enrollment_portal:<id>`.
+ *  Fica sob ['enrollment-portals'] de propósito: salvar um portal já invalida o
+ *  prefixo e o rótulo novo aparece sem recarregar. */
+export function useEnrollmentPortalSourceLabels() {
+  return useQuery<{ items: { id: number; name: string }[] }>({
+    queryKey: ['enrollment-portals', 'source-labels'],
+    queryFn: () => api.get('/admin/enrollment-portals/source-labels'),
+    staleTime: 5 * 60_000,
+  })
 }
 
 export function useEnrollmentPortals() {

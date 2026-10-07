@@ -90,7 +90,7 @@ export function deriveLeadOrigin(input: DeriveOriginInput): OriginType {
   if (qualificationSource === 'meta_lead_ads' || source === 'meta_lead_ads') return 'meta_lead_ads'
 
   // 6. Portal de matrículas
-  if (qualificationSource === 'enrollment_portal' || source === 'enrollment_portal') return 'enrollment_portal'
+  if (qualificationSource === 'enrollment_portal' || source === 'enrollment_portal' || source?.startsWith('enrollment_portal:')) return 'enrollment_portal'
 
   // 7. Canal de mensagem (priorizar quando explícito — independe de utm)
   const ch = (channel ?? '').toLowerCase()

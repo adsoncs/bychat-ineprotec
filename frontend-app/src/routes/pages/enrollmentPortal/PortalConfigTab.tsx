@@ -54,6 +54,9 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   const [docsCompleteStageKey, setDocsCompleteStageKey] = useState(portal.docsCompleteStageKey ?? '')
   const [finalApprovalStageKey, setFinalApprovalStageKey] = useState(portal.finalApprovalStageKey ?? '')
 
+  // Nome da origem dos leads (source = enrollment_portal:<id>)
+  const [sourceLabel, setSourceLabel] = useState(portal.sourceLabel ?? '')
+
   // Domínio + SEO
   const [customDomain, setCustomDomain] = useState(portal.customDomain ?? '')
   const [ogImageUrl, setOgImageUrl] = useState(portal.ogImageUrl ?? '')
@@ -122,6 +125,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
       stageKey: stageKey || null,
       docsCompleteStageKey: docsCompleteStageKey || null,
       finalApprovalStageKey: finalApprovalStageKey || null,
+      sourceLabel: sourceLabel.trim() || null,
       customDomain: customDomain.trim() || null,
       ogImageUrl: ogImageUrl.trim() || null,
       metaTitle: metaTitle.trim() || null,
@@ -258,6 +262,14 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
       <Card>
         <SectionTitle>Funil de leads</SectionTitle>
         <div class="space-y-3">
+          <Input
+            label="Nome da origem"
+            value={sourceLabel}
+            maxLength={80}
+            onInput={(e) => mark(setSourceLabel)((e.target as HTMLInputElement).value)}
+            placeholder="Ex.: Portal Graduação"
+            hint="É o que aparece em Origem nos leads que entram por este portal. Vazio = Portal de Matrícula."
+          />
           <Select
             label="Funil destino"
             value={funnelId === '' ? '' : String(funnelId)}

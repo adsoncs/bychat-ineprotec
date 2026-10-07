@@ -3,6 +3,8 @@
 // dinâmicos para o "canal" amigável que aparece em funis/relatórios:
 //   `db_connector:<id>` → nome do conector (DbConnector.channelLabel || name)
 //   `form:<id>`         → "Nome da origem" do formulário (Form.settings.sourceLabel)
+//   `enrollment_portal:<id>` / `enrollment_portal_interest:<id>`
+//                       → "Nome da origem" do portal (EnrollmentPortal.sourceLabel)
 
 import { prisma } from './prisma.js'
 
@@ -29,6 +31,44 @@ const STATIC_SOURCE_LABELS: Record<string, string> = {
 
 const DB_CONNECTOR_RE = /^db_connector:(\d+)$/
 const FORM_RE = /^form:(\d+)$/
+const PORTAL_RE = /^(enrollment_portal|enrollment_portal_interest):(\d+)$/
+
+/**
+ * `source` do lead que nasce num portal: com "Nome da origem" preenchido vira
+ * `<base>:<id>` (o nome é resolvido na leitura); sem nome, a origem genérica.
+ */
+export function portalLeadSource(
+  portal: { id: number; sourceLabel?: string | null },
+  base: 'enrollment_portal' | 'enrollment_portal_interest' = 'enrollment_portal',
+): string {
+  return portal.sourceLabel?.trim() ? `${base}:${portal.id}` : base
+}
+
+/** `enrollment_portal:3` → `enrollment_portal` (para regras que olham o tipo de origem). */
+export function baseLeadSource(source: string | null | undefined): string | null | undefined {
+  const m = source ? PORTAL_RE.exec(source) : null
+  return m ? m[1] : source
+}
+
+/** Portal apagado ou que perdeu o nome da origem cai no rótulo genérico. */
+function portalFallback(base: string): string {
+  return STATIC_SOURCE_LABELS[base] ?? 'Portal de Matrícula'
+}
+
+function portalLabel(base: string, name: string | undefined): string {
+  if (!name) return portalFallback(base)
+  return base === 'enrollment_portal_interest' ? `${name} (Interesse)` : name
+}
+
+async function portalSourceLabels(ids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  if (ids.length === 0) return out
+  const portals = await prisma.enrollmentPortal.findMany({ where: { id: { in: ids } }, select: { id: true, sourceLabel: true } })
+  for (const p of portals) {
+    if (p.sourceLabel?.trim()) out.set(p.id, p.sourceLabel.trim())
+  }
+  return out
+}
 
 /** Form apagado ou que perdeu o nome da origem cai no rótulo genérico. */
 const FORM_FALLBACK = 'Formulário'
@@ -50,6 +90,11 @@ async function formSourceLabels(ids: number[]): Promise<Map<number, string>> {
  * diz nada a ninguém. Demais valores seguem crus, como sempre foram.
  */
 export async function withSourceLabel<T extends { source?: string | null }>(lead: T): Promise<T> {
+  const p = lead?.source ? PORTAL_RE.exec(lead.source) : null
+  if (p) {
+    const names = await portalSourceLabels([Number(p[2])]).catch(() => new Map<number, string>())
+    return { ...lead, source: portalLabel(p[1], names.get(Number(p[2]))) }
+  }
   const m = lead?.source ? FORM_RE.exec(lead.source) : null
   if (!m) return lead
   const names = await formSourceLabels([Number(m[1])]).catch(() => new Map<number, string>())
@@ -81,6 +126,15 @@ export async function buildSourceLabeler(
     ),
   ]
   const formNames = await formSourceLabels(formIds)
+  const portalIds = [
+    ...new Set(
+      sources
+        .map((s) => (s ? PORTAL_RE.exec(s)?.[2] : null))
+        .filter((x): x is string => !!x)
+        .map((x) => Number(x)),
+    ),
+  ]
+  const portalNames = await portalSourceLabels(portalIds)
   const names = new Map<number, string>()
   if (ids.length > 0) {
     const conns = await prisma.dbConnector.findMany({
@@ -95,6 +149,8 @@ export async function buildSourceLabeler(
     if (m) return names.get(Number(m[1])) || 'Banco de Dados'
     const f = FORM_RE.exec(source)
     if (f) return formNames.get(Number(f[1])) || FORM_FALLBACK
+    const p = PORTAL_RE.exec(source)
+    if (p) return portalLabel(p[1], portalNames.get(Number(p[2])))
     return STATIC_SOURCE_LABELS[source] ?? source
   }
 }

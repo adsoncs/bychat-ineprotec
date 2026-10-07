@@ -171,7 +171,7 @@ import { corDoCanal, nomeDoCanal } from '@/lib/channelColors'
 import { formatRelative } from '@/lib/format'
 import { formatarTelefone } from '@/lib/telefone'
 import { toast } from '@/lib/toast'
-import { leadSourceLabel, isFormSource } from '@/lib/leadSourceLabels'
+import { leadSourceLabel, isFormSource, baseLeadSource } from '@/lib/leadSourceLabels'
 
 // As abas. O rótulo aqui é só o de fábrica: o nome exibido vem de
 // `useTabLabels()`, que a empresa personaliza em Preferências — regra nenhuma
@@ -245,8 +245,8 @@ function ChannelIcon({ source, size = 12 }: { source: string | null; size?: numb
   if (!source) return null
   const title = leadSourceLabel(source)
   const common = { width: size, height: size, viewBox: '0 0 24 24' }
-  // form:<id> (origem nomeada) usa o mesmo ícone de formulário.
-  switch (isFormSource(source) ? 'form' : source) {
+  // form:<id> / enrollment_portal:<id> (origem nomeada) usam o ícone do tipo.
+  switch (isFormSource(source) ? 'form' : baseLeadSource(source)) {
     case 'whatsapp':
       return (
         <svg {...common} fill="#25D366" aria-label={title}>

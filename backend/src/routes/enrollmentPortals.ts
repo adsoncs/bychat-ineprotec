@@ -38,6 +38,7 @@ import { regrasComTabela, valorBaseDoMeio } from '../services/tabelaDePrecos.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
 import { syncChargeFromProvider, recordWebhookHit, updateWebhookHit } from '../services/paymentSync.js'
 import { logSecurityEvent } from '../services/security.js'
+import { portalLeadSource } from '../lib/leadSourceLabel.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
 import { redis } from '../lib/redis.js'
 import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink } from '../lib/candidateAuth.js'
@@ -589,6 +590,16 @@ async function contaTemSenha(leadId: number): Promise<boolean> {
 export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/enrollment-portals — listar
+  // GET /source-labels — mapa id→"Nome da origem". Resolve o `source =
+  // enrollment_portal:<id>` em Leads/Kanban/Conversas (espelho de /api/forms/source-labels).
+  app.get('/api/admin/enrollment-portals/source-labels', { preHandler: authMiddleware }, async () => {
+    const rows = await prisma.enrollmentPortal.findMany({ select: { id: true, sourceLabel: true }, orderBy: { id: 'asc' } })
+    const items = rows
+      .map((r) => ({ id: r.id, name: (r.sourceLabel ?? '').trim() }))
+      .filter((r) => r.name)
+    return { items }
+  })
+
   app.get('/api/admin/enrollment-portals', { preHandler: authMiddleware }, async () => {
     const portals = await prisma.enrollmentPortal.findMany({
       orderBy: { createdAt: 'desc' },
@@ -722,6 +733,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         finalApprovalStageKey: body.finalApprovalStageKey || null,
         paymentConnectionId: body.paymentConnectionId ? parseInt(body.paymentConnectionId) : null,
         codePrefix: body.codePrefix || 'MAT',
+        sourceLabel: String(body.sourceLabel ?? '').trim().slice(0, 100) || null,
         active: body.active !== false,
         createdBy: user.userId,
       },
@@ -823,6 +835,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (body.finalApprovalStageKey !== undefined) data.finalApprovalStageKey = body.finalApprovalStageKey || null
     if (body.paymentConnectionId !== undefined) data.paymentConnectionId = body.paymentConnectionId ? parseInt(body.paymentConnectionId) : null
     if (body.codePrefix !== undefined) data.codePrefix = body.codePrefix || 'MAT'
+    if (body.sourceLabel !== undefined) data.sourceLabel = String(body.sourceLabel ?? '').trim().slice(0, 100) || null
     if (body.active !== undefined) data.active = !!body.active
     if (body.publishedAt !== undefined) data.publishedAt = body.publishedAt ? new Date(body.publishedAt) : null
 
@@ -1090,7 +1103,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const busca = String(q.search || '').trim()
     const where: any = {
-      source: 'enrollment_portal_interest',
+      source: { startsWith: 'enrollment_portal_interest' },
       formData: { path: '$._portalSlug', equals: portal.slug },
       ...(busca ? { OR: [{ nome: { contains: busca } }, { email: { contains: busca } }, { whatsapp: { contains: busca.replace(/\D/g, '') || busca } }] } : {}),
     }
@@ -2056,7 +2069,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
     const portal = await prisma.enrollmentPortal.findUnique({
       where: { slug },
-      select: { id: true, nome: true, active: true, unitId: true, selectionProcessIds: true, allowedCampusIds: true, teamId: true, funnelId: true, stageKey: true, alwaysCreateNew: true, captchaType: true, captchaSecret: true, formConfig: true, requirePayment: true, formMode: true, paymentMode: true, jornadaEtapas: true },
+      select: { id: true, nome: true, active: true, unitId: true, selectionProcessIds: true, allowedCampusIds: true, teamId: true, funnelId: true, stageKey: true, alwaysCreateNew: true, captchaType: true, captchaSecret: true, formConfig: true, requirePayment: true, formMode: true, paymentMode: true, jornadaEtapas: true, sourceLabel: true },
     })
     if (!portal || !portal.active) return reply.code(404).send({ error: 'Portal indisponível' })
 
@@ -2278,7 +2291,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           lastStep: 0,
           completed: false,
           status: resolvedEntryStage,
-          source: 'enrollment_portal',
+          source: portalLeadSource(portal),
           originType: 'enrollment_portal',
           teamId: routedTeamId,
           funnelId: resolvedFunnelId,
@@ -3744,7 +3757,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const portal = await prisma.enrollmentPortal.findUnique({
       where: { slug },
       select: {
-        id: true, nome: true, active: true, formMode: true,
+        id: true, nome: true, active: true, formMode: true, sourceLabel: true,
         teamId: true, funnelId: true, stageKey: true, alwaysCreateNew: true,
         captchaType: true, captchaSecret: true,
         magicLinkTtlDays: true,
@@ -3834,7 +3847,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           lastStep: 0,
           completed: false,
           status: resolvedEntryStage,
-          source: 'enrollment_portal_interest',
+          source: portalLeadSource(portal, 'enrollment_portal_interest'),
           originType: 'web_form',
           teamId: routedTeamId,
           funnelId: resolvedFunnelId,

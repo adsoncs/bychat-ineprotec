@@ -61,6 +61,13 @@ function matchesTriggerConfig(triggerConfig: any, event: DomainEvent): boolean {
       continue
     }
 
+    // `enrollment_portal:<id>` (portal com origem nomeada): filtro antigo por
+    // "Portal de matrículas" (enrollment_portal) continua pegando.
+    if (key === 'source' && typeof actual === 'string' && /^enrollment_portal(_interest)?:\d+$/.test(actual)) {
+      if (!valueMatches(actual, expected) && !valueMatches(actual.split(':')[0], expected)) return false
+      continue
+    }
+
     if (key === 'funnelId') {
       if (!valueMatches(event.funnelId, expected) && !valueMatches(event.payload?.metadata?.funnelId, expected)) return false
       continue

@@ -4103,6 +4103,11 @@ model EnrollmentPortal {
   paymentConnection   PaymentProviderConnection? @relation(fields: [paymentConnectionId], references: [id], onDelete: SetNull)
 
   // Sequência de candidateCode (usado no generator)
+  // "Nome da origem" dos leads deste portal (ex.: "Portal Graduação"). Vazio =
+  // origem genérica `enrollment_portal`; preenchido = `enrollment_portal:<id>`,
+  // resolvido para este nome em Leads/Kanban/Conversas/relatórios (como Form).
+  sourceLabel String? @db.VarChar(100)
+
   codePrefix   String @default("MAT") @db.VarChar(10)
   codeSequence Int    @default(0)
 

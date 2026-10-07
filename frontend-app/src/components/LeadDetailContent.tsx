@@ -29,6 +29,7 @@ import { LeadStatusHistoryTab } from '@/components/LeadStatusHistoryTab'
 import { useModuleAccess } from '@/hooks/usePermissions'
 import { useBlockLeadContact } from '@/hooks/useSecurity'
 import { toast } from '@/lib/toast'
+import { baseLeadSource } from '@/lib/leadSourceLabels'
 
 // `module` opcional: a seção só aparece quando o módulo está ativo (gating no TOC).
 export const LEAD_DETAIL_SECTIONS = [
@@ -148,7 +149,7 @@ export function useLeadActions(id: number, lead: ReturnType<typeof useLead>['dat
   const enrollLink = useEnrollmentLinkByLead()
 
   const isEnrollmentLead =
-    lead?.source === 'enrollment_portal' || lead?.source === 'enrollment_portal_interest'
+    baseLeadSource(lead?.source) === 'enrollment_portal' || baseLeadSource(lead?.source) === 'enrollment_portal_interest'
 
   function handleQualify() {
     qualify.mutate(id, {

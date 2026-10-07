@@ -1,8 +1,9 @@
 import type { ComponentChildren } from 'preact'
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks'
 import { useDbConnectorNames } from '@/hooks/useDbConnectors'
-import { setDbConnectorNames, setFormSourceNames } from '@/lib/leadSourceLabels'
+import { setDbConnectorNames, setFormSourceNames, setPortalSourceNames } from '@/lib/leadSourceLabels'
 import { useFormSourceLabels } from '@/hooks/useForms'
+import { useEnrollmentPortalSourceLabels } from '@/hooks/useEnrollmentPortals'
 import { useShellLayout } from '@/hooks/useBreakpoint'
 import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
@@ -74,6 +75,13 @@ export function AppShell({ children }: AppShellProps) {
       setFormSourceNames(Object.fromEntries(formSourceLabels.items.map((f) => [f.id, f.name])))
     }
   }, [formSourceLabels])
+  // Idem para portais de matrícula com "Nome da origem" (source = enrollment_portal:<id>).
+  const { data: portalSourceLabels } = useEnrollmentPortalSourceLabels()
+  useMemo(() => {
+    if (portalSourceLabels?.items) {
+      setPortalSourceNames(Object.fromEntries(portalSourceLabels.items.map((p) => [p.id, p.name])))
+    }
+  }, [portalSourceLabels])
 
   // Cmd+K / Ctrl+K abre a palette globalmente; Cmd+B / Ctrl+B recolhe o menu
   // (mesmo atalho do VS Code). No mobile a navegação é o drawer — o atalho ali

@@ -12,6 +12,7 @@
 import { prisma } from '../lib/prisma.js'
 import { resolveDefaultTeamId } from './teamRouting.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { portalLeadSource } from '../lib/leadSourceLabel.js'
 
 export interface EnsureLeadResult {
   leadId: number | null
@@ -47,7 +48,7 @@ async function resolveEntryStageKey(funnelId: number | null, preferredKey: strin
 export async function ensureLeadForRegistration(registrationId: number): Promise<EnsureLeadResult> {
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
-    include: { portal: { select: { id: true, slug: true, funnelId: true, stageKey: true, teamId: true } } },
+    include: { portal: { select: { id: true, slug: true, funnelId: true, stageKey: true, teamId: true, sourceLabel: true } } },
   })
   if (!reg) return { leadId: null, action: 'skipped', reason: 'inscrição não encontrada' }
   if (reg.leadId) return { leadId: reg.leadId, action: 'already' }
@@ -111,7 +112,7 @@ export async function ensureLeadForRegistration(registrationId: number): Promise
       lastStep: 0,
       completed: false,
       status: stageKey,
-      source: 'enrollment_portal',
+      source: portal ? portalLeadSource(portal) : 'enrollment_portal',
       originType: 'enrollment_portal',
       teamId,
       funnelId,
