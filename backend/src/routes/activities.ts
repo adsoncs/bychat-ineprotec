@@ -434,8 +434,21 @@ async function executeActivity(activity: any, app?: any): Promise<string> {
 
       result = await sendEmailActivity(email, subject, htmlBody, activity.attachmentUrl, activity.attachmentName)
 
-    } else if (activity.type === 'sms' && activity.messageBody) {
-      result = 'SMS: funcionalidade a ser integrada com provedor'
+    } else if (activity.type === 'sms') {
+      // Antes isto só marcava a atividade como "enviada" sem mandar nada.
+      // Agora vai pelo provedor de Configurações → SMS (Comtele); falha de
+      // verdade vira status 'failed' com o motivo, no catch abaixo.
+      const phone = activity.recipientPhone || lead?.whatsapp
+      if (!phone) throw new Error('Numero de telefone nao encontrado')
+      if (!activity.messageBody?.trim()) throw new Error('Nenhuma mensagem para enviar')
+      const optOut = activity.leadId ? await prisma.lead.findUnique({ where: { id: activity.leadId }, select: { optOutChannels: true } }) : null
+      if (Array.isArray(optOut?.optOutChannels) && (optOut!.optOutChannels as string[]).includes('sms')) {
+        throw new Error('Lead pediu para nao receber SMS')
+      }
+      const { sendSms } = await import('../services/smsProvider.js')
+      const r = await sendSms({ to: phone, message: activity.messageBody })
+      if (!r.ok) throw new Error(`SMS: ${r.error || 'falha no envio'}`)
+      result = `SMS enviado${r.providerId ? ` (${r.providerId})` : ''}`
     } else {
       result = 'Atividade marcada como concluida'
     }
