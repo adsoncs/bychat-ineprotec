@@ -4,7 +4,7 @@
 // só que está errado: quem está preenchendo isso no ônibus não vai adivinhar o
 // que "campo inválido" quer dizer.
 
-export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker' | 'number' | 'rg'
+export type Tipo = 'text' | 'email' | 'phone' | 'cpf' | 'date' | 'cep' | 'select' | 'textarea' | 'offering-picker' | 'number' | 'rg' | 'document'
 
 const digitos = (v: string) => v.replace(/\D+/g, '')
 
@@ -89,6 +89,8 @@ export interface Campo {
   placeholder?: string
   helpText?: string
   visibleWhen?: { entryMode?: string[] }
+  /** Só em type 'document': código do tipo de documento (DocumentType.code) em que o arquivo entra. */
+  documentType?: string
   /** Só na escolha de curso: formato da lista e se mostra o valor. */
   config?: {
     exibicao?: 'cartoes' | 'lista' | 'suspensa'; mostrarValor?: boolean

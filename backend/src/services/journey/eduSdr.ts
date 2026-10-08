@@ -160,7 +160,9 @@ async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal
         processo: o.selectionProcess ? { id: o.selectionProcess.id, nome: o.selectionProcess.nome, taxaInscricao: o.selectionProcess.taxaInscricao != null ? Number(o.selectionProcess.taxaInscricao) : null } : null,
         ingresso: o.selectionProcess?.entryMode ? { code: o.selectionProcess.entryMode.code, name: o.selectionProcess.entryMode.name, evaluationType: o.selectionProcess.entryMode.evaluationType } : null,
         camposDoIngresso: (Array.isArray(o.selectionProcess?.entryMode?.defaultFormExtras) ? o.selectionProcess.entryMode.defaultFormExtras : [])
-          .filter((f: any) => f?.name)
+          // Campo "documento" é arquivo: no chat ele entra como documento da
+          // inscrição (anexar_documento), não como dado digitado.
+          .filter((f: any) => f?.name && f.type !== 'document')
           .map((f: any) => ({ name: String(f.name), label: limpar(f.label || f.name, 120), required: !!f.required, type: String(f.type || 'text') })),
         inicioCurso: o.inicioCurso ? new Date(o.inicioCurso).toLocaleDateString('pt-BR') : null,
       })

@@ -2207,6 +2207,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       for (const field of fields) {
         if (field?.name) seenNames.add(field.name)
         if (!field?.required) continue
+        if (field.type === 'document') continue // arquivo sobe depois do envio (ver extras abaixo)
         const rule = field?.visibleWhen?.entryMode
         if (Array.isArray(rule) && rule.length > 0) {
           // Regra existe: só exige se o modo atual está na lista permitida
@@ -2222,6 +2223,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const offeringExtras = (offering?.selectionProcess?.entryMode?.defaultFormExtras as any[]) || []
     for (const ex of offeringExtras) {
       if (!ex?.required || !ex?.name) continue
+      // Campo "documento": o arquivo sobe logo depois, como documento da
+      // inscrição (não vem no corpo do envio) — a etapa Documentos cobra.
+      if (ex.type === 'document') continue
       if (seenNames.has(ex.name)) continue
       const val = fd[ex.name]
       const empty = val == null || val === '' || (Array.isArray(val) && val.length === 0)

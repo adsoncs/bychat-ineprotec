@@ -211,6 +211,7 @@ interface FormExtraField {
   name?: string
   label?: string | undefined
   required?: boolean
+  documentType?: string
 }
 
 export function readFormExtras(raw: unknown): FormExtraField[] {
@@ -221,6 +222,7 @@ export function readFormExtras(raw: unknown): FormExtraField[] {
     if (typeof x.name === 'string') out.name = x.name
     if (typeof x.label === 'string') out.label = x.label
     if (typeof x.required === 'boolean') out.required = x.required
+    if (typeof x.documentType === 'string') out.documentType = x.documentType
     return out
   })
 }
@@ -300,6 +302,7 @@ export function formConfigFromBlocks(blocks: FormBlock[], modes: EntryMode[]): F
           label: f.label ?? f.name ?? '',
           required: f.required !== false,
           visibleWhen: { entryMode: [m.code] },
+          ...(f.documentType ? { documentType: f.documentType } : {}),
         }))
         steps.push({ id: id(), name: `Dados ${m.name}`, fields })
       }

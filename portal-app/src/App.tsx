@@ -5,7 +5,8 @@ import {
   carregarPortal, enviarInscricao, enviarInteresse, lerRascunho, marcarConversao, rotulo, salvarRascunho,
   type DadosPortal, type Oferta, type Passo,
 } from './api'
-import { criarSenhaInicial } from './api'
+import { criarSenhaInicial, enviarDocumento } from './api'
+import { comprimirSePreciso } from './imagem'
 import { Jornada } from './Jornada'
 import { aplicarMarca } from './marca'
 import { conclusaoDoPortal, irPara, recomendarCursos, type Recomendacao } from './api'
@@ -87,6 +88,11 @@ export function App() {
   const [falha, setFalha] = useState<string | null>(null)
   const [valores, setValores] = useState<Valores>({})
   const [tocados, setTocados] = useState<Record<string, boolean>>({})
+  // Arquivos dos campos "documento" da forma de ingresso. Ficam fora de
+  // `valores` (o rascunho é JSON): sobem como documento da inscrição logo
+  // depois do envio, com o token que ele devolve.
+  const [arquivos, setArquivos] = useState<Record<string, File>>({})
+  const [avisoDocs, setAvisoDocs] = useState<string | null>(null)
   const [passo, setPasso] = useState(0)
   const [enviando, setEnviando] = useState(false)
   const [erroEnvio, setErroEnvio] = useState<string | null>(null)
@@ -196,7 +202,7 @@ export function App() {
   const nomesNoFormulario = new Set(passos.flatMap((p) => ((p.fields ?? []) as Campo[]).map((c) => c.name)))
   function extrasDoIngresso(oferta: (typeof offertasDisponiveis)[number] | undefined): Campo[] {
     const extras = oferta?.selectionProcess?.entryMode?.defaultFormExtras ?? []
-    const tipos = new Set(['text', 'email', 'phone', 'cpf', 'date', 'cep', 'select', 'textarea', 'number', 'rg'])
+    const tipos = new Set(['text', 'email', 'phone', 'cpf', 'date', 'cep', 'select', 'textarea', 'number', 'rg', 'document'])
     return extras
       .filter((x) => x?.name && !nomesNoFormulario.has(x.name))
       .map((x) => {
@@ -209,6 +215,7 @@ export function App() {
           ...(sim ? { options: ['Sim', 'Não'] } : Array.isArray(x.options) && x.options.length ? { options: x.options } : {}),
           ...(x.placeholder ? { placeholder: x.placeholder } : {}),
           ...(x.helpText ? { helpText: x.helpText } : {}),
+          ...(x.type === 'document' && x.documentType ? { documentType: String(x.documentType) } : {}),
         }
       })
   }
@@ -251,6 +258,10 @@ export function App() {
         else if (escolha.formaNecessaria && !valores._formaIngresso) out[c.name] = 'Escolha a forma de ingresso.'
         else if (c.required && !valores[c.name]) out[c.name] = 'Escolha um curso para continuar.'
         else if (escolha.poloNecessario && !valores.campusId) out[c.name] = 'Escolha o polo onde vai estudar.'
+        continue
+      }
+      if (c.type === 'document') {
+        if (c.required && !arquivos[c.name]) out[c.name] = `Anexe o arquivo: ${c.label}.`
         continue
       }
       const e = erroDoCampo(c, String(valores[c.name] ?? ''))
@@ -304,6 +315,7 @@ export function App() {
         irPara(fim.target)
         return
       }
+      await enviarArquivosDoIngresso(r.candidateToken)
       setTemSenha(r.temSenha === true)
       setConcluido({ codigo: r.candidateCode, pagamentoUrl: r.paymentUrl, token: r.candidateToken })
     } catch (e: any) {
@@ -311,6 +323,24 @@ export function App() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  /**
+   * Sobe os arquivos dos campos "documento" como documentos da inscrição recém
+   * criada. A inscrição já existe: falha aqui não desfaz nada — avisa que o
+   * arquivo será pedido na etapa Documentos.
+   */
+  async function enviarArquivosDoIngresso(token: string | null | undefined) {
+    // Dos passos que a pessoa viu (o campo pode vir da forma de ingresso ou do
+    // próprio formulário do portal).
+    const campos = passosVisiveis.flatMap((p) => camposDoPasso(p)).filter((c) => c.type === 'document' && c.documentType && arquivos[c.name])
+    if (!campos.length) return
+    if (!token) { setAvisoDocs(`Não deu para anexar ${campos.map((c) => c.label).join(' e ')} agora. Envie na etapa Documentos.`); return }
+    const falharam: string[] = []
+    for (const c of campos) {
+      try { await enviarDocumento(c.documentType!, c.label, arquivos[c.name]!, token) } catch { falharam.push(c.label) }
+    }
+    setAvisoDocs(falharam.length ? `Não deu para anexar ${falharam.join(' e ')} agora. Envie na etapa Documentos.` : null)
   }
 
   // ── telas de carga e falha ──
@@ -346,6 +376,7 @@ export function App() {
         aoCriarSenha={() => setTemSenha(true)}
         passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')]), 'Conclusão']}
         limpo={limpo}
+        aviso={avisoDocs}
       />
     )
   }
@@ -360,6 +391,17 @@ export function App() {
         valores={valores}
         definir={definir}
         erro={tocados[campo.name] ? errosDoPasso(passoAtual)[campo.name] : undefined}
+      />
+    ) : campo.type === 'document' ? (
+      <CampoArquivo
+        key={campo.name}
+        campo={campo}
+        arquivo={arquivos[campo.name] ?? null}
+        erro={tocados[campo.name] ? errosDoPasso(passoAtual)[campo.name] : undefined}
+        aoEscolher={(f) => {
+          setArquivos((a) => { const n = { ...a }; if (f) n[campo.name] = f; else delete n[campo.name]; return n })
+          setTocados((t) => ({ ...t, [campo.name]: true }))
+        }}
       />
     ) : (
       <CampoTexto
@@ -430,6 +472,7 @@ export function App() {
             valores={valores}
             oferta={ofertaEscolhida}
             extras={extrasDoIngresso(ofertaEscolhida ?? undefined)}
+            arquivos={arquivos}
             portal={portal}
             aoEditar={(i) => setPasso(i)}
           />
@@ -671,6 +714,67 @@ function CampoTexto(props: {
   )
 }
 
+const MAX_BYTES_ARQUIVO = 25 * 1024 * 1024
+
+/**
+ * Campo "documento" da forma de ingresso (ex.: transferência → histórico e
+ * conteúdo programático). Só guarda o arquivo; ele sobe depois do envio.
+ */
+function CampoArquivo(props: {
+  campo: Campo
+  arquivo: File | null
+  erro?: string | undefined
+  aoEscolher: (f: File | null) => void
+}) {
+  const { campo, arquivo } = props
+  const [preparando, setPreparando] = useState(false)
+  const [problema, setProblema] = useState<string | null>(null)
+  const erro = problema ?? props.erro
+
+  async function escolher(f: File | undefined) {
+    if (!f) return
+    setProblema(null)
+    setPreparando(true)
+    try {
+      const r = await comprimirSePreciso(f)
+      if (r.arquivo.size > MAX_BYTES_ARQUIVO) {
+        setProblema(`O arquivo tem ${(r.arquivo.size / 1048576).toFixed(1)} MB — o limite é 25 MB. Envie em PDF ou tire a foto com menos qualidade.`)
+        return
+      }
+      props.aoEscolher(r.arquivo)
+    } finally {
+      setPreparando(false)
+    }
+  }
+
+  return (
+    <div class={`campo ${erro ? 'ruim' : ''}`}>
+      <label for={`c_${campo.name}`}>
+        {campo.label} {!campo.required && <span class="opcional">(opcional)</span>}
+      </label>
+      {arquivo && (
+        <div class="arquivo-escolhido">
+          <span>{arquivo.name}</span>
+          <button type="button" class="voltar" onClick={() => props.aoEscolher(null)}>remover</button>
+        </div>
+      )}
+      <input
+        type="file"
+        name={campo.name}
+        id={`c_${campo.name}`}
+        accept="image/*,.pdf,.heic,.heif"
+        disabled={preparando}
+        aria-invalid={erro ? true : undefined}
+        aria-describedby={erro ? `e_${campo.name}` : campo.helpText ? `a_${campo.name}` : undefined}
+        onChange={(e) => { const el = e.target as HTMLInputElement; void escolher(el.files?.[0]); el.value = '' }}
+      />
+      {erro
+        ? <span class="erro" id={`e_${campo.name}`} role="alert">{erro}</span>
+        : <span class="ajuda" id={`a_${campo.name}`}>{campo.helpText || 'PDF ou foto legível, até 25 MB.'}</span>}
+    </div>
+  )
+}
+
 /** Deixa o navegador preencher o que já sabe — menos digitação no celular. */
 function autoPreenchimento(campo: Campo): string | undefined {
   if (campo.type === 'email') return 'email'
@@ -858,6 +962,8 @@ function Revisao(props: {
   oferta: Oferta | null
   /** Dados da forma de ingresso (ex.: curso e IES já concluídos) — mostrados junto do curso. */
   extras: Campo[]
+  /** Arquivos escolhidos nos campos "documento" — a revisão mostra o nome. */
+  arquivos: Record<string, File>
   portal: DadosPortal['portal']
   aoEditar: (indice: number) => void
 }) {
@@ -877,7 +983,7 @@ function Revisao(props: {
             {campos.map((c) => (
               <div class="item" key={c.name}>
                 <span>{c.label}</span>
-                <b>{String(props.valores[c.name] ?? '—')}</b>
+                <b>{c.type === 'document' ? (props.arquivos[c.name]?.name ?? '—') : String(props.valores[c.name] ?? '—')}</b>
               </div>
             ))}
             {(p.fields ?? []).some((c) => c.type === 'offering-picker') && (
@@ -889,7 +995,7 @@ function Revisao(props: {
             {(p.fields ?? []).some((c) => c.type === 'offering-picker') && props.extras.map((c) => (
               <div class="item" key={c.name}>
                 <span>{c.label}</span>
-                <b>{String(props.valores[c.name] ?? '') || '—'}</b>
+                <b>{c.type === 'document' ? (props.arquivos[c.name]?.name ?? '—') : (String(props.valores[c.name] ?? '') || '—')}</b>
               </div>
             ))}
           </div>
@@ -918,6 +1024,8 @@ function Concluido(props: {
   passos: string[]
   /** Formulário limpo (embutido): só a confirmação e os próximos passos. */
   limpo?: boolean
+  /** Arquivo do formulário que não subiu (será pedido na etapa Documentos). */
+  aviso?: string | null
 }) {
   const [pago, setPago] = useState(false)
   const [senha, setSenha] = useState('')
@@ -964,6 +1072,7 @@ function Concluido(props: {
         <div class="marca" aria-hidden="true">✓</div>
         <h2>{tx('conc.titulo', 'Inscrição recebida')}</h2>
         <div class="codigo">{props.codigo}</div>
+        {props.aviso && <div class="aviso info" role="status">{props.aviso}</div>}
         {props.mensagem && <p class="mensagem-final">{props.mensagem}</p>}
         {props.pagamentoUrl ? (
           <a href={props.pagamentoUrl} target="_top"><button class="principal">{tx('conc.pagarAgora', 'Pagar agora')}</button></a>
@@ -1004,6 +1113,7 @@ function Concluido(props: {
         <p class="sub">{tx('conc.guardeCodigo', 'Guarde este código — ele identifica sua inscrição.')}</p>
         <div class="codigo">{props.codigo}</div>
         {props.oferta && <p class="sub">{props.oferta.nome}</p>}
+        {props.aviso && <div class="aviso info" role="status">{props.aviso}</div>}
         {/* A mensagem configurada (janela do portal / bloco Conclusão) vem
             primeiro, sempre. Antes ela só aparecia quando não havia próximos
             passos — ou seja, quase nunca. */}

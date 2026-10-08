@@ -596,7 +596,9 @@ function EntryModeFormModal({ mode, onClose, catalogo }: {
             <span class="text-2xs text-fg-muted">
               Array de campos que aparecem no portal do candidato quando este modo for selecionado. Cada item
               precisa ao menos de <code class="font-mono">name</code> e <code class="font-mono">type</code>{' '}
-              (text, number, checkbox, textarea, date, select). Deixe vazio para nenhum extra.
+              (text, number, checkbox, textarea, date, select, document). Em <code class="font-mono">document</code>{' '}
+              o candidato anexa um arquivo, que entra como o documento de{' '}
+              <code class="font-mono">documentType</code> (código do tipo de documento). Deixe vazio para nenhum extra.
             </span>
           )}
         </div>

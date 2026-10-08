@@ -108,7 +108,7 @@ export interface PixelConfig {
 
 export type PortalFieldType =
   | 'text' | 'email' | 'phone' | 'cpf' | 'cep' | 'date'
-  | 'select' | 'textarea' | 'offering-picker' | 'rg' | 'number'
+  | 'select' | 'textarea' | 'offering-picker' | 'rg' | 'number' | 'document'
 
 export interface PortalField {
   type: PortalFieldType
@@ -119,6 +119,8 @@ export interface PortalField {
   placeholder?: string
   helpText?: string
   visibleWhen?: { entryMode?: string[] }
+  /** type 'document': código do tipo de documento em que o arquivo entra. */
+  documentType?: string
 }
 
 export interface PortalStep {

@@ -16,7 +16,7 @@ export interface Oferta {
     entryMode?: {
       id: number; code: string; name: string
       /** Dados que a forma de ingresso pede (ex.: Segunda Graduação → curso e IES já concluídos). */
-      defaultFormExtras?: Array<{ name: string; type?: string; label?: string; required?: boolean; options?: string[]; placeholder?: string; helpText?: string }> | null
+      defaultFormExtras?: Array<{ name: string; type?: string; label?: string; required?: boolean; options?: string[]; placeholder?: string; helpText?: string; documentType?: string }> | null
     } | null
   } | null
   turno?: string | null

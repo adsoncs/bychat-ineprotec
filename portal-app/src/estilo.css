@@ -144,6 +144,9 @@ button.secundario { background: transparent; color: var(--tinta-2); border-color
 .aviso { padding: 12px 14px; border-radius: calc(var(--raio) - 4px); font-size: 14px; margin-bottom: 16px; border: 1px solid; }
 .aviso.erro { color: var(--erro); border-color: var(--erro); background: var(--erro-suave); }
 .aviso.info { color: var(--tinta-2); border-color: var(--linha); background: var(--fundo); }
+/* Campo "documento" do formulário: o arquivo escolhido, com remover. */
+.arquivo-escolhido { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; margin-bottom: 6px; border: 1px solid var(--linha); border-radius: calc(var(--raio) - 4px); font-size: 14px; color: var(--tinta-2); }
+.arquivo-escolhido span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* ── Fim ─────────────────────────────────────────────────────── */
 .fim { text-align: center; padding: 10px 0 4px; }
