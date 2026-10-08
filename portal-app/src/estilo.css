@@ -733,6 +733,19 @@ label.caixa input { margin-top: 3px; }
    ter feito nada. */
 .painel-senha { animation: surgir .28s ease-out both; }
 
+/* Saída do painel de senha: X no canto e "Agora não" ao lado do botão. */
+.painel-senha { position: relative; }
+.painel-senha h2 { padding-right: 40px; }
+.fechar-painel {
+  position: absolute; top: 12px; right: 12px;
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border: 0; border-radius: 999px; background: transparent; color: var(--tinta-2); cursor: pointer;
+}
+.fechar-painel:hover:not(:disabled) { background: var(--marca-suave); color: var(--tinta); }
+.fechar-painel:focus-visible { outline: 2px solid var(--marca); outline-offset: 2px; }
+.fechar-painel:disabled { opacity: .5; cursor: not-allowed; }
+.painel-senha .acoes { margin-top: 16px; }
+
 @keyframes surgir {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }

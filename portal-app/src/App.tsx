@@ -373,6 +373,7 @@ export function App() {
         temSenha={temSenha}
         abrirSenha={abrirSenha}
         aoAbrirSenha={() => setAbrirSenha(true)}
+        aoFecharSenha={() => setAbrirSenha(false)}
         aoCriarSenha={() => setTemSenha(true)}
         passos={[...passosVisiveis.map((p) => p.name), ...(simplificado ? [] : [rotulo(portal, 'revisao')]), 'Conclusão']}
         limpo={limpo}
@@ -1019,6 +1020,8 @@ function Concluido(props: {
   /** O painel de senha abre por clique no topo, não sozinho. */
   abrirSenha: boolean
   aoAbrirSenha: () => void
+  /** Desistir do painel: some sem criar nada e o convite volta ao cartão. */
+  aoFecharSenha: () => void
   aoCriarSenha: () => void
   /** A trilha acompanha até aqui: a última etapa é o pagamento. */
   passos: string[]
@@ -1048,6 +1051,24 @@ function Concluido(props: {
     const t = setTimeout(() => el.querySelector('input')?.focus({ preventScroll: true }), quieto ? 0 : 420)
     return () => clearTimeout(t)
   }, [props.abrirSenha])
+
+  // Fechar é tão importante quanto abrir: quem desiste de criar a senha agora
+  // não pode ficar preso num painel que só some salvando.
+  function fecharSenha() {
+    setSenha('')
+    setErro(null)
+    props.aoFecharSenha()
+    // Devolve o foco ao convite (que reaparece no cartão), para o teclado e o
+    // leitor de tela não ficarem num elemento que deixou de existir.
+    setTimeout(() => (document.querySelector('.convite-senha button') as HTMLElement | null)?.focus(), 0)
+  }
+
+  useEffect(() => {
+    if (!props.abrirSenha) return
+    const naTecla = (e: KeyboardEvent) => { if (e.key === 'Escape' && !salvando) fecharSenha() }
+    window.addEventListener('keydown', naTecla)
+    return () => window.removeEventListener('keydown', naTecla)
+  }, [props.abrirSenha, salvando])
 
   async function salvarSenha(e: Event) {
     e.preventDefault()
@@ -1154,6 +1175,9 @@ function Concluido(props: {
 
       {props.token && !pronto && !props.temSenha && props.abrirSenha && (
         <div class="cartao painel-senha" ref={painelSenha} style="margin-top:14px;text-align:left">
+          <button type="button" class="fechar-painel" aria-label={tx('conc.senhaFechar', 'Fechar')} title={tx('conc.senhaFechar', 'Fechar')} onClick={fecharSenha} disabled={salvando}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
           <h2 style="font-size:17px">{tx('conc.senhaTitulo', 'Crie uma senha para acompanhar')}</h2>
           <p class="sub">
             {tx('conc.senhaTexto', 'Com ela você entra quando quiser para enviar documentos, assinar o contrato e ver o que falta — sem depender de achar esta página de novo.')}
@@ -1168,9 +1192,14 @@ function Concluido(props: {
               />
               <span class="ajuda">Ao menos 8 caracteres, misturando letras e números.</span>
             </div>
-            <button class="principal" type="submit" disabled={salvando || senha.length < 8}>
-              {salvando ? 'Salvando…' : 'Criar senha'}
-            </button>
+            <div class="acoes">
+              <button class="secundario" type="button" onClick={fecharSenha} disabled={salvando}>
+                {tx('conc.senhaAgoraNao', 'Agora não')}
+              </button>
+              <button class="principal" type="submit" disabled={salvando || senha.length < 8}>
+                {salvando ? 'Salvando…' : 'Criar senha'}
+              </button>
+            </div>
           </form>
           <p class="ajuda" style="text-align:center;margin-top:12px">
             {tx('conc.senhaDepois', 'Pode deixar para depois: dá para criar a senha pelo link que enviamos no WhatsApp.')}
