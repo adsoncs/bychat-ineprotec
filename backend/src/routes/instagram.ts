@@ -192,18 +192,39 @@ export async function sendInstagramDM(
   if (!conn) return { messageId: null, error: 'Instagram não conectado' }
   const within = opts?.withinWindow !== false
   // Mídia: a Meta baixa a URL pública (precisa ser absoluta e acessível).
-  const message = opts?.attachment
-    ? { attachment: { type: opts.attachment.type, payload: { url: opts.attachment.url, is_reusable: false } } }
-    : { text }
-  const body: any = { recipient: { id: recipientId }, message }
-  if (within) body.messaging_type = 'RESPONSE'
-  else { body.messaging_type = 'MESSAGE_TAG'; body.tag = 'HUMAN_AGENT' }
-  try {
-    const sent = await fb(`/${conn.pageId}/messages`, conn.pageAccessToken, { method: 'POST', body })
-    return { messageId: sent.message_id ?? null, error: null }
-  } catch (err: any) {
-    return { messageId: null, error: err?.message || 'falha no envio do Instagram' }
+  // A DM não tem legenda: anexo e texto são duas mensagens. Antes só o anexo
+  // saía e o texto digitado junto com a foto se perdia sem aviso.
+  const partes: any[] = []
+  if (opts?.attachment) {
+    partes.push({ attachment: { type: opts.attachment.type, payload: { url: opts.attachment.url, is_reusable: false } } })
   }
+  if (!opts?.attachment || text.trim()) partes.push({ text })
+  let primeiroId: string | null = null
+  try {
+    for (const message of partes) {
+      const body: any = { recipient: { id: recipientId }, message }
+      if (within) body.messaging_type = 'RESPONSE'
+      else { body.messaging_type = 'MESSAGE_TAG'; body.tag = 'HUMAN_AGENT' }
+      const sent = await fb(`/${conn.pageId}/messages`, conn.pageAccessToken, { method: 'POST', body })
+      if (sent.message_id) lembrarEnvioDoPainel(sent.message_id)
+      primeiroId = primeiroId ?? sent.message_id ?? null
+    }
+    return { messageId: primeiroId, error: null }
+  } catch (err: any) {
+    // Anexo saiu e o texto não: devolve o id do que saiu, com o erro do resto.
+    return { messageId: primeiroId, error: err?.message || 'falha no envio do Instagram' }
+  }
+}
+
+// mids enviados pelo painel nos últimos minutos. A Meta devolve cada envio como
+// eco no webhook (`is_echo`); sem esta lista o eco viraria uma segunda cópia da
+// mensagem na conversa. O eco pode chegar ANTES de o painel gravar o externalId,
+// então olhar só o banco não basta.
+const enviadosPeloPainel = new Map<string, number>()
+function lembrarEnvioDoPainel(mid: string): void {
+  const agora = Date.now()
+  enviadosPeloPainel.set(mid, agora)
+  for (const [k, t] of enviadosPeloPainel) if (agora - t > 10 * 60_000) enviadosPeloPainel.delete(k)
 }
 
 // Busca o perfil REAL do remetente (IG: name/username; Messenger: first/last name)
@@ -686,7 +707,7 @@ export async function instagramRoutes(app: FastifyInstance) {
     // Subscrever página aos eventos
     try {
       await fb(
-        `/${chosen.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks`,
+        `/${chosen.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes`,
         pageAccessToken,
         { method: 'POST' },
       )
@@ -745,7 +766,7 @@ export async function instagramRoutes(app: FastifyInstance) {
 
     // Subscrever a página aos eventos de messages
     try {
-      await fb(`/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks`, pageAccessToken, {
+      await fb(`/${pageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,message_echoes`, pageAccessToken, {
         method: 'POST',
       })
     } catch (err: any) {
@@ -841,135 +862,361 @@ export async function instagramRoutes(app: FastifyInstance) {
   })
 
   // POST /api/instagram/webhook — receber mensagens
+  //
+  // O app Meta é COMPARTILHADO pelos tenants, e a Meta aceita um único callback
+  // por objeto (`instagram`, `page`) por app. Quem recebe é a instalação-mãe:
+  // ela trata o que é da Página dela e repassa o resto ao tenant dono, conforme
+  // a Setting `instagram.webhook_routes` (ver repassarParaTenants). Nos tenants
+  // a Setting fica vazia e o handler só trata o que é da própria Página.
   app.post('/api/instagram/webhook', async (req, reply) => {
-    const conn = await loadConnection()
-    if (!conn || !conn.active) return reply.code(404).send({ error: 'Not connected' })
-
-    const body = req.body as any
-    if (body.object !== 'instagram' && body.object !== 'page') return { ok: true }
-
-    for (const entry of body.entry ?? []) {
-      for (const evt of entry.messaging ?? []) {
-        const senderId = evt.sender?.id
-        const text = evt.message?.text
-        const isEcho = evt.message?.is_echo
-        if (!senderId || isEcho) continue
-
-        // Distingue o canal: object 'page' = Messenger (Facebook), 'instagram' = IG Direct.
-        // Ambos chegam pelo mesmo webhook e respondem pelo mesmo /me/messages (token da Página).
-        const channel = body.object === 'page' ? 'messenger' : 'instagram'
-        const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
-
-        const uid = `${channel}:${senderId}`
-        let lead = await prisma.lead.findFirst({ where: { uid } })
-        // Lista de bloqueio. Aqui só dá para casar quando o lead JÁ existe: um DM
-        // não traz e-mail nem telefone, e as regras são por e-mail/domínio/
-        // telefone/IP. Contato novo por DM entra normalmente — quando ele
-        // informar o contato em outro canal, aí passa a casar.
-        if (lead) {
-          const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')
-          if (await findLeadBlockById(lead.id).catch(() => null)) {
-            await rejectInboundMessage(
-              { email: lead.email, whatsapp: lead.whatsapp }, canalNome, text,
-            ).catch(() => null)
-            continue
-          }
-        }
-        if (!lead) {
-          // Dois DMs seguidos do mesmo perfil passavam os dois pela busca acima
-          // e criavam duas fichas. A trava serializa por `uid` (que aqui já é a
-          // identidade: "instagram:<senderId>") e a tarefa começa procurando de
-          // novo — quem chega depois encontra o que o primeiro criou.
-          lead = await semFichaEmDobro(uid, async () => {
-          const jaExiste = await prisma.lead.findFirst({ where: { uid } })
-          if (jaExiste) return jaExiste
-          // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
-          const prof = await fetchSenderProfile(senderId, channel)
-          const formData: Record<string, any> = channel === 'messenger'
-            ? { messengerSenderId: senderId }
-            : { instagramSenderId: senderId }
-          if (prof.username) formData.instagramUsername = prof.username
-          if (prof.profilePic) formData.profilePicUrl = prof.profilePic
-          const novo = await prisma.lead.create({
-            data: {
-              uid,
-              nome: prof.name || `${canalNome} #${senderId}`,
-              empresa: '',
-              whatsapp: '',
-              email: '',
-              status: 'NOVO',
-              source: channel,
-              originType: channel,
-              scores: {},
-              analysis: {},
-              formData,
-            },
-          })
-          broadcastRealtimeEvent({
-            type: 'lead:created',
-            payload: { id: novo.id, nome: novo.nome, status: novo.status },
-          })
-          // Foto de perfil → avatar local (a URL da Meta expira).
-          if (prof.profilePic) cacheIgAvatar(novo.id, prof.profilePic, app).catch(() => {})
-          return novo
-          })
-        }
-
-        // Mídia: a DM pode trazer attachments (image/video/audio/file/share/story).
-        // Baixamos o 1º e hospedamos local; o texto vira caption/body.
-        const att = (evt.message?.attachments || [])[0]
-        let inMediaType = 'text'
-        let inMediaUrl: string | null = null
-        let inBody = text || ''
-        if (att) {
-          const t = att.type
-          inMediaType = (t === 'image' || t === 'video' || t === 'audio') ? t : 'file'
-          const src = att.payload?.url
-          if (src) inMediaUrl = await saveIgMediaFromUrl(src, inMediaType, app)
-          if (!inBody && !inMediaUrl) inBody = '[mídia não suportada]'
-        }
-        const created = await prisma.message.create({
-          data: {
-            leadId: lead.id,
-            fromMe: false,
-            body: inBody,
-            mediaType: inMediaType,
-            mediaUrl: inMediaUrl,
-            provider: channel,
-            senderName: lead.nome,
-            externalId: evt.message?.mid ?? null,
-            timestamp: new Date(evt.timestamp ?? Date.now()),
-          },
-        })
-
-        broadcastRealtimeEvent({
-          type: 'message:received',
-          payload: { leadId: lead.id, messageId: created.id, channel },
-          scope: { leadId: lead.id },
-        })
-
-        // Estado de conversa (paridade com o inbound de WhatsApp): marca não-lida
-        // + lastMessageAt e abre/reabre a conversa → aparece no inbox de Conversas.
-        await prisma.lead.update({
-          where: { id: lead.id },
-          data: { unreadMessages: { increment: 1 }, lastMessageAt: new Date(), lastActivityAt: new Date() },
-        })
-        // Conversa já encerrada: o contato voltou a falar e o retorno vai para a
-        // CAIXA, esperando alguém pegar — igual ao WhatsApp. Nos demais casos a
-        // DM abre o ticket direto, como sempre fez neste canal.
-        const { ensureConversationOpen, markConversationReopened } = await import('../services/leadConversation.js')
-        if (lead.conversationOpenedAt && lead.conversationClosedAt) {
-          markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
-        } else {
-          // triggeredAt = horário da PRÓPRIA mensagem (a Meta manda), não de
-          // agora: protege um "Resolver" que aconteça enquanto este webhook
-          // ainda está em voo. Ver leadConversation.ts.
-          ensureConversationOpen(lead.id, { reason: 'reopen_message', triggeredAt: created.timestamp }).catch(() => {})
-        }
+    const rawBody = (req as any).rawBody as Buffer | undefined
+    const assinatura = req.headers['x-hub-signature-256'] as string | undefined
+    const appSecret = await getMetaAppSecret().catch(() => '')
+    if (appSecret) {
+      // Sem isto qualquer um injetava DM falsa no painel com um POST.
+      if (!rawBody || !assinatura || !assinaturaMetaValida(rawBody, assinatura, appSecret)) {
+        app.log.warn('[Instagram] webhook com assinatura ausente ou inválida — recusado')
+        return reply.code(401).send({ error: 'Invalid signature' })
       }
+    } else {
+      app.log.warn('[Instagram][SECURITY] META_APP_SECRET ausente — webhook aceito SEM verificar assinatura')
     }
 
-    return reply.send({ ok: true })
+    const body = req.body as any
+    if (body?.object !== 'instagram' && body?.object !== 'page') return { ok: true }
+
+    // A Meta desiste do callback que demora (e reenvia): responde já e processa.
+    reply.send({ ok: true })
+
+    try {
+      const conn = await loadConnection()
+      const proprios = new Set(
+        conn?.active ? [conn.pageId, conn.igUserId].filter(Boolean).map(String) : [],
+      )
+
+      // Repasse só na primeira mão: o que chega repassado não volta a girar.
+      if (!req.headers['x-attrae-repasse'] && appSecret) {
+        await repassarParaTenants(body, proprios, appSecret, app)
+      }
+      if (!conn?.active) return
+
+      // Object 'page' = Messenger (Facebook), 'instagram' = IG Direct. Ambos
+      // respondem pelo mesmo /me/messages (token da Página).
+      const channel: 'instagram' | 'messenger' = body.object === 'page' ? 'messenger' : 'instagram'
+      for (const entry of body.entry ?? []) {
+        // entry.id = Página (Messenger) ou conta IG profissional (Instagram).
+        // Evento de outra Página não é desta instalação: antes virava lead aqui.
+        if (!proprios.has(String(entry.id))) {
+          app.log.warn(`[Instagram] evento de ${body.object} ${entry.id} ignorado — não é a Página conectada`)
+          continue
+        }
+        for (const evt of entry.messaging ?? []) {
+          await processarEventoDM(evt, channel, conn, app).catch((err) => {
+            app.log.error(`[Instagram] falha ao processar evento: ${err?.message || err}`)
+          })
+        }
+      }
+    } catch (err: any) {
+      app.log.error(`[Instagram] webhook: ${err?.message || err}`)
+    }
+  })
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Webhook: assinatura, repasse entre tenants e processamento
+// ───────────────────────────────────────────────────────────────────
+
+function assinaturaMetaValida(raw: Buffer | string, assinatura: string, appSecret: string): boolean {
+  if (!assinatura.startsWith('sha256=')) return false
+  const esperada = `sha256=${createHmac('sha256', appSecret).update(raw).digest('hex')}`
+  const a = Buffer.from(assinatura)
+  const b = Buffer.from(esperada)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+const ROTAS_KEY = 'instagram.webhook_routes'
+
+/** Um tenant que recebe DM pelo app compartilhado: ids = Página e conta IG dele. */
+interface RotaWebhook {
+  tenant: string
+  url: string
+  ids: string[]
+}
+
+async function carregarRotas(): Promise<RotaWebhook[]> {
+  const row = await prisma.setting.findUnique({ where: { key: ROTAS_KEY } })
+  if (!row?.value) return []
+  try {
+    const v = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+    return Array.isArray(v) ? v.filter((r) => r?.url && Array.isArray(r.ids)) : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Repassa a cada tenant as entradas da Página dele. O corpo vai recortado (só
+ * as entradas daquele tenant) e reassinado com o mesmo App Secret — os tenants
+ * usam o mesmo app, então validam a assinatura como se viesse da Meta.
+ * Entrada que não é desta instalação nem tem rota fica registrada no log: é DM
+ * de uma Página conectada em algum tenant que ainda não entrou na lista.
+ */
+async function repassarParaTenants(body: any, proprios: Set<string>, appSecret: string, app: FastifyInstance): Promise<void> {
+  const rotas = await carregarRotas()
+  const porRota = new Map<RotaWebhook, any[]>()
+  for (const entry of body.entry ?? []) {
+    const id = String(entry.id)
+    if (proprios.has(id)) continue
+    const rota = rotas.find((r) => r.ids.map(String).includes(id))
+    if (!rota) {
+      app.log.warn(`[Instagram] evento de ${body.object} ${id} sem dono — nenhuma rota em ${ROTAS_KEY}`)
+      continue
+    }
+    porRota.set(rota, [...(porRota.get(rota) ?? []), entry])
+  }
+  await Promise.all([...porRota].map(async ([rota, entries]) => {
+    const corpo = JSON.stringify({ object: body.object, entry: entries })
+    try {
+      const r = await fetch(rota.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Hub-Signature-256': `sha256=${createHmac('sha256', appSecret).update(corpo).digest('hex')}`,
+          'X-Attrae-Repasse': '1',
+        },
+        body: corpo,
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (!r.ok) app.log.warn(`[Instagram] repasse para ${rota.tenant} respondeu ${r.status}`)
+    } catch (err: any) {
+      app.log.error(`[Instagram] repasse para ${rota.tenant} falhou: ${err?.message || err}`)
+    }
+  }))
+}
+
+/** Lead do contato (IGSID/PSID) — cria com o perfil real se ainda não existe. */
+async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenger', app: FastifyInstance) {
+  const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
+  const uid = `${channel}:${contatoId}`
+  const existente = await prisma.lead.findFirst({ where: { uid } })
+  if (existente) return existente
+  // Dois DMs seguidos do mesmo perfil passavam os dois pela busca acima
+  // e criavam duas fichas. A trava serializa por `uid` (que aqui já é a
+  // identidade: "instagram:<senderId>") e a tarefa começa procurando de
+  // novo — quem chega depois encontra o que o primeiro criou.
+  return semFichaEmDobro(uid, async () => {
+    const jaExiste = await prisma.lead.findFirst({ where: { uid } })
+    if (jaExiste) return jaExiste
+    // Puxa o perfil REAL (nome/@usuário). Fallback p/ "Canal #id" se falhar.
+    const prof = await fetchSenderProfile(contatoId, channel)
+    const formData: Record<string, any> = channel === 'messenger'
+      ? { messengerSenderId: contatoId }
+      : { instagramSenderId: contatoId }
+    if (prof.username) formData.instagramUsername = prof.username
+    if (prof.profilePic) formData.profilePicUrl = prof.profilePic
+    const novo = await prisma.lead.create({
+      data: {
+        uid,
+        nome: prof.name || `${canalNome} #${contatoId}`,
+        empresa: '',
+        whatsapp: '',
+        email: '',
+        status: 'NOVO',
+        source: channel,
+        originType: channel,
+        scores: {},
+        analysis: {},
+        formData,
+      },
+    })
+    broadcastRealtimeEvent({
+      type: 'lead:created',
+      payload: { id: novo.id, nome: novo.nome, status: novo.status },
+    })
+    // Foto de perfil → avatar local (a URL da Meta expira).
+    if (prof.profilePic) cacheIgAvatar(novo.id, prof.profilePic, app).catch(() => {})
+    return novo
+  })
+}
+
+/** Anexos da DM → mensagens: o 1º leva o texto; cada anexo vira uma mensagem. */
+async function partesDaMensagem(msg: any, app: FastifyInstance) {
+  const texto: string = msg?.text || ''
+  const anexos: any[] = msg?.attachments || []
+  if (!anexos.length) return [{ body: texto, mediaType: 'text', mediaUrl: null as string | null }]
+  const partes = []
+  for (const [i, att] of anexos.entries()) {
+    const t = att.type
+    const tipo = (t === 'image' || t === 'video' || t === 'audio') ? t : 'file'
+    const src = att.payload?.url
+    const mediaUrl = src ? await saveIgMediaFromUrl(src, tipo, app) : null
+    let body = i === 0 ? texto : ''
+    if (!body && !mediaUrl) body = '[mídia não suportada]'
+    // Sem arquivo baixado não há o que mostrar como mídia: vira texto.
+    partes.push({ body, mediaType: mediaUrl ? tipo : 'text', mediaUrl })
+  }
+  return partes
+}
+
+async function processarEventoDM(
+  evt: any,
+  channel: 'instagram' | 'messenger',
+  conn: InstagramConnection,
+  app: FastifyInstance,
+): Promise<void> {
+  const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
+  // Clique em botão (postback) chega sem `message`: o título é o que a pessoa "disse".
+  const msg = evt.message ?? (evt.postback ? { text: evt.postback.title || evt.postback.payload, mid: evt.postback.mid } : null)
+  // Lido, entregue, reação e afins não são mensagem: antes viravam balão vazio.
+  if (!msg || msg.is_deleted || msg.is_unsupported) return
+
+  if (msg.is_echo) {
+    await gravarEco(evt, msg, channel, conn, app)
+    return
+  }
+
+  const senderId = evt.sender?.id
+  if (!senderId) return
+  // A Meta reentrega o evento quando acha que não chegou. A reentrega pode
+  // chegar enquanto a primeira ainda baixa mídia/perfil — o banco ainda não tem
+  // o mid —, então a trava em memória fecha a janela que a consulta deixa.
+  if (msg.mid && emProcesso.has(msg.mid)) return
+  if (msg.mid) emProcesso.add(msg.mid)
+  try {
+    if (msg.mid && await prisma.message.findFirst({ where: { externalId: msg.mid }, select: { id: true } })) return
+    await gravarRecebida(evt, msg, senderId, channel, canalNome, app)
+  } finally {
+    if (msg.mid) emProcesso.delete(msg.mid)
+  }
+}
+
+const emProcesso = new Set<string>()
+
+async function gravarRecebida(
+  evt: any,
+  msg: any,
+  senderId: string,
+  channel: 'instagram' | 'messenger',
+  canalNome: string,
+  app: FastifyInstance,
+): Promise<void> {
+  const lead = await leadDoContato(senderId, channel, app)
+  // Lista de bloqueio. Um DM não traz e-mail nem telefone, e as regras são por
+  // e-mail/domínio/telefone/IP: só casa quando a ficha já tem esses dados.
+  const { findLeadBlockById, rejectInboundMessage } = await import('../services/leadBlocklist.js')
+  if (await findLeadBlockById(lead.id).catch(() => null)) {
+    await rejectInboundMessage({ email: lead.email, whatsapp: lead.whatsapp }, canalNome, msg.text).catch(() => null)
+    return
+  }
+
+  const partes = await partesDaMensagem(msg, app)
+  let created: any = null
+  for (const [i, p] of partes.entries()) {
+    created = await prisma.message.create({
+      data: {
+        leadId: lead.id,
+        fromMe: false,
+        body: p.body,
+        mediaType: p.mediaType,
+        mediaUrl: p.mediaUrl,
+        provider: channel,
+        senderName: lead.nome,
+        // externalId é único por mensagem: os anexos seguintes ganham sufixo.
+        externalId: msg.mid ? (i === 0 ? msg.mid : `${msg.mid}#${i}`) : null,
+        timestamp: new Date(evt.timestamp ?? Date.now()),
+      },
+    })
+    broadcastRealtimeEvent({
+      type: 'message:received',
+      payload: { leadId: lead.id, messageId: created.id, channel },
+      scope: { leadId: lead.id },
+    })
+  }
+
+  // Estado de conversa (paridade com o inbound de WhatsApp): marca não-lida
+  // + lastMessageAt e abre/reabre a conversa → aparece no inbox de Conversas.
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: { unreadMessages: { increment: partes.length }, lastMessageAt: new Date(), lastActivityAt: new Date() },
+  })
+  // Conversa já encerrada: o contato voltou a falar e o retorno vai para a
+  // CAIXA, esperando alguém pegar — igual ao WhatsApp. Nos demais casos a
+  // DM abre o ticket direto, como sempre fez neste canal.
+  const { ensureConversationOpen, markConversationReopened } = await import('../services/leadConversation.js')
+  if (lead.conversationOpenedAt && lead.conversationClosedAt) {
+    markConversationReopened(lead.id, { reason: 'reopen_message' }).catch(() => {})
+  } else {
+    // triggeredAt = horário da PRÓPRIA mensagem (a Meta manda), não de
+    // agora: protege um "Resolver" que aconteça enquanto este webhook
+    // ainda está em voo. Ver leadConversation.ts.
+    ensureConversationOpen(lead.id, { reason: 'reopen_message', triggeredAt: created.timestamp }).catch(() => {})
+  }
+}
+
+/**
+ * Eco = mensagem que a PÁGINA enviou. O que saiu pelo painel já está na conversa;
+ * o que a equipe mandou pelo app do Instagram, pelo Messenger ou pelo Business
+ * Suite não estava — e a conversa no painel ficava faltando metade.
+ */
+async function gravarEco(
+  evt: any,
+  msg: any,
+  channel: 'instagram' | 'messenger',
+  conn: InstagramConnection,
+  app: FastifyInstance,
+): Promise<void> {
+  const contatoId = evt.recipient?.id
+  if (!contatoId || !msg.mid) return
+  // Enviado por este sistema (painel, fluxo): a Meta marca o app de origem.
+  const nossoApp = await getMetaAppId().catch(() => '')
+  if (msg.app_id && nossoApp && String(msg.app_id) === String(nossoApp)) return
+  // O Instagram nem sempre manda app_id: espera o painel gravar o envio e confere.
+  await new Promise((r) => setTimeout(r, 3000))
+  if (enviadosPeloPainel.has(msg.mid) || emProcesso.has(msg.mid)) return
+  emProcesso.add(msg.mid)
+  try {
+    if (await prisma.message.findFirst({ where: { externalId: msg.mid }, select: { id: true } })) return
+    await gravarEnviadaForaDoPainel(evt, msg, contatoId, channel, conn, app)
+  } finally {
+    emProcesso.delete(msg.mid)
+  }
+}
+
+async function gravarEnviadaForaDoPainel(
+  evt: any,
+  msg: any,
+  contatoId: string,
+  channel: 'instagram' | 'messenger',
+  conn: InstagramConnection,
+  app: FastifyInstance,
+): Promise<void> {
+
+  const lead = await leadDoContato(contatoId, channel, app)
+  const autor = channel === 'messenger' ? conn.pageName : `@${conn.igUsername}`
+  const partes = await partesDaMensagem(msg, app)
+  for (const [i, p] of partes.entries()) {
+    const created = await prisma.message.create({
+      data: {
+        leadId: lead.id,
+        fromMe: true,
+        body: p.body,
+        mediaType: p.mediaType,
+        mediaUrl: p.mediaUrl,
+        provider: channel,
+        senderName: autor || (channel === 'messenger' ? 'Messenger' : 'Instagram'),
+        externalId: i === 0 ? msg.mid : `${msg.mid}#${i}`,
+        timestamp: new Date(evt.timestamp ?? Date.now()),
+      },
+    })
+    broadcastRealtimeEvent({
+      type: 'message:sent',
+      payload: { leadId: lead.id, messageId: created.id, channel },
+      scope: { leadId: lead.id },
+    })
+  }
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: { lastMessageAt: new Date(), lastActivityAt: new Date() },
   })
 }
 
