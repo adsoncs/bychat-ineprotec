@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import {
-  FileCheck2, Sparkles, AlertTriangle, ExternalLink, Check, X as XIcon, Clock, RefreshCw, FileText,
+  FileCheck2, Sparkles, AlertTriangle, ExternalLink, Check, X as XIcon, Clock, RefreshCw, FileText, GraduationCap, Send,
 } from '@/components/ui/icon-set'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/apiClient'
+import { AnaliseAcademicaCard, type EtapaAdmin } from '../EnrollmentRegistrationDetailPage'
 import {
   useDocReviews,
   useDocReviewDetail,
@@ -29,15 +32,19 @@ import { formatRelative, formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
-type Mode = 'registration' | 'document'
+type Mode = 'registration' | 'document' | 'transfer'
 
 const MODE_KEY = 'eduDocMode'
 
 export function EducationalDocReviewPage() {
   const [mode, setMode] = useState<Mode>(() => {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(MODE_KEY) : null
-    return saved === 'document' ? 'document' : 'registration'
+    return saved === 'document' || saved === 'transfer' ? saved : 'registration'
   })
+  // A aba de transferência só existe quando algum portal usa a análise acadêmica.
+  const analises = useAnalises('abertas', '')
+  const temTransfer = !!analises.data?.habilitada
+  const modo: Mode = mode === 'transfer' && analises.data && !temTransfer ? 'registration' : mode
 
   function setModeAndPersist(m: Mode) {
     setMode(m)
@@ -48,20 +55,22 @@ export function EducationalDocReviewPage() {
     <Page
       title="Análise de Documentos"
       description={
-        mode === 'registration'
+        modo === 'registration'
           ? 'Inscrições agrupadas por candidato — revisar todos os documentos em conjunto.'
-          : 'Fila plana — 1 documento por linha (FIFO). Útil para revisões especializadas.'
+          : modo === 'document'
+          ? 'Fila plana — 1 documento por linha (FIFO). Útil para revisões especializadas.'
+          : 'Transferências externas: histórico e conteúdo programático para a análise acadêmica, o parecer e a resposta do candidato.'
       }
     >
-      <ModeToggle mode={mode} onChange={setModeAndPersist} />
+      <ModeToggle mode={modo} onChange={setModeAndPersist} transfer={temTransfer ? (analises.data?.kpi.em_analise ?? 0) : null} />
 
-      {mode === 'registration' ? <RegistrationMode /> : <DocumentMode />}
+      {modo === 'registration' ? <RegistrationMode /> : modo === 'document' ? <DocumentMode /> : <TransferMode />}
     </Page>
   )
 }
 
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  const btn = (key: Mode, label: string) => (
+function ModeToggle({ mode, onChange, transfer }: { mode: Mode; onChange: (m: Mode) => void; transfer: number | null }) {
+  const btn = (key: Mode, label: string, badge?: number) => (
     <button
       type="button"
       onClick={() => onChange(key)}
@@ -71,13 +80,196 @@ function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
       )}
     >
       {label}
+      {!!badge && <span class={cn('ml-1.5 inline-grid place-items-center min-w-4 h-4 px-1 rounded-full text-2xs font-bold', mode === key ? 'bg-fg-on-brand text-accent' : 'bg-accent text-fg-on-brand')}>{badge}</span>}
     </button>
   )
   return (
-    <div class="inline-flex gap-1 p-1 rounded-lg bg-surface-3 self-start">
+    <div class="inline-flex flex-wrap gap-1 p-1 rounded-lg bg-surface-3 self-start">
       {btn('registration', '🎓 Por inscrição')}
       {btn('document',     '📋 Por documento')}
+      {transfer !== null && btn('transfer', '🔁 Análise de Transferência', transfer)}
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modo "Análise de Transferência" — só as inscrições com análise acadêmica
+
+type SituacaoAnalise = 'documentos' | 'em_analise' | 'aguardando_candidato' | 'aceita' | 'indeferida' | 'desistiu'
+interface AnaliseItem {
+  registrationId: number
+  candidateCode: string
+  criadaEm: string
+  candidato: { nome: string; email: string | null; whatsapp: string | null }
+  portal: { id: number; nome: string }
+  local: string | null
+  curso: string | null
+  formaDeIngresso: string | null
+  situacao: SituacaoAnalise
+  documentos: Array<{ id: number | null; code: string; nome: string; status: string; enviadoEm: string | null }>
+  desde: string
+  etapa: EtapaAdmin
+}
+interface AnalisesResp { habilitada: boolean; items: AnaliseItem[]; kpi: Record<SituacaoAnalise, number> }
+
+function useAnalises(situacao: string, q: string) {
+  return useQuery({
+    queryKey: ['analises-academicas', situacao, q],
+    queryFn: () => api.get<AnalisesResp>(`/admin/analises-academicas?situacao=${encodeURIComponent(situacao)}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
+    staleTime: 15_000,
+  })
+}
+
+const SITUACAO_ANALISE: Record<SituacaoAnalise, { rotulo: string; tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; desde: string }> = {
+  documentos: { rotulo: 'Aguardando documentos', tone: 'warning', desde: 'Inscrita' },
+  em_analise: { rotulo: 'Em análise', tone: 'info', desde: 'Na fila' },
+  aguardando_candidato: { rotulo: 'Aguardando candidato', tone: 'warning', desde: 'Parecer emitido' },
+  aceita: { rotulo: 'Parecer aceito', tone: 'success', desde: 'Inscrita' },
+  indeferida: { rotulo: 'Indeferida', tone: 'danger', desde: 'Inscrita' },
+  desistiu: { rotulo: 'Desistiu', tone: 'neutral', desde: 'Inscrita' },
+}
+
+function TransferMode() {
+  const [situacao, setSituacao] = useState<string>('abertas')
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [aberta, setAberta] = useState<AnaliseItem | null>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 350)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  const { data, isLoading } = useAnalises(situacao, search)
+  const items = data?.items ?? []
+  const kpi = data?.kpi
+  // O modal acompanha a lista: depois de emitir o parecer, mostra a situação nova.
+  const atual = aberta ? items.find((i) => i.registrationId === aberta.registrationId) ?? aberta : null
+
+  return (
+    <>
+      <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+        <KpiCard label="Em análise" value={kpi?.em_analise ?? '—'} loading={isLoading} icon={<GraduationCap size={16} />} />
+        <KpiCard label="Aguardando documentos" value={kpi?.documentos ?? '—'} loading={isLoading} icon={<FileText size={16} />} />
+        <KpiCard label="Aguardando candidato" value={kpi?.aguardando_candidato ?? '—'} loading={isLoading} icon={<Send size={16} />} />
+        <KpiCard label="Pareceres aceitos" value={kpi?.aceita ?? '—'} loading={isLoading} icon={<Check size={16} />} />
+        <KpiCard label="Indeferidas / desistências" value={kpi ? kpi.indeferida + kpi.desistiu : '—'} loading={isLoading} icon={<XIcon size={16} />} />
+      </div>
+
+      <Card class="p-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <Select value={situacao} onChange={(e) => setSituacao((e.target as HTMLSelectElement).value)}>
+            <option value="abertas">Em aberto</option>
+            <option value="em_analise">Em análise</option>
+            <option value="documentos">Aguardando documentos</option>
+            <option value="aguardando_candidato">Aguardando candidato</option>
+            <option value="aceita">Parecer aceito</option>
+            <option value="indeferida">Indeferidas</option>
+            <option value="desistiu">Desistências</option>
+            <option value="todas">Todas</option>
+          </Select>
+          <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Buscar por candidato (nome, email, código)…" class="flex-1 min-w-48" />
+        </div>
+      </Card>
+
+      <Card class="p-0 overflow-hidden">
+        {isLoading && <div class="p-4 space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-16 w-full" />)}</div>}
+        {!isLoading && items.length === 0 && (
+          <div class="p-8">
+            <EmptyState icon={<GraduationCap size={24} />} title="Nenhuma transferência"
+              description={situacao === 'abertas' ? 'Sem transferências esperando análise ou resposta.' : 'Tente outro filtro.'} />
+          </div>
+        )}
+        {!isLoading && items.length > 0 && (
+          <ul class="divide-y divide-border">
+            {items.map((it) => <AnaliseRow key={it.registrationId} item={it} onOpen={() => setAberta(it)} />)}
+          </ul>
+        )}
+      </Card>
+
+      {atual && <AnaliseModal item={atual} onClose={() => setAberta(null)} />}
+    </>
+  )
+}
+
+function AnaliseRow({ item, onOpen }: { item: AnaliseItem; onOpen: () => void }) {
+  const sit = SITUACAO_ANALISE[item.situacao]
+  const enviados = item.documentos.filter((d) => d.status === 'pending' || d.status === 'approved').length
+  return (
+    <li>
+      <button type="button" onClick={onOpen} class="w-full text-left p-4 hover:bg-surface-3 transition-colors flex flex-wrap items-center gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm font-medium text-fg">{item.candidato.nome || '—'}</span>
+            <code class="text-2xs text-fg-muted font-mono">{item.candidateCode}</code>
+            <Badge tone={sit.tone} solid>{sit.rotulo}</Badge>
+          </div>
+          <div class="text-xs text-fg-muted mt-0.5 truncate">
+            {item.curso ?? '—'}{item.local ? ` · ${item.local}` : ''} · {item.portal.nome}
+          </div>
+          <div class="text-2xs text-fg-muted mt-0.5">
+            Documentos da análise: {enviados}/{item.documentos.length} enviados
+            {item.documentos.some((d) => d.status === 'rejected') && <span class="text-danger"> · recusado aguardando reenvio</span>}
+            {item.etapa.analise?.parecer?.periodo && <span> · Período: {item.etapa.analise.parecer.periodo}</span>}
+          </div>
+        </div>
+        <div class="text-xs text-fg-muted whitespace-nowrap shrink-0 text-right">
+          <div>{sit.desde} há {formatRelative(item.desde)}</div>
+        </div>
+      </button>
+    </li>
+  )
+}
+
+function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => void }) {
+  const [openDocId, setOpenDocId] = useState<number | null>(null)
+  return (
+    <>
+      <Modal open onClose={onClose} title={`Análise de transferência — ${item.candidato.nome || item.candidateCode}`} size="lg">
+        <div class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <Row label="Código" value={item.candidateCode} />
+            <Row label="Curso" value={item.curso ?? '—'} />
+            <Row label="Local" value={item.local ?? '—'} />
+            <Row label="Portal" value={item.portal.nome} />
+            <Row label="E-mail" value={item.candidato.email ?? '—'} />
+            <Row label="WhatsApp" value={item.candidato.whatsapp ?? '—'} />
+          </div>
+
+          <div>
+            <div class="text-xs uppercase tracking-wider text-fg-muted font-medium mb-2">Documentos para análise</div>
+            <ul class="space-y-1.5">
+              {item.documentos.map((d) => {
+                const tone = d.status === 'approved' ? 'success' : d.status === 'rejected' ? 'danger' : d.status === 'pending' ? 'info' : 'warning'
+                const label = d.status === 'approved' ? 'Aprovado' : d.status === 'rejected' ? 'Rejeitado' : d.status === 'pending' ? 'Enviado' : 'Faltando'
+                return (
+                  <li key={d.code} class="flex items-center gap-2 p-2 rounded-md border border-border bg-surface text-xs">
+                    <Badge tone={tone} solid>{label}</Badge>
+                    <span class="text-fg flex-1 truncate">{d.nome}</span>
+                    {d.enviadoEm && <span class="text-fg-muted">{formatDateTime(d.enviadoEm)}</span>}
+                    {d.id && (
+                      <button type="button" onClick={() => setOpenDocId(d.id)} class="text-accent hover:underline text-2xs inline-flex items-center gap-1">
+                        Abrir <ExternalLink size={10} />
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+            <div class="text-2xs text-fg-muted mt-1.5">
+              Documento ilegível ou errado: abra e rejeite com o motivo — o candidato reenvia. O mérito (período, aproveitamento) vai no parecer abaixo.
+            </div>
+          </div>
+
+          <AnaliseAcademicaCard key={`${item.registrationId}-${item.etapa.analise?.parecer?.emitidoEm ?? ''}`} registrationId={item.registrationId} etapa={item.etapa} />
+
+          <a href={`/app/enrollment-portals/${item.portal.id}/registrations/${item.registrationId}`} class="inline-flex items-center gap-1 text-xs text-accent hover:underline">
+            Abrir a inscrição completa <ExternalLink size={11} />
+          </a>
+        </div>
+      </Modal>
+      {openDocId !== null && <DocItemDetailModal docId={openDocId} onClose={() => setOpenDocId(null)} />}
+    </>
   )
 }
 

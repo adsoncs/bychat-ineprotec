@@ -453,7 +453,7 @@ export async function bloqueioDoDocumento(registrationId: number, typeCode: stri
 // ─── Análise acadêmica: parecer da instituição e resposta do candidato ────
 
 /** A etapa de análise desta inscrição (em qualquer das duas sequências), ou null. */
-async function etapaDeAnalise(registrationId: number) {
+export async function etapaDeAnalise(registrationId: number) {
   for (const onde of ['inscricao', 'painel'] as const) {
     const j = await etapasDaInscricao(registrationId, onde)
     const et = j?.etapas.find((e) => e.chave === 'analise')

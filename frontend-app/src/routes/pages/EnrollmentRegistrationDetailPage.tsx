@@ -572,7 +572,7 @@ const STATUS_DOC_ANALISE: Record<string, { tone: 'success' | 'warning' | 'danger
   approved: { tone: 'success', rotulo: 'aprovado' },
   rejected: { tone: 'danger', rotulo: 'recusado' },
 }
-function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId: number; etapa: EtapaAdmin }) {
+export function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId: number; etapa: EtapaAdmin }) {
   const qc = useQueryClient()
   const a = etapa.analise!
   const p = a.parecer
@@ -595,6 +595,7 @@ function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId: numbe
       setEditando(false)
       void qc.invalidateQueries({ queryKey: ['registration-etapas', registrationId] })
       void qc.invalidateQueries({ queryKey: ['registration-review', registrationId] })
+      void qc.invalidateQueries({ queryKey: ['analises-academicas'] })
     } catch (e) {
       toast((e as Error).message, 'danger')
     } finally {
@@ -728,7 +729,7 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
   )
 }
 
-interface EtapaAdmin {
+export interface EtapaAdmin {
   chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean
   /** Segura as seguintes até ser concluída (Portal › Etapas). */
   trava?: boolean

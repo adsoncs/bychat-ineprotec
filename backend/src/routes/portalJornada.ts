@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
-import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, emitirParecer, responderParecer, CHAVES, type ChaveEtapa } from '../services/portalJornada.js'
+import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, emitirParecer, responderParecer, etapaDeAnalise, CHAVES, type ChaveEtapa, type EtapaDaInscricao } from '../services/portalJornada.js'
 import {
   dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
   iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva,
@@ -335,6 +335,75 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       })
     }
     return r
+  })
+
+  // ── Análise acadêmica: fila da secretaria (Educacional › Análise de Documentos) ──
+  // Só as inscrições que passam pela etapa (ex.: transferência), com a situação
+  // da análise. `habilitada` = algum portal tem a etapa — sem isso a aba some.
+  app.get('/api/admin/analises-academicas', { preHandler: authMiddleware }, async (req) => {
+    const qy = (req.query as any) || {}
+    const filtro = String(qy.situacao || 'abertas')
+    const busca = String(qy.q || '').trim().toLowerCase()
+    const portais = (await prisma.enrollmentPortal.findMany({ select: { id: true, jornadaEtapas: true } }))
+      .filter((p) => {
+        const cfg = lerJornada(p.jornadaEtapas)
+        return [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'analise' && e.ativo && e.documentos?.length)
+      })
+    const vazio = { habilitada: portais.length > 0, items: [] as any[], kpi: { documentos: 0, em_analise: 0, aguardando_candidato: 0, aceita: 0, indeferida: 0, desistiu: 0 } }
+    if (!portais.length) return vazio
+    const regs = await prisma.enrollmentRegistration.findMany({
+      where: { portalId: { in: portais.map((p) => p.id) }, status: { not: 'merged' } },
+      orderBy: { id: 'desc' }, take: 400,
+      select: {
+        id: true, candidateCode: true, status: true, createdAt: true, formData: true,
+        lead: { select: { nome: true, email: true, whatsapp: true } },
+        portal: { select: { id: true, nome: true, allowedCampusIds: true } },
+        documents: { select: { id: true, typeCode: true, status: true, uploadedAt: true }, orderBy: { uploadedAt: 'asc' } },
+        processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } }, selectionProcess: { select: { entryMode: { select: { name: true } } } } } },
+      },
+    })
+    const campi = new Map((await prisma.campus.findMany({ select: { id: true, nome: true } })).map((c) => [c.id, c.nome]))
+    const situacaoDe = (e: EtapaDaInscricao) => {
+      const p = e.analise?.parecer
+      if (e.situacao === 'feito') return 'aceita'
+      if (p?.resultado === 'indeferido') return 'indeferida'
+      if (p?.aceite?.decisao === 'desistiu') return 'desistiu'
+      if (p?.resultado === 'deferido') return 'aguardando_candidato'
+      if (e.situacao === 'aguardando') return 'em_analise'
+      return 'documentos'
+    }
+    for (const r of regs) {
+      const et = await etapaDeAnalise(r.id).catch(() => null)
+      if (!et?.analise) continue
+      const situacao = situacaoDe(et)
+      vazio.kpi[situacao as keyof typeof vazio.kpi]++
+      const abertas = ['documentos', 'em_analise', 'aguardando_candidato']
+      if (filtro === 'abertas' ? !abertas.includes(situacao) : filtro !== 'todas' && filtro !== situacao) continue
+      const nome = r.lead?.nome ?? String((r.formData as any)?.nome ?? '')
+      if (busca && ![nome, r.lead?.email ?? '', r.candidateCode].some((v) => v.toLowerCase().includes(busca))) continue
+      // Último arquivo de cada documento da análise (o modal de revisão abre por id).
+      const ultimo = new Map(r.documents.map((d) => [d.typeCode, d]))
+      const docs = et.analise.documentos.map((d) => ({ ...d, id: ultimo.get(d.code)?.id ?? null, enviadoEm: ultimo.get(d.code)?.uploadedAt ?? null }))
+      const doPortal = Array.isArray(r.portal.allowedCampusIds) ? (r.portal.allowedCampusIds as unknown[]).map(Number) : []
+      const campusId = Number((r.formData as any)?.campusId) || (doPortal.length === 1 ? doPortal[0]! : 0)
+      const envios = docs.map((d) => d.enviadoEm).filter(Boolean) as Date[]
+      vazio.items.push({
+        registrationId: r.id, candidateCode: r.candidateCode, criadaEm: r.createdAt, statusInscricao: r.status,
+        candidato: { nome, email: r.lead?.email ?? null, whatsapp: r.lead?.whatsapp ?? null },
+        portal: { id: r.portal.id, nome: r.portal.nome }, local: campi.get(campusId) ?? null,
+        curso: r.processRegistration?.offering?.course?.nome ?? r.processRegistration?.offering?.nome ?? null,
+        formaDeIngresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? null,
+        situacao, documentos: docs,
+        // Desde quando está parada nesta situação (a fila anda pela mais antiga).
+        desde: situacao === 'em_analise' ? (envios.length ? new Date(Math.max(...envios.map((d) => +d))) : r.createdAt)
+          : situacao === 'aguardando_candidato' ? (et.analise.parecer?.emitidoEm ?? r.createdAt) : r.createdAt,
+        etapa: et,
+      })
+    }
+    const ordem: Record<string, number> = { em_analise: 0, aguardando_candidato: 1, documentos: 2 }
+    vazio.items.sort((a, b) => (ordem[a.situacao] ?? 3) - (ordem[b.situacao] ?? 3)
+      || (a.situacao === 'em_analise' ? +new Date(a.desde) - +new Date(b.desde) : +new Date(b.desde) - +new Date(a.desde)))
+    return vazio
   })
 
   // ── Análise acadêmica (ex.: transferência) ──
