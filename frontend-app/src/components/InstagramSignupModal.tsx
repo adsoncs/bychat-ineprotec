@@ -29,8 +29,10 @@ const IG_OAUTH_SCOPES = [
   'pages_read_engagement',
   'pages_manage_metadata',
   'pages_messaging',
-  'instagram_business_basic',
-  'instagram_business_manage_messages',
+  // Nomes do Login do FACEBOOK. Os `instagram_business_*` são do outro fluxo
+  // (login direto pelo Instagram) e aqui a Meta recusa: "Invalid Scopes".
+  'instagram_basic',
+  'instagram_manage_messages',
   'business_management',
 ].join(',')
 
