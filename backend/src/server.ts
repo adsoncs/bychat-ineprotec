@@ -1474,7 +1474,10 @@ import('./services/profilePictureSync.js')
   .then(m => m.startProfilePictureSync())
   .catch(err => console.error('[avatares] init falhou:', err?.message || err))
   startDbConnectorScheduler().catch(err => console.error('[dbConnectorScheduler] init falhou:', err))
-  import('./services/schedulingNotify.js').then(m => m.startSchedulingReminders()).catch(() => {})
+  // DESLIGADO: lembrete de agendamento 24h/1h antes saía sozinho daqui.
+  // Regra (08/10): mensagem automática para lead/candidato/aluno só sai por
+  // fluxo configurável na UX. Confirmação/cancelamento do próprio agendamento
+  // (resposta à ação da pessoa) continuam.
   startPriorityScoreScheduler().catch(err => console.error('[priorityScore] init falhou:', err))
   startEnrollmentExpireJob()
   startStatusSummaryAdvanceJob()

@@ -114,13 +114,9 @@ export async function registerOverlay(app: FastifyInstance): Promise<void> {
   await app.register(acaEstagioRoutes)
   await app.register(acaSistecRoutes)
   await app.register(acaAssinaturaRoutes)
-  // Cobrança de contrato parado (enviado e não assinado).
-  import('../services/acaContratoLembrete.js')
-    .then(m => m.iniciarLembretesDeContrato())
-    .catch(err => console.warn('[acaContratoLembrete] init falhou:', err?.message || err))
-
-  // Scheduler de comunicação acadêmica (avisos de vencimento/notas).
-  import('../services/acaComunicacao.js')
-    .then(m => m.startAcaComunicacaoScheduler())
-    .catch(err => console.warn('[acaComunicacao] init falhou:', err?.message || err))
+  // DESLIGADOS: cobrança de contrato não assinado (D+2/5/10) e avisos de
+  // parcela (vencendo em 3 dias e régua de atraso D+1/7/15) saíam sozinhos
+  // daqui. Regra (08/10): mensagem automática para lead/candidato/aluno só sai por
+  // fluxo configurável na UX (Automação › Fluxos), nunca por rotina no código.
+  // O aviso de notas da turma (manual) continua em acaComunicacao.
 }

@@ -92,11 +92,11 @@ async function enviarLink(leadId: number, url: string, finalidade: string): Prom
 }
 
 export async function portalAuthRoutes(app: FastifyInstance) {
-  // Convite de volta para quem abandonou a inscrição no meio. Fica aqui (e não
-  // no overlay) porque vale para qualquer instalação com portal de matrículas.
-  import('../services/enrollmentRetomada.js')
-    .then((m) => m.iniciarRetomadaDeRascunhos())
-    .catch((e) => console.warn('[enrollmentRetomada] init falhou:', e?.message || e))
+  // DESLIGADO: o convite de volta para quem abandonou a inscrição saía sozinho
+  // daqui, sem fluxo e sem botão (e, sem instância própria, pelo número de
+  // outra empresa). Regra (08/10): mensagem automática para lead/candidato/aluno só sai por
+  // fluxo configurável na UX (Automação › Fluxos), nunca por rotina no código.
+  // A varredura (services/enrollmentRetomada.ts) fica só para quando virar gatilho de fluxo.
 
   // Formulários do portal são POST de <form> — o portal funciona sem JS.
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
