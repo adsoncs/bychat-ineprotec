@@ -633,11 +633,16 @@ export async function getProviderForLead(lead: { id: number; whatsapp: string })
 export function createEvolutionProvider(): EvolutionProvider {
   const url = process.env.EVOLUTION_API_URL
   const key = process.env.EVOLUTION_API_KEY
-  const inst = process.env.EVOLUTION_INSTANCE || 'beyond-main'
+  const inst = (process.env.EVOLUTION_INSTANCE || '').trim()
 
   if (!url || !key) {
     throw new Error('Evolution API nao configurada (EVOLUTION_API_URL / EVOLUTION_API_KEY)')
   }
+  // Sem EVOLUTION_INSTANCE não há instância padrão. Antes caía em 'beyond-main' —
+  // a linha da Beyond, que mora no mesmo servidor Evolution com a mesma chave
+  // mestra —, e um tenant sem WhatsApp próprio (fabad, fadict) mandava mensagem
+  // automática de cliente pelo número de outra empresa (08/10).
+  if (!inst) throw new Error('Nenhuma instancia padrao de WhatsApp configurada (EVOLUTION_INSTANCE)')
 
   return new EvolutionProvider(url, key, inst)
 }
@@ -700,7 +705,7 @@ export async function getProviderForLeadOwner(lead: { id: number; whatsapp: stri
   }
 
   // Sem janela Cloud aberta e sem instância dedicada do dono → Evolution padrão
-  // (beyond-main), que entrega texto livre ao número frio. NÃO cai na Cloud API,
+  // (EVOLUTION_INSTANCE; sem ela, erro — nunca a linha de outro tenant), que entrega texto livre ao número frio. NÃO cai na Cloud API,
   // que rejeitaria o texto livre fora da janela de 24h.
   const provider = createEvolutionProvider()
   return { provider, instanceName: provider.instanceName }

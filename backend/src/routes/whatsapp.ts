@@ -27,7 +27,12 @@ let lastEvolutionWebhookWarn = 0
 
 function evoUrl() { return process.env.EVOLUTION_API_URL || '' }
 function evoKey() { return process.env.EVOLUTION_API_KEY || '' }
-function evoInstance() { return process.env.EVOLUTION_INSTANCE || 'beyond-main' }
+// Sem EVOLUTION_INSTANCE não há instância padrão. Antes caía em 'beyond-main' —
+// a linha da Beyond, que mora no mesmo servidor Evolution com a mesma chave
+// mestra —, e um tenant sem WhatsApp próprio (fabad, fadict) mandava mensagem
+// automática de cliente pelo número de outra empresa (08/10). Pelo mesmo motivo,
+// conectar/desconectar/reiniciar/webhook sem instância própria agora recusam.
+function evoInstance() { return (process.env.EVOLUTION_INSTANCE || '').trim() }
 
 async function evoFetch(path: string, method = 'GET', body?: any) {
   const opts: any = {
@@ -46,7 +51,9 @@ async function evoFetch(path: string, method = 'GET', body?: any) {
 async function sendWhatsAppMessage(number: string, text: string, instanceName?: string | null) {
   // Responde pela instância que RECEBEU a mensagem (multi-instância). Sem ela,
   // cai na instância global do .env (EVOLUTION_INSTANCE) — comportamento antigo.
-  return evoFetch(`/message/sendText/${instanceName || evoInstance()}`, 'POST', { number, text })
+  const inst = instanceName || evoInstance()
+  if (!inst) throw new Error('Nenhuma instancia de WhatsApp para responder (EVOLUTION_INSTANCE vazio)')
+  return evoFetch(`/message/sendText/${inst}`, 'POST', { number, text })
 }
 
 // ─── Foto de perfil do contato: hospedar LOCALMENTE ──────────────────────────
@@ -459,6 +466,7 @@ async function aplicarReacaoRecebidaEvolution(reaction: any, senderName: string,
 async function downloadAudioFromEvolution(messageKey: any, instanceName?: string): Promise<Buffer | null> {
   try {
     const inst = instanceName || evoInstance()
+    if (!inst) return null
     const result = await evoFetch(`/chat/getBase64FromMediaMessage/${inst}`, 'POST', { message: { key: messageKey } })
     if (result?.base64) {
       return Buffer.from(result.base64, 'base64')
@@ -539,6 +547,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // GET /api/whatsapp/status — Status da conexão da instância
   app.get('/api/whatsapp/status', { preHandler: authMiddleware }, async (req, reply) => {
+    if (!evoInstance()) return { instance: null, state: 'not_configured' }
     try {
       const result = await evoFetch(`/instance/connectionState/${evoInstance()}`)
       // Normalizar resposta: Evolution API retorna { instance: { state: "open" } }
@@ -556,6 +565,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // POST /api/whatsapp/connect — Gerar QR code para conexão
   app.post('/api/whatsapp/connect', { preHandler: adminOnly }, async (req, reply) => {
+    if (!evoInstance()) return reply.code(400).send({ error: 'Nenhuma instância padrão de WhatsApp (EVOLUTION_INSTANCE). Use Canais › WhatsApp.' })
     try {
       // Primeiro tenta verificar se instância existe
       let instanceExists = false
@@ -601,6 +611,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // POST /api/whatsapp/disconnect — Desconectar instância
   app.post('/api/whatsapp/disconnect', { preHandler: adminOnly }, async (req, reply) => {
+    if (!evoInstance()) return reply.code(400).send({ error: 'Nenhuma instância padrão de WhatsApp (EVOLUTION_INSTANCE). Use Canais › WhatsApp.' })
     try {
       await evoFetch(`/instance/logout/${evoInstance()}`, 'DELETE')
       return { ok: true }
@@ -611,6 +622,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // POST /api/whatsapp/restart — Reiniciar instância
   app.post('/api/whatsapp/restart', { preHandler: adminOnly }, async (req, reply) => {
+    if (!evoInstance()) return reply.code(400).send({ error: 'Nenhuma instância padrão de WhatsApp (EVOLUTION_INSTANCE). Use Canais › WhatsApp.' })
     try {
       await evoFetch(`/instance/restart/${evoInstance()}`, 'PUT')
       return { ok: true }
@@ -626,6 +638,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
 
   // Sincroniza estado inicial consultando Evolution (fire-and-forget no start + on demand)
   async function syncConnectionStateFromEvolution(): Promise<string> {
+    if (!evoInstance()) { lastConnectionState = 'disconnected'; return 'disconnected' }
     try {
       const result = await evoFetch(`/instance/connectionState/${evoInstance()}`)
       const state = result?.instance?.state || result?.state || ''
@@ -1859,7 +1872,7 @@ export async function whatsappRoutes(app: FastifyInstance) {
       const lead = await prisma.lead.findFirst({ where: { whatsapp: { contains: number.slice(-8) } }, orderBy: { createdAt: 'desc' } })
       if (!lead) return { profilePicUrl: null }
       // Força re-busca: passa currentUrl=null para ignorar o throttle.
-      await cacheProfilePicture(lead.id, null, lead.whatsapp || number, evoInstance(), app)
+      if (evoInstance()) await cacheProfilePicture(lead.id, null, lead.whatsapp || number, evoInstance(), app)
       const updated = await prisma.lead.findUnique({ where: { id: lead.id }, select: { profilePicUrl: true } })
       return { profilePicUrl: updated?.profilePicUrl ?? null }
     } catch (err: any) {
@@ -1970,6 +1983,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
       const { instanceName } = (req.body || {}) as { instanceName?: string }
       const { garantirWebhookDaInstancia } = await import('../services/evolutionMonitor.js')
       const alvo = instanceName || evoInstance()
+      if (!alvo) return reply.code(400).send({ error: 'Nenhuma instância padrão de WhatsApp (EVOLUTION_INSTANCE). Use Canais › WhatsApp.' })
+      // A chave da Evolution é a mesma para todos os tenants do servidor: sem
+      // esta checagem, qualquer painel podia repontar o webhook da linha de
+      // outra empresa para si.
+      if (alvo !== evoInstance() && !(await prisma.whatsAppInstance.findFirst({ where: { instanceName: alvo }, select: { id: true } }))) {
+        return reply.code(400).send({ error: `Instância "${alvo}" não pertence a este painel.` })
+      }
       const r = await garantirWebhookDaInstancia(alvo)
       if (!r.ok) return reply.code(400).send({ error: r.message })
       return { ok: true, webhookUrl: r.url, mudou: r.mudou, events: r.eventos, message: r.message }

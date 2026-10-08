@@ -51,7 +51,7 @@ function getEvoConfig() {
   return {
     url: process.env.EVOLUTION_API_URL || '',
     key: process.env.EVOLUTION_API_KEY || '',
-    instance: process.env.EVOLUTION_INSTANCE || 'beyond-main',
+    instance: (process.env.EVOLUTION_INSTANCE || '').trim(), // sem padrão: ver whatsappProvider.createEvolutionProvider
     // Sem fallback de propósito: o valor que estava aqui era o domínio anterior
     // à migração, e um webhook apontado para ele manda as mensagens do cliente
     // para um endereço que pode não ser mais nosso.
