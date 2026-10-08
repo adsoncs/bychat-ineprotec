@@ -225,7 +225,7 @@ function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => voi
   const [openDocId, setOpenDocId] = useState<number | null>(null)
   return (
     <>
-      <Modal open onClose={onClose} title={`Análise de transferência — ${item.candidato.nome || item.candidateCode}`} size="lg">
+      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`Análise de transferência — ${item.candidato.nome || item.candidateCode}`} size="lg">
         <div class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <Row label="Código" value={item.candidateCode} />
