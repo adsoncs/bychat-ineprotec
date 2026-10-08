@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
-import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, CHAVES, type ChaveEtapa } from '../services/portalJornada.js'
+import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, emitirParecer, responderParecer, CHAVES, type ChaveEtapa } from '../services/portalJornada.js'
 import {
   dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
   iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva,
@@ -336,4 +336,59 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     }
     return r
   })
+
+  // ── Análise acadêmica (ex.: transferência) ──
+  // A secretaria emite o parecer; o candidato lê e decide se continua.
+  app.post('/api/admin/enrollment-registrations/:id/analise', { preHandler: adminOnly }, async (req, reply) => {
+    const user = (req as any).user as any
+    const id = Number((req.params as any).id)
+    const b = (req.body as any) || {}
+    const resultado = b.resultado === 'deferido' ? 'deferido' : b.resultado === 'indeferido' ? 'indeferido' : null
+    if (!resultado) return reply.code(400).send({ error: 'Escolha deferido ou indeferido.' })
+    const quem = user?.userId ? await prisma.user.findUnique({ where: { id: Number(user.userId) }, select: { name: true } }) : null
+    const r = await emitirParecer({
+      registrationId: id, resultado, periodo: b.periodo, aproveitamento: b.aproveitamento, observacao: b.observacao,
+      userId: user?.userId ? Number(user.userId) : null, userNome: quem?.name ?? null,
+    })
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { leadId: true, candidateCode: true } })
+    if (reg?.leadId) {
+      const { logEvent } = await import('../services/leadHistory.js')
+      logEvent({
+        leadId: reg.leadId, type: 'enrollment_analysis', category: 'lifecycle', channel: 'portal', source: 'admin',
+        title: `Análise acadêmica ${resultado === 'deferido' ? 'deferida' : 'indeferida'} — ${reg.candidateCode}`, actorType: 'operator',
+        metadata: { registrationId: id, resultado, periodo: r.parecer.periodo },
+      })
+    }
+    import('../services/enrollmentNotify.js')
+      .then((m) => m.sendAnaliseNotice(id))
+      .catch((err) => req.log.warn(`[analise] aviso falhou: ${err.message}`))
+    return { ok: true, parecer: r.parecer }
+  })
+
+  app.post('/api/public/registrations/:code/analise/decisao', async (req, reply) => {
+    const s = sessaoDoCandidato(req, (req.params as any).code)
+    if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    const b = (req.body as any) || {}
+    const decisao = b.decisao === 'aceito' ? 'aceito' : b.decisao === 'desistiu' ? 'desistiu' : null
+    if (!decisao) return reply.code(400).send({ error: 'Decisão inválida.' })
+    const via = b.via === 'chatbot' ? 'chatbot' : 'portal'
+    const r = await responderParecer(s.enrollmentId, decisao, via)
+    if (!r.ok) return reply.code(400).send({ error: r.erro })
+    if (decisao === 'desistiu') {
+      const { cancelarCobrancasAbertas } = await import('../services/inscricaoDuplicada.js')
+      await cancelarCobrancasAbertas(s.enrollmentId, 'Candidato desistiu após o parecer da análise acadêmica').catch(() => [])
+    }
+    const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: s.enrollmentId }, select: { leadId: true, candidateCode: true } })
+    if (reg?.leadId) {
+      const { logEvent } = await import('../services/leadHistory.js')
+      logEvent({
+        leadId: reg.leadId, type: 'enrollment_analysis', category: 'lifecycle', channel: via === 'chatbot' ? 'whatsapp' : 'portal', source: via,
+        title: decisao === 'aceito' ? `Parecer da análise aceito — ${reg.candidateCode}` : `Desistiu após o parecer da análise — ${reg.candidateCode}`,
+        actorType: 'lead', metadata: { registrationId: s.enrollmentId, decisao },
+      })
+    }
+    return { ok: true }
+  })
+
 }

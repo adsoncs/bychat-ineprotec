@@ -1,25 +1,33 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles, Lock } from '@/components/ui/icon-set'
+import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles, Lock, GraduationCap } from '@/components/ui/icon-set'
 import { DadosEtapasEditor } from '@/components/educational/DadosEtapasEditor'
 import { useDadosEtapas, type DadosConfig } from '@/hooks/useDadosEtapas'
 import { useUpdateEnrollmentPortal, type EnrollmentPortal } from '@/hooks/useEnrollmentPortals'
-import { useEntryModes, useSelectionProcesses } from '@/hooks/useEducational'
+import { useEntryModes, useSelectionProcesses, useDocumentTypes } from '@/hooks/useEducational'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 
-type Chave = 'cadastro' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
+type Chave = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
 interface Etapa {
   chave: Chave; ativo: boolean; obrigatoria: boolean; trava?: boolean
   /** Formas de ingresso em que a trava vale (vazio = todas). */
   travaIngressos?: number[]
+  /** Análise acadêmica: formas de ingresso em que aparece (vazio = todas). */
+  ingressos?: number[]
+  /** Análise acadêmica: documentos analisados antes de liberar o resto. */
+  documentos?: string[]
+  /** Documentos: conclui com os obrigatórios enviados (não espera aprovação). */
+  liberaNoEnvio?: boolean
 }
 interface Ingresso { id: number; name: string }
+interface TipoDoc { code: string; name: string }
 
-const CHAVES: Chave[] = ['cadastro', 'pagamento', 'documentos', 'contrato', 'prova']
+const CHAVES: Chave[] = ['cadastro', 'analise', 'pagamento', 'documentos', 'contrato', 'prova']
 // O que "concluída" quer dizer para a trava (igual ao backend, CONCLUIR).
 const CONCLUIR: Record<Chave, string> = {
   cadastro: 'todos os dados preenchidos',
+  analise: 'o parecer emitido e aceito pelo candidato',
   pagamento: 'pagamento confirmado',
   documentos: 'todos os documentos obrigatórios aprovados pela secretaria',
   contrato: 'contrato assinado',
@@ -27,6 +35,7 @@ const CONCLUIR: Record<Chave, string> = {
 }
 const INFO: Record<Chave, { nome: string; quando: string; Icone: typeof CreditCard }> = {
   cadastro: { nome: 'Completar cadastro', quando: 'Aparece quando há dados marcados para "Completar cadastro" (seção Dados, abaixo). Os dados vão direto para a ficha do aluno.', Icone: ClipboardList },
+  analise: { nome: 'Análise acadêmica', quando: 'Ex.: transferência. O candidato envia os documentos escolhidos abaixo, a secretaria emite o parecer (período de ingresso, aproveitamento) no detalhe da inscrição e o candidato aceita ou desiste. Trava sempre as etapas seguintes.', Icone: GraduationCap },
   pagamento: { nome: 'Pagamento', quando: 'Aparece quando o portal cobra (aba Pagamento): taxa de inscrição ou matrícula/1ª mensalidade.', Icone: CreditCard },
   documentos: { nome: 'Envio de documentos', quando: 'Aparece quando o processo seletivo ou o modo de ingresso exige documentos.', Icone: FileText },
   contrato: { nome: 'Assinatura do contrato', quando: 'Gerado com o plano de pagamento da oferta. Assinado aqui, a matrícula já nasce com o contrato aceito. Texto em Acadêmico › Financeiro.', Icone: Pencil },
@@ -37,6 +46,7 @@ const INFO: Record<Chave, { nome: string; quando: string; Icone: typeof CreditCa
 // pagamento no portal logado.
 const PADRAO_INSCRICAO: Etapa[] = [
   { chave: 'cadastro', ativo: true, obrigatoria: false },
+  { chave: 'analise', ativo: false, obrigatoria: false },
   { chave: 'pagamento', ativo: true, obrigatoria: false },
   { chave: 'documentos', ativo: false, obrigatoria: false },
   { chave: 'contrato', ativo: false, obrigatoria: false },
@@ -44,6 +54,7 @@ const PADRAO_INSCRICAO: Etapa[] = [
 ]
 const PADRAO_PAINEL: Etapa[] = [
   { chave: 'cadastro', ativo: true, obrigatoria: false },
+  { chave: 'analise', ativo: false, obrigatoria: false },
   { chave: 'documentos', ativo: true, obrigatoria: false },
   { chave: 'contrato', ativo: true, obrigatoria: false },
   { chave: 'pagamento', ativo: true, obrigatoria: false },
@@ -57,18 +68,40 @@ function normalizar(bruto: unknown, padrao: Etapa[]): Etapa[] {
     if (CHAVES.includes(x?.chave) && !out.some((e) => e.chave === x.chave)) out.push({
       chave: x.chave, ativo: x.ativo !== false, obrigatoria: !!x.obrigatoria, trava: !!x.trava,
       ...(Array.isArray(x.travaIngressos) && x.travaIngressos.length ? { travaIngressos: x.travaIngressos.map(Number) } : {}),
+      ...(Array.isArray(x.ingressos) && x.ingressos.length ? { ingressos: x.ingressos.map(Number) } : {}),
+      ...(Array.isArray(x.documentos) && x.documentos.length ? { documentos: x.documentos.map(String) } : {}),
+      ...(x.liberaNoEnvio ? { liberaNoEnvio: true } : {}),
     })
   }
-  // Mesma regra do backend: "Completar cadastro" veio depois e entra ligada, na frente.
+  // Mesma regra do backend: "Completar cadastro" veio depois e entra ligada, na
+  // frente; a análise acadêmica (mais nova) entra desligada logo depois dele.
   for (const c of CHAVES) {
     if (out.some((e) => e.chave === c)) continue
     if (c === 'cadastro') out.unshift({ chave: c, ativo: true, obrigatoria: false })
+    else if (c === 'analise') out.splice(out.findIndex((e) => e.chave === 'cadastro') + 1, 0, { chave: c, ativo: false, obrigatoria: false })
     else out.push({ chave: c, ativo: false, obrigatoria: false })
   }
   return out
 }
 
-function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; onChange: (e: Etapa[]) => void; ingressos: Ingresso[]; desabilitada?: boolean }) {
+/** Lista de caixas de marcar (formas de ingresso, documentos) — vazia = nenhuma marcada. */
+function Marcar<T extends string | number>(p: { opcoes: Array<{ id: T; nome: string }>; marcados: T[]; onChange: (v: T[]) => void }) {
+  return (
+    <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+      {p.opcoes.map((o) => (
+        <label key={String(o.id)} class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={p.marcados.includes(o.id)} onChange={(ev) => {
+            const on = (ev.target as HTMLInputElement).checked
+            p.onChange(on ? [...p.marcados, o.id] : p.marcados.filter((x) => x !== o.id))
+          }} />
+          {o.nome}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; onChange: (e: Etapa[]) => void; ingressos: Ingresso[]; tiposDoc: TipoDoc[]; desabilitada?: boolean }) {
   const mover = (i: number, d: -1 | 1) => {
     const n = [...p.etapas]; const j = i + d
     if (j < 0 || j >= n.length) return
@@ -95,16 +128,36 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
                   <label class="flex items-center gap-1.5 text-xs cursor-pointer">
                     <input type="checkbox" checked={e.ativo} onChange={(ev) => muda(i, { ativo: (ev.target as HTMLInputElement).checked })} /> Usar esta etapa
                   </label>
-                  {e.ativo && (
+                  {e.ativo && e.chave === 'documentos' && (
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="A etapa conclui (e libera a trava) quando os obrigatórios forem enviados, sem esperar a conferência">
+                      <input type="checkbox" checked={!!e.liberaNoEnvio} onChange={(ev) => muda(i, { liberaNoEnvio: (ev.target as HTMLInputElement).checked })} /> Libera ao enviar (não espera aprovação)
+                    </label>
+                  )}
+                  {e.ativo && e.chave !== 'analise' && (
                     <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="As etapas seguintes desta lista ficam bloqueadas até esta ser concluída">
                       <input type="checkbox" checked={!!e.trava} onChange={(ev) => muda(i, { trava: (ev.target as HTMLInputElement).checked })} /> <Lock size={12} /> Travar até concluir
                     </label>
                   )}
                 </div>
-                {e.ativo && e.trava && (
+                {e.ativo && e.chave === 'analise' && (
+                  <div class="mt-2 space-y-2 text-xs">
+                    <div class="text-2xs text-warning">
+                      <Lock size={11} class="inline" /> Trava sempre: as etapas seguintes só liberam com {CONCLUIR.analise}.
+                    </div>
+                    <div>
+                      <div class="text-fg-muted">Aparece para{!e.ingressos?.length && <span class="text-warning"> — marque ao menos uma forma de ingresso (sem marcar, vale para todas)</span>}</div>
+                      <Marcar opcoes={p.ingressos.map((g) => ({ id: g.id, nome: g.name }))} marcados={e.ingressos ?? []} onChange={(v) => muda(i, { ingressos: v })} />
+                    </div>
+                    <div>
+                      <div class="text-fg-muted">Documentos analisados{!e.documentos?.length && <span class="text-danger"> — escolha ao menos um (sem documento, a etapa não aparece)</span>}</div>
+                      <Marcar opcoes={p.tiposDoc.map((t) => ({ id: t.code, nome: t.name }))} marcados={e.documentos ?? []} onChange={(v) => muda(i, { documentos: v })} />
+                    </div>
+                  </div>
+                )}
+                {e.ativo && e.trava && e.chave !== 'analise' && (
                   <div class="mt-2 space-y-1.5">
                     <div class="text-2xs text-warning">
-                      As etapas seguintes só liberam com {CONCLUIR[e.chave]}. "Em análise" ainda segura a fila.
+                      As etapas seguintes só liberam com {e.chave === 'documentos' && e.liberaNoEnvio ? 'todos os documentos obrigatórios enviados' : CONCLUIR[e.chave]}.{e.chave === 'documentos' && e.liberaNoEnvio ? '' : ' "Em análise" ainda segura a fila.'}
                     </div>
                     <div class="text-xs">
                       <div class="text-fg-muted mb-1">Vale para</div>
@@ -150,7 +203,7 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
         })}
       </ol>
       <div class="text-2xs text-fg-muted mt-3">
-        Ordem final: {ativas.length ? ativas.map((e) => INFO[e.chave].nome + (e.trava ? (e.travaIngressos?.length
+        Ordem final: {ativas.length ? ativas.map((e) => INFO[e.chave].nome + (e.chave === 'analise' ? ` (trava${e.ingressos?.length ? `: ${e.ingressos.map((id) => p.ingressos.find((g) => g.id === id)?.name ?? `#${id}`).join(', ')}` : ''})` : e.trava ? (e.travaIngressos?.length
           ? ` (trava: ${e.travaIngressos.map((id) => p.ingressos.find((g) => g.id === id)?.name ?? `#${id}`).join(', ')})`
           : ' (trava)') : '')).join(' → ') : 'nenhuma etapa'}
         {' · '}etapas que não se aplicam a uma inscrição somem sozinhas.
@@ -173,13 +226,18 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
   // estão marcadas, mesmo que o processo tenha saído do portal.
   const modos = useEntryModes(true)
   const processos = useSelectionProcesses()
+  const tiposDocQ = useDocumentTypes()
+  const tiposDoc = useMemo<TipoDoc[]>(() => (tiposDocQ.data?.types ?? [])
+    .filter((t: any) => t.active !== false)
+    .map((t) => ({ code: t.code, name: t.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')), [tiposDocQ.data])
   const ingressos = useMemo<Ingresso[]>(() => {
     const todos = modos.data?.modes ?? []
     const ids = new Set<number>((portal.selectionProcessIds ?? []).map(Number))
     const doPortal = ids.size
       ? new Set((processos.data?.processes ?? []).filter((sp) => ids.has(sp.id)).map((sp) => sp.entryModeId))
       : null
-    const marcados = new Set([...inscricao, ...painel].flatMap((e) => e.travaIngressos ?? []))
+    const marcados = new Set([...inscricao, ...painel].flatMap((e) => [...(e.travaIngressos ?? []), ...(e.ingressos ?? [])]))
     return todos
       .filter((m) => marcados.has(m.id) || (doPortal ? doPortal.has(m.id) : (m as any).active !== false))
       .map((m) => ({ id: m.id, name: m.name }))
@@ -217,7 +275,7 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
         <ListaDeEtapas
           titulo="Na tela de inscrição"
           descricao="Uma etapa por vez, logo depois de enviar o formulário. A trava marcada aqui vale nesta tela e no chatbot de matrícula."
-          etapas={inscricao} onChange={marca(setInscricao)} ingressos={ingressos}
+          etapas={inscricao} onChange={marca(setInscricao)} ingressos={ingressos} tiposDoc={tiposDoc}
         />
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -227,7 +285,7 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
           <ListaDeEtapas
             titulo="No portal do candidato logado"
             descricao={mesma ? 'Seguindo a ordem e as travas da tela de inscrição.' : 'A lista "O que falta" do portal, depois de entrar com a senha. A trava marcada aqui vale só no portal logado.'}
-            etapas={mesma ? inscricao : painel} onChange={marca(setPainel)} ingressos={ingressos} desabilitada={mesma}
+            etapas={mesma ? inscricao : painel} onChange={marca(setPainel)} ingressos={ingressos} tiposDoc={tiposDoc} desabilitada={mesma}
           />
         </div>
       </div>

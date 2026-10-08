@@ -1210,7 +1210,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       .filter((e) => e.chave !== 'pagamento' || !!cfgPortal?.requirePayment)
       .filter((e) => e.chave !== 'prova' || temProva)
       .filter((e) => e.chave !== 'cadastro' || (!!cfgDados && camposDaEtapa(cfgDados, 'cadastro').length > 0))
-      .map((e) => ({ chave: e.chave, titulo: e.chave === 'prova' ? 'Redação' : ROTULO[e.chave] }))
+      .filter((e) => e.chave !== 'analise' || !!e.documentos?.length)
+      .map((e) => ({ chave: e.chave, titulo: e.chave === 'prova' ? 'Redação' : e.chave === 'analise' ? 'Análise' : ROTULO[e.chave] }))
 
     type Etapas = NonNullable<Awaited<ReturnType<typeof etapasDaInscricao>>>['etapas']
     const etapasDe = async (ids: number[]) => {

@@ -303,10 +303,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // ── POST /api/candidate/documents — upload de documento ──
   app.post('/api/candidate/documents', async (req, reply) => {
     const s = await requireCandidate(req, reply); if (!s) return
-    {
-      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(s.enrollmentId, 'documentos', s.onde)
-      if (trava) return reply.code(409).send({ error: trava, travada: true })
-    }
+    // A trava depende do TIPO (documento da análise acadêmica × demais), que só
+    // se sabe depois de ler o multipart — ver logo abaixo de `typeCode`.
 
     // Override do limite default de 10MB do fastify-multipart só para esta rota
     // — fotos modernas de celular e PDFs escaneados frequentemente excedem 10MB.
@@ -362,6 +360,13 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // o stream. Antes desta correção, `type` voltava `undefined` e o doc era
     // salvo como `typeCode='other'` (bug observado com RG).
     const typeCode = String(file.fields?.type?.value || file.fields?.typeCode?.value || 'other').substring(0, 30)
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDoDocumento(s.enrollmentId, typeCode, s.onde)
+      if (trava) {
+        await fs.unlink(filePath).catch(() => {})
+        return reply.code(409).send({ error: trava, travada: true })
+      }
+    }
     const label = String(file.fields?.label?.value || file.filename || 'Documento').substring(0, 100)
 
     // Resolve FK opcional para DocumentType via code (pode ser null se tipo livre).

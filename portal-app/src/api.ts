@@ -599,7 +599,7 @@ export const opcoesDePagamento = (code: string, token: string, cupom?: string) =
 // ─────────────────────────────────────────────────────────────────────────────
 // Jornada: etapas depois da inscrição, na ordem que o portal escolheu
 
-export type ChaveEtapa = 'cadastro' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
+export type ChaveEtapa = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
 export interface EtapaDaJornada {
   chave: ChaveEtapa
   titulo: string
@@ -612,7 +612,28 @@ export interface EtapaDaJornada {
   trava?: boolean
   /** Travada por uma etapa anterior ainda não concluída — não dá para fazer agora. */
   bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
+  /** Só na análise acadêmica: documentos analisados e o parecer. */
+  analise?: AnaliseDaEtapa
 }
+export interface ParecerDaAnalise {
+  resultado: 'deferido' | 'indeferido'
+  periodo: string | null
+  aproveitamento: string | null
+  observacao: string | null
+  emitidoEm: string
+  aceite: { decisao: 'aceito' | 'desistiu'; em: string } | null
+}
+export interface AnaliseDaEtapa {
+  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null }>
+  parecer: ParecerDaAnalise | null
+}
+/** Resposta do candidato ao parecer: segue com a matrícula ou desiste. */
+export const responderParecer = (code: string, token: string, decisao: 'aceito' | 'desistiu') =>
+  pedir<{ ok: true }>(`/api/public/registrations/${encodeURIComponent(code)}/analise/decisao`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ decisao }),
+  })
 export interface Jornada {
   portal: { id: number; slug: string; nome: string } | null
   etapas: EtapaDaJornada[]

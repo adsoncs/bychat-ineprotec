@@ -3,7 +3,7 @@ import { Fragment } from 'preact'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
-  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye, Lock,
+  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye, Lock, GraduationCap,
 } from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
@@ -124,8 +124,12 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           <CandidatePortalCard review={review} />
           <CandidateCard review={review} />
           <RegistrationCard review={review} />
-          {ordemDasEtapas(etapasDaPagina.data?.inscricao).map((chave) => {
+          {ordemDasEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel).map((chave) => {
             const id = review.registration.id
+            if (chave === 'analise') {
+              const et = [...(etapasDaPagina.data?.inscricao ?? []), ...(etapasDaPagina.data?.painel ?? [])].find((e) => e.chave === 'analise')
+              return et?.analise ? <AnaliseAcademicaCard key={chave} registrationId={id} etapa={et} /> : null
+            }
             if (chave === 'pagamento') return <PaymentMethodsBlock key={chave} registrationId={id} />
             if (chave === 'contrato') return <ContratoDaInscricaoCard key={chave} registrationId={id} />
             if (chave === 'prova') return <RedacaoCard key={chave} review={review} />
@@ -549,9 +553,123 @@ function CandidatePortalCard({ review }: { review: RegistrationReview }) {
  * Antes, as etapas fora da jornada também entravam no fim, e a ordem da tela
  * deixava de ser a do portal.
  */
-const BLOCOS_DE_ETAPA = ['pagamento', 'documentos', 'contrato', 'prova']
-function ordemDasEtapas(etapas: Array<{ chave: string }> | undefined): string[] {
-  return (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
+const BLOCOS_DE_ETAPA = ['analise', 'pagamento', 'documentos', 'contrato', 'prova']
+function ordemDasEtapas(etapas: Array<{ chave: string }> | undefined, painel?: Array<{ chave: string }>): string[] {
+  const out = (etapas ?? []).map((e) => e.chave).filter((c) => BLOCOS_DE_ETAPA.includes(c))
+  // Análise só no portal logado: o quadro do parecer entra na frente mesmo assim.
+  if (!out.includes('analise') && (painel ?? []).some((e) => e.chave === 'analise')) out.unshift('analise')
+  return out
+}
+
+/**
+ * Análise acadêmica (ex.: transferência): os documentos analisados, o parecer
+ * (período de ingresso, aproveitamento) e a resposta do candidato. Emitir o
+ * parecer avisa o candidato; deferido aprova os documentos da análise.
+ */
+const STATUS_DOC_ANALISE: Record<string, { tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral'; rotulo: string }> = {
+  faltando: { tone: 'neutral', rotulo: 'não enviado' },
+  pending: { tone: 'info', rotulo: 'enviado' },
+  approved: { tone: 'success', rotulo: 'aprovado' },
+  rejected: { tone: 'danger', rotulo: 'recusado' },
+}
+function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId: number; etapa: EtapaAdmin }) {
+  const qc = useQueryClient()
+  const a = etapa.analise!
+  const p = a.parecer
+  const [editando, setEditando] = useState(!p)
+  const [resultado, setResultado] = useState<'deferido' | 'indeferido'>(p?.resultado ?? 'deferido')
+  const [periodo, setPeriodo] = useState(p?.periodo ?? '')
+  const [aproveitamento, setAproveitamento] = useState(p?.aproveitamento ?? '')
+  const [observacao, setObservacao] = useState(p?.observacao ?? '')
+  const [enviando, setEnviando] = useState(false)
+  const faltaDoc = a.documentos.some((d) => d.status === 'faltando' || d.status === 'rejected')
+
+  async function emitir() {
+    if (resultado === 'deferido' && !periodo.trim()) { toast('Informe o período de ingresso.', 'danger'); return }
+    if (resultado === 'indeferido' && !observacao.trim()) { toast('Explique o motivo — o candidato vai ler.', 'danger'); return }
+    if (p && !confirm('Reemitir o parecer? O candidato precisará responder de novo.')) return
+    setEnviando(true)
+    try {
+      await api.post(`/admin/enrollment-registrations/${registrationId}/analise`, { resultado, periodo, aproveitamento, observacao })
+      toast('Parecer emitido — o candidato foi avisado', 'success')
+      setEditando(false)
+      void qc.invalidateQueries({ queryKey: ['registration-etapas', registrationId] })
+      void qc.invalidateQueries({ queryKey: ['registration-review', registrationId] })
+    } catch (e) {
+      toast((e as Error).message, 'danger')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const resposta = !p ? null
+    : p.resultado === 'indeferido' ? { tone: 'neutral' as const, rotulo: 'indeferido — pode escolher outra forma de ingresso' }
+    : p.aceite?.decisao === 'aceito' ? { tone: 'success' as const, rotulo: `aceito pelo candidato em ${new Date(p.aceite.em).toLocaleDateString('pt-BR')}` }
+    : p.aceite?.decisao === 'desistiu' ? { tone: 'danger' as const, rotulo: `candidato desistiu em ${new Date(p.aceite.em).toLocaleDateString('pt-BR')}` }
+    : { tone: 'warning' as const, rotulo: 'aguardando resposta do candidato' }
+
+  return (
+    <Card>
+      <div class="flex items-center gap-2 mb-3">
+        <GraduationCap size={16} class="text-accent" />
+        <div class="text-xs uppercase tracking-wider text-fg-muted">Análise acadêmica</div>
+        <Badge tone={etapa.situacao === 'feito' ? 'success' : etapa.situacao === 'aguardando' ? 'info' : 'warning'}>{etapa.detalhe}</Badge>
+      </div>
+
+      <div class="text-xs text-fg-muted mb-1">Documentos analisados (os arquivos estão no bloco de documentos)</div>
+      <div class="flex flex-wrap gap-2 mb-4">
+        {a.documentos.map((d) => {
+          const st = STATUS_DOC_ANALISE[d.status] ?? STATUS_DOC_ANALISE.pending!
+          return <Badge key={d.code} tone={st.tone}>{d.nome}: {st.rotulo}</Badge>
+        })}
+      </div>
+
+      {p && !editando && (
+        <div class="rounded-md border border-border p-3 text-sm space-y-1.5 mb-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <b>{p.resultado === 'deferido' ? 'Deferido' : 'Indeferido'}</b>
+            <span class="text-xs text-fg-muted">em {new Date(p.emitidoEm).toLocaleString('pt-BR')}{p.emitidoPor?.nome ? ` por ${p.emitidoPor.nome}` : ''}</span>
+            {resposta && <Badge tone={resposta.tone}>{resposta.rotulo}</Badge>}
+          </div>
+          {p.periodo && <div><span class="text-fg-muted">Período de ingresso:</span> {p.periodo}</div>}
+          {p.aproveitamento && <div class="whitespace-pre-line"><span class="text-fg-muted">Aproveitamento:</span> {p.aproveitamento}</div>}
+          {p.observacao && <div class="whitespace-pre-line"><span class="text-fg-muted">{p.resultado === 'deferido' ? 'Observações' : 'Motivo'}:</span> {p.observacao}</div>}
+          {p.aceite?.decisao !== 'desistiu' && (
+            <Button size="sm" variant="ghost" onClick={() => setEditando(true)}><Pencil size={12} /> Reemitir parecer</Button>
+          )}
+        </div>
+      )}
+
+      {editando && (
+        <div class="space-y-3">
+          {faltaDoc && <div class="text-xs text-warning">Ainda há documento da análise não enviado ou recusado.</div>}
+          <div class="flex gap-4 text-sm">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name={`res-${registrationId}`} checked={resultado === 'deferido'} onChange={() => setResultado('deferido')} /> Deferido
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name={`res-${registrationId}`} checked={resultado === 'indeferido'} onChange={() => setResultado('indeferido')} /> Indeferido
+            </label>
+          </div>
+          {resultado === 'deferido' && (
+            <>
+              <Input label="Período de ingresso" placeholder="Ex.: 3º período" value={periodo} onInput={(e: any) => setPeriodo(e.currentTarget.value)} />
+              <Textarea label="Aproveitamento de estudos" rows={4} placeholder="Disciplinas aproveitadas, carga horária, pendências…" value={aproveitamento} onInput={(e: any) => setAproveitamento(e.currentTarget.value)} />
+            </>
+          )}
+          <Textarea label={resultado === 'deferido' ? 'Observações (opcional)' : 'Motivo do indeferimento'} rows={3} value={observacao} onInput={(e: any) => setObservacao(e.currentTarget.value)} />
+          <div class="text-2xs text-fg-muted">
+            O candidato vê o parecer no portal (e recebe aviso, se a automação "Notificar — Parecer da análise acadêmica" estiver ligada).
+            {resultado === 'deferido' ? ' Deferido: os documentos da análise ficam aprovados e ele decide se continua.' : ' Indeferido: ele pode refazer a inscrição por outra forma de ingresso.'}
+          </div>
+          <div class="flex gap-2">
+            <Button size="sm" onClick={emitir} disabled={enviando}><Send size={12} /> {enviando ? 'Emitindo…' : p ? 'Reemitir parecer' : 'Emitir parecer'}</Button>
+            {p && <Button size="sm" variant="ghost" onClick={() => setEditando(false)} disabled={enviando}>Cancelar</Button>}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
 }
 
 /**
@@ -616,6 +734,14 @@ interface EtapaAdmin {
   trava?: boolean
   /** Travada por uma etapa anterior ainda não concluída. */
   bloqueada?: { titulo: string; motivo: string } | null
+  /** Só na análise acadêmica. */
+  analise?: {
+    documentos: Array<{ code: string; nome: string; status: string; reviewNote: string | null }>
+    parecer: {
+      resultado: 'deferido' | 'indeferido'; periodo: string | null; aproveitamento: string | null; observacao: string | null
+      emitidoEm: string; emitidoPor?: { nome: string | null }; aceite: { decisao: 'aceito' | 'desistiu'; em: string } | null
+    } | null
+  }
 }
 const SITUACAO_ETAPA: Record<string, { tone: 'success' | 'info' | 'warning'; icon: any; rotulo: string }> = {
   feito: { tone: 'success', icon: <CheckCircle size={11} />, rotulo: 'concluído' },

@@ -137,3 +137,23 @@ export async function sendDocumentRejectionNotice(documentId: number): Promise<v
     timestamp: new Date(),
   })
 }
+
+// Notifica o candidato quando a análise acadêmica (ex.: transferência) tem parecer.
+export async function sendAnaliseNotice(registrationId: number): Promise<void> {
+  const ctx = await buildEnrollmentPayload(registrationId)
+  if (!ctx) return
+  const a = ((ctx.enrollment as any).analiseAcademica ?? null) as any
+  if (!a?.resultado) return
+  eventBus.emitDomain({
+    type: 'enrollment.analise_emitida',
+    leadId: ctx.lead.id,
+    payload: {
+      ...ctx.payload,
+      analiseResultado: a.resultado === 'deferido' ? 'deferida' : 'indeferida',
+      analisePeriodo: a.periodo || '',
+      analiseAproveitamento: a.aproveitamento || '',
+      analiseObservacao: a.observacao || '',
+    },
+    timestamp: new Date(),
+  })
+}

@@ -4705,6 +4705,10 @@ model EnrollmentRegistration {
   /// { termo, nome, ip, userAgent, em, plano }. Reaproveitado quando a matrícula
   /// é efetivada — o contrato do ERP já nasce assinado.
   contratoAceite Json?
+  /// Análise acadêmica (ex.: transferência): parecer da instituição e o aceite
+  /// do candidato — { offeringId, resultado, periodo, aproveitamento,
+  /// observacao, emitidoEm, emitidoPor, aceite, historico }. services/portalJornada.
+  analiseAcademica Json?
   /// Mesclada em outra inscrição da mesma pessoa (services/inscricaoDuplicada).
   /// Fica com status 'merged' e sai da lista padrão; o status de antes permite desfazer.
   mergedIntoId        Int?

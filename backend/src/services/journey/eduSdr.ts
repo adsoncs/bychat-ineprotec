@@ -33,7 +33,7 @@ import { prisma } from '../../lib/prisma.js'
 import { signCandidateToken } from '../../lib/candidateAuth.js'
 import { isValidCpf, normalizeCpf } from '../../lib/cpf.js'
 import { lerTabelaDePrecos, resumoDaTabela } from '../tabelaDePrecos.js'
-import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
+import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, bloqueioDoDocumento, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
 
 export interface EduState {
@@ -204,13 +204,25 @@ async function etapasDoPortal(p: PortalInfo, o: OfertaDoPortal, temDocs: boolean
     if (e.chave === 'pagamento' && !p.requirePayment) continue
     if (e.chave === 'documentos' && !temDocs) continue
     if (e.chave === 'prova' && o.ingresso?.evaluationType !== 'exam_online') continue
+    if (e.chave === 'analise') {
+      if (!e.documentos?.length) continue
+      // Só para as formas de ingresso escolhidas (vazio = todas).
+      if (e.ingressos?.length) {
+        const modos = await prisma.entryMode.findMany({ where: { id: { in: e.ingressos } }, select: { code: true } }).catch(() => [])
+        if (!o.ingresso || !modos.some((m) => m.code === o.ingresso!.code)) continue
+      }
+      const tipos = await prisma.documentType.findMany({ where: { code: { in: e.documentos } }, select: { name: true } }).catch(() => [])
+      out.push(`${ROTULO.analise} (TRAVA: envia ${tipos.map((t) => t.name).join(' e ') || 'os documentos da análise'}; a instituição emite o parecer — período de ingresso e aproveitamento — e só segue se o candidato aceitar; indeferida = pode trocar de forma de ingresso)`)
+      continue
+    }
     // Trava restrita a formas de ingresso: só conta se a desta oferta estiver na lista.
     let trava = !!e.trava
     if (trava && e.travaIngressos?.length) {
       const modos = await prisma.entryMode.findMany({ where: { id: { in: e.travaIngressos } }, select: { code: true } }).catch(() => [])
       trava = !!o.ingresso && modos.some((m) => m.code === o.ingresso!.code)
     }
-    out.push(`${ROTULO[e.chave as ChaveEtapa]}${e.obrigatoria ? ' (obrigatória na inscrição)' : ''}${trava ? ` (TRAVA: as etapas seguintes só liberam depois de ${CONCLUIR[e.chave as ChaveEtapa]})` : ''}`)
+    const concluir = e.chave === 'documentos' && e.liberaNoEnvio ? 'todos os documentos obrigatórios enviados' : CONCLUIR[e.chave as ChaveEtapa]
+    out.push(`${ROTULO[e.chave as ChaveEtapa]}${e.obrigatoria ? ' (obrigatória na inscrição)' : ''}${trava ? ` (TRAVA: as etapas seguintes só liberam depois de ${concluir})` : ''}`)
   }
   return out
 }
@@ -448,6 +460,15 @@ export const EDU_TOOLS = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'responder_parecer',
+    description: 'Registra a resposta do candidato ao PARECER da análise acadêmica (ex.: transferência: período de ingresso e disciplinas aproveitadas). Só chame depois de apresentar o parecer completo (período, aproveitamento, observações) e ele CONFIRMAR com clareza que concorda e quer continuar ("aceito") ou que NÃO quer continuar ("desistiu" — encerra a inscrição). Na dúvida, pergunte de novo; nunca decida por ele.',
+    input_schema: {
+      type: 'object',
+      properties: { decisao: { type: 'string', enum: ['aceito', 'desistiu'] } },
+      required: ['decisao'],
+    },
+  },
+  {
     name: 'link_do_portal',
     description: 'Gera o link de acesso (uso único, 48h) à área do candidato no portal, onde ele acompanha a inscrição, paga com cartão, envia documentos pelo celular e assina o contrato. Use quando algo precisar ser feito na tela.',
     input_schema: { type: 'object', properties: {}, required: [] },
@@ -506,6 +527,13 @@ const etapaParaBot = (e: EtapaDaInscricao) => ({
   etapa: e.titulo, chave: e.chave, situacao: situacaoTxt(e), detalhe: e.detalhe,
   ...(e.trava ? { trava: `as seguintes só liberam depois de ${CONCLUIR[e.chave]}` } : {}),
   ...(e.bloqueada ? { travadaPor: e.bloqueada.titulo, motivo: e.bloqueada.motivo } : {}),
+  ...(e.analise ? {
+    documentosDaAnalise: e.analise.documentos.map((d) => ({ tipo: d.code, nome: d.nome, situacao: d.status === 'faltando' ? 'falta enviar' : d.status === 'pending' ? 'em análise' : d.status === 'approved' ? 'aprovado' : `recusado: ${d.reviewNote ?? ''}` })),
+    parecer: e.analise.parecer ? {
+      resultado: e.analise.parecer.resultado, periodo: e.analise.parecer.periodo, aproveitamento: e.analise.parecer.aproveitamento,
+      observacao: e.analise.parecer.observacao, respostaDoCandidato: e.analise.parecer.aceite?.decisao ?? 'aguardando',
+    } : 'ainda em análise pela instituição',
+  } : {}),
 })
 
 export async function executarFerramentaEdu(name: string, input: any, ctx: EduCtx): Promise<string> {
@@ -756,7 +784,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (ctx.dryRun) return ok({ simulacao: true, tipo, arquivo: anexo.nome, instrucao: 'SIMULAÇÃO: nada foi vinculado.' })
       const reg = await inscricaoAtual(ctx)
       if (!reg) return erro(SEM_INSCRICAO)
-      const travaDocs = await bloqueioDaEtapa(reg.id, 'documentos', 'inscricao').catch(() => null)
+      const travaDocs = await bloqueioDoDocumento(reg.id, tipo, 'inscricao').catch(() => null)
       if (travaDocs) return erro(travaDocs, INSTRUCAO_TRAVA)
       const arquivo = await lerArquivo(anexo.url)
       if (!arquivo) return erro('Não consegui abrir o arquivo enviado.', 'Peça para reenviar o arquivo.')
@@ -773,8 +801,23 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (r.status !== 200 || !r.body?.ok) return erro(String(r.body?.error || 'Falha ao anexar.'), 'Explique e peça para reenviar, se for o caso.')
       edu.anexosUsados = [...usados, anexo.id]
       const et = await etapasDaInscricao(reg.id, 'inscricao').catch(() => null)
-      const docs = et?.etapas.find((e) => e.chave === 'documentos')
+      // Documento da análise acadêmica: a situação que interessa é a da análise.
+      const docs = et?.etapas.find((e) => e.analise?.documentos.some((d) => d.code === tipo)) ?? et?.etapas.find((e) => e.chave === 'documentos')
       return ok({ tipo, arquivo: anexo.nome, situacaoDosDocumentos: docs?.detalhe, instrucao: 'Confirme o recebimento em uma frase e peça o PRÓXIMO documento que falta, um por vez — se as suas instruções definirem outra ordem para os documentos (ex.: parte agora, o resto no final), siga as instruções. Os documentos passam por análise da equipe.' })
+    }
+
+    if (name === 'responder_parecer') {
+      const decisao = input?.decisao === 'aceito' ? 'aceito' : input?.decisao === 'desistiu' ? 'desistiu' : null
+      if (!decisao) return erro('Decisão inválida.')
+      if (ctx.dryRun) return ok({ simulacao: true, decisao, instrucao: 'SIMULAÇÃO: nada foi registrado.' })
+      const reg = await inscricaoAtual(ctx)
+      if (!reg) return erro(SEM_INSCRICAO)
+      const token = signCandidateToken(reg.id, reg.candidateCode)
+      const r = await portalHttp(app, 'POST', `/api/public/registrations/${reg.candidateCode}/analise/decisao`, { token, payload: { decisao, via: 'chatbot' } })
+      if (r.status !== 200 || !r.body?.ok) return erro(String(r.body?.error || 'Não foi possível registrar.'))
+      return ok(decisao === 'aceito'
+        ? { decisao, instrucao: 'Confirme que a resposta foi registrada e conduza a PRÓXIMA etapa (chame situacao_da_matricula para ver o que liberou).' }
+        : { decisao, instrucao: 'Confirme com respeito que a inscrição foi encerrada; diga que, se mudar de ideia, pode se inscrever de novo pelo portal.' })
     }
 
     if (name === 'assinar_contrato') {
@@ -898,7 +941,7 @@ Mas isto é HISTÓRICO, não catálogo: valor que aparece em campo personalizado
 1. Pare de vender. Resposta operacional.
 2. Siga as etapasDaMatricula da oferta, na ordem: inscrição → (completar cadastro) → pagamento → documentos → contrato, conforme o portal daquele curso. Se as suas instruções definirem uma ordem própria para os documentos (ex.: parte agora, o resto no final), ela vale.
 3. Inscrição: peça só os dados_da_inscricao que faltam (nome completo, CPF, e-mail...), um por vez — no WhatsApp o número já é conhecido e não se pede; no chat do site, peça. Antes de inscrever, peça o aceite da política de privacidade numa frase curta e direta (ex.: "Para fazer sua inscrição, preciso do seu ok para usarmos esses dados conforme nossa política de privacidade. Posso seguir?"). Depois **fazer_inscricao**.
-4. Etapas seguintes: **dados_da_etapa** quando a etapa pedir dados; pagamento com **opcoes_de_pagamento** → lead escolhe → **gerar_pagamento**; documentos um por vez (ou na ordem das suas instruções): peça a foto/PDF aqui no chat e, quando ele mandar, **anexar_documento**; contrato com **assinar_contrato**. Redação online (vestibular): é escrita na área do candidato, com tempo e regras próprias — nunca peça o texto no chat; mande **link_do_portal** e explique que a redação é feita lá.
+4. Etapas seguintes: **dados_da_etapa** quando a etapa pedir dados; pagamento com **opcoes_de_pagamento** → lead escolhe → **gerar_pagamento**; documentos um por vez (ou na ordem das suas instruções): peça a foto/PDF aqui no chat e, quando ele mandar, **anexar_documento**; contrato com **assinar_contrato**. Análise acadêmica (ex.: transferência): peça os documentos da análise (documentosDaAnalise) e anexe com **anexar_documento**; enquanto não houver parecer, diga que a instituição está analisando e que ele recebe o resultado; com parecer deferido, apresente período, aproveitamento e observações e pergunte se concorda em continuar — só então **responder_parecer**; indeferido: explique o motivo e ofereça outra forma de ingresso (nova inscrição pelo portal ou **fazer_inscricao** com outra oferta). Redação online (vestibular): é escrita na área do candidato, com tempo e regras próprias — nunca peça o texto no chat; mande **link_do_portal** e explique que a redação é feita lá.
 5. NUNCA confirme inscrição, pagamento, documento ou contrato sem a ferramenta ter confirmado. Se a pessoa disser "paguei"/"enviei", confira com **situacao_da_matricula** antes de responder (a confirmação do pagamento é automática; boleto depende da compensação bancária).
 6. Erro de ferramenta: diga o que de fato faltou ou falhou (ex.: "o CPF não conferiu") — nunca invente "instabilidade". Só transfira se não for algo que a pessoa resolva.
 7. Se o lead quiser fazer algo pela tela (ou o meio exigir, como cartão), **link_do_portal**.

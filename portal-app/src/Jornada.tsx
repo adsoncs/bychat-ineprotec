@@ -5,7 +5,7 @@
 //     não obrigatória pode ficar para depois; a pessoa segue para a próxima.
 //   · painel: no portal logado, a mesma lista em cartões; o que falta abre ali.
 import { useEffect, useState } from 'preact/hooks'
-import { carregarJornada, type EtapaDaJornada } from './api'
+import { carregarJornada, responderParecer, type EtapaDaJornada } from './api'
 import { Pagamento } from './Pagamento'
 import { Documentos } from './Documentos'
 import { ContratoInscricao } from './ContratoInscricao'
@@ -37,9 +37,12 @@ export function Jornada(props: {
   contexto: 'inscricao' | 'painel'
   /** No painel, as etapas já vêm carregadas junto com o token. */
   etapas?: EtapaDaJornada[]
+  /** Slug do portal (link "escolher outra forma de ingresso" da análise indeferida). */
+  portalSlug?: string | null
   aoConcluirTudo?: () => void
 }) {
   const [etapas, setEtapas] = useState<EtapaDaJornada[] | null>(props.etapas ?? null)
+  const [slug, setSlug] = useState<string | null>(props.portalSlug ?? null)
   const [falha, setFalha] = useState<string | null>(null)
   // Painel: o link "#etapa-contrato" (início do portal, passos do aluno) abre
   // a etapa direto, em vez de deixar a pessoa procurando onde clicar.
@@ -59,6 +62,7 @@ export function Jornada(props: {
     try {
       const j = await carregarJornada(props.codigo, props.token, props.contexto)
       setEtapas(j.etapas)
+      if (j.portal?.slug) setSlug(j.portal.slug)
     } catch (e: any) { setFalha(e.message) }
   }
   useEffect(() => { if (!props.etapas) void recarregar() }, [props.codigo, props.token])
@@ -87,6 +91,9 @@ export function Jornada(props: {
     // primeiro os dados; salvos, a etapa recarrega e mostra a ação.
     if ((e.dadosFaltando ?? 0) > 0) {
       return <DadosEtapa codigo={props.codigo} token={props.token} etapa={e.chave} rotuloBotao="Continuar" aoSalvar={recarregar} />
+    }
+    if (e.chave === 'analise' && e.analise) {
+      return <AnaliseAcademica etapa={e} codigo={props.codigo} token={props.token} portalSlug={slug} aoMudar={recarregar} />
     }
     if (e.chave === 'pagamento') return <Pagamento codigo={props.codigo} token={props.token} aoConfirmar={recarregar} />
     if (e.chave === 'documentos') return <Documentos token={props.token} embutido aoMudar={recarregar} />
@@ -154,6 +161,7 @@ export function Jornada(props: {
  * licença ISC). Etapa sem ícone próprio fica só com o título.
  */
 const DESENHOS: Record<string, string> = {
+  analise: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="m13.3 16.3 1.7 1.7"/>',
   cadastro: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   pagamento: '<rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/>',
   documentos: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="m9 13 3-3 3 3"/>',
@@ -168,3 +176,107 @@ function IconeDaEtapa({ chave }: { chave: string }) {
       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: d }} />
   )
 }
+
+/**
+ * Análise acadêmica (ex.: transferência): a pessoa envia os documentos da
+ * análise, a instituição emite o parecer (período de ingresso, aproveitamento)
+ * e a pessoa decide se segue. Indeferida: pode escolher outra forma de ingresso.
+ */
+function AnaliseAcademica(props: {
+  etapa: EtapaDaJornada
+  codigo: string
+  token: string
+  portalSlug: string | null
+  aoMudar: () => void
+}) {
+  const a = props.etapa.analise!
+  const p = a.parecer
+  const [enviando, setEnviando] = useState<'aceito' | 'desistiu' | null>(null)
+  const [confirmarDesistencia, setConfirmarDesistencia] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function responder(decisao: 'aceito' | 'desistiu') {
+    setEnviando(decisao)
+    setErro(null)
+    try {
+      await responderParecer(props.codigo, props.token, decisao)
+      props.aoMudar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setEnviando(null)
+    }
+  }
+
+  // Sem parecer: os documentos da análise (enviar, acompanhar, reenviar).
+  if (!p) {
+    const tudoEnviado = a.documentos.every((d) => d.status === 'pending' || d.status === 'approved')
+    return (
+      <div class="analise">
+        <p class="sub" style="margin:0 0 12px">
+          {tudoEnviado
+            ? tx('analise.emAnalise', 'Recebemos seus documentos. A coordenação acadêmica está analisando o seu histórico — você recebe o parecer por aqui e por mensagem.')
+            : tx('analise.envie', 'Envie os documentos abaixo. Com eles, a coordenação acadêmica analisa o seu histórico e informa em que período você vai ingressar e quais disciplinas serão aproveitadas.')}
+        </p>
+        <Documentos token={props.token} embutido aoMudar={props.aoMudar} tipos={a.documentos.map((d) => ({ code: d.code, nome: d.nome }))} />
+      </div>
+    )
+  }
+
+  const deferido = p.resultado === 'deferido'
+  return (
+    <div class="analise">
+      <div class={`parecer ${deferido ? 'ok' : 'ruim'}`}>
+        <div class="parecer-titulo">
+          {deferido ? tx('analise.deferido', 'Análise deferida') : tx('analise.indeferido', 'Análise indeferida')}
+          <span class="sub"> · {new Date(p.emitidoEm).toLocaleDateString('pt-BR')}</span>
+        </div>
+        {p.periodo && <div class="parecer-item"><span>Período de ingresso</span><b>{p.periodo}</b></div>}
+        {p.aproveitamento && <div class="parecer-item"><span>Aproveitamento de estudos</span><p>{p.aproveitamento}</p></div>}
+        {p.observacao && <div class="parecer-item"><span>{deferido ? 'Observações' : 'Motivo'}</span><p>{p.observacao}</p></div>}
+      </div>
+
+      {erro && <div class="aviso erro" role="alert">{erro}</div>}
+
+      {deferido && !p.aceite && (
+        confirmarDesistencia ? (
+          <div class="aviso info">
+            <p style="margin:0 0 10px">{tx('analise.confirmaDesistir', 'Tem certeza? Sua inscrição será encerrada. Se mudar de ideia, pode se inscrever de novo.')}</p>
+            <div class="parecer-acoes">
+              <button class="secundario" type="button" onClick={() => setConfirmarDesistencia(false)} disabled={!!enviando}>Voltar</button>
+              <button class="principal perigo" type="button" onClick={() => responder('desistiu')} disabled={!!enviando}>
+                {enviando === 'desistiu' ? 'Encerrando…' : 'Sim, não quero continuar'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div class="parecer-acoes">
+            <button class="principal" type="button" onClick={() => responder('aceito')} disabled={!!enviando}>
+              {enviando === 'aceito' ? 'Registrando…' : tx('analise.aceitar', 'Concordo e quero continuar')}
+            </button>
+            <button class="secundario" type="button" onClick={() => setConfirmarDesistencia(true)} disabled={!!enviando}>
+              {tx('analise.desistir', 'Não quero continuar')}
+            </button>
+          </div>
+        )
+      )}
+      {p.aceite?.decisao === 'aceito' && (
+        <div class="aviso info" style="color:var(--ok);border-color:var(--ok)">
+          {tx('analise.aceito', 'Você aceitou o parecer. As próximas etapas foram liberadas.')}
+        </div>
+      )}
+      {p.aceite?.decisao === 'desistiu' && (
+        <div class="aviso info">{tx('analise.desistiu', 'Você optou por não continuar. Sua inscrição foi encerrada.')}</div>
+      )}
+      {!deferido && (
+        <div class="aviso info">
+          <p style="margin:0 0 10px">{tx('analise.outraForma', 'Você pode continuar por outra forma de ingresso (por exemplo, vestibular). Use o mesmo CPF: sua inscrição é aproveitada.')}</p>
+          {props.portalSlug && (
+            <a href={`/portal/${encodeURIComponent(props.portalSlug)}`}><button class="principal" type="button">{tx('analise.escolherOutra', 'Escolher outra forma de ingresso')}</button></a>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+

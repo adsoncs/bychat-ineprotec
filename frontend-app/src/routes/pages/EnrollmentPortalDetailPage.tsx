@@ -1381,7 +1381,18 @@ function CelulaDaEtapa({ chave, etapa, valor }: { chave: string; etapa: EtapaDaL
       </span>
     )
   }
-  // Pagamento com cobrança gerada e não paga = aguardando (o detalhe diz).
+  // Análise acadêmica: o "pendente" tem vários sentidos — o detalhe diz qual.
+  if (chave === 'analise') {
+    const d = etapa.detalhe
+    const [rot, cor] = etapa.situacao === 'feito' ? ['Aceita', 'text-success']
+      : etapa.situacao === 'aguardando' ? ['Em análise', 'text-info']
+      : /indeferid/i.test(d) ? ['Indeferida', 'text-danger']
+      : /não continuar/i.test(d) ? ['Desistiu', 'text-danger']
+      : /parecer emitido/i.test(d) ? ['Aguardando candidato', 'text-warning']
+      : ['Docs pendentes', 'text-warning']
+    return <span class={`font-semibold ${cor}`} title={d}>{rot}</span>
+  }
+    // Pagamento com cobrança gerada e não paga = aguardando (o detalhe diz).
   const situacao = chave === 'pagamento' && etapa.situacao === 'pendente' && /aguardando/i.test(etapa.detalhe) ? 'aguardando' : etapa.situacao
   const cor = situacao === 'feito' ? 'text-success' : situacao === 'aguardando' ? 'text-info' : 'text-warning'
   return (

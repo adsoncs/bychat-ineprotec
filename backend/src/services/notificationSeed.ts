@@ -174,6 +174,44 @@ Reenvie pelo portal:
 Código: *{{candidateCode}}*`,
   },
 
+  // ── Análise acadêmica (ex.: transferência) — parecer emitido ──
+  {
+    key: 'enrollment_analise_email',
+    name: 'Parecer da análise acadêmica (email)',
+    channel: 'email',
+    subject: 'Resultado da sua análise acadêmica — {{candidateCode}}',
+    body: 'Sua análise acadêmica foi {{analiseResultado}}. Período: {{analisePeriodo}}. Aproveitamento: {{analiseAproveitamento}}. {{analiseObservacao}} Veja e responda em {{candidateUrl}}.',
+    bodyHtml: `<div style="font-family:system-ui,sans-serif;background:#f6f7fb;padding:24px"><div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;padding:28px">
+<h1 style="color:#202124;font-size:20px;margin:0 0 12px">Resultado da sua análise acadêmica</h1>
+<p>Olá <strong>{{nome}}</strong>, a análise dos seus documentos para <strong>{{courseName}}</strong> ({{portalNome}}) foi <strong>{{analiseResultado}}</strong>.</p>
+<div style="background:#f1f3f4;border-radius:10px;padding:16px;margin:18px 0;font-size:14px;line-height:1.6;color:#3c4043">
+  <div><strong>Período de ingresso:</strong> {{analisePeriodo}}</div>
+  <div style="margin-top:8px"><strong>Aproveitamento de estudos:</strong> {{analiseAproveitamento}}</div>
+  <div style="margin-top:8px"><strong>Observações:</strong> {{analiseObservacao}}</div>
+</div>
+<p>Acesse seu portal para ler o parecer completo e dizer se deseja continuar com a matrícula.</p>
+<div style="text-align:center;margin:20px 0"><a href="{{candidateUrl}}" style="display:inline-block;background:#1a73e8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Ver o parecer</a></div>
+<p style="font-size:11px;color:#9aa0a6">Código: <strong>{{candidateCode}}</strong></p>
+</div></div>`,
+  },
+  {
+    key: 'enrollment_analise_wa',
+    name: 'Parecer da análise acadêmica (WhatsApp)',
+    channel: 'whatsapp',
+    body: `📋 *Resultado da sua análise acadêmica*
+
+Olá {{nome}}, a análise para *{{courseName}}* foi *{{analiseResultado}}*.
+
+🗓 *Período de ingresso:* {{analisePeriodo}}
+📚 *Aproveitamento:* {{analiseAproveitamento}}
+📝 *Observações:* {{analiseObservacao}}
+
+Leia o parecer e diga se deseja continuar:
+{{candidateUrl}}
+
+Código: *{{candidateCode}}*`,
+  },
+
   // ── ENEM — boletim aprovado ──
   {
     key: 'enrollment_enem_approved_email',
@@ -508,6 +546,7 @@ const WORKFLOWS: WfDef[] = [
   { key: 'wf_enrollment_payment_confirmed',  name: 'Notificar — Pagamento confirmado',    description: 'Envia email + WhatsApp quando pagamento é confirmado',                  triggerEvent: 'enrollment.payment_confirmed',        emailTplKey: 'enrollment_payment_confirmed_email',  waTplKey: 'enrollment_payment_confirmed_wa' },
   { key: 'wf_enrollment_payment_reminder',   name: 'Notificar — Lembrete de pagamento',   description: 'Lembrete 24h antes do vencimento (disparado pelo cron)',                triggerEvent: 'enrollment.payment_pending_reminder', emailTplKey: 'enrollment_payment_reminder_email',   waTplKey: 'enrollment_payment_reminder_wa' },
   { key: 'wf_enrollment_doc_approved',       name: 'Notificar — Documento aprovado',      description: 'Avisa o candidato quando um documento é aprovado pela equipe',          triggerEvent: 'enrollment.document_approved',        emailTplKey: 'enrollment_doc_approved_email',       waTplKey: 'enrollment_doc_approved_wa' },
+  { key: 'wf_enrollment_analise_emitida',    name: 'Notificar — Parecer da análise acadêmica', description: 'Avisa o candidato quando a análise acadêmica (ex.: transferência) tem parecer, com período, aproveitamento e link para responder', triggerEvent: 'enrollment.analise_emitida', emailTplKey: 'enrollment_analise_email', waTplKey: 'enrollment_analise_wa' },
   { key: 'wf_enrollment_doc_rejected',       name: 'Notificar — Documento rejeitado',     description: 'Avisa o candidato quando um documento é rejeitado, com motivo + link de reenvio', triggerEvent: 'enrollment.document_rejected', emailTplKey: 'enrollment_doc_rejected_email', waTplKey: 'enrollment_doc_rejected_wa' },
 
   // ── Lead lifecycle (alternativa a Configurações > Emails do Sistema) ──

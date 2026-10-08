@@ -65,6 +65,7 @@ export const TRIGGER_EVENT_CATALOG: TriggerEvent[] = [
   { value: 'enrollment.essay_submitted',          label: '📝 Redação recebida',                   category: 'educational', requiresModule: 'educacional' },
   { value: 'enrollment.essay_approved',           label: '📝 Redação aprovada',                   category: 'educational', requiresModule: 'educacional' },
   { value: 'enrollment.essay_rejected',           label: '📝 Redação rejeitada',                  category: 'educational', requiresModule: 'educacional' },
+  { value: 'enrollment.analise_emitida',          label: '📋 Parecer da análise acadêmica emitido', category: 'educational', requiresModule: 'educacional' },
   { value: 'enrollment.enem_approved',            label: '🎯 ENEM aprovado (acima do corte)',     category: 'educational', requiresModule: 'educacional' },
   { value: 'enrollment.enem_rejected',            label: '🎯 ENEM rejeitado (abaixo do corte)',   category: 'educational', requiresModule: 'educacional' },
   { value: 'enrollment.presencial_scheduled',     label: '📅 Prova presencial agendada',          category: 'educational', requiresModule: 'educacional' },

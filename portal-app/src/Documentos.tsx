@@ -23,7 +23,11 @@ const tamanho = (b: number) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` :
  * `token` + `embutido`: a mesma tela dentro do fluxo de inscrição (etapa
  * "Documentos"), autenticada pelo token da inscrição, sem cabeçalho de página.
  */
-export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?: () => void } = {}) {
+export function Documentos(props: {
+  token?: string; embutido?: boolean; aoMudar?: () => void
+  /** Só estes documentos (ex.: os da análise acadêmica), sem o cabeçalho geral. */
+  tipos?: Array<{ code: string; nome: string }>
+} = {}) {
   const [dados, setDados] = useState<Candidato | null>(null)
   const [falha, setFalha] = useState<string | null>(null)
   const [enviando, setEnviando] = useState<string | null>(null)
@@ -72,9 +76,15 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
     )
   }
 
-  const exigencias = (dados.processRegistration?.effectiveDocumentRequirements ?? [])
+  const todas = (dados.processRegistration?.effectiveDocumentRequirements ?? [])
     .slice()
     .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
+  // Recorte (análise acadêmica): o documento pedido entra mesmo que não esteja
+  // na lista de exigências do processo — quem decide é a etapa.
+  const exigencias: Exigencia[] = props.tipos
+    ? props.tipos.map((t, i) => todas.find((e) => e.documentType.code === t.code)
+      ?? { required: true, ordem: i, documentType: { id: 0, code: t.code, name: t.nome } })
+    : todas
   const porTipo = new Map<string, DocumentoEnviado>()
   for (const d of dados.documents) porTipo.set(d.typeCode, d)
 
@@ -123,7 +133,7 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
   return envolver(
     <>
 
-      <div class="cartao" style="margin-bottom:14px">
+      {!props.tipos && <div class="cartao" style="margin-bottom:14px">
         <h2>{tx('docs.titulo', 'Seus documentos')}</h2>
         <p class="sub" style="margin-bottom:12px">
           Inscrição {dados.enrollment.candidateCode} · {dados.lead.nome}
@@ -143,7 +153,7 @@ export function Documentos(props: { token?: string; embutido?: boolean; aoMudar?
             <b>Documentos recebidos!</b> Eles estão em análise pela secretaria — avisaremos você assim que a conferência for concluída.
           </div>
         )}
-      </div>
+      </div>}
 
       {exigencias.map((exig) => (
         <ItemDeDocumento

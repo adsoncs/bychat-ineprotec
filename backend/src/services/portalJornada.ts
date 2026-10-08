@@ -16,8 +16,8 @@ import { prisma } from '../lib/prisma.js'
 import { getTermoTemplate } from './acaContrato.js'
 import { normalizarDados, dadosEfetivos, camposDaEtapa, valoresAtuais, type EtapaDados } from './dadosCadastro.js'
 
-export type ChaveEtapa = 'cadastro' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
-export const CHAVES: ChaveEtapa[] = ['cadastro', 'pagamento', 'documentos', 'contrato', 'prova']
+export type ChaveEtapa = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
+export const CHAVES: ChaveEtapa[] = ['cadastro', 'analise', 'pagamento', 'documentos', 'contrato', 'prova']
 
 export interface EtapaConfig {
   chave: ChaveEtapa
@@ -30,6 +30,14 @@ export interface EtapaConfig {
   trava?: boolean
   /** Formas de ingresso (EntryMode.id) em que a trava vale. Vazio = todas. */
   travaIngressos?: number[]
+  /** Análise acadêmica: formas de ingresso em que a etapa aparece (vazio = todas). */
+  ingressos?: number[]
+  /** Análise acadêmica: documentos (DocumentType.code) que a instituição analisa
+   *  antes de liberar o resto — ex.: histórico e conteúdo programático. */
+  documentos?: string[]
+  /** Documentos: a etapa conclui com os obrigatórios ENVIADOS (não espera a
+   *  aprovação da secretaria) — a trava libera no envio. */
+  liberaNoEnvio?: boolean
 }
 
 export interface JornadaConfig {
@@ -43,6 +51,7 @@ export interface JornadaConfig {
 
 export const ROTULO: Record<ChaveEtapa, string> = {
   cadastro: 'Completar cadastro',
+  analise: 'Análise acadêmica',
   pagamento: 'Pagamento',
   documentos: 'Documentos',
   contrato: 'Contrato',
@@ -57,6 +66,7 @@ export const ROTULO: Record<ChaveEtapa, string> = {
 export const PADRAO: JornadaConfig = {
   inscricao: [
     { chave: 'cadastro', ativo: true, obrigatoria: false },
+    { chave: 'analise', ativo: false, obrigatoria: false },
     { chave: 'pagamento', ativo: true, obrigatoria: false },
     { chave: 'documentos', ativo: false, obrigatoria: false },
     { chave: 'contrato', ativo: false, obrigatoria: false },
@@ -64,6 +74,7 @@ export const PADRAO: JornadaConfig = {
   ],
   painel: [
     { chave: 'cadastro', ativo: true, obrigatoria: false },
+    { chave: 'analise', ativo: false, obrigatoria: false },
     { chave: 'documentos', ativo: true, obrigatoria: false },
     { chave: 'contrato', ativo: true, obrigatoria: false },
     { chave: 'pagamento', ativo: true, obrigatoria: false },
@@ -79,21 +90,31 @@ function normalizarLista(bruto: unknown, padrao: EtapaConfig[]): EtapaConfig[] {
     const chave = String((x as any)?.chave ?? '') as ChaveEtapa
     if (!CHAVES.includes(chave) || vistos.has(chave)) continue
     vistos.add(chave)
-    const ingressos = Array.isArray((x as any)?.travaIngressos)
-      ? [...new Set(((x as any).travaIngressos as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+    const ids = (v: unknown) => Array.isArray(v) ? [...new Set((v as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))] : []
+    const ingressos = ids((x as any)?.travaIngressos)
+    const aparece = ids((x as any)?.ingressos)
+    const documentos = Array.isArray((x as any)?.documentos)
+      ? [...new Set(((x as any).documentos as unknown[]).map((c) => String(c ?? '').trim().slice(0, 30)).filter(Boolean))]
       : []
     out.push({
       chave, ativo: (x as any)?.ativo !== false, obrigatoria: !!(x as any)?.obrigatoria, trava: !!(x as any)?.trava,
       ...(ingressos.length ? { travaIngressos: ingressos } : {}),
+      ...(chave === 'analise' && aparece.length ? { ingressos: aparece } : {}),
+      ...(chave === 'analise' && documentos.length ? { documentos } : {}),
+      ...(chave === 'documentos' && (x as any)?.liberaNoEnvio ? { liberaNoEnvio: true } : {}),
     })
   }
   // Chave que faltou na config entra no fim, desligada — a lista tem sempre todas.
   // "Completar cadastro" é a exceção: veio depois das outras e entra LIGADA e na
   // frente, porque só aparece quando há dado configurado para ela.
+  // A análise acadêmica (nova) entra desligada logo depois do cadastro, onde faz sentido.
   for (const c of CHAVES) {
     if (vistos.has(c)) continue
     if (c === 'cadastro') out.unshift({ chave: c, ativo: true, obrigatoria: false })
-    else out.push({ chave: c, ativo: false, obrigatoria: false })
+    else if (c === 'analise') {
+      const i = out.findIndex((e) => e.chave === 'cadastro')
+      out.splice(i + 1, 0, { chave: c, ativo: false, obrigatoria: false })
+    } else out.push({ chave: c, ativo: false, obrigatoria: false })
   }
   return out
 }
@@ -133,27 +154,66 @@ export interface EtapaDaInscricao {
   trava?: boolean
   /** Travada por uma etapa anterior ainda não concluída: não dá para fazer agora. */
   bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
+  /** Só na análise acadêmica: documentos analisados e o parecer. */
+  analise?: AnaliseDaEtapa
+}
+
+/** Parecer da análise acadêmica, gravado na inscrição (analiseAcademica). */
+export interface ParecerAnalise {
+  offeringId: number | null
+  resultado: 'deferido' | 'indeferido'
+  periodo: string | null
+  aproveitamento: string | null
+  observacao: string | null
+  emitidoEm: string
+  emitidoPor: { id: number | null; nome: string | null }
+  /** Resposta do candidato a um parecer deferido. */
+  aceite: { decisao: 'aceito' | 'desistiu'; em: string; via: 'portal' | 'chatbot' | 'equipe' } | null
+  /** Pareceres anteriores (reemissão, outra oferta), do mais novo ao mais antigo. */
+  historico?: Array<Omit<ParecerAnalise, 'historico'>>
+}
+
+export interface AnaliseDaEtapa {
+  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null }>
+  /** Parecer desta oferta (null = ainda em análise). */
+  parecer: Omit<ParecerAnalise, 'historico'> | null
 }
 
 /** O que "concluir" quer dizer em cada etapa — usado na mensagem da trava. */
 export const CONCLUIR: Record<ChaveEtapa, string> = {
   cadastro: 'todos os dados preenchidos',
+  analise: 'parecer da análise emitido e aceito pelo candidato',
   pagamento: 'pagamento confirmado',
   documentos: 'todos os documentos obrigatórios aprovados',
   contrato: 'contrato assinado',
   prova: 'redação aprovada',
 }
 
+/** O "concluir" da etapa como o portal a configurou (documentos podem liberar no envio). */
+export function concluirDe(e: Pick<EtapaConfig, 'chave' | 'liberaNoEnvio'>): string {
+  if (e.chave === 'documentos' && e.liberaNoEnvio) return 'todos os documentos obrigatórios enviados'
+  return CONCLUIR[e.chave]
+}
+
+/** Parecer gravado na inscrição, se for desta oferta (trocou de curso/forma = análise nova). */
+export function parecerAtual(bruto: unknown, offeringId: number | null): ParecerAnalise | null {
+  const a = (bruto && typeof bruto === 'object' ? bruto : null) as ParecerAnalise | null
+  if (!a || (a.resultado !== 'deferido' && a.resultado !== 'indeferido')) return null
+  if ((a.offeringId ?? null) !== (offeringId ?? null)) return null
+  return a
+}
+
 async function contexto(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, contratoAceite: true, formData: true,
+      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, contratoAceite: true, formData: true, analiseAcademica: true,
       lead: { select: { nome: true } },
       portal: { select: { id: true, slug: true, nome: true, requirePayment: true, jornadaEtapas: true } },
-      documents: { select: { typeCode: true, status: true } },
+      documents: { select: { typeCode: true, status: true, reviewNote: true }, orderBy: { uploadedAt: 'asc' } },
       processRegistration: {
         select: {
+          offeringId: true,
           offering: { select: { id: true, nome: true, course: { select: { nome: true } } } },
           selectionProcess: {
             select: {
@@ -186,6 +246,9 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
     : []
   const obrigatorios = exigidos.filter((e) => e.required)
   const porTipo = new Map(reg.documents.map((d) => [d.typeCode, d.status]))
+  const notaPorTipo = new Map(reg.documents.map((d) => [d.typeCode, d.reviewNote]))
+  const entryModeId: number | null = sp?.entryModeId ?? null
+  const offeringId: number | null = reg.processRegistration?.offeringId ?? null
 
   // Contrato do ERP (já matriculado) vale sobre o aceite da inscrição.
   const matricula = await prisma.acaMatricula.findFirst({
@@ -218,6 +281,44 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       })
       continue
     }
+    if (e.chave === 'analise') {
+      // Só para as formas de ingresso escolhidas (vazio = todas) e com documento a analisar.
+      if (!e.documentos?.length) continue
+      if (e.ingressos?.length && (entryModeId == null || !e.ingressos.includes(entryModeId))) continue
+      const tipos = await prisma.documentType.findMany({ where: { code: { in: e.documentos } }, select: { code: true, name: true } })
+      const nomeDe = new Map(tipos.map((t) => [t.code, t.name]))
+      const docs = e.documentos.map((code) => ({
+        code, nome: nomeDe.get(code) ?? code,
+        status: (porTipo.get(code) ?? 'faltando') as 'faltando' | 'pending' | 'approved' | 'rejected',
+        reviewNote: porTipo.get(code) === 'rejected' ? (notaPorTipo.get(code) ?? null) : null,
+      }))
+      const parecer = parecerAtual(reg.analiseAcademica, offeringId)
+      const { historico: _h, ...semHistorico } = parecer ?? ({} as ParecerAnalise)
+      const recusados = docs.filter((d) => d.status === 'rejected')
+      const faltam = docs.filter((d) => d.status === 'faltando')
+      let situacao: SituacaoEtapa
+      let detalhe: string
+      if (parecer?.resultado === 'indeferido') {
+        situacao = 'pendente'; detalhe = 'Análise indeferida — você pode escolher outra forma de ingresso'
+      } else if (parecer?.resultado === 'deferido' && parecer.aceite?.decisao === 'aceito') {
+        situacao = 'feito'; detalhe = `Parecer aceito em ${new Date(parecer.aceite.em).toLocaleDateString('pt-BR')}`
+      } else if (parecer?.resultado === 'deferido' && parecer.aceite?.decisao === 'desistiu') {
+        situacao = 'pendente'; detalhe = 'Você optou por não continuar após o parecer'
+      } else if (parecer?.resultado === 'deferido') {
+        situacao = 'pendente'; detalhe = 'Parecer emitido — leia e confirme para continuar'
+      } else if (recusados.length) {
+        situacao = 'pendente'; detalhe = `${recusados.length} recusado(s) — reenvie: ${recusados.map((d) => d.nome).join(', ')}`
+      } else if (faltam.length) {
+        situacao = 'pendente'; detalhe = `Envie para análise: ${faltam.map((d) => d.nome).join(', ')}`
+      } else {
+        situacao = 'aguardando'; detalhe = 'Documentos enviados, em análise acadêmica'
+      }
+      etapas.push({
+        chave: 'analise', titulo: ROTULO.analise, obrigatoria: e.obrigatoria, situacao, detalhe,
+        analise: { documentos: docs, parecer: parecer ? semHistorico as Omit<ParecerAnalise, 'historico'> : null },
+      })
+      continue
+    }
     if (e.chave === 'pagamento') {
       if (!reg.portal?.requirePayment) continue
       const pago = reg.paymentStatus === 'paid'
@@ -241,13 +342,15 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       const nomes = (l: typeof faltam) => l.map((x) => x.documentType.name).join(', ')
       const falta = (n: number) => (n === 1 ? 'falta enviar 1' : `faltam enviar ${n}`)
       let detalhe: string
+      // "Libera ao enviar": enviados bastam para concluir; a análise segue sem segurar a fila.
+      const concluiu = !recusados && tudo && (e.liberaNoEnvio || aprovados >= obrigatorios.length)
       if (recusados) detalhe = `${recusados} recusado(s) — reenvie`
       else if (!tudo) detalhe = `${entregues} de ${obrigatorios.length} obrigatórios enviados — ${falta(faltamObrig.length)}: ${nomes(faltamObrig)}`
-      else detalhe = aprovados >= obrigatorios.length ? 'Obrigatórios aprovados' : 'Obrigatórios enviados, em análise'
+      else detalhe = aprovados >= obrigatorios.length ? 'Obrigatórios aprovados' : e.liberaNoEnvio ? 'Obrigatórios enviados (a secretaria confere)' : 'Obrigatórios enviados, em análise'
       if (!recusados && faltamOpc.length) detalhe += ` · ${falta(faltamOpc.length)} opcional: ${nomes(faltamOpc)}`
       etapas.push({
         chave: 'documentos', titulo: ROTULO.documentos, obrigatoria: e.obrigatoria,
-        situacao: recusados ? 'pendente' : tudo ? (aprovados >= obrigatorios.length ? 'feito' : 'aguardando') : 'pendente',
+        situacao: recusados ? 'pendente' : concluiu ? 'feito' : tudo ? 'aguardando' : 'pendente',
         detalhe,
         progresso: { enviados: entregues, total: obrigatorios.length, aprovados, recusados },
       })
@@ -274,14 +377,14 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
   }
   // Etapa que pede dados antes da ação fica pendente enquanto faltarem.
   for (const et of etapas) {
-    if (et.chave === 'cadastro' || et.chave === 'prova') continue
+    if (et.chave === 'cadastro' || et.chave === 'prova' || et.chave === 'analise') continue
     const falta = faltandoPorEtapa.get(et.chave) ?? -1
     if (falta > 0) {
       et.dadosFaltando = falta
       if (et.situacao !== 'feito') { et.situacao = 'pendente'; et.detalhe = `Faltam ${falta} dado(s) · ${et.detalhe}` }
     } else if (falta === 0) et.dadosFaltando = 0
   }
-  aplicarTravas(etapas, lista, sp?.entryModeId ?? null)
+  aplicarTravas(etapas, lista, entryModeId)
   return { portal: reg.portal ? { id: reg.portal.id, slug: reg.portal.slug, nome: reg.portal.nome } : null, etapas }
 }
 
@@ -294,7 +397,9 @@ function aplicarTravas(etapas: EtapaDaInscricao[], lista: EtapaConfig[], entryMo
   // Trava restrita a formas de ingresso só vale para quem entrou por uma delas
   // (inscrição sem forma de ingresso definida não cai em trava restrita).
   const vale = (e: EtapaConfig) => !e.travaIngressos?.length || (entryModeId != null && e.travaIngressos.includes(entryModeId))
-  const comTrava = new Set(lista.filter((e) => e.ativo && e.trava && vale(e)).map((e) => e.chave))
+  // A análise acadêmica trava sempre: é para isso que ela existe.
+  const comTrava = new Set(lista.filter((e) => e.ativo && ((e.trava && vale(e)) || e.chave === 'analise')).map((e) => e.chave))
+  const cfgDe = new Map(lista.map((e) => [e.chave, e]))
   let segurando: EtapaDaInscricao | null = null
   for (const et of etapas) {
     et.trava = comTrava.has(et.chave)
@@ -302,7 +407,7 @@ function aplicarTravas(etapas: EtapaDaInscricao[], lista: EtapaConfig[], entryMo
     if (segurando && et.situacao !== 'feito') {
       et.bloqueada = {
         por: segurando.chave, titulo: segurando.titulo,
-        motivo: `Libera depois de concluir "${segurando.titulo}" (${CONCLUIR[segurando.chave]}).`,
+        motivo: `Libera depois de concluir "${segurando.titulo}" (${concluirDe(cfgDe.get(segurando.chave) ?? { chave: segurando.chave })}).`,
       }
     }
     if (!segurando && et.trava && et.situacao !== 'feito') segurando = et
@@ -323,10 +428,98 @@ export async function bloqueioDaEtapa(registrationId: number, chave: ChaveEtapa,
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portal: { select: { jornadaEtapas: true } } } })
   const cfg = lerJornada(reg?.portal?.jornadaEtapas)
   const lista = onde === 'painel' ? (cfg.painel ?? cfg.inscricao) : cfg.inscricao
-  if (!lista.some((e) => e.ativo && e.trava)) return null
+  if (!lista.some((e) => e.ativo && (e.trava || e.chave === 'analise'))) return null
   const j = await etapasDaInscricao(registrationId, onde)
   const et = j?.etapas.find((e) => e.chave === chave)
   return et?.bloqueada ? `Esta etapa ainda está travada. ${et.bloqueada.motivo}` : null
+}
+
+/**
+ * Trava no envio de UM documento: os documentos da análise acadêmica seguem a
+ * etapa da análise (vêm antes de tudo); os demais, a etapa Documentos.
+ */
+export async function bloqueioDoDocumento(registrationId: number, typeCode: string, onde: 'inscricao' | 'painel'): Promise<string | null> {
+  const j = await etapasDaInscricao(registrationId, onde)
+  const analise = j?.etapas.find((e) => e.chave === 'analise')
+  if (analise?.analise?.documentos.some((d) => d.code === typeCode)) {
+    if (analise.bloqueada) return `Esta etapa ainda está travada. ${analise.bloqueada.motivo}`
+    if (analise.analise.parecer) return 'A análise acadêmica destes documentos já foi concluída.'
+    return null
+  }
+  const docs = j?.etapas.find((e) => e.chave === 'documentos')
+  return docs?.bloqueada ? `Esta etapa ainda está travada. ${docs.bloqueada.motivo}` : null
+}
+
+// ─── Análise acadêmica: parecer da instituição e resposta do candidato ────
+
+/** A etapa de análise desta inscrição (em qualquer das duas sequências), ou null. */
+async function etapaDeAnalise(registrationId: number) {
+  for (const onde of ['inscricao', 'painel'] as const) {
+    const j = await etapasDaInscricao(registrationId, onde)
+    const et = j?.etapas.find((e) => e.chave === 'analise')
+    if (et) return et
+  }
+  return null
+}
+
+export async function emitirParecer(p: {
+  registrationId: number
+  resultado: 'deferido' | 'indeferido'
+  periodo?: string | null
+  aproveitamento?: string | null
+  observacao?: string | null
+  userId: number | null
+  userNome: string | null
+}): Promise<{ ok: true; parecer: ParecerAnalise } | { ok: false; erro: string }> {
+  const et = await etapaDeAnalise(p.registrationId)
+  if (!et?.analise) return { ok: false, erro: 'Esta inscrição não passa por análise acadêmica (veja Portal › Etapas).' }
+  const txt = (v: unknown, max: number) => { const t = String(v ?? '').trim().slice(0, max); return t || null }
+  const periodo = txt(p.periodo, 120)
+  const observacao = txt(p.observacao, 4000)
+  if (p.resultado === 'deferido' && !periodo) return { ok: false, erro: 'Informe o período em que o candidato vai ingressar.' }
+  if (p.resultado === 'indeferido' && !observacao) return { ok: false, erro: 'Explique o motivo do indeferimento — o candidato vai ler.' }
+  const reg = await prisma.enrollmentRegistration.findUnique({
+    where: { id: p.registrationId },
+    select: { analiseAcademica: true, processRegistration: { select: { offeringId: true } } },
+  })
+  if (!reg) return { ok: false, erro: 'Inscrição não encontrada.' }
+  const anterior = (reg.analiseAcademica && typeof reg.analiseAcademica === 'object' ? reg.analiseAcademica : null) as ParecerAnalise | null
+  const { historico: histAnterior, ...anteriorSem } = anterior ?? ({} as ParecerAnalise)
+  const parecer: ParecerAnalise = {
+    offeringId: reg.processRegistration?.offeringId ?? null,
+    resultado: p.resultado, periodo, aproveitamento: txt(p.aproveitamento, 8000), observacao,
+    emitidoEm: new Date().toISOString(),
+    emitidoPor: { id: p.userId, nome: p.userNome },
+    aceite: null,
+    historico: anterior ? [anteriorSem as Omit<ParecerAnalise, 'historico'>, ...(histAnterior ?? [])].slice(0, 10) : [],
+  }
+  await prisma.enrollmentRegistration.update({ where: { id: p.registrationId }, data: { analiseAcademica: parecer as any } })
+  // Deferido: os documentos analisados ficam aprovados (a análise já os conferiu).
+  if (p.resultado === 'deferido') {
+    await prisma.enrollmentDocument.updateMany({
+      where: { registrationId: p.registrationId, typeCode: { in: et.analise.documentos.map((d) => d.code) }, status: 'pending' },
+      data: { status: 'approved', reviewNote: 'Aprovado na análise acadêmica', reviewedBy: p.userId, reviewedAt: new Date() },
+    })
+  }
+  return { ok: true, parecer }
+}
+
+export async function responderParecer(registrationId: number, decisao: 'aceito' | 'desistiu', via: 'portal' | 'chatbot' | 'equipe'):
+  Promise<{ ok: true } | { ok: false; erro: string }> {
+  const et = await etapaDeAnalise(registrationId)
+  const parecer = et?.analise?.parecer
+  if (!parecer) return { ok: false, erro: 'Ainda não há parecer da análise acadêmica.' }
+  if (parecer.resultado !== 'deferido') return { ok: false, erro: 'A análise foi indeferida — escolha outra forma de ingresso.' }
+  if (parecer.aceite) return { ok: false, erro: parecer.aceite.decisao === 'aceito' ? 'Você já aceitou este parecer.' : 'Você já optou por não continuar.' }
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { analiseAcademica: true } })
+  const atual = (reg?.analiseAcademica ?? {}) as unknown as ParecerAnalise
+  const aceite = { decisao, em: new Date().toISOString(), via }
+  await prisma.enrollmentRegistration.update({
+    where: { id: registrationId },
+    // Desistiu: a inscrição é encerrada (Cancelada) — a pessoa pode se inscrever de novo.
+    data: { analiseAcademica: { ...atual, aceite } as any, ...(decisao === 'desistiu' ? { status: 'cancelled' } : {}) },
+  })
+  return { ok: true }
 }
 
 // ─── Contrato na inscrição ───────────────────────────────────────────────

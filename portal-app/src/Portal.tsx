@@ -115,7 +115,7 @@ export function Portal() {
               : jornada && (
                 <div class="cartao">
                   {jornada.etapas.length
-                    ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} />
+                    ? <Jornada codigo={jornada.inscricao.candidateCode} token={jornada.token} contexto="painel" etapas={jornada.etapas} portalSlug={jornada.portal?.slug} />
                     : <p class="sub" style="margin:0">{tx('portal.nadaPendente', 'Nada pendente por aqui. Avisamos você pelo WhatsApp quando houver novidade.')}</p>}
                 </div>
               )}
