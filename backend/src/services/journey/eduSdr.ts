@@ -33,7 +33,7 @@ import { prisma } from '../../lib/prisma.js'
 import { signCandidateToken } from '../../lib/candidateAuth.js'
 import { isValidCpf, normalizeCpf } from '../../lib/cpf.js'
 import { lerTabelaDePrecos, resumoDaTabela } from '../tabelaDePrecos.js'
-import { lerJornada, etapasDaInscricao, ROTULO, type ChaveEtapa } from '../portalJornada.js'
+import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
 
 export interface EduState {
@@ -202,7 +202,13 @@ async function etapasDoPortal(p: PortalInfo, o: OfertaDoPortal, temDocs: boolean
     if (e.chave === 'pagamento' && !p.requirePayment) continue
     if (e.chave === 'documentos' && !temDocs) continue
     if (e.chave === 'prova' && o.ingresso?.evaluationType !== 'exam_online') continue
-    out.push(`${ROTULO[e.chave as ChaveEtapa]}${e.obrigatoria ? ' (obrigatória na inscrição)' : ''}`)
+    // Trava restrita a formas de ingresso: só conta se a desta oferta estiver na lista.
+    let trava = !!e.trava
+    if (trava && e.travaIngressos?.length) {
+      const modos = await prisma.entryMode.findMany({ where: { id: { in: e.travaIngressos } }, select: { code: true } }).catch(() => [])
+      trava = !!o.ingresso && modos.some((m) => m.code === o.ingresso!.code)
+    }
+    out.push(`${ROTULO[e.chave as ChaveEtapa]}${e.obrigatoria ? ' (obrigatória na inscrição)' : ''}${trava ? ` (TRAVA: as etapas seguintes só liberam depois de ${CONCLUIR[e.chave as ChaveEtapa]})` : ''}`)
   }
   return out
 }
@@ -320,7 +326,7 @@ export async function contextoDoLead(leadId: number | null): Promise<string> {
   }).catch(() => [] as any[])
   for (const r of regs) {
     const et = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
-    const etapas = et?.etapas.map((e) => `${e.titulo}: ${e.situacao === 'feito' ? 'feito' : e.situacao === 'aguardando' ? 'em análise' : 'pendente'} (${e.detalhe})`).join('; ')
+    const etapas = et?.etapas.map((e) => `${e.titulo}: ${situacaoTxt(e)} (${e.bloqueada ? e.bloqueada.motivo : e.detalhe})${e.trava ? ' [trava as seguintes]' : ''}`).join('; ')
     linhas.push(`Inscrição ${r.candidateCode} — ${r.processRegistration?.offering?.nome ?? 'curso não escolhido'}, criada em ${r.createdAt.toLocaleDateString('pt-BR')}, situação "${r.status}"${etapas ? `. Etapas: ${etapas}` : ''}`)
   }
 
@@ -488,6 +494,18 @@ async function inscricaoAtual(ctx: EduCtx): Promise<{ id: number; candidateCode:
 
 const SEM_INSCRICAO = 'Ainda não há inscrição deste contato. Primeiro conclua a inscrição (fazer_inscricao).'
 
+// Trava de etapa (Portal › Etapas): a etapa seguinte só libera quando a travada
+// estiver concluída. O servidor recusa de qualquer jeito; aqui o bot fica
+// sabendo antes e conduz a etapa que segura a fila.
+const INSTRUCAO_TRAVA = 'Esta etapa ainda está TRAVADA pela etapa indicada. Não ofereça nem tente fazê-la agora: explique em uma frase o que precisa ser concluído antes e conduza essa etapa. Se ela depende da equipe (documentos em análise, redação em correção), diga que a equipe está analisando e que você avisa/ele recebe a confirmação assim que liberar.'
+const situacaoTxt = (e: EtapaDaInscricao) =>
+  e.bloqueada ? 'travada' : e.situacao === 'feito' ? 'feito' : e.situacao === 'aguardando' ? 'em análise' : 'pendente'
+const etapaParaBot = (e: EtapaDaInscricao) => ({
+  etapa: e.titulo, chave: e.chave, situacao: situacaoTxt(e), detalhe: e.detalhe,
+  ...(e.trava ? { trava: `as seguintes só liberam depois de ${CONCLUIR[e.chave]}` } : {}),
+  ...(e.bloqueada ? { travadaPor: e.bloqueada.titulo, motivo: e.bloqueada.motivo } : {}),
+})
+
 export async function executarFerramentaEdu(name: string, input: any, ctx: EduCtx): Promise<string> {
   const { app } = ctx
   const edu = (ctx.state.edu ||= {})
@@ -589,11 +607,11 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         const et = await etapasDaInscricao(r.id, 'inscricao').catch(() => null)
         out.push({
           codigo: r.candidateCode, portal: r.portal.nome, curso: r.processRegistration?.offering?.nome ?? null, offeringId: r.processRegistration?.offering?.id ?? null,
-          situacao: r.status, etapas: (et?.etapas ?? []).map((e) => ({ etapa: e.titulo, chave: e.chave, situacao: e.situacao, detalhe: e.detalhe })),
+          situacao: r.status, etapas: (et?.etapas ?? []).map(etapaParaBot),
         })
       }
       if (regs[0]) { edu.registrationId = regs[0].id; edu.candidateCode = regs[0].candidateCode; edu.portalSlug = regs[0].portal.slug }
-      return ok({ inscricoes: out, instrucao: out.length ? 'Continue a partir da PRIMEIRA etapa pendente, na ordem acima — ou na ordem de documentos que as suas instruções definirem. Não refaça o que já está feito.' : 'Nenhuma inscrição deste contato.' })
+      return ok({ inscricoes: out, instrucao: out.length ? 'Continue a partir da PRIMEIRA etapa pendente, na ordem acima — ou na ordem de documentos que as suas instruções definirem. Não refaça o que já está feito. Etapa "travada" NÃO pode ser feita agora: conduza a etapa que a trava (travadaPor) até ser concluída; se essa depende da equipe (em análise), diga que está em análise e que a próxima etapa libera assim que for aprovada.' : 'Nenhuma inscrição deste contato.' })
     }
 
     if (name === 'fazer_inscricao') {
@@ -638,8 +656,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       const et = await etapasDaInscricao(r.body.enrollmentId, 'inscricao').catch(() => null)
       return ok({
         codigo: r.body.candidateCode, curso: o.curso,
-        proximasEtapas: (et?.etapas ?? []).filter((e) => e.situacao !== 'feito').map((e) => ({ etapa: e.titulo, chave: e.chave, detalhe: e.detalhe, obrigatoria: e.obrigatoria })),
-        instrucao: 'Inscrição feita. Informe o código e conduza a PRÓXIMA etapa pendente, na ordem — uma de cada vez.',
+        proximasEtapas: (et?.etapas ?? []).filter((e) => e.situacao !== 'feito').map((e) => ({ ...etapaParaBot(e), obrigatoria: e.obrigatoria })),
+        instrucao: 'Inscrição feita. Informe o código e conduza a PRÓXIMA etapa pendente, na ordem — uma de cada vez. Etapa "travada" só libera quando a que a trava estiver concluída.',
       })
     }
 
@@ -670,6 +688,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (ctx.dryRun) return ok({ simulacao: true, salvos: Object.keys(valores) })
       const token = signCandidateToken(reg.id, reg.candidateCode)
       const r = await portalHttp(app, 'POST', `/api/public/registrations/${reg.candidateCode}/dados`, { token, payload: { etapa, valores } })
+      if (r.body?.travada) return erro(String(r.body.error), INSTRUCAO_TRAVA)
       if (r.status !== 200) return erro(String(r.body?.error || 'Não foi possível salvar.'), 'Explique qual dado não passou e peça para corrigir.')
       return ok({ salvos: Object.keys(valores) })
     }
@@ -700,6 +719,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       }
       const reg = await inscricaoAtual(ctx)
       if (!reg) return erro(SEM_INSCRICAO)
+      const travaPag = await bloqueioDaEtapa(reg.id, 'pagamento', 'inscricao').catch(() => null)
+      if (travaPag) return erro(travaPag, INSTRUCAO_TRAVA)
       if (metodo === 'cartao') {
         const link = await linkDeAcesso(reg.leadId)
         return link
@@ -733,6 +754,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (ctx.dryRun) return ok({ simulacao: true, tipo, arquivo: anexo.nome, instrucao: 'SIMULAÇÃO: nada foi vinculado.' })
       const reg = await inscricaoAtual(ctx)
       if (!reg) return erro(SEM_INSCRICAO)
+      const travaDocs = await bloqueioDaEtapa(reg.id, 'documentos', 'inscricao').catch(() => null)
+      if (travaDocs) return erro(travaDocs, INSTRUCAO_TRAVA)
       const arquivo = await lerArquivo(anexo.url)
       if (!arquivo) return erro('Não consegui abrir o arquivo enviado.', 'Peça para reenviar o arquivo.')
       const ext = (extname(anexo.url).replace('.', '') || (anexo.tipo === 'image' ? 'jpg' : 'pdf')).toLowerCase()
@@ -756,6 +779,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (ctx.dryRun) return ok({ simulacao: true, instrucao: 'SIMULAÇÃO: no WhatsApp real o lead recebe o link para ler e assinar o contrato.' })
       const reg = await inscricaoAtual(ctx)
       if (!reg) return erro(SEM_INSCRICAO)
+      const travaContrato = await bloqueioDaEtapa(reg.id, 'contrato', 'inscricao').catch(() => null)
+      if (travaContrato) return erro(travaContrato, INSTRUCAO_TRAVA)
       const token = signCandidateToken(reg.id, reg.candidateCode)
       const c = await portalHttp(app, 'GET', `/api/public/registrations/${reg.candidateCode}/contrato`, { token })
       if (c.status !== 200) return erro(String(c.body?.error || 'Contrato indisponível.'), 'Diga que a equipe vai enviar o contrato e chame transferir_humano.')

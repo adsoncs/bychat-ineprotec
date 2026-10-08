@@ -41,7 +41,7 @@ import { logSecurityEvent } from '../services/security.js'
 import { portalLeadSource } from '../lib/leadSourceLabel.js'
 import { CANDIDATE_SECRET } from '../lib/secrets.js'
 import { redis } from '../lib/redis.js'
-import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink } from '../lib/candidateAuth.js'
+import { signCandidateToken, verifyCandidateToken, signMagicLink, verifyMagicLink, ondeDoToken } from '../lib/candidateAuth.js'
 import { promises as fsp } from 'fs'
 import { eventBus } from '../lib/eventBus.js'
 import QRCode from 'qrcode'
@@ -1288,7 +1288,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const faltam = items.map((r) => r.id).filter((rid) => !etapasCalculadas.has(rid))
     const etapasDaPagina = faltam.length ? await etapasDe(faltam) : new Map<number, Etapas>()
     const etapasDaLinha = (rid: number) => (etapasCalculadas.get(rid) ?? etapasDaPagina.get(rid) ?? [])
-      .map((e) => ({ chave: e.chave, situacao: e.situacao, detalhe: e.detalhe, ...(e.progresso ? { progresso: e.progresso } : {}) }))
+      .map((e) => ({ chave: e.chave, situacao: e.situacao, detalhe: e.detalhe, ...(e.progresso ? { progresso: e.progresso } : {}), ...(e.bloqueada ? { bloqueada: e.bloqueada.motivo } : {}) }))
 
     return {
       items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0, etapas: etapasDaLinha(r.id) })),
@@ -2765,7 +2765,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   //
   // Auth: Authorization: Bearer <candidateToken> (mesmo token do /candidato/:code).
 
-  function requirePaymentSession(req: any, code: string): { enrollmentId: number; candidateCode: string } | null {
+  function requirePaymentSession(req: any, code: string): { enrollmentId: number; candidateCode: string; onde?: 'painel' } | null {
     const auth = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
     const sess = verifyCandidateToken(auth)
     if (!sess) return null
@@ -2945,6 +2945,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { code } = req.params as any
     const sess = requirePaymentSession(req, code)
     if (!sess) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(sess.enrollmentId, 'pagamento', ondeDoToken(sess))
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
+    }
 
     const body = (req.body as any) || {}
     const method = body.method as 'pix' | 'boleto' | 'credit_card'
@@ -3624,6 +3628,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
     if (!reg || reg.candidateCode !== candidateCode) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(reg.id, 'documentos', ondeDoToken(session))
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
+    }
 
     const file = await (req as any).file?.({ limits: { fileSize: 15 * 1024 * 1024 } })
     if (!file) return reply.code(400).send({ error: 'Nenhum arquivo enviado' })

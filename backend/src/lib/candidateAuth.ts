@@ -17,14 +17,24 @@ export interface CandidateTokenPayload {
   enrollmentId: number
   candidateCode: string
   exp: number
+  /** De onde a pessoa age: 'painel' = portal logado. Ausente = tela de
+   *  inscrição. Vai assinado, então decide qual sequência de etapas (e travas)
+   *  vale sem que o navegador possa escolher. */
+  onde?: 'painel'
+}
+
+/** Sequência de etapas que vale para este token (services/portalJornada). */
+export function ondeDoToken(p: { onde?: string } | null | undefined): 'inscricao' | 'painel' {
+  return p?.onde === 'painel' ? 'painel' : 'inscricao'
 }
 
 export function signCandidateToken(
   enrollmentId: number,
   candidateCode: string,
   ttlMs: number = DEFAULT_TTL_MS,
+  onde?: 'inscricao' | 'painel',
 ): string {
-  const payload: CandidateTokenPayload = { enrollmentId, candidateCode, exp: Date.now() + ttlMs }
+  const payload: CandidateTokenPayload = { enrollmentId, candidateCode, exp: Date.now() + ttlMs, ...(onde === 'painel' ? { onde } : {}) }
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
   return `${body}.${sig}`

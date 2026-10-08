@@ -608,6 +608,10 @@ export interface EtapaDaJornada {
   obrigatoria: boolean
   /** Dados obrigatórios desta etapa ainda em branco (pedidos antes da ação). */
   dadosFaltando?: number
+  /** Esta etapa trava as seguintes até ser concluída. */
+  trava?: boolean
+  /** Travada por uma etapa anterior ainda não concluída — não dá para fazer agora. */
+  bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
 }
 export interface Jornada {
   portal: { id: number; slug: string; nome: string } | null

@@ -7,9 +7,9 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
-import { verifyCandidateToken, signCandidateToken } from '../lib/candidateAuth.js'
+import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
-import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada } from '../services/portalJornada.js'
+import { etapasDaInscricao, contratoDaInscricao, assinarContratoDaInscricao, lerJornada, bloqueioDaEtapa, CHAVES, type ChaveEtapa } from '../services/portalJornada.js'
 import {
   dadosDoContratoDaInscricao, modeloDoPortal, pdfDoContratoDaInscricao, envelopeDaInscricao, estadoDaAssinaturaDaInscricao,
   iniciarAssinaturaDaInscricao, aceitarContratoNoPortal, assinaturaEletronicaAtiva,
@@ -38,11 +38,13 @@ async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
  * por fora da jornada) ou dados da etapa do contrato ainda faltando (ex.:
  * responsável financeiro) — eles entram no contrato, então vêm antes.
  */
-async function impedimentoParaAssinar(registrationId: number): Promise<string | null> {
+async function impedimentoParaAssinar(registrationId: number, onde: 'inscricao' | 'painel'): Promise<string | null> {
   const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portal: { select: { jornadaEtapas: true } } } })
   const cfg = lerJornada(reg?.portal?.jornadaEtapas)
   const ligada = [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'contrato' && e.ativo)
   if (!ligada) return 'Este portal não pede contrato nesta etapa.'
+  const trava = await bloqueioDaEtapa(registrationId, 'contrato', onde)
+  if (trava) return trava
   const dc = await dadosDaEtapa(registrationId, 'contrato')
   if (dc && dc.faltando > 0) return 'Preencha os dados pedidos antes de assinar o contrato.'
   return null
@@ -85,7 +87,7 @@ function mascararCpf(v: unknown): string | null {
 }
 
 /** Token da inscrição (Bearer) — o mesmo que o /register devolve. */
-function sessaoDoCandidato(req: any, code: string): { enrollmentId: number; candidateCode: string } | null {
+function sessaoDoCandidato(req: any, code: string): { enrollmentId: number; candidateCode: string; onde?: 'painel' } | null {
   const s = verifyCandidateToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''))
   return s && s.candidateCode === code ? s : null
 }
@@ -206,7 +208,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     const j = await etapasDaInscricao(reg.id, 'painel')
     if (!j) return reply.code(404).send({ error: 'Inscrição não encontrada' })
     reply.header('cache-control', 'no-store')
-    return { ...j, inscricao: { id: reg.id, candidateCode: reg.candidateCode }, token: signCandidateToken(reg.id, reg.candidateCode) }
+    return { ...j, inscricao: { id: reg.id, candidateCode: reg.candidateCode }, token: signCandidateToken(reg.id, reg.candidateCode, undefined, 'painel') }
   })
 
   // Dados pedidos numa etapa (Educacional › Dados por etapa). O candidato vê o
@@ -230,6 +232,11 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     if (!ETAPAS_DADOS.includes(etapa) || etapa === 'inscricao') return reply.code(400).send({ error: 'Etapa inválida' })
     const d = await dadosDaEtapa(s.enrollmentId, etapa)
     if (!d) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    // Dados de uma etapa travada esperam a vez dela, como a ação da etapa.
+    if (CHAVES.includes(etapa as ChaveEtapa)) {
+      const trava = await bloqueioDaEtapa(s.enrollmentId, etapa as ChaveEtapa, ondeDoToken(s))
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
+    }
     const recebidos = (b.valores && typeof b.valores === 'object') ? b.valores as Record<string, unknown> : {}
     // Só entra o que a etapa pede; o resto do corpo é ignorado.
     const novos: Record<string, string> = {}
@@ -283,7 +290,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   app.post('/api/public/registrations/:code/contrato/iniciar', async (req, reply) => {
     const s = sessaoDoCandidato(req, (req.params as any).code)
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
-    const impedimento = await impedimentoParaAssinar(s.enrollmentId)
+    const impedimento = await impedimentoParaAssinar(s.enrollmentId, ondeDoToken(s))
     if (impedimento) return reply.code(400).send({ error: impedimento })
     const r = await iniciarAssinaturaDaInscricao(s.enrollmentId)
     if (!r.ok) return reply.code(400).send({ error: r.erro })
@@ -301,7 +308,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     const s = sessaoDoCandidato(req, (req.params as any).code)
     if (!s) return reply.code(401).send({ error: 'Sessão inválida ou expirada' })
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: s.enrollmentId }, select: { leadId: true, candidateCode: true } })
-    const impedimento = await impedimentoParaAssinar(s.enrollmentId)
+    const impedimento = await impedimentoParaAssinar(s.enrollmentId, ondeDoToken(s))
     if (impedimento) return reply.code(400).send({ error: impedimento })
     // Contrato em Word: com Autentique, a assinatura é lá (rota /iniciar); sem
     // ela, o aceite é aqui mesmo, mas sobre o PDF do contrato de verdade.

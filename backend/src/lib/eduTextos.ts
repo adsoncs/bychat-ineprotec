@@ -90,6 +90,7 @@ export const CATALOGO_TEXTOS: GrupoDeTextos[] = [
       { chave: 'etapas.aguardando', rotulo: 'Situação: em análise', padrao: 'Em análise' },
       { chave: 'etapas.pendente', rotulo: 'Situação: pendente', padrao: 'Pendente' },
       { chave: 'etapas.corrigir', rotulo: 'Situação: precisa corrigir', padrao: 'Corrigir' },
+      { chave: 'etapas.travada', rotulo: 'Situação: travada (aguarda etapa anterior)', padrao: 'Aguardando etapa anterior' },
       { chave: 'etapas.fazerAgora', rotulo: 'Botão de etapa pendente', padrao: 'Fazer agora' },
       { chave: 'etapas.ver', rotulo: 'Botão de etapa feita', padrao: 'Ver' },
       { chave: 'etapas.avisoDepois', rotulo: 'Aviso abaixo das etapas', padrao: 'Você pode fazer as etapas agora ou depois, quando quiser, entrando no seu portal.', longo: true },

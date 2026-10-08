@@ -24,6 +24,12 @@ export interface EtapaConfig {
   ativo: boolean
   /** Na inscrição: a pessoa não pode deixar para depois. */
   obrigatoria: boolean
+  /** Trava: as etapas seguintes só liberam quando esta estiver CONCLUÍDA
+   *  (documentos aprovados, pagamento confirmado, redação aprovada, contrato
+   *  assinado, dados completos) — "em análise" ainda segura a fila. */
+  trava?: boolean
+  /** Formas de ingresso (EntryMode.id) em que a trava vale. Vazio = todas. */
+  travaIngressos?: number[]
 }
 
 export interface JornadaConfig {
@@ -73,7 +79,13 @@ function normalizarLista(bruto: unknown, padrao: EtapaConfig[]): EtapaConfig[] {
     const chave = String((x as any)?.chave ?? '') as ChaveEtapa
     if (!CHAVES.includes(chave) || vistos.has(chave)) continue
     vistos.add(chave)
-    out.push({ chave, ativo: (x as any)?.ativo !== false, obrigatoria: !!(x as any)?.obrigatoria })
+    const ingressos = Array.isArray((x as any)?.travaIngressos)
+      ? [...new Set(((x as any).travaIngressos as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+      : []
+    out.push({
+      chave, ativo: (x as any)?.ativo !== false, obrigatoria: !!(x as any)?.obrigatoria, trava: !!(x as any)?.trava,
+      ...(ingressos.length ? { travaIngressos: ingressos } : {}),
+    })
   }
   // Chave que faltou na config entra no fim, desligada — a lista tem sempre todas.
   // "Completar cadastro" é a exceção: veio depois das outras e entra LIGADA e na
@@ -117,6 +129,19 @@ export interface EtapaDaInscricao {
   dadosFaltando?: number
   /** Documentos: contagem dos OBRIGATÓRIOS (lista do admin mostra "4/6"). */
   progresso?: { enviados: number; total: number; aprovados: number; recusados: number }
+  /** Esta etapa trava as seguintes até ser concluída. */
+  trava?: boolean
+  /** Travada por uma etapa anterior ainda não concluída: não dá para fazer agora. */
+  bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
+}
+
+/** O que "concluir" quer dizer em cada etapa — usado na mensagem da trava. */
+export const CONCLUIR: Record<ChaveEtapa, string> = {
+  cadastro: 'todos os dados preenchidos',
+  pagamento: 'pagamento confirmado',
+  documentos: 'todos os documentos obrigatórios aprovados',
+  contrato: 'contrato assinado',
+  prova: 'redação aprovada',
 }
 
 async function contexto(registrationId: number) {
@@ -132,6 +157,7 @@ async function contexto(registrationId: number) {
           offering: { select: { id: true, nome: true, course: { select: { nome: true } } } },
           selectionProcess: {
             select: {
+              entryModeId: true,
               useCustomDocuments: true,
               documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } },
               entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } } } },
@@ -255,7 +281,52 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       if (et.situacao !== 'feito') { et.situacao = 'pendente'; et.detalhe = `Faltam ${falta} dado(s) · ${et.detalhe}` }
     } else if (falta === 0) et.dadosFaltando = 0
   }
+  aplicarTravas(etapas, lista, sp?.entryModeId ?? null)
   return { portal: reg.portal ? { id: reg.portal.id, slug: reg.portal.slug, nome: reg.portal.nome } : null, etapas }
+}
+
+/**
+ * Trava: depois de uma etapa com trava que ainda não está concluída, as
+ * seguintes ficam bloqueadas. Etapa que não se aplica à inscrição já saiu da
+ * lista — não trava nada. Etapa já concluída não volta a ficar bloqueada.
+ */
+function aplicarTravas(etapas: EtapaDaInscricao[], lista: EtapaConfig[], entryModeId: number | null) {
+  // Trava restrita a formas de ingresso só vale para quem entrou por uma delas
+  // (inscrição sem forma de ingresso definida não cai em trava restrita).
+  const vale = (e: EtapaConfig) => !e.travaIngressos?.length || (entryModeId != null && e.travaIngressos.includes(entryModeId))
+  const comTrava = new Set(lista.filter((e) => e.ativo && e.trava && vale(e)).map((e) => e.chave))
+  let segurando: EtapaDaInscricao | null = null
+  for (const et of etapas) {
+    et.trava = comTrava.has(et.chave)
+    et.bloqueada = null
+    if (segurando && et.situacao !== 'feito') {
+      et.bloqueada = {
+        por: segurando.chave, titulo: segurando.titulo,
+        motivo: `Libera depois de concluir "${segurando.titulo}" (${CONCLUIR[segurando.chave]}).`,
+      }
+    }
+    if (!segurando && et.trava && et.situacao !== 'feito') segurando = et
+  }
+}
+
+/**
+ * Por que esta etapa não pode ser feita agora (null = pode). É a trava do lado
+ * do servidor: portal, painel e chatbot passam pelas mesmas rotas, então
+ * ninguém pula a fila chamando a API direto.
+ *
+ * Cada tela respeita a SUA configuração: na tela de inscrição (e no chatbot,
+ * que conduz a inscrição) vale a sequência "inscricao"; no portal logado, a
+ * "painel" (null = a mesma da inscrição). Quem diz onde a pessoa está é o
+ * token assinado (lib/candidateAuth › ondeDoToken), não o navegador.
+ */
+export async function bloqueioDaEtapa(registrationId: number, chave: ChaveEtapa, onde: 'inscricao' | 'painel'): Promise<string | null> {
+  const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: registrationId }, select: { portal: { select: { jornadaEtapas: true } } } })
+  const cfg = lerJornada(reg?.portal?.jornadaEtapas)
+  const lista = onde === 'painel' ? (cfg.painel ?? cfg.inscricao) : cfg.inscricao
+  if (!lista.some((e) => e.ativo && e.trava)) return null
+  const j = await etapasDaInscricao(registrationId, onde)
+  const et = j?.etapas.find((e) => e.chave === chave)
+  return et?.bloqueada ? `Esta etapa ainda está travada. ${et.bloqueada.motivo}` : null
 }
 
 // ─── Contrato na inscrição ───────────────────────────────────────────────

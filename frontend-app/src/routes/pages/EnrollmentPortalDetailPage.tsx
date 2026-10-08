@@ -3,7 +3,7 @@ import { useLocation } from 'wouter-preact'
 import {
   ChevronLeft, School, ListChecks, ExternalLink, Download, Search, Palette, Settings, BarChart3, FormInput,
   AlertTriangle, Eye, Copy, MoreVertical, MessageCircle, Send, Ban,
-  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard, ListOrdered, Filter,
+  QrCode, Code, UserPlus, Plus, Pencil, Trash2, CreditCard, ListOrdered, Filter, Lock,
 } from '@/components/ui/icon-set'
 import {
   useEnrollmentPortal,
@@ -1367,6 +1367,8 @@ function rotuloSituacaoEtapa(chave: string, situacao: 'feito' | 'aguardando' | '
 function CelulaDaEtapa({ chave, etapa, valor }: { chave: string; etapa: EtapaDaLinha | undefined; valor: number | null }) {
   // Etapa que não se aplica a esta inscrição (ex.: redação numa inscrição pelo ENEM).
   if (!etapa) return <span class="text-fg-subtle" title="Não se aplica a esta inscrição">—</span>
+  // Travada por uma etapa anterior (Etapas › Travar até concluir).
+  if (etapa.bloqueada) return <span class="inline-flex items-center gap-1 text-fg-subtle font-medium" title={etapa.bloqueada}><Lock size={11} /> Travada</span>
   const tom = etapa.situacao === 'feito' ? 'text-success' : etapa.situacao === 'aguardando' ? 'text-info' : 'text-warning'
   if (chave === 'documentos' && etapa.progresso) {
     const p = etapa.progresso

@@ -698,7 +698,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   // Replica a lógica de candidatePortal.ts (token JWT-like custom). Mantemos
   // local pra evitar export cruzado entre rotas; se um dia o SECRET mudar,
   // basta atualizar nos dois lugares.
-  async function requireCandidateLocal(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
+  async function requireCandidateLocal(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string; onde: 'inscricao' | 'painel' } | null> {
     const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
     const crypto = await import('crypto')
     const { CANDIDATE_SECRET: SECRET } = await import('../lib/secrets.js')
@@ -709,7 +709,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     try {
       const payload = JSON.parse(Buffer.from(body, 'base64url').toString())
       if (!payload || payload.exp < Date.now()) { reply.code(401).send({ error: 'Sessão expirada' }); return null }
-      return { enrollmentId: payload.enrollmentId, candidateCode: payload.candidateCode }
+      return { enrollmentId: payload.enrollmentId, candidateCode: payload.candidateCode, onde: payload.onde === 'painel' ? 'painel' : 'inscricao' }
     } catch { reply.code(401).send({ error: 'Sessão inválida' }); return null }
   }
 
@@ -837,6 +837,10 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     const sp = reg.processRegistration?.selectionProcess
     if (sp?.entryMode?.evaluationType !== 'exam_online') {
       return reply.code(400).send({ error: 'Redação não disponível para esta inscrição' })
+    }
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(s.enrollmentId, 'prova', s.onde)
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
     }
 
     // Sorteio de tema: prioriza EssayTopic; cai para essayPrompt legado se não houver nenhum.
@@ -968,6 +972,10 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     })
     if (!sub || sub.registrationId !== s.enrollmentId) return reply.code(404).send({ error: 'Redação não encontrada' })
     if (sub.status !== 'draft') return reply.code(400).send({ error: 'Redação já foi submetida' })
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(s.enrollmentId, 'prova', s.onde)
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
+    }
 
     const sp = sub.registration?.processRegistration?.selectionProcess
     const finalText = String(body.essayText ?? sub.essayText ?? '').trim().slice(0, 200_000)

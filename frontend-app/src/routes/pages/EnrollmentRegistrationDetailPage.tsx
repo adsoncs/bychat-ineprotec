@@ -3,7 +3,7 @@ import { Fragment } from 'preact'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
-  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye,
+  ChevronLeft, FileCheck2, AlertCircle, Bot, ExternalLink, Download, RefreshCw, Bell, CheckCircle, XCircle, Clock, Award, Send, Pencil, CreditCard, FileText, QrCode, Copy, Eye, Lock,
 } from '@/components/ui/icon-set'
 import {
   useRegistrationReview,
@@ -610,7 +610,13 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
   )
 }
 
-interface EtapaAdmin { chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean }
+interface EtapaAdmin {
+  chave: string; titulo: string; situacao: 'feito' | 'aguardando' | 'pendente'; detalhe: string; obrigatoria: boolean
+  /** Segura as seguintes até ser concluída (Portal › Etapas). */
+  trava?: boolean
+  /** Travada por uma etapa anterior ainda não concluída. */
+  bloqueada?: { titulo: string; motivo: string } | null
+}
 const SITUACAO_ETAPA: Record<string, { tone: 'success' | 'info' | 'warning'; icon: any; rotulo: string }> = {
   feito: { tone: 'success', icon: <CheckCircle size={11} />, rotulo: 'concluído' },
   aguardando: { tone: 'info', icon: <Clock size={11} />, rotulo: 'em análise' },
@@ -664,12 +670,15 @@ function StatusBanner({ review }: { review: RegistrationReview }) {
           </span>
         </Badge>
         {etapas.length > 0 && etapas.map((e, i) => {
-          const sit = SITUACAO_ETAPA[e.situacao] ?? SITUACAO_ETAPA.pendente
+          const sit: { tone: 'success' | 'info' | 'warning' | 'neutral'; icon: any; rotulo: string } = e.bloqueada
+            ? { tone: 'neutral', icon: <Lock size={11} />, rotulo: 'travada' }
+            : SITUACAO_ETAPA[e.situacao] ?? SITUACAO_ETAPA.pendente
           return (
-            <span key={e.chave} title={e.detalhe}>
+            <span key={e.chave} title={e.bloqueada ? e.bloqueada.motivo : `${e.detalhe}${e.trava ? ' · trava as etapas seguintes até ser concluída' : ''}`}>
               <Badge tone={sit.tone}>
                 <span class="inline-flex items-center gap-1">
                   {sit.icon} <span class="font-mono opacity-70">{i + 1}.</span> {e.titulo}: {sit.rotulo}
+                  {e.trava && !e.bloqueada && e.situacao !== 'feito' && <Lock size={10} class="opacity-70" />}
                   {e.chave === 'pagamento' && payAmount != null && <span class="font-mono">· {payAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>}
                 </span>
               </Badge>

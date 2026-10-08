@@ -9,7 +9,7 @@ import { join } from 'path'
 import { prisma } from '../lib/prisma.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
-import { signCandidateToken, verifyCandidateToken } from '../lib/candidateAuth.js'
+import { signCandidateToken, verifyCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao, emitirSessao, gravarCookie, ipDaRequisicao } from '../lib/portalSession.js'
 import { garantirConta } from '../services/portalAccount.js'
 import { portalAppDisponivel } from '../lib/portalApp.js'
@@ -26,7 +26,9 @@ import { validateUploadContent, UploadValidationError } from '../lib/uploadSafet
  * do login por código + CPF, que continua atendendo quem chegou por um link de
  * inscrição e ainda não criou senha.
  */
-async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string } | null> {
+async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string; onde: 'inscricao' | 'painel' } | null> {
+  const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
+  const session = verifyCandidateToken(auth)
   const conta = await contaDaRequisicao(req)
   if (conta) {
     const reg = await prisma.enrollmentRegistration.findFirst({
@@ -34,12 +36,12 @@ async function requireCandidate(req: any, reply: any): Promise<{ enrollmentId: n
       orderBy: { id: 'desc' },
       select: { id: true, candidateCode: true },
     })
-    if (reg) return { enrollmentId: reg.id, candidateCode: reg.candidateCode }
+    // Logado: vale a sequência do portal logado — salvo quando o token da tela
+    // de inscrição desta mesma inscrição veio junto (a pessoa está lá).
+    if (reg) return { enrollmentId: reg.id, candidateCode: reg.candidateCode, onde: session?.enrollmentId === reg.id ? ondeDoToken(session) : 'painel' }
   }
-  const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
-  const session = verifyCandidateToken(auth)
   if (!session) { reply.code(401).send({ error: 'Sessão inválida ou expirada' }); return null }
-  return session
+  return { ...session, onde: ondeDoToken(session) }
 }
 
 /**
@@ -117,7 +119,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     const enrollment = await conferirCodigoECpf(req, reply, candidateCode, cpf)
     if (!enrollment) return reply
 
-    const token = signCandidateToken(enrollment.id, enrollment.candidateCode)
+    // Login por código + CPF: é a área logada do candidato (etapas do painel).
+    const token = signCandidateToken(enrollment.id, enrollment.candidateCode, undefined, 'painel')
     return {
       ok: true,
       token,
@@ -300,6 +303,10 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // ── POST /api/candidate/documents — upload de documento ──
   app.post('/api/candidate/documents', async (req, reply) => {
     const s = await requireCandidate(req, reply); if (!s) return
+    {
+      const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(s.enrollmentId, 'documentos', s.onde)
+      if (trava) return reply.code(409).send({ error: trava, travada: true })
+    }
 
     // Override do limite default de 10MB do fastify-multipart só para esta rota
     // — fotos modernas de celular e PDFs escaneados frequentemente excedem 10MB.

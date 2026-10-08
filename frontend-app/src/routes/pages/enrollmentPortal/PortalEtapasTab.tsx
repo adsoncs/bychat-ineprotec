@@ -1,16 +1,30 @@
-import { useEffect, useState } from 'preact/hooks'
-import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles } from '@/components/ui/icon-set'
+import { useEffect, useMemo, useState } from 'preact/hooks'
+import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles, Lock } from '@/components/ui/icon-set'
 import { DadosEtapasEditor } from '@/components/educational/DadosEtapasEditor'
 import { useDadosEtapas, type DadosConfig } from '@/hooks/useDadosEtapas'
 import { useUpdateEnrollmentPortal, type EnrollmentPortal } from '@/hooks/useEnrollmentPortals'
+import { useEntryModes, useSelectionProcesses } from '@/hooks/useEducational'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 
 type Chave = 'cadastro' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
-interface Etapa { chave: Chave; ativo: boolean; obrigatoria: boolean }
+interface Etapa {
+  chave: Chave; ativo: boolean; obrigatoria: boolean; trava?: boolean
+  /** Formas de ingresso em que a trava vale (vazio = todas). */
+  travaIngressos?: number[]
+}
+interface Ingresso { id: number; name: string }
 
 const CHAVES: Chave[] = ['cadastro', 'pagamento', 'documentos', 'contrato', 'prova']
+// O que "concluída" quer dizer para a trava (igual ao backend, CONCLUIR).
+const CONCLUIR: Record<Chave, string> = {
+  cadastro: 'todos os dados preenchidos',
+  pagamento: 'pagamento confirmado',
+  documentos: 'todos os documentos obrigatórios aprovados pela secretaria',
+  contrato: 'contrato assinado',
+  prova: 'redação aprovada',
+}
 const INFO: Record<Chave, { nome: string; quando: string; Icone: typeof CreditCard }> = {
   cadastro: { nome: 'Completar cadastro', quando: 'Aparece quando há dados marcados para "Completar cadastro" (seção Dados, abaixo). Os dados vão direto para a ficha do aluno.', Icone: ClipboardList },
   pagamento: { nome: 'Pagamento', quando: 'Aparece quando o portal cobra (aba Pagamento): taxa de inscrição ou matrícula/1ª mensalidade.', Icone: CreditCard },
@@ -40,7 +54,10 @@ function normalizar(bruto: unknown, padrao: Etapa[]): Etapa[] {
   if (!Array.isArray(bruto)) return padrao.map((e) => ({ ...e }))
   const out: Etapa[] = []
   for (const x of bruto as any[]) {
-    if (CHAVES.includes(x?.chave) && !out.some((e) => e.chave === x.chave)) out.push({ chave: x.chave, ativo: x.ativo !== false, obrigatoria: !!x.obrigatoria })
+    if (CHAVES.includes(x?.chave) && !out.some((e) => e.chave === x.chave)) out.push({
+      chave: x.chave, ativo: x.ativo !== false, obrigatoria: !!x.obrigatoria, trava: !!x.trava,
+      ...(Array.isArray(x.travaIngressos) && x.travaIngressos.length ? { travaIngressos: x.travaIngressos.map(Number) } : {}),
+    })
   }
   // Mesma regra do backend: "Completar cadastro" veio depois e entra ligada, na frente.
   for (const c of CHAVES) {
@@ -51,7 +68,7 @@ function normalizar(bruto: unknown, padrao: Etapa[]): Etapa[] {
   return out
 }
 
-function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; onChange: (e: Etapa[]) => void; comObrigatoria: boolean; desabilitada?: boolean }) {
+function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; onChange: (e: Etapa[]) => void; ingressos: Ingresso[]; desabilitada?: boolean }) {
   const mover = (i: number, d: -1 | 1) => {
     const n = [...p.etapas]; const j = i + d
     if (j < 0 || j >= n.length) return
@@ -78,12 +95,51 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
                   <label class="flex items-center gap-1.5 text-xs cursor-pointer">
                     <input type="checkbox" checked={e.ativo} onChange={(ev) => muda(i, { ativo: (ev.target as HTMLInputElement).checked })} /> Usar esta etapa
                   </label>
-                  {p.comObrigatoria && e.ativo && (
-                    <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="Sem isso, a pessoa pode deixar para depois e seguir para a próxima etapa">
-                      <input type="checkbox" checked={e.obrigatoria} onChange={(ev) => muda(i, { obrigatoria: (ev.target as HTMLInputElement).checked })} /> Precisa concluir para seguir
+                  {e.ativo && (
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer" title="As etapas seguintes desta lista ficam bloqueadas até esta ser concluída">
+                      <input type="checkbox" checked={!!e.trava} onChange={(ev) => muda(i, { trava: (ev.target as HTMLInputElement).checked })} /> <Lock size={12} /> Travar até concluir
                     </label>
                   )}
                 </div>
+                {e.ativo && e.trava && (
+                  <div class="mt-2 space-y-1.5">
+                    <div class="text-2xs text-warning">
+                      As etapas seguintes só liberam com {CONCLUIR[e.chave]}. "Em análise" ainda segura a fila.
+                    </div>
+                    <div class="text-xs">
+                      <div class="text-fg-muted mb-1">Vale para</div>
+                      <div class="flex flex-wrap gap-x-4 gap-y-1">
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name={`trava-${p.titulo}-${e.chave}`} checked={!e.travaIngressos?.length} onChange={() => muda(i, { travaIngressos: [] })} />
+                          Todas as formas de ingresso
+                        </label>
+                        <label class="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name={`trava-${p.titulo}-${e.chave}`} checked={!!e.travaIngressos?.length}
+                            onChange={() => { if (!e.travaIngressos?.length && p.ingressos[0]) muda(i, { travaIngressos: [p.ingressos[0].id] }) }} />
+                          Só para as escolhidas
+                        </label>
+                      </div>
+                      {!!e.travaIngressos?.length && (
+                        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 pl-5">
+                          {p.ingressos.map((g) => {
+                            const marcado = e.travaIngressos!.includes(g.id)
+                            return (
+                              <label key={g.id} class="flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" checked={marcado} onChange={(ev) => {
+                                  const on = (ev.target as HTMLInputElement).checked
+                                  const n = on ? [...e.travaIngressos!, g.id] : e.travaIngressos!.filter((x) => x !== g.id)
+                                  // Desmarcar a última volta para "todas" — lista vazia é isso.
+                                  muda(i, { travaIngressos: n })
+                                }} />
+                                {g.name}
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div class="flex flex-col gap-1">
                 <button type="button" class="size-7 grid place-items-center rounded hover:bg-surface-3 disabled:opacity-30" disabled={i === 0} onClick={() => mover(i, -1)} aria-label={`Subir ${nome}`}><ArrowUp size={13} /></button>
@@ -94,7 +150,9 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
         })}
       </ol>
       <div class="text-2xs text-fg-muted mt-3">
-        Ordem final: {ativas.length ? ativas.map((e) => INFO[e.chave].nome).join(' → ') : 'nenhuma etapa'}
+        Ordem final: {ativas.length ? ativas.map((e) => INFO[e.chave].nome + (e.trava ? (e.travaIngressos?.length
+          ? ` (trava: ${e.travaIngressos.map((id) => p.ingressos.find((g) => g.id === id)?.name ?? `#${id}`).join(', ')})`
+          : ' (trava)') : '')).join(' → ') : 'nenhuma etapa'}
         {' · '}etapas que não se aplicam a uma inscrição somem sozinhas.
       </div>
     </Card>
@@ -110,6 +168,22 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
   const [dados, setDados] = useState<DadosConfig | null>(() => bruto?.dados ?? null)
   const catalogo = useDadosEtapas()
   const update = useUpdateEnrollmentPortal()
+  // Formas de ingresso que a trava pode escolher: as dos processos deste
+  // portal (todas as ativas, se o portal não restringe processos) e as que já
+  // estão marcadas, mesmo que o processo tenha saído do portal.
+  const modos = useEntryModes(true)
+  const processos = useSelectionProcesses()
+  const ingressos = useMemo<Ingresso[]>(() => {
+    const todos = modos.data?.modes ?? []
+    const ids = new Set<number>((portal.selectionProcessIds ?? []).map(Number))
+    const doPortal = ids.size
+      ? new Set((processos.data?.processes ?? []).filter((sp) => ids.has(sp.id)).map((sp) => sp.entryModeId))
+      : null
+    const marcados = new Set([...inscricao, ...painel].flatMap((e) => e.travaIngressos ?? []))
+    return todos
+      .filter((m) => marcados.has(m.id) || (doPortal ? doPortal.has(m.id) : (m as any).active !== false))
+      .map((m) => ({ id: m.id, name: m.name }))
+  }, [modos.data, processos.data, portal.selectionProcessIds, inscricao, painel])
 
   useEffect(() => {
     const b = (portal as any).jornadaEtapas ?? null
@@ -142,8 +216,8 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
       <div class="grid gap-4 lg:grid-cols-2">
         <ListaDeEtapas
           titulo="Na tela de inscrição"
-          descricao="Uma etapa por vez, logo depois de enviar o formulário. Sem 'Precisa concluir', a pessoa pode deixar para depois."
-          etapas={inscricao} onChange={marca(setInscricao)} comObrigatoria
+          descricao="Uma etapa por vez, logo depois de enviar o formulário. A trava marcada aqui vale nesta tela e no chatbot de matrícula."
+          etapas={inscricao} onChange={marca(setInscricao)} ingressos={ingressos}
         />
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm cursor-pointer">
@@ -152,8 +226,8 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
           </label>
           <ListaDeEtapas
             titulo="No portal do candidato logado"
-            descricao={mesma ? 'Seguindo a ordem da tela de inscrição.' : 'A lista "O que falta" do portal, depois de entrar com a senha.'}
-            etapas={mesma ? inscricao : painel} onChange={marca(setPainel)} comObrigatoria={false} desabilitada={mesma}
+            descricao={mesma ? 'Seguindo a ordem e as travas da tela de inscrição.' : 'A lista "O que falta" do portal, depois de entrar com a senha. A trava marcada aqui vale só no portal logado.'}
+            etapas={mesma ? inscricao : painel} onChange={marca(setPainel)} ingressos={ingressos} desabilitada={mesma}
           />
         </div>
       </div>

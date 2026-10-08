@@ -440,6 +440,8 @@ export interface EtapaDaLinha {
   detalhe: string
   /** Documentos: obrigatórios enviados/aprovados/recusados. */
   progresso?: { enviados: number; total: number; aprovados: number; recusados: number }
+  /** Travada por uma etapa anterior com trava (o motivo). */
+  bloqueada?: string
 }
 
 export interface RegistrationsKpis {

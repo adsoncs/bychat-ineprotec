@@ -1092,3 +1092,9 @@ a.botao-contorno:hover, button.botao-contorno:hover { background: var(--marca-su
 
 /* Painel do login à direita (Configurações Gerais › Tela de login). */
 .login-dividido.painel-direita .login-painel { order: 2; }
+
+/* Etapa travada: aguarda uma anterior com trava ser concluída (aba Etapas ›
+   "Travar até concluir"). Não abre e não tem "Fazer agora". */
+.etapa-jornada.travada { opacity: .72; background: var(--fundo); }
+.etapa-jornada.travada .etapa-num { color: var(--tinta-2); }
+.etapa-status.travada { color: var(--tinta-2); background: var(--fundo); border: 1px dashed color-mix(in srgb, var(--tinta-2) 40%, transparent); }

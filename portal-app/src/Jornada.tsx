@@ -18,9 +18,14 @@ const SITUACAO = {
   get feito() { return tx('etapas.feito', 'Concluída') },
   get aguardando() { return tx('etapas.aguardando', 'Em análise') },
   get pendente() { return tx('etapas.pendente', 'Pendente') },
+  get travada() { return tx('etapas.travada', 'Aguardando etapa anterior') },
 }
 /** Etapa pendente por recusa (ex.: documento recusado): pede correção, não início. */
 const temRecusa = (e: EtapaDaJornada) => e.situacao === 'pendente' && /recusad|reenvi/i.test(e.detalhe)
+/** Cadeado: travada por uma etapa anterior que ainda não foi concluída. */
+const Cadeado = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2" /><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+)
 /** Relógio: "em análise" — já fez a parte dela, agora é com a instituição. */
 const Relogio = () => (
   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2" /><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
@@ -68,8 +73,9 @@ export function Jornada(props: {
   // Na inscrição, a etapa da vez (aberta de início) é a primeira que falta. A
   // pessoa pode abrir qualquer outra pelo "Fazer agora" — não há mais o "Deixar
   // para depois" (era o único jeito de chegar à etapa seguinte).
+  // Etapa travada (aguarda uma anterior com trava) não é "da vez".
   const daVez = props.contexto === 'inscricao'
-    ? etapas.find((e) => !resolvida(e)) ?? null
+    ? etapas.find((e) => !resolvida(e) && !e.bloqueada) ?? null
     : null
   const tudoFeito = tudoPronto
   // "Concluída" é só o que terminou; em análise ainda não conta.
@@ -100,19 +106,21 @@ export function Jornada(props: {
       <ol class="jornada-lista">
         {etapas.map((e, i) => {
           // Inscrição: a da vez abre sozinha até a pessoa escolher outra (ou fechar).
-          const expandida = props.contexto === 'inscricao' && aberta === null ? daVez?.chave === e.chave : aberta === e.chave
+          // Travada: não abre — o servidor recusaria a ação de qualquer jeito.
+          const travada = !!e.bloqueada
+          const expandida = !travada && (props.contexto === 'inscricao' && aberta === null ? daVez?.chave === e.chave : aberta === e.chave)
           return (
-            <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${e.situacao} ${temRecusa(e) ? 'alerta' : ''} ${expandida ? 'aberta' : ''}`}>
+            <li key={e.chave} id={`etapa-${e.chave}`} class={`etapa-jornada ${travada ? 'travada' : e.situacao} ${!travada && temRecusa(e) ? 'alerta' : ''} ${expandida ? 'aberta' : ''}`}>
               <div class="etapa-cabeca">
-                <span class="etapa-num" aria-hidden="true">{e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? <Relogio /> : temRecusa(e) ? '!' : i + 1}</span>
+                <span class="etapa-num" aria-hidden="true">{travada ? <Cadeado /> : e.situacao === 'feito' ? '✓' : e.situacao === 'aguardando' ? <Relogio /> : temRecusa(e) ? '!' : i + 1}</span>
                 <div class="etapa-txt">
                   <b class="etapa-titulo"><IconeDaEtapa chave={e.chave} />{tx(`etapas.nome.${e.chave}`, e.titulo)}</b>
-                  <span class="sub">{e.detalhe}</span>
+                  <span class="sub">{travada ? e.bloqueada!.motivo : e.detalhe}</span>
                 </div>
-                <span class={`etapa-status ${e.situacao} ${temRecusa(e) ? 'alerta' : ''}`}>{temRecusa(e) ? tx('etapas.corrigir', 'Corrigir') : SITUACAO[e.situacao]}</span>
+                <span class={`etapa-status ${travada ? 'travada' : e.situacao} ${!travada && temRecusa(e) ? 'alerta' : ''}`}>{travada ? SITUACAO.travada : temRecusa(e) ? tx('etapas.corrigir', 'Corrigir') : SITUACAO[e.situacao]}</span>
                 {/* Concluída também abre quando há o que consultar: contrato assinado
                     (PDF) e documentos enviados — como o boleto mostra a cobrança. */}
-                {!expandida
+                {!expandida && !travada
                   && (e.situacao !== 'feito' || (props.contexto === 'painel' && (e.chave === 'contrato' || e.chave === 'documentos'))) && (
                   <button class="link etapa-acao" type="button" onClick={() => setAberta(e.chave)}>
                     {e.situacao === 'pendente' ? tx('etapas.fazerAgora', 'Fazer agora') : tx('etapas.ver', 'Ver')}
