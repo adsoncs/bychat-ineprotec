@@ -288,10 +288,24 @@ function IdentityConfigEditor({ config, onUpdate }: {
           <input type="checkbox" checked={!!config.askAddress} onChange={(e) => onUpdate({ askAddress: (e.target as HTMLInputElement).checked })} />
           Pedir endereço (CEP + rua)
         </label>
+        <label class="inline-flex items-center gap-1.5 text-xs text-fg-muted cursor-pointer">
+          <input type="checkbox" checked={!!config.askSocialName} onChange={(e) => onUpdate({ askSocialName: (e.target as HTMLInputElement).checked })} />
+          Pedir nome social (opcional para o candidato)
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-xs text-fg-muted cursor-pointer">
+          <input type="checkbox" checked={!!config.askDisability} onChange={(e) => onUpdate({ askDisability: (e.target as HTMLInputElement).checked })} />
+          Perguntar sobre deficiência
+        </label>
       </div>
       <div class="text-2xs text-fg-muted mt-2">
         Campos básicos sempre incluídos: nome, e-mail, WhatsApp, CPF.
       </div>
+      {config.askDisability && (
+        <div class="text-2xs text-fg-muted mt-1">
+          Pergunta "Você tem alguma deficiência?" (Sim/Não); se Sim, o candidato escolhe qual. Para pedir laudo, adicione o documento em
+          Documentos exigidos com "Exigir de: Só de quem declarou deficiência".
+        </div>
+      )}
     </div>
   )
 }

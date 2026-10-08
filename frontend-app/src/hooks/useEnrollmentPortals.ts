@@ -118,7 +118,8 @@ export interface PortalField {
   options?: string[]
   placeholder?: string
   helpText?: string
-  visibleWhen?: { entryMode?: string[] }
+  /** entryMode: só nessas formas de ingresso; field: só quando outra resposta for um destes valores. */
+  visibleWhen?: { entryMode?: string[]; field?: { name: string; values: string[] } }
   /** type 'document': código do tipo de documento em que o arquivo entra. */
   documentType?: string
 }

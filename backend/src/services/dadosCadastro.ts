@@ -98,6 +98,9 @@ const SINONIMOS: Record<string, string[]> = {
   nomePai: ['nome_pai', 'pai'],
   logradouro: ['endereco'],
   municipio: ['cidade'],
+  // Pergunta em duas partes do portal ("tem deficiência?" → qual): o tipo,
+  // quando houver; senão a resposta ("Não").
+  deficiencia: ['tipoDeficiencia', 'possuiDeficiencia'],
 }
 
 // ─── Etapas onde um dado pode ser pedido ──────────────────────────────────

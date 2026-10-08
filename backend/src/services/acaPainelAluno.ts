@@ -21,6 +21,7 @@ import { resumoHoras } from '../routes/acaEstagio.js'
 import { proximosEventosDoAluno } from '../routes/acaCalendario.js'
 import { ofertasAbertas } from './acaRematricula.js'
 import { etapasDaInscricao } from './portalJornada.js'
+import { requisitosQueValem } from './docCondicional.js'
 
 export interface Passo {
   chave: string
@@ -95,7 +96,7 @@ export async function painelDoAluno(alunoId: number) {
     where: { leadId: aluno.lead.id },
     orderBy: { id: 'desc' },
     select: {
-      id: true, candidateCode: true, status: true,
+      id: true, candidateCode: true, status: true, formData: true,
       portal: { select: { brandPrimaryColor: true, nome: true } },
       documents: { select: { status: true, label: true } },
       processRegistration: {
@@ -103,8 +104,8 @@ export async function painelDoAluno(alunoId: number) {
           selectionProcess: {
             select: {
               useCustomDocuments: true,
-              documentRequirements: { select: { required: true } },
-              entryMode: { select: { documentRequirements: { select: { required: true } } } },
+              documentRequirements: { select: { required: true, condicao: true } },
+              entryMode: { select: { documentRequirements: { select: { required: true, condicao: true } } } },
             },
           },
         },
@@ -114,7 +115,7 @@ export async function painelDoAluno(alunoId: number) {
 
   const sp = inscricao?.processRegistration?.selectionProcess as any
   const exigidos: Array<{ required: boolean }> = sp
-    ? (sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []))
+    ? requisitosQueValem(sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []), inscricao?.formData)
     : []
   const obrigatorios = exigidos.filter((e) => e.required).length
   const docsOk = (inscricao?.documents ?? []).filter((d) => d.status === 'approved').length

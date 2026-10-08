@@ -42,6 +42,7 @@ import { moveToTrash, snapshotEntity, type TrashEntityType } from '../services/t
 import { getOfferingSlotCounts } from '../services/educationalSlots.js'
 import { FORMAS_INGRESSO, CRITERIOS_CLASSIFICACAO, acharForma, acharCriterio } from '../services/acaFormaIngresso.js'
 import { classificar, convocar, corteAplicavel } from '../services/portalClassificacao.js'
+import { normalizarCondicao } from '../services/docCondicional.js'
 
 // Conta dependências de uma entidade educacional. Retorna lista de
 // { label, count } com count > 0. Vazia = pode deletar.
@@ -944,6 +945,7 @@ export async function educationalRoutes(app: FastifyInstance) {
           required: body.required !== false,
           ordem: body.ordem != null ? parseInt(body.ordem) : 0,
           helpText: body.helpText || null,
+          condicao: (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull,
         },
         include: { documentType: { select: { id: true, code: true, name: true, category: true } } },
       })
@@ -961,6 +963,7 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.required !== undefined) data.required = !!body.required
     if (body.ordem !== undefined) data.ordem = parseInt(body.ordem) || 0
     if (body.helpText !== undefined) data.helpText = body.helpText || null
+    if (body.condicao !== undefined) data.condicao = (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull
     try {
       const updated = await prisma.entryModeDocumentRequirement.update({
         where: { id: parseInt(reqId) },
@@ -1158,6 +1161,7 @@ export async function educationalRoutes(app: FastifyInstance) {
           required: body.required !== false,
           ordem: body.ordem != null ? parseInt(body.ordem) : 0,
           helpText: body.helpText || null,
+          condicao: (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull,
         },
         include: { documentType: { select: { id: true, code: true, name: true, category: true } } },
       })
@@ -1175,6 +1179,7 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.required !== undefined) data.required = !!body.required
     if (body.ordem !== undefined) data.ordem = parseInt(body.ordem) || 0
     if (body.helpText !== undefined) data.helpText = body.helpText || null
+    if (body.condicao !== undefined) data.condicao = (normalizarCondicao(body.condicao) as any) ?? Prisma.DbNull
     try {
       const updated = await prisma.selectionProcessDocumentRequirement.update({
         where: { id: parseInt(reqId) },
@@ -1227,6 +1232,7 @@ export async function educationalRoutes(app: FastifyInstance) {
         required: r.required,
         ordem: r.ordem,
         helpText: r.helpText,
+        condicao: (r.condicao as any) ?? Prisma.DbNull,
       })),
     })
     return { ok: true, cloned: toCreate.length }

@@ -17,6 +17,7 @@ import { adminOnly } from '../lib/auth.js'
 import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { validateUploadContent, UploadValidationError } from '../lib/uploadSafety.js'
+import { requisitosQueValem } from '../services/docCondicional.js'
 
 /**
  * Quem é o candidato desta requisição.
@@ -186,7 +187,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
                 documentRequirements: {
                   orderBy: { ordem: 'asc' },
                   select: {
-                    required: true, ordem: true, helpText: true,
+                    required: true, ordem: true, helpText: true, condicao: true,
                     documentType: { select: { id: true, code: true, name: true, category: true } },
                   },
                 },
@@ -196,7 +197,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
                     documentRequirements: {
                       orderBy: { ordem: 'asc' },
                       select: {
-                        required: true, ordem: true, helpText: true,
+                        required: true, ordem: true, helpText: true, condicao: true,
                         documentType: { select: { id: true, code: true, name: true, category: true } },
                       },
                     },
@@ -257,9 +258,9 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // Frontend lê `processRegistration.effectiveDocumentRequirements` (formato uniforme).
     const sp = enrollment.processRegistration?.selectionProcess as any
     const effectiveDocumentRequirements = sp
-      ? (sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
+      ? requisitosQueValem(sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
           ? sp.documentRequirements
-          : (sp.entryMode?.documentRequirements || []))
+          : (sp.entryMode?.documentRequirements || []), enrollment.formData)
       : []
     const processRegistration = enrollment.processRegistration
       ? { ...enrollment.processRegistration, effectiveDocumentRequirements }

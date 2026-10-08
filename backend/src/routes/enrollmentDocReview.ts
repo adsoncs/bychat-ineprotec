@@ -10,6 +10,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
+import { requisitosQueValem } from '../services/docCondicional.js'
 
 export { computeDocsCompletionStatus }  // re-export para preservar callers existentes
 
@@ -24,7 +25,7 @@ type DocStatus = 'pending' | 'approved' | 'rejected'
  * usa override do SelectionProcess se `useCustomDocuments`, senão
  * herda do EntryMode. Igual ao que candidatePortal.ts já faz no /me.
  */
-async function loadEffectiveRequirements(processRegistrationId: number | null) {
+async function loadEffectiveRequirements(processRegistrationId: number | null, formData?: unknown) {
   if (!processRegistrationId) return [] as any[]
   const pr = await prisma.processRegistration.findUnique({
     where: { id: processRegistrationId },
@@ -35,7 +36,7 @@ async function loadEffectiveRequirements(processRegistrationId: number | null) {
           documentRequirements: {
             orderBy: { ordem: 'asc' },
             select: {
-              required: true, ordem: true, helpText: true,
+              required: true, ordem: true, condicao: true, helpText: true,
               documentType: { select: { id: true, code: true, name: true, category: true } },
             },
           },
@@ -44,7 +45,7 @@ async function loadEffectiveRequirements(processRegistrationId: number | null) {
               documentRequirements: {
                 orderBy: { ordem: 'asc' },
                 select: {
-                  required: true, ordem: true, helpText: true,
+                  required: true, ordem: true, condicao: true, helpText: true,
                   documentType: { select: { id: true, code: true, name: true, category: true } },
                 },
               },
@@ -56,9 +57,9 @@ async function loadEffectiveRequirements(processRegistrationId: number | null) {
   })
   if (!pr?.selectionProcess) return []
   const sp: any = pr.selectionProcess
-  return (sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0)
+  return requisitosQueValem((sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0)
     ? sp.documentRequirements
-    : (sp.entryMode?.documentRequirements || [])
+    : (sp.entryMode?.documentRequirements || []), formData)
 }
 
 /**
@@ -75,6 +76,7 @@ export async function tryAutoAdvanceOnDocsComplete(registrationId: number, actor
       id: true, candidateCode: true,
       leadId: true,
       processRegistrationId: true,
+      formData: true,
       portal: {
         select: {
           id: true, nome: true, funnelId: true, docsCompleteStageKey: true,
@@ -92,7 +94,7 @@ export async function tryAutoAdvanceOnDocsComplete(registrationId: number, actor
   })
   if (!reg) return false
 
-  const requirements = await loadEffectiveRequirements(reg.processRegistrationId)
+  const requirements = await loadEffectiveRequirements(reg.processRegistrationId, (reg as any).formData)
   const completion = computeDocsCompletionStatus(requirements, reg.documents)
   if (completion !== 'complete') return false
 
@@ -206,6 +208,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
         lead: { select: { id: true, nome: true, email: true, whatsapp: true } },
         portal: { select: { id: true, nome: true, slug: true } },
         processRegistrationId: true,
+        formData: true,
         processRegistration: {
           select: {
             selectionProcess: {
@@ -215,7 +218,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                 documentRequirements: {
                   orderBy: { ordem: 'asc' },
                   select: {
-                    required: true, ordem: true,
+                    required: true, ordem: true, condicao: true,
                     documentType: { select: { id: true, code: true, name: true } },
                   },
                 },
@@ -224,7 +227,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                     documentRequirements: {
                       orderBy: { ordem: 'asc' },
                       select: {
-                        required: true, ordem: true,
+                        required: true, ordem: true, condicao: true,
                         documentType: { select: { id: true, code: true, name: true } },
                       },
                     },
@@ -250,9 +253,9 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
     const itemsAll = regs.map(reg => {
       const sp: any = reg.processRegistration?.selectionProcess
       const requirements: any[] = sp
-        ? (sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
+        ? requisitosQueValem(sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
             ? sp.documentRequirements
-            : (sp.entryMode?.documentRequirements || []))
+            : (sp.entryMode?.documentRequirements || []), (reg as any).formData)
         : []
       const completion = computeDocsCompletionStatus(requirements, reg.documents as any[])
 
@@ -377,7 +380,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                 documentRequirements: {
                   orderBy: { ordem: 'asc' },
                   select: {
-                    required: true, ordem: true, helpText: true,
+                    required: true, ordem: true, condicao: true, helpText: true,
                     documentType: { select: { id: true, code: true, name: true, category: true, aiAnalysisTemplate: true } },
                   },
                 },
@@ -387,7 +390,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
                     documentRequirements: {
                       orderBy: { ordem: 'asc' },
                       select: {
-                        required: true, ordem: true, helpText: true,
+                        required: true, ordem: true, condicao: true, helpText: true,
                         documentType: { select: { id: true, code: true, name: true, category: true, aiAnalysisTemplate: true } },
                       },
                     },
@@ -429,9 +432,9 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
     // Resolve requirements efetivos
     const sp: any = reg.processRegistration?.selectionProcess
     const requirements: any[] = sp
-      ? (sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
+      ? requisitosQueValem(sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
           ? sp.documentRequirements
-          : (sp.entryMode?.documentRequirements || []))
+          : (sp.entryMode?.documentRequirements || []), (reg as any).formData)
       : []
 
     // Pareia cada requirement com o último doc daquele code

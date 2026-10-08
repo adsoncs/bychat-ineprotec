@@ -3787,6 +3787,9 @@ model EntryModeDocumentRequirement {
   required Boolean @default(true)
   ordem    Int     @default(0)
   helpText String? @db.Text
+  // Exigido só quando uma resposta do formulário bate: {campo, valores[]}.
+  // Ex.: laudo só de quem declarou deficiência. null = sempre.
+  condicao Json?
 
   createdAt DateTime @default(now())
 
@@ -3808,6 +3811,9 @@ model SelectionProcessDocumentRequirement {
   required Boolean @default(true)
   ordem    Int     @default(0)
   helpText String? @db.Text
+  // Exigido só quando uma resposta do formulário bate: {campo, valores[]}.
+  // Ex.: laudo só de quem declarou deficiência. null = sempre.
+  condicao Json?
 
   createdAt DateTime @default(now())
 

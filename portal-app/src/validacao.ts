@@ -88,7 +88,8 @@ export interface Campo {
   options?: string[]
   placeholder?: string
   helpText?: string
-  visibleWhen?: { entryMode?: string[] }
+  /** entryMode: só nessas formas de ingresso; field: só quando outra resposta for um destes valores. */
+  visibleWhen?: { entryMode?: string[]; field?: { name: string; values: string[] } }
   /** Só em type 'document': código do tipo de documento (DocumentType.code) em que o arquivo entra. */
   documentType?: string
   /** Só na escolha de curso: formato da lista e se mostra o valor. */

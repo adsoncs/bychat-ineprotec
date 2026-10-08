@@ -25,7 +25,19 @@ export interface ModeCustomField {
 
 export interface PerModeConfig { enabled: boolean; customFields: ModeCustomField[] }
 
-export interface IdentityConfig { askBirthdate?: boolean; askAddress?: boolean }
+export interface IdentityConfig { askBirthdate?: boolean; askAddress?: boolean; askSocialName?: boolean; askDisability?: boolean }
+
+/** Opções da pergunta "Qual deficiência?" (bloco Dados pessoais). */
+export const TIPOS_DEFICIENCIA = [
+  'Deficiência física',
+  'Deficiência visual',
+  'Deficiência auditiva',
+  'Deficiência intelectual',
+  'Deficiência psicossocial (mental)',
+  'Transtorno do Espectro Autista (TEA)',
+  'Deficiência múltipla',
+  'Outra deficiência',
+]
 /** Como a lista de cursos aparece: cartões (padrão), lista compacta ou caixa de seleção. */
 export type CourseDisplay = 'cartoes' | 'lista' | 'suspensa'
 export interface CoursePickerConfig {
@@ -264,10 +276,19 @@ export function formConfigFromBlocks(blocks: FormBlock[], modes: EntryMode[]): F
         { type: 'phone', name: 'whatsapp', label: 'WhatsApp',      required: true },
         { type: 'cpf',   name: 'cpf',      label: 'CPF',           required: true },
       ]
+      // Nome social logo depois do nome: é como a pessoa quer ser chamada.
+      if (cfg.askSocialName) fields.splice(1, 0, { type: 'text', name: 'nomeSocial', label: 'Nome social', required: false, helpText: 'Preencha se quiser ser chamado(a) por um nome diferente do registro civil.' })
       if (cfg.askBirthdate) fields.push({ type: 'date', name: 'nascimento', label: 'Data de nascimento', required: false })
       if (cfg.askAddress) {
         fields.push({ type: 'cep',  name: 'cep',      label: 'CEP',      required: true })
         fields.push({ type: 'text', name: 'endereco', label: 'Endereço', required: true })
+      }
+      // Pergunta em duas partes: "tem?" e, só se "Sim", "qual?". O documento
+      // que comprova é configurado em Documentos exigidos → "Exigir de: Só de
+      // quem declarou deficiência".
+      if (cfg.askDisability) {
+        fields.push({ type: 'select', name: 'possuiDeficiencia', label: 'Você tem alguma deficiência?', required: true, options: ['Não', 'Sim'] })
+        fields.push({ type: 'select', name: 'tipoDeficiencia', label: 'Qual deficiência?', required: true, options: TIPOS_DEFICIENCIA, visibleWhen: { field: { name: 'possuiDeficiencia', values: ['Sim'] } } })
       }
       steps.push({ id: id(), name: 'Dados pessoais', fields })
     } else if (b.key === 'coursePicker') {
@@ -349,6 +370,8 @@ export function blocksFromFormConfig(formConfig: FormConfigWithMeta | null, port
       const cfg: IdentityConfig = {}
       if (names.includes('nascimento') || names.includes('birthdate') || names.includes('data_nascimento')) cfg.askBirthdate = true
       if (names.includes('cep') || names.includes('endereco')) cfg.askAddress = true
+      if (names.includes('nomesocial')) cfg.askSocialName = true
+      if (names.includes('possuideficiencia')) cfg.askDisability = true
       out.push({ key: 'identity', enabled: true, config: cfg })
       identityFound = true
       continue

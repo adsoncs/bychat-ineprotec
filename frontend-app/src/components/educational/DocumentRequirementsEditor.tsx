@@ -7,12 +7,50 @@ import {
   useDeleteDocRequirement,
   type DocumentRequirement,
   type DocOwner,
+  type CondicaoDoc,
 } from '@/hooks/useEducational'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+
+/**
+ * De quem o documento é exigido. A condição lê uma resposta do formulário de
+ * inscrição; as opções são as perguntas que o portal sabe fazer (bloco Dados
+ * pessoais → "Perguntar sobre deficiência").
+ */
+const QUEM: { chave: string; rotulo: string; condicao: CondicaoDoc | null }[] = [
+  { chave: '', rotulo: 'Todos os candidatos', condicao: null },
+  { chave: 'pcd', rotulo: 'Só de quem declarou deficiência', condicao: { campo: 'possuiDeficiencia', valores: ['Sim'] } },
+]
+function chaveDaCondicao(c: CondicaoDoc | null | undefined): string {
+  if (!c) return ''
+  const achou = QUEM.find((q) => q.condicao && q.condicao.campo === c.campo && q.condicao.valores.join('|') === c.valores.join('|'))
+  return achou?.chave ?? `${c.campo}=${c.valores.join('|')}`
+}
+function rotuloDaCondicao(c: CondicaoDoc | null | undefined): string | null {
+  if (!c) return null
+  return QUEM.find((q) => q.chave === chaveDaCondicao(c))?.rotulo ?? `Só quando ${c.campo} = ${c.valores.join(' ou ')}`
+}
+function QuemSelect({ value, onChange }: { value: CondicaoDoc | null; onChange: (c: CondicaoDoc | null) => void }) {
+  const atual = chaveDaCondicao(value)
+  const conhecida = QUEM.some((q) => q.chave === atual)
+  return (
+    <Select
+      label="Exigir de"
+      value={atual}
+      onChange={(e) => {
+        const k = (e.target as HTMLSelectElement).value
+        if (!conhecida && k === atual) return
+        onChange(QUEM.find((q) => q.chave === k)?.condicao ?? null)
+      }}
+    >
+      {QUEM.map((q) => <option key={q.chave} value={q.chave}>{q.rotulo}</option>)}
+      {!conhecida && <option value={atual}>{rotuloDaCondicao(value)}</option>}
+    </Select>
+  )
+}
 
 interface Props {
   /** Quem possui essa matriz de documentos. */
@@ -84,6 +122,7 @@ export function DocumentRequirementsEditor({
                     <code class="text-3xs text-fg-muted">{r.documentType.code}</code>
                   )}
                   {r.required && <span class="text-3xs uppercase text-warning">obrigatório</span>}
+                  {r.condicao && <span class="text-3xs text-info">{rotuloDaCondicao(r.condicao)}</span>}
                 </div>
                 {editingId === r.id ? (
                   <EditRow
@@ -180,16 +219,17 @@ function EditRow({
   requirement, onSave, onCancel, saving,
 }: {
   requirement: DocumentRequirement
-  onSave: (p: { required: boolean; ordem: number; helpText: string | null }) => void
+  onSave: (p: { required: boolean; ordem: number; helpText: string | null; condicao: CondicaoDoc | null }) => void
   onCancel: () => void
   saving: boolean
 }) {
   const [required, setRequired] = useState(requirement.required)
+  const [condicao, setCondicao] = useState<CondicaoDoc | null>(requirement.condicao ?? null)
   const [ordem, setOrdem] = useState(String(requirement.ordem))
   const [helpText, setHelpText] = useState(requirement.helpText ?? '')
 
   return (
-    <div class="mt-1 grid grid-cols-1 sm:grid-cols-[auto_5rem_1fr_auto] gap-2 items-end">
+    <div class="mt-1 grid grid-cols-1 sm:grid-cols-[auto_5rem_1fr_12rem_auto] gap-2 items-end">
       <label class="flex items-center gap-2 text-xs text-fg-muted whitespace-nowrap">
         <input type="checkbox" checked={required} onChange={(e) => setRequired((e.target as HTMLInputElement).checked)} />
         Obrigatório
@@ -206,6 +246,7 @@ function EditRow({
         onInput={(e) => setHelpText((e.target as HTMLInputElement).value)}
         placeholder="Texto exibido ao candidato"
       />
+      <QuemSelect value={condicao} onChange={setCondicao} />
       <div class="flex gap-0.5">
         <button
           type="button"
@@ -214,6 +255,7 @@ function EditRow({
             required,
             ordem: parseInt(ordem) || 0,
             helpText: helpText.trim() || null,
+            condicao,
           })}
           disabled={saving}
           aria-label="Salvar"
@@ -239,10 +281,11 @@ function AddRequirementModal({
 }: {
   types: { id: number; code: string; name: string; category: string }[]
   onClose: () => void
-  onSubmit: (p: { documentTypeId: number; required: boolean; ordem: number; helpText: string | null }) => void
+  onSubmit: (p: { documentTypeId: number; required: boolean; ordem: number; helpText: string | null; condicao: CondicaoDoc | null }) => void
   saving: boolean
 }) {
   const [documentTypeId, setDocumentTypeId] = useState(types[0]?.id ?? 0)
+  const [condicao, setCondicao] = useState<CondicaoDoc | null>(null)
   const [required, setRequired] = useState(true)
   const [ordem, setOrdem] = useState('0')
   const [helpText, setHelpText] = useState('')
@@ -254,6 +297,7 @@ function AddRequirementModal({
       required,
       ordem: parseInt(ordem) || 0,
       helpText: helpText.trim() || null,
+      condicao,
     })
   }
 
@@ -291,6 +335,7 @@ function AddRequirementModal({
           value={helpText}
           onInput={(e) => setHelpText((e.target as HTMLInputElement).value)}
         />
+        <QuemSelect value={condicao} onChange={setCondicao} />
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>Cancelar</Button>
           <Button variant="primary" size="sm" onClick={handleSubmit} disabled={saving || !documentTypeId}>

@@ -35,6 +35,7 @@ import { isValidCpf, normalizeCpf } from '../../lib/cpf.js'
 import { lerTabelaDePrecos, resumoDaTabela } from '../tabelaDePrecos.js'
 import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, bloqueioDoDocumento, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
+import { descreverCondicao, campoCondicionalAtende } from '../docCondicional.js'
 
 export interface EduState {
   /** Inscrição que esta conversa está conduzindo (criada aqui ou já existente). */
@@ -118,7 +119,7 @@ interface PortalInfo {
   requirePayment: boolean
   paymentMethodsConfig: any
   jornadaEtapas: unknown
-  camposInscricao: Array<{ name: string; label: string; required: boolean; type: string; options?: string[] }>
+  camposInscricao: Array<{ name: string; label: string; required: boolean; type: string; options?: string[]; perguntarSo?: string; quando?: unknown }>
 }
 
 let cache: { em: number; ofertas: OfertaDoPortal[]; portais: Map<string, PortalInfo> } | null = null
@@ -142,6 +143,8 @@ async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal
       .map((f: any) => ({
         name: String(f.name), label: limpar(f.label || f.name, 120), required: !!f.required, type: String(f.type || 'text'),
         ...(Array.isArray(f.options) && f.options.length ? { options: f.options.map((o: any) => limpar(o?.label ?? o, 80)) } : {}),
+        // Pergunta que depende de outra resposta (ex.: tipo de deficiência só se "Sim").
+        ...(f.visibleWhen?.field?.name ? { perguntarSo: `se "${f.visibleWhen.field.name}" for ${(f.visibleWhen.field.values ?? []).join(' ou ')}`, quando: f.visibleWhen } : {}),
       }))
     portais.set(p.slug, {
       slug: p.slug, nome: p.nome, requirePayment: p.requirePayment,
@@ -233,13 +236,18 @@ async function documentosDaOferta(processoId: number | null | undefined) {
     where: { id: processoId },
     select: {
       useCustomDocuments: true,
-      documentRequirements: { orderBy: { ordem: 'asc' }, select: { required: true, helpText: true, documentType: { select: { code: true, name: true } } } },
-      entryMode: { select: { description: true, documentRequirements: { orderBy: { ordem: 'asc' }, select: { required: true, helpText: true, documentType: { select: { code: true, name: true } } } } } },
+      documentRequirements: { orderBy: { ordem: 'asc' }, select: { required: true, helpText: true, condicao: true, documentType: { select: { code: true, name: true } } } },
+      entryMode: { select: { description: true, documentRequirements: { orderBy: { ordem: 'asc' }, select: { required: true, helpText: true, condicao: true, documentType: { select: { code: true, name: true } } } } } },
     },
   }).catch(() => null)
   if (!sp) return []
   const lista = sp.useCustomDocuments && sp.documentRequirements.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? [])
-  return lista.map((d) => ({ tipo: d.documentType.code, nome: d.documentType.name, obrigatorio: d.required, ...(d.helpText ? { observacao: limpar(d.helpText, 200) } : {}) }))
+  return lista.map((d) => {
+    // Documento condicional (ex.: laudo só de quem declarou deficiência): o
+    // chat não sabe a resposta antes da inscrição, então diz quando vale.
+    const quando = descreverCondicao(d.condicao)
+    return { tipo: d.documentType.code, nome: d.documentType.name, obrigatorio: d.required, ...(quando ? { exigidoApenas: quando } : {}), ...(d.helpText ? { observacao: limpar(d.helpText, 200) } : {}) }
+  })
 }
 
 /** Resumo para o prompt: níveis → cursos. Só nomes (os detalhes vêm por ferramenta). */
@@ -613,7 +621,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         periodoDeInscricao,
         documentosExigidos: docs,
         etapasDaMatricula: p ? await etapasDoPortal(p, o, docs.length > 0) : [],
-        dados_da_inscricao: [...(p?.camposInscricao ?? []), ...o.camposDoIngresso],
+        dados_da_inscricao: [...(p?.camposInscricao ?? []).map(({ quando: _q, ...c }) => c), ...o.camposDoIngresso],
         linkDoCurso: linkDoCurso(o),
         instrucao: 'Use apenas o que for relevante para a dúvida atual — não despeje a ficha. O que NÃO estiver aqui você não sabe: diga que vai confirmar com a equipe.',
       })
@@ -666,7 +674,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         if (c?.chave && !String(formData[c.chave] ?? '').trim()) formData[String(c.chave)] = String(c.valor ?? '')
       }
       const p = portais.get(o.portalSlug)
-      const faltando = [...(p?.camposInscricao ?? []), ...o.camposDoIngresso].filter((c) => c.required && !String(formData[c.name] ?? '').trim()).map((c) => c.label)
+      const faltando = [...(p?.camposInscricao ?? []), ...o.camposDoIngresso].filter((c) => c.required && campoCondicionalAtende((c as any).quando, formData) && !String(formData[c.name] ?? '').trim()).map((c) => c.label)
       if (!formData.email && !formData.whatsapp) faltando.push('E-mail')
       if (o.polos.length > 1 && !o.polos.some((x) => x.id === formData.campusId)) faltando.push(`Polo (${o.polos.map((x) => `${x.nome} = ${x.id}`).join(', ')})`)
       if (faltando.length) return erro(`Faltam dados da inscrição: ${faltando.join(', ')}.`, 'Peça só o que falta, um dado por vez, sem repetir o que já foi dito.')

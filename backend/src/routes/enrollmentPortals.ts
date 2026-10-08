@@ -48,6 +48,7 @@ import QRCode from 'qrcode'
 import { Prisma } from '@prisma/client'
 import { normalizarSeoTelas } from '../lib/portalSeo.js'
 import { lerEduGeral, vestirMarca, salvarHeranca, herancaDoPortal, esquecerHeranca } from '../lib/eduGeral.js'
+import { campoCondicionalAtende } from '../services/docCondicional.js'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -2214,6 +2215,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           // Regra existe: só exige se o modo atual está na lista permitida
           if (!entryModeCode || !rule.includes(entryModeCode)) continue
         }
+        // Campo que depende de outra resposta (ex.: tipo de deficiência só se "Sim").
+        if (!campoCondicionalAtende(field?.visibleWhen, fd)) continue
         const val = fd[field.name]
         const empty = val == null || val === '' || (Array.isArray(val) && val.length === 0)
         if (empty) missingFields.push(field.label || field.name || '(sem nome)')

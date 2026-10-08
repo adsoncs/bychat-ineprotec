@@ -184,6 +184,7 @@ export function App() {
     return todos.filter((c) => {
       // Escolha de curso toda resolvida sozinha (uma forma, um curso, um polo): some.
       if (c.type === 'offering-picker') return escolha.algoAEscolher
+      if (!dependenciaAtende(c, valores)) return false
       const exigidos = c.visibleWhen?.entryMode
       if (!Array.isArray(exigidos) || exigidos.length === 0) return true
       // Sem curso escolhido ainda, esconde o condicional em vez de exigir cego.
@@ -301,7 +302,13 @@ export function App() {
     setEnviando(true)
     setErroEnvio(null)
     try {
-      const r = await enviarInscricao(slug, { ...valores, lgpdConsent: true }, dados?.cursoDoLink?.slug)
+      // Resposta de campo que ficou escondido (ex.: tipo de deficiência e depois
+      // "Não") não vai: senão o cadastro guardaria o que a pessoa desfez.
+      const enviados = { ...valores }
+      for (const c of passos.flatMap((p) => (p.fields ?? []) as Campo[])) {
+        if (!dependenciaAtende(c, valores)) delete enviados[c.name]
+      }
+      const r = await enviarInscricao(slug, { ...enviados, lgpdConsent: true }, dados?.cursoDoLink?.slug)
       localStorage.removeItem(chaveRascunho(slug))
       // Antes do redirecionamento configurável: se a instituição manda o
       // candidato para outra página, a conversão precisa ter sido contada aqui.
@@ -567,6 +574,13 @@ function Cabecalho(props: {
       <Capa portal={props.portal} />
     </>
   )
+}
+
+/** Campo que só aparece conforme outra resposta (ex.: tipo de deficiência só se "Sim"). */
+function dependenciaAtende(c: Campo, valores: Record<string, unknown>): boolean {
+  const f = c.visibleWhen?.field
+  if (!f?.name || !Array.isArray(f.values) || !f.values.length) return true
+  return f.values.includes(String(valores[f.name] ?? ''))
 }
 
 /**

@@ -614,14 +614,19 @@ export interface DocumentRequirement {
   required: boolean
   ordem: number
   helpText: string | null
+  /** Exigido só quando uma resposta do formulário bate. null = de todos. */
+  condicao?: CondicaoDoc | null
   documentType?: { id: number; code: string; name: string; category: string }
 }
+
+export interface CondicaoDoc { campo: string; valores: string[] }
 
 export interface DocumentRequirementInput {
   documentTypeId: number
   required?: boolean | undefined
   ordem?: number | undefined
   helpText?: string | null | undefined
+  condicao?: CondicaoDoc | null | undefined
 }
 
 export type DocOwner =

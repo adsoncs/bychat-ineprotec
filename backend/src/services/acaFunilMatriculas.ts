@@ -8,6 +8,7 @@
 // parado e *no quê*. Aqui cada inscrição tem uma etapa e um motivo.
 
 import { prisma } from '../lib/prisma.js'
+import { requisitosQueValem } from './docCondicional.js'
 
 export type EtapaFunil = 'inscrito' | 'documentos' | 'contrato' | 'pagamento' | 'matriculado' | 'cancelado'
 
@@ -60,7 +61,7 @@ export async function funilDeMatriculas(filtros: {
     take: Math.min(filtros.limite ?? 300, 1000),
     select: {
       id: true, candidateCode: true, status: true, createdAt: true, updatedAt: true,
-      paymentStatus: true, paymentPaidAt: true,
+      paymentStatus: true, paymentPaidAt: true, formData: true,
       portal: { select: { id: true, nome: true, requirePayment: true } },
       lead: { select: { id: true, nome: true, whatsapp: true } },
       documents: { select: { status: true } },
@@ -70,8 +71,8 @@ export async function funilDeMatriculas(filtros: {
           selectionProcess: {
             select: {
               useCustomDocuments: true,
-              documentRequirements: { select: { required: true } },
-              entryMode: { select: { documentRequirements: { select: { required: true } } } },
+              documentRequirements: { select: { required: true, condicao: true } },
+              entryMode: { select: { documentRequirements: { select: { required: true, condicao: true } } } },
             },
           },
         },
@@ -114,7 +115,7 @@ export async function funilDeMatriculas(filtros: {
 
     const sp = r.processRegistration?.selectionProcess as any
     const exigidos: Array<{ required: boolean }> = sp
-      ? (sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []))
+      ? requisitosQueValem(sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []), r.formData)
       : []
     const obrigatorios = exigidos.filter((e) => e.required).length
     const aprovados = r.documents.filter((d) => d.status === 'approved').length

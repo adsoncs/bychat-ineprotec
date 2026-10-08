@@ -10,6 +10,7 @@
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
+import { requisitosQueValem } from './docCondicional.js'
 
 export type EvaluationStatus = 'pending' | 'approved' | 'rejected' | 'na'
 export type DocsCompletionStatus = 'pending' | 'rejected' | 'complete'
@@ -129,7 +130,7 @@ export async function tryAutoAdvanceOnEvaluationComplete(
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      id: true, candidateCode: true,
+      id: true, candidateCode: true, formData: true,
       lead: { select: { id: true, status: true } },
       portal: { select: { id: true, nome: true, finalApprovalStageKey: true, funnel: { select: { stages: { select: { key: true, name: true } } } } } },
       processRegistration: {
@@ -137,11 +138,11 @@ export async function tryAutoAdvanceOnEvaluationComplete(
           selectionProcess: {
             select: {
               useCustomDocuments: true,
-              documentRequirements: { select: { required: true, documentType: { select: { code: true } } } },
+              documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true } } } },
               entryMode: {
                 select: {
                   evaluationType: true,
-                  documentRequirements: { select: { required: true, documentType: { select: { code: true } } } },
+                  documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true } } } },
                 },
               },
             },
@@ -156,9 +157,9 @@ export async function tryAutoAdvanceOnEvaluationComplete(
 
   const sp: any = reg.processRegistration?.selectionProcess
   const reqs = sp
-    ? (sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
+    ? requisitosQueValem(sp.useCustomDocuments && Array.isArray(sp.documentRequirements) && sp.documentRequirements.length > 0
         ? sp.documentRequirements
-        : (sp.entryMode?.documentRequirements || []))
+        : (sp.entryMode?.documentRequirements || []), reg.formData)
     : []
 
   const docsStatus = computeDocsCompletionStatus(reqs, reg.documents as any[])

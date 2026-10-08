@@ -15,6 +15,7 @@
 import { prisma } from '../lib/prisma.js'
 import { getTermoTemplate } from './acaContrato.js'
 import { normalizarDados, dadosEfetivos, camposDaEtapa, valoresAtuais, type EtapaDados } from './dadosCadastro.js'
+import { requisitosQueValem } from './docCondicional.js'
 
 export type ChaveEtapa = 'cadastro' | 'analise' | 'pagamento' | 'documentos' | 'contrato' | 'prova'
 export const CHAVES: ChaveEtapa[] = ['cadastro', 'analise', 'pagamento', 'documentos', 'contrato', 'prova']
@@ -219,8 +220,8 @@ async function contexto(registrationId: number) {
             select: {
               entryModeId: true,
               useCustomDocuments: true,
-              documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } },
-              entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, documentType: { select: { code: true, name: true } } } } } },
+              documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true, name: true } } } },
+              entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true, name: true } } } } } },
             },
           },
         },
@@ -242,7 +243,7 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
   const lista = onde === 'inscricao' ? cfg.inscricao : (cfg.painel ?? cfg.inscricao)
   const sp = reg.processRegistration?.selectionProcess as any
   const exigidos: Array<{ required: boolean; documentType: { code: string; name: string } }> = sp
-    ? (sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []))
+    ? requisitosQueValem(sp.useCustomDocuments && sp.documentRequirements?.length ? sp.documentRequirements : (sp.entryMode?.documentRequirements ?? []), reg.formData)
     : []
   const obrigatorios = exigidos.filter((e) => e.required)
   const porTipo = new Map(reg.documents.map((d) => [d.typeCode, d.status]))
