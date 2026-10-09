@@ -368,6 +368,17 @@ export function App() {
   // Captura de interesse: formulário curto e limpo (feito para LPs e sites), que
   // cria o contato e manda o link para terminar a inscrição no portal completo.
   if (portal.formMode === 'interest') return <FormInteresse slug={slug} portal={portal} ofertas={offerings} />
+  // Inscrições pausadas pela instituição: a página continua no ar, sem formulário.
+  const pausa = (portal.formConfig as any)?.inscricoesPausadas
+  if (pausa?.ativo) return (
+    <div class="pagina">
+      <div class="cartao" style="margin-top:40px">
+        <h2>{pausa.titulo || 'Inscrições temporariamente fechadas'}</h2>
+        <p class="sub">{pausa.mensagem || 'No momento as inscrições online estão pausadas. Fale com a nossa equipe para fazer a sua matrícula.'}</p>
+        {pausa.link && <button class="principal" onClick={() => window.open(pausa.link, '_blank', 'noopener')}>{pausa.linkTexto || 'Falar com a equipe'}</button>}
+      </div>
+    </div>
+  )
   const ofertaEscolhida = offerings.find((o) => String(o.id) === String(valores.offeringId)) ?? null
 
   if (concluido) {

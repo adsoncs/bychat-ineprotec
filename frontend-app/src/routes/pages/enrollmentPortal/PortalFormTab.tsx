@@ -236,6 +236,10 @@ export function PortalFormTab({ portal }: { portal: EnrollmentPortal }) {
       toSave = next
     }
 
+    // A pausa das inscrições tem cartão próprio; salvar a estrutura não a apaga.
+    const pausaSalva = portal.formConfig?.inscricoesPausadas
+    if (pausaSalva && toSave.inscricoesPausadas === undefined) toSave = { ...toSave, inscricoesPausadas: pausaSalva }
+
     // Validações
     for (const step of toSave.steps) {
       if (!step.name.trim()) { toast('Toda etapa precisa de um nome', 'danger'); return }
@@ -285,6 +289,8 @@ export function PortalFormTab({ portal }: { portal: EnrollmentPortal }) {
           </div>
         </div>
       </Card>
+
+      <PausaDasInscricoes portal={portal} />
 
       {dadosAtivos && (
         <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-info">
@@ -701,3 +707,56 @@ function FieldRow({
 }
 
 void Badge
+
+// Pausar inscrições: a página do portal segue no ar (e o catálogo que a IA de
+// atendimento consulta também), mas sem formulário, e o servidor recusa
+// inscrição e cobrança novas. Salva direto no formConfig, preservando o resto.
+function PausaDasInscricoes({ portal }: { portal: EnrollmentPortal }) {
+  const update = useUpdateEnrollmentPortal()
+  const atual = portal.formConfig?.inscricoesPausadas
+  const [ativo, setAtivo] = useState(!!atual?.ativo)
+  const [mensagem, setMensagem] = useState(atual?.mensagem ?? '')
+  const [link, setLink] = useState(atual?.link ?? '')
+  const [linkTexto, setLinkTexto] = useState(atual?.linkTexto ?? '')
+  useEffect(() => {
+    setAtivo(!!atual?.ativo); setMensagem(atual?.mensagem ?? ''); setLink(atual?.link ?? ''); setLinkTexto(atual?.linkTexto ?? '')
+  }, [portal.formConfig])
+  const mudou = ativo !== !!atual?.ativo || mensagem !== (atual?.mensagem ?? '') || link !== (atual?.link ?? '') || linkTexto !== (atual?.linkTexto ?? '')
+  function salvar() {
+    const base = portal.formConfig ?? { steps: [] }
+    const inscricoesPausadas = { ativo, ...(mensagem.trim() ? { mensagem: mensagem.trim() } : {}), ...(link.trim() ? { link: link.trim() } : {}), ...(linkTexto.trim() ? { linkTexto: linkTexto.trim() } : {}) }
+    update.mutate({ id: portal.id, formConfig: { ...base, inscricoesPausadas } }, {
+      onSuccess: () => toast(ativo ? 'Inscrições pausadas' : 'Inscrições liberadas', 'success'),
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+  return (
+    <Card>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <label class="flex items-start gap-2 cursor-pointer min-w-0 flex-1">
+          <input type="checkbox" class="size-4 mt-0.5 accent-accent shrink-0" checked={ativo}
+            onInput={(e) => setAtivo((e.target as HTMLInputElement).checked)} />
+          <span>
+            <span class="block text-sm font-semibold text-fg">Pausar inscrições online</span>
+            <span class="block text-xs text-fg-muted mt-0.5">A página continua no ar mostrando o aviso abaixo; ninguém consegue se inscrever nem gerar pagamento por ela. Quem já se inscreveu continua acessando a área do candidato.</span>
+          </span>
+        </label>
+        <Button variant="primary" size="sm" onClick={salvar} disabled={!mudou || update.isPending}>
+          <Save size={12} /> {update.isPending ? 'Salvando…' : 'Salvar'}
+        </Button>
+      </div>
+      {ativo && (
+        <div class="grid gap-2 mt-3 sm:grid-cols-2">
+          <div class="sm:col-span-2">
+            <Input label="Aviso na página (opcional)" value={mensagem} placeholder="No momento as inscrições online estão pausadas. Fale com a nossa equipe para fazer a sua matrícula."
+              onInput={(e) => setMensagem((e.target as HTMLInputElement).value)} />
+          </div>
+          <Input label="Link do botão (opcional)" value={link} placeholder="https://wa.me/55..."
+            onInput={(e) => setLink((e.target as HTMLInputElement).value)} />
+          <Input label="Texto do botão" value={linkTexto} placeholder="Falar com a equipe"
+            onInput={(e) => setLinkTexto((e.target as HTMLInputElement).value)} />
+        </div>
+      )}
+    </Card>
+  )
+}

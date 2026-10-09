@@ -132,6 +132,17 @@ export interface PortalStep {
 
 export interface PortalFormConfig {
   steps: PortalStep[]
+  /** Inscrições pausadas: a página do portal fica no ar sem formulário, e o
+   *  servidor recusa inscrição e cobrança novas. */
+  inscricoesPausadas?: InscricoesPausadas | undefined
+}
+
+export interface InscricoesPausadas {
+  ativo: boolean
+  titulo?: string | undefined
+  mensagem?: string | undefined
+  link?: string | undefined
+  linkTexto?: string | undefined
 }
 
 /** SEO das telas além da inscrição (backend: lib/portalSeo.ts). */

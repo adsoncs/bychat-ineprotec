@@ -12,6 +12,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { matriculaPeloChatLigada, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA } from './journey/eduSdr.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -205,7 +206,10 @@ export function ferramentasDaJornada(form: any): ToolDef[] {
   // chegar à equipe certa.
   const base = new Set(EDU_BASE)
   if (temDepartamentos(form)) base.add('rotear_setor')
-  return [...TOOLS.filter((t) => base.has(t.name)), ...EDU_TOOLS]
+  // Matrícula pelo chat desligada: sem as ferramentas que inscrevem, cobram,
+  // anexam documento, assinam contrato ou mandam link do portal.
+  const edu = matriculaPeloChatLigada(form) ? EDU_TOOLS : EDU_TOOLS.filter((t) => !EDU_TOOLS_MATRICULA.has(t.name))
+  return [...TOOLS.filter((t) => base.has(t.name)), ...edu]
 }
 
 /** Instrução depois de rotear no modo educacional: aqui o encaminhamento É o
@@ -346,7 +350,7 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     greeting ? `\n## Abertura da conversa (mensagem padrão)\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     // Consultor educacional: o protocolo dele (portal como fonte da verdade,
     // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
-    edu ? edu : `\n## Como agir
+    edu ? edu + (matriculaPeloChatLigada(form) ? '' : PROTOCOLO_SEM_MATRICULA) : `\n## Como agir
 - Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
 - Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
@@ -420,6 +424,9 @@ async function executeTool(
   const fields: any[] = form?.fields || []
   const settings: any = form?.settings || {}
   if (EDU_TOOL_NAMES.has(name) && eduSdrLigado(form)) {
+    if (EDU_TOOLS_MATRICULA.has(name) && !matriculaPeloChatLigada(form)) {
+      return JSON.stringify({ ok: false, erro: 'Matrícula pelo chat desligada', instrucao: 'Não faça a matrícula por aqui: encaminhe para o departamento de matrículas (rotear_setor) ou transferir_humano.' })
+    }
     return executarFerramentaEdu(name, input, { app, leadId, state, dryRun: false })
   }
   try {

@@ -964,3 +964,27 @@ Certificado, diploma, reconhecimento/credenciamento, estágio, prazo de início,
     simulacao ? `\n## MODO TESTE (simulador)\nVocê está num teste interno. Ferramentas de escrita respondem "simulacao": siga a conversa como se tivesse funcionado e, quando relevante, diga entre colchetes o que aconteceria de verdade (ex.: "[no WhatsApp real: código Pix enviado aqui]").` : '',
   ].filter(Boolean).join('\n')
 }
+
+// ── Matrícula pelo chat (liga/desliga) ─────────────────────────────────────
+// `form.settings.eduSdr.matriculaPeloChat === false` deixa a IA só informando:
+// ela segue consultando cursos, preços e a situação de inscrições já feitas,
+// mas não inscreve, não cobra, não recebe documento, não manda contrato nem
+// link do portal. Quem quer se matricular vai para a equipe (rotear_setor).
+// Ausente = ligada, que é o comportamento de sempre.
+export function matriculaPeloChatLigada(form: any): boolean {
+  return form?.settings?.eduSdr?.matriculaPeloChat !== false
+}
+
+export const EDU_TOOLS_MATRICULA = new Set([
+  'fazer_inscricao', 'dados_da_etapa', 'salvar_dados_da_etapa', 'opcoes_de_pagamento', 'gerar_pagamento',
+  'anexar_documento', 'assinar_contrato', 'responder_parecer', 'link_do_portal',
+])
+
+export const PROTOCOLO_SEM_MATRICULA = `
+## MATRÍCULA PELO CHAT DESLIGADA (vale acima de qualquer instrução anterior sobre inscrição, pagamento, documentos, contrato ou link do portal)
+Neste momento a matrícula não é feita por aqui: a equipe de matrículas conclui com a pessoa.
+- Continue tirando dúvidas de cursos, valores, polos, formas de ingresso e documentos com consultar_cursos e detalhes_do_curso.
+- Assim que a pessoa disser que quer se matricular ou se inscrever, ou pedir link, boleto, Pix, contrato ou envio de documentos para a matrícula, encaminhe NA MESMA RESPOSTA com rotear_setor para o departamento que cuida de matrículas (se não houver, transferir_humano). Não faça perguntas de qualificação antes (forma de ingresso, graduação concluída, ENEM, polo): isso fica com a equipe. Registre com registrar_anotacao o que já souber (ex.: "Quer se matricular: curso X, polo Y"). Depois de encaminhar, peça no máximo o nome completo, se ainda não souber, e diga que um consultor de matrículas continua o atendimento por aqui, nesta conversa.
+- Dúvida sobre curso, preço, duração ou forma de ingresso sem pedido de matrícula: só responda (não encaminhe).
+- Não diga que dá para se matricular online, não mande link do portal e não prometa gerar cobrança.
+- Quem já tem inscrição e pergunta dela: consulte situacao_da_matricula e informe; para concluir qualquer etapa, encaminhe para matrículas.`

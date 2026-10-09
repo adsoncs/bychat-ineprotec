@@ -2075,6 +2075,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     })
     if (!portal || !portal.active) return reply.code(404).send({ error: 'Portal indisponível' })
 
+    // Inscrições pausadas pela instituição (Portal › Formulário): a página segue
+    // no ar, e o catálogo que o atendimento por IA consulta também, mas inscrição
+    // nova não entra, nem pelo site nem pelo chat.
+    const pausa = (portal.formConfig as any)?.inscricoesPausadas
+    if (pausa?.ativo) return reply.code(403).send({ error: pausa.mensagem || 'As inscrições online estão pausadas no momento.', inscricoesPausadas: true })
+
     // Portais 'interest' não aceitam submissão completa por aqui — eles têm
     // sua própria rota /interest. Defesa em profundidade: se alguém tentar
     // postar JSON no /register de um portal de interesse, recusa explicitamente.
@@ -2976,7 +2982,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         },
         portal: {
           select: {
-            id: true, nome: true, paymentMode: true, paymentDeadlineHours: true,
+            id: true, nome: true, paymentMode: true, paymentDeadlineHours: true, formConfig: true,
             requirePayment: true, paymentScope: true, paymentMethodsConfig: true,
             paymentConnection: {
               select: {
@@ -2989,6 +2995,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
     if (!enrollment) return reply.code(404).send({ error: 'Inscrição não encontrada' })
+    // Portal com inscrições pausadas também não gera cobrança nova.
+    if ((enrollment.portal?.formConfig as any)?.inscricoesPausadas?.ativo) {
+      return reply.code(403).send({ error: 'Os pagamentos online estão pausados no momento. Fale com a nossa equipe.', inscricoesPausadas: true })
+    }
     if (!enrollment.portal?.requirePayment) {
       return reply.code(400).send({ error: 'Portal não exige pagamento' })
     }
