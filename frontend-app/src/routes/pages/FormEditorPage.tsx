@@ -21,7 +21,7 @@ import {
   type FormField, type FormSettings, type FormStyling,
 } from '@/hooks/useForms'
 import {
-  AddFieldPalette, FieldEditorColumn, buildUniqueField,
+  AddFieldPalette, FieldEditorColumn, buildUniqueField, normalizarCampos,
 } from '@/components/FormFieldsEditor'
 import { RichText, stripHtml } from '@/components/ui/RichText'
 import { FormAppearancePanel } from '@/components/FormAppearancePanel'
@@ -61,10 +61,6 @@ const META_EVENTS: { value: string; label: string }[] = [
   { value: 'StartTrial', label: 'Iniciar avaliação (StartTrial)' },
   { value: 'Purchase', label: 'Compra (Purchase)' },
 ]
-
-function isFieldArray(v: unknown): v is FormField[] {
-  return Array.isArray(v) && v.every((it) => typeof it === 'object' && it !== null && 'id' in it && 'type' in it)
-}
 
 export function FormEditorPage({ params }: { params: { id: string } }) {
   const formId = parseInt(params.id)
@@ -136,8 +132,9 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
   if (data && !hydrated) {
     setName(data.name ?? '')
     setSlug(data.slug ?? '')
-    setFields(isFieldArray(data.fields) ? data.fields : [])
-    setActiveId((isFieldArray(data.fields) ? data.fields[0]?.id : null) ?? null)
+    const camposIniciais = normalizarCampos(data.fields)
+    setFields(camposIniciais)
+    setActiveId(camposIniciais[0]?.id ?? null)
     setFunnelId(data.funnelId ? String(data.funnelId) : '')
     setStageKey(data.stageKey ?? '')
     setDefaultTeamId(data.defaultTeamId ? String(data.defaultTeamId) : '')

@@ -429,6 +429,29 @@ export async function pickOperatorForTeam(
 }
 
 /**
+ * Operador para o encaminhamento de uma opção de menu (`route` do campo de
+ * seleção que o chatbot usa para triagem). Sem `userIds`, é o rodízio normal
+ * da equipe. Com `userIds`, o rodízio fica restrito a esses responsáveis; se
+ * nenhum estiver elegível agora (offline, fora do horário), o lead vai mesmo
+ * assim para o primeiro responsável ativo da lista — quem configurou escolheu
+ * a pessoa de propósito, e lead parado na fila do setor é pior.
+ */
+export async function escolherOperadorDaRota(teamId: number, userIds?: unknown): Promise<number | null> {
+  const ids = Array.isArray(userIds)
+    ? userIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+    : []
+  if (ids.length === 0) return pickOperatorForTeam(teamId)
+  const escolhido = await pickOperatorForTeam(teamId, { onlyUserIds: ids })
+  if (escolhido) return escolhido
+  const ativos = await prisma.user.findMany({
+    where: { id: { in: ids }, active: true, lockedAt: null },
+    select: { id: true },
+  })
+  const ativosSet = new Set(ativos.map((u) => u.id))
+  return ids.find((id) => ativosSet.has(id)) ?? null
+}
+
+/**
  * userIds de uma equipe que PODEM atender reuniões — base para o Agendamento
  * montar os horários ofertados.
  *

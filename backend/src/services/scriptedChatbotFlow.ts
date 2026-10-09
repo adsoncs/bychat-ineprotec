@@ -16,7 +16,7 @@ import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { createLeadFromForm, moveLeadStage, buildCustomFieldValues } from './formFlow.js'
 import { acharLeadDoContato, canalDaMensagem } from './contactIdentity.js'
-import { pickOperatorForTeam } from './teamRouting.js'
+import { escolherOperadorDaRota } from './teamRouting.js'
 import { parseAnswer, evaluateQualification, resolveStageMove, nextStep } from './journey/journeyEngine.js'
 import { interpretSelectAnswer } from './journey/interpret.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
@@ -536,7 +536,7 @@ async function applyOptionRoute(
     if (route.teamId != null || (Array.isArray(route.userIds) && route.userIds.length > 0)) {
       let userId: number | null = null
       if (route.teamId != null) {
-        userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+        userId = await escolherOperadorDaRota(route.teamId, route.userIds).catch(() => null)
       } else {
         userId = await pickLeastBusyUser(route.userIds as number[])
       }

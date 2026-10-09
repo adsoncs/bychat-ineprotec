@@ -163,6 +163,19 @@ export type FormFieldType =
 export interface FormFieldOption {
   value: string
   label: string
+  /** Encaminhamento quando o chatbot escolhe esta opção (menu de triagem). */
+  route?: FormOptionRoute | undefined
+}
+
+/** Para onde vai o lead quando o chatbot escolhe a opção. `userIds` restringe
+ *  o rodízio da equipe a esses responsáveis. Demais chaves (saveNote,
+ *  confirmText) são preservadas como vierem. */
+export interface FormOptionRoute {
+  funnelId?: number | null | undefined
+  stageKey?: string | null | undefined
+  teamId?: number | null | undefined
+  userIds?: number[] | undefined
+  [extra: string]: unknown
 }
 
 /** Resultado de uma pergunta de qualificação (positivo OU negativo). Define para

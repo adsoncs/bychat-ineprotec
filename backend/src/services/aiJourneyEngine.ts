@@ -21,7 +21,7 @@ import { applyAnswerToLead } from './scriptedChatbotFlow.js'
 import { evaluateQualification, resolveStageMove } from './journey/journeyEngine.js'
 import { getActiveMeetingType, getMeetingTypeSlots, createBooking } from './schedulingService.js'
 import { buildChoices, choicesToText, type Choice } from '../lib/waInteractive.js'
-import { pickOperatorForTeam } from './teamRouting.js'
+import { escolherOperadorDaRota } from './teamRouting.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
 import { eduSdrLigado, EDU_TOOLS, EDU_TOOL_NAMES, executarFerramentaEdu, protocoloEdu, resumoDoCatalogo, contextoDoLead, semTextoDeEspera, type EduState } from './journey/eduSdr.js'
@@ -475,7 +475,7 @@ async function executeTool(
         await moveLeadStage(leadId, route.funnelId, route.stageKey, 'chatbot', { forwardOnly: false }).catch(() => {})
       }
       if (route.teamId != null) {
-        const userId = await pickOperatorForTeam(route.teamId).catch(() => null)
+        const userId = await escolherOperadorDaRota(route.teamId, route.userIds).catch(() => null)
         await prisma.lead.update({ where: { id: leadId }, data: { teamId: route.teamId, assignedUserId: userId, assignedAt: new Date() } }).catch(() => {})
       }
       // Setores como RH (candidatura/currículo) não precisam de handoff humano

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Plus, Save, Trash2, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from '@/components/ui/icon-set'
+import { Plus, Save, Trash2, GitBranch, EyeOff, User, Mail, Phone, Building2, MapPin, Tag, Type, AlignLeft, AlignCenter, AlignRight, List, Hash, Link2, Sparkles, Heading, Image as ImageIcon, CalendarClock, AlertTriangle, CheckCircle2 } from '@/components/ui/icon-set'
 import { useMeetingTypes } from '@/hooks/useScheduling'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -12,10 +12,12 @@ import {
   useUpdateFormFields,
   type FormField,
   type FormFieldOption,
+  type FormOptionRoute,
   type FormFieldType,
   type QualifyOutcome,
 } from '@/hooks/useForms'
-import { useStages } from '@/hooks/useFunnels'
+import { useFunnels, useStages } from '@/hooks/useFunnels'
+import { useTeams, useTeamMembers } from '@/hooks/useTeams'
 import { useCustomFields, useCreateCustomField, type CustomField } from '@/hooks/useCustomFields'
 import { RichText, stripHtml } from '@/components/ui/RichText'
 import { toast } from '@/lib/toast'
@@ -113,8 +115,19 @@ export function buildUniqueField(base: Omit<FormField, 'id'>, usedKeys: string[]
 export { FIELD_PRESETS, GENERIC_PRESETS }
 export type { FieldPreset }
 
-function isFieldArray(v: unknown): v is FormField[] {
-  return Array.isArray(v) && v.every((it) => typeof it === 'object' && it !== null && 'id' in it && 'type' in it)
+// Campos gravados fora do editor (script, seed, IA) podem vir sem `id` ou com
+// opções em texto puro. Sem isto o editor descartava a lista inteira e
+// mostrava "Campos (0)" — e salvar dali apagava os campos de verdade.
+export function normalizarCampos(v: unknown): FormField[] {
+  if (!Array.isArray(v)) return []
+  if (!v.every((it) => typeof it === 'object' && it !== null && 'type' in it)) return []
+  return v.map((it: any) => {
+    const f = it.id ? it : { ...it, id: genId() }
+    if (Array.isArray(f.options) && f.options.some((o: unknown) => typeof o === 'string')) {
+      return { ...f, options: f.options.map((o: any) => (typeof o === 'string' ? { value: o, label: o } : o)) }
+    }
+    return f
+  }) as FormField[]
 }
 
 export function FormFieldsEditor({ formId, onClose }: FormFieldsEditorProps) {
@@ -133,7 +146,7 @@ export function FormFieldsEditor({ formId, onClose }: FormFieldsEditorProps) {
   useEffect(() => {
     if (!data || hydrated) return
     const raw = data.fields
-    const next = isFieldArray(raw) ? raw : []
+    const next = normalizarCampos(raw)
     setFields(next)
     setActiveId(next[0]?.id ?? null)
     setDirty(false)
@@ -843,6 +856,7 @@ interface SelectOptionsEditorProps {
 }
 
 function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
+  const [aberta, setAberta] = useState<number | null>(null)
   function patch(idx: number, patchOpt: Partial<FormFieldOption>) {
     const next = options.map((o, i) => (i === idx ? { ...o, ...patchOpt } : o))
     onChange(next)
@@ -867,14 +881,15 @@ function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
       )}
       <div class="space-y-2">
         {options.length > 0 && (
-          <div class="grid grid-cols-[1fr_1fr_2rem] gap-2 text-2xs text-fg-muted">
+          <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem_2rem] gap-2 text-2xs text-fg-muted">
             <span>Rótulo</span>
             <span>Valor</span>
             <span class="sr-only">Ações</span>
           </div>
         )}
         {options.map((o, i) => (
-          <div key={i} class="grid grid-cols-[1fr_1fr_2rem] items-center gap-2">
+          <div key={i} class="space-y-2">
+          <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem_2rem] items-center gap-2">
             <Input
               value={o.label}
               onInput={(e) => patch(i, { label: (e.target as HTMLInputElement).value })}
@@ -885,13 +900,116 @@ function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
               onInput={(e) => patch(i, { value: (e.target as HTMLInputElement).value })}
               placeholder="Ex.: pequena"
             />
+            <Button variant="ghost" size="sm" onClick={() => setAberta(aberta === i ? null : i)}
+              aria-label="Encaminhamento da opção" title="Encaminhamento (chatbot)"
+              class={o.route ? 'text-accent' : ''}>
+              <GitBranch size={12} />
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => remove(i)} aria-label="Remover opção">
               <Trash2 size={12} />
             </Button>
           </div>
+          {aberta === i ? (
+            <OptionRouteEditor value={o.route} onChange={(route) => patch(i, { route })} />
+          ) : o.route ? (
+            <ResumoRota route={o.route} onAbrir={() => setAberta(i)} />
+          ) : null}
+          </div>
         ))}
       </div>
     </div>
+  )
+}
+
+// Encaminhamento de uma opção: quando o chatbot (IA ou roteiro) escolhe esta
+// opção, o lead vai para o funil/etapa e para a equipe indicados. Marcando
+// responsáveis, só eles entram no rodízio daquela opção.
+function OptionRouteEditor({ value, onChange }: {
+  value: FormOptionRoute | undefined
+  onChange: (route: FormOptionRoute | undefined) => void
+}) {
+  const route = value ?? {}
+  const { data: funnelsData } = useFunnels()
+  const { data: teamsData } = useTeams()
+  const funnelId = route.funnelId ?? null
+  const teamId = route.teamId ?? null
+  const { data: stagesData } = useStages(funnelId)
+  const { data: membersData } = useTeamMembers(teamId)
+  const stages = (stagesData?.stages ?? []).filter((s) => s.active)
+  const members = (membersData?.members ?? []).filter((m) => m.user.active)
+  const userIds = route.userIds ?? []
+  const set = (partial: Partial<FormOptionRoute>) => {
+    const next: FormOptionRoute = { ...route, ...partial }
+    if (!next.userIds?.length) delete next.userIds
+    const vazio = next.funnelId == null && !next.stageKey && next.teamId == null && !next.userIds
+      && Object.keys(next).every((k) => ['funnelId', 'stageKey', 'teamId', 'userIds'].includes(k))
+    onChange(vazio ? undefined : next)
+  }
+  return (
+    <div class="rounded-md border border-accent/40 bg-surface p-3 space-y-2">
+      <span class="block text-2xs font-semibold uppercase tracking-wider text-fg-muted">Encaminhamento desta opção</span>
+      <p class="text-3xs text-fg-muted">Quando o chatbot escolher esta opção, o lead vai para o funil e a equipe abaixo.</p>
+      <div class="grid gap-2">
+        <Select label="Funil" value={funnelId == null ? '' : String(funnelId)}
+          onChange={(e) => { const v = (e.target as HTMLSelectElement).value; set({ funnelId: v ? Number(v) : null, stageKey: null }) }}>
+          <option value="">— não mover —</option>
+          {(funnelsData?.funnels ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </Select>
+        <Select label="Etapa" value={route.stageKey ?? ''} disabled={!funnelId}
+          onChange={(e) => set({ stageKey: (e.target as HTMLSelectElement).value || null })}>
+          <option value="">{funnelId ? 'Escolha a etapa' : 'Escolha um funil'}</option>
+          {stages.map((s) => <option key={s.id} value={s.key}>{s.name}</option>)}
+        </Select>
+        <Select label="Equipe" value={teamId == null ? '' : String(teamId)}
+          onChange={(e) => { const v = (e.target as HTMLSelectElement).value; set({ teamId: v ? Number(v) : null, userIds: [] }) }}>
+          <option value="">— não atribuir —</option>
+          {(teamsData?.teams ?? []).filter((t) => t.active || t.id === teamId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </Select>
+      </div>
+      {funnelId != null && !route.stageKey && (
+        <p class="text-3xs text-warning">Sem etapa o lead não muda de funil.</p>
+      )}
+      {teamId != null && (
+        <div class="space-y-1">
+          <span class="text-2xs font-medium text-fg-muted">Responsáveis</span>
+          <p class="text-3xs text-fg-muted">Nenhum marcado = rodízio entre toda a equipe. Marcados = só eles recebem; se nenhum estiver disponível, vai para o primeiro marcado.</p>
+          {members.length === 0 && <p class="text-3xs text-fg-muted">Equipe sem membros ativos.</p>}
+          <div class="grid gap-1">
+            {members.map((m) => {
+              const checked = userIds.includes(m.user.id)
+              return (
+                <label key={m.user.id} class="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" class="size-4 accent-accent" checked={checked}
+                    onInput={(e) => {
+                      const on = (e.target as HTMLInputElement).checked
+                      set({ userIds: on ? [...userIds.filter((id) => id !== m.user.id), m.user.id] : userIds.filter((id) => id !== m.user.id) })
+                    }} />
+                  {m.user.name || m.user.email}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResumoRota({ route, onAbrir }: { route: FormOptionRoute; onAbrir: () => void }) {
+  const { data: funnelsData } = useFunnels()
+  const { data: teamsData } = useTeams()
+  const funil = funnelsData?.funnels.find((f) => f.id === route.funnelId)?.name
+  const equipe = teamsData?.teams.find((t) => t.id === route.teamId)?.name
+  const n = route.userIds?.length ?? 0
+  const partes = [
+    funil && `funil ${funil}`,
+    equipe && `equipe ${equipe}`,
+    n > 0 && `${n} responsáve${n === 1 ? 'l' : 'is'}`,
+  ].filter(Boolean)
+  return (
+    <button type="button" onClick={onAbrir} class="text-left text-3xs text-fg-muted hover:text-fg">
+      ↳ Encaminha para {partes.length ? partes.join(' · ') : '(configuração avançada)'}
+    </button>
   )
 }
 
