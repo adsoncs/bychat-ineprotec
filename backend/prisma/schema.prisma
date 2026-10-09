@@ -9975,3 +9975,69 @@ model PortalAccessLink {
   @@index([expiresAt])
   @@map("bychat_portal_access_links")
 }
+
+// ─── Integração SEI (ERP acadêmico) — webservice "Matrícula Externa" ─────────
+// Uma linha por inscrição enviada. A integração conduz no SEI o mesmo roteiro
+// de matrícula que o portal dele faria (pessoa → matrícula → documentos), e
+// guarda aqui o que o SEI devolveu em cada passo: reenviar continua de onde
+// parou, nunca duplica a pessoa nem a matrícula.
+model SeiEnvio {
+  id                     Int       @id @default(autoincrement())
+  registrationId         Int       @unique
+  matriculaId            Int?
+  status                 String    @default("PENDENTE") @db.VarChar(20) // PENDENTE | PROCESSANDO | ERRO | CONCLUIDO | CANCELADO
+  etapa                  String    @default("pessoa") @db.VarChar(20) // pessoa | matricula | documentos | concluido
+  origem                 String    @default("manual") @db.VarChar(20) // manual | automatico
+  codigoPessoa           String?   @db.VarChar(40)
+  matricula              String?   @db.VarChar(40)
+  codigoMatriculaPeriodo String?   @db.VarChar(40)
+  dadosMatricula         Json?     @db.Json // último JSON de matrícula devolvido pelo SEI
+  simulacaoPlano         Json?     @db.Json // NE013 — plano que o SEI montou
+  documentosEnviados     Json?     @db.Json // { "<codigo documentação SEI>": { localId, nome, em } }
+  avisos                 Json?     @db.Json // pendências que não impedem o envio (ex.: baixa da 1ª parcela)
+  tentativas             Int       @default(0)
+  proximaTentativaEm     DateTime?
+  ultimoErro             String?   @db.Text
+  criadoPorId            Int?
+  concluidoEm            DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status, proximaTentativaEm])
+  @@map("bychat_sei_envios")
+}
+
+// Log de cada chamada ao SEI — o que foi pedido e o que voltou, sem segredos.
+model SeiChamada {
+  id         Int      @id @default(autoincrement())
+  envioId    Int?
+  servico    String   @db.VarChar(60)
+  metodo     String   @db.VarChar(8)
+  caminho    String   @db.VarChar(500)
+  httpStatus Int?
+  duracaoMs  Int?
+  ok         Boolean  @default(false)
+  request    Json?    @db.Json
+  response   Json?    @db.Json
+  erro       String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([envioId])
+  @@index([createdAt])
+  @@map("bychat_sei_chamadas")
+}
+
+// De-para entre o cadastro do portal e os códigos do SEI.
+//   tipo 'oferta'    → localId = CourseOffering.id; dados = códigos de curso, banner, unidade, polo, turno, turma, processo, período, condição
+//   tipo 'documento' → localId = DocumentType.id;  dados = { codigoTipoDocumento, nome }
+model SeiMapeamento {
+  id        Int      @id @default(autoincrement())
+  tipo      String   @db.VarChar(20)
+  localId   Int
+  dados     Json     @db.Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([tipo, localId])
+  @@map("bychat_sei_mapeamentos")
+}

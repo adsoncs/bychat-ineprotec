@@ -427,6 +427,9 @@ const migratedPages: Record<string, ComponentType> = {
   'integ-crmedu': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationCrmEducacionalPage })),
   ),
+  'integ-sei': lazy(() =>
+    import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationSeiPage })),
+  ),
   'integ-email': lazy(() =>
     import('./pages/integrations/IntegrationStandalonePages').then((m) => ({ default: m.IntegrationEmailPage })),
   ),

@@ -17,11 +17,20 @@ import { PaymentsPage } from '../PaymentsPage'
 import { EvolutionApiSettings } from '../settings/EvolutionApiSettings'
 import { KommoIntegration } from './KommoIntegration'
 import { CrmEducacionalIntegration } from './CrmEducacionalIntegration'
+import { SeiIntegration } from './SeiIntegration'
 
 export function IntegrationCrmEducacionalPage() {
   return (
     <Page title="CRM Educacional" description="Importa os leads do CRM Educacional (Wakeme). Mão única: nada é escrito lá.">
       <CrmEducacionalIntegration />
+    </Page>
+  )
+}
+
+export function IntegrationSeiPage() {
+  return (
+    <Page title="SEI (ERP acadêmico)" description="Envia ao SEI a matrícula concluída no portal: aluno, plano de pagamento, documentos aprovados e contrato assinado.">
+      <SeiIntegration />
     </Page>
   )
 }

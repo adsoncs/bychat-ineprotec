@@ -222,6 +222,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'integ-payments', label: 'Pagamentos', href: '/app/integrations/payments', icon: 'CreditCard', permission: 'settings', atalho: true },
         { id: 'integ-kommo', label: 'Kommo CRM', href: '/app/integrations/kommo', icon: 'Plug', permission: 'settings', atalho: true },
         { id: 'integ-crmedu', label: 'CRM Educacional', href: '/app/integrations/crm-educacional', icon: 'GraduationCap', permission: 'settings', atalho: true },
+        { id: 'integ-sei', label: 'SEI (ERP acadêmico)', href: '/app/integrations/sei', icon: 'GraduationCap', permission: 'settings', atalho: true },
       ],
       initiallyCollapsed: true,
     },

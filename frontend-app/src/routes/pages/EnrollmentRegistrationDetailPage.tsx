@@ -38,6 +38,7 @@ import { useEssaySubmission } from '@/hooks/useEducationalReview'
 import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
+import { SeiInscricaoCard } from './integrations/SeiIntegration'
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   pending: 'Pendente',
@@ -147,6 +148,8 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
           })}
           {/* Notas do ENEM: não é etapa da jornada; o bloco some sozinho sem nota importada. */}
           <EnemBlock registrationId={review.registration.id} />
+          {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
+          <SeiInscricaoCard registrationId={review.registration.id} />
         </>
       )}
     </Page>

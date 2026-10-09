@@ -36,6 +36,7 @@ import { leadsImportRoutes } from './routes/leadsImport.js'
 import { kommoIntegrationRoutes } from './routes/kommoIntegration.js'
 import { kommoWebhookRoutes } from './routes/kommoWebhook.js'
 import { crmEduIntegrationRoutes } from './routes/crmEduIntegration.js'
+import { seiIntegrationRoutes } from './routes/seiIntegration.js'
 import { teamsRoutes } from './routes/teams.js'
 import { agentsRoutes } from './routes/agents.js'
 import { channelGovernanceRoutes } from './routes/channelGovernance.js'
@@ -868,6 +869,7 @@ await app.register(enrichmentRoutes)
 await app.register(kommoIntegrationRoutes)
 await app.register(kommoWebhookRoutes)
 await app.register(crmEduIntegrationRoutes)
+await app.register(seiIntegrationRoutes)
 await app.register(helpdeskRoutes)
 await app.register(helpdeskKbRoutes)
 await app.register(helpdeskPortalRoutes)
@@ -1516,6 +1518,10 @@ import('./services/profilePictureSync.js')
   import('./services/crmEduSync.js')
     .then(m => m.startCrmEduScheduler())
     .catch(err => console.error('[crmEduSync] agendador não iniciou:', err))
+  // Integração SEI — agendador de envios + gatilho matricula.efetivada; só age com sei.enabled=true
+  import('./services/seiIntegracao.js')
+    .then(m => m.iniciarIntegracaoSei())
+    .catch(err => console.error('[sei] integração não iniciou:', err))
   import('./services/cloudApiTemplates.js')
     .then(m => m.startCloudApiTemplateScheduler())
     .catch(err => console.warn('[cloudApiTemplates] init falhou:', err?.message || err))

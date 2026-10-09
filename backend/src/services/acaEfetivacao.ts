@@ -11,6 +11,7 @@
 // É idempotente: chamar duas vezes na mesma inscrição devolve o que já existe.
 
 import { prisma } from '../lib/prisma.js'
+import { eventBus } from '../lib/eventBus.js'
 import { logEvent } from './leadHistory.js'
 
 const ATIVOS = ['INSCRITO', 'PRE_MATRICULA', 'MATRICULADO'] as const
@@ -329,7 +330,7 @@ export async function efetivarPorContratoAssinado(envelopeId: number): Promise<v
 
   const mat = await prisma.acaMatricula.findUnique({
     where: { id: env.matriculaId },
-    select: { id: true, status: true, vinculoId: true, listaEspera: true },
+    select: { id: true, status: true, vinculoId: true, listaEspera: true, enrollmentRegistrationId: true },
   })
   // Quem está em lista de espera não vira matriculado por ter assinado: primeiro
   // precisa de vaga (promover), senão a turma estoura a capacidade em silêncio.
@@ -356,6 +357,15 @@ export async function efetivarPorContratoAssinado(envelopeId: number): Promise<v
   })
   if (mat.vinculoId) {
     await prisma.acaVinculo.update({ where: { id: mat.vinculoId }, data: { situacao: 'ATIVO' } })
+  }
+  // Fim do roteiro do portal: integrações (ex.: SEI) escutam este evento.
+  if (dono?.leadId) {
+    eventBus.emitDomain({
+      type: 'matricula.efetivada',
+      leadId: dono.leadId,
+      payload: { matriculaId: mat.id, registrationId: mat.enrollmentRegistrationId ?? null, envelopeId },
+      timestamp: new Date(),
+    })
   }
 }
 
