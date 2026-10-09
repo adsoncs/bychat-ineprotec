@@ -219,6 +219,7 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
   const [painel, setPainel] = useState<Etapa[]>(() => normalizar(bruto?.painel, PADRAO_PAINEL))
   const [dirty, setDirty] = useState(false)
   const [dados, setDados] = useState<DadosConfig | null>(() => bruto?.dados ?? null)
+  const [matricula, setMatricula] = useState<Matricula>(() => lerMatricula(bruto?.matricula))
   const catalogo = useDadosEtapas()
   const update = useUpdateEnrollmentPortal()
   // Formas de ingresso que a trava pode escolher: as dos processos deste
@@ -249,13 +250,14 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
     setMesma(!!b && (b.painel === null || b.painel === undefined))
     setPainel(normalizar(b?.painel, PADRAO_PAINEL))
     setDados(b?.dados ?? null)
+    setMatricula(lerMatricula(b?.matricula))
     setDirty(false)
   }, [portal.id])
 
   const marca = <T,>(f: (v: T) => void) => (v: T) => { f(v); setDirty(true) }
 
   function salvar() {
-    update.mutate({ id: portal.id, jornadaEtapas: { inscricao, painel: mesma ? null : painel, dados } } as any, {
+    update.mutate({ id: portal.id, jornadaEtapas: { inscricao, painel: mesma ? null : painel, dados, matricula } } as any, {
       onSuccess: () => { toast('Etapas salvas', 'success'); setDirty(false) },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
@@ -295,11 +297,49 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
         catalogo={catalogo.data}
         cobraNaInscricao={!!portal.requirePayment && inscricao.some((e) => e.chave === 'pagamento' && e.ativo)}
       />
+      <SecaoMatricula valor={matricula} onChange={(v) => { setMatricula(v); setDirty(true) }} />
 
       <div class="flex justify-end">
         <Button onClick={salvar} disabled={update.isPending}><Save size={14} /> {update.isPending ? 'Salvando…' : 'Salvar etapas'}</Button>
       </div>
     </div>
+  )
+}
+
+/** Regras da matrícula deste portal (backend: MatriculaConfig em services/portalJornada). */
+interface Matricula { exigeContrato: boolean; enviarSei: boolean }
+
+function lerMatricula(b: any): Matricula {
+  return { exigeContrato: b?.exigeContrato !== false, enviarSei: b?.enviarSei !== false }
+}
+
+function SecaoMatricula(p: { valor: Matricula; onChange: (v: Matricula) => void }) {
+  return (
+    <Card class="p-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <GraduationCap size={18} class="text-accent mt-0.5" />
+        <div>
+          <div class="font-semibold text-sm">Matrícula</div>
+          <div class="text-xs text-fg-muted">Depois da inscrição: o que a matrícula exige no ERP e se ela vai para o SEI.</div>
+        </div>
+      </div>
+      <label class="flex items-start gap-2 text-sm cursor-pointer">
+        <input type="checkbox" class="mt-0.5" checked={p.valor.exigeContrato}
+          onChange={(e) => p.onChange({ ...p.valor, exigeContrato: (e.target as HTMLInputElement).checked })} />
+        <span>
+          Exigir contrato para efetivar a matrícula
+          <span class="block text-xs text-fg-muted">Desligado: efetivar a inscrição já matricula o aluno, sem contrato e sem disparar o gatilho de contrato (ex.: extensão).</span>
+        </span>
+      </label>
+      <label class="flex items-start gap-2 text-sm cursor-pointer">
+        <input type="checkbox" class="mt-0.5" checked={p.valor.enviarSei}
+          onChange={(e) => p.onChange({ ...p.valor, enviarSei: (e.target as HTMLInputElement).checked })} />
+        <span>
+          Enviar as inscrições deste portal ao SEI
+          <span class="block text-xs text-fg-muted">Desligado: as inscrições deste portal não aparecem no envio ao SEI e não vão nem pelo envio manual.</span>
+        </span>
+      </label>
+    </Card>
   )
 }
 

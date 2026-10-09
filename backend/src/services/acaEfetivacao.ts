@@ -24,6 +24,8 @@ export interface ResultadoEfetivacao {
   turmaId: number
   listaEspera: boolean
   jaExistia: boolean
+  /** Portal sem contrato: a matrícula já nasceu MATRICULADO (aviso do financeiro, se houver). */
+  semContrato?: { financeiroAviso: string | null }
 }
 
 /** Primeiro valor não-vazio entre as chaves candidatas do formData. */
@@ -187,7 +189,7 @@ export async function efetivarInscricao(
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      id: true, candidateCode: true, status: true, leadId: true, formData: true,
+      id: true, candidateCode: true, status: true, leadId: true, formData: true, portalId: true,
       processRegistration: {
         select: {
           id: true, offeringId: true,
@@ -300,6 +302,27 @@ export async function efetivarInscricao(
     description: `Inscrição ${reg.candidateCode} efetivada — RA ${aluno.ra ?? '—'}, matrícula #${matricula.id}.`,
     metadata: { registrationId: reg.id, alunoId: aluno.id, matriculaId: matricula.id, turmaId, listaEspera },
   })
+
+  // Portal sem contrato (Portais › Etapas › Matrícula): efetivar já matricula —
+  // o mesmo que o botão "Efetivar" da secretaria, sem esperar aceite nenhum — e
+  // não dispara o gatilho de contrato. Lista de espera continua esperando vaga.
+  const { matriculaDoPortal } = await import('./portalJornada.js')
+  const regrasPortal = await matriculaDoPortal(reg.portalId)
+  if (!regrasPortal.exigeContrato) {
+    let financeiroAviso: string | null = null
+    if (!listaEspera) {
+      await prisma.acaMatricula.update({ where: { id: matricula.id }, data: { status: 'MATRICULADO' } })
+      await prisma.acaMatriculaEvento.create({
+        data: { matriculaId: matricula.id, de: 'INSCRITO', para: 'MATRICULADO', obs: 'Matrícula efetivada — portal sem contrato' },
+      })
+      try { await (await import('./acaFinanceiro.js')).gerarContratoEParcelas(matricula.id) }
+      catch (e: any) { financeiroAviso = e?.message || 'falha ao gerar financeiro' }
+    }
+    return {
+      alunoId: aluno.id, ra: aluno.ra, vinculoId, matriculaId: matricula.id,
+      turmaId, listaEspera, jaExistia: false, semContrato: { financeiroAviso },
+    }
+  }
 
   // Mesmo gatilho da matrícula feita pela secretaria (acaMatricula.ts): quem
   // entra pelo portal não pode ficar sem o contrato que os outros recebem.

@@ -33,7 +33,7 @@ import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import * as sei from '../lib/seiClient.js'
 import { previa, processar, navegarOferta, SeiPendencia, type MapaOferta } from './seiIntegracao.js'
-import { etapasDaInscricao } from './portalJornada.js'
+import { etapasDaInscricao, lerJornada } from './portalJornada.js'
 import { requisitosQueValem } from './docCondicional.js'
 
 // ── Regras de envio ─────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
     select: {
       id: true, status: true, mergedIntoId: true, contratoAceite: true, formData: true,
       paymentStatus: true, paymentPaidAt: true,
-      portal: { select: { requirePayment: true } },
+      portal: { select: { requirePayment: true, jornadaEtapas: true } },
       documents: { select: { typeCode: true, status: true }, orderBy: { uploadedAt: 'desc' } },
       processRegistration: {
         select: {
@@ -231,6 +231,10 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
   // 1) Portal
   const fora = reg.mergedIntoId ? 'merged' : STATUS_FORA.has(reg.status) ? reg.status : null
   add('portal', !fora, fora ? `Inscrição ${ROTULO_STATUS[fora] ?? fora}.` : 'Inscrição ativa.')
+  // Regras da matrícula do portal (Portais › Etapas): portal fora do SEI não envia,
+  // nem pelo botão manual; portal sem contrato não cobra assinatura.
+  const regrasPortal = lerJornada(reg.portal?.jornadaEtapas).matricula
+  if (regrasPortal && !regrasPortal.enviarSei) add('portal', false, 'Este portal não envia ao SEI (Portais › Etapas › Matrícula).')
 
   // Etapas das duas sequências (inscrição e portal logado): todas concluídas.
   const vistas = new Set<string>()
@@ -272,7 +276,7 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
   })
   const assinou = !!(reg.contratoAceite as any)?.em || !!matricula?.contrato?.aceiteEm
     || !!(await prisma.acaAssinatura.findFirst({ where: { registrationId, status: 'ASSINADO' }, select: { id: true } }))
-  if (!vistas.has('contrato')) add('portal', assinou, assinou ? 'Contrato assinado.' : 'Contrato ainda não assinado.')
+  if (!vistas.has('contrato') && regrasPortal?.exigeContrato !== false) add('portal', assinou, assinou ? 'Contrato assinado.' : 'Contrato ainda não assinado.')
   if (regras.exigirEfetivacao) {
     const ok = matricula?.status === 'MATRICULADO'
     add('portal', ok, ok ? 'Matrícula efetivada no portal.' : 'Matrícula ainda não efetivada no portal.')
@@ -313,7 +317,7 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
       ? `Documento obrigatório sem tipo do SEI no de-para: ${semMapa.map((x) => x.documentType.name).join(', ')}.`
       : 'Documentos obrigatórios com tipo do SEI no de-para.')
   }
-  if (cfg.enviarContrato) {
+  if (cfg.enviarContrato && regrasPortal?.exigeContrato !== false) {
     add('depara', !!pv.contrato, pv.contrato
       ? 'PDF do contrato assinado encontrado.'
       : 'PDF do contrato assinado não encontrado (o contrato foi só aceito na tela?). Desligue "Enviar o contrato" ou gere o PDF assinado.')
@@ -348,6 +352,10 @@ const AINDA_A_ENVIAR = ['BLOQUEADO', 'RETIDO', 'CANCELADO']
  */
 async function idsCandidatos(portais: number[] = [], limite = 300): Promise<number[]> {
   const desde = new Date(Date.now() - 365 * 86_400_000)
+  // Portais com o envio ao SEI desligado nem entram na lista.
+  const foraDoSei = (await prisma.enrollmentPortal.findMany({ select: { id: true, jornadaEtapas: true } }))
+    .filter((p) => lerJornada(p.jornadaEtapas).matricula?.enviarSei === false)
+    .map((p) => p.id)
   const comMatricula = await prisma.acaMatricula.findMany({
     where: { enrollmentRegistrationId: { not: null }, createdAt: { gte: desde } },
     select: { enrollmentRegistrationId: true },
@@ -357,7 +365,9 @@ async function idsCandidatos(portais: number[] = [], limite = 300): Promise<numb
       createdAt: { gte: desde },
       mergedIntoId: null,
       status: { notIn: [...STATUS_FORA] },
-      ...(portais.length ? { portalId: { in: portais } } : {}),
+      ...(portais.length || foraDoSei.length
+        ? { portalId: { ...(portais.length ? { in: portais } : {}), ...(foraDoSei.length ? { notIn: foraDoSei } : {}) } }
+        : {}),
       OR: [
         { status: { in: ['enrolled', 'approved', 'docs_approved'] } },
         { id: { in: comMatricula.map((m) => m.enrollmentRegistrationId!) } },

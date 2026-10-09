@@ -48,6 +48,31 @@ export interface JornadaConfig {
   /** Dados pedidos em cada etapa, ajustados para este portal (services/dadosCadastro).
    *  null = usa o padrão da instituição. */
   dados?: unknown
+  /** O que vale depois da inscrição, já no ERP e no SEI (lerJornada sempre preenche). */
+  matricula?: MatriculaConfig
+}
+
+/**
+ * Regras da matrícula por portal. Portal de curso livre (extensão, por exemplo)
+ * não tem contrato e não vai para o SEI: sem isto, a matrícula ficava parada em
+ * INSCRITO esperando um aceite que nunca vem, e o SEI cobrava "contrato não assinado".
+ */
+export interface MatriculaConfig {
+  /** A matrícula só vira MATRICULADO com o contrato aceito/assinado. Desligado:
+   *  efetivar a inscrição já matricula, sem contrato. */
+  exigeContrato: boolean
+  /** As inscrições deste portal entram no envio ao SEI. */
+  enviarSei: boolean
+}
+
+export const MATRICULA_PADRAO: MatriculaConfig = { exigeContrato: true, enviarSei: true }
+
+function lerMatricula(bruto: unknown): MatriculaConfig {
+  const b = (bruto && typeof bruto === 'object' ? bruto : {}) as any
+  return {
+    exigeContrato: b.exigeContrato === undefined ? MATRICULA_PADRAO.exigeContrato : !!b.exigeContrato,
+    enviarSei: b.enviarSei === undefined ? MATRICULA_PADRAO.enviarSei : !!b.enviarSei,
+  }
 }
 
 export const ROTULO: Record<ChaveEtapa, string> = {
@@ -122,19 +147,27 @@ function normalizarLista(bruto: unknown, padrao: EtapaConfig[]): EtapaConfig[] {
 
 export function lerJornada(bruto: unknown): JornadaConfig {
   const b = (bruto && typeof bruto === 'object' ? bruto : null) as any
-  if (!b) return { inscricao: normalizarLista(null, PADRAO.inscricao), painel: normalizarLista(null, PADRAO.painel!) }
+  if (!b) return { inscricao: normalizarLista(null, PADRAO.inscricao), painel: normalizarLista(null, PADRAO.painel!), matricula: { ...MATRICULA_PADRAO } }
   const inscricao = normalizarLista(b.inscricao, PADRAO.inscricao)
   return {
     inscricao,
     painel: b.painel === null || b.painel === undefined ? null : normalizarLista(b.painel, PADRAO.painel!),
     dados: b.dados ?? null,
+    matricula: lerMatricula(b.matricula),
   }
 }
 
 /** O que gravar: normalizado, com todas as chaves, a ordem recebida e os dados do portal. */
 export function jornadaParaGravar(bruto: unknown): JornadaConfig {
   const j = lerJornada(bruto)
-  return { inscricao: j.inscricao, painel: j.painel, dados: normalizarDados(j.dados) }
+  return { inscricao: j.inscricao, painel: j.painel, dados: normalizarDados(j.dados), matricula: j.matricula }
+}
+
+/** Regras da matrícula do portal (padrão quando o portal não configurou). */
+export async function matriculaDoPortal(portalId: number | null | undefined): Promise<MatriculaConfig> {
+  if (!portalId) return { ...MATRICULA_PADRAO }
+  const p = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { jornadaEtapas: true } })
+  return lerJornada(p?.jornadaEtapas).matricula ?? { ...MATRICULA_PADRAO }
 }
 
 // ─── Situação de cada etapa para uma inscrição ────────────────────────────
