@@ -1082,11 +1082,37 @@ async function repassarParaTenants(body: any, proprios: Set<string>, appSecret: 
 }
 
 /** Lead do contato (IGSID/PSID) — cria com o perfil real se ainda não existe. */
+const ultimaTentativaPerfil = new Map<number, number>()
+async function completarPerfil(leadId: number, contatoId: string, channel: 'instagram' | 'messenger', app: FastifyInstance) {
+  const agora = Date.now()
+  if (agora - (ultimaTentativaPerfil.get(leadId) ?? 0) < 6 * 3600_000) return
+  ultimaTentativaPerfil.set(leadId, agora)
+  const prof = await fetchSenderProfile(contatoId, channel)
+  if (!prof.name && !prof.username) return
+  const atual = await prisma.lead.findUnique({ where: { id: leadId }, select: { nome: true, formData: true } })
+  if (!atual) return
+  const formData: Record<string, any> = { ...((atual.formData as any) || {}) }
+  if (prof.username) formData.instagramUsername = prof.username
+  if (prof.profilePic) formData.profilePicUrl = prof.profilePic
+  // Só troca o nome se ninguém o editou nesse meio-tempo.
+  const nomePadrao = /^(Instagram|Messenger) #\d+$/.test(atual.nome || '')
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: { formData, ...(nomePadrao ? { nome: prof.name || `@${prof.username}` } : {}) },
+  })
+  if (prof.profilePic) cacheIgAvatar(leadId, prof.profilePic, app).catch(() => {})
+}
+
 async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenger', app: FastifyInstance) {
   const canalNome = channel === 'messenger' ? 'Messenger' : 'Instagram'
   const uid = `${channel}:${contatoId}`
   const existente = await prisma.lead.findFirst({ where: { uid } })
-  if (existente) return existente
+  if (existente) {
+    // Ficha criada sem o perfil (Meta recusou: app sem Acesso Avançado,
+    // instabilidade). Tenta de novo a cada mensagem, no máximo 1x a cada 6h.
+    if (existente.nome === `${canalNome} #${contatoId}`) completarPerfil(existente.id, contatoId, channel, app).catch(() => {})
+    return existente
+  }
   // Dois DMs seguidos do mesmo perfil passavam os dois pela busca acima
   // e criavam duas fichas. A trava serializa por `uid` (que aqui já é a
   // identidade: "instagram:<senderId>") e a tarefa começa procurando de
