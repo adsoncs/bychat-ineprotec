@@ -48,70 +48,19 @@ export type ProviderType = 'evolution' | 'cloud_api'
 
 // ─── Constants ──────────────────────────────────────────
 
+// Prompt padrão do modo "IA (conversa livre)" quando o chatbot não tem prompt
+// próprio. Neutro de propósito: antes era o roteiro do diagnóstico Raio-X de
+// Growth (produto da Beyond), e qualquer chatbot sem prompt atendia o cliente
+// de outra empresa com ele.
 function buildChatSystemPrompt(brandName: string): string {
-  return `Você é a IA assistente da ${brandName}. Você está conduzindo um diagnóstico gratuito por WhatsApp.
+  return `Você é a atendente virtual da ${brandName}, conversando por WhatsApp.
 
-REGRA PRINCIPAL: FAÇA APENAS UMA PERGUNTA POR MENSAGEM. Nunca faça duas ou mais perguntas na mesma mensagem. Espere a resposta antes de perguntar a próxima. Isso é extremamente importante.
-
-REGRAS DE COMPORTAMENTO:
-- Sempre responda em português do Brasil
-- Seja calorosa mas profissional, sem ser excessivamente informal
-- UMA PERGUNTA POR VEZ — isso é inegociável
-- Ao receber a resposta, confirme brevemente (1 frase curta) e faça a próxima pergunta
-- Se o usuário der múltiplas informações numa só resposta, aceite todas e pule para a próxima pergunta pendente
-- Use emojis com moderação (1 por mensagem no máximo)
-- Se a resposta for vaga, peça gentilmente para ser mais específico
-- Mantenha respostas curtas (2-3 frases no máximo)
-- IMPORTANTE: Formate suas respostas de forma simples, sem markdown complexo. Use apenas *negrito* quando necessário.
-
-SEQUÊNCIA EXATA DE PERGUNTAS (siga esta ordem rigorosamente, uma por vez):
-
-1. Cumprimento + pergunte o NOME da pessoa
-2. Nome da EMPRESA
-3. E-MAIL para envio do diagnóstico
-4. SEGMENTO da empresa (dê as opções: Varejo/E-commerce, Serviços B2B, Serviços B2C, Saúde e Bem-estar, Educação, Imóveis, Tecnologia/SaaS, Alimentação, Indústria, Outro)
-5. CIDADE/Estado
-6. TAMANHO da empresa (Só você/autônomo, Micro até 10 pessoas, Pequena 11-30, Média 30+)
-7. TEMPO de mercado (Menos de 1 ano, 1 a 3 anos, 3 a 7 anos, Mais de 7 anos)
-8. Qual o MAIOR DESAFIO da empresa hoje? (texto livre)
-9. Como define o MOMENTO da empresa? (Crescendo mas desestruturado, Estagnada, Faturamento em queda, Em início)
-10. Qual a META principal para os próximos 3-6 meses?
-11. Onde sente MAIS DIFICULDADE? (pode citar vários: Marketing, Vendas, Posicionamento, Processo, Tecnologia, Dados, Equipe, Financeiro)
-12. INVESTE em marketing? (Tráfego pago, Orgânico, Os dois, Não investe)
-13. Quais CANAIS usa? (Instagram, Google Ads, Meta Ads, YouTube, TikTok, E-mail, WhatsApp, Indicação)
-14. O que JÁ TROUXE RESULTADO em marketing?
-15. O que NÃO FUNCIONOU?
-16. Tem DIFICULDADE em gerar leads qualificados? (Grande dificuldade, Um pouco, Não mas não converto, Não está bem)
-17. Possui SITE ou landing page? (Sim bem estruturado, Sim mas fraco, Em construção, Não possui)
-18. Produz CRIATIVOS e conteúdo com frequência? (Sim consistente, Esporadicamente, Raramente, Não)
-19. Qual o principal PRODUTO/SERVIÇO?
-20. Qual o DIFERENCIAL percebido pelo mercado?
-21. O mercado ENTENDE seu diferencial? (Sim claramente, Parcialmente, Não há confusão, Não sei)
-22. Tem PROVA SOCIAL (cases, depoimentos)? (Muitos e fortes, Poucos/fracos, Construindo, Não tenho)
-23. Como avalia a FORÇA DA OFERTA principal? (Muito forte, Boa mas pode melhorar, Fraca/confusa, Reformulando)
-24. Existe UPSELL ou produto complementar? (Sim estruturado, Sim informal, Não mas quero, Não)
-25. Como os leads são ATENDIDOS hoje? (texto livre)
-26. Possui TIME COMERCIAL? (Sim estruturado, Sim informal, Sou eu mesmo, Não)
-27. Possui FUNIL de vendas definido? (Sim documentado, Sim informal, Parcialmente, Não)
-28. Sente que PERDE VENDAS por falta de processo? (Sim muito, Às vezes, Raramente, Não)
-29. Usa CRM? (Sim ativo, Sim pouco usado, Planilha apenas, Nada)
-30. ACOMPANHA os números do negócio? (Sim tenho controle, Sim básico, Pouco, Não)
-31. Quais MÉTRICAS acompanha? (Faturamento, CAC, CPL, Taxa de conversão, Ticket médio, Churn, ROAS/ROI, Nenhum)
-32. Sente FALTA DE CLAREZA nos dados? (Sim muito, Um pouco, Não tenho clareza, Não uso dados)
-33. Quais FERRAMENTAS usa? (Planilhas, Dashboards, CRM, ERP, Automações, Nenhuma)
-34. Algum PROBLEMA OPERACIONAL que poderia ser resolvido com tecnologia?
-35. Consegue PRODUZIR VÍDEOS e conteúdo? (Sim com frequência, Sim com dificuldade, Raramente, Não)
-36. Tem pessoa interna para APOIAR MARKETING? (Sim dedicado, Sim parcialmente, Faço tudo eu, Não)
-37. Tem CAPACIDADE para atender mais demanda? (Sim fácil, Sim com esforço, No limite, Não)
-38. ORÇAMENTO disponível para crescimento? (Tenho orçamento, Limitado, Precisa provar ROI, Sem orçamento)
-39. Qual FAIXA DE INVESTIMENTO mensal em marketing? (Sem orçamento, Até R$1.000, R$1.000-2.500, R$2.500-5.000, R$5.000-10.000, R$10.000-20.000, Acima de R$20.000)
-
-Após a pergunta 39, agradeça e diga que o diagnóstico está sendo gerado e que em instantes ele receberá o resultado.
-
-IMPORTANTE:
-- Se o usuário responder várias coisas de uma vez, aceite e pule para a próxima pergunta pendente
-- Campos com * são obrigatórios — se o usuário pular, insista gentilmente
-- Adapte linguagem natural para os valores internos`
+REGRAS:
+- Responda sempre em português do Brasil, com cordialidade e objetividade, em mensagens curtas.
+- Faça no máximo UMA pergunta por mensagem.
+- Entenda o que a pessoa precisa e ajude com o que souber. Não invente preços, prazos, produtos, serviços nem políticas: se não souber, diga que a equipe vai responder por aqui.
+- Quando a pessoa pedir para falar com alguém, ou o assunto precisar da equipe, diga que a equipe continua o atendimento nesta conversa.
+- Não faça diagnósticos, questionários ou pontuações.`
 }
 
 const EXTRACTION_PROMPT = `Analise a conversa abaixo e extraia os dados estruturados do diagnóstico. Retorne APENAS JSON válido (sem markdown, sem backticks).
@@ -342,12 +291,22 @@ export async function chatbotTriggerAllows(chatbotId: number | null | undefined,
     const { readBotPause } = await import('./botTakeover.js')
     if (readBotPause(paused.formData)) return false
   }
-  const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { active: true, triggerMode: true, triggerKeywords: true } }).catch(() => null)
+  const cb = await prisma.chatbot.findUnique({ where: { id: chatbotId }, select: { active: true, triggerMode: true, triggerKeywords: true, mode: true, formId: true } }).catch(() => null)
   // Chatbot desativado (ou apagado) NUNCA responde — antes esta função ignorava
   // `active` por completo: uma conexão/instância deixada com chatbotId vinculado
   // continuava disparando a IA mesmo com o toggle "Inativo" na tela de Chatbots,
   // que só bloqueava rotas de admin (widget/embed), não o atendimento real.
   if (!cb || !cb.active) return false
+  // Roteiro e jornada de IA dependem do formulário: inativo ou apagado, o bot não
+  // responde e a conversa fica para a equipe. Antes caía no fluxo de conversa
+  // livre, que saudou um contato da FABAD com o texto de outra empresa.
+  if (cb.mode === 'scripted' || cb.mode === 'ai_journey') {
+    const f = cb.formId ? await prisma.form.findUnique({ where: { id: cb.formId }, select: { active: true } }).catch(() => null) : null
+    if (!f?.active) {
+      console.warn(`[chatbot] ${chatbotId} (${cb.mode}) sem formulário ativo — mensagem fica para a equipe`)
+      return false
+    }
+  }
   if (cb.triggerMode !== 'keyword') return true
   const kws = (Array.isArray(cb.triggerKeywords) ? cb.triggerKeywords : []).map((k: any) => String(k || '')).filter(Boolean)
   if (!kws.length) return true
@@ -436,13 +395,7 @@ export async function processChatbotMessage(
     // mandou a saudação): esta segue o fluxo normal em vez de saudar de novo.
     if (jaExiste) return { lead: jaExiste, saudou: false }
     // Cria novo lead
-    const firstMessage = greetingMsg || `Olá! 👋 Eu sou a assistente virtual da ${brand.brandName}.
-
-Estou aqui para fazer um *diagnóstico gratuito* do seu negócio — o nosso *Raio-X de Growth*.
-
-Em poucos minutos de conversa, vou entender o momento da sua empresa e gerar um relatório completo com scores, pontos fortes e uma recomendação personalizada.
-
-Para começar, qual é o seu *nome*?`
+    const firstMessage = greetingMsg || `Olá! 👋 Aqui é do atendimento da ${brand.brandName}. Como posso te ajudar?`
 
     // Reforma F2: instância dedicada a um agente (ownerUserId) tem prioridade
     // sobre cascata por setor. resolveRoutingFromContext já cobre isso quando
@@ -556,7 +509,7 @@ Para começar, qual é o seu *nome*?`
           provider,
           ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
           ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-          senderName: attendantName || 'Beyond AI',
+          senderName: attendantName || 'Atendimento',
           isInternal: false,
           externalId: greetMsgId,
           ack: greetMsgId ? 1 : 0,
@@ -609,7 +562,8 @@ Para começar, qual é o seu *nome*?`
 
   const extractedFormData = extracted.formData || {}
   const currentStep = extracted.currentStep ?? lead.lastStep
-  const isCompleted = extracted.completed === true
+  // Relatório de pontuação só em chatbot com roteiro próprio: o padrão é neutro.
+  const isCompleted = extracted.completed === true && !!chatbot?.systemPrompt
 
   // Merge dados extraídos
   const updatedFormData = {
@@ -702,7 +656,7 @@ Para começar, qual é o seu *nome*?`
             provider,
             ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
             ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-            senderName: attendantName || 'Beyond AI',
+            senderName: attendantName || 'Atendimento',
             isInternal: false,
             externalId: compAiMsgId,
             ack: compAiMsgId ? 1 : 0,
@@ -851,7 +805,7 @@ ${linhaDoLink('🔗 Acesse o resultado completo:', '/')}`
         provider,
         ...(provider === 'evolution' && instanceName ? { evolutionInstance: instanceName } : {}),
         ...(provider === 'cloud_api' && cloudApiConnectionId ? { cloudApiConnectionId } : {}),
-        senderName: attendantName || 'Beyond AI',
+        senderName: attendantName || 'Atendimento',
         isInternal: false,
         externalId: aiMsgId,
         ack: aiMsgId ? 1 : 0,
