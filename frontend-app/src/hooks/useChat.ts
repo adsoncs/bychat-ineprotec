@@ -402,6 +402,18 @@ export interface SenderChannelsResponse {
   lockedChannelActive?: boolean | null
   /** Sempre false: ninguém troca o número dentro da conversa. */
   canOverrideChannel: boolean
+  /**
+   * Conversa de Instagram/Messenger: sem número (channels vem vazio) e com a
+   * janela da DM — 24h livre; até 7 dias só como atendimento humano.
+   */
+  social?: SocialChannelState | null
+}
+
+export interface SocialChannelState {
+  provider: 'instagram' | 'messenger'
+  /** @usuario do Instagram ou nome da Página. */
+  conta: string | null
+  window: SenderWindowState & { humanAgentUntil: string | null; humanAgentOpen: boolean }
 }
 
 export function useSenderChannels(leadId: number | null, enabled = true) {

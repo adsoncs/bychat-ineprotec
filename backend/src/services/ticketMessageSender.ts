@@ -218,22 +218,23 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   })()
 
   if (!isInternal) {
-    // Lead de Instagram/Messenger → responde via Graph /me/messages.
-    const igRecipient: string | null =
-      (lead.source === 'instagram' || lead.source === 'messenger' ||
-       (lead.uid || '').startsWith('instagram:') || (lead.uid || '').startsWith('messenger:'))
-        ? ((lead.formData as any)?.instagramSenderId || (lead.formData as any)?.messengerSenderId ||
-           (lead.uid || '').replace(/^(instagram|messenger):/, '') || null)
-        : null
+    // Lead de Instagram/Messenger → responde via Graph /me/messages. A janela é
+    // a da DM (routes/instagram → canalSocialDoLead), não a do WhatsApp Oficial.
+    const { destinatarioSocial, canalSocialDoLead } = await import('../routes/instagram.js')
+    const social = destinatarioSocial(lead as any)
+    const igRecipient: string | null = social?.recipient ?? null
 
     if (igRecipient) {
-      const igChannel = (lead.source === 'messenger' || (lead.uid || '').startsWith('messenger:')) ? 'messenger' : 'instagram'
-      const lastIn = await prisma.message.findFirst({
-        where: { leadId: lid, fromMe: false },
-        orderBy: { timestamp: 'desc' },
-        select: { timestamp: true },
-      })
-      const withinWindow = !!lastIn && (Date.now() - lastIn.timestamp.getTime()) < 24 * 3600 * 1000
+      const igChannel = social!.provider
+      const nomeCanal = igChannel === 'messenger' ? 'Messenger' : 'Instagram'
+      if (mType === 'template') return { ok: false, status: 400, error: `${nomeCanal} não usa modelo aprovado (HSM): responda com mensagem livre.` }
+      const estado = await canalSocialDoLead(lid)
+      const withinWindow = !!estado?.window.open
+      if (!withinWindow && !estado?.window.humanAgentOpen) {
+        return { ok: false, status: 400, error: estado?.window.lastInboundAt
+          ? `Passaram 7 dias da última mensagem do contato: o ${nomeCanal} só deixa responder quando ele escrever de novo.`
+          : `O contato ainda não escreveu pelo ${nomeCanal}: só dá para responder depois que ele mandar mensagem.` }
+      }
       let attachment: { type: string; url: string } | undefined
       if (mType !== 'text') {
         if (!mediaUrl) return { ok: false, status: 400, error: 'Mídia sem arquivo para enviar.' }
@@ -246,7 +247,10 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
         attachment = { type: igType, url: /^https?:\/\//.test(mediaUrl) ? mediaUrl : `${base}${mediaUrl}` }
       }
       const { sendInstagramDM } = await import('../routes/instagram.js')
-      const r = await sendInstagramDM(igRecipient, finalTextBody, { withinWindow, attachment })
+      // O Instagram não formata *negrito*/_itálico_ do WhatsApp: os marcadores
+      // (prefixo do operador, assinatura) chegariam crus ao contato.
+      const textoDM = finalTextBody.replace(/\*([^*\n]+)\*/g, '$1').replace(/(^|\s)_([^_\n]+)_(?=\s|$)/gm, '$1$2')
+      const r = await sendInstagramDM(igRecipient, textoDM, { withinWindow, attachment })
       sentProvider = igChannel
       sentExternalId = r.messageId
       sendError = r.error

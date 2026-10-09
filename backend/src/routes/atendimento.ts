@@ -985,6 +985,15 @@ export async function atendimentoRoutes(app: FastifyInstance) {
     const user = (req as any).user
     const leadId = q.leadId ? parseInt(q.leadId) : null
 
+    // Conversa de Instagram/Messenger: não há número a escolher nem modelo HSM.
+    // A janela é a da Meta para DM — 24h desde a última mensagem do contato
+    // POR ESSE canal; depois, até 7 dias, só com a marcação HUMAN_AGENT.
+    if (leadId) {
+      const { canalSocialDoLead } = await import('./instagram.js')
+      const social = await canalSocialDoLead(leadId)
+      if (social) return { channels: [], suggestedChannelId: null, lockedChannelId: null, lockedChannelActive: null, canOverrideChannel: false, social }
+    }
+
     const { resolveSenderChannels, suggestChannelForLead, getCloudWindowState } = await import('../services/whatsappProvider.js')
     const channels = await resolveSenderChannels({ userId: user.userId, role: user.role })
 

@@ -559,7 +559,8 @@ function ConversationsScreen() {
     // Outro número = OUTRA conversa (cada conversa tem número fixo). Submenu com
     // os números do operador, menos o desta conversa; independe do painel — vale
     // até em conversa resolvida, que não tem caixa de texto.
-    if (!grupo) {
+    const dmSocial = t.channel?.provider === 'instagram' || t.channel?.provider === 'messenger'
+    if (!grupo && !dmSocial) {
       const outros = (canaisDoMenu?.channels ?? []).filter((c) => c.id !== canaisDoMenu?.lockedChannelId)
       add({
         id: 'outro', rotulo: 'Falar por outro número', icone: <Smartphone size={I} />,
@@ -1862,10 +1863,14 @@ function ChatPanel({
   // qual número responder; pré-seleciona o canal de ENTRADA do lead. Sem isso o
   // backend resolvia sozinho e caía sempre na Cloud API.
   const { data: senderChannels } = useSenderChannels(leadId)
-  // Grupo não tem "número com WhatsApp" a conferir — o JID não é telefone.
-  const { data: waCheck } = useWhatsAppCheck(leadId, !ticket?.isGroup)
+  // Instagram/Messenger: sem número, sem modelo HSM, janela própria da DM.
+  const social = senderChannels?.social ?? null
+  const ehSocial = !!social || ticket?.channel?.provider === 'instagram' || ticket?.channel?.provider === 'messenger'
+  // Grupo não tem "número com WhatsApp" a conferir — o JID não é telefone; DM
+  // de Instagram/Messenger também não.
+  const { data: waCheck } = useWhatsAppCheck(leadId, !ticket?.isGroup && !ehSocial)
   /** Só afirma quando a resposta é conclusiva: `null` = não deu para saber. */
-  const semWhatsApp = waCheck?.existe === false
+  const semWhatsApp = !ehSocial && waCheck?.existe === false
   /**
    * Guarda de todos os caminhos de saída — texto, áudio, modelo e agendamento.
    * Bloquear só o `handleSend` deixaria o áudio e o HSM passarem, que é o mesmo
@@ -2342,6 +2347,8 @@ function ChatPanel({
    *  daqui. Fora disso o botão nem aparece — melhor que aparecer e falhar. */
   function podeEditarMensagem(m: ChatMessage): boolean {
     if (!m.fromMe || m.deletedForAll || m.id < 0) return false
+    // A DM do Instagram/Messenger não tem edição pela API.
+    if (ehSocial) return false
     if (m.mediaType && m.mediaType !== 'text') return false
     return (Date.now() - new Date(m.timestamp).getTime()) / 60_000 <= 15
   }
@@ -3589,6 +3596,29 @@ function ChatPanel({
                   modelo aprovado. O aviso vem ANTES de digitar — antes disto o
                   operador escrevia a resposta inteira e só descobria no envio,
                   com um erro que parecia falha do sistema. */}
+              {/* Instagram/Messenger: a janela é a da DM. Fora das 24h a Meta
+                  ainda aceita resposta de atendente humano por até 7 dias;
+                  depois, só quando o contato escrever de novo. Não há modelo. */}
+              {social && !isInternalNote && !social.window.open && (() => {
+                const nome = social.provider === 'messenger' ? 'Messenger' : 'Instagram'
+                const quando = (iso: string | null) => iso
+                  ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                  : null
+                const bloqueada = !social.window.humanAgentOpen
+                return (
+                  <div class={cn('mb-2 flex items-start gap-1.5 rounded-md border px-2.5 py-2 text-xs text-fg', bloqueada ? 'border-danger/40 bg-danger/10' : 'border-warning/40 bg-warning/10')}>
+                    <AlertTriangle size={ICON_SIZE.xs} class={cn('mt-0.5 shrink-0', bloqueada ? 'text-danger' : 'text-warning')} />
+                    <span>
+                      {!social.window.lastInboundAt
+                        ? <><b>O contato ainda não escreveu pelo {nome}.</b> Só dá para responder depois que ele mandar uma mensagem.</>
+                        : bloqueada
+                          ? <><b>Passaram 7 dias da última mensagem do contato</b> ({quando(social.window.lastInboundAt)}). O {nome} só deixa responder quando ele escrever de novo.</>
+                          : <><b>Fora da janela de 24h do {nome}.</b> A resposta vai como atendimento humano, permitido até {quando(social.window.humanAgentUntil)}.</>}
+                    </span>
+                  </div>
+                )
+              })()}
+
               {janelaFechada && !isInternalNote && (
                 <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs">
                   <span class="flex items-center gap-1.5 text-fg">

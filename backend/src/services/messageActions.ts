@@ -78,6 +78,12 @@ function chatDaMensagem(msg: MessageRow): string {
 /** Provider do canal por onde a mensagem SAIU. Editar/apagar exigem a mesma
  *  conexão que enviou: outra instância não conhece aquela mensagem. */
 async function providerDaMensagem(msg: MessageRow): Promise<WhatsAppProvider> {
+  if (msg.provider === 'instagram' || msg.provider === 'messenger') {
+    throw new MessageActionError(
+      `O ${msg.provider === 'messenger' ? 'Messenger' : 'Instagram'} não permite editar, apagar para todos nem reagir pelo painel. Só é possível apagar da sua tela.`,
+      409, 'UNSUPPORTED',
+    )
+  }
   if (msg.provider === 'cloud_api' && msg.cloudApiConnectionId) {
     const { provider } = await getProviderForChannel(`cloud:${msg.cloudApiConnectionId}`)
     return provider

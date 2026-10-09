@@ -180,6 +180,68 @@ async function fb(path: string, token: string, init?: { method?: string; body?: 
   return data
 }
 
+// Conversa de Instagram/Messenger: canal e janela de resposta da Meta para DM.
+// Até 24h da última mensagem do contato POR ESSE canal: livre. Depois, até 7
+// dias, só com a marcação HUMAN_AGENT. Passado isso, nada sai até ele escrever.
+export interface CanalSocial {
+  provider: 'instagram' | 'messenger'
+  conta: string | null
+  window: {
+    open: boolean
+    lastInboundAt: string | null
+    expiresAt: string | null
+    minutesRemaining: number | null
+    humanAgentUntil: string | null
+    humanAgentOpen: boolean
+  }
+}
+
+export function destinatarioSocial(lead: { source?: string | null; uid?: string | null; formData?: any }): { recipient: string; provider: 'instagram' | 'messenger' } | null {
+  const uid = lead.uid || ''
+  const social = lead.source === 'instagram' || lead.source === 'messenger' || uid.startsWith('instagram:') || uid.startsWith('messenger:')
+  if (!social) return null
+  const fd = (lead.formData as any) || {}
+  const recipient = fd.instagramSenderId || fd.messengerSenderId || uid.replace(/^(instagram|messenger):/, '') || null
+  if (!recipient) return null
+  return { recipient, provider: lead.source === 'messenger' || uid.startsWith('messenger:') ? 'messenger' : 'instagram' }
+}
+
+const DIA_MS = 24 * 3600 * 1000
+
+export async function canalSocialDoLead(leadId: number): Promise<CanalSocial | null> {
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { source: true, uid: true, formData: true } })
+  if (!lead) return null
+  const dest = destinatarioSocial(lead as any)
+  if (!dest) return null
+  const ultima = await prisma.message.findFirst({
+    where: { leadId, fromMe: false, isInternal: false, provider: dest.provider },
+    orderBy: { timestamp: 'desc' },
+    select: { timestamp: true },
+  })
+  const conn = await loadConnection().catch(() => null)
+  const conta = dest.provider === 'instagram'
+    ? (conn?.igUsername ? `@${conn.igUsername}` : null)
+    : (conn?.pageName || null)
+  if (!ultima) {
+    return { provider: dest.provider, conta, window: { open: false, lastInboundAt: null, expiresAt: null, minutesRemaining: null, humanAgentUntil: null, humanAgentOpen: false } }
+  }
+  const t = ultima.timestamp.getTime()
+  const resta = t + DIA_MS - Date.now()
+  const humano = t + 7 * DIA_MS
+  return {
+    provider: dest.provider,
+    conta,
+    window: {
+      open: resta > 0,
+      lastInboundAt: ultima.timestamp.toISOString(),
+      expiresAt: new Date(t + DIA_MS).toISOString(),
+      minutesRemaining: resta > 0 ? Math.floor(resta / 60000) : 0,
+      humanAgentUntil: new Date(humano).toISOString(),
+      humanAgentOpen: humano > Date.now(),
+    },
+  }
+}
+
 // Envio reusável de DM (Instagram/Messenger) — usado pelo atendimento (Conversas).
 // Dentro da janela de 24h usa messaging_type RESPONSE; fora dela, MESSAGE_TAG +
 // HUMAN_AGENT (resposta de atendente humano, permite até 7 dias). Sem conexão ou
