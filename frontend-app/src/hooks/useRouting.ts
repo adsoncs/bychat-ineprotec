@@ -526,3 +526,23 @@ export function useReorderRoutingRules() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['routing', 'rules'] }),
   })
 }
+
+// ── Transferir para qualquer pessoa ─────────────────────────────────
+export function useTransferAnyone() {
+  return useQuery({
+    queryKey: ['routing', 'transfer-anyone'],
+    queryFn: () => api.get<{ enabled: boolean }>('/admin/routing/transfer-anyone'),
+    staleTime: 30_000,
+  })
+}
+
+export function useSetTransferAnyone() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) => api.post<{ enabled: boolean }>('/admin/routing/transfer-anyone', { enabled }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['routing', 'transfer-anyone'] })
+      qc.invalidateQueries({ queryKey: ['lead-destinos'] })
+    },
+  })
+}

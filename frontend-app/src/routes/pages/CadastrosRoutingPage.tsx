@@ -22,7 +22,7 @@ import {
   useRoutingRules, useToggleRoutingRule, useDeleteRoutingRule, useReorderRoutingRules,
   useEscalationConfig, useUpdateEscalationConfig,
   useShiftConfig, useUpdateShiftConfig,
-  useTransferTimeout, useSetTransferTimeout,
+  useTransferTimeout, useSetTransferTimeout, useTransferAnyone, useSetTransferAnyone,
   type RoutingAgent, type RoutingRule,
 } from '@/hooks/useRouting'
 import { AgentEditDrawer } from '@/components/routing/AgentEditDrawer'
@@ -265,6 +265,7 @@ function PolicyTab() {
       <EscalationCard />
       <ShiftCard />
       <TransferTimeoutCard />
+      <TransferAnyoneCard />
     </div>
   )
 }
@@ -444,6 +445,40 @@ function ShiftCard() {
             </div>
           </div>
         </div>
+      </div>
+    </Card>
+  )
+}
+
+function TransferAnyoneCard() {
+  const cfg = useTransferAnyone()
+  const update = useSetTransferAnyone()
+  if (cfg.isLoading || !cfg.data) return <Skeleton class="h-20 w-full" />
+  const ligado = cfg.data.enabled
+  const alternar = async () => {
+    try {
+      await update.mutateAsync(!ligado)
+      toast(!ligado ? 'Agentes podem transferir para qualquer pessoa' : 'Agentes transferem só para colegas e filas', 'success')
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Falha ao salvar', 'danger')
+    }
+  }
+  return (
+    <Card>
+      <div class="p-4 flex items-start gap-4">
+        <div class="p-2 rounded-md bg-surface-2 text-fg-muted">
+          <ArrowRightLeft class="w-5 h-5" />
+        </div>
+        <label class="flex-1 flex items-start gap-3 cursor-pointer">
+          <span class="flex-1">
+            <span class="block font-medium">Agentes transferem para qualquer pessoa</span>
+            <span class="block text-sm text-fg-muted mt-1">
+              Ligado: na transferência, todo agente vê as pessoas de todos os setores e pode passar a conversa direto para qualquer uma.
+              Desligado: o agente vê só os colegas das suas equipes e manda para a fila dos outros setores.
+            </span>
+          </span>
+          <input type="checkbox" class="size-5 mt-1 accent-accent" checked={ligado} disabled={update.isPending} onInput={alternar} />
+        </label>
       </div>
     </Card>
   )

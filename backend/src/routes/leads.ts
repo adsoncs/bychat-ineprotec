@@ -1141,6 +1141,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     const user = (req as any).user as JwtPayload
     const admin = user.role === 'SUPERADMIN' || user.role === 'ADMIN'
     const nome = (u: { name: string | null; email: string }) => u.name || u.email.split('@')[0]
+    // Instituição que libera transferir para qualquer pessoa (Roteamento ›
+    // Transferência): o agente enxerga os membros de todas as equipes.
+    const sTodos = await prisma.setting.findUnique({ where: { key: 'routing.transfer.anyone' } }).catch(() => null)
+    const liberado = admin || sTodos?.value === true || sTodos?.value === 'true'
 
     const [teams, minhas] = await Promise.all([
       prisma.team.findMany({
@@ -1158,7 +1162,7 @@ export async function leadsRoutes(app: FastifyInstance) {
       admin ? Promise.resolve([]) : prisma.teamMember.findMany({ where: { userId: user.userId }, select: { teamId: true } }),
     ])
     const minhasEquipes = new Set(minhas.map((m) => m.teamId))
-    const vejoMembros = (teamId: number) => admin || minhasEquipes.has(teamId)
+    const vejoMembros = (teamId: number) => liberado || minhasEquipes.has(teamId)
 
     const equipes = teams.map((t) => ({
       id: t.id,
@@ -1171,7 +1175,7 @@ export async function leadsRoutes(app: FastifyInstance) {
     }))
 
     let pessoas: Array<{ id: number; name: string; role: string }>
-    if (admin) {
+    if (liberado) {
       const todos = await prisma.user.findMany({
         where: { active: true, role: { not: 'VIEWER' } },
         orderBy: [{ name: 'asc' }, { email: 'asc' }],
@@ -1188,7 +1192,7 @@ export async function leadsRoutes(app: FastifyInstance) {
       }
       pessoas = [...porId.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
     }
-    return { equipes, pessoas, completo: admin }
+    return { equipes, pessoas, completo: liberado }
   })
 
   app.post('/api/bychat/leads/:id/qualify', { preHandler: authMiddleware }, async (req, reply) => {

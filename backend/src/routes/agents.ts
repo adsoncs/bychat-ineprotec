@@ -689,6 +689,29 @@ export async function agentsRoutes(app: FastifyInstance) {
     },
   )
 
+  // ── Transferir para qualquer pessoa ──────────────────────────────────
+  // Desligado (padrão): o agente vê na transferência só os colegas das suas
+  // equipes e manda para a FILA dos outros setores. Ligado: vê as pessoas de
+  // todas as equipes e pode transferir direto para qualquer uma.
+  app.get('/api/admin/routing/transfer-anyone', { preHandler: [authMiddleware, adminOnly] }, async () => {
+    const s = await prisma.setting.findUnique({ where: { key: 'routing.transfer.anyone' } })
+    return { enabled: s?.value === true || s?.value === 'true' }
+  })
+
+  app.post<{ Body: { enabled: boolean } }>(
+    '/api/admin/routing/transfer-anyone',
+    { preHandler: [authMiddleware, adminOnly] },
+    async (req) => {
+      const enabled = req.body?.enabled === true
+      await prisma.setting.upsert({
+        where: { key: 'routing.transfer.anyone' },
+        create: { key: 'routing.transfer.anyone', value: enabled, label: 'Transferência — agentes transferem para qualquer pessoa', grp: 'routing', fieldType: 'boolean' },
+        update: { value: enabled },
+      })
+      return { enabled }
+    },
+  )
+
   // ── Agent Skills (F5) ─────────────────────────────────────────────────
   // Habilidades do agente. Skill é VARCHAR(64) livre (admin define vocabulário).
   // Endpoints: GET / PUT por agente (replace-all) + GET de todas as skills do
