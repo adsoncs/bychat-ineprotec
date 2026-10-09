@@ -26,7 +26,10 @@ async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
     select: { id: true, leadId: true, formData: true, portal: { select: { jornadaEtapas: true } } },
   })
   if (!reg) return null
-  const cfg = await dadosEfetivos(reg.portal)
+  // Na etapa Contrato, também os dados que o modelo em Word usa e ainda faltam.
+  const cfg = etapa === 'contrato'
+    ? await (await import('../services/contratoDoPortal.js')).cfgDadosComContrato(reg.id, await dadosEfetivos(reg.portal))
+    : await dadosEfetivos(reg.portal)
   const campos = cfg ? camposDaEtapa(cfg, etapa) : []
   const valores = await valoresAtuais(reg, campos.map((c) => c.name))
   const faltando = campos.filter((c) => c.required && String(valores[c.name] ?? '').trim() === '').length

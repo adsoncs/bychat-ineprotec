@@ -15,7 +15,7 @@
 //     envelope passa a pertencer à matrícula — o ERP não manda um 2º contrato.
 
 import { prisma } from '../lib/prisma.js'
-import { CATALOGO, valoresAtuais } from './dadosCadastro.js'
+import { CATALOGO, valoresAtuais, type DadosConfig, type CampoConfig } from './dadosCadastro.js'
 import { lerTabelaDePrecos, totalDoCartao, totalDoBoletoParcelado } from './tabelaDePrecos.js'
 import { getDocHeader, dataExtenso } from './acaDocRender.js'
 import { gerarPdfDoModelo, type VarsContrato } from './contratoWord.js'
@@ -590,4 +590,35 @@ export async function adotarEnvelopeDaInscricao(ctx: { alunoId?: number | null; 
     await arquivarContratoNoGed(env.id)
   }
   return env.id
+}
+
+// ── Dados que o contrato usa, pedidos antes de assinar ──────────────────────
+// O modelo em Word lista os campos que usa (camposDocx). Os que são do cadastro
+// e ainda não foram pedidos em nenhuma etapa entram na etapa Contrato: a pessoa
+// completa ali e só então assina — o contrato não sai com campo em branco e a
+// inscrição continua curta. Complemento, nome social, órgão emissor e dados do
+// responsável financeiro entram como opcionais.
+const OPCIONAIS_NO_CONTRATO = new Set([
+  'complemento', 'nomeSocial', 'rgOrgaoEmissor',
+  'responsavelNome', 'responsavelCpf', 'responsavelParentesco', 'responsavelTelefone', 'responsavelEmail',
+])
+
+export async function cfgDadosComContrato(registrationId: number, cfg: DadosConfig | null): Promise<DadosConfig | null> {
+  const reg = await prisma.enrollmentRegistration.findUnique({
+    where: { id: registrationId },
+    select: { portalId: true, processRegistration: { select: { offering: { select: { courseId: true } } } } },
+  }).catch(() => null)
+  if (!reg?.portalId) return cfg
+  const modelo = await modeloDoPortal(reg.portalId, reg.processRegistration?.offering?.courseId ?? null)
+  if (!modelo) return cfg
+  const t = await prisma.acaContratoTemplate.findUnique({ where: { id: modelo.id }, select: { camposDocx: true } }).catch(() => null)
+  const usados = Array.isArray(t?.camposDocx) ? (t!.camposDocx as unknown[]).map(String) : []
+  const extra: Record<string, CampoConfig> = {}
+  for (const k of usados) {
+    const d = CATALOGO.find((c) => c.chave === k)
+    if (!d || d.essencial || cfg?.campos[k]) continue
+    extra[k] = { etapa: 'contrato', obrigatorio: !OPCIONAIS_NO_CONTRATO.has(k) }
+  }
+  if (!Object.keys(extra).length) return cfg
+  return { modo: cfg?.modo ?? 'completo', campos: { ...(cfg?.campos ?? {}), ...extra }, exigidosMatricula: cfg?.exigidosMatricula ?? [] }
 }

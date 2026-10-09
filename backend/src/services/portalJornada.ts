@@ -258,7 +258,9 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
   }).catch(() => null)
 
   // Dados pedidos em cada etapa (Educacional › Dados por etapa / ajuste do portal)
-  const cfgDados = await dadosEfetivos(reg.portal)
+  // Contrato em Word: os dados que ele usa e ainda faltam são pedidos na etapa Contrato.
+  const { cfgDadosComContrato } = await import('./contratoDoPortal.js')
+  const cfgDados = await cfgDadosComContrato(reg.id, await dadosEfetivos(reg.portal))
   const faltandoPorEtapa = new Map<string, number>()
   if (cfgDados) {
     for (const et of ['cadastro', 'documentos', 'contrato', 'pagamento'] as EtapaDados[]) {
