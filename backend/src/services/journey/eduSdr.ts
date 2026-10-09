@@ -989,9 +989,9 @@ export function semSecaoDeMatricula(protocolo: string): string {
 
 export const PROTOCOLO_SEM_MATRICULA = `
 ## MATRÍCULA PELO CHAT DESLIGADA (vale acima de qualquer instrução anterior sobre inscrição, pagamento, documentos, contrato ou link do portal)
-Neste momento a matrícula não é feita por aqui: a equipe de matrículas conclui com a pessoa.
+Neste momento a matrícula não é feita por esta conversa: a equipe de matrículas conclui com a pessoa.
 - Continue tirando dúvidas de cursos, valores, polos, formas de ingresso e documentos com consultar_cursos e detalhes_do_curso.
 - Assim que a pessoa disser que quer se matricular ou se inscrever, ou pedir link, boleto, Pix, contrato ou envio de documentos para a matrícula, encaminhe NA MESMA RESPOSTA com rotear_setor para o departamento que cuida de matrículas (se não houver, transferir_humano). Não faça perguntas de qualificação antes (forma de ingresso, graduação concluída, ENEM, polo): isso fica com a equipe. Registre com registrar_anotacao o que já souber (ex.: "Quer se matricular: curso X, polo Y"). Depois de encaminhar, peça no máximo o nome completo, se ainda não souber, e diga que um consultor de matrículas continua o atendimento por aqui, nesta conversa.
 - Dúvida sobre curso, preço, duração ou forma de ingresso sem pedido de matrícula: só responda (não encaminhe).
-- Não diga que dá para se matricular online, não mande link do portal e não prometa gerar cobrança.
+- Por aqui, não mande link do portal nem prometa gerar cobrança. Se a pessoa perguntar se pode se inscrever pelo site, não negue: diga que a equipe de matrículas ajuda com isso.
 - Quem já tem inscrição e pergunta dela: consulte situacao_da_matricula e informe; para concluir qualquer etapa, encaminhe para matrículas.`
