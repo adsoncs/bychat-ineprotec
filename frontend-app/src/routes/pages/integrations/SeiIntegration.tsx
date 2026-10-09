@@ -5,22 +5,39 @@
 // aceita os códigos DELE (curso, banner, unidade, turno, turma, processo,
 // condição, tipo de documento) — por isso a aba "De-para" é o coração da tela.
 //
+// Quando enviar (Regras de envio): manual, automático, automático com carência
+// ou programado — em todos, só sai inscrição APTA (etapas concluídas + o que o
+// SEI exige). Backend: services/seiEnvios.ts.
+//
 // Endpoints: backend routes/seiIntegration.ts (/admin/sei/*).
 
 import { useState, useEffect, useCallback } from 'preact/hooks'
 import {
   GraduationCap, Save, PlugZap, CheckCircle2, AlertTriangle, Loader2, RefreshCw,
-  Ban, ChevronDown, ChevronRight, DownloadCloud, Send, Eye,
+  Ban, ChevronDown, ChevronRight, DownloadCloud, Send, Eye, CalendarClock, Pause, Play, ListChecks, XCircle,
 } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select, Switch } from '@/components/ui/Input'
+import { Input, Select, Switch, Checkbox } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { toast } from '@/lib/toast'
 
 type AuthTipo = 'nenhum' | 'basic' | 'bearer' | 'header'
+type ModoEnvio = 'manual' | 'automatico' | 'carencia' | 'programado'
+
+interface RegrasEnvio {
+  modo: ModoEnvio; carenciaHoras: number; horarios: string[]; diasSemana: number[]; loteMaximo: number
+  portais: number[]; exigirEfetivacao: boolean; validarNoSei: boolean; pessoaTeste: string
+}
+
+interface ItemChecagem { grupo: 'portal' | 'cadastro' | 'depara' | 'sei'; ok: boolean; texto: string }
+interface Elegibilidade { apto: boolean; itens: ItemChecagem[]; bloqueios: string[]; avisos: string[]; conferidoNoSei: boolean | null }
+
+const ROTULO_MODO: Record<ModoEnvio, string> = {
+  manual: 'Manual', automatico: 'Automático', carencia: 'Automático com carência', programado: 'Programado',
+}
 
 interface SeiConfig {
   baseUrl: string
@@ -30,10 +47,10 @@ interface SeiConfig {
   tokenConfigurado: boolean
   headerNome: string
   enabled: boolean
-  autoEnviar: boolean
+  modo: ModoEnvio
   enviarContrato: boolean
   camposExtras: boolean
-  totais: { pendentes: number; erros: number; concluidos: number }
+  totais: { pendentes: number; erros: number; concluidos: number; agendados: number; retidos: number; bloqueados: number }
 }
 
 interface Opcao { codigo: string; nome?: string }
@@ -72,20 +89,30 @@ const valor = (e: Event) => (e.target as HTMLInputElement).value
 
 const TOM_STATUS: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
   CONCLUIDO: 'success', PENDENTE: 'info', PROCESSANDO: 'info', ERRO: 'danger', CANCELADO: 'neutral',
+  AGENDADO: 'info', RETIDO: 'warning', BLOQUEADO: 'warning',
 }
 const ROTULO_STATUS: Record<string, string> = {
   CONCLUIDO: 'Concluído', PENDENTE: 'Na fila', PROCESSANDO: 'Enviando', ERRO: 'Erro', CANCELADO: 'Cancelado',
+  AGENDADO: 'Agendado', RETIDO: 'Retido', BLOQUEADO: 'Não apta',
 }
+const ROTULO_ORIGEM: Record<string, string> = {
+  manual: 'manual', lote: 'em lote', agendado: 'agendado', automatico: 'automático', programado: 'programado',
+}
+const ROTULO_GRUPO: Record<ItemChecagem['grupo'], string> = {
+  portal: 'Etapas do portal', cadastro: 'Cadastro exigido pelo SEI', depara: 'De-para e arquivos', sei: 'Conferência no SEI',
+}
+/** "2026-10-09T14:30" (datetime-local) → ISO com o fuso do navegador. */
+const isoDoCampo = (v: string) => (v ? new Date(v).toISOString() : '')
 const ROTULO_ETAPA: Record<string, string> = {
   pessoa: 'Pessoa', matricula: 'Matrícula', documentos: 'Documentos', concluido: 'Concluído',
 }
 
 export function SeiIntegration() {
-  const [aba, setAba] = useState<'conexao' | 'depara' | 'envios'>('conexao')
+  const [aba, setAba] = useState<'conexao' | 'depara' | 'regras' | 'prontas' | 'envios'>('conexao')
   return (
     <div class="space-y-4">
       <div class="flex gap-1 rounded-lg bg-surface-2 p-1 w-fit" role="tablist">
-        {([['conexao', 'Conexão'], ['depara', 'De-para'], ['envios', 'Envios']] as const).map(([id, rot]) => (
+        {([['conexao', 'Conexão'], ['depara', 'De-para'], ['regras', 'Regras de envio'], ['prontas', 'Prontas para envio'], ['envios', 'Envios']] as const).map(([id, rot]) => (
           <button
             key={id} type="button" role="tab" aria-selected={aba === id}
             class={`rounded-md px-3 py-1.5 text-sm font-medium ${aba === id ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'}`}
@@ -95,6 +122,8 @@ export function SeiIntegration() {
       </div>
       {aba === 'conexao' && <Conexao />}
       {aba === 'depara' && <DePara />}
+      {aba === 'regras' && <Regras />}
+      {aba === 'prontas' && <Prontas />}
       {aba === 'envios' && <Envios />}
     </div>
   )
@@ -124,7 +153,7 @@ function Conexao() {
     try {
       await api.post('/admin/sei/config', {
         baseUrl: cfg.baseUrl, authTipo: cfg.authTipo, username: cfg.username, headerNome: cfg.headerNome,
-        enabled: cfg.enabled, autoEnviar: cfg.autoEnviar, enviarContrato: cfg.enviarContrato, camposExtras: cfg.camposExtras,
+        enabled: cfg.enabled, enviarContrato: cfg.enviarContrato, camposExtras: cfg.camposExtras,
         ...(senha ? { password: senha } : {}), ...(token ? { token } : {}),
       })
       setSenha(''); setToken('')
@@ -173,7 +202,6 @@ function Conexao() {
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <Switch checked={cfg.enabled} onChange={(v) => set({ enabled: v })} label="Integração ativa" hint="Desligada, nada é enviado — nem manualmente." />
-          <Switch checked={cfg.autoEnviar} onChange={(v) => set({ autoEnviar: v })} label="Enviar automaticamente" hint="Quando o contrato é assinado e a matrícula é efetivada no portal." />
           <Switch checked={cfg.enviarContrato} onChange={(v) => set({ enviarContrato: v })} label="Enviar o contrato assinado" hint="Como documento da matrícula no SEI." />
           <Switch checked={cfg.camposExtras} onChange={(v) => set({ camposExtras: v })} label="Enviar dados pessoais extras" hint="Nascimento, sexo, estado civil, naturalidade… Ligar só depois de o SEI confirmar os nomes dos campos." />
         </div>
@@ -193,8 +221,11 @@ function Conexao() {
         )}
       </Card>
       <Card class="p-5 text-xs text-fg-muted space-y-1">
-        <div class="font-medium text-fg">Fila</div>
-        <div>{cfg.totais.pendentes} na fila · {cfg.totais.erros} com erro · {cfg.totais.concluidos} concluídos</div>
+        <div class="font-medium text-fg">Fila · modo de envio: {ROTULO_MODO[cfg.modo]}</div>
+        <div>
+          {cfg.totais.pendentes} na fila · {cfg.totais.agendados} agendado(s) · {cfg.totais.retidos} retido(s) · {cfg.totais.bloqueados} não apta(s) ·{' '}
+          {cfg.totais.erros} com erro · {cfg.totais.concluidos} concluído(s)
+        </div>
       </Card>
     </div>
   )
@@ -221,6 +252,9 @@ function DePara() {
     try { setDados(await api.get('/admin/sei/mapeamentos')) } catch (e) { toast(msg(e), 'danger') }
   }, [])
   useEffect(() => { carregar() }, [carregar])
+  useEffect(() => {
+    api.get<{ regras: RegrasEnvio }>('/admin/sei/regras').then((r) => setPessoaTeste((p) => p || r.regras.pessoaTeste)).catch(() => {})
+  }, [])
 
   async function carregarCatalogo() {
     setCarregandoCat(true)
@@ -426,6 +460,337 @@ function DocumentosDePara({ documentos, contrato, onSalvo }: { documentos: DocRo
   )
 }
 
+// ── Regras de envio ─────────────────────────────────────────────────────────
+
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+const MODOS: Array<{ id: ModoEnvio; titulo: string; texto: string }> = [
+  { id: 'manual', titulo: 'Manual', texto: 'Nada sai sozinho. A secretaria envia pela ficha da inscrição (1 por 1) ou escolhe várias em "Prontas para envio" — na hora ou agendadas.' },
+  { id: 'automatico', titulo: 'Automático', texto: 'Assim que a inscrição fica apta (todas as etapas concluídas e tudo o que o SEI exige), ela vai para o SEI.' },
+  { id: 'carencia', titulo: 'Automático com carência', texto: 'Ficou apta → agenda o envio para daqui a algumas horas. Nesse intervalo a secretaria pode reter ou cancelar.' },
+  { id: 'programado', titulo: 'Programado', texto: 'Nos dias e horários escolhidos, envia de uma vez todas as inscrições aptas acumuladas desde a última janela.' },
+]
+
+function Regras() {
+  const [r, setR] = useState<RegrasEnvio | null>(null)
+  const [portais, setPortais] = useState<Array<{ id: number; nome: string }>>([])
+  const [janelas, setJanelas] = useState<string[]>([])
+  const [horariosTxt, setHorariosTxt] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    try {
+      const d = await api.get<{ regras: RegrasEnvio; portais: Array<{ id: number; nome: string }>; proximasJanelas: string[] }>('/admin/sei/regras')
+      setR(d.regras); setPortais(d.portais); setJanelas(d.proximasJanelas); setHorariosTxt(d.regras.horarios.join(', '))
+    } catch (e) { toast(msg(e), 'danger') }
+  }, [])
+  useEffect(() => { carregar() }, [carregar])
+
+  if (!r) return <Card class="p-5"><div class="text-sm text-fg-muted">Carregando…</div></Card>
+  const set = (p: Partial<RegrasEnvio>) => setR({ ...r, ...p })
+  const automatico = r.modo !== 'manual'
+
+  async function salvar() {
+    if (!r) return
+    setSalvando(true)
+    try {
+      const horarios = horariosTxt.split(/[,;\s]+/).map((h) => h.trim()).filter(Boolean)
+      const d = await api.post<{ regras: RegrasEnvio; proximasJanelas: string[] }>('/admin/sei/regras', { ...r, horarios })
+      setR(d.regras); setJanelas(d.proximasJanelas); setHorariosTxt(d.regras.horarios.join(', '))
+      toast('Regras de envio salvas', 'success')
+    } catch (e) { toast(msg(e), 'danger') } finally { setSalvando(false) }
+  }
+
+  return (
+    <div class="space-y-4">
+      <Card class="p-5 space-y-4">
+        <div>
+          <div class="text-sm font-semibold text-fg">Quando enviar ao SEI</div>
+          <p class="text-xs text-fg-muted">
+            Em qualquer modo, só vai para o SEI a inscrição <b>apta</b>: todas as etapas do portal concluídas (documentos obrigatórios
+            aprovados, pagamento confirmado, contrato assinado…), o cadastro que o SEI exige completo e o de-para feito. O envio manual,
+            em lote e agendado continua disponível em todos os modos.
+          </p>
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Modo de envio">
+          {MODOS.map((m) => (
+            <button
+              key={m.id} type="button" role="radio" aria-checked={r.modo === m.id}
+              class={`rounded-lg border p-3 text-left transition-colors ${r.modo === m.id ? 'border-accent bg-accent/5' : 'border-border hover:bg-surface-2'}`}
+              onClick={() => set({ modo: m.id })}
+            >
+              <div class="flex items-center gap-2 text-sm font-medium text-fg">
+                <span class={`h-3.5 w-3.5 rounded-full border-2 ${r.modo === m.id ? 'border-accent bg-accent' : 'border-border'}`} />
+                {m.titulo}
+              </div>
+              <div class="mt-1 text-xs text-fg-muted">{m.texto}</div>
+            </button>
+          ))}
+        </div>
+
+        {r.modo === 'carencia' && (
+          <div class="w-56">
+            <Input label="Carência (horas)" type="number" min={1} max={720} value={String(r.carenciaHoras)}
+              hint="Entre ficar apta e ir para o SEI." onInput={(e) => set({ carenciaHoras: Number(valor(e)) })} />
+          </div>
+        )}
+
+        {r.modo === 'programado' && (
+          <div class="space-y-3">
+            <div>
+              <div class="mb-1 text-xs font-medium text-fg">Dias da semana</div>
+              <div class="flex flex-wrap gap-1">
+                {DIAS.map((d, i) => {
+                  const on = r.diasSemana.includes(i)
+                  return (
+                    <button key={i} type="button" aria-pressed={on}
+                      class={`rounded-md border px-2.5 py-1 text-xs ${on ? 'border-accent bg-accent/10 text-fg' : 'border-border text-fg-muted'}`}
+                      onClick={() => set({ diasSemana: on ? r.diasSemana.filter((x) => x !== i) : [...r.diasSemana, i].sort() })}
+                    >{d}</button>
+                  )
+                })}
+              </div>
+            </div>
+            <div class="w-72">
+              <Input label="Horários (Brasília)" value={horariosTxt} placeholder="08:00, 13:00, 18:00"
+                hint="Separados por vírgula." onInput={(e) => setHorariosTxt(valor(e))} />
+            </div>
+            {janelas.length > 0 && <div class="text-xs text-fg-muted">Próximas janelas: {janelas.join(' · ')}</div>}
+          </div>
+        )}
+
+        {automatico && (
+          <div class="grid gap-4 sm:grid-cols-2">
+            <Input label="Máximo por rodada" type="number" min={1} max={500} value={String(r.loteMaximo)}
+              hint="Quantas inscrições, no máximo, entram na fila de uma vez." onInput={(e) => set({ loteMaximo: Number(valor(e)) })} />
+            <div>
+              <div class="mb-1 text-xs font-medium text-fg">Portais que entram no envio automático</div>
+              <div class="space-y-1">
+                {portais.map((p) => (
+                  <Checkbox key={p.id} label={p.nome} checked={r.portais.includes(p.id)}
+                    onChange={(e) => {
+                      const on = (e.target as HTMLInputElement).checked
+                      set({ portais: on ? [...r.portais, p.id] : r.portais.filter((x) => x !== p.id) })
+                    }} />
+                ))}
+              </div>
+              <div class="mt-1 text-2xs text-fg-muted">Nenhum marcado = todos os portais.</div>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card class="p-5 space-y-4">
+        <div class="text-sm font-semibold text-fg">O que conta como "apta"</div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <Switch checked={r.exigirEfetivacao} onChange={(v) => set({ exigirEfetivacao: v })} label="Exigir matrícula efetivada no portal"
+            hint="Além das etapas concluídas, espera a efetivação (contrato do ERP assinado)." />
+          <Switch checked={r.validarNoSei} onChange={(v) => set({ validarNoSei: v })} label="Conferir a oferta no próprio SEI"
+            hint="Antes de liberar, pergunta ao SEI se ele aceita o curso, unidade, turno, turma, processo e condição do de-para." />
+        </div>
+        {r.validarNoSei && (
+          <div class="w-72">
+            <Input label="Código da pessoa de teste no SEI" value={r.pessoaTeste} onInput={(e) => set({ pessoaTeste: valor(e) })}
+              hint="O SEI só mostra as opções de matrícula para uma pessoa. Peça ao fornecedor uma pessoa de teste." />
+          </div>
+        )}
+      </Card>
+
+      <Button onClick={salvar} loading={salvando}><Save size={14} /> Salvar regras</Button>
+    </div>
+  )
+}
+
+// ── Prontas para envio ──────────────────────────────────────────────────────
+
+interface Candidata {
+  registrationId: number; candidateCode: string; nome: string | null
+  portal: { id: number; nome: string } | null; oferta: string | null; atualizadoEm: string
+  envio: { id: number; status: string; ultimoErro: string | null } | null
+  apto: boolean; bloqueios: string[]; avisos: string[]; conferidoNoSei: boolean | null
+}
+
+function Prontas() {
+  const [linhas, setLinhas] = useState<Candidata[] | null>(null)
+  const [filtro, setFiltro] = useState<'aptas' | 'pendentes' | 'todas'>('aptas')
+  const [sel, setSel] = useState<Set<number>>(new Set())
+  const [quando, setQuando] = useState('')
+  const [online, setOnline] = useState(false)
+  const [carregando, setCarregando] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [resultado, setResultado] = useState<Array<{ registrationId: number; ok: boolean; erro?: string }> | null>(null)
+  const [checklist, setChecklist] = useState<number | null>(null)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const r = await api.get<{ linhas: Candidata[] }>(`/admin/sei/candidatas${online ? '?online=1' : ''}`)
+      setLinhas(r.linhas); setSel(new Set())
+    } catch (e) { toast(msg(e), 'danger') } finally { setCarregando(false) }
+  }, [online])
+  useEffect(() => { carregar() }, [carregar])
+
+  const visiveis = (linhas ?? []).filter((l) => filtro === 'todas' || (filtro === 'aptas' ? l.apto : !l.apto))
+  const aptasVisiveis = visiveis.filter((l) => l.apto)
+  const todasMarcadas = aptasVisiveis.length > 0 && aptasVisiveis.every((l) => sel.has(l.registrationId))
+
+  async function enviar(agendar: boolean) {
+    if (!sel.size) return
+    if (agendar && !quando) { toast('Escolha a data e a hora do agendamento.', 'warning'); return }
+    setEnviando(true); setResultado(null)
+    try {
+      const r = await api.post<{ resultados: Array<{ registrationId: number; ok: boolean; erro?: string }>; enviadas: number; recusadas: number }>(
+        '/admin/sei/envios/lote', { registrationIds: [...sel], ...(agendar ? { quando: isoDoCampo(quando) } : {}) },
+      )
+      toast(`${r.enviadas} ${agendar ? 'agendada(s)' : 'na fila'}${r.recusadas ? ` · ${r.recusadas} recusada(s)` : ''}`, r.recusadas ? 'warning' : 'success')
+      setResultado(r.resultados.filter((x) => !x.ok))
+      await carregar()
+    } catch (e) { toast(msg(e), 'danger') } finally { setEnviando(false) }
+  }
+
+  async function reterSelecionadas() {
+    setEnviando(true)
+    try {
+      for (const id of sel) await api.post(`/admin/sei/inscricao/${id}/reter`, { motivo: 'retida na lista de prontas' })
+      toast(`${sel.size} retida(s): ficam fora do envio automático e programado`, 'success')
+      await carregar()
+    } catch (e) { toast(msg(e), 'danger') } finally { setEnviando(false) }
+  }
+
+  return (
+    <Card class="p-0 overflow-hidden">
+      <div class="space-y-3 px-5 py-3 border-b border-border">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-sm font-semibold text-fg">Prontas para envio</div>
+            <div class="text-xs text-fg-muted">Inscrições com contrato aceito ou matrícula no portal que ainda não foram ao SEI.</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <Select value={filtro} onChange={(e) => setFiltro(valor(e) as typeof filtro)} aria-label="Filtrar">
+              <option value="aptas">Aptas</option>
+              <option value="pendentes">Com pendência</option>
+              <option value="todas">Todas</option>
+            </Select>
+            <Button variant="ghost" size="sm" onClick={carregar} loading={carregando} aria-label="Atualizar"><RefreshCw size={14} /></Button>
+          </div>
+        </div>
+        <Switch checked={online} onChange={setOnline} label="Conferir também no SEI ao listar"
+          hint="Mais lento. Mesmo desligado, cada envio é conferido no SEI antes de sair." />
+        {sel.size > 0 && (
+          <div class="flex flex-wrap items-end gap-2 rounded-md bg-surface-2 p-3">
+            <span class="self-center text-xs text-fg">{sel.size} selecionada(s)</span>
+            <Button size="sm" onClick={() => enviar(false)} loading={enviando}><Send size={14} /> Enviar agora</Button>
+            <div class="w-52"><Input type="datetime-local" label="Agendar para" value={quando} onInput={(e) => setQuando(valor(e))} /></div>
+            <Button size="sm" variant="secondary" onClick={() => enviar(true)} loading={enviando}><CalendarClock size={14} /> Agendar</Button>
+            <Button size="sm" variant="ghost" onClick={reterSelecionadas} loading={enviando}><Pause size={14} /> Reter</Button>
+          </div>
+        )}
+        {resultado && resultado.length > 0 && (
+          <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+            <div class="font-medium text-fg">Não saíram</div>
+            <ul class="mt-1 list-disc pl-5 text-fg-muted">
+              {resultado.map((x) => <li key={x.registrationId}>#{x.registrationId}: {x.erro}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+      {!linhas ? (
+        <div class="px-5 py-4 text-sm text-fg-muted">Conferindo as inscrições…</div>
+      ) : visiveis.length === 0 ? (
+        <div class="px-5 py-4 text-sm text-fg-muted">{filtro === 'aptas' ? 'Nenhuma inscrição apta agora.' : 'Nada por aqui.'}</div>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-xs text-fg-muted">
+              <tr class="text-left">
+                <th class="w-8 px-5 py-2">
+                  <input type="checkbox" aria-label="Marcar todas as aptas" checked={todasMarcadas} disabled={!aptasVisiveis.length}
+                    onChange={() => setSel(todasMarcadas ? new Set() : new Set(aptasVisiveis.map((l) => l.registrationId)))} />
+                </th>
+                <th class="px-3 py-2 font-medium">Inscrição</th>
+                <th class="px-3 py-2 font-medium">Aptidão</th>
+                <th class="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+              {visiveis.map((l) => (
+                <tr key={l.registrationId} class="align-top">
+                  <td class="px-5 py-2.5">
+                    <input type="checkbox" aria-label={`Selecionar ${l.candidateCode}`} disabled={!l.apto} checked={sel.has(l.registrationId)}
+                      onChange={() => { const n = new Set(sel); n.has(l.registrationId) ? n.delete(l.registrationId) : n.add(l.registrationId); setSel(n) }} />
+                  </td>
+                  <td class="px-3 py-2.5">
+                    <div class="font-medium text-fg">{l.nome || '—'}</div>
+                    <div class="text-xs text-fg-muted">{l.candidateCode} · {[l.oferta, l.portal?.nome].filter(Boolean).join(' · ')}</div>
+                    {l.envio && <div class="mt-1"><Badge tone={TOM_STATUS[l.envio.status] ?? 'neutral'}>{ROTULO_STATUS[l.envio.status] ?? l.envio.status}</Badge></div>}
+                  </td>
+                  <td class="px-3 py-2.5">
+                    {l.apto ? (
+                      <div class="flex items-center gap-1.5 text-xs text-success"><CheckCircle2 size={14} /> Apta{l.conferidoNoSei ? ' · conferida no SEI' : ''}</div>
+                    ) : (
+                      <ul class="max-w-lg list-disc pl-4 text-xs text-fg-muted">
+                        {l.bloqueios.slice(0, 3).map((b, i) => <li key={i}>{b}</li>)}
+                        {l.bloqueios.length > 3 && <li>+{l.bloqueios.length - 3} pendência(s)</li>}
+                      </ul>
+                    )}
+                  </td>
+                  <td class="px-3 py-2.5 text-right">
+                    <Button variant="ghost" size="sm" onClick={() => setChecklist(l.registrationId)}><ListChecks size={14} /> Checklist</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {checklist !== null && (
+        <Modal open onOpenChange={(o) => { if (!o) setChecklist(null) }} title="Aptidão para o SEI" size="lg">
+          <ChecklistAptidao registrationId={checklist} />
+        </Modal>
+      )}
+    </Card>
+  )
+}
+
+/** Checklist agrupado: etapas do portal, cadastro, de-para e conferência no SEI. */
+function ChecklistAptidao({ registrationId, onCarregado }: { registrationId: number; onCarregado?: (e: Elegibilidade) => void }) {
+  const [el, setEl] = useState<Elegibilidade | null>(null)
+  useEffect(() => {
+    setEl(null)
+    api.get<Elegibilidade>(`/admin/sei/elegibilidade/${registrationId}?online=1`)
+      .then((r) => { setEl(r); onCarregado?.(r) })
+      .catch((e) => toast(msg(e), 'danger'))
+  }, [registrationId])
+  if (!el) return <div class="flex items-center gap-2 text-sm text-fg-muted"><Loader2 size={14} class="animate-spin" /> Conferindo (inclusive no SEI)…</div>
+  const grupos = (['portal', 'cadastro', 'depara', 'sei'] as const).filter((g) => el.itens.some((i) => i.grupo === g))
+  return (
+    <div class="space-y-3 text-sm">
+      {el.apto
+        ? <div class="flex items-center gap-1.5 text-xs font-medium text-success"><CheckCircle2 size={14} /> Apta para o SEI</div>
+        : <div class="flex items-center gap-1.5 text-xs font-medium text-danger"><XCircle size={14} /> Ainda não pode ir para o SEI — {el.bloqueios.length} pendência(s)</div>}
+      {grupos.map((g) => (
+        <div key={g}>
+          <div class="mb-1 text-xs font-medium text-fg">{ROTULO_GRUPO[g]}</div>
+          <ul class="space-y-1">
+            {el.itens.filter((i) => i.grupo === g).map((i, k) => (
+              <li key={k} class="flex items-start gap-1.5 text-xs">
+                {i.ok ? <CheckCircle2 size={13} class="mt-px shrink-0 text-success" /> : <XCircle size={13} class="mt-px shrink-0 text-danger" />}
+                <span class={i.ok ? 'text-fg-muted' : 'text-fg'}>{i.texto}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {el.avisos.length > 0 && (
+        <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+          <div class="flex items-center gap-1.5 font-medium text-fg"><AlertTriangle size={14} class="text-warning" /> Avisos (não impedem o envio)</div>
+          <ul class="mt-1 list-disc pl-5 text-fg-muted">{el.avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Envios ──────────────────────────────────────────────────────────────────
 
 function Envios() {
@@ -449,6 +814,14 @@ function Envios() {
     } catch (e) { toast(msg(e), 'danger') }
   }
 
+  async function liberarInscricao(registrationId: number) {
+    try {
+      await api.post(`/admin/sei/inscricao/${registrationId}/liberar`, {})
+      toast('Liberada: volta a valer o modo de envio configurado', 'success')
+      setTimeout(carregar, 1000)
+    } catch (e) { toast(msg(e), 'danger') }
+  }
+
   return (
     <Card class="p-0 overflow-hidden">
       <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border">
@@ -458,6 +831,9 @@ function Envios() {
             <option value="">Todos</option>
             <option value="ERRO">Com erro</option>
             <option value="PENDENTE">Na fila</option>
+            <option value="AGENDADO">Agendados</option>
+            <option value="RETIDO">Retidos</option>
+            <option value="BLOQUEADO">Não aptas</option>
             <option value="CONCLUIDO">Concluídos</option>
             <option value="CANCELADO">Cancelados</option>
           </Select>
@@ -485,21 +861,24 @@ function Envios() {
                 <tr key={e.id} class="align-top">
                   <td class="px-5 py-2.5">
                     <div class="font-medium text-fg">{e.nome || '—'}</div>
-                    <div class="text-xs text-fg-muted">{e.candidateCode} · {e.origem === 'automatico' ? 'automático' : 'manual'}</div>
+                    <div class="text-xs text-fg-muted">{e.candidateCode} · {ROTULO_ORIGEM[e.origem] ?? e.origem}</div>
                   </td>
                   <td class="px-3 py-2.5">
                     <Badge tone={TOM_STATUS[e.status] ?? 'neutral'}>{ROTULO_STATUS[e.status] ?? e.status}</Badge>
                     {e.status !== 'CONCLUIDO' && <div class="mt-1 text-xs text-fg-muted">Etapa: {ROTULO_ETAPA[e.etapa] ?? e.etapa} · {e.tentativas} tentativa(s)</div>}
                     {e.ultimoErro && <div class="mt-1 max-w-md text-xs text-danger">{e.ultimoErro}</div>}
                     {e.status === 'PENDENTE' && e.proximaTentativaEm && <div class="mt-1 text-xs text-fg-muted">Próxima tentativa: {dataBr(e.proximaTentativaEm)}</div>}
+                    {e.status === 'AGENDADO' && e.proximaTentativaEm && <div class="mt-1 text-xs text-fg-muted">Sai em: {dataBr(e.proximaTentativaEm)}</div>}
                   </td>
                   <td class="px-3 py-2.5 text-fg">{e.matricula ?? '—'}</td>
                   <td class="px-3 py-2.5 text-xs text-fg-muted">{dataBr(e.updatedAt)}</td>
                   <td class="px-3 py-2.5">
                     <div class="flex justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => setDetalhe(e.id)}><Eye size={14} /> Detalhes</Button>
-                      {['ERRO', 'PENDENTE', 'CANCELADO'].includes(e.status) && <Button variant="ghost" size="sm" onClick={() => acao(e.id, 'reprocessar')}><RefreshCw size={14} /> Reenviar</Button>}
-                      {['ERRO', 'PENDENTE'].includes(e.status) && <Button variant="ghost" size="sm" onClick={() => acao(e.id, 'cancelar')}><Ban size={14} /> Cancelar</Button>}
+                      {['ERRO', 'PENDENTE', 'CANCELADO', 'BLOQUEADO'].includes(e.status) && <Button variant="ghost" size="sm" onClick={() => acao(e.id, 'reprocessar')}><RefreshCw size={14} /> Reenviar</Button>}
+                      {e.status === 'AGENDADO' && <Button variant="ghost" size="sm" onClick={() => acao(e.id, 'reprocessar')}><Send size={14} /> Enviar agora</Button>}
+                      {e.status === 'RETIDO' && <Button variant="ghost" size="sm" onClick={() => liberarInscricao(e.registrationId)}><Play size={14} /> Liberar</Button>}
+                      {['ERRO', 'PENDENTE', 'AGENDADO', 'BLOQUEADO', 'RETIDO'].includes(e.status) && <Button variant="ghost" size="sm" onClick={() => acao(e.id, 'cancelar')}><Ban size={14} /> Cancelar</Button>}
                     </div>
                   </td>
                 </tr>
@@ -578,34 +957,55 @@ interface Previa {
   contrato: { nome: string } | null
 }
 
-/** Situação do envio ao SEI de uma inscrição, com prévia e botão de envio. */
+/**
+ * Envio ao SEI de uma inscrição: aptidão (checklist), envio manual na hora ou
+ * agendado, reter/liberar e a prévia do que vai.
+ */
 export function SeiInscricaoCard({ registrationId }: { registrationId: number }) {
-  const [estado, setEstado] = useState<{ habilitada: boolean; envio: Envio | null } | null>(null)
+  const [estado, setEstado] = useState<{ habilitada: boolean; envio: Envio | null; modo: ModoEnvio } | null>(null)
+  const [aptidao, setAptidao] = useState<Elegibilidade | null>(null)
   const [previa, setPrevia] = useState<Previa | null>(null)
-  const [enviando, setEnviando] = useState(false)
-  const [vendoPrevia, setVendoPrevia] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+  const [vendo, setVendo] = useState<'checklist' | 'previa' | 'agendar' | null>(null)
+  const [quando, setQuando] = useState('')
 
   const carregar = useCallback(async () => {
     try { setEstado(await api.get(`/admin/sei/inscricao/${registrationId}`)) } catch { setEstado(null) }
+    api.get<Elegibilidade>(`/admin/sei/elegibilidade/${registrationId}`).then(setAptidao).catch(() => setAptidao(null))
   }, [registrationId])
   useEffect(() => { carregar() }, [carregar])
 
   if (!estado?.habilitada) return null
   const e = estado.envio
+  const concluido = e?.status === 'CONCLUIDO'
+  const retido = e?.status === 'RETIDO'
+  const jaComecou = !!e?.codigoPessoa
 
   async function abrirPrevia() {
-    setVendoPrevia(true)
-    try { setPrevia(await api.get<Previa>(`/admin/sei/previa/${registrationId}`)) } catch (err) { toast(msg(err), 'danger'); setVendoPrevia(false) }
+    setVendo('previa')
+    try { setPrevia(await api.get<Previa>(`/admin/sei/previa/${registrationId}`)) } catch (err) { toast(msg(err), 'danger'); setVendo(null) }
   }
-  async function enviar() {
-    setEnviando(true)
+  async function enviar(agendado: boolean) {
+    if (agendado && !quando) { toast('Escolha a data e a hora.', 'warning'); return }
+    setOcupado(true)
     try {
-      await api.post('/admin/sei/envios', { registrationId })
-      toast('Envio ao SEI iniciado', 'success')
-      setTimeout(carregar, 2500)
-    } catch (err) { toast(msg(err), 'danger') } finally { setEnviando(false) }
+      await api.post('/admin/sei/envios', { registrationId, ...(agendado ? { quando: isoDoCampo(quando) } : {}) })
+      toast(agendado ? 'Envio agendado' : 'Envio ao SEI iniciado', 'success')
+      setVendo(null)
+      setTimeout(carregar, agendado ? 300 : 2500)
+    } catch (err) { toast(msg(err), 'danger') } finally { setOcupado(false) }
+  }
+  async function reterOuLiberar() {
+    setOcupado(true)
+    try {
+      if (retido) await api.post(`/admin/sei/inscricao/${registrationId}/liberar`, {})
+      else await api.post(`/admin/sei/inscricao/${registrationId}/reter`, { motivo: 'retida na ficha da inscrição' })
+      toast(retido ? 'Liberada' : 'Retida: fica fora do envio automático e programado', 'success')
+      await carregar()
+    } catch (err) { toast(msg(err), 'danger') } finally { setOcupado(false) }
   }
 
+  const podeEnviar = !concluido && (jaComecou || !!aptidao?.apto)
   return (
     <Card class="p-4 space-y-2">
       <div class="flex items-center gap-2">
@@ -614,25 +1014,49 @@ export function SeiInscricaoCard({ registrationId }: { registrationId: number })
         {e ? <Badge tone={TOM_STATUS[e.status] ?? 'neutral'}>{ROTULO_STATUS[e.status] ?? e.status}</Badge> : <Badge tone="neutral">Não enviado</Badge>}
       </div>
       {e?.matricula && <div class="text-xs text-fg">Matrícula no SEI: <b>{e.matricula}</b></div>}
+      {e?.status === 'AGENDADO' && e.proximaTentativaEm && <div class="text-xs text-fg-muted">Agendado para {dataBr(e.proximaTentativaEm)}</div>}
       {e?.ultimoErro && <div class="text-xs text-danger">{e.ultimoErro}</div>}
+      {!concluido && aptidao && (
+        aptidao.apto
+          ? <div class="flex items-center gap-1.5 text-xs text-success"><CheckCircle2 size={13} /> Apta para o SEI · modo {ROTULO_MODO[estado.modo].toLowerCase()}</div>
+          : <div class="flex items-center gap-1.5 text-xs text-fg-muted"><XCircle size={13} class="text-danger" /> Não apta: {aptidao.bloqueios.length} pendência(s)</div>
+      )}
       <div class="flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={abrirPrevia}><Eye size={14} /> Prévia do envio</Button>
-        {e?.status !== 'CONCLUIDO' && (
-          <Button size="sm" onClick={enviar} loading={enviando || e?.status === 'PROCESSANDO'}><Send size={14} /> {e ? 'Reenviar ao SEI' : 'Enviar ao SEI'}</Button>
+        <Button variant="secondary" size="sm" onClick={() => setVendo('checklist')}><ListChecks size={14} /> Checklist</Button>
+        <Button variant="ghost" size="sm" onClick={abrirPrevia}><Eye size={14} /> Prévia</Button>
+        {!concluido && (
+          <>
+            <Button size="sm" onClick={() => enviar(false)} disabled={!podeEnviar} loading={ocupado || e?.status === 'PROCESSANDO'}
+              title={podeEnviar ? undefined : 'Só sai para o SEI quando estiver apta — veja o checklist'}>
+              <Send size={14} /> {e && e.status !== 'RETIDO' ? 'Enviar agora' : 'Enviar ao SEI'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setVendo('agendar')} disabled={!podeEnviar}><CalendarClock size={14} /> Agendar</Button>
+            {e?.status !== 'PROCESSANDO' && (
+              <Button variant="ghost" size="sm" onClick={reterOuLiberar} loading={ocupado}>
+                {retido ? <><Play size={14} /> Liberar</> : <><Pause size={14} /> Reter</>}
+              </Button>
+            )}
+          </>
         )}
       </div>
-      {vendoPrevia && (
-        <Modal open onOpenChange={(o) => { if (!o) { setVendoPrevia(false); setPrevia(null) } }} title="Prévia do envio ao SEI" size="lg">
+      {vendo === 'checklist' && (
+        <Modal open onOpenChange={(o) => { if (!o) setVendo(null) }} title="Aptidão para o SEI" size="lg">
+          <ChecklistAptidao registrationId={registrationId} onCarregado={setAptidao} />
+        </Modal>
+      )}
+      {vendo === 'agendar' && (
+        <Modal open onOpenChange={(o) => { if (!o) setVendo(null) }} title="Agendar envio ao SEI" size="sm">
+          <div class="space-y-3">
+            <Input type="datetime-local" label="Enviar em" value={quando} onInput={(ev) => setQuando(valor(ev))}
+              hint="Na hora marcada a aptidão é conferida de novo; se algo mudou, o envio fica parado com o motivo." />
+            <Button onClick={() => enviar(true)} loading={ocupado}><CalendarClock size={14} /> Agendar</Button>
+          </div>
+        </Modal>
+      )}
+      {vendo === 'previa' && (
+        <Modal open onOpenChange={(o) => { if (!o) { setVendo(null); setPrevia(null) } }} title="Prévia do envio ao SEI" size="lg">
           {!previa ? <div class="flex items-center gap-2 text-sm text-fg-muted"><Loader2 size={14} class="animate-spin" /> Montando…</div> : (
             <div class="space-y-3 text-sm">
-              {previa.pendencias.length > 0 ? (
-                <div class="rounded-md border border-danger/40 bg-danger/10 p-3 text-xs">
-                  <div class="font-medium text-fg">Impede o envio</div>
-                  <ul class="mt-1 list-disc pl-5 text-fg-muted">{previa.pendencias.map((p, i) => <li key={i}>{p}</li>)}</ul>
-                </div>
-              ) : (
-                <div class="flex items-center gap-1.5 text-xs text-success"><CheckCircle2 size={14} /> Pronta para enviar</div>
-              )}
               {previa.avisos.length > 0 && (
                 <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
                   <ul class="list-disc pl-5 text-fg-muted">{previa.avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>

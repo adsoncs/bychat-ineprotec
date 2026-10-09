@@ -21,7 +21,6 @@
 import { readFile } from 'fs/promises'
 import { basename } from 'path'
 import { prisma } from '../lib/prisma.js'
-import { eventBus } from '../lib/eventBus.js'
 import * as sei from '../lib/seiClient.js'
 import { valoresAtuais, CATALOGO } from './dadosCadastro.js'
 import { caminhoLocalDeUploads } from './whatsappMediaFormat.js'
@@ -294,17 +293,6 @@ export async function previa(registrationId: number): Promise<PreviaSei> {
 
 // ── Fila de envios ──────────────────────────────────────────────────────────
 
-export async function enfileirar(registrationId: number, origem: 'manual' | 'automatico', userId?: number | null) {
-  const atual = await prisma.seiEnvio.findUnique({ where: { registrationId } })
-  if (atual?.status === 'CONCLUIDO') return atual
-  if (atual?.status === 'PROCESSANDO') return atual
-  return prisma.seiEnvio.upsert({
-    where: { registrationId },
-    create: { registrationId, origem, criadoPorId: userId ?? null, status: 'PENDENTE', proximaTentativaEm: new Date() },
-    update: { status: 'PENDENTE', proximaTentativaEm: new Date(), ultimoErro: null, ...(origem === 'manual' ? { tentativas: 0 } : {}) },
-  })
-}
-
 /** Espera entre tentativas automáticas de falha transitória (rede, 5xx). */
 const ESPERAS_MIN = [1, 5, 15, 60, 180, 360]
 
@@ -322,7 +310,22 @@ export async function processar(envioId: number): Promise<void> {
 
 async function processarSemTrava(envioId: number): Promise<void> {
   const envio = await prisma.seiEnvio.findUnique({ where: { id: envioId } })
-  if (!envio || envio.status === 'CONCLUIDO' || envio.status === 'CANCELADO') return
+  // Agendado, retido e bloqueado não andam por aqui: o agendador (seiEnvios) decide quando.
+  if (!envio || !['PENDENTE', 'ERRO', 'PROCESSANDO'].includes(envio.status)) return
+  // Nada saiu ainda: só começa com a inscrição APTA — etapas do portal
+  // concluídas e tudo o que o SEI exige. Se deixou de estar (documento
+  // recusado depois, de-para apagado…), fica BLOQUEADO até voltar a estar.
+  if (!envio.codigoPessoa) {
+    const { elegibilidade } = await import('./seiEnvios.js')
+    const el = await elegibilidade(envio.registrationId, { online: false })
+    if (!el.apto) {
+      await prisma.seiEnvio.update({
+        where: { id: envioId },
+        data: { status: 'BLOQUEADO', ultimoErro: `Ainda não está apta para o SEI: ${el.bloqueios.join(' · ')}`, proximaTentativaEm: null },
+      })
+      return
+    }
+  }
   await prisma.seiEnvio.update({ where: { id: envioId }, data: { status: 'PROCESSANDO', tentativas: { increment: 1 } } })
   const ctx = { envioId }
   try {
@@ -350,30 +353,7 @@ async function processarSemTrava(envioId: number): Promise<void> {
     // 2) Matrícula
     if (!e.matricula) {
       const pessoaCod = e.codigoPessoa!
-      const curso = limpo(mapa.codigoCurso), banner = limpo(mapa.codigoBanner)
-      let dados: any = await sei.iniciarMatricula(curso, banner, pessoaCod, ctx)
-      const unidade = limpo(mapa.codigoUnidadeEnsino)
-      if (unidade && limpo(dados?.unidadeEnsino?.codigo) !== unidade) {
-        exigirOpcao(dados?.unidadeEnsinos, unidade, 'unidade de ensino')
-        dados = await sei.escolherUnidade(curso, banner, pessoaCod, unidade, ctx)
-      }
-      const grade = limpo(mapa.codigoGradeCurricular) || limpo(dados?.curso?.gradeDisciplina?.codigo)
-      const turno = limpo(mapa.codigoTurno)
-      if (turno && limpo(dados?.turno?.codigo) !== turno) {
-        exigirOpcao(dados?.turnos, turno, 'turno')
-        dados = await sei.escolherTurno({ unidade, curso, turno, grade, banner, pessoa: pessoaCod }, ctx)
-      }
-      const turma = limpo(mapa.codigoTurma)
-      const periodo = limpo(mapa.numeroPeriodoLetivo) || '1'
-      if (turma && limpo(dados?.turma?.codigo) !== turma) {
-        exigirOpcao(dados?.turmas, turma, 'turma')
-        dados = await sei.escolherTurma({ unidade, curso, turno, grade, banner, pessoa: pessoaCod, turma, periodo }, ctx)
-      }
-      const processo = limpo(mapa.codigoProcessoMatricula)
-      exigirOpcao(dados?.processoMatriculas, processo, 'processo de matrícula')
-      const condicao = pv.condicaoPagamento
-      exigirOpcao(dados?.condicaoPagamentos, condicao, 'condição de pagamento')
-      const condObj = (dados?.condicaoPagamentos ?? []).find((c: any) => limpo(c?.codigo) === condicao) ?? { codigo: condicao }
+      const { dados, curso, banner, unidade, turno, turma, processo, condicao, condObj } = await navegarOferta(mapa, pv.condicaoPagamento, pessoaCod, ctx)
       const campusId = limpo((reg.formData as any)?.campusId)
       const polo = campusId ? limpo(mapa.polos?.[campusId]) : ''
 
@@ -465,6 +445,39 @@ async function processarSemTrava(envioId: number): Promise<void> {
   }
 }
 
+/**
+ * Percorre o roteiro do SEI para a oferta do de-para (NE009 → unidade → turno →
+ * turma) e confere processo e condição de pagamento nas listas que o SEI
+ * devolve. Usado no envio (com a pessoa do aluno) e na conferência prévia (com
+ * a pessoa de teste): o que passa aqui é o que o SEI aceita para esta oferta.
+ */
+export async function navegarOferta(mapa: MapaOferta, condicao: string, pessoaCod: string, ctx: sei.SeiCtx = {}) {
+  const curso = limpo(mapa.codigoCurso), banner = limpo(mapa.codigoBanner)
+  let dados: any = await sei.iniciarMatricula(curso, banner, pessoaCod, ctx)
+  const unidade = limpo(mapa.codigoUnidadeEnsino)
+  if (unidade && limpo(dados?.unidadeEnsino?.codigo) !== unidade) {
+    exigirOpcao(dados?.unidadeEnsinos, unidade, 'unidade de ensino')
+    dados = await sei.escolherUnidade(curso, banner, pessoaCod, unidade, ctx)
+  }
+  const grade = limpo(mapa.codigoGradeCurricular) || limpo(dados?.curso?.gradeDisciplina?.codigo)
+  const turno = limpo(mapa.codigoTurno)
+  if (turno && limpo(dados?.turno?.codigo) !== turno) {
+    exigirOpcao(dados?.turnos, turno, 'turno')
+    dados = await sei.escolherTurno({ unidade, curso, turno, grade, banner, pessoa: pessoaCod }, ctx)
+  }
+  const turma = limpo(mapa.codigoTurma)
+  const periodo = limpo(mapa.numeroPeriodoLetivo) || '1'
+  if (turma && limpo(dados?.turma?.codigo) !== turma) {
+    exigirOpcao(dados?.turmas, turma, 'turma')
+    dados = await sei.escolherTurma({ unidade, curso, turno, grade, banner, pessoa: pessoaCod, turma, periodo }, ctx)
+  }
+  const processo = limpo(mapa.codigoProcessoMatricula)
+  exigirOpcao(dados?.processoMatriculas, processo, 'processo de matrícula')
+  exigirOpcao(dados?.condicaoPagamentos, condicao, 'condição de pagamento')
+  const condObj = (dados?.condicaoPagamentos ?? []).find((c: any) => limpo(c?.codigo) === condicao) ?? { codigo: condicao }
+  return { dados, curso, banner, unidade, turno, turma, processo, condicao, condObj }
+}
+
 /** Nome legível no SEI: "RG ou CNH.png" em vez do nome sorteado do upload. */
 function nomeDoArquivo(tipo: string, original: string): string {
   const ext = /\.[a-z0-9]{2,5}$/i.exec(original)?.[0] ?? ''
@@ -483,48 +496,10 @@ function exigirOpcao(lista: unknown, codigo: string, rotulo: string) {
 }
 
 // ── Agendador e gatilho ─────────────────────────────────────────────────────
+// Modos de envio (manual, automático, com carência, programado), conferência
+// de aptidão e fila: services/seiEnvios.ts. Mantido aqui para o server.ts.
 
-let timer: NodeJS.Timeout | null = null
-let rodando = false
-
-async function tick() {
-  if (rodando) return
-  rodando = true
-  try {
-    const cfg = await sei.getSeiConfig()
-    if (!cfg.enabled || !cfg.baseUrl) return
-    // Envio preso em PROCESSANDO (servidor reiniciou no meio): volta para a fila.
-    await prisma.seiEnvio.updateMany({
-      where: { status: 'PROCESSANDO', updatedAt: { lt: new Date(Date.now() - 15 * 60_000) } },
-      data: { status: 'PENDENTE', proximaTentativaEm: new Date() },
-    })
-    const prontos = await prisma.seiEnvio.findMany({
-      where: { status: 'PENDENTE', proximaTentativaEm: { lte: new Date() } },
-      orderBy: { proximaTentativaEm: 'asc' },
-      take: 10,
-      select: { id: true },
-    })
-    for (const p of prontos) await processar(p.id)
-  } catch (e: any) {
-    console.warn('[sei] agendador:', e?.message || e)
-  } finally {
-    rodando = false
-  }
-}
-
-export function iniciarIntegracaoSei() {
-  if (timer) return
-  timer = setInterval(() => { void tick() }, 60_000)
-  // Matrícula efetivada (contrato assinado) → envia, se o envio automático estiver ligado.
-  eventBus.on('matricula.efetivada', async (ev: any) => {
-    try {
-      const registrationId = Number(ev?.payload?.registrationId)
-      if (!registrationId) return
-      const cfg = await sei.getSeiConfig(true)
-      if (!cfg.enabled || !cfg.autoEnviar) return
-      await enfileirar(registrationId, 'automatico')
-    } catch (e: any) {
-      console.warn('[sei] gatilho matricula.efetivada:', e?.message || e)
-    }
-  })
+export async function iniciarIntegracaoSei() {
+  const m = await import('./seiEnvios.js')
+  m.iniciarAgendadorSei()
 }

@@ -11,12 +11,20 @@
 //   GET  /api/admin/sei/inscricao/:registrationId   (estado do envio de uma inscrição)
 //   GET  /api/admin/sei/envios            GET /api/admin/sei/envios/:id
 //   POST /api/admin/sei/envios            POST /api/admin/sei/envios/:id/reprocessar | /cancelar
+//   GET/POST /api/admin/sei/regras        modo de envio (manual, automático, carência, programado)
+//   GET  /api/admin/sei/elegibilidade/:registrationId   checklist de aptidão (?online=1 confere no SEI)
+//   GET  /api/admin/sei/candidatas        inscrições ainda não enviadas, com a aptidão de cada uma
+//   POST /api/admin/sei/envios/lote       várias de uma vez, agora ou agendadas
+//   POST /api/admin/sei/inscricao/:registrationId/reter | /liberar
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import * as sei from '../lib/seiClient.js'
-import { previa, enfileirar, processar, CONTRATO_LOCAL_ID } from '../services/seiIntegracao.js'
+import { previa, processar, CONTRATO_LOCAL_ID } from '../services/seiIntegracao.js'
+import {
+  lerRegras, salvarRegras, elegibilidade, listarCandidatas, agendarEnvio, reter, liberar, proximasJanelas, limparCacheConferencia,
+} from '../services/seiEnvios.js'
 
 const guard = { preHandler: [authMiddleware, adminOnly] }
 
@@ -26,6 +34,13 @@ async function salvar(key: string, value: string, label: string, fieldType: stri
     create: { key, value, label, grp: 'sei', fieldType },
     update: { value },
   })
+}
+
+/** "quando" da tela (ISO); vazio = agora. */
+function dataDoPedido(v: unknown): Date | null | 'invalida' {
+  if (v == null || v === '') return null
+  const d = new Date(String(v))
+  return Number.isNaN(d.getTime()) ? 'invalida' : d
 }
 
 function erro(reply: any, e: any) {
@@ -38,11 +53,12 @@ const TIPOS_MAPA = new Set(['oferta', 'documento', 'contrato'])
 export async function seiIntegrationRoutes(app: FastifyInstance) {
   app.get('/api/admin/sei/config', guard, async () => {
     const c = await sei.getSeiConfig(true)
-    const [pendentes, erros, concluidos] = await Promise.all([
-      prisma.seiEnvio.count({ where: { status: { in: ['PENDENTE', 'PROCESSANDO'] } } }),
-      prisma.seiEnvio.count({ where: { status: 'ERRO' } }),
-      prisma.seiEnvio.count({ where: { status: 'CONCLUIDO' } }),
-    ])
+    const grupos = await prisma.seiEnvio.groupBy({ by: ['status'], _count: { _all: true } })
+    const n = (...st: string[]) => grupos.filter((g) => st.includes(g.status)).reduce((a, g) => a + g._count._all, 0)
+    const [pendentes, erros, concluidos, agendados, retidos, bloqueados] = [
+      n('PENDENTE', 'PROCESSANDO'), n('ERRO'), n('CONCLUIDO'), n('AGENDADO'), n('RETIDO'), n('BLOQUEADO'),
+    ]
+    const regras = await lerRegras()
     return {
       baseUrl: c.baseUrl,
       authTipo: c.authTipo,
@@ -51,10 +67,10 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
       tokenConfigurado: !!c.token,
       headerNome: c.headerNome,
       enabled: c.enabled,
-      autoEnviar: c.autoEnviar,
+      modo: regras.modo,
       enviarContrato: c.enviarContrato,
       camposExtras: c.camposExtras,
-      totais: { pendentes, erros, concluidos },
+      totais: { pendentes, erros, concluidos, agendados, retidos, bloqueados },
     }
   })
 
@@ -75,14 +91,88 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
     if (b.headerNome !== undefined) await salvar(sei.SEI_KEYS.headerNome, String(b.headerNome).trim() || 'Authorization', 'Header de autenticação', 'text')
     for (const [campo, key, rot] of [
       ['enabled', sei.SEI_KEYS.enabled, 'Integração SEI ativa'],
-      ['autoEnviar', sei.SEI_KEYS.autoEnviar, 'Enviar ao SEI ao efetivar a matrícula'],
       ['enviarContrato', sei.SEI_KEYS.enviarContrato, 'Enviar contrato assinado ao SEI'],
       ['camposExtras', sei.SEI_KEYS.camposExtras, 'Enviar campos extras da pessoa'],
     ] as const) {
       if (b[campo] !== undefined) await salvar(key, b[campo] ? 'true' : 'false', rot, 'boolean')
     }
     sei.resetSeiCache()
+    limparCacheConferencia()
     return { ok: true }
+  })
+
+  // ── Regras de envio ──
+  app.get('/api/admin/sei/regras', guard, async () => {
+    const [regras, portais] = await Promise.all([
+      lerRegras(),
+      prisma.enrollmentPortal.findMany({ orderBy: { nome: 'asc' }, select: { id: true, nome: true } }),
+    ])
+    return { regras, portais, proximasJanelas: proximasJanelas(regras) }
+  })
+
+  app.post('/api/admin/sei/regras', guard, async (req, reply) => {
+    try {
+      const regras = await salvarRegras(req.body ?? {})
+      limparCacheConferencia()
+      return { regras, proximasJanelas: proximasJanelas(regras) }
+    } catch (e) {
+      return erro(reply, e)
+    }
+  })
+
+  app.get('/api/admin/sei/elegibilidade/:registrationId', guard, async (req, reply) => {
+    try {
+      const online = String((req.query as any)?.online ?? '') === '1'
+      return await elegibilidade(parseInt((req.params as any).registrationId), { online })
+    } catch (e) {
+      return erro(reply, e)
+    }
+  })
+
+  app.get('/api/admin/sei/candidatas', guard, async (req, reply) => {
+    try {
+      return await listarCandidatas({ online: String((req.query as any)?.online ?? '') === '1' })
+    } catch (e) {
+      return erro(reply, e)
+    }
+  })
+
+  app.post('/api/admin/sei/envios/lote', guard, async (req, reply) => {
+    const b = (req.body ?? {}) as any
+    const ids: number[] = [...new Set<number>((Array.isArray(b.registrationIds) ? b.registrationIds : []).map(Number).filter((n: number) => n > 0))]
+    if (!ids.length) return reply.code(400).send({ error: 'Selecione ao menos uma inscrição.' })
+    if (ids.length > 500) return reply.code(400).send({ error: 'No máximo 500 por vez.' })
+    const quando = dataDoPedido(b.quando)
+    if (quando === 'invalida') return reply.code(400).send({ error: 'Data do agendamento inválida.' })
+    const regras = await lerRegras()
+    const userId = (req as any).user?.userId ?? null
+    const resultados: Array<{ registrationId: number; ok: boolean; status?: string; erro?: string }> = []
+    for (const id of ids) {
+      try {
+        const e = await agendarEnvio(id, quando ? 'agendado' : 'lote', { userId, quando, regras })
+        resultados.push({ registrationId: id, ok: true, status: e?.status })
+      } catch (err: any) {
+        resultados.push({ registrationId: id, ok: false, erro: err?.message || String(err) })
+      }
+    }
+    return { resultados, enviadas: resultados.filter((r) => r.ok).length, recusadas: resultados.filter((r) => !r.ok).length }
+  })
+
+  app.post('/api/admin/sei/inscricao/:registrationId/reter', guard, async (req, reply) => {
+    try {
+      const envio = await reter(parseInt((req.params as any).registrationId), (req as any).user?.userId ?? null, String((req.body as any)?.motivo ?? '').trim())
+      return { envio }
+    } catch (e) {
+      return erro(reply, e)
+    }
+  })
+
+  app.post('/api/admin/sei/inscricao/:registrationId/liberar', guard, async (req, reply) => {
+    try {
+      return { envio: await liberar(parseInt((req.params as any).registrationId)) }
+    } catch (e) {
+      return erro(reply, e)
+    }
   })
 
   // Teste barato e de leitura: lista os cursos ofertados (NE003).
@@ -202,7 +292,8 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
     const registrationId = parseInt((req.params as any).registrationId)
     const envio = await prisma.seiEnvio.findUnique({ where: { registrationId } })
     const cfg = await sei.getSeiConfig()
-    return { habilitada: cfg.enabled, envio }
+    const regras = await lerRegras()
+    return { habilitada: cfg.enabled, envio, modo: regras.modo }
   })
 
   app.get('/api/admin/sei/envios', guard, async (req) => {
@@ -235,15 +326,19 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
     return { envio, chamadas }
   })
 
+  // Envio manual (1 por 1): agora ou agendado. Só sai se a inscrição estiver apta.
   app.post('/api/admin/sei/envios', guard, async (req, reply) => {
-    const registrationId = parseInt((req.body as any)?.registrationId)
+    const b = (req.body ?? {}) as any
+    const registrationId = parseInt(b.registrationId)
     if (!registrationId) return reply.code(400).send({ error: 'Informe a inscrição.' })
-    const cfg = await sei.getSeiConfig(true)
-    if (!cfg.enabled) return reply.code(400).send({ error: 'Ligue a integração com o SEI antes de enviar.' })
-    const envio = await enfileirar(registrationId, 'manual', (req as any).user?.userId ?? null)
-    if (envio.status === 'CONCLUIDO') return { envio, jaEnviado: true }
-    void processar(envio.id)
-    return { envio }
+    const quando = dataDoPedido(b.quando)
+    if (quando === 'invalida') return reply.code(400).send({ error: 'Data do agendamento inválida.' })
+    try {
+      const envio = await agendarEnvio(registrationId, quando ? 'agendado' : 'manual', { userId: (req as any).user?.userId ?? null, quando })
+      return { envio }
+    } catch (e) {
+      return erro(reply, e)
+    }
   })
 
   app.post('/api/admin/sei/envios/:id/reprocessar', guard, async (req, reply) => {
@@ -251,6 +346,10 @@ export async function seiIntegrationRoutes(app: FastifyInstance) {
     const envio = await prisma.seiEnvio.findUnique({ where: { id } })
     if (!envio) return reply.code(404).send({ error: 'Envio não encontrado.' })
     if (envio.status === 'CONCLUIDO') return reply.code(400).send({ error: 'Este envio já foi concluído.' })
+    if (!envio.codigoPessoa) {
+      const el = await elegibilidade(envio.registrationId, { online: true })
+      if (!el.apto) return reply.code(400).send({ error: `Ainda não está apta para o SEI: ${el.bloqueios.join(' · ')}` })
+    }
     const atualizado = await prisma.seiEnvio.update({
       where: { id }, data: { status: 'PENDENTE', proximaTentativaEm: new Date(), tentativas: 0, ultimoErro: null },
     })
