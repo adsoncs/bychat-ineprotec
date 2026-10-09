@@ -980,6 +980,13 @@ export const EDU_TOOLS_MATRICULA = new Set([
   'anexar_documento', 'assinar_contrato', 'responder_parecer', 'link_do_portal',
 ])
 
+/** Tira do protocolo a seção "Matrícula pelo chat" (o passo a passo de
+ *  inscrição, cobrança, documentos e contrato). Só avisar por cima não basta:
+ *  com as duas versões no prompt, a IA seguia coletando dados de inscrição. */
+export function semSecaoDeMatricula(protocolo: string): string {
+  return protocolo.replace(/\n## Matrícula pelo chat[^\n]*\n[\s\S]*?(?=\n## )/, '\n')
+}
+
 export const PROTOCOLO_SEM_MATRICULA = `
 ## MATRÍCULA PELO CHAT DESLIGADA (vale acima de qualquer instrução anterior sobre inscrição, pagamento, documentos, contrato ou link do portal)
 Neste momento a matrícula não é feita por aqui: a equipe de matrículas conclui com a pessoa.
