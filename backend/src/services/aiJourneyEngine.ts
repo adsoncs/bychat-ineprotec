@@ -975,6 +975,8 @@ async function _process(
   // falha se repete junto — cinco dias disso no severiano renderam 66 mensagens
   // de erro e nenhuma resposta de verdade. Ver services/aiProviderHealth.ts.
   let indisponivel = false
+  // Uma cobrança por turno quando a IA promete encaminhar sem chamar rotear_setor.
+  let cobrouEncaminhamento = false
   for (let i = 0; i < maxIters; i++) {
     if (Date.now() - startedAt > TURN_BUDGET_MS) { app.log.warn('[aiJourney] orçamento do turno esgotado'); failed = true; break }
     let turn: LlmTurn
@@ -987,6 +989,12 @@ async function _process(
     }
 
     if (turn.kind === 'text') {
+      if (edu && !cobrouEncaminhamento && prometeuEncaminharSemRotear(turn.text, form, state)) {
+        cobrouEncaminhamento = true
+        messages.push({ role: 'assistant', content: turn.text })
+        messages.push({ role: 'user', content: LEMBRETE_ROTEAR })
+        continue
+      }
       const { text: out, options } = extractOptions(turn.text)
       if (out) { await send(leadId, out, options).catch(() => {}); replied = true }
       else failed = true
@@ -1043,4 +1051,20 @@ async function _process(
     formData: { ...base, ...state.answers, _source: 'whatsapp', _aiJourney: state },
     ...(finalPhase === 'done' || finalPhase === 'disqualified' ? { completed: true } : {}),
   } }).catch((e) => app.log.warn(`[aiJourney] persist: ${e}`))
+}
+
+// Guarda do encaminhamento (jornada educacional com departamentos). O modelo às
+// vezes ANUNCIA "vou encaminhar você para o setor X" e encerra o turno sem chamar
+// rotear_setor: a pessoa lê que foi encaminhada e o lead fica parado, sem equipe
+// nem funil. O motor detecta a promessa no texto final e devolve uma vez ao
+// modelo, que chama a ferramenta (ou reescreve sem prometer). Vale também no
+// simulador, para o teste mostrar o que acontece no WhatsApp.
+const PROMESSA_ENCAMINHAR = /\b(vou|j[áa]|irei|vamos|estou)\s+(te\s+|lhe\s+)?(encaminh|direcion|transferi)\w*|\b(encaminh|direcion)\w*\s+(voc[êe]|vc|seu|sua|o seu|a sua|o assunto)(?![a-zà-ú])/i
+export const LEMBRETE_ROTEAR = '[aviso interno do sistema, não é a pessoa] Você escreveu que vai encaminhar/direcionar, mas não chamou rotear_setor, então nada foi encaminhado. Se o departamento já está claro e é UM só, chame rotear_setor AGORA e só depois escreva a resposta. Se mais de um departamento ainda é possível (ex.: curso, pós ou componente não informado), NÃO escolha por conta própria: reescreva a resposta perguntando só o que falta para decidir, sem prometer encaminhamento.'
+export function prometeuEncaminharSemRotear(texto: string, form: any, state: any): boolean {
+  const fields = Array.isArray(form?.fields) ? form.fields : []
+  const routeField = fields.find((f: any) => f?.type === 'select' && Array.isArray(f.options) && f.options.some((o: any) => o?.route))
+  if (!routeField) return false
+  if (state?.answers?.[routeField.key] != null) return false
+  return PROMESSA_ENCAMINHAR.test(String(texto || ''))
 }

@@ -15,6 +15,7 @@
 // Leituras seguras (getActiveMeetingType/getMeetingTypeSlots/businessHours) são reais.
 
 import { prisma } from '../lib/prisma.js'
+import { prometeuEncaminharSemRotear, LEMBRETE_ROTEAR } from './aiJourneyEngine.js'
 import { parseAnswer, evaluateQualification, nextStep } from './journey/journeyEngine.js'
 import { interpretSelectAnswer } from './journey/interpret.js'
 import { getActiveMeetingType, getMeetingTypeSlots } from './schedulingService.js'
@@ -323,6 +324,7 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
   const system = aiBuildSystemPrompt(chatbot, form, lead, state, catalogSummary, bh, eduBloco)
   const tools = aiFerramentas(form)
   let replied = false
+  let cobrouEncaminhamento = false
   for (let i = 0; i < (edu ? 10 : AI_MAX_ITERS); i++) {
     let turn
     try { turn = await aiLlmTurn(system, messages, tools) }
@@ -331,6 +333,12 @@ async function runAiLoop(sess: PreviewSession, out: string[]): Promise<void> {
       return
     }
     if (turn.kind === 'text') {
+      if (edu && !cobrouEncaminhamento && prometeuEncaminharSemRotear(turn.text, form, state)) {
+        cobrouEncaminhamento = true
+        messages.push({ role: 'assistant', content: turn.text })
+        messages.push({ role: 'user', content: LEMBRETE_ROTEAR })
+        continue
+      }
       const { text: t, options } = aiExtractOptions(turn.text)
       const body = options.length ? `${t}\n\n${options.map((o, idx) => `${idx + 1}) ${o}`).join('\n')}` : t
       if (body) { out.push(body); messages.push({ role: 'assistant', content: turn.text }); replied = true }
