@@ -7,6 +7,7 @@ import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { getMetaAppId, getMetaAppSecret, getMetaIgConfigId, META_GRAPH_URL } from '../lib/meta.js'
+import { decryptSettingValue, isEncrypted } from '../lib/secretSettings.js'
 import {
   IG_BUSINESS_SCOPES,
   IG_GRAPH_URL,
@@ -872,12 +873,17 @@ export async function instagramRoutes(app: FastifyInstance) {
     const rawBody = (req as any).rawBody as Buffer | undefined
     const assinatura = req.headers['x-hub-signature-256'] as string | undefined
     const appSecret = await getMetaAppSecret().catch(() => '')
-    if (appSecret) {
+    const segredos = await segredosDoWebhook(appSecret)
+    if (segredos.length) {
       // Sem isto qualquer um injetava DM falsa no painel com um POST.
-      if (!rawBody || !assinatura || !assinaturaMetaValida(rawBody, assinatura, appSecret)) {
-        app.log.warn('[Instagram] webhook com assinatura ausente ou inválida — recusado')
+      const valeu = rawBody && assinatura
+        ? segredos.find((s) => assinaturaMetaValida(rawBody, assinatura, s.valor))
+        : undefined
+      if (!valeu) {
+        app.log.warn(`[Instagram] webhook com assinatura ausente ou inválida — recusado (testados: ${segredos.map((s) => s.nome).join(', ')})`)
         return reply.code(401).send({ error: 'Invalid signature' })
       }
+      if (valeu.nome !== 'app') app.log.info(`[Instagram] assinatura conferida com o secret do ${valeu.nome}`)
     } else {
       app.log.warn('[Instagram][SECURITY] META_APP_SECRET ausente — webhook aceito SEM verificar assinatura')
     }
@@ -925,6 +931,25 @@ export async function instagramRoutes(app: FastifyInstance) {
 // ───────────────────────────────────────────────────────────────────
 // Webhook: assinatura, repasse entre tenants e processamento
 // ───────────────────────────────────────────────────────────────────
+
+/**
+ * Segredos que a Meta usa para assinar este webhook. O mesmo callback recebe
+ * eventos assinados com o App Secret do app (Página/Messenger) e com o secret
+ * do PRODUTO Instagram (o "Instagram App ID" do caso de uso) — validar só com o
+ * primeiro recusava DM legítima do Instagram.
+ */
+async function segredosDoWebhook(appSecret: string): Promise<{ nome: string; valor: string }[]> {
+  const lista: { nome: string; valor: string }[] = []
+  if (appSecret) lista.push({ nome: 'app', valor: appSecret })
+  try {
+    let ig = await getInstagramAppSecret()
+    if (isEncrypted(ig)) ig = String(decryptSettingValue(ig) ?? '')
+    if (ig && ig !== appSecret) lista.push({ nome: 'instagram', valor: ig })
+  } catch {
+    // sem secret do produto Instagram: só o do app vale
+  }
+  return lista
+}
 
 function assinaturaMetaValida(raw: Buffer | string, assinatura: string, appSecret: string): boolean {
   if (!assinatura.startsWith('sha256=')) return false
