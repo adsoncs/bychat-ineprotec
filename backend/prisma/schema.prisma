@@ -10049,3 +10049,76 @@ model SeiMapeamento {
   @@unique([tipo, localId])
   @@map("bychat_sei_mapeamentos")
 }
+
+// ─── Equipe: chat interno entre pessoas e equipes (services/equipeChat) ───────
+// Conversa direta, canal da equipe (membros = os da equipe), grupo livre e
+// conversa sobre um lead (aparece na ficha do lead). O contato nunca vê nada.
+
+model EquipeConversa {
+  id               Int       @id @default(autoincrement())
+  /// 'direta' | 'grupo' | 'equipe' | 'lead'
+  tipo             String    @db.VarChar(10)
+  nome             String?   @db.VarChar(120)
+  descricao        String?   @db.VarChar(255)
+  /// Canal da equipe (um por equipe).
+  teamId           Int?      @unique
+  /// Conversa interna sobre um lead (uma por lead).
+  leadId           Int?      @unique
+  /// Conversa direta: "menorId:maiorId" — impede duas conversas entre as mesmas pessoas.
+  chaveDireta      String?   @unique @db.VarChar(40)
+  criadoPorId      Int?
+  ultimaMensagemEm DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  membros   EquipeMembro[]
+  mensagens EquipeMensagem[]
+
+  @@index([ultimaMensagemEm])
+  @@map("bychat_equipe_conversas")
+}
+
+model EquipeMembro {
+  id          Int      @id @default(autoincrement())
+  conversaId  Int
+  userId      Int
+  /// 'admin' (cria/gerencia o grupo) | 'membro'
+  papel       String   @default("membro") @db.VarChar(10)
+  silenciada  Boolean  @default(false)
+  /// Última mensagem lida (as de id maior contam como não lidas).
+  ultimaLidaId Int?
+  entrouEm    DateTime @default(now())
+
+  conversa EquipeConversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  @@unique([conversaId, userId])
+  @@index([userId])
+  @@map("bychat_equipe_membros")
+}
+
+model EquipeMensagem {
+  id          Int       @id @default(autoincrement())
+  conversaId  Int
+  /// null = mensagem do sistema (entrou/saiu, conversa criada).
+  userId      Int?
+  corpo       String?   @db.Text
+  /// Cartão de ação: lead, indicação, transferência, negociação, tarefa.
+  cartao      Json?
+  /// [{ url, nome, tipo, tamanho }]
+  anexos      Json?
+  /// { users: number[], teams: number[] }
+  mencoes     Json?
+  /// Links internos colados no texto: [{ tipo: 'lead', id }]
+  links       Json?
+  /// { "👍": [userIds] }
+  reacoes     Json?
+  respostaAId Int?
+  editadaEm   DateTime?
+  apagadaEm   DateTime?
+  createdAt   DateTime  @default(now())
+
+  conversa EquipeConversa @relation(fields: [conversaId], references: [id], onDelete: Cascade)
+
+  @@index([conversaId, id])
+  @@map("bychat_equipe_mensagens")
+}

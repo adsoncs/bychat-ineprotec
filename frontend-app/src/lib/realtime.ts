@@ -134,6 +134,13 @@ function queryKeysForEvent(ev: ServerEvent): readonly unknown[][] {
     case 'transfer:cancelled':
     case 'transfer:expired':
       return [['transfer-requests'], ['leads'], ['kanban'], ['tickets']]
+    // Equipe (chat interno): mensagem nova, cartão/reação/edição, leitura.
+    case 'equipe:mensagem':
+      return [['equipe', 'conversas'], ['equipe', 'resumo'], ['equipe', 'mensagens', ev.payload?.conversaId]]
+    case 'equipe:atualizada':
+      return [['equipe', 'conversas'], ['equipe', 'resumo'], ['equipe', 'mensagens', ev.payload?.conversaId], ['equipe', 'conversa', ev.payload?.conversaId]]
+    case 'equipe:lida':
+      return [['equipe', 'conversas'], ['equipe', 'resumo']]
     case 'cloudapi:template_status':
       // Aprovação/reprovação/pausa de template HSM chegou via webhook ou cron.
       return [['cloud-api-templates']]

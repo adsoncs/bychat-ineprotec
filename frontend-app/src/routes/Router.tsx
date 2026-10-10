@@ -527,6 +527,9 @@ const SalesCadenceDashboard = lazy(() =>
   ),
 )
 
+const PaginaDaEquipe = lazy(() =>
+  import('@/components/equipe/PainelDaEquipe').then((m) => ({ default: m.PaginaDaEquipe })),
+)
 const LeadDetail = lazy(() =>
   import('./pages/LeadDetailPage').then(
     (m) => ({ default: m.LeadDetailPage }),
@@ -809,6 +812,13 @@ export function Router() {
               // Importação é admin-only; gated por 'settings' como no sidebar.
               return <ModuleGate moduleId="settings"><Migrated /></ModuleGate>
             }}
+          </Route>
+          {/* Equipe (chat interno): página cheia, sem item no menu — o acesso é
+              pelo ícone do topo; aqui só quem quer a conversa em tela inteira. */}
+          <Route path="/equipe">
+            {() => (
+              <ModuleGate moduleId="equipe"><PaginaDaEquipe /></ModuleGate>
+            )}
           </Route>
           <Route path="/leads/:id/:section">
             {(params: { id: string; section: string }) => (

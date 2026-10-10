@@ -28,6 +28,13 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   goals_commissions: {
     AGENT: { canView: true, canCreate: false, canEdit: false, canDelete: false },
   },
+  // Chat interno: todo mundo conversa. Editar/apagar só a própria mensagem e
+  // administrar só o grupo que criou é regra da rota (routes/equipe.ts).
+  equipe: {
+    MANAGER: { canView: true, canCreate: true, canEdit: true, canDelete: true },
+    AGENT:   { canView: true, canCreate: true, canEdit: true, canDelete: true },
+    VIEWER:  { canView: true, canCreate: true, canEdit: true, canDelete: true },
+  },
   // O alerta de item de usuário vai para o DONO do item — que é justamente o
   // AGENT. Sem ele aqui, o vendedor não veria a própria atividade atrasada nem
   // a própria proposta parada, e a regra "item de usuário fica com gestão +

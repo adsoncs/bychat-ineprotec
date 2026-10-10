@@ -24,6 +24,7 @@ import { useFavoritesStore } from '@/stores/favorites'
 import { Icon } from '@/components/ui/Icon'
 import { cn } from '@/lib/cn'
 import { ICON_SIZE } from '@/components/ui/Icon'
+import { BotaoDaEquipe } from '@/components/equipe/PainelDaEquipe'
 
 /**
  * Iniciais em cinza sólido, e não um degradê sorteado pelo e-mail.
@@ -171,6 +172,7 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
         >
           <MessageSquare size={ICON_SIZE.md} />
         </TopbarUtil>
+        <BotaoDaEquipe />
         <WorkInbox />
         <span class="w-px h-6 bg-border mx-2 shrink-0" aria-hidden="true" />
         <MenuDaConta

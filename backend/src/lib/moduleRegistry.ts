@@ -155,6 +155,17 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
+    id: 'equipe', name: 'Equipe (chat interno)', icon: '💬', category: 'crm',
+    umbrella: 'atendimento', cobranca: 'base',
+    description: 'Chat interno entre pessoas e equipes, de qualquer papel: conversas diretas, canal de cada equipe, grupos e conversa sobre um lead, com cartões de lead, indicação, transferência, negociação e tarefa.',
+    pages: ['equipe'],
+    routePrefixes: ['/api/equipe'],
+    actions: ['view', 'create', 'edit', 'delete'],
+    // Ligável em Módulos (não é core). Todos os papéis usam — quem pode o quê
+    // dentro da conversa (editar só a sua, administrar o grupo) é decidido na rota.
+    defaultEnabled: true,
+  },
+  {
     id: 'leads', name: 'Leads', icon: '👥', category: 'crm',
     umbrella: 'crm_vendas', cobranca: 'base',
     description: 'Cadastro e gestão de leads/contatos com histórico, campos personalizados e segmentação.',

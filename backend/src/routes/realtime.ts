@@ -154,6 +154,27 @@ export async function broadcastRealtimeEvent(event: RealtimeEvent): Promise<void
   }
 }
 
+/** Quem está com o painel aberto agora (presença do chat da Equipe). */
+export function usuariosConectados(): Set<number> {
+  const ids = new Set<number>()
+  for (const s of sockets) ids.add(s.user.userId)
+  return ids
+}
+
+/**
+ * Envia um evento só para estas pessoas (todas as abas de cada uma). Para
+ * conversa em grupo — o `scope` do broadcast só conhece um usuário por vez.
+ */
+export function enviarParaUsuarios(userIds: Iterable<number>, event: { type: string; payload: unknown }): void {
+  const alvo = new Set(userIds)
+  if (!alvo.size) return
+  const data = JSON.stringify(event)
+  for (const s of sockets) {
+    if (!alvo.has(s.user.userId)) continue
+    try { s.socket.send(data) } catch { /* socket morto — limpo no close */ }
+  }
+}
+
 export function realtimeStats(): { connections: number } {
   return { connections: sockets.size }
 }

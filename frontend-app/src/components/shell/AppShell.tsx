@@ -1,4 +1,6 @@
 import type { ComponentChildren } from 'preact'
+import { PainelDaEquipe, EquipeMinimizada, useEquipeLigada } from '@/components/equipe/PainelDaEquipe'
+import { useAvisosDaEquipe } from '@/hooks/useAvisosDaEquipe'
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks'
 import { useDbConnectorNames } from '@/hooks/useDbConnectors'
 import { setDbConnectorNames, setFormSourceNames, setPortalSourceNames } from '@/lib/leadSourceLabels'
@@ -128,6 +130,19 @@ export function AppShell({ children }: AppShellProps) {
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <CallWidget />
       <WaCallWidget />
+      <EquipeNoShell />
     </div>
+  )
+}
+
+/** Equipe (chat interno): painel, bolinha minimizada e avisos — só com o módulo ligado. */
+function EquipeNoShell() {
+  const ligada = useEquipeLigada()
+  useAvisosDaEquipe(ligada)
+  return (
+    <>
+      <PainelDaEquipe />
+      <EquipeMinimizada />
+    </>
   )
 }

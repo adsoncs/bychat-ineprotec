@@ -1,11 +1,14 @@
 import { useState } from 'preact/hooks'
+import { useEquipeLigada } from '@/components/equipe/PainelDaEquipe'
+import { useAcoesDaEquipe } from '@/hooks/useEquipe'
+import { useEquipeStore } from '@/stores/equipe'
 import { useLocation } from 'wouter-preact'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   ArrowLeft, Mail, MessageSquare, Building2, MapPin, Star,
   MoreHorizontal, GitMerge, GraduationCap, Send, Copy, Trash2, Pencil,
-  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan} from '@/components/ui/icon-set'
+  User as UserIcon, ChevronDown, Paperclip, X as XIcon, Download as DownloadIcon, ShieldBan, MessagesSquare} from '@/components/ui/icon-set'
 import { useLead } from '@/hooks/useLeads'
 import { useAgents } from '@/hooks/useRouting'
 import { useAssignTicket } from '@/hooks/useChat'
@@ -36,7 +39,7 @@ import { LeadExportModal } from '@/components/LeadExportModal'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
 import { formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
-import { ApiError } from '@/lib/apiClient'
+import { api, ApiError } from '@/lib/apiClient'
 import { cn } from '@/lib/cn'
 
 interface Props {
@@ -293,6 +296,8 @@ function LeadHeader({ id, lead, isLoading, actions }: HeaderProps) {
         <WaCallButton leadId={id} phone={lead.whatsapp ?? ''} label="Ligar com WhatsApp" />
 
         <SendEmailButton leadId={id} email={lead.email} />
+
+        <ConversaInternaButton leadId={id} />
 
         <CallButton leadId={id} phone={lead.whatsapp} label="Ligar com VoIP" />
 
@@ -760,5 +765,37 @@ function MenuItem({
       <Icon size={14} class={destructive ? 'text-danger' : 'text-fg-muted'} />
       {children}
     </DropdownMenu.Item>
+  )
+}
+
+/**
+ * Equipe (chat interno): a conversa da equipe sobre este lead — o contato nunca
+ * vê. Abre o painel da Equipe nela (cria na primeira vez) e mostra quantas
+ * mensagens já tem.
+ */
+function ConversaInternaButton({ leadId }: { leadId: number }) {
+  const ligada = useEquipeLigada()
+  const { criarConversa } = useAcoesDaEquipe()
+  const q = useQuery({
+    queryKey: ['equipe', 'lead', leadId],
+    queryFn: () => api.get<{ conversaId: number | null; mensagens: number }>(`/equipe/lead/${leadId}`),
+    enabled: ligada,
+    staleTime: 30_000,
+  })
+  if (!ligada) return null
+  const n = q.data?.mensagens ?? 0
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      title="Conversa interna da equipe sobre este lead (o contato não vê)"
+      loading={criarConversa.isPending}
+      onClick={async () => {
+        const id = q.data?.conversaId ?? (await criarConversa.mutateAsync({ tipo: 'lead', leadId })).id
+        useEquipeStore.getState().abrir(id)
+      }}
+    >
+      <MessagesSquare size={12} /> Conversa interna{n ? ` (${n})` : ''}
+    </Button>
   )
 }

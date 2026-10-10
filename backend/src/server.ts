@@ -30,6 +30,7 @@ import { atendimentoRoutes } from './routes/atendimento.js'
 import { contatosRoutes } from './routes/contatos.js'
 import { scheduledMessagesRoutes } from './routes/scheduledMessages.js'
 import { supervisionRoutes } from './routes/supervision.js'
+import { equipeRoutes } from './routes/equipe.js'
 import { conversationAccessRoutes } from './routes/conversationAccess.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
@@ -774,6 +775,7 @@ await app.register(atendimentoRoutes)
 await app.register(contatosRoutes)
 await app.register(scheduledMessagesRoutes)
 await app.register(supervisionRoutes)
+await app.register(equipeRoutes)
 await app.register(conversationAccessRoutes)
 await app.register(transferRequestsRoutes)
 await app.register(leadsImportRoutes)
