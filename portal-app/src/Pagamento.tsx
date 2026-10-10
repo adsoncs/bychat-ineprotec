@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import {
   consultarPagamento, iniciarPagamento, opcoesDePagamento, simularPagamento,
-  type MetodoPagamento, type OpcoesDePagamento,
+  type EscolhaDePlano, type MetodoPagamento, type OpcoesDePagamento,
 } from './api'
 import {
   bandeira, errosDoCartao, mascaraCartao, mascaraValidade, type DadosDoCartao,
@@ -50,6 +50,9 @@ export function Pagamento(props: {
   aoConfirmar: () => void
 }) {
   const [opcoes, setOpcoes] = useState<OpcoesDePagamento | null>(null)
+  // Plano de pagamento da oferta e a opção (entrada ou curso completo). null =
+  // o que o servidor escolher primeiro; a oferta sem plano nem usa isto.
+  const [plano, setPlano] = useState<EscolhaDePlano | null>(null)
   const [metodo, setMetodo] = useState<Meio | null>(null)
   const [parcelas, setParcelas] = useState(1)
   const [cobranca, setCobranca] = useState<MetodoPagamento | null>(null)
@@ -82,7 +85,7 @@ export function Pagamento(props: {
   // o número que a pessoa vê tem de ser o que vai ser cobrado.
   useEffect(() => {
     let vivo = true
-    opcoesDePagamento(props.codigo, props.token, cupomAtivo || undefined)
+    opcoesDePagamento(props.codigo, props.token, cupomAtivo || undefined, plano ?? undefined)
       .then((o) => { if (vivo) setOpcoes(o) })
       .catch(() => {
         // Sem resposta, cai nos dois meios que sempre existiram em vez de
@@ -96,7 +99,7 @@ export function Pagamento(props: {
         }
       })
     return () => { vivo = false }
-  }, [props.codigo, props.token, cupomAtivo])
+  }, [props.codigo, props.token, cupomAtivo, plano?.planoId, plano?.opcao])
 
   useEffect(() => {
     let vivo = true
@@ -158,6 +161,8 @@ export function Pagamento(props: {
         cardToken ? undefined : dadosDoCartao,
         cupomAtivo || undefined,
         cardToken,
+        // O que o servidor confirmou nas opções — é o preço que a tela mostrou.
+        opcoes?.escolha,
       )
       // Some da memória assim que a chamada volta, dê certo ou errado.
       setCartao({})
@@ -303,6 +308,16 @@ export function Pagamento(props: {
         </p>
         {erro && <div class="aviso erro" role="alert">{erro}</div>}
 
+        {/* Plano de pagamento da oferta: primeiro o plano (quando há mais de
+            um), depois o que pagar agora — só a entrada ou o curso completo.
+            Trocar recalcula os meios abaixo. */}
+        {!!opcoes.planos?.length && (
+          <EscolhaDoPlano
+            opcoes={opcoes}
+            aoEscolher={(e) => { setOpcoes(null); setPlano(e) }}
+          />
+        )}
+
         {/* O cupom fica aqui, antes da escolha do meio: ele muda o preço de
             todos, e descobrir isso depois de escolher faria a pessoa voltar. */}
         <div class="cupom">
@@ -367,7 +382,7 @@ export function Pagamento(props: {
               class="opcao-pagamento"
               // Com parcelamento ligado, primeiro a pessoa escolhe em quantas
               // vezes; sem ele, vai direto para o boleto.
-              onClick={() => (opcoesBoleto.length > 1 ? setMetodo('boleto') : escolher('boleto'))}
+              onClick={() => (opcoesBoleto.length > 1 ? setMetodo('boleto') : escolher('boleto', opcoesBoleto[0]?.parcelas ?? 1))}
               disabled={carregando}
             >
               <b>Boleto</b>
@@ -375,8 +390,12 @@ export function Pagamento(props: {
                 {tabela
                   ? `${dinheiro(opcoes.valor)} à vista${ultimaBoleto ? ` ou ${ultimaBoleto.parcelas}x ${dinheiro(ultimaBoleto.valorParcela)}` : ''}`
                   : opcoesBoleto.length > 1
-                    ? `à vista ou em até ${m?.boleto.parcelasMax}x`
-                    : 'Compensa em até 3 dias úteis'}
+                    ? `${opcoesBoleto[0]?.parcelas === 1 ? 'à vista ou ' : ''}em até ${m?.boleto.parcelasMax}x${m.boleto.descontoPct ? ` · ${m.boleto.descontoPct}% de desconto à vista` : ''}`
+                    : opcoesBoleto[0] && opcoesBoleto[0].parcelas > 1
+                      ? opcoesBoleto[0].descricao
+                      : m.boleto.descontoPct && opcoesBoleto[0]
+                        ? `${dinheiro(opcoesBoleto[0].valorEntrada)} · ${m.boleto.descontoPct}% de desconto`
+                        : 'Compensa em até 3 dias úteis'}
               </span>
             </button>
           )}
@@ -712,6 +731,61 @@ function FormularioDeCartao(props: {
       <p class="ajuda" style="margin-top:4px">
         Os dados do cartão são usados só para esta cobrança e não ficam guardados.
       </p>
+    </div>
+  )
+}
+
+/**
+ * Plano de pagamento e o que pagar agora. Cada botão diz o valor e o que
+ * acontece depois ("R$ 599,90 agora e mais 5x…" × "curso completo").
+ */
+function EscolhaDoPlano(props: { opcoes: OpcoesDePagamento; aoEscolher: (e: EscolhaDePlano) => void }) {
+  const planos = props.opcoes.planos ?? []
+  const escolha = props.opcoes.escolha
+  const atual = planos.find((p) => p.id === escolha?.planoId) ?? planos[0]
+  if (!atual) return null
+  return (
+    <div class="plano-escolha">
+      {planos.length > 1 && (
+        <>
+          <div class="plano-titulo">Plano de pagamento</div>
+          <div class="pagamento-opcoes">
+            {planos.map((p) => (
+              <button
+                key={p.id}
+                class="opcao-pagamento"
+                aria-pressed={p.id === atual.id}
+                onClick={() => p.id !== atual.id && props.aoEscolher({ planoId: p.id, opcao: p.opcoes[0]?.chave ?? 'entrada' })}
+              >
+                <b>{p.nome}</b>
+                <span>{p.resumo}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {atual.opcoes.length > 1 && (
+        <>
+          <div class="plano-titulo">O que você quer pagar agora?</div>
+          <div class="pagamento-opcoes">
+            {atual.opcoes.map((o) => (
+              <button
+                key={o.chave}
+                class="opcao-pagamento"
+                aria-pressed={o.chave === escolha?.opcao}
+                onClick={() => o.chave !== escolha?.opcao && props.aoEscolher({ planoId: atual.id, opcao: o.chave })}
+              >
+                <b>{o.rotulo} · {dinheiro(o.valor)}</b>
+                <span>{o.detalhe}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {atual.opcoes.length === 1 && planos.length === 1 && atual.opcoes[0] && (
+        <p class="ajuda" style="margin:10px 0 0">{atual.opcoes[0].detalhe}</p>
+      )}
+      <div class="plano-titulo">Forma de pagamento</div>
     </div>
   )
 }

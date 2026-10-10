@@ -17,6 +17,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { lerTabelaDePrecos, type TabelaDePrecos } from './tabelaDePrecos.js'
+import { planosDaOferta, valorDaEntrada } from './planoFinanceiro.js'
 
 export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
@@ -97,6 +98,18 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   if (reg.portal?.paymentScope !== 'curso') {
     const taxa = Number(reg.processRegistration?.selectionProcess?.taxaInscricao ?? 0)
     return { escopo: 'taxa', valor: taxa > 0 ? taxa : 0, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
+  }
+
+  // Plano de pagamento com regras de portal (services/planoFinanceiro): vence
+  // a tabela de preços. O valor aqui é a entrada do primeiro plano; a tela de
+  // pagamento troca de plano e de opção (services/checkoutDoPlano).
+  const [plano1] = await planosDaOferta(of?.id)
+  if (plano1) {
+    return {
+      escopo: 'curso', valor: valorDaEntrada(plano1),
+      rotulo: plano1.taxaMatriculaCentavos > 0 ? MATRICULA : texto('resumoMensalidade', '1ª parcela'),
+      fonte: 'plano_erp', contexto,
+    }
   }
 
   // Curso com tabela de preços por meio: o curso inteiro, pela condição do

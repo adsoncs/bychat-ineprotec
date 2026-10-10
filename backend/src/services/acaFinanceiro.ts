@@ -4,6 +4,7 @@
 // boleto/PIX e confirma por webhook), reusando services/paymentAsaas.ts e a
 // PaymentProviderConnection existente. Idempotência via AcaIntegracaoEvento.
 
+import { lerEscolhaDoPlano, parcelasDoPlano, planoPorId, pontualidadeDaFatura, type EscolhaDoPlano, type RegrasDoPlano } from './planoFinanceiro.js'
 import { prisma } from '../lib/prisma.js'
 import { calcularEncargos, getEncargosConfig } from './acaEncargos.js'
 import {
@@ -135,6 +136,8 @@ export interface EscolhaDoCheckout {
     valorParcelaCentavos: number
     valorTotalCentavos: number
   } | null
+  /** Plano de pagamento da oferta escolhido no checkout (services/planoFinanceiro). */
+  planoFinanceiro?: (EscolhaDoPlano & { valorParcelaCentavos: number; valorTotalCentavos: number }) | null
 }
 
 /**
@@ -173,6 +176,14 @@ async function escolhaDoCheckout(registrationId: number | null | undefined): Pro
     parcelas: Math.max(1, Math.round(Number(plano.parcelas ?? 1)) || 1),
     valorPagoCentavos: Math.round(valor * 100),
     pagoEm: reg.paymentPaidAt ?? new Date(),
+    planoFinanceiro: (() => {
+      const pf = lerEscolhaDoPlano(plano)
+      return pf ? {
+        ...pf,
+        valorParcelaCentavos: Math.round(Number(plano.valorParcela ?? 0) * 100),
+        valorTotalCentavos: Math.round(Number(plano.valorTotal ?? 0) * 100),
+      } : null
+    })(),
     tabela: condicao && totalTabela > 0
       ? {
           condicao,
@@ -265,6 +276,29 @@ export async function gerarContratoEParcelas(matriculaId: number): Promise<{ con
   const offeringId = mat.turma.courseOfferingId
   if (!offeringId) throw new Error('Turma sem oferta vinculada — defina a oferta para gerar o financeiro.')
   const plano = await prisma.acaPlanoPagamento.findFirst({ where: { courseOfferingId: offeringId, ativo: true }, orderBy: { id: 'asc' } })
+
+  // Pago por um plano de pagamento da oferta (services/planoFinanceiro): o
+  // contrato nasce do plano escolhido e da opção paga (entrada ou integral).
+  // Bolsa não entra — o valor foi fechado no checkout.
+  const pf = escolha?.planoFinanceiro ? await planoPorId(escolha.planoFinanceiro.planoId) : null
+  if (escolha && escolha.planoFinanceiro && pf) {
+    const geradas = parcelasDoPlano(pf, {
+      opcao: escolha.planoFinanceiro.opcao, meio: escolha.meio, parcelas: escolha.parcelas,
+      valorPagoCentavos: escolha.valorPagoCentavos, pagoEm: escolha.pagoEm,
+      valorParcelaCentavos: escolha.planoFinanceiro.valorParcelaCentavos,
+      valorTotalCentavos: escolha.planoFinanceiro.valorTotalCentavos,
+    })
+    const total = geradas.reduce((s, p) => s + p.valorBrutoCentavos, 0)
+    const contrato = await prisma.acaContrato.create({ data: { matriculaId, planoPagamentoId: pf.id, valorTotalCentavos: total } })
+    for (const [i, p] of geradas.entries()) {
+      await prisma.acaParcela.create({ data: { ...p, contratoId: contrato.id, nroParcela: i + 1 } })
+    }
+    if (geradas.every((p) => p.situacao === 'PAGA')) {
+      await prisma.acaContrato.update({ where: { id: contrato.id }, data: { status: 'QUITADO' } })
+    }
+    await posContrato(mat, contrato.id)
+    return { contratoId: contrato.id, criadas: geradas.length }
+  }
 
   // Pago pela tabela de preços do portal: o contrato é o preço aceito ali.
   // Bolsa não entra — o valor já foi fechado (e pago) no checkout.
@@ -381,9 +415,16 @@ async function posContrato(
  * id no gateway, qualquer que seja) e o gateway em `gatewayProvider`.
  */
 export async function criarCobrancaParcela(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
+  // Parcela de plano cujo restante é do SEI: quem emite e cobra é o SEI.
+  // Cobrar aqui também seria cobrar duas vezes.
+  const regras = await regrasDoPlanoDaParcela(parcelaId)
+  if (regras?.destino === 'sei') {
+    const p = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { situacao: true } })
+    if (p?.situacao !== 'PAGA') return { ok: false, error: 'As parcelas deste plano de pagamento são cobradas pelo SEI — não geram cobrança aqui.' }
+  }
   const conn = await conexaoDaParcela(parcelaId)
   if (!conn) return { ok: false, error: 'Nenhuma conexão de pagamento ativa (Configurações › Pagamentos).' }
-  if (conn.provider === 'iugu') return criarCobrancaIugu(parcelaId, conn)
+  if (conn.provider === 'iugu') return criarCobrancaIugu(parcelaId, conn, regras)
   return criarCobrancaAsaas(parcelaId)
 }
 
@@ -436,7 +477,14 @@ export function urlGatilhoIugu(webhookToken: string): string | undefined {
  * atualizado (multa + juros até hoje, como no Asaas); a partir daí os encargos
  * seguem por conta da própria iugu.
  */
-async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
+/** Regras do plano de pagamento do contrato da parcela (null = plano antigo ou sem plano). */
+async function regrasDoPlanoDaParcela(parcelaId: number): Promise<RegrasDoPlano | null> {
+  const p = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { contrato: { select: { planoPagamentoId: true } } } })
+  const plano = await planoPorId(p?.contrato.planoPagamentoId)
+  return plano?.regras ?? null
+}
+
+async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: RegrasDoPlano | null = null): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
   const cfg = iuguDaConexao(conn)
   if (!cfg) return { ok: false, error: 'Não foi possível abrir as credenciais da iugu — salve o token de novo em Configurações › Pagamentos.' }
   const parcela = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, include: { contrato: { include: { matricula: { include: { aluno: { include: { lead: true } } } } } } } })
@@ -455,17 +503,20 @@ async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp): Promise
     const hoje = new Date()
     const vencida = dataIugu(parcela.dataVencimento) < dataIugu(hoje)
     const vencimento = vencida ? new Date(hoje.getTime() + 2 * 86400_000) : parcela.dataVencimento
+    // Desconto de pontualidade do plano: só na parcela em dia, até o dia-limite.
+    const pontual = !vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento, hoje) : null
     const fatura = await criarFaturaIugu(cfg, {
       metodos: ['boleto', 'pix'],
       valor: enc.valorCobranca / 100,
       vencimento,
-      descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}`,
+      descricao: `${parcela.tipo === 'MATRICULA' ? 'Matrícula' : 'Mensalidade'} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (valor atualizado)' : ''}${pontual ? ` · ${pontual.pct}% de desconto pagando até ${pontual.ate.toLocaleDateString('pt-BR')}` : ''}`,
       email,
       pagador: { nome: aluno.lead?.nome || 'Aluno', cpfCnpj: cpf, telefone: aluno.lead?.whatsapp || undefined, email },
       referencia: `aca-parcela:${parcelaId}`,
       // Mesma parcela, mesmo valor, mesmo vencimento: clique duplo não gera
       // duas faturas. Valor ou data diferentes são outra cobrança de verdade.
-      chaveIdempotencia: `aca-parcela-${parcelaId}-${enc.valorCobranca}-${dataIugu(vencimento)}`,
+      chaveIdempotencia: `aca-parcela-${parcelaId}-${enc.valorCobranca}-${dataIugu(vencimento)}${pontual ? `-p${pontual.pct}` : ''}`,
+      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct } } : {}),
       urlNotificacao: urlGatilhoIugu(conn.webhookToken),
       multaPct: encCfg.multaPct,
       jurosMesPct: encCfg.jurosMesPct,

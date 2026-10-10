@@ -56,6 +56,10 @@ const DERIVADOS: CampoContrato[] = [
   { chave: 'num_parcelas', rotulo: 'Número de parcelas', grupo: 'Pagamento', exemplo: '18' },
   { chave: 'valor_parcela', rotulo: 'Valor da parcela', grupo: 'Pagamento', exemplo: 'R$ 180,00' },
   { chave: 'valor_matricula', rotulo: 'Valor da matrícula', grupo: 'Pagamento', exemplo: 'R$ 0,00' },
+  { chave: 'plano_pagamento', rotulo: 'Plano de pagamento escolhido', grupo: 'Pagamento', exemplo: 'Semestral — 6 parcelas' },
+  { chave: 'dia_vencimento', rotulo: 'Dia de vencimento das parcelas', grupo: 'Pagamento', exemplo: '10' },
+  { chave: 'desconto_pontualidade', rotulo: 'Desconto de pontualidade (%)', grupo: 'Pagamento', exemplo: '10%' },
+  { chave: 'dia_limite_pontualidade', rotulo: 'Dia-limite do desconto de pontualidade', grupo: 'Pagamento', exemplo: '5' },
   { chave: 'preco_a_vista', rotulo: 'Tabela: preço à vista (Pix/boleto)', grupo: 'Pagamento', exemplo: 'R$ 2.700,00' },
   { chave: 'preco_cartao', rotulo: 'Tabela: condição no cartão', grupo: 'Pagamento', exemplo: '12x de R$ 250,00 (R$ 3.000,00)' },
   { chave: 'preco_boleto', rotulo: 'Tabela: condição no boleto parcelado', grupo: 'Pagamento', exemplo: '18x de R$ 180,00 (R$ 3.240,00)' },
@@ -221,6 +225,11 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   } else if (!tabela && plano.numParcelas > 0) {
     forma = `${plano.numParcelas} parcela(s) de ${reais(plano.valorParcelaCentavos)}`
   }
+  // Plano de pagamento da oferta: a frase e os campos do plano escolhido.
+  const { condicaoDoContrato } = await import('./planoFinanceiro.js')
+  const doPlano = await condicaoDoContrato(of.id, pp)
+  if (doPlano) forma = doPlano.descricao
+  const pont = doPlano?.plano.regras.pontualidade
   const cond = (x: { parcelas: number; valorParcela: number } | null, total: number | null) =>
     x ? `${x.parcelas}x de ${reais(Math.round(x.valorParcela * 100))}${total ? ` (${reais(Math.round(total * 100))})` : ''}` : ''
 
@@ -250,7 +259,13 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
     forma_pagamento: forma,
     num_parcelas: plano.numParcelas ? String(plano.numParcelas) : '',
     valor_parcela: plano.valorParcelaCentavos ? reais(plano.valorParcelaCentavos) : '',
-    valor_matricula: reais(Math.round(Number(of.valorMatricula ?? 0) * 100)),
+    valor_matricula: doPlano
+      ? reais(doPlano.plano.taxaMatriculaCentavos || doPlano.plano.valorParcelaCentavos)
+      : reais(Math.round(Number(of.valorMatricula ?? 0) * 100)),
+    plano_pagamento: doPlano?.plano.nome ?? '',
+    dia_vencimento: doPlano ? String(doPlano.plano.diaVencimento) : '',
+    desconto_pontualidade: pont?.ativo && pont.descontoPct > 0 ? `${pont.descontoPct.toLocaleString('pt-BR')}%` : '',
+    dia_limite_pontualidade: pont?.ativo && pont.descontoPct > 0 ? String(pont.diaLimite) : '',
     preco_a_vista: tabela ? reais(Math.round(tabela.aVista * 100)) : '',
     preco_cartao: tabela ? cond(tabela.cartao, tabela.cartao ? totalDoCartao(tabela) : null) : '',
     preco_boleto: tabela ? cond(tabela.boleto, totalDoBoletoParcelado(tabela)) : '',

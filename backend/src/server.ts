@@ -94,6 +94,7 @@ import { painelGerencialRoutes } from './routes/painelGerencial.js'
 import { trackableLinksRoutes } from './routes/trackableLinks.js'
 import { pixelRoutes } from './routes/pixel.js'
 import { educationalRoutes } from './routes/educational.js'
+import { planosPagamentoRoutes } from './routes/planosPagamento.js'
 import { modulesRoutes } from './routes/modules.js'
 import { salesRoutes } from './routes/sales.js'
 import { conversionsRoutes } from './routes/conversions.js'
@@ -816,6 +817,7 @@ await app.register(painelGerencialRoutes)
 await app.register(trackableLinksRoutes)
 await app.register(pixelRoutes)
 await app.register(educationalRoutes)
+await app.register(planosPagamentoRoutes)
 await app.register(modulesRoutes)
 await app.register(salesRoutes)
 await app.register(cloudApiSetupRoutes)

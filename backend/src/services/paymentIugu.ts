@@ -205,6 +205,8 @@ export interface CriarFaturaInput {
   /** Dias depois do vencimento em que a fatura ainda pode ser paga (0 = só até o vencimento). */
   expiraEmDias?: number | undefined
   semEmailDaIugu?: boolean | undefined
+  /** Desconto de pontualidade: `pct`% para quem paga até `dias` antes do vencimento. */
+  descontoAntecipado?: { dias: number; pct: number } | undefined
 }
 
 const PAYABLE: Record<IuguMetodo, string> = { pix: 'pix', boleto: 'bank_slip', credit_card: 'credit_card' }
@@ -250,6 +252,12 @@ export async function criarFaturaIugu(cfg: IuguConfig, input: CriarFaturaInput):
       corpo.per_day_interest = true
       corpo.per_day_interest_value = Math.round((input.jurosMesPct / 30) * 1000) / 1000
     }
+  }
+  // Pagou até o dia-limite: a iugu aplica o desconto sozinha; depois dele, a
+  // mesma fatura vale o valor cheio (multa e juros só depois do vencimento).
+  if (input.descontoAntecipado && input.descontoAntecipado.dias >= 1 && input.descontoAntecipado.pct > 0) {
+    corpo.early_payment_discount = true
+    corpo.early_payment_discounts = [{ days: Math.round(input.descontoAntecipado.dias), percent: Math.round(input.descontoAntecipado.pct * 100) / 100 }]
   }
   const d = await chamar(cfg, 'POST', '/invoices', corpo, input.chaveIdempotencia)
   return normalizarFatura(d)

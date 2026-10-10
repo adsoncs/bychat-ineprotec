@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'preact/hooks'
-import { Ticket, BookOpen, Plus, Pencil, Trash2 } from '@/components/ui/icon-set'
+import { Ticket, BookOpen, Plus, Pencil, Trash2, Wallet } from '@/components/ui/icon-set'
 import {
   useOfferings,
   useCreateOffering,
@@ -24,6 +24,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EduListHero } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
+import { PlanosPagamentoModal } from '@/components/educational/PlanosPagamentoModal'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 
@@ -58,6 +59,7 @@ export function EducationalOfferingsPage() {
   const [editing, setEditing] = useState<CourseOffering | null>(null)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<CourseOffering | null>(null)
+  const [planosDe, setPlanosDe] = useState<CourseOffering | null>(null)
 
   const offerings = useMemo(() => data?.offerings ?? [], [data])
 
@@ -183,6 +185,7 @@ export function EducationalOfferingsPage() {
                   offering={o}
                   onEdit={() => setEditing(o)}
                   onDelete={() => setDeleting(o)}
+                  onPlanos={() => setPlanosDe(o)}
                 />
               ))}
             </div>
@@ -203,6 +206,10 @@ export function EducationalOfferingsPage() {
         />
       )}
 
+      {planosDe && (
+        <PlanosPagamentoModal offeringId={planosDe.id} offeringNome={planosDe.nome} onClose={() => setPlanosDe(null)} />
+      )}
+
       {deleting && (
         <DeleteOfferingDialog
           offering={deleting}
@@ -214,8 +221,8 @@ export function EducationalOfferingsPage() {
 }
 
 function OfferingCard({
-  offering, onEdit, onDelete,
-}: { offering: CourseOffering; onEdit: () => void; onDelete: () => void }) {
+  offering, onEdit, onDelete, onPlanos,
+}: { offering: CourseOffering; onEdit: () => void; onDelete: () => void; onPlanos: () => void }) {
   const o = offering
   const vagasMax = o.vagasMaximas ?? 0
   const ocupadas = o.vagasOcupadas ?? 0
@@ -328,6 +335,15 @@ function OfferingCard({
           </div>
         </div>
         <div class="flex gap-0.5 shrink-0">
+          <button
+            type="button"
+            class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
+            onClick={onPlanos}
+            aria-label="Planos de pagamento"
+            title="Planos de pagamento"
+          >
+            <Wallet size={12} />
+          </button>
           <button
             type="button"
             class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"

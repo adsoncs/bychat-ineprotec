@@ -225,10 +225,12 @@ export function precoPorMeio(p: {
   meio: MeioDePagamento
   descontoAVistaPct: number
   cupom: CupomAplicado | null
+  /** O desconto à vista vale também neste meio (plano de pagamento: boleto à vista). */
+  aVistaNoMeio?: boolean
 }): { valor: number; cupomAplicado: boolean; descontoAVista: number } {
   const cupomVale = !!p.cupom && (!p.cupom.metodos || p.cupom.metodos.includes(p.meio))
   const comCupom = cupomVale ? p.cupom!.valorComCupom : p.valor
-  if (p.meio !== 'pix' || p.descontoAVistaPct <= 0) {
+  if ((p.meio !== 'pix' && !p.aVistaNoMeio) || p.descontoAVistaPct <= 0) {
     return { valor: centavos(comCupom), cupomAplicado: cupomVale, descontoAVista: 0 }
   }
   const pct = p.descontoAVistaPct / 100

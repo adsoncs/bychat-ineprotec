@@ -425,6 +425,8 @@ export const iniciarPagamento = (
   // Token de uso único gerado no navegador (iugu.js). Com ele, os dados do
   // cartão não vão nesta requisição.
   cardToken?: string,
+  // Plano de pagamento da oferta e a opção escolhida (entrada ou curso completo).
+  plano?: EscolhaDePlano,
 ) =>
   pedir<{ ok: boolean; method: MetodoPagamento; checkoutUrl?: string }>(
     `/api/public/registrations/${encodeURIComponent(code)}/payment-init`,
@@ -436,6 +438,7 @@ export const iniciarPagamento = (
         ...(cartao && !cardToken ? { card: cartao } : {}),
         ...(cardToken ? { cardToken } : {}),
         ...(cupom ? { cupom } : {}),
+        ...(plano ? { planoId: plano.planoId, opcao: plano.opcao } : {}),
       }),
     },
   )
@@ -562,7 +565,20 @@ export interface CupomNaTela {
   acumulaAVista?: boolean
 }
 
+export interface EscolhaDePlano { planoId: number; opcao: 'entrada' | 'integral' }
+
+/** Plano de pagamento da oferta, como a tela mostra. */
+export interface PlanoNaTela {
+  id: number
+  nome: string
+  resumo: string
+  opcoes: Array<{ chave: 'entrada' | 'integral'; valor: number; rotulo: string; detalhe: string }>
+}
+
 export interface OpcoesDePagamento {
+  /** Presentes quando a oferta tem planos de pagamento: a pessoa escolhe plano e opção. */
+  planos?: PlanoNaTela[]
+  escolha?: EscolhaDePlano
   escopo: 'taxa' | 'curso'
   /** "Taxa de inscrição", "Matrícula" ou "1ª mensalidade". */
   rotulo?: string
@@ -574,7 +590,7 @@ export interface OpcoesDePagamento {
   cupom?: CupomNaTela | null
   meios: {
     pix: { ativo: boolean; valor?: number; descontoPct?: number; expiraHoras?: number }
-    boleto: { ativo: boolean; parcelado?: boolean; parcelasMax?: number; opcoes?: OpcaoBoleto[] }
+    boleto: { ativo: boolean; parcelado?: boolean; parcelasMax?: number; opcoes?: OpcaoBoleto[]; descontoPct?: number }
     cartao: {
       ativo: boolean
       hospedado?: boolean
@@ -589,12 +605,16 @@ export interface OpcoesDePagamento {
  * O que este portal aceita e quanto fica cada opção — a conta vem do servidor.
  * Com `cupom`, os valores já voltam com o desconto aplicado.
  */
-export const opcoesDePagamento = (code: string, token: string, cupom?: string) =>
-  pedir<OpcoesDePagamento>(
+export const opcoesDePagamento = (code: string, token: string, cupom?: string, plano?: EscolhaDePlano) => {
+  const q = new URLSearchParams()
+  if (cupom) q.set('cupom', cupom)
+  if (plano) { q.set('plano', String(plano.planoId)); q.set('opcao', plano.opcao) }
+  return pedir<OpcoesDePagamento>(
     `/api/public/registrations/${encodeURIComponent(code)}/payment-options`
-      + (cupom ? `?cupom=${encodeURIComponent(cupom)}` : ''),
+      + (q.toString() ? `?${q}` : ''),
     { headers: { Authorization: `Bearer ${token}` } },
   )
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Jornada: etapas depois da inscrição, na ordem que o portal escolheu

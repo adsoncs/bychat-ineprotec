@@ -7986,6 +7986,10 @@ model AcaPlanoPagamento {
   taxaMatriculaCentavos Int      @default(0)
   diaVencimento         Int      @default(10)
   ativo                 Boolean  @default(true)
+  /// Regras do portal (services/planoFinanceiro): destino das parcelas, o que
+  /// pagar agora, formas com juros por faixa, pontualidade, código no SEI.
+  /// null = plano antigo do ERP, que não muda nada no portal.
+  regras                Json?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

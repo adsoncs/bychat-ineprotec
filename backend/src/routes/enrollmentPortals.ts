@@ -35,6 +35,7 @@ import { lerRegras, tabelaDeParcelas, planoDeBoleto } from '../services/portalPa
 import { avaliarCupom, consumirCupom, precoPorMeio } from '../services/portalCupom.js'
 import { cobrancaDoPortal } from '../services/portalCobranca.js'
 import { regrasComTabela, valorBaseDoMeio } from '../services/tabelaDePrecos.js'
+import { contaPeloPlano, escolhaDoCheckoutPeloPlano, opcoesDaTelaPeloPlano } from '../services/checkoutDoPlano.js'
 import { getConnectionPublicKey } from './paymentProviders.js'
 import { syncChargeFromProvider, recordWebhookHit, updateWebhookHit } from '../services/paymentSync.js'
 import { logSecurityEvent } from '../services/security.js'
@@ -351,6 +352,12 @@ async function montarCobrancaDoCheckout(input: {
 }> {
   const { method, body, parcelamosNos } = input
   const cob = await cobrancaDoPortal(input.registrationId)
+  // Plano de pagamento da oferta (Educacional › Ofertas › Planos): preço,
+  // formas e parcelas vêm do plano escolhido na tela.
+  const peloPlano = await escolhaDoCheckoutPeloPlano(cob, body?.planoId, body?.opcao)
+  if (cob && peloPlano) {
+    return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos })
+  }
   // Com tabela de preços na oferta, cada meio tem preço e parcelas próprios
   // (services/tabelaDePrecos); sem ela, vale o valor único e a regra do portal.
   const tabela = cob?.tabela ?? null
@@ -2872,9 +2879,24 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const contaIugu = provedor === 'iugu' && enrollment.portal?.paymentConnection?.publicKey
       ? (() => { try { return decryptToken(enrollment.portal!.paymentConnection!.publicKey!) || null } catch { return null } })()
       : null
-    const cartaoDisponivel = regras.cartao.ativo
-      && !!enrollment.portal?.paymentConnection?.active
+    const gatewayAceitaCartao = !!enrollment.portal?.paymentConnection?.active
       && (['asaas', 'pagarme', 'simulado'].includes(String(provedor)) || (provedor === 'iugu' && !!contaIugu))
+    const cartaoDisponivel = regras.cartao.ativo && gatewayAceitaCartao
+    const tokenizacao = provedor === 'iugu' && contaIugu
+      ? { provider: 'iugu', accountId: contaIugu, teste: enrollment.portal?.paymentConnection?.environment !== 'production' }
+      : null
+
+    // Plano de pagamento da oferta: a tela escolhe plano e opção (só a
+    // entrada ou o curso inteiro) e os meios saem do plano.
+    const q = req.query as any
+    const peloPlano = await escolhaDoCheckoutPeloPlano(cob, q?.plano, q?.opcao)
+    if (cob && peloPlano) {
+      return reply.send(await opcoesDaTelaPeloPlano({
+        cob, escolha: peloPlano, cupomCodigo: codigoCupom, portalId: enrollment.portal!.id,
+        cpf: (enrollment.formData as any)?.cpf, pixExpiraHoras: regras.pix.expiraHoras,
+        cartaoDisponivel: gatewayAceitaCartao, tokenizacao,
+      }))
+    }
 
     return reply.send({
       escopo: cob?.escopo ?? (enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa'),

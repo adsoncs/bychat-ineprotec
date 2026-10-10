@@ -612,12 +612,22 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
   // checkout — é ela que vira o contrato do ERP (acaFinanceiro).
   const pp = (reg.paymentStatus === 'paid' ? reg.paymentPlan : null) as Record<string, any> | null
   const pelaTabela = pp?.tabela && Number(pp.tabela.valorTotal) > 0 ? pp.tabela : null
-  const numParcelas = pelaTabela ? Math.max(1, Number(pelaTabela.parcelas) || 1) : (plano?.numParcelas ?? 0)
-  const valorParcela = pelaTabela
+  let numParcelas = pelaTabela ? Math.max(1, Number(pelaTabela.parcelas) || 1) : (plano?.numParcelas ?? 0)
+  let valorParcela = pelaTabela
     ? Math.round(Number(pelaTabela.valorParcela) * 100)
     : (plano?.valorParcelaCentavos ?? Math.round(Number(of.valorMensalidade ?? 0) * 100))
   const matricula = pelaTabela ? 0 : (plano?.taxaMatriculaCentavos ?? Math.round(Number(of.valorMatricula ?? 0) * 100))
-  const valorTotal = pelaTabela ? Math.round(Number(pelaTabela.valorTotal) * 100) : matricula + valorParcela * numParcelas
+  let valorTotal = pelaTabela ? Math.round(Number(pelaTabela.valorTotal) * 100) : matricula + valorParcela * numParcelas
+
+  // Plano de pagamento da oferta (services/planoFinanceiro): o escolhido no
+  // checkout; antes de pagar, o primeiro liberado.
+  const { condicaoDoContrato } = await import('./planoFinanceiro.js')
+  const cond = await condicaoDoContrato(of.id, pp)
+  if (cond) {
+    numParcelas = cond.numParcelas
+    valorParcela = cond.valorParcelaCentavos
+    valorTotal = cond.valorTotalCentavos
+  }
   const nome = reg.lead?.nome ?? String((reg.formData as any)?.nome ?? '')
   const vars: Record<string, string> = {
     nome, ra: 'a definir na matrícula', curso: of.course?.nome ?? of.nome, turma: of.nome,

@@ -165,6 +165,9 @@ export async function montarPessoa(reg: { leadId: number | null; formData: unkno
 }
 
 function condicaoEscolhida(mapa: MapaOferta, paymentPlan: any): string {
+  // Plano de pagamento da oferta com o código do SEI cadastrado: vale ele.
+  const doPlano = limpo(paymentPlan?.planoFinanceiro?.codigoSei)
+  if (doPlano) return doPlano
   const parcelas = limpo(paymentPlan?.tabela?.parcelas ?? paymentPlan?.parcelas)
   return limpo(mapa.condicoesPorParcelas?.[parcelas]) || limpo(mapa.codigoCondicaoPagamento)
 }
