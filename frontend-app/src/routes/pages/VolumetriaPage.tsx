@@ -67,7 +67,21 @@ function cambioSalvo(): number {
   return 5.5
 }
 
-function Resumo({ titulo, valor, sub }: { titulo: string; valor: string; sub?: string }) {
+function Resumo({ titulo, valor, sub, onClick }: { titulo: string; valor: string; sub?: string; onClick?: () => void }) {
+  const corpo = (
+    <>
+      <div class="text-xs text-fg-muted">{titulo}</div>
+      <div class="mt-1 text-xl font-semibold tabular-nums">{valor}</div>
+      {sub && <div class="mt-0.5 text-xs text-fg-muted">{sub}</div>}
+    </>
+  )
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} class="text-left rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        <Card class="p-4 h-full hover:border-accent/60 transition-colors">{corpo}</Card>
+      </button>
+    )
+  }
   return (
     <Card class="p-4">
       <div class="text-xs text-fg-muted">{titulo}</div>
@@ -95,6 +109,18 @@ function Tabela({ cab, linhas, vazio }: { cab: string[]; linhas: Array<Array<str
   )
 }
 
+type Aba = 'geral' | 'ia' | 'cloud' | 'evolution' | 'outros' | 'sms' | 'email' | 'voz' | 'assinaturas' | 'integracoes' | 'base'
+const ABAS: Array<[Aba, string]> = [
+  ['geral', 'Visão geral'], ['ia', 'IA'], ['cloud', 'WhatsApp Cloud'], ['evolution', 'WhatsApp Evolution'],
+  ['outros', 'Instagram e outros'], ['sms', 'SMS'], ['email', 'E-mail'], ['voz', 'Voz'],
+  ['assinaturas', 'Assinaturas eletrônicas'], ['integracoes', 'Integrações'], ['base', 'Base e armazenamento'],
+]
+const CHAVE_ABA = 'volumetria:aba'
+function abaSalva(): Aba {
+  try { const v = localStorage.getItem(CHAVE_ABA); if (ABAS.some(([id]) => id === v)) return v as Aba } catch {}
+  return 'geral'
+}
+
 function Secao({ titulo, nota, children }: { titulo: string; nota?: string; children: preact.ComponentChildren }) {
   return (
     <Card class="p-4 space-y-3">
@@ -110,6 +136,7 @@ function Secao({ titulo, nota, children }: { titulo: string; nota?: string; chil
 export function VolumetriaPage() {
   const [competencia, setCompetencia] = useState(mesAtual())
   const [cambio, setCambio] = useState(cambioSalvo())
+  const [aba, setAba] = useState<Aba>(abaSalva())
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dono', 'volumetria', competencia],
     queryFn: () => api.get<Volumetria>(`/dono/volumetria?competencia=${competencia}`),
@@ -117,6 +144,10 @@ export function VolumetriaPage() {
   function mudarCambio(v: number) {
     setCambio(v)
     try { localStorage.setItem(CHAVE_CAMBIO, String(v)) } catch {}
+  }
+  function irPara(a: Aba) {
+    setAba(a)
+    try { localStorage.setItem(CHAVE_ABA, a) } catch {}
   }
 
   const acoes = (
@@ -130,92 +161,186 @@ export function VolumetriaPage() {
     </div>
   )
 
-  if (isLoading) return <Page title="Volumetria" actions={acoes}><div class="text-sm text-fg-muted">Carregando…</div></Page>
-  if (isError || !data) return <Page title="Volumetria" actions={acoes}><div class="text-sm text-danger">Não foi possível carregar.</div></Page>
+  const abas = (
+    <div class="overflow-x-auto -mx-1 px-1">
+      <div class="flex gap-1 rounded-lg bg-surface-2 p-1 w-max sm:w-fit sm:flex-wrap" role="tablist">
+        {ABAS.map(([id, rot]) => (
+          <button
+            key={id} type="button" role="tab" aria-selected={aba === id}
+            class={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ${aba === id ? 'bg-surface text-fg shadow-sm' : 'text-fg-muted hover:text-fg'}`}
+            onClick={() => irPara(id)}
+          >{rot}</button>
+        ))}
+      </div>
+    </div>
+  )
+
+  const descricao = 'Volumes de cada canal e integração no mês e o custo real. O valor cobrado do cliente é definido na loja central.'
+  if (isLoading) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-fg-muted">Carregando…</div></div></Page>
+  if (isError || !data) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-danger">Não foi possível carregar.</div></div></Page>
 
   const d = data
   const minutos = d.voz.reduce((s, v) => s + v.minutos, 0)
+  const chamadasVoz = d.voz.reduce((s, v) => s + v.chamadas, 0)
+  const envelopes = d.assinaturas.reduce((s, a) => s + a.envelopes, 0)
+  const outrosTotal = d.outrosCanais.reduce((s, c) => s + c.enviadas + c.recebidas, 0)
   const maxDia = Math.max(0.000001, ...d.ia.porDia.map((x) => x.custoUsd))
+  const cloudCobraveis = d.whatsappCloud.porCategoria.reduce((s, c) => s + c.cobraveis, 0)
 
   return (
-    <Page title="Volumetria" description="Volumes de cada canal e integração no mês e o custo real. O valor cobrado do cliente é definido na loja central." actions={acoes}>
+    <Page title="Volumetria" description={descricao} actions={acoes}>
       <div class="space-y-4">
-        <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
-          <Resumo titulo="IA — custo real" valor={brl(d.ia.custoUsd * cambio)} sub={`${usd(d.ia.custoUsd)} · ${n(d.ia.chamadas)} chamadas`} />
-          <Resumo titulo="WhatsApp Cloud" valor={n(d.whatsappCloud.enviadas + d.whatsappCloud.recebidas)} sub={`${n(d.whatsappCloud.enviadas)} enviadas · ${n(d.whatsappCloud.recebidas)} recebidas`} />
-          <Resumo titulo="WhatsApp Evolution" valor={n(d.evolution.enviadas + d.evolution.recebidas)} sub={`${n(d.evolution.enviadas)} enviadas · ${n(d.evolution.recebidas)} recebidas`} />
-          <Resumo titulo="Armazenamento" valor={bytes(d.armazenamento.bytes)} sub="arquivos enviados (hoje)" />
-          <Resumo titulo="SMS" valor={n(d.sms.pelaFila + d.sms.porAtividade)} sub={d.sms.falhas ? `${n(d.sms.falhas)} falhas` : 'enviados'} />
-          <Resumo titulo="E-mail" valor={n(d.email.pelaFila + d.email.atividadesEnviadas)} sub={`${n(d.email.atividadesRecebidas)} recebidos pelo Gmail`} />
-          <Resumo titulo="Voz" valor={`${n(minutos)} min`} sub={`${n(d.voz.reduce((s, v) => s + v.chamadas, 0))} chamadas`} />
-          <Resumo titulo="Assinaturas eletrônicas" valor={n(d.assinaturas.reduce((s, a) => s + a.envelopes, 0))} sub="documentos enviados" />
-        </section>
+        {abas}
 
-        <Secao titulo="Inteligência artificial" nota={d.ia.medindoDesde
-          ? `Custo real pelo preço de tabela dos provedores (a chave é nossa). Medindo desde ${new Date(d.ia.medindoDesde).toLocaleDateString('pt-BR')}.`
-          : 'A medição de IA começou agora — os números aparecem conforme as IAs forem usadas.'}>
-          {d.ia.porDia.length > 0 && (
-            <div class="flex items-end gap-0.5 h-20" aria-label="Custo de IA por dia">
-              {d.ia.porDia.map((x) => (
-                <div key={x.dia} class="flex-1 min-w-[3px] rounded-t bg-accent/70" style={{ height: `${Math.max(3, (x.custoUsd / maxDia) * 100)}%` }}
-                  title={`${new Date(`${x.dia}T12:00:00`).toLocaleDateString('pt-BR')}: ${usd(x.custoUsd)} · ${n(x.chamadas)} chamadas`} />
-              ))}
-            </div>
-          )}
-          <div class="grid gap-4 xl:grid-cols-2">
-            <Tabela cab={['Funcionalidade', 'Chamadas', 'Tokens', 'Custo']} vazio="Nenhum uso de IA no mês."
-              linhas={d.ia.porFuncionalidade.map((f) => [FUNCIONALIDADES[f.funcionalidade] ?? f.funcionalidade, n(f.chamadas), n(f.tokens), `${usd(f.custoUsd)} · ${brl(f.custoUsd * cambio)}`])} />
-            <Tabela cab={['Modelo', 'Entrada', 'Saída', 'Cache (escr./leit.)', 'Custo']} vazio="Nenhum modelo usado no mês."
-              linhas={d.ia.porModelo.map((m) => [
-                <span key={m.modelo}>{m.modelo} <span class="text-xs text-fg-muted">({m.provedor})</span>{m.semPreco && <> <Badge tone="warning" title="Modelo sem preço na tabela: o custo dele não entra no total. Cadastre o preço na Setting consumo.precos_ia.">sem preço</Badge></>}</span>,
-                n(m.entrada), n(m.saida), `${n(m.cacheEscrita)} / ${n(m.cacheLeitura)}`, usd(m.custoUsd),
-              ])} />
-          </div>
-        </Secao>
+        {aba === 'geral' && (
+          <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Resumo onClick={() => irPara('ia')} titulo="IA — custo real" valor={brl(d.ia.custoUsd * cambio)} sub={`${usd(d.ia.custoUsd)} · ${n(d.ia.chamadas)} chamadas`} />
+            <Resumo onClick={() => irPara('cloud')} titulo="WhatsApp Cloud" valor={n(d.whatsappCloud.enviadas + d.whatsappCloud.recebidas)} sub={`${n(d.whatsappCloud.enviadas)} enviadas · ${n(d.whatsappCloud.recebidas)} recebidas`} />
+            <Resumo onClick={() => irPara('evolution')} titulo="WhatsApp Evolution" valor={n(d.evolution.enviadas + d.evolution.recebidas)} sub={`${n(d.evolution.enviadas)} enviadas · ${n(d.evolution.recebidas)} recebidas`} />
+            <Resumo onClick={() => irPara('outros')} titulo="Instagram e outros" valor={n(outrosTotal)} sub="mensagens no mês" />
+            <Resumo onClick={() => irPara('sms')} titulo="SMS" valor={n(d.sms.pelaFila + d.sms.porAtividade)} sub={d.sms.falhas ? `${n(d.sms.falhas)} falhas` : 'enviados'} />
+            <Resumo onClick={() => irPara('email')} titulo="E-mail" valor={n(d.email.pelaFila + d.email.atividadesEnviadas)} sub={`${n(d.email.atividadesRecebidas)} recebidos pelo Gmail`} />
+            <Resumo onClick={() => irPara('voz')} titulo="Voz" valor={`${n(minutos)} min`} sub={`${n(chamadasVoz)} chamadas`} />
+            <Resumo onClick={() => irPara('assinaturas')} titulo="Assinaturas eletrônicas" valor={n(envelopes)} sub="documentos enviados" />
+            <Resumo onClick={() => irPara('integracoes')} titulo="Integrações" valor={n(d.sei.chamadas + d.reunioes.gravacoes)} sub={`${n(d.reunioes.gravacoes)} reuniões · ${n(d.sei.chamadas)} chamadas ao SEI`} />
+            <Resumo onClick={() => irPara('base')} titulo="Armazenamento" valor={bytes(d.armazenamento.bytes)} sub="arquivos enviados (hoje)" />
+            <Resumo onClick={() => irPara('base')} titulo="Base" valor={n(d.base.usuariosAtivos)} sub={`usuários ativos · ${n(d.base.leadsNovos)} leads novos`} />
+          </section>
+        )}
 
-        <Secao titulo="WhatsApp Cloud API (Meta)" nota={`A Meta cobra o cliente direto. Custo estimado da Meta no mês: ${usd(d.whatsappCloud.custoEstimadoUsd)} (${brl(d.whatsappCloud.custoEstimadoUsd * cambio)}) — informativo.`}>
-          <div class="grid gap-4 xl:grid-cols-2">
-            <Tabela cab={['Categoria', 'Enviadas', 'Cobráveis', 'Custo Meta (est.)']} vazio="Nenhum envio pela Cloud API no mês."
-              linhas={d.whatsappCloud.porCategoria.map((c) => [CATEGORIAS[c.categoria] ?? c.categoria, n(c.enviadas), n(c.cobraveis), usd(c.custoEstimadoUsd)])} />
-            <Tabela cab={['Número', 'Enviadas', 'Recebidas']} vazio="Sem mensagens no mês."
-              linhas={d.whatsappCloud.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas)])} />
-          </div>
-        </Secao>
+        {aba === 'ia' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Custo real (R$)" valor={brl(d.ia.custoUsd * cambio)} sub={`câmbio ${cambio.toLocaleString('pt-BR')}`} />
+              <Resumo titulo="Custo real (US$)" valor={usd(d.ia.custoUsd)} />
+              <Resumo titulo="Chamadas" valor={n(d.ia.chamadas)} />
+              <Resumo titulo="Tokens" valor={n(d.ia.porFuncionalidade.reduce((s, f) => s + f.tokens, 0))} sub={`${n(d.ia.porModelo.length)} modelos`} />
+            </section>
+            <Secao titulo="Custo por dia" nota={d.ia.medindoDesde
+              ? `Custo real pelo preço de tabela dos provedores (a chave é nossa). Medindo desde ${new Date(d.ia.medindoDesde).toLocaleDateString('pt-BR')}.`
+              : 'A medição de IA começou agora — os números aparecem conforme as IAs forem usadas.'}>
+              {d.ia.porDia.length > 0 ? (
+                <div class="flex items-end gap-0.5 h-24" aria-label="Custo de IA por dia">
+                  {d.ia.porDia.map((x) => (
+                    <div key={x.dia} class="flex-1 min-w-[3px] rounded-t bg-accent/70" style={{ height: `${Math.max(3, (x.custoUsd / maxDia) * 100)}%` }}
+                      title={`${new Date(`${x.dia}T12:00:00`).toLocaleDateString('pt-BR')}: ${usd(x.custoUsd)} · ${n(x.chamadas)} chamadas`} />
+                  ))}
+                </div>
+              ) : <div class="text-sm text-fg-muted">Nenhum uso de IA no mês.</div>}
+            </Secao>
+            <Secao titulo="Por funcionalidade">
+              <Tabela cab={['Funcionalidade', 'Chamadas', 'Tokens', 'Custo']} vazio="Nenhum uso de IA no mês."
+                linhas={d.ia.porFuncionalidade.map((f) => [FUNCIONALIDADES[f.funcionalidade] ?? f.funcionalidade, n(f.chamadas), n(f.tokens), `${usd(f.custoUsd)} · ${brl(f.custoUsd * cambio)}`])} />
+            </Secao>
+            <Secao titulo="Por modelo">
+              <Tabela cab={['Modelo', 'Chamadas', 'Entrada', 'Saída', 'Cache (escr./leit.)', 'Custo']} vazio="Nenhum modelo usado no mês."
+                linhas={d.ia.porModelo.map((m) => [
+                  <span key={m.modelo}>{m.modelo} <span class="text-xs text-fg-muted">({m.provedor})</span>{m.semPreco && <> <Badge tone="warning" title="Modelo sem preço na tabela: o custo dele não entra no total. Cadastre o preço na Setting consumo.precos_ia.">sem preço</Badge></>}</span>,
+                  n(m.chamadas), n(m.entrada), n(m.saida), `${n(m.cacheEscrita)} / ${n(m.cacheLeitura)}`, usd(m.custoUsd),
+                ])} />
+            </Secao>
+          </>
+        )}
 
-        <Secao titulo="WhatsApp Evolution" nota="Sem custo por mensagem — o custo é a nossa infraestrutura. Volume por número.">
-          <Tabela cab={['Número (instância)', 'Enviadas', 'Recebidas']} vazio="Sem mensagens no mês."
-            linhas={d.evolution.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas)])} />
-        </Secao>
+        {aba === 'cloud' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Enviadas" valor={n(d.whatsappCloud.enviadas)} />
+              <Resumo titulo="Recebidas" valor={n(d.whatsappCloud.recebidas)} />
+              <Resumo titulo="Cobráveis pela Meta" valor={n(cloudCobraveis)} />
+              <Resumo titulo="Custo Meta (estimado)" valor={brl(d.whatsappCloud.custoEstimadoUsd * cambio)} sub={`${usd(d.whatsappCloud.custoEstimadoUsd)} · pago pelo cliente`} />
+            </section>
+            <Secao titulo="Por categoria" nota="A Meta cobra o cliente direto — o custo aqui é só informativo.">
+              <Tabela cab={['Categoria', 'Enviadas', 'Cobráveis', 'Custo Meta (est.)']} vazio="Nenhum envio pela Cloud API no mês."
+                linhas={d.whatsappCloud.porCategoria.map((c) => [CATEGORIAS[c.categoria] ?? c.categoria, n(c.enviadas), n(c.cobraveis), usd(c.custoEstimadoUsd)])} />
+            </Secao>
+            <Secao titulo="Por número">
+              <Tabela cab={['Número', 'Enviadas', 'Recebidas']} vazio="Sem mensagens no mês."
+                linhas={d.whatsappCloud.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas)])} />
+            </Secao>
+          </>
+        )}
 
-        <div class="grid gap-4 xl:grid-cols-2">
-          <Secao titulo="Outros canais">
+        {aba === 'evolution' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Enviadas" valor={n(d.evolution.enviadas)} />
+              <Resumo titulo="Recebidas" valor={n(d.evolution.recebidas)} />
+              <Resumo titulo="Números" valor={n(d.evolution.porNumero.length)} sub="com mensagens no mês" />
+            </section>
+            <Secao titulo="Por número" nota="Sem custo por mensagem — o custo é a nossa infraestrutura.">
+              <Tabela cab={['Número (instância)', 'Enviadas', 'Recebidas']} vazio="Sem mensagens no mês."
+                linhas={d.evolution.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas)])} />
+            </Secao>
+          </>
+        )}
+
+        {aba === 'outros' && (
+          <Secao titulo="Instagram, Messenger, Telegram e chat do portal">
             <Tabela cab={['Canal', 'Enviadas', 'Recebidas']} vazio="—"
               linhas={d.outrosCanais.map((c) => [CANAIS[c.canal] ?? c.canal, n(c.enviadas), n(c.recebidas)])} />
           </Secao>
-          <Secao titulo="SMS, e-mail e voz">
-            <Tabela cab={['Item', 'Quantidade']} vazio="—" linhas={[
-              ['SMS pela fila (workflow/cadência)', n(d.sms.pelaFila)],
-              ['SMS por atividade', n(d.sms.porAtividade)],
-              ['E-mails pela fila', n(d.email.pelaFila)],
-              ['E-mails enviados (atividade/Gmail)', n(d.email.atividadesEnviadas)],
-              ['E-mails recebidos (Gmail)', n(d.email.atividadesRecebidas)],
-              ...d.voz.map((v) => [`Voz — ${v.provedor} (${v.direcao === 'inbound' ? 'recebidas' : 'feitas'})`, `${n(v.chamadas)} · ${n(v.minutos)} min`]),
-            ]} />
-          </Secao>
-          <Secao titulo="Integrações">
-            <Tabela cab={['Item', 'Quantidade']} vazio="—" linhas={[
-              ...d.assinaturas.map((a) => [`Assinatura eletrônica — ${a.provedor}`, n(a.envelopes)]),
-              ['Reuniões gravadas', n(d.reunioes.gravacoes)],
-              ['Chamadas ao SEI', `${n(d.sei.chamadas)}${d.sei.falhas ? ` (${n(d.sei.falhas)} falhas)` : ''}`],
-            ]} />
-          </Secao>
-          <Secao titulo="Base">
-            <Tabela cab={['Item', 'Quantidade']} vazio="—" linhas={[
-              ['Usuários ativos', n(d.base.usuariosAtivos)],
-              ['Leads novos no mês', n(d.base.leadsNovos)],
-            ]} />
-          </Secao>
-        </div>
+        )}
+
+        {aba === 'sms' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Total enviado" valor={n(d.sms.pelaFila + d.sms.porAtividade)} />
+              <Resumo titulo="Pela fila" valor={n(d.sms.pelaFila)} sub="workflow e cadência" />
+              <Resumo titulo="Por atividade" valor={n(d.sms.porAtividade)} sub="enviados no lead" />
+              <Resumo titulo="Falhas" valor={n(d.sms.falhas)} />
+            </section>
+          </>
+        )}
+
+        {aba === 'email' && (
+          <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Resumo titulo="Pela fila" valor={n(d.email.pelaFila)} sub="workflow e cadência" />
+            <Resumo titulo="Enviados (atividade/Gmail)" valor={n(d.email.atividadesEnviadas)} />
+            <Resumo titulo="Recebidos (Gmail)" valor={n(d.email.atividadesRecebidas)} />
+            <Resumo titulo="Falhas" valor={n(d.email.falhas)} />
+          </section>
+        )}
+
+        {aba === 'voz' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Minutos" valor={n(minutos)} />
+              <Resumo titulo="Chamadas" valor={n(chamadasVoz)} />
+            </section>
+            <Secao titulo="Por provedor e direção">
+              <Tabela cab={['Provedor', 'Direção', 'Chamadas', 'Minutos']} vazio="Nenhuma chamada no mês."
+                linhas={d.voz.map((v) => [v.provedor, v.direcao === 'inbound' ? 'Recebidas' : 'Feitas', n(v.chamadas), n(v.minutos)])} />
+            </Secao>
+          </>
+        )}
+
+        {aba === 'assinaturas' && (
+          <>
+            <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+              <Resumo titulo="Documentos enviados" valor={n(envelopes)} />
+            </section>
+            <Secao titulo="Por provedor">
+              <Tabela cab={['Provedor', 'Documentos']} vazio="Nenhum documento enviado para assinatura no mês."
+                linhas={d.assinaturas.map((a) => [a.provedor, n(a.envelopes)])} />
+            </Secao>
+          </>
+        )}
+
+        {aba === 'integracoes' && (
+          <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Resumo titulo="Reuniões gravadas" valor={n(d.reunioes.gravacoes)} />
+            <Resumo titulo="Chamadas ao SEI" valor={n(d.sei.chamadas)} sub={d.sei.falhas ? `${n(d.sei.falhas)} falhas` : 'sem falhas'} />
+          </section>
+        )}
+
+        {aba === 'base' && (
+          <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Resumo titulo="Armazenamento" valor={bytes(d.armazenamento.bytes)} sub="arquivos enviados (hoje)" />
+            <Resumo titulo="Usuários ativos" valor={n(d.base.usuariosAtivos)} />
+            <Resumo titulo="Leads novos no mês" valor={n(d.base.leadsNovos)} />
+          </section>
+        )}
       </div>
     </Page>
   )
