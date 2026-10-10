@@ -27,6 +27,7 @@ import {
   modulosComDireito, carenciaDias, testeDias,
 } from '../services/moduleEntitlements.js'
 import { listModulesWithStatus } from '../lib/moduleManager.js'
+import { volumetriaDoMes } from '../services/volumetria.js'
 
 function ehPacote(v: unknown): v is ModuleUmbrella {
   return typeof v === 'string' && (UMBRELLA_ORDER as string[]).includes(v)
@@ -81,6 +82,22 @@ export async function lojaSincronizacaoRoutes(app: FastifyInstance) {
    * administrador é tão parte do retrato quanto o direito de uso, e é a
    * diferença entre "não pagou" e "pagou e está desligado".
    */
+  /**
+   * Consumo do mês (competência AAAA-MM) — a volumetria completa, com o custo
+   * real medido. A loja calcula o repasse com isto; o preço cobrado do cliente
+   * NUNCA mora aqui (regra de cliente não entra no código replicado).
+   */
+  app.get('/api/loja/consumo', async (req, reply) => {
+    const erro = autenticar(req, reply, '')
+    if (erro) return erro
+    const competencia = String((req.query as { competencia?: string })?.competencia ?? '')
+    try {
+      return await volumetriaDoMes(competencia)
+    } catch (e) {
+      return reply.code(400).send({ error: (e as Error).message })
+    }
+  })
+
   app.get('/api/loja/inventario', async (req, reply) => {
     const erro = autenticar(req, reply, '')
     if (erro) return erro
