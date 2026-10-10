@@ -10,6 +10,7 @@
 
 import type { ComponentChildren, JSX } from 'preact'
 import { useMemo, useState } from 'preact/hooks'
+import { lazy, Suspense } from 'preact/compat'
 import { useLocation } from 'wouter-preact'
 import { cn } from '@/lib/cn'
 import { leadSourceLabel } from '@/lib/leadSourceLabels'
@@ -17,7 +18,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import {
   CornerUpLeft,
   Inbox, Headphones, Clock, CheckCircle2, Bot, User as UserIcon, AlertTriangle,
-  RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X, MoreHorizontal,
+  RefreshCw, MessageSquare, ExternalLink, Users2, Filter, X, MoreHorizontal, Eye,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Card } from '@/components/ui/Card'
@@ -102,9 +103,12 @@ function prettyChannel(raw: string): string {
  * lista de supervisão o operador escaneia estado e espera; a ação é o segundo
  * passo, e cabe atrás de um clique.
  */
+// Espiar carrega o código das bolhas do Conversas só quando é aberto.
+const EspiarConversa = lazy(() => import('@/components/supervision/EspiarConversa').then((m) => ({ default: m.EspiarConversa })))
+
 function LinhaAcoes({
-  conversa, onEncerrar, onReabrir,
-}: { conversa: SupervisionConversation; onEncerrar: () => void; onReabrir: () => void }) {
+  conversa, onEncerrar, onReabrir, onEspiar,
+}: { conversa: SupervisionConversation; onEncerrar: () => void; onReabrir: () => void; onEspiar: () => void }) {
   const resolvida = conversa.bucket === 'resolved'
   return (
     <DropdownMenu.Root>
@@ -125,6 +129,12 @@ function LinhaAcoes({
           class="min-w-[12rem] rounded-md bg-surface-2 border border-border shadow-lg p-1 surface-raised"
           style={{ zIndex: 'var(--z-popover)' }}
         >
+          <DropdownMenu.Item
+            class="flex items-center gap-2 h-8 px-2 rounded-sm text-sm cursor-pointer hover:bg-surface-3 outline-none"
+            onSelect={onEspiar}
+          >
+            <Eye size={14} /> Espiar (só leitura)
+          </DropdownMenu.Item>
           <DropdownMenu.Item asChild>
             <a
               href={`/app/conversations?leadId=${conversa.id}`}
@@ -457,6 +467,8 @@ function amostraHint(insuficiente: boolean | undefined, amostra: number | undefi
 }
 
 export function SupervisionPage() {
+  // Conversa aberta no modo espiar (só leitura).
+  const [espiando, setEspiando] = useState<number | null>(null)
   const [bucket, setBucket] = useState<string>('active')
   const [search, setSearch] = useState('')
   const [userId, setUserId] = useState('')
@@ -1201,11 +1213,23 @@ export function SupervisionPage() {
                     </td>
                     <td class="p-2 align-top whitespace-nowrap text-xs text-fg-muted">{fmtWhen(c.lastMessageAt)}</td>
                     <td class="align-top">
-                      <LinhaAcoes
-                        conversa={c}
-                        onEncerrar={() => runAction(close, [c.id], {}, () => 'Conversa encerrada')}
-                        onReabrir={() => runAction(reopen, [c.id], {}, () => 'Conversa reaberta')}
-                      />
+                      <div class="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          class="size-8 grid place-items-center rounded-md text-fg-muted hover:text-accent hover:bg-surface-3"
+                          onClick={() => setEspiando(c.id)}
+                          aria-label={`Espiar a conversa com ${c.nome || c.whatsapp}`}
+                          title="Espiar (só leitura)"
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <LinhaAcoes
+                          conversa={c}
+                          onEspiar={() => setEspiando(c.id)}
+                          onEncerrar={() => runAction(close, [c.id], {}, () => 'Conversa encerrada')}
+                          onReabrir={() => runAction(reopen, [c.id], {}, () => 'Conversa reaberta')}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1262,6 +1286,11 @@ export function SupervisionPage() {
           </div>
         </div>
       </Modal>
+      {espiando !== null && (
+        <Suspense fallback={null}>
+          <EspiarConversa leadId={espiando} onClose={() => setEspiando(null)} />
+        </Suspense>
+      )}
     </Page>
   )
 }

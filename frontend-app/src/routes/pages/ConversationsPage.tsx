@@ -4908,12 +4908,12 @@ function formatWhatsappBody(s: string): string {
   return out.replace(/\uE000(\d+)\uE001/g, (_m, i) => codigos[Number(i)] ?? '')
 }
 
-function dayKey(iso: string): string {
+export function dayKey(iso: string): string {
   const d = new Date(iso)
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
-function formatDayLabel(iso: string): string {
+export function formatDayLabel(iso: string): string {
   const d = new Date(iso)
   const today = new Date()
   const yesterday = new Date(today)
@@ -5080,9 +5080,9 @@ function ForwardMessageModal({ leadId, msg, onClose }: {
   )
 }
 
-function MessageBubble({
+export function MessageBubble({
   msg, quoted, highlight, onReply, pendente = false, nomeContato = null,
-  onEditar, onApagar, onEncaminhar, onReagir, podeEditar = false, onIrParaCitada,
+  onEditar, onApagar, onEncaminhar, onReagir, podeEditar = false, onIrParaCitada, somenteLeitura = false,
 }: {
   msg: ChatMessage
   quoted?: ChatMessage | null
@@ -5100,6 +5100,8 @@ function MessageBubble({
   podeEditar?: boolean
   /** Rola até a mensagem citada e a destaca. */
   onIrParaCitada?: (id: number) => void
+  /** Supervisão › Espiar: sem menu, sem "segurar" e sem reações. */
+  somenteLeitura?: boolean
 }) {
   const { prefs, nameStyle } = useConversationPrefs()
   /** Menu de ações desta bolha. Fica aqui (e não dentro de MessageActions)
@@ -5148,7 +5150,7 @@ function MessageBubble({
   // obriga a esperar; arrastar (rolar a conversa) cancela.
   const pressaoRef = useRef<number | null>(null)
   function iniciarPressao() {
-    if (pendente) return
+    if (pendente || somenteLeitura) return
     cancelarPressao()
     pressaoRef.current = window.setTimeout(() => {
       setMenuAberto(true)
@@ -5165,7 +5167,7 @@ function MessageBubble({
   }
   useEffect(() => cancelarPressao, [])
 
-  const acoes = !pendente && (
+  const acoes = !pendente && !somenteLeitura && (
     <MessageActions
       msg={msg}
       podeEditar={podeEditar}
@@ -5196,7 +5198,7 @@ function MessageBubble({
         style={{ fontSize: 'var(--conv-msg-font, 0.875rem)' }}
         // Pressionar e segurar (celular) e botão direito (desktop) abrem o
         // mesmo menu do botão — sem isso, no toque só restaria o botão.
-        onContextMenu={(e: Event) => { if (!pendente) { e.preventDefault(); setMenuAberto(true) } }}
+        onContextMenu={(e: Event) => { if (!pendente && !somenteLeitura) { e.preventDefault(); setMenuAberto(true) } }}
         onTouchStart={iniciarPressao}
         onTouchEnd={cancelarPressao}
         onTouchMove={cancelarPressao}

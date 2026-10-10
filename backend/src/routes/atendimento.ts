@@ -37,6 +37,172 @@ type AcessoTicket = { ok: true } | { ok: false; status: number; error: string; a
 /** A checagem em si, sem tocar na resposta. Existe separada porque as ações em
  *  LOTE precisam separar o que a pessoa pode fazer do que não pode, em vez de
  *  recusar o lote inteiro por causa de uma conversa fora do alcance dela. */
+/**
+ * As mensagens de uma conversa, como o painel mostra: página (limit/before) ou
+ * "até a mensagem X" (desde), citações, motivo de falha de entrega e menções.
+ * Quem chama decide o acesso — a tela de Conversas pelo alcance do usuário, a
+ * Supervisão (espiar) pelo recorte da gestão. Não marca nada como lido.
+ */
+export async function lerMensagensDaConversa(
+  lid: number,
+  leitor: JwtPayload,
+  query: any,
+): Promise<{ messages: any[]; hasMore: boolean } | { status: number; erro: any }> {
+    const limit = Math.min(parseInt(query.limit) || 50, 200)
+    const before = query.before ? parseInt(query.before) : null
+
+    const where: any = { leadId: lid }
+    if (before) {
+      where.id = { lt: before }
+    }
+    // Conversa individual que também passou por um número reservado: abre sem
+    // as mensagens dele (ver services/channelVisibility.ts).
+    {
+      const doLead = await prisma.lead.findUnique({ where: { id: lid }, select: { isGroup: true } })
+      const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
+      const visivel = await filtroDeMensagensVisiveis(leitor.userId, leitor.role, !!doLead?.isGroup)
+      if (visivel) where.AND = [visivel]
+    }
+    // `desde`: tudo do instante da mensagem X até a mais antiga já carregada
+    // (`before`). É o "ir até a mensagem" da busca — o resultado pode ser de
+    // meses atrás, e rolar página por página até lá não é caminho.
+    const desde = query.desde ? parseInt(query.desde) : null
+    if (desde) {
+      const [alvo, limite] = await Promise.all([
+        prisma.message.findFirst({ where: { id: desde, leadId: lid, ...(where.AND ? { AND: where.AND } : {}) }, select: { timestamp: true } }),
+        before ? prisma.message.findFirst({ where: { id: before, leadId: lid }, select: { timestamp: true } }) : null,
+      ])
+      if (!alvo) return { status: 404, erro: { error: 'Mensagem não encontrada nesta conversa' } }
+      delete where.id
+      where.timestamp = { gte: alvo.timestamp, ...(limite ? { lte: limite.timestamp } : {}) }
+      const quantas = await prisma.message.count({ where })
+      if (quantas > 3000) return { status: 422, erro: { error: 'Mensagem antiga demais para carregar de uma vez', total: quantas } }
+    }
+
+    const messages = await prisma.message.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+      take: desde ? 3000 : limit,
+      select: {
+        id: true,
+        fromMe: true,
+        body: true,
+        mediaType: true,
+        mediaUrl: true,
+        mediaName: true,
+        ack: true,
+        isDeleted: true,
+        isInternal: true,
+        senderName: true,
+        externalId: true,
+        quotedMsgId: true,
+        // Sem isto o `quotedExternalId` chegava undefined e a resolução
+        // tardia de citação (logo abaixo) nunca rodava: resposta cuja citada
+        // ainda não existia ficava para sempre sem contexto na bolha.
+        quotedExternalId: true,
+        timestamp: true,
+        // Estado da mensagem depois de enviada: a bolha precisa saber se foi
+        // editada, se foi apagada para todos (vira "mensagem apagada" em vez
+        // de sumir), se veio encaminhada e quais reações tem.
+        editedAt: true,
+        deletedForAll: true,
+        isForwarded: true,
+        reactions: true,
+      }
+    })
+
+    // Return in chronological order
+    messages.reverse()
+
+    // Trecho da mensagem CITADA em cada resposta.
+    //
+    // A tela só conseguia mostrar a citação quando a mensagem original estava
+    // entre as 50 carregadas. Quando o cliente responde a algo de ontem — o
+    // caso mais comum em grupo —, a bolha aparecia sem contexto nenhum. Aqui
+    // o servidor manda junto o resumo do que foi citado, uma consulta só para
+    // a página inteira.
+    // Resolução tardia: resposta cuja citada ainda não existia quando ela
+    // chegou ficou com `quotedMsgId` nulo, mas guardou o `quotedExternalId`.
+    // Como a citada quase sempre entra logo depois, basta resolver agora — e
+    // gravar, para não repetir a consulta em toda abertura da conversa.
+    const pendentes = (messages as any[]).filter(m => !m.quotedMsgId && m.quotedExternalId)
+    if (pendentes.length) {
+      const externos = [...new Set(pendentes.map(m => m.quotedExternalId as string))]
+      const achadas = await prisma.message.findMany({
+        where: { externalId: { in: externos } },
+        select: { id: true, externalId: true },
+      })
+      const porExterno = new Map(achadas.map(a => [a.externalId, a.id]))
+      const paraGravar: Array<{ id: number; quotedMsgId: number }> = []
+      for (const m of pendentes) {
+        const achado = porExterno.get(m.quotedExternalId)
+        if (achado) { m.quotedMsgId = achado; paraGravar.push({ id: m.id, quotedMsgId: achado }) }
+      }
+      // fora do caminho da resposta: falhar aqui não pode derrubar a leitura
+      Promise.all(paraGravar.map(g =>
+        prisma.message.update({ where: { id: g.id }, data: { quotedMsgId: g.quotedMsgId } }),
+      )).catch(() => {})
+    }
+
+    // Motivo da FALHA de entrega (ack = -1).
+    //
+    // A Meta aceita o envio (devolve o wamid) e só depois manda o webhook de
+    // status dizendo que não entregou. O código do erro era gravado apenas no
+    // log de cobrança, então a bolha ficava idêntica a uma mensagem ainda
+    // saindo — e ninguém no atendimento ficava sabendo que o cliente não
+    // recebeu. Aqui o motivo volta junto da mensagem, já em português.
+    const falhadas = (messages as any[]).filter(m => m.fromMe && m.ack === -1 && m.externalId)
+    if (falhadas.length) {
+      const { explicarFalhaDeEntrega } = await import('../services/deliveryFailure.js')
+      const wamids = [...new Set(falhadas.map(m => m.externalId as string))]
+      const logs = await prisma.cloudApiMessageLog.findMany({
+        where: { wamid: { in: wamids } },
+        select: { wamid: true, errorCode: true, errorTitle: true },
+      })
+      const porWamid = new Map(logs.map(l => [l.wamid, l]))
+      const dono = await prisma.lead.findUnique({ where: { id: lid }, select: { whatsapp: true } })
+      const destino = dono?.whatsapp ?? undefined
+      for (const m of falhadas) {
+        const log = porWamid.get(m.externalId)
+        m.deliveryError = explicarFalhaDeEntrega(log?.errorCode ?? null, log?.errorTitle ?? null, destino)
+      }
+    }
+
+    const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
+    if (citadasIds.length) {
+      const citadas = await prisma.message.findMany({
+        // Mesma condição da página: citação de mensagem oculta não vira prévia.
+        where: { id: { in: citadasIds }, ...(where.AND ? { AND: where.AND } : {}) },
+        select: { id: true, body: true, fromMe: true, senderName: true, mediaType: true, deletedForAll: true },
+      })
+      const porId = new Map(citadas.map(c => [c.id, c]))
+      for (const m of messages as any[]) {
+        const c = m.quotedMsgId ? porId.get(m.quotedMsgId) : null
+        m.quoted = c
+          ? {
+              id: c.id,
+              body: c.deletedForAll ? null : c.body,
+              fromMe: c.fromMe,
+              senderName: c.senderName,
+              mediaType: c.mediaType,
+              deleted: c.deletedForAll,
+            }
+          : null
+      }
+    }
+
+    // Menções de grupo chegam como "@<identificador>" — número que não é
+    // telefone e não diz nada a quem lê. Resolvido na LEITURA para o texto
+    // gravado continuar sendo o que o contato recebeu, e para as mensagens
+    // antigas aparecerem certas sem migração.
+    const { resolverMencoesEmLote } = await import('../services/mentionResolver.js')
+    const comMencoes = await resolverMencoesEmLote(messages).catch(() => messages)
+
+    // Com `desde` sempre pode haver mais antigas: quem diz que acabou é o
+    // próximo "carregar anteriores", que volta vazio.
+    return { messages: comMencoes, hasMore: desde ? true : messages.length === limit }
+}
+
 export async function checarAcessoTicket(user: JwtPayload, leadId: number, acao: Acao = 'view'): Promise<AcessoTicket> {
   // NÚMERO RESERVADO VENCE TUDO — inclusive a matriz do gerenciador.
   //
@@ -815,161 +981,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { leadId } = req.params as any
       const lid = parseInt(leadId)
       if (!await assertTicketAccess(req, reply, lid)) return
-      const query = req.query as any
-      const limit = Math.min(parseInt(query.limit) || 50, 200)
-      const before = query.before ? parseInt(query.before) : null
-
-      const where: any = { leadId: lid }
-      if (before) {
-        where.id = { lt: before }
-      }
-      // Conversa individual que também passou por um número reservado: abre sem
-      // as mensagens dele (ver services/channelVisibility.ts).
-      {
-        const leitor = (req as any).user as JwtPayload
-        const doLead = await prisma.lead.findUnique({ where: { id: lid }, select: { isGroup: true } })
-        const { filtroDeMensagensVisiveis } = await import('../services/channelVisibility.js')
-        const visivel = await filtroDeMensagensVisiveis(leitor.userId, leitor.role, !!doLead?.isGroup)
-        if (visivel) where.AND = [visivel]
-      }
-      // `desde`: tudo do instante da mensagem X até a mais antiga já carregada
-      // (`before`). É o "ir até a mensagem" da busca — o resultado pode ser de
-      // meses atrás, e rolar página por página até lá não é caminho.
-      const desde = query.desde ? parseInt(query.desde) : null
-      if (desde) {
-        const [alvo, limite] = await Promise.all([
-          prisma.message.findFirst({ where: { id: desde, leadId: lid, ...(where.AND ? { AND: where.AND } : {}) }, select: { timestamp: true } }),
-          before ? prisma.message.findFirst({ where: { id: before, leadId: lid }, select: { timestamp: true } }) : null,
-        ])
-        if (!alvo) return reply.code(404).send({ error: 'Mensagem não encontrada nesta conversa' })
-        delete where.id
-        where.timestamp = { gte: alvo.timestamp, ...(limite ? { lte: limite.timestamp } : {}) }
-        const quantas = await prisma.message.count({ where })
-        if (quantas > 3000) return reply.code(422).send({ error: 'Mensagem antiga demais para carregar de uma vez', total: quantas })
-      }
-
-      const messages = await prisma.message.findMany({
-        where,
-        orderBy: { timestamp: 'desc' },
-        take: desde ? 3000 : limit,
-        select: {
-          id: true,
-          fromMe: true,
-          body: true,
-          mediaType: true,
-          mediaUrl: true,
-          mediaName: true,
-          ack: true,
-          isDeleted: true,
-          isInternal: true,
-          senderName: true,
-          externalId: true,
-          quotedMsgId: true,
-          // Sem isto o `quotedExternalId` chegava undefined e a resolução
-          // tardia de citação (logo abaixo) nunca rodava: resposta cuja citada
-          // ainda não existia ficava para sempre sem contexto na bolha.
-          quotedExternalId: true,
-          timestamp: true,
-          // Estado da mensagem depois de enviada: a bolha precisa saber se foi
-          // editada, se foi apagada para todos (vira "mensagem apagada" em vez
-          // de sumir), se veio encaminhada e quais reações tem.
-          editedAt: true,
-          deletedForAll: true,
-          isForwarded: true,
-          reactions: true,
-        }
-      })
-
-      // Return in chronological order
-      messages.reverse()
-
-      // Trecho da mensagem CITADA em cada resposta.
-      //
-      // A tela só conseguia mostrar a citação quando a mensagem original estava
-      // entre as 50 carregadas. Quando o cliente responde a algo de ontem — o
-      // caso mais comum em grupo —, a bolha aparecia sem contexto nenhum. Aqui
-      // o servidor manda junto o resumo do que foi citado, uma consulta só para
-      // a página inteira.
-      // Resolução tardia: resposta cuja citada ainda não existia quando ela
-      // chegou ficou com `quotedMsgId` nulo, mas guardou o `quotedExternalId`.
-      // Como a citada quase sempre entra logo depois, basta resolver agora — e
-      // gravar, para não repetir a consulta em toda abertura da conversa.
-      const pendentes = (messages as any[]).filter(m => !m.quotedMsgId && m.quotedExternalId)
-      if (pendentes.length) {
-        const externos = [...new Set(pendentes.map(m => m.quotedExternalId as string))]
-        const achadas = await prisma.message.findMany({
-          where: { externalId: { in: externos } },
-          select: { id: true, externalId: true },
-        })
-        const porExterno = new Map(achadas.map(a => [a.externalId, a.id]))
-        const paraGravar: Array<{ id: number; quotedMsgId: number }> = []
-        for (const m of pendentes) {
-          const achado = porExterno.get(m.quotedExternalId)
-          if (achado) { m.quotedMsgId = achado; paraGravar.push({ id: m.id, quotedMsgId: achado }) }
-        }
-        // fora do caminho da resposta: falhar aqui não pode derrubar a leitura
-        Promise.all(paraGravar.map(g =>
-          prisma.message.update({ where: { id: g.id }, data: { quotedMsgId: g.quotedMsgId } }),
-        )).catch(() => {})
-      }
-
-      // Motivo da FALHA de entrega (ack = -1).
-      //
-      // A Meta aceita o envio (devolve o wamid) e só depois manda o webhook de
-      // status dizendo que não entregou. O código do erro era gravado apenas no
-      // log de cobrança, então a bolha ficava idêntica a uma mensagem ainda
-      // saindo — e ninguém no atendimento ficava sabendo que o cliente não
-      // recebeu. Aqui o motivo volta junto da mensagem, já em português.
-      const falhadas = (messages as any[]).filter(m => m.fromMe && m.ack === -1 && m.externalId)
-      if (falhadas.length) {
-        const { explicarFalhaDeEntrega } = await import('../services/deliveryFailure.js')
-        const wamids = [...new Set(falhadas.map(m => m.externalId as string))]
-        const logs = await prisma.cloudApiMessageLog.findMany({
-          where: { wamid: { in: wamids } },
-          select: { wamid: true, errorCode: true, errorTitle: true },
-        })
-        const porWamid = new Map(logs.map(l => [l.wamid, l]))
-        const dono = await prisma.lead.findUnique({ where: { id: lid }, select: { whatsapp: true } })
-        const destino = dono?.whatsapp ?? undefined
-        for (const m of falhadas) {
-          const log = porWamid.get(m.externalId)
-          m.deliveryError = explicarFalhaDeEntrega(log?.errorCode ?? null, log?.errorTitle ?? null, destino)
-        }
-      }
-
-      const citadasIds = [...new Set(messages.map(m => m.quotedMsgId).filter((v): v is number => !!v))]
-      if (citadasIds.length) {
-        const citadas = await prisma.message.findMany({
-          // Mesma condição da página: citação de mensagem oculta não vira prévia.
-          where: { id: { in: citadasIds }, ...(where.AND ? { AND: where.AND } : {}) },
-          select: { id: true, body: true, fromMe: true, senderName: true, mediaType: true, deletedForAll: true },
-        })
-        const porId = new Map(citadas.map(c => [c.id, c]))
-        for (const m of messages as any[]) {
-          const c = m.quotedMsgId ? porId.get(m.quotedMsgId) : null
-          m.quoted = c
-            ? {
-                id: c.id,
-                body: c.deletedForAll ? null : c.body,
-                fromMe: c.fromMe,
-                senderName: c.senderName,
-                mediaType: c.mediaType,
-                deleted: c.deletedForAll,
-              }
-            : null
-        }
-      }
-
-      // Menções de grupo chegam como "@<identificador>" — número que não é
-      // telefone e não diz nada a quem lê. Resolvido na LEITURA para o texto
-      // gravado continuar sendo o que o contato recebeu, e para as mensagens
-      // antigas aparecerem certas sem migração.
-      const { resolverMencoesEmLote } = await import('../services/mentionResolver.js')
-      const comMencoes = await resolverMencoesEmLote(messages).catch(() => messages)
-
-      // Com `desde` sempre pode haver mais antigas: quem diz que acabou é o
-      // próximo "carregar anteriores", que volta vazio.
-      return { messages: comMencoes, hasMore: desde ? true : messages.length === limit }
+      const r = await lerMensagensDaConversa(lid, (req as any).user as JwtPayload, req.query as any)
+      if ('erro' in r) return reply.code(r.status).send(r.erro)
+      return r
     } catch (err: any) {
       app.log.error(`Atendimento messages error: ${err.message}`)
       return reply.code(500).send({ error: err.message })

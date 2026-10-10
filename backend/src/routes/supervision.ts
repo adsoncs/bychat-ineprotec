@@ -880,6 +880,58 @@ export async function supervisionRoutes(app: FastifyInstance) {
   })
 
   // ── GET /api/supervision/filters — opções dos seletores ──
+  // ── Espiar ────────────────────────────────────────────────────────────────
+  // GET /api/supervision/espiar/:leadId — a conversa como o atendente vê, só
+  // para ler. Não marca como lida, não consulta o número no WhatsApp, não
+  // assume a conversa e não aparece para o contato nem para o atendente. Fica
+  // fora de /conversations/* (que o gate trata como edição): espiar é ver.
+  //
+  // Mesmo recorte da lista da Supervisão (matriz do Conversas + números
+  // reservados). A primeira leitura de cada abertura (`?inicio=1`) vai para a
+  // auditoria de usuários — a gestão vê quem espiou o quê; o lead não.
+  app.get('/api/supervision/espiar/:leadId', { preHandler: authMiddleware }, async (req, reply) => {
+    if (!requireSupervisor(req, reply)) return
+    const user = (req as any).user as JwtPayload
+    const lid = Number((req.params as any).leadId)
+    if (!Number.isInteger(lid) || lid <= 0) return reply.code(400).send({ error: 'Conversa inválida' })
+    const [matriz, reservados] = await Promise.all([recorteDaMatriz(req), recorteDeCanaisReservados(req)])
+    const lead = await prisma.lead.findFirst({
+      where: { id: lid, AND: [matriz, reservados] },
+      select: {
+        id: true, nome: true, whatsapp: true, isGroup: true, status: true, unreadMessages: true, lastMessageAt: true,
+        instanceName: true, cloudApiConnectionId: true,
+        assignedUser: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true } },
+        funnel: { select: { id: true, name: true, stages: { select: { key: true, name: true } } } },
+      },
+    })
+    if (!lead) return reply.code(404).send({ error: 'Conversa não encontrada ou fora do seu alcance' })
+
+    const { lerMensagensDaConversa } = await import('./atendimento.js')
+    const r = await lerMensagensDaConversa(lid, user, req.query as any)
+    if ('erro' in r) return reply.code(r.status).send(r.erro)
+
+    const q = req.query as any
+    if (q?.inicio === '1') {
+      const { logUserAudit, auditActor } = await import('../services/userAudit.js')
+      logUserAudit({
+        action: 'supervision.espiar', targetType: 'conversa', targetUserId: lead.assignedUser?.id ?? null,
+        targetLabel: `Espiou a conversa de ${lead.nome} (lead #${lead.id})`, ...auditActor(req),
+      }).catch(() => {})
+    }
+
+    const { funnel, ...resto } = lead
+    return {
+      conversa: {
+        ...resto,
+        funil: funnel ? { id: funnel.id, nome: funnel.name } : null,
+        etapa: funnel?.stages.find((st) => st.key === lead.status)?.name ?? lead.status,
+        canal: lead.cloudApiConnectionId ? 'API Oficial' : lead.instanceName ?? null,
+      },
+      ...r,
+    }
+  })
+
   app.get('/api/supervision/filters', { preHandler: authMiddleware }, async (req, reply) => {
     if (!requireSupervisor(req, reply)) return
     try {
