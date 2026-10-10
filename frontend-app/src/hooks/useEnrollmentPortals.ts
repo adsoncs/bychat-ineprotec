@@ -155,6 +155,8 @@ export interface SeoTelas {
 }
 
 export interface EnrollmentPortalInput {
+  /** Jornada (aba Etapas) — a Configuração grava só o de-para com o funil, com o resto como está. */
+  jornadaEtapas?: unknown
   nome?: string | undefined
   unitId?: number | undefined
   slug?: string | null | undefined

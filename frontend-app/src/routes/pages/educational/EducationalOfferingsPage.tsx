@@ -31,10 +31,6 @@ import { toast } from '@/lib/toast'
 
 const TURNOS = ['Matutino', 'Vespertino', 'Noturno', 'Integral']
 
-function fmtBrl(n: number | null | undefined): string {
-  if (n == null) return '—'
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'

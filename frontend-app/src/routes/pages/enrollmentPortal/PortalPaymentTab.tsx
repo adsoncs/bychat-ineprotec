@@ -42,9 +42,6 @@ const PROVIDER_LABEL: Record<Exclude<PaymentProvider, null>, string> = {
   iugu: 'iugu',
 }
 
-const brl = (v: number | string | null | undefined) =>
-  v == null || v === '' ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-
 /**
  * Ofertas que este portal mostra — o mesmo recorte do portal público
  * (processos do portal + filtros de nível, curso e modalidade).
