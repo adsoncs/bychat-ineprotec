@@ -13,6 +13,8 @@ export interface ConversaEquipe {
   id: number; tipo: 'direta' | 'grupo' | 'equipe' | 'lead'; nome: string; descricao: string | null
   teamId: number | null; leadId: number | null; outro: PessoaEquipe | null; membros: number
   souAdmin: boolean; silenciada: boolean; naoLidas: number; mencoes: number
+  /** Admin/gerente vendo o canal de uma equipe de que não participa. */
+  observando?: boolean
   ultima: { id: number; autor: string; texto: string; em: string } | null
 }
 export interface CartaoEquipe {
@@ -48,6 +50,7 @@ export interface MensagemEquipe {
 export interface DetalhesDaConversa {
   id: number; tipo: ConversaEquipe['tipo']; nome: string | null; descricao: string | null; teamId: number | null
   leadId: number | null; lead: { id: number; nome: string } | null; souMembro: boolean; souAdmin: boolean
+  observando?: boolean
   silenciada: boolean; membros: Array<PessoaEquipe & { papel: string }>
 }
 

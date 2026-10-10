@@ -106,9 +106,12 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
     const t = setTimeout(() => { buscarNasConversas(q.trim()).then((r) => setAchados(r.resultados)).catch(() => {}) }, 300)
     return () => clearTimeout(t)
   }, [q])
-  const conversas = (data?.conversas ?? [])
+  const filtradas = (data?.conversas ?? [])
     .filter((c) => !q.trim() || c.nome.toLowerCase().includes(q.trim().toLowerCase()))
     .filter((c) => filtro === 'todas' || c.naoLidas > 0)
+  // Canais de equipes de que a pessoa (admin/gerente) não participa: seção própria, no fim.
+  const conversas = filtradas.filter((c) => !c.observando)
+  const outrasEquipes = filtradas.filter((c) => c.observando).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   const nomeDe = new Map((data?.conversas ?? []).map((c) => [c.id, c.nome]))
 
   return (
@@ -131,14 +134,18 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
       </div>
       <div class="flex-1 overflow-y-auto">
         {isLoading && <div class="p-4 text-sm text-fg-muted">Carregando…</div>}
-        {!isLoading && !conversas.length && !achados.length && (
+        {!isLoading && !conversas.length && !outrasEquipes.length && !achados.length && (
           <div class="p-6 text-center text-sm text-fg-muted space-y-2">
             <MessagesSquare size={28} class="mx-auto opacity-50" />
             <div>{q ? 'Nada encontrado.' : filtro === 'naoLidas' ? 'Tudo lido por aqui.' : 'Nenhuma conversa ainda. Comece uma com alguém da equipe.'}</div>
           </div>
         )}
-        {conversas.map((c) => (
-          <button key={c.id} type="button" class={cn('flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-surface-2 border-b border-border/50', props.ativa === c.id && 'bg-accent/10')} onClick={() => props.onAbrir(c.id)}>
+        {[...conversas, ...outrasEquipes].map((c, i) => (
+          <div key={c.id}>
+          {i === conversas.length && c.observando && (
+            <div class="px-3 pt-3 pb-1 text-2xs font-semibold uppercase text-fg-muted" title="Você vê e escreve nestes canais sem fazer parte da equipe.">Outras equipes</div>
+          )}
+          <button type="button" class={cn('flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-surface-2 border-b border-border/50', props.ativa === c.id && 'bg-accent/10')} onClick={() => props.onAbrir(c.id)}>
             <IconeDaConversa c={c} />
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
@@ -155,6 +162,7 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
               </div>
             </div>
           </button>
+          </div>
         ))}
         {achados.length > 0 && (
           <div class="border-t border-border">
@@ -265,6 +273,7 @@ function Detalhes(props: { conversaId: number; onSaiu: () => void }) {
         <Button variant="secondary" size="sm" onClick={() => navigate(`/leads/${data.lead!.id}`)}><ExternalLink size={12} /> Abrir lead: {data.lead.nome}</Button>
       )}
       {data.tipo === 'equipe' && <div class="text-xs text-fg-muted">Canal da equipe. Os membros acompanham a equipe — mude-os em Equipes.</div>}
+      {data.observando && <div class="rounded-md bg-surface-2 px-2.5 py-2 text-xs text-fg-muted">Você não faz parte desta equipe: por ser admin ou gerente, você vê e escreve aqui, mas não recebe avisos deste canal.</div>}
 
       {data.souMembro && (
         <label class="flex items-center gap-2 text-sm cursor-pointer">

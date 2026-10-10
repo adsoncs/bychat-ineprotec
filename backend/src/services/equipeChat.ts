@@ -3,7 +3,9 @@
 // Equipe — chat interno entre pessoas e equipes, de qualquer papel.
 //
 //   · direta  — 1 a 1 (chave "menorId:maiorId", uma por par);
-//   · equipe  — canal de cada equipe; os membros acompanham a equipe;
+//   · equipe  — canal de cada equipe ativa, criado junto com a equipe; os
+//               membros acompanham a equipe; admin e gerente veem todos os
+//               canais (e escrevem neles) mesmo sem participar;
 //   · grupo   — grupo livre, quem cria administra;
 //   · lead    — conversa interna sobre um lead (aparece na ficha do lead);
 //               lê quem tem acesso ao lead, entra como membro quem escreve ou
@@ -21,6 +23,8 @@ import type { JwtPayload } from '../lib/auth.js'
 
 export type TipoConversa = 'direta' | 'grupo' | 'equipe' | 'lead'
 export const PAPEIS_ADMIN = new Set(['SUPERADMIN', 'ADMIN'])
+/** Veem e escrevem em todos os canais de equipe, mesmo sem ser da equipe. */
+export const PAPEIS_SUPERVISAO = new Set(['SUPERADMIN', 'ADMIN', 'MANAGER'])
 
 // ─── Pessoas ───────────────────────────────────────────────────────────────
 
@@ -52,11 +56,28 @@ export async function sincronizarCanaisDe(userId: number): Promise<void> {
   for (const { teamId } of minhas) await sincronizarCanalDaEquipe(teamId)
 }
 
+/** Canais de TODAS as equipes ativas. Roda ao subir, quando uma equipe muda e,
+ *  como rede de segurança, no máximo 1x por minuto ao abrir a lista. */
+let ultimaGeral = 0
+let geralEmAndamento: Promise<void> | null = null
+export function sincronizarTodosOsCanais(forcar = true): Promise<void> {
+  if (!forcar && Date.now() - ultimaGeral < 60_000) return Promise.resolve()
+  if (geralEmAndamento) return geralEmAndamento
+  ultimaGeral = Date.now()
+  geralEmAndamento = (async () => {
+    const equipes = await prisma.team.findMany({ where: { active: true }, select: { id: true } })
+    for (const { id } of equipes) await sincronizarCanalDaEquipe(id).catch(() => null)
+  })().finally(() => { geralEmAndamento = null })
+  return geralEmAndamento
+}
+
 export async function sincronizarCanalDaEquipe(teamId: number): Promise<number | null> {
   const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true, name: true, active: true } })
   if (!team?.active) return null
+  let mudou = false
   let conversa = await prisma.equipeConversa.findUnique({ where: { teamId }, select: { id: true, nome: true } })
   if (!conversa) {
+    mudou = true
     conversa = await prisma.equipeConversa.create({
       data: { tipo: 'equipe', teamId, nome: team.name },
       select: { id: true, nome: true },
@@ -64,6 +85,7 @@ export async function sincronizarCanalDaEquipe(teamId: number): Promise<number |
     if (!conversa) return null
   } else if (conversa.nome !== team.name) {
     await prisma.equipeConversa.update({ where: { id: conversa.id }, data: { nome: team.name } })
+    mudou = true
   }
   const daEquipe = new Set((await prisma.teamMember.findMany({ where: { teamId, user: { active: true } }, select: { userId: true } })).map((m) => m.userId))
   const doCanal = new Set((await prisma.equipeMembro.findMany({ where: { conversaId: conversa.id }, select: { userId: true } })).map((m) => m.userId))
@@ -73,6 +95,11 @@ export async function sincronizarCanalDaEquipe(teamId: number): Promise<number |
     await prisma.equipeMembro.create({ data: { conversaId: conversa.id, userId: u } }).catch(() => {})
   }
   if (sair.length) await prisma.equipeMembro.deleteMany({ where: { conversaId: conversa.id, userId: { in: sair } } })
+  // Quem entrou ou saiu (e todos, se o canal nasceu ou mudou de nome) recarrega a lista.
+  if (mudou || entrar.length || sair.length) {
+    const { enviarParaUsuarios } = await import('../routes/realtime.js')
+    enviarParaUsuarios(mudou ? [...daEquipe, ...sair] : [...entrar, ...sair], { type: 'equipe:atualizada', payload: { conversaId: conversa.id } })
+  }
   return conversa.id
 }
 
@@ -87,7 +114,17 @@ export async function podeLer(user: JwtPayload, conversaId: number): Promise<{ o
   if (conversa.tipo === 'lead' && conversa.leadId) {
     return { ok: await acessaLead(user, conversa.leadId), membro: false, conversa }
   }
+  if (conversa.tipo === 'equipe' && PAPEIS_SUPERVISAO.has(user.role) && await canalAtivo(conversaId)) {
+    return { ok: true, membro: false, conversa }
+  }
   return { ok: false, membro: false, conversa }
+}
+
+/** Canal de equipe cuja equipe ainda existe e está ativa. */
+async function canalAtivo(conversaId: number): Promise<boolean> {
+  const c = await prisma.equipeConversa.findUnique({ where: { id: conversaId }, select: { teamId: true } })
+  if (!c?.teamId) return false
+  return !!(await prisma.team.findFirst({ where: { id: c.teamId, active: true }, select: { id: true } }))
 }
 
 /** Mesma checagem da tela de Conversas (números reservados, matriz, alcance). */
@@ -272,13 +309,20 @@ export async function montarMensagens(user: JwtPayload, msgs: any[]): Promise<an
 
 export async function conversasDe(user: JwtPayload): Promise<any[]> {
   await sincronizarCanaisDe(user.userId)
-  const minhas = await prisma.equipeMembro.findMany({
+  await sincronizarTodosOsCanais(false).catch(() => {})
+  const selConversa = { id: true, tipo: true, nome: true, descricao: true, teamId: true, leadId: true, chaveDireta: true, ultimaMensagemEm: true, createdAt: true } as const
+  // Canal de equipe desativada ou apagada sai da lista (o histórico fica no banco).
+  const ativas = new Set((await prisma.team.findMany({ where: { active: true }, select: { id: true } })).map((t) => t.id))
+  const minhas: Array<{ silenciada: boolean; ultimaLidaId: number | null; papel: string; observando?: boolean; conversa: any }> = (await prisma.equipeMembro.findMany({
     where: { userId: user.userId },
-    select: {
-      silenciada: true, ultimaLidaId: true, papel: true,
-      conversa: { select: { id: true, tipo: true, nome: true, descricao: true, teamId: true, leadId: true, chaveDireta: true, ultimaMensagemEm: true, createdAt: true } },
-    },
-  })
+    select: { silenciada: true, ultimaLidaId: true, papel: true, conversa: { select: selConversa } },
+  })).filter((m) => m.conversa.tipo !== 'equipe' || (m.conversa.teamId != null && ativas.has(m.conversa.teamId)))
+  // Admin e gerente veem também os canais das equipes de que não participam.
+  if (PAPEIS_SUPERVISAO.has(user.role)) {
+    const jaTenho = new Set(minhas.map((m) => m.conversa.id))
+    const outros = await prisma.equipeConversa.findMany({ where: { tipo: 'equipe', teamId: { in: [...ativas] } }, select: selConversa })
+    for (const c of outros) if (!jaTenho.has(c.id)) minhas.push({ silenciada: false, ultimaLidaId: null, papel: 'membro', observando: true, conversa: c })
+  }
   const ids = minhas.map((m) => m.conversa.id)
   if (!ids.length) return []
 
@@ -302,7 +346,7 @@ export async function conversasDe(user: JwtPayload): Promise<any[]> {
       orderBy: { id: 'desc' },
       select: { id: true, userId: true, corpo: true, cartao: true, anexos: true, apagadaEm: true, createdAt: true },
     })
-    const naoLidas = await prisma.equipeMensagem.count({
+    const naoLidas = m.observando ? 0 : await prisma.equipeMensagem.count({
       where: { conversaId: c.id, id: { gt: m.ultimaLidaId ?? 0 }, apagadaEm: null, OR: [{ userId: { not: user.userId } }, { userId: null }] },
     })
     const mencoes = naoLidas
@@ -319,6 +363,7 @@ export async function conversasDe(user: JwtPayload): Promise<any[]> {
       outro,
       membros: membrosPorConversa.get(c.id) ?? 0,
       souAdmin: m.papel === 'admin',
+      observando: !!m.observando,
       silenciada: m.silenciada,
       naoLidas, mencoes,
       ultima: ultima ? {

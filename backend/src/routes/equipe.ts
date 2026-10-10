@@ -2,7 +2,8 @@
 //
 // Equipe — chat interno (services/equipeChat). Todas as rotas exigem login e o
 // módulo 'equipe' ligado (gate global por /api/equipe). Quem pode o quê dentro
-// da conversa é decidido aqui: só membro escreve; só o autor edita; autor ou
+// da conversa é decidido aqui: só membro escreve (admin e gerente também no
+// canal de qualquer equipe, sem virar membro); só o autor edita; autor ou
 // admin apaga; grupo é administrado por quem criou. As ações dos cartões que
 // já existem no sistema (pedir/aceitar/recusar transferência, assumir conversa)
 // passam pelas MESMAS rotas de sempre, com o login de quem clicou — valem as
@@ -14,6 +15,7 @@ import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import {
   PAPEIS_ADMIN, acessaLead, avisarAtualizacao, avisarNovaMensagem, conversasDe, garantirMembro,
   lerLinks, lerMencoes, mensagemDoSistema, montarMensagens, pessoasPorId, podeLer, sincronizarCanaisDe,
+  sincronizarTodosOsCanais,
 } from '../services/equipeChat.js'
 
 const MAX_CORPO = 5000
@@ -22,6 +24,9 @@ const EMOJIS = ['👍', '❤️', '😂', '😮', '🙏', '✅', '👀', '🎉']
 export async function equipeRoutes(app: FastifyInstance) {
   const auth = { preHandler: authMiddleware }
   const eu = (req: any) => req.user as JwtPayload
+
+  // Ao subir: canal de toda equipe ativa já existe, mesmo antes de alguém abrir o chat.
+  app.addHook('onReady', async () => { sincronizarTodosOsCanais().catch(() => {}) })
 
   /** Chama uma rota do próprio sistema como a pessoa logada. */
   async function comoAPessoa(req: any, method: 'GET' | 'POST', url: string, payload?: unknown) {
@@ -112,6 +117,7 @@ export async function equipeRoutes(app: FastifyInstance) {
       ...c,
       lead,
       souMembro: !!eu_,
+      observando: !eu_ && c?.tipo === 'equipe',
       souAdmin: eu_?.papel === 'admin' || (c?.tipo === 'grupo' && PAPEIS_ADMIN.has(user.role)),
       silenciada: !!eu_?.silenciada,
       membros: membros.map((m) => ({ ...(pessoas.get(m.userId) ?? { id: m.userId, nome: '—' }), papel: m.papel }))
@@ -210,7 +216,8 @@ export async function equipeRoutes(app: FastifyInstance) {
     const acesso = await podeLer(user, id)
     if (!acesso.ok || !acesso.conversa) return reply.code(404).send({ error: 'Conversa não encontrada.' })
     // Conversa de lead: quem tem acesso ao lead entra ao escrever.
-    if (!acesso.membro) {
+    // Canal de equipe: admin e gerente escrevem sem entrar (os membros seguem os da equipe).
+    if (!acesso.membro && acesso.conversa.tipo !== 'equipe') {
       if (acesso.conversa.tipo !== 'lead') return reply.code(403).send({ error: 'Você não participa desta conversa.' })
       await garantirMembro(id, user.userId)
     }
@@ -286,7 +293,8 @@ export async function equipeRoutes(app: FastifyInstance) {
     if (!EMOJIS.includes(emoji)) return reply.code(400).send({ error: 'Reação inválida.' })
     const m = await prisma.equipeMensagem.findUnique({ where: { id }, select: { conversaId: true, reacoes: true, apagadaEm: true } })
     if (!m || m.apagadaEm) return reply.code(404).send({ error: 'Mensagem não encontrada.' })
-    if (!(await podeLer(user, m.conversaId)).membro) return reply.code(403).send({ error: 'Você não participa desta conversa.' })
+    const acesso = await podeLer(user, m.conversaId)
+    if (!acesso.membro && !(acesso.ok && acesso.conversa?.tipo === 'equipe')) return reply.code(403).send({ error: 'Você não participa desta conversa.' })
     const r: Record<string, number[]> = { ...((m.reacoes as any) ?? {}) }
     const lista = new Set(r[emoji] ?? [])
     if (lista.has(user.userId)) lista.delete(user.userId); else lista.add(user.userId)

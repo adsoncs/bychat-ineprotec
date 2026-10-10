@@ -47,6 +47,13 @@ function slugify(input: string): string {
 
 export async function teamsRoutes(app: FastifyInstance) {
 
+  // Equipe criada, editada, apagada ou com membros mudados: o canal dela no
+  // chat interno (Equipe) acompanha na hora.
+  app.addHook('onResponse', async (req, reply) => {
+    if (req.method === 'GET' || reply.statusCode >= 400) return
+    import('../services/equipeChat.js').then((m) => m.sincronizarTodosOsCanais()).catch(() => {})
+  })
+
   // ── GET /api/teams — Listar equipes ativas (qualquer autenticado) ──
   app.get('/api/teams', { preHandler: authMiddleware }, async () => {
     const teams = await prisma.team.findMany({
