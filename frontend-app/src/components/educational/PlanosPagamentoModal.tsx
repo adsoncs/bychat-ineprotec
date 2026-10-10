@@ -161,7 +161,7 @@ export function PlanosPagamentoModal({ offeringId, offeringNome, onClose }: { of
                 <div class="text-sm font-medium flex items-center gap-2 flex-wrap">
                   {p.nome}
                   {!p.ativo && <span class="text-3xs bg-surface-3 text-fg-muted px-2 py-0.5 rounded-full">inativo</span>}
-                  {!p.doPortal && <span class="text-3xs bg-warning/15 text-warning px-2 py-0.5 rounded-full">plano antigo do ERP: salve para usar no portal</span>}
+                  {!p.doPortal && <span class="text-3xs bg-warning/15 text-warning px-2 py-0.5 rounded-full">plano antigo do ERP: não aparece no portal; se salvar aqui, passa a valer no portal no lugar da tabela de preços da oferta</span>}
                 </div>
                 <div class="text-fg-muted mt-0.5">{resumo(p)}</div>
                 <div class="text-fg-muted mt-0.5">
