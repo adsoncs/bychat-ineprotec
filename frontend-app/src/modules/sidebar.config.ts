@@ -69,6 +69,8 @@ export const sidebarSchema: SidebarSchema = {
     { id: 'today', label: 'Hoje', href: '/app/today', icon: 'Sun', permission: 'activities' },
     { id: 'team-performance', label: 'Performance da Equipe', href: '/app/team-performance', icon: 'BarChart3', permission: 'users' },
     { id: 'conversations', label: 'Conversas', href: '/app/conversations', icon: 'MessageSquare', permission: 'atendimento' },
+    // Chat entre a equipe (módulo 'equipe'): some quando desligado em Módulos.
+    { id: 'chat-interno', label: 'Chat Interno', href: '/app/chat-interno', icon: 'MessagesSquare', permission: 'equipe' },
     // Painel gerencial do Conversas — só gestão tem canView (ver migration 0105).
     { id: 'supervision', label: 'Supervisão', href: '/app/supervision', icon: 'Headphones', permission: 'supervision' },
     // O sino continua sendo onde se AGE; esta tela responde o que a gaveta não

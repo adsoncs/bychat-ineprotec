@@ -27,7 +27,8 @@ export function useAvisosDaEquipe(ligado: boolean) {
 
       const painel = useEquipeStore.getState()
       const naFrente = !document.hidden
-      if (naFrente && painel.aberto && painel.tela === 'conversa' && painel.conversaId === p.conversaId) return
+      const naPagina = /\/chat-interno(\/|$)/.test(window.location.pathname)
+      if (naFrente && (painel.aberto || naPagina) && painel.tela === 'conversa' && painel.conversaId === p.conversaId) return
 
       const status = useUserStore.getState().user?.workStatus ?? 'available'
       const disponivel = status === 'available'
@@ -41,10 +42,10 @@ export function useAvisosDaEquipe(ligado: boolean) {
             title: titulo,
             body: notifyPreview !== false ? String(p.previa ?? '') : undefined,
             tag: `equipe-${p.conversaId}`,
-            href: `/app/equipe?c=${p.conversaId}`,
+            href: `/app/chat-interno?c=${p.conversaId}`,
           })
         }
-      } else if (!painel.aberto) {
+      } else if (!painel.aberto && !naPagina) {
         toast(`${titulo}${p.previa ? `: ${String(p.previa).slice(0, 80)}` : ''}`, 'info', 4500)
       }
     })

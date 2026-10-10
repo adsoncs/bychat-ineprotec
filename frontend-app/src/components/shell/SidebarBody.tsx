@@ -6,6 +6,8 @@ import { useMyPermissions } from '@/hooks/usePermissions'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useUserStore } from '@/stores/user'
+import { useEquipeLigada } from '@/components/equipe/PainelDaEquipe'
+import { useResumoDaEquipe } from '@/hooks/useEquipe'
 
 interface SidebarBodyProps {
   iconOnly: boolean
@@ -24,9 +26,15 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
   // Conversas — antes o único sinal era o som, e só dentro daquela tela.
   const { prefs } = useAccountPrefs()
   const { data: unread } = useUnreadCount()
+  const chatLigado = useEquipeLigada()
+  const { data: chat } = useResumoDaEquipe(chatLigado)
 
-  /** Injeta o contador no item de Conversas; os demais passam intactos. */
+  /** Injeta o contador no item de Conversas e no Chat Interno; os demais passam intactos. */
   function withBadge(item: SidebarItemType): SidebarItemType {
+    if (item.id === 'chat-interno') {
+      const n = chat?.naoLidas ?? 0
+      return n ? { ...item, badge: n > 99 ? '99+' : n } : item
+    }
     if (!prefs.showUnreadBadge || item.id !== 'conversations' || !unread?.unread) return item
     return { ...item, badge: unread.unread > 99 ? '99+' : unread.unread }
   }

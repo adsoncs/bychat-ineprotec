@@ -2,7 +2,8 @@
 //
 // Desktop: painel à direita (400px) por cima da página, que continua no lugar
 // e segue aberto ao navegar; dá para minimizar a conversa numa bolinha no
-// canto. Celular: tela cheia. Página /app/equipe: lista + conversa lado a lado.
+// canto. Celular: tela cheia. Página /app/chat-interno (item "Chat Interno" do
+// menu): lista + conversa lado a lado. O painel flutuante abre pela ficha do lead.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { cn } from '@/lib/cn'
@@ -11,14 +12,12 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { ApiError, api } from '@/lib/apiClient'
-import { TopbarUtil } from '@/components/shell/TopbarUtil'
-import { ICON_SIZE } from '@/components/ui/Icon'
 import {
   MessagesSquare, X, ArrowLeft, Minus, Plus, Search, BellOff, Bell, Users2, Hash, Users, ExternalLink, Pencil, Check,
 } from '@/components/ui/icon-set'
 import {
   buscarNasConversas, useAcoesDaEquipe, useConversasDaEquipe, useDetalhesDaConversa, useMensagensDaConversa,
-  usePessoasDaEquipe, useResumoDaEquipe, type ConversaEquipe, type MensagemEquipe, type PessoaEquipe,
+  usePessoasDaEquipe, type ConversaEquipe, type MensagemEquipe, type PessoaEquipe,
 } from '@/hooks/useEquipe'
 import { useEquipeStore, type AbaDaEquipe } from '@/stores/equipe'
 import { useUserStore } from '@/stores/user'
@@ -74,31 +73,11 @@ function IconeDaConversa({ c }: { c: ConversaEquipe }) {
   return <span class="size-10 shrink-0 grid place-items-center rounded-full bg-accent/15 text-accent"><Icone size={18} /></span>
 }
 
-// ─── Ícone do topo ─────────────────────────────────────────────────────────
-
-export function BotaoDaEquipe() {
-  const ligada = useEquipeLigada()
-  const { data } = useResumoDaEquipe(ligada)
-  const { aberto, abrir, fechar } = useEquipeStore()
-  if (!ligada) return null
-  const n = data?.naoLidas ?? 0
-  return (
-    <TopbarUtil
-      titulo={n ? `Equipe — ${n} mensagem(ns) não lida(s)${data?.mencoes ? `, ${data.mencoes} menção(ões)` : ''}` : 'Equipe (chat interno)'}
-      onClick={() => (aberto ? fechar() : abrir(useEquipeStore.getState().conversaId))}
-      badge={n}
-      tom={data?.mencoes ? 'warning' : undefined}
-    >
-      <MessagesSquare size={ICON_SIZE.md} />
-    </TopbarUtil>
-  )
-}
-
 // ─── Lista ─────────────────────────────────────────────────────────────────
 
 const ABAS: Array<{ id: AbaDaEquipe; rotulo: string }> = [
   { id: 'pessoas', rotulo: 'Pessoas' },
-  { id: 'grupos', rotulo: 'Grupos' },
+  { id: 'grupos', rotulo: 'Equipes' },
   { id: 'leads', rotulo: 'Leads' },
 ]
 const abaDe = (c: ConversaEquipe): AbaDaEquipe => (c.tipo === 'direta' ? 'pessoas' : c.tipo === 'lead' ? 'leads' : 'grupos')
@@ -125,7 +104,7 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
     .filter((c) => buscando || abaDe(c) === aba)
     .filter((c) => !buscando || c.nome.toLowerCase().includes(q.trim().toLowerCase()))
     .filter((c) => filtro === 'todas' || c.naoLidas > 0)
-  // Em Grupos: minhas equipes, grupos livres e (admin/gerente) outras equipes.
+  // Na aba Equipes: minhas equipes, grupos livres e (admin/gerente) outras equipes.
   const secoes: Array<{ titulo: string | null; dica?: string; itens: ConversaEquipe[] }> = buscando || aba !== 'grupos'
     ? [{ titulo: null, itens: filtradas }]
     : [
@@ -134,8 +113,8 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
         { titulo: 'Outras equipes', dica: 'Você vê e escreve nestes canais sem fazer parte da equipe.', itens: filtradas.filter((c) => c.observando).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')) },
       ].filter((x) => x.itens.length)
   const nomeDe = new Map(todas.map((c) => [c.id, c.nome]))
-  const vazio = aba === 'pessoas' ? 'Nenhuma conversa individual ainda. Toque em Nova para falar com alguém.'
-    : aba === 'grupos' ? 'Nenhum grupo ainda. Os canais das suas equipes aparecem aqui.'
+  const vazio = aba === 'pessoas' ? 'Nenhuma conversa individual ainda. Use o botão Nova para falar com alguém.'
+    : aba === 'grupos' ? 'Nenhuma equipe ou grupo ainda. Os canais das suas equipes aparecem aqui.'
     : 'Nenhuma conversa sobre lead.'
 
   return (
@@ -229,7 +208,7 @@ function NovaConversa(props: { onAbrir: (id: number) => void; onVoltar: () => vo
   const { data } = usePessoasDaEquipe()
   const { criarConversa } = useAcoesDaEquipe()
   const [q, setQ] = useState('')
-  // Na aba Grupos, "Nova" já começa criando grupo.
+  // Na aba Equipes, "Nova" já começa criando grupo.
   const [grupo, setGrupo] = useState(() => useEquipeStore.getState().aba === 'grupos')
   const [nome, setNome] = useState('')
   const [marcados, setMarcados] = useState<number[]>([])
@@ -477,10 +456,10 @@ function Cabecalho(props: { pagina: boolean }) {
   const [, navigate] = useLocation()
   const c = lista.data?.conversas.find((x) => x.id === conversaId)
   const voltar = tela === 'detalhes' ? () => irPara('conversa') : () => abrir(null)
-  const titulo = tela === 'lista' ? 'Equipe' : tela === 'nova' ? 'Nova conversa' : tela === 'detalhes' ? 'Detalhes' : (c?.nome ?? det.data?.nome ?? 'Conversa')
+  const titulo = tela === 'lista' ? 'Chat Interno' : tela === 'nova' ? 'Nova conversa' : tela === 'detalhes' ? 'Detalhes' : (c?.nome ?? det.data?.nome ?? 'Conversa')
   const sub = tela === 'conversa'
     ? (c?.tipo === 'direta' ? rotuloPresenca(c.outro) : det.data ? `${det.data.membros.length} participante(s)` : '')
-    : tela === 'lista' ? 'Chat interno da equipe' : ''
+    : tela === 'lista' ? 'Conversas entre a equipe' : ''
   return (
     <div class="flex items-center gap-1.5 border-b border-border px-2 py-2 bg-surface">
       {tela !== 'lista' && (
@@ -500,7 +479,7 @@ function Cabecalho(props: { pagina: boolean }) {
       {!props.pagina && (
         <>
           {tela === 'conversa' && <button type="button" class="hidden lg:grid size-8 place-items-center rounded-md hover:bg-surface-2 text-fg-muted" title="Minimizar" aria-label="Minimizar" onClick={minimizar}><Minus size={16} /></button>}
-          <button type="button" class="hidden lg:grid size-8 place-items-center rounded-md hover:bg-surface-2 text-fg-muted" title="Abrir em tela cheia" aria-label="Abrir em tela cheia" onClick={() => { navigate(`/equipe${conversaId ? `?c=${conversaId}` : ''}`); fechar() }}><ExternalLink size={14} /></button>
+          <button type="button" class="hidden lg:grid size-8 place-items-center rounded-md hover:bg-surface-2 text-fg-muted" title="Abrir em tela cheia" aria-label="Abrir em tela cheia" onClick={() => { navigate(`/chat-interno${conversaId ? `?c=${conversaId}` : ''}`); fechar() }}><ExternalLink size={14} /></button>
           <button type="button" class="size-8 grid place-items-center rounded-md hover:bg-surface-2 text-fg-muted" title="Fechar" aria-label="Fechar" onClick={fechar}><X size={16} /></button>
         </>
       )}
@@ -531,10 +510,10 @@ export function PainelDaEquipe() {
   }, [aberto])
   // Na página cheia da Equipe o painel não abre por cima dela. O shell fica fora
   // da base do roteador, então o caminho pode vir com ou sem o "/app".
-  const naPagina = /^(\/app)?\/equipe(\/|$|\?)/.test(location) || /\/app\/equipe(\/|$)/.test(window.location.pathname)
+  const naPagina = /^(\/app)?\/chat-interno(\/|$|\?)/.test(location) || /\/app\/chat-interno(\/|$)/.test(window.location.pathname)
   if (!ligada || !aberto || naPagina) return null
   return (
-    <div class="fixed inset-0 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-[400px] flex flex-col bg-surface lg:border-l border-border shadow-2xl" style={{ zIndex: 'var(--z-popover, 50)' }} role="complementary" aria-label="Equipe — chat interno">
+    <div class="fixed inset-0 lg:inset-y-0 lg:left-auto lg:right-0 lg:w-[400px] flex flex-col bg-surface lg:border-l border-border shadow-2xl" style={{ zIndex: 'var(--z-popover, 50)' }} role="complementary" aria-label="Chat Interno">
       <Cabecalho pagina={false} />
       <div class="flex-1 min-h-0"><Telas pagina={false} /></div>
     </div>
@@ -560,7 +539,7 @@ export function EquipeMinimizada() {
   )
 }
 
-/** Página /app/equipe: lista + conversa lado a lado (no celular, uma de cada vez). */
+/** Página /app/chat-interno: lista + conversa lado a lado (no celular, uma de cada vez). */
 export function PaginaDaEquipe() {
   const { tela, conversaId, abrir, irPara } = useEquipeStore()
   useEffect(() => {
@@ -572,7 +551,7 @@ export function PaginaDaEquipe() {
   return (
     <div class="h-[calc(100dvh-7rem)] min-h-[420px] rounded-lg border border-border bg-surface overflow-hidden flex">
       <div class={cn('w-full lg:w-80 lg:border-r border-border flex-col min-h-0', mostraConversa ? 'hidden lg:flex' : 'flex')}>
-        <div class="flex items-center gap-2 border-b border-border px-3 py-2"><MessagesSquare size={16} class="text-accent" /><span class="text-sm font-semibold">Conversas</span></div>
+        <div class="flex items-center gap-2 border-b border-border px-3 py-2"><MessagesSquare size={16} class="text-accent" /><span class="text-sm font-semibold">Chat Interno</span></div>
         <div class="flex-1 min-h-0"><ListaDeConversas ativa={conversaId} onAbrir={(id, d) => abrir(id, d ?? null)} onNova={() => irPara('nova')} /></div>
       </div>
       <div class={cn('flex-1 min-w-0 flex-col min-h-0', mostraConversa ? 'flex' : 'hidden lg:flex')}>

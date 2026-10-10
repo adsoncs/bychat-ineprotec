@@ -155,14 +155,16 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
-    id: 'equipe', name: 'Equipe (chat interno)', icon: '💬', category: 'crm',
+    id: 'equipe', name: 'Chat Interno', icon: '💬', category: 'crm',
     umbrella: 'atendimento', cobranca: 'base',
     description: 'Chat interno entre pessoas e equipes, de qualquer papel: conversas diretas, canal de cada equipe, grupos e conversa sobre um lead, com cartões de lead, indicação, transferência, negociação e tarefa.',
     pages: ['equipe'],
     routePrefixes: ['/api/equipe'],
     actions: ['view', 'create', 'edit', 'delete'],
-    // Ligável em Módulos (não é core). Todos os papéis usam — quem pode o quê
-    // dentro da conversa (editar só a sua, administrar o grupo) é decidido na rota.
+    // Item "Chat Interno" do menu, abaixo de Conversas. Ligável em Módulos (não
+    // é core): desligado, some do menu. Ver/criar/editar/apagar por papel em
+    // Permissões; quem pode o quê dentro da conversa (editar só a sua,
+    // administrar o grupo) é decidido na rota.
     defaultEnabled: true,
   },
   {

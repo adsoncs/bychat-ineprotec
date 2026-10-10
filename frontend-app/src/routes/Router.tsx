@@ -813,12 +813,15 @@ export function Router() {
               return <ModuleGate moduleId="settings"><Migrated /></ModuleGate>
             }}
           </Route>
-          {/* Equipe (chat interno): página cheia, sem item no menu — o acesso é
-              pelo ícone do topo; aqui só quem quer a conversa em tela inteira. */}
-          <Route path="/equipe">
+          {/* Chat Interno (módulo 'equipe'): item no menu, abaixo de Conversas. */}
+          <Route path="/chat-interno">
             {() => (
               <ModuleGate moduleId="equipe"><PaginaDaEquipe /></ModuleGate>
             )}
+          </Route>
+          {/* Endereço antigo: links já enviados continuam abrindo. */}
+          <Route path="/equipe">
+            {() => { window.location.replace(`/app/chat-interno${window.location.search}`); return null }}
           </Route>
           <Route path="/leads/:id/:section">
             {(params: { id: string; section: string }) => (

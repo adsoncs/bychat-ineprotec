@@ -11,6 +11,7 @@ export const ICON_NAMES = [
   'LayoutDashboard',
   'Headphones',
   'MessageSquare',
+  'MessagesSquare',
   'Sparkles',
   'Users',
   'KanbanSquare',
