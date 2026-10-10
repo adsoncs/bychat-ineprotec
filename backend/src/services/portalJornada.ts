@@ -208,7 +208,8 @@ export interface ParecerAnalise {
 }
 
 export interface AnaliseDaEtapa {
-  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null }>
+  /** opcional: a forma de ingresso aceita o documento, mas não o exige — não segura a análise. */
+  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null; opcional?: boolean }>
   /** Parecer desta oferta (null = ainda em análise). */
   parecer: Omit<ParecerAnalise, 'historico'> | null
 }
@@ -321,17 +322,24 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       // Só para as formas de ingresso escolhidas (vazio = todas) e com documento a analisar.
       if (!e.documentos?.length) continue
       if (e.ingressos?.length && (entryModeId == null || !e.ingressos.includes(entryModeId))) continue
-      const tipos = await prisma.documentType.findMany({ where: { code: { in: e.documentos } }, select: { code: true, name: true } })
+      // Cada forma de ingresso analisa só os documentos que ela pede (ENEM → boletim,
+      // segunda graduação → diploma, transferência → histórico e ementa). Forma sem
+      // documento cadastrado analisa a lista inteira, como antes.
+      const exigeDe = new Map(exigidos.map((x) => [x.documentType.code, x.required]))
+      const codigos = exigidos.length ? e.documentos.filter((c) => exigeDe.has(c)) : e.documentos
+      if (!codigos.length) continue
+      const tipos = await prisma.documentType.findMany({ where: { code: { in: codigos } }, select: { code: true, name: true } })
       const nomeDe = new Map(tipos.map((t) => [t.code, t.name]))
-      const docs = e.documentos.map((code) => ({
+      const docs = codigos.map((code) => ({
         code, nome: nomeDe.get(code) ?? code,
         status: (porTipo.get(code) ?? 'faltando') as 'faltando' | 'pending' | 'approved' | 'rejected',
         reviewNote: porTipo.get(code) === 'rejected' ? (notaPorTipo.get(code) ?? null) : null,
+        ...(exigeDe.get(code) === false ? { opcional: true } : {}),
       }))
       const parecer = parecerAtual(reg.analiseAcademica, offeringId)
       const { historico: _h, ...semHistorico } = parecer ?? ({} as ParecerAnalise)
       const recusados = docs.filter((d) => d.status === 'rejected')
-      const faltam = docs.filter((d) => d.status === 'faltando')
+      const faltam = docs.filter((d) => d.status === 'faltando' && !d.opcional)
       let situacao: SituacaoEtapa
       let detalhe: string
       if (parecer?.resultado === 'indeferido') {

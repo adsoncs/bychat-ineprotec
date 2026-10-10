@@ -624,7 +624,7 @@ export interface ParecerDaAnalise {
   aceite: { decisao: 'aceito' | 'desistiu'; em: string } | null
 }
 export interface AnaliseDaEtapa {
-  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null }>
+  documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null; opcional?: boolean }>
   parecer: ParecerDaAnalise | null
 }
 /** Resposta do candidato ao parecer: segue com a matrícula ou desiste. */

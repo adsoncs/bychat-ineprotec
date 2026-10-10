@@ -210,7 +210,7 @@ function AnaliseAcademica(props: {
 
   // Sem parecer: os documentos da análise (enviar, acompanhar, reenviar).
   if (!p) {
-    const tudoEnviado = a.documentos.every((d) => d.status === 'pending' || d.status === 'approved')
+    const tudoEnviado = a.documentos.every((d) => d.opcional || d.status === 'pending' || d.status === 'approved')
     return (
       <div class="analise">
         <p class="sub" style="margin:0 0 12px">

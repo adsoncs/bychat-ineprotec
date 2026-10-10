@@ -35,7 +35,7 @@ const CONCLUIR: Record<Chave, string> = {
 }
 const INFO: Record<Chave, { nome: string; quando: string; Icone: typeof CreditCard }> = {
   cadastro: { nome: 'Completar cadastro', quando: 'Aparece quando há dados marcados para "Completar cadastro" (seção Dados, abaixo). Os dados vão direto para a ficha do aluno.', Icone: ClipboardList },
-  analise: { nome: 'Análise acadêmica', quando: 'Ex.: transferência. O candidato envia os documentos escolhidos abaixo, a secretaria emite o parecer (período de ingresso, aproveitamento) no detalhe da inscrição e o candidato aceita ou desiste. Trava sempre as etapas seguintes.', Icone: GraduationCap },
+  analise: { nome: 'Análise acadêmica', quando: 'Ex.: transferência, ENEM, segunda graduação. O candidato envia, dos documentos marcados abaixo, os que a forma de ingresso dele exige (ENEM → boletim; transferência → histórico), a secretaria emite o parecer (período de ingresso, aproveitamento) no detalhe da inscrição e o candidato aceita ou desiste. Trava sempre as etapas seguintes.', Icone: GraduationCap },
   pagamento: { nome: 'Pagamento', quando: 'Aparece quando o portal cobra (aba Pagamento): taxa de inscrição ou matrícula/1ª mensalidade.', Icone: CreditCard },
   documentos: { nome: 'Envio de documentos', quando: 'Aparece quando o processo seletivo ou o modo de ingresso exige documentos.', Icone: FileText },
   contrato: { nome: 'Assinatura do contrato', quando: 'Gerado com o plano de pagamento da oferta. Assinado aqui, a matrícula já nasce com o contrato aceito. Texto em Acadêmico › Financeiro.', Icone: Pencil },
