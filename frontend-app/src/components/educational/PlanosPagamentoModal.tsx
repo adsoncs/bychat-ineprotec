@@ -89,7 +89,7 @@ export function PlanosPagamentoModal({ offeringId, offeringNome, onClose }: { of
 
   async function carregar() {
     try {
-      const r = await api.get<{ planos: Plano[] }>(`/api/admin/educacional/offerings/${offeringId}/planos-pagamento`)
+      const r = await api.get<{ planos: Plano[] }>(`/admin/educacional/offerings/${offeringId}/planos-pagamento`)
       setPlanos(r.planos)
     } catch (e) {
       toast(e instanceof ApiError ? e.message : 'Falha ao carregar os planos', 'danger')
@@ -102,8 +102,8 @@ export function PlanosPagamentoModal({ offeringId, offeringNome, onClose }: { of
     if (!editando) return
     setSalvando(true)
     try {
-      if (editando.id) await api.put(`/api/admin/educacional/planos-pagamento/${editando.id}`, editando)
-      else await api.post(`/api/admin/educacional/offerings/${offeringId}/planos-pagamento`, editando)
+      if (editando.id) await api.put(`/admin/educacional/planos-pagamento/${editando.id}`, editando)
+      else await api.post(`/admin/educacional/offerings/${offeringId}/planos-pagamento`, editando)
       toast('Plano salvo', 'success')
       setEditando(null)
       await carregar()
@@ -117,7 +117,7 @@ export function PlanosPagamentoModal({ offeringId, offeringNome, onClose }: { of
   async function excluir(p: Plano) {
     if (!p.id) return
     try {
-      const r = await api.delete<{ desativado?: boolean; motivo?: string }>(`/api/admin/educacional/planos-pagamento/${p.id}`)
+      const r = await api.delete<{ desativado?: boolean; motivo?: string }>(`/admin/educacional/planos-pagamento/${p.id}`)
       toast(r.motivo ?? 'Plano excluído', r.desativado ? 'warning' : 'success')
       await carregar()
     } catch (e) {
