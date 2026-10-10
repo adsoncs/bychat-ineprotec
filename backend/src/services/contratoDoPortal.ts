@@ -16,7 +16,6 @@
 
 import { prisma } from '../lib/prisma.js'
 import { CATALOGO, valoresAtuais, type DadosConfig, type CampoConfig } from './dadosCadastro.js'
-import { lerTabelaDePrecos, totalDoCartao, totalDoBoletoParcelado } from './tabelaDePrecos.js'
 import { getDocHeader, dataExtenso } from './acaDocRender.js'
 import { gerarPdfDoModelo, type VarsContrato } from './contratoWord.js'
 
@@ -60,9 +59,9 @@ const DERIVADOS: CampoContrato[] = [
   { chave: 'dia_vencimento', rotulo: 'Dia de vencimento das parcelas', grupo: 'Pagamento', exemplo: '10' },
   { chave: 'desconto_pontualidade', rotulo: 'Desconto de pontualidade (%)', grupo: 'Pagamento', exemplo: '10%' },
   { chave: 'dia_limite_pontualidade', rotulo: 'Dia-limite do desconto de pontualidade', grupo: 'Pagamento', exemplo: '5' },
-  { chave: 'preco_a_vista', rotulo: 'Tabela: preço à vista (Pix/boleto)', grupo: 'Pagamento', exemplo: 'R$ 2.700,00' },
-  { chave: 'preco_cartao', rotulo: 'Tabela: condição no cartão', grupo: 'Pagamento', exemplo: '12x de R$ 250,00 (R$ 3.000,00)' },
-  { chave: 'preco_boleto', rotulo: 'Tabela: condição no boleto parcelado', grupo: 'Pagamento', exemplo: '18x de R$ 180,00 (R$ 3.240,00)' },
+  { chave: 'preco_a_vista', rotulo: 'Plano: preço à vista (Pix/boleto)', grupo: 'Pagamento', exemplo: 'R$ 2.700,00' },
+  { chave: 'preco_cartao', rotulo: 'Plano: condição máxima no cartão', grupo: 'Pagamento', exemplo: '12x de R$ 250,00 (R$ 3.000,00)' },
+  { chave: 'preco_boleto', rotulo: 'Plano: condição máxima no boleto parcelado', grupo: 'Pagamento', exemplo: '18x de R$ 180,00 (R$ 3.240,00)' },
   { chave: 'instituicao', rotulo: 'Nome da instituição', grupo: 'Instituição', exemplo: 'Instituto Exemplo Ltda' },
   { chave: 'cnpj', rotulo: 'CNPJ da instituição', grupo: 'Instituição', exemplo: '00.000.000/0001-00' },
   { chave: 'data', rotulo: 'Data de hoje por extenso', grupo: 'Documento', exemplo: '30 de setembro de 2026' },
@@ -208,11 +207,11 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
     v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' ? formatarDoc(String(bruto)) : String(bruto)
   }
 
-  // Condição do contrato: a paga no checkout (tabela), o plano do ERP, ou a oferta.
+  // Condição do contrato: a paga no checkout, ou a do plano de pagamento da
+  // oferta (única fonte do preço do curso).
   const { contratoDaInscricao } = await import('./portalJornada.js')
   const c = await contratoDaInscricao(registrationId)
   const pp = (reg.paymentStatus === 'paid' ? reg.paymentPlan : null) as Record<string, any> | null
-  const tabela = lerTabelaDePrecos(of.tabelaPrecos)
   const plano = {
     valorTotalCentavos: c?.valorTotalCentavos ?? 0,
     numParcelas: c?.numParcelas ?? 0,
@@ -222,7 +221,7 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   if (pp?.meio) {
     const n = Math.max(1, Number(pp.tabela?.parcelas ?? pp.parcelas ?? 1) || 1)
     forma = n > 1 ? `${MEIO[pp.meio] ?? pp.meio} em ${n} parcelas de ${reais(plano.valorParcelaCentavos)}` : `${MEIO[pp.meio] ?? pp.meio} à vista`
-  } else if (!tabela && plano.numParcelas > 0) {
+  } else if (plano.numParcelas > 0) {
     forma = `${plano.numParcelas} parcela(s) de ${reais(plano.valorParcelaCentavos)}`
   }
   // Plano de pagamento da oferta: a frase e os campos do plano escolhido.
@@ -230,8 +229,8 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   const doPlano = await condicaoDoContrato(of.id, pp)
   if (doPlano) forma = doPlano.descricao
   const pont = doPlano?.plano.regras.pontualidade
-  const cond = (x: { parcelas: number; valorParcela: number } | null, total: number | null) =>
-    x ? `${x.parcelas}x de ${reais(Math.round(x.valorParcela * 100))}${total ? ` (${reais(Math.round(total * 100))})` : ''}` : ''
+  const { precosDeTabelaDoPlano } = await import('./planoFinanceiro.js')
+  const precos = doPlano ? precosDeTabelaDoPlano(doPlano.plano) : { aVista: '', cartao: '', boleto: '' }
 
   const header = await getDocHeader()
   const end = [
@@ -259,16 +258,17 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
     forma_pagamento: forma,
     num_parcelas: plano.numParcelas ? String(plano.numParcelas) : '',
     valor_parcela: plano.valorParcelaCentavos ? reais(plano.valorParcelaCentavos) : '',
-    valor_matricula: doPlano
+    // A entrada do plano (matrícula ou 1ª parcela) — vazio quando o plano só tem o curso completo.
+    valor_matricula: doPlano && doPlano.plano.regras.entrada.ativo
       ? reais(doPlano.plano.taxaMatriculaCentavos || doPlano.plano.valorParcelaCentavos)
-      : reais(Math.round(Number(of.valorMatricula ?? 0) * 100)),
+      : '',
     plano_pagamento: doPlano?.plano.nome ?? '',
     dia_vencimento: doPlano ? String(doPlano.plano.diaVencimento) : '',
     desconto_pontualidade: pont?.ativo && pont.descontoPct > 0 ? `${pont.descontoPct.toLocaleString('pt-BR')}%` : '',
     dia_limite_pontualidade: pont?.ativo && pont.descontoPct > 0 ? String(pont.diaLimite) : '',
-    preco_a_vista: tabela ? reais(Math.round(tabela.aVista * 100)) : '',
-    preco_cartao: tabela ? cond(tabela.cartao, tabela.cartao ? totalDoCartao(tabela) : null) : '',
-    preco_boleto: tabela ? cond(tabela.boleto, totalDoBoletoParcelado(tabela)) : '',
+    preco_a_vista: precos.aVista,
+    preco_cartao: precos.cartao,
+    preco_boleto: precos.boleto,
     instituicao: header.instituicao, cnpj: header.cnpj ? formatarDoc(header.cnpj) : '',
     data: dataExtenso(), data_curta: new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
     codigo_inscricao: reg.candidateCode, ra: '',

@@ -334,6 +334,8 @@ async function persistPaymentMethod(input: {
  * `parcelamosNos` diz se as vezes do cartão são nossas (a transação passa por
  * nós com a tabela do builder) ou da página do gateway (cobrança única, cheia).
  */
+const SEM_PLANO = 'Este curso ainda não tem plano de pagamento cadastrado. Fale com a instituição para concluir a matrícula.'
+
 async function montarCobrancaDoCheckout(input: {
   registrationId: number
   portalId: number
@@ -358,6 +360,8 @@ async function montarCobrancaDoCheckout(input: {
   if (cob && peloPlano) {
     return contaPeloPlano({ cob, escolha: peloPlano, method, body, portalId: input.portalId, cpf: input.cpf, parcelamosNos })
   }
+  // O plano é a única fonte do preço do curso: sem plano, não se cobra.
+  if (cob?.escopo === 'curso') return { erro: SEM_PLANO }
   // Com tabela de preços na oferta, cada meio tem preço e parcelas próprios
   // (services/tabelaDePrecos); sem ela, vale o valor único e a regra do portal.
   const tabela = cob?.tabela ?? null
@@ -1438,7 +1442,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
-    reply.type('text/html').send(renderReceiptHtml(reg))
+    reply.type('text/html').send(renderReceiptHtml({ ...reg, condicaoDePagamento: await condicaoParaFicha(reg) }))
   })
 
   // GET /api/candidate/receipt.pdf — mesmo comprovante mas via sessão de candidato
@@ -1470,7 +1474,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       },
     })
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
-    reply.type('text/html').send(renderReceiptHtml(reg))
+    reply.type('text/html').send(renderReceiptHtml({ ...reg, condicaoDePagamento: await condicaoParaFicha(reg) }))
   })
 
   // PUT /api/admin/enem-imports/:id — override humano de notas ENEM extraídas
@@ -1988,7 +1992,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const processIds = await processosOferecidos(
       portal.formMode === 'interest' && portal.continuationPortal ? portal.continuationPortal : portal,
     )
-    const offerings = await prisma.courseOffering.findMany({
+    const ofertasDoPortal = await prisma.courseOffering.findMany({
       where: {
         active: true,
         ...(processIds.length > 0 ? { selectionProcessId: { in: processIds } } : { id: -1 }),
@@ -2043,6 +2047,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // lista de sempre, sem tela de erro.
     const { cursoPedido } = await import('../services/cursoDoLink.js')
     const pedido = cursoPedido(null, (req.query as any)?.curso)
+    // Preço do curso: só o dos planos de pagamento (a tabela de preços e os
+    // valores avulsos da oferta deixaram de valer e não saem para o público).
+    const { planosDaOferta, resumoParaMostrar } = await import('../services/planoFinanceiro.js')
+    const offerings = await Promise.all(ofertasDoPortal.map(async (o) => ({
+      ...o, valorMensalidade: null, valorMatricula: null, tabelaPrecos: null,
+      pagamento: resumoParaMostrar(await planosDaOferta(o.id)),
+    })))
     const doLink = pedido ? offerings.find((o) => o.slug === pedido) ?? null : null
     return {
       // Configurações Gerais completam a marca onde o portal deixou vazio.
@@ -2897,6 +2908,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         cartaoDisponivel: gatewayAceitaCartao, tokenizacao,
       }))
     }
+    if (cob?.escopo === 'curso') {
+      return reply.send({
+        escopo: 'curso', rotulo: cob.rotulo, valor: 0, semPlano: true, aviso: SEM_PLANO,
+        meios: { pix: { ativo: false }, boleto: { ativo: false }, cartao: { ativo: false } },
+      })
+    }
 
     return reply.send({
       escopo: cob?.escopo ?? (enrollment.portal?.paymentScope === 'curso' ? 'curso' : 'taxa'),
@@ -3042,7 +3059,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     if (!taxaInscricao || Number(taxaInscricao) <= 0) {
       return reply.code(400).send({
         error: cobranca?.escopo === 'curso'
-          ? 'Esta oferta ainda não tem valor de matrícula/mensalidade definido. Fale com a secretaria.'
+          ? SEM_PLANO
           : 'Processo seletivo sem taxa de inscrição definida',
       })
     }
@@ -4505,6 +4522,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       take: 50,
     })
 
+    // Orçamento: o valor mensal do 1º plano de pagamento (única fonte do preço).
+    const { planosDaOferta } = await import('../services/planoFinanceiro.js')
+    const mensalDoPlano = new Map<number, number>()
+    for (const o of offerings) {
+      const [p] = await planosDaOferta(o.id)
+      if (p) mensalDoPlano.set(o.id, p.valorParcelaCentavos / 100)
+    }
     // Algoritmo simples de match (sem dependência de AI externa):
     const scored = offerings.map(o => {
       let score = 0
@@ -4526,9 +4550,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         }
       }
       // budget
-      if (answers.budget && o.valorMensalidade) {
+      const mensal = mensalDoPlano.get(o.id)
+      if (answers.budget && mensal) {
         const budget = Number(answers.budget)
-        const price = Number(o.valorMensalidade)
+        const price = mensal
         if (budget > 0 && price <= budget) { score += 15; reasons.push('dentro do orçamento') }
         else if (budget > 0 && price <= budget * 1.2) { score += 5; reasons.push('próximo do orçamento') }
       }
@@ -5225,6 +5250,15 @@ function paymentMethodLabelPt(m: string | null | undefined): string {
   return PAYMENT_METHOD_PT[m] || m
 }
 
+/** Condição de pagamento da ficha: a escolhida no checkout, ou a do plano da oferta. */
+async function condicaoParaFicha(reg: any): Promise<string | null> {
+  const offeringId = reg?.processRegistration?.offering?.id ?? reg?.processRegistration?.offeringId
+  if (!offeringId) return null
+  const { condicaoDoContrato } = await import('../services/planoFinanceiro.js')
+  const c = await condicaoDoContrato(Number(offeringId), reg.paymentStatus === 'paid' ? reg.paymentPlan : null).catch(() => null)
+  return c ? `${c.plano.nome} — ${c.descricao}` : null
+}
+
 function renderReceiptHtml(reg: any): string {
   const fd = reg.formData || {}
   const nome = escHtml(reg.lead?.nome || fd.nome || '-')
@@ -5304,8 +5338,7 @@ ${offering ? `<div class="section">
     <tr><td class="label">Curso:</td><td><strong>${escHtml(course?.nome || offering.nome)}</strong></td></tr>
     ${offering.turno ? `<tr><td class="label">Turno:</td><td>${escHtml(offering.turno)}</td></tr>` : ''}
     ${campus ? `<tr><td class="label">Campus:</td><td>${escHtml(campus.nome)}${campus.cidade ? ' — ' + escHtml(campus.cidade) : ''}${campus.estado ? '/' + escHtml(campus.estado) : ''}</td></tr>` : ''}
-    ${offering.valorMatricula ? `<tr><td class="label">Matrícula:</td><td>${fmtMoney(offering.valorMatricula)}</td></tr>` : ''}
-    ${offering.valorMensalidade ? `<tr><td class="label">Mensalidade:</td><td>${fmtMoney(offering.valorMensalidade)}</td></tr>` : ''}
+    ${reg.condicaoDePagamento ? `<tr><td class="label">Pagamento:</td><td>${escHtml(reg.condicaoDePagamento)}</td></tr>` : ''}
   </table>
 </div>` : ''}
 

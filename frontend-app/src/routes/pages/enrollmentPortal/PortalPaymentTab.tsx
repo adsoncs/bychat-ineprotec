@@ -275,9 +275,9 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
         <Card>
           <SectionTitle>Preços dos cursos deste portal</SectionTitle>
           <p class="text-xs text-fg-muted mb-3">
-            Cada curso com <strong>tabela de preços</strong> cobra pelos valores dela: à vista no Pix
-            ou boleto, cartão e boleto parcelado. Para mudar um preço, edite a oferta do curso.
-            {comTabela.length > 0 && ' Nesses cursos, o desconto à vista e as parcelas dos meios abaixo não se aplicam; ligar ou desligar cada meio, a validade do PIX e o vencimento do boleto continuam valendo.'}
+            O preço, as formas de pagamento, os descontos e as parcelas de cada curso vêm dos
+            <strong> planos de pagamento</strong> da oferta — a única fonte para o portal, a IA, o contrato e o SEI.
+            Curso sem plano não cobra: o candidato vê "pagamento indisponível".
           </p>
           {loadingOfertas ? (
             <div class="text-xs text-fg-muted">Carregando cursos…</div>
@@ -286,20 +286,16 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
           ) : (
             <div class="divide-y divide-border rounded-md border border-border">
               {cursos.map((o) => {
-                const t = o.tabelaPrecos && Number(o.tabelaPrecos.aVista) > 0 ? o.tabelaPrecos : null
+                const planos = o.planosPagamento ?? []
                 return (
                   <div key={o.id} class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
                     <div class="min-w-0 flex-1 basis-48 font-medium text-fg">{o.nome}</div>
-                    {t ? (
-                      <div class="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-fg-muted">
-                        <span><span class="text-2xs uppercase tracking-wider mr-1">À vista</span><b class="text-fg">{brl(t.aVista)}</b></span>
-                        <span><span class="text-2xs uppercase tracking-wider mr-1">Cartão</span><b class="text-fg">{t.cartao ? `${t.cartao.parcelas}x ${brl(t.cartao.valorParcela)}` : '—'}</b></span>
-                        <span><span class="text-2xs uppercase tracking-wider mr-1">Boleto</span><b class="text-fg">{t.boleto && t.boleto.parcelas > 1 ? `${t.boleto.parcelas}x ${brl(t.boleto.valorParcela)}` : 'só à vista'}</b></span>
+                    {planos.length ? (
+                      <div class="text-fg-muted tabular-nums">
+                        <b class="text-fg">{planos[0]}</b>{planos.length > 1 && ` +${planos.length - 1} plano(s)`}
                       </div>
                     ) : (
-                      <div class="text-warning">
-                        Sem tabela — cobra a 1ª mensalidade ({brl(o.valorMensalidade)}) pelo mesmo valor em qualquer meio
-                      </div>
+                      <div class="text-warning">Sem plano de pagamento — não cobra</div>
                     )}
                     {o.slug ? (
                       <button
@@ -317,8 +313,8 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
                     ) : (
                       <span class="text-2xs text-fg-muted" title="Defina o endereço no link na oferta">sem link direto</span>
                     )}
-                    <a href={`/app/educational/offerings?editar=${o.id}`} class="inline-flex items-center gap-1 text-accent underline">
-                      {t ? 'Editar preços' : 'Definir preços'} <ExternalLink size={10} />
+                    <a href={`/app/educational/offerings?planos=${o.id}`} class="inline-flex items-center gap-1 text-accent underline">
+                      {planos.length ? 'Planos de pagamento' : 'Criar plano'} <ExternalLink size={10} />
                     </a>
                   </div>
                 )
@@ -328,6 +324,24 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
         </Card>
       )}
 
+      {paymentScope === 'curso' && (
+        <Card>
+          <SectionTitle>Pix</SectionTitle>
+          <p class="text-xs text-fg-muted mb-3">
+            Quais formas aparecem, descontos e parcelas são definidos em cada plano de pagamento. Aqui fica só a validade do código Pix.
+          </p>
+          <div class="max-w-xs">
+            <Input
+              label="Código Pix válido por (horas)"
+              type="number"
+              value={String(regras.pix.expiraHoras)}
+              onInput={(e) => mark(setRegras)({ ...regras, pix: { ...regras.pix, expiraHoras: Number((e.target as HTMLInputElement).value) } })}
+            />
+          </div>
+        </Card>
+      )}
+
+      {paymentScope !== 'curso' && (
       <Card>
         <SectionTitle>Meios de pagamento</SectionTitle>
         <p class="text-xs text-fg-muted mb-3">
@@ -491,6 +505,7 @@ export function PortalPaymentTab({ portal }: { portal: EnrollmentPortal }) {
           </div>
         </div>
       </Card>
+      )}
 
       <div class="flex justify-end">
         <Button onClick={salvar} disabled={update.isPending}>

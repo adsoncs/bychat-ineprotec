@@ -16,8 +16,8 @@
 // as travas do cupom conferem.
 
 import { prisma } from '../lib/prisma.js'
-import { lerTabelaDePrecos, type TabelaDePrecos } from './tabelaDePrecos.js'
-import { planosDaOferta, valorDaEntrada } from './planoFinanceiro.js'
+import type { TabelaDePrecos } from './tabelaDePrecos.js'
+import { opcoesDoPlano, planosDaOferta, valorDaOpcao } from './planoFinanceiro.js'
 
 export interface CobrancaDoPortal {
   escopo: 'taxa' | 'curso'
@@ -100,43 +100,21 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
     return { escopo: 'taxa', valor: taxa > 0 ? taxa : 0, rotulo: 'Taxa de inscrição', fonte: taxa > 0 ? 'processo' : 'nenhuma', contexto }
   }
 
-  // Plano de pagamento com regras de portal (services/planoFinanceiro): vence
-  // a tabela de preços. O valor aqui é a entrada do primeiro plano; a tela de
-  // pagamento troca de plano e de opção (services/checkoutDoPlano).
+  // Plano de pagamento (services/planoFinanceiro). O valor aqui é o da 1ª
+  // opção do 1º plano; a tela de pagamento troca de plano e de opção
+  // (services/checkoutDoPlano).
   const [plano1] = await planosDaOferta(of?.id)
-  if (plano1) {
+  const opcao1 = plano1 ? opcoesDoPlano(plano1)[0] : undefined
+  if (plano1 && opcao1) {
     return {
-      escopo: 'curso', valor: valorDaEntrada(plano1),
-      rotulo: plano1.taxaMatriculaCentavos > 0 ? MATRICULA : texto('resumoMensalidade', '1ª parcela'),
+      escopo: 'curso', valor: valorDaOpcao(plano1, opcao1),
+      rotulo: opcao1 === 'integral' ? CURSO : plano1.taxaMatriculaCentavos > 0 ? MATRICULA : texto('resumoMensalidade', '1ª parcela'),
       fonte: 'plano_erp', contexto,
     }
   }
 
-  // Curso com tabela de preços por meio: o curso inteiro, pela condição do
-  // meio que a pessoa escolher. Vence o plano do ERP, que só sabe cobrar a
-  // 1ª mensalidade.
-  const tabela = lerTabelaDePrecos(of?.tabelaPrecos)
-  if (tabela) {
-    return { escopo: 'curso', valor: tabela.aVista, rotulo: CURSO, fonte: 'tabela', contexto, tabela }
-  }
-
-  // Curso: plano de pagamento ativo da oferta (ERP) primeiro.
-  if (of?.id) {
-    const plano = await prisma.acaPlanoPagamento.findFirst({
-      where: { courseOfferingId: of.id, ativo: true },
-      orderBy: { id: 'asc' },
-      select: { taxaMatriculaCentavos: true, valorParcelaCentavos: true },
-    }).catch(() => null)
-    if (plano && plano.taxaMatriculaCentavos > 0) {
-      return { escopo: 'curso', valor: plano.taxaMatriculaCentavos / 100, rotulo: MATRICULA, fonte: 'plano_erp', contexto }
-    }
-    if (plano && plano.valorParcelaCentavos > 0) {
-      return { escopo: 'curso', valor: plano.valorParcelaCentavos / 100, rotulo: MENSALIDADE, fonte: 'plano_erp', contexto }
-    }
-    const matricula = Number(of.valorMatricula ?? 0)
-    if (matricula > 0) return { escopo: 'curso', valor: matricula, rotulo: MATRICULA, fonte: 'oferta', contexto }
-    const mensalidade = Number(of.valorMensalidade ?? 0)
-    if (mensalidade > 0) return { escopo: 'curso', valor: mensalidade, rotulo: MENSALIDADE, fonte: 'oferta', contexto }
-  }
+  // O plano de pagamento é a única fonte do preço do curso: sem plano ativo,
+  // não há o que cobrar (a tabela de preços e os valores avulsos da oferta
+  // deixaram de valer). O checkout avisa e o painel mostra "falta plano".
   return { escopo: 'curso', valor: 0, rotulo: MATRICULA, fonte: 'nenhuma', contexto }
 }

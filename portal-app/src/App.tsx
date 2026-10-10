@@ -890,14 +890,11 @@ function EscolhaDeCurso(props: {
  * O preço que a lista de cursos mostra. Com tabela, o à vista (é o menor, e é o
  * que o site destaca no "Por R$ …"); sem ela, a mensalidade de sempre.
  */
+/** Preço da lista de cursos: "a partir de" do plano de pagamento (única fonte). */
 function precoDaLista(o: Oferta): { valor: string; sufixo: string } | null {
-  const t = o.tabelaPrecos
-  if (t && Number(t.aVista) > 0) {
-    const v = dinheiro(t.aVista)
-    return v ? { valor: v, sufixo: ' à vista' } : null
-  }
-  const v = dinheiro(o.valorMensalidade)
-  return v ? { valor: v, sufixo: '/mês' } : null
+  const p = o.pagamento
+  const v = p ? dinheiro(p.aPartirDe) : null
+  return p && v ? { valor: v, sufixo: p.sufixo } : null
 }
 
 /**
@@ -926,9 +923,9 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
   // Valor desligado na escolha de curso: o resumo também não mostra.
   // Com tabela de preços, o resumo mostra as condições dela (as do site) no
   // lugar de matrícula + mensalidade.
-  const tabela = mostrarValor && oferta.tabelaPrecos && Number(oferta.tabelaPrecos.aVista) > 0 ? oferta.tabelaPrecos : null
-  const mensalidade = mostrarValor && !tabela ? dinheiro(oferta.valorMensalidade) : null
-  const matricula = mostrarValor && !tabela ? dinheiro(oferta.valorMatricula) : null
+  // Preço do curso: o dos planos de pagamento da oferta (única fonte).
+  const pagamento = mostrarValor ? oferta.pagamento ?? null : null
+  const plano1 = pagamento?.planos[0] ?? null
   const taxa = mostrarValor ? dinheiro(oferta.selectionProcess?.taxaInscricao) : null
   const etiquetas = [oferta.level?.nome, oferta.modality?.nome].filter(Boolean) as string[]
   const observacao = rotulo(portal, 'resumoObservacao')
@@ -949,24 +946,17 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
       {oferta.turno && !oferta.nome.toLowerCase().includes(String(oferta.turno).toLowerCase())
         && <div class="linha"><span>Turno</span><b>{oferta.turno}</b></div>}
       {taxa && <div class="linha"><span>{rotulo(portal, 'resumoTaxa')}</span><b>{taxa}</b></div>}
-      {matricula && <div class="linha"><span>{rotulo(portal, 'resumoMatricula')}</span><b>{matricula}</b></div>}
-      {mensalidade && (
-        <div class="destaque">
-          <span>{rotulo(portal, 'resumoMensalidade')}</span>
-          <b>{mensalidade}</b>
-        </div>
-      )}
-      {tabela && (
+      {plano1 && (
         <>
-          {tabela.cartao && (
-            <div class="linha"><span>Cartão de crédito</span><b>{tabela.cartao.parcelas}x {dinheiro(tabela.cartao.valorParcela)}</b></div>
-          )}
-          {tabela.boleto && tabela.boleto.parcelas > 1 && (
-            <div class="linha"><span>Boleto parcelado</span><b>{tabela.boleto.parcelas}x {dinheiro(tabela.boleto.valorParcela)}</b></div>
-          )}
+          {pagamento!.planos.length > 1
+            ? <div class="linha"><span>Planos de pagamento</span><b>{pagamento!.planos.length} opções</b></div>
+            : <div class="linha"><span>Plano</span><b>{plano1.nome}</b></div>}
+          {pagamento!.planos.length === 1 && plano1.opcoes.map((op) => (
+            <div class="linha" key={op.chave}><span>{op.rotulo}</span><b>{op.detalhe}</b></div>
+          ))}
           <div class="destaque">
-            <span>{rotulo(portal, 'resumoAVista')}</span>
-            <b>{dinheiro(tabela.aVista)}</b>
+            <span>A partir de</span>
+            <b>{dinheiro(pagamento!.aPartirDe)}{pagamento!.sufixo}</b>
           </div>
         </>
       )}

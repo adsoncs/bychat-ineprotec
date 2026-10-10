@@ -27,13 +27,19 @@ export type OpcaoDePagamento = 'entrada' | 'integral'
 /** Juros ao mês (Price) para parcelamentos de até `ate` vezes. */
 export interface FaixaDeJuros { ate: number; jurosMesPct: number }
 
+/**
+ * `valorBase` (reais): preço total da opção NESTA forma, quando ele não é o
+ * total do plano — a tabela do site costuma ter um preço por forma ("R$ 2.508
+ * à vista, 12x R$ 229,90 no cartão, 12x R$ 249,90 no boleto"). null = o total
+ * do plano. Desconto e juros da forma valem sobre ele.
+ */
 export interface FormasDePagamento {
-  pix: { ativo: boolean; descontoPct: number }
+  pix: { ativo: boolean; descontoPct: number; valorBase: number | null }
   /** Boleto à vista. */
-  boleto: { ativo: boolean; descontoPct: number }
-  cartao: { ativo: boolean; parcelasMax: number; faixas: FaixaDeJuros[] }
+  boleto: { ativo: boolean; descontoPct: number; valorBase: number | null }
+  cartao: { ativo: boolean; parcelasMax: number; faixas: FaixaDeJuros[]; valorBase: number | null }
   /** Boleto parcelado: a 1ª agora, as demais viram parcelas do contrato. */
-  boletoParcelado: { ativo: boolean; parcelasMax: number; faixas: FaixaDeJuros[] }
+  boletoParcelado: { ativo: boolean; parcelasMax: number; faixas: FaixaDeJuros[]; valorBase: number | null }
 }
 
 export interface RegrasDoPlano {
@@ -81,15 +87,22 @@ function lerFaixas(bruto: unknown, max: number): FaixaDeJuros[] {
   return faixas.filter((f, i) => i === 0 || f.ate !== faixas[i - 1]!.ate)
 }
 
+/** Preço total da forma (reais) — null quando vazio, zero ou inválido. */
+function lerValorBase(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Math.round(Number(v) * 100) / 100
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 function lerFormas(bruto: unknown): FormasDePagamento {
   const c = (bruto && typeof bruto === 'object' ? bruto : {}) as any
   const parcelado = (x: any, teto: number) => {
     const parcelasMax = Math.round(num(x?.parcelasMax, 1, 1, teto))
-    return { ativo: !!x?.ativo, parcelasMax, faixas: lerFaixas(x?.faixas, parcelasMax) }
+    return { ativo: !!x?.ativo, parcelasMax, faixas: lerFaixas(x?.faixas, parcelasMax), valorBase: lerValorBase(x?.valorBase) }
   }
   return {
-    pix: { ativo: !!c.pix?.ativo, descontoPct: num(c.pix?.descontoPct, 0, 0, 90) },
-    boleto: { ativo: !!c.boleto?.ativo, descontoPct: num(c.boleto?.descontoPct, 0, 0, 90) },
+    pix: { ativo: !!c.pix?.ativo, descontoPct: num(c.pix?.descontoPct, 0, 0, 90), valorBase: lerValorBase(c.pix?.valorBase) },
+    boleto: { ativo: !!c.boleto?.ativo, descontoPct: num(c.boleto?.descontoPct, 0, 0, 90), valorBase: lerValorBase(c.boleto?.valorBase) },
     // 12 é o teto da iugu no cartão; 21, o do Asaas. Fica o menor dos dois.
     cartao: parcelado(c.cartao, 12),
     boletoParcelado: parcelado(c.boletoParcelado, 48),
@@ -170,6 +183,11 @@ export function opcoesDoPlano(p: PlanoDaOferta): OpcaoDePagamento[] {
 }
 
 export const valorDaOpcao = (p: PlanoDaOferta, o: OpcaoDePagamento) => (o === 'integral' ? valorIntegral(p) : valorDaEntrada(p))
+
+/** Preço de referência da opção numa forma: o próprio da forma, ou o do plano. */
+export function baseDaForma(p: PlanoDaOferta, o: OpcaoDePagamento, forma: keyof FormasDePagamento): number {
+  return formasDaOpcao(p, o)[forma].valorBase ?? valorDaOpcao(p, o)
+}
 export const formasDaOpcao = (p: PlanoDaOferta, o: OpcaoDePagamento): FormasDePagamento =>
   (o === 'integral' ? p.regras.integral : p.regras.entrada)
 
@@ -342,7 +360,8 @@ export async function planoEscolhido(
 export function descreverOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): { rotulo: string; detalhe: string } {
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   if (o === 'integral') {
-    return { rotulo: 'Curso completo', detalhe: `${brl(valorIntegral(p))} — pagamento integral, sem parcelas depois` }
+    const menor = menorPrecoDaOpcao(p, 'integral')
+    return { rotulo: 'Curso completo', detalhe: `a partir de ${brl(menor)} — pagamento integral, sem parcelas depois` }
   }
   const resto = totalDeParcelas(p) - 1
   return {
@@ -409,11 +428,107 @@ export async function condicaoDoContrato(offeringId: number, paymentPlan: unknow
   const n = totalDeParcelas(plano)
   const iguais = plano.taxaMatriculaCentavos === 0 || plano.taxaMatriculaCentavos === plano.valorParcelaCentavos
   const entrada = plano.taxaMatriculaCentavos > 0 ? 'matrícula' : '1ª parcela'
-  const descricao = iguais
-    ? `${n} parcela${n > 1 ? 's' : ''} de ${brl(plano.valorParcelaCentavos)} (a ${entrada} paga na inscrição e as demais todo dia ${plano.diaVencimento})`
+  const descricao = n === 1
+    ? `Parcela única de ${brl(plano.taxaMatriculaCentavos || plano.valorParcelaCentavos)} (a ${entrada}, paga na inscrição)`
+    : iguais
+    ? `${n} parcelas de ${brl(plano.valorParcelaCentavos)} (a ${entrada} paga na inscrição e as demais todo dia ${plano.diaVencimento})`
     : `Matrícula de ${brl(plano.taxaMatriculaCentavos)} + ${plano.numParcelas}x de ${brl(plano.valorParcelaCentavos)}, todo dia ${plano.diaVencimento}`
   return {
     plano, opcao, numParcelas: n, valorParcelaCentavos: plano.valorParcelaCentavos,
     valorTotalCentavos: Math.round(valorIntegral(plano) * 100), descricao,
   }
+}
+
+// ─── Resumo para quem só mostra (portal, IA, ficha, contrato) ──────────────
+
+const brlR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/** As condições de uma opção, uma frase por forma ligada. */
+export function condicoesDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): string[] {
+  const f = formasDaOpcao(p, o)
+  const out: string[] = []
+  if (f.pix.ativo) out.push(`Pix à vista: ${brlR(comDesconto(baseDaForma(p, o, 'pix'), f.pix.descontoPct))}${f.pix.descontoPct ? ` (${f.pix.descontoPct.toLocaleString('pt-BR')}% de desconto)` : ''}`)
+  if (f.boleto.ativo) out.push(`Boleto à vista: ${brlR(comDesconto(baseDaForma(p, o, 'boleto'), f.boleto.descontoPct))}${f.boleto.descontoPct ? ` (${f.boleto.descontoPct.toLocaleString('pt-BR')}% de desconto)` : ''}`)
+  const cartao = opcoesDoCartao(baseDaForma(p, o, 'cartao'), f.cartao)
+  const ultC = cartao[cartao.length - 1]
+  if (ultC) out.push(ultC.parcelas > 1 ? `Cartão: em até ${ultC.parcelas}x (${ultC.descricao})` : `Cartão: ${ultC.descricao}`)
+  const boletos = opcoesDoBoletoParcelado(baseDaForma(p, o, 'boletoParcelado'), f.boletoParcelado, p.diaVencimento)
+  const ultB = boletos[boletos.length - 1]
+  if (ultB) out.push(`Boleto parcelado: em até ${ultB.parcelas}x (${ultB.parcelas}x de ${brlR(ultB.valorParcela)}${ultB.acrescimo > 0 ? `, total ${brlR(ultB.valorTotal)}` : ''})`)
+  return out
+}
+
+/** Formas aceitas no plano (qualquer opção), para "aceitamos Pix, boleto e cartão". */
+export function meiosDoPlano(p: PlanoDaOferta): string[] {
+  const ops = opcoesDoPlano(p).map((o) => formasDaOpcao(p, o))
+  const out: string[] = []
+  if (ops.some((f) => f.pix.ativo)) out.push('Pix')
+  if (ops.some((f) => f.boleto.ativo || f.boletoParcelado.ativo)) out.push('boleto')
+  if (ops.some((f) => f.cartao.ativo)) out.push('cartão de crédito')
+  return out
+}
+
+/** Menor valor que a pessoa paga para entrar (para "a partir de"). */
+export function aPartirDe(p: PlanoDaOferta): { valor: number; sufixo: string } {
+  const ops = opcoesDoPlano(p)
+  if (ops.includes('entrada') && totalDeParcelas(p) > 1) return { valor: p.valorParcelaCentavos / 100, sufixo: `/mês (${totalDeParcelas(p)}x)` }
+  const o = ops[0] ?? 'integral'
+  const f = formasDaOpcao(p, o)
+  const vistas = [
+    f.pix.ativo ? comDesconto(baseDaForma(p, o, 'pix'), f.pix.descontoPct) : Infinity,
+    f.boleto.ativo ? comDesconto(baseDaForma(p, o, 'boleto'), f.boleto.descontoPct) : Infinity,
+  ]
+  const vista = Math.min(...vistas)
+  if (Number.isFinite(vista)) return { valor: vista, sufixo: ' à vista' }
+  const c = opcoesDoCartao(baseDaForma(p, o, 'cartao'), f.cartao).at(-1)
+  return c ? { valor: c.valorParcela, sufixo: ` em ${c.parcelas}x` } : { valor: valorDaOpcao(p, o), sufixo: '' }
+}
+
+/** Resumo dos planos da oferta para telas e IA (null = oferta sem plano). */
+export function resumoParaMostrar(planos: PlanoDaOferta[]) {
+  if (!planos.length) return null
+  const ini = planos.map(aPartirDe).sort((a, b) => a.valor - b.valor)[0]!
+  return {
+    aPartirDe: ini.valor,
+    sufixo: ini.sufixo,
+    planos: planos.map((p) => ({
+      id: p.id, nome: p.nome, resumo: resumoDoPlano(p),
+      opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, ...descreverOpcao(p, o), condicoes: condicoesDaOpcao(p, o) })),
+    })),
+    meios: [...new Set(planos.flatMap(meiosDoPlano))],
+  }
+}
+
+/**
+ * Preços "de tabela" do plano para o contrato ({{preco_a_vista}},
+ * {{preco_cartao}}, {{preco_boleto}}): os do curso completo quando a opção
+ * existe; senão, os da entrada.
+ */
+export function precosDeTabelaDoPlano(p: PlanoDaOferta): { aVista: string; cartao: string; boleto: string } {
+  const o: OpcaoDePagamento = opcoesDoPlano(p).includes('integral') ? 'integral' : 'entrada'
+  const f = formasDaOpcao(p, o)
+  const vistas = [
+    f.pix.ativo ? comDesconto(baseDaForma(p, o, 'pix'), f.pix.descontoPct) : null,
+    f.boleto.ativo ? comDesconto(baseDaForma(p, o, 'boleto'), f.boleto.descontoPct) : null,
+  ].filter((v): v is number => v != null)
+  const c = opcoesDoCartao(baseDaForma(p, o, 'cartao'), f.cartao).at(-1)
+  const b = opcoesDoBoletoParcelado(baseDaForma(p, o, 'boletoParcelado'), f.boletoParcelado, p.diaVencimento).at(-1)
+  return {
+    aVista: vistas.length ? brlR(Math.min(...vistas)) : '',
+    cartao: c ? `${c.parcelas}x de ${brlR(c.valorParcela)} (${brlR(c.valorTotal)})` : '',
+    boleto: b ? `${b.parcelas}x de ${brlR(b.valorParcela)} (${brlR(b.valorTotal)})` : '',
+  }
+}
+
+/** Menor total que a pessoa paga nesta opção, entre as formas ligadas. */
+export function menorPrecoDaOpcao(p: PlanoDaOferta, o: OpcaoDePagamento): number {
+  const f = formasDaOpcao(p, o)
+  const totais = [
+    f.pix.ativo ? comDesconto(baseDaForma(p, o, 'pix'), f.pix.descontoPct) : Infinity,
+    f.boleto.ativo ? comDesconto(baseDaForma(p, o, 'boleto'), f.boleto.descontoPct) : Infinity,
+    f.cartao.ativo ? (opcoesDoCartao(baseDaForma(p, o, 'cartao'), f.cartao)[0]?.valorTotal ?? Infinity) : Infinity,
+    f.boletoParcelado.ativo ? (opcoesDoBoletoParcelado(baseDaForma(p, o, 'boletoParcelado'), f.boletoParcelado, p.diaVencimento)[0]?.valorTotal ?? Infinity) : Infinity,
+  ]
+  const m = Math.min(...totais)
+  return Number.isFinite(m) ? m : valorDaOpcao(p, o)
 }

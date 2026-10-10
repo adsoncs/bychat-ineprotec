@@ -394,6 +394,13 @@ export async function couponsRoutes(app: FastifyInstance) {
     const { lerRegras } = await import('../services/portalPagamento.js')
     const cob = await cobrancaDoPortal(reg.id)
     const regras = lerRegras(reg.portal?.paymentMethodsConfig)
+    // Curso: o desconto à vista é o do Pix do plano (a 1ª opção do 1º plano).
+    if (cob?.escopo === 'curso') {
+      const { planosDaOferta, opcoesDoPlano, formasDaOpcao } = await import('../services/planoFinanceiro.js')
+      const [p1] = await planosDaOferta(cob.contexto.offeringId)
+      const o1 = p1 ? opcoesDoPlano(p1)[0] : undefined
+      regras.pix.descontoPct = p1 && o1 ? formasDaOpcao(p1, o1).pix.descontoPct : 0
+    }
     const r = await avaliarCupom({
       codigo: c.code, valor: cob?.valor ?? 0, portalId: reg.portalId,
       cpf: (reg.formData as any)?.cpf, descontoAVistaPct: regras.pix.descontoPct,

@@ -307,6 +307,7 @@ export function Pagamento(props: {
           ) : 'A inscrição só é confirmada depois do pagamento.'}
         </p>
         {erro && <div class="aviso erro" role="alert">{erro}</div>}
+        {opcoes.semPlano && <div class="aviso info" role="status">{opcoes.aviso}</div>}
 
         {/* Plano de pagamento da oferta: primeiro o plano (quando há mais de
             um), depois o que pagar agora — só a entrada ou o curso completo.

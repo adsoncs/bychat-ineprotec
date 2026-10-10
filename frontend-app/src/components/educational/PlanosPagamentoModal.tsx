@@ -19,11 +19,12 @@ import { toast } from '@/lib/toast'
 
 type Destino = 'sei' | 'attrae' | 'nenhum'
 interface Faixa { ate: number; jurosMesPct: number }
+/** valorBase: preço total da opção nesta forma (null = o total do plano). */
 interface Formas {
-  pix: { ativo: boolean; descontoPct: number }
-  boleto: { ativo: boolean; descontoPct: number }
-  cartao: { ativo: boolean; parcelasMax: number; faixas: Faixa[] }
-  boletoParcelado: { ativo: boolean; parcelasMax: number; faixas: Faixa[] }
+  pix: { ativo: boolean; descontoPct: number; valorBase: number | null }
+  boleto: { ativo: boolean; descontoPct: number; valorBase: number | null }
+  cartao: { ativo: boolean; parcelasMax: number; faixas: Faixa[]; valorBase: number | null }
+  boletoParcelado: { ativo: boolean; parcelasMax: number; faixas: Faixa[]; valorBase: number | null }
 }
 interface Regras {
   destino: Destino
@@ -48,10 +49,10 @@ interface Plano {
 }
 
 const FORMAS_VAZIAS: Formas = {
-  pix: { ativo: true, descontoPct: 0 },
-  boleto: { ativo: false, descontoPct: 0 },
-  cartao: { ativo: false, parcelasMax: 1, faixas: [] },
-  boletoParcelado: { ativo: false, parcelasMax: 2, faixas: [] },
+  pix: { ativo: true, descontoPct: 0, valorBase: null },
+  boleto: { ativo: false, descontoPct: 0, valorBase: null },
+  cartao: { ativo: false, parcelasMax: 1, faixas: [], valorBase: null },
+  boletoParcelado: { ativo: false, parcelasMax: 2, faixas: [], valorBase: null },
 }
 const NOVO: Plano = {
   nome: '', ativo: true, totalParcelas: 6, primeira: 'matricula', valorParcela: 0, valorMatricula: null, diaVencimento: 10,
@@ -307,28 +308,45 @@ function EditorDoPlano({ plano: p, muda }: { plano: Plano; muda: (p: Plano) => v
   )
 }
 
+/** "Preço total nesta forma": em branco = o total do plano (tabela do site com preço por forma). */
+function PrecoDaForma({ valor, valorBase, muda }: { valor: number; valorBase: number | null; muda: (v: number | null) => void }) {
+  return (
+    <Input
+      label="Preço total nesta forma (R$)"
+      type="number" step="0.01" min={0}
+      placeholder={brl(valor)}
+      value={valorBase == null ? '' : String(valorBase)}
+      onInput={(e) => { const v = (e.target as HTMLInputElement).value; muda(v === '' ? null : num(v)) }}
+      hint="Em branco = o total do plano"
+    />
+  )
+}
+
 function EditorDeFormas({ valor, formas: f, muda }: { valor: number; formas: Formas; muda: (f: Formas) => void }) {
   const set = <K extends keyof Formas>(k: K, v: Partial<Formas[K]>) => muda({ ...f, [k]: { ...f[k], ...v } })
+  const base = (k: keyof Formas) => f[k].valorBase ?? valor
   return (
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="border border-border rounded-md p-2 flex flex-col gap-2">
         <Marca checked={f.pix.ativo} onChange={(v) => set('pix', { ativo: v })}>Pix</Marca>
-        {f.pix.ativo && <Input label="Desconto à vista (%)" type="number" step="0.01" min={0} max={90} value={String(f.pix.descontoPct || '')} onInput={(e) => set('pix', { descontoPct: num((e.target as HTMLInputElement).value) })} hint={f.pix.descontoPct > 0 ? `Fica ${brl(valor * (1 - f.pix.descontoPct / 100))}` : undefined} />}
+        {f.pix.ativo && <PrecoDaForma valor={valor} valorBase={f.pix.valorBase} muda={(v) => set('pix', { valorBase: v })} />}
+        {f.pix.ativo && <Input label="Desconto à vista (%)" type="number" step="0.01" min={0} max={90} value={String(f.pix.descontoPct || '')} onInput={(e) => set('pix', { descontoPct: num((e.target as HTMLInputElement).value) })} hint={`Fica ${brl(base('pix') * (1 - f.pix.descontoPct / 100))}`} />}
       </div>
       <div class="border border-border rounded-md p-2 flex flex-col gap-2">
         <Marca checked={f.boleto.ativo} onChange={(v) => set('boleto', { ativo: v })}>Boleto à vista</Marca>
-        {f.boleto.ativo && <Input label="Desconto à vista (%)" type="number" step="0.01" min={0} max={90} value={String(f.boleto.descontoPct || '')} onInput={(e) => set('boleto', { descontoPct: num((e.target as HTMLInputElement).value) })} hint={f.boleto.descontoPct > 0 ? `Fica ${brl(valor * (1 - f.boleto.descontoPct / 100))}` : undefined} />}
+        {f.boleto.ativo && <PrecoDaForma valor={valor} valorBase={f.boleto.valorBase} muda={(v) => set('boleto', { valorBase: v })} />}
+        {f.boleto.ativo && <Input label="Desconto à vista (%)" type="number" step="0.01" min={0} max={90} value={String(f.boleto.descontoPct || '')} onInput={(e) => set('boleto', { descontoPct: num((e.target as HTMLInputElement).value) })} hint={`Fica ${brl(base('boleto') * (1 - f.boleto.descontoPct / 100))}`} />}
       </div>
-      <Parcelado titulo="Cartão de crédito" teto={12} valor={valor} forma={f.cartao} muda={(v) => set('cartao', v)} />
-      <Parcelado titulo="Boleto parcelado" teto={48} valor={valor} forma={f.boletoParcelado} muda={(v) => set('boletoParcelado', v)} minimo={2} />
+      <Parcelado titulo="Cartão de crédito" teto={12} valor={base('cartao')} valorPlano={valor} forma={f.cartao} muda={(v) => set('cartao', v)} />
+      <Parcelado titulo="Boleto parcelado" teto={48} valor={base('boletoParcelado')} valorPlano={valor} forma={f.boletoParcelado} muda={(v) => set('boletoParcelado', v)} minimo={2} />
     </div>
   )
 }
 
-function Parcelado({ titulo, teto, valor, forma, muda, minimo = 1 }: {
-  titulo: string; teto: number; valor: number; minimo?: number
-  forma: { ativo: boolean; parcelasMax: number; faixas: Faixa[] }
-  muda: (v: Partial<{ ativo: boolean; parcelasMax: number; faixas: Faixa[] }>) => void
+function Parcelado({ titulo, teto, valor, valorPlano, forma, muda, minimo = 1 }: {
+  titulo: string; teto: number; valor: number; valorPlano: number; minimo?: number
+  forma: { ativo: boolean; parcelasMax: number; faixas: Faixa[]; valorBase: number | null }
+  muda: (v: Partial<{ ativo: boolean; parcelasMax: number; faixas: Faixa[]; valorBase: number | null }>) => void
 }) {
   const faixas = forma.faixas
   const setFaixa = (i: number, v: Partial<Faixa>) => muda({ faixas: faixas.map((x, j) => (j === i ? { ...x, ...v } : x)) })
@@ -338,6 +356,7 @@ function Parcelado({ titulo, teto, valor, forma, muda, minimo = 1 }: {
       <Marca checked={forma.ativo} onChange={(v) => muda({ ativo: v })}>{titulo}</Marca>
       {forma.ativo && (
         <>
+          <PrecoDaForma valor={valorPlano} valorBase={forma.valorBase} muda={(v) => muda({ valorBase: v })} />
           <Input label={`Em até quantas vezes (máx. ${teto})`} type="number" min={minimo} max={teto} value={String(forma.parcelasMax)} onInput={(e) => muda({ parcelasMax: Math.min(teto, Math.max(minimo, Math.round(num((e.target as HTMLInputElement).value)))) })} hint={`O candidato vê de ${minimo}x a ${forma.parcelasMax}x`} />
           <div class="text-2xs text-fg-muted">Juros por faixa (ao mês). Sem faixa = sem juros. Ex.: até 2x → 0%; até 6x → 1,99%; até 12x → 2,49%.</div>
           {faixas.map((fx, i) => (

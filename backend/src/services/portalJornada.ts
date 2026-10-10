@@ -615,8 +615,9 @@ export async function contratoDaInscricao(registrationId: number): Promise<Contr
   let numParcelas = pelaTabela ? Math.max(1, Number(pelaTabela.parcelas) || 1) : (plano?.numParcelas ?? 0)
   let valorParcela = pelaTabela
     ? Math.round(Number(pelaTabela.valorParcela) * 100)
-    : (plano?.valorParcelaCentavos ?? Math.round(Number(of.valorMensalidade ?? 0) * 100))
-  const matricula = pelaTabela ? 0 : (plano?.taxaMatriculaCentavos ?? Math.round(Number(of.valorMatricula ?? 0) * 100))
+    : (plano?.valorParcelaCentavos ?? 0)
+  // Sem plano não há preço: os valores avulsos da oferta deixaram de valer.
+  const matricula = pelaTabela ? 0 : (plano?.taxaMatriculaCentavos ?? 0)
   let valorTotal = pelaTabela ? Math.round(Number(pelaTabela.valorTotal) * 100) : matricula + valorParcela * numParcelas
 
   // Plano de pagamento da oferta (services/planoFinanceiro): o escolhido no

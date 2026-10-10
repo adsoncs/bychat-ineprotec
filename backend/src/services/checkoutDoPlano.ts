@@ -9,9 +9,9 @@ import { avaliarCupom, precoPorMeio } from './portalCupom.js'
 import { planoDeBoleto, type PlanoDeBoleto } from './portalPagamento.js'
 import type { CobrancaDoPortal } from './portalCobranca.js'
 import {
-  descreverOpcao, escolhaParaGravar, formasDaOpcao, opcoesDoBoletoParcelado, opcoesDoCartao,
+  baseDaForma, descreverOpcao, menorPrecoDaOpcao, escolhaParaGravar, formasDaOpcao, opcoesDoBoletoParcelado, opcoesDoCartao,
   opcoesDoPlano, planoEscolhido, resumoDoPlano, valorDaOpcao,
-  type OpcaoDePagamento, type PlanoDaOferta,
+  type FormasDePagamento, type OpcaoDePagamento, type PlanoDaOferta,
 } from './planoFinanceiro.js'
 
 type Meio = 'pix' | 'boleto' | 'credit_card'
@@ -50,11 +50,18 @@ export async function opcoesDaTelaPeloPlano(input: {
   const base = valorDaOpcao(plano, opcao)
   const cupom = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: base, portalId: input.portalId, cpf: input.cpf, cob: input.cob })
   const cupomOk = cupom && !('valido' in cupom) ? cupom : null
+  // Cada forma pode ter preço próprio: o cupom é recalculado sobre ele.
+  const cupomNa = async (forma: keyof FormasDePagamento) => {
+    const b = baseDaForma(plano, opcao, forma)
+    if (!cupomOk || b === base) return cupomOk
+    const r = await cupomDaOpcao({ codigo: input.cupomCodigo, valor: b, portalId: input.portalId, cpf: input.cpf, cob: input.cob })
+    return r && !('valido' in r) ? r : null
+  }
 
-  const pix = precoPorMeio({ valor: base, meio: 'pix', descontoAVistaPct: formas.pix.descontoPct, cupom: cupomOk })
-  const boletoAVista = precoPorMeio({ valor: base, meio: 'boleto', descontoAVistaPct: formas.boleto.descontoPct, cupom: cupomOk, aVistaNoMeio: true })
-  const semDescontoCartao = precoPorMeio({ valor: base, meio: 'credit_card', descontoAVistaPct: 0, cupom: cupomOk })
-  const semDescontoBoleto = precoPorMeio({ valor: base, meio: 'boleto', descontoAVistaPct: 0, cupom: cupomOk })
+  const pix = precoPorMeio({ valor: baseDaForma(plano, opcao, 'pix'), meio: 'pix', descontoAVistaPct: formas.pix.descontoPct, cupom: await cupomNa('pix') })
+  const boletoAVista = precoPorMeio({ valor: baseDaForma(plano, opcao, 'boleto'), meio: 'boleto', descontoAVistaPct: formas.boleto.descontoPct, cupom: await cupomNa('boleto'), aVistaNoMeio: true })
+  const semDescontoCartao = precoPorMeio({ valor: baseDaForma(plano, opcao, 'cartao'), meio: 'credit_card', descontoAVistaPct: 0, cupom: await cupomNa('cartao') })
+  const semDescontoBoleto = precoPorMeio({ valor: baseDaForma(plano, opcao, 'boletoParcelado'), meio: 'boleto', descontoAVistaPct: 0, cupom: await cupomNa('boletoParcelado') })
   const teto = cupomOk?.maxParcelas ?? 99
 
   const boletos: PlanoDeBoleto[] = [
@@ -62,18 +69,21 @@ export async function opcoesDaTelaPeloPlano(input: {
     ...opcoesDoBoletoParcelado(semDescontoBoleto.valor, formas.boletoParcelado, plano.diaVencimento).filter((o) => o.parcelas <= teto),
   ]
   const cartao = input.cartaoDisponivel ? opcoesDoCartao(semDescontoCartao.valor, formas.cartao).filter((o) => o.parcelas <= teto) : []
-  const valor = cupomOk && !cupomOk.metodos ? cupomOk.valorComCupom : base
+  // Topo da tela: o menor preço da opção (com preço por forma, o total do
+  // plano pode não ser o que a pessoa paga em nenhuma delas).
+  const referencia = opcao === 'integral' ? menorPrecoDaOpcao(plano, opcao) : base
+  const valor = cupomOk && !cupomOk.metodos ? cupomOk.valorComCupom : referencia
 
   return {
     escopo: 'curso' as const,
     rotulo: rotuloDaOpcao(plano, opcao),
     valor,
-    valorTabela: base,
+    valorTabela: referencia,
     planos: planos.map((p) => ({
       id: p.id,
       nome: p.nome,
       resumo: resumoDoPlano(p),
-      opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, valor: valorDaOpcao(p, o), ...descreverOpcao(p, o) })),
+      opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, valor: o === 'integral' ? menorPrecoDaOpcao(p, o) : valorDaOpcao(p, o), ...descreverOpcao(p, o) })),
     })),
     escolha: { planoId: plano.id, opcao },
     cupom: cupom
@@ -143,15 +153,20 @@ export async function contaPeloPlano(input: {
     return { erro: vezes > 1 ? `Cartão em ${vezes}x não está disponível nesta opção de pagamento.` : 'Cartão não está disponível nesta opção de pagamento.' }
   }
 
+  // Preço de referência da forma escolhida (o próprio dela, ou o do plano).
+  const forma: keyof FormasDePagamento = method === 'pix' ? 'pix'
+    : method === 'credit_card' ? 'cartao'
+      : vezes > 1 ? 'boletoParcelado' : 'boleto'
+  const baseForma = baseDaForma(plano, opcao, forma)
   const cupom = input.body?.cupom
-    ? await cupomDaOpcao({ codigo: String(input.body.cupom), valor: base, portalId: input.portalId, cpf: input.cpf, cob: input.cob, metodo: method })
+    ? await cupomDaOpcao({ codigo: String(input.body.cupom), valor: baseForma, portalId: input.portalId, cpf: input.cpf, cob: input.cob, metodo: method })
     : null
   if (cupom && 'valido' in cupom) return { erro: cupom.motivo }
   if (cupom?.maxParcelas && vezes > cupom.maxParcelas) return { erro: `Com este cupom, o limite é ${cupom.maxParcelas}x.` }
 
   const aVista = (method === 'pix' || (method === 'boleto' && vezes === 1))
   const descontoPct = method === 'pix' ? formas.pix.descontoPct : method === 'boleto' && vezes === 1 ? formas.boleto.descontoPct : 0
-  const preco = precoPorMeio({ valor: base, meio: method, descontoAVistaPct: aVista ? descontoPct : 0, cupom: cupom ?? null, aVistaNoMeio: aVista })
+  const preco = precoPorMeio({ valor: baseForma, meio: method, descontoAVistaPct: aVista ? descontoPct : 0, cupom: cupom ?? null, aVistaNoMeio: aVista })
   const cupomAplicado = preco.cupomAplicado ? cupom : null
 
   let valorCobrado = preco.valor
@@ -182,7 +197,7 @@ export async function contaPeloPlano(input: {
     meio: method,
     parcelas: boleto?.parcelas ?? (method === 'credit_card' ? vezes : 1),
     valorCobrado,
-    valorTabela: base,
+    valorTabela: baseForma,
     acrescimo,
     ...(preco.descontoAVista > 0 ? { descontoAVista: preco.descontoAVista } : {}),
     ...(cupomAplicado ? {

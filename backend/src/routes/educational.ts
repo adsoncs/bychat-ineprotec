@@ -627,6 +627,11 @@ export async function educationalRoutes(app: FastifyInstance) {
       },
     })
     const counts = await getOfferingSlotCounts(offerings.map(o => o.id))
+    // Planos de pagamento: a única fonte do preço do curso — o cartão da oferta
+    // mostra o resumo, ou avisa que falta plano.
+    const { planosDaOferta, resumoDoPlano } = await import('../services/planoFinanceiro.js')
+    const planosDe = new Map<number, string[]>()
+    for (const o of offerings) planosDe.set(o.id, (await planosDaOferta(o.id)).map((p) => `${p.nome}: ${resumoDoPlano(p)}`))
     const decorated = offerings.map(o => {
       const c = counts.get(o.id) || { totalInscricoes: 0, vagasOcupadas: 0 }
       return {
@@ -634,6 +639,7 @@ export async function educationalRoutes(app: FastifyInstance) {
         totalInscricoes: c.totalInscricoes,
         vagasOcupadas: c.vagasOcupadas,
         _count: { registrations: c.totalInscricoes },
+        planosPagamento: planosDe.get(o.id) ?? [],
       }
     })
     return { offerings: decorated }

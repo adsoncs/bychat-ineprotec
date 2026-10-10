@@ -28,6 +28,13 @@ export interface Oferta {
    * boleto parcelado. Quando existe, é ela que o seletor e o resumo mostram.
    */
   tabelaPrecos?: TabelaPrecos | null
+  /** Planos de pagamento da oferta — a única fonte do preço do curso. */
+  pagamento?: {
+    aPartirDe: number
+    sufixo: string
+    planos: Array<{ id: number; nome: string; resumo: string; opcoes: Array<{ chave: 'entrada' | 'integral'; rotulo: string; detalhe: string; condicoes: string[] }> }>
+    meios: string[]
+  } | null
   courseId?: number
   levelId?: number | null
   modalityId?: number | null
@@ -579,6 +586,9 @@ export interface OpcoesDePagamento {
   /** Presentes quando a oferta tem planos de pagamento: a pessoa escolhe plano e opção. */
   planos?: PlanoNaTela[]
   escolha?: EscolhaDePlano
+  /** Curso sem plano de pagamento: não há como pagar; `aviso` diz o porquê. */
+  semPlano?: boolean
+  aviso?: string
   escopo: 'taxa' | 'curso'
   /** "Taxa de inscrição", "Matrícula" ou "1ª mensalidade". */
   rotulo?: string

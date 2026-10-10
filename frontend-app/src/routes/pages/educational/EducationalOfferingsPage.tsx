@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'preact/hooks'
+import { useQueryClient } from '@tanstack/react-query'
 import { Ticket, BookOpen, Plus, Pencil, Trash2, Wallet } from '@/components/ui/icon-set'
 import {
   useOfferings,
@@ -60,16 +61,22 @@ export function EducationalOfferingsPage() {
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<CourseOffering | null>(null)
   const [planosDe, setPlanosDe] = useState<CourseOffering | null>(null)
+  const qc = useQueryClient()
 
   const offerings = useMemo(() => data?.offerings ?? [], [data])
 
   // `?editar=<id>` abre direto o formulário da oferta — é por onde a aba de
   // pagamento do portal manda quem quer ajustar o preço de um curso.
   useEffect(() => {
-    const alvo = Number(new URLSearchParams(window.location.search).get('editar'))
-    if (!alvo || offerings.length === 0) return
+    const q = new URLSearchParams(window.location.search)
+    const alvo = Number(q.get('editar'))
+    const planos = Number(q.get('planos'))
+    if ((!alvo && !planos) || offerings.length === 0) return
     const o = offerings.find((x) => x.id === alvo)
     if (o) setEditing(o)
+    // `?planos=<id>` abre os planos de pagamento da oferta (aba Pagamento do portal).
+    const p = offerings.find((x) => x.id === planos)
+    if (p) setPlanosDe(p)
   }, [offerings])
   const units = unitsData?.units ?? []
   const courses = coursesData?.courses ?? []
@@ -207,7 +214,7 @@ export function EducationalOfferingsPage() {
       )}
 
       {planosDe && (
-        <PlanosPagamentoModal offeringId={planosDe.id} offeringNome={planosDe.nome} onClose={() => setPlanosDe(null)} />
+        <PlanosPagamentoModal offeringId={planosDe.id} offeringNome={planosDe.nome} onClose={() => { setPlanosDe(null); void qc.invalidateQueries({ queryKey: ['edu', 'offerings'] }) }} />
       )}
 
       {deleting && (
@@ -299,19 +306,16 @@ function OfferingCard({
           <DateRanges o={o} />
 
           <div class="flex flex-wrap items-center gap-3 mt-2">
-            {o.valorMensalidade != null && (
-              <div class="text-2xs">
-                <span class="text-fg-muted uppercase tracking-wider mr-1">Mensalidade</span>
-                <span class="text-fg font-semibold tabular-nums">{fmtBrl(o.valorMensalidade)}</span>
-              </div>
-            )}
-            {o.tabelaPrecos && (
+            {o.planosPagamento && o.planosPagamento.length > 0 ? (
               <div class="text-2xs tabular-nums">
-                <span class="text-fg-muted uppercase tracking-wider mr-1">Portal</span>
-                <span class="text-fg font-semibold">{fmtBrl(o.tabelaPrecos.aVista)} à vista</span>
-                {o.tabelaPrecos.cartao && <span class="text-fg-muted"> · cartão {o.tabelaPrecos.cartao.parcelas}x {fmtBrl(o.tabelaPrecos.cartao.valorParcela)}</span>}
-                {o.tabelaPrecos.boleto && <span class="text-fg-muted"> · boleto {o.tabelaPrecos.boleto.parcelas}x {fmtBrl(o.tabelaPrecos.boleto.valorParcela)}</span>}
+                <span class="text-fg-muted uppercase tracking-wider mr-1">Pagamento</span>
+                <span class="text-fg font-semibold">{o.planosPagamento[0]}</span>
+                {o.planosPagamento.length > 1 && <span class="text-fg-muted"> +{o.planosPagamento.length - 1} plano(s)</span>}
               </div>
+            ) : (
+              <button type="button" class="text-2xs font-semibold text-warning hover:underline" onClick={onPlanos}>
+                ⚠ Sem plano de pagamento — o portal não cobra este curso
+              </button>
             )}
             {vagasMax > 0 ? (
               <div class="text-2xs tabular-nums">
@@ -415,16 +419,6 @@ function OfferingFormModal({
   const [turno, setTurno] = useState(offering?.turno ?? '')
   const [vagasMinimas, setVagasMinimas] = useState(offering?.vagasMinimas != null ? String(offering.vagasMinimas) : '')
   const [vagasMaximas, setVagasMaximas] = useState(offering?.vagasMaximas != null ? String(offering.vagasMaximas) : '')
-  const [valorMensalidade, setValorMensalidade] = useState(offering?.valorMensalidade != null ? String(offering.valorMensalidade) : '')
-  const [valorMatricula, setValorMatricula] = useState(offering?.valorMatricula != null ? String(offering.valorMatricula) : '')
-  // Tabela de preços do checkout (a do site). Vazia = portal cobra a 1ª
-  // mensalidade pelo mesmo valor em qualquer meio, como antes.
-  const tp = offering?.tabelaPrecos ?? null
-  const [precoAVista, setPrecoAVista] = useState(tp?.aVista != null ? String(tp.aVista) : '')
-  const [cartaoParcelas, setCartaoParcelas] = useState(tp?.cartao ? String(tp.cartao.parcelas) : '')
-  const [cartaoValor, setCartaoValor] = useState(tp?.cartao ? String(tp.cartao.valorParcela) : '')
-  const [boletoParcelas, setBoletoParcelas] = useState(tp?.boleto ? String(tp.boleto.parcelas) : '')
-  const [boletoValor, setBoletoValor] = useState(tp?.boleto ? String(tp.boleto.valorParcela) : '')
   const [notaCorte, setNotaCorte] = useState(offering?.notaCorte != null ? String(offering.notaCorte) : '')
   const [inicioInscricao, setInicioInscricao] = useState(toDateInput(offering?.inicioInscricao ?? null))
   const [terminoInscricao, setTerminoInscricao] = useState(toDateInput(offering?.terminoInscricao ?? null))
@@ -460,22 +454,6 @@ function OfferingFormModal({
       toast('Nome, Curso, Unidade e Modalidade obrigatórios', 'danger')
       return
     }
-    const aVista = parseFloatOrNull(precoAVista)
-    const condicao = (parcelas: string, valor: string) => {
-      const n = parseIntOrNull(parcelas)
-      const v = parseFloatOrNull(valor)
-      return n && n > 0 && v && v > 0 ? { parcelas: n, valorParcela: v } : null
-    }
-    const cartaoTabela = condicao(cartaoParcelas, cartaoValor)
-    const boletoTabela = condicao(boletoParcelas, boletoValor)
-    if (!aVista && (cartaoTabela || boletoTabela)) {
-      toast('Preencha o preço à vista da tabela, ou apague o cartão e o boleto', 'danger')
-      return
-    }
-    if (cartaoTabela && cartaoTabela.parcelas > 21) {
-      toast('O cartão aceita no máximo 21 parcelas', 'danger')
-      return
-    }
     const payload: CourseOfferingInput = {
       courseId,
       unitId,
@@ -489,9 +467,6 @@ function OfferingFormModal({
       turno: turno.trim() || null,
       vagasMinimas: parseIntOrNull(vagasMinimas),
       vagasMaximas: parseIntOrNull(vagasMaximas),
-      valorMensalidade: parseFloatOrNull(valorMensalidade),
-      valorMatricula: parseFloatOrNull(valorMatricula),
-      tabelaPrecos: aVista && aVista > 0 ? { aVista, cartao: cartaoTabela, boleto: boletoTabela } : null,
       notaCorte: parseFloatOrNull(notaCorte),
       inicioInscricao: inicioInscricao || null,
       terminoInscricao: terminoInscricao || null,
@@ -660,68 +635,11 @@ function OfferingFormModal({
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input
-            label="Valor mensalidade (R$)"
-            type="number"
-            step="0.01"
-            value={valorMensalidade}
-            onInput={(e) => setValorMensalidade((e.target as HTMLInputElement).value)}
-          />
-          <Input
-            label="Valor matrícula (R$)"
-            type="number"
-            step="0.01"
-            value={valorMatricula}
-            onInput={(e) => setValorMatricula((e.target as HTMLInputElement).value)}
-          />
+        <div class="rounded-md border border-border bg-surface-2 p-3 text-2xs text-fg-muted">
+          <b class="text-fg">Preço e formas de pagamento:</b> ficam nos <b class="text-fg">Planos de pagamento</b> da oferta
+          (botão de carteira no cartão da oferta). Eles são a única fonte do preço para o portal, a IA, o contrato e o SEI —
+          oferta sem plano não cobra o curso.
         </div>
-
-        <fieldset class="rounded-md border border-border p-3 space-y-3">
-          <legend class="px-1 text-xs font-semibold text-fg">Tabela de preços do portal</legend>
-          <p class="text-2xs text-fg-muted">
-            O que o site anuncia, por meio de pagamento. Preenchida, o portal cobra o curso
-            inteiro pela condição escolhida e o contrato do ERP nasce com ela. Vazia, o portal
-            cobra a mensalidade acima, pelo mesmo valor em qualquer meio.
-          </p>
-          <Input
-            label="À vista no Pix ou boleto (R$)"
-            type="number"
-            step="0.01"
-            value={precoAVista}
-            onInput={(e) => setPrecoAVista((e.target as HTMLInputElement).value)}
-          />
-          <div class="grid grid-cols-2 gap-3">
-            <Input
-              label="Cartão: parcelas"
-              type="number"
-              value={cartaoParcelas}
-              onInput={(e) => setCartaoParcelas((e.target as HTMLInputElement).value)}
-            />
-            <Input
-              label="Cartão: valor da parcela (R$)"
-              type="number"
-              step="0.01"
-              value={cartaoValor}
-              onInput={(e) => setCartaoValor((e.target as HTMLInputElement).value)}
-            />
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <Input
-              label="Boleto parcelado: parcelas"
-              type="number"
-              value={boletoParcelas}
-              onInput={(e) => setBoletoParcelas((e.target as HTMLInputElement).value)}
-            />
-            <Input
-              label="Boleto parcelado: valor da parcela (R$)"
-              type="number"
-              step="0.01"
-              value={boletoValor}
-              onInput={(e) => setBoletoValor((e.target as HTMLInputElement).value)}
-            />
-          </div>
-        </fieldset>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Input

@@ -361,6 +361,8 @@ export interface CourseOffering {
   valorMatricula: number | null
   /** Tabela de preços do checkout do portal por meio de pagamento. */
   tabelaPrecos?: TabelaPrecosOferta | null
+  /** Planos de pagamento ativos (resumo) — a única fonte do preço do curso. */
+  planosPagamento?: string[]
   /** Endereço do curso no link do portal: /portal/<portal>/<slug>. */
   slug?: string | null
   notaCorte: number | null

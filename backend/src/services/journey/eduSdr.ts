@@ -32,7 +32,7 @@ import crypto from 'crypto'
 import { prisma } from '../../lib/prisma.js'
 import { signCandidateToken } from '../../lib/candidateAuth.js'
 import { isValidCpf, normalizeCpf } from '../../lib/cpf.js'
-import { lerTabelaDePrecos, resumoDaTabela } from '../tabelaDePrecos.js'
+import { planosDaOferta, resumoParaMostrar } from '../planoFinanceiro.js'
 import { lerJornada, etapasDaInscricao, bloqueioDaEtapa, bloqueioDoDocumento, ROTULO, CONCLUIR, type ChaveEtapa, type EtapaDaInscricao } from '../portalJornada.js'
 import { dadosEfetivos, camposDaEtapa } from '../dadosCadastro.js'
 import { descreverCondicao, campoCondicionalAtende } from '../docCondicional.js'
@@ -101,9 +101,8 @@ interface OfertaDoPortal {
   slug: string | null
   polos: Array<{ id: number; nome: string; cidade?: string | null; estado?: string | null }>
   preco: string | null
-  tabela: ReturnType<typeof lerTabelaDePrecos>
-  valorMensalidade: number | null
-  valorMatricula: number | null
+  /** Planos de pagamento da oferta — a única fonte do preço do curso. */
+  pagamento: ReturnType<typeof resumoParaMostrar>
   processo: { id: number; nome: string; taxaInscricao: number | null } | null
   ingresso: { code: string; name: string; evaluationType: string } | null
   /** Campos que a forma de ingresso acrescenta à inscrição (ENEM: nº e ano da
@@ -151,15 +150,14 @@ async function catalogo(app: FastifyInstance): Promise<{ ofertas: OfertaDoPortal
       paymentMethodsConfig: p.paymentMethodsConfig, jornadaEtapas: p.jornadaEtapas, camposInscricao: campos,
     })
     for (const o of (r.body.offerings || []) as any[]) {
-      const tabela = lerTabelaDePrecos(o.tabelaPrecos)
+      const pagamento = resumoParaMostrar(await planosDaOferta(o.id))
       ofertas.push({
         offeringId: o.id, portalSlug: p.slug, portalNome: p.nome,
         curso: o.course?.nome || o.nome, courseId: o.course?.id ?? null,
         nivel: o.level?.nome ?? null, modalidade: o.modality?.nome ?? null, turno: o.turno ?? null, slug: o.slug ?? null,
         polos: (o.campuses || []).map((c: any) => ({ id: c.campus?.id, nome: c.campus?.nome, cidade: c.campus?.cidade, estado: c.campus?.estado })).filter((c: any) => c.id),
-        preco: tabela ? resumoDaTabela(tabela) : null, tabela,
-        valorMensalidade: o.valorMensalidade != null ? Number(o.valorMensalidade) : null,
-        valorMatricula: o.valorMatricula != null ? Number(o.valorMatricula) : null,
+        preco: pagamento ? `a partir de ${brl(pagamento.aPartirDe)}${pagamento.sufixo}` : null,
+        pagamento,
         processo: o.selectionProcess ? { id: o.selectionProcess.id, nome: o.selectionProcess.nome, taxaInscricao: o.selectionProcess.taxaInscricao != null ? Number(o.selectionProcess.taxaInscricao) : null } : null,
         ingresso: o.selectionProcess?.entryMode ? { code: o.selectionProcess.entryMode.code, name: o.selectionProcess.entryMode.name, evaluationType: o.selectionProcess.entryMode.evaluationType } : null,
         camposDoIngresso: (Array.isArray(o.selectionProcess?.entryMode?.defaultFormExtras) ? o.selectionProcess.entryMode.defaultFormExtras : [])
@@ -179,20 +177,16 @@ function linkDoCurso(o: OfertaDoPortal): string {
   return o.slug ? `${appUrl()}/portal/${o.portalSlug}/${o.slug}` : `${appUrl()}/portal/${o.portalSlug}`
 }
 
-function precoSemTabela(o: OfertaDoPortal): string | null {
-  const partes: string[] = []
-  if (o.valorMatricula) partes.push(`matrícula ${brl(o.valorMatricula)}`)
-  if (o.valorMensalidade) partes.push(`mensalidade ${brl(o.valorMensalidade)}`)
-  return partes.length ? partes.join(' · ') : null
-}
-
-/** Meios de pagamento ligados no portal (o que a tela de pagamento oferece). */
-function meiosDoPortal(p: PortalInfo | undefined): string[] {
-  const cfg = (p?.paymentMethodsConfig || {}) as any
+/** Condições de cada plano e opção, uma linha por forma (o que o checkout cobra). */
+function condicoesDosPlanos(o: OfertaDoPortal): string[] {
+  if (!o.pagamento) return []
   const out: string[] = []
-  if (cfg.pix?.ativo !== false) out.push('Pix')
-  if (cfg.boleto?.ativo !== false) out.push('boleto')
-  if (cfg.cartao?.ativo !== false) out.push('cartão de crédito')
+  for (const pl of o.pagamento.planos) {
+    for (const op of pl.opcoes) {
+      out.push(`${o.pagamento.planos.length > 1 ? `Plano "${pl.nome}" (planoId ${pl.id}) — ` : ''}${op.rotulo} (opcao "${op.chave}"): ${op.detalhe}`)
+      for (const c of op.condicoes) out.push(`   · ${c}`)
+    }
+  }
   return out
 }
 
@@ -438,7 +432,15 @@ export const EDU_TOOLS = [
   {
     name: 'opcoes_de_pagamento',
     description: 'Valores e condições EXATOS que o checkout desta inscrição cobra em cada meio (Pix, boleto, cartão), com cupom opcional. Use antes de gerar a cobrança.',
-    input_schema: { type: 'object', properties: { cupom: { type: 'string' } }, required: [] },
+    input_schema: {
+      type: 'object',
+      properties: {
+        cupom: { type: 'string' },
+        planoId: { type: 'number', description: 'Plano de pagamento escolhido (planos[].id). Opcional: sem ele, vale o primeiro.' },
+        opcao: { type: 'string', enum: ['entrada', 'integral'], description: 'entrada = paga só a matrícula/1ª parcela agora; integral = o curso completo. Opcional.' },
+      },
+      required: [],
+    },
   },
   {
     name: 'gerar_pagamento',
@@ -447,8 +449,10 @@ export const EDU_TOOLS = [
       type: 'object',
       properties: {
         metodo: { type: 'string', enum: ['pix', 'boleto', 'cartao'] },
-        parcelas: { type: 'number', description: 'Boleto parcelado: exatamente as parcelas da tabela. Opcional.' },
+        parcelas: { type: 'number', description: 'Boleto parcelado: em quantas vezes (entre as opções que opcoes_de_pagamento devolveu). Opcional.' },
         cupom: { type: 'string' },
+        planoId: { type: 'number', description: 'O mesmo planoId usado em opcoes_de_pagamento.' },
+        opcao: { type: 'string', enum: ['entrada', 'integral'], description: 'A mesma opcao usada em opcoes_de_pagamento.' },
       },
       required: ['metodo'],
     },
@@ -565,7 +569,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         formaDeIngresso: o.ingresso?.name,
         inicio: o.inicioCurso || undefined,
         polos: o.polos.length > 1 ? o.polos.map((p) => p.nome) : undefined,
-        preco: o.preco || precoSemTabela(o) || 'sem preço cadastrado no portal',
+        preco: o.preco || 'sem plano de pagamento cadastrado',
       }))
       const variasFormas = new Set(cursos.filter((c) => c.formaDeIngresso).map((c) => `${c.curso}|${c.formaDeIngresso}`)).size > new Set(cursos.map((c) => c.curso)).size
       return ok({
@@ -595,15 +599,7 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         ? [dia(sp.inicioInscricao) && `de ${dia(sp.inicioInscricao)}`, dia(sp.terminoInscricao) && `até ${dia(sp.terminoInscricao)}`].filter(Boolean).join(' ')
           + (sp.inicioInscricao && sp.inicioInscricao > new Date() ? ' (AINDA NÃO ABERTAS — não dá para inscrever antes do início)' : '')
         : undefined
-      const condicoes: string[] = []
-      if (o.tabela) {
-        condicoes.push(`À vista no Pix ou boleto: ${brl(o.tabela.aVista)}`)
-        if (o.tabela.cartao) condicoes.push(`Cartão: ${o.tabela.cartao.parcelas}x de ${brl(o.tabela.cartao.valorParcela)} sem juros`)
-        if (o.tabela.boleto && o.tabela.boleto.parcelas > 1) condicoes.push(`Boleto parcelado: ${o.tabela.boleto.parcelas}x de ${brl(o.tabela.boleto.valorParcela)}`)
-      } else {
-        const s = precoSemTabela(o)
-        if (s) condicoes.push(s)
-      }
+      const condicoes = condicoesDosPlanos(o)
       return ok({
         offeringId: o.offeringId, curso: o.curso, nivel: o.nivel, modalidade: o.modalidade, turno: o.turno || undefined,
         cargaHoraria: curso?.cargaHoraria ? `${curso.cargaHoraria} horas` : undefined,
@@ -613,8 +609,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
         perfilDeConclusao: curso?.perfilConclusao ? limpar(curso.perfilConclusao, 700) : undefined,
         inicio: o.inicioCurso || undefined,
         polos: o.polos.map((x) => ({ id: x.id, nome: x.nome, cidade: x.cidade || undefined })),
-        precos: condicoes.length ? condicoes : ['sem preço cadastrado no portal'],
-        meiosDePagamentoAceitos: meiosDoPortal(p),
+        precos: condicoes.length ? condicoes : ['sem plano de pagamento cadastrado — não invente preço; chame transferir_humano se o lead quiser valores'],
+        meiosDePagamentoAceitos: o.pagamento?.meios ?? [],
         taxaDeInscricao: o.processo?.taxaInscricao ? brl(o.processo.taxaInscricao) : undefined,
         formaDeIngresso: o.ingresso ? { nome: o.ingresso.name, descricao: ingressoDesc ? limpar(ingressoDesc, 300) : undefined } : undefined,
         processoSeletivo: o.processo?.nome,
@@ -736,14 +732,22 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       if (ctx.dryRun && edu.simulada) {
         const { ofertas, portais } = await catalogo(app)
         const o = ofertas.find((x) => x.offeringId === edu.simulada!.offeringId)
-        return ok({ simulacao: true, meios: meiosDoPortal(o ? portais.get(o.portalSlug) : undefined), precos: o?.preco || (o ? precoSemTabela(o) : null), cupom: cupom ? 'cupom não é validado na simulação' : undefined })
+        void portais
+        return ok({ simulacao: true, meios: o?.pagamento?.meios ?? [], precos: o ? condicoesDosPlanos(o) : null, cupom: cupom ? 'cupom não é validado na simulação' : undefined })
       }
       const reg = await inscricaoAtual(ctx)
       if (!reg) return erro(SEM_INSCRICAO)
       const token = signCandidateToken(reg.id, reg.candidateCode)
-      const r = await portalHttp(app, 'GET', `/api/public/registrations/${reg.candidateCode}/payment-options${cupom ? `?cupom=${encodeURIComponent(cupom)}` : ''}`, { token })
+      const q = new URLSearchParams()
+      if (cupom) q.set('cupom', cupom)
+      if (input?.planoId) q.set('plano', String(input.planoId))
+      if (input?.opcao) q.set('opcao', String(input.opcao))
+      const r = await portalHttp(app, 'GET', `/api/public/registrations/${reg.candidateCode}/payment-options${q.toString() ? `?${q}` : ''}`, { token })
       if (r.status !== 200) return erro(String(r.body?.error || 'Não foi possível consultar as opções de pagamento.'))
-      return ok({ ...r.body, instrucao: 'Apresente só os meios ativos, com valores exatos. Pergunte qual meio o lead prefere (e parcelas, quando houver).' })
+      if (r.body?.semPlano) return erro(String(r.body.aviso), 'Não invente preço. Explique e chame transferir_humano.')
+      return ok({ ...r.body, instrucao: r.body?.planos?.length
+        ? 'Os valores são do plano e da opção em "escolha". Se houver mais de um plano ou a opção de pagar o curso completo, apresente as alternativas (planos[].opcoes) e consulte de novo com planoId/opcao escolhidos. Apresente só os meios ativos, com valores exatos, e pergunte o meio (e parcelas, quando houver). Na cobrança, passe o MESMO planoId e opcao.'
+        : 'Apresente só os meios ativos, com valores exatos. Pergunte qual meio o lead prefere (e parcelas, quando houver).' })
     }
 
     if (name === 'gerar_pagamento') {
@@ -769,6 +773,8 @@ export async function executarFerramentaEdu(name: string, input: any, ctx: EduCt
       const body: any = { method: metodo }
       if (input?.parcelas) body.parcelas = Number(input.parcelas)
       if (input?.cupom) body.cupom = String(input.cupom)
+      if (input?.planoId) body.planoId = Number(input.planoId)
+      if (input?.opcao) body.opcao = String(input.opcao)
       const r = await portalHttp(app, 'POST', `/api/public/registrations/${reg.candidateCode}/payment-init`, { token, payload: body })
       if (r.status !== 200 || !r.body?.ok) return erro(String(r.body?.error || 'Não foi possível gerar a cobrança.'), 'Explique com naturalidade; se persistir, chame transferir_humano.')
       const m = r.body.method || {}
