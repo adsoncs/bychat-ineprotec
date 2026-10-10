@@ -98,6 +98,30 @@ export async function lojaSincronizacaoRoutes(app: FastifyInstance) {
     }
   })
 
+  /**
+   * A loja empurra a cobrança de consumo que ela calculou (plano de cada item,
+   * franquia, excedente e valor). Fica guardada para o painel do DONO mostrar
+   * em cada aba da Volumetria — o preço continua decidido na loja.
+   */
+  app.post('/api/loja/consumo/cobranca', async (req, reply) => {
+    const cru = (req as unknown as { corpoCru?: string }).corpoCru ?? ''
+    const erro = autenticar(req, reply, cru)
+    if (erro) return erro
+    const b = req.body as { competencia?: unknown; itens?: unknown; plano?: unknown }
+    const competencia = String(b?.competencia ?? '')
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) return reply.code(400).send({ error: 'Competência inválida (AAAA-MM)' })
+    if (!Array.isArray(b.itens) || !Array.isArray(b.plano)) return reply.code(400).send({ error: 'itens e plano devem ser listas' })
+    if (cru.length > 200_000) return reply.code(400).send({ error: 'Cobrança grande demais' })
+    const key = `consumo.cobranca.${competencia}`
+    const value = { ...(b as object), recebidoEm: new Date().toISOString() }
+    await prisma.setting.upsert({
+      where: { key },
+      update: { value: value as never },
+      create: { key, value: value as never, label: `Cobrança de consumo ${competencia}`, grp: 'loja', fieldType: 'json' },
+    })
+    return { ok: true }
+  })
+
   app.get('/api/loja/inventario', async (req, reply) => {
     const erro = autenticar(req, reply, '')
     if (erro) return erro

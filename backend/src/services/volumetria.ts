@@ -9,6 +9,8 @@
 // definido na loja central.
 
 import { execFile } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { prisma } from '../lib/prisma.js'
 import { UPLOADS_DIR } from '../lib/uploadsDir.js'
@@ -38,6 +40,58 @@ async function bytesDosUploads(): Promise<number | null> {
     const { stdout } = await exec('du', ['-sb', UPLOADS_DIR], { timeout: 20_000 })
     return Number(stdout.split(/\s/)[0]) || 0
   } catch { return null }
+}
+
+type LinhaMidia = { provider: string; mediaType: string; mediaUrl: string }
+type SomaMidia = { quantidade: number; bytes: number; externas: number; porTipo: Map<string, { quantidade: number; bytes: number }> }
+
+/**
+ * Tamanho de cada mídia no disco. Arquivo em /uploads é medido; link externo
+ * (mídia que ficou no provedor) conta como "externa", sem bytes nossos.
+ * Mesmo arquivo em duas mensagens conta uma vez por canal.
+ */
+async function somarMidias(linhas: LinhaMidia[]): Promise<Map<string, SomaMidia>> {
+  const porCanal = new Map<string, SomaMidia>()
+  const vistos = new Set<string>()
+  const pendentes: Array<{ canal: string; tipo: string; url: string }> = []
+  for (const l of linhas) {
+    const chave = `${l.provider}|${l.mediaUrl}`
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    pendentes.push({ canal: l.provider, tipo: l.mediaType, url: l.mediaUrl })
+  }
+  for (let i = 0; i < pendentes.length; i += 200) {
+    await Promise.all(pendentes.slice(i, i + 200).map(async (m) => {
+      const c = porCanal.get(m.canal) ?? { quantidade: 0, bytes: 0, externas: 0, porTipo: new Map() }
+      porCanal.set(m.canal, c)
+      const t = c.porTipo.get(m.tipo) ?? { quantidade: 0, bytes: 0 }
+      c.porTipo.set(m.tipo, t)
+      c.quantidade++; t.quantidade++
+      if (!m.url.startsWith('/uploads/')) { c.externas++; return }
+      const caminho = join(UPLOADS_DIR, decodeURIComponent(m.url.slice('/uploads/'.length).split('?')[0]))
+      if (!caminho.startsWith(UPLOADS_DIR)) return
+      const b = await stat(caminho).then((x) => x.size).catch(() => 0)
+      c.bytes += b; t.bytes += b
+    }))
+  }
+  return porCanal
+}
+
+const listarMidias = (m: Map<string, SomaMidia>) => [...m.entries()].map(([canal, x]) => ({
+  canal, quantidade: x.quantidade, bytes: x.bytes, externas: x.externas,
+  porTipo: [...x.porTipo.entries()].map(([tipo, t]) => ({ tipo, ...t })).sort((a, b) => b.bytes - a.bytes),
+})).sort((a, b) => b.bytes - a.bytes)
+
+/** O acumulado varre todas as mídias da base — guardado por 10 min. */
+let acumuladoCache: { em: number; valor: ReturnType<typeof listarMidias> } | null = null
+async function midiasAcumuladas() {
+  if (acumuladoCache && Date.now() - acumuladoCache.em < 10 * 60_000) return acumuladoCache.valor
+  const linhas: LinhaMidia[] = await prisma.$queryRaw`
+    SELECT provider, mediaType, mediaUrl FROM bychat_messages
+    WHERE mediaUrl IS NOT NULL AND mediaType <> 'text' AND mediaUrl NOT LIKE 'data:%'`
+  const valor = listarMidias(await somarMidias(linhas))
+  acumuladoCache = { em: Date.now(), valor }
+  return valor
 }
 
 export async function volumetriaDoMes(competencia: string) {
@@ -81,19 +135,27 @@ export async function volumetriaDoMes(competencia: string) {
     SELECT provider, fromMe, COUNT(*) n FROM bychat_messages
     WHERE isInternal = 0 AND timestamp >= ${inicio} AND timestamp < ${fim}
     GROUP BY provider, fromMe`
+  const unicosCanal: any[] = await prisma.$queryRaw`
+    SELECT provider, COUNT(DISTINCT leadId) n FROM bychat_messages
+    WHERE isInternal = 0 AND timestamp >= ${inicio} AND timestamp < ${fim}
+    GROUP BY provider`
+  const unicosTotal: any[] = await prisma.$queryRaw`
+    SELECT COUNT(DISTINCT leadId) n FROM bychat_messages
+    WHERE isInternal = 0 AND timestamp >= ${inicio} AND timestamp < ${fim}`
   const canal = (p: string) => ({
     enviadas: num(porCanal.find((x) => x.provider === p && num(x.fromMe) === 1)?.n),
     recebidas: num(porCanal.find((x) => x.provider === p && num(x.fromMe) === 0)?.n),
+    leadsUnicos: num(unicosCanal.find((x) => x.provider === p)?.n),
   })
 
   // ── WhatsApp Evolution: por número ──
   const evoNum: any[] = await prisma.$queryRaw`
-    SELECT COALESCE(evolutionInstance, '(sem número)') inst, SUM(fromMe = 1) env, SUM(fromMe = 0) rec
+    SELECT COALESCE(evolutionInstance, '(sem número)') inst, SUM(fromMe = 1) env, SUM(fromMe = 0) rec, COUNT(DISTINCT leadId) leads
     FROM bychat_messages WHERE provider = 'evolution' AND isInternal = 0 AND timestamp >= ${inicio} AND timestamp < ${fim}
     GROUP BY inst ORDER BY COUNT(*) DESC`
   const evolution = {
     ...canal('evolution'),
-    porNumero: evoNum.map((x) => ({ numero: String(x.inst), enviadas: num(x.env), recebidas: num(x.rec) })),
+    porNumero: evoNum.map((x) => ({ numero: String(x.inst), enviadas: num(x.env), recebidas: num(x.rec), leadsUnicos: num(x.leads) })),
     custo: 'infraestrutura nossa (sem custo por mensagem)',
   }
 
@@ -112,7 +174,7 @@ export async function volumetriaDoMes(competencia: string) {
   }
   const conexoes = await prisma.cloudApiConnection.findMany({ select: { id: true, displayPhone: true, displayName: true } })
   const cloudNum: any[] = await prisma.$queryRaw`
-    SELECT cloudApiConnectionId cid, SUM(fromMe = 1) env, SUM(fromMe = 0) rec
+    SELECT cloudApiConnectionId cid, SUM(fromMe = 1) env, SUM(fromMe = 0) rec, COUNT(DISTINCT leadId) leads
     FROM bychat_messages WHERE provider = 'cloud_api' AND isInternal = 0 AND timestamp >= ${inicio} AND timestamp < ${fim}
     GROUP BY cid ORDER BY COUNT(*) DESC`
   const porCategoria = [...cats.values()].sort((a, b) => b.enviadas - a.enviadas)
@@ -123,7 +185,7 @@ export async function volumetriaDoMes(competencia: string) {
     porCategoria,
     porNumero: cloudNum.map((x) => {
       const c = conexoes.find((k) => k.id === num(x.cid))
-      return { numero: c ? (c.displayName || c.displayPhone || `#${c.id}`) : '(sem número)', enviadas: num(x.env), recebidas: num(x.rec) }
+      return { numero: c ? (c.displayName || c.displayPhone || `#${c.id}`) : '(sem número)', enviadas: num(x.env), recebidas: num(x.rec), leadsUnicos: num(x.leads) }
     }),
   }
 
@@ -149,6 +211,13 @@ export async function volumetriaDoMes(competencia: string) {
   // ── Base ──
   const usuariosAtivos = await prisma.user.count({ where: { active: true } })
   const leadsNovos = await prisma.lead.count({ where: { createdAt: noMes } })
+  const leadsTotal = await prisma.lead.count()
+
+  // ── Mídias das conversas por canal: as do mês e o acumulado guardado ──
+  const midiasMes: LinhaMidia[] = await prisma.$queryRaw`
+    SELECT provider, mediaType, mediaUrl FROM bychat_messages
+    WHERE mediaUrl IS NOT NULL AND mediaType <> 'text' AND mediaUrl NOT LIKE 'data:%'
+      AND timestamp >= ${inicio} AND timestamp < ${fim}`
 
   return {
     competencia, periodo: { inicio, fim },
@@ -160,6 +229,11 @@ export async function volumetriaDoMes(competencia: string) {
     reunioes: { gravacoes: reunioes },
     sei: { chamadas: seiTotal, falhas: seiFalhas },
     armazenamento: { bytes: await bytesDosUploads() },
-    base: { usuariosAtivos, leadsNovos },
+    midias: { doMes: listarMidias(await somarMidias(midiasMes)), acumulado: await midiasAcumuladas() },
+    leads: {
+      total: leadsTotal, novos: leadsNovos, unicos: num(unicosTotal[0]?.n),
+      unicosPorCanal: unicosCanal.map((x) => ({ canal: String(x.provider), leads: num(x.n) })).sort((a, b) => b.leads - a.leads),
+    },
+    base: { usuariosAtivos, leadsNovos, leadsTotal },
   }
 }
