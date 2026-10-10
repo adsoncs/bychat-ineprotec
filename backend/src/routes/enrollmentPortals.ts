@@ -2008,10 +2008,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         valorMensalidade: true, valorMatricula: true, tabelaPrecos: true, slug: true,
         vagasMinimas: true, vagasMaximas: true,
         inicioCurso: true, terminoCurso: true,
+        inicioInscricao: true, terminoInscricao: true,
         selectionProcessId: true,
         selectionProcess: {
           select: {
             id: true, slug: true, nome: true, taxaInscricao: true,
+            inicioInscricao: true, terminoInscricao: true,
             entryMode: {
               select: {
                 id: true, code: true, name: true, icon: true,
@@ -2050,7 +2052,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Preço do curso: só o dos planos de pagamento (a tabela de preços e os
     // valores avulsos da oferta deixaram de valer e não saem para o público).
     const { planosDaOferta, resumoParaMostrar } = await import('../services/planoFinanceiro.js')
-    const offerings = await Promise.all(ofertasDoPortal.map(async (o) => ({
+    // Só ofertas dentro do período de inscrição (edital do processo e da oferta).
+    const { foraDoPeriodo } = await import('../services/portalModos.js')
+    const abertas = ofertasDoPortal.filter((o: any) => !foraDoPeriodo(o))
+    const offerings = await Promise.all(abertas.map(async (o) => ({
       ...o, valorMensalidade: null, valorMatricula: null, tabelaPrecos: null,
       pagamento: resumoParaMostrar(await planosDaOferta(o.id)),
     })))
@@ -2184,15 +2189,23 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         },
         select: {
           id: true, nome: true, selectionProcessId: true,
+          inicioInscricao: true, terminoInscricao: true,
           selectionProcess: {
             select: {
               taxaInscricao: true,
+              inicioInscricao: true, terminoInscricao: true,
               entryMode: { select: { code: true, defaultFormExtras: true } },
             },
           },
         },
       })
       if (!offering) return reply.code(400).send({ error: 'Oferta inválida para este portal' })
+      // Período de inscrição do edital (processo seletivo) e da oferta.
+      {
+        const { foraDoPeriodo } = await import('../services/portalModos.js')
+        const fora = foraDoPeriodo(offering)
+        if (fora) return reply.code(400).send({ error: fora, foraDoPeriodo: true })
+      }
       selectionProcessId = offering.selectionProcessId
       entryModeCode = offering.selectionProcess?.entryMode?.code || null
 
@@ -4498,7 +4511,9 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const processIds = await processosOferecidos(portal)
     if (processIds.length === 0) return { recommendations: [] }
 
-    const offerings = await prisma.courseOffering.findMany({
+    // Só cursos dentro do período de inscrição (edital).
+    const { foraDoPeriodo: foraDoPeriodoQuiz } = await import('../services/portalModos.js')
+    const offerings = (await prisma.courseOffering.findMany({
       where: {
         active: true,
         selectionProcessId: { in: processIds.map(Number).filter(Boolean) },
@@ -4513,14 +4528,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
         level: { select: { nome: true } },
         modality: { select: { nome: true } },
         campuses: { select: { campus: { select: { nome: true, cidade: true } } } },
+        inicioInscricao: true, terminoInscricao: true,
         selectionProcess: {
           select: {
             taxaInscricao: true,
+            inicioInscricao: true, terminoInscricao: true,
           },
         },
       },
       take: 50,
-    })
+    })).filter((o) => !foraDoPeriodoQuiz(o))
 
     // Orçamento: o valor mensal do 1º plano de pagamento (única fonte do preço).
     const { planosDaOferta } = await import('../services/planoFinanceiro.js')

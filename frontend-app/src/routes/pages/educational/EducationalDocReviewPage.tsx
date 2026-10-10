@@ -59,7 +59,7 @@ export function EducationalDocReviewPage() {
           ? 'Inscrições agrupadas por candidato — revisar todos os documentos em conjunto.'
           : modo === 'document'
           ? 'Fila plana — 1 documento por linha (FIFO). Útil para revisões especializadas.'
-          : 'Transferências externas: histórico e conteúdo programático para a análise acadêmica, o parecer e a resposta do candidato.'
+          : 'Documentos de ingresso (ex.: boletim do ENEM, diploma, histórico) para a análise acadêmica, o parecer e a resposta do candidato. Cada forma de ingresso envia os seus.'
       }
     >
       <ModeToggle mode={modo} onChange={setModeAndPersist} transfer={temTransfer ? (analises.data?.kpi.em_analise ?? 0) : null} />
@@ -87,13 +87,13 @@ function ModeToggle({ mode, onChange, transfer }: { mode: Mode; onChange: (m: Mo
     <div class="inline-flex flex-wrap gap-1 p-1 rounded-lg bg-surface-3 self-start">
       {btn('registration', '🎓 Por inscrição')}
       {btn('document',     '📋 Por documento')}
-      {transfer !== null && btn('transfer', '🔁 Análise de Transferência', transfer)}
+      {transfer !== null && btn('transfer', '🎓 Análise de ingresso', transfer)}
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Modo "Análise de Transferência" — só as inscrições com análise acadêmica
+// Modo "Análise de ingresso" — só as inscrições com análise acadêmica
 
 type SituacaoAnalise = 'documentos' | 'em_analise' | 'aguardando_candidato' | 'aceita' | 'indeferida' | 'desistiu'
 interface AnaliseItem {
@@ -176,8 +176,8 @@ function TransferMode() {
         {isLoading && <div class="p-4 space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-16 w-full" />)}</div>}
         {!isLoading && items.length === 0 && (
           <div class="p-8">
-            <EmptyState icon={<GraduationCap size={24} />} title="Nenhuma transferência"
-              description={situacao === 'abertas' ? 'Sem transferências esperando análise ou resposta.' : 'Tente outro filtro.'} />
+            <EmptyState icon={<GraduationCap size={24} />} title="Nenhuma análise de ingresso"
+              description={situacao === 'abertas' ? 'Nenhuma inscrição esperando análise ou resposta.' : 'Tente outro filtro.'} />
           </div>
         )}
         {!isLoading && items.length > 0 && (
@@ -205,7 +205,7 @@ function AnaliseRow({ item, onOpen }: { item: AnaliseItem; onOpen: () => void })
             <Badge tone={sit.tone} solid>{sit.rotulo}</Badge>
           </div>
           <div class="text-xs text-fg-muted mt-0.5 truncate">
-            {item.curso ?? '—'}{item.local ? ` · ${item.local}` : ''} · {item.portal.nome}
+            {item.curso ?? '—'}{item.formaDeIngresso ? ` · ${item.formaDeIngresso}` : ''}{item.local ? ` · ${item.local}` : ''} · {item.portal.nome}
           </div>
           <div class="text-2xs text-fg-muted mt-0.5">
             Documentos da análise: {enviados}/{item.documentos.length} enviados
@@ -225,11 +225,12 @@ function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => voi
   const [openDocId, setOpenDocId] = useState<number | null>(null)
   return (
     <>
-      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`Análise de transferência — ${item.candidato.nome || item.candidateCode}`} size="lg">
+      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`Análise de ingresso — ${item.candidato.nome || item.candidateCode}`} size="lg">
         <div class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <Row label="Código" value={item.candidateCode} />
             <Row label="Curso" value={item.curso ?? '—'} />
+            <Row label="Forma de ingresso" value={item.formaDeIngresso ?? '—'} />
             <Row label="Local" value={item.local ?? '—'} />
             <Row label="Portal" value={item.portal.nome} />
             <Row label="E-mail" value={item.candidato.email ?? '—'} />
