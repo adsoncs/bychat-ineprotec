@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea, Checkbox } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { useHerancaDoPortal } from '@/components/educational/HerancaDoPortal'
+import { SecaoFunil, etapasAtivasDoPortal } from './PortalEtapasTab'
 
 export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   // Filtros (allowed*Ids)
@@ -51,8 +52,13 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
   // Funil + stages
   const [funnelId, setFunnelId] = useState<number | ''>(portal.funnelId ?? '')
   const [stageKey, setStageKey] = useState(portal.stageKey ?? '')
+  // Regras fixas antigas (pós-docs / pós-aprovação): só aparecem para o portal
+  // que ainda as usa — o de-para abaixo as substitui.
   const [docsCompleteStageKey, setDocsCompleteStageKey] = useState(portal.docsCompleteStageKey ?? '')
   const [finalApprovalStageKey, setFinalApprovalStageKey] = useState(portal.finalApprovalStageKey ?? '')
+  const usaRegrasAntigas = !!(portal.docsCompleteStageKey || portal.finalApprovalStageKey)
+  // De-para etapa da matrícula → etapa do funil (gravado em jornadaEtapas.funil).
+  const [funilDePara, setFunilDePara] = useState<Record<string, string>>(() => ({ ...((portal as any).jornadaEtapas?.funil ?? {}) }))
 
   // Nome da origem dos leads (source = enrollment_portal:<id>)
   const [sourceLabel, setSourceLabel] = useState(portal.sourceLabel ?? '')
@@ -125,6 +131,8 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
       stageKey: stageKey || null,
       docsCompleteStageKey: docsCompleteStageKey || null,
       finalApprovalStageKey: finalApprovalStageKey || null,
+      // Só o de-para muda: o resto da jornada vai como está gravado (aba Etapas).
+      jornadaEtapas: { ...((portal as any).jornadaEtapas ?? {}), funil: funilDePara },
       sourceLabel: sourceLabel.trim() || null,
       customDomain: customDomain.trim() || null,
       ogImageUrl: ogImageUrl.trim() || null,
@@ -280,6 +288,7 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
               setStageKey('')
               setDocsCompleteStageKey('')
               setFinalApprovalStageKey('')
+              setFunilDePara({})
             }}
           >
             <option value="">Sem funil destino (usa default)</option>
@@ -295,21 +304,40 @@ export function PortalConfigTab({ portal }: { portal: EnrollmentPortal }) {
               onChange={mark(setStageKey)}
               stages={stages}
             />
-            <StageSelect
-              label="Etapa pós-docs"
-              hint="Move para cá quando todos os docs forem aprovados"
-              value={docsCompleteStageKey}
-              onChange={mark(setDocsCompleteStageKey)}
-              stages={stages}
-            />
-            <StageSelect
-              label="Etapa pós-aprovação"
-              hint="Move quando docs OK + avaliação aprovada"
-              value={finalApprovalStageKey}
-              onChange={mark(setFinalApprovalStageKey)}
-              stages={stages}
-            />
           </div>
+          <SecaoFunil
+            portalId={portal.id}
+            funnelId={typeof funnelId === 'number' ? funnelId : null}
+            etapas={etapasAtivasDoPortal((portal as any).jornadaEtapas)}
+            valor={funilDePara}
+            onChange={mark(setFunilDePara)}
+            sujo={dirty}
+          />
+          {usaRegrasAntigas && (
+            <details class="rounded-md border border-border p-3">
+              <summary class="cursor-pointer text-xs font-semibold text-fg">Regras fixas antigas (em uso neste portal)</summary>
+              <p class="text-2xs text-fg-muted mt-2 mb-3">
+                Anteriores ao de-para acima e ainda valem enquanto preenchidas. Com o de-para configurado, deixe-as em
+                branco e salve — elas somem desta tela.
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <StageSelect
+                  label="Etapa pós-docs"
+                  hint="Move para cá quando todos os docs forem aprovados"
+                  value={docsCompleteStageKey}
+                  onChange={mark(setDocsCompleteStageKey)}
+                  stages={stages}
+                />
+                <StageSelect
+                  label="Etapa pós-aprovação"
+                  hint="Move quando docs OK + avaliação aprovada"
+                  value={finalApprovalStageKey}
+                  onChange={mark(setFinalApprovalStageKey)}
+                  stages={stages}
+                />
+              </div>
+            </details>
+          )}
           {funnelId && stages.length === 0 && (
             <div class="text-2xs text-warning">
               Funil sem etapas. Cadastre etapas em <a href="/app/funnels" class="underline">Funis</a>.

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles, Lock, GraduationCap } from '@/components/ui/icon-set'
+import { Save, ArrowUp, ArrowDown, ListOrdered, CreditCard, FileText, Pencil, Award, ClipboardList, Sparkles, Lock, GraduationCap, Workflow } from '@/components/ui/icon-set'
 import { DadosEtapasEditor } from '@/components/educational/DadosEtapasEditor'
 import { useDadosEtapas, type DadosConfig } from '@/hooks/useDadosEtapas'
 import { useUpdateEnrollmentPortal, type EnrollmentPortal } from '@/hooks/useEnrollmentPortals'
 import { useEntryModes, useSelectionProcesses, useDocumentTypes } from '@/hooks/useEducational'
 import { Card } from '@/components/ui/Card'
+import { useFunnel } from '@/hooks/useFunnels'
+import { api, ApiError } from '@/lib/apiClient'
 import { Button } from '@/components/ui/Button'
 import { toast } from '@/lib/toast'
 
@@ -257,7 +259,7 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
   const marca = <T,>(f: (v: T) => void) => (v: T) => { f(v); setDirty(true) }
 
   function salvar() {
-    update.mutate({ id: portal.id, jornadaEtapas: { inscricao, painel: mesma ? null : painel, dados, matricula } } as any, {
+    update.mutate({ id: portal.id, jornadaEtapas: { inscricao, painel: mesma ? null : painel, dados, matricula, funil: (portal as any).jornadaEtapas?.funil ?? {} } } as any, {
       onSuccess: () => { toast('Etapas salvas', 'success'); setDirty(false) },
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
     })
@@ -298,6 +300,9 @@ export function PortalEtapasTab({ portal }: { portal: EnrollmentPortal }) {
         cobraNaInscricao={!!portal.requirePayment && inscricao.some((e) => e.chave === 'pagamento' && e.ativo)}
       />
       <SecaoMatricula valor={matricula} onChange={(v) => { setMatricula(v); setDirty(true) }} />
+      <div class="text-xs text-fg-muted">
+        Em que etapa do funil o lead fica em cada etapa da matrícula: aba <b>Configuração</b> › Funil destino.
+      </div>
 
       <div class="flex justify-end">
         <Button onClick={salvar} disabled={update.isPending}><Save size={14} /> {update.isPending ? 'Salvando…' : 'Salvar etapas'}</Button>
@@ -391,4 +396,95 @@ function SecaoDados(p: {
       )}
     </Card>
   )
+}
+
+/**
+ * De-para com o funil do portal: em que etapa do funil o lead fica enquanto o
+ * candidato está em cada etapa da jornada (uma linha por etapa ativa, na ordem
+ * da tela de inscrição) e quando todas terminam. O lead só anda para a frente e
+ * só se estiver no funil do portal (backend: services/funilDaJornada).
+ */
+export function SecaoFunil(p: {
+  portalId: number
+  funnelId: number | null
+  etapas: Etapa[]
+  valor: Record<string, string>
+  onChange: (v: Record<string, string>) => void
+  sujo: boolean
+}) {
+  const { data } = useFunnel(p.funnelId)
+  const stages = (data?.stages ?? []).filter((st: any) => st.active !== false)
+  const [aplicando, setAplicando] = useState(false)
+  const linhas: Array<{ chave: string; nome: string }> = [
+    ...p.etapas.map((e) => ({ chave: e.chave, nome: INFO[e.chave].nome })),
+    { chave: 'concluido', nome: 'Todas as etapas concluídas' },
+  ]
+  async function aplicar() {
+    setAplicando(true)
+    try {
+      const r = await api.post<{ total: number; movidos: number }>(`/admin/enrollment-portals/${p.portalId}/sincronizar-funil`)
+      toast(`${r.movidos} de ${r.total} inscrição(ões) movida(s) no funil`, 'success')
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Falha ao aplicar', 'danger')
+    } finally {
+      setAplicando(false)
+    }
+  }
+  return (
+    <Card class="p-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <Workflow size={18} class="text-accent mt-0.5" />
+        <div>
+          <div class="font-semibold text-sm">No funil</div>
+          <div class="text-xs text-fg-muted">
+            Em que etapa do funil do portal o lead fica enquanto o candidato está em cada etapa da matrícula — uma linha
+            por etapa ativa do portal (aba Etapas). Só mexe em lead que está no funil do portal; lead que a equipe moveu à
+            mão para fora destas etapas só anda para a frente, e da etapa de concluído ele não volta. Em branco = não
+            mexe no funil nessa etapa.
+          </div>
+        </div>
+      </div>
+      {!p.funnelId ? (
+        <div class="text-xs text-warning">Este portal não tem funil destino (aba Configuração). Escolha um funil para usar o de-para.</div>
+      ) : (
+        <div class="divide-y divide-border rounded-md border border-border">
+          {linhas.map((l, i) => (
+            <div key={l.chave} class="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+              <span class="w-6 text-2xs text-fg-muted tabular-nums">{l.chave === 'concluido' ? '✓' : `${i + 1}.`}</span>
+              <span class="min-w-0 flex-1 basis-48">{l.nome}</span>
+              <select
+                class="h-8 rounded-md border border-border bg-surface px-2 text-sm"
+                value={p.valor[l.chave] ?? ''}
+                onChange={(e) => {
+                  const v = (e.target as HTMLSelectElement).value
+                  const novo = { ...p.valor }
+                  if (v) novo[l.chave] = v
+                  else delete novo[l.chave]
+                  p.onChange(novo)
+                }}
+              >
+                <option value="">— não mexe no funil —</option>
+                {stages.map((st: any) => <option key={st.key} value={st.key}>{st.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+      {p.funnelId && (
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-2xs text-fg-muted">
+            A mudança vale a cada passo do candidato. Para posicionar quem já se inscreveu, salve e aplique.
+          </span>
+          <Button variant="secondary" size="sm" onClick={aplicar} disabled={aplicando || p.sujo}>
+            {aplicando ? 'Aplicando…' : 'Aplicar às inscrições existentes'}
+          </Button>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/** Etapas ativas da tela de inscrição do portal, na ordem (para o de-para com o funil). */
+export function etapasAtivasDoPortal(jornadaEtapas: any): Etapa[] {
+  return normalizar(jornadaEtapas?.inscricao, PADRAO_INSCRICAO).filter((e) => e.ativo)
 }

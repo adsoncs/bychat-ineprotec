@@ -757,6 +757,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/enrollment-portals/:id — atualizar
+  // POST /api/admin/enrollment-portals/:id/sincronizar-funil — aplica o de-para
+  // "etapa da jornada → etapa do funil" às inscrições que já existem.
+  app.post('/api/admin/enrollment-portals/:id/sincronizar-funil', { preHandler: adminOnly }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const portal = await prisma.enrollmentPortal.findUnique({ where: { id }, select: { id: true } })
+    if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
+    const { sincronizarFunilDoPortal } = await import('../services/funilDaJornada.js')
+    return { ok: true, ...(await sincronizarFunilDoPortal(id)) }
+  })
+
   app.put('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
@@ -3766,6 +3776,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }).catch(err => req.log.warn(`[boletim-upload] enqueue: ${err.message}`))
     }
 
+    // Portais › Etapas › "No funil": o lead acompanha a etapa (ex.: documentos enviados).
+    ;(await import('../services/funilDaJornada.js')).sincronizarFunil(reg.id)
     return { ok: true, document: { id: doc.id, aiStatus, fileName: doc.fileName } }
   })
 

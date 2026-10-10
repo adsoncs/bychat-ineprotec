@@ -564,6 +564,7 @@ export async function aceiteDaInscricaoPeloEnvelope(envelopeId: number): Promise
   }
   const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${env.registrationId} AND contratoAceite IS NULL`
   if (Number(n) > 0) {
+    ;(await import('./funilDaJornada.js')).sincronizarFunil(env.registrationId)
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: env.registrationId }, select: { leadId: true, candidateCode: true } })
     if (reg?.leadId) {
       const { logEvent } = await import('./leadHistory.js')

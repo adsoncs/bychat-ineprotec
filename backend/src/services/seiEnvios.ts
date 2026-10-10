@@ -33,7 +33,7 @@ import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import * as sei from '../lib/seiClient.js'
 import { previa, processar, navegarOferta, SeiPendencia, type MapaOferta } from './seiIntegracao.js'
-import { etapasDaInscricao, lerJornada } from './portalJornada.js'
+import { combinarMatricula, etapasDaInscricao, lerJornada, MATRICULA_PADRAO } from './portalJornada.js'
 import { requisitosQueValem } from './docCondicional.js'
 
 // ── Regras de envio ─────────────────────────────────────────────────────────
@@ -215,6 +215,7 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
       documents: { select: { typeCode: true, status: true }, orderBy: { uploadedAt: 'desc' } },
       processRegistration: {
         select: {
+          offering: { select: { course: { select: { exigeContrato: true, enviarSei: true } } } },
           selectionProcess: {
             select: {
               useCustomDocuments: true,
@@ -233,8 +234,13 @@ export async function elegibilidade(registrationId: number, opts: { online?: boo
   add('portal', !fora, fora ? `Inscrição ${ROTULO_STATUS[fora] ?? fora}.` : 'Inscrição ativa.')
   // Regras da matrícula do portal (Portais › Etapas): portal fora do SEI não envia,
   // nem pelo botão manual; portal sem contrato não cobra assinatura.
-  const regrasPortal = lerJornada(reg.portal?.jornadaEtapas).matricula
-  if (regrasPortal && !regrasPortal.enviarSei) add('portal', false, 'Este portal não envia ao SEI (Portais › Etapas › Matrícula).')
+  // Junto com as do curso (Educacional › Cursos): extensão vendida no portal
+  // do polo não tem contrato nem vai ao SEI.
+  const doPortal = lerJornada(reg.portal?.jornadaEtapas).matricula ?? { ...MATRICULA_PADRAO }
+  const curso = reg.processRegistration?.offering?.course
+  const regrasPortal = combinarMatricula(doPortal, curso)
+  if (!doPortal.enviarSei) add('portal', false, 'Este portal não envia ao SEI (Portais › Etapas › Matrícula).')
+  else if (curso?.enviarSei === false) add('portal', false, 'Este curso não envia ao SEI (Educacional › Cursos).')
 
   // Etapas das duas sequências (inscrição e portal logado): todas concluídas.
   const vistas = new Set<string>()
@@ -364,6 +370,8 @@ async function idsCandidatos(portais: number[] = [], limite = 300): Promise<numb
     where: {
       createdAt: { gte: desde },
       mergedIntoId: null,
+      // Cursos com o envio ao SEI desligado (Educacional › Cursos) também não entram.
+      NOT: { processRegistration: { offering: { course: { enviarSei: false } } } },
       status: { notIn: [...STATUS_FORA] },
       ...(portais.length || foraDoSei.length
         ? { portalId: { ...(portais.length ? { in: portais } : {}), ...(foraDoSei.length ? { notIn: foraDoSei } : {}) } }

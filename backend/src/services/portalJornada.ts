@@ -50,6 +50,24 @@ export interface JornadaConfig {
   dados?: unknown
   /** O que vale depois da inscrição, já no ERP e no SEI (lerJornada sempre preenche). */
   matricula?: MatriculaConfig
+  /**
+   * De-para com o funil do portal: em que etapa do funil o lead fica enquanto
+   * o candidato está em cada etapa da jornada (chave da etapa → Stage.key), e
+   * `concluido` quando todas terminaram. Ver services/funilDaJornada.
+   */
+  funil?: FunilDaJornada
+}
+
+export type FunilDaJornada = Partial<Record<ChaveEtapa | 'concluido', string>>
+
+function lerFunil(bruto: unknown): FunilDaJornada {
+  const b = (bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? bruto : {}) as Record<string, unknown>
+  const out: FunilDaJornada = {}
+  for (const k of [...CHAVES, 'concluido'] as const) {
+    const v = typeof b[k] === 'string' ? (b[k] as string).trim().slice(0, 50) : ''
+    if (v) out[k] = v
+  }
+  return out
 }
 
 /**
@@ -154,13 +172,14 @@ export function lerJornada(bruto: unknown): JornadaConfig {
     painel: b.painel === null || b.painel === undefined ? null : normalizarLista(b.painel, PADRAO.painel!),
     dados: b.dados ?? null,
     matricula: lerMatricula(b.matricula),
+    funil: lerFunil(b.funil),
   }
 }
 
 /** O que gravar: normalizado, com todas as chaves, a ordem recebida e os dados do portal. */
 export function jornadaParaGravar(bruto: unknown): JornadaConfig {
   const j = lerJornada(bruto)
-  return { inscricao: j.inscricao, painel: j.painel, dados: normalizarDados(j.dados), matricula: j.matricula }
+  return { inscricao: j.inscricao, painel: j.painel, dados: normalizarDados(j.dados), matricula: j.matricula, funil: j.funil ?? {} }
 }
 
 /** Regras da matrícula do portal (padrão quando o portal não configurou). */
@@ -168,6 +187,30 @@ export async function matriculaDoPortal(portalId: number | null | undefined): Pr
   if (!portalId) return { ...MATRICULA_PADRAO }
   const p = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { jornadaEtapas: true } })
   return lerJornada(p?.jornadaEtapas).matricula ?? { ...MATRICULA_PADRAO }
+}
+
+/**
+ * Regras da matrícula de uma inscrição: as do portal E as do curso escolhido
+ * (Educacional › Cursos). As duas precisam exigir — o polo vende graduação e
+ * extensão no mesmo portal, e é o curso que diz que extensão não tem contrato.
+ */
+export function combinarMatricula(portal: MatriculaConfig, curso: { exigeContrato?: boolean | null; enviarSei?: boolean | null } | null | undefined): MatriculaConfig {
+  return {
+    exigeContrato: portal.exigeContrato && curso?.exigeContrato !== false,
+    enviarSei: portal.enviarSei && curso?.enviarSei !== false,
+  }
+}
+
+export async function matriculaDaInscricao(registrationId: number): Promise<MatriculaConfig> {
+  const r = await prisma.enrollmentRegistration.findUnique({
+    where: { id: registrationId },
+    select: {
+      portal: { select: { jornadaEtapas: true } },
+      processRegistration: { select: { offering: { select: { course: { select: { exigeContrato: true, enviarSei: true } } } } } },
+    },
+  })
+  const portal = lerJornada(r?.portal?.jornadaEtapas).matricula ?? { ...MATRICULA_PADRAO }
+  return combinarMatricula(portal, r?.processRegistration?.offering?.course)
 }
 
 // ─── Situação de cada etapa para uma inscrição ────────────────────────────
@@ -249,7 +292,7 @@ async function contexto(registrationId: number) {
       processRegistration: {
         select: {
           offeringId: true,
-          offering: { select: { id: true, nome: true, course: { select: { nome: true } } } },
+          offering: { select: { id: true, nome: true, course: { select: { nome: true, exigeContrato: true, enviarSei: true } } } },
           selectionProcess: {
             select: {
               entryModeId: true,
@@ -400,6 +443,8 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       })
     } else if (e.chave === 'contrato') {
       if (!reg.processRegistration?.offering) continue
+      // Curso sem contrato (ex.: extensão vendida no portal do polo): a etapa some.
+      if (reg.processRegistration.offering.course?.exigeContrato === false) continue
       const aceite = (reg.contratoAceite ?? null) as any
       const erp = matricula?.contrato?.aceiteEm ?? null
       const assinado = !!erp || !!aceite?.em
@@ -563,6 +608,7 @@ export async function responderParecer(registrationId: number, decisao: 'aceito'
     // Desistiu: a inscrição é encerrada (Cancelada) — a pessoa pode se inscrever de novo.
     data: { analiseAcademica: { ...atual, aceite } as any, ...(decisao === 'desistiu' ? { status: 'cancelled' } : {}) },
   })
+  ;(await import('./funilDaJornada.js')).sincronizarFunil(registrationId)
   return { ok: true }
 }
 
@@ -661,5 +707,6 @@ export async function assinarContratoDaInscricao(p: { registrationId: number; no
     plano: { valorTotalCentavos: c.valorTotalCentavos, numParcelas: c.numParcelas, valorParcelaCentavos: c.valorParcelaCentavos },
   }
   const n = await prisma.$executeRaw`UPDATE bychat_enrollment_registrations SET contratoAceite = ${JSON.stringify(aceite)} WHERE id = ${p.registrationId} AND contratoAceite IS NULL`
+  if (Number(n) > 0) (await import('./funilDaJornada.js')).sincronizarFunil(p.registrationId)
   return { ok: true, jaAssinado: Number(n) === 0 }
 }

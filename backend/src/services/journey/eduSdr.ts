@@ -201,6 +201,11 @@ async function etapasDoPortal(p: PortalInfo, o: OfertaDoPortal, temDocs: boolean
     if (e.chave === 'pagamento' && !p.requirePayment) continue
     if (e.chave === 'documentos' && !temDocs) continue
     if (e.chave === 'prova' && o.ingresso?.evaluationType !== 'exam_online') continue
+    // Curso sem contrato (Educacional › Cursos), ex.: extensão vendida no portal do polo.
+    if (e.chave === 'contrato' && o.courseId) {
+      const c = await prisma.course.findUnique({ where: { id: o.courseId }, select: { exigeContrato: true } }).catch(() => null)
+      if (c?.exigeContrato === false) continue
+    }
     if (e.chave === 'analise') {
       if (!e.documentos?.length) continue
       // Só para as formas de ingresso escolhidas (vazio = todas).

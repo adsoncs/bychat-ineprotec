@@ -168,6 +168,7 @@ import { startEscalationScheduler } from './services/routing/escalation.js'
 import { startTransferExpireScheduler } from './services/routing/transferExpire.js'
 import { startShiftHandoverScheduler } from './services/routing/shiftHandover.js'
 import { startWorkflowEngine } from './services/workflowEngine.js'
+import { ligarFunilDaJornada } from './services/funilDaJornada.js'
 import { startWorkers } from './services/workers.js'
 import { startCadenceScheduler } from './services/cadenceScheduler.js'
 import { startPriorityScoreScheduler } from './services/priorityScoreService.js'
@@ -1466,6 +1467,8 @@ try {
   startMetaLeadPoller()
   startSaleDetectionScheduler().catch(err => console.error('[SaleDetection] Init error:', err))
   startWorkflowEngine()
+  // Portais › Etapas › "No funil": o lead acompanha a etapa da inscrição.
+  ligarFunilDaJornada()
   startWorkers()
   startCadenceScheduler().catch(err => console.error('[cadenceScheduler] init falhou:', err))
 import('./services/scheduledMessageScheduler.js')

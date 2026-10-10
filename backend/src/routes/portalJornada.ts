@@ -255,6 +255,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     await prisma.enrollmentRegistration.update({ where: { id: d.reg.id }, data: { formData: form } })
     // Já é aluno? O cadastro do ERP recebe na hora — não espera outra efetivação.
     await aplicarNoCadastro(d.reg.leadId, form)
+    ;(await import('../services/funilDaJornada.js')).sincronizarFunil(d.reg.id)
     return { ok: true }
   })
 

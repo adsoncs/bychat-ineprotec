@@ -3614,6 +3614,10 @@ model Course {
   updatedAt                 DateTime          @updatedAt
 
   offerings CourseOffering[]
+  /// Regras de matrícula do curso (valem junto com as do portal: as duas
+  /// precisam exigir). Curso livre/extensão: sem contrato e fora do SEI.
+  exigeContrato             Boolean          @default(true)
+  enviarSei                 Boolean          @default(true)
 
   @@index([unitId])
   @@index([levelId])

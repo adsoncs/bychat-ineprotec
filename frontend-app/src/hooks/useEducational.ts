@@ -279,6 +279,9 @@ export interface Course {
   duracaoMeses: number | null
   cargaHoraria: number | null
   active: boolean
+  /** Regras de matrícula do curso (valem junto com as do portal). */
+  exigeContrato?: boolean
+  enviarSei?: boolean
   createdAt: string
   updatedAt: string
   _count?: { offerings: number }
@@ -293,6 +296,8 @@ export interface CourseInput {
   duracaoMeses?: number | null | undefined
   cargaHoraria?: number | null | undefined
   active?: boolean | undefined
+  exigeContrato?: boolean | undefined
+  enviarSei?: boolean | undefined
 }
 
 export function useCourses(filters: { unitId?: number; levelId?: number; search?: string } = {}) {

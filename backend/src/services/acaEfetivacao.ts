@@ -306,8 +306,9 @@ export async function efetivarInscricao(
   // Portal sem contrato (Portais › Etapas › Matrícula): efetivar já matricula —
   // o mesmo que o botão "Efetivar" da secretaria, sem esperar aceite nenhum — e
   // não dispara o gatilho de contrato. Lista de espera continua esperando vaga.
-  const { matriculaDoPortal } = await import('./portalJornada.js')
-  const regrasPortal = await matriculaDoPortal(reg.portalId)
+  // Regras do portal E do curso (extensão no portal do polo: sem contrato).
+  const { matriculaDaInscricao } = await import('./portalJornada.js')
+  const regrasPortal = await matriculaDaInscricao(reg.id)
   if (!regrasPortal.exigeContrato) {
     let financeiroAviso: string | null = null
     if (!listaEspera) {

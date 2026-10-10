@@ -238,6 +238,8 @@ function CourseFormModal({
   const [duracaoMeses, setDuracaoMeses] = useState(course?.duracaoMeses != null ? String(course.duracaoMeses) : '')
   const [cargaHoraria, setCargaHoraria] = useState(course?.cargaHoraria != null ? String(course.cargaHoraria) : '')
   const [active, setActive] = useState(course?.active ?? true)
+  const [exigeContrato, setExigeContrato] = useState(course?.exigeContrato ?? true)
+  const [enviarSei, setEnviarSei] = useState(course?.enviarSei ?? true)
   const create = useCreateCourse()
   const update = useUpdateCourse()
   const loading = create.isPending || update.isPending
@@ -266,6 +268,8 @@ function CourseFormModal({
       duracaoMeses: parseIntOrNull(duracaoMeses),
       cargaHoraria: parseIntOrNull(cargaHoraria),
       active,
+      exigeContrato,
+      enviarSei,
     }
     if (isEdit) {
       update.mutate({ id: course.id, ...payload }, {
@@ -353,6 +357,21 @@ function CourseFormModal({
           <input type="checkbox" checked={active} onChange={(e) => setActive((e.target as HTMLInputElement).checked)} />
           Ativo
         </label>
+        <div class="rounded-md border border-border p-3 space-y-2">
+          <div class="text-xs font-semibold text-fg">Matrícula</div>
+          <label class="flex items-center gap-2 text-sm text-fg-muted">
+            <input type="checkbox" checked={exigeContrato} onChange={(e) => setExigeContrato((e.target as HTMLInputElement).checked)} />
+            Exigir contrato para efetivar a matrícula
+          </label>
+          <label class="flex items-center gap-2 text-sm text-fg-muted">
+            <input type="checkbox" checked={enviarSei} onChange={(e) => setEnviarSei((e.target as HTMLInputElement).checked)} />
+            Enviar as matrículas deste curso ao SEI
+          </label>
+          <p class="text-2xs text-fg-muted">
+            Valem junto com as do portal (Portais › Etapas › Matrícula): os dois precisam exigir. Curso livre ou de
+            extensão costuma não ter contrato nem ir ao SEI — desligado aqui, vale em qualquer portal, inclusive no do polo.
+          </p>
+        </div>
       </div>
     </Modal>
   )

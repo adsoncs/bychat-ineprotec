@@ -564,6 +564,8 @@ export async function educationalRoutes(app: FastifyInstance) {
         duracaoMeses: body.duracaoMeses ? parseInt(body.duracaoMeses) : null,
         cargaHoraria: body.cargaHoraria ? parseInt(body.cargaHoraria) : null,
         active: body.active !== false,
+        exigeContrato: body.exigeContrato !== false,
+        enviarSei: body.enviarSei !== false,
       },
     })
     return { ok: true, course }
@@ -581,6 +583,8 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.duracaoMeses !== undefined) data.duracaoMeses = body.duracaoMeses ? parseInt(body.duracaoMeses) : null
     if (body.cargaHoraria !== undefined) data.cargaHoraria = body.cargaHoraria ? parseInt(body.cargaHoraria) : null
     if (body.active !== undefined) data.active = !!body.active
+    if (body.exigeContrato !== undefined) data.exigeContrato = !!body.exigeContrato
+    if (body.enviarSei !== undefined) data.enviarSei = !!body.enviarSei
     try {
       const course = await prisma.course.update({ where: { id: parseInt(id) }, data })
       return { ok: true, course }
