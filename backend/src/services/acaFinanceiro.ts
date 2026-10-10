@@ -417,19 +417,20 @@ async function posContrato(
 export async function criarCobrancaParcela(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
   // Parcela de plano cujo restante é do SEI: quem emite e cobra é o SEI.
   // Cobrar aqui também seria cobrar duas vezes.
-  const regras = await regrasDoPlanoDaParcela(parcelaId)
-  if (regras?.destino === 'sei') {
+  const doPlano = await regrasDoPlanoDaParcela(parcelaId)
+  if (doPlano?.destino === 'sei') {
     const p = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { situacao: true } })
     if (p?.situacao !== 'PAGA') return { ok: false, error: 'As parcelas deste plano de pagamento são cobradas pelo SEI — não geram cobrança aqui.' }
   }
   const conn = await conexaoDaParcela(parcelaId)
   if (!conn) return { ok: false, error: 'Nenhuma conexão de pagamento ativa (Configurações › Pagamentos).' }
+  const regras = doPlano?.regras ?? null
   if (conn.provider === 'iugu') return criarCobrancaIugu(parcelaId, conn, regras)
-  return criarCobrancaAsaas(parcelaId)
+  return criarCobrancaAsaas(parcelaId, regras)
 }
 
 /** Cria a cobrança (boleto+PIX) no Asaas para uma parcela e guarda as referências. */
-export async function criarCobrancaAsaas(parcelaId: number): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
+export async function criarCobrancaAsaas(parcelaId: number, regras: RegrasDoPlano | null = null): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {
   // A mesma conta que recebeu a entrada no checkout recebe as mensalidades.
   const config = await contaDaParcela(parcelaId)
   if (!config) return { ok: false, error: 'Nenhuma conexão Asaas ativa (Configurações › Pagamentos).' }
@@ -448,9 +449,13 @@ export async function criarCobrancaAsaas(parcelaId: number): Promise<{ ok: true;
     }
     // 2) cria a cobrança — valor já com multa+juros se vencida (Fin-2)
     const enc = calcularEncargos(parcela, await getEncargosConfig())
+    // Desconto de pontualidade do plano: só na parcela em dia, até o dia-limite.
+    const pontual = !enc.vencida && parcela.tipo !== 'MATRICULA' ? pontualidadeDaFatura(regras, parcela.dataVencimento) : null
     const pay = await createAsaasPayment(config, {
       customerId, value: enc.valorCobranca / 100, dueDate: parcela.dataVencimento,
-      description: `${parcela.tipo} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (atualizado)' : ''}`, externalReference: `aca-parcela:${parcelaId}`,
+      description: `${parcela.tipo} ${parcela.nroParcela} — RA ${aluno.ra}${enc.vencida ? ' (atualizado)' : ''}${pontual ? ` · ${pontual.pct}% de desconto pagando até ${pontual.ate.toLocaleDateString('pt-BR')}` : ''}`,
+      externalReference: `aca-parcela:${parcelaId}`,
+      ...(pontual ? { descontoAntecipado: { dias: pontual.dias, pct: pontual.pct } } : {}),
     })
     // 3) PIX copia-e-cola (best-effort)
     let pix: string | null = null
@@ -477,11 +482,23 @@ export function urlGatilhoIugu(webhookToken: string): string | undefined {
  * atualizado (multa + juros até hoje, como no Asaas); a partir daí os encargos
  * seguem por conta da própria iugu.
  */
-/** Regras do plano de pagamento do contrato da parcela (null = plano antigo ou sem plano). */
-async function regrasDoPlanoDaParcela(parcelaId: number): Promise<RegrasDoPlano | null> {
-  const p = await prisma.acaParcela.findUnique({ where: { id: parcelaId }, select: { contrato: { select: { planoPagamentoId: true } } } })
+/**
+ * Regras do plano de pagamento do contrato da parcela (null = plano antigo ou
+ * sem plano) e quem cuida das parcelas dele. O destino vale o gravado na
+ * escolha do checkout — o boleto parcelado do curso completo pode ter destino
+ * diferente do plano —, e o do plano quando não houve checkout.
+ */
+async function regrasDoPlanoDaParcela(parcelaId: number): Promise<{ regras: RegrasDoPlano; destino: string } | null> {
+  const p = await prisma.acaParcela.findUnique({
+    where: { id: parcelaId },
+    select: { contrato: { select: { planoPagamentoId: true, matricula: { select: { enrollmentRegistrationId: true } } } } },
+  })
   const plano = await planoPorId(p?.contrato.planoPagamentoId)
-  return plano?.regras ?? null
+  if (!plano) return null
+  const regId = p?.contrato.matricula.enrollmentRegistrationId
+  const reg = regId ? await prisma.enrollmentRegistration.findUnique({ where: { id: regId }, select: { paymentPlan: true } }) : null
+  const escolha = lerEscolhaDoPlano(reg?.paymentPlan)
+  return { regras: plano.regras, destino: escolha?.planoId === plano.id ? escolha.destino : plano.regras.destino }
 }
 
 async function criarCobrancaIugu(parcelaId: number, conn: ConexaoDoErp, regras: RegrasDoPlano | null = null): Promise<{ ok: true; asaasChargeId: string } | { ok: false; error: string }> {

@@ -27,6 +27,7 @@ interface Formas {
 }
 interface Regras {
   destino: Destino
+  destinoBoletoIntegral: 'sei' | 'attrae'
   entrada: { ativo: boolean } & Formas
   integral: { ativo: boolean } & Formas
   pontualidade: { ativo: boolean; descontoPct: number; diaLimite: number }
@@ -56,6 +57,7 @@ const NOVO: Plano = {
   nome: '', ativo: true, totalParcelas: 6, primeira: 'matricula', valorParcela: 0, valorMatricula: null, diaVencimento: 10,
   regras: {
     destino: 'attrae',
+    destinoBoletoIntegral: 'attrae',
     entrada: { ativo: true, ...FORMAS_VAZIAS },
     integral: { ativo: false, ...FORMAS_VAZIAS },
     pontualidade: { ativo: false, descontoPct: 0, diaLimite: 5 },
@@ -259,13 +261,13 @@ function EditorDoPlano({ plano: p, muda }: { plano: Plano; muda: (p: Plano) => v
           <option value="attrae">Cobradas aqui (fatura mês a mês no gateway)</option>
           <option value="nenhum">Nenhuma (só pagamento integral)</option>
         </Select>
-        {r.destino === 'sei' && (
+        {(r.destino === 'sei' || (r.integral.ativo && r.integral.boletoParcelado.ativo && r.destinoBoletoIntegral === 'sei')) && (
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Input label="Código da condição de pagamento no SEI" value={r.codigoSei} onInput={(e) => setR({ codigoSei: (e.target as HTMLInputElement).value })} hint="Vai na integração com a matrícula" />
             {r.integral.ativo && <Input label="Código no SEI (curso completo)" value={r.codigoSeiIntegral} onInput={(e) => setR({ codigoSeiIntegral: (e.target as HTMLInputElement).value })} hint="Em branco = o mesmo código" />}
           </div>
         )}
-        {r.destino === 'attrae' && (
+        {(r.destino === 'attrae' || (r.integral.ativo && r.integral.boletoParcelado.ativo && r.destinoBoletoIntegral === 'attrae')) && (
           <div class="flex flex-col gap-2">
             <Marca checked={r.pontualidade.ativo} onChange={(v) => setR({ pontualidade: { ...r.pontualidade, ativo: v } })}>Desconto de pontualidade</Marca>
             {r.pontualidade.ativo && (
@@ -288,6 +290,17 @@ function EditorDoPlano({ plano: p, muda }: { plano: Plano; muda: (p: Plano) => v
         <Secao titulo={`Pagar o curso completo — ${brl(vIntegral)}`} ajuda="O candidato quita tudo agora: à vista (com desconto) ou parcelado no cartão/boleto. Não sobra parcela do plano.">
           <Marca checked={r.integral.ativo} onChange={(v) => setR({ integral: { ...r.integral, ativo: v } })}>Oferecer esta opção</Marca>
           {r.integral.ativo && <EditorDeFormas valor={vIntegral} formas={r.integral} muda={(f) => setR({ integral: { ...r.integral, ...f } })} />}
+          {r.integral.ativo && r.integral.boletoParcelado.ativo && (
+            <Select
+              label="Parcelas do boleto parcelado (curso completo)"
+              hint="A 1ª é paga na inscrição; as demais ficam em aberto com quem você escolher aqui."
+              value={r.destinoBoletoIntegral}
+              onChange={(e) => setR({ destinoBoletoIntegral: (e.target as HTMLSelectElement).value as 'sei' | 'attrae' })}
+            >
+              <option value="attrae">Cobradas aqui (fatura mês a mês no gateway)</option>
+              <option value="sei">Enviadas ao SEI (o SEI cobra)</option>
+            </Select>
+          )}
         </Secao>
       )}
     </div>

@@ -97,6 +97,8 @@ export interface AsaasPaymentInput {
   externalReference: string   // nosso enrollmentId como string
   billingType?: 'UNDEFINED' | 'PIX' | 'BOLETO' | 'CREDIT_CARD'
   callbackUrl?: string  // URL para onde o Asaas redireciona após pagar pelo checkout
+  /** Desconto de pontualidade: `pct`% para quem paga até `dias` antes do vencimento. */
+  descontoAntecipado?: { dias: number; pct: number }
 }
 
 export interface AsaasPaymentResult {
@@ -122,6 +124,11 @@ export async function createAsaasPayment(config: AsaasConfig, input: AsaasPaymen
   if (input.callbackUrl) body.callback = { successUrl: input.callbackUrl, autoRedirect: true }
   if (config.fine) body.fine = config.fine
   if (config.interest) body.interest = config.interest
+  // Desconto de pontualidade: vale até `dias` antes do vencimento; depois, o
+  // valor cheio (multa e juros só depois do vencimento).
+  if (input.descontoAntecipado && input.descontoAntecipado.dias >= 1 && input.descontoAntecipado.pct > 0) {
+    body.discount = { value: Math.round(input.descontoAntecipado.pct * 100) / 100, dueDateLimitDays: Math.round(input.descontoAntecipado.dias), type: 'PERCENTAGE' }
+  }
 
   const p = await asaasFetch(config, '/payments', 'POST', body)
   return {

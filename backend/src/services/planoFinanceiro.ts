@@ -39,6 +39,8 @@ export interface FormasDePagamento {
 export interface RegrasDoPlano {
   /** Quem cuida das parcelas que ficam em aberto depois da entrada. */
   destino: DestinoParcelas
+  /** Curso completo no boleto parcelado: quem cuida das parcelas do boleto. */
+  destinoBoletoIntegral: 'sei' | 'attrae'
   /** O que pagar agora: só a entrada (matrícula/1ª parcela) ou o curso inteiro. */
   entrada: { ativo: boolean } & FormasDePagamento
   integral: { ativo: boolean } & FormasDePagamento
@@ -101,6 +103,9 @@ export function lerRegrasDoPlano(bruto: unknown): RegrasDoPlano | null {
   const destino: DestinoParcelas = ['sei', 'attrae', 'nenhum'].includes(r.destino) ? r.destino : 'attrae'
   return {
     destino,
+    destinoBoletoIntegral: r.destinoBoletoIntegral === 'sei' || r.destinoBoletoIntegral === 'attrae'
+      ? r.destinoBoletoIntegral
+      : destino === 'sei' ? 'sei' : 'attrae',
     entrada: { ativo: r.entrada?.ativo !== false, ...lerFormas(r.entrada) },
     integral: { ativo: !!r.integral?.ativo, ...lerFormas(r.integral) },
     pontualidade: {
@@ -355,8 +360,8 @@ export function escolhaParaGravar(p: PlanoDaOferta, o: OpcaoDePagamento, ficamPa
     planoNome: p.nome,
     opcao: o,
     // Integral à vista ou no cartão não deixa nada em aberto. No boleto
-    // parcelado ficam as parcelas do boleto, com o mesmo destino do plano.
-    destino: o === 'integral' && !ficamParcelas ? 'nenhum' : p.regras.destino,
+    // parcelado ficam as parcelas do boleto, com o destino escolhido no plano.
+    destino: o === 'integral' ? (ficamParcelas ? p.regras.destinoBoletoIntegral : 'nenhum') : p.regras.destino,
     codigoSei: o === 'integral' ? (p.regras.codigoSeiIntegral || p.regras.codigoSei) : p.regras.codigoSei,
     totalParcelas: totalDeParcelas(p),
     valorIntegral: valorIntegral(p),
