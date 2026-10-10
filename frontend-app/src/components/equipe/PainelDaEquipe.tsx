@@ -20,7 +20,7 @@ import {
   buscarNasConversas, useAcoesDaEquipe, useConversasDaEquipe, useDetalhesDaConversa, useMensagensDaConversa,
   usePessoasDaEquipe, useResumoDaEquipe, type ConversaEquipe, type MensagemEquipe, type PessoaEquipe,
 } from '@/hooks/useEquipe'
-import { useEquipeStore } from '@/stores/equipe'
+import { useEquipeStore, type AbaDaEquipe } from '@/stores/equipe'
 import { useUserStore } from '@/stores/user'
 import { useCan, useIsModuleActive } from '@/hooks/usePermissions'
 import { MensagemDaEquipe } from './MensagemDaEquipe'
@@ -96,8 +96,16 @@ export function BotaoDaEquipe() {
 
 // ─── Lista ─────────────────────────────────────────────────────────────────
 
+const ABAS: Array<{ id: AbaDaEquipe; rotulo: string }> = [
+  { id: 'pessoas', rotulo: 'Pessoas' },
+  { id: 'grupos', rotulo: 'Grupos' },
+  { id: 'leads', rotulo: 'Leads' },
+]
+const abaDe = (c: ConversaEquipe): AbaDaEquipe => (c.tipo === 'direta' ? 'pessoas' : c.tipo === 'lead' ? 'leads' : 'grupos')
+
 function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, destaque?: number) => void; onNova: () => void }) {
   const { data, isLoading } = useConversasDaEquipe()
+  const { aba: abaEscolhida, setAba } = useEquipeStore()
   const [q, setQ] = useState('')
   const [achados, setAchados] = useState<Awaited<ReturnType<typeof buscarNasConversas>>['resultados']>([])
   const [filtro, setFiltro] = useState<'todas' | 'naoLidas'>('todas')
@@ -106,13 +114,29 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
     const t = setTimeout(() => { buscarNasConversas(q.trim()).then((r) => setAchados(r.resultados)).catch(() => {}) }, 300)
     return () => clearTimeout(t)
   }, [q])
-  const filtradas = (data?.conversas ?? [])
-    .filter((c) => !q.trim() || c.nome.toLowerCase().includes(q.trim().toLowerCase()))
+  const todas = data?.conversas ?? []
+  // A aba Leads só aparece quando existe alguma conversa sobre lead.
+  const abas = ABAS.filter((a) => a.id !== 'leads' || todas.some((c) => c.tipo === 'lead'))
+  const aba = abas.some((a) => a.id === abaEscolhida) ? abaEscolhida : 'pessoas'
+  const naoLidasDa = (a: AbaDaEquipe) => todas.filter((c) => abaDe(c) === a && !c.silenciada).reduce((n, c) => n + c.naoLidas, 0)
+  // Buscando, procura em todas as abas.
+  const buscando = !!q.trim()
+  const filtradas = todas
+    .filter((c) => buscando || abaDe(c) === aba)
+    .filter((c) => !buscando || c.nome.toLowerCase().includes(q.trim().toLowerCase()))
     .filter((c) => filtro === 'todas' || c.naoLidas > 0)
-  // Canais de equipes de que a pessoa (admin/gerente) não participa: seção própria, no fim.
-  const conversas = filtradas.filter((c) => !c.observando)
-  const outrasEquipes = filtradas.filter((c) => c.observando).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  const nomeDe = new Map((data?.conversas ?? []).map((c) => [c.id, c.nome]))
+  // Em Grupos: minhas equipes, grupos livres e (admin/gerente) outras equipes.
+  const secoes: Array<{ titulo: string | null; dica?: string; itens: ConversaEquipe[] }> = buscando || aba !== 'grupos'
+    ? [{ titulo: null, itens: filtradas }]
+    : [
+        { titulo: 'Minhas equipes', itens: filtradas.filter((c) => c.tipo === 'equipe' && !c.observando) },
+        { titulo: 'Grupos', itens: filtradas.filter((c) => c.tipo === 'grupo') },
+        { titulo: 'Outras equipes', dica: 'Você vê e escreve nestes canais sem fazer parte da equipe.', itens: filtradas.filter((c) => c.observando).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')) },
+      ].filter((x) => x.itens.length)
+  const nomeDe = new Map(todas.map((c) => [c.id, c.nome]))
+  const vazio = aba === 'pessoas' ? 'Nenhuma conversa individual ainda. Toque em Nova para falar com alguém.'
+    : aba === 'grupos' ? 'Nenhum grupo ainda. Os canais das suas equipes aparecem aqui.'
+    : 'Nenhuma conversa sobre lead.'
 
   return (
     <div class="flex h-full flex-col">
@@ -122,8 +146,23 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
             <Search size={14} class="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
             <input value={q} placeholder="Buscar conversa ou mensagem" class="w-full rounded-full border border-border bg-surface-2 pl-8 pr-3 py-1.5 text-sm" onInput={(e) => setQ((e.target as HTMLInputElement).value)} />
           </div>
-          <Button size="sm" onClick={props.onNova} title="Nova conversa"><Plus size={14} /> Nova</Button>
+          <Button size="sm" onClick={props.onNova} title={aba === 'grupos' ? 'Novo grupo' : 'Nova conversa'}><Plus size={14} /> Nova</Button>
         </div>
+        {!buscando && (
+          <div class="flex border-b border-border -mx-2 px-2" role="tablist">
+            {abas.map((a) => {
+              const n = naoLidasDa(a.id)
+              return (
+                <button key={a.id} type="button" role="tab" aria-selected={aba === a.id}
+                  class={cn('flex flex-1 items-center justify-center gap-1.5 -mb-px border-b-2 px-2 py-1.5 text-sm', aba === a.id ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg')}
+                  onClick={() => setAba(a.id)}>
+                  {a.rotulo}
+                  {n > 0 && <span class="rounded-full bg-accent px-1.5 text-2xs font-bold text-fg-on-brand">{n > 99 ? '99+' : n}</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div class="flex gap-1 text-xs">
           {(['todas', 'naoLidas'] as const).map((f) => (
             <button key={f} type="button" class={cn('rounded-full px-2.5 py-0.5', filtro === f ? 'bg-accent text-fg-on-brand' : 'bg-surface-2 text-fg-muted hover:text-fg')} onClick={() => setFiltro(f)}>
@@ -134,34 +173,16 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
       </div>
       <div class="flex-1 overflow-y-auto">
         {isLoading && <div class="p-4 text-sm text-fg-muted">Carregando…</div>}
-        {!isLoading && !conversas.length && !outrasEquipes.length && !achados.length && (
+        {!isLoading && !filtradas.length && !achados.length && (
           <div class="p-6 text-center text-sm text-fg-muted space-y-2">
             <MessagesSquare size={28} class="mx-auto opacity-50" />
-            <div>{q ? 'Nada encontrado.' : filtro === 'naoLidas' ? 'Tudo lido por aqui.' : 'Nenhuma conversa ainda. Comece uma com alguém da equipe.'}</div>
+            <div>{buscando ? 'Nada encontrado.' : filtro === 'naoLidas' ? 'Tudo lido por aqui.' : vazio}</div>
           </div>
         )}
-        {[...conversas, ...outrasEquipes].map((c, i) => (
-          <div key={c.id}>
-          {i === conversas.length && c.observando && (
-            <div class="px-3 pt-3 pb-1 text-2xs font-semibold uppercase text-fg-muted" title="Você vê e escreve nestes canais sem fazer parte da equipe.">Outras equipes</div>
-          )}
-          <button type="button" class={cn('flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-surface-2 border-b border-border/50', props.ativa === c.id && 'bg-accent/10')} onClick={() => props.onAbrir(c.id)}>
-            <IconeDaConversa c={c} />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class={cn('truncate text-sm', c.naoLidas ? 'font-semibold text-fg' : 'text-fg')}>{c.nome}</span>
-                {c.silenciada && <BellOff size={11} class="shrink-0 text-fg-muted" />}
-                <span class="ml-auto shrink-0 text-2xs text-fg-muted">{c.ultima ? quando(c.ultima.em) : ''}</span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span class={cn('truncate text-xs', c.naoLidas ? 'text-fg' : 'text-fg-muted')}>
-                  {c.ultima ? `${c.ultima.autor && c.tipo !== 'direta' ? `${c.ultima.autor}: ` : c.ultima.autor === 'Você' ? 'Você: ' : ''}${c.ultima.texto}` : c.tipo === 'equipe' ? 'Canal da equipe' : 'Sem mensagens'}
-                </span>
-                {c.mencoes > 0 && <span class="ml-auto shrink-0 rounded-full bg-warning px-1.5 text-2xs font-bold text-white">@</span>}
-                {c.naoLidas > 0 && <span class={cn('shrink-0 rounded-full px-1.5 text-2xs font-bold', c.silenciada ? 'bg-surface-3 text-fg-muted' : 'bg-accent text-fg-on-brand', !c.mencoes && 'ml-auto')}>{c.naoLidas}</span>}
-              </div>
-            </div>
-          </button>
+        {secoes.map((sec) => (
+          <div key={sec.titulo ?? 'todas'}>
+            {sec.titulo && <div class="px-3 pt-3 pb-1 text-2xs font-semibold uppercase text-fg-muted" title={sec.dica}>{sec.titulo}</div>}
+            {sec.itens.map((c) => <ItemDaLista key={c.id} c={c} ativa={props.ativa === c.id} onAbrir={() => props.onAbrir(c.id)} />)}
           </div>
         ))}
         {achados.length > 0 && (
@@ -180,13 +201,36 @@ function ListaDeConversas(props: { ativa: number | null; onAbrir: (id: number, d
   )
 }
 
+function ItemDaLista({ c, ativa, onAbrir }: { c: ConversaEquipe; ativa: boolean; onAbrir: () => void }) {
+  return (
+    <button type="button" class={cn('flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-surface-2 border-b border-border/50', ativa && 'bg-accent/10')} onClick={onAbrir}>
+      <IconeDaConversa c={c} />
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5">
+          <span class={cn('truncate text-sm', c.naoLidas ? 'font-semibold text-fg' : 'text-fg')}>{c.nome}</span>
+          {c.silenciada && <BellOff size={11} class="shrink-0 text-fg-muted" />}
+          <span class="ml-auto shrink-0 text-2xs text-fg-muted">{c.ultima ? quando(c.ultima.em) : ''}</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class={cn('truncate text-xs', c.naoLidas ? 'text-fg' : 'text-fg-muted')}>
+            {c.ultima ? `${c.ultima.autor && c.tipo !== 'direta' ? `${c.ultima.autor}: ` : c.ultima.autor === 'Você' ? 'Você: ' : ''}${c.ultima.texto}` : c.tipo === 'equipe' ? 'Canal da equipe' : 'Sem mensagens'}
+          </span>
+          {c.mencoes > 0 && <span class="ml-auto shrink-0 rounded-full bg-warning px-1.5 text-2xs font-bold text-white">@</span>}
+          {c.naoLidas > 0 && <span class={cn('shrink-0 rounded-full px-1.5 text-2xs font-bold', c.silenciada ? 'bg-surface-3 text-fg-muted' : 'bg-accent text-fg-on-brand', !c.mencoes && 'ml-auto')}>{c.naoLidas}</span>}
+        </div>
+      </div>
+    </button>
+  )
+}
+
 // ─── Nova conversa ─────────────────────────────────────────────────────────
 
 function NovaConversa(props: { onAbrir: (id: number) => void; onVoltar: () => void }) {
   const { data } = usePessoasDaEquipe()
   const { criarConversa } = useAcoesDaEquipe()
   const [q, setQ] = useState('')
-  const [grupo, setGrupo] = useState(false)
+  // Na aba Grupos, "Nova" já começa criando grupo.
+  const [grupo, setGrupo] = useState(() => useEquipeStore.getState().aba === 'grupos')
   const [nome, setNome] = useState('')
   const [marcados, setMarcados] = useState<number[]>([])
   const pessoas = (data?.pessoas ?? []).filter((p) => !q || p.nome.toLowerCase().includes(q.toLowerCase()) || p.email.toLowerCase().includes(q.toLowerCase()))
