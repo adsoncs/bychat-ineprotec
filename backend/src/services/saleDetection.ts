@@ -6,6 +6,7 @@ import { getBranding } from '../lib/branding.js'
 import { logEvent, EVENT_TYPES, getOperator } from './leadHistory.js'
 import { z } from 'zod'
 import { getAnthropicKey, getOpenAiKey } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 const DEFAULT_PROMPT = `Você é um analista de vendas especializado. Analise a conversa de WhatsApp abaixo entre um atendente e um cliente/lead.
 
@@ -130,6 +131,7 @@ async function callAI(systemPrompt: string, conversation: string): Promise<SaleR
     })
     if (resp.ok) {
       const data = await resp.json() as any
+      registrarUsoIA('deteccao_venda', 'anthropic', data)
       const txt = data.content?.[0]?.text || '{}'
       return validateSaleResult(JSON.parse(txt.replace(/```json|```/g, '').trim()))
     }
@@ -163,6 +165,7 @@ async function callAI(systemPrompt: string, conversation: string): Promise<SaleR
     })
     if (resp.ok) {
       const data = await resp.json() as any
+      registrarUsoIA('deteccao_venda', 'openai', data)
       const txt = data.choices?.[0]?.message?.content || '{}'
       return validateSaleResult(JSON.parse(txt.replace(/```json|```/g, '').trim()))
     }

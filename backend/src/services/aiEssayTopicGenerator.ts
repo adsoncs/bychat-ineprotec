@@ -4,6 +4,7 @@
 // e textos motivadores. Usado pela tela admin de Gerenciar Temas da Redação.
 
 import { getAnthropicKey, getAnthropicModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 const MAX_TOKENS = 2500
 
@@ -106,6 +107,7 @@ export async function generateEssayTopic(input: GenerateEssayTopicInput): Promis
     throw new Error(`Anthropic ${resp.status}: ${errText.substring(0, 300)}`)
   }
   const data: any = await resp.json()
+  registrarUsoIA('tema_redacao', 'anthropic', data)
   const text = data.content?.[0]?.text || ''
   const inputTokens = data.usage?.input_tokens || 0
   const outputTokens = data.usage?.output_tokens || 0

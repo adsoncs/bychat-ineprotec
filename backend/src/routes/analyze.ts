@@ -7,6 +7,7 @@ import { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../lib/auth.js'
 import { getBranding } from '../lib/branding.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 const INV_LABELS = [
   'Sem orçamento definido','Até R$1.000/mês','R$1.000–2.500/mês',
@@ -42,6 +43,7 @@ async function callAnthropic(prompt: string, systemPrompt: string): Promise<any>
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`)
 
   const data = await response.json()
+  registrarUsoIA('diagnostico', 'anthropic', data)
   const txt = data.content?.[0]?.text || ''
   return JSON.parse(txt.replace(/```json|```/g, '').trim())
 }
@@ -70,6 +72,7 @@ async function callOpenAI(prompt: string, systemPrompt: string): Promise<any> {
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`)
 
   const data = await response.json()
+  registrarUsoIA('diagnostico', 'openai', data)
   const txt = data.choices?.[0]?.message?.content || ''
   return JSON.parse(txt.replace(/```json|```/g, '').trim())
 }

@@ -2,6 +2,7 @@
 // Fluxo de chatbot de diagnostico — extraido de whatsapp.ts
 // Funciona com qualquer provider (Evolution API ou Cloud API Oficial)
 
+import { registrarUsoIA } from '../lib/consumo.js'
 import { FastifyInstance } from 'fastify'
 import { identidadeDoContato } from '../lib/phone.js'
 import { prisma } from '../lib/prisma.js'
@@ -94,7 +95,7 @@ Retorne exatamente este formato:
 
 // ─── AI Helpers ─────────────────────────────────────────
 
-async function callAnthropicChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
+async function callAnthropicChat(systemPrompt: string, messages: Array<{role: string, content: string}>, funcionalidade = 'chatbot'): Promise<string> {
   // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
   const apiKey = await getAnthropicKey()
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada')
@@ -116,10 +117,11 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
 
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`)
   const data = await response.json() as any
+  registrarUsoIA(funcionalidade, 'anthropic', data)
   return data.content?.[0]?.text || ''
 }
 
-async function callOpenAIChat(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
+async function callOpenAIChat(systemPrompt: string, messages: Array<{role: string, content: string}>, funcionalidade = 'chatbot'): Promise<string> {
   // Chave via Configurações › APIs (fallback .env) — ver lib/aiKeys.
   const apiKey = await getOpenAiKey()
   if (!apiKey) throw new Error('OPENAI_API_KEY não configurada')
@@ -142,15 +144,17 @@ async function callOpenAIChat(systemPrompt: string, messages: Array<{role: strin
 
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`)
   const data = await response.json() as any
+  registrarUsoIA(funcionalidade, 'openai', data)
   return data.choices?.[0]?.message?.content || ''
 }
 
-export async function chatWithAI(systemPrompt: string, messages: Array<{role: string, content: string}>): Promise<string> {
+/** `funcionalidade` aparece na volumetria (lib/consumo): helpdesk, jornada... */
+export async function chatWithAI(systemPrompt: string, messages: Array<{role: string, content: string}>, funcionalidade = 'chatbot'): Promise<string> {
   try {
-    return await callAnthropicChat(systemPrompt, messages)
+    return await callAnthropicChat(systemPrompt, messages, funcionalidade)
   } catch (errA) {
     console.warn(`Anthropic chat falhou (${errA}), tentando OpenAI...`)
-    return await callOpenAIChat(systemPrompt, messages)
+    return await callOpenAIChat(systemPrompt, messages, funcionalidade)
   }
 }
 
@@ -161,10 +165,10 @@ async function extractDataWithAI(conversation: Array<{role: string, content: str
 
   let txt = ''
   try {
-    txt = await callAnthropicChat(prompt, extractionMessages as any)
+    txt = await callAnthropicChat(prompt, extractionMessages as any, 'chatbot_extracao')
   } catch (errA) {
     console.warn(`Anthropic extraction falhou (${errA}), tentando OpenAI...`)
-    txt = await callOpenAIChat(prompt, extractionMessages as any)
+    txt = await callOpenAIChat(prompt, extractionMessages as any, 'chatbot_extracao')
   }
 
   return JSON.parse(txt.replace(/```json|```/g, '').trim())
@@ -202,7 +206,7 @@ export async function postJourneyAiReply(params: {
     const fd: any = (lead.formData as any) || {}
     const history: Array<{ role: string; content: string }> = Array.isArray(fd._postChat) ? fd._postChat : []
     history.push({ role: 'user', content: text })
-    const reply = (await chatWithAI(systemPrompt, history.slice(-20))) || 'Certo! Como posso ajudar?'
+    const reply = (await chatWithAI(systemPrompt, history.slice(-20), 'chatbot_pos_jornada')) || 'Certo! Como posso ajudar?'
     history.push({ role: 'assistant', content: reply })
 
     const r = await sendFn(phone, reply)

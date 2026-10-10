@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 // ─── Tipos ────────────────────────────────────
 
@@ -216,6 +217,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
     })
     if (!response.ok) throw new Error(`Anthropic ${response.status}`)
     const data = await response.json() as any
+    registrarUsoIA('analise_sentimento', 'anthropic', data)
     return data.content?.[0]?.text || ''
   }
 
@@ -232,6 +234,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
   })
   if (!response.ok) throw new Error(`OpenAI ${response.status}`)
   const data = await response.json() as any
+  registrarUsoIA('analise_sentimento', 'openai', data)
   return data.choices?.[0]?.message?.content || ''
 }
 

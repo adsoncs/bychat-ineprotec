@@ -12,6 +12,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 import { matriculaPeloChatLigada, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA, semSecaoDeMatricula } from './journey/eduSdr.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
@@ -695,6 +696,7 @@ async function anthropicTurn(system: string, messages: LlmMsg[], tools: ToolDef[
   }, LLM_TIMEOUT_MS)
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
   const data = await res.json() as any
+  registrarUsoIA('jornada_ia', 'anthropic', data)
   const content = data.content || []
   const calls = content.filter((b: any) => b.type === 'tool_use').map((b: any) => ({ id: b.id, name: b.name, input: b.input }))
   const text = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim()
@@ -730,6 +732,7 @@ async function openaiTurn(system: string, messages: LlmMsg[], tools: ToolDef[]):
   }, LLM_TIMEOUT_MS)
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`)
   const data = await res.json() as any
+  registrarUsoIA('jornada_ia', 'openai', data)
   const msg = data.choices?.[0]?.message || {}
   if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) {
     const calls = msg.tool_calls.map((c: any) => ({ id: c.id, name: c.function?.name, input: safeJson(c.function?.arguments) }))

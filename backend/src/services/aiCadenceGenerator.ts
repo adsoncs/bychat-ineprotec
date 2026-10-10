@@ -8,6 +8,7 @@
 // operador revisar/ajustar (endpoint /commit cria templates + cadência + steps).
 
 import { getAnthropicKey, getOpenAiKey, getPrimaryProvider, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 export type CadenceGoal =
   | 'prospect'           // outbound frio — abrir conversa
@@ -390,6 +391,7 @@ async function callAnthropic(systemPrompt: string, userPrompt: string, apiKey: s
     throw new Error(`Anthropic ${resp.status}: ${err.substring(0, 300)}`)
   }
   const data: any = await resp.json()
+  registrarUsoIA('cadencia_gerador', 'anthropic', data)
   return {
     text: data.content?.[0]?.text ?? '',
     inputTokens:  data.usage?.input_tokens  ?? 0,
@@ -417,6 +419,7 @@ async function callOpenAi(systemPrompt: string, userPrompt: string, apiKey: stri
     throw new Error(`OpenAI ${resp.status}: ${err.substring(0, 300)}`)
   }
   const data: any = await resp.json()
+  registrarUsoIA('cadencia_gerador', 'openai', data)
   return {
     text: data.choices?.[0]?.message?.content ?? '',
     inputTokens:  data.usage?.prompt_tokens     ?? 0,

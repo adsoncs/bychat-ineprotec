@@ -11,6 +11,7 @@ import { onChatbotComplete } from '../services/scoring.js'
 import { getBranding } from '../lib/branding.js'
 import { resolveDefaultTeamId } from '../services/teamRouting.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 // ─── Test Sessions (in-memory, no DB) ─────────────────────
 
@@ -152,6 +153,7 @@ async function callAnthropicChat(systemPrompt: string, messages: Array<{role: st
 
   if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`)
   const data = await response.json() as any
+  registrarUsoIA('chat_site', 'anthropic', data)
   return data.content?.[0]?.text || ''
 }
 
@@ -178,6 +180,7 @@ async function callOpenAIChat(systemPrompt: string, messages: Array<{role: strin
 
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`)
   const data = await response.json() as any
+  registrarUsoIA('chat_site', 'openai', data)
   return data.choices?.[0]?.message?.content || ''
 }
 

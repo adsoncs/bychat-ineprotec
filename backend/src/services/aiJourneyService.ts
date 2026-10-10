@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma.js'
 import { getAnthropicKey, getOpenAiKey, getAnthropicModel, getOpenAiModel, getPrimaryProvider } from '../lib/aiKeys.js'
 import { eventBus } from '../lib/eventBus.js'
 import { queues } from '../lib/queues.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 const MAX_MESSAGES = 30
 const MAX_BODY_PER_MSG = 600
@@ -127,6 +128,7 @@ async function callAnthropic(apiKey: string, model: string, systemPrompt: string
     throw new Error(`Anthropic ${resp.status}: ${t.slice(0, 200)}`)
   }
   const d = await resp.json() as any
+  registrarUsoIA('sugestao_etapa', 'anthropic', d)
   return { text: d.content?.[0]?.text || '', model }
 }
 
@@ -150,6 +152,7 @@ async function callOpenAi(apiKey: string, model: string, systemPrompt: string, u
     throw new Error(`OpenAI ${resp.status}: ${t.slice(0, 200)}`)
   }
   const d = await resp.json() as any
+  registrarUsoIA('sugestao_etapa', 'openai', d)
   return { text: d.choices?.[0]?.message?.content || '', model }
 }
 

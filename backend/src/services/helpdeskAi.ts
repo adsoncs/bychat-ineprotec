@@ -35,7 +35,7 @@ export async function aiTriage(ticketId: number) {
   if (!t) throw new Error('Chamado não encontrado')
   const system = 'Você é um classificador de chamados de suporte ao cliente. Responda APENAS com um objeto JSON válido, sem texto extra, sem code fences.'
   const user = `Classifique o chamado abaixo.\n\nAssunto: ${t.subject}\n\nConversa:\n${t.text || '(sem mensagens)'}\n\nResponda no formato exato:\n{"priority":"low|normal|high|urgent","type":"question|incident|problem|task","sentiment":"positivo|neutro|negativo","summary":"resumo em uma frase"}`
-  const raw = await chatWithAI(system, [{ role: 'user', content: user }])
+  const raw = await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')
   const j = extractJson(raw) || {}
   const priority = TICKET_PRIORITIES.includes(j.priority) ? j.priority : 'normal'
   const type = TICKET_TYPES.includes(j.type) ? j.type : 'question'
@@ -56,7 +56,7 @@ export async function aiSuggestReply(ticketId: number) {
   const kbText = kb.length ? `\n\nArtigos da base de conhecimento que podem ajudar:\n${kb.map((a) => `- ${a.title}: ${a.excerpt || ''}`).join('\n')}` : ''
   const system = 'Você é um agente de suporte ao cliente experiente. Escreva uma resposta cordial, objetiva e em português do Brasil para o SOLICITANTE, com base na conversa. Não invente informações nem prometa prazos. Não inclua saudações genéricas excessivas. Retorne apenas o texto da resposta.'
   const user = `Assunto: ${t.subject}\nSolicitante: ${t.requesterName || 'cliente'}\n\nConversa até agora:\n${t.text || '(sem mensagens)'}${kbText}\n\nEscreva a próxima resposta do agente ao solicitante.`
-  const reply = await chatWithAI(system, [{ role: 'user', content: user }])
+  const reply = await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')
   return { reply: reply.trim() }
 }
 
@@ -69,7 +69,7 @@ export async function aiQaTicket(ticketId: number): Promise<{ score: number | nu
   if (!t) throw new Error('Chamado não encontrado')
   const system = 'Você é um auditor sênior de qualidade de atendimento ao cliente. Avalie o desempenho do AGENTE no chamado abaixo (clareza, cordialidade, resolução, aderência). Responda APENAS com JSON válido: {"score": <0-100>, "tone": "cordial|neutro|frio|agressivo|inconsistente", "strengths": ["..."], "weaknesses": ["..."], "summary": "1-2 frases"}.'
   const user = `Assunto: ${t.subject}\n\nConversa (agente × solicitante):\n${t.text || '(sem mensagens)'}`
-  const raw = await chatWithAI(system, [{ role: 'user', content: user }])
+  const raw = await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')
   const j = extractJson(raw) || {}
   const score = typeof j.score === 'number' ? Math.max(0, Math.min(100, Math.round(j.score))) : null
   const tone = ['cordial', 'neutro', 'frio', 'agressivo', 'inconsistente'].includes(j.tone) ? j.tone : null
@@ -100,7 +100,7 @@ export async function aiAnswerFromKb(question: string): Promise<{ answer: string
   const context = articles.map((a) => `# ${a.title}\n${stripHtml(a.body).slice(0, 1500)}`).join('\n\n')
   const system = 'Você é um assistente de suporte ao cliente. Responda à pergunta APENAS com base nos artigos fornecidos, em português do Brasil, de forma objetiva e cordial. Se os artigos NÃO cobrirem a pergunta, responda exatamente a palavra NAO_ENCONTRADO e nada mais.'
   const user = `Artigos da base de conhecimento:\n${context}\n\nPergunta do cliente: ${question}\n\nResposta:`
-  const raw = (await chatWithAI(system, [{ role: 'user', content: user }])).trim()
+  const raw = (await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')).trim()
   const answered = !/NAO_ENCONTRADO/i.test(raw)
   return { answer: answered ? raw : '', articles: articles.map((a) => ({ title: a.title, slug: a.slug })), answered }
 }
@@ -114,7 +114,7 @@ export async function aiSuggestMacro(ticketId: number): Promise<{ macroId: numbe
   const list = macros.map((m) => `${m.id}: ${m.name}${m.replyTemplate ? ` — ${m.replyTemplate.slice(0, 80)}` : ''}`).join('\n')
   const system = 'Você escolhe a macro mais adequada para um chamado de suporte. Responda APENAS com JSON {"macroId": <id ou null>, "reason": "motivo curto"}.'
   const user = `Macros disponíveis (id: nome):\n${list}\n\nChamado:\nAssunto: ${t.subject}\nConversa:\n${t.text || '(sem mensagens)'}\n\nQual macro aplicar?`
-  const raw = await chatWithAI(system, [{ role: 'user', content: user }])
+  const raw = await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')
   const j = extractJson(raw) || {}
   const macroId = macros.some((m) => m.id === Number(j.macroId)) ? Number(j.macroId) : null
   return { macroId, name: macroId ? macros.find((m) => m.id === macroId)!.name : null, reason: String(j.reason || '').slice(0, 200) }
@@ -137,7 +137,7 @@ export async function aiRewrite(text: string, mode: string): Promise<{ text: str
     }
     system = `Reescreva o texto a seguir ${tones[mode] || tones.friendly}, em português do Brasil, mantendo o sentido. Retorne apenas o texto reescrito, sem comentários.`
   }
-  const out = await chatWithAI(system, [{ role: 'user', content: body }])
+  const out = await chatWithAI(system, [{ role: 'user', content: body }], 'helpdesk')
   return { text: out.trim() }
 }
 
@@ -147,6 +147,6 @@ export async function aiSummarize(ticketId: number) {
   if (!t) throw new Error('Chamado não encontrado')
   const system = 'Você resume chamados de suporte para repasse entre agentes. Responda em português do Brasil, em até 3 frases curtas, factual.'
   const user = `Assunto: ${t.subject}\n\nConversa:\n${t.text || '(sem mensagens)'}\n\nResuma o estado atual do chamado.`
-  const summary = await chatWithAI(system, [{ role: 'user', content: user }])
+  const summary = await chatWithAI(system, [{ role: 'user', content: user }], 'helpdesk')
   return { summary: summary.trim() }
 }

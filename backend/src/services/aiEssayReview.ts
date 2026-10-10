@@ -23,6 +23,7 @@ const DEFAULT_CRITERIA = [
 // configurada pela UI Configurações > APIs era ignorada e o serviço falhava
 // silenciosamente mesmo com configuração válida no banco.
 import { getAnthropicKey as resolveAnthropicKey, getAnthropicModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 function buildSystemPrompt(criteriaList: any[]): string {
   const lines = criteriaList.map(c => `- ${c.key} (${c.label}, peso ${c.weight}%)`).join('\n')
@@ -83,6 +84,7 @@ async function callClaude(systemPrompt: string, userPrompt: string): Promise<{ t
     throw new Error(`Anthropic ${resp.status}: ${errText.substring(0, 300)}`)
   }
   const data: any = await resp.json()
+  registrarUsoIA('correcao_redacao', 'anthropic', data)
   const text = data.content?.[0]?.text || ''
   return {
     text,

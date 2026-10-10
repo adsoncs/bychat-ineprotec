@@ -515,6 +515,15 @@ function MenuDaConta(
                 Assinatura
               </DropdownMenu.Item>
             )}
+            {user?.isOwner && (
+              <DropdownMenu.Item
+                class="flex items-center gap-2.5 h-9 px-2.5 rounded text-sm cursor-pointer hover:bg-surface-3 outline-none text-fg"
+                onSelect={() => { window.location.assign('/app/volumetria') }}
+              >
+                <BarChart3 size={ICON_SIZE.sm} class="text-fg-muted" />
+                Volumetria
+              </DropdownMenu.Item>
+            )}
           </div>
 
           <DropdownMenu.Separator class="h-px bg-border" />

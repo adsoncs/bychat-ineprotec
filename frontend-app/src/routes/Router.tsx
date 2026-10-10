@@ -167,6 +167,9 @@ const migratedPages: Record<string, ComponentType> = {
   assinatura: lazy(() =>
     import('./pages/AssinaturaPage').then((m) => ({ default: m.AssinaturaPage })),
   ),
+  volumetria: lazy(() =>
+    import('./pages/VolumetriaPage').then((m) => ({ default: m.VolumetriaPage })),
+  ),
   'cad-teams': lazy(() =>
     import('./pages/CadastrosTeamsPage').then((m) => ({ default: m.CadastrosTeamsPage })),
   ),
@@ -651,6 +654,13 @@ export function Router() {
           <Route path="/assinatura">
             {() => {
               const Painel = migratedPages['assinatura']
+              return Painel ? <Painel /> : null
+            }}
+          </Route>
+          {/* Volumetria — também só do dono (mesma regra da Assinatura). */}
+          <Route path="/volumetria">
+            {() => {
+              const Painel = migratedPages['volumetria']
               return Painel ? <Painel /> : null
             }}
           </Route>

@@ -28,6 +28,7 @@ import { buildBusinessContextBlock } from './businessContext.js'
 import { logEvent } from './leadHistory.js'
 import { captureException } from '../lib/observability.js'
 import { withSourceLabel } from '../lib/leadSourceLabel.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 const QUEUE_NAME = 'wf-ai-lead-score'
 const SCORE_JOB = 'score-lead'
@@ -99,6 +100,7 @@ async function callAnthropic(system: string, user: string, key: string, model: s
   })
   if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
   const d: any = await resp.json()
+  registrarUsoIA('lead_score', 'anthropic', d)
   return {
     text: d.content?.[0]?.text ?? '',
     inputTokens: (d.usage?.input_tokens ?? 0) + (d.usage?.cache_read_input_tokens ?? 0),
@@ -123,6 +125,7 @@ async function callOpenAi(system: string, user: string, key: string, model: stri
   })
   if (!resp.ok) throw new Error(`OpenAI ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
   const d: any = await resp.json()
+  registrarUsoIA('lead_score', 'openai', d)
   return {
     text: d.choices?.[0]?.message?.content ?? '',
     inputTokens: d.usage?.prompt_tokens ?? 0,

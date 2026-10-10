@@ -225,6 +225,7 @@ async function loadFileBase64(fileUrl: string): Promise<{ base64: string; bytes:
 // Resolve key/model via lib/aiKeys (Setting → env). Sem isso, key configurada
 // pelo admin via UI era ignorada.
 import { getAnthropicKey as resolveAnthropicKey, getAnthropicModel } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 async function ensureAnthropicKey(): Promise<string> {
   const k = await resolveAnthropicKey()
@@ -243,7 +244,7 @@ async function callClaudeVision(params: {
   userPrompt: string
   fileBase64: string
   mimeType: string
-}): Promise<{ text: string; inputTokens: number; outputTokens: number }> {
+}): Promise<{ text: string; inputTokens: number; outputTokens: number; model: string }> {
   const { systemPrompt, userPrompt, fileBase64, mimeType } = params
 
   // Claude aceita image/jpeg, image/png, image/gif, image/webp como image
@@ -284,10 +285,13 @@ async function callClaudeVision(params: {
   }
 
   const data = await resp.json()
+  registrarUsoIA('revisao_documento', 'anthropic', data)
   const text: string = data.content?.[0]?.text || ''
   const inputTokens: number = data.usage?.input_tokens || 0
   const outputTokens: number = data.usage?.output_tokens || 0
-  return { text, inputTokens, outputTokens }
+  // Modelo que de fato rodou (o configurado em Configurações › APIs), não a constante.
+  const rodou: string = data.model || MODEL
+  return { text, inputTokens, outputTokens, model: rodou }
 }
 
 // ─── Parse da resposta ──────────────────────────────────────
@@ -359,7 +363,7 @@ export async function reviewDocumentById(docId: number): Promise<{ ok: boolean; 
       return { ok: true, status: 'skipped', reason: 'arquivo grande demais' }
     }
 
-    const { text, inputTokens, outputTokens } = await callClaudeVision({
+    const { text, inputTokens, outputTokens, model } = await callClaudeVision({
       systemPrompt: tmpl.systemPrompt,
       userPrompt: tmpl.userPrompt(formData),
       fileBase64: base64,
@@ -378,7 +382,7 @@ export async function reviewDocumentById(docId: number): Promise<{ ok: boolean; 
         aiConfidence: parsed.confidence,
         aiAnalysis: {
           template: tmplKey,
-          model: MODEL,
+          model,
           data: parsed.data,
           reasoning: parsed.reasoning,
           tokens: { input: inputTokens, output: outputTokens },

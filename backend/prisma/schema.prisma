@@ -10122,3 +10122,32 @@ model EquipeMensagem {
   @@index([conversaId, id])
   @@map("bychat_equipe_mensagens")
 }
+
+/// Consumo medido (volumetria e repasse — lib/consumo.ts). Uma linha por uso
+/// que custa dinheiro nosso; começa pela IA (tokens por chamada). O preço do
+/// repasse ao cliente NÃO mora aqui (é da loja central); aqui é o custo real.
+model ConsumoEvento {
+  id             Int      @id @default(autoincrement())
+  /// ia (depois: sms, email, voip...)
+  fonte          String   @db.VarChar(30)
+  /// anthropic | openai
+  provedor       String   @db.VarChar(30)
+  /// modelo devolvido pela API (o que de fato rodou)
+  item           String   @db.VarChar(100)
+  /// chatbot, jornada_ia, helpdesk, deteccao_venda, lead_score...
+  funcionalidade String   @db.VarChar(60)
+  entrada        Int      @default(0)
+  saida          Int      @default(0)
+  cacheEscrita   Int      @default(0)
+  cacheLeitura   Int      @default(0)
+  quantidade     Decimal  @default(0) @db.Decimal(18, 4)
+  unidade        String   @default("token") @db.VarChar(20)
+  /// custo real estimado pelo preço de tabela do provedor; null = modelo sem preço
+  custoUsd       Decimal? @db.Decimal(14, 6)
+  leadId         Int?
+  createdAt      DateTime @default(now())
+
+  @@index([fonte, createdAt])
+  @@index([funcionalidade, createdAt])
+  @@map("bychat_consumo")
+}

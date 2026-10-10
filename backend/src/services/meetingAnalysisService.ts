@@ -12,6 +12,7 @@ import {
 } from '../lib/aiKeys.js'
 import { getSalesPlaybook, getMeetingsSettings } from '../lib/meetingsConfig.js'
 import { runPostAnalysisActions } from './meetingDelivery.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 export interface PlaybookAssessment {
   aderencia: number // 0-100: aderência da conduta ao playbook
@@ -122,6 +123,7 @@ async function callAnthropic(system: string, user: string, key: string, model: s
   })
   if (!resp.ok) throw new Error(`Anthropic ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
   const d: any = await resp.json()
+  registrarUsoIA('analise_reuniao', 'anthropic', d)
   return d.content?.[0]?.text ?? ''
 }
 
@@ -142,6 +144,7 @@ async function callOpenAi(system: string, user: string, key: string, model: stri
   })
   if (!resp.ok) throw new Error(`OpenAI ${resp.status}: ${(await resp.text()).slice(0, 300)}`)
   const d: any = await resp.json()
+  registrarUsoIA('analise_reuniao', 'openai', d)
   return d.choices?.[0]?.message?.content ?? ''
 }
 

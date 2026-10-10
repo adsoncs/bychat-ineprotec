@@ -8,6 +8,7 @@
 // As keys são lidas via `lib/aiKeys.ts` que tenta `Setting` (UI Configurações
 // > APIs / Tokens) primeiro e cai no `process.env` se não houver nada salvo.
 
+import { registrarUsoIA } from '../lib/consumo.js'
 import {
   getAnthropicKey,
   getOpenAiKey,
@@ -96,6 +97,7 @@ async function callAnthropic(system: string, user: string, apiKey: string): Prom
   })
   if (!response.ok) throw new Error(`Anthropic ${response.status}`)
   const data = (await response.json()) as any
+  registrarUsoIA('cadencia_classificacao', 'anthropic', data)
   return data.content?.[0]?.text || ''
 }
 
@@ -115,5 +117,6 @@ async function callOpenAi(system: string, user: string, apiKey: string): Promise
   })
   if (!response.ok) throw new Error(`OpenAI ${response.status}`)
   const data = (await response.json()) as any
+  registrarUsoIA('cadencia_classificacao', 'openai', data)
   return data.choices?.[0]?.message?.content || ''
 }

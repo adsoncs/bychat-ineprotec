@@ -7,6 +7,7 @@ import { prisma } from '../lib/prisma.js'
 import {
   getAnthropicKey, getOpenAiKey, getPrimaryProvider, getAnthropicModel, getOpenAiModel,
 } from '../lib/aiKeys.js'
+import { registrarUsoIA } from '../lib/consumo.js'
 
 export interface MeetingsReport {
   meetingCount: number
@@ -28,6 +29,7 @@ async function anthropic(system: string, user: string, key: string, model: strin
   })
   if (!r.ok) throw new Error(`Anthropic ${r.status}`)
   const d: any = await r.json()
+  registrarUsoIA('relatorio_reunioes', 'anthropic', d)
   return d.content?.[0]?.text ?? ''
 }
 async function openai(system: string, user: string, key: string, model: string): Promise<string> {
@@ -38,6 +40,7 @@ async function openai(system: string, user: string, key: string, model: string):
   })
   if (!r.ok) throw new Error(`OpenAI ${r.status}`)
   const d: any = await r.json()
+  registrarUsoIA('relatorio_reunioes', 'openai', d)
   return d.choices?.[0]?.message?.content ?? ''
 }
 function parse(raw: string): any | null {

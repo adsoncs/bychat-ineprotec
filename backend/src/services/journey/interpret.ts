@@ -69,7 +69,7 @@ export async function interpretSelectAnswer(
   const valueSet = new Set(options.map((o) => o.value))
   let raw = ''
   try {
-    raw = await chatWithAI(buildPrompt(question, options, opts?.instruction), [{ role: 'user', content: t.slice(0, 600) }])
+    raw = await chatWithAI(buildPrompt(question, options, opts?.instruction), [{ role: 'user', content: t.slice(0, 600) }], 'jornada_interpretacao')
   } catch {
     return { value: null, unclear: true } // IA indisponível → reask determinístico
   }
