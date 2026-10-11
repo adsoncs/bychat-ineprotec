@@ -1,8 +1,7 @@
 // Volumetria — painel do DONO do produto (o superadmin do cliente não entra:
-// a API responde 404). Mostra quanto cada canal e integração movimentou no mês
-// e, onde existe, o custo real. O preço cobrado do cliente (plano, franquia,
-// excedente) é definido na loja central, que empurra a cobrança calculada para
-// cá — cada aba mostra o valor cobrado do seu item.
+// a API responde 404). É a visão do cliente: quanto cada canal e integração
+// movimentou no mês e o valor final cobrado. Custo real, câmbio, margem e o uso
+// de IA por funcionalidade ficam na loja central — a API nem os envia.
 import { useState } from 'preact/hooks'
 import { useQuery } from '@tanstack/react-query'
 import { Page } from '@/components/ui/Page'
@@ -13,11 +12,8 @@ import { api } from '@/lib/apiClient'
 interface PorNumero { numero: string; enviadas: number; recebidas: number; leadsUnicos?: number }
 interface Midias { canal: string; quantidade: number; bytes: number; externas: number; porTipo: Array<{ tipo: string; quantidade: number; bytes: number }> }
 
-interface LinhaDoPlano {
-  codigo: string; nome: string; unidade: string; origem: 'cliente' | 'padrao'
-  cobrar: boolean; modo: string; franquia: number | null; precoUnitario: number | null; margemPct: number | null
-}
-interface ItemCobrado { codigo: string; descricao: string; quantidade: number; unidade: string; custoRealCentavos: number; valorCentavos: number }
+interface LinhaDoPlano { codigo: string; nome: string; unidade: string; cobrar: boolean; incluido: number | null }
+interface ItemCobrado { codigo: string; descricao: string; quantidade: number; unidade: string; valorCentavos: number }
 interface Cobranca {
   competencia: string; situacao: string | null; parcial: boolean; calculadoEm: string | null; recebidoEm?: string
   impostoPct: number | null; subtotalCentavos: number; impostosCentavos: number; totalCentavos: number
@@ -27,15 +23,10 @@ interface Cobranca {
 
 interface Volumetria {
   competencia: string
-  ia: {
-    medindoDesde: string | null; chamadas: number; custoUsd: number
-    porModelo: Array<{ provedor: string; modelo: string; chamadas: number; entrada: number; saida: number; cacheEscrita: number; cacheLeitura: number; custoUsd: number; semPreco: boolean }>
-    porFuncionalidade: Array<{ funcionalidade: string; chamadas: number; tokens: number; custoUsd: number }>
-    porDia: Array<{ dia: string; chamadas: number; custoUsd: number }>
-  }
+  ia: { medindoDesde: string | null; chamadas: number; tokens: number }
   whatsappCloud: {
-    enviadas: number; recebidas: number; leadsUnicos?: number; pagoPor: 'cliente'; custoEstimadoUsd: number
-    porCategoria: Array<{ categoria: string; enviadas: number; cobraveis: number; custoEstimadoUsd: number }>
+    enviadas: number; recebidas: number; leadsUnicos?: number
+    porCategoria: Array<{ categoria: string; enviadas: number; cobraveis: number }>
     porNumero: PorNumero[]
   }
   evolution: { enviadas: number; recebidas: number; leadsUnicos?: number; porNumero: PorNumero[] }
@@ -53,16 +44,6 @@ interface Volumetria {
   cobranca: Cobranca | null
 }
 
-const FUNCIONALIDADES: Record<string, string> = {
-  chatbot: 'Chatbot (IA)', chatbot_extracao: 'Chatbot — extração de dados', chatbot_pos_jornada: 'Chatbot — após o roteiro',
-  jornada_ia: 'Atendimento IA (jornada)', jornada_interpretacao: 'Jornada — interpretação de resposta',
-  chat_site: 'Chat do site', helpdesk: 'Helpdesk', diagnostico: 'Diagnóstico', analise_sentimento: 'Análise de sentimento',
-  deteccao_venda: 'Detecção de venda', cadencia_classificacao: 'Cadência — classificação de resposta',
-  cadencia_gerador: 'Cadência — gerador', sugestao_abordagem: 'Sugestões de abordagem', lead_score: 'Lead score',
-  correcao_redacao: 'Correção de redação', tema_redacao: 'Tema de redação', revisao_documento: 'Revisão de documento',
-  auditoria_conversa: 'Auditoria de conversa', sugestao_etapa: 'Sugestão de etapa do funil',
-  analise_reuniao: 'Análise de reunião', relatorio_reunioes: 'Relatório de reuniões',
-}
 const CATEGORIAS: Record<string, string> = {
   marketing: 'Marketing', utility: 'Utilidade', authentication: 'Autenticação', service: 'Serviço (resposta)',
   referral_conversion: 'Conversão de anúncio', sem_categoria: 'Sem categoria (ainda sem retorno da Meta)',
@@ -79,10 +60,8 @@ const SITUACOES: Record<string, [string, 'neutral' | 'info' | 'warning' | 'succe
 }
 
 const n = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
-const usd = (v: number) => `US$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: v < 1 ? 4 : 2 })}`
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const centavos = (c: number) => brl(c / 100)
-const preco = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
 const mesAtual = () => { const d = new Date(Date.now() - 3 * 3600_000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}` }
 function bytes(b: number | null | undefined) {
   if (b == null) return '—'
@@ -92,12 +71,6 @@ function bytes(b: number | null | undefined) {
 }
 const somaMidias = (l: Midias[] | undefined, canal?: string) => (l ?? []).filter((m) => !canal || m.canal === canal)
   .reduce((s, m) => ({ quantidade: s.quantidade + m.quantidade, bytes: s.bytes + m.bytes }), { quantidade: 0, bytes: 0 })
-
-const CHAVE_CAMBIO = 'volumetria:cambio'
-function cambioSalvo(): number {
-  try { const v = Number(localStorage.getItem(CHAVE_CAMBIO)); if (v > 0) return v } catch {}
-  return 5.5
-}
 
 type Aba = 'geral' | 'ia' | 'cloud' | 'evolution' | 'outros' | 'sms' | 'email' | 'voz' | 'assinaturas' | 'integracoes' | 'leads' | 'armazenamento' | 'base'
 const ABAS: Array<[Aba, string]> = [
@@ -175,27 +148,15 @@ function Grade({ children }: { children: preact.ComponentChildren }) {
 
 function quandoCalculou(c: Cobranca) {
   const em = c.calculadoEm ? new Date(c.calculadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : null
-  return em ? `Calculado pela loja em ${em}${c.parcial ? ' — mês em andamento, o valor ainda muda' : ''}.` : 'A loja ainda não calculou este mês.'
+  return em ? `Atualizado em ${em}${c.parcial ? ' — mês em andamento, o valor ainda muda' : ''}.` : 'O valor deste mês ainda não foi calculado.'
 }
 
-/** Como o plano cobra o item, em uma frase. */
-function regraEmTexto(p: LinhaDoPlano): string {
-  if (!p.cobrar) return 'Não cobrado'
-  if (p.modo === 'margem') return `Custo real + ${n(p.margemPct ?? 0)}% de adicional`
-  if (p.modo === 'repasse') return 'Custo real (sem adicional)'
-  if (p.modo === 'franquia') return `${n(p.franquia ?? 0)} ${p.unidade} incluídos · excedente ${preco(p.precoUnitario ?? 0)} por ${p.unidade}`
-  if (p.modo === 'preco_fixo') return `${preco(p.precoUnitario ?? 0)} por ${p.unidade}`
-  if (p.modo === 'faixas') return 'Faixas de volume'
-  if (p.modo === 'pacote') return 'Pacote mensal fixo'
-  return p.modo
-}
-
-/** O "valor cobrado" de uma aba: plano de cada item, uso, excedente e valor. */
+/** O "valor cobrado" de uma aba: incluído no plano, uso e valor final. */
 function ValorCobrado({ cobranca, codigos }: { cobranca: Cobranca | null; codigos: string[] }) {
   if (!cobranca) {
     return (
-      <Secao titulo="Valor cobrado" nota="A loja central ainda não enviou o plano e a cobrança deste mês para esta instalação.">
-        <div class="text-sm text-fg-muted">Configure o plano em Preços de consumo, na loja. O mês é recalculado a cada 6 horas.</div>
+      <Secao titulo="Valor cobrado" nota="O valor deste mês ainda não foi calculado.">
+        <div class="text-sm text-fg-muted">Os valores são atualizados ao longo do mês.</div>
       </Secao>
     )
   }
@@ -204,18 +165,13 @@ function ValorCobrado({ cobranca, codigos }: { cobranca: Cobranca | null; codigo
   const total = linhas.reduce((s, l) => s + (l.item?.valorCentavos ?? 0), 0)
   return (
     <Secao titulo="Valor cobrado" nota={quandoCalculou(cobranca)}>
-      <Tabela cab={['Item', 'Plano', 'Usado', 'Excedente', 'Valor']} vazio="—"
-        linhas={linhas.map(({ plano: p, item: i }) => {
-          const usado = i?.quantidade ?? 0
-          const excedente = p!.cobrar && p!.modo === 'franquia' ? Math.max(0, usado - (p!.franquia ?? 0)) : null
-          return [
-            <span key={p!.codigo}>{p!.nome}{p!.origem === 'cliente' && <> <Badge tone="info" title="Regra só deste cliente (exceção ao padrão)">deste cliente</Badge></>}</span>,
-            <span key="r" class="text-xs">{regraEmTexto(p!)}</span>,
-            `${n(usado)} ${p!.unidade}`,
-            excedente == null ? '—' : <span key="e" class={excedente > 0 ? 'text-warning font-medium' : ''}>{n(excedente)}</span>,
-            p!.cobrar ? <span key="v" class="font-medium">{centavos(i?.valorCentavos ?? 0)}{p!.codigo === 'ia' && i ? <span class="block text-xs text-fg-muted font-normal">custo real {centavos(i.custoRealCentavos)}</span> : null}</span> : <span key="v" class="text-fg-muted">—</span>,
-          ]
-        })} />
+      <Tabela cab={['Item', 'Incluído no plano', 'Usado', 'Valor']} vazio="—"
+        linhas={linhas.map(({ plano: p, item: i }) => [
+          p!.nome,
+          p!.incluido == null ? '—' : `${n(p!.incluido)} ${p!.unidade}`,
+          `${n(i?.quantidade ?? 0)} ${p!.unidade}`,
+          p!.cobrar ? <span key="v" class="font-medium">{centavos(i?.valorCentavos ?? 0)}</span> : <span key="v" class="text-fg-muted">sem cobrança</span>,
+        ])} />
       {linhas.length > 1 && <div class="text-right text-sm">Total desta aba: <strong class="tabular-nums">{centavos(total)}</strong> <span class="text-xs text-fg-muted">(sem impostos)</span></div>}
     </Secao>
   )
@@ -231,7 +187,7 @@ function Fatura({ cobranca }: { cobranca: Cobranca | null }) {
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 class="text-sm font-semibold">Fatura de consumo do mês</h2>
-          <p class="text-xs text-fg-muted mt-0.5">{quandoCalculou(cobranca)} Cobrada separada da mensalidade; o cliente vê só a fatura final.</p>
+          <p class="text-xs text-fg-muted mt-0.5">{quandoCalculou(cobranca)} Cobrada separada da mensalidade.</p>
         </div>
         <Badge tone={tom}>{rot}</Badge>
       </div>
@@ -259,16 +215,11 @@ function TabelaMidias({ lista, vazio }: { lista: Midias[] | undefined; vazio: st
 
 export function VolumetriaPage() {
   const [competencia, setCompetencia] = useState(mesAtual())
-  const [cambio, setCambio] = useState(cambioSalvo())
   const [aba, setAba] = useState<Aba>(abaSalva())
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dono', 'volumetria', competencia],
     queryFn: () => api.get<Volumetria>(`/dono/volumetria?competencia=${competencia}`),
   })
-  function mudarCambio(v: number) {
-    setCambio(v)
-    try { localStorage.setItem(CHAVE_CAMBIO, String(v)) } catch {}
-  }
   function irPara(a: Aba) {
     setAba(a)
     try { localStorage.setItem(CHAVE_ABA, a) } catch {}
@@ -278,9 +229,6 @@ export function VolumetriaPage() {
     <div class="flex flex-wrap items-end gap-2">
       <label class="text-xs text-fg-muted">Competência
         <input type="month" value={competencia} max={mesAtual()} class="mt-0.5 block rounded-md border border-border bg-surface-2 px-2 py-1 text-sm text-fg" onChange={(e) => { const v = (e.target as HTMLInputElement).value; if (v) setCompetencia(v) }} />
-      </label>
-      <label class="text-xs text-fg-muted" title="Só para ver o custo de IA em reais aqui. O câmbio da cobrança é definido na loja central.">US$ 1 =
-        <input type="number" step="0.01" min="0.01" value={cambio} class="mt-0.5 block w-24 rounded-md border border-border bg-surface-2 px-2 py-1 text-sm text-fg" onChange={(e) => { const v = Number((e.target as HTMLInputElement).value); if (v > 0) mudarCambio(v) }} />
       </label>
     </div>
   )
@@ -299,7 +247,7 @@ export function VolumetriaPage() {
     </div>
   )
 
-  const descricao = 'Volumes de cada canal e integração no mês, o custo real e o valor cobrado pelo plano. O plano é definido na loja central.'
+  const descricao = 'Volumes de cada canal e integração no mês e o valor cobrado pelo plano.'
   if (isLoading) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-fg-muted">Carregando…</div></div></Page>
   if (isError || !data) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-danger">Não foi possível carregar.</div></div></Page>
 
@@ -308,16 +256,15 @@ export function VolumetriaPage() {
   const chamadasVoz = d.voz.reduce((s, v) => s + v.chamadas, 0)
   const envelopes = d.assinaturas.reduce((s, a) => s + a.envelopes, 0)
   const outrosTotal = d.outrosCanais.reduce((s, c) => s + c.enviadas + c.recebidas, 0)
-  const maxDia = Math.max(0.000001, ...d.ia.porDia.map((x) => x.custoUsd))
   const cloudCobraveis = d.whatsappCloud.porCategoria.reduce((s, c) => s + c.cobraveis, 0)
   const leads = d.leads ?? { total: d.base.leadsTotal ?? 0, novos: d.base.leadsNovos, unicos: 0, unicosPorCanal: [] }
   const midiasAcum = somaMidias(d.midias?.acumulado)
   const midiasMes = somaMidias(d.midias?.doMes)
-  const valorDaAba = (a: Aba) => {
+  const cobradoNaAba = (a: Aba) => {
     const cods = ITENS_DA_ABA[a] ?? []
-    const v = (d.cobranca?.itens ?? []).filter((i) => cods.includes(i.codigo)).reduce((s, i) => s + i.valorCentavos, 0)
-    return d.cobranca && v > 0 ? ` · cobrado ${centavos(v)}` : ''
+    return (d.cobranca?.itens ?? []).filter((i) => cods.includes(i.codigo)).reduce((s, i) => s + i.valorCentavos, 0)
   }
+  const valorDaAba = (a: Aba) => { const v = cobradoNaAba(a); return d.cobranca && v > 0 ? ` · cobrado ${centavos(v)}` : '' }
   const cobrado = (a: Aba) => ITENS_DA_ABA[a] && <ValorCobrado cobranca={d.cobranca} codigos={ITENS_DA_ABA[a]!} />
 
   /** Volume, leads únicos e mídias de um canal de conversa. */
@@ -341,7 +288,7 @@ export function VolumetriaPage() {
         {aba === 'geral' && (
           <>
             <Grade>
-              <Resumo onClick={() => irPara('ia')} titulo="IA — custo real" valor={brl(d.ia.custoUsd * cambio)} sub={`${usd(d.ia.custoUsd)} · ${n(d.ia.chamadas)} chamadas${valorDaAba('ia')}`} />
+              <Resumo onClick={() => irPara('ia')} titulo="IA" valor={n(d.ia.chamadas)} sub={`chamadas${valorDaAba('ia')}`} />
               <Resumo onClick={() => irPara('cloud')} titulo="WhatsApp Cloud" valor={n(d.whatsappCloud.enviadas + d.whatsappCloud.recebidas)} sub={`${n(d.whatsappCloud.leadsUnicos ?? 0)} leads únicos${valorDaAba('cloud')}`} />
               <Resumo onClick={() => irPara('evolution')} titulo="WhatsApp Evolution" valor={n(d.evolution.enviadas + d.evolution.recebidas)} sub={`${n(d.evolution.leadsUnicos ?? 0)} leads únicos${valorDaAba('evolution')}`} />
               <Resumo onClick={() => irPara('outros')} titulo="Instagram e outros" valor={n(outrosTotal)} sub={`mensagens no mês${valorDaAba('outros')}`} />
@@ -361,35 +308,11 @@ export function VolumetriaPage() {
         {aba === 'ia' && (
           <>
             <Grade>
-              <Resumo titulo="Custo real (R$)" valor={brl(d.ia.custoUsd * cambio)} sub={`câmbio ${cambio.toLocaleString('pt-BR')}`} />
-              <Resumo titulo="Custo real (US$)" valor={usd(d.ia.custoUsd)} />
+              <Resumo titulo="Valor do mês" valor={d.cobranca ? centavos(cobradoNaAba('ia')) : '—'} sub={d.cobranca?.parcial ? 'mês em andamento' : 'total do mês'} />
               <Resumo titulo="Chamadas" valor={n(d.ia.chamadas)} />
-              <Resumo titulo="Tokens" valor={n(d.ia.porFuncionalidade.reduce((s, f) => s + f.tokens, 0))} sub={`${n(d.ia.porModelo.length)} modelos`} />
+              <Resumo titulo="Tokens" valor={n(d.ia.tokens)} />
             </Grade>
             {cobrado('ia')}
-            <Secao titulo="Custo por dia" nota={d.ia.medindoDesde
-              ? `Custo real pelo preço de tabela dos provedores (a chave é nossa). Medindo desde ${new Date(d.ia.medindoDesde).toLocaleDateString('pt-BR')}.`
-              : 'A medição de IA começou agora — os números aparecem conforme as IAs forem usadas.'}>
-              {d.ia.porDia.length > 0 ? (
-                <div class="flex items-end gap-0.5 h-24" aria-label="Custo de IA por dia">
-                  {d.ia.porDia.map((x) => (
-                    <div key={x.dia} class="flex-1 min-w-[3px] rounded-t bg-accent/70" style={{ height: `${Math.max(3, (x.custoUsd / maxDia) * 100)}%` }}
-                      title={`${new Date(`${x.dia}T12:00:00`).toLocaleDateString('pt-BR')}: ${usd(x.custoUsd)} · ${n(x.chamadas)} chamadas`} />
-                  ))}
-                </div>
-              ) : <div class="text-sm text-fg-muted">Nenhum uso de IA no mês.</div>}
-            </Secao>
-            <Secao titulo="Por funcionalidade">
-              <Tabela cab={['Funcionalidade', 'Chamadas', 'Tokens', 'Custo']} vazio="Nenhum uso de IA no mês."
-                linhas={d.ia.porFuncionalidade.map((f) => [FUNCIONALIDADES[f.funcionalidade] ?? f.funcionalidade, n(f.chamadas), n(f.tokens), `${usd(f.custoUsd)} · ${brl(f.custoUsd * cambio)}`])} />
-            </Secao>
-            <Secao titulo="Por modelo">
-              <Tabela cab={['Modelo', 'Chamadas', 'Entrada', 'Saída', 'Cache (escr./leit.)', 'Custo']} vazio="Nenhum modelo usado no mês."
-                linhas={d.ia.porModelo.map((m) => [
-                  <span key={m.modelo}>{m.modelo} <span class="text-xs text-fg-muted">({m.provedor})</span>{m.semPreco && <> <Badge tone="warning" title="Modelo sem preço na tabela: o custo dele não entra no total. Cadastre o preço na Setting consumo.precos_ia.">sem preço</Badge></>}</span>,
-                  n(m.chamadas), n(m.entrada), n(m.saida), `${n(m.cacheEscrita)} / ${n(m.cacheLeitura)}`, usd(m.custoUsd),
-                ])} />
-            </Secao>
           </>
         )}
 
@@ -397,19 +320,18 @@ export function VolumetriaPage() {
           <>
             {canalDeConversa('cloud_api', d.whatsappCloud)}
             <Grade>
-              <Resumo titulo="Cobráveis pela Meta" valor={n(cloudCobraveis)} />
-              <Resumo titulo="Custo Meta (estimado)" valor={brl(d.whatsappCloud.custoEstimadoUsd * cambio)} sub={`${usd(d.whatsappCloud.custoEstimadoUsd)} · pago pelo cliente à Meta`} />
+              <Resumo titulo="Cobráveis pela Meta" valor={n(cloudCobraveis)} sub="pagas direto à Meta" />
             </Grade>
             {cobrado('cloud')}
-            <Secao titulo="Por categoria" nota="A Meta cobra o cliente direto — o custo aqui é só informativo.">
-              <Tabela cab={['Categoria', 'Enviadas', 'Cobráveis', 'Custo Meta (est.)']} vazio="Nenhum envio pela Cloud API no mês."
-                linhas={d.whatsappCloud.porCategoria.map((c) => [CATEGORIAS[c.categoria] ?? c.categoria, n(c.enviadas), n(c.cobraveis), usd(c.custoEstimadoUsd)])} />
+            <Secao titulo="Por categoria" nota="As mensagens cobráveis são pagas direto à Meta.">
+              <Tabela cab={['Categoria', 'Enviadas', 'Cobráveis']} vazio="Nenhum envio pela Cloud API no mês."
+                linhas={d.whatsappCloud.porCategoria.map((c) => [CATEGORIAS[c.categoria] ?? c.categoria, n(c.enviadas), n(c.cobraveis)])} />
             </Secao>
             <Secao titulo="Por número">
               <Tabela cab={['Número', 'Enviadas', 'Recebidas', 'Leads únicos']} vazio="Sem mensagens no mês."
                 linhas={d.whatsappCloud.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas), n(x.leadsUnicos ?? 0)])} />
             </Secao>
-            <Secao titulo="Mídias guardadas (total)" nota="Arquivos recebidos e enviados pela Cloud API que estão no nosso servidor.">
+            <Secao titulo="Mídias guardadas (total)" nota="Arquivos recebidos e enviados pela Cloud API guardados no servidor.">
               <TabelaMidias lista={d.midias?.acumulado.filter((m) => m.canal === 'cloud_api')} vazio="Nenhuma mídia guardada." />
             </Secao>
           </>
@@ -419,11 +341,11 @@ export function VolumetriaPage() {
           <>
             {canalDeConversa('evolution', d.evolution)}
             {cobrado('evolution')}
-            <Secao titulo="Por número" nota="Sem custo por mensagem — o custo é a nossa infraestrutura.">
+            <Secao titulo="Por número">
               <Tabela cab={['Número (instância)', 'Enviadas', 'Recebidas', 'Leads únicos']} vazio="Sem mensagens no mês."
                 linhas={d.evolution.porNumero.map((x) => [x.numero, n(x.enviadas), n(x.recebidas), n(x.leadsUnicos ?? 0)])} />
             </Secao>
-            <Secao titulo="Mídias guardadas (total)" nota="Arquivos recebidos e enviados pela Evolution que estão no nosso servidor.">
+            <Secao titulo="Mídias guardadas (total)" nota="Arquivos recebidos e enviados pela Evolution guardados no servidor.">
               <TabelaMidias lista={d.midias?.acumulado.filter((m) => m.canal === 'evolution')} vazio="Nenhuma mídia guardada." />
             </Secao>
           </>
@@ -521,7 +443,7 @@ export function VolumetriaPage() {
               <Resumo titulo="Mídias do mês" valor={bytes(midiasMes.bytes)} sub={`${n(midiasMes.quantidade)} arquivos`} />
             </Grade>
             {cobrado('armazenamento')}
-            <Secao titulo="Mídias guardadas por canal (total)" nota="Arquivos de conversa no nosso servidor. Mídia que ficou só no provedor aparece como “fora do servidor” e não ocupa espaço nosso.">
+            <Secao titulo="Mídias guardadas por canal (total)" nota="Arquivos de conversa guardados no servidor. Mídia que ficou só no provedor aparece como “fora do servidor” e não ocupa espaço.">
               <TabelaMidias lista={d.midias?.acumulado} vazio="Nenhuma mídia guardada." />
             </Secao>
             <Secao titulo="Mídias do mês por canal">
