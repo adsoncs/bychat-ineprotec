@@ -3,7 +3,10 @@
 // De-para entre as etapas da jornada do portal e as etapas do funil do lead
 // (Portais › Etapas › "No funil"). Cada etapa da jornada aponta para uma etapa
 // do funil: é onde o lead fica ENQUANTO o candidato está nela; quando todas
-// terminam, vale a de "concluído".
+// terminam, vale a de "concluído". A linha opcional "<etapa>:aguardando" vale
+// quando o candidato já enviou e a etapa espera a equipe (análise, correção);
+// etapa que a equipe já liberou (parecer deferido à espera do aceite) conta
+// como vencida, e o lead vai para a seguinte.
 //
 // Regras:
 //   · só mexe em lead que está no funil do portal (movido para outro funil à
@@ -41,8 +44,9 @@ export async function sincronizarFunilDaInscricao(
   const j = await etapasDaInscricao(registrationId, 'inscricao')
   if (!j) return { moved: false, motivo: 'sem etapas' }
   // Onde o candidato está: a primeira etapa ainda não concluída (na ordem do portal).
-  const atual = j.etapas.find((e) => e.situacao !== 'feito')
-  const chave: ChaveEtapa | 'concluido' = atual ? atual.chave : 'concluido'
+  const atual = j.etapas.find((e) => e.situacao !== 'feito' && !e.liberada)
+  const chave: ChaveEtapa | 'concluido' | `${ChaveEtapa}:aguardando` =
+    !atual ? 'concluido' : atual.situacao === 'aguardando' && mapa[`${atual.chave}:aguardando`] ? `${atual.chave}:aguardando` : atual.chave
   const destino = mapa[chave]
   if (!destino) return { moved: false, motivo: `etapa "${chave}" sem etapa do funil` }
 

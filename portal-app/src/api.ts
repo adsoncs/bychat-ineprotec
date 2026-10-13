@@ -656,6 +656,8 @@ export interface ParecerDaAnalise {
 export interface AnaliseDaEtapa {
   documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null; opcional?: boolean }>
   parecer: ParecerDaAnalise | null
+  /** 'documentos' = só aprovação do documento (sem parecer nem aceite). */
+  modo?: 'parecer' | 'documentos'
 }
 /** Resposta do candidato ao parecer: segue com a matrícula ou desiste. */
 export const responderParecer = (code: string, token: string, decisao: 'aceito' | 'desistiu') =>

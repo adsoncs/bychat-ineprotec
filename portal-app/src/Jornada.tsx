@@ -211,10 +211,15 @@ function AnaliseAcademica(props: {
   // Sem parecer: os documentos da análise (enviar, acompanhar, reenviar).
   if (!p) {
     const tudoEnviado = a.documentos.every((d) => d.opcional || d.status === 'pending' || d.status === 'approved')
+    const simples = a.modo === 'documentos'
     return (
       <div class="analise">
         <p class="sub" style="margin:0 0 12px">
-          {tudoEnviado
+          {simples
+            ? (tudoEnviado
+              ? tx('analise.emAnaliseDoc', 'Recebemos seu documento. A equipe está conferindo — quando for aprovado, as próximas etapas são liberadas aqui.')
+              : tx('analise.envieDoc', 'Envie o documento abaixo. Depois que a equipe aprovar, as próximas etapas são liberadas.'))
+            : tudoEnviado
             ? tx('analise.emAnalise', 'Recebemos seus documentos. A coordenação acadêmica está analisando o seu histórico — você recebe o parecer por aqui e por mensagem.')
             : tx('analise.envie', 'Envie os documentos abaixo. Com eles, a coordenação acadêmica analisa o seu histórico e informa em que período você vai ingressar e quais disciplinas serão aproveitadas.')}
         </p>

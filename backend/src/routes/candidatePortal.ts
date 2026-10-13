@@ -398,6 +398,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
       }).catch(err => console.error('[document-review enqueue]', err))
     }
 
+    // Portais › "No funil": documentos da análise enviados → etapa de "aguardando".
+    ;(await import('../services/funilDaJornada.js')).sincronizarFunil(s.enrollmentId)
     return { ok: true, document: doc }
   })
 
@@ -413,6 +415,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     // Remove arquivo físico (fire-and-forget)
     const savedName = doc.fileUrl.split('/').pop()
     if (savedName) fs.unlink(join(process.cwd(), '..', 'uploads', 'enrollment-docs', savedName)).catch(() => {})
+    ;(await import('../services/funilDaJornada.js')).sincronizarFunil(s.enrollmentId)
     return { ok: true }
   })
 
@@ -549,6 +552,8 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
         .then(m => m.tryAutoAdvanceOnDocsComplete(doc.registrationId, user.userId))
         .catch(err => req.log.warn(`[doc-review] auto-advance failed: ${err.message}`))
     }
+    // Documento da análise acadêmica (ex.: ENEM aprovado) libera a etapa: o funil acompanha.
+    if (doc.registrationId) (await import('../services/funilDaJornada.js')).sincronizarFunil(doc.registrationId)
 
     return { ok: true, document: doc }
   })

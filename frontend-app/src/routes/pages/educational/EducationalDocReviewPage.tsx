@@ -32,19 +32,29 @@ import { formatRelative, formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 
-type Mode = 'registration' | 'document' | 'transfer'
+type Grupo = 'enem' | 'portador' | 'transferencia'
+type Mode = 'registration' | 'document' | Grupo
 
 const MODE_KEY = 'eduDocMode'
+
+// Abas da análise acadêmica: ENEM e portador de diploma só aprovam/recusam o
+// documento; transferência tem parecer (período, aproveitamento) e aceite.
+const GRUPO: Record<Grupo, { rotulo: string; descricao: string }> = {
+  enem: { rotulo: '📝 ENEM', descricao: 'Boletim do ENEM: confira a nota e aprove ou recuse o documento. Aprovado, o candidato segue para a próxima etapa.' },
+  portador: { rotulo: '🎓 Portador de diploma', descricao: 'Diploma (e histórico) de quem já é graduado: aprove ou recuse os documentos. Aprovados, o candidato segue para a próxima etapa.' },
+  transferencia: { rotulo: '🔁 Transferência', descricao: 'Histórico e conteúdo programático: a análise acadêmica emite o parecer (deferido ou indeferido, período de ingresso e aproveitamento) e o candidato aceita para continuar.' },
+}
 
 export function EducationalDocReviewPage() {
   const [mode, setMode] = useState<Mode>(() => {
     const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(MODE_KEY) : null
-    return saved === 'document' || saved === 'transfer' ? saved : 'registration'
+    if (saved === 'transfer') return 'transferencia'
+    return saved === 'document' || saved === 'enem' || saved === 'portador' || saved === 'transferencia' ? saved : 'registration'
   })
-  // A aba de transferência só existe quando algum portal usa a análise acadêmica.
+  // As abas de análise só existem para os tipos que algum portal usa.
   const analises = useAnalises('abertas', '')
-  const temTransfer = !!analises.data?.habilitada
-  const modo: Mode = mode === 'transfer' && analises.data && !temTransfer ? 'registration' : mode
+  const grupos = analises.data?.grupos ?? []
+  const modo: Mode = (mode === 'enem' || mode === 'portador' || mode === 'transferencia') && analises.data && !grupos.some((g) => g.chave === mode) ? 'registration' : mode
 
   function setModeAndPersist(m: Mode) {
     setMode(m)
@@ -59,17 +69,17 @@ export function EducationalDocReviewPage() {
           ? 'Inscrições agrupadas por candidato — revisar todos os documentos em conjunto.'
           : modo === 'document'
           ? 'Fila plana — 1 documento por linha (FIFO). Útil para revisões especializadas.'
-          : 'Documentos de ingresso (ex.: boletim do ENEM, diploma, histórico) para a análise acadêmica, o parecer e a resposta do candidato. Cada forma de ingresso envia os seus.'
+          : GRUPO[modo].descricao
       }
     >
-      <ModeToggle mode={modo} onChange={setModeAndPersist} transfer={temTransfer ? (analises.data?.kpi.em_analise ?? 0) : null} />
+      <ModeToggle mode={modo} onChange={setModeAndPersist} grupos={grupos} />
 
-      {modo === 'registration' ? <RegistrationMode /> : modo === 'document' ? <DocumentMode /> : <TransferMode />}
+      {modo === 'registration' ? <RegistrationMode /> : modo === 'document' ? <DocumentMode /> : <AnaliseMode key={modo} grupo={modo} />}
     </Page>
   )
 }
 
-function ModeToggle({ mode, onChange, transfer }: { mode: Mode; onChange: (m: Mode) => void; transfer: number | null }) {
+function ModeToggle({ mode, onChange, grupos }: { mode: Mode; onChange: (m: Mode) => void; grupos: Array<{ chave: Grupo; emAnalise: number }> }) {
   const btn = (key: Mode, label: string, badge?: number) => (
     <button
       type="button"
@@ -87,7 +97,7 @@ function ModeToggle({ mode, onChange, transfer }: { mode: Mode; onChange: (m: Mo
     <div class="inline-flex flex-wrap gap-1 p-1 rounded-lg bg-surface-3 self-start">
       {btn('registration', '🎓 Por inscrição')}
       {btn('document',     '📋 Por documento')}
-      {transfer !== null && btn('transfer', '🎓 Análise de ingresso', transfer)}
+      {grupos.map((g) => <span key={g.chave}>{btn(g.chave, GRUPO[g.chave].rotulo, g.emAnalise)}</span>)}
     </div>
   )
 }
@@ -95,7 +105,7 @@ function ModeToggle({ mode, onChange, transfer }: { mode: Mode; onChange: (m: Mo
 // ─────────────────────────────────────────────────────────────────────────────
 // Modo "Análise de ingresso" — só as inscrições com análise acadêmica
 
-type SituacaoAnalise = 'documentos' | 'em_analise' | 'aguardando_candidato' | 'aceita' | 'indeferida' | 'desistiu'
+type SituacaoAnalise = 'documentos' | 'em_analise' | 'aguardando_candidato' | 'aceita' | 'aprovada' | 'indeferida' | 'desistiu'
 interface AnaliseItem {
   registrationId: number
   candidateCode: string
@@ -105,17 +115,18 @@ interface AnaliseItem {
   local: string | null
   curso: string | null
   formaDeIngresso: string | null
+  grupo: Grupo
   situacao: SituacaoAnalise
   documentos: Array<{ id: number | null; code: string; nome: string; status: string; enviadoEm: string | null }>
   desde: string
   etapa: EtapaAdmin
 }
-interface AnalisesResp { habilitada: boolean; items: AnaliseItem[]; kpi: Record<SituacaoAnalise, number> }
+interface AnalisesResp { habilitada: boolean; items: AnaliseItem[]; kpi: Record<SituacaoAnalise, number>; grupos: Array<{ chave: Grupo; emAnalise: number }> }
 
-function useAnalises(situacao: string, q: string) {
+function useAnalises(situacao: string, q: string, grupo?: Grupo) {
   return useQuery({
-    queryKey: ['analises-academicas', situacao, q],
-    queryFn: () => api.get<AnalisesResp>(`/admin/analises-academicas?situacao=${encodeURIComponent(situacao)}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
+    queryKey: ['analises-academicas', situacao, q, grupo ?? ''],
+    queryFn: () => api.get<AnalisesResp>(`/admin/analises-academicas?situacao=${encodeURIComponent(situacao)}${q ? `&q=${encodeURIComponent(q)}` : ''}${grupo ? `&grupo=${grupo}` : ''}`),
     staleTime: 15_000,
   })
 }
@@ -125,11 +136,13 @@ const SITUACAO_ANALISE: Record<SituacaoAnalise, { rotulo: string; tone: 'success
   em_analise: { rotulo: 'Em análise', tone: 'info', desde: 'Na fila' },
   aguardando_candidato: { rotulo: 'Aguardando candidato', tone: 'warning', desde: 'Parecer emitido' },
   aceita: { rotulo: 'Parecer aceito', tone: 'success', desde: 'Inscrita' },
+  aprovada: { rotulo: 'Aprovado', tone: 'success', desde: 'Inscrita' },
   indeferida: { rotulo: 'Indeferida', tone: 'danger', desde: 'Inscrita' },
   desistiu: { rotulo: 'Desistiu', tone: 'neutral', desde: 'Inscrita' },
 }
 
-function TransferMode() {
+function AnaliseMode({ grupo }: { grupo: Grupo }) {
+  const comParecer = grupo === 'transferencia'
   const [situacao, setSituacao] = useState<string>('abertas')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -140,7 +153,7 @@ function TransferMode() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  const { data, isLoading } = useAnalises(situacao, search)
+  const { data, isLoading } = useAnalises(situacao, search, grupo)
   const items = data?.items ?? []
   const kpi = data?.kpi
   // O modal acompanha a lista: depois de emitir o parecer, mostra a situação nova.
@@ -148,24 +161,32 @@ function TransferMode() {
 
   return (
     <>
-      <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard label="Em análise" value={kpi?.em_analise ?? '—'} loading={isLoading} icon={<GraduationCap size={16} />} />
-        <KpiCard label="Aguardando documentos" value={kpi?.documentos ?? '—'} loading={isLoading} icon={<FileText size={16} />} />
-        <KpiCard label="Aguardando candidato" value={kpi?.aguardando_candidato ?? '—'} loading={isLoading} icon={<Send size={16} />} />
-        <KpiCard label="Pareceres aceitos" value={kpi?.aceita ?? '—'} loading={isLoading} icon={<Check size={16} />} />
-        <KpiCard label="Indeferidas / desistências" value={kpi ? kpi.indeferida + kpi.desistiu : '—'} loading={isLoading} icon={<XIcon size={16} />} />
-      </div>
+      {comParecer ? (
+        <div class="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          <KpiCard label="Em análise" value={kpi?.em_analise ?? '—'} loading={isLoading} icon={<GraduationCap size={16} />} />
+          <KpiCard label="Aguardando documentos" value={kpi?.documentos ?? '—'} loading={isLoading} icon={<FileText size={16} />} />
+          <KpiCard label="Aguardando candidato" value={kpi?.aguardando_candidato ?? '—'} loading={isLoading} icon={<Send size={16} />} />
+          <KpiCard label="Pareceres aceitos" value={kpi?.aceita ?? '—'} loading={isLoading} icon={<Check size={16} />} />
+          <KpiCard label="Indeferidas / desistências" value={kpi ? kpi.indeferida + kpi.desistiu : '—'} loading={isLoading} icon={<XIcon size={16} />} />
+        </div>
+      ) : (
+        <div class="grid gap-3 grid-cols-2 sm:grid-cols-3">
+          <KpiCard label="Em análise" value={kpi?.em_analise ?? '—'} loading={isLoading} icon={<GraduationCap size={16} />} />
+          <KpiCard label="Aguardando documento" value={kpi?.documentos ?? '—'} loading={isLoading} icon={<FileText size={16} />} />
+          <KpiCard label="Aprovados" value={kpi?.aprovada ?? '—'} loading={isLoading} icon={<Check size={16} />} />
+        </div>
+      )}
 
       <Card class="p-3">
         <div class="flex flex-wrap items-center gap-3">
           <Select value={situacao} onChange={(e) => setSituacao((e.target as HTMLSelectElement).value)}>
             <option value="abertas">Em aberto</option>
             <option value="em_analise">Em análise</option>
-            <option value="documentos">Aguardando documentos</option>
-            <option value="aguardando_candidato">Aguardando candidato</option>
-            <option value="aceita">Parecer aceito</option>
-            <option value="indeferida">Indeferidas</option>
-            <option value="desistiu">Desistências</option>
+            <option value="documentos">{comParecer ? 'Aguardando documentos' : 'Aguardando documento (falta ou recusado)'}</option>
+            {comParecer && <option value="aguardando_candidato">Aguardando candidato</option>}
+            {comParecer ? <option value="aceita">Parecer aceito</option> : <option value="aprovada">Aprovados</option>}
+            {comParecer && <option value="indeferida">Indeferidas</option>}
+            {comParecer && <option value="desistiu">Desistências</option>}
             <option value="todas">Todas</option>
           </Select>
           <SearchInput value={searchInput} onChange={setSearchInput} placeholder="Buscar por candidato (nome, email, código)…" class="flex-1 min-w-48" />
@@ -176,8 +197,8 @@ function TransferMode() {
         {isLoading && <div class="p-4 space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-16 w-full" />)}</div>}
         {!isLoading && items.length === 0 && (
           <div class="p-8">
-            <EmptyState icon={<GraduationCap size={24} />} title="Nenhuma análise de ingresso"
-              description={situacao === 'abertas' ? 'Nenhuma inscrição esperando análise ou resposta.' : 'Tente outro filtro.'} />
+            <EmptyState icon={<GraduationCap size={24} />} title={`Nada em ${GRUPO[grupo].rotulo.replace(/^\S+\s/, '')}`}
+              description={situacao === 'abertas' ? (comParecer ? 'Nenhuma inscrição esperando análise ou resposta.' : 'Nenhum documento esperando aprovação.') : 'Tente outro filtro.'} />
           </div>
         )}
         {!isLoading && items.length > 0 && (
@@ -214,7 +235,7 @@ function AnaliseRow({ item, onOpen }: { item: AnaliseItem; onOpen: () => void })
           </div>
         </div>
         <div class="text-xs text-fg-muted whitespace-nowrap shrink-0 text-right">
-          <div>{sit.desde} há {formatRelative(item.desde)}</div>
+          <div>{sit.desde} {formatRelative(item.desde)}</div>
         </div>
       </button>
     </li>
@@ -223,9 +244,18 @@ function AnaliseRow({ item, onOpen }: { item: AnaliseItem; onOpen: () => void })
 
 function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => void }) {
   const [openDocId, setOpenDocId] = useState<number | null>(null)
+  // ENEM / portador de diploma: só aprovar ou recusar o documento — sem parecer.
+  const simples = item.etapa.analise?.modo === 'documentos'
+  const review = useReviewDocItem()
+  function aprovar(id: number) {
+    review.mutate({ id, status: 'approved' }, {
+      onSuccess: () => toast('Documento aprovado', 'success'),
+      onError: (e) => toast((e as Error).message, 'danger'),
+    })
+  }
   return (
     <>
-      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`Análise de ingresso — ${item.candidato.nome || item.candidateCode}`} size="lg">
+      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={`${simples ? 'Análise do documento' : 'Análise de ingresso'} — ${item.candidato.nome || item.candidateCode}`} size="lg">
         <div class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <Row label="Código" value={item.candidateCode} />
@@ -253,16 +283,24 @@ function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => voi
                         Abrir <ExternalLink size={10} />
                       </button>
                     )}
+                    {simples && d.id && d.status === 'pending' && (
+                      <>
+                        <Button size="sm" onClick={() => aprovar(d.id!)} disabled={review.isPending}><Check size={12} /> Aprovar</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setOpenDocId(d.id)} disabled={review.isPending}><XIcon size={12} /> Recusar</Button>
+                      </>
+                    )}
                   </li>
                 )
               })}
             </ul>
             <div class="text-2xs text-fg-muted mt-1.5">
-              Documento ilegível ou errado: abra e rejeite com o motivo — o candidato reenvia. O mérito (período, aproveitamento) vai no parecer abaixo.
+              {simples
+                ? 'Aprovado, o candidato segue para a próxima etapa (não há parecer nem aceite). Recusar abre o documento para você escrever o motivo — o candidato reenvia.'
+                : 'Documento ilegível ou errado: abra e rejeite com o motivo — o candidato reenvia. O mérito (período, aproveitamento) vai no parecer abaixo.'}
             </div>
           </div>
 
-          <AnaliseAcademicaCard key={`${item.registrationId}-${item.etapa.analise?.parecer?.emitidoEm ?? ''}`} registrationId={item.registrationId} etapa={item.etapa} />
+          {!simples && <AnaliseAcademicaCard key={`${item.registrationId}-${item.etapa.analise?.parecer?.emitidoEm ?? ''}`} registrationId={item.registrationId} etapa={item.etapa} />}
 
           <a href={`/app/enrollment-portals/${item.portal.id}/registrations/${item.registrationId}`} class="inline-flex items-center gap-1 text-xs text-accent hover:underline">
             Abrir a inscrição completa <ExternalLink size={11} />

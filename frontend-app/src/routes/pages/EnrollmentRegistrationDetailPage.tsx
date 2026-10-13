@@ -586,6 +586,9 @@ export function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId
   const [observacao, setObservacao] = useState(p?.observacao ?? '')
   const [enviando, setEnviando] = useState(false)
   const faltaDoc = a.documentos.some((d) => d.status === 'faltando' || d.status === 'rejected')
+  // Aprovação simples (ex.: ENEM, portador de diploma): não há parecer nem aceite —
+  // aprovar os documentos já libera a próxima etapa.
+  const simples = a.modo === 'documentos'
 
   async function emitir() {
     if (resultado === 'deferido' && !periodo.trim()) { toast('Informe o período de ingresso.', 'danger'); return }
@@ -628,7 +631,15 @@ export function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId
         })}
       </div>
 
-      {p && !editando && (
+      {simples && (
+        <div class="text-2xs text-fg-muted">
+          Nesta forma de ingresso a análise é só do documento: aprove ou recuse cada um (no bloco de documentos ou em
+          Educacional › Análise de Documentos). Aprovado, a próxima etapa é liberada; recusado, o candidato reenvia.
+          Não há parecer, período de ingresso nem aceite do candidato.
+        </div>
+      )}
+
+      {!simples && p && !editando && (
         <div class="rounded-md border border-border p-3 text-sm space-y-1.5 mb-3">
           <div class="flex items-center gap-2 flex-wrap">
             <b>{p.resultado === 'deferido' ? 'Deferido' : 'Indeferido'}</b>
@@ -644,7 +655,7 @@ export function AnaliseAcademicaCard({ registrationId, etapa }: { registrationId
         </div>
       )}
 
-      {editando && (
+      {!simples && editando && (
         <div class="space-y-3">
           {faltaDoc && <div class="text-xs text-warning">Ainda há documento da análise não enviado ou recusado.</div>}
           <div class="flex gap-4 text-sm">
@@ -745,6 +756,8 @@ export interface EtapaAdmin {
       resultado: 'deferido' | 'indeferido'; periodo: string | null; aproveitamento: string | null; observacao: string | null
       emitidoEm: string; emitidoPor?: { nome: string | null }; aceite: { decisao: 'aceito' | 'desistiu'; em: string } | null
     } | null
+    /** 'documentos' = só aprovar/recusar o documento (ex.: ENEM, diploma), sem parecer. */
+    modo?: 'parecer' | 'documentos'
   }
 }
 const SITUACAO_ETAPA: Record<string, { tone: 'success' | 'info' | 'warning'; icon: any; rotulo: string }> = {

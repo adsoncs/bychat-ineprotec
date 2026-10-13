@@ -214,7 +214,11 @@ async function etapasDoPortal(p: PortalInfo, o: OfertaDoPortal, temDocs: boolean
         if (!o.ingresso || !modos.some((m) => m.code === o.ingresso!.code)) continue
       }
       const tipos = await prisma.documentType.findMany({ where: { code: { in: e.documentos } }, select: { name: true } }).catch(() => [])
-      out.push(`${ROTULO.analise} (TRAVA: envia ${tipos.map((t) => t.name).join(' e ') || 'os documentos da análise'}; a instituição emite o parecer — período de ingresso e aproveitamento — e só segue se o candidato aceitar; indeferida = pode trocar de forma de ingresso)`)
+      const simples = !!o.ingresso && !!e.aprovacaoSimples?.length
+        && (await prisma.entryMode.findMany({ where: { id: { in: e.aprovacaoSimples } }, select: { code: true } }).catch(() => [])).some((m) => m.code === o.ingresso!.code)
+      out.push(simples
+        ? `${ROTULO.analise} (TRAVA: envia ${tipos.map((t) => t.name).join(' e ') || 'os documentos da análise'}; a equipe aprova ou recusa o documento — aprovado, libera as próximas etapas; recusado, reenvia; não há parecer nem aceite)`
+        : `${ROTULO.analise} (TRAVA: envia ${tipos.map((t) => t.name).join(' e ') || 'os documentos da análise'}; a instituição emite o parecer — período de ingresso e aproveitamento — e só segue se o candidato aceitar; indeferida = pode trocar de forma de ingresso)`)
       continue
     }
     // Trava restrita a formas de ingresso: só conta se a desta oferta estiver na lista.

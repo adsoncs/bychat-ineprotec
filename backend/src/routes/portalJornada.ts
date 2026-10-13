@@ -348,12 +348,30 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     const qy = (req.query as any) || {}
     const filtro = String(qy.situacao || 'abertas')
     const busca = String(qy.q || '').trim().toLowerCase()
-    const portais = (await prisma.enrollmentPortal.findMany({ select: { id: true, jornadaEtapas: true } }))
-      .filter((p) => {
+    // Abas por tipo de análise: ENEM (boletim), portador de diploma (aprovação
+    // simples do documento) e transferência (parecer + aceite do candidato).
+    type Grupo = 'enem' | 'portador' | 'transferencia'
+    const grupoPedido = (['enem', 'portador', 'transferencia'] as const).find((g) => g === qy.grupo) ?? null
+    const modos = await prisma.entryMode.findMany({ select: { id: true, evaluationType: true } })
+    const grupoDe = (modoId: number | null | undefined, simples: boolean): Grupo =>
+      modos.find((m) => m.id === modoId)?.evaluationType === 'enem' ? 'enem' : simples ? 'portador' : 'transferencia'
+    const etapasAnalise = (await prisma.enrollmentPortal.findMany({ select: { id: true, jornadaEtapas: true } }))
+      .map((p) => {
         const cfg = lerJornada(p.jornadaEtapas)
-        return [...cfg.inscricao, ...(cfg.painel ?? [])].some((e) => e.chave === 'analise' && e.ativo && e.documentos?.length)
+        return { id: p.id, e: [...cfg.inscricao, ...(cfg.painel ?? [])].find((e) => e.chave === 'analise' && e.ativo && e.documentos?.length) }
       })
-    const vazio = { habilitada: portais.length > 0, items: [] as any[], kpi: { documentos: 0, em_analise: 0, aguardando_candidato: 0, aceita: 0, indeferida: 0, desistiu: 0 } }
+      .filter((x) => !!x.e)
+    const portais = etapasAnalise.map((x) => ({ id: x.id }))
+    // Quais abas existem: as formas de ingresso que passam pela análise em algum portal.
+    const gruposAtivos = new Set<Grupo>()
+    for (const { e } of etapasAnalise) {
+      for (const m of e!.ingressos?.length ? modos.filter((m) => e!.ingressos!.includes(m.id)) : modos) gruposAtivos.add(grupoDe(m.id, !!e!.aprovacaoSimples?.includes(m.id)))
+    }
+    const kpiZero = () => ({ documentos: 0, em_analise: 0, aguardando_candidato: 0, aceita: 0, aprovada: 0, indeferida: 0, desistiu: 0 })
+    const vazio = {
+      habilitada: portais.length > 0, items: [] as any[], kpi: kpiZero(),
+      grupos: (['enem', 'portador', 'transferencia'] as const).filter((g) => gruposAtivos.has(g)).map((g) => ({ chave: g, emAnalise: 0 })),
+    }
     if (!portais.length) return vazio
     const regs = await prisma.enrollmentRegistration.findMany({
       where: { portalId: { in: portais.map((p) => p.id) }, status: { not: 'merged' } },
@@ -363,13 +381,13 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
         lead: { select: { nome: true, email: true, whatsapp: true } },
         portal: { select: { id: true, nome: true, allowedCampusIds: true } },
         documents: { select: { id: true, typeCode: true, status: true, uploadedAt: true }, orderBy: { uploadedAt: 'asc' } },
-        processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } }, selectionProcess: { select: { entryMode: { select: { name: true } } } } } },
+        processRegistration: { select: { offering: { select: { nome: true, course: { select: { nome: true } } } }, selectionProcess: { select: { entryMode: { select: { id: true, name: true } } } } } },
       },
     })
     const campi = new Map((await prisma.campus.findMany({ select: { id: true, nome: true } })).map((c) => [c.id, c.nome]))
     const situacaoDe = (e: EtapaDaInscricao) => {
       const p = e.analise?.parecer
-      if (e.situacao === 'feito') return 'aceita'
+      if (e.situacao === 'feito') return e.analise?.modo === 'documentos' ? 'aprovada' : 'aceita'
       if (p?.resultado === 'indeferido') return 'indeferida'
       if (p?.aceite?.decisao === 'desistiu') return 'desistiu'
       if (p?.resultado === 'deferido') return 'aguardando_candidato'
@@ -380,6 +398,10 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
       const et = await etapaDeAnalise(r.id).catch(() => null)
       if (!et?.analise) continue
       const situacao = situacaoDe(et)
+      const grupo = grupoDe(r.processRegistration?.selectionProcess?.entryMode?.id, et.analise.modo === 'documentos')
+      const g = vazio.grupos.find((x) => x.chave === grupo)
+      if (g && situacao === 'em_analise') g.emAnalise++
+      if (grupoPedido && grupo !== grupoPedido) continue
       vazio.kpi[situacao as keyof typeof vazio.kpi]++
       const abertas = ['documentos', 'em_analise', 'aguardando_candidato']
       if (filtro === 'abertas' ? !abertas.includes(situacao) : filtro !== 'todas' && filtro !== situacao) continue
@@ -397,7 +419,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
         portal: { id: r.portal.id, nome: r.portal.nome }, local: campi.get(campusId) ?? null,
         curso: r.processRegistration?.offering?.course?.nome ?? r.processRegistration?.offering?.nome ?? null,
         formaDeIngresso: r.processRegistration?.selectionProcess?.entryMode?.name ?? null,
-        situacao, documentos: docs,
+        grupo, situacao, documentos: docs,
         // Desde quando está parada nesta situação (a fila anda pela mais antiga).
         desde: situacao === 'em_analise' ? (envios.length ? new Date(Math.max(...envios.map((d) => +d))) : r.createdAt)
           : situacao === 'aguardando_candidato' ? (et.analise.parecer?.emitidoEm ?? r.createdAt) : r.createdAt,

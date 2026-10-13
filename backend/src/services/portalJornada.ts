@@ -36,6 +36,11 @@ export interface EtapaConfig {
   /** Análise acadêmica: documentos (DocumentType.code) que a instituição analisa
    *  antes de liberar o resto — ex.: histórico e conteúdo programático. */
   documentos?: string[]
+  /** Análise acadêmica: formas de ingresso em que a análise é só aprovar ou
+   *  recusar o documento (ex.: boletim do ENEM, diploma) — sem parecer
+   *  (deferido, período, aproveitamento) nem aceite do candidato; aprovado,
+   *  libera a etapa seguinte. As demais (ex.: transferência) seguem com parecer. */
+  aprovacaoSimples?: number[]
   /** Documentos: a etapa conclui com os obrigatórios ENVIADOS (não espera a
    *  aprovação da secretaria) — a trava libera no envio. */
   liberaNoEnvio?: boolean
@@ -53,17 +58,19 @@ export interface JornadaConfig {
   /**
    * De-para com o funil do portal: em que etapa do funil o lead fica enquanto
    * o candidato está em cada etapa da jornada (chave da etapa → Stage.key), e
-   * `concluido` quando todas terminaram. Ver services/funilDaJornada.
+   * `concluido` quando todas terminaram. `<chave>:aguardando` (opcional) vale
+   * quando o candidato já fez a parte dele e a etapa espera a equipe (documentos
+   * da análise enviados, redação em correção). Ver services/funilDaJornada.
    */
   funil?: FunilDaJornada
 }
 
-export type FunilDaJornada = Partial<Record<ChaveEtapa | 'concluido', string>>
+export type FunilDaJornada = Partial<Record<ChaveEtapa | 'concluido' | `${ChaveEtapa}:aguardando`, string>>
 
 function lerFunil(bruto: unknown): FunilDaJornada {
   const b = (bruto && typeof bruto === 'object' && !Array.isArray(bruto) ? bruto : {}) as Record<string, unknown>
   const out: FunilDaJornada = {}
-  for (const k of [...CHAVES, 'concluido'] as const) {
+  for (const k of [...CHAVES, ...CHAVES.map((c) => `${c}:aguardando` as const), 'concluido' as const]) {
     const v = typeof b[k] === 'string' ? (b[k] as string).trim().slice(0, 50) : ''
     if (v) out[k] = v
   }
@@ -137,6 +144,7 @@ function normalizarLista(bruto: unknown, padrao: EtapaConfig[]): EtapaConfig[] {
     const ids = (v: unknown) => Array.isArray(v) ? [...new Set((v as unknown[]).map(Number).filter((n) => Number.isInteger(n) && n > 0))] : []
     const ingressos = ids((x as any)?.travaIngressos)
     const aparece = ids((x as any)?.ingressos)
+    const simples = ids((x as any)?.aprovacaoSimples)
     const documentos = Array.isArray((x as any)?.documentos)
       ? [...new Set(((x as any).documentos as unknown[]).map((c) => String(c ?? '').trim().slice(0, 30)).filter(Boolean))]
       : []
@@ -145,6 +153,7 @@ function normalizarLista(bruto: unknown, padrao: EtapaConfig[]): EtapaConfig[] {
       ...(ingressos.length ? { travaIngressos: ingressos } : {}),
       ...(chave === 'analise' && aparece.length ? { ingressos: aparece } : {}),
       ...(chave === 'analise' && documentos.length ? { documentos } : {}),
+      ...(chave === 'analise' && simples.length ? { aprovacaoSimples: simples } : {}),
       ...(chave === 'documentos' && (x as any)?.liberaNoEnvio ? { liberaNoEnvio: true } : {}),
     })
   }
@@ -233,6 +242,9 @@ export interface EtapaDaInscricao {
   bloqueada?: { por: ChaveEtapa; titulo: string; motivo: string } | null
   /** Só na análise acadêmica: documentos analisados e o parecer. */
   analise?: AnaliseDaEtapa
+  /** A equipe já liberou (parecer deferido); falta só o candidato confirmar.
+   *  O funil trata como etapa vencida e posiciona o lead na seguinte. */
+  liberada?: boolean
 }
 
 /** Parecer da análise acadêmica, gravado na inscrição (analiseAcademica). */
@@ -253,14 +265,17 @@ export interface ParecerAnalise {
 export interface AnaliseDaEtapa {
   /** opcional: a forma de ingresso aceita o documento, mas não o exige — não segura a análise. */
   documentos: Array<{ code: string; nome: string; status: 'faltando' | 'pending' | 'approved' | 'rejected'; reviewNote: string | null; opcional?: boolean }>
-  /** Parecer desta oferta (null = ainda em análise). */
+  /** Parecer desta oferta (null = ainda em análise). Sempre null em 'documentos'. */
   parecer: Omit<ParecerAnalise, 'historico'> | null
+  /** 'parecer' = deferido/indeferido + aceite do candidato (ex.: transferência);
+   *  'documentos' = só aprovar/recusar o documento (EtapaConfig.aprovacaoSimples). */
+  modo: 'parecer' | 'documentos'
 }
 
 /** O que "concluir" quer dizer em cada etapa — usado na mensagem da trava. */
 export const CONCLUIR: Record<ChaveEtapa, string> = {
   cadastro: 'todos os dados preenchidos',
-  analise: 'parecer da análise emitido e aceito pelo candidato',
+  analise: 'parecer da análise emitido e aceito pelo candidato',  // aprovação simples: concluirDe
   pagamento: 'pagamento confirmado',
   documentos: 'todos os documentos obrigatórios aprovados',
   contrato: 'contrato assinado',
@@ -268,8 +283,9 @@ export const CONCLUIR: Record<ChaveEtapa, string> = {
 }
 
 /** O "concluir" da etapa como o portal a configurou (documentos podem liberar no envio). */
-export function concluirDe(e: Pick<EtapaConfig, 'chave' | 'liberaNoEnvio'>): string {
+export function concluirDe(e: Pick<EtapaConfig, 'chave' | 'liberaNoEnvio' | 'aprovacaoSimples'>, entryModeId?: number | null): string {
   if (e.chave === 'documentos' && e.liberaNoEnvio) return 'todos os documentos obrigatórios enviados'
+  if (e.chave === 'analise' && entryModeId != null && e.aprovacaoSimples?.includes(entryModeId)) return 'documentos da análise aprovados pela secretaria'
   return CONCLUIR[e.chave]
 }
 
@@ -379,7 +395,9 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
         reviewNote: porTipo.get(code) === 'rejected' ? (notaPorTipo.get(code) ?? null) : null,
         ...(exigeDe.get(code) === false ? { opcional: true } : {}),
       }))
-      const parecer = parecerAtual(reg.analiseAcademica, offeringId)
+      // Aprovação simples (ex.: ENEM, diploma): vale só a aprovação do documento.
+      const simples = entryModeId != null && !!e.aprovacaoSimples?.includes(entryModeId)
+      const parecer = simples ? null : parecerAtual(reg.analiseAcademica, offeringId)
       const { historico: _h, ...semHistorico } = parecer ?? ({} as ParecerAnalise)
       const recusados = docs.filter((d) => d.status === 'rejected')
       const faltam = docs.filter((d) => d.status === 'faltando' && !d.opcional)
@@ -397,12 +415,15 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
         situacao = 'pendente'; detalhe = `${recusados.length} recusado(s) — reenvie: ${recusados.map((d) => d.nome).join(', ')}`
       } else if (faltam.length) {
         situacao = 'pendente'; detalhe = `Envie para análise: ${faltam.map((d) => d.nome).join(', ')}`
+      } else if (simples && docs.every((d) => d.status === 'approved' || (d.opcional && d.status === 'faltando'))) {
+        situacao = 'feito'; detalhe = 'Documentos aprovados'
       } else {
         situacao = 'aguardando'; detalhe = 'Documentos enviados, em análise acadêmica'
       }
       etapas.push({
         chave: 'analise', titulo: ROTULO.analise, obrigatoria: e.obrigatoria, situacao, detalhe,
-        analise: { documentos: docs, parecer: parecer ? semHistorico as Omit<ParecerAnalise, 'historico'> : null },
+        ...(parecer?.resultado === 'deferido' && !parecer.aceite?.decisao ? { liberada: true } : {}),
+        analise: { documentos: docs, parecer: parecer ? semHistorico as Omit<ParecerAnalise, 'historico'> : null, modo: simples ? 'documentos' : 'parecer' },
       })
       continue
     }
@@ -496,7 +517,7 @@ function aplicarTravas(etapas: EtapaDaInscricao[], lista: EtapaConfig[], entryMo
     if (segurando && et.situacao !== 'feito') {
       et.bloqueada = {
         por: segurando.chave, titulo: segurando.titulo,
-        motivo: `Libera depois de concluir "${segurando.titulo}" (${concluirDe(cfgDe.get(segurando.chave) ?? { chave: segurando.chave })}).`,
+        motivo: `Libera depois de concluir "${segurando.titulo}" (${concluirDe(cfgDe.get(segurando.chave) ?? { chave: segurando.chave }, entryModeId)}).`,
       }
     }
     if (!segurando && et.trava && et.situacao !== 'feito') segurando = et
@@ -562,6 +583,7 @@ export async function emitirParecer(p: {
 }): Promise<{ ok: true; parecer: ParecerAnalise } | { ok: false; erro: string }> {
   const et = await etapaDeAnalise(p.registrationId)
   if (!et?.analise) return { ok: false, erro: 'Esta inscrição não passa por análise acadêmica (veja Portal › Etapas).' }
+  if (et.analise.modo === 'documentos') return { ok: false, erro: 'Nesta forma de ingresso não há parecer: aprove ou recuse os documentos da análise.' }
   const txt = (v: unknown, max: number) => { const t = String(v ?? '').trim().slice(0, max); return t || null }
   const periodo = txt(p.periodo, 120)
   const observacao = txt(p.observacao, 4000)

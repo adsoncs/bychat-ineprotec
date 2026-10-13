@@ -19,6 +19,8 @@ interface Etapa {
   ingressos?: number[]
   /** Análise acadêmica: documentos analisados antes de liberar o resto. */
   documentos?: string[]
+  /** Análise acadêmica: formas de ingresso só com aprovação do documento (sem parecer nem aceite). */
+  aprovacaoSimples?: number[]
   /** Documentos: conclui com os obrigatórios enviados (não espera aprovação). */
   liberaNoEnvio?: boolean
 }
@@ -72,6 +74,7 @@ function normalizar(bruto: unknown, padrao: Etapa[]): Etapa[] {
       ...(Array.isArray(x.travaIngressos) && x.travaIngressos.length ? { travaIngressos: x.travaIngressos.map(Number) } : {}),
       ...(Array.isArray(x.ingressos) && x.ingressos.length ? { ingressos: x.ingressos.map(Number) } : {}),
       ...(Array.isArray(x.documentos) && x.documentos.length ? { documentos: x.documentos.map(String) } : {}),
+      ...(Array.isArray(x.aprovacaoSimples) && x.aprovacaoSimples.length ? { aprovacaoSimples: x.aprovacaoSimples.map(Number) } : {}),
       ...(x.liberaNoEnvio ? { liberaNoEnvio: true } : {}),
     })
   }
@@ -144,7 +147,7 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
                 {e.ativo && e.chave === 'analise' && (
                   <div class="mt-2 space-y-2 text-xs">
                     <div class="text-2xs text-warning">
-                      <Lock size={11} class="inline" /> Trava sempre: as etapas seguintes só liberam com {CONCLUIR.analise}.
+                      <Lock size={11} class="inline" /> Trava sempre: as etapas seguintes só liberam com {e.aprovacaoSimples?.length ? 'os documentos aprovados (aprovação simples) ou o parecer aceito pelo candidato' : CONCLUIR.analise}.
                     </div>
                     <div>
                       <div class="text-fg-muted">Aparece para{!e.ingressos?.length && <span class="text-warning"> — marque ao menos uma forma de ingresso (sem marcar, vale para todas)</span>}</div>
@@ -153,6 +156,19 @@ function ListaDeEtapas(p: { titulo: string; descricao: string; etapas: Etapa[]; 
                     <div>
                       <div class="text-fg-muted">Documentos analisados{!e.documentos?.length && <span class="text-danger"> — escolha ao menos um (sem documento, a etapa não aparece)</span>}</div>
                       <Marcar opcoes={p.tiposDoc.map((t) => ({ id: t.code, nome: t.name }))} marcados={e.documentos ?? []} onChange={(v) => muda(i, { documentos: v })} />
+                    </div>
+                    <div>
+                      <div class="text-fg-muted">Só aprovação do documento (sem parecer)</div>
+                      <div class="text-2xs text-fg-muted">
+                        Nas marcadas (ex.: ENEM, portador de diploma), a equipe só aprova ou recusa o documento — aprovado,
+                        libera a próxima etapa. As demais (ex.: transferência) seguem com parecer: deferido/indeferido,
+                        período de ingresso, aproveitamento e aceite do candidato.
+                      </div>
+                      <Marcar
+                        opcoes={p.ingressos.filter((g) => !e.ingressos?.length || e.ingressos.includes(g.id)).map((g) => ({ id: g.id, nome: g.name }))}
+                        marcados={e.aprovacaoSimples ?? []}
+                        onChange={(v) => muda(i, { aprovacaoSimples: v })}
+                      />
                     </div>
                   </div>
                 )}
@@ -415,10 +431,21 @@ export function SecaoFunil(p: {
   const { data } = useFunnel(p.funnelId)
   const stages = (data?.stages ?? []).filter((st: any) => st.active !== false)
   const [aplicando, setAplicando] = useState(false)
-  const linhas: Array<{ chave: string; nome: string }> = [
-    ...p.etapas.map((e) => ({ chave: e.chave, nome: INFO[e.chave].nome })),
+  // Etapas que podem esperar a equipe depois que o candidato fez a parte dele:
+  // linha extra opcional ("<chave>:aguardando"); em branco, vale a linha de cima.
+  const AGUARDANDO: Record<string, string> = {
+    analise: 'Documentos enviados, aguardando a análise da equipe',
+    prova: 'Prova enviada, aguardando a correção',
+    documentos: 'Documentos enviados, aguardando a conferência',
+  }
+  const linhas: Array<{ chave: string; nome: string; sub?: boolean }> = [
+    ...p.etapas.flatMap((e) => [
+      { chave: e.chave, nome: INFO[e.chave].nome },
+      ...(AGUARDANDO[e.chave] ? [{ chave: `${e.chave}:aguardando`, nome: AGUARDANDO[e.chave]!, sub: true }] : []),
+    ]),
     { chave: 'concluido', nome: 'Todas as etapas concluídas' },
   ]
+  let n = 0
   async function aplicar() {
     setAplicando(true)
     try {
@@ -440,7 +467,8 @@ export function SecaoFunil(p: {
             Em que etapa do funil do portal o lead fica enquanto o candidato está em cada etapa da matrícula — uma linha
             por etapa ativa do portal (aba Etapas). Só mexe em lead que está no funil do portal; lead que a equipe moveu à
             mão para fora destas etapas só anda para a frente, e da etapa de concluído ele não volta. Em branco = não
-            mexe no funil nessa etapa.
+            mexe no funil nessa etapa. As linhas com ↳ valem quando o candidato já enviou e a etapa espera a equipe;
+            quando a equipe libera, o lead segue para a etapa seguinte.
           </div>
         </div>
       </div>
@@ -448,10 +476,10 @@ export function SecaoFunil(p: {
         <div class="text-xs text-warning">Este portal não tem funil destino (aba Configuração). Escolha um funil para usar o de-para.</div>
       ) : (
         <div class="divide-y divide-border rounded-md border border-border">
-          {linhas.map((l, i) => (
+          {linhas.map((l) => (
             <div key={l.chave} class="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
-              <span class="w-6 text-2xs text-fg-muted tabular-nums">{l.chave === 'concluido' ? '✓' : `${i + 1}.`}</span>
-              <span class="min-w-0 flex-1 basis-48">{l.nome}</span>
+              <span class="w-6 text-2xs text-fg-muted tabular-nums">{l.chave === 'concluido' ? '✓' : l.sub ? '↳' : `${++n}.`}</span>
+              <span class={`min-w-0 flex-1 basis-48 ${l.sub ? 'text-fg-muted' : ''}`}>{l.nome}</span>
               <select
                 class="h-8 rounded-md border border-border bg-surface px-2 text-sm"
                 value={p.valor[l.chave] ?? ''}
@@ -463,7 +491,7 @@ export function SecaoFunil(p: {
                   p.onChange(novo)
                 }}
               >
-                <option value="">— não mexe no funil —</option>
+                <option value="">{l.sub ? '— mesma etapa da linha de cima —' : '— não mexe no funil —'}</option>
                 {stages.map((st: any) => <option key={st.key} value={st.key}>{st.name}</option>)}
               </select>
             </div>

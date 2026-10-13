@@ -106,6 +106,8 @@ export const CATALOGO_TEXTOS: GrupoDeTextos[] = [
     textos: [
       { chave: 'analise.envie', rotulo: 'Antes de enviar os documentos', padrao: 'Envie os documentos abaixo. Com eles, a coordenação acadêmica analisa o seu histórico e informa em que período você vai ingressar e quais disciplinas serão aproveitadas.', longo: true },
       { chave: 'analise.emAnalise', rotulo: 'Documentos enviados, aguardando parecer', padrao: 'Recebemos seus documentos. A coordenação acadêmica está analisando o seu histórico — você recebe o parecer por aqui e por mensagem.', longo: true },
+      { chave: 'analise.envieDoc', rotulo: 'Aprovação simples (ex.: ENEM, diploma): antes de enviar', padrao: 'Envie o documento abaixo. Depois que a equipe aprovar, as próximas etapas são liberadas.', longo: true },
+      { chave: 'analise.emAnaliseDoc', rotulo: 'Aprovação simples: documento enviado, em conferência', padrao: 'Recebemos seu documento. A equipe está conferindo — quando for aprovado, as próximas etapas são liberadas aqui.', longo: true },
       { chave: 'analise.deferido', rotulo: 'Título: deferida', padrao: 'Análise deferida' },
       { chave: 'analise.indeferido', rotulo: 'Título: indeferida', padrao: 'Análise indeferida' },
       { chave: 'analise.aceitar', rotulo: 'Botão: aceitar o parecer', padrao: 'Concordo e quero continuar' },

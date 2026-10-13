@@ -216,6 +216,9 @@ export function useReviewDocItem() {
       void qc.invalidateQueries({ queryKey: ['edu-doc-items'] })
       void qc.invalidateQueries({ queryKey: ['edu-doc-reviews'] })
       void qc.invalidateQueries({ queryKey: ['edu-doc-review-detail'] })
+      // Documento da análise acadêmica: a fila de análises e as etapas mudam junto.
+      void qc.invalidateQueries({ queryKey: ['analises-academicas'] })
+      void qc.invalidateQueries({ queryKey: ['registration-etapas'] })
     },
   })
 }
