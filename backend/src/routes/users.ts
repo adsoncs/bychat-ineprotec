@@ -9,7 +9,7 @@ import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { sendPasswordResetEmail } from '../services/notify.js'
 import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '../services/security.js'
-import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole } from '../lib/permissions.js'
+import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole, ESCOPO_EDITAVEL } from '../lib/permissions.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { MODULE_REGISTRY } from '../lib/moduleRegistry.js'
 import { redis } from '../lib/redis.js'
@@ -781,14 +781,20 @@ export async function usersRoutes(app: FastifyInstance) {
     if (user.role !== 'SUPERADMIN') {
       return reply.code(403).send({ error: 'Apenas SUPERADMIN pode alterar permissões de módulos' })
     }
-    const { permissions } = req.body as { permissions: { moduleId: string; role: string; canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }[] }
+    const { permissions } = req.body as { permissions: { moduleId: string; role: string; canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean; scope?: string }[] }
     if (!Array.isArray(permissions)) return reply.code(400).send({ error: 'permissions deve ser um array' })
 
+    // Alcance do papel (só meus / equipe / todos): só os módulos que o leem
+    // (ESCOPO_EDITAVEL) aceitam mudança pela tela; sem `scope`, fica o atual.
+    const escopos: string[] = []
     for (const p of permissions) {
+      const scope = p.scope === 'own' || p.scope === 'team' || p.scope === 'all' ? p.scope : null
+      const muda = scope && ESCOPO_EDITAVEL.has(p.moduleId) && p.role !== 'SUPERADMIN'
+      if (muda) escopos.push(`${p.role}/${p.moduleId}=${scope}`)
       await prisma.modulePermission.upsert({
         where: { moduleId_role: { moduleId: p.moduleId, role: p.role as any } },
-        create: { moduleId: p.moduleId, role: p.role as any, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete, scope: defaultScopeForRole(p.role) },
-        update: { canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete },
+        create: { moduleId: p.moduleId, role: p.role as any, canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete, scope: muda ? scope! : defaultScopeForRole(p.role) },
+        update: { canView: p.canView, canCreate: p.canCreate, canEdit: p.canEdit, canDelete: p.canDelete, ...(muda ? { scope: scope! } : {}) },
       })
     }
     invalidatePermCache()
@@ -800,7 +806,7 @@ export async function usersRoutes(app: FastifyInstance) {
       action: 'permission.role_changed',
       targetType: 'module_permission',
       targetLabel: `${permissions.length} permissão(ões) por perfil`,
-      changes: { roles: [...new Set(permissions.map((p) => p.role))], modules: [...new Set(permissions.map((p) => p.moduleId))] },
+      changes: { roles: [...new Set(permissions.map((p) => p.role))], modules: [...new Set(permissions.map((p) => p.moduleId))], ...(escopos.length ? { escopos } : {}) },
       ...auditActor(req),
     })
 

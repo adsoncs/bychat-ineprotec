@@ -51,6 +51,31 @@ const CATEGORY_LABELS: Record<string, string> = {
   admin: 'Administração',
 }
 
+// Alcance do papel: só os módulos cujo escopo o sistema lê (backend:
+// ESCOPO_EDITAVEL). Nos demais o escopo gravado não muda nada, e mostrá-lo
+// faria parecer que muda.
+type Escopo = 'own' | 'team' | 'all'
+const ALCANCE: Array<{ moduleId: string; nome: string; ajuda: Record<Escopo, string> }> = [
+  {
+    moduleId: 'leads', nome: 'Leads, Conversas e Contatos',
+    ajuda: {
+      own: 'Só o que está atribuído à pessoa. Não vê a fila do setor (conversas sem responsável) nem as dos colegas.',
+      team: 'O que está atribuído à pessoa + tudo das equipes de que ela faz parte (inclusive a fila e as dos colegas).',
+      all: 'Tudo, de todas as equipes.',
+    },
+  },
+  {
+    moduleId: 'meetings', nome: 'Reuniões (gravações)',
+    ajuda: {
+      own: 'Só as gravações da própria pessoa.',
+      team: 'Todas as gravações.',
+      all: 'Todas as gravações.',
+    },
+  },
+]
+const ESCOPO_PADRAO: Record<EditableRole, Escopo> = { VIEWER: 'team', AGENT: 'own', MANAGER: 'team', ADMIN: 'all' }
+const ESCOPO_ROTULO: Record<Escopo, string> = { own: 'Somente os próprios', team: 'Equipe', all: 'Todos' }
+
 const PERM_FIELDS = ['canView', 'canCreate', 'canEdit', 'canDelete'] as const
 type PermField = typeof PERM_FIELDS[number]
 const FIELD_LABELS: Record<PermField, string> = {
@@ -199,11 +224,30 @@ function RolePermissionsCard({
 
   function bulkSet(values: { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }) {
     setDraft((prev) => {
+      const antes = new Map(prev.filter((p) => p.role === activeRole).map((p) => [p.moduleId, p.scope]))
       const next = prev.filter((p) => p.role !== activeRole)
       for (const m of modules) {
-        next.push({ moduleId: m.id, role: activeRole, ...values })
+        // "Todos/Nenhum/Somente leitura" mexem nas caixas, não no alcance.
+        const scope = antes.get(m.id)
+        next.push({ moduleId: m.id, role: activeRole, ...values, ...(scope ? { scope } : {}) })
       }
       return next
+    })
+  }
+
+  function escopoDe(moduleId: string): Escopo {
+    return (draft.find((p) => p.moduleId === moduleId && p.role === activeRole)?.scope as Escopo | undefined) ?? ESCOPO_PADRAO[activeRole]
+  }
+
+  function setEscopo(moduleId: string, scope: Escopo) {
+    setDraft((prev) => {
+      const idx = prev.findIndex((p) => p.moduleId === moduleId && p.role === activeRole)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = { ...next[idx]!, scope }
+        return next
+      }
+      return [...prev, { moduleId, role: activeRole, canView: false, canCreate: false, canEdit: false, canDelete: false, scope }]
     })
   }
 
@@ -259,6 +303,32 @@ function RolePermissionsCard({
         >
           Somente leitura
         </BulkButton>
+      </div>
+
+      <div class="px-4 py-3 border-b border-border space-y-2">
+        <div>
+          <div class="text-xs font-semibold text-fg">Alcance do papel — o que {ROLE_LABELS[activeRole]} enxerga</div>
+          <div class="text-2xs text-fg-muted">
+            Vale para todos deste papel, em todas as equipes. As caixas abaixo dizem o que a pessoa pode fazer; o
+            alcance diz sobre quais registros. Salve com o botão "Salvar Permissões".
+          </div>
+        </div>
+        {ALCANCE.map((a) => {
+          const atual = escopoDe(a.moduleId)
+          return (
+            <div key={a.moduleId} class="flex flex-wrap items-start gap-3">
+              <span class="text-sm text-fg min-w-0 basis-56">{a.nome}</span>
+              <Select
+                value={atual}
+                onChange={(e) => setEscopo(a.moduleId, (e.target as HTMLSelectElement).value as Escopo)}
+                aria-label={`Alcance em ${a.nome}`}
+              >
+                {(['own', 'team', 'all'] as Escopo[]).map((k) => <option key={k} value={k}>{ESCOPO_ROTULO[k]}</option>)}
+              </Select>
+              <span class="text-2xs text-fg-muted flex-1 basis-64 pt-1.5">{a.ajuda[atual]}</span>
+            </div>
+          )
+        })}
       </div>
 
       <div class="overflow-x-auto">

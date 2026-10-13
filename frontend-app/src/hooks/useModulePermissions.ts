@@ -19,6 +19,9 @@ export interface ModulePermission {
   canCreate: boolean
   canEdit: boolean
   canDelete: boolean
+  /** Alcance do papel (só meus / equipe / todos) — só os módulos que o leem
+   *  (leads, meetings) aceitam mudança pela tela. */
+  scope?: 'own' | 'team' | 'all'
 }
 
 /** null = herdar do role; true = permitir; false = negar */

@@ -92,6 +92,11 @@ export async function resolvePermissions(userId: number, role: string): Promise<
 
 // Default de scope quando admin não configurou explicitamente para a role.
 // Casa com a decisão da Reforma de Roles (2026-05-21).
+/** Módulos cujo escopo o sistema LÊ — só eles mostram o "alcance" na tela de
+ *  Permissões: 'leads' decide Leads, Conversas e Contatos (lib/teamAccess);
+ *  'meetings', as gravações de reunião. Nos demais o escopo não muda nada. */
+export const ESCOPO_EDITAVEL = new Set(['leads', 'meetings'])
+
 export function defaultScopeForRole(role: string): PermScope {
   if (role === 'SUPERADMIN' || role === 'ADMIN') return 'all'
   if (role === 'MANAGER') return 'team'

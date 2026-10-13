@@ -697,14 +697,16 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         filtrosAnd.push({ id: { in: idsDoCanal.length ? idsDoCanal : [-1] } })
       }
 
-      /** Junta escopo + filtros da tela + caixa numa cláusula só. */
+      /** Junta escopo + filtros da tela + caixa numa cláusula só. O escopo vai
+       *  DENTRO do AND: espalhado, ele perdia para chave igual dos filtros — o
+       *  `AND` da matriz (abas Meus/Setor) era trocado pelo da caixa e a pessoa
+       *  via tudo; um filtro de responsável trocava o teto do escopo. */
       const montarWhere = (escopo: any, caixa: string) => {
         const cond = condicaoDaCaixa(caixa, now)
         return {
-          ...escopo,
           ...filtros,
           ...cond.campos,
-          AND: [...filtrosAnd, ...cond.and],
+          AND: [escopo, ...filtrosAnd, ...cond.and],
         }
       }
 
