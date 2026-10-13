@@ -4,6 +4,7 @@
 
 import sanitizeHtml from 'sanitize-html'
 import { beyondTrackingSnippet } from '../lib/beyondTracking.js'
+import { scriptDeSelectsDependentes } from './formFlow.js'
 
 // Sanitização permissiva para conteúdo rich-text (renderText, FAQ, columns, custom HTML section)
 const RICH_HTML_OPTS: sanitizeHtml.IOptions = {
@@ -1056,7 +1057,7 @@ function renderForm(p: any, formFields?: any[], formSettings?: any): string {
       <form id="lp-form" novalidate onsubmit="return handleLPFormSubmit(event, ${formId})">
         ${fields.map(f => renderFormField(f)).join('')}
         <button type="submit" class="btn btn--primary"${is({ width: '100%', 'margin-top': '8px', background: p.btnBg, color: p.btnColor, 'border-radius': p.btnRadius, 'font-size': p.btnSize })}>${esc(settings.submitText || 'Enviar')}</button>
-      </form>
+      </form>${scriptDeSelectsDependentes(fields, '#lp-form')}
       <div class="lp-form__success" id="lp-form-success">
         <h3>${esc(settings.successTitle || 'Enviado com sucesso!')}</h3>
         <p>${esc(settings.successMessage || 'Entraremos em contato em breve.')}</p>
@@ -1075,7 +1076,7 @@ function renderFormField(f: any): string {
     return `
     <div class="lp-field">
       <label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}</label>
-      <select id="${id}" name="${esc(f.key)}" ${req}>
+      <select id="${id}" name="${esc(f.key)}" ${req}${f.dependsOn ? ` data-dep="${esc(f.dependsOn)}"` : ''}>
         <option value="">${esc(f.placeholder || 'Selecione...')}</option>
         ${options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}
       </select>

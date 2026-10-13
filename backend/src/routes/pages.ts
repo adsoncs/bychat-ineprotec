@@ -12,6 +12,7 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { renderPage, render404 } from '../services/pageRenderer.js'
+import { aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PAGE_UPLOADS_DIR = join(__dirname, '../../../uploads/pages')
@@ -45,7 +46,7 @@ export async function pagesRoutes(app: FastifyInstance) {
     if (formId) {
       const form = await prisma.form.findUnique({ where: { id: formId } })
       if (form) {
-        formFields = Array.isArray(form.fields) ? form.fields as any[] : []
+        formFields = await aplicarOpcoesDeCampoPersonalizado(Array.isArray(form.fields) ? form.fields as any[] : [])
         formSettings = form.settings as any || {}
       }
     }
@@ -290,7 +291,7 @@ export async function pagesRoutes(app: FastifyInstance) {
     if (formId) {
       const form = await prisma.form.findUnique({ where: { id: formId } })
       if (form) {
-        formFields = Array.isArray(form.fields) ? form.fields as any[] : []
+        formFields = await aplicarOpcoesDeCampoPersonalizado(Array.isArray(form.fields) ? form.fields as any[] : [])
         formSettings = form.settings as any || {}
       }
     }

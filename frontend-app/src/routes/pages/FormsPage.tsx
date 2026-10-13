@@ -300,7 +300,7 @@ function FormEmbedModal({ form, onClose }: { form: FormItem; onClose: () => void
       footer={<Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>}
     >
       {isLoading && <Skeleton class="h-32 w-full" />}
-      {data && data.displayMode === 'conversational' && (
+      {data && (
         <div class="space-y-4">
           <div class="space-y-2">
             <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Link hospedado (recomendado)</div>
@@ -309,7 +309,7 @@ function FormEmbedModal({ form, onClose }: { form: FormItem; onClose: () => void
               <Button variant="secondary" size="sm" class="shrink-0" onClick={() => copy(data.hostedUrl)}>{copied ? 'Copiado!' : 'Copiar'}</Button>
               <a href={data.hostedUrl} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-md text-xs font-medium bg-accent text-fg-on-brand hover:bg-accent-hover">Abrir</a>
             </div>
-            <p class="text-2xs text-fg-muted">Página full-screen, uma pergunta por vez. Compartilhe o link direto ou em campanhas.</p>
+            <p class="text-2xs text-fg-muted">{data.displayMode === 'conversational' ? 'Página full-screen, uma pergunta por vez.' : 'Formulário normal, com todos os campos numa tela.'} Compartilhe o link direto ou em campanhas.</p>
           </div>
           <div class="space-y-2">
             <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Ou embuta por iframe</div>
@@ -323,8 +323,9 @@ function FormEmbedModal({ form, onClose }: { form: FormItem; onClose: () => void
           </div>
         </div>
       )}
-      {data && data.displayMode !== 'conversational' && (
-        <div class="space-y-3">
+      {data && (
+        <div class="space-y-3 mt-4">
+          <div class="text-xs font-semibold uppercase tracking-wider text-fg-muted">Ou cole o script (formulário dentro da própria página)</div>
           <div class="relative rounded-md bg-zinc-900 border border-zinc-800 p-4">
             <button
               type="button"

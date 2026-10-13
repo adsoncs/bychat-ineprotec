@@ -419,7 +419,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
               redirectUrl={redirectUrl} onRedirectUrl={(v) => { setRedirectUrl(v); touch() }}
             />
           ) : activeField ? (
-            <FieldEditorColumn field={activeField} funnels={funnels?.funnels ?? []} onPatch={(p) => patchField(activeField.id, p)} onRemove={() => removeField(activeField.id)} />
+            <FieldEditorColumn field={activeField} allFields={fields} funnels={funnels?.funnels ?? []} onPatch={(p) => patchField(activeField.id, p)} onRemove={() => removeField(activeField.id)} />
           ) : (
             <div class="grid h-full place-items-center rounded-md border border-dashed border-border p-8 text-center text-sm text-fg-muted">
               Clique num bloco no canvas (ou na lista) para editar.
@@ -731,7 +731,10 @@ function ShareSection({ slug, formId, displayMode }: { slug: string; formId: num
   const ref = slug || String(formId)
   const hosted = `${location.origin}/f/${ref}`
   const embed = `<script src="${location.origin}/api/forms/embed/${formId}.js" defer></script>\n<beyond-form form-id="${formId}"></beyond-form>`
-  const iframe = `<iframe src="${hosted}?embed=1" style="width:100%;min-height:520px;border:0" loading="lazy"></iframe>`
+  // Mesmo código do backend (routes/forms.ts → iframeDoFormulario): UTMs da página
+  // repassadas ao quadro e, no clássico, altura ajustada ao conteúdo.
+  const fid = String(formId)
+  const iframe = `<iframe id="bf-frame-${fid}" src="${hosted}?embed=1" style="width:100%;${displayMode === 'conversational' ? 'min-height:520px' : 'height:640px'};border:0" loading="lazy" title="Formulário"></iframe>\n<script>(function(){var f=document.getElementById('bf-frame-${fid}');if(!f)return;try{var q=location.search.replace(/^\\?/,'');if(q)f.src=f.src+'&'+q;}catch(e){}window.addEventListener('message',function(e){var d=e.data;if(d&&d.bfFormId==='${fid}'&&d.bfFormHeight>0)f.style.height=Math.ceil(d.bfFormHeight)+'px';});})();</script>`
   const copy = (t: string) => { void navigator.clipboard.writeText(t).then(() => toast('Copiado', 'success')) }
   return (
     <section class="space-y-4 max-w-xl">
@@ -744,11 +747,8 @@ function ShareSection({ slug, formId, displayMode }: { slug: string; formId: num
           <a href={hosted} target="_blank" rel="noreferrer" class="shrink-0 inline-flex items-center h-8 px-3 rounded-md text-xs font-medium bg-accent text-fg-on-brand">Abrir</a>
         </div>
       </div>
-      {displayMode === 'conversational' ? (
-        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (iframe)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(iframe)}>{iframe}</pre></div>
-      ) : (
-        <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (web component)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(embed)}>{embed}</pre></div>
-      )}
+      <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (iframe)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(iframe)}>{iframe}</pre></div>
+      <div class="space-y-1"><div class="text-xs font-medium text-fg-muted">Embed (script, formulário dentro da página)</div><pre class="rounded-md bg-zinc-900 text-zinc-100 text-2xs p-3 whitespace-pre-wrap break-all" onClick={() => copy(embed)}>{embed}</pre></div>
       <p class="text-2xs text-fg-muted">Clique no bloco de código para copiar.</p>
     </section>
   )

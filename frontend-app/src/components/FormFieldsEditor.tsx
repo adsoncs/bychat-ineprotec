@@ -251,6 +251,7 @@ export function FormFieldsEditor({ formId, onClose }: FormFieldsEditorProps) {
           />
           <FieldEditorColumn
             field={active}
+            allFields={fields}
             onPatch={(p) => active && patchField(active.id, p)}
             onRemove={() => active && removeField(active.id)}
           />
@@ -488,12 +489,14 @@ interface FieldEditorColumnProps {
   onPatch: (partial: Partial<FormField>) => void
   onRemove: () => void
   funnels?: { id: number; name: string }[] | undefined
+  /** Todos os campos do form: o select dependente escolhe o seu campo pai aqui. */
+  allFields?: FormField[] | undefined
 }
 
 // Campos nativos do lead que o select "Mapear para" oferece.
 const NATIVE_MAP_KEYS = new Set(['nome', 'email', 'whatsapp', 'empresa', 'cidade', 'segmento'])
 
-export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: FieldEditorColumnProps) {
+export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [], allFields = [] }: FieldEditorColumnProps) {
   const mtItems = useMeetingTypes().data?.items?.filter((m) => m.active) ?? []
   const cfList = useCustomFields().data?.fields ?? []
   const createCf = useCreateCustomField()
@@ -740,12 +743,50 @@ export function FieldEditorColumn({ field, onPatch, onRemove, funnels = [] }: Fi
         </label>
       )}
 
-      {isSelect && (
-        <SelectOptionsEditor
-          options={field.options ?? []}
-          onChange={(options) => onPatch({ options })}
-        />
-      )}
+      {isSelect && (() => {
+        // Pai possível: outro select ou um campo oculto (valor fixo).
+        const pais = allFields.filter((f) => f.id !== field.id && (f.type === 'select' || f.type === 'hidden'))
+        const pai = field.dependsOn ? allFields.find((f) => f.key === field.dependsOn) : undefined
+        const cfDoCampo = field.mapTo?.startsWith('cf_') ? cfList.find((c) => c.key === field.mapTo!.slice(3)) : undefined
+        const opcoesDoCf = Array.isArray(cfDoCampo?.options)
+          ? (cfDoCampo!.options as unknown[]).map((o: any) => (typeof o === 'string' ? o : String(o?.label ?? o?.value ?? ''))).filter(Boolean)
+          : []
+        const usaCf = !!field.optionsFromCustomField && !!cfDoCampo
+        return (
+          <>
+            {cfDoCampo && (
+              <div class="rounded-md border border-border bg-surface-2 p-3 space-y-1.5">
+                <label class="flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={!!field.optionsFromCustomField}
+                    onChange={(e) => onPatch({ optionsFromCustomField: (e.target as HTMLInputElement).checked || undefined })} />
+                  Usar as opções do campo personalizado "{cfDoCampo.label}"
+                </label>
+                <p class="text-3xs text-fg-muted">Edite a lista em Campos personalizados: todos os formulários que usam este campo mudam juntos.</p>
+                {usaCf && (opcoesDoCf.length
+                  ? <p class="text-3xs text-fg">Opções atuais: {opcoesDoCf.join(' · ')}</p>
+                  : <p class="text-3xs text-warning">O campo personalizado ainda não tem opções: o formulário usa as opções abaixo.</p>)}
+              </div>
+            )}
+            {pais.length > 0 && (
+              <div class="rounded-md border border-border bg-surface-2 p-3 space-y-1">
+                <Select label="Opções dependem do campo" value={field.dependsOn ?? ''}
+                  onChange={(e) => onPatch({ dependsOn: (e.target as HTMLSelectElement).value || undefined })}>
+                  <option value="">— não dependem (mostrar todas) —</option>
+                  {pais.map((f) => <option key={f.id} value={f.key}>{stripHtml(f.label) || f.key}</option>)}
+                </Select>
+                <p class="text-3xs text-fg-muted">Ex.: Curso depende de Nível. Em cada opção, marque em quais valores do campo pai ela aparece.</p>
+              </div>
+            )}
+            {!(usaCf && opcoesDoCf.length) && (
+              <SelectOptionsEditor
+                options={field.options ?? []}
+                onChange={(options) => onPatch({ options })}
+                parentField={pai}
+              />
+            )}
+          </>
+        )
+      })()}
 
       {/* ── Pergunta de qualificação (só seleção) ── */}
       {isSelect && (
@@ -853,9 +894,14 @@ function QualifyOutcomeEditor({ title, tone, funnels, value, onChange }: {
 interface SelectOptionsEditorProps {
   options: FormFieldOption[]
   onChange: (options: FormFieldOption[]) => void
+  /** Campo pai (lista dependente): cada opção marca em quais valores dele aparece. */
+  parentField?: FormField | undefined
 }
 
-function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
+function SelectOptionsEditor({ options, onChange, parentField }: SelectOptionsEditorProps) {
+  const valoresDoPai: { value: string; label: string }[] = parentField?.type === 'select'
+    ? (parentField.options ?? []).filter((o) => o.value).map((o) => ({ value: o.value, label: stripHtml(o.label) || o.value }))
+    : parentField?.type === 'hidden' && parentField.defaultValue ? [{ value: parentField.defaultValue, label: parentField.defaultValue }] : []
   const [aberta, setAberta] = useState<number | null>(null)
   function patch(idx: number, patchOpt: Partial<FormFieldOption>) {
     const next = options.map((o, i) => (i === idx ? { ...o, ...patchOpt } : o))
@@ -901,7 +947,7 @@ function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
               placeholder="Ex.: pequena"
             />
             <Button variant="ghost" size="sm" onClick={() => setAberta(aberta === i ? null : i)}
-              aria-label="Encaminhamento da opção" title="Encaminhamento (chatbot)"
+              aria-label="Encaminhamento da opção" title="Encaminhamento (chatbot e formulário)"
               class={o.route ? 'text-accent' : ''}>
               <GitBranch size={12} />
             </Button>
@@ -909,6 +955,26 @@ function SelectOptionsEditor({ options, onChange }: SelectOptionsEditorProps) {
               <Trash2 size={12} />
             </Button>
           </div>
+          {valoresDoPai.length > 0 && (
+            <div class="flex flex-wrap items-center gap-1.5 pl-1">
+              <span class="text-3xs text-fg-muted">Aparece quando {stripHtml(parentField?.label ?? '') || parentField?.key} for:</span>
+              {valoresDoPai.map((pv) => {
+                const marcados = o.parents ?? []
+                const on = marcados.includes(pv.value)
+                return (
+                  <button key={pv.value} type="button"
+                    class={`rounded-full border px-2 py-0.5 text-3xs ${on ? 'border-accent bg-accent/10 text-accent' : 'border-border text-fg-muted'}`}
+                    onClick={() => {
+                      const prox = on ? marcados.filter((v) => v !== pv.value) : [...marcados, pv.value]
+                      patch(i, { parents: prox.length ? prox : undefined })
+                    }}>
+                    {pv.label}
+                  </button>
+                )
+              })}
+              {!(o.parents?.length) && <span class="text-3xs text-fg-muted">(sem marcação: aparece sempre)</span>}
+            </div>
+          )}
           {aberta === i ? (
             <OptionRouteEditor value={o.route} onChange={(route) => patch(i, { route })} />
           ) : o.route ? (
@@ -948,7 +1014,7 @@ function OptionRouteEditor({ value, onChange }: {
   return (
     <div class="rounded-md border border-accent/40 bg-surface p-3 space-y-2">
       <span class="block text-2xs font-semibold uppercase tracking-wider text-fg-muted">Encaminhamento desta opção</span>
-      <p class="text-3xs text-fg-muted">Quando o chatbot escolher esta opção, o lead vai para o funil e a equipe abaixo.</p>
+      <p class="text-3xs text-fg-muted">Quando esta opção for escolhida (no chatbot ou no formulário), o lead vai para o funil e a equipe abaixo.</p>
       <div class="grid gap-2">
         <Select label="Funil" value={funnelId == null ? '' : String(funnelId)}
           onChange={(e) => { const v = (e.target as HTMLSelectElement).value; set({ funnelId: v ? Number(v) : null, stageKey: null }) }}>

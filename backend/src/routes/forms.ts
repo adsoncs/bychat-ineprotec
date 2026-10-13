@@ -11,7 +11,8 @@ import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { logEvent, EVENT_TYPES, getIp } from '../services/leadHistory.js'
 import { assertUrlIsPublic } from '../lib/urlSafety.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
-import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues } from '../services/formFlow.js'
+import { createLeadFromForm, moveLeadStage, resolveQualification, buildCustomFieldValues, erroDeDependencia, rotaDaOpcao, depsDosSelects, aplicarOpcoesDeCampoPersonalizado } from '../services/formFlow.js'
+import { escolherOperadorDaRota } from '../services/teamRouting.js'
 import { rejectLeadEntry, candidateFromForm } from '../services/leadBlocklist.js'
 import { renderFormCanvas } from '../services/formRenderer.js'
 import { beyondTrackingSnippet, beyondTrackingInlineJs } from '../lib/beyondTracking.js'
@@ -128,6 +129,11 @@ export async function formsRoutes(app: FastifyInstance) {
           }
         }
       }
+      // Lista dependente: a opção escolhida tem de valer para o valor do campo pai.
+      const erroDep = erroDeDependencia(fields, data)
+      if (erroDep) return reply.code(400).send({ ok: false, error: erroDep })
+      // Roteamento por opção (funil/etapa/equipe), o mesmo do chatbot.
+      const rota = rotaDaOpcao(fields, data)
 
       // Salvar submission.
       // Quando o lead JÁ converteu ao agendar (recordFormConversionFromBooking
@@ -202,13 +208,19 @@ export async function formsRoutes(app: FastifyInstance) {
               completed: true,
               ...(Object.keys(cfv).length > 0 ? { customFields: { ...((ex.customFields as any) || {}), ...cfv } } : {}),
             } })
+            // Captura parcial nasce no funil do form; a opção escolhida depois o leva ao destino.
+            if (rota?.funnelId != null) {
+              convStageKey = await moveLeadStage(finalizeId, rota.funnelId, rota.stageKey || form.stageKey || 'NOVO', 'form', { forwardOnly: false }).catch(() => convStageKey)
+            }
           }
         }
         // Lista de bloqueio: submissão segue registrada (auditoria), mas o lead
         // não nasce. A resposta é a mesma de sempre — bloqueio silencioso.
         const bloqueio = await rejectLeadEntry(candidateFromForm(fields, data, ip), 'formulário')
         if (!leadId && !bloqueio) {
-          const created = await createLeadFromForm(form, fields, data, body, ip, submission.id)
+          const formDaRota = rota?.teamId != null ? { ...form, defaultTeamId: rota.teamId } : form
+          const created = await createLeadFromForm(formDaRota, fields, data, body, ip, submission.id,
+            rota?.funnelId != null ? { funnelId: rota.funnelId, stageKey: rota.stageKey || form.stageKey || null } : undefined)
           if (created) {
             leadId = created.leadId
             convStageKey = created.targetStageKey
@@ -216,12 +228,20 @@ export async function formsRoutes(app: FastifyInstance) {
           }
         }
 
+        // Equipe da opção: responsáveis específicos da rota (userIds) e o lead que
+        // veio da captura parcial, que nasceu com a equipe padrão do form.
+        if (leadId && rota?.teamId != null && (rota.userIds.length > 0 || !!finalizeId)) {
+          const userId = await escolherOperadorDaRota(rota.teamId, rota.userIds).catch(() => null)
+          await prisma.lead.update({ where: { id: leadId }, data: { teamId: rota.teamId, assignedUserId: userId, assignedAt: new Date() } }).catch(() => {})
+          logEvent({ leadId, type: EVENT_TYPES.ROUTING_RULE_MATCHED, category: 'lifecycle', title: `Formulário: encaminhado por "${rota.label}"`, channel: 'web', source: 'form', actorType: 'lead', metadata: { teamId: rota.teamId, userId, funnelId: rota.funnelId, stageKey: rota.stageKey } })
+        }
+
         // Roteamento por qualificação (negativo vence): move o lead para a etapa
         // decisiva do funil (já resolvido acima a partir das respostas).
         if (leadId && qualify && qualify.stageKey) {
           // forwardOnly em qualificação positiva: não regride o lead que já avançou
           // (ex.: agendou a reunião neste mesmo form). Desqualificação (finish) move sempre.
-          const effectiveStage = await moveLeadStage(leadId, qualify.funnelId ?? form.funnelId ?? null, qualify.stageKey, 'form', { forwardOnly: !qualify.finish }).catch(() => null)
+          const effectiveStage = await moveLeadStage(leadId, qualify.funnelId ?? rota?.funnelId ?? form.funnelId ?? null, qualify.stageKey, 'form', { forwardOnly: !qualify.finish }).catch(() => null)
           if (effectiveStage) convStageKey = effectiveStage
         }
 
@@ -432,7 +452,7 @@ export async function formsRoutes(app: FastifyInstance) {
     if (!form || !form.active) return reply.code(404).send('// form not found')
 
     const baseUrl = process.env.APP_URL || `https://${req.hostname}`
-    const fields: any[] = Array.isArray(form.fields) ? form.fields as any[] : []
+    const fields: any[] = await aplicarOpcoesDeCampoPersonalizado(Array.isArray(form.fields) ? form.fields as any[] : [])
     const settings = form.settings as any || {}
     const styling = form.styling as any || {}
 
@@ -471,9 +491,20 @@ export async function formsRoutes(app: FastifyInstance) {
     // qualquer domínio. O script de EMBED (/api/forms/embed/:id.js) roda no site
     // do cliente e continua precisando de URL absoluta — não mexer nele.
     const baseUrl = ''
-    const fields: any[] = Array.isArray(form.fields) ? form.fields as any[] : []
+    const fields: any[] = await aplicarOpcoesDeCampoPersonalizado(Array.isArray(form.fields) ? form.fields as any[] : [])
     const settings = form.settings as any || {}
     const styling = { ...getDefaultFormStyling(), ...((form.styling as any) ?? {}) }
+
+    // Modo clássico: o link direto é um formulário normal (todos os campos numa
+    // tela), o mesmo do script de embed. O conversacional segue uma pergunta por vez.
+    if (settings.displayMode !== 'conversational') {
+      reply
+        .header('Content-Security-Policy', 'frame-ancestors *')
+        .header('Cache-Control', 'no-store')
+        .type('text/html')
+        .send(paginaClassica(form.id, form.name, styling, embed))
+      return
+    }
 
     const { brandName } = await getBranding().catch(() => ({ brandName: 'Attrae' }))
     const html = generateConversationalPage(form.id, form.name, fields, settings, styling, baseUrl, embed, brandName)
@@ -541,7 +572,7 @@ export async function formsRoutes(app: FastifyInstance) {
     if (!stored) return reply.code(404).send({ error: 'Formulário não encontrado' })
 
     const body = (req.body || {}) as any
-    const fields = body.fields !== undefined ? body.fields : (stored.fields as any)
+    const fields = await aplicarOpcoesDeCampoPersonalizado(body.fields !== undefined ? body.fields : (stored.fields as any))
     const settings = body.settings !== undefined ? body.settings : ((stored.settings as any) || {})
     const styling = { ...getDefaultFormStyling(), ...(((body.styling ?? stored.styling) as any) || {}) }
 
@@ -713,8 +744,7 @@ export async function formsRoutes(app: FastifyInstance) {
     // Usa o slug amigável quando disponível; senão cai no id.
     const ref = form?.slug || id
     const hostedUrl = `${baseUrl}/f/${ref}`
-    const iframeSnippet = `<!-- Beyond Form (conversacional) -->
-<iframe src="${hostedUrl}?embed=1" style="width:100%;min-height:520px;border:0" loading="lazy"></iframe>`
+    const iframeSnippet = iframeDoFormulario(id, hostedUrl, displayMode)
 
     return { snippet, baseUrl, displayMode, hostedUrl, iframeSnippet }
   })
@@ -982,6 +1012,7 @@ function generateEmbedScript(
   // primary com alpha 22 (~13%) pra ring de focus quando primary é hex
   const focusRing = /^#([0-9a-f]{6})$/i.test(v.primary) ? `${v.primary}22` : `${v.primary}`
 
+  const depsJson = depsDosSelects(fields)
   const fieldsHTML = fields.map(f => {
     const req = f.required ? 'required' : ''
     const id = `bf-${f.key}`
@@ -994,7 +1025,7 @@ function generateEmbedScript(
       return `<div class="bf-statement" style="text-align:${f.align === 'left' || f.align === 'right' ? f.align : 'center'}">${f.icon?`<div class="bf-st-ico">${esc(f.icon)}</div>`:''}${f.imageUrl?`<img class="bf-st-img" src="${esc(f.imageUrl)}" alt="">`:''}${f.label?`<div class="bf-st-h">${sanitizeBlockHtml(f.label)}</div>`:''}${f.helpText?`<div class="bf-st-p">${sanitizeBlockHtml(f.helpText)}</div>`:''}${f.html?`<div class="bf-st-html">${sanitizeBlockHtml(f.html)}</div>`:''}</div>`
     }
     if (f.type === 'select') {
-      return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><select id="${id}" name="${esc(f.key)}" ${req}><option value="">${esc(f.placeholder||'Selecione...')}</option>${(f.options||[]).map((o:any)=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></div>`
+      return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><select id="${id}" name="${esc(f.key)}" ${req}${f.dependsOn ? ` data-dep="${esc(f.dependsOn)}"` : ''}><option value="">${esc(f.placeholder||'Selecione...')}</option>${(f.options||[]).map((o:any)=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('')}</select></div>`
     }
     if (f.type === 'textarea') {
       return `<div class="bf-field"><label for="${id}">${esc(f.label)}${f.required?' *':''}</label><textarea id="${id}" name="${esc(f.key)}" placeholder="${esc(f.placeholder||'')}" ${req}></textarea></div>`
@@ -1084,6 +1115,16 @@ function generateEmbedScript(
       var start=this.shadowRoot.getElementById('bf-start');
       if(wel&&start){start.addEventListener('click',function(){wel.style.display='none';form.style.display='';var fi=form.querySelector('input:not([type=checkbox]),select,textarea');if(fi&&fi.focus)try{fi.focus()}catch(ex){}});}
       Array.prototype.forEach.call(form.querySelectorAll('[data-num]'),function(el){el.addEventListener('input',function(){var c=el.value.replace(/\\D/g,'');if(el.value!==c)el.value=c;});});
+      // Lista dependente: as opções do select filho seguem o valor do campo pai.
+      var DEPS=${depsJson};
+      Object.keys(DEPS).forEach(function(k){
+        var d=DEPS[k];var sel=form.querySelector('select[name="'+k+'"]');var pai=form.querySelector('[name="'+d.parent+'"]');if(!sel||!pai)return;
+        function filtra(){var pv=pai.value;var atual=sel.value;var ph=sel.options.length?sel.options[0].text:'Selecione...';
+          while(sel.options.length)sel.remove(0);sel.add(new Option(ph,''));var ainda=false;
+          d.options.forEach(function(o){if(!o.parents||!o.parents.length||o.parents.indexOf(pv)>=0){sel.add(new Option(o.label,o.value));if(o.value===atual)ainda=true;}});
+          sel.value=ainda?atual:'';sel.disabled=!pv;}
+        pai.addEventListener('change',filtra);filtra();
+      });
       form.addEventListener('submit',function(e){
         e.preventDefault();
         var btn=form.querySelector('.bf-btn');
@@ -1119,7 +1160,7 @@ function generateEmbedScript(
           if(res.ok){
             form.style.display='none';ok.style.display='block';
             try{if(window.BT){var id={};if(data.email)id.email=data.email;if(data.whatsapp||data.telefone||data.phone)id.phone=data.whatsapp||data.telefone||data.phone;if(data.nome||data.name)id.name=data.nome||data.name;if(Object.keys(id).length>0&&BT.identify)BT.identify(id);if(BT.track)BT.track('form_conversion',{formId:fid})}}catch(ex){}
-            if(res.redirect)window.location.href=res.redirect;
+            if(res.redirect){if(window.top!==window.self){try{window.top.location.href=res.redirect;return}catch(ex){}var a=document.createElement('a');a.href=res.redirect;a.target='_top';a.rel='noopener';a.className='bf-btn';a.style.cssText='display:inline-block;margin-top:12px;text-decoration:none';a.textContent='Continuar';ok.appendChild(a);return}window.location.href=res.redirect;}
           }else{btn.disabled=false;btn.textContent='${esc(settings.submitText||'Enviar')}';alert(res.error||'Erro')}
         }).catch(function(){btn.disabled=false;btn.textContent='${esc(settings.submitText||'Enviar')}';alert('Erro de conexao')});
       });
@@ -1164,6 +1205,7 @@ function generateConversationalPage(
       icon: f.icon || '', imageUrl: f.imageUrl || '', html: sanitizeBlockHtml(f.html),
       align: (f.align === 'left' || f.align === 'right') ? f.align : 'center',
       meetingSlug: f.meetingSlug || '',
+      dependsOn: f.type === 'select' && f.dependsOn ? String(f.dependsOn) : '',
       isQualifier: !!f.isQualifier,
       positiveValues: Array.isArray(f.positiveValues) ? f.positiveValues : [],
       qualifyPositive: f.qualifyPositive || null,
@@ -1288,11 +1330,11 @@ if(f.type==='scheduling'){renderSchedule(f,last);return;}
 if(f.type==='statement'){var hs='<div class="screen'+(((f.align||'center')==='center')?' center':'')+'" style="text-align:'+(f.align||'center')+'">'+media(f);if(f.label)hs+='<div class="q">'+f.label+'</div>';if(f.helpText)hs+='<div class="help">'+f.helpText+'</div>';if(f.html)hs+='<div class="bf-html">'+f.html+'</div>';hs+='<div class="actions">';if(idx>0||CFG.welcomeEnabled)hs+='<button class="btn-ghost" id="back">Voltar</button>';hs+='<button class="btn" id="next">'+esc(last?CFG.submitText:nextLabel(last,true))+'</button></div></div>';root.innerHTML=hs;var sb=document.getElementById('back');if(sb)sb.onclick=function(){idx--;render();};document.getElementById('next').onclick=function(){if(last){submit();}else{idx++;render();}};return;}
 var val=answers[f.key]||'';var ctrl='';
 if(f.type==='textarea'){ctrl='<textarea id="inp" class="inp" rows="3">'+esc(val)+'</textarea>';}
-else if(f.type==='select'){var opts='<option value="">'+esc(f.placeholder||'Selecione…')+'</option>';for(var i=0;i<f.options.length;i++){var o=f.options[i];opts+='<option value="'+esc(o.value)+'"'+(o.value===val?' selected':'')+'>'+esc(o.label)+'</option>';}ctrl='<select id="inp" class="inp">'+opts+'</select>';}
+else if(f.type==='select'){var opts='<option value="">'+esc(f.placeholder||'Selecione…')+'</option>';for(var i=0;i<f.options.length;i++){var o=f.options[i];if(f.dependsOn&&o.parents&&o.parents.length&&o.parents.map(String).indexOf(String(answers[f.dependsOn]||''))<0)continue;opts+='<option value="'+esc(o.value)+'"'+(o.value===val?' selected':'')+'>'+esc(o.label)+'</option>';}ctrl='<select id="inp" class="inp">'+opts+'</select>';}
 else{var t=f.type==='email'?'email':f.type==='phone'?'tel':f.type==='number'?'number':f.type==='url'?'url':'text';ctrl='<input id="inp" class="inp" type="'+t+'" value="'+esc(val)+'" placeholder="'+esc(f.placeholder||'')+'">';}
 var h='<div class="screen">'+media(f)+'<div class="q">'+esc(f.label)+(f.required?' <span class="req">*</span>':'')+'</div>';if(f.helpText)h+='<div class="help">'+esc(f.helpText)+'</div>';h+=ctrl+'<div class="err" id="err"></div><div class="actions">';if(idx>0||CFG.welcomeEnabled)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(last?CFG.submitText:nextLabel(last,false))+'</button><span class="hint">pressione Enter ↵</span></div></div>';
 root.innerHTML=h;var inp=document.getElementById('inp');if(inp){inp.focus();if(f.type==='phone'||f.type==='number'){inp.setAttribute('inputmode','numeric');inp.addEventListener('input',function(){var c=inp.value.replace(/\\D/g,'');if(inp.value!==c)inp.value=c;});}inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&f.type!=='textarea'){ev.preventDefault();go();}});}var b=document.getElementById('back');if(b)b.onclick=function(){idx--;render();};document.getElementById('next').onclick=go;
-function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
+function go(){var v=inp?inp.value.trim():'';var er=validate(f,v);if(er){document.getElementById('err').textContent=er;if(inp)inp.classList.add('bad');return;}if(answers[f.key]!==v){for(var j=0;j<FIELDS.length;j++){if(FIELDS[j].dependsOn===f.key)delete answers[FIELDS[j].key];}}answers[f.key]=v;maybeProgress(f);if(f.isQualifier){var q=resolveQual(answers);if(q&&q.finish){submit();return;}}if(last){submit();}else{idx++;render();}}}
 function maybeProgress(f){if(!JOURNEY.partialCapture)return;var p=Promise.resolve();if(!leadId&&JOURNEY.nameKey&&JOURNEY.phoneKey&&answers[JOURNEY.nameKey]&&answers[JOURNEY.phoneKey]){p=postProgress('start');}if(f&&f.isQualifier){p.then(function(){if(leadId)postProgress('qualify');});}}
 function resolveQual(ans){var lastPos=null;for(var i=0;i<FIELDS.length;i++){var f=FIELDS[i];if(!f.isQualifier)continue;var a=ans[f.key];if(a===undefined||a===null||a==='')continue;var pv=f.positiveValues||[];var isPos=pv.length?pv.indexOf(a)>=0:!!a;if(!isPos){var neg=f.qualifyNegative||JOURNEY.qualNegative;if(neg&&(neg.stageKey||neg.finish))return neg;}else{var pos=f.qualifyPositive||JOURNEY.qualPositive;if(pos&&(pos.stageKey||pos.finish))lastPos=pos;}}return lastPos;}
 function postProgress(phase){var payload={phase:phase,data:answers,leadId:leadId,token:ltoken,lgpdConsent:consentGiven};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}return fetch(API+'/api/forms/progress/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res&&res.leadId){leadId=res.leadId;ltoken=res.token;}}).catch(function(){});}
@@ -1306,10 +1348,34 @@ function validate(f,v){if(f.type==='statement'||f.type==='scheduling')return '';
 function submit(){/* consentimento e' pedido no inicio (ver render); isto e' so' salvaguarda para formularios sem nenhum campo de coleta */if(!consentGiven){renderConsent();return;}doSubmit();}
 function renderConsent(){var h='<div class="screen"><div class="q">Antes de começar</div><label style="display:flex;gap:10px;align-items:flex-start;font-size:15px;cursor:pointer;margin:18px 0 4px"><input type="checkbox" id="lgpd" style="margin-top:4px;width:18px;height:18px;flex-shrink:0"><span>Li e aceito a <a href="'+API+'/privacidade" target="_blank" rel="noopener" style="color:var(--accent)">Política de Privacidade</a> e autorizo o contato pelos canais informados.</span></label><div class="err" id="lgpd-err"></div><div class="actions">';if(idx>0||CFG.welcomeEnabled)h+='<button class="btn-ghost" id="back">Voltar</button>';h+='<button class="btn" id="next">'+esc(CFG.navButtonText||'Continuar')+'</button></div></div>';root.innerHTML=h;var cb=document.getElementById('lgpd');var bk=document.getElementById('back');if(bk)bk.onclick=function(){idx--;render();};document.getElementById('next').onclick=function(){if(!cb.checked){document.getElementById('lgpd-err').textContent='É necessário aceitar para continuar.';return;}consentGiven=true;render();};}
 function doSubmit(){setBar(100);root.innerHTML='<div class="screen"><div class="q">Enviando…</div></div>';var payload={data:answers,eventId:EVID,leadId:leadId,token:ltoken,lgpdConsent:true};for(var k in TRACK){if(k==='utm_source')payload.utmSource=TRACK[k];else if(k==='utm_medium')payload.utmMedium=TRACK[k];else if(k==='utm_campaign')payload.utmCampaign=TRACK[k];else if(k==='utm_content')payload.utmContent=TRACK[k];else if(k==='utm_term')payload.utmTerm=TRACK[k];else if(k==='utm_id')payload.utmId=TRACK[k];else payload[k]=TRACK[k];}
-fetch(API+'/api/forms/submit/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res.ok){fireConv();if(res.redirect){location.href=res.redirect;return;}renderSuccess(res.successHtml);}else{root.innerHTML='<div class="screen"><div class="q">Ops…</div><div class="help">'+esc(res.error||'Erro ao enviar')+'</div></div>';}}).catch(function(){root.innerHTML='<div class="screen"><div class="q">Erro de conexão</div></div>';});}
+fetch(API+'/api/forms/submit/'+FID,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(res){if(res.ok){fireConv();if(res.redirect){/* dentro de iframe o destino abre na pagina do site, nao no quadro */if(window.top!==window.self){try{window.top.location.href=res.redirect;return;}catch(ex){}renderSuccess('<div class="success-ico">✓</div><div class="success-title">'+esc(CFG.successTitle)+'</div><div class="actions" style="justify-content:center"><a class="btn" href="'+esc(res.redirect)+'" target="_top" rel="noopener">Continuar</a></div>');return;}location.href=res.redirect;return;}renderSuccess(res.successHtml);}else{root.innerHTML='<div class="screen"><div class="q">Ops…</div><div class="help">'+esc(res.error||'Erro ao enviar')+'</div></div>';}}).catch(function(){root.innerHTML='<div class="screen"><div class="q">Erro de conexão</div></div>';});}
 function fireConv(){try{if(window.fbq)fbq('track',CFG.metaEventName,{},{eventID:EVID});}catch(ex){}try{if(window.gtag&&GADS.id){var st=GADS.id+(GADS.label?('/'+GADS.label):'');gtag('event','conversion',{send_to:st});}}catch(ex){}try{if(window.BT){var idd={};if(answers.email)idd.email=answers.email;var ph=answers.whatsapp||answers.telefone||answers.phone;if(ph)idd.phone=ph;if(answers.nome||answers.name)idd.name=answers.nome||answers.name;if(BT.identify&&Object.keys(idd).length)BT.identify(idd);if(BT.track)BT.track('form_conversion',{formId:FID});}}catch(ex){}}
 function renderSuccess(overrideHtml){setBar(100);var h='<div class="screen center" style="text-align:center">';var oh=overrideHtml||CFG.successHtml;if(oh){h+='<div class="bf-html" style="text-align:center">'+oh+'</div>';}else{h+='<div class="success-ico">✓</div><div class="success-title">'+esc(CFG.successTitle)+'</div><div class="help">'+esc(CFG.successMessage)+'</div>';}h+='</div>';root.innerHTML=h;}
 })();
 </script>
+</body></html>`
+}
+
+/** Código do iframe: repassa as UTMs/gclid da página do site para dentro do
+ *  formulário (senão a origem do lead se perde no quadro) e, no modo clássico,
+ *  ajusta a altura ao conteúdo (a página avisa por postMessage). */
+export function iframeDoFormulario(id: number | string, hostedUrl: string, displayMode: string): string {
+  const fid = String(id).replace(/[^\w-]/g, '')
+  const altura = displayMode === 'conversational' ? 'min-height:520px' : 'height:640px'
+  return `<!-- Formulário ${fid} -->
+<iframe id="bf-frame-${fid}" src="${hostedUrl}?embed=1" style="width:100%;${altura};border:0" loading="lazy" title="Formulário"></iframe>
+<script>(function(){var f=document.getElementById('bf-frame-${fid}');if(!f)return;try{var q=location.search.replace(/^\\?/,'');if(q)f.src=f.src+'&'+q;}catch(e){}window.addEventListener('message',function(e){var d=e.data;if(d&&d.bfFormId==='${fid}'&&d.bfFormHeight>0)f.style.height=Math.ceil(d.bfFormHeight)+'px';});})();</script>`
+}
+
+/** Link direto no modo clássico: página com o mesmo web component do embed.
+ *  Dentro de iframe (?embed=1) o fundo é transparente e a altura é avisada ao site. */
+function paginaClassica(id: number, nome: string, styling: any, embed: boolean): string {
+  const e = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const fundo = embed ? 'transparent' : e(styling?.pageBackground || '#f5f6f8')
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(nome)}</title>
+<style>html,body{margin:0;background:${fundo}}main{max-width:560px;margin:0 auto;padding:${embed ? '0' : '32px 16px'}}</style></head>
+<body><main><beyond-form form-id="${id}"></beyond-form></main>
+<script src="/api/forms/embed/${id}.js"></script>
+<script>(function(){if(window.parent===window)return;function avisa(){try{window.parent.postMessage({bfFormId:'${id}',bfFormHeight:document.documentElement.scrollHeight},'*')}catch(e){}}if(window.ResizeObserver)new ResizeObserver(avisa).observe(document.body);window.addEventListener('load',avisa);setInterval(avisa,1500);})();</script>
 </body></html>`
 }

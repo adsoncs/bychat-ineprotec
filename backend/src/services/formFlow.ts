@@ -34,6 +34,100 @@ export async function buildCustomFieldValues(fields: any[], data: any): Promise<
   return out
 }
 
+// ── Lista dependente (select cujas opções dependem de outro campo) ───────────
+// `field.dependsOn` = key do campo "pai"; cada opção pode ter `parents` (valores
+// do pai em que ela aparece). Opção sem `parents` aparece sempre. Os renderers
+// web filtram na tela; aqui o servidor confere, porque o envio pode vir de fora.
+export function opcaoValidaParaPai(field: any, valor: any, data: Record<string, any>): boolean {
+  if (!field?.dependsOn || !Array.isArray(field.options)) return true
+  const opt = field.options.find((o: any) => String(o?.value) === String(valor))
+  if (!opt) return true
+  const parents: any[] = Array.isArray(opt.parents) ? opt.parents : []
+  if (parents.length === 0) return true
+  return parents.map(String).includes(String(data[field.dependsOn] ?? ''))
+}
+
+export function erroDeDependencia(fields: any[], data: Record<string, any>): string | null {
+  for (const f of fields) {
+    if (f?.type !== 'select' || !f.dependsOn) continue
+    const v = data[f.key]
+    if (v === undefined || v === null || v === '') continue
+    if (!opcaoValidaParaPai(f, v, data)) {
+      const pai = fields.find((x: any) => x?.key === f.dependsOn)
+      return `A opção de "${f.label}" não corresponde a "${pai?.label || f.dependsOn}". Confira e envie de novo.`
+    }
+  }
+  return null
+}
+
+/** Selects dependentes ({ filho: { parent, options } }) como JSON seguro para
+ *  embutir em <script>: os renderers web filtram as opções pelo valor do pai. */
+export function depsDosSelects(fields: any[]): string {
+  const deps: Record<string, { parent: string; options: { value: string; label: string; parents: string[] }[] }> = {}
+  for (const f of fields || []) {
+    if (f?.type !== 'select' || !f.dependsOn || !Array.isArray(f.options)) continue
+    deps[f.key] = {
+      parent: String(f.dependsOn),
+      options: f.options.map((o: any) => ({ value: String(o?.value ?? ''), label: String(o?.label ?? ''), parents: Array.isArray(o?.parents) ? o.parents.map(String) : [] })),
+    }
+  }
+  return JSON.stringify(deps).replace(/</g, '\\u003c')
+}
+
+/** Script que filtra as opções dos selects dependentes dentro de `rootSel`
+ *  (página de LP renderizada no servidor). */
+export function scriptDeSelectsDependentes(fields: any[], rootSel: string): string {
+  const deps = depsDosSelects(fields)
+  if (deps === '{}') return ''
+  return `<script>(function(){var R=document.querySelector(${JSON.stringify(rootSel)});if(!R)return;var DEPS=${deps};Object.keys(DEPS).forEach(function(k){var d=DEPS[k];var sel=R.querySelector('select[name="'+k+'"]');var pai=R.querySelector('[name="'+d.parent+'"]');if(!sel||!pai)return;function filtra(){var pv=pai.value,atual=sel.value,ph=sel.options.length?sel.options[0].text:'Selecione...',ainda=false;while(sel.options.length)sel.remove(0);sel.add(new Option(ph,''));d.options.forEach(function(o){if(!o.parents.length||o.parents.indexOf(pv)>=0){sel.add(new Option(o.label,o.value));if(o.value===atual)ainda=true;}});sel.value=ainda?atual:'';sel.disabled=!pv;}pai.addEventListener('change',filtra);filtra();});})();</script>`
+}
+
+/** Opções de um select vindas do campo personalizado (`field.optionsFromCustomField`
+ *  com `mapTo: "cf_<key>"`): edita-se a lista num lugar só e todos os formulários
+ *  que a usam mudam juntos. Sem o campo, ou sem opções nele, fica o que o form tem. */
+export async function aplicarOpcoesDeCampoPersonalizado(fields: any[]): Promise<any[]> {
+  const keys = (fields || [])
+    .filter((f) => f?.type === 'select' && f.optionsFromCustomField && typeof f.mapTo === 'string' && f.mapTo.startsWith('cf_'))
+    .map((f) => f.mapTo.slice(3))
+  if (!keys.length) return fields
+  const defs = await prisma.customField.findMany({ where: { key: { in: keys }, active: true }, select: { key: true, options: true } })
+  const porKey = new Map(defs.map((d) => [d.key, d.options]))
+  return fields.map((f) => {
+    if (!(f?.type === 'select' && f.optionsFromCustomField && typeof f.mapTo === 'string' && f.mapTo.startsWith('cf_'))) return f
+    const raw = porKey.get(f.mapTo.slice(3))
+    const opts = Array.isArray(raw)
+      ? raw.map((o: any) => (typeof o === 'string' ? { value: o, label: o } : { value: String(o?.value ?? o?.label ?? ''), label: String(o?.label ?? o?.value ?? '') }))
+          .filter((o: any) => o.value)
+      : []
+    return opts.length ? { ...f, options: opts } : f
+  })
+}
+
+// ── Roteamento por opção no envio web ────────────────────────────────────────
+// Mesma `route` que o chatbot aplica (scriptedChatbotFlow → applyOptionRoute):
+// { funnelId, stageKey, teamId, userIds }. Com mais de um select roteando, vale
+// a ÚLTIMA opção respondida com rota (a mais específica, ex.: curso depois do nível).
+export interface RotaDaOpcao { funnelId: number | null; stageKey: string | null; teamId: number | null; userIds: number[]; label: string }
+export function rotaDaOpcao(fields: any[], data: Record<string, any>): RotaDaOpcao | null {
+  let achada: RotaDaOpcao | null = null
+  for (const f of fields) {
+    if (f?.type !== 'select' || !Array.isArray(f.options)) continue
+    const v = data[f.key]
+    if (v === undefined || v === null || v === '') continue
+    const opt = f.options.find((o: any) => String(o?.value) === String(v))
+    const r = opt?.route
+    if (!r || (r.funnelId == null && r.teamId == null)) continue
+    achada = {
+      funnelId: r.funnelId != null ? Number(r.funnelId) : null,
+      stageKey: r.stageKey ? String(r.stageKey) : null,
+      teamId: r.teamId != null ? Number(r.teamId) : null,
+      userIds: Array.isArray(r.userIds) ? r.userIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : [],
+      label: String(opt.label ?? v),
+    }
+  }
+  return achada
+}
+
 // ── Tracking (UTMs / click-ids) ───────────────────────────────────────────────
 // Parâmetros de campanha com coluna dedicada no lead → nome do parâmetro na URL.
 type TrackKey =

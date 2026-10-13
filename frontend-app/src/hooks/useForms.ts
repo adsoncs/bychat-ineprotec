@@ -163,8 +163,11 @@ export type FormFieldType =
 export interface FormFieldOption {
   value: string
   label: string
-  /** Encaminhamento quando o chatbot escolhe esta opção (menu de triagem). */
+  /** Encaminhamento quando esta opção é escolhida (chatbot ou formulário web). */
   route?: FormOptionRoute | undefined
+  /** Lista dependente: valores do campo pai (`FormField.dependsOn`) em que esta
+   *  opção aparece. Vazio = aparece sempre. */
+  parents?: string[] | undefined
 }
 
 /** Para onde vai o lead quando o chatbot escolhe a opção. `userIds` restringe
@@ -198,6 +201,10 @@ export interface FormField {
   required: boolean
   mapTo?: string | undefined
   options?: FormFieldOption[] | undefined
+  /** Select dependente: key do campo cujo valor filtra as opções (ver `parents`). */
+  dependsOn?: string | undefined
+  /** Opções vêm do campo personalizado do `mapTo` (cf_x), editadas num lugar só. */
+  optionsFromCustomField?: boolean | undefined
   defaultValue?: string | undefined
   /** Subtítulo/ajuda exibido abaixo da pergunta (usado sobretudo no modo conversacional). */
   helpText?: string | undefined
