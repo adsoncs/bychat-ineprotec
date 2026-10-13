@@ -126,7 +126,9 @@ export function quebrarEmMensagens(texto: string): string[] {
   //    mensagem) ou quando ficou longo demais para uma bolha só.
   const saida: string[] = []
   for (const bloco of blocos) {
-    if (ehItemDeLista(bloco.split('\n')[0] ?? '')) { saida.push(bloco); continue }
+    // Lista com frase de introdução ("O passo a passo:\n1. ...") também fica
+    // inteira: partir em frases cortava no "2." e separava o número do item.
+    if (bloco.split('\n').some(ehItemDeLista)) { saida.push(bloco); continue }
 
     const fs = frases(bloco)
     const temPergunta = fs.some((f) => f.endsWith('?'))
@@ -164,7 +166,8 @@ export function quebrarEmMensagens(texto: string): string[] {
   const mensagens = saida
     .map((m) => m.trim())
     .filter(Boolean)
-    .map((m) => (/^\p{Ll}/u.test(m) ? m.charAt(0).toUpperCase() + m.slice(1) : m))
+    // Link sozinho na bolha não vira "Https://".
+    .map((m) => (/^\p{Ll}/u.test(m) && !/^(https?:\/\/|www\.)/i.test(m) ? m.charAt(0).toUpperCase() + m.slice(1) : m))
   if (mensagens.length <= MAX_MENSAGENS) return mensagens
 
   // Acima do teto: mantém as primeiras e junta o resto na última bolha, para não

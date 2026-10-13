@@ -13,7 +13,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { registrarUsoIA } from '../lib/consumo.js'
-import { matriculaPeloChatLigada, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA, semSecaoDeMatricula } from './journey/eduSdr.js'
+import { matriculaPeloChatLigada, matriculaPorLink, EDU_TOOLS_MATRICULA, PROTOCOLO_SEM_MATRICULA, PROTOCOLO_MATRICULA_POR_LINK, semSecaoDeMatricula } from './journey/eduSdr.js'
 import type { SendFn, SendInteractiveFn, ProviderType } from './chatbotFlow.js'
 import type { OriginData } from './originDetection.js'
 import { logEvent, EVENT_TYPES } from './leadHistory.js'
@@ -351,7 +351,7 @@ export function buildSystemPrompt(chatbot: any, form: any, lead: any, state: AiS
     greeting ? `\n## Abertura da conversa (mensagem padrão)\nSe esta for a SUA primeira mensagem (não há nenhuma mensagem sua antes no histórico), ABRA com esta saudação, mantendo o sentido e o tom — você pode adaptá-la levemente e personalizar com o nome do lead quando souber. Não a repita nas mensagens seguintes:\n"${greeting}"` : '',
     // Consultor educacional: o protocolo dele (portal como fonte da verdade,
     // matrícula pelo chat) substitui o genérico de qualificar/agendar/encerrar.
-    edu ? (matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + PROTOCOLO_SEM_MATRICULA) : `\n## Como agir
+    edu ? (matriculaPeloChatLigada(form) ? edu : semSecaoDeMatricula(edu) + (matriculaPorLink(form) ? PROTOCOLO_MATRICULA_POR_LINK : PROTOCOLO_SEM_MATRICULA)) : `\n## Como agir
 - Na primeira mensagem, cumprimente com a saudação de abertura (acima) e já encaminhe a conversa. Depois, comece a coletar os dados que faltam, um por vez, de forma natural.
 - Sempre que o lead responder um dado, chame **salvar_dados** com a(s) chave(s) corretas.
 - Depois de coletar os campos qualificadores, chame **avaliar_qualificacao** e siga a instrução que ela retornar (o servidor decide a qualificação — não decida por conta própria).
@@ -426,7 +426,9 @@ async function executeTool(
   const settings: any = form?.settings || {}
   if (EDU_TOOL_NAMES.has(name) && eduSdrLigado(form)) {
     if (EDU_TOOLS_MATRICULA.has(name) && !matriculaPeloChatLigada(form)) {
-      return JSON.stringify({ ok: false, erro: 'Matrícula pelo chat desligada', instrucao: 'Não faça a matrícula por aqui: encaminhe para o departamento de matrículas (rotear_setor) ou transferir_humano.' })
+      return JSON.stringify({ ok: false, erro: 'Matrícula pelo chat desligada', instrucao: matriculaPorLink(form)
+        ? 'Não faça a matrícula por aqui: mande o link público de inscrição indicado nas instruções da instituição e oriente a pessoa a se inscrever.'
+        : 'Não faça a matrícula por aqui: encaminhe para o departamento de matrículas (rotear_setor) ou transferir_humano.' })
     }
     return executarFerramentaEdu(name, input, { app, leadId, state, dryRun: false })
   }

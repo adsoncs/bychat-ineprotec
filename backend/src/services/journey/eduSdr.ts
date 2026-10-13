@@ -981,9 +981,17 @@ Certificado, diploma, reconhecimento/credenciamento, estágio, prazo de início,
 // ela segue consultando cursos, preços e a situação de inscrições já feitas,
 // mas não inscreve, não cobra, não recebe documento, não manda contrato nem
 // link do portal. Quem quer se matricular vai para a equipe (rotear_setor).
+// `=== 'link'`: também não matricula pelo chat, mas a IA leva a pessoa a se
+// inscrever sozinha pelo link público do portal (indicado nas instruções da
+// instituição) e só encaminha para a equipe quando a pessoa pede.
 // Ausente = ligada, que é o comportamento de sempre.
 export function matriculaPeloChatLigada(form: any): boolean {
-  return form?.settings?.eduSdr?.matriculaPeloChat !== false
+  const v = form?.settings?.eduSdr?.matriculaPeloChat
+  return v !== false && v !== 'link'
+}
+
+export function matriculaPorLink(form: any): boolean {
+  return form?.settings?.eduSdr?.matriculaPeloChat === 'link'
 }
 
 export const EDU_TOOLS_MATRICULA = new Set([
@@ -997,6 +1005,14 @@ export const EDU_TOOLS_MATRICULA = new Set([
 export function semSecaoDeMatricula(protocolo: string): string {
   return protocolo.replace(/\n## Matrícula pelo chat[^\n]*\n[\s\S]*?(?=\n## )/, '\n')
 }
+
+export const PROTOCOLO_MATRICULA_POR_LINK = `
+## MATRÍCULA PELO LINK DO PORTAL (vale acima de qualquer instrução anterior sobre inscrição, pagamento, documentos ou contrato)
+Por esta conversa você não inscreve, não gera cobrança, não recebe documento nem manda contrato: a pessoa se inscreve sozinha pelo link público do portal, com você orientando.
+- Continue tirando dúvidas de cursos, valores, polos, formas de ingresso e documentos com consultar_cursos e detalhes_do_curso, de forma objetiva, sempre conduzindo para a inscrição.
+- Assim que a pessoa quiser se inscrever ou pedir o link, mande NA MESMA RESPOSTA o link de inscrição indicado nas instruções da instituição e o passo a passo curto. Não encaminhe para a equipe e não faça perguntas antes.
+- Encaminhe para o departamento de matrículas (rotear_setor; se não houver, transferir_humano) só quando a pessoa pedir para falar com alguém, não conseguir concluir no portal mesmo com a sua ajuda, ou pedir condição fora da tabela.
+- Quem já tem inscrição: consulte situacao_da_matricula, diga o que falta e oriente a concluir pela área do candidato do portal.`
 
 export const PROTOCOLO_SEM_MATRICULA = `
 ## MATRÍCULA PELO CHAT DESLIGADA (vale acima de qualquer instrução anterior sobre inscrição, pagamento, documentos, contrato ou link do portal)
