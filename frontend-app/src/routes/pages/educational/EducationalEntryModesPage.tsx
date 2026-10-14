@@ -27,6 +27,7 @@ import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { dasherize } from '@/lib/slug'
+import { Pode } from '@/components/auth/Pode'
 
 const EVALUATION_TYPES: { value: EvaluationType; label: string; hint: string }[] = [
   { value: 'none',            label: 'Aprovação automática',  hint: 'Apenas verificação documental' },
@@ -87,9 +88,9 @@ export function EducationalEntryModesPage() {
       title="Modos de Ingresso"
       description="Formas de ingresso oferecidas pela instituição (vestibular, ENEM, transferência, etc) e seus requisitos documentais."
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+        <Pode tela="edu_modos_ingresso" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Plus size={14} /> Novo modo
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -136,9 +137,9 @@ export function EducationalEntryModesPage() {
           title="Nenhum modo de ingresso cadastrado"
           description="Cadastre Vestibular, ENEM, Mestrado, EaD, etc — cada modo define avaliação, docs e workflow"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_modos_ingresso" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Novo modo
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -303,7 +304,7 @@ function EntryModeCard({
           </div>
         </div>
         <div class="flex gap-0.5 shrink-0">
-          <button
+          <Pode tela="edu_modos_ingresso" acao="edit"><button
             type="button"
             class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
             onClick={onEditDocs}
@@ -311,8 +312,8 @@ function EntryModeCard({
             title="Editar documentos"
           >
             <Paperclip size={12} />
-          </button>
-          <button
+          </button></Pode>
+          <Pode tela="edu_modos_ingresso" acao="edit"><button
             type="button"
             class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
             onClick={onEdit}
@@ -320,8 +321,8 @@ function EntryModeCard({
             title="Editar"
           >
             <Pencil size={12} />
-          </button>
-          <button
+          </button></Pode>
+          <Pode tela="edu_modos_ingresso" acao="delete"><button
             type="button"
             class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
             onClick={onDelete}
@@ -329,7 +330,7 @@ function EntryModeCard({
             title="Excluir"
           >
             <Trash2 size={12} />
-          </button>
+          </button></Pode>
         </div>
       </div>
     </Card>

@@ -12,6 +12,7 @@ import { onLoginFail, onLoginSuccess, logSecurityEvent, blacklistToken } from '.
 import { resolvePermissions, invalidatePermCache, getActiveModuleIds, defaultScopeForRole, ESCOPO_EDITAVEL } from '../lib/permissions.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { MODULE_REGISTRY } from '../lib/moduleRegistry.js'
+import { telasParaUi, herdarDoPai } from '../lib/eduTelas.js'
 import { redis } from '../lib/redis.js'
 import {
   issueRefreshToken,
@@ -766,13 +767,41 @@ export async function usersRoutes(app: FastifyInstance) {
       id: m.id, name: m.name, icon: m.icon, category: m.category, pages: m.pages,
       active: activeIds.has(m.id),
     }))
+    // Telas do Educacional (lib/eduTelas.ts) entram como "módulos" para o
+    // painel: o menu e a guarda de página perguntam por elas pelo mesmo hook.
+    for (const t of telasParaUi()) {
+      if (modules.some((m) => m.id === t.id)) continue
+      if (!activeIds.has(t.parent)) continue
+      modules.push({ id: t.id, name: t.name, icon: '🎓', category: 'edu_telas', pages: [], active: true })
+    }
     return { permissions, modules }
   })
 
   // ── GET /api/admin/module-permissions — Todas as permissões por role ──
   app.get('/api/admin/module-permissions', { preHandler: adminOnly }, async () => {
-    const all = await prisma.modulePermission.findMany({ orderBy: [{ moduleId: 'asc' }, { role: 'asc' }] })
-    return { permissions: all, modules: MODULE_REGISTRY.map(m => ({ id: m.id, name: m.name, icon: m.icon, category: m.category })) }
+    const all: any[] = await prisma.modulePermission.findMany({ orderBy: [{ moduleId: 'asc' }, { role: 'asc' }] })
+    // As telas do Educacional vêm logo depois, cada uma com as ações que fazem
+    // sentido nela (Visão geral só tem Ver) — só quando o módulo-pai está ligado.
+    const ativos = await getActiveModuleIds()
+    const telas = telasParaUi()
+      .filter((t) => ativos.has(t.parent))
+      .map((t) => ({ id: t.id, name: t.name, icon: '🎓', category: 'edu_telas', actions: t.actions, parent: t.parent, def: t.def }))
+    const modules = [
+      ...MODULE_REGISTRY.filter((m) => !telas.some((t) => t.id === m.id)).map(m => ({ id: m.id, name: m.name, icon: m.icon, category: m.category })),
+      ...telas,
+    ]
+    // Tela sem linha própria herda do pai: a tela mostra o que VALE, não caixas
+    // vazias. Ao salvar, a linha passa a existir e a herança acaba ali.
+    for (const t of telas) {
+      for (const pai of all.filter((p) => p.moduleId === t.parent)) {
+        if (all.some((p) => p.moduleId === t.id && p.role === pai.role)) continue
+        const h = (v: boolean, acao: 'view' | 'create' | 'edit' | 'delete') => t.actions.includes(acao) && !!herdarDoPai(t.def, pai.role, v, acao)
+        all.push({ ...pai, id: undefined, moduleId: t.id, herdado: true,
+          canView: h(pai.canView, 'view'), canCreate: h(pai.canCreate, 'create'),
+          canEdit: h(pai.canEdit, 'edit'), canDelete: h(pai.canDelete, 'delete') })
+      }
+    }
+    return { permissions: all, modules: modules.map(({ def: _def, ...m }: any) => m) }
   })
 
   // ── PUT /api/admin/module-permissions — Atualizar permissões por role (batch) ──

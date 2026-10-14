@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import { DadosEtapasEditor } from '@/components/educational/DadosEtapasEditor'
 import { useDadosEtapas, useSalvarPadraoDados, type DadosConfig } from '@/hooks/useDadosEtapas'
 import { toast } from '@/lib/toast'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
+import { useCan } from '@/hooks/usePermissions'
 
 export function EducationalDadosEtapasPage() {
   const { data, isLoading } = useDadosEtapas()
@@ -31,16 +33,18 @@ export function EducationalDadosEtapasPage() {
     })
   }
 
+  const podeEditar = useCan('edu_dados_etapas', 'edit')
   return (
     <Page
       title="Dados por etapa"
       description="Que dados de cada pessoa são pedidos em cada etapa da inscrição e da matrícula, e o que é indispensável para matricular. Vale para todos os portais; cada portal pode ajustar na aba Etapas."
-      actions={cfg ? (
+      actions={cfg && podeEditar ? (
         <Button onClick={gravar} disabled={salvar.isPending || !dirty}>
           <Save size={14} /> {salvar.isPending ? 'Salvando…' : 'Salvar padrão'}
         </Button>
       ) : undefined}
     >
+      <SomenteLeitura tela="edu_dados_etapas">
       {isLoading || !data ? (
         <Skeleton class="h-96" />
       ) : !cfg ? (
@@ -63,6 +67,7 @@ export function EducationalDadosEtapasPage() {
           </p>
         </>
       )}
+      </SomenteLeitura>
     </Page>
   )
 }

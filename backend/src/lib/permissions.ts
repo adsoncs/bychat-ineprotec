@@ -7,6 +7,7 @@ import { prisma } from './prisma.js'
 import { type JwtPayload } from './auth.js'
 import { getModuleForRoute, MODULE_REGISTRY } from './moduleRegistry.js'
 import { JWT_SECRET } from './secrets.js'
+import { avaliarTela, permissoesDasTelas } from './eduTelas.js'
 
 type Action = 'view' | 'create' | 'edit' | 'delete'
 
@@ -84,6 +85,13 @@ export async function resolvePermissions(userId: number, role: string): Promise<
       canDelete: uo?.canDelete ?? rp?.canDelete ?? false,
       scope:     (rp?.scope as PermScope | undefined) ?? defaultScopeForRole(role),
     }
+  }
+
+  // Telas do Educacional: uma permissão por tela, herdando do módulo-pai
+  // enquanto não houver linha própria (ver lib/eduTelas.ts).
+  const telas = permissoesDasTelas(role, activeIds, roleMap as any, overrideMap as any)
+  for (const [id, p] of Object.entries(telas)) {
+    result[id] = { ...p, scope: result[id]?.scope ?? defaultScopeForRole(role) }
   }
 
   permCache.set(cacheKey, { perms: result, ts: Date.now() })
@@ -407,6 +415,26 @@ export async function modulePermissionHook(req: FastifyRequest, reply: FastifyRe
   }
 
   if (user.role === 'SUPERADMIN') return
+
+  // Tela do Educacional (lib/eduTelas.ts): com o módulo-pai ligado, quem
+  // decide é a permissão da TELA, não a do módulo — senão quem tem "Editar"
+  // em Cursos e nada no módulo seria barrado aqui antes de chegar à rota.
+  try {
+    const dt = await avaliarTela(user, req.method, pathOnly)
+    if (dt) {
+      if (dt.permitido) return
+      const msg = `[gate] denied ${user.email} (${user.role}) ${req.method} ${req.url} → tela=${dt.tela.id} action=${dt.acao}`
+      if (mode === 'warn') {
+        console.log(msg + ' [WARN-ONLY, request continued]')
+        return
+      }
+      console.warn(msg + ' [BLOCKED 403]')
+      return reply.code(403).send({ error: dt.mensagem, module: dt.tela.id, action: dt.acao })
+    }
+  } catch (err) {
+    console.error('[gate] Tela check failed — denying access:', (err as Error).message)
+    return reply.code(503).send({ error: 'Serviço temporariamente indisponível' })
+  }
 
   // CHECK 2: rota mapeada? Se não, comportamento depende do modo.
   if (!mod) {

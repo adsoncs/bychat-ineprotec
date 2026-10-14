@@ -185,6 +185,8 @@ export interface DocItem {
 export interface DocItemKpi { pending: number; approved: number; rejected: number }
 
 export interface DocItemFilters {
+  /** Um documento só (modal de revisão). */
+  id?: number | undefined
   status?: DocItemStatus | undefined
   aiSuggestion?: AiSuggestionFilter | undefined
   portalId?: number | undefined

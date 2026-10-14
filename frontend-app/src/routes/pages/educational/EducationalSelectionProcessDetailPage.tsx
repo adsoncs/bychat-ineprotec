@@ -17,6 +17,7 @@ import { EssayConfigEditor, PresencialConfigEditor } from '@/components/educatio
 import { ClassificationTab } from '@/components/educational/ClassificationTab'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 
 type Tab = 'overview' | 'documents' | 'evaluation' | 'topics' | 'classification'
 
@@ -58,6 +59,7 @@ export function EducationalSelectionProcessDetailPage({ params }: { params: { id
         <>
           <ProcessTabs tab={tab} onChange={setTab} showEssayTab={showEssayTab} showEvalTab={showEvalTab} />
 
+          <SomenteLeitura tela="edu_processos">
           {tab === 'overview' && <OverviewTab process={process} />}
           {tab === 'documents' && <DocumentsTab process={process} />}
           {tab === 'evaluation' && showEvalTab && (
@@ -67,6 +69,7 @@ export function EducationalSelectionProcessDetailPage({ params }: { params: { id
           )}
           {tab === 'topics' && showEssayTab && <EssayTopicsEditor selectionProcessId={process.id} />}
           {tab === 'classification' && <ClassificationTab processId={process.id} />}
+          </SomenteLeitura>
         </>
       )}
     </Page>

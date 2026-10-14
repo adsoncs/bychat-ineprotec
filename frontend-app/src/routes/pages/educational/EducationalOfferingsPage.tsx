@@ -28,6 +28,7 @@ import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { PlanosPagamentoModal } from '@/components/educational/PlanosPagamentoModal'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
+import { Pode } from '@/components/auth/Pode'
 
 const TURNOS = ['Matutino', 'Vespertino', 'Noturno', 'Integral']
 
@@ -111,9 +112,9 @@ export function EducationalOfferingsPage() {
       title="Ofertas de Curso"
       description="Curso × Modalidade × Período × Vagas × Valor"
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={!canCreate}>
+        <Pode tela="edu_ofertas" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={!canCreate}>
           <Plus size={14} /> Nova oferta
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -156,9 +157,9 @@ export function EducationalOfferingsPage() {
           title="Nenhuma oferta cadastrada"
           description="Crie ofertas de curso (curso × modalidade × período × vagas × valor)"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_ofertas" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Nova oferta
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -344,7 +345,7 @@ function OfferingCard({
           >
             <Wallet size={12} />
           </button>
-          <button
+          <Pode tela="edu_ofertas" acao="edit"><button
             type="button"
             class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
             onClick={onEdit}
@@ -352,8 +353,8 @@ function OfferingCard({
             title="Editar"
           >
             <Pencil size={12} />
-          </button>
-          <button
+          </button></Pode>
+          <Pode tela="edu_ofertas" acao="delete"><button
             type="button"
             class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
             onClick={onDelete}
@@ -361,7 +362,7 @@ function OfferingCard({
             title="Excluir"
           >
             <Trash2 size={12} />
-          </button>
+          </button></Pode>
         </div>
       </div>
     </Card>

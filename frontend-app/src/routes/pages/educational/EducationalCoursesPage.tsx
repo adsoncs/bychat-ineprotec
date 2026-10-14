@@ -23,6 +23,7 @@ import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { slugify } from '@/lib/slug'
+import { Pode } from '@/components/auth/Pode'
 
 export function EducationalCoursesPage() {
   const { data, isLoading } = useCourses()
@@ -58,9 +59,9 @@ export function EducationalCoursesPage() {
       title="Cursos"
       description="Catálogo mestre de cursos — cada um pode ter várias ofertas"
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
+        <Pode tela="edu_cursos" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
           <Plus size={14} /> Novo curso
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -95,9 +96,9 @@ export function EducationalCoursesPage() {
           title="Nenhum curso cadastrado"
           description="Cadastre o catálogo mestre de cursos — depois crie ofertas vinculadas a ele"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_cursos" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Novo curso
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -165,7 +166,7 @@ export function EducationalCoursesPage() {
                       )}
                     </div>
                     <div class="flex gap-0.5 shrink-0">
-                      <button
+                      <Pode tela="edu_cursos" acao="edit"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
                         onClick={() => setEditing(c)}
@@ -173,8 +174,8 @@ export function EducationalCoursesPage() {
                         title="Editar"
                       >
                         <Pencil size={12} />
-                      </button>
-                      <button
+                      </button></Pode>
+                      <Pode tela="edu_cursos" acao="delete"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
                         onClick={() => setDeleting(c)}
@@ -182,7 +183,7 @@ export function EducationalCoursesPage() {
                         title="Excluir"
                       >
                         <Trash2 size={12} />
-                      </button>
+                      </button></Pode>
                     </div>
                   </div>
                 </Card>

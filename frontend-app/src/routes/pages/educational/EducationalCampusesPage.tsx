@@ -21,6 +21,7 @@ import { EduListHero, EduCountPill } from '@/components/educational/EduListHero'
 import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
+import { Pode } from '@/components/auth/Pode'
 
 const ESTADOS = [
   'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB',
@@ -61,9 +62,9 @@ export function EducationalCampusesPage() {
       title="Locais de Oferta (Campus)"
       description="Locais físicos ou polos EAD de cada unidade"
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
+        <Pode tela="edu_campus" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
           <Plus size={14} /> Novo campus
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -98,9 +99,9 @@ export function EducationalCampusesPage() {
           title="Nenhum local de oferta cadastrado"
           description="Crie o primeiro local de oferta para vincular às ofertas de curso"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_campus" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Novo campus
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -161,7 +162,7 @@ export function EducationalCampusesPage() {
                       )}
                     </div>
                     <div class="flex gap-0.5 shrink-0">
-                      <button
+                      <Pode tela="edu_campus" acao="edit"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
                         onClick={() => setEditing(c)}
@@ -169,8 +170,8 @@ export function EducationalCampusesPage() {
                         title="Editar"
                       >
                         <Pencil size={12} />
-                      </button>
-                      <button
+                      </button></Pode>
+                      <Pode tela="edu_campus" acao="delete"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
                         onClick={() => setDeleting(c)}
@@ -178,7 +179,7 @@ export function EducationalCampusesPage() {
                         title="Excluir"
                       >
                         <Trash2 size={12} />
-                      </button>
+                      </button></Pode>
                     </div>
                   </div>
                 </Card>

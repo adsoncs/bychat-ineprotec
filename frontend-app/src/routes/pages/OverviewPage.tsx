@@ -61,7 +61,11 @@ export function OverviewPage() {
   // quem trabalha um mês fechado não quer reconfigurar a cada visita.
   const { range, preset, customFrom, customTo, setPreset, setCustom } = usePeriod('overview')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
-  const canSeeEducational = useCan('educacional', 'view') && useIsModuleActive('educacional') === true
+  // Números do Educacional = tela "Visão geral" do Educacional (lib/eduTelas).
+  // Hooks em linhas separadas: atrás de um && a ordem deles mudaria.
+  const veVisaoEdu = useCan('edu_visao_geral', 'view')
+  const eduAtivo = useIsModuleActive('educacional') === true
+  const canSeeEducational = veVisaoEdu && eduAtivo
   const canSeeNegotiations = useIsModuleActive('negotiations') === true
   // prevFrom/prevTo: o Δ% compara com o MESMO trecho do mês anterior (1–11/jul
   // contra 1–11/ago). Sem isso o backend usaria os 11 dias imediatamente

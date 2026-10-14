@@ -14,6 +14,7 @@ import { logEvent } from '../services/leadHistory.js'
 import { consumirCupom } from '../services/portalCupom.js'
 import { iuguDaConexao, cancelarFaturaIugu, baixaExternaIugu, estornarFaturaIugu, buscarFaturaIugu, enviarFaturaPorEmailIugu } from '../services/paymentIugu.js'
 import { appUrl } from '../lib/appUrl.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 type Situacao = 'pago' | 'pendente' | 'vencido' | 'falhou' | 'estornado' | 'cancelado' | 'sem_cobranca'
 
@@ -207,7 +208,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   const BASE = '/api/admin/educational/portal-financeiro'
 
   // Lista + indicadores do mesmo recorte
-  app.get(BASE, { preHandler: adminOnly }, async (req) => {
+  app.get(BASE, { preHandler: guardTela('admin') }, async (req) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({
       where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 5000,
@@ -222,7 +223,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     return { indicadores: indicadores(itens), total: itens.length, limit, offset, items: itens.slice(offset, offset + limit) }
   })
 
-  app.get(`${BASE}/export.csv`, { preHandler: adminOnly }, async (req, reply) => {
+  app.get(`${BASE}/export.csv`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const q = req.query as any
     const rows = await prisma.enrollmentRegistration.findMany({ where: filtros(q), select: SELECT_LINHA, orderBy: { createdAt: 'desc' }, take: 20000 })
     const itens = filtrarLinhas(await comMescladas(rows.map(linha)), q)
@@ -240,7 +241,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   })
 
   // Detalhe: tentativas, avisos do gateway, cupom, linha do tempo
-  app.get(`${BASE}/:id`, { preHandler: adminOnly }, async (req, reply) => {
+  app.get(`${BASE}/:id`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const r0 = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { ...SELECT_LINHA, mergedIntoId: true } })
     if (!r0) return reply.code(404).send({ error: 'Inscrição não encontrada' })
@@ -286,7 +287,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
 
   // Baixa manual: pagou por fora (dinheiro, transferência, PIX direto na conta).
   // Mesmos efeitos da confirmação do gateway, uma vez só.
-  app.post(`${BASE}/:id/baixa-manual`, { preHandler: adminOnly }, async (req, reply) => {
+  app.post(`${BASE}/:id/baixa-manual`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const b = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
@@ -334,7 +335,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   })
 
   // Cancelar a cobrança pendente (a inscrição continua; a pessoa pode gerar outra).
-  app.post(`${BASE}/:id/cancelar-cobranca`, { preHandler: adminOnly }, async (req, reply) => {
+  app.post(`${BASE}/:id/cancelar-cobranca`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const user = (req as any).user as JwtPayload
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id }, select: { leadId: true, candidateCode: true, paymentStatus: true } })
@@ -373,7 +374,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     return { reg, abertas }
   }
 
-  app.get(`${BASE}/:id/cobranca-mensagem`, { preHandler: adminOnly }, async (req, reply) => {
+  app.get(`${BASE}/:id/cobranca-mensagem`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const c = await cobrancaAberta(id)
     if (!c) return reply.code(404).send({ error: 'Inscrição não encontrada' })
@@ -413,7 +414,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post(`${BASE}/:id/reenviar-cobranca-email`, { preHandler: adminOnly }, async (req, reply) => {
+  app.post(`${BASE}/:id/reenviar-cobranca-email`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const user = (req as any).user as JwtPayload
     const c = await cobrancaAberta(id)
@@ -433,7 +434,7 @@ export async function portalFinanceiroRoutes(app: FastifyInstance) {
   })
 
   // Estorno (iugu: cartão e PIX; parcial só no cartão).
-  app.post(`${BASE}/:id/estornar`, { preHandler: adminOnly }, async (req, reply) => {
+  app.post(`${BASE}/:id/estornar`, { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const b = (req.body as any) || {}
     const user = (req as any).user as JwtPayload

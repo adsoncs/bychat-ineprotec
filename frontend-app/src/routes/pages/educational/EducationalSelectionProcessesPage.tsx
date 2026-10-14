@@ -26,6 +26,7 @@ import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { dasherize } from '@/lib/slug'
+import { Pode } from '@/components/auth/Pode'
 
 const STATUSES = [
   { value: 'active', label: 'Ativo' },
@@ -108,9 +109,9 @@ export function EducationalSelectionProcessesPage() {
       title="Processos Seletivos"
       description="Vestibular, ENEM, agendado, análise — cada forma de ingresso é um processo"
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={!canCreate}>
+        <Pode tela="edu_processos" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={!canCreate}>
           <Plus size={14} /> Novo processo
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -152,9 +153,9 @@ export function EducationalSelectionProcessesPage() {
           title="Nenhum processo seletivo cadastrado"
           description="Cada forma de ingresso (Vestibular, ENEM, Agendado, Análise...) é um processo distinto"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_processos" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Novo processo
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -333,7 +334,7 @@ function ProcessCard({
             <Settings2 size={12} /> Configurar
           </Button>
           <div class="flex gap-0.5">
-            <button
+            <Pode tela="edu_processos" acao="edit"><button
               type="button"
               class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
               onClick={onEdit}
@@ -341,8 +342,8 @@ function ProcessCard({
               title="Editar dados básicos"
             >
               <Pencil size={12} />
-            </button>
-            <button
+            </button></Pode>
+            <Pode tela="edu_processos" acao="delete"><button
               type="button"
               class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
               onClick={onDelete}
@@ -350,7 +351,7 @@ function ProcessCard({
               title="Excluir"
             >
               <Trash2 size={12} />
-            </button>
+            </button></Pode>
           </div>
         </div>
       </div>

@@ -29,17 +29,12 @@ export type { EvaluationStatus }
 // Auth helper (admin/manager)
 // ───────────────────────────────────────────────────────────
 
-async function requireAdmin(req: any, reply: any): Promise<any | null> {
+async function autenticar(req: any, reply: any): Promise<any | null> {
   const token = req.headers.authorization?.replace('Bearer ', '')
   if (!token) { reply.code(401).send({ error: 'Token não fornecido' }); return null }
   const { verifyToken } = await import('../lib/auth.js')
   try {
-    const user: any = verifyToken(token)
-    if (!['SUPERADMIN', 'ADMIN', 'MANAGER'].includes(user.role)) {
-      reply.code(403).send({ error: 'Sem permissão' })
-      return null
-    }
-    return user
+    return verifyToken(token)
   } catch {
     reply.code(401).send({ error: 'Token inválido' })
     return null
@@ -47,20 +42,30 @@ async function requireAdmin(req: any, reply: any): Promise<any | null> {
 }
 
 /**
- * Aprovação/rejeição de matrícula: só ADMIN e SUPERADMIN.
- *
- * O guard acima aceita MANAGER porque é o mesmo usado para LER as filas de
- * avaliação, o que é legítimo. Mas aprovar documento, validar nota do ENEM e
- * corrigir redação decide a entrada de um aluno na instituição — a auditoria de
- * junho já havia separado esses dois níveis no resto do produto (adminStrict).
+ * Leitura das filas. Com o Educacional ligado, quem decide é a permissão da
+ * TELA (Revisão de documentos / Avaliações — lib/eduTelas.ts); desligado,
+ * vale o papel de antes: admin e gerente.
+ */
+async function requireAdmin(req: any, reply: any): Promise<any | null> {
+  const user = await autenticar(req, reply)
+  if (!user) return null
+  const { verificarTela } = await import('../lib/eduTelas.js')
+  const r = await verificarTela(user, req.method, req.url, 'gestao')
+  if (r) { reply.code(r.status).send(r.body); return null }
+  return user
+}
+
+/**
+ * Aprovar documento, validar nota do ENEM, corrigir redação: decide a entrada
+ * de um aluno. É "Editar" na tela — liberado por pessoa ou papel na tela de
+ * Permissões. Sem o módulo, só ADMIN e SUPERADMIN, como antes.
  */
 async function requireAdminWrite(req: any, reply: any): Promise<any | null> {
-  const user = await requireAdmin(req, reply)
+  const user = await autenticar(req, reply)
   if (!user) return null
-  if (user.role !== 'SUPERADMIN' && user.role !== 'ADMIN') {
-    reply.code(403).send({ error: 'Acesso restrito a administradores' })
-    return null
-  }
+  const { verificarTela } = await import('../lib/eduTelas.js')
+  const r = await verificarTela(user, req.method, req.url, 'admin')
+  if (r) { reply.code(r.status).send(r.body); return null }
   return user
 }
 

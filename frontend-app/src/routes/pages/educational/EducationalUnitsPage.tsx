@@ -21,6 +21,7 @@ import { EduSearchBar } from '@/components/educational/EduSearchBar'
 import { ApiError } from '@/lib/apiClient'
 import { toast } from '@/lib/toast'
 import { slugify } from '@/lib/slug'
+import { Pode } from '@/components/auth/Pode'
 
 export function EducationalUnitsPage() {
   const { data, isLoading } = useEducationalUnits()
@@ -51,9 +52,9 @@ export function EducationalUnitsPage() {
       title="Unidades"
       description="Agrupamento organizacional (filial, regional, marca)"
       actions={
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+        <Pode tela="edu_unidades" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Plus size={14} /> Nova unidade
-        </Button>
+        </Button></Pode>
       }
     >
       <EduListHero
@@ -79,9 +80,9 @@ export function EducationalUnitsPage() {
           title="Nenhuma unidade cadastrada"
           description="Crie a primeira unidade para organizar campus, cursos e ofertas"
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="edu_unidades" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Nova unidade
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -139,7 +140,7 @@ export function EducationalUnitsPage() {
                       </div>
                     )}
                     <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
+                      <Pode tela="edu_unidades" acao="edit"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-accent bg-accent/10 hover:bg-accent/20"
                         onClick={() => setEditing(u)}
@@ -147,8 +148,8 @@ export function EducationalUnitsPage() {
                         title="Editar"
                       >
                         <Pencil size={12} />
-                      </button>
-                      <button
+                      </button></Pode>
+                      <Pode tela="edu_unidades" acao="delete"><button
                         type="button"
                         class="size-7 rounded grid place-items-center text-danger bg-danger/10 hover:bg-danger/20"
                         onClick={() => setDeleting(u)}
@@ -156,7 +157,7 @@ export function EducationalUnitsPage() {
                         title="Excluir"
                       >
                         <Trash2 size={12} />
-                      </button>
+                      </button></Pode>
                     </div>
                   </li>
                 ))}

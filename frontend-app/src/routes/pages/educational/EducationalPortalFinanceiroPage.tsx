@@ -26,6 +26,7 @@ import {
 } from '@/hooks/usePortalFinanceiro'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses } from '@/hooks/useEducational'
+import { Pode } from '@/components/auth/Pode'
 
 const brl = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -315,30 +316,30 @@ function DetalheModal({ id, onClose }: { id: number; onClose: () => void }) {
           </div>
 
           <div class="flex flex-wrap gap-2 border-y border-border py-3">
-            <Button size="sm" variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate(l.id, { onSuccess: (r) => { toast(r.transitionedToPaid ? 'Pagamento confirmado no gateway' : 'Sincronizado — sem mudança', 'success'); q.refetch() }, onError: falhou })}>
+            <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="secondary" disabled={sync.isPending} onClick={() => sync.mutate(l.id, { onSuccess: (r) => { toast(r.transitionedToPaid ? 'Pagamento confirmado no gateway' : 'Sincronizado — sem mudança', 'success'); q.refetch() }, onError: falhou })}>
               <RefreshCw size={12} /> {sync.isPending ? 'Consultando…' : 'Consultar gateway'}
-            </Button>
+            </Button></Pode>
             {l.situacao !== 'pago' && l.situacao !== 'estornado' && (
               <>
                 {(l.situacao === 'pendente' || l.situacao === 'vencido') && (
-                  <Button size="sm" variant="secondary" onClick={() => setReenvioCobranca(true)}>
+                  <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="secondary" onClick={() => setReenvioCobranca(true)}>
                     <Send size={12} /> Reenviar cobrança
-                  </Button>
+                  </Button></Pode>
                 )}
                 {/* Reenvia o ACESSO ao portal (link assinado de continuação), não a
                   * cobrança — o rótulo antigo "Reenviar link" e o aviso "link de
                   * pagamento reenviado" faziam a secretaria achar que o boleto tinha ido. */}
-                <Button size="sm" variant="ghost" disabled={reenviar.isPending} onClick={() => reenviar.mutate(l.id, { onSuccess: () => toast('Acesso ao portal reenviado ao candidato', 'success'), onError: falhou })}>
+                <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="ghost" disabled={reenviar.isPending} onClick={() => reenviar.mutate(l.id, { onSuccess: () => toast('Acesso ao portal reenviado ao candidato', 'success'), onError: falhou })}>
                   <Send size={12} /> Reenviar acesso ao portal
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setBaixa(true)}><CheckCircle2 size={12} /> Dar baixa manual</Button>
+                </Button></Pode>
+                <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="secondary" onClick={() => setBaixa(true)}><CheckCircle2 size={12} /> Dar baixa manual</Button></Pode>
                 {(l.situacao === 'pendente' || l.situacao === 'vencido') && (
-                  <Button size="sm" variant="ghost" onClick={() => setConfirmaCancelar(true)}><Ban size={12} /> Cancelar cobrança</Button>
+                  <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="ghost" onClick={() => setConfirmaCancelar(true)}><Ban size={12} /> Cancelar cobrança</Button></Pode>
                 )}
               </>
             )}
             {l.situacao === 'pago' && l.gateway === 'iugu' && l.meio !== 'boleto' && (
-              <Button size="sm" variant="ghost" onClick={() => setEstorno(true)}><Undo2 size={12} /> Estornar</Button>
+              <Pode tela="edu_financeiro_portal" acao="edit"><Button size="sm" variant="ghost" onClick={() => setEstorno(true)}><Undo2 size={12} /> Estornar</Button></Pode>
             )}
             {d.paymentUrl && <Button size="sm" variant="ghost" onClick={() => copiar(d.paymentUrl!)}><Copy size={12} /> Copiar link do gateway</Button>}
           </div>

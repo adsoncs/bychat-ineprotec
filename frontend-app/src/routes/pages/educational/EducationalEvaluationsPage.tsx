@@ -32,6 +32,7 @@ import { EduListHero } from '@/components/educational/EduListHero'
 import { formatRelative, formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { Pode } from '@/components/auth/Pode'
 
 type Tab = 'overview' | 'enem' | 'presencial' | 'essay'
 
@@ -365,12 +366,12 @@ function EnemRow({ item: it, onOpen, onValidate, onReject }: { item: EnemImport;
         </div>
         {!it.validatedAt && (
           <div class="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-            <Button variant="primary" size="sm" onClick={onValidate}>
+            <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={onValidate}>
               <Check size={12} /> Validar
-            </Button>
-            <Button variant="secondary" size="sm" onClick={onReject}>
+            </Button></Pode>
+            <Pode tela="edu_avaliacoes" acao="edit"><Button variant="secondary" size="sm" onClick={onReject}>
               <XIcon size={12} /> Rejeitar
-            </Button>
+            </Button></Pode>
           </div>
         )}
         {it.validatedAt && (
@@ -555,12 +556,12 @@ function EnemDetailModal({
               <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
               {isPending && (
                 <>
-                  <Button variant="secondary" size="sm" onClick={() => onReject(item)}>
+                  <Pode tela="edu_avaliacoes" acao="edit"><Button variant="secondary" size="sm" onClick={() => onReject(item)}>
                     <XIcon size={12} /> Rejeitar
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={() => onValidate(item)}>
+                  </Button></Pode>
+                  <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={() => onValidate(item)}>
                     <Check size={12} /> Validar
-                  </Button>
+                  </Button></Pode>
                 </>
               )}
             </div>
@@ -646,9 +647,9 @@ function ValidateEnemModal({ item, onClose }: { item: EnemImport; onClose: () =>
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={validate.isPending}>
+          <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={handleSubmit} disabled={validate.isPending}>
             <Check size={12} /> {validate.isPending ? 'Validando…' : 'Validar'}
-          </Button>
+          </Button></Pode>
         </>
       }
     >
@@ -722,9 +723,9 @@ function RejectEnemModal({ item, onClose }: { item: EnemImport; onClose: () => v
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="danger" size="sm" onClick={handleConfirm} disabled={reject.isPending}>
+          <Pode tela="edu_avaliacoes" acao="edit"><Button variant="danger" size="sm" onClick={handleConfirm} disabled={reject.isPending}>
             <XIcon size={12} /> {reject.isPending ? 'Rejeitando…' : 'Rejeitar'}
-          </Button>
+          </Button></Pode>
         </>
       }
     >
@@ -911,9 +912,9 @@ function PresencialExamModal({ exam, onClose }: { exam: PresencialExam; onClose:
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={upsert.isPending}>
+          <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={handleSubmit} disabled={upsert.isPending}>
             {upsert.isPending ? 'Salvando…' : 'Salvar'}
-          </Button>
+          </Button></Pode>
         </>
       }
     >
@@ -1143,12 +1144,12 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
         footer={
           item ? (
             <div class="flex items-center gap-2 justify-end w-full">
-              <Button variant="secondary" size="sm" onClick={handleReject} disabled={review.isPending} class="border-danger text-danger hover:bg-danger/10">
+              <Pode tela="edu_avaliacoes" acao="edit"><Button variant="secondary" size="sm" onClick={handleReject} disabled={review.isPending} class="border-danger text-danger hover:bg-danger/10">
                 <XIcon size={12} /> Rejeitar
-              </Button>
-              <Button variant="primary" size="sm" onClick={handleApprove} disabled={review.isPending} class="bg-success hover:bg-success/90">
+              </Button></Pode>
+              <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={handleApprove} disabled={review.isPending} class="bg-success hover:bg-success/90">
                 <Check size={12} /> Aprovar
-              </Button>
+              </Button></Pode>
             </div>
           ) : undefined
         }

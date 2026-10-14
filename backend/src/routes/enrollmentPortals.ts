@@ -50,6 +50,7 @@ import { Prisma } from '@prisma/client'
 import { normalizarSeoTelas } from '../lib/portalSeo.js'
 import { lerEduGeral, vestirMarca, salvarHeranca, herancaDoPortal, esquecerHeranca } from '../lib/eduGeral.js'
 import { campoCondicionalAtende } from '../services/docCondicional.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -604,7 +605,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // GET /api/admin/enrollment-portals — listar
   // GET /source-labels — mapa id→"Nome da origem". Resolve o `source =
   // enrollment_portal:<id>` em Leads/Kanban/Conversas (espelho de /api/forms/source-labels).
-  app.get('/api/admin/enrollment-portals/source-labels', { preHandler: authMiddleware }, async () => {
+  app.get('/api/admin/enrollment-portals/source-labels', { preHandler: guardTela('login') }, async () => {
     const rows = await prisma.enrollmentPortal.findMany({ select: { id: true, sourceLabel: true }, orderBy: { id: 'asc' } })
     const items = rows
       .map((r) => ({ id: r.id, name: (r.sourceLabel ?? '').trim() }))
@@ -612,7 +613,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return { items }
   })
 
-  app.get('/api/admin/enrollment-portals', { preHandler: authMiddleware }, async () => {
+  app.get('/api/admin/enrollment-portals', { preHandler: guardTela('login') }, async () => {
     const portals = await prisma.enrollmentPortal.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
@@ -625,7 +626,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/enrollment-portals/:id — detalhe
-  app.get('/api/admin/enrollment-portals/:id', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-portals/:id', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const portal = await prisma.enrollmentPortal.findUnique({
       where: { id: parseInt(id) },
@@ -641,7 +642,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/enrollment-portals/:id/qrcode.(png|svg)?size=N
   // Gera QR Code da URL pública do portal (usa customDomain se houver).
-  app.get('/api/admin/enrollment-portals/:id/qrcode.:ext', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-portals/:id/qrcode.:ext', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id, ext } = req.params as { id: string; ext: string }
     const q = req.query as any
     const fmt = ext === 'svg' ? 'svg' : 'png'
@@ -671,7 +672,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/enrollment-portals — criar
-  app.post('/api/admin/enrollment-portals', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals', { preHandler: guardTela('admin') }, async (req, reply) => {
     const body = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
 
@@ -759,7 +760,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // PUT /api/admin/enrollment-portals/:id — atualizar
   // POST /api/admin/enrollment-portals/:id/sincronizar-funil — aplica o de-para
   // "etapa da jornada → etapa do funil" às inscrições que já existem.
-  app.post('/api/admin/enrollment-portals/:id/sincronizar-funil', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals/:id/sincronizar-funil', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const portal = await prisma.enrollmentPortal.findUnique({ where: { id }, select: { id: true } })
     if (!portal) return reply.code(404).send({ error: 'Portal não encontrado' })
@@ -767,7 +768,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return { ok: true, ...(await sincronizarFunilDoPortal(id)) }
   })
 
-  app.put('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/enrollment-portals/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const data: any = {}
@@ -874,7 +875,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // POST /api/admin/enrollment-portals/:id/branding — atualiza só os campos visuais
   // Útil para o preview ao vivo (debounced) gravar parcialmente sem disparar o
   // full update da tela. Não toca em formConfig/payment/etc.
-  app.post('/api/admin/enrollment-portals/:id/branding', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals/:id/branding', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const data: any = {}
@@ -891,7 +892,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // POST /api/admin/enrollment-portals/:id/upload?kind=logo|favicon|hero
   // Multipart com 1 arquivo. Salva em uploads/portals/{id}/{kind}.{ext}, popula
   // o respectivo campo brand* e devolve a URL pública.
-  app.post('/api/admin/enrollment-portals/:id/upload', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals/:id/upload', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const portalId = parseInt(id)
     if (!portalId) return reply.code(400).send({ error: 'ID inválido' })
@@ -957,7 +958,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // DELETE /api/admin/enrollment-portals/:id/upload?kind=logo|favicon|hero
-  app.delete('/api/admin/enrollment-portals/:id/upload', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/enrollment-portals/:id/upload', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const portalId = parseInt(id)
     const kind = String((req.query as any)?.kind || '').toLowerCase()
@@ -977,7 +978,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // DELETE /api/admin/enrollment-portals/:id
-  app.delete('/api/admin/enrollment-portals/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/enrollment-portals/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const existing = await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) }, select: { nome: true, slug: true } })
     try {
@@ -1000,7 +1001,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // contadores, codeSequence, customDomain (1 domínio por portal), landingPageId
   // (relação @unique 1-1), publishedAt. Slug recebe sufixo "-copia" e nome "(cópia)";
   // se já houver colisão, resolveUniquePortalSlug auto-numera.
-  app.post('/api/admin/enrollment-portals/:id/duplicate', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals/:id/duplicate', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const user = (req as any).user as JwtPayload
     const src = await prisma.enrollmentPortal.findUnique({ where: { id: parseInt(id) } })
@@ -1057,7 +1058,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // ─── Inscrições (listagem admin) ─────────────────────────
 
   // GET /api/admin/enrollment-portals/:id/analytics — KPIs para dashboard
-  app.get('/api/admin/enrollment-portals/:id/analytics', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/enrollment-portals/:id/analytics', { preHandler: guardTela('login') }, async (req) => {
     const { id } = req.params as any
     const portalId = parseInt(id)
     const q = req.query as any
@@ -1116,7 +1117,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // Esse modo cria só o contato (não há inscrição até a pessoa continuar no
   // portal completo), então a aba de inscrições ficava vazia e o envio parecia
   // perdido. O vínculo com o portal está no formData do contato (_portalSlug).
-  app.get('/api/admin/enrollment-portals/:id/interessados', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-portals/:id/interessados', { preHandler: guardTela('login') }, async (req, reply) => {
     const portalId = parseInt((req.params as any).id)
     const q = (req.query as any) || {}
     const portal = await prisma.enrollmentPortal.findUnique({ where: { id: portalId }, select: { slug: true, continuationPortalId: true } })
@@ -1160,7 +1161,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/api/admin/enrollment-portals/:id/registrations', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/enrollment-portals/:id/registrations', { preHandler: guardTela('login') }, async (req) => {
     const { id } = req.params as any
     const q = req.query as any
     const portalId = parseInt(id)
@@ -1321,12 +1322,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // ── Duplicidade de inscrições no portal (services/inscricaoDuplicada) ──
-  app.get('/api/admin/enrollment-portals/:id/duplicates', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/enrollment-portals/:id/duplicates', { preHandler: guardTela('login') }, async (req) => {
     const { gruposDeDuplicidade } = await import('../services/inscricaoDuplicada.js')
     return { grupos: await gruposDeDuplicidade(parseInt((req.params as any).id)) }
   })
 
-  app.post('/api/admin/enrollment-portals/:id/duplicates/merge', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-portals/:id/duplicates/merge', { preHandler: guardTela('admin') }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
     const b = (req.body as any) || {}
     const { mesclarInscricoes } = await import('../services/inscricaoDuplicada.js')
@@ -1339,14 +1340,14 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return r.ok ? r : reply.code(400).send({ error: r.erro })
   })
 
-  app.post('/api/admin/enrollment-portals/:id/duplicates/keep-separate', { preHandler: adminOnly }, async (req) => {
+  app.post('/api/admin/enrollment-portals/:id/duplicates/keep-separate', { preHandler: guardTela('admin') }, async (req) => {
     const b = (req.body as any) || {}
     const { manterSeparadas } = await import('../services/inscricaoDuplicada.js')
     const ids = (Array.isArray(b.ids) ? b.ids : []).map((x: any) => parseInt(x)).filter(Boolean)
     return { ok: true, atualizadas: await manterSeparadas(parseInt((req.params as any).id), ids) }
   })
 
-  app.post('/api/admin/enrollment-registrations/:id/unmerge', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/unmerge', { preHandler: guardTela('admin') }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
     const { desfazerMescla } = await import('../services/inscricaoDuplicada.js')
     const r = await desfazerMescla(parseInt((req.params as any).id), { userId: user.userId, nome: user.name || user.email })
@@ -1354,7 +1355,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/enrollment-portals/:id/registrations.csv — exportação
-  app.get('/api/admin/enrollment-portals/:id/registrations.csv', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-portals/:id/registrations.csv', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const q = req.query as any
     const where: any = { portalId: parseInt(id) }
@@ -1436,7 +1437,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // GET /api/admin/enrollment-registrations/:id/receipt.pdf — comprovante imprimível
   // Retorna HTML otimizado para impressão (navegador salva como PDF via Ctrl+P)
-  app.get('/api/admin/enrollment-registrations/:id/receipt.pdf', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-registrations/:id/receipt.pdf', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: parseInt(id) },
@@ -1490,9 +1491,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // PUT /api/admin/enem-imports/:id — override humano de notas ENEM extraídas
   // Permite operador corrigir notas que a IA extraiu errado, ou forçar classificação
   // quando a automação não tem corte configurado.
-  app.put('/api/admin/enem-imports/:id', { preHandler: authMiddleware }, async (req, reply) => {
+  app.put('/api/admin/enem-imports/:id', { preHandler: guardTela('gestao') }, async (req, reply) => {
     const user = (req as any).user
-    if (!['SUPERADMIN','ADMIN','MANAGER'].includes(user?.role)) return reply.code(403).send({ error: 'Sem permissão' })
 
     const { id } = req.params as any
     const body = (req.body as any) || {}
@@ -1564,7 +1564,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/enrollment-registrations/:id — detalhe completo incluindo docs
-  app.get('/api/admin/enrollment-registrations/:id', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-registrations/:id', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: parseInt(id) },
@@ -1592,7 +1592,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/enrollment-registrations/:id/cancel — cancelar inscrição (admin)
-  app.post('/api/admin/enrollment-registrations/:id/cancel', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/cancel', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const reason = String(body.reason || '').trim() || null
@@ -1665,7 +1665,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // POST /api/admin/enrollment-registrations/:id/ensure-lead — cria ou re-vincula o Lead
   // de uma inscrição órfã (leadId nulo, ex.: lead apagado). Idempotente.
-  app.post('/api/admin/enrollment-registrations/:id/ensure-lead', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/ensure-lead', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: parseInt(id) }, select: { id: true } })
     if (!reg) return reply.code(404).send({ error: 'Inscrição não encontrada' })
@@ -1690,7 +1690,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   }
 
   // POST /api/admin/enrollment-registrations — criar inscrição manualmente (admin).
-  app.post('/api/admin/enrollment-registrations', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations', { preHandler: guardTela('admin') }, async (req, reply) => {
     const body = (req.body as any) || {}
     const u = (req as any).user as JwtPayload | undefined
     const portalId = body.portalId ? parseInt(body.portalId) : NaN
@@ -1744,7 +1744,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/enrollment-registrations/:id — editar inscrição (admin).
-  app.put('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/enrollment-registrations/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const u = (req as any).user as JwtPayload | undefined
@@ -1792,7 +1792,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
 
   // DELETE /api/admin/enrollment-registrations/:id — excluir inscrição (admin).
   // Cascade remove filhos (documentos, métodos de pagamento, redações, etc.).
-  app.delete('/api/admin/enrollment-registrations/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/enrollment-registrations/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: parseInt(id) },
@@ -1830,7 +1830,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/enrollment-registrations/:id/resend-link — admin reenvia link de continuação ao candidato
-  app.post('/api/admin/enrollment-registrations/:id/resend-link', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/resend-link', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: parseInt(id) },
@@ -1931,7 +1931,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/enrollment-portals/check-slug?slug=X&excludeId=Y — checa disponibilidade
-  app.get('/api/admin/enrollment-portals/check-slug', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/enrollment-portals/check-slug', { preHandler: guardTela('login') }, async (req) => {
     const q = req.query as any
     const requested = String(q.slug || '').trim()
     const excludeId = q.excludeId ? parseInt(q.excludeId) : null
@@ -4281,7 +4281,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   })
 
   // GET analytics do funil (por etapa)
-  app.get('/api/admin/enrollment-portals/:id/funnel', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/enrollment-portals/:id/funnel', { preHandler: guardTela('login') }, async (req) => {
     const { id } = req.params as any
     const portalId = parseInt(id)
     const settings = await prisma.setting.findMany({
@@ -4435,7 +4435,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // Admin gera link assinado com dados do lead pra compartilhar via WhatsApp/email/QR
   // Portal lê o token ?t=xxx e pré-preenche o formulário automaticamente.
   // ══════════════════════════════════════════════
-  app.get('/api/admin/leads/:id/enrollment-link', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/leads/:id/enrollment-link', { preHandler: guardTela('login') }, async (req, reply) => {
     const { id } = req.params as any
     const leadId = parseInt(id)
     const q = req.query as any
@@ -4623,7 +4623,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // Wrapper sobre paymentSync.syncChargeFromProvider — mesma lógica que o cron
   // de reconciliação roda automaticamente. Idempotente.
   // ══════════════════════════════════════════════
-  app.post('/api/admin/payment-providers/:id/sync-charge', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/payment-providers/:id/sync-charge', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const externalId = String(body.externalId || '').trim()
@@ -4649,7 +4649,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // Versão alto-nível: descobre a conexão e o(s) método(s) automaticamente.
   // - Se há methods pending, tenta sync de cada um até achar transição pra paid (early return).
   // - Se nenhum method (modo link antigo), faz sync do paymentId direto.
-  app.post('/api/admin/enrollment-registrations/:id/sync-payment', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/sync-payment', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const enrollment = await prisma.enrollmentRegistration.findUnique({
       where: { id: parseInt(id) },

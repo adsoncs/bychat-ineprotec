@@ -9,6 +9,7 @@ import * as svc from '../services/acaAssinatura.js'
 import { validarModelo, gerarPdfDoModelo } from '../services/contratoWord.js'
 import { CAMPOS_CONTRATO, camposDesconhecidos, varsDeExemplo, dadosDoContratoDaInscricao } from '../services/contratoDoPortal.js'
 import { getConfig, setConfig, verificarAssinaturaWebhook } from '../services/autentique.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 const ENV_INCLUDE = { signatarios: { orderBy: { ordem: 'asc' as const } } }
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -73,8 +74,8 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
       clicksign: { sandbox: k.sandbox, widget: k.widget, tokenConfigurado: !!k.token, webhookSecretConfigurado: !!k.webhookSecret },
     }
   }
-  app.get(`${base}/config`, { preHandler: authMiddleware }, async () => configPublica())
-  app.put(`${base}/config`, { preHandler: authMiddleware }, async (req, reply) => {
+  app.get(`${base}/config`, { preHandler: guardTela('login') }, async () => configPublica())
+  app.put(`${base}/config`, { preHandler: guardTela('login') }, async (req, reply) => {
     const b = (req.body as any) || {}
     if (b.provedor === undefined) {
       // Tela antiga (só Autentique): mesmo comportamento de antes.
@@ -91,19 +92,19 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
     return configPublica()
   })
   // Testa a credencial da Clicksign sem criar nada (lista 1 envelope).
-  app.post(`${base}/config/testar-clicksign`, { preHandler: authMiddleware }, async () => {
+  app.post(`${base}/config/testar-clicksign`, { preHandler: guardTela('login') }, async () => {
     const cs = await import('../services/clicksign.js')
     return cs.ping(await cs.getConfig())
   })
 
-  app.get(`${base}/variaveis`, { preHandler: authMiddleware }, async () => ({ variaveis: svc.VARIAVEIS_DISPONIVEIS }))
+  app.get(`${base}/variaveis`, { preHandler: guardTela('login') }, async () => ({ variaveis: svc.VARIAVEIS_DISPONIVEIS }))
 
   // ── Templates de contrato (por tipo de negócio) ──
   // O .docx (base64) não vai na lista: pesa, e a tela só precisa saber que existe.
   const semArquivo = ({ arquivoDocx, ...t }: any) => ({ ...t, temWord: !!arquivoDocx })
-  app.get(`${base}/templates`, { preHandler: authMiddleware }, async () =>
+  app.get(`${base}/templates`, { preHandler: guardTela('login') }, async () =>
     ({ templates: (await prisma.acaContratoTemplate.findMany({ orderBy: [{ ordem: 'asc' }, { id: 'asc' }] })).map(semArquivo) }))
-  app.post(`${base}/templates`, { preHandler: authMiddleware }, async (req, reply) => {
+  app.post(`${base}/templates`, { preHandler: guardTela('login') }, async (req, reply) => {
     const b = (req.body as any) || {}
     // Modelo em Word pode nascer sem texto: o arquivo sobe logo depois.
     if (!b.nome) return reply.code(400).send({ error: 'nome obrigatório' })
@@ -115,7 +116,7 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
     } })
     return reply.code(201).send({ template: semArquivo(t) })
   })
-  app.put(`${base}/templates/:id`, { preHandler: authMiddleware }, async (req) => {
+  app.put(`${base}/templates/:id`, { preHandler: guardTela('login') }, async (req, reply) => {
     const b = (req.body as any) || {}; const data: any = {}
     for (const k of ['nome', 'tipoNegocio', 'descricao', 'corpoTexto']) if (k in b) data[k] = b[k]
     if ('config' in b) data.config = b.config ?? null
@@ -124,26 +125,31 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
     if ('ordem' in b) data.ordem = Number(b.ordem) || 0
     if ('portalIds' in b) data.portalIds = listaDeIds(b.portalIds)
     if ('cursoIds' in b) data.cursoIds = listaDeIds(b.cursoIds)
-    return { template: semArquivo(await prisma.acaContratoTemplate.update({ where: { id: Number((req.params as any).id) }, data })) }
+    // Modelo apagado em outra aba (ou id errado): 404 claro, não 500.
+    const id = Number((req.params as any).id)
+    if (!(await prisma.acaContratoTemplate.findUnique({ where: { id: id || -1 }, select: { id: true } }))) {
+      return reply.code(404).send({ error: 'Modelo de contrato não encontrado.' })
+    }
+    return { template: semArquivo(await prisma.acaContratoTemplate.update({ where: { id }, data })) }
   })
 
   // ── Contrato em Word (.docx com {{campos}}) ──
-  app.get(`${base}/campos-word`, { preHandler: authMiddleware }, async () => ({ campos: CAMPOS_CONTRATO }))
+  app.get(`${base}/campos-word`, { preHandler: guardTela('login') }, async () => ({ campos: CAMPOS_CONTRATO }))
 
   // Onde o modelo vale: portais e cursos, para os seletores da tela.
-  app.get(`${base}/opcoes-vinculo`, { preHandler: authMiddleware }, async () => ({
+  app.get(`${base}/opcoes-vinculo`, { preHandler: guardTela('login') }, async () => ({
     portais: await prisma.enrollmentPortal.findMany({ select: { id: true, nome: true, slug: true }, orderBy: { nome: 'asc' } }),
     cursos: await prisma.course.findMany({ where: { active: true }, select: { id: true, nome: true }, orderBy: { nome: 'asc' } }),
   }))
 
   // Modelo de exemplo com todos os campos — ponto de partida para o jurídico.
-  app.get(`${base}/modelo-exemplo.docx`, { preHandler: authMiddleware }, async (_req, reply) => {
+  app.get(`${base}/modelo-exemplo.docx`, { preHandler: guardTela('login') }, async (_req, reply) => {
     const { readFile } = await import('node:fs/promises')
     const buf = await readFile(new URL('../../assets/contratos/modelo-exemplo.docx', import.meta.url))
     return reply.header('Content-Type', DOCX).header('Content-Disposition', 'attachment; filename="modelo-de-contrato.docx"').send(buf)
   })
 
-  app.put(`${base}/templates/:id/word`, { preHandler: authMiddleware, bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
+  app.put(`${base}/templates/:id/word`, { preHandler: guardTela('login'), bodyLimit: 20 * 1024 * 1024 }, async (req, reply) => {
     const b = (req.body as any) || {}
     const buf = Buffer.from(String(b.base64 || '').replace(/^data:[^,]+,/, ''), 'base64')
     if (!buf.length) return reply.code(400).send({ error: 'Envie o arquivo .docx.' })
@@ -156,13 +162,13 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
     })
     return { template: semArquivo(t), campos: v.campos, desconhecidos: camposDesconhecidos(v.campos) }
   })
-  app.delete(`${base}/templates/:id/word`, { preHandler: authMiddleware }, async (req) => {
+  app.delete(`${base}/templates/:id/word`, { preHandler: guardTela('login') }, async (req) => {
     const t = await prisma.acaContratoTemplate.update({
       where: { id: Number((req.params as any).id) }, data: { arquivoDocx: null, arquivoDocxNome: null, camposDocx: Prisma.DbNull },
     })
     return { template: semArquivo(t) }
   })
-  app.get(`${base}/templates/:id/word`, { preHandler: authMiddleware }, async (req, reply) => {
+  app.get(`${base}/templates/:id/word`, { preHandler: guardTela('login') }, async (req, reply) => {
     const t = await prisma.acaContratoTemplate.findUnique({ where: { id: Number((req.params as any).id) }, select: { arquivoDocx: true, arquivoDocxNome: true } })
     if (!t?.arquivoDocx) return reply.code(404).send({ error: 'Este modelo não tem arquivo Word.' })
     const nome = (t.arquivoDocxNome || 'contrato.docx').replace(/[^\w.\- ]+/g, '_')
@@ -171,7 +177,7 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
 
   // Pré-visualização em PDF: com dados de exemplo, ou de uma inscrição real
   // (código da inscrição) — os campos sem valor voltam no cabeçalho.
-  app.post(`${base}/templates/:id/previa`, { preHandler: authMiddleware }, async (req, reply) => {
+  app.post(`${base}/templates/:id/previa`, { preHandler: guardTela('login') }, async (req, reply) => {
     const t = await prisma.acaContratoTemplate.findUnique({ where: { id: Number((req.params as any).id) }, select: { arquivoDocx: true } })
     if (!t?.arquivoDocx) return reply.code(404).send({ error: 'Suba o arquivo Word antes de pré-visualizar.' })
     const codigo = String((req.body as any)?.inscricao || '').trim()
@@ -187,7 +193,7 @@ function rotasDosModelos(app: FastifyInstance, base: string) {
       return reply.header('Content-Type', 'application/pdf').header('X-Campos-Faltando', encodeURIComponent(faltando.join(','))).send(pdf)
     } catch (e: any) { return reply.code(400).send({ error: e?.message || 'Falha ao gerar o PDF' }) }
   })
-  app.delete(`${base}/templates/:id`, { preHandler: authMiddleware }, async (req) => {
+  app.delete(`${base}/templates/:id`, { preHandler: guardTela('login') }, async (req) => {
     await prisma.acaContratoTemplate.delete({ where: { id: Number((req.params as any).id) } }).catch(() => {})
     return { ok: true }
   })
@@ -202,7 +208,7 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
   const base = BASE_CONTRATOS_PORTAL
 
   // Lista: envelopes das inscrições + aceites do termo simples (sem envelope).
-  app.get(`${base}/inscricoes`, { preHandler: authMiddleware }, async (req) => {
+  app.get(`${base}/inscricoes`, { preHandler: guardTela('login') }, async (req) => {
     const q = (req.query as any) || {}
     const portalId = Number(q.portalId) || undefined
     const envs = await prisma.acaAssinatura.findMany({
@@ -241,7 +247,7 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
   })
 
   // Contrato de uma inscrição (card no detalhe da inscrição).
-  app.get(`${base}/inscricao/:regId`, { preHandler: authMiddleware }, async (req) => {
+  app.get(`${base}/inscricao/:regId`, { preHandler: guardTela('login') }, async (req) => {
     const regId = Number((req.params as any).regId)
     const { estadoDaAssinaturaDaInscricao, dadosDoContratoDaInscricao, modeloDoPortal, assinaturaEletronicaAtiva } = await import('../services/contratoDoPortal.js')
     const reg = await prisma.enrollmentRegistration.findUnique({ where: { id: regId }, select: { contratoAceite: true } })
@@ -256,13 +262,13 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
     }
   })
 
-  app.post(`${base}/inscricao/:regId/sincronizar`, { preHandler: authMiddleware }, async (req) => {
+  app.post(`${base}/inscricao/:regId/sincronizar`, { preHandler: guardTela('login') }, async (req) => {
     const { estadoDaAssinaturaDaInscricao } = await import('../services/contratoDoPortal.js')
     return { assinatura: await estadoDaAssinaturaDaInscricao(Number((req.params as any).regId), true) }
   })
 
   // PDF: o assinado (do provedor, ou a cópia guardada aqui) quando existe; senão o que foi para assinatura.
-  app.get(`${base}/envelope/:id/pdf`, { preHandler: authMiddleware }, async (req, reply) => {
+  app.get(`${base}/envelope/:id/pdf`, { preHandler: guardTela('login') }, async (req, reply) => {
     const env = await prisma.acaAssinatura.findUnique({ where: { id: Number((req.params as any).id) }, select: { id: true, registrationId: true, titulo: true, arquivoAssinadoUrl: true } })
     if (!env?.registrationId) return reply.code(404).send({ error: 'Contrato não encontrado' })
     let pdf: Buffer | null = null

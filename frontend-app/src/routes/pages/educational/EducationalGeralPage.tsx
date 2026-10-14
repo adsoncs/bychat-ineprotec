@@ -28,6 +28,7 @@ import {
   useEduGeral, useSalvarEduGeral, useEnviarArquivoGeral, useRemoverArquivoGeral, importarDoPortal,
   type EduGeral, type PadroesLogin, type ArquivoGeral, type GrupoDeTextos,
 } from '@/hooks/useEduGeral'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 
 type Aba = 'identidade' | 'aparencia' | 'login' | 'textos' | 'seo' | 'portais' | 'atalhos'
 
@@ -56,6 +57,7 @@ export function EducationalGeralPage() {
   const [form, setForm] = useState<EduGeral | null>(null)
   const [sujo, setSujo] = useState(false)
   const [portalImport, setPortalImport] = useState<number | ''>('')
+  const podeEditar = useCan('edu_configuracoes', 'edit')
 
   // O formulário nasce do servidor uma vez; depois é da pessoa até salvar.
   useEffect(() => { if (data && !form) setForm(structuredClone(data.geral)) }, [data])
@@ -118,7 +120,7 @@ export function EducationalGeralPage() {
     <Page
       title="Configurações Gerais"
       description="O que vale para a instituição toda. Portais personalizados mantêm o que é deles e recebem daqui só o que deixaram em branco; portais que seguem as Gerais (aba Portais) recebem daqui por cima. A tela de login e o app do celular são sempre daqui."
-      actions={
+      actions={!podeEditar ? undefined : (
         <div class="flex items-center gap-2 flex-wrap">
           <Select value={String(portalImport)} onChange={(e) => setPortalImport(Number((e.target as HTMLSelectElement).value) || '')} aria-label="Portal para importar">
             <option value="">Importar de um portal…</option>
@@ -131,7 +133,7 @@ export function EducationalGeralPage() {
             <Save size={13} /> {salvar.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
         </div>
-      }
+      )}
     >
       {sujo && (
         <div class="sticky top-0 z-10 mb-3 px-3 py-2 rounded-md border border-warning/40 bg-warning/10 backdrop-blur flex items-center justify-between gap-3 flex-wrap">
@@ -152,6 +154,7 @@ export function EducationalGeralPage() {
         ))}
       </div>
 
+      <SomenteLeitura tela="edu_configuracoes">
       {aba === 'identidade' && <AbaIdentidade form={form} mudar={mudar} arquivoSalvo={arquivoSalvo} />}
       {aba === 'aparencia' && <AbaAparencia form={form} mudar={mudar} />}
       {aba === 'login' && <AbaLogin form={form} mudar={mudar} arquivoSalvo={arquivoSalvo} padroes={data.padroes.login} linkHoras={data.linkHoras} />}
@@ -170,6 +173,7 @@ export function EducationalGeralPage() {
       {aba === 'seo' && <AbaSeo form={form} mudar={mudar} arquivoSalvo={arquivoSalvo} />}
       {aba === 'portais' && <AbaPortais portais={data.portais} />}
       {aba === 'atalhos' && <AbaAtalhos />}
+      </SomenteLeitura>
     </Page>
   )
 }
@@ -734,18 +738,18 @@ const ATALHOS: Array<{ grupo: string; itens: Array<{ titulo: string; texto: stri
     grupo: 'Portal de Matrículas',
     itens: [
       { titulo: 'Portais', texto: 'Branding, formulário, etapas, pagamento, domínio e SEO de cada portal.', href: '/app/enrollment-portals', perm: 'enrollment_portals' },
-      { titulo: 'Contratos e assinatura eletrônica', texto: 'Modelos de contrato e o provedor de assinatura (Autentique, Clicksign).', href: '/app/educational/contratos', perm: 'enrollment_portals' },
-      { titulo: 'Financeiro do portal', texto: 'Cobranças das inscrições e matrículas.', href: '/app/educational/portal-financeiro', perm: 'enrollment_portals' },
-      { titulo: 'Cupons', texto: 'Descontos aplicados na inscrição.', href: '/app/educational/cupons', perm: 'enrollment_portals' },
+      { titulo: 'Contratos e assinatura eletrônica', texto: 'Modelos de contrato e o provedor de assinatura (Autentique, Clicksign).', href: '/app/educational/contratos', perm: 'edu_contratos' },
+      { titulo: 'Financeiro do portal', texto: 'Cobranças das inscrições e matrículas.', href: '/app/educational/portal-financeiro', perm: 'edu_financeiro_portal' },
+      { titulo: 'Cupons', texto: 'Descontos aplicados na inscrição.', href: '/app/educational/cupons', perm: 'edu_cupons' },
       { titulo: 'Conexões de pagamento', texto: 'Asaas, iugu, Pagar.me: chaves e ambiente.', href: '/app/integrations/payments', perm: 'settings' },
     ],
   },
   {
     grupo: 'Catálogo e processo seletivo',
     itens: [
-      { titulo: 'Modos de ingresso', texto: 'Documentos exigidos por forma de ingresso.', href: '/app/educational/entry-modes', perm: 'educacional' },
-      { titulo: 'Dados por etapa', texto: 'Quais dados pedir em cada etapa da inscrição.', href: '/app/educational/dados-etapas', perm: 'educacional' },
-      { titulo: 'Processos seletivos', texto: 'Vestibulares, taxas e calendário.', href: '/app/educational/selection-processes', perm: 'educacional' },
+      { titulo: 'Modos de ingresso', texto: 'Documentos exigidos por forma de ingresso.', href: '/app/educational/entry-modes', perm: 'edu_modos_ingresso' },
+      { titulo: 'Dados por etapa', texto: 'Quais dados pedir em cada etapa da inscrição.', href: '/app/educational/dados-etapas', perm: 'edu_dados_etapas' },
+      { titulo: 'Processos seletivos', texto: 'Vestibulares, taxas e calendário.', href: '/app/educational/selection-processes', perm: 'edu_processos' },
     ],
   },
   {

@@ -46,6 +46,8 @@ import { cn } from '@/lib/cn'
 import { env } from '@/lib/env'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone } from '@/lib/paymentLabels'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
+import { Pode } from '@/components/auth/Pode'
 
 type Tab = 'overview' | 'registrations' | 'form' | 'branding' | 'payment' | 'etapas' | 'config' | 'analytics'
 
@@ -123,11 +125,11 @@ export function EnrollmentPortalDetailPage({ params }: { params: { id: string } 
           <PortalTabs tab={tab} onChange={setTab} interesse={portal.formMode === 'interest'} />
           {tab === 'overview' && <OverviewTab portal={portal} onTabChange={setTab} />}
           {tab === 'registrations' && (portal.formMode === 'interest' ? <InteressadosTab portal={portal} /> : <RegistrationsTab portal={portal} />)}
-          {tab === 'form' && <PortalFormTab portal={portal} />}
-          {tab === 'branding' && <PortalBrandingTab portal={portal} />}
-          {tab === 'payment' && <PortalPaymentTab portal={portal} />}
-          {tab === 'etapas' && <PortalEtapasTab portal={portal} />}
-          {tab === 'config' && <PortalConfigTab portal={portal} />}
+          {tab === 'form' && <SomenteLeitura tela="enrollment_portals"><PortalFormTab portal={portal} /></SomenteLeitura>}
+          {tab === 'branding' && <SomenteLeitura tela="enrollment_portals"><PortalBrandingTab portal={portal} /></SomenteLeitura>}
+          {tab === 'payment' && <SomenteLeitura tela="enrollment_portals"><PortalPaymentTab portal={portal} /></SomenteLeitura>}
+          {tab === 'etapas' && <SomenteLeitura tela="enrollment_portals"><PortalEtapasTab portal={portal} /></SomenteLeitura>}
+          {tab === 'config' && <SomenteLeitura tela="enrollment_portals"><PortalConfigTab portal={portal} /></SomenteLeitura>}
           {tab === 'analytics' && <PortalAnalyticsTab portal={portal} />}
         </>
       )}
@@ -813,9 +815,9 @@ function RegistrationsTab({ portal }: { portal: EnrollmentPortal }) {
                 </Select>
               </>
             )}
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)} class="ml-auto self-end">
+            <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)} class="ml-auto self-end">
               <Plus size={12} /> Nova inscrição
-            </Button>
+            </Button></Pode>
             <Button size="sm" variant="secondary" onClick={handleExport} class="self-end">
               <Download size={12} /> Exportar CSV
             </Button>
@@ -1113,17 +1115,21 @@ function RowActionsMenu({
       </button>
       {open && (
         <div class="absolute right-0 top-full mt-1 w-56 rounded-md border border-border bg-surface-2 shadow-lg py-1 z-20">
+          <Pode tela="enrollment_portals" acao="edit">
           <MenuButton
             icon={<Pencil size={12} />}
             label="Editar inscrição"
             onClick={() => { setOpen(false); onEdit() }}
           />
+          </Pode>
+          <Pode tela="enrollment_portals" acao="edit">
           <MenuButton
             icon={<Send size={12} />}
             label="Reenviar link"
             disabled={busy}
             onClick={() => { setOpen(false); onResend() }}
           />
+          </Pode>
           <MenuButton
             icon={<Copy size={12} />}
             label="Copiar link público"
@@ -1136,14 +1142,17 @@ function RowActionsMenu({
               onClick={() => { setOpen(false); onOpenLead() }}
             />
           ) : (
+            <Pode tela="enrollment_portals" acao="edit">
             <MenuButton
               icon={<UserPlus size={12} />}
               label="Criar/vincular Lead"
               disabled={busy}
               onClick={() => { setOpen(false); onEnsureLead() }}
             />
+            </Pode>
           )}
           <div class="my-1 h-px bg-border" />
+          <Pode tela="enrollment_portals" acao="edit">
           <MenuButton
             icon={<Ban size={12} />}
             label={canCancel ? 'Cancelar inscrição' : 'Não pode cancelar'}
@@ -1151,12 +1160,15 @@ function RowActionsMenu({
             destructive
             onClick={() => { setOpen(false); if (canCancel) onCancel() }}
           />
+          </Pode>
+          <Pode tela="enrollment_portals" acao="delete">
           <MenuButton
             icon={<Trash2 size={12} />}
             label="Excluir inscrição"
             destructive
             onClick={() => { setOpen(false); onDelete() }}
           />
+          </Pode>
         </div>
       )}
     </div>

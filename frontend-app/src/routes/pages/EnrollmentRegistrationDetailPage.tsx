@@ -1,5 +1,4 @@
 import { useState } from 'preact/hooks'
-import { Fragment } from 'preact'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation } from 'wouter-preact'
 import {
@@ -39,6 +38,8 @@ import { toast } from '@/lib/toast'
 import { formatRelative } from '@/lib/format'
 import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProviderLabel } from '@/lib/paymentLabels'
 import { SeiInscricaoCard } from './integrations/SeiIntegration'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
+import { useCan } from '@/hooks/usePermissions'
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   pending: 'Pendente',
@@ -70,6 +71,11 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
   const [, navigate] = useLocation()
 
   const review = data
+  // Três chamadas separadas: hook não pode ficar atrás de um && (mudaria a ordem).
+  const edPortal = useCan('enrollment_portals', 'edit')
+  const edRevisao = useCan('edu_revisao_documentos', 'edit')
+  const edAvaliacao = useCan('edu_avaliacoes', 'edit')
+  const podeEditarPortal = edPortal && edRevisao && edAvaliacao
   // Mesma consulta do cabeçalho (cache compartilhado): ordena os cards das etapas.
   const etapasDaPagina = useQuery({
     queryKey: ['registration-etapas', regId],
@@ -118,36 +124,41 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
 
       {review && (
         <>
+          {!podeEditarPortal && (
+            <div class="rounded-md border border-border bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+              Você vê esta inscrição, mas as ações que exigem "Editar" (no Portal, na Revisão de documentos ou em Avaliações) ficam desativadas para o seu perfil.
+            </div>
+          )}
           <StatusBanner review={review} />
           {/* Padrão da tela: o acesso do candidato sempre primeiro; depois quem
               é e o que se inscreveu; depois as etapas NA ORDEM do portal (aba
               Etapas › tela de inscrição) — a mesma do cabeçalho e do candidato. */}
-          <CandidatePortalCard review={review} />
+          <SomenteLeitura aviso={false} tela="enrollment_portals"><CandidatePortalCard review={review} /></SomenteLeitura>
           <CandidateCard review={review} />
           <RegistrationCard review={review} />
           {ordemDasEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel).map((chave) => {
             const id = review.registration.id
             if (chave === 'analise') {
               const et = [...(etapasDaPagina.data?.inscricao ?? []), ...(etapasDaPagina.data?.painel ?? [])].find((e) => e.chave === 'analise')
-              return et?.analise ? <AnaliseAcademicaCard key={chave} registrationId={id} etapa={et} /> : null
+              return et?.analise ? <SomenteLeitura aviso={false} key={chave} tela="edu_revisao_documentos"><AnaliseAcademicaCard registrationId={id} etapa={et} /></SomenteLeitura> : null
             }
-            if (chave === 'pagamento') return <PaymentMethodsBlock key={chave} registrationId={id} />
-            if (chave === 'contrato') return <ContratoDaInscricaoCard key={chave} registrationId={id} />
-            if (chave === 'prova') return <RedacaoCard key={chave} review={review} />
+            if (chave === 'pagamento') return <SomenteLeitura aviso={false} key={chave} tela="enrollment_portals"><PaymentMethodsBlock registrationId={id} /></SomenteLeitura>
+            if (chave === 'contrato') return <SomenteLeitura aviso={false} key={chave} tela="enrollment_portals"><ContratoDaInscricaoCard registrationId={id} /></SomenteLeitura>
+            if (chave === 'prova') return <SomenteLeitura aviso={false} key={chave} tela="edu_avaliacoes"><RedacaoCard review={review} /></SomenteLeitura>
             if (chave === 'documentos') {
               return (
-                <Fragment key={chave}>
+                <SomenteLeitura aviso={false} key={chave} tela="edu_revisao_documentos">
                   <SlotsCard review={review} />
                   {review.extras.length > 0 && <ExtrasCard extras={review.extras} registrationId={id} />}
                   {review.autoAdvance.enabled && <AutoAdvanceCard review={review} />}
                   <BulkActionsCard registrationId={id} />
-                </Fragment>
+                </SomenteLeitura>
               )
             }
             return null
           })}
           {/* Notas do ENEM: não é etapa da jornada; o bloco some sozinho sem nota importada. */}
-          <EnemBlock registrationId={review.registration.id} />
+          <SomenteLeitura aviso={false} tela="edu_avaliacoes"><EnemBlock registrationId={review.registration.id} /></SomenteLeitura>
           {/* Última etapa: a matrícula no ERP acadêmico. Some sozinho com a integração desligada. */}
           <SeiInscricaoCard registrationId={review.registration.id} />
         </>

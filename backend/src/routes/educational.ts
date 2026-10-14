@@ -5,6 +5,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
+import { guardTela } from '../lib/eduTelas.js'
 import {
   isEducationalEnabled,
   setEducationalEnabled,
@@ -243,15 +244,17 @@ export async function educationalRoutes(app: FastifyInstance) {
 
   // GET /api/admin/educacional/health — smoke test (gateado pelo modulePermissionHook global)
   app.get('/api/admin/educacional/health', {
-    preHandler: [authMiddleware],
+    preHandler: [guardTela('login')],
   }, async () => {
     return { ok: true, module: 'educational', version: '1.0' }
   })
 
   // Gateamento de CRUD: hook global modulePermissionHook checa permissão por role/usuário.
   // setEducationalEnabled() sincroniza ModulePermission ao ligar/desligar o módulo.
-  const eduAuth = [authMiddleware]
-  const eduAdmin = [adminOnly]
+  // Permissão por tela (lib/eduTelas.ts). Desligado o módulo, vale o papel
+  // de antes: leitura para quem está logado, escrita só para admin.
+  const eduAuth = [guardTela('login')]
+  const eduAdmin = [guardTela('admin')]
 
   // ══════════════════════════════════════════════
   // NÍVEIS DE ENSINO

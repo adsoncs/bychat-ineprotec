@@ -18,6 +18,7 @@ import { redis } from '../lib/redis.js'
 import { logSecurityEvent } from '../services/security.js'
 import { validateUploadContent, UploadValidationError } from '../lib/uploadSafety.js'
 import { requisitosQueValem } from '../services/docCondicional.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 /**
  * Quem é o candidato desta requisição.
@@ -458,10 +459,13 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // ── Admin: GET /api/admin/enrollment-documents — fila de revisão ──
   // Filtros: status (pending|approved|rejected|all), aiSuggestion (approve|review|reject),
   // portalId, q (busca por nome candidato/code), sort (oldest|newest), limit, offset.
-  app.get('/api/admin/enrollment-documents', { preHandler: adminOnly }, async (req, reply) => {
+  app.get('/api/admin/enrollment-documents', { preHandler: guardTela('admin') }, async (req, reply) => {
     const user = (req as any).user as any
     const q = req.query as any
     const where: any = {}
+    // Um documento só (modal de revisão): sem isto o modal baixava os 200 mais
+    // recentes e procurava o escolhido entre eles — o 201º nunca abria.
+    if (q.id) where.id = parseInt(q.id) || -1
     if (q.status && q.status !== 'all') where.status = String(q.status)
     if (q.aiSuggestion && q.aiSuggestion !== 'all') where.aiSuggestion = String(q.aiSuggestion)
     if (q.aiStatus && q.aiStatus !== 'all') where.aiStatus = String(q.aiStatus)
@@ -524,7 +528,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   })
 
   // ── Admin: aprovar/rejeitar documento ──
-  app.put('/api/admin/enrollment-documents/:id/review', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/enrollment-documents/:id/review', { preHandler: guardTela('admin') }, async (req, reply) => {
     const user = (req as any).user as any
     const { id } = req.params as any
     const body = (req.body as any) || {}
@@ -533,6 +537,10 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     if (status === 'rejected' && !body.reviewNote?.trim()) {
       return reply.code(400).send({ error: 'Motivo (reviewNote) é obrigatório ao rejeitar' })
     }
+
+    // Documento substituído pelo candidato (ou id errado): 404 claro, não 500.
+    const existe = await prisma.enrollmentDocument.findUnique({ where: { id: parseInt(id) || -1 }, select: { id: true } })
+    if (!existe) return reply.code(404).send({ error: 'Documento não encontrado — o candidato pode ter enviado outro no lugar.' })
 
     const doc = await prisma.enrollmentDocument.update({
       where: { id: parseInt(id) },
@@ -562,7 +570,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
   // Reemite o domain event de aprovação/rejeição. Útil quando o workflow não
   // disparou na vez original (engine estava com bug, lead bloqueado por execution
   // stuck, etc.). Idempotente — não altera status do doc, apenas reemite o evento.
-  app.post('/api/admin/enrollment-documents/:id/renotify', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-documents/:id/renotify', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const doc = await prisma.enrollmentDocument.findUnique({ where: { id: parseInt(id) } })
     if (!doc) return reply.code(404).send({ error: 'Documento não encontrado' })
@@ -577,7 +585,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
 
   // ── POST /api/admin/enrollment-documents/:id/reanalyze — re-disparar IA ──
   // Útil para forçar nova análise após ajuste de template/chave Anthropic.
-  app.post('/api/admin/enrollment-documents/:id/reanalyze', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-documents/:id/reanalyze', { preHandler: guardTela('admin') }, async (req, reply) => {
     const { id } = req.params as any
     const doc = await prisma.enrollmentDocument.findUnique({
       where: { id: parseInt(id) },

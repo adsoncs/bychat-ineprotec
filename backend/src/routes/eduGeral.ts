@@ -21,6 +21,7 @@ import { lerEduGeral, salvarEduGeral, salvarHeranca, PADROES_LOGIN } from '../li
 import { CATALOGO_TEXTOS } from '../lib/eduTextos.js'
 import { LINK_TTL_HORAS } from '../services/portalAccount.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 const PASTA = (() => join(dirname(fileURLToPath(import.meta.url)), '../../../uploads', 'edu-geral'))()
 
@@ -32,7 +33,7 @@ const ARQUIVOS: Record<string, { secao: 'identidade' | 'login' | 'seo'; campo: s
 }
 
 export async function eduGeralRoutes(app: FastifyInstance) {
-  app.get('/api/admin/edu/geral', { preHandler: adminOnly }, async () => {
+  app.get('/api/admin/edu/geral', { preHandler: guardTela('admin') }, async () => {
     const [geral, portais] = await Promise.all([
       lerEduGeral(),
       prisma.enrollmentPortal.findMany({ orderBy: { id: 'asc' }, select: { id: true, nome: true, slug: true, active: true } }),
@@ -40,7 +41,7 @@ export async function eduGeralRoutes(app: FastifyInstance) {
     return { geral, padroes: { login: PADROES_LOGIN, textos: CATALOGO_TEXTOS }, linkHoras: LINK_TTL_HORAS, portais }
   })
 
-  app.put('/api/admin/edu/geral', { preHandler: adminOnly }, async (req) => {
+  app.put('/api/admin/edu/geral', { preHandler: guardTela('admin') }, async (req) => {
     const b = (req.body as any) || {}
     // A herança (o que cada portal segue) tem rota própria: não vai neste salvar.
     const geral = await salvarEduGeral({ identidade: b.identidade, aparencia: b.aparencia, login: b.login, textos: b.textos, seo: b.seo })
@@ -54,7 +55,7 @@ export async function eduGeralRoutes(app: FastifyInstance) {
   })
 
   // O que um portal segue das Gerais (Branding do portal ou aba Portais).
-  app.put('/api/admin/edu/geral/heranca/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/edu/geral/heranca/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const p = await prisma.enrollmentPortal.findUnique({ where: { id }, select: { id: true, nome: true } })
     if (!p) return reply.code(404).send({ error: 'Portal não encontrado' })
@@ -71,7 +72,7 @@ export async function eduGeralRoutes(app: FastifyInstance) {
   })
 
   // Ponto de partida: a marca que um portal já usa, no formato das Gerais.
-  app.get('/api/admin/edu/geral/importar/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.get('/api/admin/edu/geral/importar/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const p = await prisma.enrollmentPortal.findUnique({
       where: { id },
@@ -101,7 +102,7 @@ export async function eduGeralRoutes(app: FastifyInstance) {
     }
   })
 
-  app.post('/api/admin/edu/geral/upload', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/edu/geral/upload', { preHandler: guardTela('admin') }, async (req, reply) => {
     const kind = String((req.query as any)?.kind || '').toLowerCase()
     const spec = ARQUIVOS[kind]
     if (!spec) return reply.code(400).send({ error: 'kind deve ser logo, favicon, og ou painel' })
@@ -137,7 +138,7 @@ export async function eduGeralRoutes(app: FastifyInstance) {
     return { ok: true, url, kind }
   })
 
-  app.delete('/api/admin/edu/geral/upload', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/edu/geral/upload', { preHandler: guardTela('admin') }, async (req, reply) => {
     const kind = String((req.query as any)?.kind || '').toLowerCase()
     const spec = ARQUIVOS[kind]
     if (!spec) return reply.code(400).send({ error: 'kind inválido' })

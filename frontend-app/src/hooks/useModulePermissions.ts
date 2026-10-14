@@ -10,6 +10,9 @@ export interface ModuleInfo {
   name: string
   icon: string
   category: string
+  /** Telas do Educacional: só as ações que existem na tela (Visão geral = Ver). */
+  actions?: Array<'view' | 'create' | 'edit' | 'delete'>
+  parent?: string
 }
 
 export interface ModulePermission {

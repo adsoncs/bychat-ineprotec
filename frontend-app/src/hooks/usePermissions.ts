@@ -107,3 +107,18 @@ export function useModuleAccess(moduleId: string | undefined, action: PermAction
   if (!perm || !perm[ACTION_KEY[action]]) return { status: 'denied' }
   return { status: 'allowed' }
 }
+
+/**
+ * O que a pessoa pode fazer numa tela do Educacional (ou num módulo): Ver,
+ * Criar, Editar, Excluir. Os botões de cada tela se escondem por isto — mesma
+ * resposta que o backend dá (lib/eduTelas.ts), então nada aparece para depois
+ * falhar com "sem permissão".
+ */
+export function usePodeNaTela(telaId: string) {
+  return {
+    ver: useCan(telaId, 'view'),
+    criar: useCan(telaId, 'create'),
+    editar: useCan(telaId, 'edit'),
+    excluir: useCan(telaId, 'delete'),
+  }
+}

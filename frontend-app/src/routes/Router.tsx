@@ -689,7 +689,7 @@ export function Router() {
           <Route path="/payments">{() => <SettingsTabRedirect tab="payments" />}</Route>
           <Route path="/educational/selection-processes/:id">
             {(params: { id: string }) => (
-              <ModuleGate moduleId="educacional"><SelectionProcessDetail params={params} /></ModuleGate>
+              <ModuleGate moduleId="edu_processos"><SelectionProcessDetail params={params} /></ModuleGate>
             )}
           </Route>
           {/* ERP Fase 1 — cadastro/edição e movimentação em tela dedicada.

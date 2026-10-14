@@ -9,6 +9,7 @@ import crypto from 'crypto'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { avaliarCupom } from '../services/portalCupom.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 const COUPON_TYPES = ['percent', 'fixed'] as const
 type CouponType = typeof COUPON_TYPES[number]
@@ -194,7 +195,7 @@ function filtroDaLista(q: any) {
 
 export async function couponsRoutes(app: FastifyInstance) {
   // GET /api/admin/coupons — lista com situação e números
-  app.get('/api/admin/coupons', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/coupons', { preHandler: guardTela('login') }, async (req) => {
     const q = req.query as any
     const where = filtroDaLista(q)
     const limit = Math.max(1, Math.min(parseInt(q.limit) || 50, 500))
@@ -211,7 +212,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/coupons/resumo — números gerais para o topo da tela
-  app.get('/api/admin/coupons/resumo', { preHandler: authMiddleware }, async () => {
+  app.get('/api/admin/coupons/resumo', { preHandler: guardTela('login') }, async () => {
     const todos = await prisma.coupon.findMany({ where: { archivedAt: null } })
     const porSit: Record<string, number> = {}
     for (const c of todos) { const s = situacao(c); porSit[s] = (porSit[s] ?? 0) + 1 }
@@ -236,7 +237,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/coupons/export.csv
-  app.get('/api/admin/coupons/export.csv', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/coupons/export.csv', { preHandler: guardTela('login') }, async (req, reply) => {
     const rows = await prisma.coupon.findMany({ where: filtroDaLista(req.query as any), orderBy: { createdAt: 'desc' }, take: 10000 })
     const nums = await numerosDoCupom(rows.map((c) => c.id))
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
@@ -255,7 +256,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // GET /api/admin/coupons/:id — detalhe, números e resgates com o candidato
-  app.get('/api/admin/coupons/:id', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/coupons/:id', { preHandler: guardTela('login') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const c = await prisma.coupon.findUnique({
       where: { id },
@@ -311,7 +312,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/coupons — criar
-  app.post('/api/admin/coupons', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/coupons', { preHandler: guardTela('admin') }, async (req, reply) => {
     const body = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
     const code = normalizeCode(body.code)
@@ -326,7 +327,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/coupons/lote — N códigos únicos de uso único, mesma regra
-  app.post('/api/admin/coupons/lote', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/coupons/lote', { preHandler: guardTela('admin') }, async (req, reply) => {
     const body = (req.body as any) || {}
     const user = (req as any).user as JwtPayload
     const qtd = Math.min(Math.max(parseInt(body.quantidade) || 0, 1), 1000)
@@ -354,7 +355,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/coupons/:id/duplicar — cópia com código novo, zerada
-  app.post('/api/admin/coupons/:id/duplicar', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/coupons/:id/duplicar', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const user = (req as any).user as JwtPayload
     const o = await prisma.coupon.findUnique({ where: { id } })
@@ -367,12 +368,12 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // POST /api/admin/coupons/:id/arquivar | /desarquivar
-  app.post('/api/admin/coupons/:id/arquivar', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/coupons/:id/arquivar', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const c = await prisma.coupon.update({ where: { id }, data: { archivedAt: new Date(), active: false } }).catch(() => null)
     return c ? { ok: true, coupon: summarize(c) } : reply.code(404).send({ error: 'Cupom não encontrado' })
   })
-  app.post('/api/admin/coupons/:id/desarquivar', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/coupons/:id/desarquivar', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const c = await prisma.coupon.update({ where: { id }, data: { archivedAt: null } }).catch(() => null)
     return c ? { ok: true, coupon: summarize(c) } : reply.code(404).send({ error: 'Cupom não encontrado' })
@@ -380,7 +381,7 @@ export async function couponsRoutes(app: FastifyInstance) {
 
   // POST /api/admin/coupons/:id/simular — testa o cupom numa inscrição real
   // (código do candidato) sem aplicar nada: diz se vale e quanto dá.
-  app.post('/api/admin/coupons/:id/simular', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/admin/coupons/:id/simular', { preHandler: guardTela('login') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const b = (req.body as any) || {}
     const c = await prisma.coupon.findUnique({ where: { id }, select: { code: true } })
@@ -411,7 +412,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // PUT /api/admin/coupons/:id
-  app.put('/api/admin/coupons/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.put('/api/admin/coupons/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const body = (req.body as any) || {}
     const lido = lerCorpo(body, true)
@@ -439,7 +440,7 @@ export async function couponsRoutes(app: FastifyInstance) {
   })
 
   // DELETE /api/admin/coupons/:id — só nunca usado; usado, arquive
-  app.delete('/api/admin/coupons/:id', { preHandler: adminOnly }, async (req, reply) => {
+  app.delete('/api/admin/coupons/:id', { preHandler: guardTela('admin') }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     const usedBy = await prisma.couponRedemption.count({ where: { couponId: id } })
     if (usedBy > 0) {

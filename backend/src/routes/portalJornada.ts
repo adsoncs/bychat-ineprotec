@@ -18,6 +18,7 @@ import {
   dadosEfetivos, camposDaEtapa, valoresAtuais, erroDoValor, aplicarNoCadastro, ETAPAS_DADOS, type EtapaDados,
   CATALOGO, ROTULO_ETAPA, SUGESTAO, lerPadraoInstituicao, gravarPadraoInstituicao, pendenciasParaMatricular,
 } from '../services/dadosCadastro.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 /** Campos da etapa com o valor atual e quantos obrigatórios faltam. */
 async function dadosDaEtapa(registrationId: number, etapa: EtapaDados) {
@@ -110,25 +111,25 @@ const ipDe = (req: any) => (req.headers['x-forwarded-for'] as string)?.split(','
 export async function portalJornadaRoutes(app: FastifyInstance) {
   // ── Admin: dados pedidos em cada etapa (padrão da instituição) ──
   // O ajuste por portal vai no PATCH do portal, em jornadaEtapas.dados.
-  app.get('/api/admin/educacional/dados-etapas', { preHandler: authMiddleware }, async () => ({
+  app.get('/api/admin/educacional/dados-etapas', { preHandler: guardTela('login') }, async () => ({
     catalogo: CATALOGO.map(({ destino, ...d }) => d),
     etapas: ETAPAS_DADOS.map((k) => ({ chave: k, rotulo: ROTULO_ETAPA[k] })),
     padrao: await lerPadraoInstituicao(),
     sugestao: SUGESTAO,
   }))
 
-  app.put('/api/admin/educacional/dados-etapas', { preHandler: adminOnly }, async (req) => ({
+  app.put('/api/admin/educacional/dados-etapas', { preHandler: guardTela('admin') }, async (req) => ({
     ok: true, padrao: await gravarPadraoInstituicao((req.body as any)?.padrao),
   }))
 
   // O que falta para esta inscrição virar matrícula (a secretaria vê antes de efetivar).
-  app.get('/api/admin/aca/inscricoes-portal/:id/pendencias', { preHandler: authMiddleware }, async (req) => ({
+  app.get('/api/admin/aca/inscricoes-portal/:id/pendencias', { preHandler: guardTela('login') }, async (req) => ({
     faltam: await pendenciasParaMatricular(Number((req.params as any).id)),
   }))
 
   // Admin: as etapas da inscrição como o candidato as vê — na tela de inscrição
   // e no portal logado — para a secretaria saber o que falta, na mesma ordem.
-  app.get('/api/admin/enrollment-registrations/:id/etapas', { preHandler: authMiddleware }, async (req, reply) => {
+  app.get('/api/admin/enrollment-registrations/:id/etapas', { preHandler: guardTela('login') }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const [inscricao, painel] = await Promise.all([etapasDaInscricao(id, 'inscricao'), etapasDaInscricao(id, 'painel')])
     if (!inscricao) return reply.code(404).send({ error: 'Inscrição não encontrada' })
@@ -344,7 +345,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   // ── Análise acadêmica: fila da secretaria (Educacional › Análise de Documentos) ──
   // Só as inscrições que passam pela etapa (ex.: transferência), com a situação
   // da análise. `habilitada` = algum portal tem a etapa — sem isso a aba some.
-  app.get('/api/admin/analises-academicas', { preHandler: authMiddleware }, async (req) => {
+  app.get('/api/admin/analises-academicas', { preHandler: guardTela('login') }, async (req) => {
     const qy = (req.query as any) || {}
     const filtro = String(qy.situacao || 'abertas')
     const busca = String(qy.q || '').trim().toLowerCase()
@@ -434,7 +435,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
 
   // ── Análise acadêmica (ex.: transferência) ──
   // A secretaria emite o parecer; o candidato lê e decide se continua.
-  app.post('/api/admin/enrollment-registrations/:id/analise', { preHandler: adminOnly }, async (req, reply) => {
+  app.post('/api/admin/enrollment-registrations/:id/analise', { preHandler: guardTela('admin') }, async (req, reply) => {
     const user = (req as any).user as any
     const id = Number((req.params as any).id)
     const b = (req.body as any) || {}

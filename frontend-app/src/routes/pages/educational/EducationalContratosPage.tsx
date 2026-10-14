@@ -21,6 +21,8 @@ import { env } from '@/lib/env'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { BASE_CONTRATOS_PORTAL } from '../contratos/ContratoWord'
 import { ListaDeModelos, ConfigAssinaturaModal, useConfigAssinatura, NOME_PROVEDOR } from '../contratos/Modelos'
+import { Pode } from '@/components/auth/Pode'
+import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 
 interface ContratoDaInscricao {
   registrationId: number; candidateCode: string; portalId: number; portalNome: string | null
@@ -66,7 +68,7 @@ export function EducationalContratosPage() {
     <Page title="Contratos" description="Modelos de contrato do Portal de Matrículas, assinatura eletrônica e os contratos assinados nas inscrições."
       actions={<>
         {c && <Badge tone={ativo !== 'SIMULADO' && !emSandbox ? 'success' : 'warning'}>{ativo !== 'SIMULADO' ? (emSandbox ? `${nomeAtivo} · sandbox` : nomeAtivo) : 'Aceite no portal (sem assinatura eletrônica)'}</Badge>}
-        <Button variant="secondary" size="sm" onClick={() => setCfg(true)}><Settings size={14} /> Assinatura eletrônica</Button>
+        <Pode tela="edu_contratos" acao="edit"><Button variant="secondary" size="sm" onClick={() => setCfg(true)}><Settings size={14} /> Assinatura eletrônica</Button></Pode>
       </>}>
       {c && (ativo === 'SIMULADO' || emSandbox) && (
         <div class="flex gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-fg">
@@ -84,7 +86,7 @@ export function EducationalContratosPage() {
         ))}
       </div>
       {aba === 'contratos' && <ContratosDasInscricoes />}
-      {aba === 'modelos' && <ListaDeModelos base={BASE_CONTRATOS_PORTAL} erp={false} />}
+      {aba === 'modelos' && <SomenteLeitura tela="edu_contratos"><ListaDeModelos base={BASE_CONTRATOS_PORTAL} erp={false} /></SomenteLeitura>}
       {cfg && <ConfigAssinaturaModal base={BASE_CONTRATOS_PORTAL} onClose={() => setCfg(false)} />}
     </Page>
   )

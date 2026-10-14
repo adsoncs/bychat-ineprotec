@@ -24,6 +24,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { Pode } from '@/components/auth/Pode'
 
 export function EnrollmentPortalsPage() {
   const { data, isLoading } = useEnrollmentPortals()
@@ -60,9 +61,9 @@ export function EnrollmentPortalsPage() {
           <Button variant="ghost" size="sm" onClick={() => setShowHowItWorks(true)}>
             <HelpCircle size={14} /> Como funciona?
           </Button>
-          <Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
+          <Pode tela="enrollment_portals" acao="create"><Button variant="primary" size="sm" onClick={() => setCreating(true)} disabled={noUnits}>
             <Plus size={14} /> Novo portal
-          </Button>
+          </Button></Pode>
         </div>
       }
     >
@@ -87,9 +88,9 @@ export function EnrollmentPortalsPage() {
           title="Nenhum portal de matrículas"
           description="Crie um portal para gerar uma página pública e começar a receber inscrições."
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+            <Pode tela="enrollment_portals" acao="create"><Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               <Plus size={14} /> Criar primeiro portal
-            </Button>
+            </Button></Pode>
           }
         />
       )}
@@ -264,16 +265,16 @@ function PortalActionsMenu({
             <UsersIcon size={12} /> Ver inscrições ({p._count?.registrations ?? 0})
           </button>
           <div class="my-1 h-px bg-border" />
-          <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onEdit() }}>
+          <Pode tela="enrollment_portals" acao="edit"><button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onEdit() }}>
             <Pencil size={12} /> Editar portal
-          </button>
-          <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDuplicate() }}>
+          </button></Pode>
+          <Pode tela="enrollment_portals" acao="create"><button type="button" class="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDuplicate() }}>
             <Copy size={12} /> Duplicar
-          </button>
+          </button></Pode>
           <div class="my-1 h-px bg-border" />
-          <button type="button" class="w-full text-left px-3 py-1.5 text-xs text-danger hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDelete() }}>
+          <Pode tela="enrollment_portals" acao="delete"><button type="button" class="w-full text-left px-3 py-1.5 text-xs text-danger hover:bg-surface-3 inline-flex items-center gap-2" onClick={() => { setOpen(false); onDelete() }}>
             <Trash2 size={12} /> Excluir
-          </button>
+          </button></Pode>
         </div>
       )}
     </div>

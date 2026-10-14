@@ -25,6 +25,7 @@ import {
 } from '@/hooks/useCuponsEdu'
 import { useEnrollmentPortals } from '@/hooks/useEnrollmentPortals'
 import { useCourses, useOfferings, useSelectionProcesses, useEducationalLevels, useModalities } from '@/hooks/useEducational'
+import { Pode } from '@/components/auth/Pode'
 
 const brl = (n: number | null | undefined) => n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dt = (iso: string | null | undefined) => !iso ? '—' : new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -117,8 +118,8 @@ export function EducationalCuponsPage() {
       actions={
         <div class="flex flex-wrap gap-2">
           <Button variant="ghost" size="sm" onClick={() => baixarCsv(`/admin/coupons/export.csv?${qsDe({ ...f, limit: undefined, offset: undefined })}`, 'cupons.csv').catch(erro)}><Download size={13} /> CSV</Button>
-          <Button variant="secondary" size="sm" onClick={() => setLote(true)}><Layers size={13} /> Gerar lote</Button>
-          <Button variant="primary" size="sm" onClick={() => setEditando('novo')}><Plus size={13} /> Novo cupom</Button>
+          <Pode tela="edu_cupons" acao="create"><Button variant="secondary" size="sm" onClick={() => setLote(true)}><Layers size={13} /> Gerar lote</Button></Pode>
+          <Pode tela="edu_cupons" acao="create"><Button variant="primary" size="sm" onClick={() => setEditando('novo')}><Plus size={13} /> Novo cupom</Button></Pode>
         </div>
       }
     >
@@ -157,7 +158,7 @@ export function EducationalCuponsPage() {
         {lista.isLoading ? (
           <div class="p-4 space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} class="h-11 w-full" />)}</div>
         ) : !lista.data?.items.length ? (
-          <EmptyState icon={<Ticket size={22} />} title="Nenhum cupom aqui" description="Crie um cupom ou gere um lote de códigos únicos para uma campanha." action={<Button variant="primary" size="sm" onClick={() => setEditando('novo')}><Plus size={13} /> Novo cupom</Button>} />
+          <EmptyState icon={<Ticket size={22} />} title="Nenhum cupom aqui" description="Crie um cupom ou gere um lote de códigos únicos para uma campanha." action={<Pode tela="edu_cupons" acao="create"><Button variant="primary" size="sm" onClick={() => setEditando('novo')}><Plus size={13} /> Novo cupom</Button></Pode>} />
         ) : (
           <>
             <Table minWidth="70rem">
@@ -188,12 +189,12 @@ export function EducationalCuponsPage() {
                       <TD align="right">
                         <div class="flex justify-end gap-0.5">
                           <IconeAcao titulo="Detalhes e resgates" onClick={() => setDetalhe(c.id)}><Eye size={14} /></IconeAcao>
-                          <IconeAcao titulo="Editar" onClick={() => setEditando(c)}><Pencil size={14} /></IconeAcao>
-                          <IconeAcao titulo="Duplicar (nasce inativo)" onClick={() => duplicar.mutate({ id: c.id }, { onSuccess: (x) => { toast(`Criado ${x.coupon.code} (inativo)`, 'success'); setEditando(x.coupon) }, onError: erro })}><Copy size={14} /></IconeAcao>
+                          <Pode tela="edu_cupons" acao="edit"><IconeAcao titulo="Editar" onClick={() => setEditando(c)}><Pencil size={14} /></IconeAcao></Pode>
+                          <Pode tela="edu_cupons" acao="create"><IconeAcao titulo="Duplicar (nasce inativo)" onClick={() => duplicar.mutate({ id: c.id }, { onSuccess: (x) => { toast(`Criado ${x.coupon.code} (inativo)`, 'success'); setEditando(x.coupon) }, onError: erro })}><Copy size={14} /></IconeAcao></Pode>
                           {c.archivedAt
-                            ? <IconeAcao titulo="Desarquivar" onClick={() => arquivar.mutate({ id: c.id, arquivar: false }, { onSuccess: () => toast('Desarquivado (continua inativo)', 'success'), onError: erro })}><ArchiveRestore size={14} /></IconeAcao>
-                            : <IconeAcao titulo="Arquivar" onClick={() => arquivar.mutate({ id: c.id, arquivar: true }, { onSuccess: () => toast('Arquivado', 'success'), onError: erro })}><Archive size={14} /></IconeAcao>}
-                          <IconeAcao titulo={c.usageCount > 0 ? 'Já usado — arquive em vez de excluir' : 'Excluir'} perigo disabled={c.usageCount > 0} onClick={() => setExcluindo(c)}><Trash2 size={14} /></IconeAcao>
+                            ? <Pode tela="edu_cupons" acao="edit"><IconeAcao titulo="Desarquivar" onClick={() => arquivar.mutate({ id: c.id, arquivar: false }, { onSuccess: () => toast('Desarquivado (continua inativo)', 'success'), onError: erro })}><ArchiveRestore size={14} /></IconeAcao></Pode>
+                            : <Pode tela="edu_cupons" acao="edit"><IconeAcao titulo="Arquivar" onClick={() => arquivar.mutate({ id: c.id, arquivar: true }, { onSuccess: () => toast('Arquivado', 'success'), onError: erro })}><Archive size={14} /></IconeAcao></Pode>}
+                          <Pode tela="edu_cupons" acao="delete"><IconeAcao titulo={c.usageCount > 0 ? 'Já usado — arquive em vez de excluir' : 'Excluir'} perigo disabled={c.usageCount > 0} onClick={() => setExcluindo(c)}><Trash2 size={14} /></IconeAcao></Pode>
                         </div>
                       </TD>
                     </TR>
@@ -478,7 +479,7 @@ function DetalheCupomModal({ id, cat, onClose, onEditar }: { id: number; cat: Ca
   const res = simular.data?.resultado
   return (
     <Modal open onOpenChange={(o) => { if (!o) onClose() }} title={d ? `Cupom ${d.coupon.code}` : 'Carregando…'} size="xl"
-      footer={d ? <div class="flex justify-end w-full"><Button size="sm" variant="secondary" onClick={() => onEditar(d.coupon)}><Pencil size={12} /> Editar</Button></div> : undefined}>
+      footer={d ? <div class="flex justify-end w-full"><Pode tela="edu_cupons" acao="edit"><Button size="sm" variant="secondary" onClick={() => onEditar(d.coupon)}><Pencil size={12} /> Editar</Button></Pode></div> : undefined}>
       {!d ? <div class="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} class="h-9 w-full" />)}</div> : (
         <div class="space-y-4">
           <div class="flex flex-wrap items-center gap-2">

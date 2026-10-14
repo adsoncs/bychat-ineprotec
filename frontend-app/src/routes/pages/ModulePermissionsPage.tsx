@@ -49,7 +49,17 @@ const CATEGORY_LABELS: Record<string, string> = {
   integracoes: 'Integrações',
   config: 'Configurações',
   admin: 'Administração',
+  edu_telas: 'Educacional — permissão por tela',
 }
+
+const ACAO_DO_CAMPO = { canView: 'view', canCreate: 'create', canEdit: 'edit', canDelete: 'delete' } as const
+
+/** A tela tem esta ação? Módulos comuns têm as quatro. */
+function temAcao(m: ModuleInfo, f: 'canView' | 'canCreate' | 'canEdit' | 'canDelete'): boolean {
+  return !m.actions || m.actions.includes(ACAO_DO_CAMPO[f])
+}
+
+const NAO_SE_APLICA = <span class="text-fg-muted text-xs" title="Esta tela não tem esta ação">—</span>
 
 // Alcance do papel: só os módulos cujo escopo o sistema lê (backend:
 // ESCOPO_EDITAVEL). Nos demais o escopo gravado não muda nada, e mostrá-lo
@@ -404,11 +414,32 @@ function CategoryGroup({
 }) {
   return (
     <>
-      <tr>
-        <td colSpan={5} class="bg-surface-3 px-4 py-2.5 text-xs font-semibold text-fg uppercase tracking-wider">
-          {CATEGORY_LABELS[category] ?? category}
-        </td>
-      </tr>
+      {category === 'edu_telas' ? (
+        // Muitas telas: marcar/desmarcar a coluna inteira de uma vez.
+        <tr>
+          <td class="bg-surface-3 px-4 py-2.5 text-xs font-semibold text-fg uppercase tracking-wider">
+            {CATEGORY_LABELS[category] ?? category}
+          </td>
+          {PERM_FIELDS.map((f) => {
+            const alvo = modules.filter((m) => temAcao(m, f))
+            const todos = alvo.length > 0 && alvo.every((m) => getPerm(m.id)[f])
+            return (
+              <td key={f} class="bg-surface-3 text-center px-2 py-2.5">
+                <label class="inline-flex items-center gap-1 text-2xs text-fg-muted cursor-pointer" title={`${todos ? 'Desmarcar' : 'Marcar'} "${FIELD_LABELS[f]}" em todas as telas`}>
+                  <input type="checkbox" checked={todos} onChange={() => alvo.forEach((m) => setField(m.id, f, !todos))} class="cursor-pointer" />
+                  todas
+                </label>
+              </td>
+            )
+          })}
+        </tr>
+      ) : (
+        <tr>
+          <td colSpan={5} class="bg-surface-3 px-4 py-2.5 text-xs font-semibold text-fg uppercase tracking-wider">
+            {CATEGORY_LABELS[category] ?? category}
+          </td>
+        </tr>
+      )}
       {modules.map((m) => {
         const perm = getPerm(m.id)
         return (
@@ -417,7 +448,7 @@ function CategoryGroup({
               <span class="mr-1.5">{m.icon}</span>
               {m.name}
             </td>
-            {PERM_FIELDS.map((f) => (
+            {PERM_FIELDS.map((f) => !temAcao(m, f) ? <td key={f} class="text-center px-2 py-2.5">{NAO_SE_APLICA}</td> : (
               <td key={f} class="text-center px-2 py-2.5">
                 <input
                   type="checkbox"
@@ -617,7 +648,7 @@ function OverrideCategoryGroup({
               <span class="mr-1.5">{m.icon}</span>
               {m.name}
             </td>
-            {PERM_FIELDS.map((f) => (
+            {PERM_FIELDS.map((f) => !temAcao(m, f) ? <td key={f} class="text-center px-2 py-2">{NAO_SE_APLICA}</td> : (
               <td key={f} class="text-center px-2 py-2">
                 <TriStateButton
                   value={o[f]}

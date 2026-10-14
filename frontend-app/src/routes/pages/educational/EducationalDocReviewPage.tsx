@@ -31,6 +31,7 @@ import { SearchInput } from '@/components/ui/SearchInput'
 import { formatRelative, formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { Pode } from '@/components/auth/Pode'
 
 type Grupo = 'enem' | 'portador' | 'transferencia'
 type Mode = 'registration' | 'document' | Grupo
@@ -285,8 +286,8 @@ function AnaliseModal({ item, onClose }: { item: AnaliseItem; onClose: () => voi
                     )}
                     {simples && d.id && d.status === 'pending' && (
                       <>
-                        <Button size="sm" onClick={() => aprovar(d.id!)} disabled={review.isPending}><Check size={12} /> Aprovar</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setOpenDocId(d.id)} disabled={review.isPending}><XIcon size={12} /> Recusar</Button>
+                        <Pode tela="edu_revisao_documentos" acao="edit"><Button size="sm" onClick={() => aprovar(d.id!)} disabled={review.isPending}><Check size={12} /> Aprovar</Button></Pode>
+                        <Pode tela="edu_revisao_documentos" acao="edit"><Button size="sm" variant="ghost" onClick={() => setOpenDocId(d.id)} disabled={review.isPending}><XIcon size={12} /> Recusar</Button></Pode>
                       </>
                     )}
                   </li>
@@ -446,9 +447,9 @@ function DocReviewDetailModal({ registrationId, onClose }: { registrationId: num
         size="xl"
         footer={
           <div class="flex items-center justify-between w-full gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setBulkOpen(true)} disabled={!data || bulkApprove.isPending}>
+            <Pode tela="edu_revisao_documentos" acao="edit"><Button variant="secondary" size="sm" onClick={() => setBulkOpen(true)} disabled={!data || bulkApprove.isPending}>
               <Sparkles size={12} /> Aprovar pendentes por IA…
-            </Button>
+            </Button></Pode>
             <Button variant="primary" size="sm" onClick={onClose}>Fechar</Button>
           </div>
         }
@@ -601,9 +602,9 @@ function BulkApproveModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={loading}>Cancelar</Button>
-          <Button variant="primary" onClick={() => onApprove(min)} disabled={loading}>
+          <Pode tela="edu_revisao_documentos" acao="edit"><Button variant="primary" onClick={() => onApprove(min)} disabled={loading}>
             <Sparkles size={12} /> {loading ? 'Aprovando…' : `Aprovar com confiança ≥${confidence}%`}
-          </Button>
+          </Button></Pode>
         </>
       }
     >
@@ -843,7 +844,9 @@ function StatusBadge({ status }: { status: 'pending' | 'approved' | 'rejected' }
 // Modal de detalhe de UM documento — preview + IA + ações
 
 function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => void }) {
-  const { data, isLoading } = useDocItems({ status: 'all', limit: 200 })
+  // Busca SÓ este documento: procurar entre os 200 mais recentes deixava o
+  // 201º eternamente em "Carregando…".
+  const { data, isLoading, error: erroCarga } = useDocItems({ id: docId, status: 'all', limit: 1 })
   const review = useReviewDocItem()
   const reanalyze = useReanalyzeDoc()
   const [reviewNote, setReviewNote] = useState('')
@@ -856,6 +859,16 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
     setReviewNote(doc?.reviewNote ?? '')
   }, [doc?.id, doc?.reviewNote])
 
+  // Sem permissão ou documento apagado: diz o porquê em vez de girar para sempre.
+  if (!isLoading && !doc) {
+    return (
+      <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Documento indisponível" size="md">
+        <p class="text-sm text-fg-muted">
+          {erroCarga ? (erroCarga as Error).message : 'Este documento não foi encontrado — pode ter sido substituído pelo candidato.'}
+        </p>
+      </Modal>
+    )
+  }
   if (isLoading || !doc) {
     return (
       <Modal open onOpenChange={(o) => { if (!o) onClose() }} title="Carregando documento…" size="xl">
@@ -913,12 +926,12 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
       footer={
         <div class="flex items-center justify-between w-full gap-2 flex-wrap">
           {doc.type?.aiAnalysisTemplate ? (
-            <Button variant="secondary" size="sm" onClick={handleReanalyze} disabled={reanalyze.isPending}>
+            <Pode tela="edu_revisao_documentos" acao="edit"><Button variant="secondary" size="sm" onClick={handleReanalyze} disabled={reanalyze.isPending}>
               <RefreshCw size={12} /> {reanalyze.isPending ? 'Enfileirando…' : 'Reanalisar IA'}
-            </Button>
+            </Button></Pode>
           ) : <div />}
           <div class="flex items-center gap-2">
-            <Button
+            <Pode tela="edu_revisao_documentos" acao="edit"><Button
               variant="secondary"
               size="sm"
               onClick={() => handleReview('rejected')}
@@ -926,8 +939,8 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
               class="border-danger text-danger hover:bg-danger/10"
             >
               ✗ Rejeitar
-            </Button>
-            <Button
+            </Button></Pode>
+            <Pode tela="edu_revisao_documentos" acao="edit"><Button
               variant="primary"
               size="sm"
               onClick={() => handleReview('approved')}
@@ -935,7 +948,7 @@ function DocItemDetailModal({ docId, onClose }: { docId: number; onClose: () => 
               class="bg-success hover:bg-success/90"
             >
               ✓ Aprovar
-            </Button>
+            </Button></Pode>
           </div>
         </div>
       }

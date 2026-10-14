@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { lerRegrasDoPlano, type RegrasDoPlano } from '../services/planoFinanceiro.js'
+import { guardTela } from '../lib/eduTelas.js'
 
 /** Regras de um plano novo: só a entrada no Pix, parcelas cobradas pela plataforma. */
 const REGRAS_PADRAO = {
@@ -77,7 +78,7 @@ function lerCorpo(b: any): { erro: string } | {
 }
 
 export async function planosPagamentoRoutes(app: FastifyInstance) {
-  app.get('/api/admin/educacional/offerings/:id/planos-pagamento', { preHandler: [authMiddleware] }, async (req, reply) => {
+  app.get('/api/admin/educacional/offerings/:id/planos-pagamento', { preHandler: [guardTela('login')] }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const oferta = await prisma.courseOffering.findUnique({ where: { id }, select: { id: true } })
     if (!oferta) return reply.code(404).send({ error: 'Oferta não encontrada' })
@@ -85,7 +86,7 @@ export async function planosPagamentoRoutes(app: FastifyInstance) {
     return { planos: planos.map(paraTela) }
   })
 
-  app.post('/api/admin/educacional/offerings/:id/planos-pagamento', { preHandler: [adminOnly] }, async (req, reply) => {
+  app.post('/api/admin/educacional/offerings/:id/planos-pagamento', { preHandler: [guardTela('admin')] }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const oferta = await prisma.courseOffering.findUnique({ where: { id }, select: { id: true } })
     if (!oferta) return reply.code(404).send({ error: 'Oferta não encontrada' })
@@ -95,7 +96,7 @@ export async function planosPagamentoRoutes(app: FastifyInstance) {
     return { plano: paraTela(p) }
   })
 
-  app.put('/api/admin/educacional/planos-pagamento/:id', { preHandler: [adminOnly] }, async (req, reply) => {
+  app.put('/api/admin/educacional/planos-pagamento/:id', { preHandler: [guardTela('admin')] }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const atual = await prisma.acaPlanoPagamento.findUnique({ where: { id }, select: { id: true } })
     if (!atual) return reply.code(404).send({ error: 'Plano não encontrado' })
@@ -107,7 +108,7 @@ export async function planosPagamentoRoutes(app: FastifyInstance) {
     return { plano: paraTela(p) }
   })
 
-  app.delete('/api/admin/educacional/planos-pagamento/:id', { preHandler: [adminOnly] }, async (req, reply) => {
+  app.delete('/api/admin/educacional/planos-pagamento/:id', { preHandler: [guardTela('admin')] }, async (req, reply) => {
     const id = Number((req.params as any).id)
     const usado = await prisma.acaContrato.count({ where: { planoPagamentoId: id } })
     // Plano com contrato não some: desativa (deixa de aparecer no portal) e
