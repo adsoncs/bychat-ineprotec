@@ -73,13 +73,33 @@ export async function buildLeadAccessWhere(userId: number, role: AccessRole): Pr
   if (scope === 'all') return {}
   if (scope === 'own') return { assignedUserId: userId }
   // 'team': leads dos setores do user OU atribuídos a si (cobre líder que atende).
-  const teamIds = await getUserTeamIds(userId)
-  return {
-    OR: [
-      { assignedUserId: userId },
-      ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []),
-    ],
-  }
+  return { OR: [{ assignedUserId: userId }, ...await ramosDoSetor(userId)] }
+}
+
+/**
+ * O que o alcance 'team' alcança nos setores do usuário — ramos de `OR` Prisma,
+ * sem o "atribuído a si" (o chamador junta).
+ *
+ * Setor comum: todas as conversas dele. Setor com `conversasPrivadas`: só a
+ * fila sem dono — a conversa de um colega não aparece, nem em lista, busca,
+ * contador ou tempo real; chega a quem a recebe por transferência, porque aí
+ * ele vira o dono. O líder do setor continua vendo tudo, como num setor comum:
+ * é quem distribui e acompanha.
+ *
+ * Tudo que decide visibilidade por setor passa por aqui ou pela checagem
+ * equivalente em `canUserAccessLead` — uma regra só para lista e conversa.
+ */
+export async function ramosDoSetor(userId: number): Promise<any[]> {
+  const memberships = await prisma.teamMember.findMany({
+    where: { userId, team: { active: true } },
+    select: { teamId: true, isLeader: true, team: { select: { conversasPrivadas: true } } },
+  })
+  const abertos = memberships.filter((m) => !m.team.conversasPrivadas || m.isLeader).map((m) => m.teamId)
+  const privados = memberships.filter((m) => m.team.conversasPrivadas && !m.isLeader).map((m) => m.teamId)
+  return [
+    ...(abertos.length ? [{ teamId: { in: abertos } }] : []),
+    ...(privados.length ? [{ teamId: { in: privados }, assignedUserId: null }] : []),
+  ]
 }
 
 /**
@@ -106,8 +126,13 @@ export async function canUserAccessLead(
   if (lead.assignedUserId === userId) return true
   if (scope === 'own') return false
 
-  // scope === 'team'
+  // scope === 'team' — mesma régua de `ramosDoSetor`.
   if (lead.teamId == null) return false
-  const teamIds = await getUserTeamIds(userId)
-  return teamIds.includes(lead.teamId)
+  const membro = await prisma.teamMember.findUnique({
+    where: { teamId_userId: { teamId: lead.teamId, userId } },
+    select: { isLeader: true, team: { select: { active: true, conversasPrivadas: true } } },
+  })
+  if (!membro || !membro.team.active) return false
+  if (membro.team.conversasPrivadas && !membro.isLeader) return lead.assignedUserId == null
+  return true
 }

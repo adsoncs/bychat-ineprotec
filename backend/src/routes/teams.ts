@@ -26,7 +26,7 @@ async function requireTeamLeaderOrAdmin(req: FastifyRequest, reply: FastifyReply
 const TEAM_SELECT = {
   id: true, name: true, slug: true, description: true,
   color: true, icon: true, active: true, position: true,
-  routingMode: true, workingHoursEnabled: true,
+  routingMode: true, workingHoursEnabled: true, conversasPrivadas: true,
   createdAt: true, updatedAt: true,
 }
 
@@ -112,6 +112,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         position: body.position ?? ((maxPos._max.position ?? -1) + 1),
         active: body.active ?? true,
         routingMode: allowedModes.includes(body.routingMode) ? body.routingMode : 'manual',
+        conversasPrivadas: body.conversasPrivadas === true,
       },
       select: TEAM_SELECT,
     })
@@ -147,6 +148,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       }
       data.routingMode = body.routingMode
     }
+    if (body.conversasPrivadas !== undefined) data.conversasPrivadas = body.conversasPrivadas === true
 
     try {
       const team = await prisma.team.update({

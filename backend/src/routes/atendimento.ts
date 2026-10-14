@@ -7,7 +7,7 @@ import { authMiddleware, adminStrict } from '../lib/auth.js'
 import { type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { snapshotLead, moveToTrash } from '../services/trash.js'
-import { canUserAccessLead, getUserTeamIds, isAdminRole, getLeadScope } from '../lib/teamAccess.js'
+import { canUserAccessLead, getUserTeamIds, isAdminRole, getLeadScope, ramosDoSetor } from '../lib/teamAccess.js'
 import {
   mapaDeAcesso, filtroDeConversas, permissoesNaConversa, permite, permiteEmAlgumCanal,
   type Acao,
@@ -433,19 +433,13 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         return { unread }
       }
 
-      const myTeamIds = await getUserTeamIds(user.userId)
       const effectiveScope = await getLeadScope(user.userId, user.role)
 
       let scopeWhere: any = {}
       if (effectiveScope === 'own') {
         scopeWhere = { assignedUserId: user.userId }
       } else if (effectiveScope !== 'all') {
-        scopeWhere = {
-          OR: [
-            { assignedUserId: user.userId },
-            ...(myTeamIds.length > 0 ? [{ teamId: { in: myTeamIds } }] : []),
-          ],
-        }
+        scopeWhere = { OR: [{ assignedUserId: user.userId }, ...await ramosDoSetor(user.userId)] }
       }
 
       // O aviso do menu não pode contar o que a tela esconde: seria um número
@@ -539,13 +533,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         if (effectiveScope === 'all') {
           scopeWhere = {}
         } else {
-          // 'team': próprios + setores do user.
-          scopeWhere = {
-            OR: [
-              { assignedUserId: user.userId },
-              ...(myTeamIds.length > 0 ? [{ teamId: { in: myTeamIds } }] : []),
-            ],
-          }
+          // 'team': próprios + setores do user (setor com conversas privadas
+          // entra só com a fila sem dono — ver teamAccess → ramosDoSetor).
+          scopeWhere = { OR: [{ assignedUserId: user.userId }, ...await ramosDoSetor(user.userId)] }
         }
       }
 

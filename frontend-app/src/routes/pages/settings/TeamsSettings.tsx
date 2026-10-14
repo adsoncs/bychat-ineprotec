@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown, Clock } from '@/components/ui/icon-set'
+import { Users, Plus, Pencil, Trash2, UserPlus, X as XIcon, Star, Crown, Clock, Lock } from '@/components/ui/icon-set'
 import { TeamWorkingHoursModal } from '@/components/routing/TeamWorkingHoursModal'
 import {
   useTeams,
@@ -131,6 +131,9 @@ function TeamsSortable({
                 {t.workingHoursEnabled && (
                   <Badge tone="warning"><Clock size={10} class="inline -mt-0.5 mr-0.5" />Horário restrito</Badge>
                 )}
+                {t.conversasPrivadas && (
+                  <Badge tone="neutral"><Lock size={10} class="inline -mt-0.5 mr-0.5" />Conversas privadas</Badge>
+                )}
               </div>
               {t.description && <div class="text-xs text-fg-muted truncate">{t.description}</div>}
               <div class="text-2xs text-fg-muted mt-0.5 flex items-center gap-2 flex-wrap">
@@ -195,6 +198,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
   const [routingMode, setRoutingMode] = useState<'manual' | 'round_robin' | 'least_loaded' | 'random'>(
     (team?.routingMode as any) ?? 'manual',
   )
+  const [conversasPrivadas, setConversasPrivadas] = useState(team?.conversasPrivadas ?? false)
   const create = useCreateTeam()
   const update = useUpdateTeam()
   const loading = create.isPending || update.isPending
@@ -208,6 +212,7 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
       color,
       active,
       routingMode,
+      conversasPrivadas,
     }
     if (isEdit) {
       const slugPatch = slug.trim() !== '' ? { slug: slug.trim() } : {}
@@ -314,6 +319,18 @@ function TeamFormModal({ team, onClose }: { team: Team | null; onClose: () => vo
             {ROUTING_MODE_OPTIONS.find((m) => m.value === routingMode)?.hint}
             {' Operadores fora de "Disponível" são pulados. O limite simultâneo é configurado por operador em '}
             <em>Usuários</em>{'.'}
+          </p>
+        </div>
+
+        <div>
+          <label class="flex items-center gap-2 text-sm text-fg cursor-pointer">
+            <input type="checkbox" checked={conversasPrivadas} onChange={(e) => setConversasPrivadas((e.target as HTMLInputElement).checked)} />
+            Conversas privadas entre os membros
+          </label>
+          <p class="text-2xs text-fg-muted mt-1 ml-6">
+            {conversasPrivadas
+              ? 'Cada membro vê só as conversas atribuídas a ele e a fila sem dono. A conversa de um colega só passa para outro por transferência. Líderes da equipe e administradores continuam vendo todas.'
+              : 'Todos os membros veem as conversas de toda a equipe.'}
           </p>
         </div>
 

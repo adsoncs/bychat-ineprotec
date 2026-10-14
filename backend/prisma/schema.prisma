@@ -603,6 +603,10 @@ model Team {
   // Quando true, o setor só recebe leads dentro do horário configurado em TeamWorkingHour.
   // Fora do horário, picker retorna null e caller pode redirecionar para Setting routing.out_of_hours_team_id.
   workingHoursEnabled Boolean  @default(false)
+  // Conversas privadas: quem integra o setor só vê as conversas atribuídas a si
+  // e a fila sem dono — a de um colega só chega por transferência. Líder do
+  // setor continua vendo tudo. Desligado = todos do setor veem tudo do setor.
+  conversasPrivadas   Boolean  @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

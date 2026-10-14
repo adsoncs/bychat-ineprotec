@@ -19,6 +19,7 @@ export interface Team {
   position: number
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random'
   workingHoursEnabled?: boolean
+  conversasPrivadas?: boolean
   createdAt: string
   updatedAt: string
   memberCount?: number
@@ -34,6 +35,7 @@ export interface TeamInput {
   color?: string | null | undefined
   active?: boolean | undefined
   routingMode?: 'manual' | 'round_robin' | 'least_loaded' | 'random' | undefined
+  conversasPrivadas?: boolean | undefined
 }
 
 export interface EligibleUser {
