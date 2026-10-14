@@ -159,7 +159,7 @@ export function logEvent(params: LogEventParams): void {
       leadId,
       type,
       category,
-      title,
+      title: String(title ?? '').slice(0, 191), // coluna VarChar(191): título longo (ex.: opção do chatbot) derrubava o registro
       channel: channel || null,
       source: source || null,
       userId: userId || null,
