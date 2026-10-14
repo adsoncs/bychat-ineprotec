@@ -3885,6 +3885,10 @@ model SelectionProcess {
   essayCutoff          Float? // nota mínima default (override por oferta)
   // [{key, label, weight, description}] — ex: coesão 20%, gramática 15%, etc.
   essayAiCriteria      Json?
+  // Integridade da redação (lib/integridadeRedacao.ts): detecção de texto
+  // gerado por IA com limite de tolerância, similaridade e comportamento de
+  // escrita, e a ação ao ultrapassar. Null = padrões do código.
+  essayIntegrity       Json?
 
   // Cutoff default da prova presencial (override por oferta).
   presencialCutoff Float?
@@ -4987,12 +4991,23 @@ model EssaySubmission {
   pasteAttempts     Int @default(0)
   visibilityChanges Int @default(0)
 
+  // Integridade (lib/integridadeRedacao.ts). Nunca vai para o candidato.
+  aiAuthorshipPct     Float? // 0–100: probabilidade estimada de autoria por IA
+  integrityStatus     String?   @db.VarChar(20) // ok | atencao | suspeita | indisponivel
+  integrity           Json? // detalhamento: sinais, trechos, métricas, similaridade, comportamento, política aplicada
+  typingTelemetry     Json? // capturado no editor: teclas, inserções grandes, texto colado, tempo ativo/fora, linha do tempo
+  integrityDecision   String?   @db.VarChar(20) // confirmada | descartada (decisão humana)
+  integrityNote       String?   @db.Text
+  integrityReviewedBy Int?
+  integrityReviewedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([registrationId])
   @@index([status])
   @@index([submittedAt])
+  @@index([integrityStatus])
   @@map("bychat_edu_essay_submissions")
 }
 

@@ -40,6 +40,7 @@ import { paymentStatusLabel, paymentStatusTone, paymentMethodLabel, paymentProvi
 import { SeiInscricaoCard } from './integrations/SeiIntegration'
 import { SomenteLeitura } from '@/components/auth/SomenteLeitura'
 import { useCan } from '@/hooks/usePermissions'
+import { SeloIntegridade } from '@/components/educational/IntegridadePainel'
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
   pending: 'Pendente',
@@ -734,6 +735,7 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
           <Pencil size={12} /> Redação online
         </div>
         <Badge tone={sit.tone}>{sit.rotulo}{e?.score != null && <span class="font-mono"> · nota {Math.round(e.score)}</span>}</Badge>
+        <SeloIntegridade pct={e?.aiPct ?? null} status={e?.integridade ?? null} decisao={e?.decisaoIntegridade ?? null} />
       </div>
       <div class="mt-3 flex items-center justify-between gap-3 flex-wrap">
         <p class="text-sm text-fg-muted m-0">

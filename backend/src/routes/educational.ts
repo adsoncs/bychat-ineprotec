@@ -6,6 +6,7 @@
 import { FastifyInstance } from 'fastify'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { guardTela } from '../lib/eduTelas.js'
+import { lerPolitica } from '../lib/integridadeRedacao.js'
 import {
   isEducationalEnabled,
   setEducationalEnabled,
@@ -1444,6 +1445,7 @@ export async function educationalRoutes(app: FastifyInstance) {
         essayAiAutoApprove:   body.essayAiAutoApprove === true,
         essayCutoff:          toFloat(body.essayCutoff),
         essayAiCriteria:      Array.isArray(body.essayAiCriteria) ? body.essayAiCriteria : null,
+        ...(body.essayIntegrity !== undefined ? { essayIntegrity: body.essayIntegrity === null ? Prisma.DbNull : (lerPolitica(body.essayIntegrity) as any) } : {}),
         presencialCutoff:     toFloat(body.presencialCutoff),
       },
     })
@@ -1487,6 +1489,9 @@ export async function educationalRoutes(app: FastifyInstance) {
     if (body.essayAiAutoApprove !== undefined) data.essayAiAutoApprove = !!body.essayAiAutoApprove
     if (body.essayCutoff !== undefined)        data.essayCutoff = toFloat(body.essayCutoff)
     if (body.essayAiCriteria !== undefined)   data.essayAiCriteria = Array.isArray(body.essayAiCriteria) ? body.essayAiCriteria : null
+    // Política de integridade (lib/integridadeRedacao.ts) — normalizada aqui
+    // para nunca gravar limite fora de 0–100 ou ação desconhecida.
+    if (body.essayIntegrity !== undefined) data.essayIntegrity = body.essayIntegrity === null ? Prisma.DbNull : (lerPolitica(body.essayIntegrity) as any)
     if (body.presencialCutoff !== undefined)  data.presencialCutoff = toFloat(body.presencialCutoff)
 
     // Resolve slug quando nome/codigo/slug mudaram (ou slug veio vazio pra regeneração)

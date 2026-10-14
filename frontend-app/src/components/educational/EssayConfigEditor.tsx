@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
+import { IntegridadeConfig, lerPoliticaIntegridade } from './IntegridadeConfig'
 
 function readCriteria(raw: unknown): EssayAiCriterion[] {
   if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_ESSAY_AI_CRITERIA
@@ -39,6 +40,7 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
   const [aiEnabled, setAiEnabled] = useState(process.essayAiEnabled)
   const [autoApprove, setAutoApprove] = useState(process.essayAiAutoApprove)
   const [criteria, setCriteria] = useState<EssayAiCriterion[]>(readCriteria(process.essayAiCriteria))
+  const [integridade, setIntegridade] = useState(lerPoliticaIntegridade(process.essayIntegrity))
 
   useEffect(() => {
     setDuration(process.essayDurationMinutes?.toString() ?? '')
@@ -50,6 +52,7 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
     setAiEnabled(process.essayAiEnabled)
     setAutoApprove(process.essayAiAutoApprove)
     setCriteria(readCriteria(process.essayAiCriteria))
+    setIntegridade(lerPoliticaIntegridade(process.essayIntegrity))
   }, [process])
 
   const sum = criteria.reduce((a, c) => a + (Number(c.weight) || 0), 0)
@@ -90,6 +93,7 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
       essayAiEnabled: aiEnabled,
       essayAiAutoApprove: autoApprove,
       essayAiCriteria: criteria,
+      essayIntegrity: integridade,
     }, {
       onSuccess: () => toast('Configuração de redação salva', 'success'),
       onError: (e: unknown) => toast((e as Error).message, 'danger'),
@@ -229,6 +233,8 @@ export function EssayConfigEditor({ process }: { process: SelectionProcess }) {
           Soma dos pesos: <strong>{sum}</strong> / 100
         </div>
       </Card>
+
+      <IntegridadeConfig valor={integridade} onChange={setIntegridade} />
 
       <div class="flex justify-end">
         <Button variant="primary" size="sm" onClick={handleSave} disabled={update.isPending}>

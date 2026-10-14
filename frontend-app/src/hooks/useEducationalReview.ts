@@ -465,6 +465,10 @@ export interface EssaySubmission {
   // Anti-fraude
   pasteAttempts: number
   visibilityChanges: number
+  // Integridade (laudo interno — lib/integridadeRedacao.ts)
+  aiAuthorshipPct: number | null
+  integrityStatus: StatusIntegridade | null
+  integrityDecision: 'confirmada' | 'descartada' | null
   registration: {
     id: number
     candidateCode: string
@@ -477,12 +481,37 @@ export interface EssaySubmission {
   } | null
 }
 
-export interface EssayKpi { pending: number; approved: number; rejected: number }
+export interface EssayKpi { pending: number; approved: number; rejected: number; suspeitas?: number }
 
 export interface EssayFilters {
   status?: EssayStatus | undefined
   portalId?: number | undefined
   q?: string | undefined
+  /** suspeita | atencao | alertas (as duas) | ok */
+  integridade?: string | undefined
+}
+
+export type StatusIntegridade = 'ok' | 'atencao' | 'suspeita' | 'indisponivel'
+type AcaoInt = 'sinalizar' | 'revisao' | 'reprovar'
+/** Espelho de ResultadoIntegridade (backend). */
+export interface ResultadoIntegridade {
+  analisadoEm: string
+  percentualIa: number | null
+  composicao: { detector: number | null; artefatos: number; minimoPorArtefato: number | null }
+  confianca: number | null
+  deteccao: { confianca: number; sinais: Array<{ tipo: string; descricao: string }>; trechos: Array<{ texto: string; motivo: string }>; resumo: string } | null
+  metricas: { frases: number; mediaPalavrasPorFrase: number; variacaoFrases: number; diversidadeLexical: number; paragrafos: number; artefatos: Array<{ tipo: string; descricao: string }> }
+  similaridade: { maiorComCandidato: number; candidato: string | null; comTextosMotivadores: number; comparadas: number } | null
+  comportamento: {
+    disponivel: boolean; minutosAtivos: number; caracteresPorMinuto: number; textoInseridoPct: number; colagens: number
+    saidasAba: number; minutosFora: number; apagamentosPorCem: number; maiorSaltoCaracteres: number; sinais: string[]
+  } | null
+  status: StatusIntegridade
+  motivos: Array<{ fonte: 'ia' | 'similaridade' | 'comportamento'; nivel: 'atencao' | 'suspeita'; texto: string; acao: AcaoInt }>
+  acao: AcaoInt | null
+  politica: { limiteIa: number; margemAtencao: number; acaoIa: AcaoInt; detectarIa: boolean; limiteTextoInserido: number; maxSaidasAba: number }
+  erro?: string
+  custoUsd: number
 }
 
 export function useEssaySubmissions(filters: EssayFilters = {}) {
@@ -501,6 +530,36 @@ export interface EssayDetail extends EssaySubmission {
   aiAnalysis: EssayAiAnalysis | null
   aiCostUsd: number | null
   humanNote: string | null
+  integrity: ResultadoIntegridade | null
+  typingTelemetry: { linhaDoTempo?: Array<{ s: number; n: number }> } | null
+  integrityNote: string | null
+  integrityReviewedBy: number | null
+  integrityReviewedAt: string | null
+}
+
+/** Avaliador confirma ou descarta a suspeita (null = desfaz). */
+export function useDecisaoIntegridade() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, decisao, nota }: { id: number; decisao: 'confirmada' | 'descartada' | null; nota: string }) =>
+      api.post<{ ok: true }>(`/admin/essay-submissions/${id}/integridade/decisao`, { decisao, nota }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['edu-essays'] })
+      void qc.invalidateQueries({ queryKey: ['edu-essay'] })
+    },
+  })
+}
+
+/** Roda de novo a análise de integridade (não mexe na nota). */
+export function useReanalisarIntegridade() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<{ ok: true }>(`/admin/essay-submissions/${id}/integridade/reanalisar`, {}),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['edu-essays'] })
+      void qc.invalidateQueries({ queryKey: ['edu-essay'] })
+    },
+  })
 }
 
 export function useEssaySubmission(id: number | null) {

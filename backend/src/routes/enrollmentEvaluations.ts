@@ -15,6 +15,7 @@ import { prisma } from '../lib/prisma.js'
 import { aplicarNotaDeAvaliacao } from '../services/portalClassificacao.js'
 import { eventBus } from '../lib/eventBus.js'
 import { validateEnemImport } from '../services/enemClassification.js'
+import { lerPolitica, somarTelemetria } from '../lib/integridadeRedacao.js'
 import {
   computeEvaluationStatus,
   tryAutoAdvanceOnEvaluationComplete,
@@ -23,6 +24,14 @@ import {
 
 // Re-exports preservam callers que importavam destas rotas (compat).
 export { computeEvaluationStatus, tryAutoAdvanceOnEvaluationComplete }
+
+/** O que o candidato pode ver da própria tentativa: integridade e telemetria
+ *  são laudo interno da coordenação (lib/integridadeRedacao.ts). */
+function paraCandidato<T extends Record<string, any>>(sub: T): Omit<T, 'integrity' | 'integrityStatus' | 'aiAuthorshipPct' | 'typingTelemetry' | 'integrityDecision' | 'integrityNote' | 'integrityReviewedBy' | 'integrityReviewedAt'> {
+  const { integrity: _a, integrityStatus: _b, aiAuthorshipPct: _c, typingTelemetry: _d, integrityDecision: _e, integrityNote: _f, integrityReviewedBy: _g, integrityReviewedAt: _h, ...resto } = sub as any
+  return resto
+}
+
 export type { EvaluationStatus }
 
 // ───────────────────────────────────────────────────────────
@@ -525,6 +534,10 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         ],
       }
     }
+    // Integridade: suspeita | atencao | alertas (as duas) | ok
+    const integ = String(q.integridade || '')
+    if (integ === 'alertas') where.integrityStatus = { in: ['suspeita', 'atencao'] }
+    else if (['suspeita', 'atencao', 'ok', 'indisponivel'].includes(integ)) where.integrityStatus = integ
 
     const items = await prisma.essaySubmission.findMany({
       where,
@@ -537,6 +550,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         humanScore: true, reviewedBy: true, reviewedAt: true,
         finalScore: true, passed: true, cutoffApplied: true,
         pasteAttempts: true, visibilityChanges: true,
+        aiAuthorshipPct: true, integrityStatus: true, integrityDecision: true,
         registration: {
           select: {
             id: true, candidateCode: true,
@@ -553,9 +567,11 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       },
     })
 
-    const kpiRows = await prisma.essaySubmission.findMany({ select: { status: true } })
-    const kpi = { pending: 0, approved: 0, rejected: 0 }
+    const kpiRows = await prisma.essaySubmission.findMany({ select: { status: true, integrityStatus: true, integrityDecision: true } })
+    const kpi = { pending: 0, approved: 0, rejected: 0, suspeitas: 0 }
     for (const k of kpiRows) {
+      // Suspeita que ninguém avaliou ainda — é a fila de integridade.
+      if (k.integrityStatus === 'suspeita' && !k.integrityDecision) kpi.suspeitas++
       if (['submitted', 'ai_reviewing', 'needs_human'].includes(k.status)) kpi.pending++
       else if (k.status === 'approved') kpi.approved++
       else if (k.status === 'rejected') kpi.rejected++
@@ -577,7 +593,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
             portal: { select: { id: true, nome: true } },
             processRegistration: {
               include: {
-                selectionProcess: { select: { id: true, nome: true, essayPrompt: true, essayCutoff: true, essayAiCriteria: true } },
+                selectionProcess: { select: { id: true, nome: true, essayPrompt: true, essayCutoff: true, essayAiCriteria: true, essayIntegrity: true } },
                 offering: { select: { nome: true, essayCutoff: true, course: { select: { nome: true } } } },
               },
             },
@@ -587,6 +603,42 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     })
     if (!item) return reply.code(404).send({ error: 'Redação não encontrada' })
     return { item }
+  })
+
+  // POST /api/admin/essay-submissions/:id/integridade/decisao
+  // O avaliador confirma ou descarta a suspeita de integridade. Fica gravado
+  // quem decidiu e por quê — ferramenta de detecção dá indício, a decisão é
+  // humana e precisa ser auditável. Body: { decisao: 'confirmada'|'descartada', nota }
+  app.post('/api/admin/essay-submissions/:id/integridade/decisao', async (req, reply) => {
+    const user = await requireAdminWrite(req, reply); if (!user) return
+    const id = parseInt((req.params as any).id)
+    const body = (req.body as any) || {}
+    const decisao = body.decisao === 'confirmada' || body.decisao === 'descartada' ? body.decisao : body.decisao === null ? null : undefined
+    if (decisao === undefined) return reply.code(400).send({ error: 'decisao deve ser "confirmada", "descartada" ou null' })
+    const nota = String(body.nota ?? '').trim()
+    if (decisao && nota.length < 10) return reply.code(400).send({ error: 'Explique a decisão (mínimo de 10 caracteres) — ela fica no histórico da redação.' })
+    const sub = await prisma.essaySubmission.findUnique({ where: { id }, select: { id: true } })
+    if (!sub) return reply.code(404).send({ error: 'Redação não encontrada' })
+    const item = await prisma.essaySubmission.update({
+      where: { id },
+      data: { integrityDecision: decisao, integrityNote: decisao ? nota : null, integrityReviewedBy: decisao ? user.userId : null, integrityReviewedAt: decisao ? new Date() : null },
+      select: { id: true, integrityDecision: true, integrityNote: true, integrityReviewedBy: true, integrityReviewedAt: true },
+    })
+    return { ok: true, item }
+  })
+
+  // POST /api/admin/essay-submissions/:id/integridade/reanalisar
+  // Roda de novo a análise de integridade (ex.: depois de mudar o limite ou
+  // quando o detector estava indisponível). Não mexe na nota nem no status.
+  app.post('/api/admin/essay-submissions/:id/integridade/reanalisar', async (req, reply) => {
+    const user = await requireAdminWrite(req, reply); if (!user) return
+    const id = parseInt((req.params as any).id)
+    const sub = await prisma.essaySubmission.findUnique({ where: { id }, select: { id: true, essayText: true, status: true } })
+    if (!sub) return reply.code(404).send({ error: 'Redação não encontrada' })
+    if (sub.status === 'draft' || !sub.essayText) return reply.code(400).send({ error: 'Redação ainda não enviada.' })
+    const { analisarIntegridade } = await import('../services/aiEssayReview.js')
+    const integridade = await analisarIntegridade(id)
+    return { ok: true, integridade }
   })
 
   // POST /api/admin/essay-submissions/:id/review
@@ -739,7 +791,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
               select: {
                 id: true, nome: true,
                 essayPrompt: true, essayDurationMinutes: true, essayMaxAttempts: true,
-                essayMinWords: true, essayMaxWords: true, essayPasteBlocked: true,
+                essayMinWords: true, essayMaxWords: true, essayPasteBlocked: true, essayIntegrity: true,
                 essayCutoff: true, essayAiAutoApprove: true,
                 entryMode: { select: { code: true, evaluationType: true } },
               },
@@ -802,6 +854,9 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         minWords: sp.essayMinWords,
         maxWords: sp.essayMaxWords,
         pasteBlocked: sp.essayPasteBlocked,
+        // Proteções do editor vindas da política de integridade.
+        dragBlocked: lerPolitica(sp.essayIntegrity).bloquearArrastar,
+        spellcheckOff: lerPolitica(sp.essayIntegrity).bloquearCorretorNavegador,
         cutoff: reg.processRegistration?.offering?.essayCutoff ?? sp.essayCutoff,
         aiAutoApprove: sp.essayAiAutoApprove === true,
       },
@@ -870,7 +925,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       where: { registrationId: reg.id }, orderBy: { createdAt: 'desc' },
     })
     const draft = subs[0]?.status === 'draft' && (!subs[0].expiresAt || new Date(subs[0].expiresAt) > new Date()) ? subs[0] : null
-    if (draft) return { ok: true, submission: draft, resumed: true }
+    if (draft) return { ok: true, submission: paraCandidato(draft), resumed: true }
 
     // Se há submissão ainda em revisão (IA processando ou aguardando humano),
     // não deixa iniciar nova tentativa — só após veredito (rejected/approved/expired).
@@ -899,7 +954,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         wordCount: 0,
       },
     })
-    return { ok: true, submission: created, resumed: false }
+    return { ok: true, submission: paraCandidato(created), resumed: false }
   })
 
   // PUT /api/candidate/essay/:id/draft — auto-save do texto (não submete).
@@ -927,8 +982,11 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       data: {
         essayText: text,
         wordCount: wc,
-        pasteAttempts: typeof body.pasteAttempts === 'number' ? body.pasteAttempts : sub.pasteAttempts,
-        visibilityChanges: typeof body.visibilityChanges === 'number' ? body.visibilityChanges : sub.visibilityChanges,
+        // Nunca diminui: recarregar a página zera o contador do navegador, e
+        // gravar o valor recebido apagava o histórico de colagens.
+        pasteAttempts: typeof body.pasteAttempts === 'number' ? Math.max(sub.pasteAttempts, body.pasteAttempts) : sub.pasteAttempts,
+        visibilityChanges: typeof body.visibilityChanges === 'number' ? Math.max(sub.visibilityChanges, body.visibilityChanges) : sub.visibilityChanges,
+        ...(body.telemetria ? { typingTelemetry: somarTelemetria(sub.typingTelemetry, body.telemetria) as any } : {}),
       },
     })
     return { ok: true, wordCount: wc, expiresAt: updated.expiresAt }
@@ -1003,8 +1061,11 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         wordCount: wc,
         status: aiEnabled ? 'ai_reviewing' : 'needs_human',
         submittedAt: now,
-        pasteAttempts: typeof body.pasteAttempts === 'number' ? body.pasteAttempts : sub.pasteAttempts,
-        visibilityChanges: typeof body.visibilityChanges === 'number' ? body.visibilityChanges : sub.visibilityChanges,
+        // Nunca diminui: recarregar a página zera o contador do navegador, e
+        // gravar o valor recebido apagava o histórico de colagens.
+        pasteAttempts: typeof body.pasteAttempts === 'number' ? Math.max(sub.pasteAttempts, body.pasteAttempts) : sub.pasteAttempts,
+        visibilityChanges: typeof body.visibilityChanges === 'number' ? Math.max(sub.visibilityChanges, body.visibilityChanges) : sub.visibilityChanges,
+        ...(body.telemetria ? { typingTelemetry: somarTelemetria(sub.typingTelemetry, body.telemetria) as any } : {}),
       },
     })
 

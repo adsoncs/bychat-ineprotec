@@ -33,6 +33,7 @@ import { formatRelative, formatDateTime } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/cn'
 import { Pode } from '@/components/auth/Pode'
+import { IntegridadePainel, SeloIntegridade, TextoComDestaques } from '@/components/educational/IntegridadePainel'
 
 type Tab = 'overview' | 'enem' | 'presencial' | 'essay'
 
@@ -959,7 +960,8 @@ function EssayTab() {
   const [status, setStatus] = useState<EssayStatus>('pending')
   const [search, setSearch] = useState('')
   const [reviewing, setReviewing] = useState<EssaySubmission | null>(null)
-  const { data, isLoading } = useEssaySubmissions({ status, q: search || undefined })
+  const [integridade, setIntegridade] = useState('')
+  const { data, isLoading } = useEssaySubmissions({ status, q: search || undefined, integridade: integridade || undefined })
   const items = data?.items ?? []
   const kpi = data?.kpi
   const totalCount = (kpi?.pending ?? 0) + (kpi?.approved ?? 0) + (kpi?.rejected ?? 0)
@@ -974,6 +976,7 @@ function EssayTab() {
           { value: kpi?.pending ?? 0, label: 'A revisar', tone: 'warning' },
           { value: kpi?.approved ?? 0, label: 'Aprovadas', tone: 'success' },
           { value: kpi?.rejected ?? 0, label: 'Rejeitadas', tone: 'danger' },
+          { value: kpi?.suspeitas ?? 0, label: 'Suspeitas sem decisão', tone: 'danger' },
         ]}
       />
 
@@ -984,11 +987,21 @@ function EssayTab() {
           <StatusPill active={status === 'rejected'} tone="danger"  count={kpi?.rejected} onClick={() => setStatus('rejected')}>✕ Rejeitadas</StatusPill>
           <StatusPill active={status === 'all'}      tone="neutral" count={totalCount}    onClick={() => setStatus('all')}>📋 Todas</StatusPill>
         </div>
-        <Input
-          value={search}
-          onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
-          placeholder="Buscar candidato"
-        />
+        <div class="grid grid-cols-1 sm:grid-cols-[1fr_16rem] gap-2">
+          <Input
+            value={search}
+            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+            placeholder="Buscar candidato"
+          />
+          <Select value={integridade} onChange={(e) => setIntegridade((e.target as HTMLSelectElement).value)} aria-label="Integridade">
+            <option value="">🛡 Integridade: todas</option>
+            <option value="alertas">Com alerta (suspeita ou atenção)</option>
+            <option value="suspeita">Só suspeitas</option>
+            <option value="atencao">Só atenção</option>
+            <option value="ok">Sem indícios</option>
+            <option value="indisponivel">Análise indisponível</option>
+          </Select>
+        </div>
       </Card>
 
       <Card class="p-0 overflow-hidden">
@@ -1046,6 +1059,7 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
             {it.passed === true && <Badge tone="success">✓ Aprovado</Badge>}
             {it.passed === false && <Badge tone="danger">✕ Reprovado</Badge>}
             {it.attemptNumber > 1 && <Badge tone="info">tentativa {it.attemptNumber}</Badge>}
+            <SeloIntegridade pct={it.aiAuthorshipPct} status={it.integrityStatus} decisao={it.integrityDecision} />
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
             {(off?.course?.nome ?? off?.nome) && <span>📚 {off?.course?.nome ?? off?.nome}</span>}
@@ -1187,7 +1201,9 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
                 {item.visibilityChanges > 0 && <span class="text-warning ml-2">⚠ {item.visibilityChanges} mudança(s) de aba</span>}
               </div>
               <pre class="whitespace-pre-wrap text-sm text-fg bg-surface border border-border rounded-md p-4 max-h-80 overflow-y-auto font-serif leading-relaxed">
-                {item.essayText ?? <span class="italic text-fg-muted">(redação vazia)</span>}
+                {item.essayText
+                  ? <TextoComDestaques texto={item.essayText} trechos={item.integrity?.deteccao?.trechos ?? []} />
+                  : <span class="italic text-fg-muted">(redação vazia)</span>}
               </pre>
             </div>
 
@@ -1206,23 +1222,33 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
                   {item.aiCostUsd !== null && (
                     <span class="text-2xs text-fg-muted">${item.aiCostUsd.toFixed(4)}</span>
                   )}
+                  <SeloIntegridade pct={item.aiAuthorshipPct} status={item.integrityStatus} decisao={item.integrityDecision} />
                 </div>
+                {typeof item.aiAnalysis?.summary === 'string' && item.aiAnalysis.summary && (
+                  <div class="text-xs text-fg">{item.aiAnalysis.summary as string}</div>
+                )}
+                {Array.isArray(item.aiAnalysis?.redFlags) && (item.aiAnalysis.redFlags as string[]).length > 0 && (
+                  <div class="flex flex-wrap gap-1.5">
+                    {(item.aiAnalysis.redFlags as string[]).map((f, i) => <span key={i} class="text-2xs rounded border border-warning/40 bg-warning/10 text-warning px-1.5 py-0.5">⚠ {f}</span>)}
+                  </div>
+                )}
 
                 {Array.isArray(item.aiAnalysis?.criteria) && (
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                     {item.aiAnalysis.criteria.map((c, i) => (
                       <div key={i} class="rounded-md border border-border bg-surface p-2">
                         <div class="flex items-center justify-between gap-2 mb-1">
-                          <span class="text-xs font-medium text-fg">{c.label || c.key}</span>
+                          <span class="text-xs font-medium text-fg">{c.label || rotuloCriterio(c.key, (sp as { essayAiCriteria?: unknown } | null | undefined)?.essayAiCriteria)}</span>
                           <span class="text-xs font-semibold tabular-nums text-fg">{c.score.toFixed(1)}</span>
                         </div>
                         {c.comment && <div class="text-2xs text-fg-muted">{c.comment}</div>}
+                        {typeof (c as any).suggestion === 'string' && (c as any).suggestion && <div class="text-2xs text-accent mt-0.5">→ {(c as any).suggestion}</div>}
                       </div>
                     ))}
                   </div>
                 )}
 
-                {item.aiAnalysis?.overall && (
+                {typeof item.aiAnalysis?.overall === 'string' && item.aiAnalysis.overall && (
                   <div class="text-xs text-fg whitespace-pre-wrap">{item.aiAnalysis.overall}</div>
                 )}
 
@@ -1236,6 +1262,9 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
                 )}
               </div>
             ) : null}
+
+            {/* Integridade: detecção de IA, similaridade e comportamento — sai junto com a nota. */}
+            <IntegridadePainel item={item} />
 
             {/* Decisão humana — formulário */}
             <div class="rounded-md border border-border bg-surface p-3 space-y-2">
@@ -1310,6 +1339,12 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
       )}
     </>
   )
+}
+
+/** A IA devolve só a chave do critério; o nome está na configuração do processo. */
+function rotuloCriterio(key: string, cfg: unknown): string {
+  const lista = Array.isArray(cfg) ? cfg as Array<{ key?: string; label?: string }> : []
+  return lista.find((c) => c.key === key)?.label ?? ({ argumentacao: 'Argumentação', coesao: 'Coesão e coerência', gramatica: 'Gramática e ortografia', tema: 'Aderência ao tema', proposta: 'Conclusão / proposta de intervenção' } as Record<string, string>)[key] ?? key
 }
 
 function Row({ label, value }: { label: string; value: string }) {

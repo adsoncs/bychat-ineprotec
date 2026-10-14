@@ -11,6 +11,9 @@ import { tryAutoAdvanceOnEvaluationComplete } from './enrollmentEvaluationGatewa
 // Modelo resolvido em runtime via lib/aiKeys (Setting > env > default)
 const MAX_TOKENS = 2000
 
+/** O que o candidato lê quando a reprovação vem da integridade — sem o laudo. */
+const MSG_REPROVA_INTEGRIDADE = 'A redação não atendeu às regras de integridade da prova. Fale com a coordenação do processo seletivo.'
+
 const DEFAULT_CRITERIA = [
   { key: 'argumentacao', label: 'Argumentação',                      weight: 25 },
   { key: 'coesao',       label: 'Coesão e coerência',                weight: 20 },
@@ -109,6 +112,75 @@ function estimateCost(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1_000_000) * 3 + (outputTokens / 1_000_000) * 15
 }
 
+/**
+ * Integridade da redação (lib/integridadeRedacao.ts): detecção de IA,
+ * similaridade e comportamento, com a política do processo. Nunca lança:
+ * falha do detector vira status "indisponivel" — a nota não pode esperar
+ * por ela nem cair junto.
+ */
+export async function analisarIntegridade(submissionId: number): Promise<import('../lib/integridadeRedacao.js').ResultadoIntegridade | null> {
+  const I = await import('../lib/integridadeRedacao.js')
+  const sub = await prisma.essaySubmission.findUnique({
+    where: { id: submissionId },
+    select: {
+      id: true, essayText: true, prompt: true, registrationId: true, pasteAttempts: true, visibilityChanges: true, typingTelemetry: true,
+      registration: { select: { processRegistration: { select: { selectionProcessId: true, selectionProcess: { select: { essayIntegrity: true } } } } } },
+    },
+  })
+  if (!sub || !sub.essayText) return null
+  const pol = I.lerPolitica(sub.registration?.processRegistration?.selectionProcess?.essayIntegrity)
+  const spId = sub.registration?.processRegistration?.selectionProcessId ?? null
+  const texto = sub.essayText
+
+  const metricas = I.metricasDoTexto(texto)
+
+  let similaridade: import('../lib/integridadeRedacao.js').Similaridade | null = null
+  if (pol.verificarSimilaridade && spId) {
+    const outras = await prisma.essaySubmission.findMany({
+      where: {
+        registrationId: { not: sub.registrationId },
+        status: { notIn: ['draft', 'expired'] },
+        registration: { processRegistration: { is: { selectionProcessId: spId } } },
+      },
+      select: { essayText: true, registration: { select: { candidateCode: true } } },
+      orderBy: { submittedAt: 'desc' },
+      take: 500,
+    })
+    const tema = sub.prompt ? await prisma.essayTopic.findFirst({ where: { selectionProcessId: spId, prompt: sub.prompt }, select: { supportTexts: true } }) : null
+    similaridade = I.similaridade(
+      texto,
+      outras.filter((o) => o.essayText).map((o) => ({ codigo: o.registration?.candidateCode ?? '?', texto: o.essayText! })),
+      tema?.supportTexts ?? '',
+    )
+  }
+
+  const comportamento = pol.analisarComportamento || pol.maxSaidasAba >= 0
+    ? I.avaliarComportamento(sub.typingTelemetry as any, texto.length, { colagens: sub.pasteAttempts, saidas: sub.visibilityChanges }, pol)
+    : null
+
+  let deteccao: import('../lib/integridadeRedacao.js').DeteccaoIa | null = null
+  let erro: string | undefined
+  let custoUsd = 0
+  if (pol.detectarIa && texto.trim().split(/\s+/).length >= 60) {
+    try {
+      const d = await I.detectarIa(texto, sub.prompt ?? '')
+      custoUsd = d.custoUsd
+      deteccao = d
+    } catch (e: any) {
+      erro = String(e?.message || e).slice(0, 300)
+    }
+  } else if (pol.detectarIa) {
+    erro = 'Texto curto demais para estimar autoria (mínimo de 60 palavras).'
+  }
+
+  const r = I.combinar({ politica: pol, deteccao, metricas, similaridade, comportamento: pol.analisarComportamento ? comportamento : null, ...(erro ? { erro } : {}), custoUsd })
+  await prisma.essaySubmission.update({
+    where: { id: sub.id },
+    data: { aiAuthorshipPct: r.percentualIa, integrityStatus: r.status, integrity: r as any },
+  })
+  return r
+}
+
 export async function correctEssayById(submissionId: number): Promise<void> {
   const sub = await prisma.essaySubmission.findUnique({
     where: { id: submissionId },
@@ -154,10 +226,14 @@ export async function correctEssayById(submissionId: number): Promise<void> {
   const systemPrompt = buildSystemPrompt(criteriaList)
   const userPrompt = buildUserPrompt(sub.prompt || '', sub.essayText, sub.wordCount)
 
+  // Integridade em paralelo com a nota — sai junto, e não derruba a correção.
+  const integridadeP = analisarIntegridade(sub.id).catch(() => null)
+
   let raw: { text: string; inputTokens: number; outputTokens: number }
   try {
     raw = await callClaude(systemPrompt, userPrompt)
   } catch (err: any) {
+    await integridadeP
     await prisma.essaySubmission.update({
       where: { id: sub.id },
       data: {
@@ -170,6 +246,7 @@ export async function correctEssayById(submissionId: number): Promise<void> {
   }
 
   const parsed = tryParseJson(raw.text)
+  const integridade = await integridadeP
   if (!parsed || typeof parsed !== 'object') {
     await prisma.essaySubmission.update({
       where: { id: sub.id },
@@ -196,12 +273,23 @@ export async function correctEssayById(submissionId: number): Promise<void> {
   let passed: boolean | null = null
   let finalScore: number | null = null
   let cutoffApplied: number | null = null
-  if (canAutoDecide) {
+  // Política de integridade: suspeita com ação "revisão" tira a decisão da IA
+  // (vai para um humano mesmo com aprovação automática); "reprovar" reprova
+  // — a nota fica registrada, o motivo é a integridade.
+  const acaoIntegridade = integridade?.acao ?? null
+  const reprovaPorIntegridade = acaoIntegridade === 'reprovar'
+  if (reprovaPorIntegridade) {
+    passed = false
+    nextStatus = 'rejected'
+    finalScore = aiScore
+    cutoffApplied = cutoff
+  } else if (canAutoDecide && acaoIntegridade !== 'revisao') {
     passed = aiScore >= cutoff
     nextStatus = passed ? 'approved' : 'rejected'
     finalScore = aiScore
     cutoffApplied = cutoff
   }
+  const decidiu = reprovaPorIntegridade || (canAutoDecide && acaoIntegridade !== 'revisao')
 
   await prisma.essaySubmission.update({
     where: { id: sub.id },
@@ -212,14 +300,15 @@ export async function correctEssayById(submissionId: number): Promise<void> {
       aiAnalysis: parsed,
       aiProcessedAt: new Date(),
       aiCostUsd: estimateCost(raw.inputTokens, raw.outputTokens),
-      ...(canAutoDecide ? { passed, finalScore, cutoffApplied } : {}),
+      ...(decidiu ? { passed, finalScore, cutoffApplied } : {}),
+      ...(reprovaPorIntegridade ? { humanNote: MSG_REPROVA_INTEGRIDADE } : {}),
     },
   })
 
   // Quando o auto-veredito da IA decide aprovado/rejeitado, dispara o mesmo
   // evento de domínio que a revisão manual emite — garante que o candidato
   // receba a notificação (workflow wf_enrollment_essay_approved/rejected).
-  if (canAutoDecide && sub.registration?.lead) {
+  if (decidiu && sub.registration?.lead) {
     const lead = sub.registration.lead
     const appUrl = process.env.APP_URL || 'http://localhost:3005'
     const courseName = sub.registration.processRegistration?.offering?.course?.nome
@@ -238,8 +327,10 @@ export async function correctEssayById(submissionId: number): Promise<void> {
         candidateUrl: `${appUrl}/candidato/${sub.registration.candidateCode}`,
         finalScore,
         passed,
-        humanNote: parsed?.summary || '',
-        decidedBy: 'ai',
+        // Reprovação por integridade não expõe o laudo: o candidato recebe o
+        // motivo genérico; o detalhe fica com a coordenação.
+        humanNote: reprovaPorIntegridade ? MSG_REPROVA_INTEGRIDADE : (parsed?.summary || ''),
+        decidedBy: reprovaPorIntegridade ? 'integridade' : 'ai',
       },
       timestamp: new Date(),
     })

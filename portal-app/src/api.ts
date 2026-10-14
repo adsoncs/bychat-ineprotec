@@ -779,7 +779,7 @@ export interface TentativaRedacao {
 export interface EstadoRedacao {
   eligible: boolean
   reason?: string
-  config?: { durationMinutes: number | null; maxAttempts: number | null; minWords: number | null; maxWords: number | null; pasteBlocked: boolean | null; topicCount: number }
+  config?: { durationMinutes: number | null; maxAttempts: number | null; minWords: number | null; maxWords: number | null; pasteBlocked: boolean | null; dragBlocked?: boolean; spellcheckOff?: boolean; topicCount: number }
   submissions?: TentativaRedacao[]
   attemptsLeft?: number
   canStart?: boolean
@@ -794,7 +794,13 @@ const json = (token: string, method: string, body?: unknown): RequestInit => ({
 })
 export const estadoDaRedacao = (token: string) => pedir<EstadoRedacao>('/api/candidate/essay', comToken(token))
 export const iniciarRedacao = (token: string) => pedir<{ ok: boolean; submission: TentativaRedacao }>('/api/candidate/essay/start', json(token, 'POST', {}))
-export const salvarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number) =>
-  pedir<{ ok: boolean; wordCount: number }>(`/api/candidate/essay/${id}/draft`, json(token, 'PUT', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas }))
-export const enviarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number) =>
-  pedir<{ ok: boolean }>(`/api/candidate/essay/${id}/submit`, json(token, 'POST', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas }))
+/** Como o texto foi escrito, desde o último envio (o servidor soma). */
+export interface TelemetriaRedacao {
+  teclas: number; apagamentos: number; insercoesGrandes: number; caracteresInseridos: number
+  colagens: number; caracteresColados: number; arrastes: number; msAtivo: number; msFora: number; saidas: number
+  linhaDoTempo: Array<{ s: number; n: number }>
+}
+export const salvarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number, telemetria?: TelemetriaRedacao) =>
+  pedir<{ ok: boolean; wordCount: number }>(`/api/candidate/essay/${id}/draft`, json(token, 'PUT', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas, ...(telemetria ? { telemetria } : {}) }))
+export const enviarRedacao = (token: string, id: number, texto: string, colagens: number, saidas: number, telemetria?: TelemetriaRedacao) =>
+  pedir<{ ok: boolean }>(`/api/candidate/essay/${id}/submit`, json(token, 'POST', { essayText: texto, pasteAttempts: colagens, visibilityChanges: saidas, ...(telemetria ? { telemetria } : {}) }))

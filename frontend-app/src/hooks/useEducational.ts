@@ -736,6 +736,8 @@ export interface SelectionProcess {
   essayAiAutoApprove: boolean
   essayCutoff: number | null
   essayAiCriteria: unknown
+  /** Política de integridade (detecção de IA etc.) — ver PoliticaIntegridade. */
+  essayIntegrity: Partial<PoliticaIntegridade> | null
   presencialCutoff: number | null
 
   documentRequirements?: DocumentRequirement[]
@@ -773,7 +775,32 @@ export interface SelectionProcessInput {
   essayAiAutoApprove?: boolean | undefined
   essayCutoff?: number | null | undefined
   essayAiCriteria?: { key: string; label: string; weight: number }[] | null | undefined
+  essayIntegrity?: PoliticaIntegridade | null | undefined
   presencialCutoff?: number | null | undefined
+}
+
+export type AcaoIntegridade = 'sinalizar' | 'revisao' | 'reprovar'
+/** Espelho de backend/src/lib/integridadeRedacao.ts → PoliticaIntegridade. */
+export interface PoliticaIntegridade {
+  detectarIa: boolean
+  limiteIa: number
+  margemAtencao: number
+  acaoIa: AcaoIntegridade
+  verificarSimilaridade: boolean
+  limiteSimilaridade: number
+  acaoSimilaridade: AcaoIntegridade
+  analisarComportamento: boolean
+  limiteTextoInserido: number
+  maxSaidasAba: number
+  acaoComportamento: AcaoIntegridade
+  bloquearCorretorNavegador: boolean
+  bloquearArrastar: boolean
+}
+export const POLITICA_INTEGRIDADE_PADRAO: PoliticaIntegridade = {
+  detectarIa: true, limiteIa: 70, margemAtencao: 20, acaoIa: 'revisao',
+  verificarSimilaridade: true, limiteSimilaridade: 40, acaoSimilaridade: 'revisao',
+  analisarComportamento: true, limiteTextoInserido: 30, maxSaidasAba: 5, acaoComportamento: 'sinalizar',
+  bloquearCorretorNavegador: false, bloquearArrastar: true,
 }
 
 export interface EssayAiCriterion { key: string; label: string; weight: number }

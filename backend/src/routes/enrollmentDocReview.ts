@@ -427,7 +427,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
         essaySubmissions: {
           orderBy: { attemptNumber: 'desc' },
           take: 1,
-          select: { id: true, status: true, submittedAt: true, aiScore: true, humanScore: true, finalScore: true },
+          select: { id: true, status: true, submittedAt: true, aiScore: true, humanScore: true, finalScore: true, aiAuthorshipPct: true, integrityStatus: true, integrityDecision: true },
         },
         paymentStatus: true, paymentMethod: true, paymentAmount: true, paymentPaidAt: true,
       },
@@ -515,6 +515,8 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
         status: essayStatus, score: essayScore, required: temRedacao,
         // Para o card da redação no admin: abrir a correção e dizer em que pé está.
         submissionId: last?.id ?? null, situacao: last?.status ?? null, enviadaEm: last?.submittedAt ?? null,
+        // Integridade (detecção de IA etc.) — rota do painel, não do candidato.
+        aiPct: last?.aiAuthorshipPct ?? null, integridade: last?.integrityStatus ?? null, decisaoIntegridade: last?.integrityDecision ?? null,
       },
       slots: slots.map(s => ({ ...s, latestDoc: s.latestDoc ? enrichDoc(s.latestDoc) : null })),
       extras: extras.map(enrichDoc),

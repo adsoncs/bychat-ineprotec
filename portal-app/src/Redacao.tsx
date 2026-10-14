@@ -2,9 +2,19 @@
 // dentro da inscrição e do portal logado. Tema sorteado ao iniciar, cronômetro,
 // salvamento automático, bloqueio de colar quando o processo pede.
 import { useEffect, useRef, useState } from 'preact/hooks'
-import { estadoDaRedacao, iniciarRedacao, salvarRedacao, enviarRedacao, type EstadoRedacao, type TentativaRedacao } from './api'
+import { estadoDaRedacao, iniciarRedacao, salvarRedacao, enviarRedacao, type EstadoRedacao, type TentativaRedacao, type TelemetriaRedacao } from './api'
 
 const palavras = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0)
+
+// Como o texto nasce: o servidor recebe só o que mudou desde o último envio e
+// soma — recarregar a página não zera nada. Usado pela coordenação na análise
+// de integridade da prova; nada disso aparece para o candidato.
+const telemetriaVazia = (): TelemetriaRedacao => ({
+  teclas: 0, apagamentos: 0, insercoesGrandes: 0, caracteresInseridos: 0, colagens: 0,
+  caracteresColados: 0, arrastes: 0, msAtivo: 0, msFora: 0, saidas: 0, linhaDoTempo: [],
+})
+/** Inserção de uma vez acima disto (sem colar) conta como "texto inserido". */
+const INSERCAO_GRANDE = 25
 
 export function Redacao(props: { token: string; aoMudar: () => void }) {
   const [estado, setEstado] = useState<EstadoRedacao | null>(null)
@@ -19,6 +29,30 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
   const saidas = useRef(0)
   const textoRef = useRef('')
   textoRef.current = texto
+  const tel = useRef<TelemetriaRedacao>(telemetriaVazia())
+  const ultimaTecla = useRef(0)
+  const escondidaDesde = useRef<number | null>(null)
+
+  /** Entrega o que foi medido e começa a contar de novo (só depois do OK). */
+  function tirarTelemetria(): TelemetriaRedacao {
+    if (escondidaDesde.current != null) { tel.current.msFora += Date.now() - escondidaDesde.current; escondidaDesde.current = Date.now() }
+    const inicio = rascunho?.startedAt ? new Date(rascunho.startedAt).getTime() : Date.now()
+    tel.current.linhaDoTempo.push({ s: Math.round((Date.now() - inicio) / 1000), n: textoRef.current.length })
+    const enviado = tel.current
+    tel.current = telemetriaVazia()
+    return enviado
+  }
+  /** Envio falhou: devolve o que não chegou ao servidor. */
+  function devolverTelemetria(t: TelemetriaRedacao) {
+    const a = tel.current
+    tel.current = {
+      teclas: a.teclas + t.teclas, apagamentos: a.apagamentos + t.apagamentos, insercoesGrandes: a.insercoesGrandes + t.insercoesGrandes,
+      caracteresInseridos: a.caracteresInseridos + t.caracteresInseridos, colagens: a.colagens + t.colagens,
+      caracteresColados: a.caracteresColados + t.caracteresColados, arrastes: a.arrastes + t.arrastes,
+      msAtivo: a.msAtivo + t.msAtivo, msFora: a.msFora + t.msFora, saidas: a.saidas + t.saidas,
+      linhaDoTempo: [...t.linhaDoTempo, ...a.linhaDoTempo],
+    }
+  }
 
   async function carregar() {
     try {
@@ -39,9 +73,15 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
     if (!rascunho) return
     const t = setInterval(() => setAgora(Date.now()), 1000)
     const s = setInterval(() => {
-      salvarRedacao(props.token, rascunho.id, textoRef.current, colagens.current, saidas.current).then(() => setSalvoEm(new Date())).catch(() => {})
+      const t = tirarTelemetria()
+      salvarRedacao(props.token, rascunho.id, textoRef.current, colagens.current, saidas.current, t)
+        .then(() => setSalvoEm(new Date()))
+        .catch(() => devolverTelemetria(t))
     }, 20_000)
-    const vis = () => { if (document.hidden) saidas.current++ }
+    const vis = () => {
+      if (document.hidden) { saidas.current++; tel.current.saidas++; escondidaDesde.current = Date.now() }
+      else if (escondidaDesde.current != null) { tel.current.msFora += Date.now() - escondidaDesde.current; escondidaDesde.current = null }
+    }
     document.addEventListener('visibilitychange', vis)
     return () => { clearInterval(t); clearInterval(s); document.removeEventListener('visibilitychange', vis) }
   }, [rascunho?.id])
@@ -74,7 +114,8 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
     if (!rascunho) return
     setOcupado(true); setErro(null)
     try {
-      await enviarRedacao(props.token, rascunho.id, texto, colagens.current, saidas.current)
+      const t = tirarTelemetria()
+      try { await enviarRedacao(props.token, rascunho.id, texto, colagens.current, saidas.current, t) } catch (e) { devolverTelemetria(t); throw e }
       setRascunho(null)
       await carregar()
       props.aoMudar()
@@ -84,12 +125,14 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
   if (!rascunho) {
     return (
       <div class="redacao">
-        {final?.status === 'rejected' && <div class="aviso erro">Sua redação anterior não atingiu a nota mínima.{final.humanNote ? ` ${final.humanNote}` : ''}</div>}
+        {final?.status === 'rejected' && <div class="aviso erro">{final.humanNote ? `Sua redação anterior não foi aprovada. ${final.humanNote}` : 'Sua redação anterior não atingiu a nota mínima.'}</div>}
         <ul class="regras-redacao">
           {cfg.durationMinutes ? <li>Tempo: <b>{cfg.durationMinutes} minutos</b> a partir do início</li> : null}
           {cfg.minWords || cfg.maxWords ? <li>Tamanho: {cfg.minWords ? `mínimo ${cfg.minWords}` : ''}{cfg.minWords && cfg.maxWords ? ' e ' : ''}{cfg.maxWords ? `máximo ${cfg.maxWords}` : ''} palavras</li> : null}
           <li>Tentativas restantes: <b>{estado.attemptsLeft ?? 0}</b></li>
           {cfg.pasteBlocked && <li>Não é possível colar texto — escreva direto no campo.</li>}
+          {cfg.dragBlocked && !cfg.pasteBlocked && <li>Não é possível arrastar texto para o campo.</li>}
+          <li>A forma de escrita é registrada para garantir a integridade da prova.</li>
           <li>O tema aparece quando você começar. O texto é salvo sozinho enquanto escreve.</li>
         </ul>
         {erro && <div class="aviso erro">{erro}</div>}
@@ -114,8 +157,36 @@ export function Redacao(props: { token: string; aoMudar: () => void }) {
         <span class="sub">{salvoEm ? `Salvo às ${salvoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
       </div>
       <textarea class="texto-redacao" rows={16} value={texto} disabled={restante === 0}
-        onInput={(e) => setTexto((e.target as HTMLTextAreaElement).value)}
-        onPaste={(e) => { colagens.current++; if (cfg.pasteBlocked) { e.preventDefault(); setErro('Colar texto não é permitido nesta redação.') } }}
+        spellcheck={!cfg.spellcheckOff}
+        autoComplete="off" autoCorrect={cfg.spellcheckOff ? 'off' : 'on'} autoCapitalize="sentences"
+        onKeyDown={(e) => {
+          const agoraMs = Date.now()
+          if (ultimaTecla.current && agoraMs - ultimaTecla.current < 5000) tel.current.msAtivo += agoraMs - ultimaTecla.current
+          ultimaTecla.current = agoraMs
+          if (e.key === 'Backspace' || e.key === 'Delete') { tel.current.apagamentos++; tel.current.teclas++ }
+          else if (e.key.length === 1 || e.key === 'Enter') tel.current.teclas++
+        }}
+        onInput={(e) => {
+          const novo = (e.target as HTMLTextAreaElement).value
+          const tipo = (e as unknown as InputEvent).inputType || ''
+          const cresceu = novo.length - textoRef.current.length
+          // Texto grande que entra de uma vez sem ser colagem: ditado, extensão,
+          // autocompletar, teclado virtual de outro app.
+          if (cresceu >= INSERCAO_GRANDE && tipo !== 'insertFromPaste' && tipo !== 'insertFromDrop') {
+            tel.current.insercoesGrandes++; tel.current.caracteresInseridos += cresceu
+          }
+          setTexto(novo)
+        }}
+        onPaste={(e) => {
+          colagens.current++; tel.current.colagens++
+          if (cfg.pasteBlocked) { e.preventDefault(); setErro('Colar texto não é permitido nesta redação.'); return }
+          tel.current.caracteresColados += (e.clipboardData?.getData('text') ?? '').length
+        }}
+        onDrop={(e) => {
+          tel.current.arrastes++
+          if (cfg.dragBlocked || cfg.pasteBlocked) { e.preventDefault(); setErro('Arrastar texto para o campo não é permitido nesta redação.'); return }
+          tel.current.caracteresColados += (e.dataTransfer?.getData('text') ?? '').length
+        }}
         aria-label="Texto da redação" />
       {restante === 0 && <div class="aviso erro">O tempo acabou. Envie o que escreveu.</div>}
       {erro && <div class="aviso erro">{erro}</div>}
