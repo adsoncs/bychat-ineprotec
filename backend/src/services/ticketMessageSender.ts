@@ -135,6 +135,15 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
   const lead = await prisma.lead.findUnique({ where: { id: lid } })
   if (!lead) return { ok: false, status: 404, error: 'Lead nao encontrado' }
 
+  // Um número, uma conversa: escrever de uma ficha que não é onde a resposta do
+  // contato cai abria um segundo chat com a mesma pessoa (ver contatoUnico.ts).
+  // Nota interna não sai para o contato — continua livre.
+  if (!isInternal) {
+    const { conversaEmOutraFicha } = await import('./contatoUnico.js')
+    const outra = await conversaEmOutraFicha(lid)
+    if (outra) return { ok: false, status: 409, error: outra.error, code: outra.code, detail: String(outra.leadId) }
+  }
+
   // Operador mandou mensagem = atendimento ativo. Idempotente: cobre outbound em
   // lead que estava na caixa bruta ou em ticket já resolvido.
   if (!isInternal) {

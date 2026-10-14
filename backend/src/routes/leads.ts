@@ -7,6 +7,8 @@ import { buildLeadAccessWhere, canUserAccessLead, type AccessRole } from '../lib
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { generateLeadAnalysis } from '../services/scoring.js'
 import { generateUid, findDuplicate } from '../services/dedup.js'
+import { contatoJaCadastrado } from '../services/contatoUnico.js'
+import { phoneKey } from '../lib/phone.js'
 import { onLeadStageChanged } from '../services/metaCapi.js'
 import { broadcastRealtimeEvent } from './realtime.js'
 import { markLeadWon, markLeadLost, reopenLead } from '../services/leadOutcome.js'
@@ -908,6 +910,16 @@ export async function leadsRoutes(app: FastifyInstance) {
     const existing = await prisma.lead.findUnique({ where: { id: parseInt(id) } })
     if (!existing) return reply.code(404).send({ error: 'Lead não encontrado' })
 
+    // Um telefone (e um e-mail), um contato. Trocar o número de uma ficha para o
+    // de OUTRA criava duas conversas com a mesma pessoa, cada uma com um agente
+    // (fabad, 13/10: Priscila, leads 286 e 425 — o número foi corrigido na
+    // segunda ficha e a resposta da candidata passou a cair nela).
+    const conflito = await contatoJaCadastrado(existing.id, {
+      whatsapp: data.whatsapp !== undefined && phoneKey(data.whatsapp) !== existing.phoneKey ? data.whatsapp : undefined,
+      email: data.email !== undefined && String(data.email).trim().toLowerCase() !== String(existing.email || '').trim().toLowerCase() ? data.email : undefined,
+    })
+    if (conflito) return reply.code(409).send(conflito)
+
     const fd = (existing.formData as any) || {}
     Object.assign(fd, data)
     data.formData = fd
@@ -1088,6 +1100,10 @@ export async function leadsRoutes(app: FastifyInstance) {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
+    // Um número, uma conversa (ver services/contatoUnico.ts).
+    const { conversaEmOutraFicha } = await import('../services/contatoUnico.js')
+    const outra = await conversaEmOutraFicha(id)
+    if (outra) return reply.code(409).send(outra)
     const { openConversation } = await import('../services/leadConversation.js')
     const r = await openConversation(id, { byUserId: user.userId, byUserName: user.name || user.email, reason: 'manual' })
     return { ok: true, ...r }

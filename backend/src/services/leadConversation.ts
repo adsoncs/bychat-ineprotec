@@ -8,7 +8,7 @@
 // NUNCA teve conversa aberta ficam na "Caixa de entrada bruta" — operador
 // decide se abre.
 
-import { prisma } from '../lib/prisma.js'
+import { prisma, leadDaConversa } from '../lib/prisma.js'
 import { logEvent } from './leadHistory.js'
 
 interface OpenOpts {
@@ -36,6 +36,9 @@ interface OpenOpts {
 
 // Abre (ou reabre) o atendimento. Idempotente: se já está aberto, não muda.
 export async function openConversation(leadId: number, opts: OpenOpts = {}): Promise<{ opened: boolean; reopened: boolean }> {
+  // Duplicata pendente não tem chat próprio: a conversa é a da ficha principal
+  // (ver lib/prisma.ts → leadDaConversa).
+  leadId = await leadDaConversa(leadId)
   const cur = await prisma.lead.findUnique({
     where: { id: leadId },
     select: {
@@ -184,6 +187,7 @@ export async function ensureConversationOpen(leadId: number, opts: OpenOpts = {}
  * na frente de quem espera há mais tempo.
  */
 export async function markConversationReopened(leadId: number, opts: OpenOpts = {}): Promise<{ reopened: boolean }> {
+  leadId = await leadDaConversa(leadId)
   const cur = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { conversationOpenedAt: true, conversationClosedAt: true, conversationReopenedAt: true },

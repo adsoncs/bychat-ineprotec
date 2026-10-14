@@ -264,6 +264,14 @@ function templateText(message: any): string {
   ).trim()
 }
 
+// Ficha principal antes da duplicata `pending_review` (ver contactIdentity →
+// buscarNoCanal): a resposta do contato não pode cair no lead que o formulário,
+// o Meta Lead Ads ou o portal criaram em dobro.
+async function principalPrimeiro(args: { where: any; orderBy: any }) {
+  return (await prisma.lead.findFirst({ ...args, where: { AND: [args.where, { duplicateStatus: { not: 'pending_review' } }] } }))
+    ?? prisma.lead.findFirst(args)
+}
+
 /** Acha o lead deste contato NESTA instância.
  *
  *  A regra é: um lead por telefone POR INSTÂNCIA. Sem isso, um contato que
@@ -288,7 +296,7 @@ export async function acharLeadDaInstancia(
   const { semConexaoCloudViva } = await import('../services/contactIdentity.js')
   const foraDaCloud = await semConexaoCloudViva()
   const porLid = waLid
-    ? await prisma.lead.findFirst({
+    ? await principalPrimeiro({
         where: { AND: [{ waLid }, foraDaCloud, ...(instanceName ? [{ OR: [{ instanceName }, { instanceName: null }] }] : [])] },
         orderBy: { createdAt: 'desc' },
       })
@@ -314,7 +322,7 @@ export async function acharLeadDaInstancia(
   const mesmoNumero = pk && pk !== phone ? { OR: [{ whatsapp: phone }, { phoneKey: pk }] } : { whatsapp: phone }
 
   const daInstancia = instanceName
-    ? await prisma.lead.findFirst({
+    ? await principalPrimeiro({
         where: { AND: [mesmoNumero, { instanceName }] },
         orderBy: { createdAt: 'desc' },
       })
@@ -322,7 +330,7 @@ export async function acharLeadDaInstancia(
   if (daInstancia) return daInstancia
 
   // legado: sem instância definida, adota
-  const semInstancia = await prisma.lead.findFirst({
+  const semInstancia = await principalPrimeiro({
     where: { AND: [mesmoNumero, { instanceName: null }, foraDaCloud] },
     orderBy: { createdAt: 'desc' },
   })
@@ -341,7 +349,7 @@ export async function acharLeadDaInstancia(
   // lead não existe mais: duas instâncias VIVAS (ex.: Kobogó Tech e Anywhere)
   // continuam separadas de propósito — é a regra do comentário da função.
   if (instanceName) {
-    const candidato = await prisma.lead.findFirst({
+    const candidato = await principalPrimeiro({
       where: { AND: [mesmoNumero, { instanceName: { not: instanceName } }] },
       orderBy: { createdAt: 'desc' },
     })

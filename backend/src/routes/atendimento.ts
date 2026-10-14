@@ -2250,6 +2250,12 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       })
       if (!lead) return reply.code(404).send({ error: 'Lead não encontrado' })
 
+      // Assumir abre a conversa: numa ficha que não é a dona do número, isso
+      // punha um segundo chat com a mesma pessoa na tela (ver contatoUnico.ts).
+      const { conversaEmOutraFicha } = await import('../services/contatoUnico.js')
+      const outra = await conversaEmOutraFicha(lid)
+      if (outra) return reply.code(409).send(outra)
+
       // Já atribuído a outro operador?
       // Reforma F3: força (force=true) só permitida para ADMIN/SUPERADMIN.
       // Outros precisam usar transfer-request (consensual).

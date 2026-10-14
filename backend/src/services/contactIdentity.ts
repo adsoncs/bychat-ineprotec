@@ -96,13 +96,24 @@ async function buscarNoCanal<T extends { id: number }>(
   buscar: (extra: Record<string, unknown>) => Promise<T | null>,
   adotar = true,
 ): Promise<T | null> {
-  if (!temCanal(canal)) return buscar({})
-  const proprio = await buscar(filtroDoDono(canal))
-  if (proprio) return proprio
-  const livre = await buscar(await filtroSemDono())
-  // Caminho de leitura pura (gates) filtra igual, mas não escreve.
-  if (livre && adotar) await adotarNoCanal(livre.id, canal)
-  return livre
+  // Ficha principal antes da duplicata. O formulário, o Meta Lead Ads e o portal
+  // criam um lead novo para quem já existe e o marcam `pending_review`; como a
+  // busca ordena pelo mais novo, a resposta do contato caía NA DUPLICATA — e a
+  // conversa se partia em duas, cada uma com um agente (fabad, 13/10: lead 119 ×
+  // 432). A duplicata só é achada quando não há ficha principal em lugar
+  // nenhum — nem neste canal, nem sem dono (a principal que veio do Meta Lead
+  // Ads ainda sem canal ganha da duplicata do portal que já tem um).
+  const principal = (extra: Record<string, unknown>) =>
+    buscar({ ...extra, duplicateStatus: { not: 'pending_review' } })
+  if (!temCanal(canal)) return (await principal({})) ?? buscar({})
+  const semDono = await filtroSemDono()
+  const achado = (await principal(filtroDoDono(canal))) ?? (await principal(semDono))
+    ?? (await buscar(filtroDoDono(canal))) ?? (await buscar(semDono))
+  // Achou sem dono: o canal adota. Caminho de leitura pura (gates) não escreve.
+  if (achado && adotar && !(await prisma.lead.findFirst({ where: { id: achado.id, ...filtroDoDono(canal) }, select: { id: true } }))) {
+    await adotarNoCanal(achado.id, canal)
+  }
+  return achado
 }
 
 /** Canal de uma mensagem a partir do que os motores já recebem. */

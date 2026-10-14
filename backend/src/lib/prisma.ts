@@ -81,7 +81,40 @@ function decryptSettingRow(row: any): any {
   return row
 }
 
+/**
+ * Ficha onde vive a conversa deste lead: a principal, quando ele é uma duplicata
+ * ainda não revisada (`pending_review` → possibleDuplicateOfId). Um número, uma
+ * conversa: o que um robô, fluxo, cadência ou portal gravar na duplicata entra
+ * no chat da principal, onde a resposta do contato também cai (contactIdentity →
+ * buscarNoCanal). As fichas continuam separadas até alguém mesclar.
+ */
+export async function leadDaConversa(leadId: number): Promise<number> {
+  let id = leadId
+  for (let i = 0; i < 5; i++) {
+    const l = await prisma.lead.findUnique({ where: { id }, select: { duplicateStatus: true, possibleDuplicateOfId: true } })
+    if (!l || l.duplicateStatus !== 'pending_review' || !l.possibleDuplicateOfId || l.possibleDuplicateOfId === id) break
+    id = l.possibleDuplicateOfId
+  }
+  return id
+}
+
+async function redirecionarMensagem(data: any): Promise<void> {
+  if (!data || typeof data !== 'object') return
+  if (typeof data.leadId === 'number') {
+    data.leadId = await leadDaConversa(data.leadId)
+  } else if (typeof data.lead?.connect?.id === 'number') {
+    data.lead.connect.id = await leadDaConversa(data.lead.connect.id)
+  }
+}
+
 prisma.$use(async (params, next) => {
+  if (params.model === 'Message' && (params.action === 'create' || params.action === 'createMany' || params.action === 'upsert')) {
+    const d = params.action === 'upsert' ? params.args?.create : params.args?.data
+    if (Array.isArray(d)) for (const x of d) await redirecionarMensagem(x)
+    else await redirecionarMensagem(d)
+    return next(params)
+  }
+
   if (params.model === 'Setting') {
     const a = params.action
     if (a === 'create') encryptSettingData(params.args?.data)

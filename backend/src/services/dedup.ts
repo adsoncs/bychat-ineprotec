@@ -289,8 +289,16 @@ export async function flagDuplicate(input: FlagDuplicateInput): Promise<FlagDupl
   }
 
   // 1. Atualiza o lead novo
-  const inheritAssigned = !newLead.assignedUserId && masterRoot?.assignedUserId ? masterRoot.assignedUserId : undefined
-  const inheritTeam = !newLead.teamId && masterRoot?.teamId ? masterRoot.teamId : undefined
+  // Um contato, um responsável: a duplicata vai para quem já atende a ficha
+  // principal, MESMO que a distribuição já lhe tenha dado outro dono. O lead novo
+  // nasce com o dono do rodízio antes desta função rodar; herdando só "quando
+  // vazio", o mesmo candidato aparecia para dois agentes (fabad, 13/10: 23 pares).
+  // Sem dono na principal, fica o da distribuição.
+  const inheritAssigned = masterRoot?.assignedUserId && masterRoot.assignedUserId !== newLead.assignedUserId
+    ? masterRoot.assignedUserId : undefined
+  const inheritTeam = masterRoot?.assignedUserId && masterRoot?.teamId && masterRoot.teamId !== newLead.teamId
+    ? masterRoot.teamId
+    : (!newLead.teamId && masterRoot?.teamId ? masterRoot.teamId : undefined)
   await prisma.lead.update({
     where: { id: newLead.id },
     data: {

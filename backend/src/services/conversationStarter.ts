@@ -61,7 +61,9 @@ export async function startConversation(input: StartConversationInput): Promise<
     const r = await resolveLeadForContact({ phone: digitos }, canal)
     existente = r.lead ? await prisma.lead.findUnique({ where: { id: r.lead.id }, select: sel }) : null
   } else {
-    existente = await prisma.lead.findFirst({ where: { phoneKey: chave }, orderBy: { createdAt: 'desc' }, select: sel })
+    // Ficha principal antes da duplicata pendente (ver contactIdentity → buscarNoCanal).
+    existente = await prisma.lead.findFirst({ where: { phoneKey: chave, duplicateStatus: { not: 'pending_review' } }, orderBy: { createdAt: 'desc' }, select: sel })
+      ?? await prisma.lead.findFirst({ where: { phoneKey: chave }, orderBy: { createdAt: 'desc' }, select: sel })
   }
 
   // 2. Número tem WhatsApp? Abrir conversa com número que não existe gera um
