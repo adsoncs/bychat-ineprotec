@@ -28,6 +28,15 @@ export type StartConversationResult =
   | { ok: true; leadId: number; criado: boolean; jaTinhaConversa: boolean }
   | { ok: false; status: number; error: string; code?: string; leadId?: number }
 
+/** O operador alcança esta conversa? Mesma régua da lista do Conversas. */
+async function podeAcessar(actor: StartConversationInput['actor'], leadId: number): Promise<boolean> {
+  const { mapaDeAcesso, permissoesNaConversa } = await import('./conversationAccess.js')
+  const mapa = await mapaDeAcesso(actor.userId, actor.role)
+  if (mapa.configurado) return !!(await permissoesNaConversa(mapa, leadId))?.canView
+  const { canUserAccessLead } = await import('../lib/teamAccess.js')
+  return canUserAccessLead(actor.userId, actor.role, leadId)
+}
+
 export async function startConversation(input: StartConversationInput): Promise<StartConversationResult> {
   const nome = (input.nome || '').trim()
   const crus = onlyDigits(input.telefone)
@@ -64,6 +73,27 @@ export async function startConversation(input: StartConversationInput): Promise<
     // Ficha principal antes da duplicata pendente (ver contactIdentity → buscarNoCanal).
     existente = await prisma.lead.findFirst({ where: { phoneKey: chave, duplicateStatus: { not: 'pending_review' } }, orderBy: { createdAt: 'desc' }, select: sel })
       ?? await prisma.lead.findFirst({ where: { phoneKey: chave }, orderBy: { createdAt: 'desc' }, select: sel })
+  }
+
+  // 1b. O contato existe, mas é de quem? Sem acesso a ele, "Nova conversa" não
+  //     pode ser a porta dos fundos: devolvia o id, reabria a conversa do colega
+  //     e registrava a reabertura em nome de quem nem pode vê-la. A regra é a
+  //     mesma da lista (alcance + conversas privadas da equipe, ou a matriz do
+  //     Conversas quando configurada); para falar com ele, só por transferência.
+  if (existente && !(await podeAcessar(input.actor, existente.id))) {
+    const dono = await prisma.lead.findUnique({
+      where: { id: existente.id },
+      select: { assignedUser: { select: { name: true } }, team: { select: { name: true } } },
+    })
+    const com = dono?.assignedUser?.name
+      ? `em atendimento com ${dono.assignedUser.name}`
+      : dono?.team?.name ? `na fila da equipe ${dono.team.name}` : 'com outra pessoa'
+    return {
+      ok: false,
+      status: 409,
+      code: 'CONTATO_COM_OUTRO',
+      error: `Este número já é do contato #${existente.id}, ${com}. Para falar com ele, peça a transferência.`,
+    }
   }
 
   // 2. Número tem WhatsApp? Abrir conversa com número que não existe gera um
