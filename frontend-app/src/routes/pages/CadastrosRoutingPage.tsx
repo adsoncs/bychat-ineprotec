@@ -21,6 +21,7 @@ import {
   useRoutingTeams,
   useRoutingRules, useToggleRoutingRule, useDeleteRoutingRule, useReorderRoutingRules,
   useEscalationConfig, useUpdateEscalationConfig,
+  useAjustesRoteamento, useSalvarAjustesRoteamento,
   useShiftConfig, useUpdateShiftConfig,
   useTransferTimeout, useSetTransferTimeout, useTransferAnyone, useSetTransferAnyone,
   type RoutingAgent, type RoutingRule,
@@ -262,11 +263,86 @@ function PolicyTab() {
         </div>
       </Card>
 
+      <AjustesRodizioCard />
       <EscalationCard />
       <ShiftCard />
       <TransferTimeoutCard />
       <TransferAnyoneCard />
     </div>
+  )
+}
+
+/** Quatro ajustes que mudam QUEM recebe o lead. Cada um vale só para este
+ *  cliente; desligados = o comportamento de antes. */
+function AjustesRodizioCard() {
+  const q = useAjustesRoteamento()
+  const salvar = useSalvarAjustesRoteamento()
+  const [minutos, setMinutos] = useState('')
+  useEffect(() => { if (q.data) setMinutos(String(q.data.presencaMinutos || 15)) }, [q.data])
+  if (q.isLoading || !q.data) return <Skeleton class="h-40 w-full" />
+  const a = q.data
+  const gravar = async (patch: Partial<typeof a>) => {
+    try { await salvar.mutateAsync(patch); toast('Ajuste do rodízio salvo', 'success') }
+    catch (e) { toast(e instanceof ApiError ? e.message : 'Falha ao salvar', 'danger') }
+  }
+  const Chave = ({ ligado, onClick, titulo, texto }: { ligado: boolean; onClick: () => void; titulo: string; texto: string }) => (
+    <div class="flex items-start gap-3 py-3 border-b border-border last:border-b-0">
+      <label class="inline-flex items-center cursor-pointer mt-0.5">
+        <input type="checkbox" checked={ligado} onChange={onClick} disabled={salvar.isPending} class="sr-only peer" />
+        <div class="relative w-9 h-5 bg-surface-3 rounded-full peer peer-checked:bg-accent transition-colors">
+          <div class={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${ligado ? 'translate-x-4' : ''}`} />
+        </div>
+      </label>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-fg">{titulo}</div>
+        <div class="text-xs text-fg-muted mt-0.5">{texto}</div>
+      </div>
+    </div>
+  )
+  return (
+    <Card>
+      <div class="p-4">
+        <h3 class="font-medium">Ajustes do rodízio</h3>
+        <p class="text-sm text-fg-muted mt-1">
+          Mudam quem recebe cada lead. Valem só para esta conta; desligados, o rodízio funciona como antes.
+        </p>
+        <div class="mt-2">
+          <Chave ligado={a.rodizioJusto} onClick={() => gravar({ rodizioJusto: !a.rodizioJusto })}
+            titulo="Rodízio justo, com peso"
+            texto="Conta só os leads que o próprio rodízio entregou — agendamento, transferência e atribuição manual não tiram ninguém da vez. Respeita o peso do perfil (peso 2 recebe o dobro). E a capacidade passa a contar só as conversas abertas: antes contava todo lead sem venda/perda marcada, número que só cresce e tirava a pessoa do rodízio para sempre." />
+          <div class="flex items-start gap-3 py-3 border-b border-border">
+            <label class="inline-flex items-center cursor-pointer mt-0.5">
+              <input type="checkbox" checked={a.presencaMinutos > 0} disabled={salvar.isPending} class="sr-only peer"
+                onChange={() => gravar({ presencaMinutos: a.presencaMinutos > 0 ? 0 : (parseInt(minutos) || 15) })} />
+              <div class="relative w-9 h-5 bg-surface-3 rounded-full peer peer-checked:bg-accent transition-colors">
+                <div class={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${a.presencaMinutos > 0 ? 'translate-x-4' : ''}`} />
+              </div>
+            </label>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-fg">Preferir quem está com o sistema aberto</div>
+              <div class="text-xs text-fg-muted mt-0.5">
+                Entre os disponíveis, o lead vai para quem deu sinal de presença nos últimos minutos. Se ninguém estiver online, distribui entre todos, como antes — o lead não fica sem dono.
+              </div>
+              {a.presencaMinutos > 0 && (
+                <div class="flex items-center gap-2 mt-2">
+                  <span class="text-xs text-fg-muted">Considerar online quem apareceu nos últimos</span>
+                  <div class="w-20"><Input type="number" min={1} max={240} value={minutos} onInput={(e) => setMinutos((e.currentTarget as HTMLInputElement).value)} /></div>
+                  <span class="text-xs text-fg-muted">min</span>
+                  <Button size="sm" variant="secondary" disabled={salvar.isPending || minutos === String(a.presencaMinutos)}
+                    onClick={() => { const n = parseInt(minutos); if (!Number.isInteger(n) || n < 1 || n > 240) { toast('Use de 1 a 240 minutos', 'danger'); return } void gravar({ presencaMinutos: n }) }}>Salvar</Button>
+                </div>
+              )}
+            </div>
+          </div>
+          <Chave ligado={a.redistribuirSemDono} onClick={() => gravar({ redistribuirSemDono: !a.redistribuirSemDono })}
+            titulo="Redistribuir quem volta a escrever sem responsável"
+            texto="Conversa encerrada, sem responsável, e o contato escreveu de novo: o rodízio da equipe entrega na hora em vez de deixar na fila. Equipes em modo manual continuam com fila." />
+          <Chave ligado={a.escalacaoPorMensagem} onClick={() => gravar({ escalacaoPorMensagem: !a.escalacaoPorMensagem })}
+            titulo="Escalada pela resposta no chat"
+            texto="Quando a escalação automática está ativa: conta o tempo a partir da mensagem do contato que ficou sem resposta (não por atividade concluída), só em conversas abertas, e passa o lead para outra pessoa da equipe em vez de só devolver à fila." />
+        </div>
+      </div>
+    </Card>
   )
 }
 

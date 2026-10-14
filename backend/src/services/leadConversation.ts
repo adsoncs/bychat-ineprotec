@@ -211,6 +211,9 @@ export async function markConversationReopened(leadId: number, opts: OpenOpts = 
     actorType: 'lead',
     description: opts.reason || undefined,
   })
+  // Sem responsável: o rodízio distribui na hora (se o cliente ligou a chave).
+  const { redistribuirSemDono } = await import('./teamRouting.js')
+  await redistribuirSemDono(leadId).catch(() => null)
   return { reopened: true }
 }
 

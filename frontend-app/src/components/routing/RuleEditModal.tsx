@@ -12,7 +12,7 @@ import {
 } from '@/hooks/useRouting'
 
 const FIELDS: { value: string; label: string; placeholder?: string }[] = [
-  { value: 'source', label: 'Origem (source)', placeholder: 'form, inbound, meta, chatbot' },
+  { value: 'source', label: 'Origem (source)', placeholder: 'whatsapp, instagram, messenger, form, meta, chatbot' },
   { value: 'utmSource', label: 'UTM Source', placeholder: 'google, facebook…' },
   { value: 'utmMedium', label: 'UTM Medium', placeholder: 'cpc, social…' },
   { value: 'utmCampaign', label: 'UTM Campaign' },
@@ -21,6 +21,7 @@ const FIELDS: { value: string; label: string; placeholder?: string }[] = [
   { value: 'formId', label: 'Form ID', placeholder: '123' },
   { value: 'chatbotId', label: 'Chatbot ID', placeholder: '12' },
   { value: 'instanceName', label: 'WhatsApp instance' },
+  { value: 'cloudApiConnectionId', label: 'Número da API oficial (ID da conexão)', placeholder: '2' },
   { value: 'tag', label: 'Tag' },
 ]
 

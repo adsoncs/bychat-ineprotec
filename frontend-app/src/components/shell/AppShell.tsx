@@ -11,6 +11,7 @@ import { useGlobalNotifications } from '@/hooks/useGlobalNotifications'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useSidebarStore, resolveSidebarMode } from '@/stores/sidebar'
 import { useT } from '@/i18n'
+import { api } from '@/lib/apiClient'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { PageStrip } from './PageStrip'
@@ -50,6 +51,17 @@ export function AppShell({ children }: AppShellProps) {
     sidebarSyncedRef.current = true
     if (accountPrefs.sidebarMode !== sidebarMode) setSidebarMode(accountPrefs.sidebarMode)
   }, [prefsLoaded, accountPrefs.sidebarMode, sidebarMode, setSidebarMode])
+
+  // Sinal de presença: o rodízio pode preferir quem está com o sistema aberto
+  // (Roteamento › Ajustes do rodízio). O painel tinha parado de mandar — o
+  // "visto por último" de todos estava vazio. Vai também com a aba em segundo
+  // plano: muita gente trabalha com o painel atrás do WhatsApp.
+  useEffect(() => {
+    const bater = () => { api.post('/admin/heartbeat', {}).catch(() => {}) }
+    bater()
+    const t = setInterval(bater, 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   function toggleSidebar() {
     const next = effectiveSidebarMode === 'rail' ? 'expanded' : 'rail'

@@ -491,7 +491,7 @@ async function processIncomingMessage(
       if (conn.ownerUserId) {
         routedUserId = conn.ownerUserId
       } else {
-        const routing = await resolveRoutingFromContext({ source: 'whatsapp', chatbotId: conn.chatbotId ?? null })
+        const routing = await resolveRoutingFromContext({ source: 'whatsapp', chatbotId: conn.chatbotId ?? null, cloudApiConnectionId: conn.id })
         routedTeamId = routing.teamId
         routedUserId = routing.userId
         routedRuleName = routing.ruleName ?? null

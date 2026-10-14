@@ -546,3 +546,27 @@ export function useSetTransferAnyone() {
     },
   })
 }
+
+// ── Ajustes do rodízio por cliente (backend: services/teamRouting.ts) ─────
+export interface AjustesRoteamento {
+  presencaMinutos: number
+  rodizioJusto: boolean
+  redistribuirSemDono: boolean
+  escalacaoPorMensagem: boolean
+}
+
+export function useAjustesRoteamento() {
+  return useQuery({
+    queryKey: ['routing', 'ajustes'],
+    queryFn: () => api.get<AjustesRoteamento>('/admin/routing/ajustes'),
+    staleTime: 30_000,
+  })
+}
+
+export function useSalvarAjustesRoteamento() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: Partial<AjustesRoteamento>) => api.post<AjustesRoteamento>('/admin/routing/ajustes', input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['routing', 'ajustes'] }),
+  })
+}

@@ -597,6 +597,47 @@ export async function agentsRoutes(app: FastifyInstance) {
     },
   )
 
+  // ── Ajustes de roteamento por cliente (services/teamRouting.ts) ─────────
+  // Quatro chaves que mudam QUEM recebe o lead; padrão = comportamento antigo.
+  app.get('/api/admin/routing/ajustes', { preHandler: [authMiddleware, adminOnly] }, async () => {
+    const { getAjustesRoteamento } = await import('../services/teamRouting.js')
+    return getAjustesRoteamento()
+  })
+
+  app.post<{ Body: { presencaMinutos?: number; rodizioJusto?: boolean; redistribuirSemDono?: boolean; escalacaoPorMensagem?: boolean } }>(
+    '/api/admin/routing/ajustes',
+    { preHandler: [authMiddleware, adminOnly] },
+    async (req, reply) => {
+      const { CHAVES_AJUSTES } = await import('../services/teamRouting.js')
+      const b = req.body || {}
+      const upserts: { key: string; value: unknown; label: string }[] = []
+      if (b.presencaMinutos !== undefined) {
+        const n = Number(b.presencaMinutos)
+        if (!Number.isInteger(n) || n < 0 || n > 240) return reply.code(400).send({ error: 'presencaMinutos deve ser de 0 (desligado) a 240' })
+        upserts.push({ key: CHAVES_AJUSTES.presencaMinutos, value: n, label: 'Rodízio prefere quem está online (minutos; 0 = desligado)' })
+      }
+      for (const [campo, label] of [
+        ['rodizioJusto', 'Rodízio justo (conta só o que o rodízio entregou, com peso)'],
+        ['redistribuirSemDono', 'Redistribuir contato sem responsável que volta a escrever'],
+        ['escalacaoPorMensagem', 'Escalada mede a resposta no chat e passa a outra pessoa'],
+      ] as const) {
+        if (b[campo] !== undefined) {
+          if (typeof b[campo] !== 'boolean') return reply.code(400).send({ error: `${campo} deve ser true/false` })
+          upserts.push({ key: CHAVES_AJUSTES[campo], value: b[campo], label })
+        }
+      }
+      if (!upserts.length) return reply.code(400).send({ error: 'nenhum campo para atualizar' })
+      await prisma.$transaction(upserts.map((u) => prisma.setting.upsert({
+        where: { key: u.key },
+        create: { key: u.key, value: u.value as any, label: u.label, grp: 'routing', fieldType: typeof u.value === 'number' ? 'number' : 'boolean' } as any,
+        update: { value: u.value as any },
+      })))
+      invalidateRoutingCache()
+      const { getAjustesRoteamento } = await import('../services/teamRouting.js')
+      return getAjustesRoteamento()
+    },
+  )
+
   // ── Shift Handover (F5/F6) ────────────────────────────────────────────
   app.get('/api/admin/routing/shift', { preHandler: [authMiddleware, adminOnly] }, async () => {
     const rows = await prisma.setting.findMany({

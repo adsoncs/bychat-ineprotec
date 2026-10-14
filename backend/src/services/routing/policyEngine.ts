@@ -16,7 +16,7 @@
 import { prisma } from '../../lib/prisma.js'
 
 export interface RoutingContext {
-  source?: 'form' | 'inbound' | 'meta' | 'chatbot' | 'whatsapp' | 'api' | 'manual'
+  source?: 'form' | 'inbound' | 'meta' | 'chatbot' | 'whatsapp' | 'api' | 'manual' | 'instagram' | 'messenger'
   utmSource?: string | null
   utmMedium?: string | null
   utmCampaign?: string | null
@@ -25,6 +25,10 @@ export interface RoutingContext {
   formId?: number | null
   chatbotId?: number | null
   instanceName?: string | null
+  /** Número da Cloud API por onde o contato chegou. Sem isto, regra "por
+   *  número" só existia para a Evolution — e a equipe do número da Cloud API
+   *  era ignorada (caía na equipe padrão geral). */
+  cloudApiConnectionId?: number | null
   tag?: string | string[] | null
 }
 
@@ -99,6 +103,7 @@ function getFieldValue(ctx: RoutingContext, field: string): unknown {
     case 'formId': return ctx.formId ?? null
     case 'chatbotId': return ctx.chatbotId ?? null
     case 'instanceName': return ctx.instanceName ?? null
+    case 'cloudApiConnectionId': return ctx.cloudApiConnectionId != null ? String(ctx.cloudApiConnectionId) : null
     case 'tag': return ctx.tag ?? null
     default: return undefined
   }

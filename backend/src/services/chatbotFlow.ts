@@ -410,6 +410,7 @@ export async function processChatbotMessage(
       source: 'whatsapp',
       chatbotId: chatbotId ?? null,
       instanceName: instanceName ?? null,
+      cloudApiConnectionId: cloudApiConnectionId ?? null,
     })
     routedTeamId = routing.teamId
     routedUserId = routing.userId

@@ -1127,9 +1127,16 @@ async function leadDoContato(contatoId: string, channel: 'instagram' | 'messenge
       : { instagramSenderId: contatoId }
     if (prof.username) formData.instagramUsername = prof.username
     if (prof.profilePic) formData.profilePicUrl = prof.profilePic
+    // Roteamento igual aos outros canais (regras → equipe padrão → rodízio).
+    // Faltava: lead do Instagram/Messenger nascia sem equipe e sem responsável,
+    // numa fila que ninguém vê (beyond: 5 de 6 em 30 dias).
+    const { resolveRoutingFromContext } = await import('../services/teamRouting.js')
+    const rota = await resolveRoutingFromContext({ source: channel }).catch(() => ({ teamId: null, userId: null }))
     const novo = await prisma.lead.create({
       data: {
         uid,
+        ...(rota.teamId ? { teamId: rota.teamId } : {}),
+        ...(rota.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
         nome: prof.name || `${canalNome} #${contatoId}`,
         empresa: '',
         whatsapp: '',

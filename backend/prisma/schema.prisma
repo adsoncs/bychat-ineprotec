@@ -10170,3 +10170,20 @@ model ConsumoEvento {
   @@index([funcionalidade, createdAt])
   @@map("bychat_consumo")
 }
+
+// Cada lead que o RODÍZIO entregou a alguém (services/teamRouting.ts →
+// pickOperatorForTeam). Base do rodízio justo com peso e do limite diário:
+// antes o rodízio olhava o assignedAt de QUALQUER lead aberto — agendamento,
+// atribuição manual e transferência contavam como "recebeu", e quem recebia
+// muito agendamento sumia do rodízio do WhatsApp.
+model RoutingDistribution {
+  id        Int      @id @default(autoincrement())
+  teamId    Int
+  userId    Int
+  origem    String?  @db.VarChar(30)
+  createdAt DateTime @default(now())
+
+  @@index([teamId, createdAt])
+  @@index([userId, createdAt])
+  @@map("bychat_routing_distributions")
+}

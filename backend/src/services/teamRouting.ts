@@ -17,6 +17,8 @@ import { evaluateRoutingRules, type RoutingContext, type RoutingDecision } from 
 interface ResolveOpts {
   chatbotId?: number | null
   instanceName?: string | null
+  /** Número da Cloud API — a equipe configurada NELE vale antes da padrão geral. */
+  cloudApiConnectionId?: number | null
 }
 
 // Cache simples (60s) do setting global, evita 1 query por lead em alto volume.
@@ -30,6 +32,52 @@ export function invalidateRoutingCache() {
   _v2Cache = null
   _oohCache = null
   _escalationCache = null
+  _ajustesCache = null
+}
+
+// ─── Ajustes de roteamento por cliente (14/10) ────────────────────────────
+//
+// Mudam QUEM recebe o lead — por isso cada um é uma chave em Roteamento, e o
+// padrão é o comportamento de antes. Ligar num cliente não mexe nos outros.
+//
+//   presencaMinutos      — prefere quem está com o painel aberto (sinal de
+//                          presença nos últimos N min). Ninguém online → regra
+//                          de antes (o lead não fica órfão). 0 = desligado.
+//   rodizioJusto         — o rodízio conta só o que ELE entregou (com peso do
+//                          perfil). Antes contava qualquer lead aberto — quem
+//                          recebia agendamento ou transferência sumia do rodízio.
+//   redistribuirSemDono  — contato sem responsável que volta a escrever é
+//                          distribuído na hora (antes ficava parado na fila).
+//   escalacaoPorMensagem — a escalada mede a 1ª RESPOSTA no chat (antes: só
+//                          atividade concluída — quem respondia perdia o lead)
+//                          e passa o lead para outra pessoa em vez de só
+//                          devolver à fila.
+export interface AjustesRoteamento {
+  presencaMinutos: number
+  rodizioJusto: boolean
+  redistribuirSemDono: boolean
+  escalacaoPorMensagem: boolean
+}
+export const CHAVES_AJUSTES = {
+  presencaMinutos: 'routing.presenca.minutos',
+  rodizioJusto: 'routing.rodizio.justo',
+  redistribuirSemDono: 'routing.redistribuirSemDono',
+  escalacaoPorMensagem: 'routing.escalation.porMensagem',
+} as const
+let _ajustesCache: { ajustes: AjustesRoteamento; expiresAt: number } | null = null
+
+export async function getAjustesRoteamento(): Promise<AjustesRoteamento> {
+  if (_ajustesCache && _ajustesCache.expiresAt > Date.now()) return _ajustesCache.ajustes
+  const rows = await prisma.setting.findMany({ where: { key: { in: Object.values(CHAVES_AJUSTES) } }, select: { key: true, value: true } })
+  const v = new Map(rows.map((r) => [r.key, r.value]))
+  const ajustes: AjustesRoteamento = {
+    presencaMinutos: Math.max(0, Math.min(240, readNumberSetting(v.get(CHAVES_AJUSTES.presencaMinutos), 0))),
+    rodizioJusto: readBoolSetting(v.get(CHAVES_AJUSTES.rodizioJusto), false),
+    redistribuirSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.redistribuirSemDono), false),
+    escalacaoPorMensagem: readBoolSetting(v.get(CHAVES_AJUSTES.escalacaoPorMensagem), false),
+  }
+  _ajustesCache = { ajustes, expiresAt: Date.now() + CACHE_TTL_MS }
+  return ajustes
 }
 
 // Lead Routing F8: configuração da escalação automática.
@@ -153,7 +201,7 @@ async function getGlobalDefaultTeamId(): Promise<number | null> {
 }
 
 export async function resolveDefaultTeamId(opts: ResolveOpts = {}): Promise<number | null> {
-  const { chatbotId, instanceName } = opts
+  const { chatbotId, instanceName, cloudApiConnectionId } = opts
 
   // 1. Chatbot direto
   if (chatbotId) {
@@ -180,8 +228,28 @@ export async function resolveDefaultTeamId(opts: ResolveOpts = {}): Promise<numb
     }
   }
 
+  // 2b. Número da Cloud API (equipe do número, senão a do chatbot dele). Faltava:
+  // sem isto a equipe configurada no número era ignorada e o lead caía na
+  // equipe padrão geral — no beyond, os números do Suporte iam para o Comercial.
+  if (cloudApiConnectionId) {
+    const conn = await prisma.cloudApiConnection.findUnique({
+      where: { id: cloudApiConnectionId },
+      select: { defaultTeamId: true, chatbotId: true },
+    })
+    if (conn?.defaultTeamId && (await equipeAtiva(conn.defaultTeamId))) return conn.defaultTeamId
+    if (conn?.chatbotId) {
+      const cb = await prisma.chatbot.findUnique({ where: { id: conn.chatbotId }, select: { defaultTeamId: true } })
+      if (cb?.defaultTeamId) return cb.defaultTeamId
+    }
+  }
+
   // 4. Fallback global
   return await getGlobalDefaultTeamId()
+}
+
+async function equipeAtiva(teamId: number): Promise<boolean> {
+  const t = await prisma.team.findUnique({ where: { id: teamId }, select: { active: true } })
+  return !!t?.active
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -206,6 +274,9 @@ interface CandidateMember {
   capacity: number
   activeLeadCount: number
   lastAssignedAt: Date | null
+  lastSeenAt: Date | null
+  weight: number
+  maxDailyLeads: number | null
 }
 
 // Presença aceita no passe estrito (comportamento histórico) e no passe de
@@ -217,6 +288,10 @@ async function getEligibleMembers(
   teamId: number,
   requireAgent: boolean,
   statuses: string[] = STRICT_STATUSES,
+  /** Carga = conversas ABERTAS (rodízio justo). Sem isto, conta todo lead sem
+   *  desfecho — que só cresce: quem passa da capacidade sai do rodízio para
+   *  sempre (beyond: Benedito, 210 leads "ativos" e só 22 conversas abertas). */
+  cargaPorConversa = false,
 ): Promise<CandidateMember[]> {
   // Membros ativos da equipe cujo workStatus está em `statuses`. Exclui locked,
   // inactive e (sempre) offline.
@@ -244,7 +319,7 @@ async function getEligibleMembers(
 
   const members = await prisma.teamMember.findMany({
     where: { teamId, user: userFilter as any },
-    select: { userId: true, user: { select: { capacity: true } } },
+    select: { userId: true, user: { select: { capacity: true, lastSeenAt: true, agentProfile: { select: { weight: true, maxDailyLeads: true } } } } },
   })
   if (members.length === 0) return []
 
@@ -273,6 +348,7 @@ async function getEligibleMembers(
     where: {
       assignedUserId: { in: userIds },
       outcome: null,
+      ...(cargaPorConversa ? { isGroup: false, conversationOpenedAt: { not: null }, conversationClosedAt: null } : {}),
     },
     _count: { _all: true },
     _max: { assignedAt: true },
@@ -293,6 +369,9 @@ async function getEligibleMembers(
       capacity: m.user.capacity,
       activeLeadCount: stats?.count ?? 0,
       lastAssignedAt: stats?.lastAssignedAt ?? null,
+      lastSeenAt: m.user.lastSeenAt ?? null,
+      weight: Math.max(1, m.user.agentProfile?.weight ?? 1),
+      maxDailyLeads: m.user.agentProfile?.maxDailyLeads ?? null,
     }
   })
 }
@@ -341,7 +420,7 @@ export async function garantirPerfilDeTodosOsAgentes(): Promise<number> {
 
 export async function pickOperatorForTeam(
   teamId: number,
-  opts?: { onlyUserIds?: number[] },
+  opts?: { onlyUserIds?: number[]; excludeUserIds?: number[]; origem?: string },
 ): Promise<number | null> {
   const team = await prisma.team.findUnique({
     where: { id: teamId },
@@ -365,11 +444,13 @@ export async function pickOperatorForTeam(
   // Lista vazia = ninguém livre; devolve null e o caller manda para a fila.
   const restrict = opts?.onlyUserIds
   if (restrict && restrict.length === 0) return null
+  const fora = new Set(opts?.excludeUserIds ?? [])
   const narrow = (list: CandidateMember[]) =>
-    restrict ? list.filter((m) => restrict.includes(m.userId)) : list
+    (restrict ? list.filter((m) => restrict.includes(m.userId)) : list).filter((m) => !fora.has(m.userId))
 
+  const ajustes = await getAjustesRoteamento()
   // Passe 1: só quem está "Disponível" (comportamento histórico).
-  let members = narrow(await getEligibleMembers(teamId, requireAgent))
+  let members = narrow(await getEligibleMembers(teamId, requireAgent, STRICT_STATUSES, ajustes.rodizioJusto))
   // Passe 2 (fallback suave): ninguém disponível → aceita "Ausente"/"Em pausa".
   // Mesma filosofia do soft-limit de capacity logo abaixo: entregar a um
   // operador ausente é melhor que deixar o lead órfão numa fila que ninguém
@@ -379,7 +460,7 @@ export async function pickOperatorForTeam(
   // inteiro sem nenhum rastro (severiano, Matrículas, 23/07/2026).
   let softFallback = false
   if (members.length === 0) {
-    members = narrow(await getEligibleMembers(teamId, requireAgent, FALLBACK_STATUSES))
+    members = narrow(await getEligibleMembers(teamId, requireAgent, FALLBACK_STATUSES, ajustes.rodizioJusto))
     softFallback = members.length > 0
   }
   if (members.length === 0) {
@@ -396,36 +477,100 @@ export async function pickOperatorForTeam(
     )
   }
 
+  // Limite diário do perfil (antes era só um campo na tela): quem já recebeu o
+  // máximo HOJE pelo rodízio sai da vez. É limite de verdade — se todos
+  // bateram, o lead vai para a fila (com aviso no log).
+  const comLimite = members.filter((m) => m.maxDailyLeads != null)
+  if (comLimite.length) {
+    const inicioDoDia = new Date(); inicioDoDia.setHours(0, 0, 0, 0)
+    const hoje = await prisma.routingDistribution.groupBy({
+      by: ['userId'],
+      where: { userId: { in: comLimite.map((m) => m.userId) }, createdAt: { gte: inicioDoDia } },
+      _count: { _all: true },
+    })
+    const recebeu = new Map(hoje.map((h) => [h.userId, h._count._all]))
+    members = members.filter((m) => m.maxDailyLeads == null || (recebeu.get(m.userId) ?? 0) < m.maxDailyLeads)
+    if (members.length === 0) {
+      console.warn(`[routing] setor ${teamId} (${team.name}): todos atingiram o limite diário — lead cai na fila`)
+      return null
+    }
+  }
+
+  // Presença real (chave por cliente): entre os elegíveis, prefere quem está
+  // com o painel aberto. Ninguém online → segue com todos (regra de antes).
+  if (ajustes.presencaMinutos > 0) {
+    const desde = Date.now() - ajustes.presencaMinutos * 60_000
+    const online = members.filter((m) => m.lastSeenAt && m.lastSeenAt.getTime() >= desde)
+    if (online.length) members = online
+  }
+
   // Capacity é soft-limit: preferimos quem ainda tem folga, mas se todos
   // estouraram ainda distribuímos — entregar a um operador sobrecarregado é
   // melhor que deixar lead órfão na fila sem responsável.
   const withCapacity = members.filter((m) => m.activeLeadCount < m.capacity)
   const pool = withCapacity.length > 0 ? withCapacity : members
 
+  let escolhido: number
   if (mode === 'random') {
-    const idx = Math.floor(Math.random() * pool.length)
-    return pool[idx]!.userId
-  }
-  if (mode === 'least_loaded') {
+    escolhido = pool[Math.floor(Math.random() * pool.length)]!.userId
+  } else if (mode === 'least_loaded') {
     // Menor activeLeadCount; empate → menor capacity:lead ratio (mais "folga relativa")
     pool.sort((a, b) => {
       if (a.activeLeadCount !== b.activeLeadCount) return a.activeLeadCount - b.activeLeadCount
       return (b.capacity - b.activeLeadCount) - (a.capacity - a.activeLeadCount)
     })
-    return pool[0]!.userId
+    escolhido = pool[0]!.userId
+  } else if (ajustes.rodizioJusto) {
+    escolhido = await rodizioJusto(teamId, pool)
+  } else {
+    // round_robin (regra de antes): operador cujo ÚLTIMO recebimento foi há
+    // mais tempo, olhando o assignedAt de qualquer lead aberto.
+    pool.sort((a, b) => {
+      if (a.lastAssignedAt === null && b.lastAssignedAt !== null) return -1
+      if (b.lastAssignedAt === null && a.lastAssignedAt !== null) return 1
+      if (a.lastAssignedAt === null && b.lastAssignedAt === null) {
+        return a.activeLeadCount - b.activeLeadCount
+      }
+      return a.lastAssignedAt!.getTime() - b.lastAssignedAt!.getTime()
+    })
+    escolhido = pool[0]!.userId
   }
-  // round_robin: operador cujo ÚLTIMO recebimento foi há mais tempo. Membros
-  // que nunca receberam (lastAssignedAt = null) entram primeiro. Garante rotação
-  // real entre agentes mesmo quando todos têm backlog acumulado.
-  pool.sort((a, b) => {
-    if (a.lastAssignedAt === null && b.lastAssignedAt !== null) return -1
-    if (b.lastAssignedAt === null && a.lastAssignedAt !== null) return 1
-    if (a.lastAssignedAt === null && b.lastAssignedAt === null) {
-      return a.activeLeadCount - b.activeLeadCount
-    }
-    return a.lastAssignedAt!.getTime() - b.lastAssignedAt!.getTime()
+
+  // Registro da entrega: base do limite diário e do rodízio justo.
+  await prisma.routingDistribution.create({ data: { teamId, userId: escolhido, origem: opts?.origem?.slice(0, 30) ?? null } }).catch(() => {})
+  return escolhido
+}
+
+/**
+ * Rodízio justo com peso: olha as últimas entregas DO RODÍZIO nesta equipe e
+ * escolhe quem está mais atrás da sua parte (peso 2 = o dobro de leads). A
+ * janela de 50 entregas impede que quem acabou de entrar receba tudo de uma
+ * vez para "compensar" o passado. Empate → quem recebeu há mais tempo.
+ */
+async function rodizioJusto(teamId: number, pool: CandidateMember[]): Promise<number> {
+  const ultimas = await prisma.routingDistribution.findMany({
+    where: { teamId },
+    orderBy: { id: 'desc' },
+    take: 50,
+    select: { userId: true, createdAt: true },
   })
-  return pool[0]!.userId
+  const ids = new Set(pool.map((m) => m.userId))
+  const naJanela = ultimas.filter((u) => ids.has(u.userId))
+  const total = naJanela.length + 1
+  const somaPesos = pool.reduce((a, m) => a + m.weight, 0)
+  const recebidas = new Map<number, number>()
+  const ultimaVez = new Map<number, number>()
+  for (const u of naJanela) {
+    recebidas.set(u.userId, (recebidas.get(u.userId) ?? 0) + 1)
+    if (!ultimaVez.has(u.userId)) ultimaVez.set(u.userId, u.createdAt.getTime())
+  }
+  const atraso = (m: CandidateMember) => (m.weight / somaPesos) * total - (recebidas.get(m.userId) ?? 0)
+  const ordenado = [...pool].sort((a, b) => {
+    const d = atraso(b) - atraso(a)
+    if (Math.abs(d) > 1e-9) return d
+    return (ultimaVez.get(a.userId) ?? 0) - (ultimaVez.get(b.userId) ?? 0)
+  })
+  return ordenado[0]!.userId
 }
 
 /**
@@ -587,6 +732,22 @@ export async function resolveRoutingFromContext(ctx: RoutingContext): Promise<Re
   // ownerUserId, lead é atribuído direto sem passar por regras nem cascata.
   // Owner é o "dono" do número — não faria sentido sobrescrever via outras regras.
   // Pre-requisito: motor V2 ligado (modelo agente-isolado).
+  // 0b. Número da Cloud API dedicado a um agente (o mesmo do item 0, para a Cloud API).
+  if (v2 && ctx.cloudApiConnectionId) {
+    const conn = await prisma.cloudApiConnection.findUnique({
+      where: { id: ctx.cloudApiConnectionId },
+      select: { ownerUserId: true, owner: { select: { active: true, role: true } } },
+    })
+    if (conn?.ownerUserId && conn.owner?.active && conn.owner.role !== 'VIEWER') {
+      const tm = await prisma.teamMember.findFirst({
+        where: { userId: conn.ownerUserId, team: { active: true } },
+        select: { teamId: true },
+        orderBy: { id: 'asc' },
+      })
+      return { teamId: tm?.teamId ?? null, userId: conn.ownerUserId, ruleId: null, ruleName: 'Número dedicado (dono)' }
+    }
+  }
+
   if (v2 && ctx.instanceName) {
     const inst = await prisma.whatsAppInstance.findFirst({
       where: { instanceName: ctx.instanceName, active: true },
@@ -631,7 +792,9 @@ export async function resolveRoutingFromContext(ctx: RoutingContext): Promise<Re
       }
       // Action team → resolve operador via picker (mesmas regras de horário/capacidade).
       if (teamId && !userId) {
-        userId = await pickOperatorForTeam(teamId)
+        const r = await escolherComPlantao(teamId, ctx.source)
+        teamId = r.teamId
+        userId = r.userId
       }
       return {
         teamId,
@@ -646,9 +809,30 @@ export async function resolveRoutingFromContext(ctx: RoutingContext): Promise<Re
   const teamId = await resolveDefaultTeamId({
     chatbotId: ctx.chatbotId ?? null,
     instanceName: ctx.instanceName ?? null,
+    cloudApiConnectionId: ctx.cloudApiConnectionId ?? null,
   })
-  const userId = teamId ? await pickOperatorForTeam(teamId) : null
-  return { teamId, userId, ruleId: null, ruleName: null }
+  if (!teamId) return { teamId: null, userId: null, ruleId: null, ruleName: null }
+  const r = await escolherComPlantao(teamId, ctx.source)
+  return { teamId: r.teamId, userId: r.userId, ruleId: null, ruleName: null }
+}
+
+/**
+ * Operador da equipe; se ela estiver FECHADA pelo horário, o plantão
+ * (routing.out_of_hours_team_id). A configuração existia na tela, mas nada a
+ * lia — lead de fora do horário ficava parado na fila da equipe fechada.
+ * Plantão igual à própria equipe (ou não configurado) = comportamento de antes.
+ */
+async function escolherComPlantao(teamId: number, origem?: string | null): Promise<{ teamId: number; userId: number | null }> {
+  const userId = await pickOperatorForTeam(teamId, origem ? { origem } : undefined)
+  if (userId) return { teamId, userId }
+  const team = await prisma.team.findUnique({ where: { id: teamId }, select: { workingHoursEnabled: true } })
+  if (team?.workingHoursEnabled && (await isRoutingV2Enabled()) && !(await isTeamOpen(teamId))) {
+    const plantao = await getOutOfHoursTeamId()
+    if (plantao && plantao !== teamId) {
+      return { teamId: plantao, userId: await pickOperatorForTeam(plantao, { origem: 'plantao' }) }
+    }
+  }
+  return { teamId, userId: null }
 }
 
 // Setor de plantão fora de horário. Lido sob demanda (cache 60s).
@@ -752,4 +936,38 @@ export async function canSendVia(
 
   // Sem amarração: sem restrição extra (instância "comum" do tenant).
   return { ok: true }
+}
+
+/**
+ * Contato SEM responsável voltou a escrever: distribui pelo rodízio da equipe
+ * dele (chave `routing.redistribuirSemDono`, desligada por padrão). Antes o
+ * roteador só rodava na criação do lead — quem perdia o dono (saída do
+ * atendente, escalada, devolução à fila) ficava parado esperando alguém pegar.
+ * Equipe em modo manual continua com fila de claim; grupo nunca é distribuído.
+ */
+export async function redistribuirSemDono(leadId: number): Promise<number | null> {
+  const ajustes = await getAjustesRoteamento()
+  if (!ajustes.redistribuirSemDono) return null
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { assignedUserId: true, teamId: true, isGroup: true } })
+  if (!lead || lead.isGroup || lead.assignedUserId) return null
+  const teamId = lead.teamId ?? (await resolveDefaultTeamId())
+  if (!teamId) return null
+  const userId = await pickOperatorForTeam(teamId, { origem: 'retorno' })
+  if (!userId) return null
+  // Só se ninguém pegou nesse meio-tempo.
+  const r = await prisma.lead.updateMany({
+    where: { id: leadId, assignedUserId: null },
+    data: { assignedUserId: userId, assignedAt: new Date(), ...(lead.teamId ? {} : { teamId }) },
+  })
+  if (!r.count) return null
+  const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
+  logEvent({
+    leadId,
+    type: EVENT_TYPES.OPERATOR_ASSIGNED,
+    category: 'operator',
+    title: 'Contato sem responsável voltou a escrever — distribuído pelo rodízio',
+    actorType: 'system',
+    metadata: { userId, teamId, motivo: 'retorno_sem_dono' },
+  } as any)
+  return userId
 }

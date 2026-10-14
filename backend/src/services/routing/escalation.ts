@@ -16,7 +16,7 @@
 // Roda a cada 5min. Inerte enquanto Setting routing.escalation.enabled=false.
 
 import { prisma } from '../../lib/prisma.js'
-import { getEscalationConfig } from '../teamRouting.js'
+import { getEscalationConfig, getAjustesRoteamento, pickOperatorForTeam } from '../teamRouting.js'
 import { reassignPendingCadenceActivities } from './helpers.js'
 import { logEvent, EVENT_TYPES } from '../leadHistory.js'
 
@@ -24,12 +24,89 @@ const OFFLINE_THRESHOLD_MS = 30 * 60 * 1000   // 30min sem ficar online
 
 type ReleaseReason = 'agent_on_vacation' | 'agent_inactive' | 'agent_offline' | 'no_response'
 
-interface ReleaseCandidate {
+export interface ReleaseCandidate {
   leadId: number
   assignedUserId: number
   teamId: number | null
   reason: ReleaseReason
   details?: Record<string, unknown>
+}
+
+/**
+ * Escalada nova (chave routing.escalation.porMensagem): passa o lead para
+ * OUTRA pessoa da equipe pelo rodízio. Só devolve à fila quando não há
+ * ninguém (equipe manual, todos fora). Antes ela só devolvia à fila — e o
+ * lead ficava parado até alguém pegar.
+ */
+export async function reatribuirOuDevolver(c: ReleaseCandidate): Promise<'reatribuido' | 'devolvido' | null> {
+  if (c.teamId) {
+    const novo = await pickOperatorForTeam(c.teamId, { excludeUserIds: [c.assignedUserId], origem: 'escalada' })
+    if (novo) {
+      const r = await prisma.lead.updateMany({
+        where: { id: c.leadId, assignedUserId: c.assignedUserId },
+        data: { assignedUserId: novo, assignedAt: new Date() },
+      })
+      if (r.count === 0) return null
+      const reassigned = await reassignPendingCadenceActivities(c.leadId, novo)
+      logEvent({
+        leadId: c.leadId,
+        type: EVENT_TYPES.AGENT_REASSIGNED_ESCALATION,
+        category: 'operator',
+        title: titleForReason(c.reason).replace('Lead devolvido', 'Lead passado a outra pessoa'),
+        actorType: 'system',
+        metadata: { previousAssignedUserId: c.assignedUserId, newAssignedUserId: novo, reason: c.reason, reassignedCadenceActivities: reassigned, ...(c.details ?? {}) },
+      })
+      return 'reatribuido'
+    }
+  }
+  await releaseLead(c)
+  return 'devolvido'
+}
+
+/**
+ * "Sem resposta" medido pelo CHAT (escalada nova): conversa aberta em que o
+ * contato escreveu depois da atribuição e ninguém da empresa respondeu em N
+ * minutos. A regra antiga olhava só Activity concluída — o atendente
+ * respondia no chat e perdia o lead do mesmo jeito (elementus: 1.751 leads
+ * devolvidos em 30 dias); e pegava até conversa encerrada.
+ */
+export async function findUnansweredLeads(minutes: number): Promise<ReleaseCandidate[]> {
+  const threshold = new Date(Date.now() - minutes * 60_000)
+  const candidates = await prisma.lead.findMany({
+    where: {
+      assignedUserId: { not: null },
+      outcome: null,
+      isGroup: false,
+      assignedAt: { lt: threshold },
+      conversationOpenedAt: { not: null },
+      conversationClosedAt: null,
+    },
+    select: { id: true, assignedUserId: true, teamId: true, assignedAt: true },
+    orderBy: { assignedAt: 'asc' },
+    take: 300,
+  })
+  const out: ReleaseCandidate[] = []
+  for (const c of candidates) {
+    if (!c.assignedUserId || !c.assignedAt) continue
+    const pendente = await prisma.message.findFirst({
+      where: { leadId: c.id, fromMe: false, isInternal: false, timestamp: { gte: c.assignedAt } },
+      orderBy: { timestamp: 'asc' },
+      select: { timestamp: true },
+    })
+    if (!pendente || pendente.timestamp > threshold) continue
+    const respondeu = await prisma.message.count({
+      where: { leadId: c.id, fromMe: true, isInternal: false, isDeleted: false, timestamp: { gte: pendente.timestamp } },
+    })
+    if (respondeu > 0) continue
+    out.push({
+      leadId: c.id,
+      assignedUserId: c.assignedUserId,
+      teamId: c.teamId,
+      reason: 'no_response',
+      details: { mensagemSemRespostaDesde: pendente.timestamp.toISOString(), limiteMinutos: minutes, medida: 'chat' },
+    })
+  }
+  return out
 }
 
 async function releaseLead(c: ReleaseCandidate): Promise<void> {
@@ -197,13 +274,16 @@ export async function runEscalationCheck(): Promise<RunResult> {
   let offline = 0
   let noResponse = 0
   const seenLeadIds = new Set<number>()
+  const nova = (await getAjustesRoteamento()).escalacaoPorMensagem
+  // Escalada nova: reatribui em vez de só devolver. Antiga: devolve à fila.
+  const agir = async (c: ReleaseCandidate) => { if (nova) await reatribuirOuDevolver(c); else await releaseLead(c) }
 
   // 1+2. Férias e inativos (1 query cobrindo os dois).
   const inactiveCandidates = await findInactiveAgentLeads()
   for (const c of inactiveCandidates) {
     if (seenLeadIds.has(c.leadId)) continue
     seenLeadIds.add(c.leadId)
-    await releaseLead(c)
+    await agir(c)
     if (c.reason === 'agent_on_vacation') vacation++
     else inactive++
   }
@@ -214,17 +294,17 @@ export async function runEscalationCheck(): Promise<RunResult> {
     for (const c of offlineCandidates) {
       if (seenLeadIds.has(c.leadId)) continue
       seenLeadIds.add(c.leadId)
-      await releaseLead(c)
+      await agir(c)
       offline++
     }
   }
 
-  // 4. Sem resposta.
-  const stale = await findStaleLeads(config.minutes)
+  // 4. Sem resposta (nova: medida pelo chat; antiga: por atividade concluída).
+  const stale = nova ? await findUnansweredLeads(config.minutes) : await findStaleLeads(config.minutes)
   for (const c of stale) {
     if (seenLeadIds.has(c.leadId)) continue
     seenLeadIds.add(c.leadId)
-    await releaseLead(c)
+    await agir(c)
     noResponse++
   }
 
@@ -259,3 +339,7 @@ export function stopEscalationScheduler(): void {
     _intervalHandle = null
   }
 }
+
+/** Para a bateria de testes: as duas peças da escalada nova, sem o ciclo
+ *  (o ciclo agiria sobre todos os leads do cliente). */
+export const _paraTestes = { findUnansweredLeads, reatribuirOuDevolver }
