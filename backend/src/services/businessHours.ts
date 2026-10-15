@@ -131,6 +131,12 @@ export async function getConfiguredBusinessHours(): Promise<string | null> {
   const setting = await prisma.setting.findUnique({ where: { key: 'business_hours' } }).catch(() => null)
   if (!setting || !setting.value || typeof setting.value !== 'object') return null
   const config = { ...DEFAULT_CONFIG, ...(setting.value as any) }
+  // Horário DESLIGADO na tela não é fonte da verdade para o chatbot: ele
+  // afirmava "segunda a sexta, das 8h às 17h30" para quem tinha desligado o
+  // Horário Comercial justamente para não prometer janela de atendimento. O
+  // schedule continua valendo como régua do tempo de resposta (responseTime lê
+  // a Setting direto), só deixa de virar fala do bot.
+  if (config.enabled === false) return null
   return formatBusinessHours(config)
 }
 
