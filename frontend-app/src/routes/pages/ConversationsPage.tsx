@@ -4767,6 +4767,24 @@ function EditContactModal({
     const atuais = (lead.customFields ?? {}) as Record<string, unknown>
     return Object.fromEntries(camposDaConversa(cfData?.fields).map((f) => [f.key, atuais[f.key] ?? ""]))
   })
+  // O catálogo de campos pode chegar depois do modal abrir. Sem semear de
+  // novo, o campo ficaria vazio na tela e o Salvar apagaria o que o lead já
+  // tinha. Só preenche chave que ainda não existe: o que o atendente digitou
+  // não é tocado.
+  const chavesExtras = camposExtras.map((f) => f.key).join(',')
+  useEffect(() => {
+    if (camposExtras.length === 0) return
+    setCf((atual) => {
+      const atuais = (lead.customFields ?? {}) as Record<string, unknown>
+      let mudou = false
+      const novo = { ...atual }
+      for (const f of camposExtras) {
+        if (!(f.key in novo)) { novo[f.key] = atuais[f.key] ?? ""; mudou = true }
+      }
+      return mudou ? novo : atual
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chavesExtras])
   const [form, setForm] = useState({
     nome: lead.nome ?? '',
     empresa: lead.empresa ?? '',
@@ -4821,7 +4839,9 @@ function EditContactModal({
             toast('Dados atualizados', 'success'); onClose(); return
           }
           salvarCampos.mutate(
-            Object.fromEntries(camposExtras.map((f) => [f.key, cf[f.key] ?? ''])),
+            // Só vai o que foi semeado: campo que o modal nunca chegou a
+            // carregar não pode ser enviado em branco e limpar o valor.
+            Object.fromEntries(camposExtras.filter((f) => f.key in cf).map((f) => [f.key, cf[f.key] ?? ''])),
             {
               onSuccess: () => { toast('Dados atualizados', 'success'); onClose() },
               onError: (e: unknown) => setError((e as Error).message || 'Erro ao salvar os campos personalizados'),
