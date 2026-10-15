@@ -2531,6 +2531,15 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           },
         })
 
+    // Espelho no CRM: o que o candidato preencheu vira campo personalizado do
+    // lead, para quem atende ver o cadastro sem abrir a inscrição.
+    try {
+      const { espelharInscricaoNoLead } = await import('../services/dadosCadastro.js')
+      await espelharInscricaoNoLead({ leadId: lead.id, formData: fd }, portal.formConfig)
+    } catch (err: any) {
+      req.log.warn(`[enrollment] espelho do formulário no lead falhou: ${err.message}`)
+    }
+
     // Conta do portal: quem se inscreve já sai daqui com credencial própria.
     // Se o formulário pediu senha, ela vale desde agora; senão a conta nasce
     // sem senha e o link de primeiro acesso resolve. Em nenhum dos casos o

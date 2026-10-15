@@ -611,6 +611,15 @@ export interface DocumentSlot {
 
 export type EssayStatus = 'not-required' | 'pending' | 'submitted' | 'reviewing' | 'approved' | 'rejected'
 
+export interface CampoDoCadastro {
+  chave: string
+  rotulo: string
+  grupo: string
+  tipo: string
+  opcoes?: string[]
+  valor: string
+}
+
 export interface RegistrationReview {
   registration: {
     id: number
@@ -659,6 +668,11 @@ export interface RegistrationReview {
     submissionId?: number | null; situacao?: string | null; enviadaEm?: string | null
     aiPct?: number | null; integridade?: 'ok' | 'atencao' | 'suspeita' | 'indisponivel' | null; decisaoIntegridade?: 'confirmada' | 'descartada' | null
   }
+  /**
+   * Tudo o que o candidato preencheu no formulário da inscrição, agrupado e
+   * na ordem em que o portal pede. Os rótulos são os que ele leu na tela.
+   */
+  cadastro?: { grupo: string; campos: CampoDoCadastro[] }[]
   slots: DocumentSlot[]
   extras: EnrollmentDocument[]
   autoAdvance:

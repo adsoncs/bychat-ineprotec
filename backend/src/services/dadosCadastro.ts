@@ -380,3 +380,176 @@ export function erroDoValor(c: CampoPedido, v: unknown): string | null {
   if (c.type === 'select' && c.options?.length && !c.options.includes(s)) return `${c.label}: escolha uma das opções.`
   return null
 }
+
+// ─── Espelho do formulário ────────────────────────────────────────────────
+//
+// O que o candidato preenche no portal fica em registration.formData, que não
+// é tela nenhuma: a inscrição mostrava só nome/CPF/e-mail/WhatsApp e o endereço
+// só virava cadastro na efetivação. Aqui o formulário é lido inteiro, com os
+// rótulos do próprio portal, para (1) a tela da inscrição mostrar tudo e
+// (2) espelhar o mesmo conteúdo em campos personalizados do lead, de modo que
+// quem trabalha no CRM veja os dados sem abrir a inscrição.
+
+export interface CampoPreenchido {
+  chave: string
+  rotulo: string
+  grupo: string
+  tipo: TipoDado
+  opcoes?: string[]
+  valor: string
+}
+
+/** Chaves do formData que são controle, não resposta do candidato. */
+const CHAVES_TECNICAS = new Set([
+  'campusId', 'offeringId', 'entryModeId', 'ofertaId', 'formaIngressoId', 'planoId', 'portalId',
+  'senha', 'password', 'senhaConfirmacao', 'lgpdConsent', 'recaptchaToken', 'captcha',
+  'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+  'fbclid', 'gclid', 'referrer',
+])
+/** Tipos de campo do formConfig que não são dado do cadastro. */
+const TIPOS_NAO_DADO = new Set(['offering-picker', 'password', 'hidden', 'heading', 'paragraph'])
+
+function textoDoValor(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não'
+  if (v instanceof Date) return v.toLocaleDateString('pt-BR')
+  if (Array.isArray(v)) return v.map(textoDoValor).filter(Boolean).join(', ')
+  if (typeof v === 'object') return ''
+  return String(v).trim()
+}
+
+function rotuloDaChave(chave: string): string {
+  const pronto = POR_CHAVE.get(chave)?.rotulo
+  if (pronto) return pronto
+  const s = chave.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim()
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/**
+ * Todos os campos do formulário da inscrição, na ordem em que o portal os pede.
+ * Os rótulos vêm do formConfig (é o que o candidato leu na tela); o catálogo
+ * entra como reserva e define o grupo. Respostas que não estão mais no
+ * formulário (campo removido depois, dado vindo do chat) vão para o fim.
+ */
+export function camposDoFormulario(formConfig: unknown, form: Record<string, any>): CampoPreenchido[] {
+  const out: CampoPreenchido[] = []
+  const vistos = new Set<string>()
+  const marcar = (chave: string) => {
+    vistos.add(chave)
+    for (const s of SINONIMOS[chave] ?? []) vistos.add(s)
+  }
+
+  const steps = (formConfig as any)?.steps
+  if (Array.isArray(steps)) {
+    for (const step of steps) {
+      for (const f of (step?.fields ?? [])) {
+        const chave = String(f?.name ?? '')
+        if (!chave || vistos.has(chave)) continue
+        if (CHAVES_TECNICAS.has(chave) || TIPOS_NAO_DADO.has(String(f?.type ?? ''))) { marcar(chave); continue }
+        const cat = POR_CHAVE.get(chave)
+        out.push({
+          chave,
+          rotulo: String(f?.label || cat?.rotulo || rotuloDaChave(chave)).slice(0, 191),
+          grupo: cat?.grupo || String(step?.name || 'Formulário'),
+          tipo: (cat?.tipo ?? (f?.type === 'select' ? 'select' : 'text')) as TipoDado,
+          opcoes: Array.isArray(f?.options) ? f.options.map(String) : cat?.opcoes,
+          valor: textoDoValor(valorNoForm(form, chave)),
+        })
+        marcar(chave)
+      }
+    }
+  }
+
+  for (const [chave, bruto] of Object.entries(form ?? {})) {
+    if (vistos.has(chave) || chave.startsWith('_') || CHAVES_TECNICAS.has(chave)) continue
+    const valor = textoDoValor(bruto)
+    if (!valor) continue
+    const cat = POR_CHAVE.get(chave)
+    out.push({
+      chave,
+      rotulo: cat?.rotulo ?? rotuloDaChave(chave),
+      grupo: cat?.grupo ?? 'Outras respostas',
+      tipo: cat?.tipo ?? 'text',
+      opcoes: cat?.opcoes,
+      valor,
+    })
+    marcar(chave)
+  }
+
+  return out
+}
+
+/** Os mesmos campos, agrupados na ordem em que aparecem. */
+export function agruparCampos(campos: CampoPreenchido[]): { grupo: string; campos: CampoPreenchido[] }[] {
+  const ordem: string[] = []
+  const por: Record<string, CampoPreenchido[]> = {}
+  for (const c of campos) {
+    if (!por[c.grupo]) { por[c.grupo] = []; ordem.push(c.grupo) }
+    por[c.grupo].push(c)
+  }
+  return ordem.map((g) => ({ grupo: g, campos: por[g] }))
+}
+
+/** Nome, e-mail e WhatsApp já são colunas do lead: espelhá-los seria repetir. */
+const JA_NO_LEAD = new Set(['nome', 'email', 'whatsapp'])
+const TIPO_CUSTOM_FIELD: Record<TipoDado, string> = {
+  text: 'text', email: 'email', phone: 'phone', cpf: 'text',
+  date: 'date', cep: 'text', select: 'select', number: 'number',
+}
+
+/** Chave do campo personalizado que espelha um dado do portal. */
+export function chaveDoEspelho(chave: string): string {
+  const slug = chave.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().replace(/[^a-z0-9_]+/g, '_')
+  return `cad_${slug}`.slice(0, 100)
+}
+
+/**
+ * Copia o formulário para campos personalizados do lead. Cria a definição do
+ * campo na primeira vez que o dado aparece (fora dos formulários de captação,
+ * para não mudar o que o time preenche à mão) e só grava o que veio
+ * preenchido: resposta em branco não apaga o que já estava lá.
+ */
+export async function espelharNoLead(leadId: number | null, campos: CampoPreenchido[]): Promise<void> {
+  if (!leadId) return
+  const uteis = campos.filter((c) => c.valor !== '' && !JA_NO_LEAD.has(c.chave))
+  if (!uteis.length) return
+
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { customFields: true } })
+  if (!lead) return
+
+  const chaves = uteis.map((c) => chaveDoEspelho(c.chave))
+  const existentes = new Set(
+    (await prisma.customField.findMany({ where: { key: { in: chaves } }, select: { key: true } })).map((f) => f.key),
+  )
+  const novos = uteis
+    .filter((c) => !existentes.has(chaveDoEspelho(c.chave)))
+    .map((c) => ({
+      key: chaveDoEspelho(c.chave),
+      label: c.rotulo.slice(0, 191),
+      type: TIPO_CUSTOM_FIELD[c.tipo] ?? 'text',
+      group: c.grupo.slice(0, 50),
+      description: 'Preenchido pelo candidato no portal de matrículas.',
+      options: c.opcoes?.length ? (c.opcoes.map((o) => ({ label: o, value: o })) as any) : undefined,
+      showInForm: false,
+      showInList: false,
+      position: 900,
+    }))
+  if (novos.length) {
+    // skipDuplicates: dois envios simultâneos podem criar o mesmo campo.
+    await prisma.customField.createMany({ data: novos as any, skipDuplicates: true }).catch(() => {})
+  }
+
+  const valores: Record<string, unknown> = { ...((lead.customFields as Record<string, unknown>) ?? {}) }
+  for (const c of uteis) valores[chaveDoEspelho(c.chave)] = c.valor
+  await prisma.lead.update({ where: { id: leadId }, data: { customFields: valores as any } })
+}
+
+/** Espelho a partir da inscrição — o caminho usado pelas rotas do portal. */
+export async function espelharInscricaoNoLead(
+  reg: { leadId: number | null; formData: unknown },
+  formConfig: unknown,
+): Promise<void> {
+  if (!reg.leadId) return
+  const campos = camposDoFormulario(formConfig, (reg.formData as Record<string, any>) || {})
+  await espelharNoLead(reg.leadId, campos)
+}

@@ -205,7 +205,7 @@ export async function efetivarInscricao(
   // Dados exigidos para matricular (Educacional › Dados por etapa, ou o ajuste
   // do portal). Falta algum → não vira matrícula; a secretaria vê o que falta e
   // completa em Acadêmico › Pessoas, ou o candidato completa pelo portal.
-  const { pendenciasParaMatricular, aplicarNoCadastro } = await import('./dadosCadastro.js')
+  const { pendenciasParaMatricular, aplicarNoCadastro, espelharInscricaoNoLead } = await import('./dadosCadastro.js')
   const faltam = await pendenciasParaMatricular(reg.id)
   if (faltam.length) {
     throw new Error(`Faltam dados para matricular ${reg.candidateCode}: ${faltam.map((f) => f.rotulo).join(', ')}.`)
@@ -231,6 +231,8 @@ export async function efetivarInscricao(
   // Endereço, escolaridade, ENEM e responsável financeiro: o catálogo sabe para
   // onde vai cada um (garantirAluno só cobre as colunas de identificação).
   await aplicarNoCadastro(reg.leadId, form)
+  // Espelho no CRM: garante os campos personalizados até em inscrição antiga.
+  await espelharInscricaoNoLead({ leadId: reg.leadId, formData: form }, null).catch(() => {})
   // Forma de ingresso: a do processo seletivo da inscrição. O formData nunca
   // trouxe entryModeId, então o vínculo nascia sem ela.
   const entryModeId = Number(achar(form, ['entryModeId', 'formaIngressoId']) || 0)

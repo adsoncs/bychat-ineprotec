@@ -11,6 +11,8 @@ import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
 import { requisitosQueValem } from '../services/docCondicional.js'
+// Formulário inteiro da inscrição (rótulos do portal) para a tela mostrar tudo.
+import { camposDoFormulario, agruparCampos } from '../services/dadosCadastro.js'
 
 export { computeDocsCompletionStatus }  // re-export para preservar callers existentes
 
@@ -367,6 +369,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
         portal: {
           select: {
             id: true, nome: true, slug: true, funnelId: true, docsCompleteStageKey: true,
+            formConfig: true,
             funnel: {
               select: {
                 id: true, name: true,
@@ -508,7 +511,10 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
         paymentPaidAt: reg.paymentPaidAt,
       },
       lead: reg.lead,
-      portal: reg.portal,
+      // formConfig fica fora da resposta: serve só para montar os rótulos abaixo.
+      portal: reg.portal ? { ...reg.portal, formConfig: undefined } : null,
+      // Tudo o que o candidato preencheu, na ordem do formulário do portal.
+      cadastro: agruparCampos(camposDoFormulario((reg.portal as any)?.formConfig, (reg.formData as Record<string, any>) || {})),
       processRegistration: reg.processRegistration,
       completion,  // 'pending' | 'rejected' | 'complete'
       essay: {

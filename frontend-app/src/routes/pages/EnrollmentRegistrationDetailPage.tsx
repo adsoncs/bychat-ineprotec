@@ -136,6 +136,7 @@ export function EnrollmentRegistrationDetailPage({ params }: { params: { portalI
               Etapas › tela de inscrição) — a mesma do cabeçalho e do candidato. */}
           <SomenteLeitura aviso={false} tela="enrollment_portals"><CandidatePortalCard review={review} /></SomenteLeitura>
           <CandidateCard review={review} />
+          <DadosCadastroCard review={review} />
           <RegistrationCard review={review} />
           {ordemDasEtapas(etapasDaPagina.data?.inscricao, etapasDaPagina.data?.painel).map((chave) => {
             const id = review.registration.id
@@ -909,6 +910,53 @@ function CandidateCard({ review }: { review: RegistrationReview }) {
       >
         Abrir lead no CRM <ExternalLink size={11} />
       </a>
+    </Card>
+  )
+}
+
+// Tudo o que o candidato respondeu no formulário da inscrição. O card do
+// candidato mostra só a identificação; endereço, escolaridade e as perguntas
+// próprias do portal ficavam só no banco, e a secretaria não tinha onde ler
+// para cadastrar. Os mesmos dados espelham em campos personalizados do lead.
+function DadosCadastroCard({ review }: { review: RegistrationReview }) {
+  const grupos = (review.cadastro ?? []).filter((g) => g.campos.length > 0)
+  if (grupos.length === 0) return null
+
+  const preenchidos = grupos.flatMap((g) => g.campos).filter((c) => c.valor !== "").length
+
+  function copiarTudo() {
+    const txt = grupos
+      .map((g) => [g.grupo, ...g.campos.map((c) => `${c.rotulo}: ${c.valor || "—"}`)].join("\n"))
+      .join("\n\n")
+    navigator.clipboard.writeText(txt)
+      .then(() => toast("Dados copiados", "success"))
+      .catch(() => toast("Falha ao copiar", "danger"))
+  }
+
+  return (
+    <Card>
+      <div class="flex items-center gap-2 mb-3">
+        <div class="text-xs uppercase tracking-wider text-fg-muted">Dados do cadastro</div>
+        <span class="text-2xs text-fg-muted">{preenchidos} preenchidos</span>
+        <Button variant="ghost" size="sm" class="ml-auto" onClick={copiarTudo}>
+          <Copy size={12} /> Copiar tudo
+        </Button>
+      </div>
+      <div class="space-y-4">
+        {grupos.map((g) => (
+          <div key={g.grupo}>
+            <div class="text-2xs uppercase tracking-wider text-accent font-medium mb-1.5">{g.grupo}</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              {g.campos.map((c) => (
+                <Field key={c.chave} label={c.rotulo} value={c.valor || "—"} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div class="text-2xs text-fg-muted mt-3">
+        Os mesmos dados ficam na ficha do lead, em Campos personalizados.
+      </div>
     </Card>
   )
 }
