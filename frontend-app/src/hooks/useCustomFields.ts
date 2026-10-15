@@ -15,6 +15,8 @@ export interface CustomField {
   showInList?: boolean
   showInKanban?: boolean
   showInForm?: boolean
+  /** Aparece (e é editável) no painel Informações da conversa. */
+  showInConversation?: boolean
   position: number
   active: boolean
   createdAt: string
@@ -33,6 +35,7 @@ export interface CustomFieldInput {
   showInList?: boolean | undefined
   showInKanban?: boolean | undefined
   showInForm?: boolean | undefined
+  showInConversation?: boolean | undefined
   active?: boolean | undefined
 }
 
@@ -41,6 +44,23 @@ export function useCustomFields(includeInactive = false) {
     queryKey: ['custom-fields', includeInactive],
     queryFn: () => api.get<{ fields: CustomField[] }>(includeInactive ? '/custom-fields/all' : '/custom-fields'),
     staleTime: 60_000,
+  })
+}
+
+/**
+ * Grava os valores dos campos personalizados de UM lead (merge no servidor).
+ * Usado pelo painel Informações da conversa, onde o atendente edita sem
+ * abrir a ficha completa.
+ */
+export function useSaveLeadCustomFields(leadId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (valores: Record<string, unknown>) =>
+      api.put<{ ok: true; customFields: Record<string, unknown> }>(`/leads/${leadId}/custom-fields`, valores),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['ticket-info', leadId] })
+      void qc.invalidateQueries({ queryKey: ['lead', leadId] })
+    },
   })
 }
 

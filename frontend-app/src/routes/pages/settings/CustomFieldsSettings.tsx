@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'preact/hooks'
 import {
   Database, Plus, Pencil, Trash2, Copy, Check, Eye, KanbanSquare, FormInput,
-  Info, AlertTriangle,
+  Info, AlertTriangle, MessageSquare,
 } from '@/components/ui/icon-set'
 import {
   useCustomFields,
@@ -252,6 +252,7 @@ function CustomFieldsSortable({
             {f.showInList !== false && <span title="Visível na listagem"><Eye size={12} /></span>}
             {f.showInKanban && <span title="Visível no Kanban"><KanbanSquare size={12} /></span>}
             {f.showInForm !== false && <span title="Visível em formulários públicos"><FormInput size={12} /></span>}
+            {f.showInConversation && <span title="Visível no painel Informações da conversa"><MessageSquare size={12} /></span>}
           </div>
           <div class="flex gap-1.5 shrink-0 flex-wrap">
             <Button variant="secondary" size="sm" onClick={() => onEdit(f)} aria-label="Editar campo" title="Editar">
@@ -318,6 +319,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
     showInList: field?.showInList !== false,
     showInKanban: field?.showInKanban ?? false,
     showInForm: field?.showInForm !== false,
+    showInConversation: field?.showInConversation ?? false,
   })
   const [optionsText, setOptionsText] = useState(
     initialOptions.map((o) => (o.value === o.label ? o.value : `${o.value}|${o.label}`)).join('\n'),
@@ -380,6 +382,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
       showInList: form.showInList,
       showInKanban: form.showInKanban,
       showInForm: form.showInForm,
+      showInConversation: form.showInConversation,
     }
     if (isEdit) {
       update.mutate({ id: field.id, ...payload }, {
@@ -526,7 +529,7 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
 
         <div>
           <div class="text-xs font-semibold text-fg mb-1.5">Visibilidade</div>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-md border border-border p-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-md border border-border p-2">
             <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
               <input type="checkbox" checked={form.showInList} onChange={(e) => patch('showInList', (e.target as HTMLInputElement).checked)} />
               <Eye size={12} /> Lista de leads
@@ -538,6 +541,10 @@ function CustomFieldFormModal({ field, onClose }: { field: CustomField | null; o
             <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
               <input type="checkbox" checked={form.showInForm} onChange={(e) => patch('showInForm', (e.target as HTMLInputElement).checked)} />
               <FormInput size={12} /> Formulários
+            </label>
+            <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
+              <input type="checkbox" checked={form.showInConversation} onChange={(e) => patch('showInConversation', (e.target as HTMLInputElement).checked)} />
+              <MessageSquare size={12} /> Conversas (Informações)
             </label>
           </div>
         </div>

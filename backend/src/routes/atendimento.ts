@@ -2867,6 +2867,9 @@ export async function atendimentoRoutes(app: FastifyInstance) {
           conversationReopenedAt: true,
           snoozedUntil: true,
           formData: true,
+          // Campos personalizados marcados para o painel Informações: o atendente
+          // vê e edita sem abrir a ficha completa do lead.
+          customFields: true,
           tags: { select: { tag: { select: { id: true, name: true, color: true } } } }
         }
       })

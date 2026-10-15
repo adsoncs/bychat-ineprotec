@@ -5,6 +5,7 @@ import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware } from '../lib/auth.js'
+import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 
 export async function customFieldsRoutes(app: FastifyInstance) {
 
@@ -74,6 +75,7 @@ export async function customFieldsRoutes(app: FastifyInstance) {
         showInList: body.showInList || false,
         showInKanban: body.showInKanban || false,
         showInForm: body.showInForm !== false,
+        showInConversation: body.showInConversation || false,
         group: body.group || 'custom',
         position: body.position || 0,
       }
@@ -98,6 +100,7 @@ export async function customFieldsRoutes(app: FastifyInstance) {
     if (body.showInList !== undefined) data.showInList = body.showInList
     if (body.showInKanban !== undefined) data.showInKanban = body.showInKanban
     if (body.showInForm !== undefined) data.showInForm = body.showInForm
+    if (body.showInConversation !== undefined) data.showInConversation = body.showInConversation
     if (body.group !== undefined) data.group = body.group
     if (body.position !== undefined) data.position = body.position
     if (body.active !== undefined) data.active = body.active
@@ -148,10 +151,37 @@ export async function customFieldsRoutes(app: FastifyInstance) {
     // Remover chaves com valor null/undefined
     Object.keys(merged).forEach(k => { if (merged[k] === null || merged[k] === undefined || merged[k] === '') delete merged[k] })
 
+    // `undefined` em Prisma significa "não mexa nesta coluna": gravar undefined
+    // quando o último campo é apagado fazia o valor antigo voltar na tela
+    // seguinte. Objeto vazio é um valor, e limpa de verdade.
     await prisma.lead.update({
       where: { id: parseInt(id) },
-      data: { customFields: Object.keys(merged).length > 0 ? merged : undefined }
+      data: { customFields: merged as any },
     })
+
+    // Quem editou o quê: o painel Informações da conversa passou a ser um
+    // lugar de edição corriqueira, e sem isto a alteração não deixa rastro.
+    const mudou = Array.from(new Set([...Object.keys(body ?? {}), ...Object.keys(current)]))
+      .filter((k) => String(current[k] ?? "") !== String(merged[k] ?? ""))
+    if (mudou.length) {
+      const defs = await prisma.customField.findMany({
+        where: { key: { in: mudou } }, select: { key: true, label: true },
+      }).catch(() => [] as { key: string; label: string }[])
+      const rotulo = (k: string) => defs.find((d) => d.key === k)?.label ?? k
+      const resumo = mudou.map((k) => `${rotulo(k)}: ${current[k] ?? "—"} → ${merged[k] ?? "—"}`).join(" · ")
+      logEvent({
+        leadId: parseInt(id),
+        type: EVENT_TYPES.LEAD_EDITED,
+        category: 'lifecycle',
+        title: `Campos personalizados editados: ${mudou.map(rotulo).join(", ")}`,
+        source: 'panel',
+        ...getOperator(req),
+        description: resumo,
+        oldValue: JSON.stringify(Object.fromEntries(mudou.map((k) => [k, current[k] ?? null]))),
+        newValue: JSON.stringify(Object.fromEntries(mudou.map((k) => [k, merged[k] ?? null]))),
+        ipAddress: getIp(req),
+      })
+    }
 
     return { ok: true, customFields: merged }
   })

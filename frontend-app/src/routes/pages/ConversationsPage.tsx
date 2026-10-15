@@ -162,6 +162,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
+import { useCustomFields, useSaveLeadCustomFields, type CustomField } from '@/hooks/useCustomFields'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { cn } from '@/lib/cn'
 import { ContextMenu, type ItemMenu } from '@/components/ui/ContextMenu'
@@ -4067,6 +4068,160 @@ function AbrirLeadButton({ leadId, isQualified }: { leadId: number; isQualified:
   )
 }
 
+// ── Campos personalizados no painel Informações ──────────────────────────
+// Só entram aqui os campos marcados em Cadastros › Campos personalizados ›
+// Visibilidade › "Conversas (Informações)". A ficha completa do lead mostra
+// todos; no chat, o atendente quer os poucos que usa durante o atendimento.
+function camposDaConversa(fields: CustomField[] | undefined): CustomField[] {
+  return (fields ?? []).filter((f) => f.active && f.showInConversation).sort((a, b) => a.position - b.position)
+}
+
+/** Opções de um select/multiselect, aceitando ["a"] ou [{value,label}]. */
+function opcoesDoCampo(raw: unknown): { value: string; label: string }[] {
+  if (!Array.isArray(raw)) return []
+  const out: { value: string; label: string }[] = []
+  for (const item of raw) {
+    if (typeof item === 'string') out.push({ value: item, label: item })
+    else if (item && typeof item === 'object') {
+      const o = item as { value?: unknown; label?: unknown }
+      const v = typeof o.value === 'string' ? o.value : ''
+      if (v !== '') out.push({ value: v, label: typeof o.label === 'string' ? o.label : v })
+    }
+  }
+  return out
+}
+
+/** Valor como o atendente lê: data em pt-BR, booleano como Sim/Não. */
+function valorLegivel(f: CustomField, valor: unknown): string {
+  if (valor === null || valor === undefined || valor === '') return ''
+  if (typeof valor === 'boolean') return valor ? 'Sim' : 'Não'
+  if (Array.isArray(valor)) return valor.join(', ')
+  const s = String(valor)
+  if (f.type === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [a, m, d] = s.split('-')
+    return `${d}/${m}/${a}`
+  }
+  return s
+}
+
+function CamposPersonalizadosSection({ lead, onEditar }: { lead: TicketLeadInfo; onEditar: () => void }) {
+  const { data } = useCustomFields()
+  const campos = camposDaConversa(data?.fields)
+  if (campos.length === 0) return null
+  const valores = (lead.customFields ?? {}) as Record<string, unknown>
+  return (
+    <section>
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-2xs uppercase tracking-wider text-fg-muted">Campos personalizados</div>
+        <button
+          type="button"
+          class="text-2xs px-2 py-0.5 rounded border border-accent bg-accent/10 text-accent hover:bg-accent/20"
+          onClick={onEditar}
+        >
+          Editar
+        </button>
+      </div>
+      <dl class="text-xs space-y-1">
+        {campos.map((f) => (
+          <InfoRow key={f.key} label={f.label} value={valorLegivel(f, valores[f.key]) || null} />
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+/** Um campo personalizado dentro do modal, com o input do tipo certo. */
+function CampoPersonalizadoInput({ campo, valor, onChange }: {
+  campo: CustomField
+  valor: unknown
+  onChange: (v: unknown) => void
+}) {
+  const opcoes = opcoesDoCampo(campo.options)
+  const texto = valor === null || valor === undefined ? '' : String(valor)
+
+  if (campo.type === 'checkbox') {
+    return (
+      <label class="flex items-center gap-2 text-xs text-fg cursor-pointer">
+        <input
+          type="checkbox"
+          checked={valor === true || texto === 'true' || texto === 'Sim'}
+          onChange={(e) => onChange((e.target as HTMLInputElement).checked)}
+        />
+        {campo.label}
+      </label>
+    )
+  }
+
+  if (campo.type === 'multiselect') {
+    const marcados = new Set(texto ? texto.split(',').map((s) => s.trim()).filter(Boolean) : [])
+    return (
+      <div>
+        <label class="text-2xs text-fg-muted block mb-1">{campo.label}</label>
+        <div class="flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-border p-2">
+          {opcoes.map((o) => (
+            <label key={o.value} class="flex items-center gap-1.5 text-xs text-fg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={marcados.has(o.value)}
+                onChange={(e) => {
+                  const novo = new Set(marcados)
+                  if ((e.target as HTMLInputElement).checked) novo.add(o.value)
+                  else novo.delete(o.value)
+                  onChange(Array.from(novo).join(', '))
+                }}
+              />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (campo.type === 'select') {
+    return (
+      <div>
+        <label class="text-2xs text-fg-muted block mb-1">{campo.label}</label>
+        <Select value={texto} onChange={(e) => onChange((e.target as HTMLSelectElement).value)}>
+          <option value="">—</option>
+          {opcoes.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </Select>
+      </div>
+    )
+  }
+
+  if (campo.type === 'textarea') {
+    return (
+      <div>
+        <label class="text-2xs text-fg-muted block mb-1">{campo.label}</label>
+        <Textarea
+          rows={2}
+          value={texto}
+          placeholder={campo.placeholder ?? ''}
+          onInput={(e) => onChange((e.target as HTMLTextAreaElement).value)}
+        />
+      </div>
+    )
+  }
+
+  const tipoHtml = campo.type === 'date' ? 'date'
+    : campo.type === 'number' || campo.type === 'currency' ? 'number'
+    : campo.type === 'email' ? 'email'
+    : campo.type === 'url' ? 'url'
+    : 'text'
+  return (
+    <div>
+      <label class="text-2xs text-fg-muted block mb-1">{campo.label}</label>
+      <Input
+        type={tipoHtml}
+        value={texto}
+        placeholder={campo.placeholder ?? ''}
+        onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+      />
+    </div>
+  )
+}
+
 function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void }) {
   const { data, isLoading } = useTicketInfo(leadId)
   const unqualify = useUnqualifyLead()
@@ -4321,6 +4476,9 @@ function InfoPanel({ leadId, onClose }: { leadId: number; onClose: () => void })
               <InfoRow label="Criado em" value={formatDayLabel(lead.createdAt)} />
             </dl>
           </section>
+
+          {/* Campos personalizados marcados para a conversa */}
+          <CamposPersonalizadosSection lead={lead} onEditar={() => { setEditFocus('nome'); setEditOpen(true) }} />
 
           {/* Anotação interna */}
           <section>
@@ -4600,6 +4758,15 @@ function EditContactModal({
   onClose: () => void
 }) {
   const update = useUpdateLeadContact()
+  // Campos personalizados marcados para a conversa: editados aqui mesmo, para
+  // o atendente não ter de abrir a ficha completa do lead no meio do chat.
+  const { data: cfData } = useCustomFields()
+  const salvarCampos = useSaveLeadCustomFields(leadId)
+  const camposExtras = camposDaConversa(cfData?.fields)
+  const [cf, setCf] = useState<Record<string, unknown>>(() => {
+    const atuais = (lead.customFields ?? {}) as Record<string, unknown>
+    return Object.fromEntries(camposDaConversa(cfData?.fields).map((f) => [f.key, atuais[f.key] ?? ""]))
+  })
   const [form, setForm] = useState({
     nome: lead.nome ?? '',
     empresa: lead.empresa ?? '',
@@ -4646,7 +4813,21 @@ function EditContactModal({
         annotation: form.annotation || null,
       },
       {
-        onSuccess: () => { toast('Dados atualizados', 'success'); onClose() },
+        onSuccess: () => {
+          // Os personalizados vão numa chamada própria (rota de merge), e só
+          // quando existem: assim o modal segue funcionando onde ninguém
+          // marcou campo nenhum.
+          if (camposExtras.length === 0) {
+            toast('Dados atualizados', 'success'); onClose(); return
+          }
+          salvarCampos.mutate(
+            Object.fromEntries(camposExtras.map((f) => [f.key, cf[f.key] ?? ''])),
+            {
+              onSuccess: () => { toast('Dados atualizados', 'success'); onClose() },
+              onError: (e: unknown) => setError((e as Error).message || 'Erro ao salvar os campos personalizados'),
+            },
+          )
+        },
         onError: (e) => setError(e.message || 'Erro ao salvar'),
       },
     )
@@ -4726,6 +4907,19 @@ function EditContactModal({
             />
           </div>
         </div>
+        {camposExtras.length > 0 && (
+          <div class="space-y-2 rounded-md border border-border p-2">
+            <div class="text-2xs uppercase tracking-wider text-fg-muted">Campos personalizados</div>
+            {camposExtras.map((campo) => (
+              <CampoPersonalizadoInput
+                key={campo.key}
+                campo={campo}
+                valor={cf[campo.key]}
+                onChange={(v) => setCf((atual) => ({ ...atual, [campo.key]: v }))}
+              />
+            ))}
+          </div>
+        )}
         <div>
           <label class="text-2xs text-fg-muted block mb-1">
             Anotação interna (visível apenas à equipe)
@@ -4741,8 +4935,8 @@ function EditContactModal({
         {error && <div class="text-xs text-danger">{error}</div>}
         <div class="flex justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={save} disabled={update.isPending}>
-            {update.isPending ? 'Salvando…' : 'Salvar'}
+          <Button onClick={save} disabled={update.isPending || salvarCampos.isPending}>
+            {update.isPending || salvarCampos.isPending ? 'Salvando…' : 'Salvar'}
           </Button>
         </div>
       </div>

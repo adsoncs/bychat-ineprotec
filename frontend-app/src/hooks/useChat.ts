@@ -737,6 +737,8 @@ export interface TicketLeadInfo {
   team: { id: number; name: string; color: string | null; slug: string | null } | null
   assignedAt: string | null
   annotation: string | null
+  /** Valores dos campos personalizados do lead ({ chave: valor }). */
+  customFields?: Record<string, unknown> | null
   source: string | null
   qualifiedAt: string | null
   qualificationSource: string | null

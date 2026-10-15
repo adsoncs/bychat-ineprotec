@@ -2422,6 +2422,8 @@ model CustomField {
   showInList   Boolean  @default(false) // Mostrar na tabela de leads
   showInKanban Boolean  @default(false) // Mostrar no card do kanban
   showInForm   Boolean  @default(true) // Disponivel nos formularios
+  // Painel Informações da conversa: o atendente vê e edita sem sair do chat.
+  showInConversation Boolean @default(false)
   group        String?  @db.VarChar(50) // Agrupamento: "empresa", "contato", "financeiro", "custom"
   position     Int      @default(0) // Ordem de exibicao
   active       Boolean  @default(true)
