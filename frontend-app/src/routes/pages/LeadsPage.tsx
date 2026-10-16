@@ -7,12 +7,15 @@ import {
   Copy, Tag as TagIcon, GitMerge, KanbanSquare, Check, Star, StarOff, GraduationCap, Send,
   ClipboardCopy, MoreHorizontal, Eye, FileText, Pencil, MessageCircle, Trophy, XCircle, HelpCircle,
   Sparkles, RefreshCw, UserPlus, ArrowRightLeft, Download as DownloadIcon, ChevronDown,
+  ExternalLink,
 } from '@/components/ui/icon-set'
 import { api } from '@/lib/apiClient'
 import { useAgents } from '@/hooks/useRouting'
 import { useTeams, useTeamMembers } from '@/hooks/useTeams'
 import { TransferLeadModal } from '@/components/routing/TransferLeadModal'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
+import { ContextMenu, type ItemMenu } from '@/components/ui/ContextMenu'
+import { env } from '@/lib/env'
 import { OutcomeBadge } from '@/components/LeadOutcomeControls'
 import { StatusSummaryBadge } from '@/components/LeadStatusSummaryControl'
 import { Avatar } from '@/components/ui/Avatar'
@@ -157,6 +160,11 @@ export function LeadsPage() {
   const [forceDeleteReg, setForceDeleteReg] = useState<number | null>(null)
   const [transferLead, setTransferLead] = useState<{ id: number; label: string } | null>(null)
   const [moveToKanbanLead, setMoveToKanbanLead] = useState<number | null>(null)
+  // Ganho/Perdido de UM lead: o mesmo modal das ações em massa, com uma lista
+  // de um só id — o formulário (valor, motivo da perda) é o mesmo.
+  const [outcomeLead, setOutcomeLead] = useState<{ id: number; kind: 'won' | 'lost' } | null>(null)
+  // Menu de contexto (botão direito) da linha, na posição do mouse.
+  const [menuLead, setMenuLead] = useState<{ lead: LeadListItem; x: number; y: number } | null>(null)
 
   // Filtros persistidos: ao montar carrega 1x o filtro corrente do operador
   // (sobrevive a logout/relogin). Cada mudança subsequente faz PUT debounced.
@@ -246,6 +254,88 @@ export function LeadsPage() {
     (filters.stageKey || filters.stageEnteredFrom || filters.stageEnteredTo ? 1 : 0) +
     ((filters.tagIds?.length ?? 0) > 0 ? 1 : 0) +
     (filters.assignedUserId !== undefined || (filters.assignedUserIds && filters.assignedUserIds.length > 0) || filters.onlyUnassigned ? 1 : 0)
+
+  // As ações da linha moram aqui: o kebab (⋯) e o menu do botão direito
+  // disparam exatamente as mesmas, sem duas versões para manter.
+  function executarAcaoLead(action: LeadRowAction, lead: LeadListItem) {
+    switch (action) {
+      case 'view': openLead(lead.id); break
+      case 'answers': setAnswersLeadId(lead.id); break
+      case 'edit': setEditLeadId(lead.id); break
+      case 'copy': {
+        const txt = [
+          lead.empresa, lead.nome, lead.whatsapp, lead.email, lead.segmento, lead.cidade,
+        ].filter(Boolean).join(' · ')
+        copiarTexto(txt, 'Dados')
+        break
+      }
+      case 'kanban': setMoveToKanbanLead(lead.id); break
+      case 'whatsapp': setWhatsappLead({ id: lead.id, whatsapp: lead.whatsapp }); break
+      case 'resend':
+        resendReportMut.mutate(lead.id, {
+          onSuccess: () => toast('Relatório reenviado', 'success'),
+          onError: (e: unknown) => toast((e as Error).message, 'danger'),
+        })
+        break
+      case 'delete':
+        setConfirmDeleteLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
+        break
+      case 'transfer':
+        setTransferLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
+        break
+    }
+  }
+
+  // A ficha sai em outra aba: no dia a dia o operador volta para a lista
+  // filtrada, e navegar na mesma aba fazia perder filtro, página e seleção.
+  function abrirFichaEmNovaAba(id: number) {
+    window.open(`${env.appBasePath}/leads/${id}`, '_blank', 'noopener')
+  }
+
+  function copiarTexto(texto: string, oque: string) {
+    navigator.clipboard.writeText(texto)
+      .then(() => toast(`${oque} copiado`, 'success'))
+      .catch(() => toast('Falha ao copiar', 'danger'))
+  }
+
+  // Itens do menu de contexto — mesmo padrão da lista de Conversas: o que não
+  // se aplica ao lead não aparece (sem item morto esperando clique).
+  function itensDoMenuLead(lead: LeadListItem): ItemMenu[] {
+    const I = 14
+    const webChat = lead.source === 'web_chat'
+    const rotulo = lead.empresa ?? lead.nome ?? `Lead #${lead.id}`
+    const marcado = selected.has(lead.id)
+    const itens: ItemMenu[] = []
+    const add = (i: ItemMenu | false | null | undefined) => { if (i) itens.push(i) }
+    const sep = (id: string) => { if (itens.length && itens[itens.length - 1]!.tipo !== 'separador') itens.push({ tipo: 'separador', id }) }
+
+    add({ id: 'ficha', rotulo: 'Abrir ficha em nova aba', icone: <ExternalLink size={I} />, aoEscolher: () => abrirFichaEmNovaAba(lead.id) })
+    if (lead.whatsapp) add({ id: 'wpp', rotulo: 'Abrir conversa no WhatsApp', icone: <MessageCircle size={I} />, aoEscolher: () => executarAcaoLead('whatsapp', lead) })
+    if (webChat) add({ id: 'respostas', rotulo: 'Ver respostas', icone: <FileText size={I} />, aoEscolher: () => executarAcaoLead('answers', lead) })
+
+    sep('s1')
+    add({ id: 'editar', rotulo: 'Editar lead', icone: <Pencil size={I} />, aoEscolher: () => executarAcaoLead('edit', lead) })
+    add({ id: 'funil', rotulo: 'Mover para funil…', icone: <KanbanSquare size={I} />, aoEscolher: () => executarAcaoLead('kanban', lead) })
+    if (lead.assignedUserId != null) add({ id: 'transferir', rotulo: 'Transferir para…', icone: <ArrowRightLeft size={I} />, aoEscolher: () => executarAcaoLead('transfer', lead) })
+    if (lead.outcome !== 'won') add({ id: 'ganho', rotulo: 'Marcar como Ganho', icone: <Trophy size={I} />, aoEscolher: () => setOutcomeLead({ id: lead.id, kind: 'won' }) })
+    if (lead.outcome !== 'lost') add({ id: 'perdido', rotulo: 'Marcar como Perdido', icone: <XCircle size={I} />, aoEscolher: () => setOutcomeLead({ id: lead.id, kind: 'lost' }) })
+    add({ id: 'selecionar', rotulo: marcado ? 'Desmarcar' : 'Selecionar', icone: <Check size={I} />, aoEscolher: () => toggleSelected(lead.id) })
+
+    sep('s2')
+    const copias: ItemMenu[] = []
+    if (lead.nome) copias.push({ id: 'c-nome', rotulo: 'Nome', aoEscolher: () => copiarTexto(lead.nome!, 'Nome') })
+    if (lead.empresa) copias.push({ id: 'c-empresa', rotulo: 'Empresa', aoEscolher: () => copiarTexto(lead.empresa!, 'Empresa') })
+    if (lead.whatsapp) copias.push({ id: 'c-wpp', rotulo: 'WhatsApp', aoEscolher: () => copiarTexto(lead.whatsapp!, 'Número') })
+    if (lead.email) copias.push({ id: 'c-email', rotulo: 'E-mail', aoEscolher: () => copiarTexto(lead.email!, 'E-mail') })
+    copias.push({ tipo: 'separador', id: 'c-sep' })
+    copias.push({ id: 'c-tudo', rotulo: 'Todos os dados', aoEscolher: () => executarAcaoLead('copy', lead) })
+    add({ id: 'copiar', rotulo: 'Copiar', icone: <Copy size={I} />, submenu: copias })
+    if (webChat) add({ id: 'reenviar', rotulo: 'Reenviar relatório', icone: <Send size={I} />, aoEscolher: () => executarAcaoLead('resend', lead) })
+
+    sep('s3')
+    add({ id: 'excluir', rotulo: `Excluir ${rotulo.length > 24 ? 'lead' : `"${rotulo}"`}`, icone: <Trash2 size={I} />, perigo: true, aoEscolher: () => executarAcaoLead('delete', lead) })
+    return itens
+  }
 
   return (
     <Page
@@ -338,36 +428,8 @@ export function LeadsPage() {
                 return { ...f, sortBy: col, sortDir: col === 'createdAt' ? 'desc' : 'asc', offset: 0 }
               })
             }}
-            onAction={(action, lead) => {
-              switch (action) {
-                case 'view': openLead(lead.id); break
-                case 'answers': setAnswersLeadId(lead.id); break
-                case 'edit': setEditLeadId(lead.id); break
-                case 'copy': {
-                  const txt = [
-                    lead.empresa, lead.nome, lead.whatsapp, lead.email, lead.segmento, lead.cidade,
-                  ].filter(Boolean).join(' · ')
-                  navigator.clipboard.writeText(txt)
-                    .then(() => toast('Dados copiados', 'success'))
-                    .catch(() => toast('Falha ao copiar', 'danger'))
-                  break
-                }
-                case 'kanban': setMoveToKanbanLead(lead.id); break
-                case 'whatsapp': setWhatsappLead({ id: lead.id, whatsapp: lead.whatsapp }); break
-                case 'resend':
-                  resendReportMut.mutate(lead.id, {
-                    onSuccess: () => toast('Relatório reenviado', 'success'),
-                    onError: (e: unknown) => toast((e as Error).message, 'danger'),
-                  })
-                  break
-                case 'delete':
-                  setConfirmDeleteLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
-                  break
-                case 'transfer':
-                  setTransferLead({ id: lead.id, label: lead.empresa ?? lead.nome ?? `Lead #${lead.id}` })
-                  break
-              }
-            }}
+            onAction={executarAcaoLead}
+            onMenu={(lead, x, y) => setMenuLead({ lead, x, y })}
           />
         )}
       </Card>
@@ -465,6 +527,25 @@ export function LeadsPage() {
           leadIds={Array.from(selected)}
           onClose={() => setBulkKanbanOpen(false)}
           onDone={() => { setBulkKanbanOpen(false); setSelected(new Set()) }}
+        />
+      )}
+
+      {menuLead && (
+        <ContextMenu
+          x={menuLead.x}
+          y={menuLead.y}
+          itens={itensDoMenuLead(menuLead.lead)}
+          rotulo={`Ações do lead ${menuLead.lead.empresa ?? menuLead.lead.nome ?? menuLead.lead.id}`}
+          onClose={() => setMenuLead(null)}
+        />
+      )}
+
+      {outcomeLead !== null && (
+        <BulkOutcomeModal
+          kind={outcomeLead.kind}
+          leadIds={[outcomeLead.id]}
+          onClose={() => setOutcomeLead(null)}
+          onDone={() => setOutcomeLead(null)}
         />
       )}
 
@@ -1397,7 +1478,7 @@ const COL_TO_SORT: Partial<Record<LeadColumnKey, LeadSortBy>> = {
 }
 
 function LeadsTable({
-  rows, onOpen, selected, onToggle, onToggleAll, sortBy, sortDir, onSort, onAction,
+  rows, onOpen, selected, onToggle, onToggleAll, sortBy, sortDir, onSort, onAction, onMenu,
 }: {
   rows: LeadListItem[]
   onOpen: (id: number) => void
@@ -1408,6 +1489,8 @@ function LeadsTable({
   sortDir: 'asc' | 'desc'
   onSort: (col: LeadSortBy) => void
   onAction: (action: LeadRowAction, lead: LeadListItem) => void
+  /** Botão direito (ou toque longo) na linha: abre o menu na posição da tela. */
+  onMenu: (lead: LeadListItem, x: number, y: number) => void
 }) {
   const visible = useLeadsColumnsStore((s) => s.visible)
   // Etapas para o trilho da coluna "status".
@@ -1426,6 +1509,18 @@ function LeadsTable({
   const cfLabels = Object.fromEntries((cfData?.fields ?? []).map((f) => [f.key, f.label]))
   const allSelected = rows.length > 0 && rows.every((l) => selected.has(l.id))
   const someSelected = rows.some((l) => selected.has(l.id)) && !allSelected
+  // Toque longo (celular) abre o mesmo menu do botão direito.
+  const toqueRef = useRef<{ t: number; x: number; y: number } | null>(null)
+  function iniciarToque(lead: LeadListItem, e: TouchEvent) {
+    const p = e.touches[0]
+    if (!p) return
+    const x = p.clientX, y = p.clientY
+    const t = window.setTimeout(() => { toqueRef.current = null; navigator.vibrate?.(10); onMenu(lead, x, y) }, 500)
+    toqueRef.current = { t, x, y }
+  }
+  function cancelarToque() {
+    if (toqueRef.current) { window.clearTimeout(toqueRef.current.t); toqueRef.current = null }
+  }
   return (
     <div class="overflow-x-auto">
       {/* `data-table` traz o filete de acento no hover e `tabular-nums` para a
@@ -1477,6 +1572,30 @@ function LeadsTable({
                 key={l.id}
                 class={cn('hover:bg-surface-3 cursor-pointer', isSelected && 'bg-accent/10 hover:bg-accent/15')}
                 onClick={() => onOpen(l.id)}
+                onContextMenu={(e) => { e.preventDefault(); onMenu(l, e.clientX, e.clientY) }}
+                onTouchStart={(e) => iniciarToque(l, e)}
+                onTouchMove={(e) => {
+                  const p = e.touches[0], o = toqueRef.current
+                  if (o && p && Math.hypot(p.clientX - o.x, p.clientY - o.y) > 10) cancelarToque()
+                }}
+                onTouchEnd={cancelarToque}
+                onTouchCancel={cancelarToque}
+                tabIndex={0}
+                aria-haspopup="menu"
+                onKeyDown={(e) => {
+                  // Tecla de menu do teclado ou Shift+F10: abre na própria linha.
+                  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                    e.preventDefault()
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    onMenu(l, r.left + 24, r.top + r.height / 2)
+                  } else if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                    // A linha agora recebe foco: quem navega pelo teclado abre
+                    // a ficha como quem clica. Só quando o foco está na linha —
+                    // dentro dela há caixa de seleção e o botão de opções.
+                    e.preventDefault()
+                    onOpen(l.id)
+                  }
+                }}
               >
                 <td class="px-4 py-1.5" onClick={(e) => e.stopPropagation()}>
                   <input

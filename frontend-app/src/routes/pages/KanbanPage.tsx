@@ -37,7 +37,10 @@ import {
   Trophy,
   Users as UsersIcon,
   XCircle,
+  ExternalLink,
 } from '@/components/ui/icon-set'
+import { ContextMenu, type ItemMenu } from '@/components/ui/ContextMenu'
+import { env } from '@/lib/env'
 import { MarkWonModal, MarkLostModal } from '@/components/LeadOutcomeControls'
 import { ScoreBar } from '@/components/ui/ScoreBar'
 import {
@@ -291,6 +294,9 @@ export function KanbanPage() {
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [markWonFor, setMarkWonFor] = useState<number | null>(null)
   const [markLostFor, setMarkLostFor] = useState<number | null>(null)
+  // Menu de contexto (botão direito) do card, na posição do mouse — o mesmo
+  // componente da lista de Conversas e da lista de Leads.
+  const [menuCard, setMenuCard] = useState<{ lead: KanbanLead; x: number; y: number } | null>(null)
   const [showHowItWorks, setShowHowItWorks] = useState(false)
 
   const kanbanQueryFilters: KanbanBoardFilters = { ...boardFilters, funnelId, search: search || undefined, hideLost: hideLost && !boardFilters.outcome ? true : undefined }
@@ -377,12 +383,17 @@ export function KanbanPage() {
     setDraggingLead(null)
     const leadId = Number(e.active.id)
     const targetStageKey = e.over?.id ? String(e.over.id) : null
-    if (!targetStageKey || !data) return
+    if (!targetStageKey) return
     const lead = findLead(leadId)
     if (!lead) return
+    moverParaEtapa(lead, targetStageKey)
+  }
 
+  /** Mover de etapa — pelo arrasto ou pelo menu do botão direito, com as
+   *  mesmas regras de permissão (avançar/retroceder) nos dois caminhos. */
+  function moverParaEtapa(lead: KanbanLead, targetStageKey: string) {
+    if (!data) return
     if (lead.status === targetStageKey) return
-
     const stages = data.stages
     const fromIdx = stages.findIndex((s) => s.key === lead.status)
     const toIdx = stages.findIndex((s) => s.key === targetStageKey)
@@ -394,8 +405,7 @@ export function KanbanPage() {
       toast('Sem permissão para retroceder leads', 'danger')
       return
     }
-
-    move.mutate({ leadId, status: targetStageKey }, {
+    move.mutate({ leadId: lead.id, status: targetStageKey }, {
       onError: (err: unknown) => toast((err as Error).message, 'danger'),
     })
   }
@@ -410,6 +420,50 @@ export function KanbanPage() {
   }
   function leadLabel(l: KanbanLead): string {
     return l.nome ?? l.empresa ?? `Lead #${l.id}`
+  }
+
+  function copiarTexto(texto: string, oque: string) {
+    navigator.clipboard.writeText(texto)
+      .then(() => toast(`${oque} copiado`, 'success'))
+      .catch(() => toast('Falha ao copiar', 'danger'))
+  }
+
+  // Itens do menu de contexto do card. Mesmas ações do kebab (⋯) mais o que o
+  // quadro já sabe fazer: trocar de etapa sem arrastar e abrir a conversa.
+  function itensDoMenuCard(lead: KanbanLead): ItemMenu[] {
+    const I = 14
+    const itens: ItemMenu[] = []
+    const add = (i: ItemMenu | false | null | undefined) => { if (i) itens.push(i) }
+    const sep = (id: string) => { if (itens.length && itens[itens.length - 1]!.tipo !== 'separador') itens.push({ tipo: 'separador', id }) }
+
+    add({ id: 'nova-aba', rotulo: 'Abrir ficha em nova aba', icone: <ExternalLink size={I} />, aoEscolher: () => window.open(`${env.appBasePath}/leads/${lead.id}`, '_blank', 'noopener') })
+    add({ id: 'ficha', rotulo: 'Ver detalhes', icone: <Eye size={I} />, aoEscolher: () => navigate(`/leads/${lead.id}`) })
+    if (lead._temConversa) add({ id: 'conversa', rotulo: 'Abrir no Conversas', icone: <MessageSquare size={I} />, aoEscolher: () => navigate(`/conversations?leadId=${lead.id}`) })
+
+    sep('s1')
+    const etapas = (data?.stages ?? []).filter((e) => e.key !== lead.status)
+    add({
+      id: 'etapa', rotulo: 'Mover para etapa', icone: <ArrowRight size={I} />,
+      submenu: etapas.length === 0
+        ? [{ id: 'sem-etapa', rotulo: 'Nenhuma outra etapa', desativado: true }]
+        : etapas.map((e) => ({ id: `e-${e.key}`, rotulo: e.name, aoEscolher: () => moverParaEtapa(lead, e.key) })),
+    })
+    add({ id: 'funil', rotulo: 'Mover para outro funil…', icone: <GitFork size={I} />, aoEscolher: () => setMoving(lead) })
+    add({ id: 'atividade', rotulo: 'Nova atividade', icone: <ListChecks size={I} />, aoEscolher: () => setActivityFor({ id: lead.id, label: leadLabel(lead), whatsapp: lead.whatsapp, email: lead.email }) })
+    if (!lead.outcome) {
+      add({ id: 'ganho', rotulo: 'Marcar como Ganho', icone: <Trophy size={I} />, aoEscolher: () => setMarkWonFor(lead.id) })
+      add({ id: 'perdido', rotulo: 'Marcar como Perdido', icone: <XCircle size={I} />, aoEscolher: () => setMarkLostFor(lead.id) })
+    }
+    add({ id: 'duplicar', rotulo: 'Duplicar lead', icone: <CopyIcon size={I} />, aoEscolher: () => setDuplicating(lead) })
+
+    sep('s2')
+    const copias: ItemMenu[] = []
+    if (lead.nome) copias.push({ id: 'c-nome', rotulo: 'Nome', aoEscolher: () => copiarTexto(lead.nome!, 'Nome') })
+    if (lead.empresa) copias.push({ id: 'c-empresa', rotulo: 'Empresa', aoEscolher: () => copiarTexto(lead.empresa!, 'Empresa') })
+    if (lead.whatsapp) copias.push({ id: 'c-wpp', rotulo: 'WhatsApp', aoEscolher: () => copiarTexto(lead.whatsapp!, 'Número') })
+    if (lead.email) copias.push({ id: 'c-email', rotulo: 'E-mail', aoEscolher: () => copiarTexto(lead.email!, 'E-mail') })
+    if (copias.length > 0) add({ id: 'copiar', rotulo: 'Copiar', icone: <CopyIcon size={I} />, submenu: copias })
+    return itens
   }
 
   return (
@@ -542,6 +596,7 @@ export function KanbanPage() {
                     onMove={(lead) => setMoving(lead)}
                     onMarkWon={(lead) => setMarkWonFor(lead.id)}
                     onMarkLost={(lead) => setMarkLostFor(lead.id)}
+                    onMenu={(lead, x, y) => setMenuCard({ lead, x, y })}
                   />
                 ))}
               </div>
@@ -560,6 +615,7 @@ export function KanbanPage() {
               onActivity={(lead) => setActivityFor({ id: lead.id, label: leadLabel(lead), whatsapp: lead.whatsapp, email: lead.email })}
               onDuplicate={(lead) => setDuplicating(lead)}
               onMove={(lead) => setMoving(lead)}
+              onMenu={(lead, x, y) => setMenuCard({ lead, x, y })}
             />
           )}
         </>
@@ -594,6 +650,15 @@ export function KanbanPage() {
       )}
       {markLostFor !== null && (
         <MarkLostModal open onClose={() => setMarkLostFor(null)} leadId={markLostFor} />
+      )}
+      {menuCard && (
+        <ContextMenu
+          x={menuCard.x}
+          y={menuCard.y}
+          itens={itensDoMenuCard(menuCard.lead)}
+          rotulo={`Ações do lead ${leadLabel(menuCard.lead)}`}
+          onClose={() => setMenuCard(null)}
+        />
       )}
       {showHowItWorks && <HowItWorksModal onClose={() => setShowHowItWorks(false)} />}
     </Page>
@@ -706,7 +771,7 @@ function FunnelCard({ funnel, onPick }: { funnel: KanbanFunnelSummary; onPick: (
 }
 
 function KanbanColumn({
-  stage, cards, totalAll, compact, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost,
+  stage, cards, totalAll, compact, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost, onMenu,
 }: {
   stage: KanbanStage
   cards: KanbanLead[]
@@ -718,6 +783,8 @@ function KanbanColumn({
   onMove: (l: KanbanLead) => void
   onMarkWon?: (l: KanbanLead) => void
   onMarkLost?: (l: KanbanLead) => void
+  /** Botão direito (ou toque longo) no card: abre o menu na posição da tela. */
+  onMenu: (l: KanbanLead, x: number, y: number) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key })
   const overWip = totalAll > WIP_DEFAULT
@@ -783,6 +850,7 @@ function KanbanColumn({
               onMove={() => onMove(c)}
               onMarkWon={onMarkWon ? () => onMarkWon(c) : undefined}
               onMarkLost={onMarkLost ? () => onMarkLost(c) : undefined}
+              onMenu={(x, y) => onMenu(c, x, y)}
             />
           ))
         )}
@@ -792,7 +860,7 @@ function KanbanColumn({
 }
 
 function DraggableCard({
-  lead, compact, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost,
+  lead, compact, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost, onMenu,
 }: {
   lead: KanbanLead
   compact: boolean
@@ -802,6 +870,7 @@ function DraggableCard({
   onMove: () => void
   onMarkWon?: (() => void) | undefined
   onMarkLost?: (() => void) | undefined
+  onMenu: (x: number, y: number) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({ id: lead.id })
   const style = transform
@@ -824,6 +893,7 @@ function DraggableCard({
         onMove={onMove}
         onMarkWon={onMarkWon}
         onMarkLost={onMarkLost}
+        onMenu={onMenu}
       />
     </div>
   )
@@ -950,7 +1020,7 @@ function Sep() {
  * lê um telefone no quadro — clica.
  */
 function LeadCard({
-  lead, dragging = false, compact = false, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost,
+  lead, dragging = false, compact = false, onView, onActivity, onDuplicate, onMove, onMarkWon, onMarkLost, onMenu,
 }: {
   lead: KanbanLead
   dragging?: boolean | undefined
@@ -961,8 +1031,24 @@ function LeadCard({
   onMove?: (() => void) | undefined
   onMarkWon?: (() => void) | undefined
   onMarkLost?: (() => void) | undefined
+  /** Ausente na prévia do arrasto (DragOverlay), que não recebe eventos. */
+  onMenu?: ((x: number, y: number) => void) | undefined
 }) {
   const stale = isStale(lead.updatedAt)
+  // Toque longo (celular) abre o mesmo menu do botão direito. O arrasto do
+  // quadro começa depois de 4px, então mover o dedo cancela o menu e o card
+  // segue para a etapa — um gesto não atropela o outro.
+  const toqueRef = useRef<{ t: number; x: number; y: number } | null>(null)
+  function iniciarToque(e: TouchEvent) {
+    const p = e.touches[0]
+    if (!onMenu || !p) return
+    const x = p.clientX, y = p.clientY
+    const t = window.setTimeout(() => { toqueRef.current = null; navigator.vibrate?.(10); onMenu(x, y) }, 500)
+    toqueRef.current = { t, x, y }
+  }
+  function cancelarToque() {
+    if (toqueRef.current) { window.clearTimeout(toqueRef.current.t); toqueRef.current = null }
+  }
   const score = typeof lead.scores?.geral === 'number' ? lead.scores.geral : null
   const kanbanFields = useKanbanCardFields(lead)
   const showActions = onView ?? onActivity ?? onDuplicate ?? onMove ?? onMarkWon ?? onMarkLost
@@ -986,6 +1072,14 @@ function LeadCard({
         trilho,
         dragging ? 'shadow-xl border-accent rotate-1 cursor-grabbing' : 'cursor-grab hover:border-accent transition-colors',
       )}
+      onContextMenu={onMenu ? (e) => { e.preventDefault(); e.stopPropagation(); onMenu(e.clientX, e.clientY) } : undefined}
+      onTouchStart={iniciarToque}
+      onTouchMove={(e) => {
+        const p = e.touches[0], o = toqueRef.current
+        if (o && p && Math.hypot(p.clientX - o.x, p.clientY - o.y) > 10) cancelarToque()
+      }}
+      onTouchEnd={cancelarToque}
+      onTouchCancel={cancelarToque}
     >
       {/* Cabeçalho tingido com a cor da casa (9%): ele separa fisicamente QUEM
         * É — nome, empresa, canal e as ações da pessoa — de COMO VAI, que é
@@ -1338,7 +1432,7 @@ function CardActions({
 // View: Lista (seções colapsáveis)
 
 function KanbanListView({
-  stages, leadsByStage, totalsByStage, onView, onActivity, onDuplicate, onMove,
+  stages, leadsByStage, totalsByStage, onView, onActivity, onDuplicate, onMove, onMenu,
 }: {
   stages: KanbanStage[]
   leadsByStage: Record<string, KanbanLead[]>
@@ -1347,6 +1441,7 @@ function KanbanListView({
   onActivity: (l: KanbanLead) => void
   onDuplicate: (l: KanbanLead) => void
   onMove: (l: KanbanLead) => void
+  onMenu: (l: KanbanLead, x: number, y: number) => void
 }) {
   return (
     <div class="space-y-3">
@@ -1360,6 +1455,7 @@ function KanbanListView({
           onActivity={onActivity}
           onDuplicate={onDuplicate}
           onMove={onMove}
+          onMenu={onMenu}
         />
       ))}
     </div>
@@ -1367,7 +1463,7 @@ function KanbanListView({
 }
 
 function KanbanListSection({
-  stage, cards, totalAll, onView, onActivity, onDuplicate, onMove,
+  stage, cards, totalAll, onView, onActivity, onDuplicate, onMove, onMenu,
 }: {
   stage: KanbanStage
   cards: KanbanLead[]
@@ -1376,6 +1472,7 @@ function KanbanListSection({
   onActivity: (l: KanbanLead) => void
   onDuplicate: (l: KanbanLead) => void
   onMove: (l: KanbanLead) => void
+  onMenu: (l: KanbanLead, x: number, y: number) => void
 }) {
   const [open, setOpen] = useState(true)
   const overWip = totalAll > WIP_DEFAULT
@@ -1413,6 +1510,7 @@ function KanbanListSection({
                   onActivity={() => onActivity(l)}
                   onDuplicate={() => onDuplicate(l)}
                   onMove={() => onMove(l)}
+                  onMenu={(x, y) => onMenu(l, x, y)}
                 />
               ))}
             </ul>
@@ -1424,20 +1522,24 @@ function KanbanListSection({
 }
 
 function KanbanListRow({
-  lead, onView, onActivity, onDuplicate, onMove,
+  lead, onView, onActivity, onDuplicate, onMove, onMenu,
 }: {
   lead: KanbanLead
   onView: () => void
   onActivity: () => void
   onDuplicate: () => void
   onMove: () => void
+  onMenu: (x: number, y: number) => void
 }) {
   const stale = isStale(lead.updatedAt)
   return (
-    <li class={cn(
-      'px-3 py-2 flex items-center gap-3 hover:bg-surface-3',
-      stale && 'border-l-2 border-l-danger',
-    )}>
+    <li
+      class={cn(
+        'px-3 py-2 flex items-center gap-3 hover:bg-surface-3',
+        stale && 'border-l-2 border-l-danger',
+      )}
+      onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY) }}
+    >
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-fg-muted inline-flex shrink-0"><ChannelIcon source={lead.source} /></span>
