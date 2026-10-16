@@ -2133,6 +2133,18 @@ function ChatPanel({
   const podeEnviarHsm = canalAtual
     ? canalAtual.provider === 'cloud_api'
     : temCanalCloud
+  // De quem são os modelos que o seletor pode oferecer. Modelo é da CONTA
+  // (WABA) do número: com dois números de empresas diferentes, a lista inteira
+  // misturava as duas. Sem canal na conversa (histórico importado), vale o
+  // único número Cloud do operador — se ele tem mais de um, aí não há como
+  // adivinhar e a lista fica como era, com o backend barrando o par errado.
+  const canalDosModelos =
+    canalAtual?.provider === 'cloud_api'
+      ? canalAtual
+      : (() => {
+          const cloud = channels.filter((c) => c.provider === 'cloud_api')
+          return cloud.length === 1 ? cloud[0] : undefined
+        })()
   // A janela é do NÚMERO: quem manda é a última mensagem que o contato enviou
   // para este canal, pela Cloud API. Mensagem importada (Kommo, celular) não
   // abre janela nenhuma — a Meta só conhece o que passou por ela.
@@ -3817,6 +3829,8 @@ function ChatPanel({
         open={hsmOpen}
         onOpenChange={setHsmOpen}
         enviando={send.isPending}
+        wabaId={canalDosModelos?.wabaId ?? null}
+        numero={canalDosModelos ? (canalDosModelos.label || canalDosModelos.number) : null}
         onSend={({ name, language, components, preview }) => {
           if (envioBloqueado()) return
           send.mutate(

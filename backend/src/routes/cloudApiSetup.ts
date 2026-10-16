@@ -1018,11 +1018,45 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   //  TEMPLATES HSM — Sincronizar, listar, criar, deletar
   // ══════════════════════════════════════════════════════
 
+  /**
+   * A conta (WABA) em que a operação de modelo vai acontecer.
+   *
+   * O modelo pertence à WABA, não ao painel. Com dois números de EMPRESAS
+   * diferentes no mesmo tenant (ineprotec: Ineprotec e Matrícula EAD), pegar
+   * "a primeira conexão ativa" criava o modelo da Matrícula EAD dentro da conta
+   * da Ineprotec — e ele nunca podia ser enviado pelo número de quem o pediu,
+   * porque a Meta recusa modelo de outra conta. O chamador diz o número
+   * (`connectionId`) ou a conta (`wabaId`); sem nenhum dos dois cai no padrão,
+   * que é o comportamento antigo e só serve para instalação de um número.
+   */
+  async function conexaoDeTemplate(src: any) {
+    const connectionId = Number(src?.connectionId ?? 0)
+    if (connectionId) {
+      return prisma.cloudApiConnection.findFirst({ where: { id: connectionId, active: true } })
+    }
+    const wabaId = String(src?.wabaId ?? '').trim()
+    if (wabaId) {
+      return prisma.cloudApiConnection.findFirst({
+        where: { active: true, wabaId },
+        orderBy: ORDEM_CONEXAO_PADRAO,
+      })
+    }
+    return prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
+  }
+
   // GET /api/cloud-api/templates — Listar templates do banco
+  //
+  // `connectionId` filtra pela conta do NÚMERO — é o que a tela de envio ativo
+  // usa para não oferecer ao agente o modelo de outra empresa.
   app.get('/api/cloud-api/templates', { preHandler: authMiddleware }, async (req) => {
     const q = req.query as any
     const where: any = {}
-    if (q.wabaId) where.wabaId = q.wabaId
+    if (q.connectionId) {
+      const conn = await prisma.cloudApiConnection.findUnique({ where: { id: Number(q.connectionId) } })
+      // Conexão inexistente não pode virar "lista inteira": sem a WABA o filtro
+      // some e a tela volta a misturar as empresas. Devolve vazio.
+      where.wabaId = conn?.wabaId ?? '__sem_conexao__'
+    } else if (q.wabaId) where.wabaId = q.wabaId
     if (q.status) where.status = q.status
     if (q.category) where.category = q.category
 
@@ -1061,15 +1095,44 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   })
 
   // POST /api/cloud-api/templates/sync — Re-sincronizar templates do Meta
+  //
+  // Com `wabaId`/`connectionId` sincroniza só aquela conta; sem nada, varre
+  // TODAS as contas ativas. O botão "Sincronizar" do painel sempre mandou o
+  // `wabaId`, mas a rota ignorava e lia a conexão padrão: os modelos do 2º
+  // número (outra empresa, outra WABA) só entravam no cron da madrugada, e
+  // clicar em sincronizar parecia não fazer nada.
   app.post('/api/cloud-api/templates/sync', { preHandler: authMiddleware }, async (req, reply) => {
     try {
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
-      if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
+      const body = (req.body ?? {}) as any
+      const alvo = body.wabaId || body.connectionId ? await conexaoDeTemplate(body) : null
+      if ((body.wabaId || body.connectionId) && !alvo) {
+        return reply.code(400).send({ error: 'Conexão Cloud API não encontrada ou inativa' })
+      }
 
-      const token = decryptToken(conn.systemUserToken)
-      const count = await syncTemplatesFromMeta(conn.wabaId, token)
+      const conns = alvo
+        ? [alvo]
+        : await prisma.cloudApiConnection.findMany({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
+      if (conns.length === 0) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
-      return { ok: true, synced: count }
+      // Dois números podem dividir a mesma WABA — sincronizar duas vezes a
+      // mesma conta só dobraria o tempo e as chamadas à Graph.
+      const vistas = new Set<string>()
+      let synced = 0
+      const falhas: string[] = []
+      for (const conn of conns) {
+        if (vistas.has(conn.wabaId)) continue
+        vistas.add(conn.wabaId)
+        try {
+          synced += await syncTemplatesFromMeta(conn.wabaId, decryptToken(conn.systemUserToken))
+        } catch (err: any) {
+          falhas.push(`${conn.displayName || conn.displayPhone || conn.wabaId}: ${err.message}`)
+        }
+      }
+      // Todas falharam = erro de verdade; uma conta fora do ar não pode zerar o
+      // que as outras sincronizaram.
+      if (falhas.length === vistas.size) return reply.code(500).send({ error: falhas.join(' · ') })
+
+      return { ok: true, synced, wabas: vistas.size, ...(falhas.length ? { falhas } : {}) }
     } catch (err: any) {
       return reply.code(500).send({ error: err.message })
     }
@@ -1165,8 +1228,17 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Template precisa de pelo menos um componente (body)' })
       }
 
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
-      if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
+      // A conta vem do `wabaId`/`connectionId` que a tela escolheu. A tela
+      // sempre mandou o campo "Conexão (WABA)"; aqui ele era ignorado e o
+      // modelo nascia na conta do número padrão, qualquer que fosse a empresa.
+      const conn = await conexaoDeTemplate(body)
+      if (!conn) {
+        return reply.code(400).send({
+          error: body.wabaId || body.connectionId
+            ? 'A conexão escolhida não existe ou está inativa'
+            : 'Nenhuma conexao Cloud API ativa',
+        })
+      }
 
       const token = decryptToken(conn.systemUserToken)
 
@@ -1291,7 +1363,10 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   // POST /api/cloud-api/templates/upload-media — Upload de mídia para header de template
   app.post('/api/cloud-api/templates/upload-media', { preHandler: adminOnly }, async (req, reply) => {
     try {
-      const conn = await prisma.cloudApiConnection.findFirst({ where: { active: true }, orderBy: ORDEM_CONEXAO_PADRAO })
+      // A sessão de upload é da CONTA do modelo: handle criado na conta A é
+      // recusado ao criar o template na conta B. Vem na query porque o corpo
+      // é multipart (o arquivo).
+      const conn = await conexaoDeTemplate(req.query)
       if (!conn) return reply.code(400).send({ error: 'Nenhuma conexao Cloud API ativa' })
 
       const token = decryptToken(conn.systemUserToken)

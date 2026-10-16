@@ -62,6 +62,10 @@ export function WhatsappTemplatesPage() {
   const [tplSearch, setTplSearch] = useState('')
   const [tplCategory, setTplCategory] = useState<CategoryFilter>('')
   const [tplStatus, setTplStatus] = useState<StatusFilter>('')
+  // Filtro por conta (WABA) = por número/empresa. Modelo pertence à conta, e com
+  // dois números de empresas diferentes a lista sozinha não dizia de quem era
+  // cada modelo — nem na tela de administração.
+  const [tplWaba, setTplWaba] = useState('')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const sync = useSyncCloudApiTemplates()
   const delTpl = useDeleteCloudApiTemplate()
@@ -97,10 +101,26 @@ export function WhatsappTemplatesPage() {
     }
   }, [tpl?.templates])
 
+  // Uma linha por conta (WABA), com o nome do número que a usa. Dois números
+  // podem dividir a mesma conta: aí os dois nomes aparecem juntos.
+  const contas = useMemo(() => {
+    const porWaba = new Map<string, string[]>()
+    for (const c of conns?.connections ?? []) {
+      const nomes = porWaba.get(c.wabaId) ?? []
+      nomes.push(c.displayName || c.displayPhone || `#${c.id}`)
+      porWaba.set(c.wabaId, nomes)
+    }
+    return Array.from(porWaba, ([wabaId, nomes]) => ({ wabaId, label: nomes.join(' · ') }))
+  }, [conns?.connections])
+
+  const rotuloDaConta = (wabaId: string) =>
+    contas.find((c) => c.wabaId === wabaId)?.label ?? wabaId
+
   const filteredTemplates = useMemo(() => {
     let list = tpl?.templates ?? []
     const q = tplSearch.trim().toLowerCase()
     if (q) list = list.filter((t) => t.name.toLowerCase().includes(q))
+    if (tplWaba) list = list.filter((t) => t.wabaId === tplWaba)
     if (tplCategory) list = list.filter((t) => t.category === tplCategory)
     if (tplStatus === DELETED_TPL_FILTER) {
       // Chip "Excluídos": mostra só os que a Meta ainda segura em exclusão.
@@ -112,7 +132,7 @@ export function WhatsappTemplatesPage() {
       list = list.filter((t) => !DELETED_TPL_STATES.includes(t.status))
     }
     return list
-  }, [tpl?.templates, tplSearch, tplCategory, tplStatus])
+  }, [tpl?.templates, tplSearch, tplWaba, tplCategory, tplStatus])
 
   function handleSyncAll() {
     const wabas = Array.from(new Set((conns?.connections ?? []).map((c) => c.wabaId)))
@@ -185,6 +205,14 @@ export function WhatsappTemplatesPage() {
                 placeholder="Buscar por nome…"
                 class="sm:w-56"
               />
+              {contas.length > 1 && (
+                <div class="flex flex-wrap gap-1">
+                  <FilterChip label="Todos os números" active={tplWaba === ''} onClick={() => setTplWaba('')} />
+                  {contas.map((c) => (
+                    <FilterChip key={c.wabaId} label={c.label} active={tplWaba === c.wabaId} onClick={() => setTplWaba(c.wabaId)} />
+                  ))}
+                </div>
+              )}
               <div class="flex flex-wrap gap-1">
                 <FilterChip label="Todas as categorias" active={tplCategory === ''} onClick={() => setTplCategory('')} />
                 <FilterChip label="Marketing" active={tplCategory === 'MARKETING'} onClick={() => setTplCategory('MARKETING')} />
@@ -209,6 +237,7 @@ export function WhatsappTemplatesPage() {
                 <thead class="bg-surface-3 text-fg-muted text-2xs uppercase tracking-wider">
                   <tr>
                     <th class="text-left px-4 py-2 font-medium">Nome</th>
+                    {contas.length > 1 && <th class="text-left px-4 py-2 font-medium">Número</th>}
                     <th class="text-left px-4 py-2 font-medium">Idioma</th>
                     <th class="text-left px-4 py-2 font-medium">Categoria</th>
                     <th class="text-left px-4 py-2 font-medium">Status</th>
@@ -218,7 +247,7 @@ export function WhatsappTemplatesPage() {
                 <tbody class="divide-y divide-border">
                   {filteredTemplates.length === 0 && (
                     <tr>
-                      <td colSpan={5} class="px-4 py-6 text-center text-sm text-fg-muted">
+                      <td colSpan={contas.length > 1 ? 6 : 5} class="px-4 py-6 text-center text-sm text-fg-muted">
                         Nenhum modelo combina com os filtros.
                       </td>
                     </tr>
@@ -226,6 +255,9 @@ export function WhatsappTemplatesPage() {
                   {filteredTemplates.map((t) => (
                     <tr key={t.id} class="hover:bg-surface-3 group">
                       <td class="px-4 py-2 font-mono text-xs text-fg">{t.name}</td>
+                      {contas.length > 1 && (
+                        <td class="px-4 py-2 text-xs text-fg-muted" title={t.wabaId}>{rotuloDaConta(t.wabaId)}</td>
+                      )}
                       <td class="px-4 py-2 text-fg-muted">{t.language}</td>
                       <td class="px-4 py-2"><Badge tone="info">{cloudApiTemplateCategoryLabel(t.category)}</Badge></td>
                       <td class="px-4 py-2">
@@ -581,7 +613,9 @@ function TemplateFormModal({
     if (!file) return
     setHeaderUploading(true)
     try {
-      const handle = await uploadCloudApiTemplateMedia(file)
+      // A sessão de upload é da conta escolhida no formulário: handle criado em
+      // outra conta é recusado na criação do modelo.
+      const handle = await uploadCloudApiTemplateMedia(file, wabaId)
       setHeaderHandle(handle)
       setHeaderHandleName(file.name)
       toast('Mídia carregada', 'success', 1_500)

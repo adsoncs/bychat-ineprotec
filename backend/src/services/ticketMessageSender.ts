@@ -370,6 +370,34 @@ export async function sendTicketMessage(input: SendTicketMessageInput): Promise<
           if (!template?.name || !template?.language) {
             return { ok: false, status: 400, error: 'Template inválido (name e language obrigatórios).' }
           }
+          // O modelo é da CONTA (WABA) do número, não do painel. Com números de
+          // empresas diferentes, mandar o modelo de uma pelo número da outra
+          // volta da Meta como 132001 ("template não existe") — erro que não diz
+          // nada ao operador. Barra aqui, com o nome do número na frente.
+          if (cloudConnId) {
+            const dono = await prisma.cloudApiConnection.findUnique({
+              where: { id: cloudConnId },
+              select: { wabaId: true, displayName: true, displayPhone: true },
+            })
+            if (dono) {
+              const tpl = await prisma.cloudApiTemplate.findFirst({
+                where: { name: template.name, language: template.language },
+                select: { wabaId: true },
+              })
+              // Modelo que o painel não conhece passa (pode ter sido criado
+              // direto na Meta e ainda não sincronizado) — só o que é de OUTRA
+              // conta é recusado.
+              if (tpl && tpl.wabaId !== dono.wabaId) {
+                const rotuloNumero = dono.displayName || dono.displayPhone || `#${cloudConnId}`
+                return {
+                  ok: false,
+                  status: 400,
+                  code: 'TEMPLATE_OUTRA_WABA',
+                  error: `O modelo "${template.name}" pertence a outra conta do WhatsApp e não pode ser enviado pelo número ${rotuloNumero}. Escolha um modelo deste número.`,
+                }
+              }
+            }
+          }
           result = await provider.sendTemplate(destinatario, template.name, template.language, template.components)
         } else if (mType === 'text') {
           result = await provider.sendText(destinatario, finalTextBody, quotedExternalId ? { quotedExternalId } : undefined)

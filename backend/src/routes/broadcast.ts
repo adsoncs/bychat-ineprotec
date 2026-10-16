@@ -13,6 +13,28 @@ import {
 
 export async function broadcastRoutes(app: FastifyInstance) {
 
+  /**
+   * Modelo e número de envio têm que ser da MESMA conta (WABA).
+   *
+   * A tela lista todos os modelos aprovados do tenant; com números de empresas
+   * diferentes dava para montar a campanha com o modelo de uma e o número da
+   * outra. A campanha subia, e cada envio morria na Meta com 132001 — depois de
+   * já ter consumido a audiência. Devolve a mensagem de erro, ou null se o par
+   * está certo.
+   */
+  async function erroDeModeloForaDoNumero(connectionId: number, tpl: { name: string; wabaId: string }) {
+    const conn = await prisma.cloudApiConnection.findUnique({
+      where: { id: connectionId },
+      select: { wabaId: true, displayName: true, displayPhone: true },
+    })
+    if (!conn) return 'Número de envio não encontrado'
+    if (conn.wabaId !== tpl.wabaId) {
+      const rotulo = conn.displayName || conn.displayPhone || `#${connectionId}`
+      return `O modelo "${tpl.name}" é de outra conta do WhatsApp e não pode ser disparado pelo número ${rotulo}. Escolha um modelo deste número.`
+    }
+    return null
+  }
+
   // GET /campaigns — lista
   app.get('/api/admin/broadcast/campaigns', { preHandler: authMiddleware }, async () => {
     const campaigns = await prisma.broadcastCampaign.findMany({
@@ -32,6 +54,8 @@ export async function broadcastRoutes(app: FastifyInstance) {
     const tpl = await prisma.cloudApiTemplate.findUnique({ where: { id: Number(b.templateId) } })
     if (!tpl) return reply.code(404).send({ error: 'Template não encontrado' })
     if (tpl.status !== 'APPROVED') return reply.code(400).send({ error: 'Só templates APROVADOS podem ser usados em disparo' })
+    const erroWaba = await erroDeModeloForaDoNumero(Number(b.cloudApiConnectionId), tpl)
+    if (erroWaba) return reply.code(400).send({ error: erroWaba })
 
     const campaign = await prisma.broadcastCampaign.create({
       data: {
@@ -99,6 +123,22 @@ export async function broadcastRoutes(app: FastifyInstance) {
         data.templateLanguage = tpl.language
         data.templateCategory = tpl.category
         templateChanged = true
+      }
+    }
+
+    // Trocar o número OU o modelo pode desemparelhar os dois — confere o par
+    // final antes de gravar (e antes de apagar os destinatários lá embaixo).
+    if (campaign.status === 'draft' && (data.cloudApiConnectionId !== undefined || templateChanged)) {
+      const tplFinal = await prisma.cloudApiTemplate.findUnique({
+        where: { id: data.templateId ?? campaign.templateId },
+        select: { name: true, wabaId: true },
+      })
+      if (tplFinal) {
+        const erroWaba = await erroDeModeloForaDoNumero(
+          Number(data.cloudApiConnectionId ?? campaign.cloudApiConnectionId),
+          tplFinal,
+        )
+        if (erroWaba) return reply.code(400).send({ error: erroWaba })
       }
     }
 

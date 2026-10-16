@@ -136,7 +136,6 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   const { data: lead } = useLead(leadId)
   const { data: channelsData, isLoading: chLoading } = useSenderChannels(leadId)
   const { data: evoData } = useTemplates({ channel: 'whatsapp' })
-  const { data: cloudData } = useCloudApiTemplates()
   const send = useSendMessage(leadId)
   const qc = useQueryClient()
   const [enviandoOutro, setEnviandoOutro] = useState(false)
@@ -145,6 +144,9 @@ export function WhatsappChoiceModal({ leadId, whatsapp, onClose, onSent }: Whats
   const channels = channelsData?.channels ?? []
   const [channelId, setChannelId] = useState<string | null>(null)
   const channel = channels.find((c) => c.id === channelId) ?? null
+  // Só os modelos da conta (WABA) do número escolhido chegam ao navegador — o
+  // filtro local mais abaixo cobre a troca de número com a lista em cache.
+  const { data: cloudData } = useCloudApiTemplates(channel?.wabaId ? { wabaId: channel.wabaId } : undefined)
 
   // Conversa em andamento → o número do canal de entrada (o único que o contato
   // conhece) já vem escolhido e o passo 1 é pulado; para quem não é SUPERADMIN

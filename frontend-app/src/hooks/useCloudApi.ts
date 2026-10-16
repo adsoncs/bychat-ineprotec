@@ -134,10 +134,22 @@ export function useCloudApiConnections() {
   })
 }
 
-export function useCloudApiTemplates() {
+/**
+ * Modelos HSM do tenant.
+ *
+ * `wabaId` restringe aos modelos da CONTA de um número. Modelo é da conta, não
+ * do painel: com números de empresas diferentes (ineprotec: Ineprotec e
+ * Matrícula EAD), a lista inteira misturava as duas e o agente escolhia um
+ * modelo que a Meta recusa — ou, pior, falava com o contato em nome da outra
+ * empresa. Sem filtro vem tudo, que é o que a tela de administração precisa.
+ */
+export function useCloudApiTemplates(filtro?: { wabaId?: string | null | undefined }) {
+  const wabaId = filtro?.wabaId ?? null
   return useQuery({
-    queryKey: ['cloud-api-templates'],
-    queryFn: () => api.get<{ templates: CloudApiTemplate[] }>('/cloud-api/templates'),
+    queryKey: ['cloud-api-templates', wabaId],
+    queryFn: () => api.get<{ templates: CloudApiTemplate[] }>(
+      `/cloud-api/templates${wabaId ? `?wabaId=${encodeURIComponent(wabaId)}` : ''}`,
+    ),
     staleTime: 60_000,
   })
 }
@@ -366,11 +378,17 @@ export function useSendCloudApiTemplate() {
 }
 
 /** Upload de mídia para o header de um template (IMAGE/VIDEO/DOCUMENT).
- * Retorna o `handle` que a Meta exige na criação do template. */
-export async function uploadCloudApiTemplateMedia(file: File): Promise<string> {
+ * Retorna o `handle` que a Meta exige na criação do template.
+ *
+ * O `wabaId` vai na query porque o corpo é multipart: a sessão de upload é da
+ * CONTA do modelo, e handle criado em outra conta é recusado na criação. */
+export async function uploadCloudApiTemplateMedia(file: File, wabaId?: string | null): Promise<string> {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await api.post<{ ok: true; handle: string }>('/cloud-api/templates/upload-media', fd)
+  const res = await api.post<{ ok: true; handle: string }>(
+    `/cloud-api/templates/upload-media${wabaId ? `?wabaId=${encodeURIComponent(wabaId)}` : ''}`,
+    fd,
+  )
   return res.handle
 }
 

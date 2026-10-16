@@ -125,6 +125,23 @@ export async function dispatchSurvey(
   if (!flowRow?.metaFlowId) throw new Error('Flow da pesquisa não está publicado')
   const conn = await prisma.cloudApiConnection.findUnique({ where: { id: flowRow.connectionId } })
   if (!conn?.active) throw new Error('Conexão Cloud API inativa')
+
+  // O convite sai pelo número em que o Flow foi publicado. Modelo é da CONTA
+  // (WABA) desse número: com números de empresas diferentes, escolher na tela o
+  // modelo da outra empresa faria todos os envios morrerem na Meta (132001).
+  if (opts.templateName) {
+    const tpl = await prisma.cloudApiTemplate.findFirst({
+      where: { name: opts.templateName },
+      select: { wabaId: true },
+    })
+    if (tpl && tpl.wabaId !== conn.wabaId) {
+      const rotulo = conn.displayName || conn.displayPhone || `#${conn.id}`
+      throw new Error(
+        `O modelo "${opts.templateName}" é de outra conta do WhatsApp e não pode ser enviado pelo número ${rotulo}, em que o Flow desta pesquisa foi publicado.`,
+      )
+    }
+  }
+
   const token = decryptToken(conn.systemUserToken)
 
   const res: DispatchResult = { sent: 0, skipped: 0, failed: 0, errors: [] }

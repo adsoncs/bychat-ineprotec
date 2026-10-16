@@ -46,6 +46,11 @@ export interface Survey {
   updatedAt: string
   responses?: number
   invites?: number
+  /** Número em que o Flow foi publicado — o convite sai por ele. */
+  flowConnectionId?: number | null
+  /** Conta (WABA) desse número: filtra os modelos válidos para o convite. */
+  flowWabaId?: string | null
+  flowChannelLabel?: string | null
 }
 
 export interface SurveyResults {

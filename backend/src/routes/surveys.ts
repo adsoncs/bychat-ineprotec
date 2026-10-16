@@ -60,7 +60,31 @@ export async function surveysRoutes(app: FastifyInstance) {
       orderBy: { id: 'desc' },
       include: { _count: { select: { responses: true, sessions: true } } },
     })
-    return { items: items.map((s) => ({ ...s, responses: s._count.responses, invites: s._count.sessions, _count: undefined })) }
+    // Por qual número o convite sai: o Flow foi publicado numa conexão, e o
+    // modelo do convite tem que ser da CONTA (WABA) dela. A tela de disparo usa
+    // isso para não oferecer o modelo de outra empresa.
+    const flowIds = items.map((s) => s.flowId).filter((id): id is number => !!id)
+    const flows = flowIds.length
+      ? await prisma.cloudApiFlow.findMany({
+          where: { id: { in: flowIds } },
+          select: { id: true, connectionId: true, connection: { select: { wabaId: true, displayName: true, displayPhone: true } } },
+        })
+      : []
+    const porFlow = new Map(flows.map((f) => [f.id, f]))
+    return {
+      items: items.map((s) => {
+        const f = s.flowId ? porFlow.get(s.flowId) : undefined
+        return {
+          ...s,
+          responses: s._count.responses,
+          invites: s._count.sessions,
+          _count: undefined,
+          flowConnectionId: f?.connectionId ?? null,
+          flowWabaId: f?.connection?.wabaId ?? null,
+          flowChannelLabel: f?.connection?.displayName || f?.connection?.displayPhone || null,
+        }
+      }),
+    }
   })
 
   app.get('/api/surveys/:id', { preHandler: authMiddleware }, async (req, reply) => {

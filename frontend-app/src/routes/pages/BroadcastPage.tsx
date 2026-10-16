@@ -125,10 +125,16 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
   const { data: connData } = useCloudApiConnections()
   const { data: tplData } = useCloudApiTemplates()
   const connections = (connData?.connections ?? []).filter((c) => c.active)
-  const templates = (tplData?.templates ?? []).filter((t) => t.status === 'APPROVED')
   const [name, setName] = useState('')
   const [connId, setConnId] = useState<number | null>(null)
   const [templateId, setTemplateId] = useState<number | null>(null)
+  // Modelo é da CONTA (WABA) do número escolhido. Listar os do tenant inteiro
+  // permitia montar a campanha com o modelo de uma empresa e o número de
+  // outra: a Meta recusa cada envio (132001) depois de a audiência já estar
+  // resolvida. Enquanto não há número escolhido, nada é oferecido.
+  const wabaDoNumero = connections.find((c) => c.id === connId)?.wabaId ?? null
+  const templates = (tplData?.templates ?? []).filter((t) =>
+    t.status === 'APPROVED' && !!wabaDoNumero && t.wabaId === wabaDoNumero)
   const [audienceType, setAudienceType] = useState<'leads' | 'import'>('leads')
 
   // passo 2 (audiência)
@@ -171,6 +177,13 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
     if (already > 0) setKeptAudience({ created: c.totalRecipients ?? 0, skipped: c.skippedCount ?? 0 })
     setLoadedEdit(true)
   }, [isEdit, loadedEdit, detail, onClose])
+
+  // Trocar o número troca a conta: o modelo que estava escolhido pode ser de
+  // outra empresa. Limpa em vez de deixar um par que o backend vai recusar.
+  useEffect(() => {
+    if (!templateId || !tplData) return
+    if (!templates.some((t) => t.id === templateId)) setTemplateId(null)
+  }, [connId, tplData])
 
   async function step1Next() {
     if (!name.trim() || !connId || !templateId) { toast('Preencha nome, número e template', 'warning'); return }
@@ -266,11 +279,21 @@ function CampaignWizard({ editId, onClose, onDone }: { editId: number | null; on
                 {connections.map((c) => <option key={c.id} value={c.id}>{c.displayName || c.displayPhone}</option>)}
               </Select>
             </div>
-            <Select label="Template aprovado (HSM)" value={templateId ?? ''} onChange={(e) => setTemplateId(Number((e.target as HTMLSelectElement).value) || null)}>
-              <option value="">Selecione…</option>
+            <Select
+              label="Template aprovado (HSM)"
+              value={templateId ?? ''}
+              onChange={(e) => setTemplateId(Number((e.target as HTMLSelectElement).value) || null)}
+              disabled={!connId}
+              hint={connId ? 'Só os modelos da conta deste número — a Meta recusa modelo de outro.' : undefined}
+            >
+              <option value="">{connId ? 'Selecione…' : 'Escolha o número primeiro'}</option>
               {templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.language} · {t.category})</option>)}
             </Select>
-            {templates.length === 0 && <p class="text-xs text-warning">Nenhum template aprovado. Crie e aprove um em WhatsApp Oficial antes de disparar.</p>}
+            {connId && templates.length === 0 && (
+              <p class="text-xs text-warning">
+                Nenhum template aprovado para este número. Crie e aprove um em WhatsApp Oficial escolhendo esta conexão.
+              </p>
+            )}
             <div>
               <label class="text-2xs text-fg-muted uppercase tracking-wider">Audiência</label>
               <div class="grid gap-2 mt-1 sm:grid-cols-2">

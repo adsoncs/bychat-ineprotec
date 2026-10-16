@@ -14,6 +14,15 @@ interface Props {
   /** Envia o modelo pela mesma rota do compositor (mediaType 'template'). */
   onSend: (payload: { name: string; language: string; components: unknown[] | undefined; preview: string }) => void
   enviando?: boolean
+  /**
+   * Conta (WABA) do número por onde a conversa sai — só os modelos dela são
+   * oferecidos. O modelo pertence à conta: oferecer o da outra empresa faz a
+   * Meta recusar o envio e, quando passasse, falaria com o contato em nome de
+   * quem ele não procurou.
+   */
+  wabaId?: string | null | undefined
+  /** Nome/número do canal, para a tela dizer de quem são os modelos listados. */
+  numero?: string | null | undefined
 }
 
 /** Substitui {{1}}, {{2}}… ou {{nome}}, {{aluno}}… pelos valores digitados,
@@ -32,17 +41,20 @@ function interpolar(texto: string, variables: string[], vars: string[]): string 
  * envia mensagem interativa (o provider lança erro explícito). Por isso o botão
  * que abre este seletor só aparece quando a conversa sai por um número Cloud API.
  */
-export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Props) {
-  const { data, isLoading } = useCloudApiTemplates()
+export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando, wabaId, numero }: Props) {
+  // Pede ao backend só os modelos da conta deste número; o filtro repetido
+  // abaixo cobre a lista que já estava em cache de outro número.
+  const { data, isLoading } = useCloudApiTemplates(wabaId ? { wabaId } : undefined)
   const [busca, setBusca] = useState('')
   const [escolhido, setEscolhido] = useState<CloudApiTemplate | null>(null)
   const [vars, setVars] = useState<string[]>([])
 
   const aprovados = useMemo(() => {
-    const todos = (data?.templates ?? []).filter((t) => String(t.status).toUpperCase() === 'APPROVED')
+    const todos = (data?.templates ?? []).filter((t) =>
+      String(t.status).toUpperCase() === 'APPROVED' && (!wabaId || t.wabaId === wabaId))
     const q = busca.trim().toLowerCase()
     return q ? todos.filter((t) => t.name.toLowerCase().includes(q)) : todos
-  }, [data, busca])
+  }, [data, busca, wabaId])
 
   const parsed = useMemo(() => (escolhido ? parseTemplateComponents(escolhido.components) : null), [escolhido])
 
@@ -90,7 +102,11 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
       open={open}
       onOpenChange={fechar}
       title="Enviar modelo aprovado"
-      description="Modelos com cabeçalho, mídia e botões — aprovados pela Meta e entregues mesmo fora da janela de 24h."
+      description={
+        numero
+          ? `Modelos do número ${numero} — aprovados pela Meta e entregues mesmo fora da janela de 24h. Modelo de outro número a Meta recusa.`
+          : 'Modelos com cabeçalho, mídia e botões — aprovados pela Meta e entregues mesmo fora da janela de 24h.'
+      }
       size="xl"
       footer={
         <div class="flex justify-between gap-2">
@@ -119,8 +135,12 @@ export function HsmTemplatePicker({ open, onOpenChange, onSend, enviando }: Prop
           {aprovados.length === 0 ? (
             <EmptyState
               icon={<LayoutTemplate size={24} />}
-              title="Nenhum modelo aprovado"
-              description="Crie e envie para aprovação em WhatsApp › Modelos de Mensagem. A Meta costuma responder em algumas horas."
+              title={numero ? `Nenhum modelo aprovado para ${numero}` : 'Nenhum modelo aprovado'}
+              description={
+                numero
+                  ? `Os modelos são da conta do número ${numero} — os de outro número não servem aqui. Crie e envie para aprovação em WhatsApp › Modelos de Mensagem, escolhendo este número.`
+                  : 'Crie e envie para aprovação em WhatsApp › Modelos de Mensagem. A Meta costuma responder em algumas horas.'
+              }
             />
           ) : (
             <ul class="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">

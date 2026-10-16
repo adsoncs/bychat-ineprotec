@@ -214,8 +214,12 @@ function PublishModal({ survey, onClose }: { survey: Survey; onClose: () => void
 // ── Disparar ─────────────────────────────────────────────────────────────────
 
 function DispatchModal({ survey, onClose }: { survey: Survey; onClose: () => void }) {
-  const { data: tpl } = useCloudApiTemplates()
-  const templates = (tpl?.templates ?? []).filter((t: any) => t.status === 'APPROVED')
+  // O convite sai pelo número em que o Flow foi publicado, e modelo é da CONTA
+  // (WABA) desse número — oferecer o de outra empresa só produziria erro 132001
+  // em cada envio. Pesquisa sem Flow publicado nem chega aqui com número.
+  const { data: tpl } = useCloudApiTemplates(survey.flowWabaId ? { wabaId: survey.flowWabaId } : undefined)
+  const templates = (tpl?.templates ?? []).filter((t: any) =>
+    t.status === 'APPROVED' && (!survey.flowWabaId || t.wabaId === survey.flowWabaId))
   const [raw, setRaw] = useState('')
   const [templateName, setTemplateName] = useState('')
   const dispatch = useDispatchSurvey()
@@ -253,7 +257,9 @@ function DispatchModal({ survey, onClose }: { survey: Survey; onClose: () => voi
       <div class="space-y-3">
         <Select
           label="Template de convite"
-          hint="Necessário para falar com quem não conversou com a empresa nas últimas 24 horas — que é o caso de uma pesquisa pós-evento. O template precisa ter um botão do tipo Flow."
+          hint={`Necessário para falar com quem não conversou com a empresa nas últimas 24 horas — que é o caso de uma pesquisa pós-evento. O template precisa ter um botão do tipo Flow.${
+            survey.flowChannelLabel ? ` Só os modelos do número ${survey.flowChannelLabel}, por onde o convite sai.` : ''
+          }`}
           value={templateName}
           onChange={(e) => setTemplateName((e.target as HTMLSelectElement).value)}
         >

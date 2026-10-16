@@ -7,6 +7,7 @@ import { logEvent, EVENT_TYPES } from './leadHistory.js'
 import { canSendNow, type Channel } from './messageGovernance.js'
 import { appendPreferencesLink } from './preferencesToken.js'
 import { templateBodyTokens } from '../lib/waTemplateParams.js'
+import { ORDEM_CONEXAO_PADRAO } from './whatsappProvider.js'
 
 // Último recurso para um parâmetro de template HSM vazio. Neutro de propósito:
 // cabe tanto em "olá, {{1}}" quanto em "o(a) {{2}} participando", e é melhor do
@@ -219,12 +220,14 @@ export async function dispatchAction(
       // configurado, o disparo sai pela API oficial como TEMPLATE (obrigatório fora
       // da janela de 24h). Sem conexão ativa OU sem cloudTemplateId, mantém o envio
       // por texto livre via Evolution (comportamento legado do QR Code).
-      const cloudConn = await prisma.cloudApiConnection.findFirst({
+      // Ter QUALQUER conexão ativa decide o caminho (API oficial × Evolution);
+      // o número de saída é escolhido mais abaixo, pela conta do modelo.
+      const temCloudAtiva = await prisma.cloudApiConnection.findFirst({
         where: { active: true },
-        select: { id: true, wabaId: true },
+        select: { id: true },
       })
 
-      if (cloudConn && config.cloudTemplateId) {
+      if (temCloudAtiva && config.cloudTemplateId) {
         const hsm = await prisma.cloudApiTemplate.findUnique({ where: { id: config.cloudTemplateId } })
         if (!hsm) {
           await prisma.workflowStepExecution.update({
@@ -240,6 +243,27 @@ export async function dispatchAction(
           })
           return
         }
+        // O número de saída é o da CONTA (WABA) do modelo. Pegar "a primeira
+        // conexão ativa" fazia o fluxo mandar o modelo de uma empresa pelo
+        // número da outra, e a Meta recusava cada disparo com 132001 ("template
+        // não existe") — falha silenciosa, só visível no histórico do passo.
+        const cloudConn = await prisma.cloudApiConnection.findFirst({
+          where: { active: true, wabaId: hsm.wabaId },
+          orderBy: ORDEM_CONEXAO_PADRAO,
+          select: { id: true, wabaId: true },
+        })
+        if (!cloudConn) {
+          await prisma.workflowStepExecution.update({
+            where: { id: stepExec.id },
+            data: {
+              status: 'failed',
+              error: `Nenhum número ativo na conta do modelo "${hsm.name}" (WABA ${hsm.wabaId})`,
+              completedAt: new Date(),
+            },
+          })
+          return
+        }
+
         // Resolve os parâmetros posicionais ({{1}}, {{2}}, ...) a partir do lead.
         //
         // A Meta REJEITA o disparo inteiro (131008 "Parameter of type text is
