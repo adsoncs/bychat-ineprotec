@@ -422,7 +422,7 @@ export function useUpsertPresencialExam() {
 // Essay submissions (Redação)
 
 /** Filtro de listagem (alinhado com backend). */
-export type EssayStatus = 'pending' | 'approved' | 'rejected' | 'all'
+export type EssayStatus = 'pending' | 'approved' | 'rejected' | 'andamento' | 'all'
 
 /** Estado real da redação (alinhado com schema Prisma). */
 export type EssayDbStatus =
@@ -450,6 +450,9 @@ export interface EssaySubmission {
   startedAt: string | null
   expiresAt: string | null
   submittedAt: string | null
+  updatedAt?: string
+  /** Nova tentativa liberada a partir desta. */
+  retakeReleasedAt?: string | null
   // IA
   aiScore: number | null
   aiConfidence: number | null
@@ -481,7 +484,7 @@ export interface EssaySubmission {
   } | null
 }
 
-export interface EssayKpi { pending: number; approved: number; rejected: number; suspeitas?: number }
+export interface EssayKpi { pending: number; approved: number; rejected: number; suspeitas?: number; andamento?: number }
 
 export interface EssayFilters {
   status?: EssayStatus | undefined
@@ -535,6 +538,10 @@ export interface EssayDetail extends EssaySubmission {
   integrityNote: string | null
   integrityReviewedBy: number | null
   integrityReviewedAt: string | null
+  /** É a tentativa mais recente da inscrição (só ela pode liberar a próxima). */
+  ultimaDaInscricao?: boolean
+  retakeReleasedNote?: string | null
+  retakeReleasedByName?: string | null
 }
 
 /** Avaliador confirma ou descarta a suspeita (null = desfaz). */
@@ -568,6 +575,21 @@ export function useEssaySubmission(id: number | null) {
     queryFn: () => api.get<{ item: EssayDetail }>(`/admin/essay-submissions/${id}`),
     enabled: id !== null,
     staleTime: 30_000,
+  })
+}
+
+/** Libera nova tentativa de redação (reprova a atual se ainda estiver em correção). */
+export function useNovaTentativaRedacao() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post<{ ok: true; proximaTentativa: number }>(`/admin/essay-submissions/${id}/nova-tentativa`, { motivo }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['edu-essays'] })
+      void qc.invalidateQueries({ queryKey: ['edu-essay'] })
+      void qc.invalidateQueries({ queryKey: ['registration-review'] })
+      void qc.invalidateQueries({ queryKey: ['registration-etapas'] })
+    },
   })
 }
 

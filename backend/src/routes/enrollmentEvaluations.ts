@@ -16,6 +16,7 @@ import { aplicarNotaDeAvaliacao } from '../services/portalClassificacao.js'
 import { eventBus } from '../lib/eventBus.js'
 import { validateEnemImport } from '../services/enemClassification.js'
 import { lerPolitica, somarTelemetria } from '../lib/integridadeRedacao.js'
+import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import {
   computeEvaluationStatus,
   tryAutoAdvanceOnEvaluationComplete,
@@ -27,10 +28,18 @@ export { computeEvaluationStatus, tryAutoAdvanceOnEvaluationComplete }
 
 /** O que o candidato pode ver da própria tentativa: integridade e telemetria
  *  são laudo interno da coordenação (lib/integridadeRedacao.ts). */
-function paraCandidato<T extends Record<string, any>>(sub: T): Omit<T, 'integrity' | 'integrityStatus' | 'aiAuthorshipPct' | 'typingTelemetry' | 'integrityDecision' | 'integrityNote' | 'integrityReviewedBy' | 'integrityReviewedAt'> {
-  const { integrity: _a, integrityStatus: _b, aiAuthorshipPct: _c, typingTelemetry: _d, integrityDecision: _e, integrityNote: _f, integrityReviewedBy: _g, integrityReviewedAt: _h, ...resto } = sub as any
+function paraCandidato<T extends Record<string, any>>(sub: T): Omit<T, 'integrity' | 'integrityStatus' | 'aiAuthorshipPct' | 'typingTelemetry' | 'integrityDecision' | 'integrityNote' | 'integrityReviewedBy' | 'integrityReviewedAt' | 'retakeReleasedBy' | 'retakeReleasedNote'> {
+  const { integrity: _a, integrityStatus: _b, aiAuthorshipPct: _c, typingTelemetry: _d, integrityDecision: _e, integrityNote: _f, integrityReviewedBy: _g, integrityReviewedAt: _h, retakeReleasedBy: _i, retakeReleasedNote: _j, ...resto } = sub as any
   return resto
 }
+
+/** Sessão do candidato vencida há até isto ainda salva e envia a redação: o
+ *  token dura 1h e quem escrevia por mais tempo perdia o texto em 401. */
+const TOLERANCIA_SESSAO_REDACAO_MS = 12 * 3600_000
+/** Folga depois do fim do cronômetro para o envio chegar (rede lenta, aba suspensa). */
+const FOLGA_ENVIO_MS = 5 * 60_000
+/** Tentativas que contam no limite: rascunho em andamento não conta. */
+const contaComoTentativa = (status: string) => status !== 'draft'
 
 export type { EvaluationStatus }
 
@@ -522,6 +531,8 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     if (statusFilter === 'pending') where.status = { in: ['submitted', 'ai_reviewing', 'needs_human'] }
     else if (statusFilter === 'approved') where.status = 'approved'
     else if (statusFilter === 'rejected') where.status = 'rejected'
+    // Em andamento ou encerradas sem envio — onde aparece quem travou.
+    else if (statusFilter === 'andamento') where.status = { in: ['draft', 'expired'] }
     // 'all' → sem filtro
 
     if (portalId) where.registration = { portalId }
@@ -541,10 +552,10 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
 
     const items = await prisma.essaySubmission.findMany({
       where,
-      orderBy: { submittedAt: 'asc' },
+      orderBy: statusFilter === 'andamento' ? { startedAt: 'desc' } : { submittedAt: 'asc' },
       take: 200,
       select: {
-        id: true, status: true, attemptNumber: true, wordCount: true,
+        id: true, status: true, attemptNumber: true, wordCount: true, updatedAt: true, retakeReleasedAt: true,
         startedAt: true, expiresAt: true, submittedAt: true,
         aiScore: true, aiConfidence: true, aiProcessedAt: true,
         humanScore: true, reviewedBy: true, reviewedAt: true,
@@ -568,13 +579,14 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     })
 
     const kpiRows = await prisma.essaySubmission.findMany({ select: { status: true, integrityStatus: true, integrityDecision: true } })
-    const kpi = { pending: 0, approved: 0, rejected: 0, suspeitas: 0 }
+    const kpi = { pending: 0, approved: 0, rejected: 0, suspeitas: 0, andamento: 0 }
     for (const k of kpiRows) {
       // Suspeita que ninguém avaliou ainda — é a fila de integridade.
       if (k.integrityStatus === 'suspeita' && !k.integrityDecision) kpi.suspeitas++
       if (['submitted', 'ai_reviewing', 'needs_human'].includes(k.status)) kpi.pending++
       else if (k.status === 'approved') kpi.approved++
       else if (k.status === 'rejected') kpi.rejected++
+      else if (k.status === 'draft' || k.status === 'expired') kpi.andamento++
     }
 
     return { items, total: items.length, kpi }
@@ -602,7 +614,13 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       },
     })
     if (!item) return reply.code(404).send({ error: 'Redação não encontrada' })
-    return { item }
+    const ultima = await prisma.essaySubmission.findFirst({
+      where: { registrationId: item.registrationId }, orderBy: { createdAt: 'desc' }, select: { id: true },
+    })
+    const liberadoPor = item.retakeReleasedBy
+      ? (await prisma.user.findUnique({ where: { id: item.retakeReleasedBy }, select: { name: true } }))?.name ?? null
+      : null
+    return { item: { ...item, ultimaDaInscricao: ultima?.id === item.id, retakeReleasedByName: liberadoPor } }
   })
 
   // POST /api/admin/essay-submissions/:id/integridade/decisao
@@ -747,32 +765,221 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     return { ok: true, submission: updated }
   })
 
+  // POST /api/admin/essay-submissions/:id/nova-tentativa
+  // Libera uma nova tentativa para o candidato, quantas vezes for preciso —
+  // reprovou, ou a tentativa travou (sessão caiu, tempo acabou, não enviou).
+  // Body: { motivo } (obrigatório, fica na tentativa e no histórico da inscrição).
+  //   - em correção (needs_human/ai_reviewing): é reprovada nesta mesma ação;
+  //   - rascunho (draft): é encerrada como 'expired', com o texto guardado;
+  //   - reprovada/expirada: só libera.
+  // Não aprova nada, não envia mensagem: emite enrollment.essay_retake_released
+  // para quem quiser montar o aviso em Fluxos.
+  app.post('/api/admin/essay-submissions/:id/nova-tentativa', async (req, reply) => {
+    const user = await requireAdminWrite(req, reply); if (!user) return
+    const id = parseInt((req.params as any).id)
+    const body = (req.body as any) || {}
+    const motivo = String(body.motivo ?? '').trim()
+    if (motivo.length < 10) return reply.code(400).send({ error: 'Explique o motivo (mínimo de 10 caracteres) — fica no histórico da inscrição.' })
+
+    const sub = await prisma.essaySubmission.findUnique({
+      where: { id },
+      select: {
+        id: true, registrationId: true, status: true, attemptNumber: true, aiScore: true, humanScore: true, finalScore: true, submittedAt: true,
+        registration: {
+          select: {
+            essayAttemptsGranted: true,
+            processRegistrationId: true,
+            processRegistration: {
+              select: {
+                status: true,
+                selectionProcess: { select: { essayMaxAttempts: true, essayCutoff: true } },
+                offering: { select: { essayCutoff: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+    if (!sub) return reply.code(404).send({ error: 'Redação não encontrada' })
+    const ultima = await prisma.essaySubmission.findFirst({ where: { registrationId: sub.registrationId }, orderBy: { createdAt: 'desc' }, select: { id: true } })
+    if (ultima?.id !== sub.id) return reply.code(400).send({ error: 'Já existe uma tentativa mais recente desta inscrição — abra a última.' })
+    if (sub.status === 'approved') return reply.code(400).send({ error: 'Esta redação já está aprovada.' })
+    // A correção por IA grava o status quando termina; liberar no meio dela
+    // seria sobrescrito. Passados 10 min, a correção travou e pode liberar.
+    if (sub.status === 'ai_reviewing' && sub.submittedAt && Date.now() - new Date(sub.submittedAt).getTime() < 10 * 60_000) {
+      return reply.code(409).send({ error: 'A IA ainda está corrigindo esta redação. Aguarde um minuto e tente de novo.' })
+    }
+
+    const agora = new Date()
+    const pr = sub.registration.processRegistration
+    const cutoff = pr?.offering?.essayCutoff ?? pr?.selectionProcess?.essayCutoff ?? null
+    const operador = user.name || 'Operador'
+
+    // Encerra a tentativa atual conforme o estado em que está.
+    const encerrar: Record<string, unknown> = { retakeReleasedBy: user.userId, retakeReleasedAt: agora, retakeReleasedNote: motivo }
+    if (['needs_human', 'ai_reviewing', 'submitted'].includes(sub.status)) {
+      const finalScore = sub.humanScore ?? sub.aiScore
+      Object.assign(encerrar, {
+        status: 'rejected', passed: false, finalScore, cutoffApplied: cutoff,
+        humanNote: motivo, reviewedBy: user.userId, reviewedAt: agora,
+      })
+    } else if (sub.status === 'draft') {
+      Object.assign(encerrar, { status: 'expired' })
+    }
+
+    // Garante exatamente 1 tentativa disponível (clicar duas vezes não dá duas).
+    const usadas = await prisma.essaySubmission.count({ where: { registrationId: sub.registrationId, status: { not: 'draft' } } })
+    const usadasDepois = usadas + (sub.status === 'draft' ? 1 : 0)
+    const base = sub.registration.processRegistration?.selectionProcess?.essayMaxAttempts || 1
+    const concedidas = Math.max(sub.registration.essayAttemptsGranted || 0, usadasDepois + 1 - base)
+
+    await prisma.$transaction([
+      prisma.essaySubmission.update({ where: { id: sub.id }, data: encerrar }),
+      prisma.enrollmentRegistration.update({ where: { id: sub.registrationId }, data: { essayAttemptsGranted: concedidas } }),
+    ])
+
+    // A reprovação desta tentativa não é a palavra final: se a inscrição no
+    // processo ficou 'reprovado' por causa dela, volta ao status anterior.
+    if (sub.registration.processRegistrationId && pr?.status === 'reprovado') {
+      const ult = await prisma.processRegistrationStatusLog.findFirst({
+        where: { registrationId: sub.registration.processRegistrationId, toStatus: 'reprovado', NOT: { fromStatus: 'reprovado' } },
+        orderBy: { createdAt: 'desc' }, select: { fromStatus: true },
+      })
+      const volta = ult?.fromStatus && ult.fromStatus !== 'reprovado' ? ult.fromStatus : 'inscrito'
+      const r = await prisma.processRegistration.updateMany({
+        where: { id: sub.registration.processRegistrationId, status: 'reprovado' },
+        data: { status: volta },
+      })
+      if (r.count > 0) {
+        await prisma.processRegistrationStatusLog.create({
+          data: {
+            registrationId: sub.registration.processRegistrationId, fromStatus: 'reprovado', toStatus: volta,
+            actorId: user.userId, actorName: operador,
+            observacao: `Redação: nova tentativa liberada (tentativa ${sub.attemptNumber + 1}). ${motivo}`,
+          },
+        }).catch(() => {})
+      }
+    } else if (sub.registration.processRegistrationId && pr) {
+      await prisma.processRegistrationStatusLog.create({
+        data: {
+          registrationId: sub.registration.processRegistrationId, fromStatus: pr.status, toStatus: pr.status,
+          actorId: user.userId, actorName: operador,
+          observacao: `Redação: nova tentativa liberada (tentativa ${sub.attemptNumber + 1}). ${motivo}`,
+        },
+      }).catch(() => {})
+    }
+
+    const ev = await buildBaseEventPayload(sub.registrationId)
+    if (ev) {
+      eventBus.emitDomain({
+        type: 'enrollment.essay_retake_released',
+        leadId: ev.leadId,
+        payload: { ...ev.payload, submissionId: sub.id, proximaTentativa: sub.attemptNumber + 1, motivo },
+        timestamp: agora,
+      })
+    }
+
+    return { ok: true, proximaTentativa: sub.attemptNumber + 1, tentativasConcedidas: concedidas }
+  })
+
   // ═════════════════════════════════════════════
   // REDAÇÃO — endpoints do CANDIDATO
   // (autenticação via JWT do candidato; reuso do helper existente)
   // ═════════════════════════════════════════════
 
-  // Replica a lógica de candidatePortal.ts (token JWT-like custom). Mantemos
-  // local pra evitar export cruzado entre rotas; se um dia o SECRET mudar,
-  // basta atualizar nos dois lugares.
-  async function requireCandidateLocal(req: any, reply: any): Promise<{ enrollmentId: number; candidateCode: string; onde: 'inscricao' | 'painel' } | null> {
+  // Sessão deslizante: toda chamada da redação devolve um token novo em
+  // X-Candidate-Token (o portal troca sozinho), então quem está escrevendo não
+  // perde a sessão no meio. `toleranciaMs` só no salvar/enviar.
+  async function requireCandidateLocal(req: any, reply: any, opts: { toleranciaMs?: number } = {}): Promise<{ enrollmentId: number; candidateCode: string; onde: 'inscricao' | 'painel' } | null> {
     const auth = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '')
-    const crypto = await import('crypto')
-    const { CANDIDATE_SECRET: SECRET } = await import('../lib/secrets.js')
-    if (!auth || !auth.includes('.')) { reply.code(401).send({ error: 'Sessão inválida' }); return null }
-    const [body, sig] = auth.split('.')
-    const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
-    if (sig !== expected) { reply.code(401).send({ error: 'Sessão inválida' }); return null }
-    try {
-      const payload = JSON.parse(Buffer.from(body, 'base64url').toString())
-      if (!payload || payload.exp < Date.now()) { reply.code(401).send({ error: 'Sessão expirada' }); return null }
-      return { enrollmentId: payload.enrollmentId, candidateCode: payload.candidateCode, onde: payload.onde === 'painel' ? 'painel' : 'inscricao' }
-    } catch { reply.code(401).send({ error: 'Sessão inválida' }); return null }
+    const payload = verifyCandidateToken(auth, opts)
+    if (!payload) {
+      reply.code(401).send({ error: 'Sua sessão expirou. Entre de novo no portal para continuar.', sessaoExpirada: true })
+      return null
+    }
+    const onde = ondeDoToken(payload)
+    reply.header('X-Candidate-Token', signCandidateToken(payload.enrollmentId, payload.candidateCode, undefined, onde))
+    return { enrollmentId: payload.enrollmentId, candidateCode: payload.candidateCode, onde }
   }
 
   function countWords(s: string | null | undefined): number {
     if (!s) return 0
     return s.trim().split(/\s+/).filter(Boolean).length
+  }
+
+  /**
+   * Entrega a tentativa: grava o texto final, manda para a correção (IA ou
+   * humano) e emite o evento. Usada pelo botão Enviar e quando o cronômetro
+   * acaba com texto escrito — o que foi escrito até o fim do tempo é entregue.
+   */
+  async function entregarTentativa(
+    sub: { id: number; registrationId: number; pasteAttempts: number; visibilityChanges: number; typingTelemetry: unknown },
+    texto: string,
+    aiEnabled: boolean,
+    body: any,
+    quando: Date,
+    log: { warn: (m: string) => void },
+  ) {
+    const wc = countWords(texto)
+    // updateMany com status: 'draft' — dois envios simultâneos (duplo clique,
+    // envio automático do cronômetro + botão) não entregam duas vezes.
+    const r = await prisma.essaySubmission.updateMany({
+      where: { id: sub.id, status: 'draft' },
+      data: {
+        essayText: texto,
+        wordCount: wc,
+        status: aiEnabled ? 'ai_reviewing' : 'needs_human',
+        submittedAt: quando,
+        // Nunca diminui: recarregar a página zera o contador do navegador, e
+        // gravar o valor recebido apagava o histórico de colagens.
+        pasteAttempts: typeof body?.pasteAttempts === 'number' ? Math.max(sub.pasteAttempts, body.pasteAttempts) : sub.pasteAttempts,
+        visibilityChanges: typeof body?.visibilityChanges === 'number' ? Math.max(sub.visibilityChanges, body.visibilityChanges) : sub.visibilityChanges,
+        ...(body?.telemetria ? { typingTelemetry: somarTelemetria(sub.typingTelemetry, body.telemetria) as any } : {}),
+      },
+    })
+    if (r.count === 0) return null
+
+    // Evento + enfileira correção IA
+    const base = await buildBaseEventPayload(sub.registrationId)
+    if (base) {
+      eventBus.emitDomain({
+        type: 'enrollment.essay_submitted',
+        leadId: base.leadId,
+        payload: { ...base.payload, submissionId: sub.id, wordCount: wc },
+        timestamp: new Date(),
+      })
+    }
+    if (aiEnabled) {
+      const { queues } = await import('../lib/queues.js')
+      queues.essayCorrection.add('correct', { submissionId: sub.id }, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 10_000 },
+      }).catch((err: any) => log.warn(`[essay-submit] enqueue: ${err.message}`))
+    }
+    return prisma.essaySubmission.findUnique({ where: { id: sub.id } })
+  }
+
+  /**
+   * Rascunho cujo cronômetro acabou (com a folga) e que ninguém enviou — aba
+   * fechada, bateria, internet. Com texto, é entregue como estava no último
+   * salvamento; vazio, vira 'expired'. Antes ficava 'draft' para sempre e o
+   * candidato via "Não há tentativas disponíveis".
+   */
+  async function fecharRascunhoVencido(registrationId: number, log: { warn: (m: string) => void }) {
+    const limite = new Date(Date.now() - FOLGA_ENVIO_MS)
+    const vencidos = await prisma.essaySubmission.findMany({
+      where: { registrationId, status: 'draft', expiresAt: { lt: limite } },
+      include: { registration: { select: { processRegistration: { select: { selectionProcess: { select: { essayAiEnabled: true } } } } } } },
+    })
+    for (const v of vencidos) {
+      const texto = String(v.essayText ?? '').trim()
+      if (countWords(texto) === 0) {
+        await prisma.essaySubmission.updateMany({ where: { id: v.id, status: 'draft' }, data: { status: 'expired' } })
+        continue
+      }
+      const aiEnabled = v.registration?.processRegistration?.selectionProcess?.essayAiEnabled !== false
+      await entregarTentativa(v, texto, aiEnabled, null, v.expiresAt ?? new Date(), log)
+    }
   }
 
   // GET /api/candidate/essay — estado atual da redação do candidato.
@@ -784,7 +991,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: s.enrollmentId },
       select: {
-        id: true, candidateCode: true,
+        id: true, candidateCode: true, essayAttemptsGranted: true,
         processRegistration: {
           select: {
             selectionProcess: {
@@ -819,6 +1026,8 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       return { eligible: false, reason: 'A redação ainda não foi configurada pela coordenação.' }
     }
 
+    await fecharRascunhoVencido(reg.id, req.log)
+
     const submissions = await prisma.essaySubmission.findMany({
       where: { registrationId: reg.id },
       orderBy: { createdAt: 'desc' },
@@ -827,19 +1036,21 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         prompt: true,
         startedAt: true, expiresAt: true, submittedAt: true,
         finalScore: true, passed: true, humanNote: true, aiAnalysis: true,
+        retakeReleasedAt: true,
       },
     })
 
     const last = submissions[0]
-    const nextAttemptNumber = (submissions[0]?.attemptNumber || 0) + 1
-    const attemptsUsed = submissions.filter(x => x.status !== 'draft').length
-    const attemptsLeft = Math.max(0, (sp.essayMaxAttempts || 1) - attemptsUsed)
-    const draftActive = last && last.status === 'draft' && (!last.expiresAt || new Date(last.expiresAt) > new Date())
+    const maxAttempts = (sp.essayMaxAttempts || 1) + (reg.essayAttemptsGranted || 0)
+    const attemptsUsed = submissions.filter(x => contaComoTentativa(x.status)).length
+    const attemptsLeft = Math.max(0, maxAttempts - attemptsUsed)
+    const draftActive = last && last.status === 'draft' && (!last.expiresAt || new Date(last.expiresAt).getTime() + FOLGA_ENVIO_MS > Date.now())
 
     // Última submissão não-draft em revisão (IA processando ou aguardando humano).
     // Nesse estado o candidato NÃO pode iniciar nova tentativa — precisa aguardar
     // veredito antes de tentar de novo. Reativa só após rejected/expired.
     const pendingReview = submissions.find(s => s.status === 'ai_reviewing' || s.status === 'needs_human') || null
+    const approved = submissions.find(s => s.status === 'approved') || null
 
     return {
       eligible: true,
@@ -850,7 +1061,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         hasMultipleTopics: topicCount > 1,
         topicCount,
         durationMinutes: sp.essayDurationMinutes,
-        maxAttempts: sp.essayMaxAttempts,
+        maxAttempts,
         minWords: sp.essayMinWords,
         maxWords: sp.essayMaxWords,
         pasteBlocked: sp.essayPasteBlocked,
@@ -863,10 +1074,14 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       submissions,
       attemptsUsed,
       attemptsLeft,
-      canStart: !draftActive && !pendingReview && attemptsLeft > 0,
+      canStart: !draftActive && !pendingReview && !approved && attemptsLeft > 0,
       activeDraft: draftActive ? last : null,
       pendingReview,
-      finalResult: submissions.find(s => s.status === 'approved' || s.status === 'rejected') || null,
+      // A última tentativa decidida — é ela que o candidato vê (a reprovada
+      // anterior não aparece mais depois de aprovar na seguinte).
+      finalResult: approved || submissions.find(s => s.status === 'rejected' || s.status === 'expired') || null,
+      // A coordenação liberou nova tentativa depois da última decisão.
+      retakeReleased: !!last?.retakeReleasedAt && attemptsLeft > 0 && !draftActive && !pendingReview && !approved,
     }
   })
 
@@ -879,7 +1094,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     const reg = await prisma.enrollmentRegistration.findUnique({
       where: { id: s.enrollmentId },
       select: {
-        id: true,
+        id: true, essayAttemptsGranted: true,
         processRegistration: {
           select: {
             selectionProcess: {
@@ -903,28 +1118,11 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       if (trava) return reply.code(409).send({ error: trava, travada: true })
     }
 
-    // Sorteio de tema: prioriza EssayTopic; cai para essayPrompt legado se não houver nenhum.
-    const activeTopics = await prisma.essayTopic.findMany({
-      where: { selectionProcessId: sp.id, active: true },
-      select: { id: true, prompt: true, supportTexts: true, title: true },
-    })
-    let promptText: string | null = null
-    if (activeTopics.length > 0) {
-      const picked = activeTopics[Math.floor(Math.random() * activeTopics.length)]
-      const intro = picked.title ? `${picked.title}\n\n` : ''
-      const support = picked.supportTexts ? `\n\n---\n${picked.supportTexts}` : ''
-      promptText = `${intro}${picked.prompt}${support}`
-    } else if (sp.essayPrompt) {
-      promptText = sp.essayPrompt
-    }
-    if (!promptText) {
-      return reply.code(400).send({ error: 'Redação não disponível — nenhum tema configurado' })
-    }
-
+    await fecharRascunhoVencido(reg.id, req.log)
     const subs = await prisma.essaySubmission.findMany({
       where: { registrationId: reg.id }, orderBy: { createdAt: 'desc' },
     })
-    const draft = subs[0]?.status === 'draft' && (!subs[0].expiresAt || new Date(subs[0].expiresAt) > new Date()) ? subs[0] : null
+    const draft = subs[0]?.status === 'draft' && (!subs[0].expiresAt || new Date(subs[0].expiresAt).getTime() + FOLGA_ENVIO_MS > Date.now()) ? subs[0] : null
     if (draft) return { ok: true, submission: paraCandidato(draft), resumed: true }
 
     // Se há submissão ainda em revisão (IA processando ou aguardando humano),
@@ -933,10 +1131,37 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     if (inReview) {
       return reply.code(400).send({ error: 'Sua redação anterior ainda está sendo avaliada. Aguarde o resultado para iniciar uma nova tentativa.' })
     }
+    if (subs.some(s => s.status === 'approved')) {
+      return reply.code(400).send({ error: 'Sua redação já foi aprovada.' })
+    }
 
-    const used = subs.filter(x => x.status !== 'draft').length
-    if (used >= (sp.essayMaxAttempts || 1)) {
+    const used = subs.filter(x => contaComoTentativa(x.status)).length
+    if (used >= (sp.essayMaxAttempts || 1) + (reg.essayAttemptsGranted || 0)) {
       return reply.code(400).send({ error: 'Tentativas esgotadas' })
+    }
+
+    // Sorteio de tema: prioriza EssayTopic; cai para essayPrompt legado se não houver nenhum.
+    // Em nova tentativa, evita repetir um tema que a pessoa já recebeu.
+    const activeTopics = await prisma.essayTopic.findMany({
+      where: { selectionProcessId: sp.id, active: true },
+      select: { id: true, prompt: true, supportTexts: true, title: true },
+    })
+    const montar = (t: { prompt: string; supportTexts: string | null; title: string | null }) => {
+      const intro = t.title ? `${t.title}\n\n` : ''
+      const support = t.supportTexts ? `\n\n---\n${t.supportTexts}` : ''
+      return `${intro}${t.prompt}${support}`
+    }
+    let promptText: string | null = null
+    if (activeTopics.length > 0) {
+      const jaRecebidos = new Set(subs.map(x => x.prompt).filter(Boolean))
+      const ineditos = activeTopics.filter(t => !jaRecebidos.has(montar(t)))
+      const pool = ineditos.length > 0 ? ineditos : activeTopics
+      promptText = montar(pool[Math.floor(Math.random() * pool.length)])
+    } else if (sp.essayPrompt) {
+      promptText = sp.essayPrompt
+    }
+    if (!promptText) {
+      return reply.code(400).send({ error: 'Redação não disponível — nenhum tema configurado' })
     }
 
     const startedAt = new Date()
@@ -946,7 +1171,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       data: {
         registrationId: reg.id,
         prompt: promptText,
-        attemptNumber: used + 1,
+        attemptNumber: (subs[0]?.attemptNumber || 0) + 1,
         status: 'draft',
         startedAt,
         expiresAt,
@@ -960,19 +1185,16 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
   // PUT /api/candidate/essay/:id/draft — auto-save do texto (não submete).
   // Body: { essayText, pasteAttempts?, visibilityChanges? }
   app.put('/api/candidate/essay/:id/draft', async (req, reply) => {
-    const s = await requireCandidateLocal(req, reply); if (!s) return
+    const s = await requireCandidateLocal(req, reply, { toleranciaMs: TOLERANCIA_SESSAO_REDACAO_MS }); if (!s) return
     const { id } = req.params as any
     const body = (req.body as any) || {}
     const sub = await prisma.essaySubmission.findUnique({ where: { id: parseInt(id) } })
     if (!sub || sub.registrationId !== s.enrollmentId) return reply.code(404).send({ error: 'Redação não encontrada' })
-    if (sub.status !== 'draft') return reply.code(400).send({ error: 'Redação já foi submetida' })
+    if (sub.status !== 'draft') return reply.code(400).send({ error: 'Redação já foi submetida', jaEnviada: true })
+    // Tempo acabou: não aceita mais edição, mas também não mata a tentativa —
+    // o portal envia o texto (e, se não enviar, o GET entrega o último salvo).
     if (sub.expiresAt && new Date(sub.expiresAt) < new Date()) {
-      // Auto-marca como expirada
-      await prisma.essaySubmission.update({
-        where: { id: sub.id },
-        data: { status: 'expired' },
-      })
-      return reply.code(400).send({ error: 'Tempo expirado' })
+      return reply.code(409).send({ error: 'O tempo da redação acabou.', tempoEsgotado: true })
     }
 
     const text = String(body.essayText || '').slice(0, 200_000)  // limite duro
@@ -1009,7 +1231,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
 
   // POST /api/candidate/essay/:id/submit — finaliza, valida, dispara IA opcional.
   app.post('/api/candidate/essay/:id/submit', async (req, reply) => {
-    const s = await requireCandidateLocal(req, reply); if (!s) return
+    const s = await requireCandidateLocal(req, reply, { toleranciaMs: TOLERANCIA_SESSAO_REDACAO_MS }); if (!s) return
     const { id } = req.params as any
     const body = (req.body as any) || {}
 
@@ -1034,60 +1256,40 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       },
     })
     if (!sub || sub.registrationId !== s.enrollmentId) return reply.code(404).send({ error: 'Redação não encontrada' })
-    if (sub.status !== 'draft') return reply.code(400).send({ error: 'Redação já foi submetida' })
+    // Já entregue (duplo clique, ou o envio automático chegou antes): não é erro.
+    if (sub.status !== 'draft') {
+      if (['ai_reviewing', 'needs_human', 'submitted', 'approved', 'rejected'].includes(sub.status)) {
+        return { ok: true, submission: paraCandidato(sub as any), jaEnviada: true }
+      }
+      return reply.code(400).send({ error: 'Esta tentativa foi encerrada.' })
+    }
     {
       const trava = await (await import('../services/portalJornada.js')).bloqueioDaEtapa(s.enrollmentId, 'prova', s.onde)
       if (trava) return reply.code(409).send({ error: trava, travada: true })
     }
 
     const sp = sub.registration?.processRegistration?.selectionProcess
-    const finalText = String(body.essayText ?? sub.essayText ?? '').trim().slice(0, 200_000)
+    const now = new Date()
+    // Fim do cronômetro: aceita até a folga, sem exigir o mínimo de palavras —
+    // vale o que foi escrito. Depois da folga, entrega o último texto salvo.
+    const tempoEsgotado = !!sub.expiresAt && now > new Date(sub.expiresAt)
+    const foraDaFolga = !!sub.expiresAt && now.getTime() > new Date(sub.expiresAt).getTime() + FOLGA_ENVIO_MS
+    const finalText = String((foraDaFolga ? sub.essayText : (body.essayText ?? sub.essayText)) ?? '').trim().slice(0, 200_000)
     const wc = countWords(finalText)
 
-    if (sp?.essayMinWords && wc < sp.essayMinWords) {
+    if (wc === 0) return reply.code(400).send({ error: 'A redação está vazia.' })
+    if (!tempoEsgotado && sp?.essayMinWords && wc < sp.essayMinWords) {
       return reply.code(400).send({ error: `Mínimo de ${sp.essayMinWords} palavras (atual: ${wc})` })
     }
-    if (sp?.essayMaxWords && wc > sp.essayMaxWords) {
+    if (!tempoEsgotado && sp?.essayMaxWords && wc > sp.essayMaxWords) {
       return reply.code(400).send({ error: `Máximo de ${sp.essayMaxWords} palavras (atual: ${wc})` })
     }
 
-    const now = new Date()
-    const aiEnabled = sp?.essayAiEnabled !== false
-
-    const updated = await prisma.essaySubmission.update({
-      where: { id: sub.id },
-      data: {
-        essayText: finalText,
-        wordCount: wc,
-        status: aiEnabled ? 'ai_reviewing' : 'needs_human',
-        submittedAt: now,
-        // Nunca diminui: recarregar a página zera o contador do navegador, e
-        // gravar o valor recebido apagava o histórico de colagens.
-        pasteAttempts: typeof body.pasteAttempts === 'number' ? Math.max(sub.pasteAttempts, body.pasteAttempts) : sub.pasteAttempts,
-        visibilityChanges: typeof body.visibilityChanges === 'number' ? Math.max(sub.visibilityChanges, body.visibilityChanges) : sub.visibilityChanges,
-        ...(body.telemetria ? { typingTelemetry: somarTelemetria(sub.typingTelemetry, body.telemetria) as any } : {}),
-      },
-    })
-
-    // Evento + enfileira correção IA
-    const base = await buildBaseEventPayload(sub.registrationId)
-    if (base) {
-      eventBus.emitDomain({
-        type: 'enrollment.essay_submitted',
-        leadId: base.leadId,
-        payload: { ...base.payload, submissionId: updated.id, wordCount: wc },
-        timestamp: new Date(),
-      })
+    const updated = await entregarTentativa(sub, finalText, sp?.essayAiEnabled !== false, foraDaFolga ? null : body, tempoEsgotado ? new Date(sub.expiresAt!) : now, req.log)
+    if (!updated) {
+      const atual = await prisma.essaySubmission.findUnique({ where: { id: sub.id } })
+      return { ok: true, submission: atual ? paraCandidato(atual) : null, jaEnviada: true }
     }
-
-    if (aiEnabled) {
-      const { queues } = await import('../lib/queues.js')
-      queues.essayCorrection.add('correct', { submissionId: updated.id }, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 10_000 },
-      }).catch((err: any) => req.log.warn(`[essay-submit] enqueue: ${err.message}`))
-    }
-
-    return { ok: true, submission: updated }
+    return { ok: true, submission: paraCandidato(updated) }
   })
 }

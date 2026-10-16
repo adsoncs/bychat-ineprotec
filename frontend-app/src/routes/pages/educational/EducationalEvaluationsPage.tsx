@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import { useQueryClient } from '@tanstack/react-query'
-import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, ExternalLink, AlertTriangle } from '@/components/ui/icon-set'
+import { Award, FileText, ClipboardList, Check, X as XIcon, Sparkles, BarChart3, RefreshCw, ExternalLink, AlertTriangle, RotateCcw } from '@/components/ui/icon-set'
 import {
   useEnemImports,
   useEnemImport,
@@ -11,6 +11,7 @@ import {
   useEssaySubmissions,
   useEssaySubmission,
   useReviewEssay,
+  useNovaTentativaRedacao,
   type EnemImport,
   type EnemImportDetail,
   type EnemStatus,
@@ -985,6 +986,7 @@ function EssayTab() {
           <StatusPill active={status === 'pending'}  tone="warning" count={kpi?.pending}  onClick={() => setStatus('pending')}>⏳ A revisar</StatusPill>
           <StatusPill active={status === 'approved'} tone="success" count={kpi?.approved} onClick={() => setStatus('approved')}>✓ Aprovadas</StatusPill>
           <StatusPill active={status === 'rejected'} tone="danger"  count={kpi?.rejected} onClick={() => setStatus('rejected')}>✕ Rejeitadas</StatusPill>
+          <StatusPill active={status === 'andamento'} tone="neutral" count={kpi?.andamento} onClick={() => setStatus('andamento')}>✍ Em andamento / sem envio</StatusPill>
           <StatusPill active={status === 'all'}      tone="neutral" count={totalCount}    onClick={() => setStatus('all')}>📋 Todas</StatusPill>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-[1fr_16rem] gap-2">
@@ -1009,7 +1011,7 @@ function EssayTab() {
         {!isLoading && items.length === 0 && (
           <div class="p-8">
             <EmptyState
-              title={status === 'pending' ? 'Nenhuma redação aguardando revisão' : 'Sem redações'}
+              title={status === 'pending' ? 'Nenhuma redação aguardando revisão' : status === 'andamento' ? 'Ninguém escrevendo ou travado agora' : 'Sem redações'}
               description={status === 'pending' ? 'Sem redações enviadas para revisão. Mude o filtro para "Todas" para ver tudo.' : 'Tente ajustar os filtros.'}
             />
           </div>
@@ -1035,7 +1037,8 @@ function essayStatusLabel(s: EssaySubmission['status']): { label: string; tone: 
     case 'submitted':    return { label: 'Enviada',          tone: 'warning' }
     case 'ai_reviewing': return { label: 'IA analisando',    tone: 'info' }
     case 'needs_human':  return { label: 'Aguardando humano', tone: 'warning' }
-    case 'expired':      return { label: 'Expirada',         tone: 'neutral' }
+    case 'expired':      return { label: 'Encerrada sem envio', tone: 'neutral' }
+    case 'draft':        return { label: 'Em andamento',     tone: 'info' }
     default:             return { label: s,                  tone: 'neutral' }
   }
 }
@@ -1059,6 +1062,7 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
             {it.passed === true && <Badge tone="success">✓ Aprovado</Badge>}
             {it.passed === false && <Badge tone="danger">✕ Reprovado</Badge>}
             {it.attemptNumber > 1 && <Badge tone="info">tentativa {it.attemptNumber}</Badge>}
+            {it.retakeReleasedAt && <Badge tone="info"><RotateCcw size={10} class="inline" /> nova tentativa liberada</Badge>}
             <SeloIntegridade pct={it.aiAuthorshipPct} status={it.integrityStatus} decisao={it.integrityDecision} />
           </div>
           <div class="text-xs text-fg-muted mt-0.5">
@@ -1077,6 +1081,7 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
             )}
           </div>
           {it.submittedAt && <div class="text-2xs text-fg-muted mt-0.5">Enviada {formatRelative(it.submittedAt)}</div>}
+          {it.status === 'draft' && it.updatedAt && <div class="text-2xs text-fg-muted mt-0.5">Último salvamento {formatRelative(it.updatedAt)}</div>}
           {(lead?.email) && (
             <div class="text-2xs text-fg-muted mt-0.5">✉ {lead.email}</div>
           )}
@@ -1091,6 +1096,9 @@ function EssayRow({ item: it, onOpen }: { item: EssaySubmission; onOpen: () => v
 export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; onClose: () => void }) {
   const { data, isLoading } = useEssaySubmission(essay.id)
   const review = useReviewEssay()
+  const novaTentativa = useNovaTentativaRedacao()
+  const [liberar, setLiberar] = useState(false)
+  const [motivoLiberar, setMotivoLiberar] = useState('')
   const [humanScore, setHumanScore] = useState(essay.humanScore?.toString() ?? '')
   const [humanNote, setHumanNote] = useState('')
   const [confirmReject, setConfirmReject] = useState(false)
@@ -1127,6 +1135,20 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
     })
   }
 
+  // Liberar nova tentativa: só na última tentativa e se não está aprovada.
+  const podeLiberar = !!item && item.ultimaDaInscricao !== false && item.status !== 'approved'
+  const emCorrecao = item?.status === 'needs_human' || item?.status === 'ai_reviewing' || item?.status === 'submitted'
+  function confirmarLiberar() {
+    novaTentativa.mutate({ id: essay.id, motivo: motivoLiberar.trim() }, {
+      onSuccess: (r) => {
+        toast(`Tentativa ${r.proximaTentativa} liberada. O candidato já pode refazer a redação no portal.`, 'success')
+        setLiberar(false)
+        onClose()
+      },
+      onError: (e: unknown) => toast((e as Error).message, 'danger'),
+    })
+  }
+
   function handleApprove() {
     if (wouldConflictApprove && !forceOverride) {
       toast(`Nota ${effectiveScore} está abaixo do corte ${cutoff}. Marque "Aprovar como exceção" para prosseguir.`, 'warning')
@@ -1156,8 +1178,21 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
         description={`${reg?.candidateCode ?? ''}${off?.course?.nome ? ' · ' + (off.course.nome) : ''}`}
         size="xl"
         footer={
-          item ? (
+          item && (item.status === 'draft' || item.status === 'expired') ? (
             <div class="flex items-center gap-2 justify-end w-full">
+              {podeLiberar && (
+                <Pode tela="edu_avaliacoes" acao="edit"><Button variant="primary" size="sm" onClick={() => setLiberar(true)} disabled={novaTentativa.isPending}>
+                  <RotateCcw size={12} /> Liberar nova tentativa
+                </Button></Pode>
+              )}
+            </div>
+          ) : item ? (
+            <div class="flex items-center gap-2 justify-end w-full flex-wrap">
+              {podeLiberar && (
+                <Pode tela="edu_avaliacoes" acao="edit"><Button variant="secondary" size="sm" onClick={() => setLiberar(true)} disabled={novaTentativa.isPending} class="mr-auto">
+                  <RotateCcw size={12} /> {emCorrecao ? 'Reprovar e liberar nova tentativa' : 'Liberar nova tentativa'}
+                </Button></Pode>
+              )}
               <Pode tela="edu_avaliacoes" acao="edit"><Button variant="secondary" size="sm" onClick={handleReject} disabled={review.isPending} class="border-danger text-danger hover:bg-danger/10">
                 <XIcon size={12} /> Rejeitar
               </Button></Pode>
@@ -1180,10 +1215,23 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
               {(off?.course?.nome ?? off?.nome) && <Row label="Curso" value={off?.course?.nome ?? off?.nome ?? ''} />}
               {reg?.portal?.nome && <Row label="Portal" value={reg.portal.nome} />}
               <Row label="Tentativa" value={`${item.attemptNumber}`} />
+              {item.status === 'draft' && item.updatedAt && <Row label="Último salvamento" value={formatDateTime(item.updatedAt)} />}
               <Row label="Status" value={essayStatusLabel(item.status).label} />
               {item.submittedAt && <Row label="Enviada em" value={formatDateTime(item.submittedAt)} />}
               {cutoff !== null && <Row label="Nota de corte" value={`${cutoff}/100`} />}
             </div>
+
+            {item.retakeReleasedAt && (
+              <div class="rounded-md border border-info/30 bg-info/10 p-3 text-xs text-fg">
+                <strong>Nova tentativa liberada</strong> em {formatDateTime(item.retakeReleasedAt)}{item.retakeReleasedByName ? ` por ${item.retakeReleasedByName}` : ''}.
+                {item.retakeReleasedNote && <div class="text-fg-muted mt-1">Motivo: {item.retakeReleasedNote}</div>}
+              </div>
+            )}
+            {item.status === 'draft' && (
+              <div class="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-fg">
+                O candidato começou e <strong>ainda não enviou</strong>. Se ele relatou que travou (sessão caiu, tempo acabou), use <strong>Liberar nova tentativa</strong>: esta tentativa é encerrada com o texto guardado e ele recomeça com um novo tema.
+              </div>
+            )}
 
             {/* Tema (prompt snapshotado) */}
             {item.prompt && (
@@ -1321,6 +1369,41 @@ export function EssayReviewModal({ essay, onClose }: { essay: EssaySubmission; o
           </div>
         )}
       </Modal>
+
+      {liberar && (
+        <Modal
+          open
+          onOpenChange={(o) => { if (!o) setLiberar(false) }}
+          title={emCorrecao ? 'Reprovar e liberar nova tentativa' : 'Liberar nova tentativa'}
+          description={`${lead?.nome ?? ''} fará a tentativa ${(item?.attemptNumber ?? 0) + 1}, com um novo tema sorteado.`}
+          size="md"
+          footer={
+            <div class="flex items-center gap-2 justify-end w-full">
+              <Button variant="secondary" size="sm" onClick={() => setLiberar(false)}>Cancelar</Button>
+              <Button variant="primary" size="sm" onClick={confirmarLiberar} disabled={novaTentativa.isPending || motivoLiberar.trim().length < 10}>
+                <RotateCcw size={12} /> {novaTentativa.isPending ? 'Liberando…' : 'Liberar'}
+              </Button>
+            </div>
+          }
+        >
+          <div class="space-y-3 text-xs text-fg-muted">
+            <ul class="list-disc pl-4 space-y-1">
+              {emCorrecao && <li>Esta redação fica registrada como <strong>reprovada</strong> (a nota não é apagada).</li>}
+              {item?.status === 'draft' && <li>Esta tentativa é <strong>encerrada sem envio</strong>; o texto escrito fica guardado aqui.</li>}
+              <li>Se a inscrição estava como reprovada no processo seletivo, ela volta ao status anterior.</li>
+              <li>O candidato vê o aviso no portal e começa de novo. Pode liberar quantas vezes for preciso.</li>
+              <li>Nenhuma mensagem sai sozinha — para avisar, crie um fluxo com o gatilho <em>Nova tentativa de redação liberada</em>.</li>
+            </ul>
+            <Textarea
+              label="Motivo (obrigatório — fica no histórico)"
+              value={motivoLiberar}
+              onInput={(e) => setMotivoLiberar((e.target as HTMLTextAreaElement).value)}
+              rows={3}
+              placeholder="Ex.: nota abaixo do corte, candidato pediu nova chance / a sessão caiu e não conseguiu enviar"
+            />
+          </div>
+        </Modal>
+      )}
 
       {confirmReject && (
         <ConfirmDialog

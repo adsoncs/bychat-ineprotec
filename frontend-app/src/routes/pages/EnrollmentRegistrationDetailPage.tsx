@@ -727,7 +727,8 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
   }
   const detalhe = useEssaySubmission(abrir && e?.submissionId ? e.submissionId : null)
   const sit = SITUACAO_REDACAO[e?.situacao ?? 'sem'] ?? { tone: 'neutral' as const, rotulo: e?.situacao ?? '—' }
-  const podeAbrir = !!e?.submissionId && e.situacao !== 'draft'
+  // Rascunho também abre: é onde a coordenação vê quem travou e libera nova tentativa.
+  const podeAbrir = !!e?.submissionId
   const aCorrigir = e?.situacao === 'submitted' || e?.situacao === 'needs_human' || e?.situacao === 'ai_reviewing'
   return (
     <Card>
@@ -748,7 +749,7 @@ function RedacaoCard({ review }: { review: RegistrationReview }) {
         </p>
         {podeAbrir && (
           <Button size="sm" variant={aCorrigir ? 'primary' : 'secondary'} onClick={() => setAbrir(true)}>
-            <FileText size={12} /> {aCorrigir ? 'Corrigir redação' : 'Ver redação'}
+            <FileText size={12} /> {aCorrigir ? 'Corrigir redação' : e?.situacao === 'draft' ? 'Ver tentativa' : 'Ver redação'}
           </Button>
         )}
       </div>

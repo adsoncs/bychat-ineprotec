@@ -40,7 +40,12 @@ export function signCandidateToken(
   return `${body}.${sig}`
 }
 
-export function verifyCandidateToken(token: string | null | undefined): CandidateTokenPayload | null {
+/**
+ * `toleranciaMs`: aceita token vencido há até esse tempo (assinatura continua
+ * obrigatória). Só para quem não pode perder trabalho por causa do relógio —
+ * a redação: a pessoa escreve por mais de 1h e o envio não pode cair em 401.
+ */
+export function verifyCandidateToken(token: string | null | undefined, opts: { toleranciaMs?: number } = {}): CandidateTokenPayload | null {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null
   const [body, sig] = token.split('.')
   const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url')
@@ -49,7 +54,7 @@ export function verifyCandidateToken(token: string | null | undefined): Candidat
   if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
   try {
     const payload: CandidateTokenPayload = JSON.parse(Buffer.from(body, 'base64url').toString())
-    if (!payload || typeof payload.exp !== 'number' || payload.exp < Date.now()) return null
+    if (!payload || typeof payload.exp !== 'number' || payload.exp + (opts.toleranciaMs ?? 0) < Date.now()) return null
     return payload
   } catch { return null }
 }

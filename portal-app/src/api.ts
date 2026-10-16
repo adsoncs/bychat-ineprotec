@@ -147,21 +147,42 @@ export const recomendarCursos = (slug: string, answers: Record<string, string>) 
     body: JSON.stringify({ answers }),
   })
 
+/** Erro de pedir(): a tela decide o que fazer pelos sinalizadores. */
+export type FalhaPedido = Error & { status?: number; recusado?: boolean; sessaoExpirada?: boolean; tempoEsgotado?: boolean; jaEnviada?: boolean }
+
+/** Sessão deslizante: o servidor devolve um token novo em X-Candidate-Token
+ *  e as telas continuam passando o token que receberam — aqui ele é trocado
+ *  pelo mais recente. Sem isto, a sessão de 1h caía no meio da redação. */
+const tokensRenovados = new Map<string, string>()
+function comTokenAtual(init?: RequestInit): { init?: RequestInit; original: string | null } {
+  const h = init?.headers as Record<string, string> | undefined
+  const auth = h?.Authorization
+  if (!auth || !auth.startsWith('Bearer ')) return { init, original: null }
+  const original = auth.slice(7)
+  const atual = tokensRenovados.get(original)
+  return { init: atual ? { ...init, headers: { ...h, Authorization: `Bearer ${atual}` } } : init, original }
+}
+
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
+  const t = comTokenAtual(init)
   let r: Response
   try {
-    r = await fetch(url, { credentials: 'same-origin', ...init })
+    r = await fetch(url, { credentials: 'same-origin', ...t.init })
   } catch {
     throw new Error('Não conseguimos falar com o servidor. Verifique sua conexão e tente de novo.')
   }
+  const novo = r.headers.get('X-Candidate-Token')
+  if (novo && t.original) tokensRenovados.set(t.original, novo)
   const texto = await r.text()
   let corpo: any = null
   try { corpo = texto ? JSON.parse(texto) : null } catch { /* resposta não-JSON */ }
   if (!r.ok) {
-    const falha = new Error(corpo?.error || `Não foi possível concluir (erro ${r.status}).`)
-    // Sinalizadores que a tela usa para decidir o que fazer com o erro — hoje
-    // só `recusado`, do cartão negado pela operadora.
-    if (corpo?.recusado) (falha as Error & { recusado?: boolean }).recusado = true
+    const falha: FalhaPedido = new Error(corpo?.error || `Não foi possível concluir (erro ${r.status}).`)
+    falha.status = r.status
+    if (corpo?.recusado) falha.recusado = true
+    if (corpo?.sessaoExpirada || r.status === 401) falha.sessaoExpirada = true
+    if (corpo?.tempoEsgotado) falha.tempoEsgotado = true
+    if (corpo?.jaEnviada) falha.jaEnviada = true
     throw falha
   }
   return corpo as T
@@ -786,6 +807,8 @@ export interface EstadoRedacao {
   activeDraft?: TentativaRedacao | null
   pendingReview?: TentativaRedacao | null
   finalResult?: TentativaRedacao | null
+  /** A coordenação liberou nova tentativa depois da última decisão. */
+  retakeReleased?: boolean
 }
 const json = (token: string, method: string, body?: unknown): RequestInit => ({
   method,

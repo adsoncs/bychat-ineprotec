@@ -4725,6 +4725,9 @@ model EnrollmentRegistration {
   /// { termo, nome, ip, userAgent, em, plano }. Reaproveitado quando a matrícula
   /// é efetivada — o contrato do ERP já nasce assinado.
   contratoAceite Json?
+  /// Tentativas de redação liberadas pela coordenação além de
+  /// SelectionProcess.essayMaxAttempts. Limite efetivo = essayMaxAttempts + este número.
+  essayAttemptsGranted Int @default(0)
   /// Análise acadêmica (ex.: transferência): parecer da instituição e o aceite
   /// do candidato — { offeringId, resultado, periodo, aproveitamento,
   /// observacao, emitidoEm, emitidoPor, aceite, historico }. services/portalJornada.
@@ -4992,6 +4995,11 @@ model EssaySubmission {
   // Anti-fraude (auditoria — incrementado pelo client via beacon)
   pasteAttempts     Int @default(0)
   visibilityChanges Int @default(0)
+
+  // Nova tentativa liberada a partir desta (quem, quando e por quê).
+  retakeReleasedBy   Int?
+  retakeReleasedAt   DateTime?
+  retakeReleasedNote String?   @db.Text
 
   // Integridade (lib/integridadeRedacao.ts). Nunca vai para o candidato.
   aiAuthorshipPct     Float? // 0–100: probabilidade estimada de autoria por IA
