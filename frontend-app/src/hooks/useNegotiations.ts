@@ -66,11 +66,15 @@ export interface Negotiation {
   _count?: { items: number; attachments: number }
 }
 
-export function useNegotiations(leadId: number) {
+export function useNegotiations(leadId: number, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['negotiations', leadId],
     queryFn: () => api.get<{ negotiations: Negotiation[] }>(`/admin/negotiations?leadId=${leadId}`),
     staleTime: 15_000,
+    // O modal de Ganho só consulta quando o módulo está ligado e o lead existe:
+    // com o módulo desligado a rota responde 403, e isso não é erro de tela.
+    enabled: opts?.enabled ?? true,
+    retry: false,
   })
 }
 

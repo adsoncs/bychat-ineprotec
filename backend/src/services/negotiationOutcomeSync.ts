@@ -36,7 +36,13 @@ export interface SyncResult {
 export async function syncNegotiationsWithLeadOutcome(
   leadId: number,
   outcome: 'won' | 'lost',
-  opts: { userId?: number | null; lostReasonId?: number | null; nota?: string } = {},
+  opts: {
+    userId?: number | null; lostReasonId?: number | null; nota?: string
+    /** Data do fechamento (ganho retroativo). Default: agora. */
+    quando?: Date
+    /** Proposta escolhida pelo operador no momento de marcar o ganho. */
+    negotiationId?: number | null
+  } = {},
 ): Promise<SyncResult> {
   const abertas = await prisma.negotiation.findMany({
     where: { leadId, resultado: null },
@@ -45,7 +51,30 @@ export async function syncNegotiationsWithLeadOutcome(
   }).catch(() => [])
   if (abertas.length === 0) return { fechadas: 0, ambiguas: 0 }
 
-  if (outcome === 'won' && abertas.length > 1) {
+  // Ganho com proposta escolhida: fecha SÓ ela, mesmo havendo outras abertas —
+  // quem escolheu foi o operador, na tela, olhando os títulos. As demais seguem
+  // abertas de propósito (outro filho, outro período).
+  let alvos = abertas
+  if (outcome === 'won' && opts.negotiationId != null) {
+    const escolhida = abertas.find((n) => n.id === opts.negotiationId)
+    if (!escolhida) {
+      // Fechada por outro caminho entre a abertura da tela e o clique.
+      logEvent({
+        leadId,
+        type: EVENT_TYPES.STATUS_CHANGED,
+        category: 'lifecycle',
+        title: 'A proposta escolhida já não estava aberta — nenhuma foi fechada',
+        source: 'system',
+        actorType: 'system',
+        description: 'O lead foi marcado como Ganho. Abra a aba Negociação e confira qual proposta precisa ser fechada.',
+        metadata: { negotiationId: opts.negotiationId, motivo: 'proposta_ja_fechada' },
+      })
+      return { fechadas: 0, ambiguas: abertas.length }
+    }
+    alvos = [escolhida]
+  }
+
+  if (outcome === 'won' && opts.negotiationId == null && abertas.length > 1) {
     // Não decide no lugar do operador — mas deixa o rastro, senão a escolha
     // pendente só existiria na cabeça de quem viu a sonda.
     logEvent({
@@ -62,9 +91,11 @@ export async function syncNegotiationsWithLeadOutcome(
     return { fechadas: 0, ambiguas: abertas.length }
   }
 
-  const agora = new Date()
+  // `fechadaEm` é o que vira competência da comissão e período nos KPIs: num
+  // ganho retroativo ela tem de ser a data do negócio, não a do clique.
+  const agora = opts.quando ?? new Date()
   let fechadas = 0
-  for (const n of abertas) {
+  for (const n of alvos) {
     await prisma.negotiation.update({
       where: { id: n.id },
       data: {
@@ -89,7 +120,7 @@ export async function syncNegotiationsWithLeadOutcome(
   // /close. Só preenche se ainda estiver vazio, para não sobrescrever um valor
   // que alguém informou na mão.
   if (outcome === 'won' && fechadas === 1) {
-    const valor = abertas[0]!.valorFinal
+    const valor = alvos[0]!.valorFinal
     if (valor != null) {
       await prisma.lead.updateMany({
         where: { id: leadId, saleValue: null },
@@ -104,13 +135,13 @@ export async function syncNegotiationsWithLeadOutcome(
       type: outcome === 'won' ? EVENT_TYPES.LEAD_WON : EVENT_TYPES.LEAD_LOST,
       category: 'lifecycle',
       title: fechadas === 1
-        ? `Proposta "${abertas[0]!.titulo}" fechada como ${outcome === 'won' ? 'ganha' : 'perdida'}`
+        ? `Proposta "${alvos[0]!.titulo}" fechada como ${outcome === 'won' ? 'ganha' : 'perdida'}`
         : `${fechadas} propostas fechadas como ${outcome === 'won' ? 'ganhas' : 'perdidas'}`,
       source: 'system',
       actorType: opts.userId ? 'operator' : 'system',
       userId: opts.userId ?? undefined,
       description: opts.nota,
-      metadata: { negotiationIds: abertas.map((n) => n.id), viaLeadOutcome: true },
+      metadata: { negotiationIds: alvos.map((n) => n.id), viaLeadOutcome: true, escolhidaPeloOperador: opts.negotiationId != null, fechadaEm: agora.toISOString() },
     })
   }
 

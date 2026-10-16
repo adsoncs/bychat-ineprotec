@@ -72,6 +72,10 @@ export interface MarkWonInput {
   id: number
   value?: number | null | undefined
   note?: string | null | undefined
+  /** Data do ganho em ISO. Ausente = agora (o backend decide). */
+  outcomeAt?: string | null | undefined
+  /** Proposta escolhida pelo operador para fechar junto com o lead. */
+  negotiationId?: number | null | undefined
 }
 
 export interface MarkLostInput {
@@ -83,9 +87,17 @@ export interface MarkLostInput {
 export function useMarkLeadWon() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, value, note }: MarkWonInput) =>
-      api.post<{ ok: true; cancelledActivities: number }>(`/bychat/leads/${id}/won`, { value, note }),
-    onSuccess: () => inv(qc),
+    mutationFn: ({ id, value, note, outcomeAt, negotiationId }: MarkWonInput) =>
+      api.post<{ ok: true; cancelledActivities: number; negotiations?: { fechadas: number; ambiguas: number }; outcomeAt?: string }>(
+        `/bychat/leads/${id}/won`,
+        { value, note, outcomeAt: outcomeAt ?? null, negotiationId: negotiationId ?? null },
+      ),
+    onSuccess: () => {
+      inv(qc)
+      // A proposta fechada junto some da aba Negociação na hora.
+      void qc.invalidateQueries({ queryKey: ['negotiations'] })
+      void qc.invalidateQueries({ queryKey: ['negotiation'] })
+    },
   })
 }
 

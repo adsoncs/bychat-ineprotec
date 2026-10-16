@@ -25,6 +25,19 @@ export interface MarkWonInput {
   skipNegotiationSync?: boolean
   /** Título do evento na timeline. Default: "Marcado como Ganho". */
   eventTitle?: string
+  /**
+   * Quando o negócio foi fechado de fato. Default: agora. A venda que só é
+   * lançada no sistema dias depois precisa cair no dia e no mês em que
+   * aconteceu — é esta data que os relatórios, a meta e a competência da
+   * comissão enxergam, não a do clique.
+   */
+  outcomeAt?: Date | null
+  /**
+   * Proposta que o operador escolheu fechar junto com o lead. Sem ela a
+   * sincronia mantém a regra antiga: fecha sozinha quando há uma só, e não
+   * decide quando há duas ou mais.
+   */
+  negotiationId?: number | null
 }
 
 export interface MarkLostInput {
@@ -101,7 +114,8 @@ async function cancelPendingActivities(leadId: number, reason: 'lead_won' | 'lea
 // ── Reconcilia DetectedSale (idempotente) ────────────────
 // Se houver venda detectada pendente, confirma; se não houver e o operador
 // informou um valor, cria um registro confirmado para fechar o ciclo.
-async function reconcileDetectedSale(leadId: number, value: number | null | undefined, userId: number | undefined): Promise<void> {
+async function reconcileDetectedSale(leadId: number, value: number | null | undefined, userId: number | undefined, quando?: Date): Promise<void> {
+  const momento = quando ?? new Date()
   const pending = await prisma.detectedSale.findFirst({
     where: { leadId, status: { in: ['detected'] } },
     orderBy: { detectedAt: 'desc' },
@@ -111,7 +125,7 @@ async function reconcileDetectedSale(leadId: number, value: number | null | unde
       where: { id: pending.id },
       data: {
         status: 'confirmed',
-        confirmedAt: new Date(),
+        confirmedAt: momento,
         confirmedBy: userId ?? null,
         value: value != null ? (value as any) : pending.value,
       },
@@ -127,7 +141,10 @@ async function reconcileDetectedSale(leadId: number, value: number | null | unde
         detectionMethod: 'manual',
         confidence: 'high',
         status: 'confirmed',
-        confirmedAt: new Date(),
+        // A venda retroativa é detectada e confirmada na data informada: o
+        // relatório de vendas lê `detectedAt`.
+        detectedAt: momento,
+        confirmedAt: momento,
         confirmedBy: userId ?? null,
       },
     })
@@ -136,17 +153,25 @@ async function reconcileDetectedSale(leadId: number, value: number | null | unde
 
 // ── API pública ──────────────────────────────────────────
 
-export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number; cancelledActivities: number; negotiations: { fechadas: number; ambiguas: number } }> {
-  const { leadId, value, note, userId, userName, ipAddress, skipNegotiationSync, eventTitle } = input
+export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number; cancelledActivities: number; negotiations: { fechadas: number; ambiguas: number }; outcomeAt: string }> {
+  const { leadId, value, note, userId, userName, ipAddress, skipNegotiationSync, eventTitle, negotiationId } = input
   const before = await prisma.lead.findUnique({
     where: { id: leadId },
     select: { id: true, outcome: true, saleDetected: true, saleValue: true },
   })
   if (!before) throw new Error('Lead não encontrado')
 
+  // Data do ganho: a informada pelo operador (retroativa) ou agora. Futuro não
+  // passa — o ganho de amanhã não existe, e deixaria o período torto.
+  const agora = new Date()
+  const quando = input.outcomeAt && !Number.isNaN(input.outcomeAt.getTime()) && input.outcomeAt.getTime() <= agora.getTime()
+    ? input.outcomeAt
+    : agora
+  const retroativo = quando.getTime() < agora.getTime() - 60_000
+
   const data: Record<string, any> = {
     outcome: 'won',
-    outcomeAt: new Date(),
+    outcomeAt: quando,
     outcomeBy: userId ?? null,
     outcomeNote: note ?? null,
     lostReasonId: null,
@@ -154,12 +179,12 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   if (value != null && Number.isFinite(value)) {
     data.saleDetected = true
     data.saleValue = value
-    data.saleDetectedAt = before.saleDetected ? undefined : new Date()
+    data.saleDetectedAt = before.saleDetected ? undefined : quando
   }
 
   await prisma.lead.update({ where: { id: leadId }, data })
   const cancelled = await cancelPendingActivities(leadId, 'lead_won')
-  await reconcileDetectedSale(leadId, value ?? null, userId)
+  await reconcileDetectedSale(leadId, value ?? null, userId, quando)
   const moved = await autoMoveToTerminalStage(leadId, 'won')
   // Fecha a proposta junto. Aqui e não nas rotas porque TODO caminho de marcação
   // passa por esta função — botão do painel, Resumo, etapa de desfecho, API — e
@@ -167,18 +192,22 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   const { syncNegotiationsWithLeadOutcome } = await import('./negotiationOutcomeSync.js')
   const negs = skipNegotiationSync
     ? { fechadas: 0, ambiguas: 0 }
-    : await syncNegotiationsWithLeadOutcome(leadId, 'won', { userId, nota: note ?? undefined })
+    : await syncNegotiationsWithLeadOutcome(leadId, 'won', { userId, nota: note ?? undefined, quando, negotiationId: negotiationId ?? null })
         .catch((e) => { console.warn('[leadOutcome] negociação:', (e as Error).message); return { fechadas: 0, ambiguas: 0 } })
 
+  const dataBr = quando.toLocaleDateString('pt-BR')
+  const tituloBase = eventTitle ?? (value != null ? `Marcado como Ganho — R$ ${value.toFixed(2)}` : 'Marcado como Ganho')
   logEvent({
     leadId,
     type: EVENT_TYPES.LEAD_WON,
     category: 'lifecycle',
-    title: eventTitle ?? (value != null ? `Marcado como Ganho — R$ ${value.toFixed(2)}` : 'Marcado como Ganho'),
+    // O evento é gravado hoje; o ganho é de outro dia. Sem dizer isso no
+    // título, quem lê a timeline acha que a venda foi fechada agora.
+    title: retroativo ? `${tituloBase} (ganho em ${dataBr})` : tituloBase,
     source: 'panel',
     ...(await actor(userId, userName)),
     description: note || undefined,
-    metadata: { value: value ?? null, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null, negociacoesFechadas: negs.fechadas, negociacoesAmbiguas: negs.ambiguas },
+    metadata: { value: value ?? null, previousOutcome: before.outcome, autoMovedTo: moved?.to ?? null, negociacoesFechadas: negs.fechadas, negociacoesAmbiguas: negs.ambiguas, outcomeAt: quando.toISOString(), retroativo },
     ipAddress,
   })
 
@@ -202,7 +231,7 @@ export async function markLeadWon(input: MarkWonInput): Promise<{ leadId: number
   // Silencioso quando o lead não veio de Lead Ads ou a feature está off.
   sendLeadQualityFeedback({ leadId, quality: 'CONVERTED' }).catch(() => {})
 
-  return { leadId, cancelledActivities: cancelled, negotiations: negs }
+  return { leadId, cancelledActivities: cancelled, negotiations: negs, outcomeAt: quando.toISOString() }
 }
 
 export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: number; cancelledActivities: number; negotiations: { fechadas: number; ambiguas: number } }> {

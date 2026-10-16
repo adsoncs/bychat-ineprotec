@@ -748,16 +748,41 @@ export async function leadsRoutes(app: FastifyInstance) {
   app.post('/api/bychat/leads/:id/won', { preHandler: authMiddleware }, async (req, reply) => {
     const { id } = req.params as any
     if (!await assertLeadAccess(req, reply, parseInt(id))) return
-    const body = (req.body || {}) as { value?: number | null; note?: string | null }
+    const body = (req.body || {}) as { value?: number | null; note?: string | null; outcomeAt?: string | null; negotiationId?: number | null }
     const user = (req as any).user as JwtPayload
+    const leadId = parseInt(id)
+
+    // Data do ganho (opcional): venda lançada depois precisa cair no dia em que
+    // aconteceu. Futuro não entra — torceria período, meta e comissão.
+    let outcomeAt: Date | null = null
+    if (body.outcomeAt) {
+      const d = new Date(body.outcomeAt)
+      if (Number.isNaN(d.getTime())) return reply.code(400).send({ error: 'Data do ganho inválida' })
+      if (d.getTime() > Date.now() + 5 * 60 * 1000) return reply.code(400).send({ error: 'A data do ganho não pode ser no futuro' })
+      outcomeAt = d
+    }
+
+    // Proposta escolhida: tem de ser deste lead e ainda estar aberta.
+    let negotiationId: number | null = null
+    if (body.negotiationId != null) {
+      const nid = Number(body.negotiationId)
+      if (!Number.isInteger(nid)) return reply.code(400).send({ error: 'Negociação inválida' })
+      const n = await prisma.negotiation.findUnique({ where: { id: nid }, select: { id: true, leadId: true, resultado: true } })
+      if (!n || n.leadId !== leadId) return reply.code(400).send({ error: 'Negociação não pertence a este lead' })
+      if (n.resultado) return reply.code(400).send({ error: 'Essa negociação já está fechada' })
+      negotiationId = n.id
+    }
+
     try {
       const result = await markLeadWon({
-        leadId: parseInt(id),
+        leadId,
         value: body.value != null ? Number(body.value) : null,
         note: body.note ?? null,
         userId: user?.userId,
         userName: user?.name || user?.email,
         ipAddress: getIp(req),
+        outcomeAt,
+        negotiationId,
       })
       broadcastRealtimeEvent({ type: 'lead:outcome_changed', payload: { id: parseInt(id), outcome: 'won' } })
       return { ok: true, ...result }
