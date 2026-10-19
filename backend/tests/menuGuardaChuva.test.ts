@@ -23,9 +23,16 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { MODULE_REGISTRY } from '../src/lib/moduleRegistry.js'
+import { EDU_TELAS } from '../src/lib/eduTelas.js'
 import { sidebarSchema } from '../../frontend-app/src/modules/sidebar.config.js'
 
 const porId = new Map(MODULE_REGISTRY.map((m) => [m.id, m]))
+// Tela do Educacional (lib/eduTelas.ts) também é permissão válida no menu: é
+// ligada e desligada pelo módulo-pai e pertence ao guarda-chuva dele.
+for (const t of EDU_TELAS) {
+  const pai = porId.get(t.parent)
+  if (pai && !porId.has(t.id)) porId.set(t.id, pai)
+}
 const todosItens = [
   ...sidebarSchema.pinned.map((i) => ({ i, grupo: '(topo)', umbrella: null as string | null })),
   ...sidebarSchema.groups.flatMap((g) => g.items.map((i) => ({ i, grupo: g.label, umbrella: g.umbrella }))),

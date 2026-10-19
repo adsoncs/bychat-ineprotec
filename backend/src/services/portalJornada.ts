@@ -301,7 +301,7 @@ async function contexto(registrationId: number) {
   const reg = await prisma.enrollmentRegistration.findUnique({
     where: { id: registrationId },
     select: {
-      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, contratoAceite: true, formData: true, analiseAcademica: true,
+      id: true, candidateCode: true, leadId: true, paymentStatus: true, paymentPaidAt: true, contratoAceite: true, formData: true, analiseAcademica: true, essayAttemptsGranted: true,
       lead: { select: { nome: true } },
       portal: { select: { id: true, slug: true, nome: true, requirePayment: true, jornadaEtapas: true } },
       documents: { select: { typeCode: true, status: true, reviewNote: true }, orderBy: { uploadedAt: 'asc' } },
@@ -312,6 +312,7 @@ async function contexto(registrationId: number) {
           selectionProcess: {
             select: {
               entryModeId: true,
+              essayMaxAttempts: true,
               useCustomDocuments: true,
               documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true, name: true } } } },
               entryMode: { select: { evaluationType: true, documentRequirements: { select: { required: true, condicao: true, documentType: { select: { code: true, name: true } } } } } },
@@ -319,10 +320,34 @@ async function contexto(registrationId: number) {
           },
         },
       },
-      essaySubmissions: { orderBy: { createdAt: 'desc' }, take: 1, select: { status: true, passed: true } },
+      // Todas, não só a última: a etapa precisa saber se ainda resta tentativa.
+      essaySubmissions: { orderBy: { createdAt: 'desc' }, select: { status: true, passed: true } },
     },
   })
   return reg
+}
+
+/**
+ * Situação da etapa Redação. `statuses` vem da mais nova para a mais antiga.
+ *
+ * Mesma conta da rota da redação (routes/enrollmentEvaluations.ts): o limite é o
+ * do processo mais as tentativas liberadas pela secretaria, e rascunho não conta.
+ * Sem isso, a etapa dizia "Não aprovada" mesmo com a nova tentativa já liberada —
+ * e o candidato achava que não podia refazer.
+ */
+export function etapaDaRedacao(statuses: string[], limite: number): { situacao: SituacaoEtapa; detalhe: string } {
+  const st = statuses[0]
+  const restam = limite - statuses.filter((x) => x !== 'draft').length > 0
+  const emCorrecao = st === 'ai_reviewing' || st === 'needs_human' || st === 'submitted'
+  return {
+    situacao: st === 'approved' ? 'feito' : emCorrecao ? 'aguardando' : 'pendente',
+    detalhe: st === 'approved' ? 'Aprovada'
+      : emCorrecao ? 'Enviada, em correção'
+      : st === 'draft' ? 'Em andamento'
+      : st === 'rejected' ? (restam ? 'Não aprovada — nova tentativa disponível' : 'Não aprovada')
+      : st === 'expired' && !restam ? 'Tempo esgotado, sem nova tentativa'
+      : 'Falta fazer',
+  }
 }
 
 /** Etapas que existem para esta inscrição, com a situação, na ordem pedida. */
@@ -384,8 +409,16 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       // Cada forma de ingresso analisa só os documentos que ela pede (ENEM → boletim,
       // segunda graduação → diploma, transferência → histórico e ementa). Forma sem
       // documento cadastrado analisa a lista inteira, como antes.
+      //
+      // Só o que a forma de ingresso EXIGE: documento OPCIONAL fica fora da análise.
+      // A promessa de que "um opcional não segura a análise" só valia enquanto ele
+      // estava faltando — enviado e ainda não revisado ele deixa de ser `faltando`,
+      // vira `pending`, e a aprovação simples cai no `else` de "em análise
+      // acadêmica", travando o pagamento (foi o que prendeu a inscrição 70 e o que
+      // levou a remover histórico/ementa da 2ª graduação em 14/10 no dado).
+      // Opcional é COLETADO na etapa Documentos; não é conferido na análise.
       const exigeDe = new Map(exigidos.map((x) => [x.documentType.code, x.required]))
-      const codigos = exigidos.length ? e.documentos.filter((c) => exigeDe.has(c)) : e.documentos
+      const codigos = exigidos.length ? e.documentos.filter((c) => exigeDe.get(c) === true) : e.documentos
       if (!codigos.length) continue
       const tipos = await prisma.documentType.findMany({ where: { code: { in: codigos } }, select: { code: true, name: true } })
       const nomeDe = new Map(tipos.map((t) => [t.code, t.name]))
@@ -476,12 +509,10 @@ export async function etapasDaInscricao(registrationId: number, onde: 'inscricao
       })
     } else if (e.chave === 'prova') {
       if (sp?.entryMode?.evaluationType !== 'exam_online') continue
-      const ult = reg.essaySubmissions[0]
-      const st = ult?.status
+      const limite = (sp?.essayMaxAttempts || 1) + (reg.essayAttemptsGranted || 0)
       etapas.push({
         chave: 'prova', titulo: ROTULO.prova, obrigatoria: e.obrigatoria,
-        situacao: st === 'approved' ? 'feito' : st === 'ai_reviewing' || st === 'needs_human' || st === 'submitted' ? 'aguardando' : 'pendente',
-        detalhe: st === 'approved' ? 'Aprovada' : st === 'rejected' ? 'Não aprovada' : st === 'ai_reviewing' || st === 'needs_human' || st === 'submitted' ? 'Enviada, em correção' : st === 'draft' ? 'Em andamento' : 'Falta fazer',
+        ...etapaDaRedacao(reg.essaySubmissions.map((x) => x.status), limite),
       })
     }
   }
