@@ -232,7 +232,10 @@ export async function downloadMedia(mediaId: string, token: string): Promise<{ b
 export async function getTemplates(wabaId: string, token: string): Promise<any[]> {
   // Pede explicitamente os campos de diagnóstico: sem `rejected_reason`/`quality_score`
   // a Meta não os retorna e ficamos cegos ao motivo de uma reprovação/pausa.
-  const fields = 'id,name,language,category,status,rejected_reason,quality_score,components'
+  // `last_updated_time` e os demais são detalhe para a tela de modelos. A Meta
+  // não tem data de criação: pedir `created_time` volta vazio.
+  const fields = 'id,name,language,category,status,rejected_reason,quality_score,components,'
+    + 'last_updated_time,parameter_format,previous_category,sub_category,message_send_ttl_seconds,library_template_name'
   const result = await cloudApiFetch(`/${wabaId}/message_templates?fields=${fields}&limit=250`, token)
   return result?.data || []
 }

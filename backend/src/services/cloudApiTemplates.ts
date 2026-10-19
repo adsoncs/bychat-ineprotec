@@ -40,6 +40,23 @@ interface NormalizedTemplate {
   status: string
   statusReason: string | null
   qualityScore: string | null
+  /** Detalhes do sync REST. `undefined` = a origem (webhook) não informa: não sobrescreve. */
+  detalhes?: {
+    metaUpdatedAt: Date | null
+    qualityScoreAt: Date | null
+    parameterFormat: string | null
+    previousCategory: string | null
+    subCategory: string | null
+    messageSendTtlSeconds: number | null
+    libraryTemplateName: string | null
+  }
+}
+
+/** Data da Meta: ISO (`2026-08-20T12:31:02+0000`) ou epoch em segundos. */
+function dataDaMeta(v: unknown): Date | null {
+  if (v === null || v === undefined || v === '') return null
+  const d = typeof v === 'number' ? new Date(v * 1000) : new Date(String(v).replace(/([+-]\d{2})(\d{2})$/, '$1:$2'))
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 function normalizeMetaTemplate(t: any): NormalizedTemplate {
@@ -56,6 +73,15 @@ function normalizeMetaTemplate(t: any): NormalizedTemplate {
     status: (t.status || 'UNKNOWN').toUpperCase(),
     statusReason: reason,
     qualityScore: quality,
+    detalhes: {
+      metaUpdatedAt: dataDaMeta(t.last_updated_time),
+      qualityScoreAt: typeof t.quality_score === 'object' ? dataDaMeta(t.quality_score?.date) : null,
+      parameterFormat: t.parameter_format ? String(t.parameter_format) : null,
+      previousCategory: t.previous_category ? String(t.previous_category) : null,
+      subCategory: t.sub_category ? String(t.sub_category) : null,
+      messageSendTtlSeconds: t.message_send_ttl_seconds != null && Number.isFinite(Number(t.message_send_ttl_seconds)) ? Number(t.message_send_ttl_seconds) : null,
+      libraryTemplateName: t.library_template_name ? String(t.library_template_name) : null,
+    },
   }
 }
 
@@ -84,6 +110,7 @@ async function upsertAndDetect(
     lastSyncAt: new Date(),
   }
   if (n.qualityScore !== null) data.qualityScore = n.qualityScore
+  if (n.detalhes) Object.assign(data, n.detalhes)
   if (components !== undefined) data.components = components
   // statusUpdatedAt só avança quando o status realmente muda (ou na 1ª vez).
   if (prevStatus === null || changed) data.statusUpdatedAt = new Date()
@@ -101,6 +128,7 @@ async function upsertAndDetect(
       statusReason: n.statusReason,
       qualityScore: n.qualityScore,
       statusUpdatedAt: new Date(),
+      ...(n.detalhes ?? {}),
       components: components ?? [],
     },
   })
@@ -130,6 +158,109 @@ async function notifyStatusChange(wabaId: string, n: NormalizedTemplate, prevSta
       category: n.category,
     },
   })
+}
+
+// ─── Uso de cada modelo (lista da tela de Modelos) ──────
+export interface UsoDoModelo {
+  enviadas: number
+  entregues: number // delivered + read: lida também foi entregue
+  lidas: number
+  falhas: number
+  primeiroEnvio: Date | null
+  ultimoEnvio: Date | null
+}
+
+/**
+ * Uso de cada modelo, pelo log de envios da Cloud API (CloudApiMessageLog).
+ *
+ * O log guarda o nome do modelo e a conexão, não o id: o nome só é único dentro
+ * da conta (WABA), então a conexão diz de qual conta é. Envio antigo sem
+ * conexão gravada só conta se o nome existir em uma única conta — atribuir a
+ * duas seria contar o mesmo envio duas vezes.
+ */
+export async function usoDosModelos(
+  templates: Array<{ id: number; wabaId: string; name: string }>,
+): Promise<Map<number, UsoDoModelo>> {
+  const uso = new Map<number, UsoDoModelo>()
+  if (!templates.length) return uso
+  const nomes = [...new Set(templates.map((t) => t.name))]
+  const [linhas, conns] = await Promise.all([
+    prisma.cloudApiMessageLog.groupBy({
+      by: ['cloudApiConnectionId', 'templateName', 'status'],
+      where: { direction: 'outbound', templateName: { in: nomes } },
+      _count: { _all: true },
+      _min: { createdAt: true },
+      _max: { createdAt: true },
+    }),
+    prisma.cloudApiConnection.findMany({ select: { id: true, wabaId: true } }),
+  ])
+  const wabaDaConexao = new Map(conns.map((c) => [c.id, c.wabaId]))
+  const porChave = new Map(templates.map((t) => [`${t.wabaId}|${t.name}`, t.id]))
+  const contasDoNome = new Map<string, number[]>()
+  for (const t of templates) contasDoNome.set(t.name, [...(contasDoNome.get(t.name) ?? []), t.id])
+
+  for (const l of linhas) {
+    const nome = l.templateName ?? ''
+    const waba = l.cloudApiConnectionId != null ? wabaDaConexao.get(l.cloudApiConnectionId) : undefined
+    const id = waba ? porChave.get(`${waba}|${nome}`)
+      : (contasDoNome.get(nome)?.length === 1 ? contasDoNome.get(nome)![0] : undefined)
+    if (id === undefined) continue
+    const u = uso.get(id) ?? { enviadas: 0, entregues: 0, lidas: 0, falhas: 0, primeiroEnvio: null, ultimoEnvio: null }
+    const n = l._count._all
+    u.enviadas += n
+    if (l.status === 'delivered' || l.status === 'read') u.entregues += n
+    if (l.status === 'read') u.lidas += n
+    if (l.status === 'failed') u.falhas += n
+    const min = l._min.createdAt, max = l._max.createdAt
+    if (min && (!u.primeiroEnvio || min < u.primeiroEnvio)) u.primeiroEnvio = min
+    if (max && (!u.ultimoEnvio || max > u.ultimoEnvio)) u.ultimoEnvio = max
+    uso.set(id, u)
+  }
+  return uso
+}
+
+// ─── Data de criação de cada modelo ─────────────────────
+export interface CriacaoDoModelo {
+  data: Date
+  /** false = o modelo já existia quando o vimos: `data` é "criado antes de". */
+  exata: boolean
+}
+
+/**
+ * A Meta não informa quando o modelo foi criado — só a última edição
+ * (`last_updated_time`). O `createdAt` local é quando o sistema VIU o modelo:
+ * vale como criação para o que nasceu depois de a conta ser conectada (pelo
+ * painel, ou pelo WhatsApp Manager e trazido pelo webhook/sync), mas não para o
+ * que já existia e veio no primeiro lote da sincronização.
+ *
+ * Já existia quando: entrou no primeiro lote da conta (2+ modelos no mesmo
+ * minuto da primeira sincronização), ou a última edição na Meta é anterior à
+ * data em que o vimos. Aí a data mostrada é a mais antiga conhecida, como
+ * limite: "criado antes de".
+ */
+export function criacaoDosModelos(
+  templates: Array<{ id: number; wabaId: string; createdAt: Date; metaUpdatedAt: Date | null }>,
+): Map<number, CriacaoDoModelo> {
+  const LOTE_MS = 2 * 60_000
+  const FOLGA_MS = 60 * 60_000
+  const primeiro = new Map<string, number>()
+  for (const t of templates) {
+    const v = t.createdAt.getTime()
+    if (v < (primeiro.get(t.wabaId) ?? Infinity)) primeiro.set(t.wabaId, v)
+  }
+  const noLote = (t: { wabaId: string; createdAt: Date }) => t.createdAt.getTime() - primeiro.get(t.wabaId)! <= LOTE_MS
+  const tamanhoDoLote = new Map<string, number>()
+  for (const t of templates) if (noLote(t)) tamanhoDoLote.set(t.wabaId, (tamanhoDoLote.get(t.wabaId) ?? 0) + 1)
+
+  const r = new Map<number, CriacaoDoModelo>()
+  for (const t of templates) {
+    const visto = t.createdAt.getTime()
+    const editado = t.metaUpdatedAt?.getTime() ?? null
+    const jaExistia = (noLote(t) && (tamanhoDoLote.get(t.wabaId) ?? 0) > 1)
+      || (editado !== null && editado + FOLGA_MS < visto)
+    r.set(t.id, { data: new Date(Math.min(visto, editado ?? visto)), exata: !jaExistia })
+  }
+  return r
 }
 
 // ─── Sync REST de uma conexão (sync manual / reconexão / cron) ──

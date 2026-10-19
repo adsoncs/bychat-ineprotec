@@ -1059,12 +1059,23 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
     } else if (q.wabaId) where.wabaId = q.wabaId
     if (q.status) where.status = q.status
     if (q.category) where.category = q.category
+    // Arquivado não aparece para quem escolhe modelo (conversa, disparo,
+    // pesquisa): só a tela de Modelos pede, para mostrar e desarquivar.
+    if (q.incluirArquivados !== '1') where.archivedAt = null
 
     const templates = await prisma.cloudApiTemplate.findMany({
       where,
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
     })
-    return { templates }
+    const { usoDosModelos, criacaoDosModelos } = await import('../services/cloudApiTemplates.js')
+    // A data de criação olha a conta inteira (o primeiro lote dela), não só o
+    // recorte filtrado — senão filtrar por status mudaria a data de um modelo.
+    const daConta = await prisma.cloudApiTemplate.findMany({
+      where: { wabaId: { in: [...new Set(templates.map((t) => t.wabaId))] } },
+      select: { id: true, wabaId: true, createdAt: true, metaUpdatedAt: true },
+    })
+    const [uso, criacao] = [await usoDosModelos(templates), criacaoDosModelos(daConta)]
+    return { templates: templates.map((t) => ({ ...t, uso: uso.get(t.id) ?? null, criacao: criacao.get(t.id) ?? null })) }
   })
 
   // GET /api/cloud-api/dispatch-report — Painel de acompanhamento de disparos
@@ -1333,6 +1344,40 @@ export async function cloudApiSetupRoutes(app: FastifyInstance) {
   })
 
   // DELETE /api/cloud-api/templates/:id — Deletar template
+  // POST /api/cloud-api/templates/:id/arquivar — tira o modelo da tela e dos
+  // seletores SEM excluir na Meta. Excluir lá é irreversível, trava o nome por
+  // 30 dias e quebra quem ainda envia por ele (fluxo, outro sistema no número).
+  app.post('/api/cloud-api/templates/:id/arquivar', { preHandler: adminOnly }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const body = (req.body ?? {}) as { motivo?: string; substituidoPorId?: number | null }
+    const t = await prisma.cloudApiTemplate.findUnique({ where: { id } })
+    if (!t) return reply.code(404).send({ error: 'Modelo não encontrado' })
+    let replacedById: number | null = null
+    if (body.substituidoPorId) {
+      const novo = await prisma.cloudApiTemplate.findUnique({ where: { id: Number(body.substituidoPorId) }, select: { id: true, wabaId: true } })
+      // Substituto de outra conta não serve: o modelo pertence à WABA.
+      if (!novo || novo.wabaId !== t.wabaId || novo.id === t.id) return reply.code(400).send({ error: 'O substituto precisa ser outro modelo da mesma conta' })
+      replacedById = novo.id
+    }
+    const userId = (req as any).user?.userId ?? null
+    const atualizado = await prisma.cloudApiTemplate.update({
+      where: { id },
+      data: { archivedAt: new Date(), archivedById: userId, archivedNote: body.motivo?.trim().slice(0, 255) || null, replacedById },
+    })
+    return { template: atualizado }
+  })
+
+  app.post('/api/cloud-api/templates/:id/desarquivar', { preHandler: adminOnly }, async (req, reply) => {
+    const id = Number((req.params as any).id)
+    const t = await prisma.cloudApiTemplate.findUnique({ where: { id }, select: { id: true } })
+    if (!t) return reply.code(404).send({ error: 'Modelo não encontrado' })
+    const atualizado = await prisma.cloudApiTemplate.update({
+      where: { id },
+      data: { archivedAt: null, archivedById: null, archivedNote: null, replacedById: null },
+    })
+    return { template: atualizado }
+  })
+
   app.delete('/api/cloud-api/templates/:id', { preHandler: adminOnly }, async (req, reply) => {
     try {
       const { id } = req.params as any

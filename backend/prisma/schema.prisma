@@ -2008,6 +2008,20 @@ model CloudApiTemplate {
   statusReason    String?   @db.VarChar(255)
   qualityScore    String?   @db.VarChar(20) // GREEN, YELLOW, RED, UNKNOWN
   statusUpdatedAt DateTime? // quando o status mudou pela última vez (≠ lastSyncAt)
+  // Detalhes que a Meta informa (sync REST). Ela NÃO informa a data de criação:
+  // `metaUpdatedAt` é a última edição lá (last_updated_time).
+  metaUpdatedAt         DateTime?
+  qualityScoreAt        DateTime? // quando a Meta calculou a nota de qualidade
+  parameterFormat       String?   @db.VarChar(20) // POSITIONAL ({{1}}) | NAMED ({{nome}})
+  previousCategory      String?   @db.VarChar(30) // categoria antes de a Meta reclassificar
+  subCategory           String?   @db.VarChar(40)
+  messageSendTtlSeconds Int?      // validade da mensagem (a Meta desiste de entregar depois)
+  libraryTemplateName   String?   @db.VarChar(191) // modelo pronto da biblioteca da Meta
+  // Arquivado: some da tela e dos seletores, mas segue existindo na Meta.
+  archivedAt            DateTime?
+  archivedById          Int?
+  archivedNote          String?   @db.VarChar(255)
+  replacedById          Int?      // modelo que substituiu este
   components      Json      @db.Json // Header, Body, Footer, Buttons
   lastSyncAt      DateTime  @default(now())
   createdAt       DateTime  @default(now())
@@ -2045,6 +2059,7 @@ model CloudApiMessageLog {
   @@index([category])
   @@index([status])
   @@index([createdAt])
+  @@index([templateName])
   @@map("bychat_cloud_api_message_logs")
 }
 

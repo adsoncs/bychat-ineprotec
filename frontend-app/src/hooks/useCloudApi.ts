@@ -46,9 +46,33 @@ export interface CloudApiTemplate {
   statusUpdatedAt?: string | null
   components: unknown
   wabaId: string
+  metaTemplateId?: string
   lastSyncAt?: string
   createdAt: string
   updatedAt: string
+  /** Detalhes da Meta (sync). Ela não informa a criação: metaUpdatedAt é a última edição. */
+  metaUpdatedAt?: string | null
+  qualityScoreAt?: string | null
+  parameterFormat?: string | null
+  previousCategory?: string | null
+  subCategory?: string | null
+  messageSendTtlSeconds?: number | null
+  libraryTemplateName?: string | null
+  /** Uso pelo log de envios da Cloud API. null = nunca enviado por aqui. */
+  uso?: {
+    enviadas: number
+    entregues: number
+    lidas: number
+    falhas: number
+    primeiroEnvio: string | null
+    ultimoEnvio: string | null
+  } | null
+  /** exata=false: já existia quando a conta foi conectada — `data` é "criado antes de". */
+  criacao?: { data: string; exata: boolean } | null
+  /** Arquivado: fora dos seletores, mas segue existindo na Meta. */
+  archivedAt?: string | null
+  archivedNote?: string | null
+  replacedById?: number | null
 }
 
 export interface CloudApiConfig {
@@ -143,12 +167,17 @@ export function useCloudApiConnections() {
  * modelo que a Meta recusa — ou, pior, falava com o contato em nome da outra
  * empresa. Sem filtro vem tudo, que é o que a tela de administração precisa.
  */
-export function useCloudApiTemplates(filtro?: { wabaId?: string | null | undefined }) {
+/** Arquivados só vêm com `incluirArquivados` (tela de Modelos): seletor não oferece modelo arquivado. */
+export function useCloudApiTemplates(filtro?: { wabaId?: string | null | undefined; incluirArquivados?: boolean }) {
   const wabaId = filtro?.wabaId ?? null
+  const arquivados = filtro?.incluirArquivados === true
+  const qs = new URLSearchParams()
+  if (wabaId) qs.set('wabaId', wabaId)
+  if (arquivados) qs.set('incluirArquivados', '1')
   return useQuery({
-    queryKey: ['cloud-api-templates', wabaId],
+    queryKey: ['cloud-api-templates', wabaId, arquivados],
     queryFn: () => api.get<{ templates: CloudApiTemplate[] }>(
-      `/cloud-api/templates${wabaId ? `?wabaId=${encodeURIComponent(wabaId)}` : ''}`,
+      `/cloud-api/templates${qs.toString() ? `?${qs}` : ''}`,
     ),
     staleTime: 60_000,
   })
@@ -433,6 +462,23 @@ export function useUpdateCloudApiTemplate() {
   return useMutation({
     mutationFn: ({ id, ...input }: { id: number } & Partial<CreateCloudApiTemplateInput>) =>
       api.put<{ ok: true; template: CloudApiTemplate }>(`/cloud-api/templates/${id}`, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-templates'] }),
+  })
+}
+
+export function useArchiveCloudApiTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { id: number; motivo?: string; substituidoPorId?: number | null }) =>
+      api.post<{ template: CloudApiTemplate }>(`/cloud-api/templates/${v.id}/arquivar`, { motivo: v.motivo, substituidoPorId: v.substituidoPorId ?? null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-templates'] }),
+  })
+}
+
+export function useUnarchiveCloudApiTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.post<{ template: CloudApiTemplate }>(`/cloud-api/templates/${id}/desarquivar`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cloud-api-templates'] }),
   })
 }

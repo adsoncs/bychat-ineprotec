@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'preact/hooks'
 import type { ComponentChildren } from 'preact'
-import { Plus, Eye, Pencil, Trash2, Send, Upload, X as XIcon, CheckCircle, HelpCircle, RefreshCw, Cloud } from '@/components/ui/icon-set'
+import { Plus, Eye, Pencil, Trash2, Send, Upload, X as XIcon, CheckCircle, HelpCircle, RefreshCw, Cloud, Archive, ArchiveRestore } from '@/components/ui/icon-set'
 import { HowItWorksModal } from '@/components/ui/HowItWorksModal'
 import {
   useCloudApiConnections,
@@ -10,6 +10,8 @@ import {
   useCreateCloudApiTemplate,
   useUpdateCloudApiTemplate,
   useDeleteCloudApiTemplate,
+  useArchiveCloudApiTemplate,
+  useUnarchiveCloudApiTemplate,
   parseTemplateComponents,
   uploadCloudApiTemplateMedia,
   type CloudApiConnection,
@@ -27,7 +29,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { cloudApiTemplateCategoryLabel, cloudApiTemplateStatusLabel, cloudApiTemplateReasonLabel } from '@/lib/statusLabels'
+import { cloudApiTemplateCategoryLabel, cloudApiTemplateStatusLabel, cloudApiTemplateReasonLabel, cloudApiQualityLabel } from '@/lib/statusLabels'
+import { dateLong, formatDateTime, formatRelative, number as fmtNumero } from '@/lib/format'
 import { toast } from '@/lib/toast'
 import { onServerEvent } from '@/lib/realtime'
 import { useLocation } from 'wouter-preact'
@@ -35,12 +38,46 @@ import { useLocation } from 'wouter-preact'
 const MAX_BUTTONS = 10
 
 type CategoryFilter = '' | 'MARKETING' | 'UTILITY' | 'AUTHENTICATION'
-type StatusFilter = '' | 'APPROVED' | 'PENDING' | 'REJECTED' | 'PAUSED' | '__DELETED__'
+type StatusFilter = '' | 'APPROVED' | 'PENDING' | 'REJECTED' | 'PAUSED' | '__DELETED__' | '__ARCHIVED__'
 
 // Estados em que a Meta segura o template após o delete (não some na hora; fica
 // ~30 dias). Escondemos da lista padrão e expomos só no chip "Excluídos".
 const DELETED_TPL_STATES = ['PENDING_DELETION', 'DELETED']
 const DELETED_TPL_FILTER: StatusFilter = '__DELETED__'
+const ARCHIVED_TPL_FILTER: StatusFilter = '__ARCHIVED__'
+
+type Ordem = 'recentes' | 'nome' | 'mais_usados' | 'ultimo_envio'
+
+function qualityTone(q: string | null | undefined): 'success' | 'warning' | 'danger' | 'neutral' {
+  return q === 'GREEN' ? 'success' : q === 'YELLOW' ? 'warning' : q === 'RED' ? 'danger' : 'neutral'
+}
+
+/** % de b sobre a, inteiro. Sem base, não há porcentagem. */
+function pct(parte: number, base: number): string {
+  return base > 0 ? `${Math.round((parte / base) * 100)}%` : '—'
+}
+
+/** Data de criação como o cliente lê: exata, ou "antes de" quando já existia ao conectar. */
+function CriacaoCell({ t }: { t: CloudApiTemplate }) {
+  const c = t.criacao
+  if (!c) return <span class="text-fg-subtle">—</span>
+  const data = dateLong.format(new Date(c.data))
+  const titulo = c.exata
+    ? `Criado em ${formatDateTime(c.data)}`
+    : `Já existia quando a conta foi conectada. A Meta não informa a data de criação, só a última edição${t.metaUpdatedAt ? ` (${formatDateTime(t.metaUpdatedAt)})` : ''}: o modelo foi criado nesta data ou antes.`
+  return (
+    <span class="whitespace-nowrap" title={titulo}>
+      {!c.exata && <span class="text-fg-subtle">antes de </span>}{data}
+    </span>
+  )
+}
+
+/** Primeira linha do corpo, para reconhecer o modelo sem abrir. */
+function trechoDoCorpo(t: CloudApiTemplate): string {
+  const corpo = parseTemplateComponents(t.components).body.trim()
+  const linha = corpo.split('\n').find((l) => l.trim()) ?? ''
+  return linha.length > 90 ? `${linha.slice(0, 90)}…` : linha
+}
 
 // Tom do badge por status (espelha os estados da Meta tratados no backend).
 function templateStatusTone(status: string): 'success' | 'warning' | 'danger' | 'info' {
@@ -52,13 +89,15 @@ function templateStatusTone(status: string): 'success' | 'warning' | 'danger' | 
 
 export function WhatsappTemplatesPage() {
   const { data: conns, isLoading } = useCloudApiConnections()
-  const { data: tpl } = useCloudApiTemplates()
+  // A tela de Modelos é a única que pede os arquivados: para mostrar e desarquivar.
+  const { data: tpl } = useCloudApiTemplates({ incluirArquivados: true })
   const [, navigate] = useLocation()
   const [previewTpl, setPreviewTpl] = useState<CloudApiTemplate | null>(null)
   const [sendingTpl, setSendingTpl] = useState<CloudApiTemplate | null>(null)
   const [editingTpl, setEditingTpl] = useState<CloudApiTemplate | null>(null)
   const [creatingTpl, setCreatingTpl] = useState(false)
   const [deletingTpl, setDeletingTpl] = useState<CloudApiTemplate | null>(null)
+  const [archivingTpl, setArchivingTpl] = useState<CloudApiTemplate | null>(null)
   const [tplSearch, setTplSearch] = useState('')
   const [tplCategory, setTplCategory] = useState<CategoryFilter>('')
   const [tplStatus, setTplStatus] = useState<StatusFilter>('')
@@ -66,9 +105,12 @@ export function WhatsappTemplatesPage() {
   // dois números de empresas diferentes a lista sozinha não dizia de quem era
   // cada modelo — nem na tela de administração.
   const [tplWaba, setTplWaba] = useState('')
+  const [tplOrdem, setTplOrdem] = useState<Ordem>('recentes')
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const sync = useSyncCloudApiTemplates()
   const delTpl = useDeleteCloudApiTemplate()
+  const archiveTpl = useArchiveCloudApiTemplate()
+  const unarchiveTpl = useUnarchiveCloudApiTemplate()
 
   // Aviso em tempo real quando a Meta aprova/reprova/pausa um template (webhook
   // message_template_status_update ou reconciliação periódica).
@@ -90,8 +132,10 @@ export function WhatsappTemplatesPage() {
   }, [])
 
   const tplStats = useMemo(() => {
-    const all = tpl?.templates ?? []
+    // Arquivado sai das contas: o painel mostra o que está em uso.
+    const all = (tpl?.templates ?? []).filter((t) => !t.archivedAt)
     return {
+      archived: (tpl?.templates ?? []).filter((t) => t.archivedAt).length,
       total: all.length,
       approved: all.filter((t) => t.status === 'APPROVED').length,
       pending: all.filter((t) => t.status === 'PENDING').length,
@@ -122,17 +166,27 @@ export function WhatsappTemplatesPage() {
     if (q) list = list.filter((t) => t.name.toLowerCase().includes(q))
     if (tplWaba) list = list.filter((t) => t.wabaId === tplWaba)
     if (tplCategory) list = list.filter((t) => t.category === tplCategory)
-    if (tplStatus === DELETED_TPL_FILTER) {
+    if (tplStatus === ARCHIVED_TPL_FILTER) {
+      // Chip "Arquivados": só eles. Nos demais filtros os arquivados ficam de fora.
+      list = list.filter((t) => !!t.archivedAt)
+    } else if (tplStatus === DELETED_TPL_FILTER) {
       // Chip "Excluídos": mostra só os que a Meta ainda segura em exclusão.
       list = list.filter((t) => DELETED_TPL_STATES.includes(t.status))
     } else if (tplStatus) {
-      list = list.filter((t) => t.status === tplStatus)
+      list = list.filter((t) => t.status === tplStatus && !t.archivedAt)
     } else {
       // "Todos status" esconde os em exclusão — após excluir, somem da lista.
-      list = list.filter((t) => !DELETED_TPL_STATES.includes(t.status))
+      list = list.filter((t) => !DELETED_TPL_STATES.includes(t.status) && !t.archivedAt)
     }
-    return list
-  }, [tpl?.templates, tplSearch, tplWaba, tplCategory, tplStatus])
+    const tempo = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
+    const porNome = (a: CloudApiTemplate, b: CloudApiTemplate) => a.name.localeCompare(b.name)
+    const ordenadas = [...list]
+    if (tplOrdem === 'recentes') ordenadas.sort((a, b) => tempo(b.criacao?.data ?? b.createdAt) - tempo(a.criacao?.data ?? a.createdAt) || porNome(a, b))
+    else if (tplOrdem === 'mais_usados') ordenadas.sort((a, b) => (b.uso?.enviadas ?? 0) - (a.uso?.enviadas ?? 0) || porNome(a, b))
+    else if (tplOrdem === 'ultimo_envio') ordenadas.sort((a, b) => tempo(b.uso?.ultimoEnvio) - tempo(a.uso?.ultimoEnvio) || porNome(a, b))
+    else ordenadas.sort(porNome)
+    return ordenadas
+  }, [tpl?.templates, tplSearch, tplWaba, tplCategory, tplStatus, tplOrdem])
 
   function handleSyncAll() {
     const wabas = Array.from(new Set((conns?.connections ?? []).map((c) => c.wabaId)))
@@ -205,6 +259,17 @@ export function WhatsappTemplatesPage() {
                 placeholder="Buscar por nome…"
                 class="sm:w-56"
               />
+              <Select
+                value={tplOrdem}
+                onChange={(e) => setTplOrdem((e.target as HTMLSelectElement).value as Ordem)}
+                class="sm:w-48"
+                aria-label="Ordenar"
+              >
+                <option value="recentes">Mais recentes</option>
+                <option value="nome">Nome (A–Z)</option>
+                <option value="mais_usados">Mais enviados</option>
+                <option value="ultimo_envio">Último envio</option>
+              </Select>
               {contas.length > 1 && (
                 <div class="flex flex-wrap gap-1">
                   <FilterChip label="Todos os números" active={tplWaba === ''} onClick={() => setTplWaba('')} />
@@ -227,6 +292,9 @@ export function WhatsappTemplatesPage() {
                 {tplStats.deleting > 0 && (
                   <FilterChip label={`Excluídos (${tplStats.deleting})`} active={tplStatus === DELETED_TPL_FILTER} onClick={() => setTplStatus(DELETED_TPL_FILTER)} />
                 )}
+                {tplStats.archived > 0 && (
+                  <FilterChip label={`Arquivados (${tplStats.archived})`} active={tplStatus === ARCHIVED_TPL_FILTER} onClick={() => setTplStatus(ARCHIVED_TPL_FILTER)} />
+                )}
               </div>
             </div>
           )}
@@ -238,28 +306,44 @@ export function WhatsappTemplatesPage() {
                   <tr>
                     <th class="text-left px-4 py-2 font-medium">Nome</th>
                     {contas.length > 1 && <th class="text-left px-4 py-2 font-medium">Número</th>}
-                    <th class="text-left px-4 py-2 font-medium">Idioma</th>
                     <th class="text-left px-4 py-2 font-medium">Categoria</th>
                     <th class="text-left px-4 py-2 font-medium">Status</th>
+                    <th class="text-left px-4 py-2 font-medium" title="Nota da Meta para o modelo, pela reação de quem recebe">Qualidade</th>
+                    <th class="text-right px-4 py-2 font-medium" title="Envios deste modelo feitos por aqui (log da WhatsApp API)">Envios</th>
+                    <th class="text-left px-4 py-2 font-medium">Último envio</th>
+                    <th class="text-left px-4 py-2 font-medium">Criado em</th>
                     <th class="px-4 py-2"></th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-border">
                   {filteredTemplates.length === 0 && (
                     <tr>
-                      <td colSpan={contas.length > 1 ? 6 : 5} class="px-4 py-6 text-center text-sm text-fg-muted">
+                      <td colSpan={contas.length > 1 ? 9 : 8} class="px-4 py-6 text-center text-sm text-fg-muted">
                         Nenhum modelo combina com os filtros.
                       </td>
                     </tr>
                   )}
                   {filteredTemplates.map((t) => (
                     <tr key={t.id} class="hover:bg-surface-3 group">
-                      <td class="px-4 py-2 font-mono text-xs text-fg">{t.name}</td>
+                      <td class="px-4 py-2 max-w-[22rem]">
+                        <button type="button" class="text-left" onClick={() => setPreviewTpl(t)} title="Ver o modelo e os detalhes">
+                          <div class="font-mono text-xs text-fg">
+                            {t.name} <span class="font-sans text-2xs text-fg-subtle">· {t.language}</span>
+                          </div>
+                          {trechoDoCorpo(t) && <div class="mt-0.5 text-2xs leading-snug text-fg-muted truncate">{trechoDoCorpo(t)}</div>}
+                        </button>
+                      </td>
                       {contas.length > 1 && (
                         <td class="px-4 py-2 text-xs text-fg-muted" title={t.wabaId}>{rotuloDaConta(t.wabaId)}</td>
                       )}
-                      <td class="px-4 py-2 text-fg-muted">{t.language}</td>
-                      <td class="px-4 py-2"><Badge tone="info">{cloudApiTemplateCategoryLabel(t.category)}</Badge></td>
+                      <td class="px-4 py-2">
+                        <Badge tone="info">{cloudApiTemplateCategoryLabel(t.category)}</Badge>
+                        {t.previousCategory && t.previousCategory !== t.category && (
+                          <div class="mt-0.5 text-2xs leading-tight text-fg-subtle" title="A Meta reclassificou a categoria deste modelo">
+                            era {cloudApiTemplateCategoryLabel(t.previousCategory)}
+                          </div>
+                        )}
+                      </td>
                       <td class="px-4 py-2">
                         <Badge tone={templateStatusTone(t.status)}>
                           {cloudApiTemplateStatusLabel(t.status)}
@@ -269,7 +353,42 @@ export function WhatsappTemplatesPage() {
                             {cloudApiTemplateReasonLabel(t.statusReason)}
                           </div>
                         )}
+                        {t.statusUpdatedAt && (
+                          <div class="mt-0.5 text-2xs leading-tight text-fg-subtle" title={`Status desde ${formatDateTime(t.statusUpdatedAt)}`}>
+                            desde {dateLong.format(new Date(t.statusUpdatedAt))}
+                          </div>
+                        )}
+                        {t.archivedAt && (
+                          <div class="mt-1" title={t.archivedNote ?? undefined}>
+                            <Badge tone="neutral">Arquivado em {dateLong.format(new Date(t.archivedAt))}</Badge>
+                            {t.replacedById && (
+                              <div class="mt-0.5 text-2xs leading-tight text-fg-muted">
+                                substituído por <span class="font-mono">{tpl?.templates.find((x) => x.id === t.replacedById)?.name ?? `#${t.replacedById}`}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
+                      <td class="px-4 py-2">
+                        <Badge tone={qualityTone(t.qualityScore)}>{cloudApiQualityLabel(t.qualityScore || 'UNKNOWN')}</Badge>
+                      </td>
+                      <td class="px-4 py-2 text-right whitespace-nowrap">
+                        {t.uso && t.uso.enviadas > 0 ? (
+                          <div title={`${fmtNumero.format(t.uso.enviadas)} enviadas · ${fmtNumero.format(t.uso.entregues)} entregues · ${fmtNumero.format(t.uso.lidas)} lidas · ${fmtNumero.format(t.uso.falhas)} com falha`}>
+                            <div class="text-fg tabular-nums">{fmtNumero.format(t.uso.enviadas)}</div>
+                            <div class="text-2xs text-fg-muted tabular-nums">
+                              {pct(t.uso.entregues, t.uso.enviadas)} entregues · {pct(t.uso.lidas, t.uso.enviadas)} lidas
+                            </div>
+                            {t.uso.falhas > 0 && <div class="text-2xs text-danger tabular-nums">{fmtNumero.format(t.uso.falhas)} com falha</div>}
+                          </div>
+                        ) : (
+                          <span class="text-fg-subtle">Nunca enviado</span>
+                        )}
+                      </td>
+                      <td class="px-4 py-2 whitespace-nowrap text-fg-muted" title={t.uso?.ultimoEnvio ? formatDateTime(t.uso.ultimoEnvio) : undefined}>
+                        {t.uso?.ultimoEnvio ? formatRelative(t.uso.ultimoEnvio) : '—'}
+                      </td>
+                      <td class="px-4 py-2 text-fg-muted"><CriacaoCell t={t} /></td>
                       <td class="px-4 py-2">
                         <div class="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button type="button" class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3" onClick={() => setPreviewTpl(t)} aria-label="Visualizar" title="Visualizar">
@@ -283,6 +402,19 @@ export function WhatsappTemplatesPage() {
                           <button type="button" class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3" onClick={() => setEditingTpl(t)} aria-label="Editar" title="Editar (cria nova versão)">
                             <Pencil size={11} />
                           </button>
+                          {t.archivedAt ? (
+                            <button type="button" class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3" aria-label="Desarquivar" title="Desarquivar (volta para os seletores)"
+                              onClick={() => unarchiveTpl.mutate(t.id, {
+                                onSuccess: () => toast('Modelo desarquivado', 'success'),
+                                onError: (e: unknown) => toast((e as Error).message, 'danger'),
+                              })}>
+                              <ArchiveRestore size={11} />
+                            </button>
+                          ) : (
+                            <button type="button" class="size-7 rounded grid place-items-center text-fg-muted hover:text-fg hover:bg-surface-3" onClick={() => setArchivingTpl(t)} aria-label="Arquivar" title="Arquivar (sai dos seletores, continua na Meta)">
+                              <Archive size={11} />
+                            </button>
+                          )}
                           <button type="button" class="size-7 rounded grid place-items-center text-fg-muted hover:text-danger hover:bg-surface-3" onClick={() => setDeletingTpl(t)} aria-label="Excluir" title="Excluir">
                             <Trash2 size={11} />
                           </button>
@@ -321,6 +453,21 @@ export function WhatsappTemplatesPage() {
           loading={delTpl.isPending}
           onConfirm={() => delTpl.mutate(deletingTpl.id, {
             onSuccess: () => { toast('Modelo excluído', 'success'); setDeletingTpl(null) },
+            onError: (e: unknown) => toast((e as Error).message, 'danger'),
+          })}
+        />
+      )}
+
+      {archivingTpl && (
+        <ConfirmDialog
+          open
+          onOpenChange={(o) => { if (!o) setArchivingTpl(null) }}
+          title={`Arquivar modelo "${archivingTpl.name}"`}
+          description="O modelo sai desta lista e dos seletores (conversa, disparos, pesquisas), mas continua existindo na Meta: o que já envia por ele não quebra, e dá para desarquivar depois. Para apagar de vez na Meta, use Excluir."
+          confirmLabel="Arquivar"
+          loading={archiveTpl.isPending}
+          onConfirm={() => archiveTpl.mutate({ id: archivingTpl.id }, {
+            onSuccess: () => { toast('Modelo arquivado', 'success'); setArchivingTpl(null) },
             onError: (e: unknown) => toast((e as Error).message, 'danger'),
           })}
         />
@@ -438,7 +585,58 @@ function PreviewTemplateModal({ template, onClose }: { template: CloudApiTemplat
           Variáveis no body: <code>{parsed.variables.join(', ')}</code>
         </div>
       )}
+      <DetalhesDoModelo template={template} parsed={parsed} />
     </Modal>
+  )
+}
+
+/** Validade da mensagem em texto: a Meta desiste de entregar depois disso. */
+function validade(seg: number | null | undefined): string {
+  if (seg == null) return 'Padrão da Meta'
+  if (seg % 86400 === 0) return `${seg / 86400} dia(s)`
+  if (seg % 3600 === 0) return `${seg / 3600} hora(s)`
+  if (seg % 60 === 0) return `${seg / 60} minuto(s)`
+  return `${seg} segundo(s)`
+}
+
+function DetalhesDoModelo({ template: t, parsed }: { template: CloudApiTemplate; parsed: ReturnType<typeof parseTemplateComponents> }) {
+  const u = t.uso
+  const linhas: [string, ComponentChildren][] = [
+    ['Criado em', t.criacao
+      ? (t.criacao.exata ? formatDateTime(t.criacao.data) : <>antes de {dateLong.format(new Date(t.criacao.data))} <span class="text-fg-subtle">(já existia ao conectar a conta)</span></>)
+      : '—'],
+    ['Última edição na Meta', formatDateTime(t.metaUpdatedAt)],
+    ['Status', <>{cloudApiTemplateStatusLabel(t.status)}{t.statusUpdatedAt ? ` desde ${formatDateTime(t.statusUpdatedAt)}` : ''}{t.statusReason ? ` — ${cloudApiTemplateReasonLabel(t.statusReason)}` : ''}</>],
+    ['Categoria', <>{cloudApiTemplateCategoryLabel(t.category)}{t.previousCategory && t.previousCategory !== t.category ? ` (a Meta reclassificou; era ${cloudApiTemplateCategoryLabel(t.previousCategory)})` : ''}{t.subCategory ? ` · ${t.subCategory}` : ''}</>],
+    ['Qualidade', <>{cloudApiQualityLabel(t.qualityScore || 'UNKNOWN')}{t.qualityScoreAt ? ` · avaliada em ${formatDateTime(t.qualityScoreAt)}` : ''}</>],
+    ['Idioma', t.language],
+    ['Variáveis', parsed.variables.length
+      ? `${parsed.variables.length} · ${t.parameterFormat === 'NAMED' || parsed.named ? 'por nome ({{nome}})' : 'por posição ({{1}})'}`
+      : 'Nenhuma'],
+    ['Cabeçalho', parsed.header ? (parsed.header.format === 'TEXT' ? 'Texto' : parsed.header.format) : 'Sem cabeçalho'],
+    ['Botões', parsed.buttons.length ? `${parsed.buttons.length}` : 'Nenhum'],
+    ['Validade da mensagem', validade(t.messageSendTtlSeconds)],
+    ...(t.libraryTemplateName ? [['Modelo da biblioteca Meta', t.libraryTemplateName] as [string, ComponentChildren]] : []),
+    ['Envios por aqui', u && u.enviadas > 0
+      ? <>{fmtNumero.format(u.enviadas)} enviadas · {fmtNumero.format(u.entregues)} entregues ({pct(u.entregues, u.enviadas)}) · {fmtNumero.format(u.lidas)} lidas ({pct(u.lidas, u.enviadas)}){u.falhas ? <span class="text-danger"> · {fmtNumero.format(u.falhas)} com falha</span> : null}</>
+      : 'Nunca enviado'],
+    ...(u && u.enviadas > 0 ? [['Primeiro / último envio', `${formatDateTime(u.primeiroEnvio)} · ${formatDateTime(u.ultimoEnvio)}`] as [string, ComponentChildren]] : []),
+    ['ID na Meta', <code class="text-2xs">{t.metaTemplateId || '—'}</code>],
+    ['Última sincronização', formatDateTime(t.lastSyncAt)],
+  ]
+  return (
+    <div class="mt-4 pt-3 border-t border-border">
+      <Section title="Detalhes">
+        <dl class="grid grid-cols-1 sm:grid-cols-[11rem_1fr] gap-x-4 gap-y-1.5 text-xs">
+          {linhas.map(([rot, val]) => (
+            <div key={rot} class="contents">
+              <dt class="text-fg-muted">{rot}</dt>
+              <dd class="text-fg min-w-0 break-words">{val}</dd>
+            </div>
+          ))}
+        </dl>
+      </Section>
+    </div>
   )
 }
 
