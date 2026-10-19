@@ -62,8 +62,18 @@ export async function getOpenAiKey(): Promise<string | null> {
 
 export type AiProvider = 'anthropic' | 'openai'
 
-/** Provider preferencial (Setting `ai.primary_provider` → 'anthropic'). */
+/**
+ * Provider preferencial: o "Provedor padrão" da tela IA / Tokens
+ * (`ai.default_provider`) → `ai.primary_provider` (legado) → 'anthropic'.
+ *
+ * Até 19/10/2026 a tela gravava `ai.default_provider` e o motor lia só
+ * `ai.primary_provider`, que nenhuma tela grava: a escolha do cliente não
+ * valia, e no ineprotec a tela dizia OpenAI enquanto a IA usava Anthropic.
+ * O legado fica como segunda opção para instalação que só tenha ele.
+ */
 export async function getPrimaryProvider(): Promise<AiProvider> {
+  const daTela = await readSetting('ai.default_provider')
+  if (daTela === 'openai' || daTela === 'anthropic') return daTela
   const v = await readSetting('ai.primary_provider')
   return v === 'openai' ? 'openai' : 'anthropic'
 }
