@@ -170,6 +170,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'ai-journey', label: 'Jornada IA', href: '/app/ai-journey', icon: 'Sparkles', permission: 'ai_journey' },
         { id: 'funnel-conversion', label: 'Funil de Conversão', href: '/app/funnel-conversion', icon: 'GitFork', permission: 'funnels' },
         { id: 'status-summary-report', label: 'Relatório por Resumo', href: '/app/status-summary-report', icon: 'Tag', permission: 'status_summary' },
+        { id: 'volumetria', label: 'Volumetrias', href: '/app/volumetria', icon: 'BarChart3', permission: 'volumetria', atalho: true },
       ],
     },
     {

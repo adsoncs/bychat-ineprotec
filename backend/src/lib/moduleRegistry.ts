@@ -155,6 +155,19 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
+    // Relatórios › Volumetrias: o cliente acompanha o que consumiu no mês e o
+    // valor final da fatura de consumo. `core` porque é a prestação de contas
+    // do que cobramos — não se vende nem se desliga. Só volumes e valor final:
+    // custo real, câmbio e margem saem na rota (routes/volumetria.ts).
+    id: 'volumetria', name: 'Volumetrias', icon: '📈', category: 'overview',
+    umbrella: 'plataforma', cobranca: 'base',
+    description: 'Volumes de cada canal e integração no mês e o valor final cobrado pelo consumo.',
+    pages: ['volumetria'],
+    routePrefixes: ['/api/volumetria'],
+    actions: ['view'],
+    core: true, defaultEnabled: true,
+  },
+  {
     id: 'equipe', name: 'Chat Interno', icon: '💬', category: 'crm',
     umbrella: 'atendimento', cobranca: 'base',
     description: 'Chat interno entre pessoas e equipes, de qualquer papel: conversas diretas, canal de cada equipe, grupos e conversa sobre um lead, com cartões de lead, indicação, transferência, negociação e tarefa.',

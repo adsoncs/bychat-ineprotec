@@ -657,13 +657,6 @@ export function Router() {
               return Painel ? <Painel /> : null
             }}
           </Route>
-          {/* Volumetria — também só do dono (mesma regra da Assinatura). */}
-          <Route path="/volumetria">
-            {() => {
-              const Painel = migratedPages['volumetria']
-              return Painel ? <Painel /> : null
-            }}
-          </Route>
           {/* A tela nasceu em /dono e viveu poucas horas assim. O redirect custa
             * duas linhas e evita "página não encontrada" para um link salvo. */}
           <Route path="/dono">{() => { window.location.replace('/app/assinatura'); return null }}</Route>

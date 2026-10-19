@@ -28,6 +28,11 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   goals_commissions: {
     AGENT: { canView: true, canCreate: false, canEdit: false, canDelete: false },
   },
+  // Volumetrias mostra a fatura de consumo: nasce só para SUPERADMIN e ADMIN.
+  // Gestor ou outro papel ganha acesso em Permissões, se o cliente quiser.
+  volumetria: {
+    MANAGER: { canView: false, canCreate: false, canEdit: false, canDelete: false },
+  },
   // Chat interno: todo mundo conversa. Editar/apagar só a própria mensagem e
   // administrar só o grupo que criou é regra da rota (routes/equipe.ts).
   equipe: {

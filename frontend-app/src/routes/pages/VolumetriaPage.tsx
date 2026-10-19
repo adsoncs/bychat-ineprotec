@@ -1,5 +1,5 @@
-// Volumetria — painel do DONO do produto (o superadmin do cliente não entra:
-// a API responde 404). É a visão do cliente: quanto cada canal e integração
+// Relatórios › Volumetrias — quem vê é o módulo `volumetria` em Permissões
+// (nasce para SUPERADMIN e ADMIN). É a visão do cliente: quanto cada canal e integração
 // movimentou no mês e o valor final cobrado. Custo real, câmbio, margem e o uso
 // de IA por funcionalidade ficam na loja central — a API nem os envia.
 import { useState } from 'preact/hooks'
@@ -217,8 +217,8 @@ export function VolumetriaPage() {
   const [competencia, setCompetencia] = useState(mesAtual())
   const [aba, setAba] = useState<Aba>(abaSalva())
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['dono', 'volumetria', competencia],
-    queryFn: () => api.get<Volumetria>(`/dono/volumetria?competencia=${competencia}`),
+    queryKey: ['volumetria', competencia],
+    queryFn: () => api.get<Volumetria>(`/volumetria?competencia=${competencia}`),
   })
   function irPara(a: Aba) {
     setAba(a)
@@ -248,8 +248,8 @@ export function VolumetriaPage() {
   )
 
   const descricao = 'Volumes de cada canal e integração no mês e o valor cobrado pelo plano.'
-  if (isLoading) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-fg-muted">Carregando…</div></div></Page>
-  if (isError || !data) return <Page title="Volumetria" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-danger">Não foi possível carregar.</div></div></Page>
+  if (isLoading) return <Page title="Volumetrias" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-fg-muted">Carregando…</div></div></Page>
+  if (isError || !data) return <Page title="Volumetrias" description={descricao} actions={acoes}><div class="space-y-4">{abas}<div class="text-sm text-danger">Não foi possível carregar.</div></div></Page>
 
   const d = data
   const minutos = d.voz.reduce((s, v) => s + v.minutos, 0)
@@ -281,7 +281,7 @@ export function VolumetriaPage() {
   }
 
   return (
-    <Page title="Volumetria" description={descricao} actions={acoes}>
+    <Page title="Volumetrias" description={descricao} actions={acoes}>
       <div class="space-y-4">
         {abas}
 

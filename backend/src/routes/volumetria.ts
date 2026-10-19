@@ -1,7 +1,7 @@
 // src/routes/volumetria.ts
 //
-// Volumetria — só o DONO do produto (lib/dono.ts). Sem permissão por papel:
-// módulo nativo.
+// Volumetria — Relatórios › Volumetrias. Quem vê é decidido pelo módulo
+// `volumetria` (core) em Permissões: nasce para SUPERADMIN e ADMIN.
 //
 // A tela é a visão do CLIENTE: volumes e o valor final cobrado. Custo real,
 // câmbio, margem, regra de preço e o uso de IA por funcionalidade/modelo ficam
@@ -9,14 +9,13 @@
 
 import type { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../lib/auth.js'
-import { exigirDono } from '../lib/dono.js'
 import { competenciaAtual, volumetriaDoMes } from '../services/volumetria.js'
 import { prisma } from '../lib/prisma.js'
 
 export async function volumetriaRoutes(app: FastifyInstance) {
-  const soDono = { preHandler: [authMiddleware, exigirDono] }
-
-  app.get('/api/dono/volumetria', soDono, async (req, reply) => {
+  // O gate do módulo (modulePermissionHook, prefixo /api/volumetria) decide quem
+  // passa; aqui só a autenticação.
+  app.get('/api/volumetria', { preHandler: [authMiddleware] }, async (req, reply) => {
     const competencia = String((req.query as any)?.competencia ?? competenciaAtual())
     try {
       const volumetria = await volumetriaDoMes(competencia)
