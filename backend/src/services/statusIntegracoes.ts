@@ -198,10 +198,19 @@ async function lerIa(): Promise<Leitura> {
   // não pode pintar a barra).
   const alerta = await prisma.alert.findFirst({
     where: { dedupeKey: 'integration.ai_provider', status: 'open' },
-    select: { body: true, metadata: true },
+    select: { body: true, metadata: true, lastSeenAt: true },
   }).catch(() => null)
   const provAlerta = (alerta?.metadata as any)?.provider as string | null | undefined
-  const alertaDaPadrao = !!alerta && (!provAlerta || provAlerta === principal)
+  let alertaDaPadrao = !!alerta && (!provAlerta || provAlerta === principal)
+  // Recusa mais velha que a sonda que passou é condição vencida: o crédito
+  // voltou e nada fechou o alerta (beyond: aberto desde 01/10 com a IA
+  // respondendo normalmente em 19/10). Fecha aqui — vale para o sino também.
+  const sondadoEm = sondas.get(`ia:${principal}`)?.em ?? 0
+  if (alertaDaPadrao && rp.ok && alerta!.lastSeenAt.getTime() < sondadoEm) {
+    const { resolveAlert } = await import('./alertService.js')
+    await resolveAlert('integration.ai_provider').catch(() => {})
+    alertaDaPadrao = false
+  }
 
   if (rp.ok && !alertaDaPadrao) return { estado: 'ok', motivo: NOME[principal] }
 
