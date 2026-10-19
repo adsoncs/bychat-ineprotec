@@ -186,51 +186,40 @@ async function lerIa(): Promise<Leitura> {
   const principal: Provedor = chaves[preferido] ? preferido : disponiveis[0]!
   const reserva = disponiveis.find((p) => p !== principal)
 
-  const res: Partial<Record<Provedor, { ok: boolean; texto?: string }>> = {}
-  for (const p of disponiveis) {
-    res[p] = await comCache(`ia:${p}`, 60 * MIN, () => sondarIa(p, chaves[p]!))
-  }
+  // O aviso é SEMPRE sobre a IA padrão (a que o sistema chama primeiro). A
+  // reserva é só fallback: reserva sem crédito com a padrão funcionando não é
+  // problema do dia — pedido do usuário em 19/10/2026, depois de a barra
+  // acusar "atenção" no fabad por causa da OpenAI de reserva. Por isso a
+  // reserva só é sondada quando a padrão falha: aí importa saber se ela segura.
+  const rp = await comCache(`ia:${principal}`, 60 * MIN, () => sondarIa(principal, chaves[principal]!))
 
-  // A falha REAL que o sistema registrou vale mais que a sonda de uma hora atrás.
+  // A falha REAL que o sistema registrou vale mais que a sonda de uma hora
+  // atrás — desde que seja da IA padrão (um recurso que chama a reserva direto
+  // não pode pintar a barra).
   const alerta = await prisma.alert.findFirst({
     where: { dedupeKey: 'integration.ai_provider', status: 'open' },
     select: { body: true, metadata: true },
   }).catch(() => null)
+  const provAlerta = (alerta?.metadata as any)?.provider as string | null | undefined
+  const alertaDaPadrao = !!alerta && (!provAlerta || provAlerta === principal)
 
-  const rp = res[principal]!
-  const rr = reserva ? res[reserva] : undefined
-  const falhaP = !rp.ok ? motivoDaRecusaIa(rp.texto ?? '') : null
-  const falhaR = rr && !rr.ok ? motivoDaRecusaIa(rr.texto ?? '') : null
+  if (rp.ok && !alertaDaPadrao) return { estado: 'ok', motivo: NOME[principal] }
 
-  if (alerta && rp.ok && (!rr || rr.ok)) {
-    // A sonda passou, mas o sistema viu recusa depois dela: confiar na recusa
-    // até a próxima chamada bem-sucedida fechar o alerta.
-    return { estado: 'fora', motivo: 'recusando chamadas', detalhe: curto((alerta.metadata as any)?.detalhe ?? alerta.body, 400) }
+  const falhaP = rp.ok
+    ? { motivo: 'recusando chamadas', definitiva: true }
+    : motivoDaRecusaIa(rp.texto ?? '')
+  const detalheP = rp.ok ? curto((alerta!.metadata as any)?.detalhe ?? alerta!.body, 400) : (rp.texto ?? null)
+  const rr = reserva ? await comCache(`ia:${reserva}`, 60 * MIN, () => sondarIa(reserva, chaves[reserva]!)) : undefined
+
+  if (rr?.ok) {
+    // A padrão caiu, mas a reserva está respondendo: o atendimento segue.
+    return { estado: 'atencao', motivo: `${NOME[principal]}: ${falhaP.motivo}, usando a reserva`, detalhe: detalheP }
   }
-  if (falhaP && (!rr || falhaR)) {
-    // Sem nenhum provedor respondendo: o atendimento por IA parou.
-    const ambos = reserva ? ` · reserva (${NOME[reserva]}): ${falhaR!.motivo}` : ''
-    return {
-      estado: falhaP.definitiva ? 'fora' : 'atencao',
-      motivo: `${NOME[principal]}: ${falhaP.motivo}${reserva ? ' e reserva também' : ''}`,
-      detalhe: `${rp.texto ?? ''}${ambos}`,
-    }
+  return {
+    estado: falhaP.definitiva ? 'fora' : 'atencao',
+    motivo: `${NOME[principal]}: ${falhaP.motivo}${reserva ? ' e reserva também' : ''}`,
+    detalhe: `${detalheP ?? ''}${reserva && rr ? ` · reserva (${NOME[reserva]}): ${motivoDaRecusaIa(rr.texto ?? '').motivo}` : ''}`,
   }
-  if (falhaP) {
-    return {
-      estado: 'atencao',
-      motivo: `${NOME[principal]}: ${falhaP.motivo}, usando a reserva`,
-      detalhe: rp.texto ?? null,
-    }
-  }
-  if (falhaR) {
-    return {
-      estado: 'atencao',
-      motivo: `reserva (${NOME[reserva!]}): ${falhaR.motivo}`,
-      detalhe: rr!.texto ?? null,
-    }
-  }
-  return { estado: 'ok', motivo: reserva ? `${NOME[principal]} + reserva` : NOME[principal] }
 }
 
 // ── WhatsApp API (Cloud API oficial) ─────────────────────────────────────────
