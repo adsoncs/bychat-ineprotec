@@ -109,7 +109,8 @@ export async function volumetriaDoMes(competencia: string) {
   const semPrecoSet = new Set(semPreco.map((s) => s.item))
   const iaFunc = await prisma.consumoEvento.groupBy({
     by: ['funcionalidade'], where: { fonte: 'ia', createdAt: noMes },
-    _count: { _all: true }, _sum: { quantidade: true, custoUsd: true },
+    _count: { _all: true },
+    _sum: { quantidade: true, custoUsd: true, entrada: true, saida: true, cacheEscrita: true, cacheLeitura: true },
   })
   const iaDia: any[] = await prisma.$queryRaw`
     SELECT DATE(CONVERT_TZ(createdAt, '+00:00', '-03:00')) dia, COUNT(*) chamadas, COALESCE(SUM(custoUsd), 0) custo
@@ -125,8 +126,15 @@ export async function volumetriaDoMes(competencia: string) {
       entrada: num(x._sum.entrada), saida: num(x._sum.saida), cacheEscrita: num(x._sum.cacheEscrita), cacheLeitura: num(x._sum.cacheLeitura),
       custoUsd: num(x._sum.custoUsd), semPreco: semPrecoSet.has(x.item),
     })).sort((a, b) => b.custoUsd - a.custoUsd),
-    porFuncionalidade: iaFunc.map((x) => ({ funcionalidade: x.funcionalidade, chamadas: x._count._all, tokens: num(x._sum.quantidade), custoUsd: num(x._sum.custoUsd) }))
-      .sort((a, b) => b.custoUsd - a.custoUsd),
+    // Tokens abertos por tipo tambem por funcionalidade. Sem isso o detalhe do
+    // painel esconderia o cache dentro do total — e no Anthropic o cache e a
+    // maior fatia da jornada da IA, que e justo o que o cliente quer entender.
+    porFuncionalidade: iaFunc.map((x) => ({
+      funcionalidade: x.funcionalidade, chamadas: x._count._all, tokens: num(x._sum.quantidade),
+      entrada: num(x._sum.entrada), saida: num(x._sum.saida),
+      cacheEscrita: num(x._sum.cacheEscrita), cacheLeitura: num(x._sum.cacheLeitura),
+      custoUsd: num(x._sum.custoUsd),
+    })).sort((a, b) => b.custoUsd - a.custoUsd),
     porDia: iaDia.map((d) => ({ dia: String(d.dia instanceof Date ? d.dia.toISOString().slice(0, 10) : d.dia), chamadas: num(d.chamadas), custoUsd: num(d.custo) })),
   }
 

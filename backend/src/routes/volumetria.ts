@@ -38,6 +38,13 @@ function paraOCliente(v: Awaited<ReturnType<typeof volumetriaDoMes>>, cobranca: 
       medindoDesde: ia.medindoDesde,
       chamadas: ia.chamadas,
       tokens: ia.porFuncionalidade.reduce((s, f) => s + f.tokens, 0),
+      // O cliente precisa saber O QUE consome IA e QUANTO cada recurso gastou.
+      // Vai so VOLUME (chamadas e tokens, abertos por tipo): `custoUsd` fica de
+      // fora como todo custo real — ele e da loja central, nao do cliente.
+      porFuncionalidade: ia.porFuncionalidade.map((f) => ({
+        funcionalidade: f.funcionalidade, chamadas: f.chamadas, tokens: f.tokens,
+        entrada: f.entrada, saida: f.saida, cacheEscrita: f.cacheEscrita, cacheLeitura: f.cacheLeitura,
+      })),
     },
     whatsappCloud: {
       enviadas: whatsappCloud.enviadas,

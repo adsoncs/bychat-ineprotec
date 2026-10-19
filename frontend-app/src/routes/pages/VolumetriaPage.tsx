@@ -1,7 +1,9 @@
 // Relatórios › Volumetrias — quem vê é o módulo `volumetria` em Permissões
 // (nasce para SUPERADMIN e ADMIN). É a visão do cliente: quanto cada canal e integração
-// movimentou no mês e o valor final cobrado. Custo real, câmbio, margem e o uso
-// de IA por funcionalidade ficam na loja central — a API nem os envia.
+// movimentou no mês e o valor final cobrado. Custo real, câmbio e margem ficam
+// na loja central — a API nem os envia.
+// A IA abre o consumo POR FUNCIONALIDADE (chamadas e tokens, nunca valor): o
+// cliente tem de conseguir ver qual recurso consome e quanto.
 import { useState } from 'preact/hooks'
 import { useQuery } from '@tanstack/react-query'
 import { Page } from '@/components/ui/Page'
@@ -11,6 +13,11 @@ import { api } from '@/lib/apiClient'
 
 interface PorNumero { numero: string; enviadas: number; recebidas: number; leadsUnicos?: number }
 interface Midias { canal: string; quantidade: number; bytes: number; externas: number; porTipo: Array<{ tipo: string; quantidade: number; bytes: number }> }
+
+interface UsoDaFuncionalidade {
+  funcionalidade: string; chamadas: number; tokens: number
+  entrada: number; saida: number; cacheEscrita: number; cacheLeitura: number
+}
 
 interface LinhaDoPlano { codigo: string; nome: string; unidade: string; cobrar: boolean; incluido: number | null }
 interface ItemCobrado { codigo: string; descricao: string; quantidade: number; unidade: string; valorCentavos: number }
@@ -23,7 +30,10 @@ interface Cobranca {
 
 interface Volumetria {
   competencia: string
-  ia: { medindoDesde: string | null; chamadas: number; tokens: number }
+  ia: {
+    medindoDesde: string | null; chamadas: number; tokens: number
+    porFuncionalidade?: UsoDaFuncionalidade[]
+  }
   whatsappCloud: {
     enviadas: number; recebidas: number; leadsUnicos?: number
     porCategoria: Array<{ categoria: string; enviadas: number; cobraveis: number }>
@@ -44,6 +54,60 @@ interface Volumetria {
   cobranca: Cobranca | null
 }
 
+// Nome e explicação de cada ponto do sistema que chama IA. A chave é a que o
+// backend grava em `bychat_consumo.funcionalidade` (lib/consumo.ts). Chave fora
+// desta lista aparece crua, para nunca sumir da conta.
+//
+// Atenção ao nome do primeiro grupo: um chatbot em `mode = 'ai_journey'` — o
+// caso normal — gasta IA sob a chave `jornada_ia`, e a chave `chatbot` só é
+// usada no modo roteiro (`useFlow`). Chamar `jornada_ia` de "jornada" deixava o
+// cliente procurando o chatbot numa lista onde ele era a maior linha.
+const FUNCIONALIDADES_IA: Record<string, { nome: string; oQueFaz: string }> = {
+  jornada_ia:              { nome: 'Conversa do chatbot',               oQueFaz: 'O motor do atendimento: lê a conversa, responde ao lead e decide o próximo passo no funil' },
+  jornada_interpretacao:   { nome: 'Chatbot — interpretar resposta',   oQueFaz: 'Entende o que o lead respondeu nas perguntas do roteiro' },
+  chatbot:                 { nome: 'Chatbot — modo roteiro',           oQueFaz: 'Respostas quando o chatbot roda por fluxo em vez da jornada da IA' },
+  chatbot_pos_jornada:     { nome: 'Chatbot — depois do roteiro',       oQueFaz: 'Segue conversando quando o roteiro da jornada termina' },
+
+  lead_score:              { nome: 'Análise de score do lead',         oQueFaz: 'Pontua o lead pelo perfil e pelo que ele disse na conversa' },
+  sugestao_etapa:          { nome: 'Sugestão de etapa do funil',        oQueFaz: 'Sugere para qual etapa o lead deve ser movido' },
+  deteccao_venda:          { nome: 'Detecção de venda',                oQueFaz: 'Identifica na conversa quando a venda aconteceu' },
+  analise_sentimento:      { nome: 'Análise de sentimento',             oQueFaz: 'Classifica o tom da conversa do lead' },
+  sugestao_abordagem:      { nome: 'Sugestão de abordagem',             oQueFaz: 'Propõe como abordar o lead na próxima mensagem' },
+  auditoria_conversa:      { nome: 'Auditoria de conversa',             oQueFaz: 'Avalia a qualidade do atendimento feito pela equipe' },
+
+  revisao_documento:       { nome: 'Análise de documentos',             oQueFaz: 'Confere os documentos enviados na inscrição' },
+  correcao_redacao:        { nome: 'Correção de redação',             oQueFaz: 'Corrige a redação da prova e propõe a nota' },
+  tema_redacao:            { nome: 'Geração de tema de redação',      oQueFaz: 'Cria o tema da prova de redação' },
+  deteccao_ia_redacao:     { nome: 'Detecção de IA na redação',      oQueFaz: 'Verifica se a redação foi escrita por inteligência artificial' },
+
+  cadencia_classificacao:  { nome: 'Cadência — classificar resposta',  oQueFaz: 'Entende a resposta do lead na régua de contato' },
+  cadencia_gerador:        { nome: 'Cadência — gerar mensagem',        oQueFaz: 'Escreve a mensagem da régua de contato' },
+
+  analise_reuniao:         { nome: 'Análise de reunião',               oQueFaz: 'Resume a reunião gravada e extrai os pontos tratados' },
+  relatorio_reunioes:      { nome: 'Relatório de reuniões',            oQueFaz: 'Consolida as reuniões do período em um relatório' },
+
+  chat_site:               { nome: 'Chat do site',                      oQueFaz: 'Atendimento pelo widget instalado no site' },
+  helpdesk:                { nome: 'Helpdesk',                          oQueFaz: 'Triagem, resposta e resumo dos tickets de suporte' },
+  diagnostico:             { nome: 'Diagnóstico',                       oQueFaz: 'Monta o diagnóstico a partir das respostas do lead' },
+}
+
+// Agrupamento por área. O Chatbot vem primeiro porque é quase sempre a maior
+// fatia. Chave que não esteja em nenhum grupo cai em "Outros usos".
+const GRUPOS_IA: Array<{ nome: string; resumo: string; chaves: string[] }> = [
+  { nome: 'Chatbot (atendimento automático)', resumo: 'A IA que conversa com o lead no WhatsApp',
+    chaves: ['jornada_ia', 'jornada_interpretacao', 'chatbot', 'chatbot_pos_jornada'] },
+  { nome: 'Inteligência sobre a conversa', resumo: 'Lê o que foi conversado e alimenta o funil',
+    chaves: ['lead_score', 'sugestao_etapa', 'deteccao_venda', 'analise_sentimento', 'sugestao_abordagem', 'auditoria_conversa'] },
+  { nome: 'Processo seletivo e acadêmico', resumo: 'Documentos, redação e prova',
+    chaves: ['revisao_documento', 'correcao_redacao', 'tema_redacao', 'deteccao_ia_redacao'] },
+  { nome: 'Cadência de contato', resumo: 'Régua automática de mensagens',
+    chaves: ['cadencia_classificacao', 'cadencia_gerador'] },
+  { nome: 'Reuniões', resumo: 'Gravações e relatórios',
+    chaves: ['analise_reuniao', 'relatorio_reunioes'] },
+  { nome: 'Outros atendimentos', resumo: 'Site, suporte e diagnóstico',
+    chaves: ['chat_site', 'helpdesk', 'diagnostico'] },
+]
+
 const CATEGORIAS: Record<string, string> = {
   marketing: 'Marketing', utility: 'Utilidade', authentication: 'Autenticação', service: 'Serviço (resposta)',
   referral_conversion: 'Conversão de anúncio', sem_categoria: 'Sem categoria (ainda sem retorno da Meta)',
@@ -60,6 +124,55 @@ const SITUACOES: Record<string, [string, 'neutral' | 'info' | 'warning' | 'succe
 }
 
 const n = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+const pct = (v: number) => `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
+
+/** Linhas da tabela de IA: cabeçalho de grupo com o total, depois cada recurso. */
+function linhasDoUsoDeIA(uso: UsoDaFuncionalidade[], total: number): Array<Array<string | number | preact.JSX.Element>> {
+  const linhas: Array<Array<string | number | preact.JSX.Element>> = []
+  const cacheDe = (f: UsoDaFuncionalidade) => f.cacheEscrita + f.cacheLeitura
+  const usados = new Set<string>()
+
+  const bloco = (nome: string, resumo: string, itens: UsoDaFuncionalidade[]) => {
+    if (!itens.length) return
+    const soma = itens.reduce((a, f) => ({
+      chamadas: a.chamadas + f.chamadas, tokens: a.tokens + f.tokens,
+      entrada: a.entrada + f.entrada, saida: a.saida + f.saida, cache: a.cache + cacheDe(f),
+    }), { chamadas: 0, tokens: 0, entrada: 0, saida: 0, cache: 0 })
+    const forte = (t: string) => <span class="font-semibold">{t}</span>
+    linhas.push([
+      <div><div class="font-semibold">{nome}</div><div class="text-xs text-fg-muted">{resumo}</div></div>,
+      forte(n(soma.chamadas)), forte(n(soma.tokens)),
+      forte(total ? pct((soma.tokens / total) * 100) : '—'),
+      forte(n(soma.entrada)), forte(n(soma.saida)), forte(soma.cache ? n(soma.cache) : '—'),
+      forte(soma.chamadas ? n(Math.round(soma.tokens / soma.chamadas)) : '—'),
+    ])
+    for (const f of itens) {
+      const meta = FUNCIONALIDADES_IA[f.funcionalidade]
+      const cache = cacheDe(f)
+      linhas.push([
+        <div class="pl-4">
+          <div>{meta?.nome ?? f.funcionalidade}</div>
+          <div class="text-xs text-fg-muted">{meta?.oQueFaz ?? f.funcionalidade}</div>
+        </div>,
+        n(f.chamadas), n(f.tokens),
+        total ? pct((f.tokens / total) * 100) : '—',
+        n(f.entrada), n(f.saida), cache ? n(cache) : '—',
+        f.chamadas ? n(Math.round(f.tokens / f.chamadas)) : '—',
+      ])
+    }
+  }
+
+  for (const g of GRUPOS_IA) {
+    const itens = uso.filter((f) => g.chaves.includes(f.funcionalidade))
+    itens.forEach((f) => usados.add(f.funcionalidade))
+    bloco(g.nome, g.resumo, itens)
+  }
+  // Chave nova no backend que ainda não entrou em nenhum grupo: aparece aqui em
+  // vez de desaparecer da conta do cliente.
+  bloco('Outros usos', 'Recursos ainda não classificados', uso.filter((f) => !usados.has(f.funcionalidade)))
+  return linhas
+}
+
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const centavos = (c: number) => brl(c / 100)
 const mesAtual = () => { const d = new Date(Date.now() - 3 * 3600_000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}` }
@@ -259,6 +372,11 @@ export function VolumetriaPage() {
   const cloudCobraveis = d.whatsappCloud.porCategoria.reduce((s, c) => s + c.cobraveis, 0)
   const leads = d.leads ?? { total: d.base.leadsTotal ?? 0, novos: d.base.leadsNovos, unicos: 0, unicosPorCanal: [] }
   const midiasAcum = somaMidias(d.midias?.acumulado)
+  // Consumo de IA por funcionalidade, do maior para o menor. A API ordena por
+  // custo (que o cliente nao recebe), entao aqui reordenamos por tokens — e o
+  // que ele ve. Tenant ainda sem o campo cai em lista vazia, nao em erro.
+  const usoIA = [...(d.ia.porFuncionalidade ?? [])].sort((a, b) => b.tokens - a.tokens)
+  const totalTokensIA = usoIA.reduce((acc, f) => acc + f.tokens, 0)
   const midiasMes = somaMidias(d.midias?.doMes)
   const cobradoNaAba = (a: Aba) => {
     const cods = ITENS_DA_ABA[a] ?? []
@@ -311,8 +429,19 @@ export function VolumetriaPage() {
               <Resumo titulo="Valor do mês" valor={d.cobranca ? centavos(cobradoNaAba('ia')) : '—'} sub={d.cobranca?.parcial ? 'mês em andamento' : 'total do mês'} />
               <Resumo titulo="Chamadas" valor={n(d.ia.chamadas)} />
               <Resumo titulo="Tokens" valor={n(d.ia.tokens)} />
+              <Resumo titulo="Recursos em uso" valor={n(usoIA.length)} sub={usoIA.length === 1 ? 'funcionalidade com consumo' : 'funcionalidades com consumo'} />
             </Grade>
             {cobrado('ia')}
+            <Secao
+              titulo="Onde a IA foi usada"
+              nota="Cada linha é um recurso que chama a inteligência artificial; o grupo em negrito soma os recursos abaixo dele. O atendimento do WhatsApp aparece em “Conversa do chatbot”. Uma chamada é um pedido à IA; os tokens são a unidade que o provedor mede — entrada é o que foi enviado, saída é o que a IA respondeu e cache é o contexto reaproveitado entre chamadas, que custa menos que o token comum."
+            >
+              <Tabela
+                cab={['Funcionalidade', 'Chamadas', 'Tokens', '% dos tokens', 'Entrada', 'Saída', 'Cache', 'Tokens por chamada']}
+                vazio="Nenhum uso de IA registrado neste mês."
+                linhas={linhasDoUsoDeIA(usoIA, totalTokensIA)}
+              />
+            </Secao>
           </>
         )}
 
