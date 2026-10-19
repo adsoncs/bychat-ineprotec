@@ -5,6 +5,7 @@ import { useSidebarStore, resolveSidebarMode } from '@/stores/sidebar'
 import { useT } from '@/i18n'
 import { SidebarBody } from './SidebarBody'
 import { SidebarHeader, SidebarCollapseButton } from './SidebarHeader'
+import { StatusNaLateral } from './StatusIntegracoes'
 
 /**
  * Sidebar — 3 modos resolvidos automaticamente pelo breakpoint:
@@ -36,6 +37,7 @@ export function Sidebar() {
             </VisuallyHidden.Root>
             <SidebarHeader iconOnly={false} showCloseButton onClose={closeDrawer} />
             <SidebarBody iconOnly={false} onNavigate={closeDrawer} />
+            <StatusNaLateral iconOnly={false} lado="bottom" />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
@@ -51,6 +53,9 @@ export function Sidebar() {
         * segue no rodapé da barra, longe o bastante para não repetir ninguém. */}
       <SidebarHeader iconOnly={iconOnly} />
       <SidebarNav iconOnly={iconOnly} />
+      {/* Status das integrações: abaixo de Configurações e fora da área que
+        * rola — o menu pode rolar, o aviso fica. */}
+      <StatusNaLateral iconOnly={iconOnly} />
       {/* Recolhida, a barra perde o botão do cabeçalho (não cabe ao lado do
         * logo em 4rem) e o reencontra aqui — sem isto o usuário ficaria preso
         * no modo faixa, dependendo do atalho para voltar. */}

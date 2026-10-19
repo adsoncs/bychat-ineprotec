@@ -121,6 +121,18 @@
 }
 
 /* rodapé: hospeda o botão de expandir quando a barra está no modo faixa */
+/* Status das integrações no rodapé da barra lateral: fora da área que rola,
+   para o aviso não sumir quando o menu rola. */
+.app-sidebar-status {
+  flex: none;
+  padding: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+.app-sidebar-status.is-rail {
+  display: flex;
+  justify-content: center;
+}
+
 .app-sidebar-footer {
   flex: none;
   display: flex;

@@ -15,7 +15,7 @@ import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { WorkInbox } from './WorkInbox'
 import { TopbarUtil } from './TopbarUtil'
-import { BlocoDeStatus } from './StatusIntegracoes'
+import { PontoDeStatus } from './StatusIntegracoes'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useMyPermissions } from '@/hooks/usePermissions'
@@ -131,12 +131,14 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
     <header class="app-topbar">
       <button
         type="button"
-        class="size-9 grid place-items-center rounded-lg text-fg-muted hover:bg-surface-3 hover:text-fg shrink-0"
+        class="relative size-9 grid place-items-center rounded-lg text-fg-muted hover:bg-surface-3 hover:text-fg shrink-0"
         onClick={isMobile ? openDrawer : onToggleSidebar}
         aria-label={isMobile ? t('shell.menu.open') : 'Recolher ou expandir o menu'}
         title={isMobile ? t('shell.menu.open') : 'Recolher o menu (⌘B)'}
       >
         <Menu size={ICON_SIZE.md} />
+        {/* No celular o menu (e o status dentro dele) fica escondido. */}
+        {isMobile && <PontoDeStatus />}
       </button>
 
       {/* No celular o campo não cabe ao lado das utilidades — vira uma lupa, que
@@ -160,11 +162,6 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
           <span class="flex-1 text-left truncate">{t('shell.search.placeholder')}</span>
         </button>
       )}
-
-      {/* Status das integrações: entre a busca e as utilidades, sempre à vista. */}
-      <div class="flex-1 flex justify-center min-w-0">
-        <BlocoDeStatus />
-      </div>
 
       <div class="ml-auto flex items-center gap-0.5 min-w-0">
         {!isMobile && <MenuDeAtalhos />}

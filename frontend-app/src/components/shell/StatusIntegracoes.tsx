@@ -1,12 +1,16 @@
 // components/shell/StatusIntegracoes.tsx
 //
-// Barra de status das integrações — a "Opção B" aprovada em 19/10/2026:
+// Status das integrações — "Opção B" aprovada em 19/10/2026, com o bloco
+// mudado do topbar para o rodapé da barra lateral no mesmo dia (o time não
+// gostou dele no topbar):
 //
-//   BlocoDeStatus  → no topbar, entre a busca e os ícones: um quadradinho por
-//                    integração + o resumo em texto ("Tudo funcionando",
-//                    "1 fora do ar · 1 em atenção"). Hover no quadradinho mostra
-//                    o detalhe; clique abre o painel com todas.
-//   FaixaDeStatus  → logo abaixo do topbar, vermelha, enquanto houver
+//   StatusNaLateral → rodapé da barra lateral, abaixo de Configurações e FORA
+//                     da área que rola (sempre à vista). Tudo bem = uma linha
+//                     "Tudo funcionando"; com problema = só o que está com
+//                     problema, um por linha, com o motivo. Clique abre o painel.
+//                     Menu recolhido: um ícone com a cor do pior estado.
+//   PontoDeStatus   → bolinha no ☰ do celular, onde o menu fica escondido.
+//   FaixaDeStatus   → logo abaixo do topbar, vermelha, enquanto houver
 //                    integração fora do ar. Some sozinha quando o problema é
 //                    resolvido.
 //
@@ -18,16 +22,16 @@
 // item desliga o "aviso fixo" dele em Configurações › Barra de status.
 
 import * as Popover from '@radix-ui/react-popover'
-import * as Tooltip from '@radix-ui/react-tooltip'
 import { useLocation } from 'wouter-preact'
-import { AlertTriangle, RefreshCw, X } from '@/components/ui/icon-set'
+import { Activity, AlertTriangle, RefreshCw, X } from '@/components/ui/icon-set'
 import { useState } from 'preact/hooks'
 import { FAIXA_FECHADA_KEY } from '@/lib/apiClient'
 import { Icon } from '@/components/ui/Icon'
 import type { IconName } from '@/components/ui/icons'
 import { ICON_SIZE } from '@/components/ui/Icon'
-import { useShellLayout } from '@/hooks/useBreakpoint'
 import { cn } from '@/lib/cn'
+import { useShellLayout } from '@/hooks/useBreakpoint'
+import { useSidebarStore } from '@/stores/sidebar'
 import {
   useStatusIntegracoes, useVerificarStatusAgora, usePainelDeStatus, desdeQuando, haQuanto,
   type EstadoIntegracao, type ItemDaBarra,
@@ -121,10 +125,31 @@ function DetalheDoItem({ item, compacto }: { item: ItemDaBarra; compacto?: boole
   )
 }
 
-/** Bloco do topbar: quadradinhos + resumo. Clique abre o painel. */
-export function BlocoDeStatus() {
+/** O conteúdo do painel, aberto ao lado do menu. */
+function ConteudoDoPainel({ lado }: { lado: 'right' | 'bottom' }) {
   const { data } = useStatusIntegracoes()
-  const layout = useShellLayout()
+  if (!data) return null
+  return (
+    <Popover.Portal>
+      <Popover.Content
+        side={lado}
+        align="end"
+        sideOffset={10}
+        class="w-[22rem] max-w-[calc(100vw-2rem)] rounded-panel bg-surface-2 border border-border shadow-xl surface-raised overflow-hidden"
+        style={{ zIndex: 'var(--z-popover)' }}
+      >
+        <PainelDeStatus itens={data.itens} verificadoEm={data.verificadoEm} intervaloMin={data.intervaloMin} podeConfigurar={data.podeConfigurar} />
+      </Popover.Content>
+    </Popover.Portal>
+  )
+}
+
+/**
+ * Rodapé da barra lateral. Fica fora da área que rola: com um grupo grande
+ * aberto, o menu rola e o status continua no lugar.
+ */
+export function StatusNaLateral({ iconOnly, lado = 'right' }: { iconOnly: boolean; lado?: 'right' | 'bottom' }) {
+  const { data } = useStatusIntegracoes()
   const aberto = usePainelDeStatus((s) => s.aberto)
   const abrir = usePainelDeStatus((s) => s.abrir)
   const itens = data?.ativo ? data.itens : []
@@ -132,59 +157,82 @@ export function BlocoDeStatus() {
 
   const estado = pior(itens)
   const texto = resumo(itens)
-  const celular = layout === 'mobile'
+  const problemas = itens
+    .filter((i) => i.estado !== 'ok')
+    .sort((a, b) => (a.estado === b.estado ? 0 : a.estado === 'fora' ? -1 : 1))
 
   return (
-    <Popover.Root open={aberto} onOpenChange={abrir}>
-      <Tooltip.Provider delayDuration={150}>
+    <div class={cn('app-sidebar-status', iconOnly && 'is-rail')}>
+      <Popover.Root open={aberto} onOpenChange={abrir}>
         <Popover.Trigger asChild>
-          <button
-            type="button"
-            class="flex items-center gap-2 h-9 pl-2.5 pr-1.5 rounded-lg border shrink-0 transition-colors"
-            style={{ borderColor: tinta(estado, 40), background: tinta(estado, 10) }}
-            aria-label={`Status das integrações: ${texto}`}
-          >
-            {celular ? (
-              <span class="size-2.5 rounded-full" style={{ background: COR[estado] }} />
-            ) : (
-              <span class="hidden lg:inline text-xs font-semibold whitespace-nowrap" style={{ color: estado === 'ok' ? 'var(--color-fg)' : COR[estado] }}>
-                {texto}
+          {iconOnly ? (
+            <button
+              type="button"
+              class="relative size-10 grid place-items-center rounded-lg transition-colors"
+              style={{ background: tinta(estado, estado === 'ok' ? 10 : 18), color: COR[estado] }}
+              aria-label={`Status das integrações: ${texto}`}
+              title={texto}
+            >
+              <Activity size={ICON_SIZE.md} />
+              {estado !== 'ok' && (
+                <span
+                  class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full text-3xs font-bold grid place-items-center text-white"
+                  style={{ background: COR[estado] }}
+                >
+                  {problemas.length}
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              class="w-full text-left rounded-lg border px-2.5 py-2 transition-colors hover:brightness-110"
+              style={{ borderColor: tinta(estado, 35), background: tinta(estado, estado === 'ok' ? 8 : 12) }}
+              aria-label={`Status das integrações: ${texto}`}
+            >
+              <span class="flex items-center gap-2">
+                <span class="size-2 rounded-full shrink-0" style={{ background: COR[estado] }} />
+                <span class="text-xs font-semibold truncate" style={{ color: estado === 'ok' ? 'var(--color-fg)' : COR[estado] }}>
+                  {texto}
+                </span>
               </span>
-            )}
-            <span class="flex items-center gap-1">
-              {(celular ? itens.filter((i) => i.estado !== 'ok') : itens).map((it) => (
-                <Tooltip.Root key={it.id}>
-                  <Tooltip.Trigger asChild>
-                    <span><Quadradinho item={it} /></span>
-                  </Tooltip.Trigger>
-                  <Tooltip.Portal>
-                    <Tooltip.Content
-                      side="bottom"
-                      sideOffset={8}
-                      class="w-[18rem] rounded-lg bg-surface-2 border border-border shadow-xl surface-raised p-3"
-                      style={{ zIndex: 'var(--z-tooltip)' }}
-                    >
-                      <DetalheDoItem item={it} compacto />
-                      <Tooltip.Arrow class="fill-[color:var(--color-surface-2)]" />
-                    </Tooltip.Content>
-                  </Tooltip.Portal>
-                </Tooltip.Root>
-              ))}
-            </span>
-          </button>
+              {problemas.length > 0 && (
+                <span class="mt-1.5 flex flex-col gap-1">
+                  {problemas.slice(0, 4).map((it) => (
+                    <span key={it.id} class="flex items-center gap-1.5 min-w-0" title={`${it.rotulo} · ${it.motivo}`}>
+                      <Quadradinho item={it} tamanho={18} />
+                      <span class="text-2xs text-fg truncate">
+                        <span class="font-semibold">{it.rotulo}</span>
+                        <span class="text-fg-muted"> · {it.motivo}</span>
+                      </span>
+                    </span>
+                  ))}
+                  {problemas.length > 4 && (
+                    <span class="text-3xs text-fg-muted pl-6">e mais {problemas.length - 4}</span>
+                  )}
+                </span>
+              )}
+            </button>
+          )}
         </Popover.Trigger>
-      </Tooltip.Provider>
-      <Popover.Portal>
-        <Popover.Content
-          align="center"
-          sideOffset={8}
-          class="w-[22rem] max-w-[calc(100vw-2rem)] rounded-panel bg-surface-2 border border-border shadow-xl surface-raised overflow-hidden"
-          style={{ zIndex: 'var(--z-popover)' }}
-        >
-          <PainelDeStatus itens={itens} verificadoEm={data.verificadoEm} intervaloMin={data.intervaloMin} podeConfigurar={data.podeConfigurar} />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+        <ConteudoDoPainel lado={lado} />
+      </Popover.Root>
+    </div>
+  )
+}
+
+/** Bolinha no ☰ do celular: o menu fica escondido, o sinal não pode sumir junto. */
+export function PontoDeStatus() {
+  const { data } = useStatusIntegracoes()
+  const itens = data?.ativo ? data.itens : []
+  const estado = pior(itens)
+  if (!itens.length || estado === 'ok') return null
+  return (
+    <span
+      class="absolute top-1 right-1 size-2.5 rounded-full ring-2 ring-surface"
+      style={{ background: COR[estado] }}
+      aria-hidden="true"
+    />
   )
 }
 
@@ -260,6 +308,9 @@ export function FaixaDeStatus() {
   const { data } = useStatusIntegracoes()
   const [, navigate] = useLocation()
   const abrir = usePainelDeStatus((s) => s.abrir)
+  // No celular o painel mora dentro do menu, que fica fechado: abre os dois.
+  const celular = useShellLayout() === 'mobile'
+  const abrirMenu = useSidebarStore((s) => s.openDrawer)
   // O apiClient apaga esta chave ao entrar e ao sair: fechar vale até o próximo login.
   const [fechada, setFechada] = useState<string | null>(lerFechada)
   if (!data?.ativo || !data.faixa) return null
@@ -298,7 +349,7 @@ export function FaixaDeStatus() {
           </button>
         )}
         {fora.length > 1 && (
-          <button type="button" class="h-7 px-2 text-xs font-semibold underline" onClick={() => abrir(true)}>
+          <button type="button" class="h-7 px-2 text-xs font-semibold underline" onClick={() => { if (celular) abrirMenu(); abrir(true) }}>
             Ver todas ({fora.length})
           </button>
         )}
