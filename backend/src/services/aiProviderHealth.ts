@@ -34,7 +34,10 @@ const DEDUPE_KEY = 'integration.ai_provider'
  */
 export function classifyLlmFailure(err: unknown): LlmFailureKind {
   const msg = String((err as any)?.message ?? err ?? '').toLowerCase()
-  const semSaldo = /credit balance|insufficient[_ ]quota|billing|payment|quota exceeded|exceeded your current quota|plans & billing/
+  // "usage limits ... regain access on <data>" é o limite de gasto da conta
+  // Anthropic: foi a recusa que deixou terram e ineprotec sem IA de 29/09 a
+  // 19/10/2026 sem abrir alerta nenhum, porque não casava com nada daqui.
+  const semSaldo = /credit balance|no credits|insufficient[_ ]quota|billing|payment|quota exceeded|exceeded your current quota|plans & billing|usage limits|regain access/
   const semCredencial = /invalid[_ ]api[_ ]key|invalid x-api-key|authentication[_ ]error|unauthorized|permission[_ ]error|\b401\b|\b403\b/
   if (semSaldo.test(msg) || semCredencial.test(msg)) return 'credential'
   return 'transient'

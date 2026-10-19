@@ -15,6 +15,7 @@ import { api } from '@/lib/apiClient'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { PageStrip } from './PageStrip'
+import { FaixaDeStatus } from './StatusIntegracoes'
 import { CommandPalette } from './CommandPalette'
 import { CallWidget } from '@/components/voip/CallWidget'
 import { WaCallWidget } from '@/components/voip/WaCallWidget'
@@ -136,6 +137,8 @@ export function AppShell({ children }: AppShellProps) {
         {/* A faixa de página mora DENTRO do painel, encostada no topo dele: é
             assim que ela ganha a mesma borda arredondada e acompanha o recuo
             lateral do menu sem precisar repetir essa conta no shell. */}
+        {/* Integração fora do ar: faixa vermelha fixa, acima da faixa de página. */}
+        <FaixaDeStatus />
         <PageStrip />
         {children}
       </main>

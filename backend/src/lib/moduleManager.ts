@@ -33,6 +33,13 @@ const MODULE_ROLE_PRESETS: Record<string, Record<string, { canView: boolean; can
   volumetria: {
     MANAGER: { canView: false, canCreate: false, canEdit: false, canDelete: false },
   },
+  // Barra de status: TODO papel vê (o aviso existe para ninguém deixar de ver).
+  // Configurar, ver o detalhe técnico e o botão de resolver: SUPERADMIN e ADMIN.
+  status_integracoes: {
+    MANAGER: { canView: true, canCreate: false, canEdit: false, canDelete: false },
+    AGENT:   { canView: true, canCreate: false, canEdit: false, canDelete: false },
+    VIEWER:  { canView: true, canCreate: false, canEdit: false, canDelete: false },
+  },
   // Chat interno: todo mundo conversa. Editar/apagar só a própria mensagem e
   // administrar só o grupo que criou é regra da rota (routes/equipe.ts).
   equipe: {

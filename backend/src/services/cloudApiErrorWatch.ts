@@ -24,19 +24,7 @@
 // fracassar em silêncio, que é o problema que ele existe para resolver.
 
 import { prisma } from '../lib/prisma.js'
-
-/**
- * Erros que travam a conta inteira. Cada um continua acontecendo até alguém
- * agir no WhatsApp Manager — por isso valem aviso, e os de mensagem não.
- */
-const ERROS_DE_CONTA: Record<string, string> = {
-  '131042': 'Pendência de pagamento na conta WhatsApp Business — nenhum template é entregue até regularizar a forma de pagamento no WhatsApp Manager.',
-  '131031': 'Conta WhatsApp Business bloqueada pela Meta.',
-  '368': 'Conta temporariamente bloqueada por violação de política da Meta.',
-  '131057': 'Conta em modo de manutenção na Meta.',
-  '133010': 'Número não registrado na Cloud API.',
-  '133004': 'Serviço da Meta indisponível para este número.',
-}
+import { ERROS_DE_CONTA } from '../lib/cloudApiErrosDeConta.js'
 
 /** De quanto em quanto tempo o mesmo problema pode ser reavisado. */
 const REAVISO_HORAS = 24

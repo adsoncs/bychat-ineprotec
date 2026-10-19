@@ -15,6 +15,7 @@ import { ProfileModal } from './ProfileModal'
 import { AccountPrefsModal } from '@/components/AccountPrefsModal'
 import { WorkInbox } from './WorkInbox'
 import { TopbarUtil } from './TopbarUtil'
+import { BlocoDeStatus } from './StatusIntegracoes'
 import { useUnreadCount } from '@/hooks/useUnreadCount'
 import { useAccountPrefs } from '@/hooks/useAccountPrefs'
 import { useMyPermissions } from '@/hooks/usePermissions'
@@ -159,6 +160,11 @@ export function Topbar({ onOpenCommandPalette, onToggleSidebar }: TopbarProps) {
           <span class="flex-1 text-left truncate">{t('shell.search.placeholder')}</span>
         </button>
       )}
+
+      {/* Status das integrações: entre a busca e as utilidades, sempre à vista. */}
+      <div class="flex-1 flex justify-center min-w-0">
+        <BlocoDeStatus />
+      </div>
 
       <div class="ml-auto flex items-center gap-0.5 min-w-0">
         {!isMobile && <MenuDeAtalhos />}

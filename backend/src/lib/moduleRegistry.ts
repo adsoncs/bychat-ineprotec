@@ -168,6 +168,20 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     core: true, defaultEnabled: true,
   },
   {
+    // Barra de status das integrações: luzes fixas no topbar e faixa vermelha
+    // quando algo para. `core` porque é o aviso de que o resto parou — a IA de
+    // terram e ineprotec ficou três semanas fora sem ninguém ver (29/09→19/10/2026).
+    // Quem não quer um item desliga o item em Configurações › Barra de status;
+    // quem não quer a barra desliga a barra inteira ali mesmo.
+    id: 'status_integracoes', name: 'Status das integrações', icon: '🚦', category: 'overview',
+    umbrella: 'plataforma', cobranca: 'base',
+    description: 'Barra fixa no topo com o estado de cada integração (IA, WhatsApp, Instagram, Meta, Google, e-mail, SMS) e aviso em faixa quando uma para.',
+    pages: [],
+    routePrefixes: ['/api/status-integracoes'],
+    actions: ['view', 'edit'],
+    core: true, defaultEnabled: true,
+  },
+  {
     id: 'equipe', name: 'Chat Interno', icon: '💬', category: 'crm',
     umbrella: 'atendimento', cobranca: 'base',
     description: 'Chat interno entre pessoas e equipes, de qualquer papel: conversas diretas, canal de cada equipe, grupos e conversa sobre um lead, com cartões de lead, indicação, transferência, negociação e tarefa.',

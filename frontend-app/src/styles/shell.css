@@ -311,6 +311,21 @@
   transition: margin-left var(--duration-base) var(--ease-out);
 }
 
+/* ── faixa de status das integrações ─────────────────────────────────────
+ *
+ * Vermelha, encostada no topo do painel como a faixa de página, e grudada
+ * abaixo do topbar ao rolar: o aviso de integração fora do ar não pode sumir
+ * da tela só porque a pessoa desceu a lista. A margem de baixo é anulada pela
+ * margem negativa da `.app-pagestrip`, que fica colada logo abaixo.
+ */
+.app-faixa-status {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: var(--z-sticky);
+  margin: -1.25rem -1.25rem 1.25rem;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+}
+
 /* ── faixa de página ──────────────────────────────────────────────────────
  *
  * A segunda faixa do desenho: título da tela e migalhas, no topo do painel.

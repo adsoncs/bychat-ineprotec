@@ -32,6 +32,7 @@ import { scheduledMessagesRoutes } from './routes/scheduledMessages.js'
 import { supervisionRoutes } from './routes/supervision.js'
 import { equipeRoutes } from './routes/equipe.js'
 import { volumetriaRoutes } from './routes/volumetria.js'
+import { statusIntegracoesRoutes } from './routes/statusIntegracoes.js'
 import { conversationAccessRoutes } from './routes/conversationAccess.js'
 import { transferRequestsRoutes } from './routes/transferRequests.js'
 import { leadsImportRoutes } from './routes/leadsImport.js'
@@ -62,6 +63,7 @@ import { activitiesRoutes, startActivityScheduler } from './routes/activities.js
 import { alertsRoutes } from './routes/alerts.js'
 import { startMeetingOutcomeWatch } from './services/meetingOutcome.js'
 import { startTokenHealthWatch } from './services/tokenHealthWatch.js'
+import { startStatusIntegracoes } from './services/statusIntegracoes.js'
 import { startPendenciaWatch } from './services/pendenciaWatch.js'
 import { startAlertDigest } from './services/alertDigest.js'
 import { startAlertRetention } from './services/alertService.js'
@@ -778,6 +780,7 @@ await app.register(scheduledMessagesRoutes)
 await app.register(supervisionRoutes)
 await app.register(equipeRoutes)
 await app.register(volumetriaRoutes)
+await app.register(statusIntegracoesRoutes)
 await app.register(conversationAccessRoutes)
 await app.register(transferRequestsRoutes)
 await app.register(leadsImportRoutes)
@@ -1455,6 +1458,7 @@ try {
   // parou de receber) e trabalho que parou (atividade atrasada, proposta sem
   // movimento, linha de WhatsApp fora do ar).
   startTokenHealthWatch()
+  startStatusIntegracoes()
   startPendenciaWatch()
   // Resumo diário das pendências. Nasce DESLIGADO (Setting alertas.digest_ativo):
   // canal externo é intrusivo e ninguém pediu WhatsApp diário ao ligar o sino.

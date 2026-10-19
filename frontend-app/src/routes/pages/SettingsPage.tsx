@@ -6,7 +6,7 @@ import {
   Palette, Shield, Package, Home,
   Mail, Copy, Bell,
   Map, Server, Trash2, Sparkles, HelpCircle, Scale, Building2,
-  ShieldCheck, MessageSquare, History,
+  ShieldCheck, MessageSquare, History, Activity,
 } from '@/components/ui/icon-set'
 import { Page } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -22,6 +22,8 @@ import { WebhooksSettings } from './settings/WebhooksSettings'
 import { ApiKeysSettings } from './settings/ApiKeysSettings'
 import { ModulesSettings } from './settings/ModulesSettings'
 import { AlertsHealthSettings } from './settings/AlertsHealthSettings'
+import { StatusIntegracoesSettings } from './settings/StatusIntegracoesSettings'
+import { useCan } from '@/hooks/usePermissions'
 import { EmailSettings } from './settings/EmailSettings'
 import { SmsSettings } from './settings/SmsSettings'
 import { AiSettings } from './settings/AiSettings'
@@ -60,7 +62,7 @@ export type Tab =
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
   | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company' | 'alerts-health'
-  | 'permissions' | 'conversation-access' | 'audit-log'
+  | 'permissions' | 'conversation-access' | 'audit-log' | 'integration-status'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -77,7 +79,7 @@ export type Tab =
 // "Configurações". A regra de visibilidade que elas tinham no menu (só
 // superadmin) vem junto: perder isso na mudança de lugar seria abrir a matriz
 // de acesso para quem só administra o dia a dia.
-const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean; superadminOnly?: boolean }[] = [
+const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean; superadminOnly?: boolean; editaModulo?: string }[] = [
   { id: 'appearance', label: 'Aparência', icon: <Palette size={14} /> },
   { id: 'home-screen', label: 'Tela inicial', icon: <Home size={14} /> },
   { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
@@ -87,6 +89,8 @@ const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: bo
   { id: 'conversation-access', label: 'Acesso ao Conversas', icon: <MessageSquare size={14} />, superadminOnly: true },
   { id: 'audit-log', label: 'Auditoria', icon: <History size={14} />, superadminOnly: true },
   { id: 'alerts-health', label: 'Alertas', icon: <Bell size={14} /> },
+  // Só para quem tem Editar no módulo — Ver basta para enxergar a barra, não para mudá-la.
+  { id: 'integration-status', label: 'Barra de status', icon: <Activity size={14} />, editaModulo: 'status_integracoes' },
   { id: 'dedup', label: 'Duplicação', icon: <Copy size={14} /> },
   { id: 'intelligence', label: 'Inteligência', icon: <Sparkles size={14} /> },
   { id: 'system-emails', label: 'Emails do Sistema', icon: <Mail size={14} /> },
@@ -108,7 +112,7 @@ const MIGRATED_TAB_REDIRECTS: Record<string, string> = {
 function readTabFromUrl(): Tab {
   if (typeof window === 'undefined') return 'appearance'
   const v = new URLSearchParams(window.location.search).get('tab')
-  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal', 'alerts-health']
+  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal', 'alerts-health', 'integration-status']
   return (valid as string[]).includes(v ?? '') ? (v as Tab) : 'appearance'
 }
 
@@ -124,9 +128,11 @@ export function SettingsPage() {
   // mesmo se a URL pedir (defesa em profundidade).
   const PRIMARY_ONLY_TABS = new Set<Tab>(['installations', 'roadmap'])
   const ehSuperadmin = papelDoUsuario === 'SUPERADMIN'
+  const editaStatus = useCan('status_integracoes', 'edit')
   const visibleTabs = useMemo(
-    () => tabs.filter((t) => (!t.primaryOnly || (PRIMARY_BUILD && isPrimary)) && (!t.superadminOnly || ehSuperadmin)),
-    [isPrimary, ehSuperadmin],
+    () => tabs.filter((t) => (!t.primaryOnly || (PRIMARY_BUILD && isPrimary)) && (!t.superadminOnly || ehSuperadmin)
+      && (!t.editaModulo || editaStatus)),
+    [isPrimary, ehSuperadmin, editaStatus],
   )
 
   // Se URL pedir aba primary-only numa instalação filha, redireciona pra Aparência.
@@ -207,6 +213,7 @@ export function SettingsPage() {
           {tab === 'conversation-access' && <ConversationAccessPage embutido />}
           {tab === 'audit-log' && <AuditLogPage />}
           {tab === 'alerts-health' && <AlertsHealthSettings />}
+          {tab === 'integration-status' && editaStatus && <StatusIntegracoesSettings />}
           {tab === 'my-google' && <GoogleAccountSettings />}
           {tab === 'dedup' && <DedupSettings />}
           {tab === 'integrations' && <IntegrationsSettings />}

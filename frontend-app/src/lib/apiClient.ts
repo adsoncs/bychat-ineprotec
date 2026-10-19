@@ -32,8 +32,14 @@ function getToken(): string | null {
   }
 }
 
+/** Faixa de status das integrações fechada pela pessoa — vale até o próximo login. */
+export const FAIXA_FECHADA_KEY = 'bh:faixa-status-fechada'
+
 export function setToken(token: string | null): void {
   try {
+    // Entrar e sair são os dois momentos em que o token muda: a faixa de
+    // integração fora do ar volta a aparecer no login seguinte.
+    localStorage.removeItem(FAIXA_FECHADA_KEY)
     if (token) localStorage.setItem(env.authTokenKey, token)
     else localStorage.removeItem(env.authTokenKey)
   } catch {
