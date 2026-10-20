@@ -340,6 +340,11 @@ body:has(input:focus, select:focus, textarea:focus) .ajuda-flutuante {
     grid-template-areas: 'topo' 'capa' 'trilha' 'form' 'rodape';
   }
 
+  /* A conclusão não tem resumo nem formulário: são cartões empilhados
+     (confirmação, próximos passos, senha). No grid, todos caíam na área
+     'form' e o da jornada cobria o da confirmação. */
+  [data-template='duas-colunas'] .pagina.pagina-conclusao { display: block; max-width: 760px; }
+
   /* Campos curtos lado a lado. Os longos e a escolha de curso continuam
      ocupando a linha inteira — CPF cabe em meia linha, curso não. */
   [data-template='duas-colunas'] .campos {

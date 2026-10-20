@@ -4066,7 +4066,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // que criaria uma segunda inscrição para a mesma pessoa.
     const portal = await prisma.enrollmentPortal.findUnique({
       where: { slug },
-      select: { id: true },
+      select: { id: true, paymentMode: true },
     })
     const inscricao = portal
       ? await prisma.enrollmentRegistration.findFirst({
@@ -4101,7 +4101,12 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
             candidateCode: inscricao.candidateCode,
             status: inscricao.status,
             paymentStatus: inscricao.paymentStatus,
-            paymentUrl: inscricao.paymentUrl,
+            // Só no modo 'link' o link do gateway é o caminho para pagar. No
+            // transparente quem paga é a etapa Pagamento da jornada, que respeita
+            // a trava: devolver aqui a fatura guardada fazia a tela esconder a
+            // jornada e mostrar só "Pagar agora" — inclusive para quem teve a
+            // redação reprovada depois de gerar o PIX.
+            paymentUrl: portal?.paymentMode === 'link' ? inscricao.paymentUrl : null,
             candidateToken: signCandidateToken(inscricao.id, inscricao.candidateCode),
           }
         : null,

@@ -7,6 +7,7 @@
 import { prisma } from '../lib/prisma.js'
 import { eventBus } from '../lib/eventBus.js'
 import { tryAutoAdvanceOnEvaluationComplete } from './enrollmentEvaluationGateway.js'
+import { cancelarCobrancaPorReprovacao } from './portalCobranca.js'
 
 // Modelo resolvido em runtime via lib/aiKeys (Setting > env > default)
 const MAX_TOKENS = 2000
@@ -304,6 +305,11 @@ export async function correctEssayById(submissionId: number): Promise<void> {
       ...(reprovaPorIntegridade ? { humanNote: MSG_REPROVA_INTEGRIDADE } : {}),
     },
   })
+
+  // Mesma regra da revisão manual: redação reprovada não deixa cobrança aberta.
+  if (nextStatus === 'rejected' && sub.registration?.id) {
+    await cancelarCobrancaPorReprovacao(sub.registration.id, reprovaPorIntegridade ? 'integridade' : 'IA')
+  }
 
   // Quando o auto-veredito da IA decide aprovado/rejeitado, dispara o mesmo
   // evento de domínio que a revisão manual emite — garante que o candidato

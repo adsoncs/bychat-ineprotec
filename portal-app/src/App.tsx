@@ -1124,25 +1124,42 @@ function Concluido(props: {
     )
   }
 
+  const acesso = (
+    <AcessoNoTopo
+      temSenha={props.temSenha || pronto}
+      podeCriar={!!props.token}
+      aoCriarSenha={props.aoAbrirSenha}
+    />
+  )
   return (
-    <div class="pagina">
-      <Cabecalho
-        portal={props.portal}
-        acesso={
-          <AcessoNoTopo
-            temSenha={props.temSenha || pronto}
-            podeCriar={!!props.token}
-            aoCriarSenha={props.aoAbrirSenha}
-          />
-        }
-        trilha={
-          <Trilha
+    <div class="pagina pagina-conclusao">
+      {/* Mesmo topo do formulário. Com o Cabecalho solto num portal de topo em
+          barra, logo, passos e "Entrar" ficavam escuros sobre o fundo da marca
+          — e sobrava o espaço reservado para a faixa que não estava ali. */}
+      {props.portal.brandHeaderStyle === 'barra' ? (
+        <>
+          <BarraTopo
+            portal={props.portal}
+            acesso={acesso}
             passos={props.passos}
             atual={props.passos.length - 1}
             total={props.passos.length}
           />
-        }
-      />
+          <Capa portal={props.portal} />
+        </>
+      ) : (
+        <Cabecalho
+          portal={props.portal}
+          acesso={acesso}
+          trilha={
+            <Trilha
+              passos={props.passos}
+              atual={props.passos.length - 1}
+              total={props.passos.length}
+            />
+          }
+        />
+      )}
       <div class="cartao fim">
         <div class="marca" aria-hidden="true">✓</div>
         <h2>{tx('conc.titulo', 'Inscrição recebida')}</h2>

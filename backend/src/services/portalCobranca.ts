@@ -118,3 +118,51 @@ export async function cobrancaDoPortal(registrationId: number): Promise<Cobranca
   // deixaram de valer). O checkout avisa e o painel mostra "falta plano".
   return { escopo: 'curso', valor: 0, rotulo: MATRICULA, fonte: 'nenhuma', contexto }
 }
+
+/**
+ * Redação reprovada não pode seguir cobrável.
+ *
+ * A cobrança é gerada quando a etapa Pagamento libera — e ela libera com a
+ * redação aprovada. Se a decisão muda depois (a secretaria revê e reprova), o
+ * PIX/boleto pendente continuava pagável pelo link que o gateway mandou ao
+ * candidato. Aqui ele é cancelado no gateway e o link sai da inscrição; se a
+ * secretaria liberar nova tentativa e a redação passar, a pessoa gera outro.
+ *
+ * Inscrição já paga não é tocada. Falha no gateway não desfaz a reprovação:
+ * volta como aviso e fica no histórico do lead para a secretaria resolver.
+ */
+export async function cancelarCobrancaPorReprovacao(
+  registrationId: number,
+  ator: string,
+): Promise<string[]> {
+  try {
+    const reg = await prisma.enrollmentRegistration.findUnique({
+      where: { id: registrationId },
+      select: { leadId: true, candidateCode: true, paymentStatus: true },
+    })
+    if (!reg || reg.paymentStatus === 'paid') return []
+    const abertas = await prisma.enrollmentPaymentMethod.count({ where: { registrationId, status: 'pending' } })
+    if (abertas === 0) return []
+
+    const { cancelarCobrancasAbertas } = await import('./inscricaoDuplicada.js')
+    const avisos = await cancelarCobrancasAbertas(registrationId, 'Cancelada: redação reprovada')
+
+    if (reg.leadId) {
+      const { logEvent, EVENT_TYPES } = await import('./leadHistory.js')
+      logEvent({
+        leadId: reg.leadId,
+        type: EVENT_TYPES.ANNOTATION_SAVED,
+        category: 'system',
+        title: `Cobrança da inscrição ${reg.candidateCode} cancelada`,
+        description: avisos.length
+          ? `Redação reprovada (${ator}). Não deu para cancelar no gateway: ${avisos.join('; ')}`
+          : `Redação reprovada (${ator}): a cobrança pendente foi cancelada no gateway.`,
+        actorType: 'system',
+      })
+    }
+    return avisos
+  } catch (e: any) {
+    console.warn('[portalCobranca] falha ao cancelar cobrança da reprovação:', e?.message || e)
+    return []
+  }
+}

@@ -13,6 +13,7 @@
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
 import { aplicarNotaDeAvaliacao } from '../services/portalClassificacao.js'
+import { cancelarCobrancaPorReprovacao } from '../services/portalCobranca.js'
 import { eventBus } from '../lib/eventBus.js'
 import { validateEnemImport } from '../services/enemClassification.js'
 import { lerPolitica, somarTelemetria } from '../lib/integridadeRedacao.js'
@@ -747,6 +748,12 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       atorId: user.userId,
     })
 
+    // Reprovada depois de a cobrança já ter sido gerada (aprovada antes e
+    // revista agora): o PIX/boleto pendente é cancelado no gateway.
+    const avisosCobranca = newStatus === 'rejected'
+      ? await cancelarCobrancaPorReprovacao(sub.registrationId, user.name || 'Operador')
+      : []
+
     const base = await buildBaseEventPayload(sub.registrationId)
     if (base) {
       eventBus.emitDomain({
@@ -762,7 +769,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       }
     }
 
-    return { ok: true, submission: updated }
+    return { ok: true, submission: updated, ...(avisosCobranca.length ? { avisosCobranca } : {}) }
   })
 
   // POST /api/admin/essay-submissions/:id/nova-tentativa
