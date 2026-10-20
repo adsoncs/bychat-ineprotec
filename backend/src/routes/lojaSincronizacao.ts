@@ -28,6 +28,7 @@ import {
 } from '../services/moduleEntitlements.js'
 import { listModulesWithStatus } from '../lib/moduleManager.js'
 import { volumetriaDoMes } from '../services/volumetria.js'
+import { instantaneo, verificarAgora, lerConfig, INTERVALO_MIN } from '../services/statusIntegracoes.js'
 
 function ehPacote(v: unknown): v is ModuleUmbrella {
   return typeof v === 'string' && (UMBRELLA_ORDER as string[]).includes(v)
@@ -120,6 +121,36 @@ export async function lojaSincronizacaoRoutes(app: FastifyInstance) {
       create: { key, value: value as never, label: `Cobrança de consumo ${competencia}`, grp: 'loja', fieldType: 'json' },
     })
     return { ok: true }
+  })
+
+  /**
+   * Status das conexões (o mesmo da barra lateral), para o painel de conexões
+   * da loja. Vai TUDO — inclusive o detalhe técnico e o que está desligado —,
+   * porque do outro lado está a operação do Attrae, não quem atende.
+   * `?verificar=1` refaz as sondas na hora (o "Verificar agora" da barra).
+   */
+  app.get('/api/loja/status-integracoes', async (req, reply) => {
+    const erro = autenticar(req, reply, '')
+    if (erro) return erro
+    const verificar = String((req.query as { verificar?: string })?.verificar ?? '') === '1'
+    const [snap, config] = await Promise.all([verificar ? verificarAgora() : instantaneo(), lerConfig()])
+    return {
+      appUrl: process.env.APP_URL ?? null,
+      ativo: config.ativo,
+      verificadoEm: snap.verificadoEm,
+      intervaloMin: INTERVALO_MIN,
+      itens: snap.itens.map((i) => ({
+        id: i.id,
+        rotulo: i.rotulo,
+        configurado: i.configurado,
+        mostrar: i.mostrar,
+        acao: i.acao,
+        estado: i.leitura?.estado ?? null,
+        motivo: i.leitura?.motivo ?? null,
+        detalhe: i.leitura?.detalhe ?? null,
+        desde: i.leitura?.desde ?? null,
+      })),
+    }
   })
 
   app.get('/api/loja/inventario', async (req, reply) => {
