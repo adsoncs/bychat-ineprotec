@@ -90,13 +90,31 @@ function decryptSettingRow(row: any): any {
  * buscarNoCanal). As fichas continuam separadas até alguém mesclar.
  */
 export async function leadDaConversa(leadId: number): Promise<number> {
+  const canal = { instanceName: true, cloudApiConnectionId: true } as const
   let id = leadId
   for (let i = 0; i < 5; i++) {
-    const l = await prisma.lead.findUnique({ where: { id }, select: { duplicateStatus: true, possibleDuplicateOfId: true } })
+    const l = await prisma.lead.findUnique({ where: { id }, select: { duplicateStatus: true, possibleDuplicateOfId: true, ...canal } })
     if (!l || l.duplicateStatus !== 'pending_review' || !l.possibleDuplicateOfId || l.possibleDuplicateOfId === id) break
+    // Cada número é uma conversa (1 lead por telefone POR número): a duplicata
+    // que já fala por um número e a principal que fala por OUTRO são dois chats
+    // no aparelho do contato. Desviar juntava os dois — o que o agente mandava
+    // pelo número dele ia parar na conversa do outro e sumia da tela (beyond,
+    // 20/10: 5 mensagens do número do agente gravadas na conversa da API oficial).
+    const p = await prisma.lead.findUnique({ where: { id: l.possibleDuplicateOfId }, select: canal })
+    if (!p || numeroDiferente(l, p)) break
     id = l.possibleDuplicateOfId
   }
   return id
+}
+
+type CanalDaFicha = { instanceName: string | null; cloudApiConnectionId: number | null }
+const chaveDoCanal = (c: CanalDaFicha) =>
+  c.cloudApiConnectionId != null ? `cloud:${c.cloudApiConnectionId}` : c.instanceName ? `evo:${c.instanceName}` : null
+
+/** As duas fichas têm número definido e não é o mesmo. Ficha sem número (formulário, portal) segue a principal. */
+export function numeroDiferente(a: CanalDaFicha, b: CanalDaFicha): boolean {
+  const x = chaveDoCanal(a), y = chaveDoCanal(b)
+  return x !== null && y !== null && x !== y
 }
 
 async function redirecionarMensagem(data: any): Promise<void> {
