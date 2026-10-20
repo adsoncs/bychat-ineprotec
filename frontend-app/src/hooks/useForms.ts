@@ -258,6 +258,12 @@ export interface FormSettings {
   successMode?: 'message' | 'redirect' | undefined
   /** Conteúdo HTML livre da tela de agradecimento (modo 'message'). */
   successHtml?: string | undefined
+  /** Texto do aceite (checkbox obrigatório). HTML; vazio = "Li e aceito a Política de Privacidade". */
+  consentLabel?: string | undefined
+  /** Texto logo abaixo do aceite (ex.: "Ao informar meus dados, concordo com…"). HTML. */
+  consentNote?: string | undefined
+  /** Nota abaixo do botão de envio (ex.: "Não enviamos SPAM"). HTML. */
+  footerNote?: string | undefined
   redirectUrl?: string | null
   redirectEnabled?: boolean
   /** Layout de renderização. Ausente = 'classic' (compat com forms existentes). */

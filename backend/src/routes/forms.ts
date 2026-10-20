@@ -54,6 +54,13 @@ export function sanitizeBlockHtml(input: any): string {
   return v
 }
 
+// Texto do aceite e notas do formulário: o link (política, termos) abre em
+// outra aba — dentro do iframe ou do embed, abrir no lugar tiraria a pessoa do
+// formulário no meio do preenchimento.
+function linksEmNovaAba(html: string): string {
+  return html.replace(/<a\b(?![^>]*\btarget=)/gi, '<a target="_blank" rel="noopener"')
+}
+
 // Normaliza um texto em slug de URL (a-z0-9 + hífens).
 function slugify(input: string): string {
   return (input || '')
@@ -1086,6 +1093,8 @@ function generateEmbedScript(
 .bf-btn{display:block;width:100%;padding:${v.buttonPadding};background:${v.primary};color:${v.buttonText};border:none;border-radius:${v.buttonRadius};font-size:${v.buttonFontSize};font-weight:${v.buttonFontWeight};cursor:pointer;font-family:inherit;transition:background .15s,opacity .15s}
 .bf-btn:hover{background:${v.primaryHover}}
 .bf-btn:disabled{opacity:.5;cursor:default}
+.bf-nota{font-size:12px;color:${v.labelColor};opacity:.8}
+.bf-nota a{color:${v.primary};text-decoration:underline}
 .bf-success{text-align:center;padding:32px 16px}
 .bf-success h3{font-size:${v.successTitleSize};font-weight:700;color:${v.successTitleColor};margin-bottom:8px}
 .bf-success p{font-size:${v.fontSize};color:${v.successTextColor}}
@@ -1097,11 +1106,13 @@ function generateEmbedScript(
     <div class="bf-field bf-lgpd">
       <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;font-size:13px;cursor:pointer">
         <input type="checkbox" id="bf-lgpd" style="width:auto;margin:3px 0 0">
-        <span style="font-size:13px;color:${v.labelColor}">Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary};text-decoration:underline">Política de Privacidade</a>.</span>
+        <span style="font-size:13px;color:${v.labelColor}">${linksEmNovaAba(sanitizeBlockHtml(settings.consentLabel)) || `Li e aceito a <a href="${baseUrl}/privacidade" target="_blank" rel="noopener" style="color:${v.primary};text-decoration:underline">Política de Privacidade</a>.`}</span>
       </label>
+      ${linksEmNovaAba(sanitizeBlockHtml(settings.consentNote)) ? `<div class="bf-nota" style="margin-top:6px">${linksEmNovaAba(sanitizeBlockHtml(settings.consentNote))}</div>` : ''}
       <div class="bf-lgpd-err" style="color:${v.errorBorder};font-size:12px;margin-top:4px;display:none">É necessário aceitar para enviar.</div>
     </div>
     <button type="submit" class="bf-btn">${esc(settings.submitText||'Enviar')}</button>
+    ${linksEmNovaAba(sanitizeBlockHtml(settings.footerNote)) ? `<div class="bf-nota" style="margin-top:12px;text-align:center">${linksEmNovaAba(sanitizeBlockHtml(settings.footerNote))}</div>` : ''}
   </form>
   <div class="bf-success" id="bf-ok" style="display:none">
     ${sanitizeBlockHtml(settings.successHtml) ? `<div class="bf-success-html">${sanitizeBlockHtml(settings.successHtml)}</div>` : `<h3>${esc(settings.successTitle||'Enviado!')}</h3><p>${esc(settings.successMessage||'Entraremos em contato em breve.')}</p>`}

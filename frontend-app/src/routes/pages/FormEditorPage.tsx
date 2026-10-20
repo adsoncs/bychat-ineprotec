@@ -109,6 +109,9 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
   const [successTitle, setSuccessTitle] = useState('Enviado com sucesso!')
   const [successMessage, setSuccessMessage] = useState('Entraremos em contato em breve.')
   const [successHtml, setSuccessHtml] = useState('')
+  const [consentLabel, setConsentLabel] = useState('')
+  const [consentNote, setConsentNote] = useState('')
+  const [footerNote, setFooterNote] = useState('')
   const [successMode, setSuccessMode] = useState<'message' | 'redirect'>('message')
   const [redirectUrl, setRedirectUrl] = useState('')
   const [fireConversions, setFireConversions] = useState(false)
@@ -150,6 +153,9 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     setSuccessTitle(s.successTitle ?? 'Enviado com sucesso!')
     setSuccessMessage(s.successMessage ?? 'Entraremos em contato em breve.')
     setSuccessHtml(s.successHtml ?? '')
+    setConsentLabel(s.consentLabel ?? '')
+    setConsentNote(s.consentNote ?? '')
+    setFooterNote(s.footerNote ?? '')
     setRedirectUrl(s.redirectUrl ?? '')
     setSuccessMode(s.successMode ?? ((s.redirectEnabled ?? !!(s.redirectUrl && s.redirectUrl.trim())) ? 'redirect' : 'message'))
     setDisplayMode(s.displayMode === 'conversational' ? 'conversational' : 'classic')
@@ -199,6 +205,9 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
     successTitle: successTitle.trim() || 'Enviado!',
     successMessage: successMessage.trim() || '',
     successHtml: successHtml.trim(),
+    consentLabel: stripHtml(consentLabel).trim() ? consentLabel.trim() : '',
+    consentNote: stripHtml(consentNote).trim() ? consentNote.trim() : '',
+    footerNote: stripHtml(footerNote).trim() ? footerNote.trim() : '',
     successMode,
     redirectUrl: successMode === 'redirect' ? (redirectUrl.trim() || null) : null,
     redirectEnabled: successMode === 'redirect',
@@ -222,7 +231,7 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
       qualifyPositive: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyPositiveStage || null },
       qualifyNegative: { funnelId: funnelId ? Number(funnelId) : null, stageKey: qualifyNegativeStage || null },
     },
-  }), [submitText, successTitle, successMessage, successHtml, successMode, redirectUrl, displayMode, fireConversions, sourceLabel, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
+  }), [submitText, successTitle, successMessage, successHtml, consentLabel, consentNote, footerNote, successMode, redirectUrl, displayMode, fireConversions, sourceLabel, metaPixelId, metaEventName, googleConversionId, googleConversionLabel, showProgress, welcomeEnabled, welcomeTitle, welcomeText, welcomeIcon, welcomeImageUrl, startButtonText, navButtonText, partialCapture, funnelId, qualifyPositiveStage, qualifyNegativeStage])
 
   // ── Canvas: re-render via endpoint SSR (modo edit), com debounce ──
   useEffect(() => {
@@ -550,6 +559,11 @@ export function FormEditorPage({ params }: { params: { id: string } }) {
                       html={successHtml} onHtml={(v) => { setSuccessHtml(v); touch() }}
                       redirectUrl={redirectUrl} onRedirectUrl={(v) => { setRedirectUrl(v); touch() }}
                     />
+                    <SectionTitle>Aceite e notas</SectionTitle>
+                    <p class="text-xs text-fg-muted">No modo clássico. Em branco, fica o padrão: "Li e aceito a Política de Privacidade". Links abrem em nova aba.</p>
+                    <RichText label="Texto do aceite (caixa obrigatória)" value={consentLabel} onChange={(v) => { setConsentLabel(v); touch() }} placeholder="Eu concordo em receber comunicações." />
+                    <RichText label="Texto abaixo do aceite" value={consentNote} onChange={(v) => { setConsentNote(v); touch() }} placeholder="Ao informar meus dados, eu concordo com a Política de Privacidade e com os Termos de Uso." />
+                    <RichText label="Nota abaixo do botão" value={footerNote} onChange={(v) => { setFooterNote(v); touch() }} placeholder="Não enviamos SPAM." />
                   </section>
                 )}
 
