@@ -318,6 +318,10 @@ export async function contatosRoutes(app: FastifyInstance) {
           // Cadastro é atividade: sem isto o contato nasce sem nenhuma marca de
           // tempo e some no meio de listas ordenadas por movimentação.
           lastActivityAt: new Date(),
+          // Quem cadastrou fica responsável: sem isto o contato nascia sem dono
+          // nem equipe e ninguém o via na fila.
+          assignedUserId: user.userId,
+          assignedAt: new Date(),
           formData: {},
           scores: {},
           // Contato NÃO é lead: sem qualifiedAt, não entra em funil, relatório

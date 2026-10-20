@@ -2,6 +2,7 @@
 // Atendimento (chat) routes — human agents chatting with leads via WhatsApp
 
 import { FastifyInstance } from 'fastify'
+import { rotaManualDeDono } from '../lib/donoDoLead.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, adminStrict } from '../lib/auth.js'
 import { type JwtPayload } from '../lib/auth.js'
@@ -2069,7 +2070,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   // - teamId=null  → remove vínculo de setor
   // SUPERADMIN/ADMIN podem transferir qualquer lead. Demais só transferem leads
   // que tenham acesso (atribuído a si ou em setor que pertence).
-  app.post('/api/atendimento/tickets/:leadId/assign', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/atendimento/tickets/:leadId/assign', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     try {
       const { leadId } = req.params as any
       const body = req.body as any
@@ -2109,8 +2110,29 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       }
 
       // Validar destino
-      const newUserId = body.userId === null ? null : (body.userId !== undefined ? parseInt(body.userId) : lead.assignedUserId)
+      let newUserId = body.userId === null ? null : (body.userId !== undefined ? parseInt(body.userId) : lead.assignedUserId)
       const newTeamId = body.teamId === null ? null : (body.teamId !== undefined ? parseInt(body.teamId) : lead.teamId)
+
+      const { getAjustesRoteamento } = await import('../services/teamRouting.js')
+      const ajustes = await getAjustesRoteamento()
+
+      // Lead com responsável só sai das mãos dele por ele mesmo (ou por admin).
+      // Ver lib/donoDoLead.ts — a trava do Prisma barraria em silêncio; aqui a
+      // pessoa recebe o motivo.
+      if (ajustes.donoFixo && lead.assignedUserId && lead.assignedUserId !== user.userId && !isAdminRole(user.role)
+          && newUserId !== lead.assignedUserId) {
+        return reply.code(403).send({ error: 'Só o responsável pela conversa (ou um administrador) pode transferi-la.' })
+      }
+
+      // Transferência só para o setor: o rodízio da equipe escolhe a pessoa.
+      // Desligado, o lead vai para a fila do setor, como antes.
+      if (ajustes.setorPeloRodizio && newTeamId && newUserId == null) {
+        const { pickOperatorForTeam } = await import('../services/teamRouting.js')
+        newUserId = await pickOperatorForTeam(newTeamId, {
+          origem: 'transferencia',
+          ...(lead.assignedUserId ? { excludeUserIds: [lead.assignedUserId] } : {}),
+        })
+      }
 
       let newUser: { id: number; name: string; email: string } | null = null
       let newTeam: { id: number; name: string } | null = null
@@ -2218,7 +2240,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
   // ── POST /api/atendimento/tickets/:leadId/claim — Operador puxa lead da fila ──
   // Atribui o lead ao próprio operador. Útil para a UI "Assumir conversa".
   // Precisa estar na equipe do lead, ou ser admin.
-  app.post('/api/atendimento/tickets/:leadId/claim', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/atendimento/tickets/:leadId/claim', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     try {
       const { leadId } = req.params as any
       const user = (req as any).user as JwtPayload
@@ -2245,6 +2267,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
       const { conversaEmOutraFicha } = await import('../services/contatoUnico.js')
       const outra = await conversaEmOutraFicha(lid)
       if (outra) return reply.code(409).send(outra)
+
 
       // Já atribuído a outro operador?
       // Reforma F3: força (force=true) só permitida para ADMIN/SUPERADMIN.
@@ -2356,7 +2379,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
   // ── POST /api/atendimento/tickets/:leadId/release — Devolver lead para fila ──
   // Remove a atribuição ao operador (mantém o teamId).
-  app.post('/api/atendimento/tickets/:leadId/release', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/atendimento/tickets/:leadId/release', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     try {
       const { leadId } = req.params as any
       const user = (req as any).user as JwtPayload
@@ -2379,10 +2402,11 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       // Permissão: o próprio dono ou admin.
       // Sob a matriz, "Editar" no canal também libera — devolver à fila é
-      // gestão da conversa, e prender o gestor à condição de dono recriaria o
-      // problema que a matriz veio resolver.
+      // gestão da conversa. Com a chave routing.donoFixo, não: tirar o lead do
+      // responsável é só dele mesmo (lib/donoDoLead.ts).
+      const { getAjustesRoteamento } = await import('../services/teamRouting.js')
       const mapaRelease = await mapaDeAcesso(user.userId, user.role)
-      const podeEditarPelaMatriz = mapaRelease.configurado
+      const podeEditarPelaMatriz = !(await getAjustesRoteamento()).donoFixo && mapaRelease.configurado
         && permite((await permissoesNaConversa(mapaRelease, lid)) ?? { canView: false, canCreate: false, canEdit: false, canDelete: false }, 'edit')
       if (lead.assignedUserId !== user.userId && !isAdminRole(user.role) && !podeEditarPelaMatriz) {
         return reply.code(403).send({ error: 'Apenas o operador atribuído ou admin pode liberar' })

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { numeroDiscavel, phoneKey } from './phone.js'
 import { decryptSettingValue, encryptSettingValue, isSecretSettingKey, isEncrypted } from './secretSettings.js'
+import { podeTrocarDono } from './donoDoLead.js'
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
@@ -107,6 +108,33 @@ async function redirecionarMensagem(data: any): Promise<void> {
   }
 }
 
+// ─── Trava do responsável (ver lib/donoDoLead.ts) ───
+function valorDoCampo(raw: any): number | null {
+  const v = raw && typeof raw === 'object' && 'set' in raw ? raw.set : raw
+  return v == null ? null : Number(v)
+}
+
+function semTrocaDeDono(data: any): any {
+  const { assignedUserId: _dono, assignedAt: _quando, ...resto } = data || {}
+  return resto
+}
+
+// Chave `routing.donoFixo` (Cadastros › Roteamento). Cache de 60s: ligar ou
+// desligar na tela vale em até um minuto.
+let _donoFixo: { ligado: boolean; ate: number } | null = null
+async function travaDoDonoLigada(): Promise<boolean> {
+  if (_donoFixo && _donoFixo.ate > Date.now()) return _donoFixo.ligado
+  const s = await prisma.setting.findUnique({ where: { key: 'routing.donoFixo' }, select: { value: true } }).catch(() => null)
+  const v = s?.value as unknown
+  const ligado = v === true || v === 1 || (typeof v === 'string' && v.toLowerCase() === 'true')
+  _donoFixo = { ligado, ate: Date.now() + 60_000 }
+  return ligado
+}
+
+function avisarTrava(ids: number[], novoDono: number | null): void {
+  console.warn(`[dono] troca automática barrada — ${ids.length} lead(s) mantêm o responsável (pedido: ${novoDono ?? 'sem dono'}; leads ${ids.slice(0, 10).join(', ')})`)
+}
+
 prisma.$use(async (params, next) => {
   if (params.model === 'Message' && (params.action === 'create' || params.action === 'createMany' || params.action === 'upsert')) {
     const d = params.action === 'upsert' ? params.args?.create : params.args?.data
@@ -154,6 +182,20 @@ prisma.$use(async (params, next) => {
       else applyPhoneKey(d)
     }
 
+    // ─── Lead com responsável não muda de mão sozinho (chave routing.donoFixo) ───
+    // Regra em lib/donoDoLead.ts: só o próprio dono (ou admin) tira o lead de
+    // quem está com ele. Gravação automática que tenta trocar ou apagar um dono
+    // existente segue sem o campo — o resto do que ela grava (equipe, etapa,
+    // status) vale normalmente. Dar dono a lead sem dono continua livre.
+    if (a === 'upsert' && params.args?.update && 'assignedUserId' in params.args.update && await travaDoDonoLigada()) {
+      const novo = valorDoCampo(params.args.update.assignedUserId)
+      const atual = await prisma.lead.findUnique({ where: params.args.where, select: { id: true, assignedUserId: true } }).catch(() => null)
+      if (atual && !podeTrocarDono(atual.assignedUserId, novo)) {
+        avisarTrava([atual.id], novo)
+        params.args.update = semTrocaDeDono(params.args.update)
+      }
+    }
+
     // ─── Dono do lead manda no dono da negociação ───
     // O lead troca de responsável por uma dúzia de caminhos (painel, fila do
     // atendimento, chatbot, roteamento, workflow, transferência, virada de
@@ -164,13 +206,37 @@ prisma.$use(async (params, next) => {
     // Só negociações EM ABERTO: proposta fechada guarda quem estava com ela no
     // fechamento (é o registro da venda, não o estado atual da carteira).
     if ((a === 'update' || a === 'updateMany') && params.args?.data && 'assignedUserId' in params.args.data) {
-      const raw = params.args.data.assignedUserId
-      const novoDono = raw && typeof raw === 'object' && 'set' in raw ? raw.set : raw
-      const whereId = params.args?.where?.id
-      const ids: number[] = typeof whereId === 'number'
-        ? [whereId]
-        : (await prisma.lead.findMany({ where: params.args?.where ?? {}, select: { id: true } })).map((l) => l.id)
-      const result = await next(params)
+      const novoDono = valorDoCampo(params.args.data.assignedUserId)
+      const linhas = await prisma.lead.findMany({ where: params.args?.where ?? {}, select: { id: true, assignedUserId: true } })
+      const trava = await travaDoDonoLigada()
+      const barrados = trava ? linhas.filter((l) => !podeTrocarDono(l.assignedUserId, novoDono)).map((l) => l.id) : []
+      const ids = linhas.filter((l) => !barrados.includes(l.id)).map((l) => l.id)
+
+      let result: any
+      if (!barrados.length) {
+        result = await next(params)
+      } else {
+        avisarTrava(barrados, novoDono)
+        const resto = semTrocaDeDono(params.args.data)
+        if (a === 'update') {
+          params.args.data = resto
+          result = await next(params)
+        } else {
+          // updateMany: os liberados recebem tudo; os barrados, o resto sem o dono.
+          let count = 0
+          if (ids.length) {
+            params.args.where = { AND: [params.args.where ?? {}, { id: { in: ids } }] }
+            count += (await next(params)).count
+          }
+          // Dentro de transação, gravar por fora esperaria o lock dela mesma.
+          if (Object.keys(resto).length && !params.runInTransaction) {
+            count += (await prisma.lead.updateMany({ where: { id: { in: barrados } }, data: resto })).count
+          } else if (Object.keys(resto).length) {
+            console.warn(`[dono] updateMany em transação: campos ${Object.keys(resto).join(', ')} não aplicados aos leads ${barrados.join(', ')}`)
+          }
+          result = { count }
+        }
+      }
       if (ids.length) {
         await prisma.negotiation.updateMany({
           where: { leadId: { in: ids }, resultado: null },

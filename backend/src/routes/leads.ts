@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { rotaManualDeDono } from '../lib/donoDoLead.js'
 import { prisma } from '../lib/prisma.js'
 import { applyStageOutcome } from '../services/stageOutcome.js'
 import { notifyNewLead, sendReportToLead } from '../services/notify.js'
@@ -1236,7 +1237,7 @@ export async function leadsRoutes(app: FastifyInstance) {
     return { equipes, pessoas, completo: liberado }
   })
 
-  app.post('/api/bychat/leads/:id/qualify', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/bychat/leads/:id/qualify', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     const id = parseInt((req.params as any).id)
     if (!await assertLeadAccess(req, reply, id)) return
     const user = (req as any).user as JwtPayload
@@ -1310,7 +1311,7 @@ export async function leadsRoutes(app: FastifyInstance) {
 
   // ── POST /api/bychat/leads/qualify-bulk ─── Promover múltiplos em massa ──
   // Body: { leadIds: number[], funnelId?: number, stageKey?: string, assignedUserId?, teamId? }
-  app.post('/api/bychat/leads/qualify-bulk', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/bychat/leads/qualify-bulk', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     const user = (req as any).user as JwtPayload
     const { leadIds, funnelId, stageKey, assignedUserId, teamId } = (req.body as any) || {}
     if (!Array.isArray(leadIds) || leadIds.length === 0) {
@@ -1827,8 +1828,9 @@ export async function leadsRoutes(app: FastifyInstance) {
         status:    body.status || 'NOVO',
         funnelId:  body.funnelId ? parseInt(body.funnelId) : null,
         teamId,
-        assignedUserId: body.assignedUserId ? parseInt(body.assignedUserId) : null,
-        assignedAt: body.assignedUserId || teamId ? new Date() : null,
+        // Sem responsável escolhido, fica com quem cadastrou.
+        assignedUserId: body.assignedUserId ? parseInt(body.assignedUserId) : user.userId,
+        assignedAt: new Date(),
         completed: false,
         source:    'manual',
         originType: 'manual',
@@ -2102,7 +2104,7 @@ export async function leadsRoutes(app: FastifyInstance) {
   // ── POST /api/bychat/leads/merge ─── Mesclar leads ──
   // Aceita formato batch (`{ masterId, mergeIds: number[] }`) usado pelo MergeLeadsModal
   // e retrocompat (`{ keepId, mergeId }`).
-  app.post('/api/bychat/leads/merge', { preHandler: authMiddleware }, async (req, reply) => {
+  app.post('/api/bychat/leads/merge', { preHandler: [authMiddleware, rotaManualDeDono] }, async (req, reply) => {
     const body = (req.body || {}) as {
       masterId?: number | string
       mergeIds?: (number | string)[]

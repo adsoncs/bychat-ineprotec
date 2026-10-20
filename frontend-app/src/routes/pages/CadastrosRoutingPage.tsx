@@ -340,6 +340,12 @@ function AjustesRodizioCard() {
           <Chave ligado={a.escalacaoPorMensagem} onClick={() => gravar({ escalacaoPorMensagem: !a.escalacaoPorMensagem })}
             titulo="Escalada pela resposta no chat"
             texto="Quando a escalação automática está ativa: conta o tempo a partir da mensagem do contato que ficou sem resposta (não por atividade concluída), só em conversas abertas, e passa o lead para outra pessoa da equipe em vez de só devolver à fila." />
+          <Chave ligado={a.donoFixo} onClick={() => gravar({ donoFixo: !a.donoFixo })}
+            titulo="Lead com responsável não muda de mão sozinho"
+            texto="Depois que o lead cai para uma pessoa, nenhuma ação automática tira o lead dela — rodízio, Jornada IA, fluxos, escalada, virada de turno. Só ela mesma transfere (ou um administrador). Lead sem responsável continua sendo distribuído normalmente." />
+          <Chave ligado={a.setorPeloRodizio} onClick={() => gravar({ setorPeloRodizio: !a.setorPeloRodizio })}
+            titulo="Transferência para o setor escolhe a pessoa"
+            texto="Ao transferir uma conversa só para a equipe, sem escolher quem, o rodízio dela entrega a alguém (nunca a quem transferiu). Desligado, a conversa vai para a fila do setor." />
         </div>
       </div>
     </Card>

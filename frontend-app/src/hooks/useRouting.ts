@@ -553,6 +553,8 @@ export interface AjustesRoteamento {
   rodizioJusto: boolean
   redistribuirSemDono: boolean
   escalacaoPorMensagem: boolean
+  donoFixo: boolean
+  setorPeloRodizio: boolean
 }
 
 export function useAjustesRoteamento() {

@@ -16,6 +16,7 @@
 // ADMIN/SUPERADMIN não precisam transferir consensualmente — usam /atendimento/tickets/:id/assign direto.
 
 import { FastifyInstance } from 'fastify'
+import { comoAtor } from '../lib/donoDoLead.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
@@ -146,8 +147,12 @@ export async function transferRequestsRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: 'Apenas o destinatário pode aceitar' })
       }
 
+      // Quem tirou o lead das mãos dele foi o próprio dono (ou um admin), ao
+      // criar o pedido — o aceite só confirma. Ver lib/donoDoLead.ts.
+      const autor = await prisma.user.findUnique({ where: { id: r.fromUserId }, select: { role: true } })
+
       // Atualização atômica: só executa se ainda for pending.
-      await prisma.$transaction(async (tx) => {
+      await comoAtor({ userId: r.fromUserId, role: autor?.role }, () => prisma.$transaction(async (tx) => {
         await tx.leadTransferRequest.update({
           where: { id },
           data: {
@@ -164,7 +169,7 @@ export async function transferRequestsRoutes(app: FastifyInstance) {
             assignedAt: new Date(),
           },
         })
-      })
+      }))
 
       const reassignedCount = await reassignPendingCadenceActivities(r.leadId, r.toUserId)
 

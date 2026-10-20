@@ -598,13 +598,13 @@ export async function agentsRoutes(app: FastifyInstance) {
   )
 
   // ── Ajustes de roteamento por cliente (services/teamRouting.ts) ─────────
-  // Quatro chaves que mudam QUEM recebe o lead; padrão = comportamento antigo.
+  // Chaves que mudam QUEM recebe o lead; padrão = comportamento antigo.
   app.get('/api/admin/routing/ajustes', { preHandler: [authMiddleware, adminOnly] }, async () => {
     const { getAjustesRoteamento } = await import('../services/teamRouting.js')
     return getAjustesRoteamento()
   })
 
-  app.post<{ Body: { presencaMinutos?: number; rodizioJusto?: boolean; redistribuirSemDono?: boolean; escalacaoPorMensagem?: boolean } }>(
+  app.post<{ Body: { presencaMinutos?: number; rodizioJusto?: boolean; redistribuirSemDono?: boolean; escalacaoPorMensagem?: boolean; donoFixo?: boolean; setorPeloRodizio?: boolean } }>(
     '/api/admin/routing/ajustes',
     { preHandler: [authMiddleware, adminOnly] },
     async (req, reply) => {
@@ -620,6 +620,8 @@ export async function agentsRoutes(app: FastifyInstance) {
         ['rodizioJusto', 'Rodízio justo (conta só o que o rodízio entregou, com peso)'],
         ['redistribuirSemDono', 'Redistribuir contato sem responsável que volta a escrever'],
         ['escalacaoPorMensagem', 'Escalada mede a resposta no chat e passa a outra pessoa'],
+        ['donoFixo', 'Lead com responsável não muda de mão sozinho'],
+        ['setorPeloRodizio', 'Transferência só para o setor: o rodízio escolhe a pessoa'],
       ] as const) {
         if (b[campo] !== undefined) {
           if (typeof b[campo] !== 'boolean') return reply.code(400).send({ error: `${campo} deve ser true/false` })

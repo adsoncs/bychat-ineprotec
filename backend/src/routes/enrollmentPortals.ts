@@ -15,7 +15,7 @@ import { criarCobrancaSimulada, ehSimulado } from '../services/pagamentoSimulado
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { generateCandidateCode } from '../services/enrollmentCode.js'
 import { isValidCpf, normalizeCpf } from '../lib/cpf.js'
-import { resolveDefaultTeamId } from '../services/teamRouting.js'
+import { resolveDefaultTeamId, escolherComPlantao } from '../services/teamRouting.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { logUserAudit, auditActor } from '../services/userAudit.js'
 import { ensureLeadForRegistration } from '../services/enrollmentLeadBackfill.js'
@@ -2333,7 +2333,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const resolvedEntryStage = (await resolveEntryStageKey(resolvedFunnelId, portal.stageKey || null)) || 'NOVO'
 
     if (!lead) {
-      const routedTeamId = portal.teamId || await resolveDefaultTeamId()
+      // Mesmo rodízio dos formulários: a equipe do portal escolhe a pessoa (ou o
+      // plantão, fora do horário). Antes o lead nascia com equipe e sem ninguém.
+      const equipeDoPortal = portal.teamId || await resolveDefaultTeamId()
+      const rota = equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
+      const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
         data: {
           nome,
@@ -2349,6 +2353,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           source: portalLeadSource(portal),
           originType: 'enrollment_portal',
           teamId: routedTeamId,
+          ...(rota?.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
           funnelId: resolvedFunnelId,
           trackingVisitorId,
           utmSource: fd.utm_source || null,
@@ -2428,6 +2433,16 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       const routedTeamId = portal.teamId || await resolveDefaultTeamId()
       if (routedTeamId && prevTeamId !== routedTeamId) {
         upd.teamId = routedTeamId
+      }
+      // Lead que já existia sem responsável: o rodízio escolhe agora. Quem já
+      // tem dono continua com ele (lib/donoDoLead.ts).
+      if (routedTeamId && !lead.assignedUserId) {
+        const rota = await escolherComPlantao(routedTeamId, 'enrollment_portal')
+        if (rota.userId) {
+          upd.teamId = rota.teamId
+          upd.assignedUserId = rota.userId
+          upd.assignedAt = new Date()
+        }
       }
 
       if (Object.keys(upd).length > 0) {
@@ -3934,7 +3949,11 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     let lead: any = null
 
     if (!lead) {
-      const routedTeamId = portal.teamId || await resolveDefaultTeamId()
+      // Mesmo rodízio dos formulários: a equipe do portal escolhe a pessoa (ou o
+      // plantão, fora do horário). Antes o lead nascia com equipe e sem ninguém.
+      const equipeDoPortal = portal.teamId || await resolveDefaultTeamId()
+      const rota = equipeDoPortal ? await escolherComPlantao(equipeDoPortal, 'enrollment_portal') : null
+      const routedTeamId = rota?.teamId ?? equipeDoPortal
       lead = await prisma.lead.create({
         data: {
           nome,
@@ -3949,6 +3968,7 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
           source: portalLeadSource(portal, 'enrollment_portal_interest'),
           originType: 'web_form',
           teamId: routedTeamId,
+          ...(rota?.userId ? { assignedUserId: rota.userId, assignedAt: new Date() } : {}),
           funnelId: resolvedFunnelId,
           trackingVisitorId,
           utmSource: fd.utm_source || null,

@@ -52,17 +52,25 @@ export function invalidateRoutingCache() {
 //                          atividade concluída — quem respondia perdia o lead)
 //                          e passa o lead para outra pessoa em vez de só
 //                          devolver à fila.
+//   donoFixo             — lead com responsável não muda de mão sozinho: só o
+//                          dono (ou admin) transfere. Trava em lib/prisma.ts.
+//   setorPeloRodizio     — transferência só para o setor: o rodízio da equipe
+//                          escolhe a pessoa (antes ia para a fila do setor).
 export interface AjustesRoteamento {
   presencaMinutos: number
   rodizioJusto: boolean
   redistribuirSemDono: boolean
   escalacaoPorMensagem: boolean
+  donoFixo: boolean
+  setorPeloRodizio: boolean
 }
 export const CHAVES_AJUSTES = {
   presencaMinutos: 'routing.presenca.minutos',
   rodizioJusto: 'routing.rodizio.justo',
   redistribuirSemDono: 'routing.redistribuirSemDono',
   escalacaoPorMensagem: 'routing.escalation.porMensagem',
+  donoFixo: 'routing.donoFixo',
+  setorPeloRodizio: 'routing.transferencia.rodizio',
 } as const
 let _ajustesCache: { ajustes: AjustesRoteamento; expiresAt: number } | null = null
 
@@ -75,6 +83,8 @@ export async function getAjustesRoteamento(): Promise<AjustesRoteamento> {
     rodizioJusto: readBoolSetting(v.get(CHAVES_AJUSTES.rodizioJusto), false),
     redistribuirSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.redistribuirSemDono), false),
     escalacaoPorMensagem: readBoolSetting(v.get(CHAVES_AJUSTES.escalacaoPorMensagem), false),
+    donoFixo: readBoolSetting(v.get(CHAVES_AJUSTES.donoFixo), false),
+    setorPeloRodizio: readBoolSetting(v.get(CHAVES_AJUSTES.setorPeloRodizio), false),
   }
   _ajustesCache = { ajustes, expiresAt: Date.now() + CACHE_TTL_MS }
   return ajustes
@@ -822,7 +832,7 @@ export async function resolveRoutingFromContext(ctx: RoutingContext): Promise<Re
  * lia — lead de fora do horário ficava parado na fila da equipe fechada.
  * Plantão igual à própria equipe (ou não configurado) = comportamento de antes.
  */
-async function escolherComPlantao(teamId: number, origem?: string | null): Promise<{ teamId: number; userId: number | null }> {
+export async function escolherComPlantao(teamId: number, origem?: string | null): Promise<{ teamId: number; userId: number | null }> {
   const userId = await pickOperatorForTeam(teamId, origem ? { origem } : undefined)
   if (userId) return { teamId, userId }
   const team = await prisma.team.findUnique({ where: { id: teamId }, select: { workingHoursEnabled: true } })
