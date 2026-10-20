@@ -115,6 +115,10 @@ export const IUGU_STATUS_MAP: Record<string, string> = {
   // estorno se a contestação for perdida (chargeback).
   in_protest: 'paid',
   refunded: 'refunded',
+  // Estorno de PARTE do valor: o restante continua pago. Sem esta linha o
+  // status caía no padrão 'pending' e a inscrição paga voltava a "aguardando"
+  // (fabad, MAT-26-000009, 19/10). O valor estornado vai para o histórico.
+  partially_refunded: 'paid',
   chargeback: 'refunded',
   expired: 'overdue',
   // Cancelada não é "falhou": ninguém tentou pagar e deu erro, a cobrança foi
@@ -145,6 +149,8 @@ export interface IuguFatura {
   statusBruto: string
   totalCentavos: number
   pagoCentavos: number | null
+  /** Estornado até agora (parcial ou total), em centavos. */
+  estornadoCentavos: number | null
   pagoEm: Date | null
   meio: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | null
   referencia: string | null // external_reference
@@ -164,6 +170,7 @@ export function normalizarFatura(d: any): IuguFatura {
     statusBruto: String(d?.status ?? ''),
     totalCentavos: Number(d?.total_cents ?? 0),
     pagoCentavos: d?.paid_cents != null ? Number(d.paid_cents) : null,
+    estornadoCentavos: d?.refunded_cents != null ? Number(d.refunded_cents) : null,
     pagoEm: d?.paid_at ? new Date(d.paid_at) : null,
     meio: meioIugu(d?.payment_method),
     referencia: d?.external_reference ? String(d.external_reference) : null,

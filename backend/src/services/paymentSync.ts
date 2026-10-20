@@ -31,6 +31,8 @@ export interface NormalizedCharge {
   billingType: string | null     // PIX | BOLETO | CREDIT_CARD | null
   enrollmentRefId: number | null
   amount: number | null
+  /** Estornado no provedor (em reais) — hoje só a iugu informa. */
+  refunded?: number | null
 }
 
 const PAGARME_STATUS_MAP: Record<string, string> = {
@@ -133,6 +135,7 @@ export function cobrancaDaFaturaIugu(f: IuguFatura): NormalizedCharge {
     billingType: f.meio,
     enrollmentRefId: m ? parseInt(m[1]!) : null,
     amount: (f.pagoCentavos ?? f.totalCentavos) ? (f.pagoCentavos ?? f.totalCentavos) / 100 : null,
+    refunded: f.estornadoCentavos ? f.estornadoCentavos / 100 : null,
   }
 }
 
@@ -236,10 +239,21 @@ export async function syncChargeFromProvider(
   }
 
   // Upsert do EnrollmentPaymentMethod
-  const existing = await prisma.enrollmentPaymentMethod.findFirst({
+  //
+  // A mesma fatura pode ter duas tentativas (abriu o PIX e pagou no cartão,
+  // na iugu é uma fatura só). O aviso atualiza a do meio que de fato pagou —
+  // antes pegava a primeira, e o PIX nunca pago virava "pendente com data de
+  // pagamento" enquanto o cartão ficava sem a data.
+  const meioDoAviso = norm.billingType === 'PIX' ? 'pix'
+    : norm.billingType === 'BOLETO' ? 'boleto'
+    : norm.billingType === 'CREDIT_CARD' ? 'credit_card'
+    : null
+  const tentativas = await prisma.enrollmentPaymentMethod.findMany({
     where: { registrationId: enrollment.id, externalId: norm.externalId },
-    select: { id: true },
+    select: { id: true, method: true },
+    orderBy: { id: 'asc' },
   })
+  const existing = tentativas.find((t) => t.method === meioDoAviso) ?? tentativas[0] ?? null
   if (existing) {
     await prisma.enrollmentPaymentMethod.update({
       where: { id: existing.id },
@@ -264,6 +278,38 @@ export async function syncChargeFromProvider(
         paidAt: isPaidNow && norm.paidAt ? norm.paidAt : null,
       },
     })
+  }
+
+  // Estorno parcial: o pagamento continua valendo, mas o histórico do lead
+  // precisa mostrar que parte voltou ao pagador. Um registro por valor
+  // estornado — o webhook chega repetido (status_changed + partially_refunded).
+  if (enrollment.leadId && norm.refunded && norm.refunded > 0 && isPaidNow) {
+    const ja = await prisma.leadEvent.findFirst({
+      where: {
+        leadId: enrollment.leadId, type: 'payment_refunded',
+        AND: [
+          { metadata: { path: '$.paymentId', equals: norm.externalId } },
+          { metadata: { path: '$.refunded', equals: norm.refunded } },
+        ],
+      },
+      select: { id: true },
+    })
+    if (!ja) {
+      const reais = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      await prisma.leadEvent.create({
+        data: {
+          leadId: enrollment.leadId,
+          type: 'payment_refunded',
+          category: 'lifecycle',
+          channel: 'payment',
+          source: conn.provider,
+          actorType: 'system',
+          title: `Estorno parcial de ${reais(norm.refunded)} — ${enrollment.candidateCode}`,
+          description: `Feito no ${conn.provider}. Continua pago: ${norm.amount != null ? reais(norm.amount) : '—'}.`,
+          metadata: { paymentId: norm.externalId, refunded: norm.refunded, amount: norm.amount },
+        } as any,
+      }).catch(() => {})
+    }
   }
 
   // Side effects — só para quem venceu a corrida da transição.
