@@ -24,7 +24,9 @@
 //                 `corpoLivre`: o corpo traz ids que a própria rota recorta
 //                 (exportação, painéis) — a trava não barra o pedido inteiro.
 //   semPortal     configuração ou cadastro estrutural: nada de portal passa por
-//                 ela. A permissão da tela continua decidindo.
+//                 ela. Ler: decide a permissão da tela. Alterar: só quem vê
+//                 todos os portais — quem é recortado opera inscrições, mas não
+//                 mexe na configuração da instituição (21/10/2026).
 //   somenteTodos  visão que cruza todos os portais (BI, financeiro geral,
 //                 diário de turma…): só quem vê todos os portais.
 //
@@ -86,7 +88,12 @@ export const TABELA: Array<[RegExp, string, Regra]> = [
   [/^\/api\/admin\/enrollment-portals\/:id\/(analytics|funnel|interessados)$/, 'GET', P('id', true)],
   [/^\/api\/admin\/enrollment-portals\/:id\/(registrations|registrations\.csv|duplicates)$/, 'GET', { t: 'portal', param: 'id' }],
   [/^\/api\/admin\/enrollment-portals\/:id\/duplicates\//, 'POST', P()],
-  [/^\/api\/admin\/enrollment-portals\/:id/, '*', P()],
+  // O portal em si: ler é do portal; alterar a CONFIGURAÇÃO (formulário,
+  // pagamento, marca, arquivos, duplicar, excluir) é da instituição — vale a
+  // regra do semPortal (escrita só para quem vê todos). Operar inscrição é outra
+  // coisa: vai pelas rotas de inscrição acima e abaixo.
+  [/^\/api\/admin\/enrollment-portals\/:id/, 'GET', P()],
+  [/^\/api\/admin\/enrollment-portals\/:id/, '*', S],
   [/^\/api\/admin\/enrollment-registrations$/, 'POST', L],
   [/^\/api\/admin\/enrollment-registrations\/:id/, '*', E('inscricao')],
 

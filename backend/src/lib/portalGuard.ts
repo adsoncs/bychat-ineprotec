@@ -174,7 +174,15 @@ export async function portalAccessHook(req: FastifyRequest, reply: FastifyReply)
   }
 
   if (regra.t === 'lista' && regra.corpoLivre) return
-  if (regra.t === 'semPortal' && !ESCRITA.has(req.method)) return
+  if (regra.t === 'semPortal') {
+    if (acao !== 'operar') return
+    // Configuração da instituição (portal, contrato, curso, oferta, ERP
+    // estrutural): quem é recortado por portal não altera.
+    return reply.code(403).send({
+      error: 'Alterar configurações é só para administradores e equipes que veem todos os portais.',
+      code: 'PORTAL_CONFIG_SOMENTE_TODOS',
+    })
+  }
 
   // Ids no corpo e na query.
   const fontes = [req.query, req.body].filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
