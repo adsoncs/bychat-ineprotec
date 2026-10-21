@@ -17,7 +17,7 @@
 import { prisma } from '../lib/prisma.js'
 import { MODULE_REGISTRY } from '../lib/moduleRegistry.js'
 import { EDU_TELAS, permissoesDasTelas } from '../lib/eduTelas.js'
-import { resolvePermissions, invalidatePermCache, defaultScopeForRole, getActiveModuleIds, type ResolvedPerms, type PermScope } from '../lib/permissions.js'
+import { resolverRegraAntiga, invalidatePermCache, defaultScopeForRole, getActiveModuleIds, type ResolvedPerms, type PermScope } from '../lib/permissions.js'
 
 type Flags = { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }
 type FlagsN = { canView: boolean | null; canCreate: boolean | null; canEdit: boolean | null; canDelete: boolean | null }
@@ -249,7 +249,7 @@ export async function compararSombra(): Promise<{ pessoas: number; semPapel: num
   const div: Divergencia[] = []
   let semPapel = 0
   for (const u of users) {
-    const antigo = await resolvePermissions(u.id, u.role)
+    const antigo = await resolverRegraAntiga(u.id, u.role)
     const novo = await resolverNovo(u.id)
     if (!novo) { semPapel++; continue }
     if (novo.papelBase !== u.role) div.push({ userId: u.id, nome: u.name, role: u.role, recurso: '(papel)', campo: 'papelBase', antigo: u.role, novo: novo.papelBase })

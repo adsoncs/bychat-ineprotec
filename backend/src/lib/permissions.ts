@@ -69,6 +69,15 @@ export async function resolvePermissions(userId: number, role: string): Promise<
     }
   }
 
+  const result = await resolverRegraAntiga(userId, role)
+  permCache.set(cacheKey, { perms: result, ts: Date.now() })
+  return result
+}
+
+/** A regra antiga (role + ModulePermission + override), sem cache e sem olhar o
+ *  motor. O modo sombra compara com ela: chamar resolvePermissions com o motor
+ *  ligado devolveria o próprio papel e a comparação daria sempre zero. */
+export async function resolverRegraAntiga(userId: number, role: string): Promise<ResolvedPerms> {
   // Reforma F1: módulos com active=false somem do retorno para TODOS (inclusive SUPERADMIN).
   // Para reativar: endpoint /admin/modules/list-all (SUPERADMIN-only) lista TUDO.
   const activeIds = await getActiveModuleIds()
@@ -104,7 +113,6 @@ export async function resolvePermissions(userId: number, role: string): Promise<
     result[id] = { ...p, scope: result[id]?.scope ?? defaultScopeForRole(role) }
   }
 
-  permCache.set(cacheKey, { perms: result, ts: Date.now() })
   return result
 }
 
