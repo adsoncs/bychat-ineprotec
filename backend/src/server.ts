@@ -48,6 +48,7 @@ import { salesCadencesRoutes } from './routes/salesCadences.js'
 import { enrollmentPortalsRoutes } from './routes/enrollmentPortals.js'
 import { eduGeralRoutes } from './routes/eduGeral.js'
 import { portalAcessoRoutes } from './routes/portalAcesso.js'
+import { papeisRoutes } from './routes/papeis.js'
 import { enrollmentPortalPublicRoutes } from './routes/enrollmentPortalPublic.js'
 import { candidatePortalRoutes } from './routes/candidatePortal.js'
 import { portalAuthRoutes } from './routes/portalAuth.js'
@@ -211,9 +212,13 @@ const app = Fastify({
 // Inventário das rotas: a bateria de acesso por portal (tests/acesso-por-portal)
 // pergunta ao servidor quais rotas existem, em vez de manter uma lista à mão que
 // envelhece — rota nova entra no teste sozinha. Só o SUPERADMIN lê.
-const ROTAS_REGISTRADAS: Array<{ method: string; url: string }> = []
+const ROTAS_REGISTRADAS: Array<{ method: string; url: string; guardas?: string[]; checagensNoCodigo?: string[] }> = []
+// Checagem de papel escrita DENTRO do handler (não aparece no preHandler).
+const CHECAGEM_NO_CODIGO = /requireAdmin\w*\(|adminOnly|isAdminRole\(|role\s*[!=]==\s*['"](SUPERADMIN|ADMIN|MANAGER|AGENT|VIEWER)['"]|\.role\s*!==?\s*['"]|verificarTela\(|canUserAccessLead\(/g
 app.addHook('onRoute', (r) => {
-  for (const m of [r.method].flat()) ROTAS_REGISTRADAS.push({ method: String(m), url: r.url })
+  const pre = [r.preHandler ?? []].flat().map((f: any) => String(f?.name || 'anonima'))
+  const codigo = [...new Set((String(r.handler ?? '').match(CHECAGEM_NO_CODIGO) ?? []).map((x) => x.replace(/\s+/g, '')))]
+  for (const m of [r.method].flat()) ROTAS_REGISTRADAS.push({ method: String(m), url: r.url, guardas: pre, checagensNoCodigo: codigo })
 })
 app.get('/api/admin/_rotas', async (req, reply) => {
   const { verifyToken } = await import('./lib/auth.js')
@@ -833,6 +838,7 @@ await app.register(salesCadencesRoutes)
 await app.register(enrollmentPortalsRoutes)
 await app.register(eduGeralRoutes)
 await app.register(portalAcessoRoutes)
+await app.register(papeisRoutes)
 await app.register(enrollmentPortalPublicRoutes)
   await app.register(portalAuthRoutes)
 await app.register(candidatePortalRoutes)

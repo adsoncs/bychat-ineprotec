@@ -288,6 +288,9 @@ async function restoreSimpleEntity(type: TrashEntityType, snapshot: any) {
       // sem isto, quem foi restaurado da lixeira ficaria fora do rodízio.
       const { garantirPerfilDeAgente } = await import('./teamRouting.js')
       await garantirPerfilDeAgente([restaurado.id]).catch(() => 0)
+      // O papelId volta com o snapshot, mas o papel pode ter sido apagado/trocado.
+      const { atribuirPapelPadrao } = await import('./papeisMotor.js')
+      await atribuirPapelPadrao([restaurado.id]).catch(() => 0)
       return restaurado
     }
     case 'custom_field':

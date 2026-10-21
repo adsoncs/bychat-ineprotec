@@ -25,6 +25,12 @@ enum UserRole {
 model User {
   id                   Int       @id @default(autoincrement())
   email                String    @unique @db.VarChar(191)
+  /// Papéis e Permissões (novo modelo): o papel da pessoa. Null = ainda no
+  /// modelo antigo (role + ModulePermission + override). `role` continua sendo
+  /// lido pelas checagens cravadas até a fase 4 — o papel guarda o seu papelBase.
+  papelId             Int?
+  papel               Papel?          @relation(fields: [papelId], references: [id], onDelete: SetNull)
+  pacotes             UsuarioPacote[]
   /// Dono do produto — um nível acima do SUPERADMIN, que é do cliente.
   ///
   /// É ATRIBUTO e não papel de propósito: há 47 comparações estritas
@@ -10241,4 +10247,111 @@ model PortalAcessoEquipe {
 enum PortalAcessoNivel {
   VER
   OPERAR
+}
+
+/// Papéis e Permissões — papel criado pelo cliente (ou espelho de um papel antigo).
+/// Spec: "Papéis e Permissões — especificação"; plano: /root/planos/papeis-permissoes.md.
+model Papel {
+  id          Int               @id @default(autoincrement())
+  nome        String            @unique @db.VarChar(100)
+  descricao   String?           @db.VarChar(255)
+  /// Superadmin e Administrador: não se editam nem se arquivam.
+  sistema     Boolean           @default(false)
+  /// O `role` legado que as checagens cravadas ainda leem (até a fase 4).
+  papelBase   String            @db.VarChar(20)
+  /// De onde veio: 'espelho:AGENT', 'espelho:AGENT+pessoa:12', 'modelo:vendedor', 'manual'.
+  origem      String?           @db.VarChar(80)
+  arquivado   Boolean           @default(false)
+  criadoPor   Int?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  capacidades PapelCapacidade[]
+  alcances    PapelAlcance[]
+  usuarios    User[]
+
+  @@map("bychat_papeis")
+}
+
+model PapelCapacidade {
+  id         Int     @id @default(autoincrement())
+  papelId    Int
+  /// `<recurso>.<ação>` do catálogo (lib/capacidades.ts).
+  capacidade String  @db.VarChar(100)
+  /// Separação de funções: a capacidade não vale para o que é da própria pessoa.
+  separacao  Boolean @default(false)
+
+  papel Papel @relation(fields: [papelId], references: [id], onDelete: Cascade)
+
+  @@unique([papelId, capacidade])
+  @@map("bychat_papel_capacidades")
+}
+
+enum TipoAlcance {
+  LEADS
+  AGENDA
+  INSCRICOES
+  FINANCEIRO
+  VISOES
+}
+
+/// MEUS = só os meus · EQUIPE = meus + minhas equipes · LIDERADAS = meus + equipes
+/// que lidero · RECORTES = portais/números das minhas equipes (regra do acesso por
+/// portal) · TUDO = sem recorte.
+enum NivelAlcance {
+  MEUS
+  EQUIPE
+  LIDERADAS
+  RECORTES
+  TUDO
+}
+
+model PapelAlcance {
+  id      Int          @id @default(autoincrement())
+  papelId Int
+  tipo    TipoAlcance
+  alcance NivelAlcance
+
+  papel Papel @relation(fields: [papelId], references: [id], onDelete: Cascade)
+
+  @@unique([papelId, tipo])
+  @@map("bychat_papel_alcances")
+}
+
+/// Capacidades somadas a pessoas específicas. Só soma — nunca retira.
+model Pacote {
+  id          Int                @id @default(autoincrement())
+  nome        String             @unique @db.VarChar(100)
+  descricao   String?            @db.VarChar(255)
+  origem      String?            @db.VarChar(80)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  capacidades PacoteCapacidade[]
+  usuarios    UsuarioPacote[]
+
+  @@map("bychat_pacotes")
+}
+
+model PacoteCapacidade {
+  id         Int    @id @default(autoincrement())
+  pacoteId   Int
+  capacidade String @db.VarChar(100)
+
+  pacote Pacote @relation(fields: [pacoteId], references: [id], onDelete: Cascade)
+
+  @@unique([pacoteId, capacidade])
+  @@map("bychat_pacote_capacidades")
+}
+
+model UsuarioPacote {
+  id       Int @id @default(autoincrement())
+  userId   Int
+  pacoteId Int
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pacote Pacote @relation(fields: [pacoteId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pacoteId])
+  @@index([pacoteId])
+  @@map("bychat_usuario_pacotes")
 }

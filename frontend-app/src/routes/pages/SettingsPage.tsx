@@ -16,6 +16,7 @@ import { AppearanceSettings } from './settings/AppearanceSettings'
 import { HomeScreenSettings } from './settings/HomeScreenSettings'
 import { SecuritySettings } from './settings/SecuritySettings'
 import { ModulePermissionsPage } from './ModulePermissionsPage'
+import { PapeisAcessosPage } from './PapeisAcessosPage'
 import { ConversationAccessPage } from './ConversationAccessPage'
 import { useUserStore } from '@/stores/user'
 import { WebhooksSettings } from './settings/WebhooksSettings'
@@ -62,7 +63,7 @@ export type Tab =
   | 'webhooks' | 'api-keys' | 'modules'
   | 'email' | 'sms' | 'ai' | 'dns' | 'business-hours' | 'my-google' | 'loss-reasons' | 'dedup' | 'integrations' | 'evolution'
   | 'roadmap' | 'installations' | 'trash' | 'payments' | 'system-emails' | 'intelligence' | 'legal' | 'company' | 'alerts-health'
-  | 'permissions' | 'conversation-access' | 'audit-log' | 'integration-status'
+  | 'papeis' | 'permissions' | 'conversation-access' | 'audit-log' | 'integration-status'
 
 // Tabs visíveis no menu lateral de Configurações.
 // Itens de integração (email, sms, ai, dns, webhooks, api-keys, payments,
@@ -79,12 +80,15 @@ export type Tab =
 // "Configurações". A regra de visibilidade que elas tinham no menu (só
 // superadmin) vem junto: perder isso na mudança de lugar seria abrir a matriz
 // de acesso para quem só administra o dia a dia.
-const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean; superadminOnly?: boolean; editaModulo?: string }[] = [
+const tabs: { id: Tab; label: string; icon: preact.JSX.Element; primaryOnly?: boolean; superadminOnly?: boolean; adminOnly?: boolean; editaModulo?: string }[] = [
   { id: 'appearance', label: 'Aparência', icon: <Palette size={14} /> },
   { id: 'home-screen', label: 'Tela inicial', icon: <Home size={14} /> },
   { id: 'company', label: 'Empresa', icon: <Building2 size={14} /> },
   { id: 'security', label: 'Segurança', icon: <Shield size={14} /> },
   { id: 'modules', label: 'Módulos', icon: <Package size={14} /> },
+  // Papéis e acessos: o modelo novo (papel + alcance + pacotes). Quem gerencia
+  // é o Administrador (capacidade papeis.gerenciar), não só o Superadmin.
+  { id: 'papeis', label: 'Papéis e acessos', icon: <ShieldCheck size={14} />, adminOnly: true },
   { id: 'permissions', label: 'Permissões', icon: <ShieldCheck size={14} />, superadminOnly: true },
   { id: 'conversation-access', label: 'Acesso ao Conversas', icon: <MessageSquare size={14} />, superadminOnly: true },
   { id: 'audit-log', label: 'Auditoria', icon: <History size={14} />, superadminOnly: true },
@@ -112,7 +116,7 @@ const MIGRATED_TAB_REDIRECTS: Record<string, string> = {
 function readTabFromUrl(): Tab {
   if (typeof window === 'undefined') return 'appearance'
   const v = new URLSearchParams(window.location.search).get('tab')
-  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal', 'alerts-health', 'integration-status']
+  const valid: Tab[] = ['appearance', 'fields', 'teams', 'security', 'webhooks', 'api-keys', 'modules', 'email', 'sms', 'ai', 'dns', 'business-hours', 'my-google', 'loss-reasons', 'dedup', 'integrations', 'evolution', 'roadmap', 'installations', 'trash', 'payments', 'system-emails', 'intelligence', 'legal', 'alerts-health', 'integration-status', 'papeis']
   return (valid as string[]).includes(v ?? '') ? (v as Tab) : 'appearance'
 }
 
@@ -128,11 +132,12 @@ export function SettingsPage() {
   // mesmo se a URL pedir (defesa em profundidade).
   const PRIMARY_ONLY_TABS = new Set<Tab>(['installations', 'roadmap'])
   const ehSuperadmin = papelDoUsuario === 'SUPERADMIN'
+  const ehAdmin = ehSuperadmin || papelDoUsuario === 'ADMIN'
   const editaStatus = useCan('status_integracoes', 'edit')
   const visibleTabs = useMemo(
     () => tabs.filter((t) => (!t.primaryOnly || (PRIMARY_BUILD && isPrimary)) && (!t.superadminOnly || ehSuperadmin)
-      && (!t.editaModulo || editaStatus)),
-    [isPrimary, ehSuperadmin, editaStatus],
+      && (!t.adminOnly || ehAdmin) && (!t.editaModulo || editaStatus)),
+    [isPrimary, ehSuperadmin, ehAdmin, editaStatus],
   )
 
   // Se URL pedir aba primary-only numa instalação filha, redireciona pra Aparência.
@@ -143,7 +148,8 @@ export function SettingsPage() {
     // Mesma defesa em profundidade das abas primary-only: pedir pela URL não
     // basta para ver a matriz de acesso.
     if (!ehSuperadmin && SUPERADMIN_ONLY_TABS.has(tab)) setTab('appearance')
-  }, [primaryLoading, isPrimary, tab, ehSuperadmin])
+    if (!ehAdmin && tab === 'papeis') setTab('appearance')
+  }, [primaryLoading, isPrimary, tab, ehSuperadmin, ehAdmin])
 
   // Bookmarks antigos: ?tab=teams|loss-reasons|fields|business-hours → /cadastros/*
   useEffect(() => {
@@ -209,6 +215,7 @@ export function SettingsPage() {
           {tab === 'webhooks' && <WebhooksSettings />}
           {tab === 'api-keys' && <ApiKeysSettings />}
           {tab === 'modules' && <ModulesSettings />}
+          {tab === 'papeis' && <PapeisAcessosPage />}
           {tab === 'permissions' && <ModulePermissionsPage embutido />}
           {tab === 'conversation-access' && <ConversationAccessPage embutido />}
           {tab === 'audit-log' && <AuditLogPage />}

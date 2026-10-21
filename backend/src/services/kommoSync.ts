@@ -59,6 +59,8 @@ async function ensureUserForKommo(u: any): Promise<number> {
   // para o rodízio.
   const { garantirPerfilDeAgente } = await import('./teamRouting.js')
   await garantirPerfilDeAgente([created.id]).catch(() => 0)
+  const { atribuirPapelPadrao } = await import('./papeisMotor.js')
+  await atribuirPapelPadrao([created.id]).catch(() => 0)
   return created.id
 }
 

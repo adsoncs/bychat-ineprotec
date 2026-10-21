@@ -58,6 +58,17 @@ export async function alcanceDePortais(userId: number, role: string): Promise<Al
   const hit = cache.get(chave)
   if (hit && Date.now() - hit.ts < CACHE_TTL) return hit.alc
 
+  // Motor de Papéis: alcance de inscrições "Tudo" no papel = vê todos os portais.
+  const { motorDePapeisLigado } = await import('./permissions.js')
+  if (await motorDePapeisLigado()) {
+    const pa = await prisma.papelAlcance.findFirst({ where: { tipo: 'INSCRICOES', papel: { usuarios: { some: { id: userId } } } }, select: { alcance: true } })
+    if (pa?.alcance === 'TUDO') {
+      const alc = { todos: true, ...vazio }
+      cache.set(chave, { alc, ts: Date.now() })
+      return alc
+    }
+  }
+
   const [membros, linhas] = await Promise.all([
     prisma.teamMember.findMany({
       where: { userId, team: { active: true } },

@@ -176,6 +176,8 @@ async function garantirConsultor(nome: string, crmId: string | null): Promise<nu
   // perfil ele nasce invisível para o rodízio (o motor V2 filtra por perfil).
   const { garantirPerfilDeAgente } = await import('./teamRouting.js')
   await garantirPerfilDeAgente([criado.id]).catch(() => 0)
+  const { atribuirPapelPadrao } = await import('./papeisMotor.js')
+  await atribuirPapelPadrao([criado.id]).catch(() => 0)
   return criado.id
 }
 

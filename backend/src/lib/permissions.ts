@@ -59,6 +59,16 @@ export async function resolvePermissions(userId: number, role: string): Promise<
   const cached = permCache.get(cacheKey)
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.perms
 
+  // Motor novo: papel + pacotes da pessoa (fase 3 do plano de Papéis).
+  if (await motorDePapeisLigado()) {
+    const { resolverNovo } = await import('../services/papeisMotor.js')
+    const novo = await resolverNovo(userId)
+    if (novo) {
+      permCache.set(cacheKey, { perms: novo.perms, ts: Date.now() })
+      return novo.perms
+    }
+  }
+
   // Reforma F1: módulos com active=false somem do retorno para TODOS (inclusive SUPERADMIN).
   // Para reativar: endpoint /admin/modules/list-all (SUPERADMIN-only) lista TUDO.
   const activeIds = await getActiveModuleIds()
@@ -110,6 +120,25 @@ export function defaultScopeForRole(role: string): PermScope {
   if (role === 'MANAGER') return 'team'
   if (role === 'AGENT') return 'own'
   return 'team' // VIEWER e fallback
+}
+
+// ── Motor de Papéis (services/papeisMotor.ts) ────────────────────────────
+// Por instalação: Setting `permissoes.motor` = 'papeis' liga o motor novo;
+// qualquer outro valor (ou nenhum) = regra antiga. Desligar é instantâneo e
+// não exige deploy. Quem ainda não tem papel (users.papelId nulo) segue a
+// regra antiga mesmo com o motor ligado.
+let motorCache: { ligado: boolean; ts: number } | null = null
+export async function motorDePapeisLigado(): Promise<boolean> {
+  if (motorCache && Date.now() - motorCache.ts < 30_000) return motorCache.ligado
+  const r = await prisma.setting.findUnique({ where: { key: 'permissoes.motor' }, select: { value: true } }).catch(() => null)
+  const v = r?.value as unknown
+  const ligado = (typeof v === 'string' ? v : v == null ? '' : String(v)).replace(/"/g, '') === 'papeis'
+  motorCache = { ligado, ts: Date.now() }
+  return ligado
+}
+export function invalidarMotorCache() {
+  motorCache = null
+  permCache.clear()
 }
 
 export function invalidatePermCache(userId?: number) {

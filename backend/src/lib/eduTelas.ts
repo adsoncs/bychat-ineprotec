@@ -204,7 +204,7 @@ export async function avaliarTela(user: Pick<JwtPayload, 'userId' | 'role'>, met
  * vale a regra antiga (`fallback`) — que é exatamente o que a rota fazia.
  */
 export function guardTela(fallback: 'admin' | 'gestao' | 'login' = 'admin') {
-  return async (req: any, reply: any) => {
+  const guarda = async (req: any, reply: any) => {
     const { authMiddleware } = await import('./auth.js')
     await authMiddleware(req, reply)
     if (reply.sent) return
@@ -212,6 +212,9 @@ export function guardTela(fallback: 'admin' | 'gestao' | 'login' = 'admin') {
     const r = await verificarTela(user, req.method, req.url, fallback)
     if (r) return reply.code(r.status).send(r.body)
   }
+  // Nome legível no inventário de rotas (Papéis e Permissões, fase 0).
+  Object.defineProperty(guarda, 'name', { value: `guardTela:${fallback}` })
+  return guarda
 }
 
 /** Mesma decisão do guardTela para quem já tem o usuário em mãos (rotas que

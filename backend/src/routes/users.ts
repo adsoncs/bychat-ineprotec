@@ -433,6 +433,11 @@ export async function usersRoutes(app: FastifyInstance) {
       }
     })
 
+    {
+      const { atribuirPapelPadrao } = await import('../services/papeisMotor.js')
+      await atribuirPapelPadrao([user.id]).catch(() => 0)
+    }
+
     // Papel que recebe lead nasce com PERFIL DE AGENTE. Sem isto o usuário novo
     // fica invisível para o rodízio (o motor V2 filtra por perfil, não por
     // papel) — e em silêncio, porque na tela ele aparece como agente normal.
@@ -524,6 +529,13 @@ export async function usersRoutes(app: FastifyInstance) {
       await garantirPerfilDeAgente([updated.id]).catch((e) => {
         req.log.warn({ e }, `[users] perfil de agente não criado para ${updated.id}`)
       })
+    }
+
+    // Nível trocado na tela de Usuários: o papel acompanha (espelho do novo
+    // nível), senão o papel antigo continuaria decidindo com o motor ligado.
+    if (role !== undefined && role !== user.role) {
+      const { atribuirPapelPadrao } = await import('../services/papeisMotor.js')
+      await atribuirPapelPadrao([updated.id]).catch(() => 0)
     }
 
     // Audit: user edited — log only fields that actually changed
