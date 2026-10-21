@@ -170,6 +170,22 @@ function idade(nascimento: string): number | null {
   return anos
 }
 
+const soDigitos = (s: unknown) => String(s ?? '').replace(/\D/g, '')
+const nomeNormal = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+/**
+ * Há responsável de verdade só quando ele é OUTRA pessoa. O aluno adulto que se
+ * põe como responsável financeiro (mesmo CPF, ou sem CPF e com o mesmo nome)
+ * não vira 2º signatário: virava um link a mais que ninguém mostrava, e o
+ * contrato ficava PARCIAL para sempre com o aluno já tendo assinado.
+ */
+function temResponsavel(v: VarsContrato): boolean {
+  if (!v.responsavelNome || /pr[óo]pri/i.test(v.responsavelParentesco ?? '')) return false
+  const cpfResp = soDigitos(v.responsavelCpf)
+  if (cpfResp) return cpfResp !== soDigitos(v.cpf)
+  return nomeNormal(v.responsavelNome) !== nomeNormal(v.nome)
+}
+
 const MEIO: Record<string, string> = { pix: 'Pix', boleto: 'Boleto', credit_card: 'Cartão de crédito' }
 
 // ─── Dados de uma inscrição ────────────────────────────────────────────────
@@ -239,7 +255,7 @@ export async function dadosDoContratoDaInscricao(registrationId: number): Promis
   ].filter(Boolean).join(' — ')
   const anos = idade(v.nascimento)
   const menor = anos != null && anos < 18
-  const temResp = !!v.responsavelNome && !/pr[óo]pri/i.test(v.responsavelParentesco)
+  const temResp = temResponsavel(v)
 
   Object.assign(v, {
     endereco_completo: end,
@@ -349,7 +365,7 @@ export async function varsDoAluno(ctx: { alunoId?: number | null; matriculaId?: 
       v[d.chave] = bruto == null ? '' : d.tipo === 'cpf' ? formatarDoc(String(bruto)) : String(bruto)
     }
     v.ra = aluno.ra ?? ''
-    const temResp = !!v.responsavelNome && !/pr[óo]pri/i.test(v.responsavelParentesco)
+    const temResp = temResponsavel(v)
     v.contratante_nome = temResp ? v.responsavelNome : v.nome
     v.contratante_cpf = temResp ? v.responsavelCpf : v.cpf
     const anos = idade(v.nascimento)

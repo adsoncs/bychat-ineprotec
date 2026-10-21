@@ -137,7 +137,9 @@ async function signatariosAuto(alunoId: number): Promise<NovoSignatario[]> {
     orderBy: { id: 'asc' },
     select: { nome: true, email: true, telefone: true, cpf: true },
   })
-  if (resp) {
+  // O próprio aluno cadastrado como responsável (mesmo CPF) não assina duas vezes.
+  const mesmoCpf = !!resp?.cpf && !!a?.cpf && resp.cpf.replace(/\D/g, '') === a.cpf.replace(/\D/g, '')
+  if (resp && !mesmoCpf) {
     out.push({
       nome: resp.nome, email: resp.email, telefone: resp.telefone, cpf: resp.cpf,
       papel: 'RESPONSAVEL', acao: 'SIGN',
