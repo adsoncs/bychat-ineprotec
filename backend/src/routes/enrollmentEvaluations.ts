@@ -11,6 +11,7 @@
 // Não toca nas rotas de docs/portal já existentes.
 
 import { FastifyInstance } from 'fastify'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { aplicarNotaDeAvaliacao } from '../services/portalClassificacao.js'
 import { cancelarCobrancaPorReprovacao } from '../services/portalCobranca.js'
@@ -167,6 +168,9 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       ]
     }
 
+    // Acesso por portal (lib/portalAccess): lista e indicadores só do que a pessoa vê.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [...(where.AND ?? []), { registration: recorte }]
     const [items, kpiRows] = await Promise.all([
       prisma.enemScoreImport.findMany({
         where,
@@ -193,6 +197,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
         },
       }),
       prisma.enemScoreImport.findMany({
+        ...(recorte ? { where: { registration: recorte } } : {}),
         select: { passed: true, validatedAt: true },
       }),
     ])
@@ -351,6 +356,8 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       }
     }
 
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [...(where.AND ?? []), { registration: recorte }]
     const items = await prisma.presencialExam.findMany({
       where,
       orderBy: [{ scheduledAt: sort as any }, { createdAt: 'desc' }],
@@ -377,6 +384,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     })
 
     const kpiRows = await prisma.presencialExam.findMany({
+      ...(recorte ? { where: { registration: recorte } } : {}),
       select: { verdict: true, attendanceStatus: true },
     })
     const kpi = { pending: 0, approved: 0, rejected: 0, scheduled: 0, absent: 0 }
@@ -551,6 +559,8 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
     if (integ === 'alertas') where.integrityStatus = { in: ['suspeita', 'atencao'] }
     else if (['suspeita', 'atencao', 'ok', 'indisponivel'].includes(integ)) where.integrityStatus = integ
 
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [...(where.AND ?? []), { registration: recorte }]
     const items = await prisma.essaySubmission.findMany({
       where,
       orderBy: statusFilter === 'andamento' ? { startedAt: 'desc' } : { submittedAt: 'asc' },
@@ -579,7 +589,7 @@ export async function enrollmentEvaluationsRoutes(app: FastifyInstance) {
       },
     })
 
-    const kpiRows = await prisma.essaySubmission.findMany({ select: { status: true, integrityStatus: true, integrityDecision: true } })
+    const kpiRows = await prisma.essaySubmission.findMany({ ...(recorte ? { where: { registration: recorte } } : {}), select: { status: true, integrityStatus: true, integrityDecision: true } })
     const kpi = { pending: 0, approved: 0, rejected: 0, suspeitas: 0, andamento: 0 }
     for (const k of kpiRows) {
       // Suspeita que ninguém avaliou ainda — é a fila de integridade.

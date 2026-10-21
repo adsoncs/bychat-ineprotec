@@ -425,7 +425,8 @@ export async function arquivarContratoNoGed(envelopeId: number): Promise<number 
     const { buffer } = await gerarPdf(env.id)
     const dir = uploadsPath('contratos')
     await fs.mkdir(dir, { recursive: true })
-    const nome = `contrato-${env.alunoId}-${env.id}.pdf`
+    // Sufixo aleatório: o nome não pode ser adivinhado (lib/arquivoProtegido).
+    const nome = `contrato-${env.alunoId}-${env.id}-${(await import('node:crypto')).randomBytes(12).toString('hex')}.pdf`
     await fs.writeFile(`${dir}/${nome}`, buffer)
     url = `/uploads/contratos/${nome}`
   }

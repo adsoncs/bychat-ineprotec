@@ -5,6 +5,7 @@
 // parcelas (Asaas) ao efetivar é o P5 — ponto de extensão marcado abaixo.
 
 import { FastifyInstance } from 'fastify'
+import { alcanceDaRequisicao, whereMatriculas } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { getOperator } from '../services/leadHistory.js'
@@ -35,6 +36,9 @@ export async function acaMatriculaRoutes(app: FastifyInstance) {
     const where: any = {}
     if (q.status) where.status = q.status
     if (q.turmaId) where.turmaId = Number(q.turmaId)
+    // Acesso por portal (lib/portalAccess): só matrículas de inscrições que a pessoa vê.
+    const recorte = await whereMatriculas(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [recorte]
     const matriculas = await prisma.acaMatricula.findMany({
       where, orderBy: { dataMatricula: 'desc' }, take: 200,
       select: {
@@ -44,7 +48,7 @@ export async function acaMatriculaRoutes(app: FastifyInstance) {
         contrato: { select: { id: true, status: true } },
       },
     })
-    const counts = await prisma.acaMatricula.groupBy({ by: ['status'], _count: { _all: true } })
+    const counts = await prisma.acaMatricula.groupBy({ by: ['status'], ...(recorte ? { where: recorte } : {}), _count: { _all: true } })
     const counters: Record<string, number> = {}
     for (const c of counts) counters[c.status] = c._count._all
     return { matriculas, counters }

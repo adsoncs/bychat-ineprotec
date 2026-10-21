@@ -607,6 +607,9 @@ model Team {
   // e a fila sem dono — a de um colega só chega por transferência. Líder do
   // setor continua vendo tudo. Desligado = todos do setor veem tudo do setor.
   conversasPrivadas   Boolean  @default(false)
+  // Acesso por portal: quem integra o setor vê todos os portais do Educacional
+  // (Secretaria, Financeiro, Coordenação), mesmo os restritos a outras equipes.
+  veTodosOsPortais    Boolean  @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -619,6 +622,7 @@ model Team {
   ownedInstances      WhatsAppInstanceTeam[]
   ownedCloudApi       CloudApiConnectionTeam[]
   enrollmentPortals   EnrollmentPortal[]
+  portaisComAcesso    PortalAcessoEquipe[]
   salesCadences       SalesCadence[]
   channelGovernances  ChannelGovernance[]
   forms               Form[]
@@ -4160,6 +4164,7 @@ model EnrollmentPortal {
   updatedAt DateTime @updatedAt
 
   registrations EnrollmentRegistration[]
+  acessoEquipes PortalAcessoEquipe[]
   drafts        EnrollmentDraft[]
 
   /// Estrutura da página, separada da marca: 'classico' (uma coluna, feito para
@@ -10211,4 +10216,29 @@ model RoutingDistribution {
   @@index([teamId, createdAt])
   @@index([userId, createdAt])
   @@map("bychat_routing_distributions")
+}
+
+/// Acesso por portal (polos e parceiros): as equipes que enxergam um portal do
+/// Educacional. Portal sem nenhuma linha fica aberto (comportamento de sempre).
+/// Com linhas, só membros dessas equipes — e quem vê todos (admin ou equipe
+/// com veTodosOsPortais). Regra única em lib/portalAccess.ts.
+model PortalAcessoEquipe {
+  id        Int               @id @default(autoincrement())
+  portalId  Int
+  teamId    Int
+  nivel     PortalAcessoNivel @default(VER)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  portal EnrollmentPortal @relation(fields: [portalId], references: [id], onDelete: Cascade)
+  team   Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([portalId, teamId])
+  @@index([teamId])
+  @@map("bychat_portal_acesso_equipes")
+}
+
+enum PortalAcessoNivel {
+  VER
+  OPERAR
 }

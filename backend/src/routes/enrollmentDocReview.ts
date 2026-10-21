@@ -7,6 +7,7 @@
 //  - Por documento (fila plana): existente em routes/candidatePortal.ts (lista flat de docs).
 
 import { FastifyInstance } from 'fastify'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { logEvent, EVENT_TYPES } from '../services/leadHistory.js'
 import { computeDocsCompletionStatus } from '../services/enrollmentEvaluationGateway.js'
@@ -199,6 +200,9 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
     // Para performance, filtramos primeiro por portalId/search se aplicável.
     const where: any = {}
     if (portalId) where.portalId = portalId
+    // Acesso por portal (lib/portalAccess): só o que a pessoa enxerga.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [recorte]
     if (search) {
       where.OR = [
         { candidateCode: { contains: search } },
@@ -323,7 +327,7 @@ export async function enrollmentDocReviewRoutes(app: FastifyInstance) {
     if (leadIds.length > 0) {
       const rows = await prisma.enrollmentRegistration.groupBy({
         by: ['leadId'],
-        where: { leadId: { in: leadIds } },
+        where: { leadId: { in: leadIds }, ...(recorte ? { AND: [recorte] } : {}) },
         _count: { _all: true },
       })
       for (const r of rows) {

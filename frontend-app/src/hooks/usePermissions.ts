@@ -22,6 +22,8 @@ export interface ModuleDef {
 export interface MyPermissionsResponse {
   permissions: Record<string, ModulePermission>
   modules: ModuleDef[]
+  /** Acesso por portal: `recortado` = vê só parte dos portais do Educacional. */
+  acessoPortal?: { recortado: boolean }
 }
 
 export type PermAction = 'view' | 'create' | 'edit' | 'delete'

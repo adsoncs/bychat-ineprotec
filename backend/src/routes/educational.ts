@@ -19,6 +19,7 @@ import {
 } from '../services/educational.js'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { lerTabelaDePrecos } from '../services/tabelaDePrecos.js'
 import { validarSlugCurso } from '../services/cursoDoLink.js'
 
@@ -1599,7 +1600,11 @@ export async function educationalRoutes(app: FastifyInstance) {
     const q = req.query as any
     const limit  = Math.min(Math.max(parseInt(q.limit)  || 50, 1), 200)
     const offset = Math.max(parseInt(q.offset) || 0, 0)
-    const where = { leadId: parseInt(leadId) }
+    // Acesso por portal (lib/portalAccess): para quem é recortado, só as
+    // inscrições de portal visíveis — a inscrição feita à mão, sem portal,
+    // fica com quem vê todos (regra 6).
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    const where: any = { leadId: parseInt(leadId), ...(recorte ? { enrollmentRegistration: { is: recorte } } : {}) }
     const [total, registrations] = await Promise.all([
       prisma.processRegistration.count({ where }),
       prisma.processRegistration.findMany({

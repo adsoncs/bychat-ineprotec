@@ -6,6 +6,9 @@
 import { FastifyInstance } from 'fastify'
 import { authMiddleware } from '../lib/auth.js'
 import { collectDossier, listSections, ALL_SECTION_IDS } from '../services/leadExportData.js'
+import { prisma } from '../lib/prisma.js'
+import { buildLeadAccessWhere } from '../lib/teamAccess.js'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { renderXlsx, renderCsv, renderHtml, renderPdf } from '../services/leadExportRender.js'
 
 const MAX_LEADS = 500
@@ -35,7 +38,15 @@ export async function leadExportRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: `Máximo de ${MAX_LEADS} leads por exportação` })
     }
 
-    const dossier = await collectDossier(leadIds, sections)
+    // Só leads que a pessoa pode ver (dono/equipe — lib/teamAccess); antes,
+    // qualquer usuário logado exportava o dossiê de qualquer lead pelo id.
+    const u = (req as any).user as { userId: number; role: string }
+    const acesso = await buildLeadAccessWhere(u.userId, u.role)
+    const permitidos = new Set((await prisma.lead.findMany({ where: { AND: [{ id: { in: leadIds } }, acesso] }, select: { id: true } })).map((l) => l.id))
+    const visiveis = leadIds.filter((id) => permitidos.has(id))
+    if (!visiveis.length) return reply.code(404).send({ error: 'Leads não encontrados' })
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    const dossier = await collectDossier(visiveis, sections, recorte)
     if (!dossier.leads.length) return reply.code(404).send({ error: 'Leads não encontrados' })
 
     const stamp = new Date().toISOString().slice(0, 10)

@@ -298,6 +298,8 @@ async function restoreSimpleEntity(type: TrashEntityType, snapshot: any) {
       for (const m of (Array.isArray(members) ? members : [])) {
         await prisma.teamMember.create({ data: { teamId: team.id, userId: m.userId, isLeader: !!m.isLeader } }).catch(() => {})
       }
+      // Equipe restaurada volta com o "vê todos os portais" de antes.
+      ;(await import('../lib/portalAccess.js')).invalidarAcessoPortais()
       return team
     }
     case 'cadence': {

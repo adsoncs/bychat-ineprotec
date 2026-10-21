@@ -357,7 +357,7 @@ const CATALOG_READ_MODULES = ['catalog', 'negotiations']
 // Não interrompe se o token for inválido — deixa o `authMiddleware` da rota
 // retornar 401 quando essa rota o exigir. Setamos `req.user` se token válido
 // para evitar parse JWT duplicado downstream.
-function resolveUserFromRequest(req: FastifyRequest): JwtPayload | null {
+export function resolveUserFromRequest(req: FastifyRequest): JwtPayload | null {
   const existing = (req as any).user as JwtPayload | undefined
   if (existing) return existing
   const auth = req.headers.authorization

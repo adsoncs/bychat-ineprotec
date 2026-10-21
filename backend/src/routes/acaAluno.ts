@@ -4,6 +4,7 @@
 // gera RA (Registro Acadêmico). Sem silo. Rotas /api/admin/aca/*.
 
 import { FastifyInstance } from 'fastify'
+import { alcanceDaRequisicao, whereAlunos, whereMatriculas } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 
@@ -30,6 +31,9 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
   app.get('/api/admin/aca/alunos', { preHandler: authMiddleware }, async (req) => {
     const q = ((req.query as any).q || '').toString().trim()
     const where: any = {}
+    // Acesso por portal (lib/portalAccess): só alunos de inscrições que a pessoa vê.
+    const recorte = whereAlunos(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [recorte]
     if (q) {
       where.OR = [
         { ra: { contains: q } },
@@ -57,6 +61,13 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
       },
     })
     if (!aluno) return reply.code(404).send({ error: 'Aluno não encontrado' })
+    // Aluno inscrito em mais de um portal: a ficha mostra só as matrículas que
+    // vieram de inscrição visível (a trava já garantiu que ao menos uma é).
+    const wm = await whereMatriculas(await alcanceDaRequisicao(req))
+    if (wm) {
+      const vis = new Set((await prisma.acaMatricula.findMany({ where: { alunoId: id, ...wm }, select: { id: true } })).map((m) => m.id))
+      aluno.matriculas = aluno.matriculas.filter((m) => vis.has(m.id))
+    }
     return { aluno }
   })
 
@@ -249,9 +260,11 @@ export async function acaAlunoRoutes(app: FastifyInstance) {
   })
 
   // ── GET /aca/meta — atalhos p/ a UI (turma-piloto, contadores) ──
-  app.get('/api/admin/aca/meta', { preHandler: authMiddleware }, async () => {
+  app.get('/api/admin/aca/meta', { preHandler: authMiddleware }, async (req) => {
+    // Acesso por portal: conta só os alunos que a pessoa enxerga.
+    const recorte = whereAlunos(await alcanceDaRequisicao(req))
     const [alunos, turmas] = await Promise.all([
-      prisma.aluno.count(),
+      prisma.aluno.count(recorte ? { where: recorte } : undefined),
       prisma.acaTurma.count({ where: { ativo: true } }),
     ])
     return { alunos, turmas }

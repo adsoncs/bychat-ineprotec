@@ -5,6 +5,7 @@ import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { buildLeadAccessWhere } from '../lib/teamAccess.js'
 import { computeHelpdeskReport } from '../services/helpdesk.js'
 import * as edu from '../services/educationalMetrics.js'
+import { alcanceDaRequisicao, whereInscricoes, wherePortais } from '../lib/portalAccess.js'
 
 // Rótulos PT p/ os widgets do helpdesk (espelham a UI do módulo).
 const HD_STATUS_LABEL: Record<string, string> = { new: 'Novo', open: 'Aberto', pending: 'Pendente', on_hold: 'Em espera', solved: 'Resolvido', closed: 'Fechado' }
@@ -201,6 +202,13 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
   app.post('/api/admin/widget-data', { preHandler: authMiddleware }, async (req) => {
     const { metric, config } = req.body as { metric: string; config?: any }
     const cfg = config || {}
+    // Acesso por portal (lib/portalAccess): as métricas do Educacional contam
+    // só o que a pessoa enxerga. Vem do servidor, nunca do corpo do pedido.
+    const alcPortais = await alcanceDaRequisicao(req)
+    const recorteInsc = whereInscricoes(alcPortais)
+    const recortePortais = wherePortais(alcPortais)
+    delete cfg.recorteInscricoes
+    if (recorteInsc) cfg.recorteInscricoes = recorteInsc
 
     // Build date filter
     const dateFilter: any = {}
@@ -1034,7 +1042,8 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'portals_total': {
         // Com período, conta os portais criados no intervalo (quantos portais
         // entraram no ar); sem período, o catálogo inteiro.
-        const at = hasDate ? { createdAt: dateFilter } : {}
+        const at: any = hasDate ? { createdAt: dateFilter } : {}
+        if (recortePortais) at.AND = [recortePortais]
         const [total, active] = await Promise.all([
           prisma.enrollmentPortal.count({ where: at }),
           prisma.enrollmentPortal.count({ where: { active: true, ...at } }),
@@ -1056,6 +1065,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'registrations_by_status': {
         const regWhere: any = {}
         if (hasDate) regWhere.createdAt = dateFilter
+        if (recorteInsc) regWhere.AND = [recorteInsc]
         const counts = await prisma.enrollmentRegistration.groupBy({
           by: ['status'],
           where: regWhere,
@@ -1083,6 +1093,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'registrations_by_source': {
         const regWhere: any = {}
         if (hasDate) regWhere.createdAt = dateFilter
+        if (recorteInsc) regWhere.AND = [recorteInsc]
         const counts = await prisma.enrollmentRegistration.groupBy({
           by: ['utmSource'],
           where: regWhere,
@@ -1098,6 +1109,7 @@ export async function userDashboardsRoutes(app: FastifyInstance) {
       case 'registrations_recent': {
         const regWhere: any = {}
         if (hasDate) regWhere.createdAt = dateFilter
+        if (recorteInsc) regWhere.AND = [recorteInsc]
         const regs = await prisma.enrollmentRegistration.findMany({
           where: regWhere,
           select: {

@@ -285,6 +285,7 @@ export const sidebarSchema: SidebarSchema = {
         { id: 'edu-portal-financeiro', label: 'Financeiro do portal', href: '/app/educational/portal-financeiro', icon: 'Wallet', permission: 'edu_financeiro_portal' },
         { id: 'edu-cupons', label: 'Cupons', href: '/app/educational/cupons', icon: 'Tag', permission: 'edu_cupons' },
         { id: 'edu-contratos', label: 'Contratos', href: '/app/educational/contratos', icon: 'FileSignature', permission: 'edu_contratos' },
+        { id: 'edu-acesso-portais', label: 'Acesso por portal', href: '/app/educational/acesso-portais', icon: 'ShieldCheck', permission: 'edu_acesso_portais' },
         { id: 'edu-geral', label: 'Configurações Gerais', href: '/app/educational/configuracoes', icon: 'SlidersHorizontal', permission: 'edu_configuracoes' },
       ],
       initiallyCollapsed: true,
@@ -411,6 +412,19 @@ export const buscaExtra: SidebarItem[] = [
  * destinos de lá apontam para uma aba (`/app/settings?tab=…`) e virariam rota
  * inválida. Para busca, use `itensDeBusca()`.
  */
+/**
+ * Acesso por portal (backend lib/portalRotasTabela.ts): para quem vê só parte
+ * dos portais, as telas que reúnem todos os portais respondem 403 — o menu as
+ * esconde. No ERP ficam só as telas que recortam por aluno/matrícula.
+ */
+const ERP_RECORTAVEL = new Set(['/app/aca/alunos', '/app/aca/matriculas', '/app/aca/ged', '/app/aca/assinatura'])
+const SOMENTE_TODOS_PORTAIS = new Set(['educational', 'edu-portal-financeiro', 'edu-cupons', 'aca-funil-matriculas', 'integ-sei', 'edu-acesso-portais'])
+export function somenteQuemVeTodosOsPortais(item: Pick<SidebarItem, 'id' | 'href'>): boolean {
+  if (SOMENTE_TODOS_PORTAIS.has(item.id)) return true
+  const base = item.href.split('?')[0]!
+  return base.startsWith('/app/aca/') && !ERP_RECORTAVEL.has(base)
+}
+
 export function flattenItems(schema: SidebarSchema = sidebarSchema): SidebarItem[] {
   return [...schema.pinned, ...schema.groups.flatMap((g) => g.items), ...schema.footer]
 }

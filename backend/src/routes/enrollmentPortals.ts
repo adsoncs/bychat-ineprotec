@@ -51,6 +51,7 @@ import { normalizarSeoTelas } from '../lib/portalSeo.js'
 import { lerEduGeral, vestirMarca, salvarHeranca, herancaDoPortal, esquecerHeranca } from '../lib/eduGeral.js'
 import { campoCondicionalAtende } from '../services/docCondicional.js'
 import { guardTela } from '../lib/eduTelas.js'
+import { alcanceDaRequisicao, wherePortais, whereInscricoes } from '../lib/portalAccess.js'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -605,21 +606,29 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
   // GET /api/admin/enrollment-portals — listar
   // GET /source-labels — mapa id→"Nome da origem". Resolve o `source =
   // enrollment_portal:<id>` em Leads/Kanban/Conversas (espelho de /api/forms/source-labels).
-  app.get('/api/admin/enrollment-portals/source-labels', { preHandler: guardTela('login') }, async () => {
-    const rows = await prisma.enrollmentPortal.findMany({ select: { id: true, sourceLabel: true }, orderBy: { id: 'asc' } })
+  app.get('/api/admin/enrollment-portals/source-labels', { preHandler: guardTela('login') }, async (req) => {
+    const alc = await alcanceDaRequisicao(req)
+    const wp = wherePortais(alc)
+    const rows = await prisma.enrollmentPortal.findMany({ where: wp ?? {}, select: { id: true, sourceLabel: true }, orderBy: { id: 'asc' } })
     const items = rows
       .map((r) => ({ id: r.id, name: (r.sourceLabel ?? '').trim() }))
       .filter((r) => r.name)
     return { items }
   })
 
-  app.get('/api/admin/enrollment-portals', { preHandler: guardTela('login') }, async () => {
+  app.get('/api/admin/enrollment-portals', { preHandler: guardTela('login') }, async (req) => {
+    // Acesso por portal: só os portais visíveis, e a contagem só do que a
+    // pessoa vê (o membro de um portal restrito conta só os próprios leads).
+    const alc = await alcanceDaRequisicao(req)
+    const wp = wherePortais(alc)
+    const wr = whereInscricoes(alc)
     const portals = await prisma.enrollmentPortal.findMany({
+      where: wp ?? {},
       orderBy: { createdAt: 'desc' },
       include: {
         unit: { select: { id: true, nome: true } },
         team: { select: { id: true, name: true, color: true } },
-        _count: { select: { registrations: true } },
+        _count: { select: { registrations: wr ? { where: wr } : true } },
       },
     })
     return { portals }
@@ -1168,6 +1177,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const limit  = Math.min(Math.max(parseInt(q.limit)  || 50, 1), 200)
     const offset = Math.max(parseInt(q.offset) || 0, 0)
     const where: any = { portalId }
+    // Acesso por portal: em portal restrito, o membro vê só os próprios leads.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [recorte]
+    const doRecorte = recorte ? { AND: [recorte] } : {}
     // Mesclada é passado de uma mesclagem: só aparece quando pedida.
     // `situacao` (filtro da lista): cancelada/expirada/mesclada vêm do status;
     // "em andamento" e "etapas concluídas" saem das etapas (calculadas abaixo).
@@ -1298,13 +1311,13 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
       }),
       totalFiltrado != null ? Promise.resolve(totalFiltrado) : prisma.enrollmentRegistration.count({ where }),
       prisma.enrollmentRegistration.count({
-        where: { portalId, createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+        where: { portalId, ...doRecorte, createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
       }),
       prisma.enrollmentRegistration.count({
-        where: { portalId, createdAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
+        where: { portalId, ...doRecorte, createdAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
       }),
       prisma.enrollmentRegistration.count({
-        where: { portalId, status: { in: ['enrolled', 'approved'] } },
+        where: { portalId, ...doRecorte, status: { in: ['enrolled', 'approved'] } },
       }),
     ])
 
@@ -1317,14 +1330,20 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     return {
       items: items.map((r) => ({ ...r, duplicidade: duplicidade.get(r.id) ?? 0, etapas: etapasDaLinha(r.id) })),
       total, portal, colunas,
-      kpis: { total, today: todayCount, week: weekCount, conversions, duplicidades: duplicidade.size },
+      kpis: {
+        total, today: todayCount, week: weekCount, conversions,
+        duplicidades: recorte
+          ? await prisma.enrollmentRegistration.count({ where: { AND: [recorte, { id: { in: [...duplicidade.keys(), -1] } }] } })
+          : duplicidade.size,
+      },
     }
   })
 
   // ── Duplicidade de inscrições no portal (services/inscricaoDuplicada) ──
   app.get('/api/admin/enrollment-portals/:id/duplicates', { preHandler: guardTela('login') }, async (req) => {
     const { gruposDeDuplicidade } = await import('../services/inscricaoDuplicada.js')
-    return { grupos: await gruposDeDuplicidade(parseInt((req.params as any).id)) }
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    return { grupos: await gruposDeDuplicidade(parseInt((req.params as any).id), recorte) }
   })
 
   app.post('/api/admin/enrollment-portals/:id/duplicates/merge', { preHandler: guardTela('admin') }, async (req, reply) => {
@@ -1359,6 +1378,8 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     const { id } = req.params as any
     const q = req.query as any
     const where: any = { portalId: parseInt(id) }
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [recorte]
     // Como na lista: mesclada só sai quando pedida.
     if (q.status) where.status = q.status
     else where.status = { not: 'merged' }
@@ -4484,8 +4505,10 @@ export async function enrollmentPortalsRoutes(app: FastifyInstance) {
     // Se portalId não veio no query, descobre a partir do lead:
     // EnrollmentRegistration mais recente do lead (caso já tenha inscrição em algum portal).
     if (!portalId) {
+      // Acesso por portal: a mais recente entre as que a pessoa vê.
+      const recorte = whereInscricoes(await alcanceDaRequisicao(req))
       const reg = await prisma.enrollmentRegistration.findFirst({
-        where: { leadId },
+        where: { leadId, ...(recorte ? { AND: [recorte] } : {}) },
         orderBy: { id: 'desc' },
         select: { portalId: true },
       })

@@ -14,6 +14,7 @@
 //   · manter separadas — a secretaria decidiu que não é duplicidade;
 //   · inscrição aberta — o envio reaproveita em vez de criar outra.
 
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { phoneKey } from '../lib/phone.js'
 import { normalizeCpf } from '../lib/cpf.js'
@@ -94,9 +95,13 @@ function avanco(m: MembroDoGrupo): number {
  * Grupos de possível duplicidade do portal. Inscrições já mescladas ficam de
  * fora (são o passado de uma mesclagem, não uma duplicidade viva).
  */
-export async function gruposDeDuplicidade(portalId: number): Promise<GrupoDeDuplicidade[]> {
+/**
+ * `recorte` (lib/portalAccess.whereInscricoes): quem é recortado por portal só
+ * vê grupos formados pelo que enxerga, e "outros portais" só os que enxerga.
+ */
+export async function gruposDeDuplicidade(portalId: number, recorte: Prisma.EnrollmentRegistrationWhereInput | null = null): Promise<GrupoDeDuplicidade[]> {
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { portalId, status: { not: 'merged' } },
+    where: { portalId, status: { not: 'merged' }, ...(recorte ? { AND: [recorte] } : {}) },
     select: SELECT_INSCRICAO,
     orderBy: { createdAt: 'asc' },
   })
@@ -165,7 +170,7 @@ export async function gruposDeDuplicidade(portalId: number): Promise<GrupoDeDupl
   }
   if (cpfs.size > 0) {
     const fora = await prisma.enrollmentRegistration.findMany({
-      where: { portalId: { not: portalId }, status: { not: 'merged' } },
+      where: { portalId: { not: portalId }, status: { not: 'merged' }, ...(recorte ? { AND: [recorte] } : {}) },
       select: { candidateCode: true, formData: true, portal: { select: { nome: true } } },
       orderBy: { createdAt: 'desc' },
       take: 5000,

@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client'
 import crypto from 'crypto'
 import { promises as fs } from 'fs'
 import { join } from 'path'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { normalizeCpf } from '../lib/cpf.js'
 import { renderBrandingHead, renderBrandFooter } from '../lib/portalBranding.js'
@@ -470,6 +471,9 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
     if (q.aiSuggestion && q.aiSuggestion !== 'all') where.aiSuggestion = String(q.aiSuggestion)
     if (q.aiStatus && q.aiStatus !== 'all') where.aiStatus = String(q.aiStatus)
     if (q.portalId) where.registration = { portalId: parseInt(q.portalId) }
+    // Acesso por portal (lib/portalAccess): documento de inscrição fora do alcance não aparece.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    if (recorte) where.AND = [{ registration: recorte }]
     if (q.q) {
       const term = String(q.q).trim()
       if (term) {
@@ -516,7 +520,7 @@ export async function candidatePortalRoutes(app: FastifyInstance) {
           },
         },
       }),
-      prisma.enrollmentDocument.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.enrollmentDocument.groupBy({ by: ['status'], ...(recorte ? { where: { registration: recorte } } : {}), _count: { _all: true } }),
     ])
     const kpi = { pending: 0, approved: 0, rejected: 0 }
     for (const k of kpiCounts) {

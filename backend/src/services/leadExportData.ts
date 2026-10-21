@@ -9,6 +9,7 @@
 // muitas linhas por lead). Essa forma única alimenta os 4 renderizadores
 // (XLSX/CSV/HTML/PDF) em leadExportRender.ts.
 
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 
 // ── Tipos normalizados ──────────────────────────────────────────────────────
@@ -26,7 +27,12 @@ export interface Dossier {
   blocks: Block[]
 }
 
-interface Ctx { leadIds: number[]; leadsById: Map<number, any> }
+interface Ctx {
+  leadIds: number[]
+  leadsById: Map<number, any>
+  /** Acesso por portal (lib/portalAccess): inscrições fora do alcance não saem no dossiê. */
+  recorteInscricoes?: Prisma.EnrollmentRegistrationWhereInput | null
+}
 
 // Campo de uma ficha kv: rótulo + extrator do lead.
 type LeadField = [string, (lead: any) => any]
@@ -65,10 +71,10 @@ function getPath(obj: any, path: string): any {
 // Bloco de tabela genérico: findMany por leadId → linhas agrupadas por lead.
 async function tableBlock(
   key: string, label: string, model: string, ctx: Ctx, cols: Col[],
-  opts: { orderBy?: any; include?: any } = {},
+  opts: { orderBy?: any; include?: any; where?: any } = {},
 ): Promise<Block> {
   const recs: any[] = await (prisma as any)[model].findMany({
-    where: { leadId: { in: ctx.leadIds } },
+    where: { leadId: { in: ctx.leadIds }, ...(opts.where ? { AND: [opts.where] } : {}) },
     ...(opts.orderBy ? { orderBy: opts.orderBy } : {}),
     ...(opts.include ? { include: opts.include } : {}),
   })
@@ -388,11 +394,11 @@ export const GROUPS: GroupDef[] = [
       await tableBlock('inscricoes_processo', 'Inscrições em processo seletivo', 'processRegistration', ctx, [
         ['codigo', 'Código'], ['status', 'Status'], ['inscritoEm', 'Inscrito em'],
         ['notaClassificacao', 'Nota'], ['posicaoClassificacao', 'Posição'], ['valorPago', 'Valor pago'],
-      ], { orderBy: { createdAt: 'asc' } }),
+      ], { orderBy: { createdAt: 'asc' }, ...(ctx.recorteInscricoes ? { where: { enrollmentRegistration: { is: ctx.recorteInscricoes } } } : {}) }),
       await tableBlock('matriculas', 'Inscrições/Matrículas', 'enrollmentRegistration', ctx, [
         ['candidateCode', 'Código'], ['status', 'Status'], ['paymentStatus', 'Pagamento'],
         ['paymentAmount', 'Valor'], ['paymentMethod', 'Método'], ['paidAt', 'Pago em'],
-      ], { orderBy: { createdAt: 'asc' } }),
+      ], { orderBy: { createdAt: 'asc' }, ...(ctx.recorteInscricoes ? { where: ctx.recorteInscricoes } : {}) }),
     ],
   },
   {
@@ -432,7 +438,7 @@ export function listSections() {
 }
 
 // ── Coleta principal ────────────────────────────────────────────────────────
-export async function collectDossier(leadIds: number[], sectionIds: string[]): Promise<Dossier> {
+export async function collectDossier(leadIds: number[], sectionIds: string[], recorteInscricoes: Prisma.EnrollmentRegistrationWhereInput | null = null): Promise<Dossier> {
   const leads = await prisma.lead.findMany({
     where: { id: { in: leadIds } },
     include: { funnel: true, assignedUser: true, team: true, lostReason: true },
@@ -440,7 +446,7 @@ export async function collectDossier(leadIds: number[], sectionIds: string[]): P
   const leadsById = new Map<number, any>(leads.map(l => [l.id, l]))
   // Preserva a ordem pedida.
   const orderedLeads = leadIds.map(id => leadsById.get(id)).filter(Boolean)
-  const ctx: Ctx = { leadIds: orderedLeads.map(l => l.id), leadsById }
+  const ctx: Ctx = { leadIds: orderedLeads.map(l => l.id), leadsById, recorteInscricoes }
 
   const wanted = new Set(sectionIds.length ? sectionIds : ALL_SECTION_IDS)
   const blocks: Block[] = []

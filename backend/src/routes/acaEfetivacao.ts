@@ -3,6 +3,7 @@
 // Vive no overlay (é ERP): tenant sem módulo acadêmico não tem estas rotas.
 
 import { FastifyInstance } from 'fastify'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import { efetivarInscricao } from '../services/acaEfetivacao.js'
@@ -79,8 +80,13 @@ export async function acaEfetivacaoRoutes(app: FastifyInstance) {
   // Quem terminou a inscrição e ainda não tem matrícula no ERP.
   app.get('/api/admin/aca/inscricoes-portal', { preHandler: authMiddleware }, async (req) => {
     const status = String((req.query as any)?.status || '').trim()
+    // Acesso por portal (lib/portalAccess): só inscrições que a pessoa vê.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
     const regs = await prisma.enrollmentRegistration.findMany({
-      where: status ? { status } : { status: { notIn: ['enrolled', 'cancelled', 'expired', 'rejected'] } },
+      where: {
+        ...(status ? { status } : { status: { notIn: ['enrolled', 'cancelled', 'expired', 'rejected'] } }),
+        ...(recorte ? { AND: [recorte] } : {}),
+      },
       orderBy: { id: 'desc' },
       take: 100,
       select: {

@@ -3,6 +3,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { Prisma } from '@prisma/client'
+import { alcanceDaRequisicao, idsDeInscricoesVisiveis, whereAlunos, whereInscricoes, whereMatriculas } from '../lib/portalAccess.js'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware } from '../lib/auth.js'
 import * as svc from '../services/acaAssinatura.js'
@@ -23,12 +24,13 @@ const listaDeIds = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(Number)
  * histórico da instituição: se ela listasse só envelopes, uma assinatura feita
  * pelo Portal simplesmente não apareceria em lugar nenhum do ERP.
  */
-async function aceitesDoPortal(q: any) {
+async function aceitesDoPortal(q: any, recorteMatricula: Prisma.AcaMatriculaWhereInput | null = null) {
   // O filtro por status da tela é o do envelope; um aceite só entra na lista
   // quando ela não está filtrando por outro status que não "ASSINADO".
   if (q.status && q.status !== 'ASSINADO') return []
   const where: any = { aceiteEm: { not: null } }
   if (q.alunoId) where.matricula = { alunoId: Number(q.alunoId) }
+  if (recorteMatricula) where.matricula = { ...(where.matricula ?? {}), ...recorteMatricula }
   const rows = await prisma.acaContrato.findMany({
     where, orderBy: { aceiteEm: 'desc' }, take: 200,
     select: {
@@ -211,6 +213,9 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
   app.get(`${base}/inscricoes`, { preHandler: guardTela('login') }, async (req) => {
     const q = (req.query as any) || {}
     const portalId = Number(q.portalId) || undefined
+    // Acesso por portal (lib/portalAccess): só contratos de inscrições que a pessoa vê.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
+    const doRecorte = recorte ? { AND: [recorte] } : {}
     const envs = await prisma.acaAssinatura.findMany({
       where: { registrationId: { not: null }, status: { not: 'CANCELADO' } },
       orderBy: { id: 'desc' }, take: 500,
@@ -219,11 +224,11 @@ function rotasDosContratosDasInscricoes(app: FastifyInstance) {
     })
     const regIds = [...new Set(envs.map((e) => e.registrationId!))]
     const comAceite = await prisma.enrollmentRegistration.findMany({
-      where: { NOT: [{ contratoAceite: { equals: Prisma.DbNull } }, { id: { in: regIds.length ? regIds : [-1] } }], ...(portalId ? { portalId } : {}) },
+      where: { NOT: [{ contratoAceite: { equals: Prisma.DbNull } }, { id: { in: regIds.length ? regIds : [-1] } }], ...(portalId ? { portalId } : {}), ...doRecorte },
       select: { id: true }, take: 500, orderBy: { id: 'desc' },
     }).catch(() => [])
     const regs = await prisma.enrollmentRegistration.findMany({
-      where: { id: { in: [...regIds, ...comAceite.map((r) => r.id)] }, ...(portalId ? { portalId } : {}) },
+      where: { id: { in: [...regIds, ...comAceite.map((r) => r.id)] }, ...(portalId ? { portalId } : {}), ...doRecorte },
       select: { id: true, candidateCode: true, portalId: true, contratoAceite: true, lead: { select: { nome: true } }, portal: { select: { nome: true } },
         processRegistration: { select: { offering: { select: { nome: true } } } } },
     })
@@ -294,6 +299,24 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
     const where: any = {}
     if (q.status) where.status = q.status
     if (q.alunoId) where.alunoId = Number(q.alunoId)
+    // Acesso por portal (lib/portalAccess): o envelope é visível pela inscrição,
+    // pela matrícula ou pelo aluno — o mesmo caminho que a trava usa no detalhe.
+    const alc = await alcanceDaRequisicao(req)
+    const recorteMat = await whereMatriculas(alc)
+    const regIds = await idsDeInscricoesVisiveis(alc)
+    if (regIds && recorteMat) {
+      const wa = whereAlunos(alc)
+      const [mats, alunosVis] = await Promise.all([
+        prisma.acaMatricula.findMany({ where: recorteMat, select: { id: true } }),
+        prisma.aluno.findMany({ where: wa ?? {}, select: { id: true } }),
+      ])
+      const um = (xs: number[]) => (xs.length ? xs : [-1])
+      where.AND = [{ OR: [
+        { registrationId: { in: um(regIds) } },
+        { registrationId: null, matriculaId: { in: um(mats.map((m) => m.id)) } },
+        { registrationId: null, matriculaId: null, alunoId: { in: um(alunosVis.map((a) => a.id)) } },
+      ] }]
+    }
     const rows = await prisma.acaAssinatura.findMany({
       where, orderBy: { id: 'desc' }, take: 200,
       include: { signatarios: { select: { id: true, status: true } } },
@@ -308,7 +331,7 @@ export async function acaAssinaturaRoutes(app: FastifyInstance) {
         ra: r.alunoId ? aMap.get(r.alunoId)?.ra ?? null : null,
         totalSignatarios: r.signatarios.length, assinados: r.signatarios.filter((s) => s.status === 'ASSINADO').length,
       })),
-      aceites: await aceitesDoPortal(q),
+      aceites: await aceitesDoPortal(q, recorteMat),
     }
   })
 

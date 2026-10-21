@@ -6,6 +6,7 @@
 
 import { FastifyInstance } from 'fastify'
 import { prisma } from '../lib/prisma.js'
+import { alcanceDaRequisicao, whereInscricoes } from '../lib/portalAccess.js'
 import { authMiddleware, adminOnly } from '../lib/auth.js'
 import { verifyCandidateToken, signCandidateToken, ondeDoToken } from '../lib/candidateAuth.js'
 import { contaDaRequisicao } from '../lib/portalSession.js'
@@ -351,6 +352,8 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
   // da análise. `habilitada` = algum portal tem a etapa — sem isso a aba some.
   app.get('/api/admin/analises-academicas', { preHandler: guardTela('login') }, async (req) => {
     const qy = (req.query as any) || {}
+    // Acesso por portal (lib/portalAccess): só análises de inscrições que a pessoa vê.
+    const recorte = whereInscricoes(await alcanceDaRequisicao(req))
     const filtro = String(qy.situacao || 'abertas')
     const busca = String(qy.q || '').trim().toLowerCase()
     // Abas por tipo de análise: ENEM (boletim), portador de diploma (aprovação
@@ -379,7 +382,7 @@ export async function portalJornadaRoutes(app: FastifyInstance) {
     }
     if (!portais.length) return vazio
     const regs = await prisma.enrollmentRegistration.findMany({
-      where: { portalId: { in: portais.map((p) => p.id) }, status: { not: 'merged' } },
+      where: { portalId: { in: portais.map((p) => p.id) }, status: { not: 'merged' }, ...(recorte ? { AND: [recorte] } : {}) },
       orderBy: { id: 'desc' }, take: 400,
       select: {
         id: true, candidateCode: true, status: true, createdAt: true, formData: true,

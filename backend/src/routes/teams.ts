@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { moveToTrash, snapshotEntity } from '../services/trash.js'
 import { authMiddleware, adminOnly, type JwtPayload } from '../lib/auth.js'
 import { isAdminRole, isTeamLeader } from '../lib/teamAccess.js'
+import { invalidarAcessoPortais } from '../lib/portalAccess.js'
 
 // Guard: permite ADMIN/SUPERADMIN OU líder do setor específico (rota tem :id).
 // Para uso em endpoints de gestão de membros (POST/PUT/DELETE /admin/teams/:id/members[/:userId]).
@@ -156,6 +157,8 @@ export async function teamsRoutes(app: FastifyInstance) {
         data,
         select: TEAM_SELECT,
       })
+      // Equipe ativada/desativada muda quem vê os portais restritos.
+      invalidarAcessoPortais()
       return { ok: true, team }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Equipe não encontrada' })
@@ -177,6 +180,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         })
       }
       await prisma.team.delete({ where: { id: parseInt(id) } })
+      invalidarAcessoPortais()
       return { ok: true }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Equipe não encontrada' })
@@ -256,6 +260,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       data: { teamId, userId, isLeader: !!body.isLeader },
       select: MEMBER_SELECT,
     })
+    invalidarAcessoPortais()
     return reply.code(201).send({ ok: true, member })
   })
 
@@ -274,6 +279,7 @@ export async function teamsRoutes(app: FastifyInstance) {
         data,
         select: MEMBER_SELECT,
       })
+      invalidarAcessoPortais()
       return { ok: true, member }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Membro não encontrado' })
@@ -289,6 +295,7 @@ export async function teamsRoutes(app: FastifyInstance) {
       await prisma.teamMember.delete({
         where: { teamId_userId: { teamId: parseInt(id), userId: parseInt(userId) } },
       })
+      invalidarAcessoPortais()
       return { ok: true }
     } catch (err: any) {
       if (err.code === 'P2025') return reply.code(404).send({ error: 'Membro não encontrado' })

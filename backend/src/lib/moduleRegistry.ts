@@ -645,7 +645,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Alunos (sobre o CRM), inscrições e matrícula com ciclo de vida (máquina de estados). Núcleo de cadastro do aluno.',
     pages: ['acaAlunos', 'acaMatriculas'],
-    routePrefixes: ['/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas', '/api/admin/aca/pessoas'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/funil-matriculas', '/api/admin/aca/conversao-matriculas', '/api/admin/aca/vinculos', '/api/admin/aca/leads', '/api/admin/aca/meta', '/api/admin/aca/formas-ingresso', '/api/admin/aca/ies', '/api/admin/aca/mantenedoras', '/api/admin/aca/modulos','/api/admin/aca/alunos', '/api/admin/aca/inscricoes', '/api/admin/aca/matriculas', '/api/admin/aca/pessoas'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_estrutura'],
   },
@@ -690,7 +693,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Mensalidades/contratos (Asaas), central financeira, encargos (juros/multa/desconto), renegociação, bloqueio acadêmico, recibos e controle de NFS-e.',
     pages: ['acaFinanceiro'],
-    routePrefixes: ['/api/admin/aca/financeiro', '/api/admin/aca/parcelas'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/acordo','/api/admin/aca/financeiro', '/api/admin/aca/parcelas'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
@@ -718,6 +724,9 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description: 'Diário de classe, frequência, avaliações/notas, conselho de classe e fechamento, calendário acadêmico, quadro de horários e plano de ensino & materiais.',
     pages: ['acaDiario', 'acaConselho', 'acaCalendario'],
     routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/esquemas', '/api/admin/aca/equivalencia-grupos', '/api/admin/aca/capacidades', '/api/admin/aca/criterios', '/api/admin/aca/competencia', '/api/admin/aca/afericoes',
       '/api/admin/aca/diarios', '/api/admin/aca/aulas', '/api/admin/aca/avaliacoes',
       '/api/admin/aca/resultados', '/api/admin/aca/conselhos', '/api/admin/aca/eventos',
       '/api/admin/aca/horarios', '/api/admin/aca/materiais', '/api/admin/aca/config',
@@ -739,7 +748,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Cadastro de docentes (titulação/regime/valor-hora), tipos de atividade com fator, atividades docentes mensais com cálculo de valores e aceite/disponibilidade de disciplinas.',
     pages: ['acaDocente'],
-    routePrefixes: ['/api/admin/aca/docente'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/producao-docente','/api/admin/aca/docente'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_pedagogico'],
   },
@@ -749,6 +761,9 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description: 'Histórico escolar, declarações, atas, certificados/egressos, requerimentos (secretaria virtual) e estágio & atividades complementares.',
     pages: ['acaSecretaria', 'acaRequerimentos', 'acaEstagio', 'acaEgressos'],
     routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/qualificacoes', '/api/admin/aca/reconhecimento', '/api/admin/aca/regimes-especiais', '/api/admin/aca/formandos', '/api/admin/aca/lato-sensu', '/api/admin/aca/ppcp', '/api/admin/aca/atos',
       '/api/admin/aca/documentos', '/api/admin/aca/requerimentos', '/api/admin/aca/requerimento-tipos',
       '/api/admin/aca/requerimento-categorias',
       '/api/admin/aca/egressos', '/api/admin/aca/estagio', '/api/admin/aca/atividades', '/api/admin/aca/tcc',
@@ -761,7 +776,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Listas de apoio acadêmicas: áreas de conhecimento, formações, atendimentos especiais (acessibilidade) e tipos de documento.',
     pages: ['acaCadastros'],
-    routePrefixes: ['/api/admin/aca/cadastros'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/importacao','/api/admin/aca/cadastros'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['educacional'],
   },
@@ -779,7 +797,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Gestão eletrônica de documentos do aluno (GED): anexar por link, classificar por tipo e conferir (recebido/conferido/pendente).',
     pages: ['acaGed'],
-    routePrefixes: ['/api/admin/aca/ged'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/acervo','/api/admin/aca/ged'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_secretaria'],
   },
@@ -797,7 +818,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'Avisos automáticos de vencimento (régua de cobrança) e de notas, reusando WhatsApp/e-mail do ByChat.',
     pages: ['acaComunicacao'],
-    routePrefixes: ['/api/admin/aca/comunicacao'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/push','/api/admin/aca/comunicacao'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },
@@ -815,7 +839,10 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     umbrella: 'erp_academico', cobranca: 'pacote',
     description: 'BI acadêmico/financeiro (KPIs) e exportação Censo/SISTEC. Somente leitura — agrega os dados dos demais módulos.',
     pages: ['acaBi', 'acaSistec'],
-    routePrefixes: ['/api/admin/aca/bi', '/api/admin/aca/sistec', '/api/admin/aca/censo'],
+    routePrefixes: [
+      // Rotas que só exigiam login (21/10/2026): passam a cobrar a
+      // permissão do módulo, a mesma que o menu já cobrava.
+      '/api/admin/aca/enade', '/api/admin/aca/evasao','/api/admin/aca/bi', '/api/admin/aca/sistec', '/api/admin/aca/censo'],
     actions: ['view', 'create', 'edit', 'delete'],
     defaultEnabled: false, dependsOn: ['aca_matriculas'],
   },

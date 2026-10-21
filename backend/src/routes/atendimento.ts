@@ -8,7 +8,7 @@ import { authMiddleware, adminStrict } from '../lib/auth.js'
 import { type JwtPayload } from '../lib/auth.js'
 import { logEvent, EVENT_TYPES, getIp, getOperator } from '../services/leadHistory.js'
 import { snapshotLead, moveToTrash } from '../services/trash.js'
-import { canUserAccessLead, getUserTeamIds, isAdminRole, getLeadScope, ramosDoSetor } from '../lib/teamAccess.js'
+import { canUserAccessLead, getUserTeamIds, getUserLeaderTeamIds, isAdminRole, getLeadScope, ramosDoSetor, whereProprioOuLider } from '../lib/teamAccess.js'
 import {
   mapaDeAcesso, filtroDeConversas, permissoesNaConversa, permite, permiteEmAlgumCanal,
   type Acao,
@@ -438,7 +438,7 @@ export async function atendimentoRoutes(app: FastifyInstance) {
 
       let scopeWhere: any = {}
       if (effectiveScope === 'own') {
-        scopeWhere = { assignedUserId: user.userId }
+        scopeWhere = await whereProprioOuLider(user.userId)
       } else if (effectiveScope !== 'all') {
         scopeWhere = { OR: [{ assignedUserId: user.userId }, ...await ramosDoSetor(user.userId)] }
       }
@@ -520,9 +520,19 @@ export async function atendimentoRoutes(app: FastifyInstance) {
         } else {
           scopeWhere = filtroMatriz
         }
-      } else if (requestedScope === 'mine' || effectiveScope === 'own') {
-        // 'mine' explícito OU user com scope='own' → só os próprios.
+      } else if (requestedScope === 'mine') {
         scopeWhere = { assignedUserId: user.userId }
+      } else if (effectiveScope === 'own') {
+        // scope='own': os próprios; o LÍDER também vê os leads dos setores que
+        // lidera (aba Setor = a fila sem dono desses setores).
+        const lider = await getUserLeaderTeamIds(user.userId)
+        if (requestedScope === 'team' && lider.length) {
+          scopeWhere = { teamId: { in: lider }, assignedUserId: null }
+        } else if (requestedScope === 'team') {
+          scopeWhere = { assignedUserId: user.userId }
+        } else {
+          scopeWhere = await whereProprioOuLider(user.userId)
+        }
       } else if (requestedScope === 'team') {
         // 'team' explícito: fila do setor (sem dono).
         // user com scope='own' não chega aqui (filtrado acima).

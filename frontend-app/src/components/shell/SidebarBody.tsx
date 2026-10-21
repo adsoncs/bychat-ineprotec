@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { sidebarSchema, type SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
+import { sidebarSchema, somenteQuemVeTodosOsPortais, type SidebarItem as SidebarItemType } from '@/modules/sidebar.config'
 import { SidebarItem } from './SidebarItem'
 import { SidebarGroup } from './SidebarGroup'
 import { useMyPermissions } from '@/hooks/usePermissions'
@@ -50,6 +50,8 @@ export function SidebarBody({ iconOnly, onNavigate }: SidebarBodyProps) {
     // então módulo desligado não aparece em data.permissions.
     const perm = data.permissions[item.permission]
     if (!perm) return false
+    // Acesso por portal: quem vê só parte dos portais não recebe as visões gerais.
+    if (data.acessoPortal?.recortado && somenteQuemVeTodosOsPortais(item)) return false
     // SUPERADMIN com módulo ativo vê sempre. Outros respeitam canView.
     if (role === 'SUPERADMIN') return true
     return !!perm.canView

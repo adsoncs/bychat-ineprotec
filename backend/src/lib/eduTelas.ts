@@ -88,7 +88,8 @@ export const EDU_TELAS: TelaDef[] = [
     leituraTambem: ['enrollment_portals'] },
   // Mesmo id do módulo: o Portal de Matrículas já tinha permissão própria.
   { id: 'enrollment_portals', name: 'Portal de Matrículas', parent: 'enrollment_portals', menuId: 'enrollment-portals', actions: ['view', 'create', 'edit', 'delete'],
-    rotas: ['/api/admin/enrollment-portals', '/api/admin/enrollment-registrations'] },
+    // portal-accounts: gera o login do candidato — antes só exigia estar logado.
+    rotas: ['/api/admin/enrollment-portals', '/api/admin/enrollment-registrations', '/api/admin/portal-accounts'] },
   { id: 'edu_financeiro_portal', legado: 'admin', name: 'Financeiro do portal', parent: 'enrollment_portals', menuId: 'edu-portal-financeiro', actions: ['view', 'edit'],
     rotas: ['/api/admin/educational/portal-financeiro'] },
   { id: 'edu_cupons', legado: 'leitura', name: 'Cupons', parent: 'enrollment_portals', menuId: 'edu-cupons', actions: ['view', 'create', 'edit', 'delete'],
@@ -97,6 +98,9 @@ export const EDU_TELAS: TelaDef[] = [
     rotas: ['/api/admin/enrollment-portals/contratos'] },
   { id: 'edu_configuracoes', legado: 'admin', name: 'Configurações Gerais', parent: 'enrollment_portals', menuId: 'edu-geral', actions: ['view', 'edit'],
     rotas: ['/api/admin/edu/geral'] },
+  // Quem vê cada portal (polos e parceiros) — lib/portalAccess.ts.
+  { id: 'edu_acesso_portais', legado: 'admin', name: 'Acesso por portal', parent: 'enrollment_portals', menuId: 'edu-acesso-portais', actions: ['view', 'edit'],
+    rotas: ['/api/admin/portal-acesso'] },
 ]
 
 /** GETs que qualquer usuário logado faz fora do Educacional: a lista de

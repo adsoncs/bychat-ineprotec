@@ -5,7 +5,8 @@
 // para o módulo 'leads'. Defaults por role (quando admin não configurou):
 //   SUPERADMIN / ADMIN  → scope='all' (tudo)
 //   MANAGER             → scope='team' (setores do user)
-//   AGENT               → scope='own' (só os atribuídos a si)
+//   AGENT               → scope='own' (só os atribuídos a si; o líder de um
+//                         setor vê também os leads do setor — whereProprioOuLider)
 //   VIEWER              → scope='team' (mas canView=false por default no módulo)
 
 import { prisma } from './prisma.js'
@@ -71,9 +72,21 @@ export async function isTeamLeader(userId: number, teamId: number): Promise<bool
 export async function buildLeadAccessWhere(userId: number, role: AccessRole): Promise<any> {
   const scope = await getLeadScope(userId, role)
   if (scope === 'all') return {}
-  if (scope === 'own') return { assignedUserId: userId }
+  if (scope === 'own') return whereProprioOuLider(userId)
   // 'team': leads dos setores do user OU atribuídos a si (cobre líder que atende).
   return { OR: [{ assignedUserId: userId }, ...await ramosDoSetor(userId)] }
+}
+
+/**
+ * Alcance 'own' ("só meus"): os leads atribuídos a si — e, para o LÍDER de um
+ * setor, todos os leads desse setor. Regra pedida em 21/10/2026: "o líder vê
+ * tudo, o membro vê só o seu". Quem não lidera setor nenhum fica como antes.
+ */
+export async function whereProprioOuLider(userId: number): Promise<any> {
+  const lider = await getUserLeaderTeamIds(userId)
+  return lider.length
+    ? { OR: [{ assignedUserId: userId }, { teamId: { in: lider } }] }
+    : { assignedUserId: userId }
 }
 
 /**
@@ -124,7 +137,15 @@ export async function canUserAccessLead(
   // Sempre permite o dono do lead, independente de scope (cobre transferências
   // que migraram lead pra setor que o user não participa).
   if (lead.assignedUserId === userId) return true
-  if (scope === 'own') return false
+  if (scope === 'own') {
+    // Líder do setor do lead vê o setor inteiro, mesmo com alcance "só meus".
+    if (lead.teamId == null) return false
+    const membro = await prisma.teamMember.findUnique({
+      where: { teamId_userId: { teamId: lead.teamId, userId } },
+      select: { isLeader: true, team: { select: { active: true } } },
+    })
+    return !!membro?.isLeader && membro.team.active
+  }
 
   // scope === 'team' — mesma régua de `ramosDoSetor`.
   if (lead.teamId == null) return false

@@ -4,7 +4,7 @@ import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { Command } from 'cmdk'
 import { useLocation } from 'wouter-preact'
 import { Star, Clock, ArrowRight } from '@/components/ui/icon-set'
-import { itensDeBusca, findItem } from '@/modules/sidebar.config'
+import { itensDeBusca, findItem, somenteQuemVeTodosOsPortais } from '@/modules/sidebar.config'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useRecentsStore } from '@/stores/recents'
 import { useMyPermissions } from '@/hooks/usePermissions'
@@ -30,10 +30,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   //   - item.permission é undefined (item sempre público), OU
   //   - permissions[item.permission].canView === true E o módulo está em modules[]
   // Backend já filtra modules[] pelos ativos, então basta verificar que está lá.
-  function canAccessItem(item: { permission?: string }): boolean {
+  function canAccessItem(item: { id: string; href: string; permission?: string }): boolean {
     if (role === 'SUPERADMIN') return true
     if (!item.permission) return true
     if (!permsData) return true  // fail-open enquanto carrega (evita esconder tudo)
+    // Acesso por portal: as visões que reúnem todos os portais somem da busca também.
+    if (permsData.acessoPortal?.recortado && somenteQuemVeTodosOsPortais(item)) return false
     const isActive = permsData.modules.some((m) => m.id === item.permission)
     if (!isActive) return false
     const perm = permsData.permissions[item.permission]

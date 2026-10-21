@@ -47,6 +47,7 @@ import { preferencesRoutes } from './routes/preferences.js'
 import { salesCadencesRoutes } from './routes/salesCadences.js'
 import { enrollmentPortalsRoutes } from './routes/enrollmentPortals.js'
 import { eduGeralRoutes } from './routes/eduGeral.js'
+import { portalAcessoRoutes } from './routes/portalAcesso.js'
 import { enrollmentPortalPublicRoutes } from './routes/enrollmentPortalPublic.js'
 import { candidatePortalRoutes } from './routes/candidatePortal.js'
 import { portalAuthRoutes } from './routes/portalAuth.js'
@@ -184,6 +185,8 @@ import { startEnrichmentRerunJob } from './services/enrichmentRerunJob.js'
 import { startLossReasonSpikeWatcher } from './services/lossReasonSpike.js'
 import { isIpBlocked, checkRateLimit, checkAuthRateLimit, checkTrackingRateLimit, onRateLimitExceeded, analyzeRequest, startSecurityCleanup, logSecurityEvent } from './services/security.js'
 import { modulePermissionHook } from './lib/permissions.js'
+import { portalAccessHook } from './lib/portalGuard.js'
+import { acessoValido, assinarLinksNoTexto, ehProtegido } from './lib/arquivoProtegido.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -203,6 +206,22 @@ const app = Fastify({
     },
   },
   trustProxy: true
+})
+
+// Inventário das rotas: a bateria de acesso por portal (tests/acesso-por-portal)
+// pergunta ao servidor quais rotas existem, em vez de manter uma lista à mão que
+// envelhece — rota nova entra no teste sozinha. Só o SUPERADMIN lê.
+const ROTAS_REGISTRADAS: Array<{ method: string; url: string }> = []
+app.addHook('onRoute', (r) => {
+  for (const m of [r.method].flat()) ROTAS_REGISTRADAS.push({ method: String(m), url: r.url })
+})
+app.get('/api/admin/_rotas', async (req, reply) => {
+  const { verifyToken } = await import('./lib/auth.js')
+  const bruto = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+  let u: { role?: string } | null = null
+  try { u = bruto ? verifyToken(bruto) : null } catch { u = null }
+  if (!u || u.role !== 'SUPERADMIN') return reply.code(404).send({ error: 'Not found' })
+  return { rotas: ROTAS_REGISTRADAS }
 })
 
 // ── CORS ─────────────────────────────────────
@@ -432,6 +451,25 @@ if (portalAppDisponivel()) {
 // PDF, imagem, áudio, vídeo e documentos são inertes para o DOM da página: o
 // que os protege é o `nosniff` acima, não a sandbox.
 const ARQUIVO_EXECUTAVEL = /\.(svgz?|html?|xht|xhtml|xml)$/i
+
+// Documentos de candidato e contratos (lib/arquivoProtegido.ts): o estático só
+// entrega com link assinado; as respostas da API saem com os links assinados.
+app.addHook('onRequest', async (req, reply) => {
+  if (!req.url.startsWith('/uploads/')) return
+  const [caminho, qs] = req.url.split('?') as [string, string | undefined]
+  let decodificado = caminho
+  try { decodificado = decodeURIComponent(caminho) } catch { /* fica o cru */ }
+  if (!ehProtegido(decodificado) && !ehProtegido(caminho)) return
+  const acesso = new URLSearchParams(qs ?? '').get('acesso') ?? undefined
+  if (!acessoValido(decodificado, acesso)) return reply.code(404).send({ error: 'Not found' })
+})
+app.addHook('onSend', async (req, reply, payload) => {
+  if (typeof payload !== 'string' || !req.url.startsWith('/api/')) return payload
+  const tipo = String(reply.getHeader('content-type') ?? '')
+  if (!/json|csv|text\/plain/.test(tipo)) return payload
+  return assinarLinksNoTexto(payload)
+})
+
 await app.register(staticFiles, {
   root: join(__dirname, '../../uploads'),
   prefix: '/uploads/',
@@ -712,6 +750,9 @@ app.addHook('onRequest', async (req, reply) => {
 
 // ── MODULE PERMISSIONS (após auth, antes das rotas) ──
 app.addHook('preHandler', modulePermissionHook)
+// Acesso por portal (lib/portalGuard.ts): depois do gate de módulo/tela, antes
+// do código da rota — recorta inscrição, aluno e matrícula pelo portal.
+app.addHook('preHandler', portalAccessHook)
 
 // ── ROUTES ───────────────────────────────────
 await // ⚠️ ORDEM IMPORTA: este handler precisa vir ANTES do primeiro `app.register`
@@ -791,6 +832,7 @@ await app.register(preferencesRoutes)
 await app.register(salesCadencesRoutes)
 await app.register(enrollmentPortalsRoutes)
 await app.register(eduGeralRoutes)
+await app.register(portalAcessoRoutes)
 await app.register(enrollmentPortalPublicRoutes)
   await app.register(portalAuthRoutes)
 await app.register(candidatePortalRoutes)

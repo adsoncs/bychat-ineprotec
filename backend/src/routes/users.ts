@@ -774,7 +774,12 @@ export async function usersRoutes(app: FastifyInstance) {
       if (!activeIds.has(t.parent)) continue
       modules.push({ id: t.id, name: t.name, icon: '🎓', category: 'edu_telas', pages: [], active: true })
     }
-    return { permissions, modules }
+    // Acesso por portal (lib/portalAccess): recortado = vê só parte dos
+    // portais. O menu esconde as visões que cruzam todos (somenteTodos).
+    const { alcanceDePortais } = await import('../lib/portalAccess.js')
+    const alc = await alcanceDePortais(user.userId, user.role)
+    const acessoPortal = { recortado: !alc.todos && alc.restritos.length > 0 }
+    return { permissions, modules, acessoPortal }
   })
 
   // ── GET /api/admin/module-permissions — Todas as permissões por role ──

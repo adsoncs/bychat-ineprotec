@@ -14,6 +14,7 @@
 // A tela do módulo Educacional sempre mostrou os dois juntos; manter isso é
 // deliberado, para o painel da Tela Inicial bater com o que o cliente já vê.
 
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 
 export interface RecortePeriodo {
@@ -23,7 +24,12 @@ export interface RecortePeriodo {
   prevTo?: string
   groupBy?: 'day' | 'week' | 'month'
   limit?: number
+  /** Acesso por portal (lib/portalAccess.whereInscricoes): só o que a pessoa vê. */
+  recorteInscricoes?: Prisma.EnrollmentRegistrationWhereInput | null
 }
+
+const R = (cfg: RecortePeriodo, where: Prisma.EnrollmentRegistrationWhereInput): Prisma.EnrollmentRegistrationWhereInput =>
+  cfg?.recorteInscricoes ? { AND: [where, cfg.recorteInscricoes] } : where
 
 /** Janela imediatamente anterior, do mesmo tamanho — é o que dá o Δ%. */
 export function periodoAnterior(cfg: RecortePeriodo): { gte: Date; lte: Date } | null {
@@ -51,10 +57,10 @@ function filtroDeData(cfg: RecortePeriodo): { gte?: Date; lte?: Date } | null {
 export async function inscricoesTotal(cfg: RecortePeriodo) {
   const data = filtroDeData(cfg)
   const where: any = data ? { createdAt: data } : {}
-  const total = await prisma.enrollmentRegistration.count({ where })
+  const total = await prisma.enrollmentRegistration.count({ where: R(cfg, where) })
   const anterior = periodoAnterior(cfg)
   if (!anterior) return { value: total }
-  const prev = await prisma.enrollmentRegistration.count({ where: { createdAt: anterior } })
+  const prev = await prisma.enrollmentRegistration.count({ where: R(cfg, { createdAt: anterior }) })
   return { value: total, prev }
 }
 
@@ -64,13 +70,13 @@ export async function inscricoesPagas(cfg: RecortePeriodo) {
   const whereTotal: any = {}
   if (data) { wherePagas.createdAt = data; whereTotal.createdAt = data }
   const [pagas, total] = await Promise.all([
-    prisma.enrollmentRegistration.count({ where: wherePagas }),
-    prisma.enrollmentRegistration.count({ where: whereTotal }),
+    prisma.enrollmentRegistration.count({ where: R(cfg, wherePagas) }),
+    prisma.enrollmentRegistration.count({ where: R(cfg, whereTotal) }),
   ])
   const anterior = periodoAnterior(cfg)
   if (!anterior) return { value: pagas, paid: pagas, total }
   const prev = await prisma.enrollmentRegistration.count({
-    where: { paymentStatus: 'paid', createdAt: anterior },
+    where: R(cfg, { paymentStatus: 'paid', createdAt: anterior }),
   })
   return { value: pagas, paid: pagas, total, prev }
 }
@@ -79,12 +85,12 @@ export async function receitaDoPeriodo(cfg: RecortePeriodo) {
   const data = filtroDeData(cfg)
   const where: any = { paymentStatus: 'paid' }
   if (data) where.createdAt = data
-  const soma = await prisma.enrollmentRegistration.aggregate({ where, _sum: { paymentAmount: true } })
+  const soma = await prisma.enrollmentRegistration.aggregate({ where: R(cfg, where), _sum: { paymentAmount: true } })
   const value = Number(soma._sum.paymentAmount || 0)
   const anterior = periodoAnterior(cfg)
   if (!anterior) return { value, format: 'currency' as const }
   const antes = await prisma.enrollmentRegistration.aggregate({
-    where: { paymentStatus: 'paid', createdAt: anterior },
+    where: R(cfg, { paymentStatus: 'paid', createdAt: anterior }),
     _sum: { paymentAmount: true },
   })
   return { value, format: 'currency' as const, prev: Number(antes._sum.paymentAmount || 0) }
@@ -94,8 +100,8 @@ export async function taxaDeConversao(cfg: RecortePeriodo) {
   const data = filtroDeData(cfg)
   const where: any = data ? { createdAt: data } : {}
   const [total, pagas] = await Promise.all([
-    prisma.enrollmentRegistration.count({ where }),
-    prisma.enrollmentRegistration.count({ where: { ...where, paymentStatus: 'paid' } }),
+    prisma.enrollmentRegistration.count({ where: R(cfg, where) }),
+    prisma.enrollmentRegistration.count({ where: R(cfg, { ...where, paymentStatus: 'paid' }) }),
   ])
   return { value: total > 0 ? Math.round((pagas / total) * 100) : 0, paid: pagas, total }
 }
@@ -107,7 +113,7 @@ export async function inscricoesPorDia(cfg: RecortePeriodo) {
   const janela = data ?? { gte: new Date(Date.now() - padrao * 86400000) }
 
   const regs = await prisma.enrollmentRegistration.findMany({
-    where: { createdAt: janela },
+    where: R(cfg, { createdAt: janela }),
     select: { createdAt: true, paymentStatus: true },
     orderBy: { createdAt: 'asc' },
   })
@@ -142,7 +148,7 @@ export async function inscricoesPorPortal(cfg: RecortePeriodo) {
   const where: any = data ? { createdAt: data } : {}
   const contagens = await prisma.enrollmentRegistration.groupBy({
     by: ['portalId'],
-    where,
+    where: R(cfg, where),
     _count: { _all: true },
   })
   const portais = await prisma.enrollmentPortal.findMany({
