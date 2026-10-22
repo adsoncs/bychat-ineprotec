@@ -557,6 +557,7 @@ export interface AjustesRoteamento {
   setorPeloRodizio: boolean
   varreduraSemDono: boolean
   inscricaoHerdaDono: boolean
+  perdidoSemDono: boolean
 }
 
 export function useAjustesRoteamento() {

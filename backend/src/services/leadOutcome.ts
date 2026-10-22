@@ -301,6 +301,11 @@ export async function markLeadLost(input: MarkLostInput): Promise<{ leadId: numb
     })
   }
 
+  // Regra de roteamento (Cadastros › Roteamento): perdido num funil com etapa
+  // de Perdido volta ao sistema sem responsável.
+  const { liberarDonoDoPerdido } = await import('./leadSemDono.js')
+  await liberarDonoDoPerdido(leadId, userName).catch((e) => console.warn('[leadOutcome] liberar dono:', (e as Error).message))
+
   // Meta Lead Ads Quality Feedback — INVALID se motivo indica spam/fake,
   // NOT_INTERESTED caso contrário. Silencioso quando lead não é de Lead Ads
   // ou a feature está off.

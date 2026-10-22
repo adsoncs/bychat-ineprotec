@@ -60,6 +60,9 @@ export function invalidateRoutingCache() {
 //                          direção recebe alguém (services/leadSemDono.ts).
 //   inscricaoHerdaDono   — a inscrição cai com o responsável que a mesma
 //                          pessoa já tem em outra ficha (leadSemDono.ts).
+//   perdidoSemDono       — lead marcado Perdido num funil com etapa de
+//                          Perdido volta ao sistema sem responsável
+//                          (leadSemDono.liberarDonoDoPerdido).
 export interface AjustesRoteamento {
   presencaMinutos: number
   rodizioJusto: boolean
@@ -69,6 +72,7 @@ export interface AjustesRoteamento {
   setorPeloRodizio: boolean
   varreduraSemDono: boolean
   inscricaoHerdaDono: boolean
+  perdidoSemDono: boolean
 }
 export const CHAVES_AJUSTES = {
   presencaMinutos: 'routing.presenca.minutos',
@@ -79,6 +83,7 @@ export const CHAVES_AJUSTES = {
   setorPeloRodizio: 'routing.transferencia.rodizio',
   varreduraSemDono: 'routing.varreduraSemDono',
   inscricaoHerdaDono: 'routing.inscricaoHerdaDono',
+  perdidoSemDono: 'routing.perdidoSemDono',
 } as const
 let _ajustesCache: { ajustes: AjustesRoteamento; expiresAt: number } | null = null
 
@@ -95,6 +100,7 @@ export async function getAjustesRoteamento(): Promise<AjustesRoteamento> {
     setorPeloRodizio: readBoolSetting(v.get(CHAVES_AJUSTES.setorPeloRodizio), false),
     varreduraSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.varreduraSemDono), false),
     inscricaoHerdaDono: readBoolSetting(v.get(CHAVES_AJUSTES.inscricaoHerdaDono), false),
+    perdidoSemDono: readBoolSetting(v.get(CHAVES_AJUSTES.perdidoSemDono), false),
   }
   _ajustesCache = { ajustes, expiresAt: Date.now() + CACHE_TTL_MS }
   return ajustes

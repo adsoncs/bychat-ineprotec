@@ -51,6 +51,15 @@ export function comoEncaminhamentoDeEquipe<T>(fn: () => Promise<T>): Promise<T> 
   return contexto.run({ userId: 0, admin: true }, async () => await fn())
 }
 
+/**
+ * Regra de roteamento configurada pelo admin que TIRA o responsável (ex.: lead
+ * perdido volta ao sistema — chave routing.perdidoSemDono). Passa pela trava
+ * do dono fixo porque foi o cliente que ligou a regra.
+ */
+export function comoRegraDeRoteamento<T>(fn: () => Promise<T>): Promise<T> {
+  return contexto.run({ userId: 0, admin: true }, async () => await fn())
+}
+
 export function atorDaTroca(): AtorDaTroca | null {
   return contexto.getStore() ?? null
 }

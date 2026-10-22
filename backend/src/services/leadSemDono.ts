@@ -228,3 +228,30 @@ export async function distribuirLeadsSemDono(opts: { soLeadIds?: number[] } = {}
   }
   return out
 }
+
+/**
+ * Lead marcado Perdido num funil que tem a etapa de Perdido configurada volta
+ * ao sistema sem responsável (chave routing.perdidoSemDono). A equipe fica: se
+ * o contato voltar a escrever, o rodízio dela entrega de novo (chave
+ * redistribuirSemDono); a varredura não pega perdido (só lead em aberto).
+ */
+export async function liberarDonoDoPerdido(leadId: number, quem?: string | null): Promise<boolean> {
+  const ajustes = await getAjustesRoteamento()
+  if (!ajustes.perdidoSemDono) return false
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { funnelId: true, assignedUserId: true, outcome: true, assignedUser: { select: { name: true } } } })
+  if (!lead?.assignedUserId || lead.outcome !== 'lost' || !lead.funnelId) return false
+  const etapaPerdido = await prisma.stage.findFirst({ where: { funnelId: lead.funnelId, terminalKind: 'lost' }, select: { id: true } })
+  if (!etapaPerdido) return false
+  const { comoRegraDeRoteamento } = await import('../lib/donoDoLead.js')
+  const r = await comoRegraDeRoteamento(() => prisma.lead.updateMany({ where: { id: leadId, assignedUserId: lead.assignedUserId }, data: { assignedUserId: null, assignedAt: null } }))
+  if (!r.count) return false
+  logEvent({
+    leadId,
+    type: 'operator_released',
+    category: 'operator',
+    title: `Perdido: lead devolvido ao sistema sem responsável (estava com ${lead.assignedUser?.name ?? '#' + lead.assignedUserId})`,
+    actorType: 'system',
+    metadata: { previousAssignedUserId: lead.assignedUserId, motivo: 'perdido_sem_dono', por: quem ?? null },
+  } as any)
+  return true
+}
