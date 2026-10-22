@@ -32,6 +32,9 @@ export interface Oferta {
   pagamento?: {
     aPartirDe: number
     sufixo: string
+    /** Resumo curto: menor parcela no cartão (maior parcelamento) e menor à vista. */
+    parcelado?: { vezes: number; valor: number } | null
+    aVista?: number | null
     planos: Array<{ id: number; nome: string; resumo: string; opcoes: Array<{ chave: 'entrada' | 'integral'; rotulo: string; detalhe: string; condicoes: string[] }> }>
     meios: string[]
   } | null

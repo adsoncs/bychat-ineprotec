@@ -946,7 +946,17 @@ function ResumoDaOferta({ oferta, portal, mostrarValor = true, verTodos = null }
       {oferta.turno && !oferta.nome.toLowerCase().includes(String(oferta.turno).toLowerCase())
         && <div class="linha"><span>Turno</span><b>{oferta.turno}</b></div>}
       {taxa && <div class="linha"><span>{rotulo(portal, 'resumoTaxa')}</span><b>{taxa}</b></div>}
-      {plano1 && (
+      {/* Plano com cartão parcelado e preço à vista: só esses dois valores. */}
+      {pagamento && (pagamento.parcelado || pagamento.aVista != null) ? (
+        <>
+          {pagamento.parcelado && (
+            <div class="linha"><span>A partir de</span><b>{pagamento.parcelado.vezes}x de {dinheiro(pagamento.parcelado.valor)}</b></div>
+          )}
+          {pagamento.aVista != null && (
+            <div class="linha"><span>Curso à vista</span><b>{dinheiro(pagamento.aVista)}</b></div>
+          )}
+        </>
+      ) : plano1 && (
         <>
           {pagamento!.planos.length > 1
             ? <div class="linha"><span>Planos de pagamento</span><b>{pagamento!.planos.length} opções</b></div>

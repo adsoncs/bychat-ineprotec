@@ -518,6 +518,26 @@ export function aPartirDe(p: PlanoDaOferta): { valor: number; sufixo: string } {
   return c ? { valor: c.valorParcela, sufixo: ` em ${c.parcelas}x` } : { valor: valorDaOpcao(p, o), sufixo: '' }
 }
 
+/**
+ * As duas linhas do resumo do curso no portal: a menor parcela no cartão (no
+ * maior parcelamento) e o menor preço à vista (Pix ou boleto), do curso completo.
+ */
+function resumoCurto(planos: PlanoDaOferta[]): { parcelado: { vezes: number; valor: number } | null; aVista: number | null } {
+  let parcelado: { vezes: number; valor: number } | null = null
+  let aVista: number | null = null
+  for (const p of planos) {
+    if (!opcoesDoPlano(p).includes('integral')) continue
+    const f = formasDaOpcao(p, 'integral')
+    const c = f.cartao.ativo ? opcoesDoCartao(baseDaForma(p, 'integral', 'cartao'), f.cartao).at(-1) : undefined
+    if (c && c.parcelas > 1 && (!parcelado || c.valorParcela < parcelado.valor)) parcelado = { vezes: c.parcelas, valor: c.valorParcela }
+    for (const v of [
+      f.pix.ativo ? comDesconto(baseDaForma(p, 'integral', 'pix'), f.pix.descontoPct) : null,
+      f.boleto.ativo ? comDesconto(baseDaForma(p, 'integral', 'boleto'), f.boleto.descontoPct) : null,
+    ]) if (v != null && (aVista == null || v < aVista)) aVista = v
+  }
+  return { parcelado, aVista }
+}
+
 /** Resumo dos planos da oferta para telas e IA (null = oferta sem plano). */
 export function resumoParaMostrar(planos: PlanoDaOferta[]) {
   if (!planos.length) return null
@@ -525,6 +545,7 @@ export function resumoParaMostrar(planos: PlanoDaOferta[]) {
   return {
     aPartirDe: ini.valor,
     sufixo: ini.sufixo,
+    ...resumoCurto(planos),
     planos: planos.map((p) => ({
       id: p.id, nome: p.nome, resumo: resumoDoPlano(p),
       opcoes: opcoesDoPlano(p).map((o) => ({ chave: o, ...descreverOpcao(p, o), condicoes: condicoesDaOpcao(p, o) })),
